@@ -1,0 +1,226 @@
+* {
+  box-sizing: border-box;
+}
+html,
+body {
+  margin: 0;
+}
+body {
+  background: #fbfaf7;
+  color: #1e2420;
+  font-family: "Hanken Grotesk", system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+input,
+select,
+textarea,
+button {
+  font-family: inherit;
+}
+input:focus,
+select:focus,
+textarea:focus {
+  border-color: #1e7a4c !important;
+  box-shadow: 0 0 0 3px rgba(30, 122, 76, 0.13);
+}
+::selection {
+  background: #1e7a4c;
+  color: #fff;
+}
+::placeholder {
+  color: #a7ada6;
+}
+@keyframes fadeUp {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes pulseDot {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+@keyframes popIn {
+  from { opacity: 0; transform: scale(0.85); }
+  to { opacity: 1; transform: none; }
+}
+
+/* --- shared interactive utilities (everything else in this app is inline-styled;
+   hover/focus states need real CSS since inline styles can't express :hover) --- */
+
+.btn {
+  border: none;
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease, background-color 0.15s ease, border-color 0.15s ease, opacity 0.15s ease;
+}
+.btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+.btn:active:not(:disabled) {
+  transform: translateY(0);
+}
+.btn:disabled {
+  cursor: not-allowed;
+}
+.btn-primary:hover:not(:disabled) {
+  box-shadow: 0 8px 20px rgba(30, 122, 76, 0.28);
+}
+.btn-orange:hover:not(:disabled) {
+  box-shadow: 0 8px 20px rgba(232, 98, 42, 0.28);
+}
+.btn-dark:hover:not(:disabled) {
+  box-shadow: 0 8px 20px rgba(30, 36, 32, 0.25);
+}
+.btn-ghost:hover:not(:disabled) {
+  background: #f0eee8 !important;
+  border-color: #c8c4ba !important;
+}
+.btn-danger:hover:not(:disabled) {
+  background: #fbeaea !important;
+}
+
+.card-surface {
+  transition: box-shadow 0.2s ease, transform 0.2s ease, border-color 0.2s ease;
+}
+.card-hover:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 12px 28px rgba(30, 40, 32, 0.09);
+  border-color: #d8d4cb;
+}
+
+.tab-btn {
+  transition: transform 0.15s ease, background-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
+}
+.tab-btn:hover:not(.tab-btn-active) {
+  background: #f0eee8;
+}
+.tab-btn-active {
+  box-shadow: 0 6px 16px rgba(30, 36, 32, 0.18);
+}
+
+.star-pick {
+  transition: transform 0.12s ease;
+  cursor: pointer;
+}
+.star-pick:hover {
+  transform: scale(1.22);
+}
+
+.link-accent {
+  transition: opacity 0.15s ease;
+}
+.link-accent:hover {
+  opacity: 0.7;
+}
+
+.badge-dot-pending::before {
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  margin-right: 6px;
+  animation: pulseDot 1.6s ease-in-out infinite;
+}
+
+.fade-panel {
+  animation: fadeUp 0.28s ease both;
+}
+.pop-in {
+  animation: popIn 0.22s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+
+.image-drop {
+  transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+.image-drop:hover {
+  border-color: #1e7a4c !important;
+  background: #eaf4ee !important;
+}
+
+/* --- responsive ---------------------------------------------------------
+   The app is styled almost entirely with inline `style` objects (see rest of
+   this file's comments), which can't express @media queries. These utility
+   classes are the mobile/tablet escape hatch: apply the class alongside an
+   inline `gridTemplateColumns`/`position` etc., and the media query below
+   overrides it with !important at narrower widths. Inline styles otherwise
+   always win over a class, important is what lets the breakpoint override. */
+
+.mobile-menu-btn {
+  display: none;
+}
+
+@media (max-width: 860px) {
+  .desktop-nav,
+  .desktop-actions {
+    display: none !important;
+  }
+  .mobile-menu-btn {
+    display: inline-flex !important;
+  }
+}
+
+/* Grid tracks default to minmax(auto, Nfr) — the "auto" minimum sizes to a
+   child's content, so a grid item holding an unconstrained-width descendant
+   (e.g. a horizontally-scrolling row) can blow the whole track, and page,
+   wider than the viewport. min-width: 0 on the grid items removes that. */
+.grid-responsive > *,
+.grid-responsive-3 > * {
+  min-width: 0;
+}
+
+@media (max-width: 900px) {
+  .grid-responsive {
+    grid-template-columns: 1fr !important;
+  }
+  .dash-illustration {
+    display: none !important;
+  }
+  .grid-responsive-3 {
+    grid-template-columns: repeat(2, 1fr) !important;
+  }
+  .sticky-aside {
+    position: static !important;
+    top: auto !important;
+  }
+  .hero-photo {
+    height: 280px !important;
+    grid-template-columns: 1fr !important;
+  }
+}
+
+@media (max-width: 640px) {
+  .grid-responsive-3 {
+    grid-template-columns: 1fr !important;
+  }
+  .section-pad {
+    padding-left: 16px !important;
+    padding-right: 16px !important;
+  }
+  .stack-mobile {
+    flex-direction: column !important;
+    align-items: stretch !important;
+  }
+  .hide-mobile {
+    display: none !important;
+  }
+}
+
+@media (max-width: 560px) {
+  .stepper-label {
+    display: none !important;
+  }
+  .stepper-line {
+    min-width: 8px !important;
+    margin: 0 6px !important;
+  }
+}

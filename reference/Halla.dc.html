@@ -1,0 +1,909 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet data-dc-atomics>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400..800&family=Hanken+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  *{box-sizing:border-box}
+  html,body{margin:0}
+  body{background:#FBFAF7;color:#1E2420;font-family:'Hanken Grotesk',system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+  input,select,textarea,button{font-family:inherit}
+  input:focus,select:focus,textarea:focus{border-color:#1E7A4C !important;box-shadow:0 0 0 3px rgba(30,122,76,.13)}
+  ::selection{background:#1E7A4C;color:#fff}
+  ::placeholder{color:#A7ADA6}
+  @keyframes fadeUp{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}
+</style>
+</helmet>
+
+<header style="position:sticky;top:0;z-index:50;background:rgba(251,250,247,.86);backdrop-filter:blur(12px);border-bottom:1px solid #E7E4DC">
+  <div style="max-width:1180px;margin:0 auto;padding:14px 24px;display:flex;align-items:center;gap:26px">
+    <div onClick="{{ goHome }}" style="display:flex;align-items:center;gap:9px;cursor:pointer">
+      <div style="width:31px;height:31px;border-radius:10px;background:#1E7A4C;display:flex;align-items:center;justify-content:center;color:#fff;font-family:'Bricolage Grotesque';font-weight:700;font-size:19px;padding-bottom:2px">h</div>
+      <span style="font-family:'Bricolage Grotesque';font-weight:700;font-size:21px;letter-spacing:-.015em">halla</span>
+    </div>
+    <nav style="display:flex;gap:2px;margin-left:8px">
+      <button onClick="{{ goCentres }}" style="background:none;border:none;padding:8px 13px;border-radius:10px;font-size:15px;font-weight:500;color:#3B423C;cursor:pointer" style-hover="background:#F0EEE8">Community centres</button>
+      <button onClick="{{ goClubs }}" style="background:none;border:none;padding:8px 13px;border-radius:10px;font-size:15px;font-weight:500;color:#3B423C;cursor:pointer" style-hover="background:#F0EEE8">Sports clubs</button>
+      <button onClick="{{ goChecklist }}" style="background:none;border:none;padding:8px 13px;border-radius:10px;font-size:15px;font-weight:500;color:#3B423C;cursor:pointer" style-hover="background:#F0EEE8">New to Ireland</button>
+    </nav>
+    <div style="margin-left:auto;display:flex;align-items:center;gap:10px">
+      <button onClick="{{ goBookings }}" style="display:inline-flex;align-items:center;gap:8px;background:#fff;color:#1E2420;border:1px solid #D8D4CB;border-radius:11px;padding:9px 15px;font-size:14px;font-weight:600;cursor:pointer" style-hover="border-color:#1E7A4C;color:#1E7A4C">My bookings <span style="background:#1E7A4C;color:#fff;border-radius:20px;font-size:11px;font-weight:700;padding:1px 7px">{{ myCount }}</span></button>
+      <div style="width:34px;height:34px;border-radius:50%;background:#EAF0E9;border:1px solid #D8D4CB;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;color:#1E7A4C">A</div>
+    </div>
+  </div>
+</header>
+
+<main style="min-height:70vh">
+
+<!-- ============ HOME ============ -->
+<sc-if value="{{ isHome }}" hint-placeholder-val="{{ true }}">
+<div style="animation:fadeUp .4s ease both">
+  <section style="max-width:1180px;margin:0 auto;padding:64px 24px 34px">
+    <div style="max-width:720px">
+      <div style="display:inline-flex;align-items:center;gap:7px;background:#EAF4EE;color:#175f3b;border-radius:20px;padding:6px 13px;font-size:13px;font-weight:600;margin-bottom:22px">Community life across Ireland, in one place</div>
+      <h1 style="font-family:'Bricolage Grotesque';font-weight:700;font-size:56px;line-height:1.02;letter-spacing:-.025em;margin:0 0 18px">Find a hall.<br>Join a club.<br><span style="color:#1E7A4C">Feel at home.</span></h1>
+      <p style="font-size:19px;line-height:1.5;color:#5B635C;margin:0 0 30px;max-width:560px">Book community centres for birthdays, meetings and functions — and enrol your kids in local sports clubs. Whether you've lived here for years or just arrived, everything local, in one tap.</p>
+    </div>
+    <div style="background:#fff;border:1px solid #E7E4DC;border-radius:18px;box-shadow:0 8px 30px rgba(30,40,32,.06);padding:14px;display:flex;flex-wrap:wrap;gap:10px;align-items:center;max-width:760px">
+      <div style="display:flex;align-items:center;gap:10px;flex:1;min-width:220px;padding:4px 8px">
+        <div style="color:#8A928B;font-size:13px;font-weight:600;white-space:nowrap">Your area</div>
+        <select onChange="{{ onHomeCounty }}" value="{{ homeCounty }}" style="flex:1;padding:11px 12px;border:1px solid #E2DFD6;border-radius:11px;font-size:15px;background:#FBFAF7;color:#1E2420;outline:none;font-weight:600">
+          <sc-for list="{{ counties }}" as="c" hint-placeholder-count="6"><option value="{{ c }}">{{ c }}</option></sc-for>
+        </select>
+      </div>
+      <button onClick="{{ goCentresHome }}" style="display:inline-flex;align-items:center;gap:8px;background:#1E7A4C;color:#fff;border:none;border-radius:12px;padding:13px 20px;font-size:15px;font-weight:600;cursor:pointer" style-hover="background:#175f3b">Find a hall →</button>
+      <button onClick="{{ goClubsHome }}" style="display:inline-flex;align-items:center;gap:8px;background:#FCEDE4;color:#C0491E;border:none;border-radius:12px;padding:13px 20px;font-size:15px;font-weight:600;cursor:pointer" style-hover="background:#F8DDCC">Find a club →</button>
+    </div>
+  </section>
+
+  <section style="max-width:1180px;margin:0 auto;padding:26px 24px 10px">
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
+      <div onClick="{{ goCentres }}" style="cursor:pointer;position:relative;overflow:hidden;border-radius:20px;border:1px solid #E7E4DC;background:#F1F5F0;padding:30px;min-height:190px;display:flex;flex-direction:column;justify-content:flex-end" style-hover="border-color:#1E7A4C">
+        <div style="position:absolute;inset:0;background:repeating-linear-gradient(135deg,#E8EFE6 0 16px,#EEF3EC 16px 32px);opacity:.6"></div>
+        <div style="position:relative">
+          <div style="font-family:monospace;font-size:11px;letter-spacing:.08em;color:#7C8A79;margin-bottom:auto">01 · SPACES</div>
+          <h3 style="font-family:'Bricolage Grotesque';font-weight:700;font-size:27px;margin:60px 0 6px;letter-spacing:-.02em">Community centres</h3>
+          <p style="margin:0;color:#5B635C;font-size:15px">Halls, function rooms & meeting spaces to hire by the hour.</p>
+        </div>
+      </div>
+      <div onClick="{{ goClubs }}" style="cursor:pointer;position:relative;overflow:hidden;border-radius:20px;border:1px solid #E7E4DC;background:#FBF0E9;padding:30px;min-height:190px;display:flex;flex-direction:column;justify-content:flex-end" style-hover="border-color:#E8622A">
+        <div style="position:absolute;inset:0;background:repeating-linear-gradient(135deg,#F7E4D6 0 16px,#FBEDE3 16px 32px);opacity:.6"></div>
+        <div style="position:relative">
+          <div style="font-family:monospace;font-size:11px;letter-spacing:.08em;color:#C08A66;margin-bottom:auto">02 · CLUBS</div>
+          <h3 style="font-family:'Bricolage Grotesque';font-weight:700;font-size:27px;margin:60px 0 6px;letter-spacing:-.02em">Sports clubs</h3>
+          <p style="margin:0;color:#5B635C;font-size:15px">GAA, soccer, swimming, rugby & more — from age 4 up.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section style="max-width:1180px;margin:0 auto;padding:34px 24px 8px">
+    <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:18px">
+      <h2 style="font-family:'Bricolage Grotesque';font-weight:700;font-size:24px;margin:0;letter-spacing:-.02em">Popular halls near you</h2>
+      <button onClick="{{ goCentres }}" style="background:none;border:none;color:#1E7A4C;font-weight:600;font-size:15px;cursor:pointer">View all →</button>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:20px">
+      <sc-for list="{{ featured }}" as="c" hint-placeholder-count="3">
+        <div onClick="{{ c.onOpen }}" style="cursor:pointer;background:#fff;border:1px solid #E7E4DC;border-radius:18px;overflow:hidden" style-hover="border-color:#1E7A4C;transform:translateY(-2px)">
+          <div style="height:132px;background:{{ c.ph }};display:flex;align-items:flex-end;padding:12px">
+            <span style="background:rgba(255,255,255,.9);border-radius:8px;padding:4px 9px;font-size:12px;font-weight:700;color:#1E7A4C">from €{{ c.from }}/hr</span>
+          </div>
+          <div style="padding:16px 18px 18px">
+            <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px"><span style="color:#E8A33A;font-size:14px">★</span><span style="font-weight:700;font-size:14px">{{ c.rating }}</span><span style="color:#9AA098;font-size:13px">({{ c.reviews }})</span></div>
+            <h3 style="font-size:17px;font-weight:700;margin:0 0 3px;letter-spacing:-.01em">{{ c.name }}</h3>
+            <p style="margin:0;color:#7C837B;font-size:14px">{{ c.area }}</p>
+          </div>
+        </div>
+      </sc-for>
+    </div>
+  </section>
+
+  <section style="max-width:1180px;margin:0 auto;padding:38px 24px 70px">
+    <div onClick="{{ goChecklist }}" style="cursor:pointer;background:#1E2420;color:#fff;border-radius:20px;padding:34px 38px;display:flex;align-items:center;gap:28px;flex-wrap:wrap" style-hover="background:#252d27">
+      <div style="flex:1;min-width:280px">
+        <div style="font-family:monospace;font-size:11px;letter-spacing:.1em;color:#8FB89E;margin-bottom:10px">NEW TO IRELAND?</div>
+        <h3 style="font-family:'Bricolage Grotesque';font-weight:700;font-size:26px;margin:0 0 8px;letter-spacing:-.02em">The 6 steps families follow when settling in</h3>
+        <p style="margin:0;color:#B9BEB6;font-size:15px">From registering with a GP to booking your first family function — a simple checklist to get set up in your new community.</p>
+      </div>
+      <button style="background:#fff;color:#1E2420;border:none;border-radius:12px;padding:14px 22px;font-size:15px;font-weight:700;cursor:pointer;white-space:nowrap">Open checklist →</button>
+    </div>
+  </section>
+</div>
+</sc-if>
+
+<!-- ============ BROWSE ============ -->
+<sc-if value="{{ isBrowse }}" hint-placeholder-val="{{ true }}">
+<div style="animation:fadeUp .35s ease both">
+  <section style="max-width:1180px;margin:0 auto;padding:34px 24px 12px">
+    <div style="display:inline-flex;background:#F0EEE8;border-radius:12px;padding:4px;margin-bottom:24px">
+      <button onClick="{{ tabCentres }}" style="border:none;border-radius:9px;padding:9px 18px;font-size:15px;font-weight:600;cursor:pointer;background:{{ tabCentresBg }};color:{{ tabCentresFg }};box-shadow:{{ tabCentresSh }}">Community centres</button>
+      <button onClick="{{ tabClubs }}" style="border:none;border-radius:9px;padding:9px 18px;font-size:15px;font-weight:600;cursor:pointer;background:{{ tabClubsBg }};color:{{ tabClubsFg }};box-shadow:{{ tabClubsSh }}">Sports clubs</button>
+    </div>
+    <h1 style="font-family:'Bricolage Grotesque';font-weight:700;font-size:34px;margin:0 0 6px;letter-spacing:-.02em">{{ browseTitle }}</h1>
+    <p style="color:#7C837B;font-size:16px;margin:0 0 20px">{{ browseCount }} results{{ browseWhere }}</p>
+
+    <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:8px">
+      <sc-for list="{{ countyChips }}" as="ch" hint-placeholder-count="6">
+        <button onClick="{{ ch.onClick }}" style="border:1px solid {{ ch.border }};background:{{ ch.bg }};color:{{ ch.fg }};border-radius:20px;padding:8px 15px;font-size:14px;font-weight:600;cursor:pointer">{{ ch.label }}</button>
+      </sc-for>
+    </div>
+    <sc-if value="{{ isBrowseClubs }}" hint-placeholder-val="{{ true }}">
+      <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:6px">
+        <sc-for list="{{ sportChips }}" as="ch" hint-placeholder-count="6">
+          <button onClick="{{ ch.onClick }}" style="border:1px solid {{ ch.border }};background:{{ ch.bg }};color:{{ ch.fg }};border-radius:20px;padding:7px 13px;font-size:13px;font-weight:600;cursor:pointer">{{ ch.label }}</button>
+        </sc-for>
+      </div>
+    </sc-if>
+  </section>
+
+  <!-- centre results -->
+  <sc-if value="{{ isBrowseCentres }}" hint-placeholder-val="{{ true }}">
+  <section style="max-width:1180px;margin:0 auto;padding:14px 24px 70px">
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:20px">
+      <sc-for list="{{ centreResults }}" as="c" hint-placeholder-count="6">
+        <div onClick="{{ c.onOpen }}" style="cursor:pointer;background:#fff;border:1px solid #E7E4DC;border-radius:18px;overflow:hidden" style-hover="border-color:#1E7A4C;transform:translateY(-2px)">
+          <div style="height:140px;background:{{ c.ph }};display:flex;align-items:flex-end;padding:12px">
+            <span style="background:rgba(255,255,255,.9);border-radius:8px;padding:4px 9px;font-size:12px;font-weight:700;color:#1E7A4C">from €{{ c.from }}/hr</span>
+          </div>
+          <div style="padding:16px 18px 18px">
+            <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px"><span style="color:#E8A33A;font-size:14px">★</span><span style="font-weight:700;font-size:14px">{{ c.rating }}</span><span style="color:#9AA098;font-size:13px">({{ c.reviews }})</span><span style="margin-left:auto;color:#9AA098;font-size:13px">up to {{ c.capacity }}</span></div>
+            <h3 style="font-size:17px;font-weight:700;margin:0 0 3px;letter-spacing:-.01em">{{ c.name }}</h3>
+            <p style="margin:0;color:#7C837B;font-size:14px">{{ c.area }}</p>
+          </div>
+        </div>
+      </sc-for>
+    </div>
+  </section>
+  </sc-if>
+
+  <!-- club results -->
+  <sc-if value="{{ isBrowseClubs }}" hint-placeholder-val="{{ true }}">
+  <section style="max-width:1180px;margin:0 auto;padding:14px 24px 70px">
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:20px">
+      <sc-for list="{{ clubResults }}" as="c" hint-placeholder-count="6">
+        <div onClick="{{ c.onOpen }}" style="cursor:pointer;background:#fff;border:1px solid #E7E4DC;border-radius:18px;overflow:hidden;display:flex;flex-direction:column" style-hover="border-color:#E8622A;transform:translateY(-2px)">
+          <div style="height:120px;background:{{ c.ph }};display:flex;align-items:center;justify-content:center">
+            <span style="font-family:'Bricolage Grotesque';font-weight:700;font-size:19px;color:#C0491E">{{ c.sport }}</span>
+          </div>
+          <div style="padding:16px 18px 18px;flex:1;display:flex;flex-direction:column">
+            <h3 style="font-size:17px;font-weight:700;margin:0 0 3px;letter-spacing:-.01em">{{ c.name }}</h3>
+            <p style="margin:0 0 12px;color:#7C837B;font-size:14px">{{ c.area }} · ages {{ c.ages }}</p>
+            <div style="margin-top:auto;display:flex;align-items:center;gap:8px">
+              <span style="font-weight:700;font-size:15px;color:#1E2420">{{ c.priceLabel }}</span>
+              <sc-if value="{{ c.trial }}" hint-placeholder-val="{{ true }}"><span style="margin-left:auto;background:#EAF4EE;color:#175f3b;border-radius:20px;padding:3px 10px;font-size:12px;font-weight:700">Free trial</span></sc-if>
+            </div>
+          </div>
+        </div>
+      </sc-for>
+    </div>
+  </section>
+  </sc-if>
+</div>
+</sc-if>
+
+<!-- ============ CENTRE DETAIL ============ -->
+<sc-if value="{{ isCentre }}" hint-placeholder-val="{{ true }}">
+<div style="animation:fadeUp .35s ease both">
+  <section style="max-width:1180px;margin:0 auto;padding:26px 24px 0">
+    <button onClick="{{ goCentres }}" style="background:none;border:none;color:#5B635C;font-weight:600;font-size:14px;cursor:pointer;padding:0;margin-bottom:16px">← All community centres</button>
+    <div style="height:280px;border-radius:20px;background:{{ centre.ph }};display:flex;align-items:flex-end;padding:20px">
+      <span style="font-family:monospace;font-size:12px;color:#5f6e5c;background:rgba(255,255,255,.75);border-radius:8px;padding:5px 10px">PHOTO · {{ centre.name }}</span>
+    </div>
+  </section>
+  <section style="max-width:1180px;margin:0 auto;padding:26px 24px 70px;display:grid;grid-template-columns:1.6fr 1fr;gap:40px;align-items:start">
+    <div>
+      <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px"><span style="color:#E8A33A">★</span><span style="font-weight:700">{{ centre.rating }}</span><span style="color:#9AA098">({{ centre.reviews }} reviews)</span><span style="color:#9AA098">· up to {{ centre.capacity }} guests</span></div>
+      <h1 style="font-family:'Bricolage Grotesque';font-weight:700;font-size:36px;margin:0 0 4px;letter-spacing:-.025em">{{ centre.name }}</h1>
+      <p style="color:#7C837B;font-size:16px;margin:0 0 22px">{{ centre.area }} · Managed by {{ centre.managedBy }}</p>
+      <p style="font-size:16px;line-height:1.6;color:#3B423C;margin:0 0 28px">{{ centre.blurb }}</p>
+
+      <h3 style="font-family:'Bricolage Grotesque';font-weight:700;font-size:20px;margin:0 0 12px;letter-spacing:-.01em">Facilities</h3>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px 24px;margin-bottom:32px">
+        <sc-for list="{{ centre.amenities }}" as="a" hint-placeholder-count="6">
+          <div style="display:flex;align-items:center;gap:10px;font-size:15px;color:#3B423C"><span style="color:#1E7A4C;font-weight:700">✓</span>{{ a }}</div>
+        </sc-for>
+      </div>
+
+      <h3 style="font-family:'Bricolage Grotesque';font-weight:700;font-size:20px;margin:0 0 14px;letter-spacing:-.01em">Rooms & rates</h3>
+      <div style="display:flex;flex-direction:column;gap:12px">
+        <sc-for list="{{ centre.rooms }}" as="r" hint-placeholder-count="3">
+          <div style="border:1px solid #E7E4DC;border-radius:16px;padding:18px 20px;display:flex;align-items:center;gap:18px;background:#fff">
+            <div style="flex:1">
+              <div style="font-weight:700;font-size:17px;margin-bottom:2px">{{ r.name }}</div>
+              <div style="color:#7C837B;font-size:14px">{{ r.desc }} · up to {{ r.cap }} people</div>
+            </div>
+            <div style="text-align:right"><div style="font-family:'Bricolage Grotesque';font-weight:700;font-size:20px">€{{ r.rate }}</div><div style="color:#9AA098;font-size:12px">per hour</div></div>
+            <button onClick="{{ r.onBook }}" style="background:#1E7A4C;color:#fff;border:none;border-radius:11px;padding:11px 18px;font-size:14px;font-weight:600;cursor:pointer;white-space:nowrap" style-hover="background:#175f3b">Book →</button>
+          </div>
+        </sc-for>
+      </div>
+    </div>
+    <div style="position:sticky;top:90px;background:#fff;border:1px solid #E7E4DC;border-radius:18px;padding:22px;box-shadow:0 8px 30px rgba(30,40,32,.05)">
+      <div style="font-size:14px;color:#7C837B;margin-bottom:4px">Hire from</div>
+      <div style="font-family:'Bricolage Grotesque';font-weight:700;font-size:30px;margin-bottom:2px">€{{ centre.from }}<span style="font-size:16px;color:#9AA098;font-weight:400"> /hour</span></div>
+      <div style="font-size:13px;color:#9AA098;margin-bottom:18px">+ €100 refundable deposit</div>
+      <button onClick="{{ bookDefault }}" style="width:100%;background:#1E7A4C;color:#fff;border:none;border-radius:12px;padding:14px;font-size:15px;font-weight:700;cursor:pointer;margin-bottom:10px" style-hover="background:#175f3b">Check availability</button>
+      <div style="display:flex;flex-direction:column;gap:9px;margin-top:16px;font-size:14px;color:#5B635C">
+        <div style="display:flex;gap:10px"><span style="color:#1E7A4C">◷</span> Instant online confirmation</div>
+        <div style="display:flex;gap:10px"><span style="color:#1E7A4C">↺</span> Free cancellation up to 48h before</div>
+        <div style="display:flex;gap:10px"><span style="color:#1E7A4C">♿</span> Wheelchair accessible</div>
+      </div>
+    </div>
+  </section>
+</div>
+</sc-if>
+
+<!-- ============ BOOKING FLOW ============ -->
+<sc-if value="{{ isBook }}" hint-placeholder-val="{{ true }}">
+<div style="animation:fadeUp .3s ease both">
+  <!-- success -->
+  <sc-if value="{{ bIsSuccess }}" hint-placeholder-val="{{ true }}">
+  <section style="max-width:640px;margin:0 auto;padding:56px 24px 80px;text-align:center">
+    <div style="width:74px;height:74px;border-radius:50%;background:#EAF4EE;display:flex;align-items:center;justify-content:center;margin:0 auto 22px;font-size:34px;color:#1E7A4C">✓</div>
+    <h1 style="font-family:'Bricolage Grotesque';font-weight:700;font-size:34px;margin:0 0 8px;letter-spacing:-.02em">You're booked in!</h1>
+    <p style="color:#5B635C;font-size:17px;margin:0 0 28px">A confirmation has been sent to {{ booking.email }}. Your booking reference is <b style="color:#1E2420">{{ booking.ref }}</b>.</p>
+    <div style="background:#fff;border:1px solid #E7E4DC;border-radius:18px;padding:24px;text-align:left;margin-bottom:24px">
+      <div style="font-weight:700;font-size:18px;margin-bottom:2px">{{ bkCentreName }}</div>
+      <div style="color:#7C837B;font-size:14px;margin-bottom:16px">{{ bkRoomName }}</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+        <div><div style="font-size:12px;color:#9AA098;font-weight:600">DATE</div><div style="font-weight:600">{{ bkDateLabel }}</div></div>
+        <div><div style="font-size:12px;color:#9AA098;font-weight:600">TIME</div><div style="font-weight:600">{{ booking.time }} · {{ bkDurLabel }}</div></div>
+        <div><div style="font-size:12px;color:#9AA098;font-weight:600">EVENT</div><div style="font-weight:600">{{ booking.eventType }}</div></div>
+        <div><div style="font-size:12px;color:#9AA098;font-weight:600">GUESTS</div><div style="font-weight:600">{{ booking.guests }}</div></div>
+      </div>
+      <div style="border-top:1px solid #EEEBE3;margin-top:18px;padding-top:14px;display:flex;justify-content:space-between;font-weight:700;font-size:17px"><span>Total paid</span><span>{{ bkTotal }}</span></div>
+    </div>
+    <div style="display:flex;gap:12px;justify-content:center">
+      <button onClick="{{ goBookings }}" style="background:#1E7A4C;color:#fff;border:none;border-radius:12px;padding:13px 22px;font-weight:700;font-size:15px;cursor:pointer">View my bookings</button>
+      <button onClick="{{ goHome }}" style="background:#fff;color:#1E2420;border:1px solid #D8D4CB;border-radius:12px;padding:13px 22px;font-weight:600;font-size:15px;cursor:pointer">Back home</button>
+    </div>
+  </section>
+  </sc-if>
+
+  <sc-if value="{{ bNotSuccess }}" hint-placeholder-val="{{ true }}">
+  <section style="max-width:920px;margin:0 auto;padding:26px 24px 80px">
+    <button onClick="{{ bBack }}" style="background:none;border:none;color:#5B635C;font-weight:600;font-size:14px;cursor:pointer;padding:0;margin-bottom:20px">← {{ bBackLabel }}</button>
+    <!-- stepper -->
+    <div style="display:flex;align-items:center;gap:0;margin-bottom:30px;max-width:560px">
+      <sc-for list="{{ bSteps }}" as="s" hint-placeholder-count="3">
+        <div style="display:flex;align-items:center;gap:10px">
+          <div style="width:30px;height:30px;border-radius:50%;background:{{ s.dotBg }};color:{{ s.dotFg }};border:1.5px solid {{ s.dotBorder }};display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;flex:none">{{ s.n }}</div>
+          <span style="font-size:14px;font-weight:600;color:{{ s.labelColor }};white-space:nowrap">{{ s.label }}</span>
+        </div>
+        <sc-if value="{{ s.showLine }}" hint-placeholder-val="{{ true }}"><div style="flex:1;height:1.5px;background:{{ s.lineColor }};margin:0 14px;min-width:24px"></div></sc-if>
+      </sc-for>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1.5fr 1fr;gap:32px;align-items:start">
+      <div style="background:#fff;border:1px solid #E7E4DC;border-radius:18px;padding:28px">
+
+        <!-- STEP 1: date & time -->
+        <sc-if value="{{ bStep1 }}" hint-placeholder-val="{{ true }}">
+        <h2 style="font-family:'Bricolage Grotesque';font-weight:700;font-size:23px;margin:0 0 18px;letter-spacing:-.01em">Pick a date & time</h2>
+        <div style="font-size:13px;font-weight:600;color:#5B635C;margin-bottom:10px">DATE</div>
+        <div style="display:flex;gap:8px;overflow-x:auto;padding-bottom:6px;margin-bottom:22px">
+          <sc-for list="{{ dateChips }}" as="d" hint-placeholder-count="7">
+            <button onClick="{{ d.onClick }}" style="flex:none;width:62px;border:1.5px solid {{ d.border }};background:{{ d.bg }};color:{{ d.fg }};border-radius:14px;padding:10px 0;cursor:pointer;text-align:center">
+              <div style="font-size:12px;font-weight:600;opacity:.75">{{ d.dow }}</div>
+              <div style="font-family:'Bricolage Grotesque';font-weight:700;font-size:20px;line-height:1.2">{{ d.day }}</div>
+              <div style="font-size:11px;opacity:.7">{{ d.mon }}</div>
+            </button>
+          </sc-for>
+        </div>
+        <sc-if value="{{ hasDate }}" hint-placeholder-val="{{ true }}">
+          <div style="font-size:13px;font-weight:600;color:#5B635C;margin-bottom:10px">START TIME</div>
+          <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:22px">
+            <sc-for list="{{ timeSlots }}" as="t" hint-placeholder-count="8">
+              <button onClick="{{ t.onClick }}" style="border:1.5px solid {{ t.border }};background:{{ t.bg }};color:{{ t.fg }};border-radius:11px;padding:11px 0;font-size:14px;font-weight:600;cursor:{{ t.cursor }};text-decoration:{{ t.strike }}">{{ t.label }}</button>
+            </sc-for>
+          </div>
+          <div style="font-size:13px;font-weight:600;color:#5B635C;margin-bottom:10px">DURATION</div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <sc-for list="{{ durChips }}" as="d" hint-placeholder-count="4">
+              <button onClick="{{ d.onClick }}" style="border:1.5px solid {{ d.border }};background:{{ d.bg }};color:{{ d.fg }};border-radius:11px;padding:10px 18px;font-size:14px;font-weight:600;cursor:pointer">{{ d.label }}</button>
+            </sc-for>
+          </div>
+        </sc-if>
+        </sc-if>
+
+        <!-- STEP 2: details -->
+        <sc-if value="{{ bStep2 }}" hint-placeholder-val="{{ true }}">
+        <h2 style="font-family:'Bricolage Grotesque';font-weight:700;font-size:23px;margin:0 0 18px;letter-spacing:-.01em">Event details</h2>
+        <div style="font-size:13px;font-weight:600;color:#5B635C;margin-bottom:10px">TYPE OF EVENT</div>
+        <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:22px">
+          <sc-for list="{{ eventChips }}" as="e" hint-placeholder-count="7">
+            <button onClick="{{ e.onClick }}" style="border:1.5px solid {{ e.border }};background:{{ e.bg }};color:{{ e.fg }};border-radius:20px;padding:9px 15px;font-size:14px;font-weight:600;cursor:pointer">{{ e.label }}</button>
+          </sc-for>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+          <div>
+            <label style="display:block;font-size:13px;font-weight:600;color:#5B635C;margin:0 0 6px">Expected guests</label>
+            <input type="number" value="{{ booking.guests }}" onChange="{{ onBGuests }}" placeholder="e.g. 40" style="width:100%;padding:12px 14px;border:1px solid #D8D4CB;border-radius:12px;font-size:15px;background:#fff;color:#1E2420;outline:none">
+          </div>
+          <div>
+            <label style="display:block;font-size:13px;font-weight:600;color:#5B635C;margin:0 0 6px">Full name</label>
+            <input value="{{ booking.name }}" onChange="{{ onBName }}" placeholder="Your name" style="width:100%;padding:12px 14px;border:1px solid #D8D4CB;border-radius:12px;font-size:15px;background:#fff;color:#1E2420;outline:none">
+          </div>
+          <div>
+            <label style="display:block;font-size:13px;font-weight:600;color:#5B635C;margin:0 0 6px">Email</label>
+            <input value="{{ booking.email }}" onChange="{{ onBEmail }}" placeholder="you@email.ie" style="width:100%;padding:12px 14px;border:1px solid #D8D4CB;border-radius:12px;font-size:15px;background:#fff;color:#1E2420;outline:none">
+          </div>
+          <div>
+            <label style="display:block;font-size:13px;font-weight:600;color:#5B635C;margin:0 0 6px">Phone</label>
+            <input value="{{ booking.phone }}" onChange="{{ onBPhone }}" placeholder="08X XXX XXXX" style="width:100%;padding:12px 14px;border:1px solid #D8D4CB;border-radius:12px;font-size:15px;background:#fff;color:#1E2420;outline:none">
+          </div>
+        </div>
+        <label style="display:block;font-size:13px;font-weight:600;color:#5B635C;margin:16px 0 6px">Anything the centre should know? (optional)</label>
+        <textarea value="{{ booking.notes }}" onChange="{{ onBNotes }}" rows="2" placeholder="Setup needs, catering, accessibility…" style="width:100%;padding:12px 14px;border:1px solid #D8D4CB;border-radius:12px;font-size:15px;background:#fff;color:#1E2420;outline:none;resize:vertical"></textarea>
+        </sc-if>
+
+        <!-- STEP 3: payment -->
+        <sc-if value="{{ bStep3 }}" hint-placeholder-val="{{ true }}">
+        <h2 style="font-family:'Bricolage Grotesque';font-weight:700;font-size:23px;margin:0 0 6px;letter-spacing:-.01em">Payment</h2>
+        <p style="color:#7C837B;font-size:14px;margin:0 0 20px">Secure payment. The €100 deposit is refunded within 5 days after your event.</p>
+        <label style="display:block;font-size:13px;font-weight:600;color:#5B635C;margin:0 0 6px">Name on card</label>
+        <input value="{{ booking.cardName }}" onChange="{{ onBCardName }}" placeholder="Full name" style="width:100%;padding:12px 14px;border:1px solid #D8D4CB;border-radius:12px;font-size:15px;margin-bottom:14px;outline:none">
+        <label style="display:block;font-size:13px;font-weight:600;color:#5B635C;margin:0 0 6px">Card number</label>
+        <input value="{{ booking.cardNum }}" onChange="{{ onBCardNum }}" placeholder="1234 5678 9012 3456" style="width:100%;padding:12px 14px;border:1px solid #D8D4CB;border-radius:12px;font-size:15px;margin-bottom:14px;outline:none">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+          <div><label style="display:block;font-size:13px;font-weight:600;color:#5B635C;margin:0 0 6px">Expiry</label><input value="{{ booking.exp }}" onChange="{{ onBExp }}" placeholder="MM/YY" style="width:100%;padding:12px 14px;border:1px solid #D8D4CB;border-radius:12px;font-size:15px;outline:none"></div>
+          <div><label style="display:block;font-size:13px;font-weight:600;color:#5B635C;margin:0 0 6px">CVC</label><input value="{{ booking.cvc }}" onChange="{{ onBCvc }}" placeholder="123" style="width:100%;padding:12px 14px;border:1px solid #D8D4CB;border-radius:12px;font-size:15px;outline:none"></div>
+        </div>
+        </sc-if>
+
+        <!-- nav -->
+        <div style="display:flex;gap:12px;margin-top:26px">
+          <sc-if value="{{ bShowPrev }}" hint-placeholder-val="{{ true }}">
+          <button onClick="{{ bPrev }}" style="background:#fff;color:#1E2420;border:1px solid #D8D4CB;border-radius:12px;padding:13px 20px;font-weight:600;font-size:15px;cursor:pointer">Back</button>
+          </sc-if>
+          <button onClick="{{ bNext }}" style="flex:1;background:#1E7A4C;color:#fff;border:none;border-radius:12px;padding:13px 20px;font-weight:700;font-size:15px;cursor:pointer;opacity:{{ bNextOp }};pointer-events:{{ bNextPE }}" style-hover="background:#175f3b">{{ bNextLabel }}</button>
+        </div>
+      </div>
+
+      <!-- summary sidebar -->
+      <div style="position:sticky;top:90px;background:#fff;border:1px solid #E7E4DC;border-radius:18px;padding:22px">
+        <div style="height:90px;border-radius:12px;background:{{ bkPh }};margin-bottom:14px"></div>
+        <div style="font-weight:700;font-size:17px;margin-bottom:2px">{{ bkCentreName }}</div>
+        <div style="color:#7C837B;font-size:14px;margin-bottom:16px">{{ bkRoomName }}</div>
+        <div style="display:flex;flex-direction:column;gap:9px;font-size:14px">
+          <div style="display:flex;justify-content:space-between"><span style="color:#7C837B">Date</span><span style="font-weight:600">{{ bkDateLabel }}</span></div>
+          <div style="display:flex;justify-content:space-between"><span style="color:#7C837B">Time</span><span style="font-weight:600">{{ bkTimeLabel }}</span></div>
+          <div style="display:flex;justify-content:space-between"><span style="color:#7C837B">Duration</span><span style="font-weight:600">{{ bkDurLabel }}</span></div>
+        </div>
+        <div style="border-top:1px solid #EEEBE3;margin:16px 0;padding-top:14px;display:flex;flex-direction:column;gap:9px;font-size:14px">
+          <div style="display:flex;justify-content:space-between"><span style="color:#7C837B">Hall hire</span><span style="font-weight:600">{{ bkHire }}</span></div>
+          <div style="display:flex;justify-content:space-between"><span style="color:#7C837B">Refundable deposit</span><span style="font-weight:600">€100</span></div>
+        </div>
+        <div style="border-top:1px solid #EEEBE3;padding-top:14px;display:flex;justify-content:space-between;font-family:'Bricolage Grotesque';font-weight:700;font-size:19px"><span>Total</span><span>{{ bkTotal }}</span></div>
+      </div>
+    </div>
+  </section>
+  </sc-if>
+</div>
+</sc-if>
+
+<!-- ============ CLUB DETAIL ============ -->
+<sc-if value="{{ isClub }}" hint-placeholder-val="{{ true }}">
+<div style="animation:fadeUp .35s ease both">
+  <section style="max-width:1180px;margin:0 auto;padding:26px 24px 0">
+    <button onClick="{{ goClubs }}" style="background:none;border:none;color:#5B635C;font-weight:600;font-size:14px;cursor:pointer;padding:0;margin-bottom:16px">← All sports clubs</button>
+    <div style="height:220px;border-radius:20px;background:{{ club.ph }};display:flex;align-items:center;justify-content:center">
+      <span style="font-family:'Bricolage Grotesque';font-weight:700;font-size:34px;color:#C0491E;letter-spacing:-.02em">{{ club.sport }}</span>
+    </div>
+  </section>
+  <section style="max-width:1180px;margin:0 auto;padding:26px 24px 70px;display:grid;grid-template-columns:1.6fr 1fr;gap:40px;align-items:start">
+    <div>
+      <sc-if value="{{ club.trial }}" hint-placeholder-val="{{ true }}"><span style="display:inline-block;background:#EAF4EE;color:#175f3b;border-radius:20px;padding:4px 12px;font-size:13px;font-weight:700;margin-bottom:12px">Free trial session available</span></sc-if>
+      <h1 style="font-family:'Bricolage Grotesque';font-weight:700;font-size:36px;margin:0 0 4px;letter-spacing:-.025em">{{ club.name }}</h1>
+      <p style="color:#7C837B;font-size:16px;margin:0 0 22px">{{ club.area }} · {{ club.sport }} · ages {{ club.ages }}</p>
+      <p style="font-size:16px;line-height:1.6;color:#3B423C;margin:0 0 28px">{{ club.blurb }}</p>
+      <h3 style="font-family:'Bricolage Grotesque';font-weight:700;font-size:20px;margin:0 0 12px;letter-spacing:-.01em">What's included</h3>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px 24px;margin-bottom:20px">
+        <sc-for list="{{ club.includes }}" as="a" hint-placeholder-count="4">
+          <div style="display:flex;align-items:center;gap:10px;font-size:15px;color:#3B423C"><span style="color:#E8622A;font-weight:700">✓</span>{{ a }}</div>
+        </sc-for>
+      </div>
+    </div>
+    <div style="position:sticky;top:90px;background:#fff;border:1px solid #E7E4DC;border-radius:18px;padding:22px;box-shadow:0 8px 30px rgba(30,40,32,.05)">
+      <div style="font-size:14px;color:#7C837B;margin-bottom:4px">Membership</div>
+      <div style="font-family:'Bricolage Grotesque';font-weight:700;font-size:28px;margin-bottom:16px">{{ club.priceLabel }}</div>
+      <button onClick="{{ regDefault }}" style="width:100%;background:#E8622A;color:#fff;border:none;border-radius:12px;padding:14px;font-size:15px;font-weight:700;cursor:pointer;margin-bottom:10px" style-hover="background:#C0491E">Register my child</button>
+      <div style="display:flex;flex-direction:column;gap:9px;margin-top:16px;font-size:14px;color:#5B635C">
+        <div style="display:flex;gap:10px"><span style="color:#E8622A">◷</span> Training year-round</div>
+        <div style="display:flex;gap:10px"><span style="color:#E8622A">✓</span> Garda-vetted, qualified coaches</div>
+      </div>
+    </div>
+  </section>
+</div>
+</sc-if>
+
+<!-- ============ REGISTRATION FLOW ============ -->
+<sc-if value="{{ isRegister }}" hint-placeholder-val="{{ true }}">
+<div style="animation:fadeUp .3s ease both">
+  <sc-if value="{{ rIsSuccess }}" hint-placeholder-val="{{ true }}">
+  <section style="max-width:640px;margin:0 auto;padding:56px 24px 80px;text-align:center">
+    <div style="width:74px;height:74px;border-radius:50%;background:#FCEDE4;display:flex;align-items:center;justify-content:center;margin:0 auto 22px;font-size:34px;color:#E8622A">✓</div>
+    <h1 style="font-family:'Bricolage Grotesque';font-weight:700;font-size:34px;margin:0 0 8px;letter-spacing:-.02em">{{ regSuccessTitle }}</h1>
+    <p style="color:#5B635C;font-size:17px;margin:0 0 28px">{{ regSuccessSub }}</p>
+    <div style="background:#fff;border:1px solid #E7E4DC;border-radius:18px;padding:24px;text-align:left;margin-bottom:24px">
+      <div style="font-weight:700;font-size:18px;margin-bottom:2px">{{ regClubName }}</div>
+      <div style="color:#7C837B;font-size:14px;margin-bottom:16px">{{ regClubSport }}</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+        <div><div style="font-size:12px;color:#9AA098;font-weight:600">CHILD</div><div style="font-weight:600">{{ regChildName }}</div></div>
+        <div><div style="font-size:12px;color:#9AA098;font-weight:600">AGE GROUP</div><div style="font-weight:600">{{ reg.team }}</div></div>
+        <div><div style="font-size:12px;color:#9AA098;font-weight:600">REFERENCE</div><div style="font-weight:600">{{ reg.ref }}</div></div>
+        <div><div style="font-size:12px;color:#9AA098;font-weight:600">{{ regPayLabel }}</div><div style="font-weight:600">{{ regPayValue }}</div></div>
+      </div>
+    </div>
+    <div style="display:flex;gap:12px;justify-content:center">
+      <button onClick="{{ goBookings }}" style="background:#E8622A;color:#fff;border:none;border-radius:12px;padding:13px 22px;font-weight:700;font-size:15px;cursor:pointer">View my bookings</button>
+      <button onClick="{{ goHome }}" style="background:#fff;color:#1E2420;border:1px solid #D8D4CB;border-radius:12px;padding:13px 22px;font-weight:600;font-size:15px;cursor:pointer">Back home</button>
+    </div>
+  </section>
+  </sc-if>
+
+  <sc-if value="{{ rNotSuccess }}" hint-placeholder-val="{{ true }}">
+  <section style="max-width:920px;margin:0 auto;padding:26px 24px 80px">
+    <button onClick="{{ rBack }}" style="background:none;border:none;color:#5B635C;font-weight:600;font-size:14px;cursor:pointer;padding:0;margin-bottom:20px">← {{ rBackLabel }}</button>
+    <div style="display:flex;align-items:center;gap:0;margin-bottom:30px;max-width:640px">
+      <sc-for list="{{ rSteps }}" as="s" hint-placeholder-count="4">
+        <div style="display:flex;align-items:center;gap:10px">
+          <div style="width:30px;height:30px;border-radius:50%;background:{{ s.dotBg }};color:{{ s.dotFg }};border:1.5px solid {{ s.dotBorder }};display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;flex:none">{{ s.n }}</div>
+          <span style="font-size:14px;font-weight:600;color:{{ s.labelColor }};white-space:nowrap">{{ s.label }}</span>
+        </div>
+        <sc-if value="{{ s.showLine }}" hint-placeholder-val="{{ true }}"><div style="flex:1;height:1.5px;background:{{ s.lineColor }};margin:0 12px;min-width:16px"></div></sc-if>
+      </sc-for>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1.5fr 1fr;gap:32px;align-items:start">
+      <div style="background:#fff;border:1px solid #E7E4DC;border-radius:18px;padding:28px">
+        <!-- R STEP 1 child -->
+        <sc-if value="{{ rStep1 }}" hint-placeholder-val="{{ true }}">
+        <h2 style="font-family:'Bricolage Grotesque';font-weight:700;font-size:23px;margin:0 0 18px;letter-spacing:-.01em">Your child's details</h2>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+          <div><label style="display:block;font-size:13px;font-weight:600;color:#5B635C;margin:0 0 6px">First name</label><input value="{{ reg.childFirst }}" onChange="{{ onRChildFirst }}" placeholder="Child's first name" style="width:100%;padding:12px 14px;border:1px solid #D8D4CB;border-radius:12px;font-size:15px;outline:none"></div>
+          <div><label style="display:block;font-size:13px;font-weight:600;color:#5B635C;margin:0 0 6px">Last name</label><input value="{{ reg.childLast }}" onChange="{{ onRChildLast }}" placeholder="Child's last name" style="width:100%;padding:12px 14px;border:1px solid #D8D4CB;border-radius:12px;font-size:15px;outline:none"></div>
+        </div>
+        <label style="display:block;font-size:13px;font-weight:600;color:#5B635C;margin:16px 0 6px">Date of birth</label>
+        <input type="date" value="{{ reg.dob }}" onChange="{{ onRDob }}" style="width:100%;padding:12px 14px;border:1px solid #D8D4CB;border-radius:12px;font-size:15px;outline:none;color:#1E2420">
+        <label style="display:block;font-size:13px;font-weight:600;color:#5B635C;margin:18px 0 10px">Age group</label>
+        <div style="display:flex;flex-wrap:wrap;gap:8px">
+          <sc-for list="{{ teamChips }}" as="t" hint-placeholder-count="6">
+            <button onClick="{{ t.onClick }}" style="border:1.5px solid {{ t.border }};background:{{ t.bg }};color:{{ t.fg }};border-radius:11px;padding:9px 16px;font-size:14px;font-weight:600;cursor:pointer">{{ t.label }}</button>
+          </sc-for>
+        </div>
+        </sc-if>
+
+        <!-- R STEP 2 contacts -->
+        <sc-if value="{{ rStep2 }}" hint-placeholder-val="{{ true }}">
+        <h2 style="font-family:'Bricolage Grotesque';font-weight:700;font-size:23px;margin:0 0 18px;letter-spacing:-.01em">Parent / guardian & emergency contact</h2>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+          <div><label style="display:block;font-size:13px;font-weight:600;color:#5B635C;margin:0 0 6px">Your first name</label><input value="{{ reg.gFirst }}" onChange="{{ onRGFirst }}" style="width:100%;padding:12px 14px;border:1px solid #D8D4CB;border-radius:12px;font-size:15px;outline:none"></div>
+          <div><label style="display:block;font-size:13px;font-weight:600;color:#5B635C;margin:0 0 6px">Your last name</label><input value="{{ reg.gLast }}" onChange="{{ onRGLast }}" style="width:100%;padding:12px 14px;border:1px solid #D8D4CB;border-radius:12px;font-size:15px;outline:none"></div>
+          <div><label style="display:block;font-size:13px;font-weight:600;color:#5B635C;margin:0 0 6px">Email</label><input value="{{ reg.email }}" onChange="{{ onREmail }}" placeholder="you@email.ie" style="width:100%;padding:12px 14px;border:1px solid #D8D4CB;border-radius:12px;font-size:15px;outline:none"></div>
+          <div><label style="display:block;font-size:13px;font-weight:600;color:#5B635C;margin:0 0 6px">Phone</label><input value="{{ reg.phone }}" onChange="{{ onRPhone }}" placeholder="08X XXX XXXX" style="width:100%;padding:12px 14px;border:1px solid #D8D4CB;border-radius:12px;font-size:15px;outline:none"></div>
+        </div>
+        <label style="display:block;font-size:13px;font-weight:600;color:#5B635C;margin:16px 0 6px">Home address</label>
+        <input value="{{ reg.address }}" onChange="{{ onRAddress }}" placeholder="Street, town, county, Eircode" style="width:100%;padding:12px 14px;border:1px solid #D8D4CB;border-radius:12px;font-size:15px;outline:none;margin-bottom:16px">
+        <div style="font-size:13px;font-weight:700;color:#5B635C;margin:6px 0 10px;letter-spacing:.02em">EMERGENCY CONTACT</div>
+        <div style="display:grid;grid-template-columns:1.3fr 1fr 1fr;gap:12px">
+          <div><label style="display:block;font-size:13px;font-weight:600;color:#5B635C;margin:0 0 6px">Name</label><input value="{{ reg.ecName }}" onChange="{{ onREcName }}" style="width:100%;padding:12px 14px;border:1px solid #D8D4CB;border-radius:12px;font-size:15px;outline:none"></div>
+          <div><label style="display:block;font-size:13px;font-weight:600;color:#5B635C;margin:0 0 6px">Phone</label><input value="{{ reg.ecPhone }}" onChange="{{ onREcPhone }}" style="width:100%;padding:12px 14px;border:1px solid #D8D4CB;border-radius:12px;font-size:15px;outline:none"></div>
+          <div><label style="display:block;font-size:13px;font-weight:600;color:#5B635C;margin:0 0 6px">Relationship</label><input value="{{ reg.ecRel }}" onChange="{{ onREcRel }}" placeholder="e.g. Aunt" style="width:100%;padding:12px 14px;border:1px solid #D8D4CB;border-radius:12px;font-size:15px;outline:none"></div>
+        </div>
+        </sc-if>
+
+        <!-- R STEP 3 medical -->
+        <sc-if value="{{ rStep3 }}" hint-placeholder-val="{{ true }}">
+        <h2 style="font-family:'Bricolage Grotesque';font-weight:700;font-size:23px;margin:0 0 6px;letter-spacing:-.01em">Medical information</h2>
+        <p style="color:#7C837B;font-size:14px;margin:0 0 18px">Please tell coaches about anything they should be aware of. Leave blank if none.</p>
+        <label style="display:block;font-size:13px;font-weight:600;color:#5B635C;margin:0 0 6px">Allergies, conditions or medication</label>
+        <textarea value="{{ reg.medical }}" onChange="{{ onRMedical }}" rows="4" placeholder="e.g. mild asthma — carries an inhaler" style="width:100%;padding:12px 14px;border:1px solid #D8D4CB;border-radius:12px;font-size:15px;outline:none;resize:vertical;margin-bottom:18px"></textarea>
+        <label style="display:flex;gap:12px;align-items:flex-start;cursor:pointer;background:#FBFAF7;border:1px solid #E7E4DC;border-radius:12px;padding:14px">
+          <input type="checkbox" checked="{{ reg.consent }}" onChange="{{ onRConsent }}" style="width:18px;height:18px;margin-top:2px;accent-color:#E8622A;flex:none">
+          <span style="font-size:14px;color:#3B423C;line-height:1.45">I consent to my child taking part in club activities and confirm the information provided is accurate. I understand photos may be taken at club events.</span>
+        </label>
+        </sc-if>
+
+        <!-- R STEP 4 payment -->
+        <sc-if value="{{ rStep4 }}" hint-placeholder-val="{{ true }}">
+        <h2 style="font-family:'Bricolage Grotesque';font-weight:700;font-size:23px;margin:0 0 6px;letter-spacing:-.01em">Membership & payment</h2>
+        <div style="background:#FBFAF7;border:1px solid #E7E4DC;border-radius:14px;padding:16px;display:flex;align-items:center;gap:14px;margin:16px 0 20px">
+          <input type="checkbox" checked="{{ reg.trial }}" onChange="{{ onRTrial }}" style="width:18px;height:18px;accent-color:#E8622A;flex:none">
+          <div><div style="font-weight:700;font-size:15px">Start with a free trial instead</div><div style="color:#7C837B;font-size:13px">Try one session free — pay only if they'd like to continue.</div></div>
+        </div>
+        <sc-if value="{{ rShowPay }}" hint-placeholder-val="{{ true }}">
+          <label style="display:block;font-size:13px;font-weight:600;color:#5B635C;margin:0 0 6px">Name on card</label>
+          <input value="{{ reg.cardName }}" onChange="{{ onRCardName }}" placeholder="Full name" style="width:100%;padding:12px 14px;border:1px solid #D8D4CB;border-radius:12px;font-size:15px;margin-bottom:14px;outline:none">
+          <label style="display:block;font-size:13px;font-weight:600;color:#5B635C;margin:0 0 6px">Card number</label>
+          <input value="{{ reg.cardNum }}" onChange="{{ onRCardNum }}" placeholder="1234 5678 9012 3456" style="width:100%;padding:12px 14px;border:1px solid #D8D4CB;border-radius:12px;font-size:15px;margin-bottom:14px;outline:none">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+            <div><label style="display:block;font-size:13px;font-weight:600;color:#5B635C;margin:0 0 6px">Expiry</label><input value="{{ reg.exp }}" onChange="{{ onRExp }}" placeholder="MM/YY" style="width:100%;padding:12px 14px;border:1px solid #D8D4CB;border-radius:12px;font-size:15px;outline:none"></div>
+            <div><label style="display:block;font-size:13px;font-weight:600;color:#5B635C;margin:0 0 6px">CVC</label><input value="{{ reg.cvc }}" onChange="{{ onRCvc }}" placeholder="123" style="width:100%;padding:12px 14px;border:1px solid #D8D4CB;border-radius:12px;font-size:15px;outline:none"></div>
+          </div>
+        </sc-if>
+        <sc-if value="{{ rTrialOnly }}" hint-placeholder-val="{{ true }}">
+          <p style="color:#5B635C;font-size:15px;line-height:1.5;margin:4px 0 0">No payment needed now. We'll email you the details for your child's free trial session.</p>
+        </sc-if>
+        </sc-if>
+
+        <div style="display:flex;gap:12px;margin-top:26px">
+          <sc-if value="{{ rShowPrev }}" hint-placeholder-val="{{ true }}">
+          <button onClick="{{ rPrev }}" style="background:#fff;color:#1E2420;border:1px solid #D8D4CB;border-radius:12px;padding:13px 20px;font-weight:600;font-size:15px;cursor:pointer">Back</button>
+          </sc-if>
+          <button onClick="{{ rNext }}" style="flex:1;background:#E8622A;color:#fff;border:none;border-radius:12px;padding:13px 20px;font-weight:700;font-size:15px;cursor:pointer;opacity:{{ rNextOp }};pointer-events:{{ rNextPE }}" style-hover="background:#C0491E">{{ rNextLabel }}</button>
+        </div>
+      </div>
+
+      <div style="position:sticky;top:90px;background:#fff;border:1px solid #E7E4DC;border-radius:18px;padding:22px">
+        <div style="height:80px;border-radius:12px;background:{{ regPh }};display:flex;align-items:center;justify-content:center;margin-bottom:14px"><span style="font-family:'Bricolage Grotesque';font-weight:700;color:#C0491E">{{ regClubSport }}</span></div>
+        <div style="font-weight:700;font-size:17px;margin-bottom:2px">{{ regClubName }}</div>
+        <div style="color:#7C837B;font-size:14px;margin-bottom:16px">{{ regClubArea }}</div>
+        <div style="display:flex;flex-direction:column;gap:9px;font-size:14px">
+          <div style="display:flex;justify-content:space-between"><span style="color:#7C837B">Child</span><span style="font-weight:600">{{ regChildNameOrDash }}</span></div>
+          <div style="display:flex;justify-content:space-between"><span style="color:#7C837B">Age group</span><span style="font-weight:600">{{ regTeamOrDash }}</span></div>
+        </div>
+        <div style="border-top:1px solid #EEEBE3;margin-top:16px;padding-top:14px;display:flex;justify-content:space-between;font-family:'Bricolage Grotesque';font-weight:700;font-size:18px"><span>{{ regDueLabel }}</span><span>{{ regDueValue }}</span></div>
+      </div>
+    </div>
+  </section>
+  </sc-if>
+</div>
+</sc-if>
+
+<!-- ============ MY BOOKINGS ============ -->
+<sc-if value="{{ isBookings }}" hint-placeholder-val="{{ true }}">
+<div style="animation:fadeUp .35s ease both">
+  <section style="max-width:900px;margin:0 auto;padding:36px 24px 80px">
+    <h1 style="font-family:'Bricolage Grotesque';font-weight:700;font-size:34px;margin:0 0 24px;letter-spacing:-.02em">My bookings</h1>
+    <sc-if value="{{ hasNone }}" hint-placeholder-val="{{ true }}">
+      <div style="background:#fff;border:1px dashed #D8D4CB;border-radius:18px;padding:48px;text-align:center">
+        <p style="color:#7C837B;font-size:16px;margin:0 0 18px">Nothing booked yet. Find a hall or a club to get started.</p>
+        <button onClick="{{ goHome }}" style="background:#1E7A4C;color:#fff;border:none;border-radius:12px;padding:12px 22px;font-weight:700;font-size:15px;cursor:pointer">Explore halla</button>
+      </div>
+    </sc-if>
+    <sc-if value="{{ hasBk }}" hint-placeholder-val="{{ true }}">
+      <h2 style="font-size:15px;font-weight:700;color:#5B635C;margin:0 0 12px;letter-spacing:.02em">HALL BOOKINGS</h2>
+      <div style="display:flex;flex-direction:column;gap:12px;margin-bottom:32px">
+        <sc-for list="{{ myBookings }}" as="b" hint-placeholder-count="1">
+          <div style="background:#fff;border:1px solid #E7E4DC;border-radius:16px;padding:18px 20px;display:flex;align-items:center;gap:18px">
+            <div style="width:52px;height:52px;border-radius:12px;background:{{ b.ph }};flex:none"></div>
+            <div style="flex:1"><div style="font-weight:700;font-size:16px">{{ b.centre }}</div><div style="color:#7C837B;font-size:14px">{{ b.room }} · {{ b.date }} · {{ b.time }}</div></div>
+            <div style="text-align:right"><div style="font-weight:700">{{ b.total }}</div><div style="font-size:12px;color:#9AA098">{{ b.ref }}</div></div>
+          </div>
+        </sc-for>
+      </div>
+    </sc-if>
+    <sc-if value="{{ hasReg }}" hint-placeholder-val="{{ true }}">
+      <h2 style="font-size:15px;font-weight:700;color:#5B635C;margin:0 0 12px;letter-spacing:.02em">CLUB REGISTRATIONS</h2>
+      <div style="display:flex;flex-direction:column;gap:12px">
+        <sc-for list="{{ myRegs }}" as="r" hint-placeholder-count="1">
+          <div style="background:#fff;border:1px solid #E7E4DC;border-radius:16px;padding:18px 20px;display:flex;align-items:center;gap:18px">
+            <div style="width:52px;height:52px;border-radius:12px;background:#FBF0E9;flex:none;display:flex;align-items:center;justify-content:center;color:#C0491E;font-weight:700;font-size:12px">{{ r.tag }}</div>
+            <div style="flex:1"><div style="font-weight:700;font-size:16px">{{ r.child }}</div><div style="color:#7C837B;font-size:14px">{{ r.club }} · {{ r.team }}</div></div>
+            <div style="text-align:right"><div style="font-weight:700">{{ r.status }}</div><div style="font-size:12px;color:#9AA098">{{ r.ref }}</div></div>
+          </div>
+        </sc-for>
+      </div>
+    </sc-if>
+  </section>
+</div>
+</sc-if>
+
+<!-- ============ CHECKLIST ============ -->
+<sc-if value="{{ isChecklist }}" hint-placeholder-val="{{ true }}">
+<div style="animation:fadeUp .35s ease both">
+  <section style="max-width:780px;margin:0 auto;padding:44px 24px 80px">
+    <div style="font-family:monospace;font-size:12px;letter-spacing:.1em;color:#1E7A4C;margin-bottom:12px">NEW TO IRELAND</div>
+    <h1 style="font-family:'Bricolage Grotesque';font-weight:700;font-size:40px;margin:0 0 10px;letter-spacing:-.025em;line-height:1.05">Settling into your new community</h1>
+    <p style="font-size:18px;color:#5B635C;line-height:1.5;margin:0 0 36px">The usual order families follow when they arrive. Tick things off as you go — the last two are exactly what halla is here for.</p>
+    <div style="display:flex;flex-direction:column;gap:14px">
+      <sc-for list="{{ checklist }}" as="s" hint-placeholder-count="6">
+        <div style="background:#fff;border:1px solid #E7E4DC;border-radius:16px;padding:20px 22px;display:flex;gap:18px;align-items:flex-start">
+          <div style="width:34px;height:34px;border-radius:50%;background:{{ s.bg }};color:{{ s.fg }};display:flex;align-items:center;justify-content:center;font-family:'Bricolage Grotesque';font-weight:700;font-size:16px;flex:none">{{ s.n }}</div>
+          <div style="flex:1">
+            <div style="font-weight:700;font-size:17px;margin-bottom:3px">{{ s.title }}</div>
+            <div style="color:#7C837B;font-size:15px;line-height:1.5">{{ s.desc }}</div>
+          </div>
+          <sc-if value="{{ s.action }}" hint-placeholder-val="{{ true }}">
+            <button onClick="{{ s.onClick }}" style="background:#EAF4EE;color:#175f3b;border:none;border-radius:11px;padding:10px 16px;font-size:14px;font-weight:700;cursor:pointer;white-space:nowrap;align-self:center" style-hover="background:#d8ecdf">{{ s.action }} →</button>
+          </sc-if>
+        </div>
+      </sc-for>
+    </div>
+  </section>
+</div>
+</sc-if>
+
+</main>
+
+<footer style="border-top:1px solid #E7E4DC;background:#F6F4EF">
+  <div style="max-width:1180px;margin:0 auto;padding:34px 24px;display:flex;flex-wrap:wrap;gap:24px;align-items:center">
+    <div style="display:flex;align-items:center;gap:9px">
+      <div style="width:28px;height:28px;border-radius:9px;background:#1E7A4C;display:flex;align-items:center;justify-content:center;color:#fff;font-family:'Bricolage Grotesque';font-weight:700;font-size:17px;padding-bottom:2px">h</div>
+      <span style="font-family:'Bricolage Grotesque';font-weight:700;font-size:19px">halla</span>
+    </div>
+    <p style="margin:0;color:#8A928B;font-size:14px;max-width:420px">Local community spaces & sports clubs across Ireland. A concept prototype — not affiliated with any council or governing body.</p>
+    <div style="margin-left:auto;display:flex;gap:20px;color:#5B635C;font-size:14px;font-weight:600">
+      <span>Councils</span><span>Clubs</span><span>Help</span>
+    </div>
+  </div>
+</footer>
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+class Component extends DCLogic {
+  constructor(props){
+    super(props);
+    let mb=[], mr=[];
+    try{ mb=JSON.parse(localStorage.getItem('halla_bookings_v1')||'[]'); }catch(e){}
+    try{ mr=JSON.parse(localStorage.getItem('halla_regs_v1')||'[]'); }catch(e){}
+    this.state={ view:'home', browseCat:'centres', filterCounty:'All', filterSport:'All',
+      homeCounty:'All', centreId:null, clubId:null,
+      bookingStep:1, booking:this.blankBooking(),
+      regStep:1, reg:this.blankReg(),
+      myBookings:mb, myRegs:mr };
+  }
+  blankBooking(){ return {centreId:null,roomId:null,date:null,time:null,duration:3,eventType:'',guests:'',name:'',email:'',phone:'',notes:'',cardName:'',cardNum:'',exp:'',cvc:'',ref:null}; }
+  blankReg(){ return {clubId:null,team:'',childFirst:'',childLast:'',dob:'',gFirst:'',gLast:'',email:'',phone:'',address:'',ecName:'',ecPhone:'',ecRel:'',medical:'',consent:false,trial:false,cardName:'',cardNum:'',exp:'',cvc:'',ref:null}; }
+
+  CENTRES=[
+    {id:'c1',name:"St. Brigid's Community Hall",area:'Stoneybatter, Dublin 7',county:'Dublin',rating:4.8,reviews:126,capacity:180,from:35,managedBy:'Dublin City Council',ph:'repeating-linear-gradient(135deg,#DDE8DA 0 14px,#E6EEE3 14px 28px)',blurb:'A bright, recently refurbished hall in the heart of Stoneybatter. Popular for birthday parties, community meetings and indoor sports, with a sprung timber floor, full kitchen and its own car park.',amenities:['Wheelchair accessible','Full kitchen','Free parking (20 spaces)','Fast Wi-Fi','Stage & PA system','Tables & chairs included'],rooms:[{id:'r1',name:'Main Hall',cap:180,rate:65,desc:'Sprung floor, stage'},{id:'r2',name:'Function Room',cap:60,rate:38,desc:'Carpeted, kitchen access'},{id:'r3',name:'Meeting Room',cap:20,rate:22,desc:'Boardroom, screen'}]},
+    {id:'c2',name:'Ballincollig Community Centre',area:'Ballincollig, Cork',county:'Cork',rating:4.6,reviews:89,capacity:250,from:30,managedBy:'Cork County Council',ph:'repeating-linear-gradient(135deg,#DEE6E9 0 14px,#E7EDEF 14px 28px)',blurb:'A large multi-purpose centre serving west Cork. The sports hall doubles as a function space for weddings and cultural events, with generous parking and step-free access throughout.',amenities:['Wheelchair accessible','Commercial kitchen','Free parking (60 spaces)','Wi-Fi','Changing rooms','Tables & chairs included'],rooms:[{id:'r1',name:'Sports Hall',cap:250,rate:70,desc:'Full-size courts, high ceiling'},{id:'r2',name:'Function Room',cap:120,rate:45,desc:'Bar area, dance floor'},{id:'r3',name:'Small Room',cap:15,rate:18,desc:'Classes & workshops'}]},
+    {id:'c3',name:'Salthill Community Hall',area:'Salthill, Galway',county:'Galway',rating:4.9,reviews:154,capacity:140,from:40,managedBy:'Galway City Council',ph:'repeating-linear-gradient(135deg,#DBE7E6 0 14px,#E5EDEC 14px 28px)',blurb:'Steps from the promenade, this seafront hall is a favourite for naming ceremonies and family functions, with big windows framing Galway Bay and a warm, welcoming committee.',amenities:['Wheelchair accessible','Kitchen facilities','On-street parking','Wi-Fi','Sea-view windows','Tables & chairs included'],rooms:[{id:'r1',name:'Ocean Room',cap:140,rate:60,desc:'Bay views, wood floor'},{id:'r2',name:'Studio',cap:30,rate:28,desc:'Mirrored, for dance & yoga'}]},
+    {id:'c4',name:'Dooradoyle Parish Centre',area:'Dooradoyle, Limerick',county:'Limerick',rating:4.5,reviews:61,capacity:200,from:32,managedBy:'the local Parish',ph:'repeating-linear-gradient(135deg,#E4E3DA 0 14px,#EAE9E1 14px 28px)',blurb:'A dependable, spacious parish hall used for everything from First Communion parties to community development meetings. Simple, affordable and central to the southside.',amenities:['Wheelchair accessible','Kitchen facilities','Free parking','Wi-Fi','Foldable staging','Tables & chairs included'],rooms:[{id:'r1',name:'Main Hall',cap:200,rate:55,desc:'Open span, PA available'},{id:'r2',name:'Committee Room',cap:25,rate:22,desc:'Meetings & small groups'}]},
+    {id:'c5',name:'Ferrybank Community Centre',area:'Ferrybank, Waterford',county:'Waterford',rating:4.7,reviews:73,capacity:160,from:30,managedBy:'a Community Development Group',ph:'repeating-linear-gradient(135deg,#E1E6DE 0 14px,#E9EDE6 14px 28px)',blurb:'Run by an energetic local development group, Ferrybank hosts everything from toddler groups to cultural nights. Flexible layouts and very friendly rates.',amenities:['Wheelchair accessible','Kitchen facilities','Free parking','Wi-Fi','Projector & screen','Tables & chairs included'],rooms:[{id:'r1',name:'Main Hall',cap:160,rate:50,desc:'Multi-use, projector'},{id:'r2',name:'Activity Room',cap:35,rate:26,desc:'Workshops & classes'}]},
+    {id:'c6',name:'Phibsborough Community Hub',area:'Phibsborough, Dublin 7',county:'Dublin',rating:4.8,reviews:198,capacity:120,from:34,managedBy:'a Local Community Association',ph:'repeating-linear-gradient(135deg,#DDE8DA 0 14px,#E6EEE3 14px 28px)',blurb:'A stylish modern hub above the local library, ideal for workshops, cultural events and smaller functions. Excellent transport links and a bright, contemporary interior.',amenities:['Wheelchair accessible','Tea & coffee station','Bike parking','Fast Wi-Fi','AV & screen','Tables & chairs included'],rooms:[{id:'r1',name:'Event Space',cap:120,rate:58,desc:'Floor-to-ceiling windows'},{id:'r2',name:'Workshop Room',cap:24,rate:24,desc:'Flexible seating'}]}
+  ];
+  CLUBS=[
+    {id:'s1',name:'Na Fianna GAA',sport:'GAA',area:'Glasnevin, Dublin',county:'Dublin',ages:'4–17',price:120,unit:'year',trial:true,ph:'repeating-linear-gradient(135deg,#F5E1D3 0 14px,#FAEBE0 14px 28px)',blurb:'One of Dublin\'s largest GAA clubs, fielding Gaelic football, hurling and camogie teams from Under-6 up. A welcoming Nursery on Saturday mornings is the perfect first step.',includes:['Weekly coached training','Match-day fixtures','Club gear discount','Garda-vetted coaches']},
+    {id:'s2',name:'Cabra Celtic FC',sport:'Soccer',area:'Cabra, Dublin',county:'Dublin',ages:'5–16',price:150,unit:'year',trial:true,ph:'repeating-linear-gradient(135deg,#F5E1D3 0 14px,#FAEBE0 14px 28px)',blurb:'A grassroots soccer club running boys\' and girls\' teams in the local schoolboy/girl leagues. Emphasis on fun, fundamentals and getting every child game time.',includes:['Two sessions a week','League matches','Full kit included','FAI-qualified coaches']},
+    {id:'s3',name:'Galway Dolphins Swimming',sport:'Swimming',area:'Salthill, Galway',county:'Galway',ages:'5–14',price:15,unit:'lesson',trial:true,ph:'repeating-linear-gradient(135deg,#D9E6EC 0 14px,#E4EDF1 14px 28px)',blurb:'Learn-to-swim and squad programmes at the Salthill pool. Small groups by ability, from first splashes to competitive galas.',includes:['Small-group lessons','Ability-based levels','Progress badges','Swim Ireland affiliated']},
+    {id:'s4',name:'Cork Harlequins RFC',sport:'Rugby',area:'Farmers Cross, Cork',county:'Cork',ages:'6–17',price:180,unit:'year',trial:true,ph:'repeating-linear-gradient(135deg,#F5E1D3 0 14px,#FAEBE0 14px 28px)',blurb:'Mini and youth rugby in a safe, tag-first environment. Sunday-morning minis are hugely popular with families new to the area.',includes:['Sunday minis','Age-grade teams','Club jersey','IRFU-accredited coaches']},
+    {id:'s5',name:'Limerick Gymnastics Club',sport:'Gymnastics',area:'Dooradoyle, Limerick',county:'Limerick',ages:'4–14',price:150,unit:'term',trial:false,ph:'repeating-linear-gradient(135deg,#EDE0EC 0 14px,#F2E9F1 14px 28px)',blurb:'Recreational and development gymnastics in a fully-equipped gym. Builds strength, balance and confidence through structured, playful classes.',includes:['Weekly classes','Full apparatus','Badge assessments','Gymnastics Ireland affiliated']},
+    {id:'s6',name:'Waterford Tennis Academy',sport:'Tennis',area:'Ferrybank, Waterford',county:'Waterford',ages:'5–16',price:12,unit:'session',trial:true,ph:'repeating-linear-gradient(135deg,#E1EBD9 0 14px,#EAF0E4 14px 28px)',blurb:'Junior tennis coaching on all-weather courts. Red, orange and green ball stages take players from first rallies to junior competition.',includes:['Stage-based coaching','Rackets provided','Holiday camps','Tennis Ireland coaches']},
+    {id:'s7',name:'Northside Athletics',sport:'Athletics',area:'Santry, Dublin',county:'Dublin',ages:'6–17',price:90,unit:'year',trial:true,ph:'repeating-linear-gradient(135deg,#E1EBD9 0 14px,#EAF0E4 14px 28px)',blurb:'Track and field for juniors at Morton Stadium. Sprints, jumps, throws and cross-country — great all-round fitness and a brilliant club community.',includes:['Track training','Cross-country league','Club singlet','Athletics Ireland coaches']},
+    {id:'s8',name:'Shotokan Kids Martial Arts',sport:'Martial Arts',area:'Ballincollig, Cork',county:'Cork',ages:'5–15',price:110,unit:'term',trial:true,ph:'repeating-linear-gradient(135deg,#EDE0EC 0 14px,#F2E9F1 14px 28px)',blurb:'Traditional karate for children focused on discipline, respect and confidence. A structured belt system gives kids clear goals to work towards.',includes:['Twice-weekly classes','Grading & belts','Starter gi included','Insured, vetted instructors']}
+  ];
+
+  counties=['All','Dublin','Cork','Galway','Limerick','Waterford'];
+  sports=['All','GAA','Soccer','Swimming','Rugby','Gymnastics','Tennis','Athletics','Martial Arts'];
+  eventTypes=['Birthday party','Family function','Naming ceremony','Community meeting','Cultural event','Class / workshop','Indoor sports'];
+  ageGroups=['Under 6','Under 8','Under 10','Under 12','Under 14','Under 16'];
+
+  euro(n){ return '€'+Math.round(n); }
+  top(){ try{ window.scrollTo({top:0,behavior:'smooth'}); }catch(e){} }
+  set(patch){ this.setState(patch, this.top); }
+
+  // ---- nav
+  goHome=()=>this.set({view:'home'});
+  goCentres=()=>this.set({view:'browse',browseCat:'centres'});
+  goClubs=()=>this.set({view:'browse',browseCat:'clubs'});
+  goCentresHome=()=>this.set({view:'browse',browseCat:'centres',filterCounty:this.state.homeCounty});
+  goClubsHome=()=>this.set({view:'browse',browseCat:'clubs',filterCounty:this.state.homeCounty});
+  goChecklist=()=>this.set({view:'checklist'});
+  goBookings=()=>this.set({view:'bookings'});
+  onHomeCounty=(e)=>this.setState({homeCounty:e.target.value});
+
+  openCentre=(id)=>this.set({view:'centre',centreId:id});
+  openClub=(id)=>this.set({view:'club',clubId:id});
+  getCentre(){ return this.CENTRES.find(c=>c.id===this.state.centreId)||this.CENTRES[0]; }
+  getClub(){ return this.CLUBS.find(c=>c.id===this.state.clubId)||this.CLUBS[0]; }
+
+  // ---- booking
+  startBooking=(centreId,roomId)=>{ const b=this.blankBooking(); b.centreId=centreId; b.roomId=roomId; this.set({view:'book',bookingStep:1,booking:b,centreId}); };
+  setBk(f,v){ this.setState(s=>({booking:{...s.booking,[f]:v}})); }
+  onBGuests=(e)=>this.setBk('guests',e.target.value);
+  onBName=(e)=>this.setBk('name',e.target.value);
+  onBEmail=(e)=>this.setBk('email',e.target.value);
+  onBPhone=(e)=>this.setBk('phone',e.target.value);
+  onBNotes=(e)=>this.setBk('notes',e.target.value);
+  onBCardName=(e)=>this.setBk('cardName',e.target.value);
+  onBCardNum=(e)=>this.setBk('cardNum',e.target.value);
+  onBExp=(e)=>this.setBk('exp',e.target.value);
+  onBCvc=(e)=>this.setBk('cvc',e.target.value);
+
+  bkRoom(){ const c=this.CENTRES.find(x=>x.id===this.state.booking.centreId); if(!c)return null; return c.rooms.find(r=>r.id===this.state.booking.roomId)||c.rooms[0]; }
+  bkHireVal(){ const r=this.bkRoom(); if(!r)return 0; const d=this.state.booking.duration; return d>=8 ? Math.round(r.rate*6.5) : r.rate*d; }
+  bkTotalVal(){ return this.bkHireVal()+100; }
+
+  b1Ready(){ const b=this.state.booking; return !!(b.date&&b.time&&b.duration); }
+  b2Ready(){ const b=this.state.booking; return !!(b.eventType&&b.guests&&b.name&&b.email&&b.phone); }
+  b3Ready(){ const b=this.state.booking; return !!(b.cardName&&b.cardNum&&b.cardNum.replace(/\s/g,'').length>=12&&b.exp&&b.cvc); }
+  bReady(){ const s=this.state.bookingStep; return s===1?this.b1Ready():s===2?this.b2Ready():this.b3Ready(); }
+
+  bNext=()=>{ if(!this.bReady())return; const s=this.state.bookingStep; if(s<3){ this.set({bookingStep:s+1}); } else { this.confirmBooking(); } };
+  bPrev=()=>{ if(this.state.bookingStep>1) this.set({bookingStep:this.state.bookingStep-1}); };
+  bBack=()=>{ if(this.state.bookingStep>1){ this.bPrev(); } else { this.openCentre(this.state.booking.centreId); } };
+  confirmBooking=()=>{
+    const b=this.state.booking, c=this.CENTRES.find(x=>x.id===b.centreId), r=this.bkRoom();
+    const ref='HB-'+Math.floor(100000+Math.random()*899999);
+    const rec={ref,centre:c.name,room:r.name,ph:c.ph,date:this.dateLabel(b.date),time:b.time,total:this.euro(this.bkTotalVal())};
+    const list=[rec,...this.state.myBookings];
+    try{ localStorage.setItem('halla_bookings_v1',JSON.stringify(list)); }catch(e){}
+    this.setState(s=>({booking:{...s.booking,ref},bookingStep:4,myBookings:list}),this.top);
+  };
+
+  // ---- registration
+  startReg=(clubId)=>{ const r=this.blankReg(); r.clubId=clubId; this.set({view:'register',regStep:1,reg:r,clubId}); };
+  setR(f,v){ this.setState(s=>({reg:{...s.reg,[f]:v}})); }
+  onRChildFirst=(e)=>this.setR('childFirst',e.target.value);
+  onRChildLast=(e)=>this.setR('childLast',e.target.value);
+  onRDob=(e)=>this.setR('dob',e.target.value);
+  onRGFirst=(e)=>this.setR('gFirst',e.target.value);
+  onRGLast=(e)=>this.setR('gLast',e.target.value);
+  onREmail=(e)=>this.setR('email',e.target.value);
+  onRPhone=(e)=>this.setR('phone',e.target.value);
+  onRAddress=(e)=>this.setR('address',e.target.value);
+  onREcName=(e)=>this.setR('ecName',e.target.value);
+  onREcPhone=(e)=>this.setR('ecPhone',e.target.value);
+  onREcRel=(e)=>this.setR('ecRel',e.target.value);
+  onRMedical=(e)=>this.setR('medical',e.target.value);
+  onRConsent=(e)=>this.setR('consent',e.target.checked);
+  onRTrial=(e)=>this.setR('trial',e.target.checked);
+  onRCardName=(e)=>this.setR('cardName',e.target.value);
+  onRCardNum=(e)=>this.setR('cardNum',e.target.value);
+  onRExp=(e)=>this.setR('exp',e.target.value);
+  onRCvc=(e)=>this.setR('cvc',e.target.value);
+
+  r1Ready(){ const r=this.state.reg; return !!(r.childFirst&&r.childLast&&r.dob&&r.team); }
+  r2Ready(){ const r=this.state.reg; return !!(r.gFirst&&r.gLast&&r.email&&r.phone&&r.address&&r.ecName&&r.ecPhone); }
+  r3Ready(){ return !!this.state.reg.consent; }
+  r4Ready(){ const r=this.state.reg; if(r.trial) return true; return !!(r.cardName&&r.cardNum&&r.cardNum.replace(/\s/g,'').length>=12&&r.exp&&r.cvc); }
+  rReady(){ const s=this.state.regStep; return s===1?this.r1Ready():s===2?this.r2Ready():s===3?this.r3Ready():this.r4Ready(); }
+  rNext=()=>{ if(!this.rReady())return; const s=this.state.regStep; if(s<4){ this.set({regStep:s+1}); } else { this.confirmReg(); } };
+  rPrev=()=>{ if(this.state.regStep>1) this.set({regStep:this.state.regStep-1}); };
+  rBack=()=>{ if(this.state.regStep>1){ this.rPrev(); } else { this.openClub(this.state.reg.clubId); } };
+  confirmReg=()=>{
+    const r=this.state.reg, c=this.CLUBS.find(x=>x.id===r.clubId);
+    const ref='CR-'+Math.floor(100000+Math.random()*899999);
+    const rec={ref,child:(r.childFirst+' '+r.childLast).trim(),club:c.name,team:r.team,tag:c.sport,status:r.trial?'Free trial':this.priceLabel(c)};
+    const list=[rec,...this.state.myRegs];
+    try{ localStorage.setItem('halla_regs_v1',JSON.stringify(list)); }catch(e){}
+    this.setState(s=>({reg:{...s.reg,ref},regStep:5,myRegs:list}),this.top);
+  };
+
+  // ---- date helpers
+  dateList(){
+    const out=[], now=new Date();
+    for(let i=1;i<=10;i++){ const d=new Date(now); d.setDate(now.getDate()+i);
+      out.push({iso:d.toISOString().slice(0,10),dow:['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][d.getDay()],day:d.getDate(),mon:['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][d.getMonth()],idx:i}); }
+    return out;
+  }
+  dateLabel(iso){ if(!iso)return '—'; const d=new Date(iso+'T00:00:00'); return ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][d.getDay()]+' '+d.getDate()+' '+['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][d.getMonth()]; }
+  priceLabel(c){ return '€'+c.price+' / '+c.unit; }
+
+  renderVals(){
+    const st=this.state, v=st.view;
+    const chip=(active,accent)=>({ bg: active?(accent==='c'?'#E8622A':'#1E7A4C'):'#fff', fg: active?'#fff':'#3B423C', border: active?(accent==='c'?'#E8622A':'#1E7A4C'):'#D8D4CB' });
+
+    // featured & results
+    const enrichC=(c)=>({...c, onOpen:()=>this.openCentre(c.id)});
+    const enrichS=(c)=>({...c, priceLabel:this.priceLabel(c), onOpen:()=>this.openClub(c.id)});
+    const featured=this.CENTRES.slice(0,3).map(enrichC);
+    const centreResults=this.CENTRES.filter(c=>st.filterCounty==='All'||c.county===st.filterCounty).map(enrichC);
+    const clubResults=this.CLUBS.filter(c=>(st.filterCounty==='All'||c.county===st.filterCounty)&&(st.filterSport==='All'||c.sport===st.filterSport)).map(enrichS);
+
+    const countyChips=this.counties.map(c=>{ const a=st.filterCounty===c; return {label:c,onClick:()=>this.setState({filterCounty:c}),...chip(a,st.browseCat==='clubs'?'c':'g')}; });
+    const sportChips=this.sports.map(s=>{ const a=st.filterSport===s; return {label:s,onClick:()=>this.setState({filterSport:s}),...chip(a,'c')}; });
+
+    const centre=this.getCentre();
+    const centreRooms=centre.rooms.map(r=>({...r,onBook:()=>this.startBooking(centre.id,r.id)}));
+    const club=this.getClub();
+
+    // booking stepper
+    const bs=st.bookingStep;
+    const bSteps=['Date & time','Event details','Payment'].map((l,i)=>{ const n=i+1, done=n<bs, active=n===bs; return {n,label:l,showLine:n<3,
+      dotBg: done||active?'#1E7A4C':'#fff', dotFg: done||active?'#fff':'#8A928B', dotBorder: done||active?'#1E7A4C':'#D8D4CB',
+      labelColor: done||active?'#1E2420':'#9AA098', lineColor: done?'#1E7A4C':'#E2DFD6'}; });
+
+    const b=st.booking;
+    const dateChips=this.dateList().map(d=>{ const a=b.date===d.iso; return {...d,onClick:()=>this.setBk('date',d.iso),
+      bg:a?'#1E7A4C':'#fff', fg:a?'#fff':'#1E2420', border:a?'#1E7A4C':'#E2DFD6'}; });
+    const dayIdx=b.date? new Date(b.date+'T00:00:00').getDate():0;
+    const times=['09:00','10:00','11:00','12:00','13:00','14:00','15:00','16:00','17:00','18:00','19:00','20:00'];
+    const timeSlots=times.map((t,i)=>{ const booked=((dayIdx+i*2)%7)===0; const a=b.time===t;
+      return {label: booked?t:t, onClick: booked?(()=>{}):(()=>this.setBk('time',t)),
+        bg: booked?'#F4F2EC':(a?'#1E7A4C':'#fff'), fg: booked?'#C2C6BE':(a?'#fff':'#1E2420'), border: booked?'#EAE7DF':(a?'#1E7A4C':'#E2DFD6'),
+        cursor: booked?'not-allowed':'pointer', strike: booked?'line-through':'none'}; });
+    const durOpts=[{h:2,l:'2 hours'},{h:3,l:'3 hours'},{h:4,l:'4 hours'},{h:8,l:'Full day'}];
+    const durChips=durOpts.map(o=>{ const a=b.duration===o.h; return {label:o.l,onClick:()=>this.setBk('duration',o.h),
+      bg:a?'#1E7A4C':'#fff', fg:a?'#fff':'#1E2420', border:a?'#1E7A4C':'#E2DFD6'}; });
+    const eventChips=this.eventTypes.map(e=>{ const a=b.eventType===e; return {label:e,onClick:()=>this.setBk('eventType',e),
+      bg:a?'#1E7A4C':'#fff', fg:a?'#fff':'#3B423C', border:a?'#1E7A4C':'#D8D4CB'}; });
+
+    const bkCentre=this.CENTRES.find(x=>x.id===b.centreId), bkRoom=this.bkRoom();
+    const durLabelMap={2:'2 hours',3:'3 hours',4:'4 hours',8:'Full day'};
+
+    // registration stepper
+    const rs=st.regStep;
+    const rSteps=['Your child','Contacts','Medical','Payment'].map((l,i)=>{ const n=i+1, done=n<rs, active=n===rs; return {n,label:l,showLine:n<4,
+      dotBg: done||active?'#E8622A':'#fff', dotFg: done||active?'#fff':'#8A928B', dotBorder: done||active?'#E8622A':'#D8D4CB',
+      labelColor: done||active?'#1E2420':'#9AA098', lineColor: done?'#E8622A':'#E2DFD6'}; });
+    const r=st.reg;
+    const teamChips=this.ageGroups.map(t=>{ const a=r.team===t; return {label:t,onClick:()=>this.setR('team',t),
+      bg:a?'#E8622A':'#fff', fg:a?'#fff':'#1E2420', border:a?'#E8622A':'#E2DFD6'}; });
+    const regClub=this.CLUBS.find(x=>x.id===r.clubId)||club;
+    const childName=(r.childFirst+' '+r.childLast).trim();
+
+    return {
+      // header/nav
+      goHome:this.goHome, goCentres:this.goCentres, goClubs:this.goClubs, goChecklist:this.goChecklist, goBookings:this.goBookings,
+      myCount: st.myBookings.length+st.myRegs.length,
+      // view flags
+      isHome:v==='home', isBrowse:v==='browse', isCentre:v==='centre', isBook:v==='book', isClub:v==='club', isRegister:v==='register', isBookings:v==='bookings', isChecklist:v==='checklist',
+      // home
+      counties:this.counties, homeCounty:st.homeCounty, onHomeCounty:this.onHomeCounty, goCentresHome:this.goCentresHome, goClubsHome:this.goClubsHome, featured,
+      // browse
+      browseCat:st.browseCat, isBrowseCentres:st.browseCat==='centres', isBrowseClubs:st.browseCat==='clubs',
+      tabCentres:this.goCentres, tabClubs:this.goClubs,
+      tabCentresBg: st.browseCat==='centres'?'#fff':'transparent', tabCentresFg: st.browseCat==='centres'?'#1E7A4C':'#7C837B', tabCentresSh: st.browseCat==='centres'?'0 1px 3px rgba(0,0,0,.08)':'none',
+      tabClubsBg: st.browseCat==='clubs'?'#fff':'transparent', tabClubsFg: st.browseCat==='clubs'?'#C0491E':'#7C837B', tabClubsSh: st.browseCat==='clubs'?'0 1px 3px rgba(0,0,0,.08)':'none',
+      browseTitle: st.browseCat==='centres'?'Community centres':'Sports clubs',
+      browseCount: (st.browseCat==='centres'?centreResults.length:clubResults.length),
+      browseWhere: st.filterCounty==='All'?' across Ireland':(' in '+st.filterCounty),
+      countyChips, sportChips, centreResults, clubResults,
+      // centre detail
+      centre:{...centre, rooms:centreRooms}, bookDefault:()=>this.startBooking(centre.id,centre.rooms[0].id),
+      // club detail
+      club, regDefault:()=>this.startReg(club.id),
+      // booking flow
+      bIsSuccess: bs===4, bNotSuccess: bs!==4,
+      bStep1: bs===1, bStep2: bs===2, bStep3: bs===3,
+      bSteps, dateChips, timeSlots, durChips, eventChips, hasDate: !!b.date,
+      onBGuests:this.onBGuests, onBName:this.onBName, onBEmail:this.onBEmail, onBPhone:this.onBPhone, onBNotes:this.onBNotes,
+      onBCardName:this.onBCardName, onBCardNum:this.onBCardNum, onBExp:this.onBExp, onBCvc:this.onBCvc,
+      booking:b,
+      bNext:this.bNext, bPrev:this.bPrev, bBack:this.bBack,
+      bShowPrev: bs>1, bBackLabel: bs>1?'Back a step':'Back to centre',
+      bNextLabel: bs===3?('Pay '+this.euro(this.bkTotalVal())+' & confirm'):'Continue',
+      bNextOp: this.bReady()?'1':'.45', bNextPE: this.bReady()?'auto':'none',
+      bkCentreName: bkCentre?bkCentre.name:'', bkRoomName: bkRoom?bkRoom.name:'', bkPh: bkCentre?bkCentre.ph:'#eee',
+      bkDateLabel: this.dateLabel(b.date), bkTimeLabel: b.time?b.time:'—', bkDurLabel: durLabelMap[b.duration]||'—',
+      bkHire: this.euro(this.bkHireVal()), bkTotal: this.euro(this.bkTotalVal()),
+      // registration flow
+      rIsSuccess: rs===5, rNotSuccess: rs!==5,
+      rStep1: rs===1, rStep2: rs===2, rStep3: rs===3, rStep4: rs===4,
+      rSteps, teamChips, reg:r,
+      onRChildFirst:this.onRChildFirst, onRChildLast:this.onRChildLast, onRDob:this.onRDob,
+      onRGFirst:this.onRGFirst, onRGLast:this.onRGLast, onREmail:this.onREmail, onRPhone:this.onRPhone, onRAddress:this.onRAddress,
+      onREcName:this.onREcName, onREcPhone:this.onREcPhone, onREcRel:this.onREcRel, onRMedical:this.onRMedical,
+      onRConsent:this.onRConsent, onRTrial:this.onRTrial,
+      onRCardName:this.onRCardName, onRCardNum:this.onRCardNum, onRExp:this.onRExp, onRCvc:this.onRCvc,
+      rShowPay: !r.trial, rTrialOnly: r.trial,
+      rNext:this.rNext, rPrev:this.rPrev, rBack:this.rBack,
+      rShowPrev: rs>1, rBackLabel: rs>1?'Back a step':'Back to club',
+      rNextLabel: rs===4?(r.trial?'Book free trial':('Pay '+this.priceLabel(regClub)+' & register')):'Continue',
+      rNextOp: this.rReady()?'1':'.45', rNextPE: this.rReady()?'auto':'none',
+      regClubName: regClub.name, regClubSport: regClub.sport, regClubArea: regClub.area, regPh: regClub.ph,
+      regChildName: childName||'—', regChildNameOrDash: childName||'Not set', regTeamOrDash: r.team||'Not set',
+      regDueLabel: r.trial?'Due now':'Membership', regDueValue: r.trial?'€0':this.priceLabel(regClub),
+      regSuccessTitle: r.trial?'Trial session booked!':'Registration complete!',
+      regSuccessSub: r.trial?('We\'ve emailed '+(r.email||'you')+' the details for '+(r.childFirst||'your child')+'\'s free trial.'):('Welcome to '+regClub.name+'. A confirmation has been sent to '+(r.email||'your email')+'.'),
+      regPayLabel: r.trial?'STATUS':'PAID', regPayValue: r.trial?'Free trial':this.priceLabel(regClub),
+      // my bookings
+      myBookings:st.myBookings, myRegs:st.myRegs,
+      hasNone: st.myBookings.length===0&&st.myRegs.length===0,
+      hasBk: st.myBookings.length>0, hasReg: st.myRegs.length>0,
+      // checklist
+      checklist:[
+        {n:1,title:'Register with a GP',desc:'Find a local doctor and sign up the whole family. Bring ID and proof of address.',bg:'#F0EEE8',fg:'#5B635C'},
+        {n:2,title:'Enrol your child in school',desc:'Contact nearby schools directly — places are offered locally, so apply early.',bg:'#F0EEE8',fg:'#5B635C'},
+        {n:3,title:'Join the local library',desc:'Free membership gives you books, Wi-Fi, events and a first foothold in the community.',bg:'#F0EEE8',fg:'#5B635C'},
+        {n:4,title:'Register for sports clubs',desc:'Great way for kids to make friends fast. Many clubs offer a free trial session.',bg:'#FCEDE4',fg:'#C0491E',action:'Find clubs',onClick:this.goClubs},
+        {n:5,title:'Book community facilities',desc:'A hall for a birthday, naming ceremony or family get-together to celebrate settling in.',bg:'#EAF4EE',fg:'#175f3b',action:'Find a hall',onClick:this.goCentres},
+        {n:6,title:'Join local parent & community groups',desc:'Facebook community groups and your Local Sports Partnership are full of friendly locals.',bg:'#F0EEE8',fg:'#5B635C'}
+      ]
+    };
+  }
+}
+</script>
+</body>
+</html>

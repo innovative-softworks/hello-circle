@@ -1,0 +1,130 @@
+import { useEffect, useState } from "react";
+import { useNavigate, useParams } from "react-router-dom";
+import { fetchCentre } from "../api";
+import { PhotoGallery } from "../components/PhotoGallery";
+import { Reviews } from "../components/Reviews";
+import { ArrowRightIcon, CheckIcon, ChevronLeftIcon, ClockIcon, RepeatIcon, StarIcon, WheelchairIcon } from "../components/icons";
+import { colors, fonts, maxWidth } from "../theme";
+import type { Centre } from "../types";
+
+export function CentreDetail() {
+  const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
+  const [centre, setCentre] = useState<Centre | null>(null);
+
+  useEffect(() => {
+    if (id) fetchCentre(id).then(setCentre);
+  }, [id]);
+
+  const reloadRating = () => {
+    if (id) fetchCentre(id).then(setCentre);
+  };
+
+  if (!centre) return null;
+
+  return (
+    <div style={{ animation: "fadeUp .35s ease both" }}>
+      <section className="section-pad" style={{ maxWidth, margin: "0 auto", padding: "26px 24px 0" }}>
+        <button
+          onClick={() => navigate("/browse/centres")}
+          style={{ display: "inline-flex", alignItems: "center", background: "none", border: "none", color: colors.muted, fontWeight: 600, fontSize: 14, cursor: "pointer", padding: 0, marginBottom: 16 }}
+        >
+          <ChevronLeftIcon size={14} style={{ marginRight: 4 }} /> All community centres
+        </button>
+        <PhotoGallery images={centre.images} alt={centre.name} ph={centre.ph} />
+      </section>
+      <section
+        className="grid-responsive section-pad"
+        style={{ maxWidth, margin: "0 auto", padding: "26px 24px 70px", display: "grid", gridTemplateColumns: "1.6fr 1fr", gap: 40, alignItems: "start" }}
+      >
+        <div>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8 }}>
+            <StarIcon size={16} style={{ color: colors.gold }} />
+            <span style={{ fontWeight: 700 }}>{centre.rating}</span>
+            <span style={{ color: colors.faint }}>({centre.reviews} reviews)</span>
+            <span style={{ color: colors.faint }}>· up to {centre.capacity} guests</span>
+          </div>
+          <h1 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: "clamp(26px, 5vw, 36px)", margin: "0 0 4px", letterSpacing: "-.025em" }}>
+            {centre.name}
+          </h1>
+          <p style={{ color: colors.mutedLight, fontSize: 16, margin: "0 0 22px" }}>
+            {centre.area} · Managed by {centre.managedBy}
+          </p>
+          <p style={{ fontSize: 16, lineHeight: 1.6, color: "#3B423C", margin: "0 0 28px" }}>{centre.blurb}</p>
+
+          <h3 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 20, margin: "0 0 12px", letterSpacing: "-.01em" }}>
+            Facilities
+          </h3>
+          <div className="grid-responsive" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px 24px", marginBottom: 32 }}>
+            {centre.amenities.map((a) => (
+              <div key={a} style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 15, color: "#3B423C" }}>
+                <CheckIcon size={16} style={{ color: colors.green }} />
+                {a}
+              </div>
+            ))}
+          </div>
+
+          <h3 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 20, margin: "0 0 14px", letterSpacing: "-.01em" }}>
+            Rooms & rates
+          </h3>
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            {centre.rooms.map((r) => (
+              <div
+                key={r.id}
+                style={{ border: `1px solid ${colors.border}`, borderRadius: 16, padding: "18px 20px", display: "flex", flexWrap: "wrap", alignItems: "center", gap: 18, background: "#fff" }}
+              >
+                <div style={{ flex: 1, minWidth: 160 }}>
+                  <div style={{ fontWeight: 700, fontSize: 17, marginBottom: 2 }}>{r.name}</div>
+                  <div style={{ color: colors.mutedLight, fontSize: 14 }}>
+                    {r.desc} · up to {r.cap} people
+                  </div>
+                </div>
+                <div style={{ textAlign: "right" }}>
+                  <div style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 20 }}>€{r.rate}</div>
+                  <div style={{ color: colors.faint, fontSize: 12 }}>per hour</div>
+                </div>
+                <button
+                  onClick={() => navigate(`/book/${centre.id}/${r.id}`)}
+                  style={{ display: "inline-flex", alignItems: "center", gap: 6, background: colors.green, color: "#fff", border: "none", borderRadius: 11, padding: "11px 18px", fontSize: 14, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap" }}
+                >
+                  Book <ArrowRightIcon size={14} />
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+        <div
+          className="sticky-aside"
+          style={{ position: "sticky", top: 90, background: "#fff", border: `1px solid ${colors.border}`, borderRadius: 18, padding: 22, boxShadow: "0 8px 30px rgba(30,40,32,.05)" }}
+        >
+          <div style={{ fontSize: 14, color: colors.mutedLight, marginBottom: 4 }}>Hire from</div>
+          <div style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 30, marginBottom: 2 }}>
+            €{centre.from}
+            <span style={{ fontSize: 16, color: colors.faint, fontWeight: 400 }}> /hour</span>
+          </div>
+          <div style={{ fontSize: 13, color: colors.faint, marginBottom: 18 }}>+ €100 refundable deposit</div>
+          <button
+            onClick={() => navigate(`/book/${centre.id}/${centre.rooms[0]?.id}`)}
+            style={{ width: "100%", background: colors.green, color: "#fff", border: "none", borderRadius: 12, padding: 14, fontSize: 15, fontWeight: 700, cursor: "pointer", marginBottom: 10 }}
+          >
+            Check availability
+          </button>
+          <div style={{ display: "flex", flexDirection: "column", gap: 9, marginTop: 16, fontSize: 14, color: colors.muted }}>
+            <div style={{ display: "flex", gap: 10 }}>
+              <ClockIcon size={16} style={{ color: colors.green }} /> Instant online confirmation
+            </div>
+            <div style={{ display: "flex", gap: 10 }}>
+              <RepeatIcon size={16} style={{ color: colors.green }} /> Free cancellation up to 48h before
+            </div>
+            <div style={{ display: "flex", gap: 10 }}>
+              <WheelchairIcon size={16} style={{ color: colors.green }} /> Wheelchair accessible
+            </div>
+          </div>
+        </div>
+      </section>
+      <section className="section-pad" style={{ maxWidth, margin: "0 auto", padding: "0 24px 80px" }}>
+        <Reviews listingType="centre" listingId={centre.id} accent="green" onReviewPosted={reloadRating} />
+      </section>
+    </div>
+  );
+}

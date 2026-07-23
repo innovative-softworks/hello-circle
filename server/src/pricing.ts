@@ -1,0 +1,64 @@
+import { db } from "./db/index.js";
+
+/** Standard Irish VAT rate, applied to the taxable amount (subtotal minus
+ * any coupon discount) — not to refundable deposits, which aren't a supply. */
+export const VAT_RATE = 0.23;
+/** Hello Circle's service fee, shown as a separate line item on top of the
+ * vendor's price — the vendor is paid their full listed price. */
+export const PLATFORM_FEE_RATE = 0.05;
+
+export interface PricingBreakdown {
+  subtotalCents: number;
+  discountCents: number;
+  taxableCents: number;
+  vatCents: number;
+  platformFeeCents: number;
+  depositCents: number;
+  totalCents: number;
+  couponCode: string | null;
+}
+
+export function computePricing(subtotalCents: number, depositCents: number, discountCents: number, couponCode: string | null): PricingBreakdown {
+  const taxableCents = Math.max(0, subtotalCents - discountCents);
+  const vatCents = Math.round(taxableCents * VAT_RATE);
+  const platformFeeCents = Math.round(taxableCents * PLATFORM_FEE_RATE);
+  const totalCents = taxableCents + vatCents + platformFeeCents + depositCents;
+  return { subtotalCents, discountCents, taxableCents, vatCents, platformFeeCents, depositCents, totalCents, couponCode };
+}
+
+interface CouponRow {
+  id: number;
+  code: string;
+  kind: "percent" | "fixed";
+  amount: number;
+  max_uses: number | null;
+  used_count: number;
+  expires_at: string | null;
+  active: number;
+}
+
+export interface CouponResult {
+  valid: boolean;
+  error?: string;
+  discountCents?: number;
+  code?: string;
+}
+
+/** Validates a coupon against a subtotal and returns the discount it grants
+ * — never trusts a client-supplied discount amount. */
+export function evaluateCoupon(rawCode: string, subtotalCents: number): CouponResult {
+  const code = rawCode.trim().toUpperCase();
+  if (!code) return { valid: false, error: "Enter a code" };
+
+  const row = db.prepare(`SELECT * FROM coupons WHERE code = ?`).get(code) as CouponRow | undefined;
+  if (!row || !row.active) return { valid: false, error: "That code isn't valid" };
+  if (row.expires_at && new Date(row.expires_at) < new Date()) return { valid: false, error: "That code has expired" };
+  if (row.max_uses !== null && row.used_count >= row.max_uses) return { valid: false, error: "That code has been fully redeemed" };
+
+  const discountCents = row.kind === "percent" ? Math.round((subtotalCents * row.amount) / 100) : Math.min(row.amount, subtotalCents);
+  return { valid: true, discountCents, code: row.code };
+}
+
+export function recordCouponUse(code: string) {
+  db.prepare(`UPDATE coupons SET used_count = used_count + 1 WHERE code = ?`).run(code.trim().toUpperCase());
+}
