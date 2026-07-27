@@ -1,10 +1,9 @@
 import Database from "better-sqlite3";
 import crypto from "node:crypto";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { dataDir } from "../dataDir.js";
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const dbPath = path.join(__dirname, "..", "..", "hello-circle.sqlite");
+const dbPath = path.join(dataDir, "hello-circle.sqlite");
 
 export const db = new Database(dbPath);
 db.pragma("journal_mode = WAL");

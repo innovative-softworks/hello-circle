@@ -8,6 +8,7 @@ export const authRouter = Router();
 const cookieOpts = {
   httpOnly: true,
   sameSite: "lax" as const,
+  secure: process.env.NODE_ENV === "production",
   maxAge: 30 * 24 * 60 * 60 * 1000,
 };
 
@@ -97,7 +98,7 @@ authRouter.post("/login", (req, res) => {
 authRouter.post("/logout", (req, res) => {
   const token = req.cookies?.[SESSION_COOKIE];
   if (token) destroySession(token);
-  res.clearCookie(SESSION_COOKIE);
+  res.clearCookie(SESSION_COOKIE, cookieOpts);
   res.json({ ok: true });
 });
 

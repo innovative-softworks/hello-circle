@@ -1,15 +1,14 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 import { Router } from "express";
 import multer from "multer";
 import { requireVendorOrAdmin } from "../auth.js";
+import { dataDir } from "../dataDir.js";
 
 export const uploadsRouter = Router();
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const uploadsDir = path.join(__dirname, "..", "..", "uploads");
+const uploadsDir = path.join(dataDir, "uploads");
 fs.mkdirSync(uploadsDir, { recursive: true });
 
 const ALLOWED = new Set(["image/jpeg", "image/png", "image/webp", "image/gif"]);

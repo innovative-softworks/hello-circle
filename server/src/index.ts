@@ -5,6 +5,7 @@ import express from "express";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { attachUser } from "./auth.js";
+import { dataDir } from "./dataDir.js";
 import { seedAdminIfMissing, seedIfEmpty } from "./db/seed.js";
 import { adminRouter } from "./routes/admin.js";
 import { authRouter } from "./routes/auth.js";
@@ -40,7 +41,7 @@ app.post("/api/stripe/webhook", express.raw({ type: "application/json" }), strip
 app.use(express.json());
 app.use(cookieParser());
 app.use(attachUser);
-app.use("/uploads", express.static(path.join(__dirname, "..", "uploads")));
+app.use("/uploads", express.static(path.join(dataDir, "uploads")));
 
 app.use("/api/auth", authRouter);
 app.use("/api/centres", centresRouter);
@@ -55,6 +56,15 @@ app.use("/api/vendor", vendorRouter);
 app.use("/api/admin", adminRouter);
 
 app.get("/api/health", (_req, res) => res.json({ ok: true }));
+
+// Serve the built React client from the same origin/process as the API —
+// avoids cross-origin cookie/CORS complications for the session cookie.
+const clientDist = path.join(__dirname, "..", "..", "client", "dist");
+app.use(express.static(clientDist));
+app.get("*", (req, res, next) => {
+  if (req.path.startsWith("/api/") || req.path.startsWith("/uploads/")) return next();
+  res.sendFile(path.join(clientDist, "index.html"));
+});
 
 const port = Number(process.env.PORT) || 3001;
 app.listen(port, () => {
