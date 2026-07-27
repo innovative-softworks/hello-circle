@@ -22,7 +22,7 @@ import {
 } from "../api";
 import { useAuth } from "../AuthContext";
 import { AdminIllustration } from "../components/illustrations";
-import { BallIcon, BuildingIcon, CalendarIcon, ClipboardIcon, StarIcon, TagIcon, UsersIcon } from "../components/icons";
+import { BallIcon, BuildingIcon, CalendarIcon, ClipboardIcon, PhoneIcon, PinIcon, StarIcon, TagIcon, UsersIcon } from "../components/icons";
 import { Avatar, BadgedIcon, Button, Card, DashboardTopPanel, EmptyState, StarDisplay, StatRow, StatTile, StatusBadge, inputStyle, labelStyle } from "../components/ui";
 import { colors, fonts, maxWidth } from "../theme";
 import type { AdminStats, Review } from "../types";
@@ -35,18 +35,47 @@ function VendorsTab() {
   return (
     <div className="fade-panel" style={{ display: "flex", flexDirection: "column", gap: 8 }}>
       {vendors.map((v) => (
-        <Card key={v.id} hover style={{ padding: 15, display: "flex", flexWrap: "wrap", gap: 10, justifyContent: "space-between", alignItems: "center" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+        <Card key={v.id} hover style={{ padding: 15, display: "flex", flexWrap: "wrap", gap: 14, justifyContent: "space-between", alignItems: "flex-start" }}>
+          <div style={{ display: "flex", alignItems: "flex-start", gap: 12, minWidth: 0 }}>
             <Avatar name={v.name} size={36} />
-            <div>
-              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <div style={{ minWidth: 0 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
                 <span style={{ fontWeight: 700, fontSize: 14 }}>{v.name}</span>
                 <StatusBadge status={v.status} />
+                {v.vendorType && (
+                  <span
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 4,
+                      fontSize: 11,
+                      fontWeight: 700,
+                      padding: "3px 9px",
+                      borderRadius: 999,
+                      background: v.vendorType === "sports" ? colors.orangeBg : colors.greenBg,
+                      color: v.vendorType === "sports" ? colors.orangeDark : colors.greenText,
+                    }}
+                  >
+                    {v.vendorType === "sports" ? <BallIcon size={11} /> : <BuildingIcon size={11} />}
+                    {v.vendorType === "sports" ? "Sports club" : "Community"}
+                  </span>
+                )}
               </div>
-              <div style={{ fontSize: 12, color: colors.mutedLight }}>{v.email} · {v.centreCount} centres · {v.clubCount} clubs</div>
+              <div style={{ fontSize: 12, color: colors.mutedLight, marginTop: 2 }}>{v.email} · {v.centreCount} centres · {v.clubCount} clubs</div>
+              {v.businessName && (
+                <div style={{ fontSize: 13, fontWeight: 600, marginTop: 6 }}>{v.businessName}</div>
+              )}
+              {(v.address || v.county || v.mobile || v.landline) && (
+                <div style={{ fontSize: 12, color: colors.mutedLight, marginTop: 2 }}>
+                  {[v.address, v.county, v.mobile, v.landline && `${v.landline} (landline)`].filter(Boolean).join(" · ")}
+                </div>
+              )}
+              {v.description && (
+                <div style={{ fontSize: 12, color: colors.muted, marginTop: 6, maxWidth: 480 }}>{v.description}</div>
+              )}
             </div>
           </div>
-          <div style={{ display: "flex", gap: 8 }}>
+          <div style={{ display: "flex", gap: 8, flex: "none" }}>
             {v.status !== "approved" && <Button variant="dark" onClick={() => setVendorStatus(v.id, "approved").then(load)}>Approve</Button>}
             {v.status !== "suspended" && <Button variant="ghost" onClick={() => setVendorStatus(v.id, "suspended").then(load)}>Suspend</Button>}
             {v.status === "suspended" && <Button variant="ghost" onClick={() => setVendorStatus(v.id, "approved").then(load)}>Reinstate</Button>}
@@ -61,20 +90,62 @@ function VendorsTab() {
 function ListingRow({ item, type, onChanged }: { item: AdminListingSummary; type: "centre" | "club"; onChanged: () => void }) {
   const setStatus = type === "centre" ? setCentreStatus : setClubStatus;
   const del = type === "centre" ? adminDeleteCentre : adminDeleteClub;
+  // A listing can't go live before its vendor's account has been vetted.
+  // Grandfathered listings with no vendor (vendorStatus null) are exempt.
+  const vendorNotApproved = !!item.vendorStatus && item.vendorStatus !== "approved";
+
+  const facts = [
+    [item.area, item.county].filter(Boolean).join(", "),
+    item.ph,
+    type === "centre"
+      ? [item.capacity ? `cap ${item.capacity}` : null, item.from ? `from €${item.from}/hr` : null].filter(Boolean).join(" · ")
+      : [item.sport, item.ages, item.price ? `€${item.price}/${item.unit}` : null].filter(Boolean).join(" · "),
+  ].filter(Boolean);
 
   return (
-    <Card hover style={{ padding: 15, display: "flex", flexWrap: "wrap", gap: 10, justifyContent: "space-between", alignItems: "center" }}>
-      <div>
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <span style={{ fontWeight: 700, fontSize: 14 }}>{item.name}</span>
-          <StatusBadge status={item.status} />
+    <Card hover style={{ padding: 15, display: "flex", flexWrap: "wrap", gap: 14, justifyContent: "space-between", alignItems: "flex-start" }}>
+      <div style={{ display: "flex", gap: 12, minWidth: 0 }}>
+        {item.image && (
+          <img src={item.image} alt="" style={{ width: 56, height: 56, borderRadius: 10, objectFit: "cover", flex: "none" }} />
+        )}
+        <div style={{ minWidth: 0 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+            <span style={{ fontWeight: 700, fontSize: 14 }}>{item.name}</span>
+            <StatusBadge status={item.status} />
+          </div>
+          {item.vendorEmail && (
+            <div style={{ fontSize: 12, color: colors.mutedLight, marginTop: 2 }}>
+              {item.vendorName ? `${item.vendorName} · ` : ""}{item.vendorEmail}
+            </div>
+          )}
+          {facts.length > 0 && (
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 12, fontSize: 12, color: colors.mutedLight, marginTop: 6 }}>
+              {facts.map((f, i) => (
+                <span key={i} style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                  {i === 0 ? <PinIcon size={12} /> : i === 1 ? <PhoneIcon size={12} /> : null}
+                  {f}
+                </span>
+              ))}
+            </div>
+          )}
+          {item.blurb && (
+            <div style={{ fontSize: 12, color: colors.muted, marginTop: 6, maxWidth: 480 }}>{item.blurb}</div>
+          )}
         </div>
-        {item.vendorEmail && <div style={{ fontSize: 12, color: colors.mutedLight }}>{item.vendorEmail}</div>}
       </div>
-      <div style={{ display: "flex", gap: 8 }}>
-        {item.status !== "approved" && <Button variant="dark" onClick={() => setStatus(item.id, "approved").then(onChanged)}>Approve</Button>}
-        {item.status !== "rejected" && <Button variant="ghost" onClick={() => setStatus(item.id, "rejected").then(onChanged)}>Reject</Button>}
-        <Button variant="danger" onClick={() => del(item.id).then(onChanged)}>Delete</Button>
+      <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6, flex: "none" }}>
+        <div style={{ display: "flex", gap: 8 }}>
+          {item.status !== "approved" && (
+            <Button variant="dark" disabled={vendorNotApproved} onClick={() => setStatus(item.id, "approved").then(onChanged)}>
+              Approve
+            </Button>
+          )}
+          {item.status !== "rejected" && <Button variant="ghost" onClick={() => setStatus(item.id, "rejected").then(onChanged)}>Reject</Button>}
+          <Button variant="danger" onClick={() => del(item.id).then(onChanged)}>Delete</Button>
+        </div>
+        {vendorNotApproved && (
+          <span style={{ fontSize: 11, color: colors.orangeDark }}>Approve the vendor account first</span>
+        )}
       </div>
     </Card>
   );

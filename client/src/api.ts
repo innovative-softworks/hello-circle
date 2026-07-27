@@ -52,8 +52,8 @@ export function fetchClub(id: string): Promise<Club> {
   return request(`/clubs/${id}`);
 }
 
-export function fetchAvailability(roomId: string, date: string): Promise<{ slots: string[]; bookedTimes: string[]; closed: boolean }> {
-  return request(`/availability?roomId=${encodeURIComponent(roomId)}&date=${encodeURIComponent(date)}`);
+export function fetchAvailability(roomId: string, date: string, duration = 1): Promise<{ slots: string[]; bookedTimes: string[]; closed: boolean }> {
+  return request(`/availability?roomId=${encodeURIComponent(roomId)}&date=${encodeURIComponent(date)}&duration=${duration}`);
 }
 
 export function fetchAvailabilityRange(roomId: string, from: string, days = 60): Promise<{ closedDates: string[] }> {
@@ -78,7 +78,7 @@ export interface CreateBookingInput {
 /** Creates a pending booking + a Stripe Checkout session — the caller
  * should redirect the browser to `url`. The booking is only confirmed once
  * Stripe's webhook fires; nothing is finalized by this call alone. */
-export function createBookingCheckout(input: CreateBookingInput): Promise<{ ref: string; url: string; totalEuro: number }> {
+export function createBookingCheckout(input: CreateBookingInput): Promise<{ ref: string; url?: string; totalEuro: number }> {
   return request(`/bookings/checkout`, { method: "POST", body: JSON.stringify(input) });
 }
 
@@ -137,7 +137,18 @@ export function validateCoupon(code: string, subtotalCents: number): Promise<{ c
 
 // --- auth --------------------------------------------------------------
 
-export function signup(input: { email: string; password: string; name: string }): Promise<{ user: AuthUser }> {
+export function signup(input: {
+  email: string;
+  password: string;
+  name: string;
+  vendorType: "community" | "sports";
+  businessName: string;
+  address: string;
+  county: string;
+  mobile: string;
+  landline?: string;
+  description: string;
+}): Promise<{ user: AuthUser }> {
   return request(`/auth/signup`, { method: "POST", body: JSON.stringify(input) });
 }
 
@@ -210,6 +221,9 @@ export interface CentreInput {
   amenities?: string[];
   opensAt?: string;
   closesAt?: string;
+  paymentMethod?: "online" | "cash";
+  isOpen?: boolean;
+  mapUrl?: string;
 }
 
 export interface ClubInput {
@@ -225,13 +239,8 @@ export interface ClubInput {
   images?: string[];
   blurb: string;
   includes?: string[];
-}
-
-export interface RoomInput {
-  name: string;
-  cap: number;
-  rate: number;
-  desc?: string;
+  paymentMethod?: "online" | "cash";
+  mapUrl?: string;
 }
 
 export function fetchVendorListings(): Promise<{ centres: VendorListingSummary[]; clubs: VendorListingSummary[] }> {
@@ -262,22 +271,8 @@ export function deleteVendorCentre(id: string): Promise<{ ok: boolean }> {
   return request(`/vendor/centres/${id}`, { method: "DELETE" });
 }
 
-export function addVendorRoom(centreId: string, input: RoomInput): Promise<Centre> {
-  return request(`/vendor/centres/${centreId}/rooms`, { method: "POST", body: JSON.stringify(input) });
-}
-
-export function updateVendorRoom(centreId: string, roomId: string, input: Partial<RoomInput>): Promise<Centre> {
-  return request(`/vendor/centres/${centreId}/rooms/${roomId}`, { method: "PUT", body: JSON.stringify(input) });
-}
-
-export function deleteVendorRoom(centreId: string, roomId: string): Promise<Centre> {
-  return request(`/vendor/centres/${centreId}/rooms/${roomId}`, { method: "DELETE" });
-}
-
 export interface BlockInput {
-  roomId?: string | null;
   date: string;
-  time?: string | null;
   reason?: string;
 }
 
@@ -331,14 +326,36 @@ export interface AdminVendor {
   createdAt: string;
   centreCount: number;
   clubCount: number;
+  vendorType: "community" | "sports" | null;
+  businessName: string;
+  address: string;
+  county: string;
+  mobile: string;
+  landline: string;
+  description: string;
 }
 
 export interface AdminListingSummary {
   id: string;
   name: string;
   status: string;
+  area: string;
+  county: string;
+  ph: string;
+  image: string;
+  blurb: string;
   vendorEmail: string | null;
   vendorName?: string | null;
+  vendorStatus?: "pending" | "approved" | "suspended" | null;
+  // centre-only
+  capacity?: number;
+  from?: number;
+  managedBy?: string;
+  // club-only
+  sport?: string;
+  ages?: string;
+  price?: number;
+  unit?: string;
 }
 
 export function fetchAdminVendors(): Promise<AdminVendor[]> {

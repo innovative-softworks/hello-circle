@@ -1,4 +1,5 @@
 import Database from "better-sqlite3";
+import crypto from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -224,6 +225,93 @@ db.exec(`
   UPDATE centres SET created_at = datetime('now') WHERE created_at = '';
   UPDATE clubs SET created_at = datetime('now') WHERE created_at = '';
 `);
+
+// Vendor registration profile: what kind of venue they run (chosen once,
+// at signup) plus the business details admin reviews before approving.
+// Nullable/empty for admin accounts and any vendor rows created before
+// this existed.
+ensureColumn("users", "vendor_type", "vendor_type TEXT");
+ensureColumn("users", "business_name", "business_name TEXT NOT NULL DEFAULT ''");
+ensureColumn("users", "address", "address TEXT NOT NULL DEFAULT ''");
+ensureColumn("users", "county", "county TEXT NOT NULL DEFAULT ''");
+ensureColumn("users", "mobile", "mobile TEXT NOT NULL DEFAULT ''");
+ensureColumn("users", "landline", "landline TEXT NOT NULL DEFAULT ''");
+ensureColumn("users", "description", "description TEXT NOT NULL DEFAULT ''");
+
+// Backfill: vendors who signed up before draft-listing-at-signup existed
+// (or before vendor_type/county did) have a profile but no listing row.
+// Give each such vendor exactly one draft listing built from their stored
+// profile, matching what a fresh signup now creates — idempotent, since it
+// only fires while the vendor still has zero listings of their type.
+const vendorsNeedingDraft = db
+  .prepare(
+    `SELECT id, vendor_type, business_name, address, county, mobile, description
+     FROM users WHERE role = 'vendor' AND vendor_type IS NOT NULL AND business_name != ''`
+  )
+  .all() as { id: string; vendor_type: string; business_name: string; address: string; county: string; mobile: string; description: string }[];
+for (const v of vendorsNeedingDraft) {
+  if (v.vendor_type === "community") {
+    const { n } = db.prepare(`SELECT COUNT(*) as n FROM centres WHERE vendor_id = ?`).get(v.id) as { n: number };
+    if (n === 0) {
+      db.prepare(
+        `INSERT INTO centres (id, name, area, county, rating, reviews, capacity, from_price, managed_by, ph, image_url, blurb, vendor_id, status, created_at)
+         VALUES (?, ?, ?, ?, 0, 0, 0, 0, ?, ?, '', ?, ?, 'pending', datetime('now'))`
+      ).run(crypto.randomUUID(), v.business_name, v.address, v.county, v.business_name, v.mobile, v.description, v.id);
+    }
+  } else if (v.vendor_type === "sports") {
+    const { n } = db.prepare(`SELECT COUNT(*) as n FROM clubs WHERE vendor_id = ?`).get(v.id) as { n: number };
+    if (n === 0) {
+      db.prepare(
+        `INSERT INTO clubs (id, name, sport, area, county, ages, price, unit, trial, ph, image_url, blurb, vendor_id, status, created_at)
+         VALUES (?, ?, '', ?, ?, '', 0, 'year', 0, ?, '', ?, ?, 'pending', datetime('now'))`
+      ).run(crypto.randomUUID(), v.business_name, v.address, v.county, v.mobile, v.description, v.id);
+    }
+  }
+}
+
+// Cash-vs-online payment choice: rooms are per-room (booking is per-room),
+// clubs are per-club (registration has no sub-resource). When 'cash', the
+// booking/registration checkout skips Stripe and confirms immediately.
+ensureColumn("rooms", "payment_method", "payment_method TEXT NOT NULL DEFAULT 'online'");
+ensureColumn("clubs", "payment_method", "payment_method TEXT NOT NULL DEFAULT 'online'");
+ensureColumn("centres", "payment_method", "payment_method TEXT NOT NULL DEFAULT 'online'");
+
+// "Rooms" is now a pure internal implementation detail — bookings and
+// availability stay keyed by room_id (unchanged), but vendors no longer add
+// multiple rooms; a centre's own capacity/from_price/payment_method are the
+// single source of truth, kept in sync with its one room on every save (see
+// vendor.ts). One-time backfill to collapse every centre down to exactly one
+// room — idempotent, since afterward every centre already has exactly one.
+const centresForRoomCollapse = db.prepare(`SELECT id, capacity, from_price, payment_method FROM centres`).all() as {
+  id: string;
+  capacity: number;
+  from_price: number;
+  payment_method: string;
+}[];
+for (const c of centresForRoomCollapse) {
+  const rooms = db.prepare(`SELECT id FROM rooms WHERE centre_id = ? ORDER BY sort_order`).all(c.id) as { id: string }[];
+  if (rooms.length === 0) {
+    db.prepare(
+      `INSERT INTO rooms (id, centre_id, name, cap, rate, desc, sort_order, payment_method) VALUES (?, ?, '', ?, ?, '', 0, ?)`
+    ).run(crypto.randomUUID(), c.id, c.capacity, c.from_price, c.payment_method);
+  } else if (rooms.length > 1) {
+    const keepId = rooms[0].id;
+    for (const { id: otherId } of rooms.slice(1)) {
+      db.prepare(`UPDATE bookings SET room_id = ? WHERE centre_id = ? AND room_id = ?`).run(keepId, c.id, otherId);
+      db.prepare(`UPDATE room_blocks SET room_id = ? WHERE centre_id = ? AND room_id = ?`).run(keepId, c.id, otherId);
+      db.prepare(`DELETE FROM rooms WHERE centre_id = ? AND id = ?`).run(c.id, otherId);
+    }
+    db.prepare(`UPDATE rooms SET cap = ?, rate = ? WHERE centre_id = ? AND id = ?`).run(c.capacity, c.from_price, c.id, keepId);
+  }
+}
+
+// Vendor-controlled "open for bookings" switch — when closed, the venue
+// stays visible/approved but families can't start a new booking.
+ensureColumn("centres", "is_open", "is_open INTEGER NOT NULL DEFAULT 1");
+
+// Optional map link (e.g. a Google Maps URL) vendors can add for their venue.
+ensureColumn("centres", "map_url", "map_url TEXT NOT NULL DEFAULT ''");
+ensureColumn("clubs", "map_url", "map_url TEXT NOT NULL DEFAULT ''");
 
 // Pricing breakdown + payment tracking. total_cents (pre-existing) remains
 // the final charged amount; these break it down and track the Stripe side.

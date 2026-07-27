@@ -2,39 +2,30 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { fetchCentres } from "../api";
 import { CentreCard } from "../components/CentreCard";
-import { COUNTIES } from "../constants";
 import { CommunityIllustration, SportsIllustration } from "../components/illustrations";
 import {
   ArrowRightIcon,
   BallIcon,
   BuildingIcon,
   ChevronRightIcon,
-  GraduationCapIcon,
   HandshakeIcon,
   HeartIcon,
-  IdCardIcon,
   PinIcon,
-  StethoscopeIcon,
 } from "../components/icons";
 import { colors, fonts, maxWidth } from "../theme";
 import type { Centre } from "../types";
-
-const STEPS = [
-  { icon: <StethoscopeIcon size={18} />, label: "Register GP" },
-  { icon: <IdCardIcon size={18} />, label: "Get PPSN" },
-  { icon: <GraduationCapIcon size={18} />, label: "Enrol in school" },
-  { icon: <BallIcon size={18} />, label: "Find a club" },
-  { icon: <BuildingIcon size={18} />, label: "Book a hall" },
-  { icon: <HeartIcon size={18} filled />, label: "Get involved" },
-];
 
 export function Home() {
   const navigate = useNavigate();
   const [homeCounty, setHomeCounty] = useState("All");
   const [featured, setFeatured] = useState<Centre[]>([]);
+  const [counties, setCounties] = useState<string[]>(["All"]);
 
   useEffect(() => {
-    fetchCentres().then((centres) => setFeatured(centres.slice(0, 3)));
+    fetchCentres().then((centres) => {
+      setFeatured(centres.slice(0, 3));
+      setCounties(["All", ...Array.from(new Set(centres.map((c) => c.county).filter(Boolean))).sort((a, b) => a.localeCompare(b))]);
+    });
   }, []);
 
   return (
@@ -121,7 +112,7 @@ export function Home() {
                   fontWeight: 600,
                 }}
               >
-                {COUNTIES.map((c) => (
+                {counties.map((c) => (
                   <option key={c} value={c}>
                     {c}
                   </option>
@@ -302,7 +293,7 @@ export function Home() {
                 Community centres
               </h3>
               <p style={{ margin: "0 0 16px", color: colors.muted, fontSize: 15 }}>
-                Halls, function rooms & meeting spaces to hire by the hour.
+                Halls and meeting spaces to hire by the hour.
               </p>
             </div>
             <span className="link-accent" style={{ position: "relative", display: "inline-flex", alignItems: "center", gap: 6, color: colors.greenText, fontWeight: 700, fontSize: 14 }}>
@@ -389,92 +380,6 @@ export function Home() {
         </div>
       </section>
 
-      <section className="section-pad" style={{ maxWidth, margin: "0 auto", padding: "38px 24px 70px" }}>
-        <div
-          style={{
-            background: colors.dark,
-            color: "#fff",
-            borderRadius: 20,
-            padding: "34px clamp(20px, 5vw, 38px)",
-            display: "flex",
-            flexDirection: "column",
-            gap: 26,
-          }}
-        >
-          <div
-            onClick={() => navigate("/checklist")}
-            style={{ cursor: "pointer", display: "flex", alignItems: "center", gap: 28, flexWrap: "wrap" }}
-          >
-            <div style={{ flex: 1, minWidth: 280 }}>
-              <div style={{ fontFamily: "monospace", fontSize: 11, letterSpacing: ".1em", color: "#8FB89E", marginBottom: 10 }}>
-                NEW TO IRELAND?
-              </div>
-              <h3 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 26, margin: "0 0 8px", letterSpacing: "-.02em" }}>
-                The 6 steps families follow when settling in
-              </h3>
-              <p style={{ margin: 0, color: "#B9BEB6", fontSize: 15 }}>
-                From registering with a GP to booking your first family function — a simple checklist to get set up in
-                your new community.
-              </p>
-            </div>
-            <button
-              className="btn"
-              style={{
-                background: "#fff",
-                color: colors.text,
-                border: "none",
-                borderRadius: 12,
-                padding: "14px 22px",
-                fontSize: 15,
-                fontWeight: 700,
-                cursor: "pointer",
-                whiteSpace: "nowrap",
-                display: "inline-flex",
-                alignItems: "center",
-                gap: 6,
-              }}
-            >
-              Open checklist <ArrowRightIcon size={15} />
-            </button>
-          </div>
-
-          <div style={{ overflowX: "auto", paddingTop: 4 }}>
-            <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", minWidth: 560 }}>
-              {STEPS.map((s, i) => (
-                <div key={s.label} style={{ display: "flex", alignItems: "center", flex: i < STEPS.length - 1 ? 1 : "none" }}>
-                  <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8, minWidth: 64 }}>
-                    <div
-                      style={{
-                        width: 42,
-                        height: 42,
-                        borderRadius: "50%",
-                        background: "rgba(255,255,255,.1)",
-                        border: "1px solid rgba(255,255,255,.18)",
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                      }}
-                    >
-                      {s.icon}
-                    </div>
-                    <span style={{ fontSize: 11, color: "#B9BEB6", textAlign: "center", lineHeight: 1.3 }}>{s.label}</span>
-                  </div>
-                  {i < STEPS.length - 1 && (
-                    <div
-                      style={{
-                        flex: 1,
-                        height: 0,
-                        borderTop: "1.5px dotted rgba(255,255,255,.25)",
-                        margin: "0 6px 20px",
-                      }}
-                    />
-                  )}
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      </section>
     </div>
   );
 }

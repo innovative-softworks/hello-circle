@@ -1,4 +1,3 @@
-import crypto from "node:crypto";
 import { Router } from "express";
 import { requireAdmin } from "../auth.js";
 import { db } from "../db/index.js";
@@ -37,6 +36,7 @@ adminRouter.get("/vendors", (_req, res) => {
   const rows = db
     .prepare(
       `SELECT id, email, name, status, created_at as createdAt,
+              vendor_type as vendorType, business_name as businessName, address, county, mobile, landline, description,
               (SELECT COUNT(*) FROM centres WHERE vendor_id = users.id) as centreCount,
               (SELECT COUNT(*) FROM clubs WHERE vendor_id = users.id) as clubCount
        FROM users WHERE role = 'vendor' ORDER BY created_at DESC`
@@ -50,6 +50,10 @@ adminRouter.put("/vendors/:id/status", (req, res) => {
   if (!status || !["pending", "approved", "suspended"].includes(status)) {
     return res.status(400).json({ error: "status must be pending, approved or suspended" });
   }
+  // Vendor account approval and listing approval are deliberately separate
+  // steps: approving the account only lets the vendor log in and finish
+  // setting up their listing (rooms/price/photos/etc) — the listing itself
+  // still needs its own admin review once that setup is done.
   const info = db.prepare(`UPDATE users SET status = ? WHERE id = ? AND role = 'vendor'`).run(status, req.params.id);
   if (info.changes === 0) return res.status(404).json({ error: "Vendor not found" });
   res.json({ ok: true });
@@ -57,16 +61,21 @@ adminRouter.put("/vendors/:id/status", (req, res) => {
 
 // --- listing moderation --------------------------------------------------
 
+const PENDING_CENTRE_COLUMNS = `c.id, c.name, c.status, c.area, c.county, c.capacity, c.from_price as \`from\`, c.managed_by as managedBy,
+              c.ph, c.image_url as image, c.blurb, u.email as vendorEmail, u.name as vendorName, u.status as vendorStatus`;
+const PENDING_CLUB_COLUMNS = `c.id, c.name, c.status, c.sport, c.area, c.county, c.ages, c.price, c.unit,
+              c.ph, c.image_url as image, c.blurb, u.email as vendorEmail, u.name as vendorName, u.status as vendorStatus`;
+
 adminRouter.get("/listings/pending", (_req, res) => {
   const centres = db
     .prepare(
-      `SELECT c.id, c.name, c.status, u.email as vendorEmail, u.name as vendorName
+      `SELECT ${PENDING_CENTRE_COLUMNS}
        FROM centres c LEFT JOIN users u ON u.id = c.vendor_id WHERE c.status = 'pending' ORDER BY c.name`
     )
     .all();
   const clubs = db
     .prepare(
-      `SELECT c.id, c.name, c.status, u.email as vendorEmail, u.name as vendorName
+      `SELECT ${PENDING_CLUB_COLUMNS}
        FROM clubs c LEFT JOIN users u ON u.id = c.vendor_id WHERE c.status = 'pending' ORDER BY c.name`
     )
     .all();
@@ -76,23 +85,38 @@ adminRouter.get("/listings/pending", (_req, res) => {
 adminRouter.get("/listings", (_req, res) => {
   const centres = db
     .prepare(
-      `SELECT c.id, c.name, c.status, u.email as vendorEmail
+      `SELECT ${PENDING_CENTRE_COLUMNS}
        FROM centres c LEFT JOIN users u ON u.id = c.vendor_id ORDER BY c.name`
     )
     .all();
   const clubs = db
     .prepare(
-      `SELECT c.id, c.name, c.status, u.email as vendorEmail
+      `SELECT ${PENDING_CLUB_COLUMNS}
        FROM clubs c LEFT JOIN users u ON u.id = c.vendor_id ORDER BY c.name`
     )
     .all();
   res.json({ centres, clubs });
 });
 
+/** A listing can't go live before the vendor account behind it has been
+ * vetted — mirrors the "Approve" button being disabled client-side in
+ * AdminDashboard.tsx. Grandfathered listings with no vendor (vendor_id
+ * NULL) are exempt, matching how they're already treated as pre-approved
+ * elsewhere. */
+function vendorNotApprovedFor(table: "centres" | "clubs", id: string): boolean {
+  const row = db
+    .prepare(`SELECT u.status FROM ${table} c LEFT JOIN users u ON u.id = c.vendor_id WHERE c.id = ?`)
+    .get(id) as { status: string | null } | undefined;
+  return !!row?.status && row.status !== "approved";
+}
+
 adminRouter.put("/centres/:id/status", (req, res) => {
   const { status } = req.body as { status?: string };
   if (!status || !["pending", "approved", "rejected", "deleted"].includes(status)) {
     return res.status(400).json({ error: "Invalid status" });
+  }
+  if (status === "approved" && vendorNotApprovedFor("centres", req.params.id)) {
+    return res.status(409).json({ error: "Approve the vendor's account before approving their listing" });
   }
   const info = db.prepare(`UPDATE centres SET status = ? WHERE id = ?`).run(status, req.params.id);
   if (info.changes === 0) return res.status(404).json({ error: "Centre not found" });
@@ -103,6 +127,9 @@ adminRouter.put("/clubs/:id/status", (req, res) => {
   const { status } = req.body as { status?: string };
   if (!status || !["pending", "approved", "rejected", "deleted"].includes(status)) {
     return res.status(400).json({ error: "Invalid status" });
+  }
+  if (status === "approved" && vendorNotApprovedFor("clubs", req.params.id)) {
+    return res.status(409).json({ error: "Approve the vendor's account before approving their listing" });
   }
   const info = db.prepare(`UPDATE clubs SET status = ? WHERE id = ?`).run(status, req.params.id);
   if (info.changes === 0) return res.status(404).json({ error: "Club not found" });
@@ -207,14 +234,6 @@ adminRouter.delete("/clubs/:id", (req, res) => {
   res.json({ ok: true });
 });
 
-adminRouter.delete("/centres/:centreId/rooms/:roomId", (req, res) => {
-  const info = db
-    .prepare(`DELETE FROM rooms WHERE centre_id = ? AND id = ?`)
-    .run(req.params.centreId, req.params.roomId);
-  if (info.changes === 0) return res.status(404).json({ error: "Room not found" });
-  res.json(getCentre(req.params.centreId));
-});
-
 // --- review moderation -----------------------------------------------------
 
 adminRouter.get("/reviews", (_req, res) => {
@@ -226,23 +245,6 @@ adminRouter.put("/reviews/:id/unhide", (req, res) => {
   const info = db.prepare(`UPDATE reviews SET hidden = 0 WHERE id = ?`).run(req.params.id);
   if (info.changes === 0) return res.status(404).json({ error: "Review not found" });
   res.json({ ok: true });
-});
-
-// Room id generation for admin-created rooms on any centre (parity with vendor route).
-adminRouter.post("/centres/:id/rooms", (req, res) => {
-  const b = req.body as { name?: string; cap?: number; rate?: number; desc?: string };
-  if (!b.name || !b.cap || !b.rate) return res.status(400).json({ error: "name, cap and rate are required" });
-  const centre = getCentre(req.params.id);
-  if (!centre) return res.status(404).json({ error: "Centre not found" });
-
-  const roomId = crypto.randomUUID();
-  const { count } = db.prepare(`SELECT COUNT(*) as count FROM rooms WHERE centre_id = ?`).get(req.params.id) as {
-    count: number;
-  };
-  db.prepare(
-    `INSERT INTO rooms (id, centre_id, name, cap, rate, desc, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?)`
-  ).run(roomId, req.params.id, b.name, b.cap, b.rate, b.desc ?? "", count);
-  res.status(201).json(getCentre(req.params.id));
 });
 
 // --- coupons (platform-wide, admin-managed discount codes) -----------------

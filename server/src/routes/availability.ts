@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { db } from "../db/index.js";
+import { bookingEndHour, hoursOverlap } from "../util.js";
 
 export const availabilityRouter = Router();
 
@@ -40,10 +41,14 @@ function blocksFor(centreId: string, roomId: string, date: string): BlockRow[] {
 }
 
 availabilityRouter.get("/", (req, res) => {
-  const { roomId, date } = req.query;
+  const { roomId, date, duration } = req.query;
   if (typeof roomId !== "string" || typeof date !== "string") {
     return res.status(400).json({ error: "roomId and date query params are required" });
   }
+  // The requested duration determines how far a start time reaches, so a
+  // slot must be blocked if [start, start+duration) overlaps an existing
+  // booking — not just if the slot's own hour happens to already be booked.
+  const reqDuration = Math.max(1, Number(duration) || 1);
 
   const room = db.prepare(`SELECT centre_id FROM rooms WHERE id = ?`).get(roomId) as { centre_id: string } | undefined;
   if (!room) return res.status(404).json({ error: "Room not found" });
@@ -51,24 +56,28 @@ availabilityRouter.get("/", (req, res) => {
   const hours = db.prepare(`SELECT opens_at, closes_at FROM centres WHERE id = ?`).get(room.centre_id) as CentreHours;
   const slots = slotsWithinHours(hours);
 
-  const bookedHours = new Set<number>();
-  const bookings = db.prepare(`SELECT time, duration FROM bookings WHERE room_id = ? AND date = ?`).all(roomId, date) as BookingRow[];
-  for (const b of bookings) {
-    const startHour = parseInt(b.time.slice(0, 2), 10);
-    if (b.duration >= 8) {
-      TIME_SLOTS.forEach((t) => bookedHours.add(parseInt(t.slice(0, 2), 10)));
-    } else {
-      for (let h = startHour; h < startHour + b.duration; h++) bookedHours.add(h);
-    }
-  }
+  const bookings = db.prepare(`SELECT time, duration FROM bookings WHERE room_id = ? AND date = ? AND payment_status != 'failed'`).all(roomId, date) as BookingRow[];
+  const bookingIntervals = bookings.map((b) => {
+    const bStart = parseInt(b.time.slice(0, 2), 10);
+    return { start: bStart, end: bookingEndHour(bStart, b.duration) };
+  });
 
   const blocks = blocksFor(room.centre_id, roomId, date);
   const closed = blocks.some((b) => b.time === null);
+  const blockedHours = new Set<number>();
   for (const b of blocks) {
-    if (b.time !== null) bookedHours.add(parseInt(b.time.slice(0, 2), 10));
+    if (b.time !== null) blockedHours.add(parseInt(b.time.slice(0, 2), 10));
   }
 
-  const bookedTimes = closed ? slots : slots.filter((t) => bookedHours.has(parseInt(t.slice(0, 2), 10)));
+  const bookedTimes = closed
+    ? slots
+    : slots.filter((t) => {
+        const startHour = parseInt(t.slice(0, 2), 10);
+        if (blockedHours.has(startHour)) return true;
+        const reqEnd = bookingEndHour(startHour, reqDuration);
+        return bookingIntervals.some((iv) => hoursOverlap(startHour, reqEnd, iv.start, iv.end));
+      });
+
   res.json({ slots, bookedTimes, closed });
 });
 

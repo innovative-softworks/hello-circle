@@ -5,7 +5,6 @@ import { Header } from "./components/Header";
 import { MyStuffProvider } from "./MyStuffContext";
 import { AdminDashboard } from "./pages/AdminDashboard";
 import { Browse } from "./pages/Browse";
-import { Checklist } from "./pages/Checklist";
 import { CentreDetail } from "./pages/CentreDetail";
 import { ClubDetail } from "./pages/ClubDetail";
 import { BookingFlow } from "./pages/BookingFlow";
@@ -32,12 +31,11 @@ export function App() {
             <Route path="/browse/:category" element={<Browse />} />
             <Route path="/centres/:id" element={<CentreDetail />} />
             <Route path="/clubs/:id" element={<ClubDetail />} />
-            <Route path="/book/:centreId/:roomId" element={<BookingFlow />} />
+            <Route path="/book/:centreId" element={<BookingFlow />} />
             <Route path="/register/:clubId" element={<RegistrationFlow />} />
             <Route path="/bookings" element={<MyBookings />} />
             <Route path="/payment/success" element={<PaymentSuccess />} />
             <Route path="/payment/cancel" element={<PaymentCancel />} />
-            <Route path="/checklist" element={<Checklist />} />
             <Route path="/login" element={<Login />} />
             <Route path="/vendor/signup" element={<VendorSignup />} />
             <Route path="/vendor" element={<VendorDashboard />} />

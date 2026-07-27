@@ -15,3 +15,15 @@ export function isValidEmail(email: string): boolean {
 }
 
 export class BadRequestError extends Error {}
+
+/** A booking of >=8h is treated as occupying the whole day (matches the
+ * booking flow's "Full day" duration option) — this gives its exclusive
+ * end hour, e.g. bookingEndHour(10, 3) === 13. */
+export function bookingEndHour(startHour: number, duration: number): number {
+  return duration >= 8 ? 24 : startHour + duration;
+}
+
+/** Half-open interval overlap: [aStart, aEnd) vs [bStart, bEnd). */
+export function hoursOverlap(aStart: number, aEnd: number, bStart: number, bEnd: number): boolean {
+  return aStart < bEnd && bStart < aEnd;
+}

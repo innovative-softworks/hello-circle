@@ -16,6 +16,9 @@ interface CentreRow {
   vendor_id: string | null;
   opens_at: string;
   closes_at: string;
+  payment_method: "online" | "cash";
+  is_open: number;
+  map_url: string;
 }
 
 interface ClubRow {
@@ -33,13 +36,15 @@ interface ClubRow {
   blurb: string;
   status: string;
   vendor_id: string | null;
+  payment_method: "online" | "cash";
+  map_url: string;
 }
 
 const amenitiesStmt = db.prepare(
   `SELECT amenity FROM centre_amenities WHERE centre_id = ? ORDER BY sort_order`
 );
 const roomsStmt = db.prepare(
-  `SELECT id, centre_id as centreId, name, cap, rate, desc FROM rooms WHERE centre_id = ? ORDER BY sort_order`
+  `SELECT id, centre_id as centreId, name, cap, rate, desc, payment_method as paymentMethod FROM rooms WHERE centre_id = ? ORDER BY sort_order`
 );
 const includesStmt = db.prepare(
   `SELECT item FROM club_includes WHERE club_id = ? ORDER BY sort_order`
@@ -81,6 +86,9 @@ function toCentre(row: CentreRow): Centre {
     rooms: roomsStmt.all(row.id) as Room[],
     opensAt: row.opens_at,
     closesAt: row.closes_at,
+    paymentMethod: row.payment_method,
+    isOpen: !!row.is_open,
+    mapUrl: row.map_url,
   };
 }
 
@@ -104,6 +112,8 @@ function toClub(row: ClubRow): Club {
     includes: (includesStmt.all(row.id) as { item: string }[]).map((r) => r.item),
     rating,
     reviews,
+    paymentMethod: row.payment_method,
+    mapUrl: row.map_url,
   };
 }
 

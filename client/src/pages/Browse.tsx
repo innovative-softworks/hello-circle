@@ -5,7 +5,6 @@ import { BrowseIllustration } from "../components/BrowseIllustration";
 import { Chip } from "../components/Chip";
 import { CentreCard } from "../components/CentreCard";
 import { ClubCard } from "../components/ClubCard";
-import { COUNTIES, SPORTS } from "../constants";
 import { ChevronLeftIcon, ChevronRightIcon, GridIcon, HomeIcon, PinIcon, SearchIcon } from "../components/icons";
 import { colors, fonts, maxWidth } from "../theme";
 import type { Centre, Club } from "../types";
@@ -28,6 +27,10 @@ function clubPrice(c: Club) {
   return c.price;
 }
 
+function uniqueSorted(values: string[]): string[] {
+  return Array.from(new Set(values.filter(Boolean))).sort((a, b) => a.localeCompare(b));
+}
+
 export function Browse() {
   const { category } = useParams<{ category: "centres" | "clubs" }>();
   const navigate = useNavigate();
@@ -41,6 +44,8 @@ export function Browse() {
   const isClubs = category === "clubs";
   const [centres, setCentres] = useState<Centre[]>([]);
   const [clubs, setClubs] = useState<Club[]>([]);
+  const [countyOptions, setCountyOptions] = useState<string[]>([]);
+  const [sportOptions, setSportOptions] = useState<string[]>(["All"]);
 
   useEffect(() => {
     if (isClubs) {
@@ -49,6 +54,20 @@ export function Browse() {
       fetchCentres(county).then(setCentres);
     }
   }, [isClubs, county, sport]);
+
+  // Filter chips reflect whatever counties/sports actually exist in the data,
+  // not a fixed list — fetched unfiltered so switching county/sport doesn't
+  // shrink the chip set to match the current filter.
+  useEffect(() => {
+    if (isClubs) {
+      fetchClubs().then((rows) => {
+        setCountyOptions(uniqueSorted(rows.map((r) => r.county)));
+        setSportOptions(["All", ...uniqueSorted(rows.map((r) => r.sport))]);
+      });
+    } else {
+      fetchCentres().then((rows) => setCountyOptions(uniqueSorted(rows.map((r) => r.county))));
+    }
+  }, [isClubs]);
 
   useEffect(() => {
     setPage(1);
@@ -112,7 +131,7 @@ export function Browse() {
               <p style={{ color: colors.muted, fontSize: 14, lineHeight: 1.55, margin: 0, maxWidth: 340 }}>
                 {isClubs
                   ? "Find GAA, soccer, swimming, rugby and more for every age. Many clubs offer a free trial session before you commit."
-                  : "Book a hall for birthdays, meetings, classes or family celebrations. Compare rooms, capacity and prices from verified centres near you."}
+                  : "Book a hall for birthdays, meetings, classes or family celebrations. Compare capacity and prices from verified centres near you."}
               </p>
             </div>
             <BrowseIllustration accent={accent} />
@@ -140,7 +159,7 @@ export function Browse() {
               <GridIcon size={13} />
               All
             </button>
-            {COUNTIES.filter((c) => c !== "All").map((c) => (
+            {countyOptions.map((c) => (
               <Chip
                 key={c}
                 label={<span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><PinIcon size={13} />{c}</span>}
@@ -193,7 +212,7 @@ export function Browse() {
           </div>
           {isClubs && (
             <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 12, paddingTop: 12, borderTop: `1px solid ${colors.border}` }}>
-              {SPORTS.map((s) => (
+              {sportOptions.map((s) => (
                 <Chip
                   key={s}
                   label={s}

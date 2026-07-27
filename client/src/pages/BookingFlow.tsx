@@ -58,7 +58,7 @@ const inputStyle: React.CSSProperties = {
 const labelStyle: React.CSSProperties = { display: "block", fontSize: 13, fontWeight: 600, color: colors.muted, margin: "0 0 6px" };
 
 export function BookingFlow() {
-  const { centreId, roomId } = useParams<{ centreId: string; roomId: string }>();
+  const { centreId } = useParams<{ centreId: string }>();
   const navigate = useNavigate();
   const [centre, setCentre] = useState<Centre | null>(null);
   const [step, setStep] = useState(1);
@@ -70,6 +70,7 @@ export function BookingFlow() {
   const [monthOffset, setMonthOffset] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [confirmedRef, setConfirmedRef] = useState<string | null>(null);
 
   const [couponInput, setCouponInput] = useState("");
   const [coupon, setCoupon] = useState<{ code: string; discountCents: number } | null>(null);
@@ -80,21 +81,29 @@ export function BookingFlow() {
     if (centreId) fetchCentre(centreId).then(setCentre);
   }, [centreId]);
 
+  // A centre has exactly one (internal, never user-picked) room — resolve it
+  // here once the centre loads.
+  const room: Room | undefined = centre?.rooms[0];
+  const roomId = room?.id;
+  const isCash = room?.paymentMethod === "cash";
+
   useEffect(() => {
     if (roomId) fetchAvailabilityRange(roomId, toIso(new Date()), 62).then((r) => setClosedDates(new Set(r.closedDates)));
   }, [roomId]);
 
   useEffect(() => {
     if (roomId && form.date) {
-      fetchAvailability(roomId, form.date).then((r) => {
+      fetchAvailability(roomId, form.date, form.duration).then((r) => {
         setBookedTimes(r.bookedTimes);
         setDaySlots(r.slots);
         setDayClosed(r.closed);
+        // A duration change can invalidate an already-picked start time
+        // (it now overlaps another booking) — clear it so the user re-picks
+        // rather than silently proceeding toward a checkout that will fail.
+        setForm((f) => (f.time && r.bookedTimes.includes(f.time) ? { ...f, time: null } : f));
       });
     }
-  }, [roomId, form.date]);
-
-  const room: Room | undefined = centre?.rooms.find((r) => r.id === roomId);
+  }, [roomId, form.date, form.duration]);
 
   const today = useMemo(() => new Date(), []);
   const minSelectable = useMemo(() => {
@@ -116,7 +125,7 @@ export function BookingFlow() {
   const taxableCents = Math.max(0, hireCents - discountCents);
   const vatCents = Math.round(taxableCents * VAT_RATE);
   const feeCents = Math.round(taxableCents * PLATFORM_FEE_RATE);
-  const depositCents = DEPOSIT_EURO * 100;
+  const depositCents = isCash ? 0 : DEPOSIT_EURO * 100;
   const totalCents = taxableCents + vatCents + feeCents + depositCents;
 
   const b1Ready = !!(form.date && form.time && form.duration);
@@ -168,7 +177,14 @@ export function BookingFlow() {
         notes: form.notes,
         couponCode: coupon?.code,
       });
-      window.location.href = res.url;
+      if (res.url) {
+        window.location.href = res.url;
+      } else {
+        // Cash room — confirmed immediately, no Stripe redirect.
+        setConfirmedRef(res.ref);
+        setSubmitting(false);
+        top();
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Something went wrong");
       setSubmitting(false);
@@ -196,6 +212,46 @@ export function BookingFlow() {
   };
 
   if (!centre || !room) return null;
+
+  if (confirmedRef) {
+    return (
+      <div style={{ animation: "fadeUp .3s ease both" }}>
+        <section className="section-pad" style={{ maxWidth: 640, margin: "0 auto", padding: "56px 24px 80px", textAlign: "center" }}>
+          <div style={{ width: 74, height: 74, borderRadius: "50%", background: colors.greenBg, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 22px", fontSize: 34, color: colors.green }}>
+            <CheckIcon size={32} />
+          </div>
+          <h1 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 34, margin: "0 0 8px", letterSpacing: "-.02em" }}>
+            Booking confirmed!
+          </h1>
+          <p style={{ color: colors.muted, fontSize: 17, margin: "0 0 28px" }}>
+            Pay {euro(totalCents / 100)} in cash at the venue — no online payment needed. We've emailed {form.email || "you"} the details.
+          </p>
+          <div style={{ background: "#fff", border: `1px solid ${colors.border}`, borderRadius: 18, padding: 24, textAlign: "left", marginBottom: 24 }}>
+            <div style={{ fontWeight: 700, fontSize: 18, marginBottom: 2 }}>{centre.name}</div>
+            <div style={{ color: colors.mutedLight, fontSize: 14, marginBottom: 16 }}>{dateLabel(form.date)} at {form.time}</div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+              <div>
+                <div style={{ fontSize: 12, color: colors.faint, fontWeight: 600 }}>REFERENCE</div>
+                <div style={{ fontWeight: 600 }}>{confirmedRef}</div>
+              </div>
+              <div>
+                <div style={{ fontSize: 12, color: colors.faint, fontWeight: 600 }}>PAYMENT</div>
+                <div style={{ fontWeight: 600 }}>Cash on arrival</div>
+              </div>
+            </div>
+          </div>
+          <div style={{ display: "flex", gap: 12, justifyContent: "center", flexWrap: "wrap" }}>
+            <button onClick={() => navigate("/bookings")} style={{ background: colors.green, color: "#fff", border: "none", borderRadius: 12, padding: "13px 22px", fontWeight: 700, fontSize: 15, cursor: "pointer" }}>
+              View my bookings
+            </button>
+            <button onClick={() => navigate("/")} style={{ background: "#fff", color: colors.text, border: `1px solid ${colors.borderStrong}`, borderRadius: 12, padding: "13px 22px", fontWeight: 600, fontSize: 15, cursor: "pointer" }}>
+              Back home
+            </button>
+          </div>
+        </section>
+      </div>
+    );
+  }
 
   return (
     <div style={{ animation: "fadeUp .3s ease both" }}>
@@ -359,11 +415,13 @@ export function BookingFlow() {
               <>
                 <h2 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 23, margin: "0 0 6px", letterSpacing: "-.01em" }}>Review & pay</h2>
                 <p style={{ color: colors.mutedLight, fontSize: 14, margin: "0 0 20px" }}>
-                  You'll pay securely on the next screen. The €100 deposit is refunded within 5 days after your event.
+                  {isCash
+                    ? "This room is pay-on-arrival — no online payment needed. Your booking is confirmed as soon as you submit."
+                    : "You'll pay securely on the next screen. The €100 deposit is refunded within 5 days after your event."}
                 </p>
 
                 <div style={{ background: colors.bg, border: `1px solid ${colors.border}`, borderRadius: 14, padding: 18, marginBottom: 18 }}>
-                  <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 10 }}>{centre.name} — {room.name}</div>
+                  <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 10 }}>{centre.name}</div>
                   <div style={{ fontSize: 14, color: colors.muted, display: "flex", flexDirection: "column", gap: 4 }}>
                     <div>{dateLabel(form.date)} at {form.time} · {DURATION_OPTIONS.find((d) => d.hours === form.duration)?.label}</div>
                     <div>{form.eventType} · {form.guests} guests</div>
@@ -421,7 +479,13 @@ export function BookingFlow() {
                   fontWeight: 700, fontSize: 15, cursor: "pointer", opacity: ready && !submitting ? 1 : 0.45, pointerEvents: ready && !submitting ? "auto" : "none",
                 }}
               >
-                {step === 3 ? (submitting ? "Redirecting to secure payment…" : `Continue to pay ${euro(totalCents / 100)}`) : "Continue"}
+                {step === 3
+                  ? submitting
+                    ? isCash ? "Confirming…" : "Redirecting to secure payment…"
+                    : isCash
+                      ? `Confirm booking — pay ${euro(totalCents / 100)} on arrival`
+                      : `Continue to pay ${euro(totalCents / 100)}`
+                  : "Continue"}
               </button>
             </div>
           </div>
@@ -429,7 +493,7 @@ export function BookingFlow() {
           <div className="sticky-aside" style={{ position: "sticky", top: 90, background: "#fff", border: `1px solid ${colors.border}`, borderRadius: 18, padding: 22 }}>
             <Photo src={centre.image} alt={centre.name} ph={centre.ph} style={{ height: 90, borderRadius: 12, overflow: "hidden", marginBottom: 14 }} />
             <div style={{ fontWeight: 700, fontSize: 17, marginBottom: 2 }}>{centre.name}</div>
-            <div style={{ color: colors.mutedLight, fontSize: 14, marginBottom: 16 }}>{room.name}</div>
+            <div style={{ color: colors.mutedLight, fontSize: 14, marginBottom: 16 }}>{centre.area}</div>
             <div style={{ display: "flex", flexDirection: "column", gap: 9, fontSize: 14 }}>
               <div style={{ display: "flex", justifyContent: "space-between" }}>
                 <span style={{ color: colors.mutedLight }}>Date</span>
@@ -463,10 +527,18 @@ export function BookingFlow() {
                 <span style={{ color: colors.mutedLight }}>Platform fee (5%)</span>
                 <span style={{ fontWeight: 600 }}>{euro(feeCents / 100)}</span>
               </div>
-              <div style={{ display: "flex", justifyContent: "space-between" }}>
-                <span style={{ color: colors.mutedLight }}>Refundable deposit</span>
-                <span style={{ fontWeight: 600 }}>{euro(DEPOSIT_EURO)}</span>
-              </div>
+              {!isCash && (
+                <div style={{ display: "flex", justifyContent: "space-between" }}>
+                  <span style={{ color: colors.mutedLight }}>Refundable deposit</span>
+                  <span style={{ fontWeight: 600 }}>{euro(DEPOSIT_EURO)}</span>
+                </div>
+              )}
+              {isCash && (
+                <div style={{ display: "flex", justifyContent: "space-between", color: colors.greenText }}>
+                  <span>Payment</span>
+                  <span style={{ fontWeight: 600 }}>Cash on arrival</span>
+                </div>
+              )}
             </div>
             <div style={{ borderTop: "1px solid #EEEBE3", paddingTop: 14, display: "flex", justifyContent: "space-between", fontFamily: fonts.display, fontWeight: 700, fontSize: 19 }}>
               <span>Total</span>

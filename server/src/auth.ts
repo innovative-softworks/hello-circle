@@ -8,6 +8,17 @@ const SESSION_DAYS = 30;
 
 export type Role = "vendor" | "admin";
 export type UserStatus = "pending" | "approved" | "suspended";
+export type VendorType = "community" | "sports";
+
+export interface VendorProfile {
+  vendorType: VendorType;
+  businessName: string;
+  address: string;
+  county: string;
+  mobile: string;
+  landline?: string;
+  description: string;
+}
 
 export interface AuthedUser {
   id: string;
@@ -15,6 +26,13 @@ export interface AuthedUser {
   role: Role;
   status: UserStatus;
   name: string;
+  vendorType: VendorType | null;
+  businessName: string;
+  address: string;
+  county: string;
+  mobile: string;
+  landline: string;
+  description: string;
 }
 
 interface UserRow {
@@ -24,6 +42,13 @@ interface UserRow {
   role: Role;
   status: UserStatus;
   name: string;
+  vendor_type: VendorType | null;
+  business_name: string;
+  address: string;
+  county: string;
+  mobile: string;
+  landline: string;
+  description: string;
 }
 
 declare global {
@@ -43,20 +68,76 @@ export function verifyPassword(password: string, hash: string): boolean {
   return bcrypt.compareSync(password, hash);
 }
 
-export function createUser(email: string, password: string, name: string, role: Role, status: UserStatus): AuthedUser {
+export function createUser(
+  email: string,
+  password: string,
+  name: string,
+  role: Role,
+  status: UserStatus,
+  profile?: VendorProfile
+): AuthedUser {
   const id = crypto.randomUUID();
+  const normalizedEmail = email.toLowerCase().trim();
   db.prepare(
-    `INSERT INTO users (id, email, password_hash, role, status, name) VALUES (?, ?, ?, ?, ?, ?)`
-  ).run(id, email.toLowerCase().trim(), hashPassword(password), role, status, name);
-  return { id, email: email.toLowerCase().trim(), role, status, name };
+    `INSERT INTO users (id, email, password_hash, role, status, name, vendor_type, business_name, address, county, mobile, landline, description)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(
+    id,
+    normalizedEmail,
+    hashPassword(password),
+    role,
+    status,
+    name,
+    profile?.vendorType ?? null,
+    profile?.businessName ?? "",
+    profile?.address ?? "",
+    profile?.county ?? "",
+    profile?.mobile ?? "",
+    profile?.landline ?? "",
+    profile?.description ?? ""
+  );
+  return {
+    id,
+    email: normalizedEmail,
+    role,
+    status,
+    name,
+    vendorType: profile?.vendorType ?? null,
+    businessName: profile?.businessName ?? "",
+    address: profile?.address ?? "",
+    county: profile?.county ?? "",
+    mobile: profile?.mobile ?? "",
+    landline: profile?.landline ?? "",
+    description: profile?.description ?? "",
+  };
+}
+
+function rowToUser(row: UserRow): AuthedUser {
+  return {
+    id: row.id,
+    email: row.email,
+    role: row.role,
+    status: row.status,
+    name: row.name,
+    vendorType: row.vendor_type,
+    businessName: row.business_name,
+    address: row.address,
+    county: row.county,
+    mobile: row.mobile,
+    landline: row.landline,
+    description: row.description,
+  };
 }
 
 export function findUserByEmail(email: string): (AuthedUser & { passwordHash: string }) | null {
   const row = db
-    .prepare(`SELECT id, email, password_hash, role, status, name FROM users WHERE email = ?`)
+    .prepare(
+      `SELECT id, email, password_hash, role, status, name, vendor_type, business_name, address, county, mobile, landline, description
+       FROM users WHERE email = ?`
+    )
     .get(email.toLowerCase().trim()) as UserRow | undefined;
   if (!row) return null;
-  return { id: row.id, email: row.email, role: row.role, status: row.status, name: row.name, passwordHash: row.password_hash };
+  return { ...rowToUser(row), passwordHash: row.password_hash };
 }
 
 export function createSession(userId: string): { token: string; expiresAt: Date } {
@@ -77,12 +158,12 @@ export function destroySession(token: string) {
 function userFromToken(token: string): AuthedUser | null {
   const row = db
     .prepare(
-      `SELECT u.id, u.email, u.role, u.status, u.name
+      `SELECT u.id, u.email, u.role, u.status, u.name, u.vendor_type, u.business_name, u.address, u.county, u.mobile, u.landline, u.description
        FROM sessions s JOIN users u ON u.id = s.user_id
        WHERE s.token = ? AND s.expires_at > datetime('now')`
     )
     .get(token) as UserRow | undefined;
-  return row ? { id: row.id, email: row.email, role: row.role, status: row.status, name: row.name } : null;
+  return row ? rowToUser(row) : null;
 }
 
 /** Reads the session cookie (if any) and attaches req.user. Never rejects. */

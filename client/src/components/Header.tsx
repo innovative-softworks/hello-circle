@@ -120,13 +120,6 @@ export function Header() {
           >
             Sports clubs
           </button>
-          <button
-            className="tab-btn"
-            style={isActive(["/checklist"]) ? { ...navBtn, background: colors.panel, color: colors.text, fontWeight: 700 } : navBtn}
-            onClick={() => go("/checklist")}
-          >
-            New to Ireland
-          </button>
         </nav>
         <div className="desktop-actions" style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10 }}>
           <button
@@ -273,9 +266,6 @@ export function Header() {
           </button>
           <button style={mobileNavBtn} onClick={() => go("/browse/clubs")}>
             Sports clubs
-          </button>
-          <button style={mobileNavBtn} onClick={() => go("/checklist")}>
-            New to Ireland
           </button>
           <button style={mobileNavBtn} onClick={() => go("/bookings")}>
             My bookings ({count})

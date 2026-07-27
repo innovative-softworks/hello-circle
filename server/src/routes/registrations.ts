@@ -94,6 +94,9 @@ registrationsRouter.post("/checkout", async (req, res) => {
   }
   const pricing = computePricing(subtotalCents, 0, discountCents, couponCode);
   const ref = generateRef("CR");
+  // Free trial registrations need no payment, and cash-mode clubs skip
+  // Stripe entirely — both confirm immediately, no redirect.
+  const isCash = club.paymentMethod === "cash" && pricing.totalCents > 0;
 
   const notify = (status: "pending" | "paid") =>
     notifyNewBookingOrRegistration({
@@ -105,14 +108,12 @@ registrationsRouter.post("/checkout", async (req, res) => {
       guestName: `${body.gFirst} ${body.gLast}`,
       guestEmail: body.email,
       ref,
-      detailsText: `${body.childFirst} ${body.childLast} (DOB ${body.dob}) · ${body.team}${body.trial ? " · Trial session" : ""} · €${(pricing.totalCents / 100).toFixed(2)} total`,
+      detailsText: `${body.childFirst} ${body.childLast} (DOB ${body.dob}) · ${body.team}${body.trial ? " · Trial session" : ""} · €${(pricing.totalCents / 100).toFixed(2)}${isCash ? " due in cash on arrival" : " total"}`,
     }).catch((e) => console.error("[notifications] registration notify failed:", e));
-
-  // Free trial registrations need no payment — confirm immediately.
-  if (pricing.totalCents === 0) {
+  if (pricing.totalCents === 0 || isCash) {
     insertRegistration(ref, clientId, body, pricing, "paid");
     notify("paid");
-    return res.status(201).json({ ref, totalEuro: 0, trial: body.trial });
+    return res.status(201).json({ ref, totalEuro: pricing.totalCents / 100, trial: body.trial });
   }
 
   if (!stripe) return res.status(503).json({ error: "Payments aren't configured yet" });

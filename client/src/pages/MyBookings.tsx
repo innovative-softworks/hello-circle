@@ -49,7 +49,7 @@ export function MyBookings() {
                   <div style={{ flex: 1 }}>
                     <div style={{ fontWeight: 700, fontSize: 16 }}>{b.centreName}</div>
                     <div style={{ color: colors.mutedLight, fontSize: 14 }}>
-                      {b.roomName} · {dateLabel(b.date)} · {b.time}
+                      {dateLabel(b.date)} · {b.time}
                     </div>
                   </div>
                   <div style={{ textAlign: "right" }}>

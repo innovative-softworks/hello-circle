@@ -1,5 +1,3 @@
-export const COUNTIES = ["All", "Dublin", "Cork", "Galway", "Limerick", "Waterford"];
-export const SPORTS = ["All", "GAA", "Soccer", "Swimming", "Rugby", "Gymnastics", "Tennis", "Athletics", "Martial Arts"];
 export const EVENT_TYPES = [
   "Birthday party",
   "Family function",

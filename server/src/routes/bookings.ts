@@ -1,9 +1,10 @@
 import { Router } from "express";
 import { db } from "../db/index.js";
 import { getCentre } from "../db/queries.js";
+import { notifyNewBookingOrRegistration } from "../notifications.js";
 import { computePricing, evaluateCoupon } from "../pricing.js";
 import { CLIENT_URL, stripe } from "../stripe.js";
-import { BadRequestError, clientIdFrom, generateRef, isValidEmail } from "../util.js";
+import { BadRequestError, bookingEndHour, clientIdFrom, generateRef, hoursOverlap, isValidEmail } from "../util.js";
 
 export const bookingsRouter = Router();
 
@@ -29,8 +30,6 @@ function hireCost(rate: number, duration: number): number {
 const DEPOSIT_CENTS = 100 * 100;
 
 bookingsRouter.post("/checkout", async (req, res) => {
-  if (!stripe) return res.status(503).json({ error: "Payments aren't configured yet" });
-
   let clientId: string;
   try {
     clientId = clientIdFrom(req);
@@ -50,9 +49,10 @@ bookingsRouter.post("/checkout", async (req, res) => {
   const centre = getCentre(body.centreId);
   const room = centre?.rooms.find((r) => r.id === body.roomId);
   if (!centre || !room) return res.status(404).json({ error: "Centre or room not found" });
+  if (!centre.isOpen) return res.status(409).json({ error: "This venue isn't currently taking bookings" });
 
   const startHour = parseInt(body.time.slice(0, 2), 10);
-  const reqEnd = body.duration >= 8 ? 24 : startHour + body.duration;
+  const reqEnd = bookingEndHour(startHour, body.duration);
 
   const opensHour = parseInt(centre.opensAt.slice(0, 2), 10);
   const closesHour = parseInt(centre.closesAt.slice(0, 2), 10);
@@ -65,8 +65,7 @@ bookingsRouter.post("/checkout", async (req, res) => {
     .all(body.roomId, body.date) as { time: string; duration: number }[];
   const clashes = overlapping.some((b) => {
     const bStart = parseInt(b.time.slice(0, 2), 10);
-    const bEnd = b.duration >= 8 ? 24 : bStart + b.duration;
-    return startHour < bEnd && bStart < reqEnd;
+    return hoursOverlap(startHour, reqEnd, bStart, bookingEndHour(bStart, b.duration));
   });
   if (clashes) return res.status(409).json({ error: "That slot is no longer available" });
 
@@ -80,6 +79,7 @@ bookingsRouter.post("/checkout", async (req, res) => {
   });
   if (blocked) return res.status(409).json({ error: "The vendor has closed that date/time" });
 
+  const isCash = room.paymentMethod === "cash";
   const subtotalCents = hireCost(room.rate, body.duration) * 100;
   let discountCents = 0;
   let couponCode: string | null = null;
@@ -89,14 +89,15 @@ bookingsRouter.post("/checkout", async (req, res) => {
     discountCents = result.discountCents!;
     couponCode = result.code!;
   }
-  const pricing = computePricing(subtotalCents, DEPOSIT_CENTS, discountCents, couponCode);
+  // Cash bookings skip the refundable deposit too — there's no online charge to hold it against.
+  const pricing = computePricing(subtotalCents, isCash ? 0 : DEPOSIT_CENTS, discountCents, couponCode);
   const ref = generateRef("HB");
 
   db.prepare(
     `INSERT INTO bookings (ref, client_id, centre_id, room_id, date, time, duration, event_type, guests, name, email, phone, notes,
       subtotal_cents, discount_cents, vat_cents, platform_fee_cents, coupon_code, total_cents, payment_status)
      VALUES (@ref, @clientId, @centreId, @roomId, @date, @time, @duration, @eventType, @guests, @name, @email, @phone, @notes,
-      @subtotalCents, @discountCents, @vatCents, @platformFeeCents, @couponCode, @totalCents, 'pending')`
+      @subtotalCents, @discountCents, @vatCents, @platformFeeCents, @couponCode, @totalCents, @status)`
   ).run({
     ref,
     clientId,
@@ -117,13 +118,32 @@ bookingsRouter.post("/checkout", async (req, res) => {
     platformFeeCents: pricing.platformFeeCents,
     couponCode: pricing.couponCode,
     totalCents: pricing.totalCents,
+    status: isCash ? "paid" : "pending",
   });
+
+  // Cash rooms skip Stripe entirely — confirmed immediately, paid on arrival.
+  if (isCash) {
+    notifyNewBookingOrRegistration({
+      kind: "booking",
+      listingType: "centre",
+      listingId: centre.id,
+      listingName: centre.name,
+      vendorId: (db.prepare(`SELECT vendor_id FROM centres WHERE id = ?`).get(centre.id) as { vendor_id: string | null } | undefined)?.vendor_id ?? null,
+      guestName: body.name,
+      guestEmail: body.email,
+      ref,
+      detailsText: `${body.date} at ${body.time} · ${body.duration}h · ${body.guests} guests · €${(pricing.totalCents / 100).toFixed(2)} due in cash on arrival`,
+    }).catch((e) => console.error("[notifications] booking notify failed:", e));
+    return res.status(201).json({ ref, totalEuro: pricing.totalCents / 100 });
+  }
+
+  if (!stripe) return res.status(503).json({ error: "Payments aren't configured yet" });
 
   const lineItems: { price_data: { currency: string; product_data: { name: string; description?: string }; unit_amount: number }; quantity: number }[] = [
     {
       price_data: {
         currency: "eur",
-        product_data: { name: `${centre.name} — ${room.name}`, description: `${body.date} at ${body.time}, ${body.duration}h${couponCode ? ` (coupon ${couponCode} applied)` : ""}` },
+        product_data: { name: centre.name, description: `${body.date} at ${body.time}, ${body.duration}h${couponCode ? ` (coupon ${couponCode} applied)` : ""}` },
         unit_amount: pricing.taxableCents,
       },
       quantity: 1,
@@ -171,10 +191,9 @@ bookingsRouter.get("/", (req, res) => {
   const rows = db
     .prepare(
       `SELECT b.ref, b.date, b.time, b.total_cents as totalCents, b.created_at as createdAt,
-              c.name as centreName, c.ph as ph, c.image_url as image, r.name as roomName
+              c.name as centreName, c.ph as ph, c.image_url as image
        FROM bookings b
        JOIN centres c ON c.id = b.centre_id
-       JOIN rooms r ON r.centre_id = b.centre_id AND r.id = b.room_id
        WHERE b.client_id = ? AND b.payment_status = 'paid'
        ORDER BY b.created_at DESC`
     )

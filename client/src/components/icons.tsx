@@ -473,6 +473,51 @@ export function TagIcon({ size = 18, style, className }: IconProps) {
   );
 }
 
+export function PersonIcon({ size = 18, style, className }: IconProps) {
+  return (
+    <svg {...stroke(size)} style={style} className={className}>
+      <circle cx={12} cy={8} r={3.5} />
+      <path d="M5 20c0-4 3.1-6.5 7-6.5s7 2.5 7 6.5" />
+    </svg>
+  );
+}
+
+export function MailIcon({ size = 18, style, className }: IconProps) {
+  return (
+    <svg {...stroke(size)} style={style} className={className}>
+      <rect x={3.5} y={5.5} width={17} height={13} rx={2} />
+      <path d="M4 7l8 6 8-6" />
+    </svg>
+  );
+}
+
+export function LockIcon({ size = 18, style, className }: IconProps) {
+  return (
+    <svg {...stroke(size)} style={style} className={className}>
+      <rect x={5} y={11} width={14} height={9} rx={2} />
+      <path d="M8 11V8a4 4 0 0 1 8 0v3" />
+    </svg>
+  );
+}
+
+export function PhoneIcon({ size = 18, style, className }: IconProps) {
+  return (
+    <svg {...stroke(size)} style={style} className={className}>
+      <path d="M5 4.5h3.2l1.3 4-2 1.6a12 12 0 0 0 5.4 5.4l1.6-2 4 1.3V18a1.5 1.5 0 0 1-1.6 1.5A15.5 15.5 0 0 1 3.5 6.1 1.5 1.5 0 0 1 5 4.5Z" />
+    </svg>
+  );
+}
+
+export function EyeOffIcon({ size = 18, style, className }: IconProps) {
+  return (
+    <svg {...stroke(size)} style={style} className={className}>
+      <path d="M3 3l18 18" />
+      <path d="M9.9 5.1A10.6 10.6 0 0 1 12 5c6 0 9.5 6.5 9.5 6.5a15 15 0 0 1-3 3.7M6.5 6.6C3.9 8.3 2.5 11.5 2.5 11.5S6 18 12 18c1 0 2-.2 2.9-.5" />
+      <path d="M9.9 12.5a2.4 2.4 0 0 0 3.4 3.3" />
+    </svg>
+  );
+}
+
 export function PhotoStackIcon({ size = 18, style, className }: IconProps) {
   return (
     <svg {...stroke(size)} style={style} className={className}>

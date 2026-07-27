@@ -32,3 +32,4 @@ export function BrowseIllustration({ accent }: { accent: "green" | "orange" }) {
     </div>
   );
 }
+

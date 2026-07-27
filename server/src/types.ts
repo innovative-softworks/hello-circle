@@ -1,3 +1,5 @@
+export type PaymentMethod = "online" | "cash";
+
 export interface Room {
   id: string;
   centreId: string;
@@ -5,6 +7,7 @@ export interface Room {
   cap: number;
   rate: number;
   desc: string;
+  paymentMethod: PaymentMethod;
 }
 
 export interface Centre {
@@ -25,6 +28,9 @@ export interface Centre {
   rooms: Room[];
   opensAt: string;
   closesAt: string;
+  paymentMethod: PaymentMethod;
+  isOpen: boolean;
+  mapUrl: string;
 }
 
 export interface Club {
@@ -44,28 +50,8 @@ export interface Club {
   includes: string[];
   rating: number;
   reviews: number;
-}
-
-export interface Booking {
-  id: number;
-  ref: string;
-  clientId: string;
-  centreId: string;
-  centreName: string;
-  roomId: string;
-  roomName: string;
-  ph: string;
-  date: string;
-  time: string;
-  duration: number;
-  eventType: string;
-  guests: number;
-  name: string;
-  email: string;
-  phone: string;
-  notes: string;
-  totalCents: number;
-  createdAt: string;
+  paymentMethod: PaymentMethod;
+  mapUrl: string;
 }
 
 export interface Review {

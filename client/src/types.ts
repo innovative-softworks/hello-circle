@@ -1,3 +1,5 @@
+export type PaymentMethod = "online" | "cash";
+
 export interface Room {
   id: string;
   centreId: string;
@@ -5,6 +7,7 @@ export interface Room {
   cap: number;
   rate: number;
   desc: string;
+  paymentMethod: PaymentMethod;
 }
 
 export interface Centre {
@@ -25,14 +28,14 @@ export interface Centre {
   rooms: Room[];
   opensAt: string;
   closesAt: string;
+  paymentMethod: PaymentMethod;
+  isOpen: boolean;
+  mapUrl: string;
 }
 
 export interface RoomBlock {
   id: number;
-  roomId: string | null;
-  roomName: string | null;
   date: string;
-  time: string | null;
   reason: string;
   createdAt: string;
 }
@@ -54,6 +57,8 @@ export interface Club {
   includes: string[];
   rating: number;
   reviews: number;
+  paymentMethod: PaymentMethod;
+  mapUrl: string;
 }
 
 export interface MyBooking {
@@ -65,7 +70,6 @@ export interface MyBooking {
   centreName: string;
   ph: string;
   image: string;
-  roomName: string;
 }
 
 export interface MyRegistration {
@@ -94,12 +98,21 @@ export interface VendorNotification {
 
 export type Role = "vendor" | "admin";
 
+export type VendorType = "community" | "sports";
+
 export interface AuthUser {
   id: string;
   email: string;
   role: Role;
   status: "pending" | "approved" | "suspended";
   name: string;
+  vendorType: VendorType | null;
+  businessName: string;
+  address: string;
+  county: string;
+  mobile: string;
+  landline: string;
+  description: string;
 }
 
 export interface Review {
@@ -121,6 +134,7 @@ export interface VendorListingSummary {
   views: number;
   createdAt: string;
   bookingsCount: number;
+  image: string;
 }
 
 export interface VendorStats {

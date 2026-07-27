@@ -28,14 +28,14 @@ function ownsClub(vendorId: string, clubId: string): boolean {
 vendorRouter.get("/listings", (req, res) => {
   const centres = db
     .prepare(
-      `SELECT c.id, c.name, c.status, c.area, c.county, c.views, c.created_at as createdAt,
+      `SELECT c.id, c.name, c.status, c.area, c.county, c.views, c.created_at as createdAt, c.image_url as image,
               (SELECT COUNT(*) FROM bookings b WHERE b.centre_id = c.id AND b.payment_status = 'paid') as bookingsCount
        FROM centres c WHERE c.vendor_id = ? ORDER BY c.name`
     )
     .all(req.user!.id);
   const clubs = db
     .prepare(
-      `SELECT c.id, c.name, c.status, c.area, c.county, c.views, c.created_at as createdAt,
+      `SELECT c.id, c.name, c.status, c.area, c.county, c.views, c.created_at as createdAt, c.image_url as image,
               (SELECT COUNT(*) FROM registrations r WHERE r.club_id = c.id AND r.payment_status = 'paid') as bookingsCount
        FROM clubs c WHERE c.vendor_id = ? ORDER BY c.name`
     )
@@ -93,6 +93,9 @@ interface CentreInput {
   amenities?: string[];
   opensAt?: string;
   closesAt?: string;
+  paymentMethod?: "online" | "cash";
+  isOpen?: boolean;
+  mapUrl?: string;
 }
 
 vendorRouter.post("/centres", (req, res) => {
@@ -102,8 +105,8 @@ vendorRouter.post("/centres", (req, res) => {
   const id = crypto.randomUUID();
   const tx = db.transaction(() => {
     db.prepare(
-      `INSERT INTO centres (id, name, area, county, rating, reviews, capacity, from_price, managed_by, ph, image_url, blurb, vendor_id, status, created_at, opens_at, closes_at)
-       VALUES (?, ?, ?, ?, 0, 0, ?, ?, ?, '', ?, ?, ?, 'pending', datetime('now'), ?, ?)`
+      `INSERT INTO centres (id, name, area, county, rating, reviews, capacity, from_price, managed_by, ph, image_url, blurb, vendor_id, status, created_at, opens_at, closes_at, payment_method, map_url)
+       VALUES (?, ?, ?, ?, 0, 0, ?, ?, ?, '', ?, ?, ?, 'pending', datetime('now'), ?, ?, ?, ?)`
     ).run(
       id,
       b.name,
@@ -116,7 +119,9 @@ vendorRouter.post("/centres", (req, res) => {
       b.blurb,
       req.user!.id,
       b.opensAt ?? "09:00",
-      b.closesAt ?? "21:00"
+      b.closesAt ?? "21:00",
+      b.paymentMethod ?? "online",
+      b.mapUrl ?? ""
     );
     (b.amenities ?? []).forEach((a, i) =>
       db.prepare(`INSERT INTO centre_amenities (centre_id, amenity, sort_order) VALUES (?, ?, ?)`).run(id, a, i)
@@ -124,6 +129,12 @@ vendorRouter.post("/centres", (req, res) => {
     (b.images ?? []).forEach((url, i) =>
       db.prepare(`INSERT INTO centre_images (centre_id, url, sort_order) VALUES (?, ?, ?)`).run(id, url, i)
     );
+    // "Rooms" is a pure internal implementation detail (booking/availability
+    // stay keyed by room_id) — every centre gets exactly one, kept in sync
+    // with its own capacity/rate/payment method on every save.
+    db.prepare(
+      `INSERT INTO rooms (id, centre_id, name, cap, rate, desc, sort_order, payment_method) VALUES (?, ?, '', ?, ?, '', 0, ?)`
+    ).run(crypto.randomUUID(), id, b.capacity ?? 0, b.from ?? 0, b.paymentMethod ?? "online");
   });
   tx();
   res.status(201).json(getCentre(id));
@@ -138,7 +149,8 @@ vendorRouter.put("/centres/:id", (req, res) => {
       `UPDATE centres SET name = COALESCE(?, name), area = COALESCE(?, area), county = COALESCE(?, county),
        capacity = COALESCE(?, capacity), from_price = COALESCE(?, from_price), managed_by = COALESCE(?, managed_by),
        image_url = COALESCE(?, image_url), blurb = COALESCE(?, blurb),
-       opens_at = COALESCE(?, opens_at), closes_at = COALESCE(?, closes_at)
+       opens_at = COALESCE(?, opens_at), closes_at = COALESCE(?, closes_at), payment_method = COALESCE(?, payment_method),
+       is_open = COALESCE(?, is_open), map_url = COALESCE(?, map_url)
        WHERE id = ?`
     ).run(
       b.name,
@@ -151,6 +163,9 @@ vendorRouter.put("/centres/:id", (req, res) => {
       b.blurb,
       b.opensAt,
       b.closesAt,
+      b.paymentMethod,
+      b.isOpen === undefined ? undefined : b.isOpen ? 1 : 0,
+      b.mapUrl,
       req.params.id
     );
     if (b.amenities) {
@@ -167,6 +182,9 @@ vendorRouter.put("/centres/:id", (req, res) => {
         db.prepare(`INSERT INTO centre_images (centre_id, url, sort_order) VALUES (?, ?, ?)`).run(req.params.id, url, i)
       );
     }
+    db.prepare(
+      `UPDATE rooms SET cap = COALESCE(?, cap), rate = COALESCE(?, rate), payment_method = COALESCE(?, payment_method) WHERE centre_id = ?`
+    ).run(b.capacity, b.from, b.paymentMethod, req.params.id);
   });
   tx();
   res.json(getCentre(req.params.id));
@@ -178,56 +196,10 @@ vendorRouter.delete("/centres/:id", (req, res) => {
   res.json({ ok: true });
 });
 
-// --- rooms (nested under a vendor's own centre) -----------------------------
-
-interface RoomInput {
-  name: string;
-  cap: number;
-  rate: number;
-  desc?: string;
-}
-
-vendorRouter.post("/centres/:id/rooms", (req, res) => {
-  if (!ownsCentre(req.user!.id, req.params.id)) return res.status(403).json({ error: "Not your listing" });
-  const b = req.body as RoomInput;
-  if (!b.name || !b.cap || !b.rate) return res.status(400).json({ error: "name, cap and rate are required" });
-
-  const roomId = crypto.randomUUID();
-  const { count } = db.prepare(`SELECT COUNT(*) as count FROM rooms WHERE centre_id = ?`).get(req.params.id) as {
-    count: number;
-  };
-  db.prepare(
-    `INSERT INTO rooms (id, centre_id, name, cap, rate, desc, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?)`
-  ).run(roomId, req.params.id, b.name, b.cap, b.rate, b.desc ?? "", count);
-  res.status(201).json(getCentre(req.params.id));
-});
-
-vendorRouter.put("/centres/:id/rooms/:roomId", (req, res) => {
-  if (!ownsCentre(req.user!.id, req.params.id)) return res.status(403).json({ error: "Not your listing" });
-  const b = req.body as Partial<RoomInput>;
-  const info = db
-    .prepare(
-      `UPDATE rooms SET name = COALESCE(?, name), cap = COALESCE(?, cap), rate = COALESCE(?, rate), desc = COALESCE(?, desc)
-       WHERE centre_id = ? AND id = ?`
-    )
-    .run(b.name, b.cap, b.rate, b.desc, req.params.id, req.params.roomId);
-  if (info.changes === 0) return res.status(404).json({ error: "Room not found" });
-  res.json(getCentre(req.params.id));
-});
-
-vendorRouter.delete("/centres/:id/rooms/:roomId", (req, res) => {
-  if (!ownsCentre(req.user!.id, req.params.id)) return res.status(403).json({ error: "Not your listing" });
-  const info = db.prepare(`DELETE FROM rooms WHERE centre_id = ? AND id = ?`).run(req.params.id, req.params.roomId);
-  if (info.changes === 0) return res.status(404).json({ error: "Room not found" });
-  res.json(getCentre(req.params.id));
-});
-
-// --- blocked dates/slots ("close" a date for a festival, or block one slot) -
+// --- blocked dates ("close" a date for a festival) --------------------------
 
 interface BlockInput {
-  roomId?: string | null; // omitted/null = applies to every room in the centre
   date: string;
-  time?: string | null; // omitted/null = the whole day
   reason?: string;
 }
 
@@ -235,9 +207,8 @@ vendorRouter.get("/centres/:id/blocks", (req, res) => {
   if (!ownsCentre(req.user!.id, req.params.id)) return res.status(403).json({ error: "Not your listing" });
   const rows = db
     .prepare(
-      `SELECT rb.id, rb.room_id as roomId, r.name as roomName, rb.date, rb.time, rb.reason, rb.created_at as createdAt
-       FROM room_blocks rb LEFT JOIN rooms r ON r.id = rb.room_id
-       WHERE rb.centre_id = ? ORDER BY rb.date, rb.time IS NULL DESC, rb.time`
+      `SELECT id, date, reason, created_at as createdAt
+       FROM room_blocks WHERE centre_id = ? ORDER BY date`
     )
     .all(req.params.id);
   res.json(rows);
@@ -247,13 +218,9 @@ vendorRouter.post("/centres/:id/blocks", (req, res) => {
   if (!ownsCentre(req.user!.id, req.params.id)) return res.status(403).json({ error: "Not your listing" });
   const b = req.body as BlockInput;
   if (!b.date) return res.status(400).json({ error: "date is required" });
-  if (b.roomId) {
-    const room = db.prepare(`SELECT id FROM rooms WHERE id = ? AND centre_id = ?`).get(b.roomId, req.params.id);
-    if (!room) return res.status(404).json({ error: "Room not found" });
-  }
   const info = db
-    .prepare(`INSERT INTO room_blocks (centre_id, room_id, date, time, reason) VALUES (?, ?, ?, ?, ?)`)
-    .run(req.params.id, b.roomId ?? null, b.date, b.time ?? null, b.reason ?? "");
+    .prepare(`INSERT INTO room_blocks (centre_id, room_id, date, time, reason) VALUES (?, NULL, ?, NULL, ?)`)
+    .run(req.params.id, b.date, b.reason ?? "");
   res.status(201).json({ id: info.lastInsertRowid });
 });
 
@@ -284,6 +251,8 @@ interface ClubInput {
   images?: string[];
   blurb: string;
   includes?: string[];
+  paymentMethod?: "online" | "cash";
+  mapUrl?: string;
 }
 
 vendorRouter.post("/clubs", (req, res) => {
@@ -295,9 +264,9 @@ vendorRouter.post("/clubs", (req, res) => {
   const id = crypto.randomUUID();
   const tx = db.transaction(() => {
     db.prepare(
-      `INSERT INTO clubs (id, name, sport, area, county, ages, price, unit, trial, ph, image_url, blurb, vendor_id, status, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, '', ?, ?, ?, 'pending', datetime('now'))`
-    ).run(id, b.name, b.sport, b.area, b.county, b.ages ?? "", b.price ?? 0, b.unit ?? "year", b.trial ? 1 : 0, (b.images ?? [])[0] ?? b.image ?? "", b.blurb, req.user!.id);
+      `INSERT INTO clubs (id, name, sport, area, county, ages, price, unit, trial, ph, image_url, blurb, vendor_id, status, created_at, payment_method, map_url)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, '', ?, ?, ?, 'pending', datetime('now'), ?, ?)`
+    ).run(id, b.name, b.sport, b.area, b.county, b.ages ?? "", b.price ?? 0, b.unit ?? "year", b.trial ? 1 : 0, (b.images ?? [])[0] ?? b.image ?? "", b.blurb, req.user!.id, b.paymentMethod ?? "online", b.mapUrl ?? "");
     (b.includes ?? []).forEach((item, i) =>
       db.prepare(`INSERT INTO club_includes (club_id, item, sort_order) VALUES (?, ?, ?)`).run(id, item, i)
     );
@@ -317,7 +286,8 @@ vendorRouter.put("/clubs/:id", (req, res) => {
     db.prepare(
       `UPDATE clubs SET name = COALESCE(?, name), sport = COALESCE(?, sport), area = COALESCE(?, area),
        county = COALESCE(?, county), ages = COALESCE(?, ages), price = COALESCE(?, price), unit = COALESCE(?, unit),
-       trial = COALESCE(?, trial), image_url = COALESCE(?, image_url), blurb = COALESCE(?, blurb)
+       trial = COALESCE(?, trial), image_url = COALESCE(?, image_url), blurb = COALESCE(?, blurb),
+       payment_method = COALESCE(?, payment_method), map_url = COALESCE(?, map_url)
        WHERE id = ?`
     ).run(
       b.name,
@@ -330,6 +300,8 @@ vendorRouter.put("/clubs/:id", (req, res) => {
       b.trial === undefined ? undefined : b.trial ? 1 : 0,
       b.images ? b.images[0] ?? "" : b.image,
       b.blurb,
+      b.paymentMethod,
+      b.mapUrl,
       req.params.id
     );
     if (b.includes) {
@@ -362,10 +334,9 @@ vendorRouter.get("/bookings", (req, res) => {
     .prepare(
       `SELECT b.ref, b.date, b.time, b.duration, b.event_type as eventType, b.guests, b.name, b.email, b.phone,
               b.notes, b.total_cents as totalCents, b.created_at as createdAt,
-              c.name as centreName, r.name as roomName
+              c.name as centreName
        FROM bookings b
        JOIN centres c ON c.id = b.centre_id
-       JOIN rooms r ON r.centre_id = b.centre_id AND r.id = b.room_id
        WHERE c.vendor_id = ? AND b.payment_status = 'paid'
        ORDER BY b.created_at DESC`
     )

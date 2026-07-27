@@ -51,6 +51,7 @@ export function RegistrationFlow() {
   const [step, setStep] = useState(1);
   const [form, setForm] = useState<RegForm>(blankForm());
   const [ref, setRef] = useState<string | null>(null);
+  const [confirmedTotalEuro, setConfirmedTotalEuro] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -66,6 +67,7 @@ export function RegistrationFlow() {
   const set = <K extends keyof RegForm>(field: K, value: RegForm[K]) => setForm((f) => ({ ...f, [field]: value }));
   const top = () => window.scrollTo({ top: 0, behavior: "smooth" });
 
+  const isCash = club?.paymentMethod === "cash";
   const subtotalCents = club ? club.price * 100 : 0;
   const discountCents = coupon?.discountCents ?? 0;
   const taxableCents = Math.max(0, subtotalCents - discountCents);
@@ -115,8 +117,9 @@ export function RegistrationFlow() {
         window.location.href = res.url;
         return;
       }
-      // Free trial — confirmed immediately, no payment redirect.
+      // Free trial or cash-mode club — confirmed immediately, no payment redirect.
       setRef(res.ref);
+      setConfirmedTotalEuro(res.totalEuro);
       setStep(5);
       refresh();
       top();
@@ -161,10 +164,12 @@ export function RegistrationFlow() {
             <CheckIcon size={32} />
           </div>
           <h1 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 34, margin: "0 0 8px", letterSpacing: "-.02em" }}>
-            Trial session booked!
+            {form.trial ? "Trial session booked!" : "Registration confirmed!"}
           </h1>
           <p style={{ color: colors.muted, fontSize: 17, margin: "0 0 28px" }}>
-            We've emailed {form.email || "you"} the details for {form.childFirst || "your child"}'s free trial.
+            {form.trial
+              ? `We've emailed ${form.email || "you"} the details for ${form.childFirst || "your child"}'s free trial.`
+              : `Pay €${confirmedTotalEuro.toFixed(2)} in cash at the club — no online payment needed. We've emailed ${form.email || "you"} the details.`}
           </p>
           <div style={{ background: "#fff", border: `1px solid ${colors.border}`, borderRadius: 18, padding: 24, textAlign: "left", marginBottom: 24 }}>
             <div style={{ fontWeight: 700, fontSize: 18, marginBottom: 2 }}>{club.name}</div>
@@ -184,7 +189,7 @@ export function RegistrationFlow() {
               </div>
               <div>
                 <div style={{ fontSize: 12, color: colors.faint, fontWeight: 600 }}>STATUS</div>
-                <div style={{ fontWeight: 600 }}>Free trial</div>
+                <div style={{ fontWeight: 600 }}>{form.trial ? "Free trial" : "Cash on arrival"}</div>
               </div>
             </div>
           </div>
@@ -324,8 +329,12 @@ export function RegistrationFlow() {
                 {!form.trial ? (
                   <>
                     <p style={{ color: colors.mutedLight, fontSize: 14, margin: "0 0 16px" }}>
-                      You'll pay securely on the next screen.
+                      {isCash
+                        ? "This club is pay-on-arrival — no online payment needed. Your registration is confirmed as soon as you submit."
+                        : "You'll pay securely on the next screen."}
                     </p>
+                    {!isCash && (
+                    <>
                     <label style={labelStyle}>Coupon code</label>
                     {coupon ? (
                       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: colors.orangeBg, border: `1px solid ${colors.orange}`, borderRadius: 12, padding: "10px 14px" }}>
@@ -357,6 +366,8 @@ export function RegistrationFlow() {
                         {couponError && <p style={{ color: "#b00020", fontSize: 13, margin: "8px 0 0" }}>{couponError}</p>}
                       </div>
                     )}
+                    </>
+                    )}
                   </>
                 ) : (
                   <p style={{ color: colors.muted, fontSize: 15, lineHeight: 1.5, margin: "4px 0 0" }}>
@@ -387,7 +398,9 @@ export function RegistrationFlow() {
                     ? "Please wait…"
                     : form.trial
                       ? "Book free trial"
-                      : `Continue to pay €${(totalCents / 100).toFixed(2)}`
+                      : isCash
+                        ? `Confirm registration — pay €${(totalCents / 100).toFixed(2)} on arrival`
+                        : `Continue to pay €${(totalCents / 100).toFixed(2)}`
                   : "Continue"}
               </button>
             </div>
@@ -450,7 +463,7 @@ export function RegistrationFlow() {
               </div>
             )}
             <div style={{ borderTop: "1px solid #EEEBE3", marginTop: 16, paddingTop: 14, display: "flex", justifyContent: "space-between", fontFamily: fonts.display, fontWeight: 700, fontSize: 18 }}>
-              <span>{form.trial ? "Due now" : "Total"}</span>
+              <span>{form.trial ? "Due now" : isCash ? "Due in cash" : "Total"}</span>
               <span>{form.trial ? "€0" : `€${(totalCents / 100).toFixed(2)}`}</span>
             </div>
           </div>

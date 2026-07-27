@@ -1,14 +1,12 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import {
-  addVendorRoom,
   createVendorBlock,
   createVendorCentre,
   createVendorClub,
   deleteVendorBlock,
   deleteVendorCentre,
   deleteVendorClub,
-  deleteVendorRoom,
   fetchVendorBlocks,
   fetchVendorBookings,
   fetchVendorCentre,
@@ -20,13 +18,11 @@ import {
   markVendorNotificationRead,
   updateVendorCentre,
   updateVendorClub,
-  updateVendorRoom,
   uploadImage,
   type CentreInput,
   type ClubInput,
 } from "../api";
 import { useAuth } from "../AuthContext";
-import { TIME_SLOTS } from "../constants";
 import { VendorIllustration } from "../components/illustrations";
 import {
   AwardIcon,
@@ -37,10 +33,10 @@ import {
   CalendarIcon,
   CameraIcon,
   ChatIcon,
+  CheckCircleIcon,
   ClipboardIcon,
   ClockIcon,
   CloseIcon,
-  DoorIcon,
   EditIcon,
   EyeIcon,
   PinIcon,
@@ -50,7 +46,7 @@ import {
 } from "../components/icons";
 import { Avatar, BadgedIcon, Button, Card, DashboardTopPanel, EmptyState, StatRow, StatTile, StatusBadge, inputStyle, labelStyle } from "../components/ui";
 import { colors, fonts, maxWidth } from "../theme";
-import type { Centre, Club, MyBooking, MyRegistration, RoomBlock, VendorListingSummary, VendorNotification, VendorStats } from "../types";
+import type { Centre, Club, MyBooking, MyRegistration, RoomBlock, VendorListingSummary, VendorNotification, VendorStats, VendorType } from "../types";
 
 const HOUR_OPTIONS = ["09:00", "10:00", "11:00", "12:00", "13:00", "14:00", "15:00", "16:00", "17:00", "18:00", "19:00", "20:00", "21:00"];
 
@@ -131,16 +127,16 @@ function MultiImageUpload({ images, onChange }: { images: string[]; onChange: (u
 }
 
 function centreToInput(c: Centre): CentreInput {
-  return { name: c.name, area: c.area, county: c.county, capacity: c.capacity, from: c.from, managedBy: c.managedBy, image: c.image, images: c.images, blurb: c.blurb, amenities: c.amenities, opensAt: c.opensAt, closesAt: c.closesAt };
+  return { name: c.name, area: c.area, county: c.county, capacity: c.capacity, from: c.from, managedBy: c.managedBy, image: c.image, images: c.images, blurb: c.blurb, amenities: c.amenities, opensAt: c.opensAt, closesAt: c.closesAt, paymentMethod: c.paymentMethod, isOpen: c.isOpen, mapUrl: c.mapUrl };
 }
 function blankCentreInput(): CentreInput {
-  return { name: "", area: "", county: "", capacity: 0, from: 0, managedBy: "", image: "", images: [], blurb: "", amenities: [], opensAt: "09:00", closesAt: "21:00" };
+  return { name: "", area: "", county: "", capacity: 0, from: 0, managedBy: "", image: "", images: [], blurb: "", amenities: [], opensAt: "09:00", closesAt: "21:00", paymentMethod: "online", isOpen: true, mapUrl: "" };
 }
 function clubToInput(c: Club): ClubInput {
-  return { name: c.name, sport: c.sport, area: c.area, county: c.county, ages: c.ages, price: c.price, unit: c.unit, trial: c.trial, image: c.image, images: c.images, blurb: c.blurb, includes: c.includes };
+  return { name: c.name, sport: c.sport, area: c.area, county: c.county, ages: c.ages, price: c.price, unit: c.unit, trial: c.trial, image: c.image, images: c.images, blurb: c.blurb, includes: c.includes, paymentMethod: c.paymentMethod, mapUrl: c.mapUrl };
 }
 function blankClubInput(): ClubInput {
-  return { name: "", sport: "", area: "", county: "", ages: "", price: 0, unit: "year", trial: false, image: "", images: [], blurb: "", includes: [] };
+  return { name: "", sport: "", area: "", county: "", ages: "", price: 0, unit: "year", trial: false, image: "", images: [], blurb: "", includes: [], paymentMethod: "online", mapUrl: "" };
 }
 
 // --- centre editor (fields + rooms) -----------------------------------------
@@ -151,9 +147,8 @@ function CentreEditor({ centreId, onClose, onSaved }: { centreId: string | "new"
   const [centre, setCentre] = useState<Centre | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [roomForm, setRoomForm] = useState({ name: "", cap: "", rate: "", desc: "" });
   const [blocks, setBlocks] = useState<RoomBlock[]>([]);
-  const [blockForm, setBlockForm] = useState({ roomId: "", date: "", time: "", reason: "" });
+  const [blockForm, setBlockForm] = useState({ date: "", reason: "" });
 
   useEffect(() => {
     if (centreId !== "new") {
@@ -189,29 +184,11 @@ function CentreEditor({ centreId, onClose, onSaved }: { centreId: string | "new"
     }
   };
 
-  const addRoom = async () => {
-    if (!centre || !roomForm.name || !roomForm.cap || !roomForm.rate) return;
-    const updated = await addVendorRoom(centre.id, { name: roomForm.name, cap: Number(roomForm.cap), rate: Number(roomForm.rate), desc: roomForm.desc });
-    setCentre(updated);
-    setRoomForm({ name: "", cap: "", rate: "", desc: "" });
-  };
-
-  const removeRoom = async (roomId: string) => {
-    if (!centre) return;
-    const updated = await deleteVendorRoom(centre.id, roomId);
-    setCentre(updated);
-  };
-
   const addBlock = async () => {
     if (!centre || !blockForm.date) return;
-    await createVendorBlock(centre.id, {
-      roomId: blockForm.roomId || null,
-      date: blockForm.date,
-      time: blockForm.time || null,
-      reason: blockForm.reason,
-    });
+    await createVendorBlock(centre.id, { date: blockForm.date, reason: blockForm.reason });
     fetchVendorBlocks(centre.id).then(setBlocks);
-    setBlockForm({ roomId: "", date: "", time: "", reason: "" });
+    setBlockForm({ date: "", reason: "" });
   };
 
   const removeBlock = async (blockId: number) => {
@@ -247,12 +224,19 @@ function CentreEditor({ centreId, onClose, onSaved }: { centreId: string | "new"
           <input value={form.county} onChange={(e) => set("county", e.target.value)} style={inputStyle} />
         </div>
         <div>
-          <label style={labelStyle}>Capacity</label>
-          <input type="number" value={form.capacity} onChange={(e) => set("capacity", Number(e.target.value))} style={inputStyle} />
+          <label style={labelStyle}>Capacity (guests)</label>
+          <input type="number" value={form.capacity} onChange={(e) => set("capacity", Number(e.target.value))} placeholder="e.g. 100" style={inputStyle} />
         </div>
         <div>
           <label style={labelStyle}>From (€/hour)</label>
           <input type="number" value={form.from} onChange={(e) => set("from", Number(e.target.value))} style={inputStyle} />
+        </div>
+        <div>
+          <label style={labelStyle}>Payment</label>
+          <select value={form.paymentMethod ?? "online"} onChange={(e) => set("paymentMethod", e.target.value as "online" | "cash")} style={inputStyle}>
+            <option value="online">Online payment</option>
+            <option value="cash">Cash on arrival</option>
+          </select>
         </div>
         <div>
           <label style={labelStyle}>Opens at</label>
@@ -269,6 +253,17 @@ function CentreEditor({ centreId, onClose, onSaved }: { centreId: string | "new"
               <option key={h} value={h}>{h}</option>
             ))}
           </select>
+        </div>
+        <div>
+          <label style={labelStyle}>Taking bookings?</label>
+          <select value={form.isOpen === false ? "closed" : "open"} onChange={(e) => set("isOpen", e.target.value === "open")} style={inputStyle}>
+            <option value="open">Open</option>
+            <option value="closed">Closed (hide the Book button)</option>
+          </select>
+        </div>
+        <div>
+          <label style={labelStyle}>Map link (optional)</label>
+          <input value={form.mapUrl ?? ""} onChange={(e) => set("mapUrl", e.target.value)} placeholder="Google Maps link" style={inputStyle} />
         </div>
       </div>
 
@@ -289,37 +284,9 @@ function CentreEditor({ centreId, onClose, onSaved }: { centreId: string | "new"
 
       {centre && (
         <div style={{ marginTop: 26, borderTop: `1px solid ${colors.border}`, paddingTop: 20 }}>
-          <h4 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 15, margin: "0 0 12px" }}>Rooms</h4>
-          <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 16 }}>
-            {centre.rooms.map((r) => (
-              <div
-                key={r.id}
-                className="card-surface card-hover"
-                style={{ display: "flex", justifyContent: "space-between", alignItems: "center", border: `1px solid ${colors.border}`, borderRadius: 12, padding: "10px 14px" }}
-              >
-                <div style={{ fontSize: 13 }}>
-                  <strong>{r.name}</strong> — {r.desc} · cap {r.cap} · €{r.rate}/hr
-                </div>
-                <Button variant="danger" onClick={() => removeRoom(r.id)}>Delete</Button>
-              </div>
-            ))}
-            {centre.rooms.length === 0 && <EmptyState icon={<DoorIcon size={26} />} title="No rooms yet" subtitle="Add one below." />}
-          </div>
-          <div className="grid-responsive" style={{ display: "grid", gridTemplateColumns: "1.3fr 0.7fr 0.7fr 1.3fr auto", gap: 8 }}>
-            <input placeholder="Name" value={roomForm.name} onChange={(e) => setRoomForm((f) => ({ ...f, name: e.target.value }))} style={inputStyle} />
-            <input placeholder="Cap" type="number" value={roomForm.cap} onChange={(e) => setRoomForm((f) => ({ ...f, cap: e.target.value }))} style={inputStyle} />
-            <input placeholder="€/hr" type="number" value={roomForm.rate} onChange={(e) => setRoomForm((f) => ({ ...f, rate: e.target.value }))} style={inputStyle} />
-            <input placeholder="Description" value={roomForm.desc} onChange={(e) => setRoomForm((f) => ({ ...f, desc: e.target.value }))} style={inputStyle} />
-            <Button variant="ghost" onClick={addRoom}>Add room</Button>
-          </div>
-        </div>
-      )}
-
-      {centre && (
-        <div style={{ marginTop: 26, borderTop: `1px solid ${colors.border}`, paddingTop: 20 }}>
           <h4 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 15, margin: "0 0 4px" }}>Availability</h4>
           <p style={{ fontSize: 13, color: colors.mutedLight, margin: "0 0 12px" }}>
-            Close a date (e.g. a festival) or block a single time slot so guests can't book it.
+            Close a date (e.g. a festival) so guests can't book it.
           </p>
           <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 16 }}>
             {blocks.map((b) => (
@@ -329,28 +296,16 @@ function CentreEditor({ centreId, onClose, onSaved }: { centreId: string | "new"
                 style={{ display: "flex", justifyContent: "space-between", alignItems: "center", border: `1px solid ${colors.border}`, borderRadius: 12, padding: "10px 14px" }}
               >
                 <div style={{ fontSize: 13 }}>
-                  <strong>{formatDate(b.date)}</strong> · {b.time ?? "All day"} · {b.roomName ?? "All rooms"}
+                  <strong>{formatDate(b.date)}</strong>
                   {b.reason && <> — {b.reason}</>}
                 </div>
                 <Button variant="danger" onClick={() => removeBlock(b.id)}>Delete</Button>
               </div>
             ))}
-            {blocks.length === 0 && <EmptyState icon={<CalendarIcon size={26} />} title="Nothing blocked" subtitle="Every open date/time is bookable." />}
+            {blocks.length === 0 && <EmptyState icon={<CalendarIcon size={26} />} title="Nothing blocked" subtitle="Every open date is bookable." />}
           </div>
-          <div className="grid-responsive" style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1.3fr auto", gap: 8 }}>
-            <select value={blockForm.roomId} onChange={(e) => setBlockForm((f) => ({ ...f, roomId: e.target.value }))} style={inputStyle}>
-              <option value="">All rooms</option>
-              {centre.rooms.map((r) => (
-                <option key={r.id} value={r.id}>{r.name}</option>
-              ))}
-            </select>
+          <div className="grid-responsive" style={{ display: "grid", gridTemplateColumns: "1fr 1.3fr auto", gap: 8 }}>
             <input type="date" value={blockForm.date} onChange={(e) => setBlockForm((f) => ({ ...f, date: e.target.value }))} style={inputStyle} />
-            <select value={blockForm.time} onChange={(e) => setBlockForm((f) => ({ ...f, time: e.target.value }))} style={inputStyle}>
-              <option value="">All day</option>
-              {TIME_SLOTS.map((t) => (
-                <option key={t} value={t}>{t}</option>
-              ))}
-            </select>
             <input placeholder="Reason (e.g. Festival)" value={blockForm.reason} onChange={(e) => setBlockForm((f) => ({ ...f, reason: e.target.value }))} style={inputStyle} />
             <Button variant="ghost" onClick={addBlock}>Block</Button>
           </div>
@@ -445,6 +400,15 @@ function ClubEditor({ clubId, onClose, onSaved }: { clubId: string | "new"; onCl
         <input type="checkbox" checked={!!form.trial} onChange={(e) => set("trial", e.target.checked)} style={{ accentColor: colors.orange, width: 16, height: 16 }} />
         Offers a free trial session
       </label>
+
+      <label style={labelStyle}>Registration payment</label>
+      <select value={form.paymentMethod ?? "online"} onChange={(e) => set("paymentMethod", e.target.value as "online" | "cash")} style={{ ...inputStyle, marginBottom: 14 }}>
+        <option value="online">Online payment</option>
+        <option value="cash">Cash on arrival</option>
+      </select>
+
+      <label style={labelStyle}>Map link (optional)</label>
+      <input value={form.mapUrl ?? ""} onChange={(e) => set("mapUrl", e.target.value)} placeholder="Google Maps link" style={{ ...inputStyle, marginBottom: 14 }} />
 
       <label style={labelStyle}>Description</label>
       <textarea value={form.blurb} onChange={(e) => set("blurb", e.target.value)} rows={3} style={{ ...inputStyle, resize: "vertical", marginBottom: 14 }} />
@@ -567,13 +531,13 @@ function BookingsTab() {
   return (
     <div className="fade-panel" style={{ display: "flex", flexDirection: "column", gap: 24 }}>
       <Card>
-        <h4 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 16, margin: "0 0 14px" }}>Room bookings</h4>
+        <h4 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 16, margin: "0 0 14px" }}>Hall bookings</h4>
         {bookings.length === 0 && <EmptyState icon={<CalendarIcon size={26} />} title="No bookings yet" />}
         {bookings.map((b) => (
           <div key={b.ref} style={{ borderTop: `1px solid ${colors.border}`, padding: "12px 0", fontSize: 13, display: "flex", alignItems: "center", gap: 12 }}>
             <Avatar name={b.name} size={28} />
             <div style={{ minWidth: 0, flex: 1 }}>
-              <strong>{b.centreName}</strong> · {b.roomName} · {b.date} {b.time} — {b.name} ({b.email}, {b.phone})
+              <strong>{b.centreName}</strong> · {b.date} {b.time} — {b.name} ({b.email}, {b.phone})
             </div>
           </div>
         ))}
@@ -594,9 +558,56 @@ function BookingsTab() {
   );
 }
 
+// --- setup checklist (scoped to the vendor's chosen type) ------------------
+
+function ChecklistStep({ done, label }: { done: boolean; label: string }) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0" }}>
+      <div
+        style={{
+          width: 20,
+          height: 20,
+          borderRadius: "50%",
+          flex: "none",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          background: done ? colors.greenBg : colors.panel,
+          color: done ? colors.green : colors.faint,
+          border: done ? "none" : `1.5px solid ${colors.border}`,
+        }}
+      >
+        {done && <CheckCircleIcon size={13} />}
+      </div>
+      <span style={{ fontSize: 13.5, color: done ? colors.text : colors.muted, textDecoration: done ? "line-through" : "none" }}>{label}</span>
+    </div>
+  );
+}
+
+function SetupChecklist({ vendorType, listings }: { vendorType: VendorType; listings: { centres: VendorListingSummary[]; clubs: VendorListingSummary[] } }) {
+  const rows = vendorType === "sports" ? listings.clubs.filter((c) => c.status !== "deleted") : listings.centres.filter((c) => c.status !== "deleted");
+  const noun = vendorType === "sports" ? "sports club" : "community centre";
+  const hasListing = rows.length > 0;
+  const hasPhoto = rows.some((r) => !!r.image);
+  const hasApproved = rows.some((r) => r.status === "approved");
+
+  if (hasListing && hasPhoto && hasApproved) return null;
+
+  return (
+    <Card style={{ padding: "16px 20px", marginBottom: 24 }}>
+      <h3 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 15, margin: "0 0 4px" }}>Finish setting up</h3>
+      <p style={{ color: colors.mutedLight, fontSize: 12.5, margin: "0 0 4px" }}>A few steps left before your {noun} is fully live.</p>
+      <ChecklistStep done={hasListing} label={`Add your first ${noun}`} />
+      <ChecklistStep done={hasPhoto} label="Add a photo" />
+      <ChecklistStep done={hasApproved} label="Get admin approval for your listing" />
+    </Card>
+  );
+}
+
 // --- listings tab ------------------------------------------------------
 
 function ListingsTab({
+  vendorType,
   listings,
   onEditCentre,
   onEditClub,
@@ -604,6 +615,7 @@ function ListingsTab({
   onNewClub,
   reload,
 }: {
+  vendorType: VendorType | null;
   listings: { centres: VendorListingSummary[]; clubs: VendorListingSummary[] };
   onEditCentre: (id: string) => void;
   onEditClub: (id: string) => void;
@@ -613,9 +625,13 @@ function ListingsTab({
 }) {
   const activeCentres = listings.centres.filter((c) => c.status !== "deleted");
   const activeClubs = listings.clubs.filter((c) => c.status !== "deleted");
+  const showCentres = vendorType !== "sports";
+  const showClubs = vendorType !== "community";
 
   return (
     <div className="fade-panel" style={{ display: "flex", flexDirection: "column", gap: 30 }}>
+      {vendorType && <SetupChecklist vendorType={vendorType} listings={listings} />}
+      {showCentres && (
       <div>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 10, justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
           <h3 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 18, margin: 0, letterSpacing: "-.01em" }}>Community centres</h3>
@@ -645,7 +661,7 @@ function ListingsTab({
                   <span style={{ fontWeight: 700, fontSize: 13 }}>{c.views}</span>
                   <span style={{ fontSize: 11, color: colors.mutedLight }}>Views</span>
                 </div>
-                <Button variant="ghost" onClick={() => onEditCentre(c.id)}><EditIcon size={14} /> Edit</Button>
+                <Button variant="ghost" onClick={() => onEditCentre(c.id)}><EditIcon size={14} /> {c.status === "approved" ? "Edit" : "Setup"}</Button>
                 <Button variant="danger" onClick={() => deleteVendorCentre(c.id).then(reload)}><TrashIcon size={14} /> Delete</Button>
               </div>
             </Card>
@@ -655,7 +671,9 @@ function ListingsTab({
           )}
         </div>
       </div>
+      )}
 
+      {showClubs && (
       <div>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 10, justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
           <h3 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 18, margin: 0, letterSpacing: "-.01em" }}>Sports clubs</h3>
@@ -685,7 +703,7 @@ function ListingsTab({
                   <span style={{ fontWeight: 700, fontSize: 13 }}>{c.views}</span>
                   <span style={{ fontSize: 11, color: colors.mutedLight }}>Views</span>
                 </div>
-                <Button variant="ghost" onClick={() => onEditClub(c.id)}><EditIcon size={14} /> Edit</Button>
+                <Button variant="ghost" onClick={() => onEditClub(c.id)}><EditIcon size={14} /> {c.status === "approved" ? "Edit" : "Setup"}</Button>
                 <Button variant="danger" onClick={() => deleteVendorClub(c.id).then(reload)}><TrashIcon size={14} /> Delete</Button>
               </div>
             </Card>
@@ -695,6 +713,7 @@ function ListingsTab({
           )}
         </div>
       </div>
+      )}
     </div>
   );
 }
@@ -775,7 +794,7 @@ export function VendorDashboard() {
               />
             </div>
             <div style={{ flex: "1 1 380px" }}>
-              <GrowPresencePanel onAddListing={() => setEditingCentre("new")} />
+              <GrowPresencePanel onAddListing={() => (user.vendorType === "sports" ? setEditingClub("new") : setEditingCentre("new"))} />
             </div>
           </div>
 
@@ -797,6 +816,7 @@ export function VendorDashboard() {
             <ClubEditor clubId={editingClub} onClose={() => setEditingClub(null)} onSaved={reload} />
           ) : (
             <ListingsTab
+              vendorType={user.vendorType}
               listings={listings}
               onEditCentre={setEditingCentre}
               onEditClub={setEditingClub}

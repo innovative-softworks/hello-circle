@@ -4,7 +4,7 @@ import { fetchClub } from "../api";
 import { PhotoGallery } from "../components/PhotoGallery";
 import { Reviews } from "../components/Reviews";
 import { priceLabel } from "../priceLabel";
-import { CheckIcon, ChevronLeftIcon, ClockIcon, StarIcon } from "../components/icons";
+import { CheckIcon, ChevronLeftIcon, ClockIcon, PinIcon, StarIcon } from "../components/icons";
 import { colors, fonts, maxWidth } from "../theme";
 import type { Club } from "../types";
 
@@ -67,8 +67,13 @@ export function ClubDetail() {
             </span>
           )}
           <h1 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: "clamp(26px, 5vw, 36px)", margin: "0 0 4px", letterSpacing: "-.025em" }}>{club.name}</h1>
-          <p style={{ color: colors.mutedLight, fontSize: 16, margin: "0 0 8px" }}>
-            {club.area} · {club.sport} · ages {club.ages}
+          <p style={{ color: colors.mutedLight, fontSize: 16, margin: "0 0 8px", display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+            <span>{club.area} · {club.sport} · ages {club.ages}</span>
+            {club.mapUrl && (
+              <a href={club.mapUrl} target="_blank" rel="noopener noreferrer" className="link-accent" style={{ display: "inline-flex", alignItems: "center", gap: 4, color: colors.orangeDark, fontSize: 14, fontWeight: 600 }}>
+                <PinIcon size={14} /> View on map
+              </a>
+            )}
           </p>
           <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 14 }}>
             <StarIcon size={16} style={{ color: colors.gold }} />
@@ -93,7 +98,14 @@ export function ClubDetail() {
           style={{ position: "sticky", top: 90, background: "#fff", border: `1px solid ${colors.border}`, borderRadius: 18, padding: 22, boxShadow: "0 8px 30px rgba(30,40,32,.05)" }}
         >
           <div style={{ fontSize: 14, color: colors.mutedLight, marginBottom: 4 }}>Membership</div>
-          <div style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 28, marginBottom: 16 }}>{priceLabel(club)}</div>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 16 }}>
+            <div style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 28 }}>{priceLabel(club)}</div>
+            {club.paymentMethod === "cash" && (
+              <span style={{ fontSize: 11, fontWeight: 700, color: colors.orangeDark, background: colors.orangeBg, borderRadius: 999, padding: "2px 8px" }}>
+                Cash on arrival
+              </span>
+            )}
+          </div>
           <button
             onClick={() => navigate(`/register/${club.id}`)}
             style={{ width: "100%", background: colors.orange, color: "#fff", border: "none", borderRadius: 12, padding: 14, fontSize: 15, fontWeight: 700, cursor: "pointer", marginBottom: 10 }}
