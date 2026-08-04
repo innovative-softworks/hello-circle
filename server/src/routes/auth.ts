@@ -12,7 +12,7 @@ const cookieOpts = {
   maxAge: 30 * 24 * 60 * 60 * 1000,
 };
 
-authRouter.post("/signup", (req, res) => {
+authRouter.post("/signup", async (req, res) => {
   const { email, password, name, vendorType, businessName, address, county, mobile, landline, description } = req.body as {
     email?: string;
     password?: string;
@@ -33,7 +33,7 @@ authRouter.post("/signup", (req, res) => {
   if (!businessName || !address || !county || !mobile || !description) {
     return res.status(400).json({ error: "Business name, address, county, mobile number and description are required" });
   }
-  if (findUserByEmail(email)) return res.status(409).json({ error: "An account with that email already exists" });
+  if (await findUserByEmail(email)) return res.status(409).json({ error: "An account with that email already exists" });
 
   // Public signup only ever creates vendor accounts, starting as pending
   // until an admin approves them. Admin accounts are seeded, not self-served.
@@ -45,59 +45,66 @@ authRouter.post("/signup", (req, res) => {
   // vendor's registration is immediately visible to admin (Pending approval
   // tab/stats) and pre-fills the vendor's dashboard once approved — see
   // ListingsTab's "Setup" vs "Edit" button in VendorDashboard.tsx.
-  const createDraft = db.transaction(() => {
-    const user = createUser(email, password, name, "vendor", "pending", {
-      vendorType: vendorType as "community" | "sports",
-      businessName,
-      address,
-      county,
-      mobile,
-      landline: landline ?? "",
-      description,
-    });
+  const user = await db.transaction(async (tx) => {
+    const user = await createUser(
+      email,
+      password,
+      name,
+      "vendor",
+      "pending",
+      {
+        vendorType: vendorType as "community" | "sports",
+        businessName,
+        address,
+        county,
+        mobile,
+        landline: landline ?? "",
+        description,
+      },
+      tx
+    );
     const listingId = crypto.randomUUID();
     if (vendorType === "community") {
-      db.prepare(
+      await tx.prepare(
         `INSERT INTO centres (id, name, area, county, rating, reviews, capacity, from_price, managed_by, ph, image_url, blurb, vendor_id, status, created_at)
-         VALUES (?, ?, ?, ?, 0, 0, 0, 0, ?, ?, '', ?, ?, 'pending', datetime('now'))`
+         VALUES (?, ?, ?, ?, 0, 0, 0, 0, ?, ?, '', ?, ?, 'pending', NOW())`
       ).run(listingId, businessName, address, county, businessName, mobile, description, user.id);
       // "Rooms" is a pure internal implementation detail (see vendor.ts) —
       // every centre gets exactly one, matching its own capacity/rate.
-      db.prepare(
-        `INSERT INTO rooms (id, centre_id, name, cap, rate, desc, sort_order) VALUES (?, ?, '', 0, 0, '', 0)`
+      await tx.prepare(
+        `INSERT INTO rooms (id, centre_id, name, cap, rate, \`desc\`, sort_order) VALUES (?, ?, '', 0, 0, '', 0)`
       ).run(crypto.randomUUID(), listingId);
     } else {
-      db.prepare(
+      await tx.prepare(
         `INSERT INTO clubs (id, name, sport, area, county, ages, price, unit, trial, ph, image_url, blurb, vendor_id, status, created_at)
-         VALUES (?, ?, '', ?, ?, '', 0, 'year', 0, ?, '', ?, ?, 'pending', datetime('now'))`
+         VALUES (?, ?, '', ?, ?, '', 0, 'year', 0, ?, '', ?, ?, 'pending', NOW())`
       ).run(listingId, businessName, address, county, mobile, description, user.id);
     }
     return user;
   });
 
-  const user = createDraft();
   res.status(201).json({ user });
 });
 
-authRouter.post("/login", (req, res) => {
+authRouter.post("/login", async (req, res) => {
   const { email, password } = req.body as { email?: string; password?: string };
   if (!email || !password) return res.status(400).json({ error: "Email and password are required" });
 
-  const found = findUserByEmail(email);
+  const found = await findUserByEmail(email);
   if (!found || !verifyPassword(password, found.passwordHash)) {
     return res.status(401).json({ error: "Incorrect email or password" });
   }
   if (found.status === "suspended") return res.status(403).json({ error: "This account has been suspended" });
 
-  const { token } = createSession(found.id);
+  const { token } = await createSession(found.id);
   res.cookie(SESSION_COOKIE, token, cookieOpts);
   const { passwordHash: _passwordHash, ...user } = found;
   res.json({ user });
 });
 
-authRouter.post("/logout", (req, res) => {
+authRouter.post("/logout", async (req, res) => {
   const token = req.cookies?.[SESSION_COOKIE];
-  if (token) destroySession(token);
+  if (token) await destroySession(token);
   res.clearCookie(SESSION_COOKIE, cookieOpts);
   res.json({ ok: true });
 });

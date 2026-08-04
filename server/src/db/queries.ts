@@ -44,7 +44,7 @@ const amenitiesStmt = db.prepare(
   `SELECT amenity FROM centre_amenities WHERE centre_id = ? ORDER BY sort_order`
 );
 const roomsStmt = db.prepare(
-  `SELECT id, centre_id as centreId, name, cap, rate, desc, payment_method as paymentMethod FROM rooms WHERE centre_id = ? ORDER BY sort_order`
+  `SELECT id, centre_id as centreId, name, cap, rate, \`desc\`, payment_method as paymentMethod FROM rooms WHERE centre_id = ? ORDER BY sort_order`
 );
 const includesStmt = db.prepare(
   `SELECT item FROM club_includes WHERE club_id = ? ORDER BY sort_order`
@@ -60,14 +60,14 @@ const reviewStatsStmt = db.prepare(
 );
 
 /** Live rating computed from real submitted reviews — replaces the old seeded static number. */
-function reviewStats(listingType: "centre" | "club", listingId: string): { rating: number; reviews: number } {
-  const row = reviewStatsStmt.get(listingType, listingId) as { avg: number; count: number };
+async function reviewStats(listingType: "centre" | "club", listingId: string): Promise<{ rating: number; reviews: number }> {
+  const row = (await reviewStatsStmt.get(listingType, listingId)) as { avg: number; count: number };
   return { rating: Math.round(row.avg * 10) / 10, reviews: row.count };
 }
 
-function toCentre(row: CentreRow): Centre {
-  const { rating, reviews } = reviewStats("centre", row.id);
-  const images = (centreImagesStmt.all(row.id) as { url: string }[]).map((r) => r.url);
+async function toCentre(row: CentreRow): Promise<Centre> {
+  const { rating, reviews } = await reviewStats("centre", row.id);
+  const images = ((await centreImagesStmt.all(row.id)) as { url: string }[]).map((r) => r.url);
   return {
     id: row.id,
     name: row.name,
@@ -82,8 +82,8 @@ function toCentre(row: CentreRow): Centre {
     image: row.image_url,
     images: images.length > 0 ? images : row.image_url ? [row.image_url] : [],
     blurb: row.blurb,
-    amenities: (amenitiesStmt.all(row.id) as { amenity: string }[]).map((r) => r.amenity),
-    rooms: roomsStmt.all(row.id) as Room[],
+    amenities: ((await amenitiesStmt.all(row.id)) as { amenity: string }[]).map((r) => r.amenity),
+    rooms: (await roomsStmt.all(row.id)) as Room[],
     opensAt: row.opens_at,
     closesAt: row.closes_at,
     paymentMethod: row.payment_method,
@@ -92,9 +92,9 @@ function toCentre(row: CentreRow): Centre {
   };
 }
 
-function toClub(row: ClubRow): Club {
-  const { rating, reviews } = reviewStats("club", row.id);
-  const images = (clubImagesStmt.all(row.id) as { url: string }[]).map((r) => r.url);
+async function toClub(row: ClubRow): Promise<Club> {
+  const { rating, reviews } = await reviewStats("club", row.id);
+  const images = ((await clubImagesStmt.all(row.id)) as { url: string }[]).map((r) => r.url);
   return {
     id: row.id,
     name: row.name,
@@ -109,7 +109,7 @@ function toClub(row: ClubRow): Club {
     image: row.image_url,
     images: images.length > 0 ? images : row.image_url ? [row.image_url] : [],
     blurb: row.blurb,
-    includes: (includesStmt.all(row.id) as { item: string }[]).map((r) => r.item),
+    includes: ((await includesStmt.all(row.id)) as { item: string }[]).map((r) => r.item),
     rating,
     reviews,
     paymentMethod: row.payment_method,
@@ -121,32 +121,32 @@ function toClub(row: ClubRow): Club {
 // routes) fetch by id directly via getCentre/getClub, which don't filter by
 // status, so a vendor can see their own pending/rejected listings.
 
-export function listCentres(county?: string): Centre[] {
+export async function listCentres(county?: string): Promise<Centre[]> {
   const rows = (
     county && county !== "All"
-      ? db.prepare(`SELECT * FROM centres WHERE status = 'approved' AND county = ? ORDER BY name`).all(county)
-      : db.prepare(`SELECT * FROM centres WHERE status = 'approved' ORDER BY name`).all()
+      ? await db.prepare(`SELECT * FROM centres WHERE status = 'approved' AND county = ? ORDER BY name`).all(county)
+      : await db.prepare(`SELECT * FROM centres WHERE status = 'approved' ORDER BY name`).all()
   ) as CentreRow[];
-  return rows.map(toCentre);
+  return Promise.all(rows.map(toCentre));
 }
 
-export function getCentre(id: string): Centre | null {
-  const row = db.prepare(`SELECT * FROM centres WHERE id = ?`).get(id) as CentreRow | undefined;
+export async function getCentre(id: string): Promise<Centre | null> {
+  const row = (await db.prepare(`SELECT * FROM centres WHERE id = ?`).get(id)) as CentreRow | undefined;
   return row ? toCentre(row) : null;
 }
 
 const bumpCentreViews = db.prepare(`UPDATE centres SET views = views + 1 WHERE id = ?`);
 
-export function getApprovedCentre(id: string): Centre | null {
-  const row = db.prepare(`SELECT * FROM centres WHERE id = ? AND status = 'approved'`).get(id) as
+export async function getApprovedCentre(id: string): Promise<Centre | null> {
+  const row = (await db.prepare(`SELECT * FROM centres WHERE id = ? AND status = 'approved'`).get(id)) as
     | CentreRow
     | undefined;
   if (!row) return null;
-  bumpCentreViews.run(id);
+  await bumpCentreViews.run(id);
   return toCentre(row);
 }
 
-export function listClubs(county?: string, sport?: string): Club[] {
+export async function listClubs(county?: string, sport?: string): Promise<Club[]> {
   const clauses: string[] = ["status = 'approved'"];
   const params: string[] = [];
   if (county && county !== "All") {
@@ -157,22 +157,22 @@ export function listClubs(county?: string, sport?: string): Club[] {
     clauses.push("sport = ?");
     params.push(sport);
   }
-  const rows = db
+  const rows = (await db
     .prepare(`SELECT * FROM clubs WHERE ${clauses.join(" AND ")} ORDER BY name`)
-    .all(...params) as ClubRow[];
-  return rows.map(toClub);
+    .all(...params)) as ClubRow[];
+  return Promise.all(rows.map(toClub));
 }
 
-export function getClub(id: string): Club | null {
-  const row = db.prepare(`SELECT * FROM clubs WHERE id = ?`).get(id) as ClubRow | undefined;
+export async function getClub(id: string): Promise<Club | null> {
+  const row = (await db.prepare(`SELECT * FROM clubs WHERE id = ?`).get(id)) as ClubRow | undefined;
   return row ? toClub(row) : null;
 }
 
 const bumpClubViews = db.prepare(`UPDATE clubs SET views = views + 1 WHERE id = ?`);
 
-export function getApprovedClub(id: string): Club | null {
-  const row = db.prepare(`SELECT * FROM clubs WHERE id = ? AND status = 'approved'`).get(id) as ClubRow | undefined;
+export async function getApprovedClub(id: string): Promise<Club | null> {
+  const row = (await db.prepare(`SELECT * FROM clubs WHERE id = ? AND status = 'approved'`).get(id)) as ClubRow | undefined;
   if (!row) return null;
-  bumpClubViews.run(id);
+  await bumpClubViews.run(id);
   return toClub(row);
 }

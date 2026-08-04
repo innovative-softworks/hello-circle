@@ -26,12 +26,12 @@ export async function notifyNewBookingOrRegistration(params: NotifyParams) {
   const { kind, listingType, listingId, listingName, vendorId, guestName, guestEmail, ref, detailsText } = params;
   const noun = kind === "booking" ? "booking" : "registration";
 
-  const admins = db.prepare(`SELECT id, email FROM users WHERE role = 'admin'`).all() as { id: string; email: string }[];
+  const admins = (await db.prepare(`SELECT id, email FROM users WHERE role = 'admin'`).all()) as { id: string; email: string }[];
 
   const recipientIds = new Set<string>(admins.map((a) => a.id));
   if (vendorId) recipientIds.add(vendorId);
   for (const recipientId of recipientIds) {
-    insertNotification.run({
+    await insertNotification.run({
       recipientId,
       kind,
       title: kind === "booking" ? `New booking: ${listingName}` : `New registration: ${listingName}`,
@@ -43,7 +43,7 @@ export async function notifyNewBookingOrRegistration(params: NotifyParams) {
   }
 
   const vendorEmail = vendorId
-    ? (db.prepare(`SELECT email FROM users WHERE id = ?`).get(vendorId) as { email: string } | undefined)?.email
+    ? ((await db.prepare(`SELECT email FROM users WHERE id = ?`).get(vendorId)) as { email: string } | undefined)?.email
     : undefined;
 
   await sendMail({

@@ -6,6 +6,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { attachUser } from "./auth.js";
 import { dataDir } from "./dataDir.js";
+import { initSchema } from "./db/index.js";
 import { seedAdminIfMissing, seedIfEmpty } from "./db/seed.js";
 import { adminRouter } from "./routes/admin.js";
 import { authRouter } from "./routes/auth.js";
@@ -20,8 +21,12 @@ import { stripeWebhookHandler } from "./routes/stripeWebhook.js";
 import { uploadsRouter } from "./routes/uploads.js";
 import { vendorRouter } from "./routes/vendor.js";
 
-seedIfEmpty();
-seedAdminIfMissing();
+// MySQL access is async, so the schema/seed must finish before the server
+// starts accepting requests — top-level await (supported by this project's
+// ES2022/NodeNext TS config) blocks the rest of module evaluation until then.
+await initSchema();
+await seedIfEmpty();
+await seedAdminIfMissing();
 
 // A route handler throwing inside an unawaited/uncaught async path (e.g. a
 // third-party API call like Stripe rejecting) would otherwise crash the

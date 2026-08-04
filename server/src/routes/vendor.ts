@@ -9,15 +9,15 @@ vendorRouter.use(requireVendor);
 
 // --- helpers -----------------------------------------------------------
 
-function ownsCentre(vendorId: string, centreId: string): boolean {
-  const row = db.prepare(`SELECT vendor_id FROM centres WHERE id = ?`).get(centreId) as
+async function ownsCentre(vendorId: string, centreId: string): Promise<boolean> {
+  const row = (await db.prepare(`SELECT vendor_id FROM centres WHERE id = ?`).get(centreId)) as
     | { vendor_id: string | null }
     | undefined;
   return !!row && row.vendor_id === vendorId;
 }
 
-function ownsClub(vendorId: string, clubId: string): boolean {
-  const row = db.prepare(`SELECT vendor_id FROM clubs WHERE id = ?`).get(clubId) as
+async function ownsClub(vendorId: string, clubId: string): Promise<boolean> {
+  const row = (await db.prepare(`SELECT vendor_id FROM clubs WHERE id = ?`).get(clubId)) as
     | { vendor_id: string | null }
     | undefined;
   return !!row && row.vendor_id === vendorId;
@@ -25,15 +25,15 @@ function ownsClub(vendorId: string, clubId: string): boolean {
 
 // --- listings overview ---------------------------------------------------
 
-vendorRouter.get("/listings", (req, res) => {
-  const centres = db
+vendorRouter.get("/listings", async (req, res) => {
+  const centres = await db
     .prepare(
       `SELECT c.id, c.name, c.status, c.area, c.county, c.views, c.created_at as createdAt, c.image_url as image,
               (SELECT COUNT(*) FROM bookings b WHERE b.centre_id = c.id AND b.payment_status = 'paid') as bookingsCount
        FROM centres c WHERE c.vendor_id = ? ORDER BY c.name`
     )
     .all(req.user!.id);
-  const clubs = db
+  const clubs = await db
     .prepare(
       `SELECT c.id, c.name, c.status, c.area, c.county, c.views, c.created_at as createdAt, c.image_url as image,
               (SELECT COUNT(*) FROM registrations r WHERE r.club_id = c.id AND r.payment_status = 'paid') as bookingsCount
@@ -43,28 +43,28 @@ vendorRouter.get("/listings", (req, res) => {
   res.json({ centres, clubs });
 });
 
-vendorRouter.get("/stats", (req, res) => {
+vendorRouter.get("/stats", async (req, res) => {
   const vendorId = req.user!.id;
-  const centresLive = db
+  const centresLive = (await db
     .prepare(`SELECT COUNT(*) as n FROM centres WHERE vendor_id = ? AND status = 'approved'`)
-    .get(vendorId) as { n: number };
-  const clubsLive = db
+    .get(vendorId)) as { n: number };
+  const clubsLive = (await db
     .prepare(`SELECT COUNT(*) as n FROM clubs WHERE vendor_id = ? AND status = 'approved'`)
-    .get(vendorId) as { n: number };
-  const totalBookings = db
+    .get(vendorId)) as { n: number };
+  const totalBookings = (await db
     .prepare(
       `SELECT
         (SELECT COUNT(*) FROM bookings b JOIN centres c ON c.id = b.centre_id WHERE c.vendor_id = ? AND b.payment_status = 'paid') +
         (SELECT COUNT(*) FROM registrations r JOIN clubs c ON c.id = r.club_id WHERE c.vendor_id = ? AND r.payment_status = 'paid') as n`
     )
-    .get(vendorId, vendorId) as { n: number };
-  const totalViews = db
+    .get(vendorId, vendorId)) as { n: number };
+  const totalViews = (await db
     .prepare(
       `SELECT
         (SELECT COALESCE(SUM(views), 0) FROM centres WHERE vendor_id = ?) +
         (SELECT COALESCE(SUM(views), 0) FROM clubs WHERE vendor_id = ?) as n`
     )
-    .get(vendorId, vendorId) as { n: number };
+    .get(vendorId, vendorId)) as { n: number };
   res.json({
     centresLive: centresLive.n,
     clubsLive: clubsLive.n,
@@ -75,9 +75,9 @@ vendorRouter.get("/stats", (req, res) => {
 
 // --- centres ---------------------------------------------------------------
 
-vendorRouter.get("/centres/:id", (req, res) => {
-  if (!ownsCentre(req.user!.id, req.params.id)) return res.status(403).json({ error: "Not your listing" });
-  res.json(getCentre(req.params.id));
+vendorRouter.get("/centres/:id", async (req, res) => {
+  if (!(await ownsCentre(req.user!.id, req.params.id))) return res.status(403).json({ error: "Not your listing" });
+  res.json(await getCentre(req.params.id));
 });
 
 interface CentreInput {
@@ -98,15 +98,15 @@ interface CentreInput {
   mapUrl?: string;
 }
 
-vendorRouter.post("/centres", (req, res) => {
+vendorRouter.post("/centres", async (req, res) => {
   const b = req.body as CentreInput;
   if (!b.name || !b.area || !b.county || !b.blurb) return res.status(400).json({ error: "Missing required fields" });
 
   const id = crypto.randomUUID();
-  const tx = db.transaction(() => {
-    db.prepare(
+  await db.transaction(async (tx) => {
+    await tx.prepare(
       `INSERT INTO centres (id, name, area, county, rating, reviews, capacity, from_price, managed_by, ph, image_url, blurb, vendor_id, status, created_at, opens_at, closes_at, payment_method, map_url)
-       VALUES (?, ?, ?, ?, 0, 0, ?, ?, ?, '', ?, ?, ?, 'pending', datetime('now'), ?, ?, ?, ?)`
+       VALUES (?, ?, ?, ?, 0, 0, ?, ?, ?, '', ?, ?, ?, 'pending', NOW(), ?, ?, ?, ?)`
     ).run(
       id,
       b.name,
@@ -123,29 +123,28 @@ vendorRouter.post("/centres", (req, res) => {
       b.paymentMethod ?? "online",
       b.mapUrl ?? ""
     );
-    (b.amenities ?? []).forEach((a, i) =>
-      db.prepare(`INSERT INTO centre_amenities (centre_id, amenity, sort_order) VALUES (?, ?, ?)`).run(id, a, i)
-    );
-    (b.images ?? []).forEach((url, i) =>
-      db.prepare(`INSERT INTO centre_images (centre_id, url, sort_order) VALUES (?, ?, ?)`).run(id, url, i)
-    );
+    for (const [i, a] of (b.amenities ?? []).entries()) {
+      await tx.prepare(`INSERT INTO centre_amenities (centre_id, amenity, sort_order) VALUES (?, ?, ?)`).run(id, a, i);
+    }
+    for (const [i, url] of (b.images ?? []).entries()) {
+      await tx.prepare(`INSERT INTO centre_images (centre_id, url, sort_order) VALUES (?, ?, ?)`).run(id, url, i);
+    }
     // "Rooms" is a pure internal implementation detail (booking/availability
     // stay keyed by room_id) — every centre gets exactly one, kept in sync
     // with its own capacity/rate/payment method on every save.
-    db.prepare(
-      `INSERT INTO rooms (id, centre_id, name, cap, rate, desc, sort_order, payment_method) VALUES (?, ?, '', ?, ?, '', 0, ?)`
+    await tx.prepare(
+      `INSERT INTO rooms (id, centre_id, name, cap, rate, \`desc\`, sort_order, payment_method) VALUES (?, ?, '', ?, ?, '', 0, ?)`
     ).run(crypto.randomUUID(), id, b.capacity ?? 0, b.from ?? 0, b.paymentMethod ?? "online");
   });
-  tx();
-  res.status(201).json(getCentre(id));
+  res.status(201).json(await getCentre(id));
 });
 
-vendorRouter.put("/centres/:id", (req, res) => {
-  if (!ownsCentre(req.user!.id, req.params.id)) return res.status(403).json({ error: "Not your listing" });
+vendorRouter.put("/centres/:id", async (req, res) => {
+  if (!(await ownsCentre(req.user!.id, req.params.id))) return res.status(403).json({ error: "Not your listing" });
   const b = req.body as Partial<CentreInput>;
 
-  const tx = db.transaction(() => {
-    db.prepare(
+  await db.transaction(async (tx) => {
+    await tx.prepare(
       `UPDATE centres SET name = COALESCE(?, name), area = COALESCE(?, area), county = COALESCE(?, county),
        capacity = COALESCE(?, capacity), from_price = COALESCE(?, from_price), managed_by = COALESCE(?, managed_by),
        image_url = COALESCE(?, image_url), blurb = COALESCE(?, blurb),
@@ -169,30 +168,27 @@ vendorRouter.put("/centres/:id", (req, res) => {
       req.params.id
     );
     if (b.amenities) {
-      db.prepare(`DELETE FROM centre_amenities WHERE centre_id = ?`).run(req.params.id);
-      b.amenities.forEach((a, i) =>
-        db
-          .prepare(`INSERT INTO centre_amenities (centre_id, amenity, sort_order) VALUES (?, ?, ?)`)
-          .run(req.params.id, a, i)
-      );
+      await tx.prepare(`DELETE FROM centre_amenities WHERE centre_id = ?`).run(req.params.id);
+      for (const [i, a] of b.amenities.entries()) {
+        await tx.prepare(`INSERT INTO centre_amenities (centre_id, amenity, sort_order) VALUES (?, ?, ?)`).run(req.params.id, a, i);
+      }
     }
     if (b.images) {
-      db.prepare(`DELETE FROM centre_images WHERE centre_id = ?`).run(req.params.id);
-      b.images.forEach((url, i) =>
-        db.prepare(`INSERT INTO centre_images (centre_id, url, sort_order) VALUES (?, ?, ?)`).run(req.params.id, url, i)
-      );
+      await tx.prepare(`DELETE FROM centre_images WHERE centre_id = ?`).run(req.params.id);
+      for (const [i, url] of b.images.entries()) {
+        await tx.prepare(`INSERT INTO centre_images (centre_id, url, sort_order) VALUES (?, ?, ?)`).run(req.params.id, url, i);
+      }
     }
-    db.prepare(
+    await tx.prepare(
       `UPDATE rooms SET cap = COALESCE(?, cap), rate = COALESCE(?, rate), payment_method = COALESCE(?, payment_method) WHERE centre_id = ?`
     ).run(b.capacity, b.from, b.paymentMethod, req.params.id);
   });
-  tx();
-  res.json(getCentre(req.params.id));
+  res.json(await getCentre(req.params.id));
 });
 
-vendorRouter.delete("/centres/:id", (req, res) => {
-  if (!ownsCentre(req.user!.id, req.params.id)) return res.status(403).json({ error: "Not your listing" });
-  db.prepare(`UPDATE centres SET status = 'deleted' WHERE id = ?`).run(req.params.id);
+vendorRouter.delete("/centres/:id", async (req, res) => {
+  if (!(await ownsCentre(req.user!.id, req.params.id))) return res.status(403).json({ error: "Not your listing" });
+  await db.prepare(`UPDATE centres SET status = 'deleted' WHERE id = ?`).run(req.params.id);
   res.json({ ok: true });
 });
 
@@ -203,9 +199,9 @@ interface BlockInput {
   reason?: string;
 }
 
-vendorRouter.get("/centres/:id/blocks", (req, res) => {
-  if (!ownsCentre(req.user!.id, req.params.id)) return res.status(403).json({ error: "Not your listing" });
-  const rows = db
+vendorRouter.get("/centres/:id/blocks", async (req, res) => {
+  if (!(await ownsCentre(req.user!.id, req.params.id))) return res.status(403).json({ error: "Not your listing" });
+  const rows = await db
     .prepare(
       `SELECT id, date, reason, created_at as createdAt
        FROM room_blocks WHERE centre_id = ? ORDER BY date`
@@ -214,26 +210,26 @@ vendorRouter.get("/centres/:id/blocks", (req, res) => {
   res.json(rows);
 });
 
-vendorRouter.post("/centres/:id/blocks", (req, res) => {
-  if (!ownsCentre(req.user!.id, req.params.id)) return res.status(403).json({ error: "Not your listing" });
+vendorRouter.post("/centres/:id/blocks", async (req, res) => {
+  if (!(await ownsCentre(req.user!.id, req.params.id))) return res.status(403).json({ error: "Not your listing" });
   const b = req.body as BlockInput;
   if (!b.date) return res.status(400).json({ error: "date is required" });
-  const info = db
+  const info = await db
     .prepare(`INSERT INTO room_blocks (centre_id, room_id, date, time, reason) VALUES (?, NULL, ?, NULL, ?)`)
     .run(req.params.id, b.date, b.reason ?? "");
   res.status(201).json({ id: info.lastInsertRowid });
 });
 
-vendorRouter.delete("/centres/:id/blocks/:blockId", (req, res) => {
-  if (!ownsCentre(req.user!.id, req.params.id)) return res.status(403).json({ error: "Not your listing" });
-  const info = db.prepare(`DELETE FROM room_blocks WHERE id = ? AND centre_id = ?`).run(req.params.blockId, req.params.id);
+vendorRouter.delete("/centres/:id/blocks/:blockId", async (req, res) => {
+  if (!(await ownsCentre(req.user!.id, req.params.id))) return res.status(403).json({ error: "Not your listing" });
+  const info = await db.prepare(`DELETE FROM room_blocks WHERE id = ? AND centre_id = ?`).run(req.params.blockId, req.params.id);
   if (info.changes === 0) return res.status(404).json({ error: "Block not found" });
   res.json({ ok: true });
 });
 
-vendorRouter.get("/clubs/:id", (req, res) => {
-  if (!ownsClub(req.user!.id, req.params.id)) return res.status(403).json({ error: "Not your listing" });
-  res.json(getClub(req.params.id));
+vendorRouter.get("/clubs/:id", async (req, res) => {
+  if (!(await ownsClub(req.user!.id, req.params.id))) return res.status(403).json({ error: "Not your listing" });
+  res.json(await getClub(req.params.id));
 });
 
 // --- clubs -------------------------------------------------------------------
@@ -255,35 +251,34 @@ interface ClubInput {
   mapUrl?: string;
 }
 
-vendorRouter.post("/clubs", (req, res) => {
+vendorRouter.post("/clubs", async (req, res) => {
   const b = req.body as ClubInput;
   if (!b.name || !b.sport || !b.area || !b.county || !b.blurb) {
     return res.status(400).json({ error: "Missing required fields" });
   }
 
   const id = crypto.randomUUID();
-  const tx = db.transaction(() => {
-    db.prepare(
+  await db.transaction(async (tx) => {
+    await tx.prepare(
       `INSERT INTO clubs (id, name, sport, area, county, ages, price, unit, trial, ph, image_url, blurb, vendor_id, status, created_at, payment_method, map_url)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, '', ?, ?, ?, 'pending', datetime('now'), ?, ?)`
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, '', ?, ?, ?, 'pending', NOW(), ?, ?)`
     ).run(id, b.name, b.sport, b.area, b.county, b.ages ?? "", b.price ?? 0, b.unit ?? "year", b.trial ? 1 : 0, (b.images ?? [])[0] ?? b.image ?? "", b.blurb, req.user!.id, b.paymentMethod ?? "online", b.mapUrl ?? "");
-    (b.includes ?? []).forEach((item, i) =>
-      db.prepare(`INSERT INTO club_includes (club_id, item, sort_order) VALUES (?, ?, ?)`).run(id, item, i)
-    );
-    (b.images ?? []).forEach((url, i) =>
-      db.prepare(`INSERT INTO club_images (club_id, url, sort_order) VALUES (?, ?, ?)`).run(id, url, i)
-    );
+    for (const [i, item] of (b.includes ?? []).entries()) {
+      await tx.prepare(`INSERT INTO club_includes (club_id, item, sort_order) VALUES (?, ?, ?)`).run(id, item, i);
+    }
+    for (const [i, url] of (b.images ?? []).entries()) {
+      await tx.prepare(`INSERT INTO club_images (club_id, url, sort_order) VALUES (?, ?, ?)`).run(id, url, i);
+    }
   });
-  tx();
-  res.status(201).json(getClub(id));
+  res.status(201).json(await getClub(id));
 });
 
-vendorRouter.put("/clubs/:id", (req, res) => {
-  if (!ownsClub(req.user!.id, req.params.id)) return res.status(403).json({ error: "Not your listing" });
+vendorRouter.put("/clubs/:id", async (req, res) => {
+  if (!(await ownsClub(req.user!.id, req.params.id))) return res.status(403).json({ error: "Not your listing" });
   const b = req.body as Partial<ClubInput>;
 
-  const tx = db.transaction(() => {
-    db.prepare(
+  await db.transaction(async (tx) => {
+    await tx.prepare(
       `UPDATE clubs SET name = COALESCE(?, name), sport = COALESCE(?, sport), area = COALESCE(?, area),
        county = COALESCE(?, county), ages = COALESCE(?, ages), price = COALESCE(?, price), unit = COALESCE(?, unit),
        trial = COALESCE(?, trial), image_url = COALESCE(?, image_url), blurb = COALESCE(?, blurb),
@@ -305,32 +300,31 @@ vendorRouter.put("/clubs/:id", (req, res) => {
       req.params.id
     );
     if (b.includes) {
-      db.prepare(`DELETE FROM club_includes WHERE club_id = ?`).run(req.params.id);
-      b.includes.forEach((item, i) =>
-        db.prepare(`INSERT INTO club_includes (club_id, item, sort_order) VALUES (?, ?, ?)`).run(req.params.id, item, i)
-      );
+      await tx.prepare(`DELETE FROM club_includes WHERE club_id = ?`).run(req.params.id);
+      for (const [i, item] of b.includes.entries()) {
+        await tx.prepare(`INSERT INTO club_includes (club_id, item, sort_order) VALUES (?, ?, ?)`).run(req.params.id, item, i);
+      }
     }
     if (b.images) {
-      db.prepare(`DELETE FROM club_images WHERE club_id = ?`).run(req.params.id);
-      b.images.forEach((url, i) =>
-        db.prepare(`INSERT INTO club_images (club_id, url, sort_order) VALUES (?, ?, ?)`).run(req.params.id, url, i)
-      );
+      await tx.prepare(`DELETE FROM club_images WHERE club_id = ?`).run(req.params.id);
+      for (const [i, url] of b.images.entries()) {
+        await tx.prepare(`INSERT INTO club_images (club_id, url, sort_order) VALUES (?, ?, ?)`).run(req.params.id, url, i);
+      }
     }
   });
-  tx();
-  res.json(getClub(req.params.id));
+  res.json(await getClub(req.params.id));
 });
 
-vendorRouter.delete("/clubs/:id", (req, res) => {
-  if (!ownsClub(req.user!.id, req.params.id)) return res.status(403).json({ error: "Not your listing" });
-  db.prepare(`UPDATE clubs SET status = 'deleted' WHERE id = ?`).run(req.params.id);
+vendorRouter.delete("/clubs/:id", async (req, res) => {
+  if (!(await ownsClub(req.user!.id, req.params.id))) return res.status(403).json({ error: "Not your listing" });
+  await db.prepare(`UPDATE clubs SET status = 'deleted' WHERE id = ?`).run(req.params.id);
   res.json({ ok: true });
 });
 
 // --- read-only visibility into bookings/registrations for own listings -----
 
-vendorRouter.get("/bookings", (req, res) => {
-  const rows = db
+vendorRouter.get("/bookings", async (req, res) => {
+  const rows = await db
     .prepare(
       `SELECT b.ref, b.date, b.time, b.duration, b.event_type as eventType, b.guests, b.name, b.email, b.phone,
               b.notes, b.total_cents as totalCents, b.created_at as createdAt,
@@ -344,8 +338,8 @@ vendorRouter.get("/bookings", (req, res) => {
   res.json(rows);
 });
 
-vendorRouter.get("/registrations", (req, res) => {
-  const rows = db
+vendorRouter.get("/registrations", async (req, res) => {
+  const rows = await db
     .prepare(
       `SELECT r.ref, r.team, r.child_first as childFirst, r.child_last as childLast, r.dob,
               r.g_first as gFirst, r.g_last as gLast, r.email, r.phone, r.trial, r.total_cents as totalCents,
@@ -361,18 +355,18 @@ vendorRouter.get("/registrations", (req, res) => {
 
 // --- notifications (new bookings/registrations on the vendor's own listings) -
 
-vendorRouter.get("/notifications", (req, res) => {
-  const rows = db
+vendorRouter.get("/notifications", async (req, res) => {
+  const rows = await db
     .prepare(
-      `SELECT id, kind, title, body, listing_type as listingType, listing_id as listingId, ref, read, created_at as createdAt
+      `SELECT id, kind, title, body, listing_type as listingType, listing_id as listingId, ref, \`read\`, created_at as createdAt
        FROM notifications WHERE recipient_id = ? ORDER BY created_at DESC`
     )
     .all(req.user!.id);
   res.json(rows);
 });
 
-vendorRouter.post("/notifications/:id/read", (req, res) => {
-  const info = db.prepare(`UPDATE notifications SET read = 1 WHERE id = ? AND recipient_id = ?`).run(req.params.id, req.user!.id);
+vendorRouter.post("/notifications/:id/read", async (req, res) => {
+  const info = await db.prepare(`UPDATE notifications SET \`read\` = 1 WHERE id = ? AND recipient_id = ?`).run(req.params.id, req.user!.id);
   if (info.changes === 0) return res.status(404).json({ error: "Not found" });
   res.json({ ok: true });
 });

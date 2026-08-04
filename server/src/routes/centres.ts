@@ -3,13 +3,13 @@ import { getApprovedCentre, listCentres } from "../db/queries.js";
 
 export const centresRouter = Router();
 
-centresRouter.get("/", (req, res) => {
+centresRouter.get("/", async (req, res) => {
   const county = typeof req.query.county === "string" ? req.query.county : undefined;
-  res.json(listCentres(county));
+  res.json(await listCentres(county));
 });
 
-centresRouter.get("/:id", (req, res) => {
-  const centre = getApprovedCentre(req.params.id);
+centresRouter.get("/:id", async (req, res) => {
+  const centre = await getApprovedCentre(req.params.id);
   if (!centre) return res.status(404).json({ error: "Centre not found" });
   res.json(centre);
 });

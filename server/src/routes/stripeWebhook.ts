@@ -37,21 +37,21 @@ interface RegistrationForNotify {
   total_cents: number;
 }
 
-function confirmBooking(ref: string) {
-  const info = db.prepare(`UPDATE bookings SET payment_status = 'paid' WHERE ref = ? AND payment_status = 'pending'`).run(ref);
+async function confirmBooking(ref: string) {
+  const info = await db.prepare(`UPDATE bookings SET payment_status = 'paid' WHERE ref = ? AND payment_status = 'pending'`).run(ref);
   if (info.changes === 0) return; // already processed (webhook retried) or unknown ref
 
-  const row = db
+  const row = (await db
     .prepare(
       `SELECT b.ref, b.centre_id, c.name as centre_name, c.vendor_id,
               b.name, b.email, b.date, b.time, b.duration, b.guests, b.coupon_code, b.total_cents
        FROM bookings b JOIN centres c ON c.id = b.centre_id
        WHERE b.ref = ?`
     )
-    .get(ref) as BookingForNotify | undefined;
+    .get(ref)) as BookingForNotify | undefined;
   if (!row) return;
 
-  if (row.coupon_code) recordCouponUse(row.coupon_code);
+  if (row.coupon_code) await recordCouponUse(row.coupon_code);
   notifyNewBookingOrRegistration({
     kind: "booking",
     listingType: "centre",
@@ -65,20 +65,20 @@ function confirmBooking(ref: string) {
   }).catch((e) => console.error("[notifications] booking notify failed:", e));
 }
 
-function confirmRegistration(ref: string) {
-  const info = db.prepare(`UPDATE registrations SET payment_status = 'paid' WHERE ref = ? AND payment_status = 'pending'`).run(ref);
+async function confirmRegistration(ref: string) {
+  const info = await db.prepare(`UPDATE registrations SET payment_status = 'paid' WHERE ref = ? AND payment_status = 'pending'`).run(ref);
   if (info.changes === 0) return;
 
-  const row = db
+  const row = (await db
     .prepare(
       `SELECT r.ref, r.club_id, c.name as club_name, c.vendor_id, r.g_first, r.g_last, r.email,
               r.child_first, r.child_last, r.dob, r.team, r.trial, r.coupon_code, r.total_cents
        FROM registrations r JOIN clubs c ON c.id = r.club_id WHERE r.ref = ?`
     )
-    .get(ref) as RegistrationForNotify | undefined;
+    .get(ref)) as RegistrationForNotify | undefined;
   if (!row) return;
 
-  if (row.coupon_code) recordCouponUse(row.coupon_code);
+  if (row.coupon_code) await recordCouponUse(row.coupon_code);
   notifyNewBookingOrRegistration({
     kind: "registration",
     listingType: "club",
@@ -92,10 +92,10 @@ function confirmRegistration(ref: string) {
   }).catch((e) => console.error("[notifications] registration notify failed:", e));
 }
 
-function markFailed(metadata: Stripe.Metadata | null | undefined) {
+async function markFailed(metadata: Stripe.Metadata | null | undefined) {
   if (!metadata?.ref) return;
-  if (metadata.type === "booking") db.prepare(`UPDATE bookings SET payment_status = 'failed' WHERE ref = ? AND payment_status = 'pending'`).run(metadata.ref);
-  else if (metadata.type === "registration") db.prepare(`UPDATE registrations SET payment_status = 'failed' WHERE ref = ? AND payment_status = 'pending'`).run(metadata.ref);
+  if (metadata.type === "booking") await db.prepare(`UPDATE bookings SET payment_status = 'failed' WHERE ref = ? AND payment_status = 'pending'`).run(metadata.ref);
+  else if (metadata.type === "registration") await db.prepare(`UPDATE registrations SET payment_status = 'failed' WHERE ref = ? AND payment_status = 'pending'`).run(metadata.ref);
 }
 
 /** Registered with express.raw() (not express.json()) — Stripe's signature
@@ -122,11 +122,11 @@ export async function stripeWebhookHandler(req: Request, res: Response) {
   if (event.type === "checkout.session.completed") {
     const session = event.data.object as Stripe.Checkout.Session;
     const { type, ref } = session.metadata ?? {};
-    if (type === "booking" && ref) confirmBooking(ref);
-    else if (type === "registration" && ref) confirmRegistration(ref);
+    if (type === "booking" && ref) await confirmBooking(ref);
+    else if (type === "registration" && ref) await confirmRegistration(ref);
   } else if (event.type === "checkout.session.expired") {
     const session = event.data.object as Stripe.Checkout.Session;
-    markFailed(session.metadata);
+    await markFailed(session.metadata);
   }
 
   res.json({ received: true });

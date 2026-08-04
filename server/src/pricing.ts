@@ -46,11 +46,11 @@ export interface CouponResult {
 
 /** Validates a coupon against a subtotal and returns the discount it grants
  * — never trusts a client-supplied discount amount. */
-export function evaluateCoupon(rawCode: string, subtotalCents: number): CouponResult {
+export async function evaluateCoupon(rawCode: string, subtotalCents: number): Promise<CouponResult> {
   const code = rawCode.trim().toUpperCase();
   if (!code) return { valid: false, error: "Enter a code" };
 
-  const row = db.prepare(`SELECT * FROM coupons WHERE code = ?`).get(code) as CouponRow | undefined;
+  const row = (await db.prepare(`SELECT * FROM coupons WHERE code = ?`).get(code)) as CouponRow | undefined;
   if (!row || !row.active) return { valid: false, error: "That code isn't valid" };
   if (row.expires_at && new Date(row.expires_at) < new Date()) return { valid: false, error: "That code has expired" };
   if (row.max_uses !== null && row.used_count >= row.max_uses) return { valid: false, error: "That code has been fully redeemed" };
@@ -59,6 +59,6 @@ export function evaluateCoupon(rawCode: string, subtotalCents: number): CouponRe
   return { valid: true, discountCents, code: row.code };
 }
 
-export function recordCouponUse(code: string) {
-  db.prepare(`UPDATE coupons SET used_count = used_count + 1 WHERE code = ?`).run(code.trim().toUpperCase());
+export async function recordCouponUse(code: string) {
+  await db.prepare(`UPDATE coupons SET used_count = used_count + 1 WHERE code = ?`).run(code.trim().toUpperCase());
 }

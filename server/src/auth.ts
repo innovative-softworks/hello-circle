@@ -68,17 +68,21 @@ export function verifyPassword(password: string, hash: string): boolean {
   return bcrypt.compareSync(password, hash);
 }
 
-export function createUser(
+export async function createUser(
   email: string,
   password: string,
   name: string,
   role: Role,
   status: UserStatus,
-  profile?: VendorProfile
-): AuthedUser {
+  profile?: VendorProfile,
+  // Accepts a transaction's `tx` in place of the module-level pool so this
+  // insert participates in a caller's transaction (see signup in
+  // routes/auth.ts, which inserts the user + their draft listing together).
+  conn: Pick<typeof db, "prepare"> = db
+): Promise<AuthedUser> {
   const id = crypto.randomUUID();
   const normalizedEmail = email.toLowerCase().trim();
-  db.prepare(
+  await conn.prepare(
     `INSERT INTO users (id, email, password_hash, role, status, name, vendor_type, business_name, address, county, mobile, landline, description)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
@@ -129,48 +133,50 @@ function rowToUser(row: UserRow): AuthedUser {
   };
 }
 
-export function findUserByEmail(email: string): (AuthedUser & { passwordHash: string }) | null {
-  const row = db
+export async function findUserByEmail(email: string): Promise<(AuthedUser & { passwordHash: string }) | null> {
+  const row = (await db
     .prepare(
       `SELECT id, email, password_hash, role, status, name, vendor_type, business_name, address, county, mobile, landline, description
        FROM users WHERE email = ?`
     )
-    .get(email.toLowerCase().trim()) as UserRow | undefined;
+    .get(email.toLowerCase().trim())) as UserRow | undefined;
   if (!row) return null;
   return { ...rowToUser(row), passwordHash: row.password_hash };
 }
 
-export function createSession(userId: string): { token: string; expiresAt: Date } {
+export async function createSession(userId: string): Promise<{ token: string; expiresAt: Date }> {
   const token = crypto.randomBytes(32).toString("hex");
   const expiresAt = new Date(Date.now() + SESSION_DAYS * 24 * 60 * 60 * 1000);
-  db.prepare(`INSERT INTO sessions (token, user_id, expires_at) VALUES (?, ?, ?)`).run(
-    token,
-    userId,
-    expiresAt.toISOString()
-  );
+  // Computed by the DB itself (DATE_ADD/NOW()) rather than sending a JS ISO
+  // string, so it can't drift against whatever the `NOW()` comparison in
+  // userFromToken uses if the app server and DB server are in different
+  // timezones.
+  await db
+    .prepare(`INSERT INTO sessions (token, user_id, expires_at) VALUES (?, ?, DATE_ADD(NOW(), INTERVAL ${SESSION_DAYS} DAY))`)
+    .run(token, userId);
   return { token, expiresAt };
 }
 
-export function destroySession(token: string) {
-  db.prepare(`DELETE FROM sessions WHERE token = ?`).run(token);
+export async function destroySession(token: string) {
+  await db.prepare(`DELETE FROM sessions WHERE token = ?`).run(token);
 }
 
-function userFromToken(token: string): AuthedUser | null {
-  const row = db
+async function userFromToken(token: string): Promise<AuthedUser | null> {
+  const row = (await db
     .prepare(
       `SELECT u.id, u.email, u.role, u.status, u.name, u.vendor_type, u.business_name, u.address, u.county, u.mobile, u.landline, u.description
        FROM sessions s JOIN users u ON u.id = s.user_id
-       WHERE s.token = ? AND s.expires_at > datetime('now')`
+       WHERE s.token = ? AND s.expires_at > NOW()`
     )
-    .get(token) as UserRow | undefined;
+    .get(token)) as UserRow | undefined;
   return row ? rowToUser(row) : null;
 }
 
 /** Reads the session cookie (if any) and attaches req.user. Never rejects. */
-export function attachUser(req: Request, _res: Response, next: NextFunction) {
+export async function attachUser(req: Request, _res: Response, next: NextFunction) {
   const token = req.cookies?.[SESSION_COOKIE];
   if (token) {
-    const user = userFromToken(token);
+    const user = await userFromToken(token);
     if (user) req.user = user;
   }
   next();

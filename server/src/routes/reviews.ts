@@ -29,39 +29,39 @@ function toReview(row: ReviewRow): Review {
   };
 }
 
-function listingExists(listingType: string, listingId: string): boolean {
-  if (listingType === "centre") return !!getCentre(listingId);
-  if (listingType === "club") return !!getClub(listingId);
+async function listingExists(listingType: string, listingId: string): Promise<boolean> {
+  if (listingType === "centre") return !!(await getCentre(listingId));
+  if (listingType === "club") return !!(await getClub(listingId));
   return false;
 }
 
 // Reviews are restricted to guests who actually booked (centre) or
 // registered (club) at that specific listing — matched by their client id.
-function hasStayed(clientId: string, listingType: string, listingId: string): boolean {
+async function hasStayed(clientId: string, listingType: string, listingId: string): Promise<boolean> {
   if (listingType === "centre") {
-    const row = db.prepare(`SELECT 1 FROM bookings WHERE client_id = ? AND centre_id = ? LIMIT 1`).get(clientId, listingId);
+    const row = await db.prepare(`SELECT 1 FROM bookings WHERE client_id = ? AND centre_id = ? LIMIT 1`).get(clientId, listingId);
     return !!row;
   }
   if (listingType === "club") {
-    const row = db.prepare(`SELECT 1 FROM registrations WHERE client_id = ? AND club_id = ? LIMIT 1`).get(clientId, listingId);
+    const row = await db.prepare(`SELECT 1 FROM registrations WHERE client_id = ? AND club_id = ? LIMIT 1`).get(clientId, listingId);
     return !!row;
   }
   return false;
 }
 
-reviewsRouter.get("/", (req, res) => {
+reviewsRouter.get("/", async (req, res) => {
   const { listingType, listingId } = req.query as { listingType?: string; listingId?: string };
   if (!listingType || !listingId) return res.status(400).json({ error: "listingType and listingId are required" });
 
-  const rows = db
+  const rows = (await db
     .prepare(
       `SELECT * FROM reviews WHERE listing_type = ? AND listing_id = ? AND hidden = 0 ORDER BY created_at DESC`
     )
-    .all(listingType, listingId) as ReviewRow[];
+    .all(listingType, listingId)) as ReviewRow[];
   res.json(rows.map(toReview));
 });
 
-reviewsRouter.get("/eligible", (req, res) => {
+reviewsRouter.get("/eligible", async (req, res) => {
   const { listingType, listingId } = req.query as { listingType?: string; listingId?: string };
   if (!listingType || !listingId) return res.status(400).json({ error: "listingType and listingId are required" });
   let clientId: string;
@@ -71,10 +71,10 @@ reviewsRouter.get("/eligible", (req, res) => {
     if (e instanceof BadRequestError) return res.status(400).json({ error: e.message });
     throw e;
   }
-  res.json({ eligible: hasStayed(clientId, listingType, listingId) });
+  res.json({ eligible: await hasStayed(clientId, listingType, listingId) });
 });
 
-reviewsRouter.post("/", (req, res) => {
+reviewsRouter.post("/", async (req, res) => {
   let clientId: string;
   try {
     clientId = clientIdFrom(req);
@@ -95,8 +95,8 @@ reviewsRouter.post("/", (req, res) => {
     return res.status(400).json({ error: "listingType, listingId, name and rating are required" });
   }
   if (rating < 1 || rating > 5) return res.status(400).json({ error: "rating must be between 1 and 5" });
-  if (!listingExists(listingType, listingId)) return res.status(404).json({ error: "Listing not found" });
-  if (!hasStayed(clientId, listingType, listingId)) {
+  if (!(await listingExists(listingType, listingId))) return res.status(404).json({ error: "Listing not found" });
+  if (!(await hasStayed(clientId, listingType, listingId))) {
     return res.status(403).json({
       error: listingType === "centre"
         ? "You can only review a centre after booking it."
@@ -104,18 +104,18 @@ reviewsRouter.post("/", (req, res) => {
     });
   }
 
-  const info = db
+  const info = await db
     .prepare(
       `INSERT INTO reviews (listing_type, listing_id, client_id, name, rating, comment) VALUES (?, ?, ?, ?, ?, ?)`
     )
     .run(listingType, listingId, clientId, name, rating, comment ?? "");
 
-  const row = db.prepare(`SELECT * FROM reviews WHERE id = ?`).get(info.lastInsertRowid) as ReviewRow;
+  const row = (await db.prepare(`SELECT * FROM reviews WHERE id = ?`).get(info.lastInsertRowid)) as ReviewRow;
   res.status(201).json(toReview(row));
 });
 
-reviewsRouter.delete("/:id", requireAdmin, (req, res) => {
-  const info = db.prepare(`UPDATE reviews SET hidden = 1 WHERE id = ?`).run(req.params.id);
+reviewsRouter.delete("/:id", requireAdmin, async (req, res) => {
+  const info = await db.prepare(`UPDATE reviews SET hidden = 1 WHERE id = ?`).run(req.params.id);
   if (info.changes === 0) return res.status(404).json({ error: "Review not found" });
   res.json({ ok: true });
 });

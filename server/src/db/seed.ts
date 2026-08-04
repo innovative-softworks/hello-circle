@@ -70,77 +70,74 @@ const CLUBS: SeedClub[] = [
   { id: "s8", name: "Shotokan Kids Martial Arts", sport: "Martial Arts", area: "Ballincollig, Cork", county: "Cork", ages: "5–15", price: 110, unit: "term", trial: true, ph: "repeating-linear-gradient(135deg,#EDE0EC 0 14px,#F2E9F1 14px 28px)", image: img("s8"), blurb: "Traditional karate for children focused on discipline, respect and confidence. A structured belt system gives kids clear goals to work towards.", includes: ["Twice-weekly classes", "Grading & belts", "Starter gi included", "Insured, vetted instructors"] },
 ];
 
-export function seedIfEmpty() {
-  const { count } = db.prepare("SELECT COUNT(*) as count FROM centres").get() as { count: number };
+export async function seedIfEmpty() {
+  const { count } = (await db.prepare("SELECT COUNT(*) as count FROM centres").get()) as { count: number };
 
   if (count === 0) {
-    const insertCentre = db.prepare(
-      `INSERT INTO centres (id, name, area, county, rating, reviews, capacity, from_price, managed_by, ph, image_url, blurb, created_at)
-       VALUES (@id, @name, @area, @county, @rating, @reviews, @capacity, @from, @managedBy, @ph, @image, @blurb, datetime('now'))`
-    );
-    const insertAmenity = db.prepare(
-      `INSERT INTO centre_amenities (centre_id, amenity, sort_order) VALUES (?, ?, ?)`
-    );
-    const insertCentreImage = db.prepare(
-      `INSERT INTO centre_images (centre_id, url, sort_order) VALUES (?, ?, ?)`
-    );
-    const insertRoom = db.prepare(
-      `INSERT INTO rooms (id, centre_id, name, cap, rate, desc, sort_order) VALUES (@id, @centreId, @name, @cap, @rate, @desc, @sortOrder)`
-    );
-    const insertClub = db.prepare(
-      `INSERT INTO clubs (id, name, sport, area, county, ages, price, unit, trial, ph, image_url, blurb, created_at)
-       VALUES (@id, @name, @sport, @area, @county, @ages, @price, @unit, @trial, @ph, @image, @blurb, datetime('now'))`
-    );
-    const insertInclude = db.prepare(
-      `INSERT INTO club_includes (club_id, item, sort_order) VALUES (?, ?, ?)`
-    );
-    const insertClubImage = db.prepare(
-      `INSERT INTO club_images (club_id, url, sort_order) VALUES (?, ?, ?)`
-    );
+    await db.transaction(async (tx) => {
+      const insertCentre = tx.prepare(
+        `INSERT INTO centres (id, name, area, county, rating, reviews, capacity, from_price, managed_by, ph, image_url, blurb, created_at)
+         VALUES (@id, @name, @area, @county, @rating, @reviews, @capacity, @from, @managedBy, @ph, @image, @blurb, NOW())`
+      );
+      const insertAmenity = tx.prepare(
+        `INSERT INTO centre_amenities (centre_id, amenity, sort_order) VALUES (?, ?, ?)`
+      );
+      const insertCentreImage = tx.prepare(
+        `INSERT INTO centre_images (centre_id, url, sort_order) VALUES (?, ?, ?)`
+      );
+      const insertRoom = tx.prepare(
+        `INSERT INTO rooms (id, centre_id, name, cap, rate, \`desc\`, sort_order) VALUES (@id, @centreId, @name, @cap, @rate, @desc, @sortOrder)`
+      );
+      const insertClub = tx.prepare(
+        `INSERT INTO clubs (id, name, sport, area, county, ages, price, unit, trial, ph, image_url, blurb, created_at)
+         VALUES (@id, @name, @sport, @area, @county, @ages, @price, @unit, @trial, @ph, @image, @blurb, NOW())`
+      );
+      const insertInclude = tx.prepare(
+        `INSERT INTO club_includes (club_id, item, sort_order) VALUES (?, ?, ?)`
+      );
+      const insertClubImage = tx.prepare(
+        `INSERT INTO club_images (club_id, url, sort_order) VALUES (?, ?, ?)`
+      );
 
-    const tx = db.transaction(() => {
       for (const c of CENTRES) {
-        insertCentre.run(c);
-        c.amenities.forEach((a, i) => insertAmenity.run(c.id, a, i));
-        c.rooms.forEach((r, i) => insertRoom.run({ ...r, centreId: c.id, sortOrder: i }));
-        imgs(c.id).forEach((url, i) => insertCentreImage.run(c.id, url, i));
+        await insertCentre.run(c);
+        for (const [i, a] of c.amenities.entries()) await insertAmenity.run(c.id, a, i);
+        for (const [i, r] of c.rooms.entries()) await insertRoom.run({ ...r, centreId: c.id, sortOrder: i });
+        for (const [i, url] of imgs(c.id).entries()) await insertCentreImage.run(c.id, url, i);
       }
       for (const c of CLUBS) {
-        insertClub.run({ ...c, trial: c.trial ? 1 : 0 });
-        c.includes.forEach((item, i) => insertInclude.run(c.id, item, i));
-        imgs(c.id).forEach((url, i) => insertClubImage.run(c.id, url, i));
+        await insertClub.run({ ...c, trial: c.trial ? 1 : 0 });
+        for (const [i, item] of c.includes.entries()) await insertInclude.run(c.id, item, i);
+        for (const [i, url] of imgs(c.id).entries()) await insertClubImage.run(c.id, url, i);
       }
     });
-    tx();
     return;
   }
 
   // Database was seeded before image_url existed — backfill it in place.
-  const backfillCentre = db.prepare(
-    `UPDATE centres SET image_url = ? WHERE id = ? AND (image_url IS NULL OR image_url = '')`
-  );
-  const backfillClub = db.prepare(
-    `UPDATE clubs SET image_url = ? WHERE id = ? AND (image_url IS NULL OR image_url = '')`
-  );
-  const tx = db.transaction(() => {
-    for (const c of CENTRES) backfillCentre.run(c.image, c.id);
-    for (const c of CLUBS) backfillClub.run(c.image, c.id);
+  await db.transaction(async (tx) => {
+    const backfillCentre = tx.prepare(
+      `UPDATE centres SET image_url = ? WHERE id = ? AND (image_url IS NULL OR image_url = '')`
+    );
+    const backfillClub = tx.prepare(
+      `UPDATE clubs SET image_url = ? WHERE id = ? AND (image_url IS NULL OR image_url = '')`
+    );
+    for (const c of CENTRES) await backfillCentre.run(c.image, c.id);
+    for (const c of CLUBS) await backfillClub.run(c.image, c.id);
   });
-  tx();
 
   // Database was seeded before centre_images/club_images existed — backfill
   // a handful of extra gallery photos for each originally-seeded listing.
-  const { count: centreImgCount } = db.prepare("SELECT COUNT(*) as count FROM centre_images").get() as {
+  const { count: centreImgCount } = (await db.prepare("SELECT COUNT(*) as count FROM centre_images").get()) as {
     count: number;
   };
   if (centreImgCount === 0) {
-    const insertCentreImage = db.prepare(`INSERT INTO centre_images (centre_id, url, sort_order) VALUES (?, ?, ?)`);
-    const insertClubImage = db.prepare(`INSERT INTO club_images (club_id, url, sort_order) VALUES (?, ?, ?)`);
-    const tx2 = db.transaction(() => {
-      for (const c of CENTRES) imgs(c.id).forEach((url, i) => insertCentreImage.run(c.id, url, i));
-      for (const c of CLUBS) imgs(c.id).forEach((url, i) => insertClubImage.run(c.id, url, i));
+    await db.transaction(async (tx) => {
+      const insertCentreImage = tx.prepare(`INSERT INTO centre_images (centre_id, url, sort_order) VALUES (?, ?, ?)`);
+      const insertClubImage = tx.prepare(`INSERT INTO club_images (club_id, url, sort_order) VALUES (?, ?, ?)`);
+      for (const c of CENTRES) for (const [i, url] of imgs(c.id).entries()) await insertCentreImage.run(c.id, url, i);
+      for (const c of CLUBS) for (const [i, url] of imgs(c.id).entries()) await insertClubImage.run(c.id, url, i);
     });
-    tx2();
   }
 }
 
@@ -149,8 +146,8 @@ const ADMIN_PASSWORD = process.env.HELLO_CIRCLE_ADMIN_PASSWORD || "changeme123";
 
 /** Seeds a single admin account on first run. Prototype-only credential
  * source — swap for a real provisioning step before this ever goes live. */
-export function seedAdminIfMissing() {
-  if (findUserByEmail(ADMIN_EMAIL)) return;
-  createUser(ADMIN_EMAIL, ADMIN_PASSWORD, "Hello Circle Admin", "admin", "approved");
+export async function seedAdminIfMissing() {
+  if (await findUserByEmail(ADMIN_EMAIL)) return;
+  await createUser(ADMIN_EMAIL, ADMIN_PASSWORD, "Hello Circle Admin", "admin", "approved");
   console.log(`Seeded admin account: ${ADMIN_EMAIL} / ${ADMIN_PASSWORD} (set HELLO_CIRCLE_ADMIN_EMAIL/HELLO_CIRCLE_ADMIN_PASSWORD to change)`);
 }

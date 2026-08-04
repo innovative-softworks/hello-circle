@@ -8,18 +8,18 @@ adminRouter.use(requireAdmin);
 
 // --- platform stats ----------------------------------------------------
 
-adminRouter.get("/stats", (_req, res) => {
-  const centresPending = db.prepare(`SELECT COUNT(*) as n FROM centres WHERE status = 'pending'`).get() as { n: number };
-  const clubsPending = db.prepare(`SELECT COUNT(*) as n FROM clubs WHERE status = 'pending'`).get() as { n: number };
-  const vendorCount = db.prepare(`SELECT COUNT(*) as n FROM users WHERE role = 'vendor'`).get() as { n: number };
-  const totalListings = db
+adminRouter.get("/stats", async (_req, res) => {
+  const centresPending = (await db.prepare(`SELECT COUNT(*) as n FROM centres WHERE status = 'pending'`).get()) as { n: number };
+  const clubsPending = (await db.prepare(`SELECT COUNT(*) as n FROM clubs WHERE status = 'pending'`).get()) as { n: number };
+  const vendorCount = (await db.prepare(`SELECT COUNT(*) as n FROM users WHERE role = 'vendor'`).get()) as { n: number };
+  const totalListings = (await db
     .prepare(
       `SELECT
         (SELECT COUNT(*) FROM centres WHERE status != 'deleted') +
         (SELECT COUNT(*) FROM clubs WHERE status != 'deleted') as n`
     )
-    .get() as { n: number };
-  const reviewCount = db.prepare(`SELECT COUNT(*) as n FROM reviews`).get() as { n: number };
+    .get()) as { n: number };
+  const reviewCount = (await db.prepare(`SELECT COUNT(*) as n FROM reviews`).get()) as { n: number };
 
   res.json({
     centresPending: centresPending.n,
@@ -32,8 +32,8 @@ adminRouter.get("/stats", (_req, res) => {
 
 // --- vendor management -------------------------------------------------
 
-adminRouter.get("/vendors", (_req, res) => {
-  const rows = db
+adminRouter.get("/vendors", async (_req, res) => {
+  const rows = await db
     .prepare(
       `SELECT id, email, name, status, created_at as createdAt,
               vendor_type as vendorType, business_name as businessName, address, county, mobile, landline, description,
@@ -45,7 +45,7 @@ adminRouter.get("/vendors", (_req, res) => {
   res.json(rows);
 });
 
-adminRouter.put("/vendors/:id/status", (req, res) => {
+adminRouter.put("/vendors/:id/status", async (req, res) => {
   const { status } = req.body as { status?: string };
   if (!status || !["pending", "approved", "suspended"].includes(status)) {
     return res.status(400).json({ error: "status must be pending, approved or suspended" });
@@ -54,7 +54,7 @@ adminRouter.put("/vendors/:id/status", (req, res) => {
   // steps: approving the account only lets the vendor log in and finish
   // setting up their listing (rooms/price/photos/etc) — the listing itself
   // still needs its own admin review once that setup is done.
-  const info = db.prepare(`UPDATE users SET status = ? WHERE id = ? AND role = 'vendor'`).run(status, req.params.id);
+  const info = await db.prepare(`UPDATE users SET status = ? WHERE id = ? AND role = 'vendor'`).run(status, req.params.id);
   if (info.changes === 0) return res.status(404).json({ error: "Vendor not found" });
   res.json({ ok: true });
 });
@@ -66,14 +66,14 @@ const PENDING_CENTRE_COLUMNS = `c.id, c.name, c.status, c.area, c.county, c.capa
 const PENDING_CLUB_COLUMNS = `c.id, c.name, c.status, c.sport, c.area, c.county, c.ages, c.price, c.unit,
               c.ph, c.image_url as image, c.blurb, u.email as vendorEmail, u.name as vendorName, u.status as vendorStatus`;
 
-adminRouter.get("/listings/pending", (_req, res) => {
-  const centres = db
+adminRouter.get("/listings/pending", async (_req, res) => {
+  const centres = await db
     .prepare(
       `SELECT ${PENDING_CENTRE_COLUMNS}
        FROM centres c LEFT JOIN users u ON u.id = c.vendor_id WHERE c.status = 'pending' ORDER BY c.name`
     )
     .all();
-  const clubs = db
+  const clubs = await db
     .prepare(
       `SELECT ${PENDING_CLUB_COLUMNS}
        FROM clubs c LEFT JOIN users u ON u.id = c.vendor_id WHERE c.status = 'pending' ORDER BY c.name`
@@ -82,14 +82,14 @@ adminRouter.get("/listings/pending", (_req, res) => {
   res.json({ centres, clubs });
 });
 
-adminRouter.get("/listings", (_req, res) => {
-  const centres = db
+adminRouter.get("/listings", async (_req, res) => {
+  const centres = await db
     .prepare(
       `SELECT ${PENDING_CENTRE_COLUMNS}
        FROM centres c LEFT JOIN users u ON u.id = c.vendor_id ORDER BY c.name`
     )
     .all();
-  const clubs = db
+  const clubs = await db
     .prepare(
       `SELECT ${PENDING_CLUB_COLUMNS}
        FROM clubs c LEFT JOIN users u ON u.id = c.vendor_id ORDER BY c.name`
@@ -103,37 +103,37 @@ adminRouter.get("/listings", (_req, res) => {
  * AdminDashboard.tsx. Grandfathered listings with no vendor (vendor_id
  * NULL) are exempt, matching how they're already treated as pre-approved
  * elsewhere. */
-function vendorNotApprovedFor(table: "centres" | "clubs", id: string): boolean {
-  const row = db
+async function vendorNotApprovedFor(table: "centres" | "clubs", id: string): Promise<boolean> {
+  const row = (await db
     .prepare(`SELECT u.status FROM ${table} c LEFT JOIN users u ON u.id = c.vendor_id WHERE c.id = ?`)
-    .get(id) as { status: string | null } | undefined;
+    .get(id)) as { status: string | null } | undefined;
   return !!row?.status && row.status !== "approved";
 }
 
-adminRouter.put("/centres/:id/status", (req, res) => {
+adminRouter.put("/centres/:id/status", async (req, res) => {
   const { status } = req.body as { status?: string };
   if (!status || !["pending", "approved", "rejected", "deleted"].includes(status)) {
     return res.status(400).json({ error: "Invalid status" });
   }
-  if (status === "approved" && vendorNotApprovedFor("centres", req.params.id)) {
+  if (status === "approved" && (await vendorNotApprovedFor("centres", req.params.id))) {
     return res.status(409).json({ error: "Approve the vendor's account before approving their listing" });
   }
-  const info = db.prepare(`UPDATE centres SET status = ? WHERE id = ?`).run(status, req.params.id);
+  const info = await db.prepare(`UPDATE centres SET status = ? WHERE id = ?`).run(status, req.params.id);
   if (info.changes === 0) return res.status(404).json({ error: "Centre not found" });
-  res.json(getCentre(req.params.id));
+  res.json(await getCentre(req.params.id));
 });
 
-adminRouter.put("/clubs/:id/status", (req, res) => {
+adminRouter.put("/clubs/:id/status", async (req, res) => {
   const { status } = req.body as { status?: string };
   if (!status || !["pending", "approved", "rejected", "deleted"].includes(status)) {
     return res.status(400).json({ error: "Invalid status" });
   }
-  if (status === "approved" && vendorNotApprovedFor("clubs", req.params.id)) {
+  if (status === "approved" && (await vendorNotApprovedFor("clubs", req.params.id))) {
     return res.status(409).json({ error: "Approve the vendor's account before approving their listing" });
   }
-  const info = db.prepare(`UPDATE clubs SET status = ? WHERE id = ?`).run(status, req.params.id);
+  const info = await db.prepare(`UPDATE clubs SET status = ? WHERE id = ?`).run(status, req.params.id);
   if (info.changes === 0) return res.status(404).json({ error: "Club not found" });
-  res.json(getClub(req.params.id));
+  res.json(await getClub(req.params.id));
 });
 
 // --- full CRUD on any listing (edit/delete regardless of owner) ------------
@@ -150,32 +150,29 @@ interface CentreInput {
   amenities?: string[];
 }
 
-adminRouter.put("/centres/:id", (req, res) => {
+adminRouter.put("/centres/:id", async (req, res) => {
   const b = req.body as CentreInput;
-  const tx = db.transaction(() => {
-    db.prepare(
+  await db.transaction(async (tx) => {
+    await tx.prepare(
       `UPDATE centres SET name = COALESCE(?, name), area = COALESCE(?, area), county = COALESCE(?, county),
        capacity = COALESCE(?, capacity), from_price = COALESCE(?, from_price), managed_by = COALESCE(?, managed_by),
        image_url = COALESCE(?, image_url), blurb = COALESCE(?, blurb)
        WHERE id = ?`
     ).run(b.name, b.area, b.county, b.capacity, b.from, b.managedBy, b.image, b.blurb, req.params.id);
     if (b.amenities) {
-      db.prepare(`DELETE FROM centre_amenities WHERE centre_id = ?`).run(req.params.id);
-      b.amenities.forEach((a, i) =>
-        db
-          .prepare(`INSERT INTO centre_amenities (centre_id, amenity, sort_order) VALUES (?, ?, ?)`)
-          .run(req.params.id, a, i)
-      );
+      await tx.prepare(`DELETE FROM centre_amenities WHERE centre_id = ?`).run(req.params.id);
+      for (const [i, a] of b.amenities.entries()) {
+        await tx.prepare(`INSERT INTO centre_amenities (centre_id, amenity, sort_order) VALUES (?, ?, ?)`).run(req.params.id, a, i);
+      }
     }
   });
-  tx();
-  const centre = getCentre(req.params.id);
+  const centre = await getCentre(req.params.id);
   if (!centre) return res.status(404).json({ error: "Centre not found" });
   res.json(centre);
 });
 
-adminRouter.delete("/centres/:id", (req, res) => {
-  const info = db.prepare(`UPDATE centres SET status = 'deleted' WHERE id = ?`).run(req.params.id);
+adminRouter.delete("/centres/:id", async (req, res) => {
+  const info = await db.prepare(`UPDATE centres SET status = 'deleted' WHERE id = ?`).run(req.params.id);
   if (info.changes === 0) return res.status(404).json({ error: "Centre not found" });
   res.json({ ok: true });
 });
@@ -194,10 +191,10 @@ interface ClubInput {
   includes?: string[];
 }
 
-adminRouter.put("/clubs/:id", (req, res) => {
+adminRouter.put("/clubs/:id", async (req, res) => {
   const b = req.body as ClubInput;
-  const tx = db.transaction(() => {
-    db.prepare(
+  await db.transaction(async (tx) => {
+    await tx.prepare(
       `UPDATE clubs SET name = COALESCE(?, name), sport = COALESCE(?, sport), area = COALESCE(?, area),
        county = COALESCE(?, county), ages = COALESCE(?, ages), price = COALESCE(?, price), unit = COALESCE(?, unit),
        trial = COALESCE(?, trial), image_url = COALESCE(?, image_url), blurb = COALESCE(?, blurb)
@@ -216,33 +213,32 @@ adminRouter.put("/clubs/:id", (req, res) => {
       req.params.id
     );
     if (b.includes) {
-      db.prepare(`DELETE FROM club_includes WHERE club_id = ?`).run(req.params.id);
-      b.includes.forEach((item, i) =>
-        db.prepare(`INSERT INTO club_includes (club_id, item, sort_order) VALUES (?, ?, ?)`).run(req.params.id, item, i)
-      );
+      await tx.prepare(`DELETE FROM club_includes WHERE club_id = ?`).run(req.params.id);
+      for (const [i, item] of b.includes.entries()) {
+        await tx.prepare(`INSERT INTO club_includes (club_id, item, sort_order) VALUES (?, ?, ?)`).run(req.params.id, item, i);
+      }
     }
   });
-  tx();
-  const club = getClub(req.params.id);
+  const club = await getClub(req.params.id);
   if (!club) return res.status(404).json({ error: "Club not found" });
   res.json(club);
 });
 
-adminRouter.delete("/clubs/:id", (req, res) => {
-  const info = db.prepare(`UPDATE clubs SET status = 'deleted' WHERE id = ?`).run(req.params.id);
+adminRouter.delete("/clubs/:id", async (req, res) => {
+  const info = await db.prepare(`UPDATE clubs SET status = 'deleted' WHERE id = ?`).run(req.params.id);
   if (info.changes === 0) return res.status(404).json({ error: "Club not found" });
   res.json({ ok: true });
 });
 
 // --- review moderation -----------------------------------------------------
 
-adminRouter.get("/reviews", (_req, res) => {
-  const rows = db.prepare(`SELECT * FROM reviews ORDER BY created_at DESC`).all();
+adminRouter.get("/reviews", async (_req, res) => {
+  const rows = await db.prepare(`SELECT * FROM reviews ORDER BY created_at DESC`).all();
   res.json(rows);
 });
 
-adminRouter.put("/reviews/:id/unhide", (req, res) => {
-  const info = db.prepare(`UPDATE reviews SET hidden = 0 WHERE id = ?`).run(req.params.id);
+adminRouter.put("/reviews/:id/unhide", async (req, res) => {
+  const info = await db.prepare(`UPDATE reviews SET hidden = 0 WHERE id = ?`).run(req.params.id);
   if (info.changes === 0) return res.status(404).json({ error: "Review not found" });
   res.json({ ok: true });
 });
@@ -257,8 +253,8 @@ interface CouponInput {
   expiresAt?: string | null;
 }
 
-adminRouter.get("/coupons", (_req, res) => {
-  const rows = db
+adminRouter.get("/coupons", async (_req, res) => {
+  const rows = await db
     .prepare(
       `SELECT id, code, kind, amount, max_uses as maxUses, used_count as usedCount,
               expires_at as expiresAt, active, created_at as createdAt
@@ -268,7 +264,7 @@ adminRouter.get("/coupons", (_req, res) => {
   res.json(rows);
 });
 
-adminRouter.post("/coupons", (req, res) => {
+adminRouter.post("/coupons", async (req, res) => {
   const b = req.body as CouponInput;
   if (!b.code || !b.kind || !b.amount) return res.status(400).json({ error: "code, kind and amount are required" });
   if (!["percent", "fixed"].includes(b.kind)) return res.status(400).json({ error: "kind must be percent or fixed" });
@@ -276,7 +272,7 @@ adminRouter.post("/coupons", (req, res) => {
 
   const code = b.code.trim().toUpperCase();
   try {
-    db.prepare(
+    await db.prepare(
       `INSERT INTO coupons (code, kind, amount, max_uses, expires_at) VALUES (?, ?, ?, ?, ?)`
     ).run(code, b.kind, b.amount, b.maxUses ?? null, b.expiresAt ?? null);
   } catch {
@@ -285,15 +281,15 @@ adminRouter.post("/coupons", (req, res) => {
   res.status(201).json({ ok: true });
 });
 
-adminRouter.put("/coupons/:id/active", (req, res) => {
+adminRouter.put("/coupons/:id/active", async (req, res) => {
   const { active } = req.body as { active?: boolean };
-  const info = db.prepare(`UPDATE coupons SET active = ? WHERE id = ?`).run(active ? 1 : 0, req.params.id);
+  const info = await db.prepare(`UPDATE coupons SET active = ? WHERE id = ?`).run(active ? 1 : 0, req.params.id);
   if (info.changes === 0) return res.status(404).json({ error: "Coupon not found" });
   res.json({ ok: true });
 });
 
-adminRouter.delete("/coupons/:id", (req, res) => {
-  const info = db.prepare(`DELETE FROM coupons WHERE id = ?`).run(req.params.id);
+adminRouter.delete("/coupons/:id", async (req, res) => {
+  const info = await db.prepare(`DELETE FROM coupons WHERE id = ?`).run(req.params.id);
   if (info.changes === 0) return res.status(404).json({ error: "Coupon not found" });
   res.json({ ok: true });
 });
