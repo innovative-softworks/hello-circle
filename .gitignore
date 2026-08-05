@@ -3,5 +3,7 @@ dist/
 build/
 *.sqlite
 *.sqlite-journal
+*.sqlite-shm
+*.sqlite-wal
 .env
 server/uploads/
