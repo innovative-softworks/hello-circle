@@ -138,6 +138,8 @@ cp server/.env.example server/.env
 | `SMTP_USER` | no | SMTP auth username |
 | `SMTP_PASS` | no | SMTP auth password. **For Gmail/Google Workspace, this must be an [App Password](https://myaccount.google.com/apppasswords), not the account's normal login password** — SMTP auth is rejected otherwise once 2-Step Verification is on. |
 | `MAIL_FROM` | no (falls back to `SMTP_USER`) | The "from" address on outgoing mail |
+
+Netlify secret scanning remains enabled. `SMTP_HOST` and `SMTP_PORT` are excluded from value matching in `netlify.toml` because they are non-sensitive connection settings whose common example values also appear in repository files.
 | `HELLO_CIRCLE_ADMIN_EMAIL` | no (default `admin@hellocircle.ie`) | Email of the auto-seeded admin account |
 | `HELLO_CIRCLE_ADMIN_PASSWORD` | no (default `changeme123`) | Password of the auto-seeded admin account — **change this before any real deployment** |
 
