@@ -82,6 +82,7 @@ export function Home() {
           </p>
 
           <div
+            className="stack-mobile"
             style={{
               background: "#fff",
               border: `1px solid ${colors.border}`,
@@ -160,7 +161,7 @@ export function Home() {
           </div>
         </div>
 
-        <div style={{ position: "relative" }}>
+        <div className="hero-visual" style={{ position: "relative" }}>
           <div
             style={{
               position: "absolute",

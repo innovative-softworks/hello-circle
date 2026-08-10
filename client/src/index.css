@@ -196,6 +196,9 @@ textarea:focus {
     height: 280px !important;
     grid-template-columns: 1fr !important;
   }
+  .hero-visual {
+    overflow: hidden;
+  }
 }
 
 @media (max-width: 640px) {

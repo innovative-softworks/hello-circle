@@ -146,6 +146,9 @@ cp server/.env.example server/.env
 | `MAIL_FROM` | no (falls back to `SMTP_USER`) | The "from" address on outgoing mail |
 | `HELLO_CIRCLE_ADMIN_EMAIL` | no (default `admin@hellocircle.ie`) | Email of the auto-seeded admin account |
 | `HELLO_CIRCLE_ADMIN_PASSWORD` | no (default `changeme123`) | Password of the auto-seeded admin account — **change this before any real deployment** |
+| `STRIPE_SECRET_KEY` | no (checkout returns 503 without it) | Stripe secret key — `sk_test_...` for test mode, `sk_live_...` for real charges |
+| `STRIPE_WEBHOOK_SECRET` | no in dev, **required in production** (`NODE_ENV=production`) | Signing secret from the Stripe webhook endpoint (`whsec_...`) — without it in production, the webhook is refused rather than accepting unverified events |
+| `CLIENT_URL` | no (default `http://localhost:5173`) | Public origin used for Stripe Checkout success/cancel redirect URLs — must be the real deployed domain in production |
 
 The client has no build-time env vars — it talks to `/api` and `/uploads` as relative paths, proxied to the
 API in dev (`client/vite.config.ts`) and expected to be reverse-proxied the same way in production.

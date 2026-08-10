@@ -113,6 +113,12 @@ export async function stripeWebhookHandler(req: Request, res: Response) {
       console.error("[stripe] webhook signature verification failed:", e instanceof Error ? e.message : e);
       return res.status(400).send("Invalid signature");
     }
+  } else if (process.env.NODE_ENV === "production") {
+    // Without signature verification, anyone who finds this URL could POST a
+    // forged checkout.session.completed and get a booking marked paid for
+    // free — never accept unverified events once real money is on the line.
+    console.error("[stripe] STRIPE_WEBHOOK_SECRET is not set — refusing to process unverified webhook in production");
+    return res.status(503).send("Webhook not configured");
   } else {
     // No webhook secret configured — accept unverified for local/dev testing only.
     console.warn("[stripe] STRIPE_WEBHOOK_SECRET not set — accepting webhook without signature verification (dev only, do not run this way in production)");
