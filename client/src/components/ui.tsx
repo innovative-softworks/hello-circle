@@ -1,6 +1,6 @@
 import { useState, type CSSProperties, type ReactNode } from "react";
 import { CheckIcon, StarIcon } from "./icons";
-import { colors, fonts } from "../theme";
+import { colors, fonts, maxWidth } from "../theme";
 
 // Shared, reusable building blocks for the vendor/admin/reviews UI — kept in
 // one place so button/card/badge styling can't drift between dashboards.
@@ -168,6 +168,99 @@ export function Avatar({ name, size = 32 }: { name: string; size?: number }) {
       }}
     >
       {initials}
+    </div>
+  );
+}
+
+// --- Loading placeholders ---------------------------------------------------
+// .skeleton/.spinner (index.css) do the shimmer/spin animation — these just
+// size and lay them out. Skeleton shapes are sized to match the real content
+// they stand in for, so the page doesn't jump when data arrives.
+
+export function Spinner({ size = 26, style }: { size?: number; style?: CSSProperties }) {
+  return <span className="spinner" style={{ width: size, height: size, ...style }} />;
+}
+
+/** Centered spinner for a whole-page gate (auth check, multi-step flow's
+ * initial fetch) — where the wait is normally brief and building a layout
+ * skeleton isn't worth it. */
+export function PageSpinner() {
+  return (
+    <div style={{ display: "flex", justifyContent: "center", padding: "140px 24px" }}>
+      <Spinner size={32} />
+    </div>
+  );
+}
+
+export function Skeleton({
+  width = "100%",
+  height = 16,
+  radius = 8,
+  style,
+}: {
+  width?: number | string;
+  height?: number | string;
+  radius?: number;
+  style?: CSSProperties;
+}) {
+  return <div className="skeleton" style={{ width, height, borderRadius: radius, flex: "none", ...style }} />;
+}
+
+/** Stands in for CentreCard/ClubCard while a listing grid loads. */
+export function CardSkeleton({ photoHeight = 140 }: { photoHeight?: number }) {
+  return (
+    <div style={{ background: "#fff", border: `1px solid ${colors.border}`, borderRadius: 18, overflow: "hidden" }}>
+      <Skeleton height={photoHeight} radius={0} />
+      <div style={{ padding: "16px 18px 18px" }}>
+        <Skeleton width={90} height={13} style={{ marginBottom: 12 }} />
+        <Skeleton width="80%" height={17} style={{ marginBottom: 8 }} />
+        <Skeleton width="55%" height={14} />
+      </div>
+    </div>
+  );
+}
+
+/** Stands in for CentreDetail/ClubDetail's gallery + two-column layout while
+ * the listing loads — shared since both pages have the same shape. */
+export function ListingDetailSkeleton() {
+  return (
+    <div>
+      <section className="section-pad" style={{ maxWidth, margin: "0 auto", padding: "26px 24px 0" }}>
+        <Skeleton width={160} height={14} style={{ marginBottom: 16 }} />
+        <Skeleton height={380} radius={20} />
+      </section>
+      <section
+        className="grid-responsive section-pad"
+        style={{ maxWidth, margin: "0 auto", padding: "26px 24px 70px", display: "grid", gridTemplateColumns: "1.6fr 1fr", gap: 40, alignItems: "start" }}
+      >
+        <div>
+          <Skeleton width={160} height={14} style={{ marginBottom: 14 }} />
+          <Skeleton width="70%" height={32} style={{ marginBottom: 10 }} />
+          <Skeleton width="45%" height={16} style={{ marginBottom: 26 }} />
+          <Skeleton height={14} style={{ marginBottom: 8 }} />
+          <Skeleton height={14} style={{ marginBottom: 8 }} />
+          <Skeleton width="80%" height={14} />
+        </div>
+        <div style={{ border: `1px solid ${colors.border}`, borderRadius: 18, padding: 22 }}>
+          <Skeleton width={100} height={13} style={{ marginBottom: 10 }} />
+          <Skeleton width={120} height={30} style={{ marginBottom: 20 }} />
+          <Skeleton height={46} radius={12} />
+        </div>
+      </section>
+    </div>
+  );
+}
+
+/** Stands in for a MyBookings row while bookings/registrations load. */
+export function RowSkeleton() {
+  return (
+    <div style={{ background: "#fff", border: `1px solid ${colors.border}`, borderRadius: 16, padding: "18px 20px", display: "flex", alignItems: "center", gap: 18 }}>
+      <Skeleton width={52} height={52} radius={12} />
+      <div style={{ flex: 1 }}>
+        <Skeleton width="40%" height={16} style={{ marginBottom: 8 }} />
+        <Skeleton width="60%" height={13} />
+      </div>
+      <Skeleton width={60} height={16} />
     </div>
   );
 }

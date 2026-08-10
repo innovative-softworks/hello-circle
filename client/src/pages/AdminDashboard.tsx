@@ -23,7 +23,7 @@ import {
 import { useAuth } from "../AuthContext";
 import { AdminIllustration } from "../components/illustrations";
 import { BallIcon, BuildingIcon, CalendarIcon, ClipboardIcon, PhoneIcon, PinIcon, StarIcon, TagIcon, UsersIcon } from "../components/icons";
-import { Avatar, BadgedIcon, Button, Card, DashboardTopPanel, EmptyState, StarDisplay, StatRow, StatTile, StatusBadge, inputStyle, labelStyle } from "../components/ui";
+import { Avatar, BadgedIcon, Button, Card, DashboardTopPanel, EmptyState, PageSpinner, StarDisplay, StatRow, StatTile, StatusBadge, inputStyle, labelStyle } from "../components/ui";
 import { colors, fonts, maxWidth } from "../theme";
 import type { AdminStats, Review } from "../types";
 
@@ -346,7 +346,7 @@ export function AdminDashboard() {
     if (user?.role === "admin") fetchAdminStats().then(setStats);
   }, [user, tab]);
 
-  if (loading) return null;
+  if (loading) return <PageSpinner />;
   if (!user || user.role !== "admin") {
     navigate("/login");
     return null;

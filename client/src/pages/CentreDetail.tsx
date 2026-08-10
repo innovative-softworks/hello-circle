@@ -4,6 +4,7 @@ import { fetchCentre } from "../api";
 import { PhotoGallery } from "../components/PhotoGallery";
 import { Reviews } from "../components/Reviews";
 import { CheckIcon, ChevronLeftIcon, ClockIcon, PinIcon, RepeatIcon, StarIcon, WheelchairIcon } from "../components/icons";
+import { ListingDetailSkeleton } from "../components/ui";
 import { colors, fonts, maxWidth } from "../theme";
 import type { Centre } from "../types";
 
@@ -20,7 +21,7 @@ export function CentreDetail() {
     if (id) fetchCentre(id).then(setCentre);
   };
 
-  if (!centre) return null;
+  if (!centre) return <ListingDetailSkeleton />;
 
   return (
     <div style={{ animation: "fadeUp .35s ease both" }}>

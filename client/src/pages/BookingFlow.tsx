@@ -4,6 +4,7 @@ import { createBookingCheckout, fetchAvailability, fetchAvailabilityRange, fetch
 import { Chip } from "../components/Chip";
 import { Photo } from "../components/Photo";
 import { Stepper } from "../components/Stepper";
+import { PageSpinner } from "../components/ui";
 import { DURATION_OPTIONS, EVENT_TYPES, TIME_SLOTS } from "../constants";
 import { dateLabel, euro } from "../euro";
 import { ChevronLeftIcon, ChevronRightIcon, CheckIcon, CloseIcon } from "../components/icons";
@@ -211,7 +212,7 @@ export function BookingFlow() {
     else navigate(`/centres/${centreId}`);
   };
 
-  if (!centre || !room) return null;
+  if (!centre || !room) return <PageSpinner />;
 
   if (confirmedRef) {
     return (

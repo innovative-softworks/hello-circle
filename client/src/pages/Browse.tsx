@@ -6,6 +6,7 @@ import { Chip } from "../components/Chip";
 import { CentreCard } from "../components/CentreCard";
 import { ClubCard } from "../components/ClubCard";
 import { ChevronLeftIcon, ChevronRightIcon, GridIcon, HomeIcon, PinIcon, SearchIcon } from "../components/icons";
+import { CardSkeleton } from "../components/ui";
 import { colors, fonts, maxWidth } from "../theme";
 import type { Centre, Club } from "../types";
 
@@ -44,14 +45,22 @@ export function Browse() {
   const isClubs = category === "clubs";
   const [centres, setCentres] = useState<Centre[]>([]);
   const [clubs, setClubs] = useState<Club[]>([]);
+  const [loading, setLoading] = useState(true);
   const [countyOptions, setCountyOptions] = useState<string[]>([]);
   const [sportOptions, setSportOptions] = useState<string[]>(["All"]);
 
   useEffect(() => {
+    setLoading(true);
     if (isClubs) {
-      fetchClubs(county, sport).then(setClubs);
+      fetchClubs(county, sport).then((rows) => {
+        setClubs(rows);
+        setLoading(false);
+      });
     } else {
-      fetchCentres(county).then(setCentres);
+      fetchCentres(county).then((rows) => {
+        setCentres(rows);
+        setLoading(false);
+      });
     }
   }, [isClubs, county, sport]);
 
@@ -125,8 +134,14 @@ export function Browse() {
                 {isClubs ? "Sports clubs" : "Community centres"}
               </h1>
               <p style={{ color: colors.mutedLight, fontSize: 16, margin: "0 0 10px" }}>
-                {filtered.length} result{filtered.length === 1 ? "" : "s"}{county === "All" ? " across Ireland" : ` in ${county}`}
-                {query && ` matching "${query}"`}
+                {loading ? (
+                  "Loading…"
+                ) : (
+                  <>
+                    {filtered.length} result{filtered.length === 1 ? "" : "s"}{county === "All" ? " across Ireland" : ` in ${county}`}
+                    {query && ` matching "${query}"`}
+                  </>
+                )}
               </p>
               <p style={{ color: colors.muted, fontSize: 14, lineHeight: 1.55, margin: 0, maxWidth: 340 }}>
                 {isClubs
@@ -229,7 +244,11 @@ export function Browse() {
       </section>
 
       <section className="section-pad" style={{ maxWidth, margin: "0 auto", padding: "0 24px 40px" }}>
-        {pageRows.length === 0 ? (
+        {loading ? (
+          <div className="grid-responsive-3" style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 20 }}>
+            {Array.from({ length: PAGE_SIZE }, (_, i) => <CardSkeleton key={i} photoHeight={140} />)}
+          </div>
+        ) : pageRows.length === 0 ? (
           <div style={{ border: `1.5px dashed ${colors.border}`, borderRadius: 18, padding: "56px 20px", textAlign: "center", color: colors.mutedLight }}>
             <div style={{ display: "flex", justifyContent: "center", marginBottom: 10, color: colors.faint }}><SearchIcon size={28} /></div>
             <div style={{ fontWeight: 700, color: colors.muted, marginBottom: 4 }}>No results</div>
@@ -244,7 +263,7 @@ export function Browse() {
         )}
       </section>
 
-      {filtered.length > 0 && (
+      {!loading && filtered.length > 0 && (
         <section className="section-pad" style={{ maxWidth, margin: "0 auto", padding: "0 24px 70px", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
           <span style={{ color: colors.mutedLight, fontSize: 14 }}>
             Showing {(pageSafe - 1) * PAGE_SIZE + 1} to {Math.min(pageSafe * PAGE_SIZE, filtered.length)} of {filtered.length} results

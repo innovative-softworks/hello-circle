@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { fetchMyBookings, fetchMyRegistrations } from "../api";
 import { Photo } from "../components/Photo";
+import { RowSkeleton } from "../components/ui";
 import { dateLabel, euro } from "../euro";
 import { colors, fonts } from "../theme";
 import type { MyBooking, MyRegistration } from "../types";
@@ -10,13 +11,13 @@ export function MyBookings() {
   const navigate = useNavigate();
   const [bookings, setBookings] = useState<MyBooking[]>([]);
   const [regs, setRegs] = useState<MyRegistration[]>([]);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetchMyBookings().then(setBookings);
-    fetchMyRegistrations().then(setRegs);
+    Promise.all([fetchMyBookings().then(setBookings), fetchMyRegistrations().then(setRegs)]).then(() => setLoading(false));
   }, []);
 
-  const hasNone = bookings.length === 0 && regs.length === 0;
+  const hasNone = !loading && bookings.length === 0 && regs.length === 0;
 
   return (
     <div style={{ animation: "fadeUp .35s ease both" }}>
@@ -24,6 +25,11 @@ export function MyBookings() {
         <h1 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 34, margin: "0 0 24px", letterSpacing: "-.02em" }}>
           My bookings
         </h1>
+        {loading && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            {Array.from({ length: 3 }, (_, i) => <RowSkeleton key={i} />)}
+          </div>
+        )}
         {hasNone && (
           <div style={{ background: "#fff", border: "1px dashed " + colors.borderStrong, borderRadius: 18, padding: 48, textAlign: "center" }}>
             <p style={{ color: colors.mutedLight, fontSize: 16, margin: "0 0 18px" }}>

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { fetchCentres } from "../api";
 import { CentreCard } from "../components/CentreCard";
+import { CardSkeleton } from "../components/ui";
 import { CommunityIllustration, SportsIllustration } from "../components/illustrations";
 import {
   ArrowRightIcon,
@@ -19,11 +20,13 @@ export function Home() {
   const navigate = useNavigate();
   const [homeCounty, setHomeCounty] = useState("All");
   const [featured, setFeatured] = useState<Centre[]>([]);
+  const [loadingFeatured, setLoadingFeatured] = useState(true);
   const [counties, setCounties] = useState<string[]>(["All"]);
 
   useEffect(() => {
     fetchCentres().then((centres) => {
       setFeatured(centres.slice(0, 3));
+      setLoadingFeatured(false);
       setCounties(["All", ...Array.from(new Set(centres.map((c) => c.county).filter(Boolean))).sort((a, b) => a.localeCompare(b))]);
     });
   }, []);
@@ -375,9 +378,9 @@ export function Home() {
           </div>
         </div>
         <div className="grid-responsive-3" style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 20 }}>
-          {featured.map((c) => (
-            <CentreCard key={c.id} centre={c} height={132} />
-          ))}
+          {loadingFeatured
+            ? Array.from({ length: 3 }, (_, i) => <CardSkeleton key={i} photoHeight={132} />)
+            : featured.map((c) => <CentreCard key={c.id} centre={c} height={132} />)}
         </div>
       </section>
 

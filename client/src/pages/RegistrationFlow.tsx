@@ -4,6 +4,7 @@ import { createRegistrationCheckout, fetchClub, validateCoupon, PLATFORM_FEE_RAT
 import { Chip } from "../components/Chip";
 import { Photo } from "../components/Photo";
 import { Stepper } from "../components/Stepper";
+import { PageSpinner } from "../components/ui";
 import { AGE_GROUPS } from "../constants";
 import { useMyStuff } from "../MyStuffContext";
 import { priceLabel } from "../priceLabel";
@@ -150,7 +151,7 @@ export function RegistrationFlow() {
     else navigate(`/clubs/${clubId}`);
   };
 
-  if (!club) return null;
+  if (!club) return <PageSpinner />;
 
   const childName = `${form.childFirst} ${form.childLast}`.trim();
 

@@ -52,6 +52,33 @@ textarea:focus {
   from { opacity: 0; transform: scale(0.85); }
   to { opacity: 1; transform: none; }
 }
+@keyframes shimmer {
+  from { background-position: -240px 0; }
+  to { background-position: 240px 0; }
+}
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* --- loading states -------------------------------------------------------
+   .skeleton: a placeholder block with a sweeping highlight, sized/shaped per
+   use site via inline width/height/borderRadius. .spinner: a small rotating
+   ring for point-loads (auth gate, multi-step flow) where a full skeleton
+   layout isn't worth building. */
+.skeleton {
+  background: #EDEAE1;
+  background-image: linear-gradient(90deg, #EDEAE1 0px, #F5F3EC 40px, #EDEAE1 80px);
+  background-size: 240px 100%;
+  background-repeat: no-repeat;
+  animation: shimmer 1.4s ease-in-out infinite;
+}
+.spinner {
+  display: inline-block;
+  border-radius: 50%;
+  border: 3px solid #E7E4DC;
+  border-top-color: #1E7A4C;
+  animation: spin 0.7s linear infinite;
+}
 
 /* --- shared interactive utilities (everything else in this app is inline-styled;
    hover/focus states need real CSS since inline styles can't express :hover) --- */

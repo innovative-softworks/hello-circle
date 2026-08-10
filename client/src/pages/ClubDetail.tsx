@@ -5,6 +5,7 @@ import { PhotoGallery } from "../components/PhotoGallery";
 import { Reviews } from "../components/Reviews";
 import { priceLabel } from "../priceLabel";
 import { CheckIcon, ChevronLeftIcon, ClockIcon, PinIcon, StarIcon } from "../components/icons";
+import { ListingDetailSkeleton } from "../components/ui";
 import { colors, fonts, maxWidth } from "../theme";
 import type { Club } from "../types";
 
@@ -21,7 +22,7 @@ export function ClubDetail() {
     if (id) fetchClub(id).then(setClub);
   };
 
-  if (!club) return null;
+  if (!club) return <ListingDetailSkeleton />;
 
   return (
     <div style={{ animation: "fadeUp .35s ease both" }}>

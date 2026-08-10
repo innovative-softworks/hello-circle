@@ -44,7 +44,7 @@ import {
   TrashIcon,
   TrendUpIcon,
 } from "../components/icons";
-import { Avatar, BadgedIcon, Button, Card, DashboardTopPanel, EmptyState, StatRow, StatTile, StatusBadge, inputStyle, labelStyle } from "../components/ui";
+import { Avatar, BadgedIcon, Button, Card, DashboardTopPanel, EmptyState, PageSpinner, StatRow, StatTile, StatusBadge, inputStyle, labelStyle } from "../components/ui";
 import { colors, fonts, maxWidth } from "../theme";
 import type { Centre, Club, MyBooking, MyRegistration, RoomBlock, VendorListingSummary, VendorNotification, VendorStats, VendorType } from "../types";
 
@@ -746,7 +746,7 @@ export function VendorDashboard() {
     if (user?.role === "vendor" && user.status === "approved") reload();
   }, [user]);
 
-  if (loading) return null;
+  if (loading) return <PageSpinner />;
   if (!user || user.role !== "vendor") {
     navigate("/login");
     return null;
