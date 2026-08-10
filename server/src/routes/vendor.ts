@@ -327,7 +327,7 @@ vendorRouter.get("/bookings", async (req, res) => {
   const rows = await db
     .prepare(
       `SELECT b.ref, b.date, b.time, b.duration, b.event_type as eventType, b.guests, b.name, b.email, b.phone,
-              b.notes, b.total_cents as totalCents, b.created_at as createdAt,
+              b.notes, b.total_cents as totalCents, b.created_at as createdAt, b.status,
               c.name as centreName
        FROM bookings b
        JOIN centres c ON c.id = b.centre_id
@@ -343,7 +343,7 @@ vendorRouter.get("/registrations", async (req, res) => {
     .prepare(
       `SELECT r.ref, r.team, r.child_first as childFirst, r.child_last as childLast, r.dob,
               r.g_first as gFirst, r.g_last as gLast, r.email, r.phone, r.trial, r.total_cents as totalCents,
-              r.created_at as createdAt, c.name as clubName, c.sport
+              r.created_at as createdAt, r.status, c.name as clubName, c.sport
        FROM registrations r
        JOIN clubs c ON c.id = r.club_id
        WHERE c.vendor_id = ? AND r.payment_status = 'paid'

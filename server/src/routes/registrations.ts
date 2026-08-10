@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { db } from "../db/index.js";
 import { getClub } from "../db/queries.js";
-import { notifyNewBookingOrRegistration } from "../notifications.js";
+import { notifyCancellation, notifyNewBookingOrRegistration } from "../notifications.js";
 import { computePricing, evaluateCoupon } from "../pricing.js";
 import { CLIENT_URL, stripe } from "../stripe.js";
 import { BadRequestError, clientIdFrom, generateRef, isValidEmail } from "../util.js";
@@ -169,7 +169,7 @@ registrationsRouter.get("/", async (req, res) => {
 
   const rows = await db
     .prepare(
-      `SELECT r.ref, r.team, r.child_first as childFirst, r.child_last as childLast, r.trial,
+      `SELECT r.ref, r.team, r.child_first as childFirst, r.child_last as childLast, r.trial, r.status,
               r.total_cents as totalCents, r.created_at as createdAt,
               c.name as clubName, c.sport as sport
        FROM registrations r
@@ -180,4 +180,48 @@ registrationsRouter.get("/", async (req, res) => {
     .all(clientId);
 
   res.json(rows);
+});
+
+/** Same ownership/idempotency rules as booking cancellation, but no 48h
+ * cutoff — a club registration isn't tied to a single date/time the way a
+ * hall booking is. Flips a status flag only; refunds (if any) happen
+ * off-platform. */
+registrationsRouter.post("/:ref/cancel", async (req, res) => {
+  let clientId: string;
+  try {
+    clientId = clientIdFrom(req);
+  } catch (e) {
+    if (e instanceof BadRequestError) return res.status(400).json({ error: e.message });
+    throw e;
+  }
+
+  const row = (await db
+    .prepare(
+      `SELECT r.ref, r.team, r.child_first as childFirst, r.child_last as childLast, r.status, r.payment_status as paymentStatus,
+              r.g_first as gFirst, r.g_last as gLast, r.email, r.club_id as clubId, c.name as clubName, c.vendor_id as vendorId
+       FROM registrations r JOIN clubs c ON c.id = r.club_id
+       WHERE r.ref = ? AND r.client_id = ?`
+    )
+    .get(req.params.ref, clientId)) as
+    | { ref: string; team: string; childFirst: string; childLast: string; status: string; paymentStatus: string; gFirst: string; gLast: string; email: string; clubId: string; clubName: string; vendorId: string | null }
+    | undefined;
+  if (!row) return res.status(404).json({ error: "Registration not found" });
+  if (row.status === "cancelled") return res.status(409).json({ error: "This registration is already cancelled" });
+  if (row.paymentStatus !== "paid") return res.status(409).json({ error: "This registration can't be cancelled" });
+
+  await db.prepare(`UPDATE registrations SET status = 'cancelled' WHERE ref = ?`).run(row.ref);
+
+  notifyCancellation({
+    kind: "registration",
+    listingType: "club",
+    listingId: row.clubId,
+    listingName: row.clubName,
+    vendorId: row.vendorId,
+    guestName: `${row.gFirst} ${row.gLast}`,
+    guestEmail: row.email,
+    ref: row.ref,
+    detailsText: `${row.childFirst} ${row.childLast} · ${row.team}`,
+  }).catch((e) => console.error("[notifications] registration cancellation notify failed:", e));
+
+  res.json({ ok: true });
 });

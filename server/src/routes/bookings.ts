@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { db } from "../db/index.js";
 import { getCentre } from "../db/queries.js";
-import { notifyNewBookingOrRegistration } from "../notifications.js";
+import { notifyCancellation, notifyNewBookingOrRegistration } from "../notifications.js";
 import { computePricing, evaluateCoupon } from "../pricing.js";
 import { CLIENT_URL, stripe } from "../stripe.js";
 import { BadRequestError, bookingEndHour, clientIdFrom, generateRef, hoursOverlap, isValidEmail } from "../util.js";
@@ -61,7 +61,7 @@ bookingsRouter.post("/checkout", async (req, res) => {
   }
 
   const overlapping = (await db
-    .prepare(`SELECT time, duration FROM bookings WHERE room_id = ? AND date = ? AND payment_status != 'failed'`)
+    .prepare(`SELECT time, duration FROM bookings WHERE room_id = ? AND date = ? AND payment_status != 'failed' AND status != 'cancelled'`)
     .all(body.roomId, body.date)) as { time: string; duration: number }[];
   const clashes = overlapping.some((b) => {
     const bStart = parseInt(b.time.slice(0, 2), 10);
@@ -191,7 +191,7 @@ bookingsRouter.get("/", async (req, res) => {
 
   const rows = await db
     .prepare(
-      `SELECT b.ref, b.date, b.time, b.total_cents as totalCents, b.created_at as createdAt,
+      `SELECT b.ref, b.date, b.time, b.total_cents as totalCents, b.created_at as createdAt, b.status,
               c.name as centreName, c.ph as ph, c.image_url as image
        FROM bookings b
        JOIN centres c ON c.id = b.centre_id
@@ -201,4 +201,56 @@ bookingsRouter.get("/", async (req, res) => {
     .all(clientId);
 
   res.json(rows);
+});
+
+/** A booking may only be cancelled by the guest who made it (ownership
+ * checked via X-Client-Id, same as the "my bookings" list), and only up to
+ * 48h before the booked start time — matches the "Free cancellation up to
+ * 48h before" copy already shown on every centre's detail page. Cancelling
+ * only flips a status flag; any refund for an online payment is handled
+ * off-platform, same as the "refundable deposit" promise already is. */
+bookingsRouter.post("/:ref/cancel", async (req, res) => {
+  let clientId: string;
+  try {
+    clientId = clientIdFrom(req);
+  } catch (e) {
+    if (e instanceof BadRequestError) return res.status(400).json({ error: e.message });
+    throw e;
+  }
+
+  const row = (await db
+    .prepare(
+      `SELECT b.ref, b.date, b.time, b.duration, b.guests, b.status, b.payment_status as paymentStatus,
+              b.name, b.email, b.centre_id as centreId, c.name as centreName, c.vendor_id as vendorId
+       FROM bookings b JOIN centres c ON c.id = b.centre_id
+       WHERE b.ref = ? AND b.client_id = ?`
+    )
+    .get(req.params.ref, clientId)) as
+    | { ref: string; date: string; time: string; duration: number; guests: number; status: string; paymentStatus: string; name: string; email: string; centreId: string; centreName: string; vendorId: string | null }
+    | undefined;
+  if (!row) return res.status(404).json({ error: "Booking not found" });
+  if (row.status === "cancelled") return res.status(409).json({ error: "This booking is already cancelled" });
+  if (row.paymentStatus !== "paid") return res.status(409).json({ error: "This booking can't be cancelled" });
+
+  const startHour = parseInt(row.time.slice(0, 2), 10);
+  const eventStart = new Date(`${row.date}T${String(startHour).padStart(2, "0")}:00:00`);
+  if (eventStart.getTime() - Date.now() < 48 * 60 * 60 * 1000) {
+    return res.status(409).json({ error: "This booking is within 48 hours and can no longer be cancelled online — please contact the venue directly" });
+  }
+
+  await db.prepare(`UPDATE bookings SET status = 'cancelled' WHERE ref = ?`).run(row.ref);
+
+  notifyCancellation({
+    kind: "booking",
+    listingType: "centre",
+    listingId: row.centreId,
+    listingName: row.centreName,
+    vendorId: row.vendorId,
+    guestName: row.name,
+    guestEmail: row.email,
+    ref: row.ref,
+    detailsText: `${row.date} at ${row.time} · ${row.duration}h · ${row.guests} guests`,
+  }).catch((e) => console.error("[notifications] booking cancellation notify failed:", e));
+
+  res.json({ ok: true });
 });

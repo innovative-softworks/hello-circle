@@ -90,6 +90,10 @@ export function fetchMyBookings(): Promise<MyBooking[]> {
   return request(`/bookings`);
 }
 
+export function cancelBooking(ref: string): Promise<{ ok: boolean }> {
+  return request(`/bookings/${encodeURIComponent(ref)}/cancel`, { method: "POST" });
+}
+
 export interface CreateRegistrationInput {
   clubId: string;
   team: string;
@@ -124,6 +128,10 @@ export function fetchRegistrationStatus(ref: string): Promise<{ ref: string; pay
 
 export function fetchMyRegistrations(): Promise<MyRegistration[]> {
   return request(`/registrations`);
+}
+
+export function cancelRegistration(ref: string): Promise<{ ok: boolean }> {
+  return request(`/registrations/${encodeURIComponent(ref)}/cancel`, { method: "POST" });
 }
 
 // --- pricing / coupons ---------------------------------------------------

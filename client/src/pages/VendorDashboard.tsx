@@ -534,10 +534,15 @@ function BookingsTab() {
         <h4 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 16, margin: "0 0 14px" }}>Hall bookings</h4>
         {bookings.length === 0 && <EmptyState icon={<CalendarIcon size={26} />} title="No bookings yet" />}
         {bookings.map((b) => (
-          <div key={b.ref} style={{ borderTop: `1px solid ${colors.border}`, padding: "12px 0", fontSize: 13, display: "flex", alignItems: "center", gap: 12 }}>
+          <div key={b.ref} style={{ borderTop: `1px solid ${colors.border}`, padding: "12px 0", fontSize: 13, display: "flex", alignItems: "center", gap: 12, opacity: b.status === "cancelled" ? 0.55 : 1 }}>
             <Avatar name={b.name} size={28} />
             <div style={{ minWidth: 0, flex: 1 }}>
               <strong>{b.centreName}</strong> · {b.date} {b.time} — {b.name} ({b.email}, {b.phone})
+              {b.status === "cancelled" && (
+                <span style={{ marginLeft: 8, fontSize: 11, fontWeight: 700, color: "#b00020", background: "#F6E3E3", borderRadius: 999, padding: "2px 8px" }}>
+                  Cancelled
+                </span>
+              )}
             </div>
           </div>
         ))}
@@ -546,10 +551,15 @@ function BookingsTab() {
         <h4 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 16, margin: "0 0 14px" }}>Club registrations</h4>
         {registrations.length === 0 && <EmptyState icon={<AwardIcon size={26} />} title="No registrations yet" />}
         {registrations.map((r) => (
-          <div key={r.ref} style={{ borderTop: `1px solid ${colors.border}`, padding: "12px 0", fontSize: 13, display: "flex", alignItems: "center", gap: 12 }}>
+          <div key={r.ref} style={{ borderTop: `1px solid ${colors.border}`, padding: "12px 0", fontSize: 13, display: "flex", alignItems: "center", gap: 12, opacity: r.status === "cancelled" ? 0.55 : 1 }}>
             <Avatar name={`${r.childFirst} ${r.childLast}`} size={28} />
             <div style={{ minWidth: 0, flex: 1 }}>
               <strong>{r.clubName}</strong> · {r.childFirst} {r.childLast} — {r.email}, {r.phone}
+              {r.status === "cancelled" && (
+                <span style={{ marginLeft: 8, fontSize: 11, fontWeight: 700, color: "#b00020", background: "#F6E3E3", borderRadius: 999, padding: "2px 8px" }}>
+                  Cancelled
+                </span>
+              )}
             </div>
           </div>
         ))}

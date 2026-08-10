@@ -61,6 +61,8 @@ export interface Club {
   mapUrl: string;
 }
 
+export type BookingStatus = "confirmed" | "cancelled";
+
 export interface MyBooking {
   ref: string;
   date: string;
@@ -70,6 +72,7 @@ export interface MyBooking {
   centreName: string;
   ph: string;
   image: string;
+  status: BookingStatus;
 }
 
 export interface MyRegistration {
@@ -82,6 +85,7 @@ export interface MyRegistration {
   createdAt: string;
   clubName: string;
   sport: string;
+  status: BookingStatus;
 }
 
 export interface VendorNotification {

@@ -411,4 +411,11 @@ export async function initSchema() {
     UPDATE bookings SET payment_status = 'paid' WHERE payment_status = 'pending' AND stripe_session_id IS NULL;
     UPDATE registrations SET payment_status = 'paid' WHERE payment_status = 'pending' AND stripe_session_id IS NULL;
   `);
+
+  // Guest-facing cancellation. Deliberately separate from payment_status
+  // (which tracks the Stripe payment lifecycle: pending/paid/failed) so
+  // cancelling can never race with or be overwritten by a webhook confirming
+  // payment — this is a distinct booking-lifecycle flag.
+  await ensureColumn("bookings", "status", "status VARCHAR(20) NOT NULL DEFAULT 'confirmed'");
+  await ensureColumn("registrations", "status", "status VARCHAR(20) NOT NULL DEFAULT 'confirmed'");
 }
