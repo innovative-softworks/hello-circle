@@ -50,8 +50,10 @@ import type { Centre, Club, MyBooking, MyRegistration, RoomBlock, VendorListingS
 
 const HOUR_OPTIONS = ["09:00", "10:00", "11:00", "12:00", "13:00", "14:00", "15:00", "16:00", "17:00", "18:00", "19:00", "20:00", "21:00"];
 
+// `iso` is already a full ISO 8601 UTC timestamp from the server — just
+// needs Ireland-timezone display formatting, not further tz massaging.
 function formatDate(iso: string): string {
-  return new Date(iso.replace(" ", "T") + "Z").toLocaleDateString("en-IE", { day: "numeric", month: "short", year: "numeric" });
+  return new Date(iso).toLocaleDateString("en-IE", { day: "numeric", month: "short", year: "numeric", timeZone: "Europe/Dublin" });
 }
 
 function MultiImageUpload({ images, onChange }: { images: string[]; onChange: (urls: string[]) => void }) {

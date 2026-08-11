@@ -33,6 +33,12 @@ export function Footer() {
           <span className="link-accent" style={{ cursor: "pointer" }} onClick={() => navigate("/browse/clubs")}>
             Clubs
           </span>
+          <span className="link-accent" style={{ cursor: "pointer" }} onClick={() => navigate("/privacy")}>
+            Privacy
+          </span>
+          <span className="link-accent" style={{ cursor: "pointer" }} onClick={() => navigate("/cookies")}>
+            Cookies
+          </span>
         </div>
       </div>
     </footer>

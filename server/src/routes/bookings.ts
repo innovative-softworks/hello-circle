@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { db } from "../db/index.js";
 import { getCentre } from "../db/queries.js";
+import { irelandWallTimeToUtc } from "../irelandTime.js";
 import { notifyCancellation, notifyNewBookingOrRegistration } from "../notifications.js";
 import { computePricing, evaluateCoupon } from "../pricing.js";
 import { CLIENT_URL, stripe } from "../stripe.js";
@@ -232,8 +233,11 @@ bookingsRouter.post("/:ref/cancel", async (req, res) => {
   if (row.status === "cancelled") return res.status(409).json({ error: "This booking is already cancelled" });
   if (row.paymentStatus !== "paid") return res.status(409).json({ error: "This booking can't be cancelled" });
 
+  // Venues are physically in Ireland — the booking's date/time is an Irish
+  // wall-clock time, so the 48h cutoff must be computed against that, not
+  // against whatever timezone this server process happens to be running in.
   const startHour = parseInt(row.time.slice(0, 2), 10);
-  const eventStart = new Date(`${row.date}T${String(startHour).padStart(2, "0")}:00:00`);
+  const eventStart = irelandWallTimeToUtc(row.date, startHour);
   if (eventStart.getTime() - Date.now() < 48 * 60 * 60 * 1000) {
     return res.status(409).json({ error: "This booking is within 48 hours and can no longer be cancelled online — please contact the venue directly" });
   }

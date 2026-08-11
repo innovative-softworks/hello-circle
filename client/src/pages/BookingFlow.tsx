@@ -106,7 +106,16 @@ export function BookingFlow() {
     }
   }, [roomId, form.date, form.duration]);
 
-  const today = useMemo(() => new Date(), []);
+  // Venues are in Ireland, so "today" should be Ireland's calendar date even
+  // if a guest happens to be browsing from a different timezone — not the
+  // browser's own local date. Constructing a local Date from Ireland's Y/M/D
+  // means every downstream calendar calculation (which uses local getters
+  // like getMonth/getDate) keeps working unchanged.
+  const today = useMemo(() => {
+    const parts = new Intl.DateTimeFormat("en-US", { timeZone: "Europe/Dublin", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(new Date());
+    const get = (type: string) => Number(parts.find((p) => p.type === type)!.value);
+    return new Date(get("year"), get("month") - 1, get("day"));
+  }, []);
   const minSelectable = useMemo(() => {
     const d = new Date(today);
     d.setDate(d.getDate() + 1);

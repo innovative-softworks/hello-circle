@@ -2,6 +2,7 @@ import { Router } from "express";
 import { requireAdmin } from "../auth.js";
 import { db } from "../db/index.js";
 import { getCentre, getClub } from "../db/queries.js";
+import { endOfIrelandDay } from "../irelandTime.js";
 
 export const adminRouter = Router();
 adminRouter.use(requireAdmin);
@@ -271,10 +272,13 @@ adminRouter.post("/coupons", async (req, res) => {
   if (b.kind === "percent" && (b.amount <= 0 || b.amount > 100)) return res.status(400).json({ error: "Percent amount must be 1-100" });
 
   const code = b.code.trim().toUpperCase();
+  // The admin picks a plain calendar date ("expires 25 Dec") — that should
+  // mean valid through the end of that day in Ireland, not midnight UTC.
+  const expiresAt = b.expiresAt ? endOfIrelandDay(b.expiresAt) : null;
   try {
     await db.prepare(
       `INSERT INTO coupons (code, kind, amount, max_uses, expires_at) VALUES (?, ?, ?, ?, ?)`
-    ).run(code, b.kind, b.amount, b.maxUses ?? null, b.expiresAt ?? null);
+    ).run(code, b.kind, b.amount, b.maxUses ?? null, expiresAt);
   } catch {
     return res.status(409).json({ error: "That code already exists" });
   }

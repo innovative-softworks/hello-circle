@@ -11,6 +11,14 @@ const pool = mysql.createPool({
   waitForConnections: true,
   connectionLimit: 10,
   namedPlaceholders: true,
+  // DATETIME columns (created_at, expires_at, ...) are stored in UTC — the DB
+  // server's own system time zone is UTC, so NOW()/CURRENT_TIMESTAMP already
+  // produce UTC. Without this, mysql2 falls back to whatever local time zone
+  // the Node process happens to run in to interpret those values, which is
+  // environment-dependent (dev machine vs. host) rather than guaranteed —
+  // this makes UTC interpretation explicit instead of accidental. The client
+  // then renders everything in Europe/Dublin explicitly at display time.
+  timezone: "Z",
 });
 
 /** better-sqlite3 auto-nulls `undefined` bind params; mysql2 throws on them.

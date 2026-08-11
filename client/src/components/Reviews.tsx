@@ -12,8 +12,11 @@ interface Props {
   onReviewPosted?: () => void;
 }
 
+// `iso` is already a full ISO 8601 UTC timestamp (e.g. "2026-08-11T05:09:35.000Z")
+// as returned by the server — no further timezone massaging needed to get an
+// absolute instant out of it; only display formatting needs a timezone.
 function timeAgo(iso: string): string {
-  const diffMs = Date.now() - new Date(iso.replace(" ", "T") + "Z").getTime();
+  const diffMs = Date.now() - new Date(iso).getTime();
   const mins = Math.floor(diffMs / 60000);
   if (mins < 1) return "just now";
   if (mins < 60) return `${mins}m ago`;
@@ -21,7 +24,7 @@ function timeAgo(iso: string): string {
   if (hours < 24) return `${hours}h ago`;
   const days = Math.floor(hours / 24);
   if (days < 30) return `${days}d ago`;
-  return new Date(iso).toLocaleDateString("en-IE", { month: "short", year: "numeric" });
+  return new Date(iso).toLocaleDateString("en-IE", { month: "short", year: "numeric", timeZone: "Europe/Dublin" });
 }
 
 export function Reviews({ listingType, listingId, accent, onReviewPosted }: Props) {
