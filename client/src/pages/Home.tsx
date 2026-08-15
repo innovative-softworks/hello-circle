@@ -340,7 +340,13 @@ export function Home() {
             }}
           >
             <div style={{ position: "absolute", top: -34, right: -28, width: 190, height: 190, borderRadius: "50%", background: colors.orangeBg }} />
-            <div style={{ position: "absolute", top: 14, right: -6, width: 210, height: 138 }}>
+            {/* Unlike CommunityIllustration, this one's soccer ball/basketball
+                cluster sits low and close to the left edge of its box, which
+                collides with the "Sports clubs" heading once the text column
+                widens relative to the fixed-size illustration on narrow
+                phones (confirmed broken <=375px, clean >=480px) — simplest
+                fix is to not show it below the .hide-mobile breakpoint. */}
+            <div className="hide-mobile" style={{ position: "absolute", top: 14, right: -6, width: 210, height: 138 }}>
               <SportsIllustration />
             </div>
             <div style={{ position: "relative", maxWidth: "min(230px, 68%)" }}>

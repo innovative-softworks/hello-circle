@@ -178,7 +178,7 @@ export function VendorSignup() {
         <Card style={{ padding: 26, boxShadow: "0 10px 30px rgba(30,40,32,.05)" }}>
           <SectionHeader icon={<PersonIcon size={12} />} title="Account details" />
 
-          <div style={gridStyle}>
+          <div className="grid-responsive" style={gridStyle}>
             <Field label="Your name">
               <IconInput icon={<PersonIcon size={16} />} value={name} onChange={(e) => setName(e.target.value)} autoFocus placeholder="Enter your full name" />
             </Field>
@@ -256,7 +256,7 @@ export function VendorSignup() {
             ))}
           </div>
 
-          <div style={{ ...gridStyle, marginBottom: 0 }}>
+          <div className="grid-responsive" style={{ ...gridStyle, marginBottom: 0 }}>
             <Field label={businessLabel}>
               <IconInput icon={<BuildingIcon size={16} />} value={businessName} onChange={(e) => setBusinessName(e.target.value)} placeholder={businessPlaceholder} />
             </Field>

@@ -1,5 +1,10 @@
+import crypto from "node:crypto";
+
+/** crypto.randomInt, not Math.random — refs double as a lookup key anyone
+ * with the number can use (see /status/:ref), so they shouldn't be
+ * guessable via a weak PRNG. */
 export function generateRef(prefix: string): string {
-  const n = Math.floor(100000 + Math.random() * 899999);
+  const n = crypto.randomInt(100000, 999999);
   return `${prefix}-${n}`;
 }
 

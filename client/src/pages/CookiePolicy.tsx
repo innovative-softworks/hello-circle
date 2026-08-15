@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ChevronLeftIcon } from "../components/icons";
 import { colors, fonts } from "../theme";
@@ -37,6 +38,22 @@ const pStyle: React.CSSProperties = { color: "#3B423C", fontSize: 15, lineHeight
 
 export function CookiePolicy() {
   const navigate = useNavigate();
+  const tableWrapRef = useRef<HTMLDivElement>(null);
+  const [tableScrollable, setTableScrollable] = useState(false);
+
+  // The table's nowrap columns (name/type/duration) keep it wider than a
+  // phone screen — overflowX:auto below makes it swipeable, but that's not
+  // visually obvious on its own, so show a hint only while it's actually
+  // wider than its container (i.e. not on desktop, where it just fits).
+  useEffect(() => {
+    const el = tableWrapRef.current;
+    if (!el) return;
+    const check = () => setTableScrollable(el.scrollWidth > el.clientWidth);
+    check();
+    const observer = new ResizeObserver(check);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
 
   return (
     <div style={{ animation: "fadeUp .3s ease both" }}>
@@ -60,7 +77,12 @@ export function CookiePolicy() {
 
         <div style={{ marginBottom: 30 }}>
           <h2 style={h2Style}>What we store, and why</h2>
-          <div style={{ overflowX: "auto" }}>
+          {tableScrollable && (
+            <p style={{ margin: "0 0 8px", fontSize: 12.5, color: colors.muted, fontStyle: "italic" }}>
+              Scroll right to see full details →
+            </p>
+          )}
+          <div ref={tableWrapRef} style={{ overflowX: "auto" }}>
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13.5 }}>
               <thead>
                 <tr style={{ textAlign: "left", borderBottom: `2px solid ${colors.border}` }}>

@@ -153,7 +153,17 @@ registrationsRouter.post("/checkout", async (req, res) => {
 });
 
 registrationsRouter.get("/status/:ref", async (req, res) => {
-  const row = await db.prepare(`SELECT ref, payment_status as paymentStatus, total_cents as totalCents FROM registrations WHERE ref = ?`).get(req.params.ref);
+  let clientId: string;
+  try {
+    clientId = clientIdFrom(req);
+  } catch (e) {
+    if (e instanceof BadRequestError) return res.status(400).json({ error: e.message });
+    throw e;
+  }
+
+  const row = await db
+    .prepare(`SELECT ref, payment_status as paymentStatus, total_cents as totalCents FROM registrations WHERE ref = ? AND client_id = ?`)
+    .get(req.params.ref, clientId);
   if (!row) return res.status(404).json({ error: "Registration not found" });
   res.json(row);
 });
