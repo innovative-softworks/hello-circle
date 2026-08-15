@@ -34,7 +34,8 @@ export function Home() {
     });
   }, []);
 
-  // "Popular halls/clubs" follow whichever county is picked in the search bar.
+  // Featured centres/clubs follow whichever county is picked in the search bar —
+  // not real popularity data, so the heading says "Explore"/"in {county}", never "Popular".
   useEffect(() => {
     setLoadingCentres(true);
     fetchCentres(homeCounty).then((centres) => {
@@ -371,7 +372,7 @@ export function Home() {
       <section className="section-pad" style={{ maxWidth, margin: "0 auto", padding: "34px 24px 8px" }}>
         <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 18, flexWrap: "wrap", gap: 10 }}>
           <h2 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 24, margin: 0, letterSpacing: "-.02em" }}>
-            {homeCounty === "All" ? "Popular halls near you" : `Popular halls in ${homeCounty}`}
+            {homeCounty === "All" ? "Explore community centres" : `Community centres in ${homeCounty}`}
           </h2>
           <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
             <button
@@ -414,7 +415,7 @@ export function Home() {
       <section className="section-pad" style={{ maxWidth, margin: "0 auto", padding: "34px 24px 8px" }}>
         <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 18, flexWrap: "wrap", gap: 10 }}>
           <h2 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 24, margin: 0, letterSpacing: "-.02em" }}>
-            {homeCounty === "All" ? "Popular clubs near you" : `Popular clubs in ${homeCounty}`}
+            {homeCounty === "All" ? "Explore sports clubs" : `Sports clubs in ${homeCounty}`}
           </h2>
           <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
             <button

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { fetchCentre } from "../api";
+import { ClaimListingCTA } from "../components/ClaimListingCTA";
 import { PhotoGallery } from "../components/PhotoGallery";
 import { Reviews } from "../components/Reviews";
 import { CheckIcon, ChevronLeftIcon, ClockIcon, PinIcon, RepeatIcon, StarIcon, WheelchairIcon } from "../components/icons";
@@ -40,10 +41,15 @@ export function CentreDetail() {
       >
         <div>
           <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8 }}>
-            <StarIcon size={16} style={{ color: colors.gold }} />
-            <span style={{ fontWeight: 700 }}>{centre.rating}</span>
-            <span style={{ color: colors.faint }}>({centre.reviews} reviews)</span>
-            <span style={{ color: colors.faint }}>· up to {centre.capacity} guests</span>
+            {centre.reviews > 0 && (
+              <>
+                <StarIcon size={16} style={{ color: colors.gold }} />
+                <span style={{ fontWeight: 700 }}>{centre.rating}</span>
+                <span style={{ color: colors.faint }}>({centre.reviews} reviews)</span>
+                <span style={{ color: colors.faint }}>·</span>
+              </>
+            )}
+            <span style={{ color: colors.faint }}>up to {centre.capacity} guests</span>
           </div>
           <h1 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: "clamp(26px, 5vw, 36px)", margin: "0 0 4px", letterSpacing: "-.025em" }}>
             {centre.name}
@@ -115,8 +121,11 @@ export function CentreDetail() {
           </div>
         </div>
       </section>
-      <section className="section-pad" style={{ maxWidth, margin: "0 auto", padding: "0 24px 80px" }}>
+      <section className="section-pad" style={{ maxWidth, margin: "0 auto", padding: "0 24px 40px" }}>
         <Reviews listingType="centre" listingId={centre.id} accent="green" onReviewPosted={reloadRating} />
+      </section>
+      <section className="section-pad" style={{ maxWidth, margin: "0 auto", padding: "0 24px 80px" }}>
+        <ClaimListingCTA listingType="centre" listingId={centre.id} claimed={centre.claimed} />
       </section>
     </div>
   );

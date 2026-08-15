@@ -137,6 +137,72 @@ adminRouter.put("/clubs/:id/status", async (req, res) => {
   res.json(await getClub(req.params.id));
 });
 
+// --- listing claims ----------------------------------------------------------
+// A vendor's request to take ownership of a listing with no owner yet
+// (vendor_id IS NULL — see routes/vendor.ts's POST /claims). Approving one
+// sets vendor_id on the listing; this is ownership, not the listing's own
+// publication status handled above.
+
+adminRouter.get("/claims", async (_req, res) => {
+  const rows = await db
+    .prepare(
+      `SELECT cl.id, cl.listing_type as listingType, cl.listing_id as listingId, cl.message, cl.status, cl.created_at as createdAt,
+              u.id as vendorId, u.name as vendorName, u.email as vendorEmail, u.status as vendorStatus,
+              COALESCE(c.name, cb.name) as listingName
+       FROM listing_claims cl
+       JOIN users u ON u.id = cl.vendor_id
+       LEFT JOIN centres c ON cl.listing_type = 'centre' AND c.id = cl.listing_id
+       LEFT JOIN clubs cb ON cl.listing_type = 'club' AND cb.id = cl.listing_id
+       WHERE cl.status = 'pending'
+       ORDER BY cl.created_at`
+    )
+    .all();
+  res.json(rows);
+});
+
+adminRouter.put("/claims/:id/status", async (req, res) => {
+  const { status } = req.body as { status?: string };
+  if (!status || !["approved", "rejected"].includes(status)) {
+    return res.status(400).json({ error: "status must be approved or rejected" });
+  }
+
+  const claim = (await db
+    .prepare(`SELECT listing_type as listingType, listing_id as listingId, vendor_id as vendorId, status FROM listing_claims WHERE id = ?`)
+    .get(req.params.id)) as { listingType: "centre" | "club"; listingId: string; vendorId: string; status: string } | undefined;
+  if (!claim) return res.status(404).json({ error: "Claim not found" });
+  if (claim.status !== "pending") return res.status(409).json({ error: "This claim has already been decided" });
+
+  if (status === "rejected") {
+    await db.prepare(`UPDATE listing_claims SET status = 'rejected', decided_at = NOW() WHERE id = ?`).run(req.params.id);
+    return res.json({ ok: true });
+  }
+
+  // Same guard as listing-status approval: the claiming vendor's own account
+  // has to be approved before their claim can be.
+  const vendor = (await db.prepare(`SELECT status FROM users WHERE id = ?`).get(claim.vendorId)) as { status: string } | undefined;
+  if (!vendor || vendor.status !== "approved") {
+    return res.status(409).json({ error: "Approve the vendor's account before approving their claim" });
+  }
+
+  const table = claim.listingType === "centre" ? "centres" : "clubs";
+  try {
+    await db.transaction(async (tx) => {
+      // vendor_id IS NULL guard: if the listing got claimed by someone else
+      // since this claim was submitted, this affects 0 rows and the whole
+      // approval rolls back instead of silently overwriting the real owner.
+      const result = await tx.prepare(`UPDATE ${table} SET vendor_id = ? WHERE id = ? AND vendor_id IS NULL`).run(claim.vendorId, claim.listingId);
+      if (result.changes === 0) throw new Error("ALREADY_CLAIMED");
+      await tx.prepare(`UPDATE listing_claims SET status = 'approved', decided_at = NOW() WHERE id = ?`).run(req.params.id);
+    });
+  } catch (e) {
+    if (e instanceof Error && e.message === "ALREADY_CLAIMED") {
+      return res.status(409).json({ error: "This listing has already been claimed by another vendor" });
+    }
+    throw e;
+  }
+  res.json({ ok: true });
+});
+
 // --- full CRUD on any listing (edit/delete regardless of owner) ------------
 
 interface CentreInput {

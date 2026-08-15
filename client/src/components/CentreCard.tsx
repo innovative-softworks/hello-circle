@@ -71,9 +71,13 @@ export function CentreCard({ centre, height = 140 }: { centre: Centre; height?: 
       </Photo>
       <div style={{ padding: "16px 18px 18px" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
-          <StarIcon size={14} style={{ color: colors.gold }} />
-          <span style={{ fontWeight: 700, fontSize: 14 }}>{centre.rating}</span>
-          <span style={{ color: colors.faint, fontSize: 13 }}>({centre.reviews})</span>
+          {centre.reviews > 0 && (
+            <>
+              <StarIcon size={14} style={{ color: colors.gold }} />
+              <span style={{ fontWeight: 700, fontSize: 14 }}>{centre.rating}</span>
+              <span style={{ color: colors.faint, fontSize: 13 }}>({centre.reviews})</span>
+            </>
+          )}
           <span style={{ marginLeft: "auto", color: colors.faint, fontSize: 13 }}>up to {centre.capacity}</span>
         </div>
         <h3 style={{ fontSize: 17, fontWeight: 700, margin: "0 0 3px", letterSpacing: "-.01em" }}>{centre.name}</h3>

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { fetchClub } from "../api";
+import { ClaimListingCTA } from "../components/ClaimListingCTA";
 import { PhotoGallery } from "../components/PhotoGallery";
 import { Reviews } from "../components/Reviews";
 import { priceLabel } from "../priceLabel";
@@ -76,11 +77,13 @@ export function ClubDetail() {
               </a>
             )}
           </p>
-          <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 14 }}>
-            <StarIcon size={16} style={{ color: colors.gold }} />
-            <span style={{ fontWeight: 700 }}>{club.rating || "—"}</span>
-            <span style={{ color: colors.faint }}>{club.reviews > 0 ? `(${club.reviews} reviews)` : "(no reviews yet)"}</span>
-          </div>
+          {club.reviews > 0 && (
+            <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 14 }}>
+              <StarIcon size={16} style={{ color: colors.gold }} />
+              <span style={{ fontWeight: 700 }}>{club.rating}</span>
+              <span style={{ color: colors.faint }}>({club.reviews} reviews)</span>
+            </div>
+          )}
           <p style={{ fontSize: 16, lineHeight: 1.6, color: "#3B423C", margin: "0 0 28px" }}>{club.blurb}</p>
           <h3 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 20, margin: "0 0 12px", letterSpacing: "-.01em" }}>
             What's included
@@ -123,8 +126,11 @@ export function ClubDetail() {
           </div>
         </div>
       </section>
-      <section className="section-pad" style={{ maxWidth, margin: "0 auto", padding: "0 24px 80px" }}>
+      <section className="section-pad" style={{ maxWidth, margin: "0 auto", padding: "0 24px 40px" }}>
         <Reviews listingType="club" listingId={club.id} accent="orange" onReviewPosted={reloadRating} />
+      </section>
+      <section className="section-pad" style={{ maxWidth, margin: "0 auto", padding: "0 24px 80px" }}>
+        <ClaimListingCTA listingType="club" listingId={club.id} claimed={club.claimed} />
       </section>
     </div>
   );

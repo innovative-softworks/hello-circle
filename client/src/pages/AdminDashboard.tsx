@@ -10,19 +10,22 @@ import {
   fetchAdminReviews,
   fetchAdminStats,
   fetchAdminVendors,
+  fetchClaims,
   hideReview,
   setAdminCouponActive,
   setCentreStatus,
+  setClaimStatus,
   setClubStatus,
   setVendorStatus,
   unhideReview,
   type AdminCoupon,
   type AdminListingSummary,
   type AdminVendor,
+  type ClaimSummary,
 } from "../api";
 import { useAuth } from "../AuthContext";
 import { AdminIllustration } from "../components/illustrations";
-import { BallIcon, BuildingIcon, CalendarIcon, ClipboardIcon, PhoneIcon, PinIcon, StarIcon, TagIcon, UsersIcon } from "../components/icons";
+import { BallIcon, BuildingIcon, CalendarIcon, ClipboardIcon, IdCardIcon, PhoneIcon, PinIcon, StarIcon, TagIcon, UsersIcon } from "../components/icons";
 import { Avatar, BadgedIcon, Button, Card, DashboardTopPanel, EmptyState, PageSpinner, StarDisplay, StatRow, StatTile, StatusBadge, inputStyle, labelStyle } from "../components/ui";
 import { colors, fonts, maxWidth } from "../theme";
 import type { AdminStats, Review } from "../types";
@@ -83,6 +86,67 @@ function VendorsTab() {
         </Card>
       ))}
       {vendors.length === 0 && <EmptyState icon={<UsersIcon size={26} />} title="No vendors yet" />}
+    </div>
+  );
+}
+
+function ClaimsTab() {
+  const [claims, setClaims] = useState<ClaimSummary[]>([]);
+  const load = () => fetchClaims().then(setClaims);
+  useEffect(() => { load(); }, []);
+
+  return (
+    <div className="fade-panel" style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+      {claims.map((c) => {
+        // A claim can't be approved before the claiming vendor's own account
+        // has been vetted — mirrors ListingRow's vendorNotApproved guard.
+        const vendorNotApproved = c.vendorStatus !== "approved";
+        return (
+          <Card key={c.id} hover style={{ padding: 15, display: "flex", flexWrap: "wrap", gap: 14, justifyContent: "space-between", alignItems: "flex-start" }}>
+            <div style={{ display: "flex", gap: 12, minWidth: 0 }}>
+              <Avatar name={c.vendorName} size={36} />
+              <div style={{ minWidth: 0 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                  <span style={{ fontWeight: 700, fontSize: 14 }}>{c.listingName}</span>
+                  <span
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 4,
+                      fontSize: 11,
+                      fontWeight: 700,
+                      padding: "3px 9px",
+                      borderRadius: 999,
+                      background: c.listingType === "club" ? colors.orangeBg : colors.greenBg,
+                      color: c.listingType === "club" ? colors.orangeDark : colors.greenText,
+                    }}
+                  >
+                    {c.listingType === "club" ? <BallIcon size={11} /> : <BuildingIcon size={11} />}
+                    {c.listingType === "club" ? "Sports club" : "Community centre"}
+                  </span>
+                </div>
+                <div style={{ fontSize: 12, color: colors.mutedLight, marginTop: 2 }}>
+                  Claimed by {c.vendorName} · {c.vendorEmail}
+                  {vendorNotApproved && ` (vendor account ${c.vendorStatus})`}
+                </div>
+                {c.message && <div style={{ fontSize: 12, color: colors.muted, marginTop: 6, maxWidth: 480 }}>{c.message}</div>}
+              </div>
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6, flex: "none" }}>
+              <div style={{ display: "flex", gap: 8 }}>
+                <Button variant="dark" disabled={vendorNotApproved} onClick={() => setClaimStatus(c.id, "approved").then(load)}>
+                  Approve
+                </Button>
+                <Button variant="ghost" onClick={() => setClaimStatus(c.id, "rejected").then(load)}>
+                  Reject
+                </Button>
+              </div>
+              {vendorNotApproved && <span style={{ fontSize: 11, color: colors.orangeDark }}>Approve the vendor account first</span>}
+            </div>
+          </Card>
+        );
+      })}
+      {claims.length === 0 && <EmptyState icon={<IdCardIcon size={26} />} title="No claims waiting on you" subtitle="No listing claims are pending review." />}
     </div>
   );
 }
@@ -339,7 +403,7 @@ function CouponsTab() {
 export function AdminDashboard() {
   const { user, loading } = useAuth();
   const navigate = useNavigate();
-  const [tab, setTab] = useState<"vendors" | "pending" | "listings" | "reviews" | "coupons">("pending");
+  const [tab, setTab] = useState<"vendors" | "pending" | "listings" | "claims" | "reviews" | "coupons">("pending");
   const [stats, setStats] = useState<AdminStats | null>(null);
 
   useEffect(() => {
@@ -367,6 +431,7 @@ export function AdminDashboard() {
                   { key: "pending", label: "Pending approval", icon: <ClipboardIcon size={15} /> },
                   { key: "vendors", label: "Vendors", icon: <UsersIcon size={15} /> },
                   { key: "listings", label: "All listings", icon: <CalendarIcon size={15} /> },
+                  { key: "claims", label: "Claims", icon: <IdCardIcon size={15} /> },
                   { key: "reviews", label: "Reviews", icon: <StarIcon size={15} /> },
                   { key: "coupons", label: "Coupons", icon: <TagIcon size={15} /> },
                 ]}
@@ -394,6 +459,7 @@ export function AdminDashboard() {
         {tab === "pending" && <ListingsTab pendingOnly />}
         {tab === "vendors" && <VendorsTab />}
         {tab === "listings" && <ListingsTab pendingOnly={false} />}
+        {tab === "claims" && <ClaimsTab />}
         {tab === "reviews" && <ReviewsTab />}
         {tab === "coupons" && <CouponsTab />}
       </section>

@@ -31,6 +31,7 @@ export interface Centre {
   paymentMethod: PaymentMethod;
   isOpen: boolean;
   mapUrl: string;
+  claimed: boolean;
 }
 
 export interface Club {
@@ -52,6 +53,7 @@ export interface Club {
   reviews: number;
   paymentMethod: PaymentMethod;
   mapUrl: string;
+  claimed: boolean;
 }
 
 export interface Review {

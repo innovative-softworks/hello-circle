@@ -31,6 +31,7 @@ export interface Centre {
   paymentMethod: PaymentMethod;
   isOpen: boolean;
   mapUrl: string;
+  claimed: boolean;
 }
 
 export interface RoomBlock {
@@ -59,6 +60,7 @@ export interface Club {
   reviews: number;
   paymentMethod: PaymentMethod;
   mapUrl: string;
+  claimed: boolean;
 }
 
 export type BookingStatus = "confirmed" | "cancelled";

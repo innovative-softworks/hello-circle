@@ -303,6 +303,12 @@ export function fetchVendorStats(): Promise<VendorStats> {
   return request(`/vendor/stats`);
 }
 
+/** Requests ownership of a listing that has no vendor yet (vendor_id IS
+ * NULL) — an admin approves/rejects it, see setClaimStatus. */
+export function submitClaim(listingType: "centre" | "club", listingId: string, message?: string): Promise<{ ok: boolean }> {
+  return request(`/vendor/claims`, { method: "POST", body: JSON.stringify({ listingType, listingId, message }) });
+}
+
 export function fetchVendorCentre(id: string): Promise<Centre> {
   return request(`/vendor/centres/${id}`);
 }
@@ -428,6 +434,28 @@ export function fetchAdminPendingListings(): Promise<{ centres: AdminListingSumm
 
 export function fetchAdminListings(): Promise<{ centres: AdminListingSummary[]; clubs: AdminListingSummary[] }> {
   return request(`/admin/listings`);
+}
+
+export interface ClaimSummary {
+  id: number;
+  listingType: "centre" | "club";
+  listingId: string;
+  listingName: string;
+  message: string;
+  status: "pending" | "approved" | "rejected";
+  createdAt: string;
+  vendorId: string;
+  vendorName: string;
+  vendorEmail: string;
+  vendorStatus: "pending" | "approved" | "suspended";
+}
+
+export function fetchClaims(): Promise<ClaimSummary[]> {
+  return request(`/admin/claims`);
+}
+
+export function setClaimStatus(id: number, status: "approved" | "rejected"): Promise<{ ok: boolean }> {
+  return request(`/admin/claims/${id}/status`, { method: "PUT", body: JSON.stringify({ status }) });
 }
 
 export function setCentreStatus(id: string, status: string): Promise<Centre> {

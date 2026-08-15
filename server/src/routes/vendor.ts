@@ -73,6 +73,49 @@ vendorRouter.get("/stats", async (req, res) => {
   });
 });
 
+// --- listing claims ----------------------------------------------------------
+// Lets an already-approved vendor take ownership of a listing that was
+// seeded/added with no owning vendor (vendor_id IS NULL — e.g. every seed
+// centre/club today). Approval (see admin.ts) is what actually sets
+// vendor_id; submitting a claim just records the request.
+
+interface ClaimInput {
+  listingType: "centre" | "club";
+  listingId: string;
+  message?: string;
+}
+
+vendorRouter.post("/claims", async (req, res) => {
+  const b = req.body as ClaimInput;
+  if (!b.listingType || !b.listingId || !["centre", "club"].includes(b.listingType)) {
+    return res.status(400).json({ error: "listingType and listingId are required" });
+  }
+
+  const table = b.listingType === "centre" ? "centres" : "clubs";
+  const expectedVendorType = b.listingType === "centre" ? "community" : "sports";
+  if (req.user!.vendorType !== expectedVendorType) {
+    return res.status(403).json({
+      error: b.listingType === "centre" ? "Only community centre vendors can claim a centre" : "Only sports club vendors can claim a club",
+    });
+  }
+
+  const listing = (await db.prepare(`SELECT vendor_id FROM ${table} WHERE id = ?`).get(b.listingId)) as
+    | { vendor_id: string | null }
+    | undefined;
+  if (!listing) return res.status(404).json({ error: "Listing not found" });
+  if (listing.vendor_id !== null) return res.status(409).json({ error: "This listing has already been claimed" });
+
+  const existing = await db
+    .prepare(`SELECT id FROM listing_claims WHERE listing_type = ? AND listing_id = ? AND vendor_id = ? AND status = 'pending'`)
+    .get(b.listingType, b.listingId, req.user!.id);
+  if (existing) return res.status(409).json({ error: "You already have a pending claim for this listing" });
+
+  await db
+    .prepare(`INSERT INTO listing_claims (listing_type, listing_id, vendor_id, message) VALUES (?, ?, ?, ?)`)
+    .run(b.listingType, b.listingId, req.user!.id, b.message ?? "");
+  res.status(201).json({ ok: true });
+});
+
 // --- centres ---------------------------------------------------------------
 
 vendorRouter.get("/centres/:id", async (req, res) => {

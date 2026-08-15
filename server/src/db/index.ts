@@ -286,6 +286,21 @@ export async function initSchema() {
       expires_at DATETIME,
       active TINYINT NOT NULL DEFAULT 1,
       created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- A vendor's request to take ownership of a listing that was seeded/added
+    -- with no owning vendor (centres.vendor_id / clubs.vendor_id IS NULL).
+    -- Approving one sets vendor_id on the listing itself, separate from the
+    -- listing's own moderation status (that's publication, this is ownership).
+    CREATE TABLE IF NOT EXISTS listing_claims (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      listing_type VARCHAR(20) NOT NULL,
+      listing_id VARCHAR(191) NOT NULL,
+      vendor_id VARCHAR(191) NOT NULL,
+      message TEXT NOT NULL,
+      status VARCHAR(20) NOT NULL DEFAULT 'pending',
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      decided_at DATETIME
     )
   `);
 

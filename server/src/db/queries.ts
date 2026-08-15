@@ -89,6 +89,7 @@ async function toCentre(row: CentreRow): Promise<Centre> {
     paymentMethod: row.payment_method,
     isOpen: !!row.is_open,
     mapUrl: row.map_url,
+    claimed: row.vendor_id !== null,
   };
 }
 
@@ -114,6 +115,7 @@ async function toClub(row: ClubRow): Promise<Club> {
     reviews,
     paymentMethod: row.payment_method,
     mapUrl: row.map_url,
+    claimed: row.vendor_id !== null,
   };
 }
 
