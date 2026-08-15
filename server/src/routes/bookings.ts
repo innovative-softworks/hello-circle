@@ -4,6 +4,7 @@ import { getCentre } from "../db/queries.js";
 import { irelandWallTimeToUtc } from "../irelandTime.js";
 import { notifyCancellation, notifyNewBookingOrRegistration } from "../notifications.js";
 import { computePricing, evaluateCoupon } from "../pricing.js";
+import { lookupLimiter } from "../rateLimit.js";
 import { CLIENT_URL, stripe } from "../stripe.js";
 import { BadRequestError, ConflictError, bookingEndHour, clientIdFrom, generateRef, hoursOverlap, isValidEmail } from "../util.js";
 
@@ -234,19 +235,42 @@ bookingsRouter.get("/", async (req, res) => {
   res.json(rows);
 });
 
-/** A booking may only be cancelled by the guest who made it (ownership
- * checked via X-Client-Id, same as the "my bookings" list), and only up to
+/** Lets a guest recover a booking on a device that never made it — i.e.
+ * one that doesn't have the original client_id in localStorage — by
+ * proving they know both the ref (emailed to them) and the email address
+ * used at checkout. Read-only: doesn't touch client_id, so it can't remove
+ * the booking from the original device's "My bookings" list. */
+bookingsRouter.post("/lookup", lookupLimiter, async (req, res) => {
+  const { ref, email } = req.body as { ref?: string; email?: string };
+  if (!ref || !email) return res.status(400).json({ error: "Reference and email are required" });
+
+  const row = await db
+    .prepare(
+      `SELECT b.ref, b.date, b.time, b.total_cents as totalCents, b.created_at as createdAt, b.status,
+              c.name as centreName, c.ph as ph, c.image_url as image
+       FROM bookings b
+       JOIN centres c ON c.id = b.centre_id
+       WHERE b.ref = ? AND LOWER(b.email) = LOWER(?)`
+    )
+    .get(ref.trim(), email.trim());
+  if (!row) return res.status(404).json({ error: "We couldn't find a booking with that reference and email" });
+  res.json(row);
+});
+
+/** A booking may only be cancelled by the guest who made it, and only up to
  * 48h before the booked start time — matches the "Free cancellation up to
  * 48h before" copy already shown on every centre's detail page. Cancelling
  * only flips a status flag; any refund for an online payment is handled
- * off-platform, same as the "refundable deposit" promise already is. */
-bookingsRouter.post("/:ref/cancel", async (req, res) => {
-  let clientId: string;
-  try {
-    clientId = clientIdFrom(req);
-  } catch (e) {
-    if (e instanceof BadRequestError) return res.status(400).json({ error: e.message });
-    throw e;
+ * off-platform, same as the "refundable deposit" promise already is.
+ *
+ * Ownership is proven either by the usual X-Client-Id header, or (for a
+ * booking recovered via /lookup on another device) an `email` in the body
+ * matching the row. */
+bookingsRouter.post("/:ref/cancel", lookupLimiter, async (req, res) => {
+  const { email } = req.body as { email?: string };
+  const headerClientId = req.header("X-Client-Id");
+  if (!headerClientId && !email) {
+    return res.status(400).json({ error: "X-Client-Id header or email is required" });
   }
 
   const row = (await db
@@ -254,9 +278,9 @@ bookingsRouter.post("/:ref/cancel", async (req, res) => {
       `SELECT b.ref, b.date, b.time, b.duration, b.guests, b.status, b.payment_status as paymentStatus,
               b.name, b.email, b.centre_id as centreId, c.name as centreName, c.vendor_id as vendorId
        FROM bookings b JOIN centres c ON c.id = b.centre_id
-       WHERE b.ref = ? AND b.client_id = ?`
+       WHERE b.ref = ? AND (b.client_id = ? OR LOWER(b.email) = LOWER(?))`
     )
-    .get(req.params.ref, clientId)) as
+    .get(req.params.ref, headerClientId ?? "", (email ?? "").trim())) as
     | { ref: string; date: string; time: string; duration: number; guests: number; status: string; paymentStatus: string; name: string; email: string; centreId: string; centreName: string; vendorId: string | null }
     | undefined;
   if (!row) return res.status(404).json({ error: "Booking not found" });

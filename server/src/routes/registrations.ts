@@ -3,6 +3,7 @@ import { db } from "../db/index.js";
 import { getClub } from "../db/queries.js";
 import { notifyCancellation, notifyNewBookingOrRegistration } from "../notifications.js";
 import { computePricing, evaluateCoupon } from "../pricing.js";
+import { lookupLimiter } from "../rateLimit.js";
 import { CLIENT_URL, stripe } from "../stripe.js";
 import { BadRequestError, clientIdFrom, generateRef, isValidEmail } from "../util.js";
 
@@ -192,17 +193,42 @@ registrationsRouter.get("/", async (req, res) => {
   res.json(rows);
 });
 
+/** Lets a guest recover a registration on a device that never made it —
+ * i.e. one that doesn't have the original client_id in localStorage — by
+ * proving they know both the ref (emailed to them) and the email address
+ * used at signup. Read-only: doesn't touch client_id, so it can't remove
+ * the registration from the original device's "My bookings" list. */
+registrationsRouter.post("/lookup", lookupLimiter, async (req, res) => {
+  const { ref, email } = req.body as { ref?: string; email?: string };
+  if (!ref || !email) return res.status(400).json({ error: "Reference and email are required" });
+
+  const row = await db
+    .prepare(
+      `SELECT r.ref, r.team, r.child_first as childFirst, r.child_last as childLast, r.trial, r.status,
+              r.total_cents as totalCents, r.created_at as createdAt,
+              c.name as clubName, c.sport as sport
+       FROM registrations r
+       JOIN clubs c ON c.id = r.club_id
+       WHERE r.ref = ? AND LOWER(r.email) = LOWER(?)`
+    )
+    .get(ref.trim(), email.trim());
+  if (!row) return res.status(404).json({ error: "We couldn't find a registration with that reference and email" });
+  res.json(row);
+});
+
 /** Same ownership/idempotency rules as booking cancellation, but no 48h
  * cutoff — a club registration isn't tied to a single date/time the way a
  * hall booking is. Flips a status flag only; refunds (if any) happen
- * off-platform. */
-registrationsRouter.post("/:ref/cancel", async (req, res) => {
-  let clientId: string;
-  try {
-    clientId = clientIdFrom(req);
-  } catch (e) {
-    if (e instanceof BadRequestError) return res.status(400).json({ error: e.message });
-    throw e;
+ * off-platform.
+ *
+ * Ownership is proven either by the usual X-Client-Id header, or (for a
+ * registration recovered via /lookup on another device) an `email` in the
+ * body matching the row — same email-based alternate as bookings.ts. */
+registrationsRouter.post("/:ref/cancel", lookupLimiter, async (req, res) => {
+  const { email } = req.body as { email?: string };
+  const headerClientId = req.header("X-Client-Id");
+  if (!headerClientId && !email) {
+    return res.status(400).json({ error: "X-Client-Id header or email is required" });
   }
 
   const row = (await db
@@ -210,9 +236,9 @@ registrationsRouter.post("/:ref/cancel", async (req, res) => {
       `SELECT r.ref, r.team, r.child_first as childFirst, r.child_last as childLast, r.status, r.payment_status as paymentStatus,
               r.g_first as gFirst, r.g_last as gLast, r.email, r.club_id as clubId, c.name as clubName, c.vendor_id as vendorId
        FROM registrations r JOIN clubs c ON c.id = r.club_id
-       WHERE r.ref = ? AND r.client_id = ?`
+       WHERE r.ref = ? AND (r.client_id = ? OR LOWER(r.email) = LOWER(?))`
     )
-    .get(req.params.ref, clientId)) as
+    .get(req.params.ref, headerClientId ?? "", (email ?? "").trim())) as
     | { ref: string; team: string; childFirst: string; childLast: string; status: string; paymentStatus: string; gFirst: string; gLast: string; email: string; clubId: string; clubName: string; vendorId: string | null }
     | undefined;
   if (!row) return res.status(404).json({ error: "Registration not found" });

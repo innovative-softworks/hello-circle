@@ -1,5 +1,6 @@
 import { db } from "./db/index.js";
 import { sendMail } from "./email.js";
+import { CLIENT_URL } from "./stripe.js";
 
 interface NotifyParams {
   kind: "booking" | "registration";
@@ -53,7 +54,7 @@ export async function notifyNewBookingOrRegistration(params: NotifyParams) {
   await sendMail({
     to: guestEmail,
     subject: `Your ${noun} is confirmed — ${listingName} (${ref})`,
-    text: `Hi ${guestName},\n\nYour ${noun} for ${listingName} is confirmed.\nReference: ${ref}\n\n${detailsText}\n\nThanks for using Hello Circle.`,
+    text: `Hi ${guestName},\n\nYour ${noun} for ${listingName} is confirmed.\nReference: ${ref}\n\n${detailsText}\n\nView or manage this ${noun} any time: ${CLIENT_URL}/bookings?ref=${ref}\n\nThanks for using Hello Circle.`,
   });
 
   if (vendorEmail) {

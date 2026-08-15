@@ -90,8 +90,20 @@ export function fetchMyBookings(): Promise<MyBooking[]> {
   return request(`/bookings`);
 }
 
-export function cancelBooking(ref: string): Promise<{ ok: boolean }> {
-  return request(`/bookings/${encodeURIComponent(ref)}/cancel`, { method: "POST" });
+/** Recovers a booking made on another device/browser — proven by ref +
+ * the email used at checkout, not the usual X-Client-Id. */
+export function lookupBooking(ref: string, email: string): Promise<MyBooking> {
+  return request(`/bookings/lookup`, { method: "POST", body: JSON.stringify({ ref, email }) });
+}
+
+/** `email` is only needed when cancelling a booking recovered via
+ * lookupBooking (no matching X-Client-Id on this device) — omit it for a
+ * normal same-device cancel. */
+export function cancelBooking(ref: string, email?: string): Promise<{ ok: boolean }> {
+  return request(`/bookings/${encodeURIComponent(ref)}/cancel`, {
+    method: "POST",
+    body: email ? JSON.stringify({ email }) : undefined,
+  });
 }
 
 export interface CreateRegistrationInput {
@@ -130,8 +142,20 @@ export function fetchMyRegistrations(): Promise<MyRegistration[]> {
   return request(`/registrations`);
 }
 
-export function cancelRegistration(ref: string): Promise<{ ok: boolean }> {
-  return request(`/registrations/${encodeURIComponent(ref)}/cancel`, { method: "POST" });
+/** Recovers a registration made on another device/browser — proven by ref +
+ * the email used at signup, not the usual X-Client-Id. */
+export function lookupRegistration(ref: string, email: string): Promise<MyRegistration> {
+  return request(`/registrations/lookup`, { method: "POST", body: JSON.stringify({ ref, email }) });
+}
+
+/** `email` is only needed when cancelling a registration recovered via
+ * lookupRegistration (no matching X-Client-Id on this device) — omit it for
+ * a normal same-device cancel. */
+export function cancelRegistration(ref: string, email?: string): Promise<{ ok: boolean }> {
+  return request(`/registrations/${encodeURIComponent(ref)}/cancel`, {
+    method: "POST",
+    body: email ? JSON.stringify({ email }) : undefined,
+  });
 }
 
 // --- pricing / coupons ---------------------------------------------------
