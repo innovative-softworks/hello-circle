@@ -1,8 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { fetchAdminPendingListings, fetchVendorListings, logout } from "../api";
+import { fetchAdminPendingListings, fetchCentres, fetchVendorListings, logout } from "../api";
 import { useAuth } from "../AuthContext";
-import { BellIcon, CloseIcon, LogoMark, MenuIcon } from "./icons";
+import { BellIcon, CloseIcon, LogoMark, MenuIcon, PinIcon } from "./icons";
 import { colors, fonts, maxWidth } from "../theme";
 import { useMyStuff } from "../MyStuffContext";
 
@@ -13,10 +13,35 @@ export function Header() {
   const { user, refresh } = useAuth();
   const [menuOpen, setMenuOpen] = useState(false);
   const [alerts, setAlerts] = useState(0);
+  const [countyMenuOpen, setCountyMenuOpen] = useState(false);
+  const [accountMenuOpen, setAccountMenuOpen] = useState(false);
+  const [counties, setCounties] = useState<string[]>([]);
+  const countyMenuRef = useRef<HTMLDivElement>(null);
+  const accountMenuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     setMenuOpen(false);
+    setCountyMenuOpen(false);
+    setAccountMenuOpen(false);
   }, [location.pathname]);
+
+  useEffect(() => {
+    fetchCentres().then((centres) => {
+      setCounties(Array.from(new Set(centres.map((c) => c.county).filter(Boolean))).sort((a, b) => a.localeCompare(b)));
+    });
+  }, []);
+
+  // Close the two header dropdowns on an outside click — they're popovers,
+  // not the full-width mobile panel below, which already only opens via its
+  // own toggle button.
+  useEffect(() => {
+    function onDocClick(e: MouseEvent) {
+      if (countyMenuRef.current && !countyMenuRef.current.contains(e.target as Node)) setCountyMenuOpen(false);
+      if (accountMenuRef.current && !accountMenuRef.current.contains(e.target as Node)) setAccountMenuOpen(false);
+    }
+    document.addEventListener("mousedown", onDocClick);
+    return () => document.removeEventListener("mousedown", onDocClick);
+  }, []);
 
   useEffect(() => {
     if (user?.role === "admin") {
@@ -65,6 +90,64 @@ export function Header() {
     padding: "12px 6px",
     fontSize: 16,
     width: "100%",
+  };
+
+  const circleBtnStyle: React.CSSProperties = {
+    width: 40,
+    height: 40,
+    borderRadius: "50%",
+    border: `1px solid ${colors.borderStrong}`,
+    background: "#fff",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    flex: "none",
+  };
+  const dropdownStyle: React.CSSProperties = {
+    position: "absolute",
+    top: "calc(100% + 10px)",
+    right: 0,
+    zIndex: 60,
+    minWidth: 200,
+    background: "#fff",
+    border: `1px solid ${colors.border}`,
+    borderRadius: 14,
+    boxShadow: "0 16px 36px rgba(30,40,32,.14)",
+    padding: 8,
+  };
+  const dropdownLabelStyle: React.CSSProperties = {
+    padding: "8px 12px 4px",
+    fontSize: 12,
+    fontWeight: 700,
+    color: colors.muted,
+    textTransform: "uppercase",
+    letterSpacing: ".04em",
+  };
+  const dropdownItemStyle: React.CSSProperties = {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 8,
+    width: "100%",
+    background: "none",
+    border: "none",
+    borderRadius: 10,
+    padding: "10px 12px",
+    fontSize: 14.5,
+    fontWeight: 600,
+    color: colors.text,
+    textAlign: "left",
+    cursor: "pointer",
+  };
+  const dropdownDividerStyle: React.CSSProperties = { borderTop: `1px solid ${colors.border}`, margin: "6px 4px" };
+  const countBadgeStyle: React.CSSProperties = {
+    background: colors.green,
+    color: "#fff",
+    borderRadius: 20,
+    fontSize: 11,
+    fontWeight: 700,
+    padding: "1px 7px",
+    flex: "none",
   };
 
   return (
@@ -122,114 +205,122 @@ export function Header() {
           </button>
         </nav>
         <div className="desktop-actions" style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10 }}>
-          <button
-            className="btn btn-ghost"
-            onClick={() => go("/bookings")}
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: 8,
-              background: "#fff",
-              color: colors.text,
-              border: `1px solid ${colors.borderStrong}`,
-              borderRadius: 11,
-              padding: "9px 15px",
-              fontSize: 14,
-              fontWeight: 600,
-              cursor: "pointer",
-            }}
-          >
-            My bookings{" "}
-            <span
-              style={{
-                background: colors.green,
-                color: "#fff",
-                borderRadius: 20,
-                fontSize: 11,
-                fontWeight: 700,
-                padding: "1px 7px",
-                transition: "transform .15s ease",
-              }}
-            >
-              {count}
-            </span>
-          </button>
-          {user ? (
-            <>
-              {(user.role === "admin" || (user.role === "vendor" && user.status === "approved")) && (
-                <button
-                  className="btn btn-ghost"
-                  onClick={() => go(user.role === "admin" ? "/admin" : "/vendor")}
-                  aria-label="Notifications"
-                  style={{
-                    position: "relative",
-                    width: 38,
-                    height: 38,
-                    borderRadius: "50%",
-                    border: `1px solid ${colors.borderStrong}`,
-                    background: "#fff",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                  }}
-                >
-                  <BellIcon size={17} />
-                  {alerts > 0 && (
-                    <span
-                      style={{
-                        position: "absolute",
-                        top: -4,
-                        right: -4,
-                        background: colors.orange,
-                        color: "#fff",
-                        borderRadius: 20,
-                        fontSize: 10,
-                        fontWeight: 700,
-                        minWidth: 16,
-                        height: 16,
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        padding: "0 3px",
-                      }}
-                    >
-                      {alerts}
-                    </span>
-                  )}
-                </button>
-              )}
-              <button
-                className="tab-btn"
-                onClick={() => go(user.role === "admin" ? "/admin" : "/vendor")}
-                style={{ ...navBtn, background: colors.greenBg, color: colors.greenText, fontWeight: 700 }}
-              >
-                {user.role === "admin" ? "Admin dashboard" : "Vendor dashboard"}
-              </button>
-              <button className="tab-btn" onClick={doLogout} style={navBtn}>
-                Log out
-              </button>
-            </>
-          ) : (
+          <div ref={countyMenuRef} style={{ position: "relative" }}>
             <button
               className="btn btn-ghost"
-              onClick={() => go("/login")}
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: 8,
-                background: "#fff",
-                color: colors.text,
-                border: `1px solid ${colors.borderStrong}`,
-                borderRadius: 11,
-                padding: "9px 15px",
-                fontSize: 14,
-                fontWeight: 600,
-                cursor: "pointer",
-              }}
+              onClick={() => setCountyMenuOpen((o) => !o)}
+              aria-label="Browse by county"
+              style={circleBtnStyle}
             >
-              Login
+              <PinIcon size={17} />
             </button>
-          )}
+            {countyMenuOpen && (
+              <div className="pop-in" style={{ ...dropdownStyle, maxHeight: 320, overflowY: "auto" }}>
+                <div style={dropdownLabelStyle}>Browse by county</div>
+                <button
+                  className="dropdown-item"
+                  style={dropdownItemStyle}
+                  onClick={() => {
+                    setCountyMenuOpen(false);
+                    navigate("/browse/centres");
+                  }}
+                >
+                  All counties
+                </button>
+                {counties.map((c) => (
+                  <button
+                    key={c}
+                    className="dropdown-item"
+                    style={dropdownItemStyle}
+                    onClick={() => {
+                      setCountyMenuOpen(false);
+                      navigate(`/browse/centres?county=${encodeURIComponent(c)}`);
+                    }}
+                  >
+                    {c}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div ref={accountMenuRef} style={{ position: "relative" }}>
+            <button
+              className="btn btn-ghost"
+              onClick={() => setAccountMenuOpen((o) => !o)}
+              aria-label="Menu"
+              style={circleBtnStyle}
+            >
+              <MenuIcon size={17} />
+            </button>
+            {accountMenuOpen && (
+              <div className="pop-in" style={{ ...dropdownStyle, minWidth: 240 }}>
+                <button
+                  className="dropdown-item"
+                  style={dropdownItemStyle}
+                  onClick={() => {
+                    setAccountMenuOpen(false);
+                    go("/bookings");
+                  }}
+                >
+                  My bookings
+                  {count > 0 && <span style={countBadgeStyle}>{count}</span>}
+                </button>
+
+                {user && (user.role === "admin" || user.role === "vendor") && (
+                  <button
+                    className="dropdown-item"
+                    style={dropdownItemStyle}
+                    onClick={() => {
+                      setAccountMenuOpen(false);
+                      go(user.role === "admin" ? "/admin" : "/vendor");
+                    }}
+                  >
+                    {user.role === "admin" ? "Admin dashboard" : "Vendor dashboard"}
+                    {alerts > 0 && <span style={{ ...countBadgeStyle, background: colors.orange }}>{alerts}</span>}
+                  </button>
+                )}
+
+                <div style={dropdownDividerStyle} />
+
+                {user ? (
+                  <button
+                    className="dropdown-item"
+                    style={dropdownItemStyle}
+                    onClick={() => {
+                      setAccountMenuOpen(false);
+                      doLogout();
+                    }}
+                  >
+                    Log out
+                  </button>
+                ) : (
+                  <>
+                    <button
+                      className="dropdown-item"
+                      style={dropdownItemStyle}
+                      onClick={() => {
+                        setAccountMenuOpen(false);
+                        go("/login");
+                      }}
+                    >
+                      Login
+                    </button>
+                    <button
+                      className="dropdown-item"
+                      style={dropdownItemStyle}
+                      onClick={() => {
+                        setAccountMenuOpen(false);
+                        go("/vendor/signup");
+                      }}
+                    >
+                      List your venue
+                    </button>
+                  </>
+                )}
+              </div>
+            )}
+          </div>
         </div>
 
         <button
@@ -286,9 +377,14 @@ export function Header() {
               </button>
             </>
           ) : (
-            <button style={{ ...mobileNavBtn, color: colors.greenText, fontWeight: 700 }} onClick={() => go("/login")}>
-              Vendor / admin login
-            </button>
+            <>
+              <button style={{ ...mobileNavBtn, color: colors.greenText, fontWeight: 700 }} onClick={() => go("/login")}>
+                Vendor / admin login
+              </button>
+              <button style={mobileNavBtn} onClick={() => go("/vendor/signup")}>
+                List your venue
+              </button>
+            </>
           )}
         </div>
       )}
