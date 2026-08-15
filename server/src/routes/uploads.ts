@@ -11,13 +11,23 @@ export const uploadsRouter = Router();
 const uploadsDir = path.join(dataDir, "uploads");
 fs.mkdirSync(uploadsDir, { recursive: true });
 
-const ALLOWED = new Set(["image/jpeg", "image/png", "image/webp", "image/gif"]);
+// The stored filename's extension is derived from this map (keyed by the
+// validated mimetype), never from the client-supplied original filename —
+// otherwise a request could spoof Content-Type: image/jpeg to pass
+// fileFilter while naming the file foo.html, land it on disk as
+// <uuid>.html, and have express.static (serving /uploads) hand it back as
+// text/html — script execution on this app's own origin.
+const MIME_EXT: Record<string, string> = {
+  "image/jpeg": ".jpg",
+  "image/png": ".png",
+  "image/webp": ".webp",
+  "image/gif": ".gif",
+};
 
 const storage = multer.diskStorage({
   destination: uploadsDir,
   filename: (_req, file, cb) => {
-    const ext = path.extname(file.originalname).slice(0, 10);
-    cb(null, `${crypto.randomUUID()}${ext}`);
+    cb(null, `${crypto.randomUUID()}${MIME_EXT[file.mimetype] ?? ""}`);
   },
 });
 
@@ -25,7 +35,7 @@ const upload = multer({
   storage,
   limits: { fileSize: 8 * 1024 * 1024 },
   fileFilter: (_req, file, cb) => {
-    if (!ALLOWED.has(file.mimetype)) return cb(new Error("Only JPEG, PNG, WebP or GIF images are allowed"));
+    if (!(file.mimetype in MIME_EXT)) return cb(new Error("Only JPEG, PNG, WebP or GIF images are allowed"));
     cb(null, true);
   },
 });

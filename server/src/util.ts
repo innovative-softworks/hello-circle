@@ -16,6 +16,10 @@ export function isValidEmail(email: string): boolean {
 
 export class BadRequestError extends Error {}
 
+/** Thrown for a 409 — the request was well-formed but conflicts with
+ * current state (e.g. a booking slot that's just been taken). */
+export class ConflictError extends Error {}
+
 /** A booking of >=8h is treated as occupying the whole day (matches the
  * booking flow's "Full day" duration option) — this gives its exclusive
  * end hour, e.g. bookingEndHour(10, 3) === 13. */
