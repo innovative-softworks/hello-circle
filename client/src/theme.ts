@@ -30,4 +30,4 @@ export const fonts = {
   body: "'Hanken Grotesk', system-ui, sans-serif",
 };
 
-export const maxWidth = 1180;
+export const maxWidth = 1440;
