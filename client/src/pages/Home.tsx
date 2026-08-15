@@ -9,13 +9,10 @@ import {
   ArrowRightIcon,
   BallIcon,
   BuildingIcon,
-  CalendarIcon,
-  CheckCircleIcon,
   ChevronRightIcon,
   HandshakeIcon,
   HeartIcon,
   PinIcon,
-  SearchIcon,
 } from "../components/icons";
 import { colors, fonts, maxWidth } from "../theme";
 import type { Centre, Club } from "../types";
@@ -449,41 +446,6 @@ export function Home() {
               : featuredClubs.map((c) => <ClubCard key={c.id} club={c} />)}
           </div>
         )}
-      </section>
-
-      <section className="section-pad" style={{ maxWidth, margin: "0 auto", padding: "40px 24px 8px" }}>
-        <h2 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 24, margin: "0 0 24px", letterSpacing: "-.02em", textAlign: "center" }}>
-          How it works
-        </h2>
-        <div className="grid-responsive-3" style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 24 }}>
-          {[
-            { icon: <SearchIcon size={20} />, title: "Search", body: "Find a hall or club by county, sport or event type." },
-            { icon: <CalendarIcon size={20} />, title: "Book or register", body: "Pick a slot or a trial session and pay securely online." },
-            { icon: <CheckCircleIcon size={20} />, title: "Show up", body: "Confirmation lands in your inbox — just turn up and enjoy." },
-          ].map((step, i) => (
-            <div key={step.title} style={{ textAlign: "center", padding: "0 12px" }}>
-              <div
-                style={{
-                  width: 52,
-                  height: 52,
-                  borderRadius: "50%",
-                  background: colors.greenBg,
-                  color: colors.greenText,
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  margin: "0 auto 14px",
-                }}
-              >
-                {step.icon}
-              </div>
-              <h3 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 17, margin: "0 0 6px" }}>
-                {i + 1}. {step.title}
-              </h3>
-              <p style={{ margin: 0, color: colors.muted, fontSize: 14.5, lineHeight: 1.5 }}>{step.body}</p>
-            </div>
-          ))}
-        </div>
       </section>
 
       <section className="section-pad" style={{ maxWidth, margin: "0 auto", padding: "40px 24px 56px" }}>
