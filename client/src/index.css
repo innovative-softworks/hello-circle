@@ -235,6 +235,15 @@ textarea:focus {
   }
 }
 
+/* The hero search bar's Search button stands slightly proud of the pill's own
+ * top/bottom edge (a subtle version of the classic "search bar with a button
+ * that pokes out" look) — only makes sense in the single-row desktop layout,
+ * so it's reset to a plain full-width button once .stack-mobile collapses the
+ * bar to a column. */
+.search-btn-overlap {
+  margin: -5px -5px -5px 6px;
+}
+
 @media (max-width: 640px) {
   .grid-responsive-3 {
     grid-template-columns: 1fr !important;
@@ -250,21 +259,15 @@ textarea:focus {
   .hide-mobile {
     display: none !important;
   }
-}
-
-/* Swap to a short label wherever wrapping to a second line inside a fixed-height
-   pill/button would misalign it against its siblings (e.g. the hero's category
-   toggle) — .short-label is hidden by default, .full-label shown; both flip below
-   the breakpoint so there's always exactly one, never both/neither. */
-.short-label {
-  display: none;
-}
-@media (max-width: 480px) {
-  .full-label {
-    display: none !important;
+  .search-btn-overlap {
+    margin: 0 !important;
+    justify-content: center;
   }
-  .short-label {
-    display: inline !important;
+  /* At full pill radius (999px), stacking this into 3 tall rows makes the
+     whole block round almost into a stadium/blob shape — a normal rounded
+     rectangle reads much better once it's a column, not a single-row bar. */
+  .hero-search-pill {
+    border-radius: 20px !important;
   }
 }
 

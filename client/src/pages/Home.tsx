@@ -139,18 +139,19 @@ export function Home() {
           </p>
 
           <div
+            className="stack-mobile hero-search-pill"
             style={{
               background: "#fff",
               border: `1px solid ${colors.border}`,
-              borderRadius: 18,
+              borderRadius: 999,
               boxShadow: "0 8px 30px rgba(30,40,32,.06)",
-              padding: 14,
+              padding: 6,
               display: "flex",
-              flexDirection: "column",
-              gap: 10,
+              alignItems: "center",
+              gap: 0,
             }}
           >
-            <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "2px 6px", borderBottom: `1px solid ${colors.border}`, paddingBottom: 12 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 8px 8px 14px", flex: 1, minWidth: 0 }}>
               <PinIcon size={16} style={{ color: "#8A928B", flex: "none" }} />
               <select
                 value={homeCounty}
@@ -158,11 +159,10 @@ export function Home() {
                 aria-label="County"
                 style={{
                   flex: 1,
-                  minWidth: 0,
-                  padding: "6px 4px",
+                  minWidth: 92,
                   border: "none",
                   background: "transparent",
-                  fontSize: 16,
+                  fontSize: 15,
                   color: colors.text,
                   outline: "none",
                   fontWeight: 600,
@@ -176,70 +176,70 @@ export function Home() {
               </select>
             </div>
 
-            <div className="stack-mobile" style={{ display: "flex", flexWrap: "wrap", gap: 10, alignItems: "center" }}>
-              <div style={{ display: "flex", gap: 4, background: colors.bg, borderRadius: 12, padding: 4, flex: "none" }}>
-                <button
-                  onClick={() => setHomeCategory("centres")}
-                  style={{
-                    display: "inline-flex",
-                    alignItems: "center",
-                    gap: 6,
-                    padding: "9px 14px",
-                    borderRadius: 9,
-                    border: "none",
-                    cursor: "pointer",
-                    fontSize: 14,
-                    fontWeight: 700,
-                    background: homeCategory === "centres" ? colors.greenBg : "transparent",
-                    color: homeCategory === "centres" ? colors.greenText : colors.muted,
-                  }}
-                >
-                  <BuildingIcon size={15} />
-                  <span className="full-label">Community centres</span>
-                  <span className="short-label">Centres</span>
-                </button>
-                <button
-                  onClick={() => setHomeCategory("clubs")}
-                  style={{
-                    display: "inline-flex",
-                    alignItems: "center",
-                    gap: 6,
-                    padding: "9px 14px",
-                    borderRadius: 9,
-                    border: "none",
-                    cursor: "pointer",
-                    fontSize: 14,
-                    fontWeight: 700,
-                    background: homeCategory === "clubs" ? colors.orangeBg : "transparent",
-                    color: homeCategory === "clubs" ? colors.orangeDark : colors.muted,
-                  }}
-                >
-                  <BallIcon size={15} />
-                  <span className="full-label">Sports clubs</span>
-                  <span className="short-label">Clubs</span>
-                </button>
-              </div>
+            <div className="hide-mobile" style={{ width: 1, alignSelf: "stretch", background: colors.border, flex: "none" }} />
+
+            <div style={{ display: "flex", gap: 2, padding: "6px 6px", flex: "none" }}>
               <button
-                className="btn btn-primary"
-                onClick={handleSearch}
+                onClick={() => setHomeCategory("centres")}
                 style={{
                   display: "inline-flex",
                   alignItems: "center",
-                  gap: 8,
-                  marginLeft: "auto",
-                  background: homeCategory === "centres" ? colors.green : colors.orange,
-                  color: "#fff",
+                  gap: 6,
+                  padding: "9px 12px",
+                  borderRadius: 999,
                   border: "none",
-                  borderRadius: 12,
-                  padding: "13px 20px",
-                  fontSize: 15,
-                  fontWeight: 600,
                   cursor: "pointer",
+                  fontSize: 14,
+                  fontWeight: 700,
+                  whiteSpace: "nowrap",
+                  background: homeCategory === "centres" ? colors.greenBg : "transparent",
+                  color: homeCategory === "centres" ? colors.greenText : colors.muted,
                 }}
               >
-                Search <ArrowRightIcon size={15} />
+                <BuildingIcon size={15} /> Centres
+              </button>
+              <button
+                onClick={() => setHomeCategory("clubs")}
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 6,
+                  padding: "9px 12px",
+                  borderRadius: 999,
+                  border: "none",
+                  cursor: "pointer",
+                  fontSize: 14,
+                  fontWeight: 700,
+                  whiteSpace: "nowrap",
+                  background: homeCategory === "clubs" ? colors.orangeBg : "transparent",
+                  color: homeCategory === "clubs" ? colors.orangeDark : colors.muted,
+                }}
+              >
+                <BallIcon size={15} /> Clubs
               </button>
             </div>
+
+            <button
+              className="btn search-btn-overlap"
+              onClick={handleSearch}
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 8,
+                flex: "none",
+                background: homeCategory === "centres" ? colors.green : colors.orange,
+                color: "#fff",
+                border: "none",
+                borderRadius: 999,
+                padding: "16px 22px",
+                fontSize: 15,
+                fontWeight: 700,
+                cursor: "pointer",
+                boxShadow: homeCategory === "centres" ? "0 8px 20px rgba(30,122,76,.28)" : "0 8px 20px rgba(232,98,42,.28)",
+              }}
+            >
+              Search <ArrowRightIcon size={15} />
+            </button>
           </div>
 
           <div style={{ marginTop: 12, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
