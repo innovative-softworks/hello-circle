@@ -194,7 +194,9 @@ export function Home() {
                     color: homeCategory === "centres" ? colors.greenText : colors.muted,
                   }}
                 >
-                  <BuildingIcon size={15} /> Community centres
+                  <BuildingIcon size={15} />
+                  <span className="full-label">Community centres</span>
+                  <span className="short-label">Centres</span>
                 </button>
                 <button
                   onClick={() => setHomeCategory("clubs")}
@@ -212,7 +214,9 @@ export function Home() {
                     color: homeCategory === "clubs" ? colors.orangeDark : colors.muted,
                   }}
                 >
-                  <BallIcon size={15} /> Sports clubs
+                  <BallIcon size={15} />
+                  <span className="full-label">Sports clubs</span>
+                  <span className="short-label">Clubs</span>
                 </button>
               </div>
               <button

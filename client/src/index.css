@@ -252,6 +252,22 @@ textarea:focus {
   }
 }
 
+/* Swap to a short label wherever wrapping to a second line inside a fixed-height
+   pill/button would misalign it against its siblings (e.g. the hero's category
+   toggle) — .short-label is hidden by default, .full-label shown; both flip below
+   the breakpoint so there's always exactly one, never both/neither. */
+.short-label {
+  display: none;
+}
+@media (max-width: 480px) {
+  .full-label {
+    display: none !important;
+  }
+  .short-label {
+    display: inline !important;
+  }
+}
+
 @media (max-width: 560px) {
   .stepper-label {
     display: none !important;
