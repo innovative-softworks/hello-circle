@@ -1,8 +1,10 @@
 import "dotenv/config";
-import { initSchema } from "../db/index.js";
+import { db, initSchema } from "../db/index.js";
 import { resetDemoListings } from "../db/seed.js";
 
 await initSchema();
 await resetDemoListings();
-console.log("Demo listings reset: 2 community centres, 2 sports clubs seeded.");
+const { count: centres } = (await db.prepare("SELECT COUNT(*) as count FROM centres").get()) as { count: number };
+const { count: clubs } = (await db.prepare("SELECT COUNT(*) as count FROM clubs").get()) as { count: number };
+console.log(`Demo listings reset: ${centres} community centres, ${clubs} sports clubs seeded.`);
 process.exit(0);
