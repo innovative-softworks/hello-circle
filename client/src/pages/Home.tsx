@@ -1,35 +1,55 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { fetchCentres } from "../api";
+import { fetchCentres, fetchClubs } from "../api";
 import { CentreCard } from "../components/CentreCard";
+import { ClubCard } from "../components/ClubCard";
 import { CardSkeleton } from "../components/ui";
 import { CommunityIllustration, SportsIllustration } from "../components/illustrations";
 import {
   ArrowRightIcon,
   BallIcon,
   BuildingIcon,
+  CalendarIcon,
+  CheckCircleIcon,
   ChevronRightIcon,
   HandshakeIcon,
   HeartIcon,
   PinIcon,
+  SearchIcon,
 } from "../components/icons";
 import { colors, fonts, maxWidth } from "../theme";
-import type { Centre } from "../types";
+import type { Centre, Club } from "../types";
 
 export function Home() {
   const navigate = useNavigate();
   const [homeCounty, setHomeCounty] = useState("All");
-  const [featured, setFeatured] = useState<Centre[]>([]);
-  const [loadingFeatured, setLoadingFeatured] = useState(true);
+  const [featuredCentres, setFeaturedCentres] = useState<Centre[]>([]);
+  const [loadingCentres, setLoadingCentres] = useState(true);
+  const [featuredClubs, setFeaturedClubs] = useState<Club[]>([]);
+  const [loadingClubs, setLoadingClubs] = useState(true);
   const [counties, setCounties] = useState<string[]>(["All"]);
 
+  // County dropdown always reflects the full unfiltered set (same pattern as
+  // Browse.tsx) so picking a county doesn't shrink the dropdown down to it.
   useEffect(() => {
     fetchCentres().then((centres) => {
-      setFeatured(centres.slice(0, 3));
-      setLoadingFeatured(false);
       setCounties(["All", ...Array.from(new Set(centres.map((c) => c.county).filter(Boolean))).sort((a, b) => a.localeCompare(b))]);
     });
   }, []);
+
+  // "Popular halls/clubs" follow whichever county is picked in the search bar.
+  useEffect(() => {
+    setLoadingCentres(true);
+    fetchCentres(homeCounty).then((centres) => {
+      setFeaturedCentres(centres.slice(0, 3));
+      setLoadingCentres(false);
+    });
+    setLoadingClubs(true);
+    fetchClubs(homeCounty).then((clubs) => {
+      setFeaturedClubs(clubs.slice(0, 3));
+      setLoadingClubs(false);
+    });
+  }, [homeCounty]);
 
   return (
     <div style={{ animation: "fadeUp .4s ease both" }}>
@@ -348,18 +368,18 @@ export function Home() {
       <section className="section-pad" style={{ maxWidth, margin: "0 auto", padding: "34px 24px 8px" }}>
         <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 18, flexWrap: "wrap", gap: 10 }}>
           <h2 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 24, margin: 0, letterSpacing: "-.02em" }}>
-            Popular halls near you
+            {homeCounty === "All" ? "Popular halls near you" : `Popular halls in ${homeCounty}`}
           </h2>
           <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
             <button
-              onClick={() => navigate("/browse/centres")}
+              onClick={() => navigate(`/browse/centres?county=${encodeURIComponent(homeCounty)}`)}
               style={{ background: "none", border: "none", display: "inline-flex", alignItems: "center", gap: 6, color: colors.green, fontWeight: 600, fontSize: 15, cursor: "pointer" }}
             >
               View all <ArrowRightIcon size={15} />
             </button>
             <button
               className="btn btn-ghost"
-              onClick={() => navigate("/browse/centres")}
+              onClick={() => navigate(`/browse/centres?county=${encodeURIComponent(homeCounty)}`)}
               aria-label="See more community centres"
               style={{
                 width: 34,
@@ -377,13 +397,156 @@ export function Home() {
             </button>
           </div>
         </div>
-        <div className="grid-responsive-3" style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 20 }}>
-          {loadingFeatured
-            ? Array.from({ length: 3 }, (_, i) => <CardSkeleton key={i} photoHeight={132} />)
-            : featured.map((c) => <CentreCard key={c.id} centre={c} height={132} />)}
+        {!loadingCentres && featuredCentres.length === 0 ? (
+          <p style={{ color: colors.muted, fontSize: 15 }}>No halls listed in {homeCounty} yet — try another county.</p>
+        ) : (
+          <div className="grid-responsive-3" style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 20 }}>
+            {loadingCentres
+              ? Array.from({ length: 3 }, (_, i) => <CardSkeleton key={i} photoHeight={132} />)
+              : featuredCentres.map((c) => <CentreCard key={c.id} centre={c} height={132} />)}
+          </div>
+        )}
+      </section>
+
+      <section className="section-pad" style={{ maxWidth, margin: "0 auto", padding: "34px 24px 8px" }}>
+        <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 18, flexWrap: "wrap", gap: 10 }}>
+          <h2 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 24, margin: 0, letterSpacing: "-.02em" }}>
+            {homeCounty === "All" ? "Popular clubs near you" : `Popular clubs in ${homeCounty}`}
+          </h2>
+          <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+            <button
+              onClick={() => navigate(`/browse/clubs?county=${encodeURIComponent(homeCounty)}`)}
+              style={{ background: "none", border: "none", display: "inline-flex", alignItems: "center", gap: 6, color: colors.orangeDark, fontWeight: 600, fontSize: 15, cursor: "pointer" }}
+            >
+              View all <ArrowRightIcon size={15} />
+            </button>
+            <button
+              className="btn btn-ghost"
+              onClick={() => navigate(`/browse/clubs?county=${encodeURIComponent(homeCounty)}`)}
+              aria-label="See more sports clubs"
+              style={{
+                width: 34,
+                height: 34,
+                borderRadius: "50%",
+                background: "#fff",
+                border: `1px solid ${colors.borderStrong}`,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                color: colors.text,
+              }}
+            >
+              <ChevronRightIcon size={16} />
+            </button>
+          </div>
+        </div>
+        {!loadingClubs && featuredClubs.length === 0 ? (
+          <p style={{ color: colors.muted, fontSize: 15 }}>No clubs listed in {homeCounty} yet — try another county.</p>
+        ) : (
+          <div className="grid-responsive-3" style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 20 }}>
+            {loadingClubs
+              ? Array.from({ length: 3 }, (_, i) => <CardSkeleton key={i} photoHeight={120} />)
+              : featuredClubs.map((c) => <ClubCard key={c.id} club={c} />)}
+          </div>
+        )}
+      </section>
+
+      <section className="section-pad" style={{ maxWidth, margin: "0 auto", padding: "40px 24px 8px" }}>
+        <h2 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 24, margin: "0 0 24px", letterSpacing: "-.02em", textAlign: "center" }}>
+          How it works
+        </h2>
+        <div className="grid-responsive-3" style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 24 }}>
+          {[
+            { icon: <SearchIcon size={20} />, title: "Search", body: "Find a hall or club by county, sport or event type." },
+            { icon: <CalendarIcon size={20} />, title: "Book or register", body: "Pick a slot or a trial session and pay securely online." },
+            { icon: <CheckCircleIcon size={20} />, title: "Show up", body: "Confirmation lands in your inbox — just turn up and enjoy." },
+          ].map((step, i) => (
+            <div key={step.title} style={{ textAlign: "center", padding: "0 12px" }}>
+              <div
+                style={{
+                  width: 52,
+                  height: 52,
+                  borderRadius: "50%",
+                  background: colors.greenBg,
+                  color: colors.greenText,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  margin: "0 auto 14px",
+                }}
+              >
+                {step.icon}
+              </div>
+              <h3 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 17, margin: "0 0 6px" }}>
+                {i + 1}. {step.title}
+              </h3>
+              <p style={{ margin: 0, color: colors.muted, fontSize: 14.5, lineHeight: 1.5 }}>{step.body}</p>
+            </div>
+          ))}
         </div>
       </section>
 
+      <section className="section-pad" style={{ maxWidth, margin: "0 auto", padding: "40px 24px 56px" }}>
+        <div
+          style={{
+            display: "flex",
+            flexWrap: "wrap",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: 20,
+            background: colors.orangeBg,
+            border: `1px solid ${colors.border}`,
+            borderRadius: 20,
+            padding: "28px 32px",
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+            <div
+              style={{
+                width: 48,
+                height: 48,
+                borderRadius: "50%",
+                background: "#fff",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                flex: "none",
+                color: colors.orangeDark,
+              }}
+            >
+              <HandshakeIcon size={22} />
+            </div>
+            <div>
+              <h3 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 19, margin: "0 0 4px" }}>
+                Run a community centre or sports club?
+              </h3>
+              <p style={{ margin: 0, color: colors.muted, fontSize: 14.5 }}>
+                List it on Hello Circle for free and reach families across Ireland.
+              </p>
+            </div>
+          </div>
+          <button
+            className="btn"
+            onClick={() => navigate("/vendor/signup")}
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 8,
+              background: colors.orangeDark,
+              color: "#fff",
+              border: "none",
+              borderRadius: 12,
+              padding: "13px 20px",
+              fontSize: 15,
+              fontWeight: 600,
+              cursor: "pointer",
+              whiteSpace: "nowrap",
+            }}
+          >
+            <BuildingIcon size={16} /> List your venue <ArrowRightIcon size={15} />
+          </button>
+        </div>
+      </section>
     </div>
   );
 }
