@@ -14,12 +14,16 @@ import {
   HeartIcon,
   PinIcon,
 } from "../components/icons";
+import { nearestCounty } from "../irishCounties";
 import { colors, fonts, maxWidth } from "../theme";
 import type { Centre, Club } from "../types";
 
 export function Home() {
   const navigate = useNavigate();
   const [homeCounty, setHomeCounty] = useState("All");
+  const [homeCategory, setHomeCategory] = useState<"centres" | "clubs">("centres");
+  const [locating, setLocating] = useState(false);
+  const [locationError, setLocationError] = useState<string | null>(null);
   const [featuredCentres, setFeaturedCentres] = useState<Centre[]>([]);
   const [loadingCentres, setLoadingCentres] = useState(true);
   const [featuredClubs, setFeaturedClubs] = useState<Club[]>([]);
@@ -48,6 +52,38 @@ export function Home() {
       setLoadingClubs(false);
     });
   }, [homeCounty]);
+
+  const handleSearch = () => navigate(`/browse/${homeCategory}?county=${encodeURIComponent(homeCounty)}`);
+
+  // Permission is only ever requested here, on explicit click — never on page load.
+  // Resolves entirely client-side: the real coordinate is matched against real
+  // county centroids (irishCounties.ts) restricted to counties this app actually
+  // has listings in — never sent to the server, never guessed.
+  const handleUseMyLocation = () => {
+    setLocationError(null);
+    if (!navigator.geolocation) {
+      setLocationError("Location isn't available in this browser.");
+      return;
+    }
+    setLocating(true);
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const match = nearestCounty(pos.coords.latitude, pos.coords.longitude, counties.filter((c) => c !== "All"));
+        if (match) setHomeCounty(match);
+        else setLocationError("Couldn't match your location to a county we cover yet.");
+        setLocating(false);
+      },
+      (err) => {
+        setLocationError(
+          err.code === err.PERMISSION_DENIED
+            ? "Location permission was denied — pick your area manually."
+            : "Couldn't get your location — pick your area manually."
+        );
+        setLocating(false);
+      },
+      { timeout: 8000 }
+    );
+  };
 
   return (
     <div style={{ animation: "fadeUp .4s ease both" }}>
@@ -103,7 +139,6 @@ export function Home() {
           </p>
 
           <div
-            className="stack-mobile"
             style={{
               background: "#fff",
               border: `1px solid ${colors.border}`,
@@ -111,24 +146,23 @@ export function Home() {
               boxShadow: "0 8px 30px rgba(30,40,32,.06)",
               padding: 14,
               display: "flex",
-              flexWrap: "wrap",
+              flexDirection: "column",
               gap: 10,
-              alignItems: "center",
             }}
           >
-            <div style={{ display: "flex", alignItems: "center", gap: 10, flex: 1, minWidth: 200, padding: "4px 8px" }}>
-              <PinIcon size={15} style={{ color: "#8A928B" }} />
-              <div style={{ color: "#8A928B", fontSize: 13, fontWeight: 600, whiteSpace: "nowrap" }}>Your area</div>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "2px 6px", borderBottom: `1px solid ${colors.border}`, paddingBottom: 12 }}>
+              <PinIcon size={16} style={{ color: "#8A928B", flex: "none" }} />
               <select
                 value={homeCounty}
                 onChange={(e) => setHomeCounty(e.target.value)}
+                aria-label="County"
                 style={{
                   flex: 1,
-                  padding: "11px 12px",
-                  border: "1px solid #E2DFD6",
-                  borderRadius: 11,
-                  fontSize: 15,
-                  background: colors.bg,
+                  minWidth: 0,
+                  padding: "6px 4px",
+                  border: "none",
+                  background: "transparent",
+                  fontSize: 16,
                   color: colors.text,
                   outline: "none",
                   fontWeight: 600,
@@ -136,49 +170,94 @@ export function Home() {
               >
                 {counties.map((c) => (
                   <option key={c} value={c}>
-                    {c}
+                    {c === "All" ? "All counties" : c}
                   </option>
                 ))}
               </select>
             </div>
+
+            <div className="stack-mobile" style={{ display: "flex", flexWrap: "wrap", gap: 10, alignItems: "center" }}>
+              <div style={{ display: "flex", gap: 4, background: colors.bg, borderRadius: 12, padding: 4, flex: "none" }}>
+                <button
+                  onClick={() => setHomeCategory("centres")}
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 6,
+                    padding: "9px 14px",
+                    borderRadius: 9,
+                    border: "none",
+                    cursor: "pointer",
+                    fontSize: 14,
+                    fontWeight: 700,
+                    background: homeCategory === "centres" ? colors.greenBg : "transparent",
+                    color: homeCategory === "centres" ? colors.greenText : colors.muted,
+                  }}
+                >
+                  <BuildingIcon size={15} /> Community centres
+                </button>
+                <button
+                  onClick={() => setHomeCategory("clubs")}
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 6,
+                    padding: "9px 14px",
+                    borderRadius: 9,
+                    border: "none",
+                    cursor: "pointer",
+                    fontSize: 14,
+                    fontWeight: 700,
+                    background: homeCategory === "clubs" ? colors.orangeBg : "transparent",
+                    color: homeCategory === "clubs" ? colors.orangeDark : colors.muted,
+                  }}
+                >
+                  <BallIcon size={15} /> Sports clubs
+                </button>
+              </div>
+              <button
+                className="btn btn-primary"
+                onClick={handleSearch}
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 8,
+                  marginLeft: "auto",
+                  background: homeCategory === "centres" ? colors.green : colors.orange,
+                  color: "#fff",
+                  border: "none",
+                  borderRadius: 12,
+                  padding: "13px 20px",
+                  fontSize: 15,
+                  fontWeight: 600,
+                  cursor: "pointer",
+                }}
+              >
+                Search <ArrowRightIcon size={15} />
+              </button>
+            </div>
+          </div>
+
+          <div style={{ marginTop: 12, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
             <button
-              className="btn btn-primary"
-              onClick={() => navigate(`/browse/centres?county=${encodeURIComponent(homeCounty)}`)}
+              onClick={handleUseMyLocation}
+              disabled={locating}
               style={{
                 display: "inline-flex",
                 alignItems: "center",
-                gap: 8,
-                background: colors.green,
-                color: "#fff",
+                gap: 6,
+                background: "none",
                 border: "none",
-                borderRadius: 12,
-                padding: "13px 20px",
-                fontSize: 15,
-                fontWeight: 600,
-                cursor: "pointer",
+                color: colors.greenText,
+                fontWeight: 700,
+                fontSize: 14,
+                cursor: locating ? "default" : "pointer",
+                padding: 0,
               }}
             >
-              <BuildingIcon size={16} /> Find a hall <ArrowRightIcon size={15} />
+              <PinIcon size={14} /> {locating ? "Locating…" : "Use my current location"}
             </button>
-            <button
-              className="btn btn-orange"
-              onClick={() => navigate(`/browse/clubs?county=${encodeURIComponent(homeCounty)}`)}
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: 8,
-                background: colors.orangeBg,
-                color: colors.orangeDark,
-                border: "none",
-                borderRadius: 12,
-                padding: "13px 20px",
-                fontSize: 15,
-                fontWeight: 600,
-                cursor: "pointer",
-              }}
-            >
-              <BallIcon size={16} /> Find a club <ArrowRightIcon size={15} />
-            </button>
+            {locationError && <span style={{ color: "#b00020", fontSize: 13 }}>{locationError}</span>}
           </div>
         </div>
 
