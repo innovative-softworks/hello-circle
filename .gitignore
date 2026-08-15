@@ -6,4 +6,5 @@ build/
 *.sqlite-shm
 *.sqlite-wal
 .env
+.env.*
 server/uploads/

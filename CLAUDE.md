@@ -2,9 +2,28 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-> This file describes the `v2-0` branch. The main difference from `main`/`v1-0` is the database:
-> `v2-0` runs on MySQL (`mysql2`) instead of file-based SQLite (`better-sqlite3`), and the server
+> This file describes the `v2-0`/`v3-0` branches. The main difference from `main`/`v1-0` is the database:
+> these branches run on MySQL (`mysql2`) instead of file-based SQLite (`better-sqlite3`), and the server
 > serves the built client itself (single origin) instead of documenting two deploy options.
+
+## Dev vs. prod database
+
+Two local MySQL databases exist side by side: **`hello_circle_dev`** (safe to reset/reseed freely — this is
+what `server/.env` points at by default) and **`hello_circle`** (treated as prod — real/canonical data, never
+point routine local dev work at it). `server/.env.production` holds the same shape of config with
+`DB_NAME=hello_circle`, for the rare case you deliberately need to run against prod data (e.g.
+`cp server/.env.production server/.env` for a one-off task, then switch back). Both `.env` and `.env.*` are
+gitignored — never commit real prod credentials into `.env.production`, even though the file itself is
+tracked-ignorable by pattern, not by name.
+
+To reset/reseed the dev database from scratch:
+```bash
+export DB_NAME=hello_circle_dev   # or just make sure server/.env points at it
+npm run reset-demo --workspace server   # wipes + reseeds the 2 demo centres / 2 demo clubs + gallery images
+```
+`resetDemoListings()`/`seedIfEmpty()` (`server/src/db/seed.ts`) are what generate the Ireland-themed sample
+data (Dublin/Cork centres and clubs) and their picsum.photos-backed gallery images — see the note on
+`img()`/`imgs()` below.
 
 ## What this is
 
@@ -33,8 +52,9 @@ database on this branch. There is no `server/.env.example` on this branch (it wa
 the server reads is documented in `README.md`'s Environment variables table instead — check there (or
 `server/src/dataDir.ts`, `server/src/db/index.ts`, `server/src/stripe.ts`) before assuming a var doesn't
 exist. Key ones: `DB_HOST` (default `127.0.0.1`), `DB_PORT` (`3306`), `DB_USER` (`root`), `DB_PASSWORD`
-(empty), `DB_NAME` (`hello_circle`) — the target database must already exist (`CREATE DATABASE hello_circle;`
-first); the app creates/migrates tables inside it on startup, not the database itself.
+(empty), `DB_NAME` (code default `hello_circle`, but `server/.env` overrides this to `hello_circle_dev` — see
+"Dev vs. prod database" above) — the target database must already exist (`CREATE DATABASE <name>;` first);
+the app creates/migrates tables inside it on startup, not the database itself.
 
 First run: the server awaits `initSchema()` + seeding before it starts listening (schema/seed queries are
 async against MySQL, so this is a real `await` at module load, not fire-and-forget) and seeds an admin
