@@ -199,6 +199,24 @@ export async function initSchema() {
       expires_at DATETIME NOT NULL
     );
 
+    -- Short-lived, single-use magic-link tokens emailed to a guest. Consuming
+    -- one deletes it (deletion IS the "used" marker) and creates a
+    -- guest_sessions row below — guests never get a users row/password.
+    CREATE TABLE IF NOT EXISTS guest_login_tokens (
+      token VARCHAR(191) PRIMARY KEY,
+      email VARCHAR(255) NOT NULL,
+      expires_at DATETIME NOT NULL
+    );
+
+    -- The resulting signed-in session after a magic link is verified — same
+    -- shape/lifetime as sessions above, keyed by email instead of user_id.
+    CREATE TABLE IF NOT EXISTS guest_sessions (
+      token VARCHAR(191) PRIMARY KEY,
+      email VARCHAR(255) NOT NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      expires_at DATETIME NOT NULL
+    );
+
     CREATE TABLE IF NOT EXISTS reviews (
       id INT AUTO_INCREMENT PRIMARY KEY,
       listing_type VARCHAR(20) NOT NULL,

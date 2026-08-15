@@ -178,17 +178,32 @@ registrationsRouter.get("/", async (req, res) => {
     throw e;
   }
 
-  const rows = await db
-    .prepare(
-      `SELECT r.ref, r.team, r.child_first as childFirst, r.child_last as childLast, r.trial, r.status,
-              r.total_cents as totalCents, r.created_at as createdAt,
-              c.name as clubName, c.sport as sport
-       FROM registrations r
-       JOIN clubs c ON c.id = r.club_id
-       WHERE r.client_id = ? AND r.payment_status = 'paid'
-       ORDER BY r.created_at DESC`
-    )
-    .all(clientId);
+  // Signed in via a magic link (see guestAuth.ts)? Also include every
+  // registration under that verified email, not just this device's
+  // client_id — one OR, no dedup needed since it's one row per match.
+  const rows = req.guestEmail
+    ? await db
+        .prepare(
+          `SELECT r.ref, r.team, r.child_first as childFirst, r.child_last as childLast, r.trial, r.status,
+                  r.total_cents as totalCents, r.created_at as createdAt,
+                  c.name as clubName, c.sport as sport
+           FROM registrations r
+           JOIN clubs c ON c.id = r.club_id
+           WHERE (r.client_id = ? OR LOWER(r.email) = LOWER(?)) AND r.payment_status = 'paid'
+           ORDER BY r.created_at DESC`
+        )
+        .all(clientId, req.guestEmail)
+    : await db
+        .prepare(
+          `SELECT r.ref, r.team, r.child_first as childFirst, r.child_last as childLast, r.trial, r.status,
+                  r.total_cents as totalCents, r.created_at as createdAt,
+                  c.name as clubName, c.sport as sport
+           FROM registrations r
+           JOIN clubs c ON c.id = r.club_id
+           WHERE r.client_id = ? AND r.payment_status = 'paid'
+           ORDER BY r.created_at DESC`
+        )
+        .all(clientId);
 
   res.json(rows);
 });

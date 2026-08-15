@@ -1,10 +1,21 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { cancelBooking, cancelRegistration, fetchMyBookings, fetchMyRegistrations, lookupBooking, lookupRegistration } from "../api";
+import {
+  cancelBooking,
+  cancelRegistration,
+  fetchMyBookings,
+  fetchMyRegistrations,
+  guestLogout,
+  lookupBooking,
+  lookupRegistration,
+  requestGuestLink,
+  verifyGuestLink,
+} from "../api";
 import { ChevronRightIcon } from "../components/icons";
 import { Photo } from "../components/Photo";
 import { Button, RowSkeleton, inputStyle, labelStyle } from "../components/ui";
 import { dateLabel, euro } from "../euro";
+import { useGuest } from "../GuestContext";
 import { colors, fonts } from "../theme";
 import type { MyBooking, MyRegistration } from "../types";
 
@@ -100,6 +111,7 @@ type LookupResult = { kind: "booking"; data: MyBooking } | { kind: "registration
 export function MyBookings() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+  const { email: guestEmail, refresh: refreshGuest } = useGuest();
   const [bookings, setBookings] = useState<MyBooking[]>([]);
   const [regs, setRegs] = useState<MyRegistration[]>([]);
   const [loading, setLoading] = useState(true);
@@ -113,8 +125,20 @@ export function MyBookings() {
   const [lookupError, setLookupError] = useState<string | null>(null);
   const [lookupResult, setLookupResult] = useState<LookupResult | null>(null);
 
+  const [signInEmail, setSignInEmail] = useState("");
+  const [signInLoading, setSignInLoading] = useState(false);
+  const [signInSent, setSignInSent] = useState(false);
+  const [signInError, setSignInError] = useState<string | null>(null);
+  const [verifying, setVerifying] = useState(false);
+  const [verifyError, setVerifyError] = useState<string | null>(null);
+
+  const loadMyStuff = () => {
+    setLoading(true);
+    return Promise.all([fetchMyBookings().then(setBookings), fetchMyRegistrations().then(setRegs)]).then(() => setLoading(false));
+  };
+
   useEffect(() => {
-    Promise.all([fetchMyBookings().then(setBookings), fetchMyRegistrations().then(setRegs)]).then(() => setLoading(false));
+    loadMyStuff();
   }, []);
 
   // A confirmation email links back to /bookings?ref=... (see server/src/notifications.ts)
@@ -126,6 +150,53 @@ export function MyBookings() {
       setLookupOpen(true);
     }
   }, [searchParams]);
+
+  // A "sign in" email links back to /bookings?token=... (see
+  // server/src/routes/guestAuth.ts) — verify it once, then the guest-session
+  // cookie is set and a refetch picks up every booking under that email.
+  // verifiedTokenRef guards against React StrictMode's dev-only double-invoke
+  // of effects — the token is single-use, so a second real call would fail
+  // with a spurious "already used" error even though the first one worked.
+  const verifiedTokenRef = useRef<string | null>(null);
+  useEffect(() => {
+    const token = searchParams.get("token");
+    if (!token || verifiedTokenRef.current === token) return;
+    verifiedTokenRef.current = token;
+    setVerifying(true);
+    verifyGuestLink(token)
+      .then(async () => {
+        await refreshGuest();
+        await loadMyStuff();
+      })
+      .catch((e) => setVerifyError(e instanceof Error ? e.message : "That sign-in link didn't work"))
+      .finally(() => {
+        setVerifying(false);
+        navigate("/bookings", { replace: true });
+      });
+    // Only ever act on the token once, on arrival — not on every searchParams change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const handleSendSignInLink = async () => {
+    const email = signInEmail.trim();
+    if (!email) return;
+    setSignInLoading(true);
+    setSignInError(null);
+    try {
+      await requestGuestLink(email);
+      setSignInSent(true);
+    } catch (e) {
+      setSignInError(e instanceof Error ? e.message : "Couldn't send a sign-in link");
+    } finally {
+      setSignInLoading(false);
+    }
+  };
+
+  const handleSignOut = async () => {
+    await guestLogout();
+    await refreshGuest();
+    await loadMyStuff();
+  };
 
   const hasNone = !loading && bookings.length === 0 && regs.length === 0;
 
@@ -183,6 +254,53 @@ export function MyBookings() {
         <h1 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 34, margin: "0 0 24px", letterSpacing: "-.02em" }}>
           My bookings
         </h1>
+
+        {verifying && (
+          <div style={{ background: colors.greenBg, color: colors.greenText, borderRadius: 16, padding: "14px 20px", marginBottom: 20, fontSize: 14, fontWeight: 600 }}>
+            Signing you in…
+          </div>
+        )}
+        {verifyError && (
+          <div style={{ background: "#F6E3E3", color: "#b00020", borderRadius: 16, padding: "14px 20px", marginBottom: 20, fontSize: 14 }}>
+            {verifyError}
+          </div>
+        )}
+
+        <div style={{ background: "#fff", border: `1px solid ${colors.border}`, borderRadius: 16, padding: "18px 20px", marginBottom: 16 }}>
+          {guestEmail ? (
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10 }}>
+              <span style={{ fontSize: 14.5 }}>
+                Signed in as <strong>{guestEmail}</strong> — showing every booking under that email.
+              </span>
+              <button
+                onClick={handleSignOut}
+                style={{ background: "none", border: "none", color: colors.greenText, fontWeight: 700, fontSize: 14, cursor: "pointer", padding: 0 }}
+              >
+                Sign out
+              </button>
+            </div>
+          ) : signInSent ? (
+            <p style={{ margin: 0, fontSize: 14.5, color: colors.mutedLight }}>
+              Check your inbox — we've sent a sign-in link to <strong>{signInEmail.trim()}</strong>.
+            </p>
+          ) : (
+            <>
+              <div style={{ fontSize: 15, fontWeight: 700, color: colors.text, marginBottom: 12 }}>
+                Sign in with your email to see everything you've booked
+              </div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 10, alignItems: "flex-end" }}>
+                <div style={{ flex: "1 1 240px" }}>
+                  <label style={labelStyle}>Email</label>
+                  <input value={signInEmail} onChange={(e) => setSignInEmail(e.target.value)} placeholder="you@email.ie" style={inputStyle} />
+                </div>
+                <Button onClick={handleSendSignInLink} disabled={signInLoading || !signInEmail.trim()}>
+                  {signInLoading ? "Sending…" : "Send me a link"}
+                </Button>
+              </div>
+              {signInError && <div style={{ color: "#b00020", fontSize: 13, marginTop: 10 }}>{signInError}</div>}
+            </>
+          )}
+        </div>
 
         <div style={{ background: "#fff", border: `1px solid ${colors.border}`, borderRadius: 16, padding: "18px 20px", marginBottom: 28 }}>
           <button
@@ -260,7 +378,7 @@ export function MyBookings() {
                 <BookingRow
                   key={b.ref}
                   booking={b}
-                  onCancel={() => handleCancelBooking(b.ref)}
+                  onCancel={() => handleCancelBooking(b.ref, guestEmail ?? undefined)}
                   cancelling={cancellingRef === b.ref}
                   error={cancelErrors[b.ref]}
                 />
@@ -278,7 +396,7 @@ export function MyBookings() {
                 <RegistrationRow
                   key={r.ref}
                   registration={r}
-                  onCancel={() => handleCancelRegistration(r.ref)}
+                  onCancel={() => handleCancelRegistration(r.ref, guestEmail ?? undefined)}
                   cancelling={cancellingRef === r.ref}
                   error={cancelErrors[r.ref]}
                 />

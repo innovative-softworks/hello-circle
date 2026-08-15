@@ -37,3 +37,8 @@ export function simpleRateLimit({ windowMs, max }: { windowMs: number; max: numb
 /** Shared across booking/registration lookup-by-ref+email and
  * cancel-by-email — one combined guess-budget per IP across both surfaces. */
 export const lookupLimiter = simpleRateLimit({ windowMs: 15 * 60 * 1000, max: 10 });
+
+/** Guards POST /api/guest/request-link. Lower max than lookupLimiter — the
+ * concern here isn't guessing a secret (nothing to guess, any email is
+ * accepted), it's spamming an inbox with unwanted sign-in emails. */
+export const magicLinkLimiter = simpleRateLimit({ windowMs: 15 * 60 * 1000, max: 5 });

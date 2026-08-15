@@ -8,6 +8,7 @@ import { attachUser } from "./auth.js";
 import { dataDir } from "./dataDir.js";
 import { initSchema } from "./db/index.js";
 import { seedAdminIfMissing, seedIfEmpty } from "./db/seed.js";
+import { attachGuestEmail } from "./guestAuth.js";
 import { adminRouter } from "./routes/admin.js";
 import { authRouter } from "./routes/auth.js";
 import { availabilityRouter } from "./routes/availability.js";
@@ -15,6 +16,7 @@ import { bookingsRouter } from "./routes/bookings.js";
 import { centresRouter } from "./routes/centres.js";
 import { clubsRouter } from "./routes/clubs.js";
 import { couponsRouter } from "./routes/coupons.js";
+import { guestAuthRouter } from "./routes/guestAuth.js";
 import { registrationsRouter } from "./routes/registrations.js";
 import { reviewsRouter } from "./routes/reviews.js";
 import { stripeWebhookHandler } from "./routes/stripeWebhook.js";
@@ -46,9 +48,11 @@ app.post("/api/stripe/webhook", express.raw({ type: "application/json" }), strip
 app.use(express.json());
 app.use(cookieParser());
 app.use(attachUser);
+app.use(attachGuestEmail);
 app.use("/uploads", express.static(path.join(dataDir, "uploads")));
 
 app.use("/api/auth", authRouter);
+app.use("/api/guest", guestAuthRouter);
 app.use("/api/centres", centresRouter);
 app.use("/api/clubs", clubsRouter);
 app.use("/api/availability", availabilityRouter);

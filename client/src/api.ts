@@ -196,6 +196,26 @@ export function fetchMe(): Promise<{ user: AuthUser | null }> {
   return request(`/auth/me`);
 }
 
+// --- guest magic-link session ---------------------------------------------
+
+/** Always resolves the same way regardless of whether that email has any
+ * bookings — see server/src/routes/guestAuth.ts. */
+export function requestGuestLink(email: string): Promise<{ ok: boolean }> {
+  return request(`/guest/request-link`, { method: "POST", body: JSON.stringify({ email }) });
+}
+
+export function verifyGuestLink(token: string): Promise<{ email: string }> {
+  return request(`/guest/verify`, { method: "POST", body: JSON.stringify({ token }) });
+}
+
+export function guestLogout(): Promise<{ ok: boolean }> {
+  return request(`/guest/logout`, { method: "POST" });
+}
+
+export function fetchGuestSession(): Promise<{ email: string | null }> {
+  return request(`/guest/me`);
+}
+
 // --- reviews -------------------------------------------------------------
 
 export function fetchReviews(listingType: "centre" | "club", listingId: string): Promise<Review[]> {

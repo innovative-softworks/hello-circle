@@ -221,16 +221,30 @@ bookingsRouter.get("/", async (req, res) => {
     throw e;
   }
 
-  const rows = await db
-    .prepare(
-      `SELECT b.ref, b.date, b.time, b.total_cents as totalCents, b.created_at as createdAt, b.status,
-              c.name as centreName, c.ph as ph, c.image_url as image
-       FROM bookings b
-       JOIN centres c ON c.id = b.centre_id
-       WHERE b.client_id = ? AND b.payment_status = 'paid'
-       ORDER BY b.created_at DESC`
-    )
-    .all(clientId);
+  // Signed in via a magic link (see guestAuth.ts)? Also include every
+  // booking under that verified email, not just this device's client_id —
+  // one OR, no dedup needed since it's still one row per match, not a union.
+  const rows = req.guestEmail
+    ? await db
+        .prepare(
+          `SELECT b.ref, b.date, b.time, b.total_cents as totalCents, b.created_at as createdAt, b.status,
+                  c.name as centreName, c.ph as ph, c.image_url as image
+           FROM bookings b
+           JOIN centres c ON c.id = b.centre_id
+           WHERE (b.client_id = ? OR LOWER(b.email) = LOWER(?)) AND b.payment_status = 'paid'
+           ORDER BY b.created_at DESC`
+        )
+        .all(clientId, req.guestEmail)
+    : await db
+        .prepare(
+          `SELECT b.ref, b.date, b.time, b.total_cents as totalCents, b.created_at as createdAt, b.status,
+                  c.name as centreName, c.ph as ph, c.image_url as image
+           FROM bookings b
+           JOIN centres c ON c.id = b.centre_id
+           WHERE b.client_id = ? AND b.payment_status = 'paid'
+           ORDER BY b.created_at DESC`
+        )
+        .all(clientId);
 
   res.json(rows);
 });
