@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { fetchAdminPendingListings, fetchCentres, fetchVendorListings, logout } from "../api";
+import { fetchAdminPendingListings, fetchCentres, fetchVendorListings, guestLogout, logout } from "../api";
 import { useAuth } from "../AuthContext";
+import { useGuest } from "../GuestContext";
 import { BellIcon, CloseIcon, LogoMark, MenuIcon, PinIcon } from "./icons";
 import { colors, fonts, maxWidth } from "../theme";
 import { useMyStuff } from "../MyStuffContext";
@@ -11,6 +12,7 @@ export function Header() {
   const location = useLocation();
   const { count } = useMyStuff();
   const { user, refresh } = useAuth();
+  const { email: guestEmail, refresh: refreshGuest } = useGuest();
   const [menuOpen, setMenuOpen] = useState(false);
   const [alerts, setAlerts] = useState(0);
   const [countyMenuOpen, setCountyMenuOpen] = useState(false);
@@ -71,6 +73,13 @@ export function Header() {
     setMenuOpen(false);
     await logout();
     await refresh();
+    navigate("/");
+  };
+
+  const doGuestLogout = async () => {
+    setMenuOpen(false);
+    await guestLogout();
+    await refreshGuest();
     navigate("/");
   };
 
@@ -255,6 +264,7 @@ export function Header() {
             </button>
             {accountMenuOpen && (
               <div className="pop-in" style={{ ...dropdownStyle, minWidth: 240 }}>
+                {!user && guestEmail && <div style={dropdownLabelStyle}>Signed in as {guestEmail}</div>}
                 <button
                   className="dropdown-item"
                   style={dropdownItemStyle}
@@ -294,6 +304,29 @@ export function Header() {
                   >
                     Log out
                   </button>
+                ) : guestEmail ? (
+                  <>
+                    <button
+                      className="dropdown-item"
+                      style={dropdownItemStyle}
+                      onClick={() => {
+                        setAccountMenuOpen(false);
+                        doGuestLogout();
+                      }}
+                    >
+                      Sign out
+                    </button>
+                    <button
+                      className="dropdown-item"
+                      style={dropdownItemStyle}
+                      onClick={() => {
+                        setAccountMenuOpen(false);
+                        go("/vendor/signup");
+                      }}
+                    >
+                      List your venue
+                    </button>
+                  </>
                 ) : (
                   <>
                     <button
@@ -374,6 +407,18 @@ export function Header() {
               </button>
               <button style={mobileNavBtn} onClick={doLogout}>
                 Log out
+              </button>
+            </>
+          ) : guestEmail ? (
+            <>
+              <div style={{ padding: "6px 6px 2px", fontSize: 13, color: colors.muted }}>
+                Signed in as <strong>{guestEmail}</strong>
+              </div>
+              <button style={mobileNavBtn} onClick={doGuestLogout}>
+                Sign out
+              </button>
+              <button style={mobileNavBtn} onClick={() => go("/vendor/signup")}>
+                List your venue
               </button>
             </>
           ) : (
