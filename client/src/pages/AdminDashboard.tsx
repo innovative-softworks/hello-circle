@@ -4,18 +4,25 @@ import {
   adminDeleteCentre,
   adminDeleteClub,
   createAdminCoupon,
+  createAdminOrganisation,
   deleteAdminCoupon,
   fetchAdminCoupons,
+  fetchAdminDemand,
   fetchAdminListings,
+  fetchAdminOrganisations,
   fetchAdminReviews,
   fetchAdminStats,
   fetchAdminVendors,
   fetchClaims,
   hideReview,
   setAdminCouponActive,
+  setCentreOrganisation,
   setCentreStatus,
   setClaimStatus,
+  setClubOrganisation,
   setClubStatus,
+  setVendorPlatformRole,
+  setVendorProviderTier,
   setVendorStatus,
   unhideReview,
   type AdminCoupon,
@@ -25,10 +32,12 @@ import {
 } from "../api";
 import { useAuth } from "../AuthContext";
 import { AdminIllustration } from "../components/illustrations";
-import { BallIcon, BuildingIcon, CalendarIcon, ClipboardIcon, IdCardIcon, PhoneIcon, PinIcon, StarIcon, TagIcon, UsersIcon } from "../components/icons";
+import { BallIcon, BuildingIcon, CalendarIcon, ClipboardIcon, IdCardIcon, PhoneIcon, PinIcon, SearchIcon, StarIcon, TagIcon, TrendUpIcon, UsersIcon } from "../components/icons";
 import { Avatar, BadgedIcon, Button, Card, DashboardTopPanel, EmptyState, PageSpinner, StarDisplay, StatRow, StatTile, StatusBadge, inputStyle, labelStyle } from "../components/ui";
 import { colors, fonts, maxWidth } from "../theme";
-import type { AdminStats, Review } from "../types";
+import type { AdminOrganisation, AdminStats, DemandRow, Review } from "../types";
+
+const PLATFORM_ROLES = ["centre_manager", "facility_manager", "finance", "communications", "read_only_analyst"];
 
 function VendorsTab() {
   const [vendors, setVendors] = useState<AdminVendor[]>([]);
@@ -78,10 +87,43 @@ function VendorsTab() {
               )}
             </div>
           </div>
-          <div style={{ display: "flex", gap: 8, flex: "none" }}>
-            {v.status !== "approved" && <Button variant="dark" onClick={() => setVendorStatus(v.id, "approved").then(load)}>Approve</Button>}
-            {v.status !== "suspended" && <Button variant="ghost" onClick={() => setVendorStatus(v.id, "suspended").then(load)}>Suspend</Button>}
-            {v.status === "suspended" && <Button variant="ghost" onClick={() => setVendorStatus(v.id, "approved").then(load)}>Reinstate</Button>}
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 8, flex: "none" }}>
+            <div style={{ display: "flex", gap: 8 }}>
+              {v.status !== "approved" && <Button variant="dark" onClick={() => setVendorStatus(v.id, "approved").then(load)}>Approve</Button>}
+              {v.status !== "suspended" && <Button variant="ghost" onClick={() => setVendorStatus(v.id, "suspended").then(load)}>Suspend</Button>}
+              {v.status === "suspended" && <Button variant="ghost" onClick={() => setVendorStatus(v.id, "approved").then(load)}>Reinstate</Button>}
+            </div>
+            {/* RBAC role + marketplace tier (Tier 4, best-effort scaffolding) —
+                neither is read anywhere else in the app yet; see plan doc. */}
+            <div style={{ display: "flex", gap: 6 }}>
+              <select
+                defaultValue=""
+                onChange={(e) => {
+                  if (!e.target.value) return;
+                  setVendorPlatformRole(v.id, e.target.value === "none" ? null : e.target.value).then(load);
+                }}
+                style={{ ...inputStyle, width: 150, padding: "6px 8px", fontSize: 12 }}
+              >
+                <option value="" disabled>Platform role…</option>
+                <option value="none">— none —</option>
+                {PLATFORM_ROLES.map((r) => (
+                  <option key={r} value={r}>{r.replace(/_/g, " ")}</option>
+                ))}
+              </select>
+              <select
+                defaultValue=""
+                onChange={(e) => {
+                  if (!e.target.value) return;
+                  setVendorProviderTier(v.id, e.target.value as "standard" | "verified" | "featured").then(load);
+                }}
+                style={{ ...inputStyle, width: 120, padding: "6px 8px", fontSize: 12 }}
+              >
+                <option value="" disabled>Tier…</option>
+                <option value="standard">Standard</option>
+                <option value="verified">Verified</option>
+                <option value="featured">Featured</option>
+              </select>
+            </div>
           </div>
         </Card>
       ))}
@@ -151,8 +193,19 @@ function ClaimsTab() {
   );
 }
 
-function ListingRow({ item, type, onChanged }: { item: AdminListingSummary; type: "centre" | "club"; onChanged: () => void }) {
+function ListingRow({
+  item,
+  type,
+  organisations,
+  onChanged,
+}: {
+  item: AdminListingSummary;
+  type: "centre" | "club";
+  organisations: AdminOrganisation[];
+  onChanged: () => void;
+}) {
   const setStatus = type === "centre" ? setCentreStatus : setClubStatus;
+  const setOrg = type === "centre" ? setCentreOrganisation : setClubOrganisation;
   const del = type === "centre" ? adminDeleteCentre : adminDeleteClub;
   // A listing can't go live before its vendor's account has been vetted.
   // Grandfathered listings with no vendor (vendorStatus null) are exempt.
@@ -210,6 +263,19 @@ function ListingRow({ item, type, onChanged }: { item: AdminListingSummary; type
         {vendorNotApproved && (
           <span style={{ fontSize: 11, color: colors.orangeDark }}>Approve the vendor account first</span>
         )}
+        {organisations.length > 0 && (
+          <select
+            defaultValue=""
+            onChange={(e) => setOrg(item.id, e.target.value || null).then(onChanged)}
+            style={{ ...inputStyle, width: 160, padding: "6px 8px", fontSize: 12 }}
+          >
+            <option value="" disabled>Organisation…</option>
+            <option value="">— none —</option>
+            {organisations.map((o) => (
+              <option key={o.id} value={o.id}>{o.name}</option>
+            ))}
+          </select>
+        )}
       </div>
     </Card>
   );
@@ -218,6 +284,7 @@ function ListingRow({ item, type, onChanged }: { item: AdminListingSummary; type
 function ListingsTab({ pendingOnly }: { pendingOnly: boolean }) {
   const [centres, setCentres] = useState<AdminListingSummary[]>([]);
   const [clubs, setClubs] = useState<AdminListingSummary[]>([]);
+  const [organisations, setOrganisations] = useState<AdminOrganisation[]>([]);
 
   const load = () => {
     fetchAdminListings().then((data) => {
@@ -227,13 +294,14 @@ function ListingsTab({ pendingOnly }: { pendingOnly: boolean }) {
     });
   };
   useEffect(() => { load(); }, [pendingOnly]);
+  useEffect(() => { fetchAdminOrganisations().then(setOrganisations); }, []);
 
   return (
     <div className="fade-panel" style={{ display: "flex", flexDirection: "column", gap: 30 }}>
       <div>
         <h3 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 17, margin: "0 0 14px", letterSpacing: "-.01em" }}>Community centres</h3>
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          {centres.map((c) => <ListingRow key={c.id} item={c} type="centre" onChanged={load} />)}
+          {centres.map((c) => <ListingRow key={c.id} item={c} type="centre" organisations={organisations} onChanged={load} />)}
           {centres.length === 0 && (
             <EmptyState
               icon={<BadgedIcon icon={<BuildingIcon size={26} />} accent="green" />}
@@ -246,7 +314,7 @@ function ListingsTab({ pendingOnly }: { pendingOnly: boolean }) {
       <div>
         <h3 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 17, margin: "0 0 14px", letterSpacing: "-.01em" }}>Sports clubs</h3>
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          {clubs.map((c) => <ListingRow key={c.id} item={c} type="club" onChanged={load} />)}
+          {clubs.map((c) => <ListingRow key={c.id} item={c} type="club" organisations={organisations} onChanged={load} />)}
           {clubs.length === 0 && (
             <EmptyState
               icon={<BadgedIcon icon={<BallIcon size={26} />} accent="orange" />}
@@ -400,10 +468,104 @@ function CouponsTab() {
   );
 }
 
+// --- organisations (Tier 4, best-effort scaffolding) — data-model only, no
+// tenant isolation is enforced anywhere else in the app (every query
+// remains platform-wide). Assignment happens per-listing in ListingRow
+// above; this tab is just create/list. -------------------------------------
+
+function OrganisationsTab() {
+  const [orgs, setOrgs] = useState<AdminOrganisation[]>([]);
+  const [name, setName] = useState("");
+  const [kind, setKind] = useState("council");
+  const [creating, setCreating] = useState(false);
+
+  const load = () => fetchAdminOrganisations().then(setOrgs);
+  useEffect(() => { load(); }, []);
+
+  const create = async () => {
+    if (!name.trim()) return;
+    setCreating(true);
+    try {
+      await createAdminOrganisation({ name: name.trim(), kind });
+      setName("");
+      load();
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  return (
+    <div className="fade-panel" style={{ display: "flex", flexDirection: "column", gap: 24 }}>
+      <Card>
+        <h3 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 16, margin: "0 0 4px" }}>New organisation</h3>
+        <p style={{ fontSize: 12.5, color: colors.mutedLight, margin: "0 0 14px" }}>
+          Scaffolding for a future multi-org deployment (e.g. a council overseeing several centres) — assigning a listing to one has no effect on visibility or access today.
+        </p>
+        <div style={{ display: "flex", gap: 8, alignItems: "flex-end", flexWrap: "wrap" }}>
+          <div style={{ flex: "1 1 220px" }}>
+            <label style={labelStyle}>Name</label>
+            <input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Dublin City Council" style={inputStyle} />
+          </div>
+          <div style={{ flex: "0 0 160px" }}>
+            <label style={labelStyle}>Kind</label>
+            <select value={kind} onChange={(e) => setKind(e.target.value)} style={inputStyle}>
+              <option value="council">Council</option>
+              <option value="charity">Charity</option>
+              <option value="school">School</option>
+              <option value="private">Private</option>
+            </select>
+          </div>
+          <Button onClick={create} disabled={creating || !name.trim()}>Create</Button>
+        </div>
+      </Card>
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        {orgs.map((o) => (
+          <Card key={o.id} style={{ padding: 15, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <span style={{ fontWeight: 700, fontSize: 14 }}>{o.name}</span>
+            <span style={{ fontSize: 12, color: colors.mutedLight, textTransform: "capitalize" }}>{o.kind}</span>
+          </Card>
+        ))}
+        {orgs.length === 0 && <EmptyState icon={<BuildingIcon size={26} />} title="No organisations yet" subtitle="Create one above." />}
+      </div>
+    </div>
+  );
+}
+
+// --- demand intelligence, platform-wide (Tier 4) ---------------------------
+
+function AdminDemandTab() {
+  const [rows, setRows] = useState<DemandRow[] | null>(null);
+  useEffect(() => { fetchAdminDemand().then(setRows).catch(() => setRows([])); }, []);
+
+  if (rows === null) return <PageSpinner />;
+  return (
+    <div className="fade-panel">
+      <Card>
+        <h3 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 16, margin: "0 0 4px" }}>Unmet demand, platform-wide</h3>
+        <p style={{ fontSize: 12.5, color: colors.mutedLight, margin: "0 0 16px" }}>
+          Searches that returned nothing, aggregated across every vendor — useful for spotting a gap no one's listing yet.
+        </p>
+        {rows.length === 0 ? (
+          <EmptyState icon={<SearchIcon size={22} />} title="No unmet demand logged yet" />
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {rows.map((r, i) => (
+              <div key={i} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: colors.bg, borderRadius: 10, padding: "10px 14px", fontSize: 13.5 }}>
+                <span>"{r.queryText}"{r.county ? ` · ${r.county}` : ""}</span>
+                <span style={{ fontWeight: 700, color: colors.muted }}>{r.count}×</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </Card>
+    </div>
+  );
+}
+
 export function AdminDashboard() {
   const { user, loading } = useAuth();
   const navigate = useNavigate();
-  const [tab, setTab] = useState<"vendors" | "pending" | "listings" | "claims" | "reviews" | "coupons">("pending");
+  const [tab, setTab] = useState<"vendors" | "pending" | "listings" | "claims" | "reviews" | "coupons" | "organisations" | "demand">("pending");
   const [stats, setStats] = useState<AdminStats | null>(null);
 
   useEffect(() => {
@@ -434,6 +596,8 @@ export function AdminDashboard() {
                   { key: "claims", label: "Claims", icon: <IdCardIcon size={15} /> },
                   { key: "reviews", label: "Reviews", icon: <StarIcon size={15} /> },
                   { key: "coupons", label: "Coupons", icon: <TagIcon size={15} /> },
+                  { key: "organisations", label: "Organisations", icon: <BuildingIcon size={15} /> },
+                  { key: "demand", label: "Demand", icon: <TrendUpIcon size={15} /> },
                 ]}
                 activeTab={tab}
                 onTabChange={setTab}
@@ -462,6 +626,8 @@ export function AdminDashboard() {
         {tab === "claims" && <ClaimsTab />}
         {tab === "reviews" && <ReviewsTab />}
         {tab === "coupons" && <CouponsTab />}
+        {tab === "organisations" && <OrganisationsTab />}
+        {tab === "demand" && <AdminDemandTab />}
       </section>
     </div>
   );

@@ -1,21 +1,29 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import {
+  checkInBooking,
+  createClubSession,
   createVendorBlock,
   createVendorCentre,
   createVendorClub,
+  deleteClubSession,
   deleteVendorBlock,
   deleteVendorCentre,
   deleteVendorClub,
+  fetchClubSessions,
   fetchVendorBlocks,
   fetchVendorBookings,
   fetchVendorCentre,
   fetchVendorClub,
+  fetchVendorClubWaitlist,
+  fetchVendorDemand,
   fetchVendorListings,
+  fetchVendorMessages,
   fetchVendorNotifications,
   fetchVendorRegistrations,
   fetchVendorStats,
   markVendorNotificationRead,
+  sendVendorMessage,
   updateVendorCentre,
   updateVendorClub,
   uploadImage,
@@ -41,12 +49,27 @@ import {
   EyeIcon,
   PinIcon,
   PlusIcon,
+  SearchIcon,
   TrashIcon,
   TrendUpIcon,
+  UsersIcon,
 } from "../components/icons";
 import { Avatar, BadgedIcon, Button, Card, DashboardTopPanel, EmptyState, PageSpinner, StatRow, StatTile, StatusBadge, inputStyle, labelStyle } from "../components/ui";
 import { colors, fonts, maxWidth } from "../theme";
-import type { Centre, Club, MyBooking, MyRegistration, RoomBlock, VendorListingSummary, VendorNotification, VendorStats, VendorType } from "../types";
+import type {
+  Centre,
+  Club,
+  ClubSession,
+  DemandRow,
+  MyBooking,
+  MyRegistration,
+  RoomBlock,
+  VendorListingSummary,
+  VendorNotification,
+  VendorStats,
+  VendorType,
+  WaitlistEntry,
+} from "../types";
 
 const HOUR_OPTIONS = ["09:00", "10:00", "11:00", "12:00", "13:00", "14:00", "15:00", "16:00", "17:00", "18:00", "19:00", "20:00", "21:00"];
 
@@ -439,7 +462,134 @@ function ClubEditor({ clubId, onClose, onSaved }: { clubId: string | "new"; onCl
       <Button variant="orange" disabled={saving || !form.name} onClick={save}>
         {clubId === "new" ? "Create (goes to admin for approval)" : "Save changes"}
       </Button>
+
+      {clubId !== "new" && (
+        <>
+          <ClubSessionsManager clubId={clubId} />
+          <ClubWaitlistPanel clubId={clubId} />
+        </>
+      )}
     </Card>
+  );
+}
+
+// --- recurring sessions (Tier 3) — was API-only; club_sessions CRUD had no
+// vendor screen, and RegistrationFlow.tsx's session picker had nothing to
+// show for any club until a vendor could actually add one here. ------------
+
+const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+
+function ClubSessionsManager({ clubId }: { clubId: string }) {
+  const [sessions, setSessions] = useState<ClubSession[]>([]);
+  const [dayOfWeek, setDayOfWeek] = useState(1);
+  const [time, setTime] = useState("18:00");
+  const [label, setLabel] = useState("");
+  const [capacity, setCapacity] = useState("");
+  const [adding, setAdding] = useState(false);
+
+  const load = () => {
+    fetchClubSessions(clubId).then(setSessions).catch(() => {});
+  };
+  useEffect(load, [clubId]);
+
+  const add = async () => {
+    setAdding(true);
+    try {
+      await createClubSession({ clubId, dayOfWeek, time, label: label || undefined, capacity: capacity ? Number(capacity) : undefined });
+      setLabel("");
+      setCapacity("");
+      load();
+    } finally {
+      setAdding(false);
+    }
+  };
+
+  const remove = async (id: string) => {
+    await deleteClubSession(id);
+    load();
+  };
+
+  return (
+    <div style={{ marginTop: 26, paddingTop: 22, borderTop: `1px solid ${colors.border}` }}>
+      <h4 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 15, margin: "0 0 4px" }}>Recurring sessions</h4>
+      <p style={{ fontSize: 12.5, color: colors.mutedLight, margin: "0 0 14px" }}>
+        Optional — lets a family pick a specific day/time when registering instead of one flat sign-up.
+      </p>
+      {sessions.length > 0 && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 14 }}>
+          {sessions.map((s) => (
+            <div key={s.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: colors.bg, borderRadius: 10, padding: "8px 12px", fontSize: 13.5 }}>
+              <span>
+                {DAY_NAMES[s.dayOfWeek]} {s.time}
+                {s.label ? ` — ${s.label}` : ""}
+                {s.capacity ? ` · cap ${s.capacity}` : ""}
+              </span>
+              <button onClick={() => remove(s.id)} aria-label="Remove session" style={{ background: "none", border: "none", cursor: "pointer", color: colors.faint, display: "flex" }}>
+                <TrashIcon size={14} />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "flex-end" }}>
+        <select value={dayOfWeek} onChange={(e) => setDayOfWeek(Number(e.target.value))} style={{ ...inputStyle, width: 130 }}>
+          {DAY_NAMES.map((d, i) => (
+            <option key={d} value={i}>{d}</option>
+          ))}
+        </select>
+        <input type="time" value={time} onChange={(e) => setTime(e.target.value)} style={{ ...inputStyle, width: 110 }} />
+        <input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="Label (optional)" style={{ ...inputStyle, width: 150 }} />
+        <input value={capacity} onChange={(e) => setCapacity(e.target.value)} placeholder="Cap" type="number" style={{ ...inputStyle, width: 70 }} />
+        <Button variant="ghost" onClick={add} disabled={adding}>
+          <PlusIcon size={14} /> Add
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+// --- club waitlist (Tier 3) — the vendor side of the MVP waitlist feature
+// genuinely had no route at all until now, not just no UI. -----------------
+
+function ClubWaitlistPanel({ clubId }: { clubId: string }) {
+  const [entries, setEntries] = useState<WaitlistEntry[] | null>(null);
+
+  useEffect(() => {
+    fetchVendorClubWaitlist(clubId).then(setEntries).catch(() => setEntries([]));
+  }, [clubId]);
+
+  if (entries === null) return null;
+
+  return (
+    <div style={{ marginTop: 26, paddingTop: 22, borderTop: `1px solid ${colors.border}` }}>
+      <h4 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 15, margin: "0 0 4px" }}>Waitlist</h4>
+      <p style={{ fontSize: 12.5, color: colors.mutedLight, margin: "0 0 14px" }}>
+        Only fills once this club has a membership cap set above and is full.
+      </p>
+      {entries.length === 0 ? (
+        <EmptyState icon={<UsersIcon size={20} />} title="Nobody waiting" />
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          {entries.map((e) => (
+            <div key={e.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: colors.bg, borderRadius: 10, padding: "8px 12px", fontSize: 13.5 }}>
+              <span>{e.name || e.email || "Anonymous"} {e.email && <span style={{ color: colors.mutedLight }}>· {e.email}</span>}</span>
+              <span
+                style={{
+                  fontSize: 11,
+                  fontWeight: 700,
+                  borderRadius: 999,
+                  padding: "3px 10px",
+                  background: e.status === "offered" ? colors.orangeBg : colors.panel,
+                  color: e.status === "offered" ? colors.orangeDark : colors.muted,
+                }}
+              >
+                {e.status === "offered" ? "Offered a spot" : "Waiting"}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -476,7 +626,81 @@ function GrowPresencePanel({ onAddListing }: { onAddListing: () => void }) {
 
 // --- notifications tab (new bookings/registrations on the vendor's own listings) -
 
-function MessagesTab({ onRead }: { onRead: () => void }) {
+// Composer (Tier 3) — sendVendorMessage/fetchVendorMessages existed with no
+// form anywhere to use them. Distinct from the automatic notification feed
+// below: this is a vendor-authored message to everyone with a paid
+// booking/registration on one listing.
+function MessageComposer({ listings }: { listings: { centres: VendorListingSummary[]; clubs: VendorListingSummary[] } }) {
+  const options = [
+    ...listings.centres.map((c) => ({ listingType: "centre" as const, listingId: c.id, name: c.name })),
+    ...listings.clubs.map((c) => ({ listingType: "club" as const, listingId: c.id, name: c.name })),
+  ];
+  const [target, setTarget] = useState(options[0] ? `${options[0].listingType}:${options[0].listingId}` : "");
+  const [subject, setSubject] = useState("");
+  const [body, setBody] = useState("");
+  const [sending, setSending] = useState(false);
+  const [result, setResult] = useState<string | null>(null);
+  const [sent, setSent] = useState<{ id: number; subject: string; body: string; createdAt: string }[]>([]);
+
+  const loadSent = () => fetchVendorMessages().then(setSent).catch(() => {});
+  useEffect(() => {
+    loadSent();
+  }, []);
+
+  const send = async () => {
+    const [listingType, listingId] = target.split(":") as ["centre" | "club", string];
+    if (!listingType || !listingId || !subject.trim() || !body.trim()) return;
+    setSending(true);
+    setResult(null);
+    try {
+      const res = await sendVendorMessage({ listingType, listingId, subject: subject.trim(), body: body.trim() });
+      setResult(`Sent to ${res.recipientCount} ${res.recipientCount === 1 ? "person" : "people"}.`);
+      setSubject("");
+      setBody("");
+      loadSent();
+    } finally {
+      setSending(false);
+    }
+  };
+
+  if (options.length === 0) return null;
+
+  return (
+    <Card style={{ marginBottom: 20 }}>
+      <h4 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 16, margin: "0 0 14px" }}>Message your participants</h4>
+      <label style={labelStyle}>Listing</label>
+      <select value={target} onChange={(e) => setTarget(e.target.value)} style={{ ...inputStyle, marginBottom: 12 }}>
+        {options.map((o) => (
+          <option key={`${o.listingType}:${o.listingId}`} value={`${o.listingType}:${o.listingId}`}>{o.name}</option>
+        ))}
+      </select>
+      <label style={labelStyle}>Subject</label>
+      <input value={subject} onChange={(e) => setSubject(e.target.value)} style={{ ...inputStyle, marginBottom: 12 }} />
+      <label style={labelStyle}>Message</label>
+      <textarea value={body} onChange={(e) => setBody(e.target.value)} rows={4} style={{ ...inputStyle, resize: "vertical", marginBottom: 12 }} />
+      {result && <p style={{ fontSize: 13, color: colors.greenText, fontWeight: 600, margin: "0 0 12px" }}>{result}</p>}
+      <Button onClick={send} disabled={sending || !subject.trim() || !body.trim()}>
+        {sending ? "Sending…" : "Send to everyone with a paid booking"}
+      </Button>
+
+      {sent.length > 0 && (
+        <div style={{ marginTop: 20, paddingTop: 16, borderTop: `1px solid ${colors.border}` }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: colors.muted, marginBottom: 10 }}>SENT</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {sent.slice(0, 5).map((m) => (
+              <div key={m.id} style={{ fontSize: 13, background: colors.bg, borderRadius: 10, padding: "8px 12px" }}>
+                <strong>{m.subject}</strong>
+                <div style={{ color: colors.mutedLight, fontSize: 12, marginTop: 2 }}>{formatDate(m.createdAt)}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </Card>
+  );
+}
+
+function MessagesTab({ onRead, listings }: { onRead: () => void; listings: { centres: VendorListingSummary[]; clubs: VendorListingSummary[] } }) {
   const [notifications, setNotifications] = useState<VendorNotification[]>([]);
 
   useEffect(() => {
@@ -492,7 +716,9 @@ function MessagesTab({ onRead }: { onRead: () => void }) {
   };
 
   return (
-    <div className="fade-panel" style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+    <div className="fade-panel">
+      <MessageComposer listings={listings} />
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
       {notifications.map((n) => (
         <Card
           key={n.id}
@@ -528,11 +754,44 @@ function MessagesTab({ onRead }: { onRead: () => void }) {
         </Card>
       ))}
       {notifications.length === 0 && <EmptyState icon={<ChatIcon size={26} />} title="No notifications yet" subtitle="New bookings and registrations will show up here." />}
+      </div>
     </div>
   );
 }
 
 // --- bookings/registrations tab --------------------------------------------
+
+// Manual check-in (Tier 3, FUTURE-scaffolding made usable) — no QR/hardware,
+// just a button a vendor taps at the door. Doesn't preload existing status
+// (would need a bulk endpoint that doesn't exist yet) — starts unchecked
+// each page load and reflects clicks made in this session.
+function CheckInButton({ kind, ref }: { kind: "booking" | "registration"; ref: string }) {
+  const [checkedIn, setCheckedIn] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  const handleClick = async () => {
+    setBusy(true);
+    try {
+      await checkInBooking(kind, ref);
+      setCheckedIn(true);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (checkedIn) {
+    return <span style={{ fontSize: 11, fontWeight: 700, color: colors.greenText, background: colors.greenBg, borderRadius: 999, padding: "3px 10px", flex: "none" }}>✓ Checked in</span>;
+  }
+  return (
+    <button
+      onClick={handleClick}
+      disabled={busy}
+      style={{ fontSize: 11, fontWeight: 700, color: colors.muted, background: colors.panel, border: "none", borderRadius: 999, padding: "3px 10px", cursor: "pointer", flex: "none" }}
+    >
+      {busy ? "…" : "Check in"}
+    </button>
+  );
+}
 
 function BookingsTab() {
   const [bookings, setBookings] = useState<(MyBooking & { name: string; email: string; phone: string })[]>([]);
@@ -559,6 +818,7 @@ function BookingsTab() {
                 </span>
               )}
             </div>
+            {b.status !== "cancelled" && <CheckInButton kind="booking" ref={b.ref} />}
           </div>
         ))}
       </Card>
@@ -576,8 +836,46 @@ function BookingsTab() {
                 </span>
               )}
             </div>
+            {r.status !== "cancelled" && <CheckInButton kind="registration" ref={r.ref} />}
           </div>
         ))}
+      </Card>
+    </div>
+  );
+}
+
+// --- demand intelligence (Tier 3) — search_misses was logged with nothing
+// to show it. Purely descriptive: no action a vendor can take from here
+// beyond deciding to create a listing/session that matches the demand. ------
+
+function DemandTab() {
+  const [rows, setRows] = useState<DemandRow[] | null>(null);
+
+  useEffect(() => {
+    fetchVendorDemand().then(setRows).catch(() => setRows([]));
+  }, []);
+
+  if (rows === null) return <PageSpinner />;
+
+  return (
+    <div className="fade-panel">
+      <Card>
+        <h4 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 16, margin: "0 0 4px" }}>What people are searching for</h4>
+        <p style={{ fontSize: 12.5, color: colors.mutedLight, margin: "0 0 16px" }}>
+          Platform-wide searches that returned nothing — a signal for what to list next, not specific to your own listings yet.
+        </p>
+        {rows.length === 0 ? (
+          <EmptyState icon={<SearchIcon size={22} />} title="No unmet demand logged yet" />
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {rows.map((r, i) => (
+              <div key={i} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: colors.bg, borderRadius: 10, padding: "10px 14px", fontSize: 13.5 }}>
+                <span>"{r.queryText}"{r.county ? ` · ${r.county}` : ""}</span>
+                <span style={{ fontWeight: 700, color: colors.muted }}>{r.count}×</span>
+              </div>
+            ))}
+          </div>
+        )}
       </Card>
     </div>
   );
@@ -750,7 +1048,9 @@ export function VendorDashboard() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const initialTab = searchParams.get("tab");
-  const [tab, setTab] = useState<"listings" | "messages" | "bookings">(initialTab === "bookings" || initialTab === "messages" ? initialTab : "listings");
+  const [tab, setTab] = useState<"listings" | "messages" | "bookings" | "demand">(
+    initialTab === "bookings" || initialTab === "messages" || initialTab === "demand" ? initialTab : "listings"
+  );
   const [listings, setListings] = useState<{ centres: VendorListingSummary[]; clubs: VendorListingSummary[] }>({ centres: [], clubs: [] });
   const [stats, setStats] = useState<VendorStats | null>(null);
   const [editingCentre, setEditingCentre] = useState<string | "new" | null>(null);
@@ -812,6 +1112,7 @@ export function VendorDashboard() {
                   { key: "listings", label: "Listings", icon: <ClipboardIcon size={15} /> },
                   { key: "messages", label: "Messages", icon: <ChatIcon size={15} /> },
                   { key: "bookings", label: "Bookings & registrations", icon: <CalendarIcon size={15} /> },
+                  { key: "demand", label: "Demand", icon: <TrendUpIcon size={15} /> },
                 ]}
                 activeTab={tab}
                 onTabChange={setTab}
@@ -851,8 +1152,9 @@ export function VendorDashboard() {
             />
           ))}
 
-        {tab === "messages" && <MessagesTab onRead={loadUnreadCount} />}
+        {tab === "messages" && <MessagesTab onRead={loadUnreadCount} listings={listings} />}
         {tab === "bookings" && <BookingsTab />}
+        {tab === "demand" && <DemandTab />}
       </section>
     </div>
   );

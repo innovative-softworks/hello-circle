@@ -33,6 +33,7 @@ async function toGameJson(row: GameRow) {
   const centre = row.centre_id ? ((await db.prepare(`SELECT name, area, county FROM centres WHERE id = ?`).get(row.centre_id)) as { name: string; area: string; county: string } | undefined) : undefined;
   return {
     id: row.id,
+    hostResidentId: row.host_resident_id,
     activityLabel: row.activity_label,
     centreId: row.centre_id,
     centreName: centre?.name ?? null,
@@ -75,7 +76,50 @@ gamesRouter.get("/", async (req, res) => {
 gamesRouter.get("/:id", async (req, res) => {
   const row = (await db.prepare(`SELECT * FROM games WHERE id = ?`).get(req.params.id)) as GameRow | undefined;
   if (!row) return res.status(404).json({ error: "Game not found" });
-  res.json(await toGameJson(row));
+  const json = await toGameJson(row);
+  // Lets the detail page render "Join" vs "Leave" vs host-only controls
+  // without a second round trip — only computed here, not on the list.
+  let joinedByMe = false;
+  let waitlistedByMe = false;
+  if (req.resident) {
+    const p = await db.prepare(`SELECT status FROM game_participants WHERE game_id = ? AND resident_id = ?`).get(req.params.id, req.resident.id);
+    joinedByMe = !!p;
+    const w = await db
+      .prepare(`SELECT id FROM waitlist_entries WHERE listing_type = 'game' AND listing_id = ? AND resident_id = ? AND status = 'waiting'`)
+      .get(req.params.id, req.resident.id);
+    waitlistedByMe = !!w;
+  }
+  res.json({ ...json, joinedByMe, waitlistedByMe });
+});
+
+// Host-only — closes a game early (e.g. plans changed). Distinct from a
+// participant leaving: this ends it for everyone. Deliberately doesn't
+// refund a paid join automatically — same off-platform-refund convention
+// bookings.ts/registrations.ts already use for cancellations.
+gamesRouter.post("/:id/cancel", requireResident, async (req, res) => {
+  const row = (await db.prepare(`SELECT host_resident_id, activity_label FROM games WHERE id = ?`).get(req.params.id)) as
+    | { host_resident_id: string; activity_label: string }
+    | undefined;
+  if (!row) return res.status(404).json({ error: "Game not found" });
+  if (row.host_resident_id !== req.resident!.id) return res.status(403).json({ error: "Only the host can cancel this game" });
+
+  await db.prepare(`UPDATE games SET status = 'cancelled' WHERE id = ?`).run(req.params.id);
+
+  const participants = (await db
+    .prepare(`SELECT resident_id FROM game_participants WHERE game_id = ? AND resident_id != ? AND status = 'joined'`)
+    .all(req.params.id, req.resident!.id)) as { resident_id: string }[];
+  for (const p of participants) {
+    await notifyResident({
+      residentId: p.resident_id,
+      kind: "game",
+      title: `Cancelled: ${row.activity_label}`,
+      body: "The host has cancelled this game.",
+      listingType: "game",
+      listingId: req.params.id,
+      ref: req.params.id,
+    });
+  }
+  res.json({ ok: true });
 });
 
 interface CreateGameInput {

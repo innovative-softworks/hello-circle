@@ -420,6 +420,20 @@ vendorRouter.post("/notifications/:id/read", async (req, res) => {
   res.json({ ok: true });
 });
 
+// --- club waitlist visibility (Tier 3 — was genuinely missing, not just
+// missing UI: no route here saw a club's waitlist at all until now) --------
+
+vendorRouter.get("/clubs/:id/waitlist", async (req, res) => {
+  if (!(await ownsClub(req.user!.id, req.params.id))) return res.status(403).json({ error: "Not your listing" });
+  const rows = await db
+    .prepare(
+      `SELECT id, name, email, status, created_at as createdAt, offer_expires_at as offerExpiresAt
+       FROM waitlist_entries WHERE listing_type = 'club' AND listing_id = ? AND status IN ('waiting', 'offered') ORDER BY id`
+    )
+    .all(req.params.id);
+  res.json(rows);
+});
+
 // --- targeted communications (NEXT) ---------------------------------------
 // Distinct from the automatic booking/registration notifications above — a
 // vendor-authored message to everyone with a paid booking/registration on

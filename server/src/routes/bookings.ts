@@ -110,14 +110,15 @@ bookingsRouter.post("/checkout", async (req, res) => {
 
       await tx
         .prepare(
-          `INSERT INTO bookings (ref, client_id, centre_id, room_id, date, time, duration, event_type, guests, name, email, phone, notes,
+          `INSERT INTO bookings (ref, client_id, resident_id, centre_id, room_id, date, time, duration, event_type, guests, name, email, phone, notes,
             subtotal_cents, discount_cents, vat_cents, platform_fee_cents, coupon_code, total_cents, payment_status)
-           VALUES (@ref, @clientId, @centreId, @roomId, @date, @time, @duration, @eventType, @guests, @name, @email, @phone, @notes,
+           VALUES (@ref, @clientId, @residentId, @centreId, @roomId, @date, @time, @duration, @eventType, @guests, @name, @email, @phone, @notes,
             @subtotalCents, @discountCents, @vatCents, @platformFeeCents, @couponCode, @totalCents, @status)`
         )
         .run({
           ref,
           clientId,
+          residentId: req.resident?.id ?? null,
           centreId: body.centreId,
           roomId: body.roomId,
           date: body.date,

@@ -8,10 +8,12 @@ import { MyStuffProvider } from "./MyStuffContext";
 import { AdminDashboard } from "./pages/AdminDashboard";
 import { Browse } from "./pages/Browse";
 import { CentreDetail } from "./pages/CentreDetail";
+import { CircleDetail } from "./pages/CircleDetail";
 import { Circles } from "./pages/Circles";
 import { ClubDetail } from "./pages/ClubDetail";
 import { BookingFlow } from "./pages/BookingFlow";
 import { CookiePolicy } from "./pages/CookiePolicy";
+import { GameDetail } from "./pages/GameDetail";
 import { Games } from "./pages/Games";
 import { Home } from "./pages/Home";
 import { Login } from "./pages/Login";
@@ -41,7 +43,9 @@ export function App() {
               <Route path="/book/:centreId" element={<BookingFlow />} />
               <Route path="/register/:clubId" element={<RegistrationFlow />} />
               <Route path="/games" element={<Games />} />
+              <Route path="/games/:id" element={<GameDetail />} />
               <Route path="/circles" element={<Circles />} />
+              <Route path="/circles/:id" element={<CircleDetail />} />
               <Route path="/bookings" element={<MyBookings />} />
               <Route path="/payment/success" element={<PaymentSuccess />} />
               <Route path="/payment/cancel" element={<PaymentCancel />} />

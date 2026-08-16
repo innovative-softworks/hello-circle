@@ -13,13 +13,19 @@ import type { Centre, Game } from "../types";
 // pattern, not building it out fully on day one.
 
 function GameCard({ game, onJoin, onLeave, joining }: { game: Game; onJoin: () => void; onLeave: () => void; joining: boolean }) {
+  const navigate = useNavigate();
   const { resident } = useGuest();
   const full = game.spotsLeft === 0;
   return (
     <Card>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
         <div>
-          <div style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 18, marginBottom: 4 }}>{game.activityLabel}</div>
+          <button
+            onClick={() => navigate(`/games/${game.id}`)}
+            style={{ background: "none", border: "none", padding: 0, cursor: "pointer", textAlign: "left", fontFamily: fonts.display, fontWeight: 700, fontSize: 18, marginBottom: 4, color: colors.text }}
+          >
+            {game.activityLabel}
+          </button>
           <div style={{ color: colors.mutedLight, fontSize: 14 }}>{game.centreName ?? game.locationText}</div>
         </div>
         {game.priceCents ? (

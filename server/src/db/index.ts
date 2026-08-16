@@ -683,4 +683,15 @@ export async function initSchema() {
   // text version a guardian agreed to alongside the existing `consent` flag.
   // Not a substitute for legal review of the waiver text itself.
   await ensureColumn("registrations", "waiver_version", "waiver_version VARCHAR(20) NOT NULL DEFAULT ''");
+
+  // Optional link to a specific recurring session (Tier 1 UI pass) — wires
+  // club_sessions into the actual registration checkout instead of leaving
+  // it read/manage-only. NULL means "no specific session" (a club with no
+  // sessions configured behaves exactly as before).
+  await ensureColumn("registrations", "session_id", "session_id VARCHAR(191)");
+
+  // Pass redemption (Tier 2) — set when this registration was paid for by
+  // spending a credit-pack pass instead of a normal charge. NULL for every
+  // registration that pays/registers the ordinary way.
+  await ensureColumn("registrations", "pass_id", "pass_id INT");
 }

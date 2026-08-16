@@ -5,7 +5,7 @@ import { notifyCancellation, notifyNewBookingOrRegistration } from "../notificat
 import { computePricing, evaluateCoupon } from "../pricing.js";
 import { lookupLimiter } from "../rateLimit.js";
 import { CLIENT_URL, stripe } from "../stripe.js";
-import { BadRequestError, clientIdFrom, generateRef, isValidEmail } from "../util.js";
+import { BadRequestError, ConflictError, clientIdFrom, generateRef, isValidEmail } from "../util.js";
 import { promoteNextWaitlistEntry } from "../waitlist.js";
 
 export const registrationsRouter = Router();
@@ -37,18 +37,36 @@ interface CreateRegistrationBody {
   consent: boolean;
   trial: boolean;
   couponCode?: string;
+  /** Optional pick from that club's recurring schedule (Tier 1 UI pass) —
+   * a club with no sessions configured simply never sends this. */
+  sessionId?: string;
+  /** Redeem a credit-pack pass instead of paying (Tier 2). Mutually
+   * exclusive with couponCode/trial — validated + consumed atomically in
+   * the checkout handler, not here. */
+  passId?: number;
 }
 
-async function insertRegistration(ref: string, clientId: string, body: CreateRegistrationBody, pricing: ReturnType<typeof computePricing>, status: "pending" | "paid") {
+async function insertRegistration(
+  ref: string,
+  clientId: string,
+  residentId: string | null,
+  body: CreateRegistrationBody,
+  pricing: ReturnType<typeof computePricing>,
+  status: "pending" | "paid",
+  passId: number | null = null
+) {
   await db.prepare(
-    `INSERT INTO registrations (ref, client_id, club_id, team, child_first, child_last, dob, g_first, g_last, email, phone, address, ec_name, ec_phone, ec_rel, medical, consent, trial,
+    `INSERT INTO registrations (ref, client_id, resident_id, club_id, session_id, pass_id, team, child_first, child_last, dob, g_first, g_last, email, phone, address, ec_name, ec_phone, ec_rel, medical, consent, trial,
       subtotal_cents, discount_cents, vat_cents, platform_fee_cents, coupon_code, total_cents, payment_status, waiver_version)
-     VALUES (@ref, @clientId, @clubId, @team, @childFirst, @childLast, @dob, @gFirst, @gLast, @email, @phone, @address, @ecName, @ecPhone, @ecRel, @medical, @consent, @trial,
+     VALUES (@ref, @clientId, @residentId, @clubId, @sessionId, @passId, @team, @childFirst, @childLast, @dob, @gFirst, @gLast, @email, @phone, @address, @ecName, @ecPhone, @ecRel, @medical, @consent, @trial,
       @subtotalCents, @discountCents, @vatCents, @platformFeeCents, @couponCode, @totalCents, @status, @waiverVersion)`
   ).run({
     ref,
     clientId,
+    residentId,
     clubId: body.clubId,
+    sessionId: body.sessionId ?? null,
+    passId,
     team: body.team,
     childFirst: body.childFirst,
     childLast: body.childLast,
@@ -95,6 +113,11 @@ registrationsRouter.post("/checkout", async (req, res) => {
   const club = await getClub(body.clubId);
   if (!club) return res.status(404).json({ error: "Club not found" });
 
+  if (body.sessionId) {
+    const session = await db.prepare(`SELECT id FROM club_sessions WHERE id = ? AND club_id = ? AND active = 1`).get(body.sessionId, body.clubId);
+    if (!session) return res.status(400).json({ error: "That session is no longer available — please pick another" });
+  }
+
   // Capacity/waitlist (MVP) — nullable capacity means unlimited, matching
   // every club's behaviour before this existed. Not race-proof the way
   // bookings.ts's room lock is (a club registration has no single row to
@@ -109,6 +132,47 @@ registrationsRouter.post("/checkout", async (req, res) => {
     }
   }
 
+  const ref = generateRef("CR");
+
+  // Pass redemption (Tier 2) — spends one credit instead of paying. Row-locks
+  // the pass the same way bookings.ts locks a room, so two registrations
+  // can't both spend the pass's last credit in a race. Returns early: no
+  // pricing, no coupon, no Stripe — the pass was already paid for up front.
+  if (body.passId) {
+    if (!req.resident) return res.status(401).json({ error: "Sign in to use a pass" });
+    try {
+      await db.transaction(async (tx) => {
+        const pass = (await tx
+          .prepare(`SELECT id, resident_id, listing_id, credits_total, credits_used, expires_at FROM passes WHERE id = ? AND payment_status = 'paid' FOR UPDATE`)
+          .get(body.passId)) as { id: number; resident_id: string; listing_id: string; credits_total: number; credits_used: number; expires_at: string | null } | undefined;
+        if (!pass || pass.resident_id !== req.resident!.id || pass.listing_id !== body.clubId) throw new ConflictError("That pass isn't valid for this club");
+        if (pass.expires_at && new Date(pass.expires_at) < new Date()) throw new ConflictError("That pass has expired");
+        if (pass.credits_used >= pass.credits_total) throw new ConflictError("That pass has no credits left");
+
+        await tx.prepare(`UPDATE passes SET credits_used = credits_used + 1 WHERE id = ?`).run(pass.id);
+        const zeroPricing = computePricing(0, 0, 0, null);
+        await insertRegistration(ref, clientId, req.resident!.id, body, zeroPricing, "paid", pass.id);
+      });
+    } catch (e) {
+      if (e instanceof ConflictError) return res.status(409).json({ error: e.message });
+      throw e;
+    }
+
+    const clubVendorForPass = (await db.prepare(`SELECT vendor_id FROM clubs WHERE id = ?`).get(body.clubId)) as { vendor_id: string | null } | undefined;
+    notifyNewBookingOrRegistration({
+      kind: "registration",
+      listingType: "club",
+      listingId: club.id,
+      listingName: club.name,
+      vendorId: clubVendorForPass?.vendor_id ?? null,
+      guestName: `${body.gFirst} ${body.gLast}`,
+      guestEmail: body.email,
+      ref,
+      detailsText: `${body.childFirst} ${body.childLast} (DOB ${body.dob}) · ${body.team} · redeemed via pass`,
+    }).catch((e) => console.error("[notifications] registration notify failed:", e));
+    return res.status(201).json({ ref, totalEuro: 0, trial: false });
+  }
+
   const subtotalCents = body.trial ? 0 : club.price * 100;
   let discountCents = 0;
   let couponCode: string | null = null;
@@ -119,7 +183,6 @@ registrationsRouter.post("/checkout", async (req, res) => {
     couponCode = result.code!;
   }
   const pricing = computePricing(subtotalCents, 0, discountCents, couponCode);
-  const ref = generateRef("CR");
   // Free trial registrations need no payment, and cash-mode clubs skip
   // Stripe entirely — both confirm immediately, no redirect.
   const isCash = club.paymentMethod === "cash" && pricing.totalCents > 0;
@@ -138,14 +201,14 @@ registrationsRouter.post("/checkout", async (req, res) => {
       detailsText: `${body.childFirst} ${body.childLast} (DOB ${body.dob}) · ${body.team}${body.trial ? " · Trial session" : ""} · €${(pricing.totalCents / 100).toFixed(2)}${isCash ? " due in cash on arrival" : " total"}`,
     }).catch((e) => console.error("[notifications] registration notify failed:", e));
   if (pricing.totalCents === 0 || isCash) {
-    await insertRegistration(ref, clientId, body, pricing, "paid");
+    await insertRegistration(ref, clientId, req.resident?.id ?? null, body, pricing, "paid");
     notify("paid");
     return res.status(201).json({ ref, totalEuro: pricing.totalCents / 100, trial: body.trial });
   }
 
   if (!stripe) return res.status(503).json({ error: "Payments aren't configured yet" });
 
-  await insertRegistration(ref, clientId, body, pricing, "pending");
+  await insertRegistration(ref, clientId, req.resident?.id ?? null, body, pricing, "pending");
 
   let session;
   try {

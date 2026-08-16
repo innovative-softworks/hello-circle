@@ -1,18 +1,19 @@
 import { useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { fetchAdminPendingListings, fetchCentres, fetchVendorListings, guestLogout, logout } from "../api";
+import { fetchAdminPendingListings, fetchCentres, fetchResidentNotifications, fetchVendorListings, guestLogout, logout, markResidentNotificationRead } from "../api";
 import { useAuth } from "../AuthContext";
 import { useGuest } from "../GuestContext";
 import { BellIcon, CloseIcon, LogoMark, MenuIcon, PinIcon } from "./icons";
 import { colors, fonts, maxWidth } from "../theme";
 import { useMyStuff } from "../MyStuffContext";
+import type { ResidentNotification } from "../types";
 
 export function Header() {
   const navigate = useNavigate();
   const location = useLocation();
   const { count } = useMyStuff();
   const { user, refresh } = useAuth();
-  const { email: guestEmail, refresh: refreshGuest } = useGuest();
+  const { email: guestEmail, resident, refresh: refreshGuest } = useGuest();
   const [menuOpen, setMenuOpen] = useState(false);
   const [alerts, setAlerts] = useState(0);
   const [countyMenuOpen, setCountyMenuOpen] = useState(false);
@@ -21,10 +22,22 @@ export function Header() {
   const countyMenuRef = useRef<HTMLDivElement>(null);
   const accountMenuRef = useRef<HTMLDivElement>(null);
 
+  // Resident notification bell (Tier 1) — previously these only lived
+  // inside My Bookings > Notifications, easy to miss entirely.
+  const [residentNotifs, setResidentNotifs] = useState<ResidentNotification[]>([]);
+  const [notifOpen, setNotifOpen] = useState(false);
+  const notifRef = useRef<HTMLDivElement>(null);
+  const unreadNotifs = residentNotifs.filter((n) => !n.read).length;
+
+  const loadResidentNotifs = () => {
+    if (resident) fetchResidentNotifications().then(setResidentNotifs).catch(() => {});
+  };
+
   useEffect(() => {
     setMenuOpen(false);
     setCountyMenuOpen(false);
     setAccountMenuOpen(false);
+    setNotifOpen(false);
   }, [location.pathname]);
 
   useEffect(() => {
@@ -32,6 +45,21 @@ export function Header() {
       setCounties(Array.from(new Set(centres.map((c) => c.county).filter(Boolean))).sort((a, b) => a.localeCompare(b)));
     });
   }, []);
+
+  useEffect(loadResidentNotifs, [resident]);
+
+  useEffect(() => {
+    function onDocClick(e: MouseEvent) {
+      if (notifRef.current && !notifRef.current.contains(e.target as Node)) setNotifOpen(false);
+    }
+    document.addEventListener("mousedown", onDocClick);
+    return () => document.removeEventListener("mousedown", onDocClick);
+  }, []);
+
+  const handleNotifRead = async (id: number) => {
+    await markResidentNotificationRead(id);
+    setResidentNotifs((rows) => rows.map((n) => (n.id === id ? { ...n, read: 1 } : n)));
+  };
 
   // Close the two header dropdowns on an outside click — they're popovers,
   // not the full-width mobile panel below, which already only opens via its
@@ -267,6 +295,74 @@ export function Header() {
             )}
           </div>
 
+          {resident && (
+            <div ref={notifRef} style={{ position: "relative" }}>
+              <button
+                className="btn btn-ghost"
+                onClick={() => setNotifOpen((o) => !o)}
+                aria-label="Notifications"
+                style={circleBtnStyle}
+              >
+                <BellIcon size={17} />
+                {unreadNotifs > 0 && (
+                  <span
+                    style={{
+                      position: "absolute",
+                      top: -3,
+                      right: -3,
+                      background: colors.orange,
+                      color: "#fff",
+                      borderRadius: 999,
+                      fontSize: 10,
+                      fontWeight: 700,
+                      minWidth: 16,
+                      height: 16,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      padding: "0 3px",
+                    }}
+                  >
+                    {unreadNotifs}
+                  </span>
+                )}
+              </button>
+              {notifOpen && (
+                <div className="pop-in" style={{ ...dropdownStyle, minWidth: 300, maxHeight: 360, overflowY: "auto" }}>
+                  <div style={dropdownLabelStyle}>Notifications</div>
+                  {residentNotifs.length === 0 ? (
+                    <div style={{ padding: "16px 12px", fontSize: 13.5, color: colors.mutedLight }}>Nothing yet.</div>
+                  ) : (
+                    residentNotifs.slice(0, 8).map((n) => (
+                      <button
+                        key={n.id}
+                        onClick={() => {
+                          if (!n.read) handleNotifRead(n.id);
+                          setNotifOpen(false);
+                          navigate("/bookings");
+                        }}
+                        style={{
+                          display: "block",
+                          width: "100%",
+                          textAlign: "left",
+                          background: n.read ? "none" : colors.greenBg,
+                          border: "none",
+                          borderRadius: 10,
+                          padding: "10px 12px",
+                          cursor: "pointer",
+                          marginBottom: 2,
+                        }}
+                      >
+                        <div style={{ fontSize: 13.5, fontWeight: 700, color: colors.text }}>{n.title}</div>
+                        <div style={{ fontSize: 12.5, color: colors.mutedLight, marginTop: 2 }}>{n.body}</div>
+                      </button>
+                    ))
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
           <div ref={accountMenuRef} style={{ position: "relative" }}>
             <button
               className="btn btn-ghost"
@@ -414,6 +510,11 @@ export function Header() {
           <button style={mobileNavBtn} onClick={() => go("/bookings")}>
             My bookings ({count})
           </button>
+          {resident && (
+            <button style={{ ...mobileNavBtn, display: "flex", alignItems: "center", gap: 8 }} onClick={() => go("/bookings")}>
+              <BellIcon size={16} /> Notifications{unreadNotifs > 0 ? ` (${unreadNotifs})` : ""}
+            </button>
+          )}
           <div style={{ borderTop: `1px solid ${colors.border}`, margin: "8px 0" }} />
           {user ? (
             <>

@@ -23,6 +23,7 @@ import type {
   VendorListingSummary,
   VendorNotification,
   VendorStats,
+  WaitlistEntry,
   WaitlistPosition,
 } from "./types";
 
@@ -147,6 +148,8 @@ export interface CreateRegistrationInput {
   consent: boolean;
   trial: boolean;
   couponCode?: string;
+  sessionId?: string;
+  passId?: number;
 }
 
 /** Free trial registrations are confirmed immediately (no `url` returned).
@@ -339,6 +342,10 @@ export function leaveGame(id: string): Promise<{ ok: boolean }> {
   return request(`/games/${id}/join`, { method: "DELETE" });
 }
 
+export function cancelGame(id: string): Promise<{ ok: boolean }> {
+  return request(`/games/${id}/cancel`, { method: "POST" });
+}
+
 export function joinGameWaitlist(id: string): Promise<{ ok: boolean }> {
   return request(`/games/${id}/waitlist`, { method: "POST" });
 }
@@ -405,6 +412,10 @@ export function createPassCheckout(input: { listingId: string; creditsTotal: num
 
 export function search(q: string): Promise<SearchResult> {
   return request(`/search?q=${encodeURIComponent(q)}`);
+}
+
+export function fetchVendorClubWaitlist(clubId: string): Promise<WaitlistEntry[]> {
+  return request(`/vendor/clubs/${clubId}/waitlist`);
 }
 
 // --- vendor: messages / demand / check-in (NEXT / FUTURE) ------------------

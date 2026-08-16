@@ -205,6 +205,7 @@ export interface WaitlistPosition {
 
 export interface Game {
   id: string;
+  hostResidentId: string;
   activityLabel: string;
   centreId: string | null;
   centreName: string | null;
@@ -221,6 +222,9 @@ export interface Game {
   visibility: string;
   status: string;
   createdAt: string;
+  /** Only present on the single-game detail fetch, not the list. */
+  joinedByMe?: boolean;
+  waitlistedByMe?: boolean;
 }
 
 // --- Circles (NEXT) --------------------------------------------------------
@@ -280,6 +284,15 @@ export interface SearchResult {
 }
 
 // --- demand intelligence (NEXT) ---------------------------------------------
+
+export interface WaitlistEntry {
+  id: number;
+  name: string;
+  email: string;
+  status: "waiting" | "offered";
+  createdAt: string;
+  offerExpiresAt: string | null;
+}
 
 export interface DemandRow {
   queryText: string;

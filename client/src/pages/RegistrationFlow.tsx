@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { ApiError, createRegistrationCheckout, fetchClub, fetchHousehold, joinClubWaitlist, validateCoupon, PLATFORM_FEE_RATE, VAT_RATE } from "../api";
+import { ApiError, createRegistrationCheckout, fetchClub, fetchClubSessions, fetchHousehold, fetchMyPasses, joinClubWaitlist, validateCoupon, PLATFORM_FEE_RATE, VAT_RATE } from "../api";
 import { Chip } from "../components/Chip";
 import { useGuest } from "../GuestContext";
-import type { HouseholdMember } from "../types";
+import type { ClubSession, HouseholdMember, Pass } from "../types";
 import { Photo } from "../components/Photo";
 import { Stepper } from "../components/Stepper";
 import { Button, PageSpinner } from "../components/ui";
@@ -59,6 +59,10 @@ export function RegistrationFlow() {
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [household, setHousehold] = useState<HouseholdMember[]>([]);
+  const [sessions, setSessions] = useState<ClubSession[]>([]);
+  const [sessionId, setSessionId] = useState<string>("");
+  const [usablePass, setUsablePass] = useState<Pass | null>(null);
+  const [usePass, setUsePass] = useState(false);
   // Set when checkout comes back 409 { full: true } (see clubs.capacity /
   // routes/registrations.ts) — offers the waitlist instead of a dead end.
   const [clubFull, setClubFull] = useState(false);
@@ -78,6 +82,24 @@ export function RegistrationFlow() {
   useEffect(() => {
     if (guestEmail) fetchHousehold().then(setHousehold).catch(() => {});
   }, [guestEmail]);
+
+  // Recurring session picker (Tier 1) — a club with none configured simply
+  // shows no picker, same flat-registration behaviour as before this existed.
+  useEffect(() => {
+    if (clubId) fetchClubSessions(clubId).then(setSessions).catch(() => {});
+  }, [clubId]);
+
+  // Pass redemption (Tier 2) — offer "use a credit" only if the signed-in
+  // resident actually holds a pass with spendable credits for this club.
+  useEffect(() => {
+    if (!guestEmail || !clubId) return;
+    fetchMyPasses()
+      .then((passes) => setUsablePass(passes.find((p) => p.listingId === clubId && p.creditsUsed < p.creditsTotal) ?? null))
+      .catch(() => setUsablePass(null));
+  }, [guestEmail, clubId]);
+
+  const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  const sessionLabel = (s: ClubSession) => `${DAY_NAMES[s.dayOfWeek] ?? "?"} ${s.time}${s.label ? ` — ${s.label}` : ""}`;
 
   const set = <K extends keyof RegForm>(field: K, value: RegForm[K]) => setForm((f) => ({ ...f, [field]: value }));
   const top = () => window.scrollTo({ top: 0, behavior: "smooth" });
@@ -127,7 +149,9 @@ export function RegistrationFlow() {
         clubId, team: form.team, childFirst: form.childFirst, childLast: form.childLast, dob: form.dob,
         gFirst: form.gFirst, gLast: form.gLast, email: form.email, phone: form.phone, address: form.address,
         ecName: form.ecName, ecPhone: form.ecPhone, ecRel: form.ecRel, medical: form.medical,
-        consent: form.consent, trial: form.trial, couponCode: form.trial ? undefined : coupon?.code,
+        consent: form.consent, trial: usePass ? false : form.trial, couponCode: usePass || form.trial ? undefined : coupon?.code,
+        sessionId: sessionId || undefined,
+        passId: usePass && usablePass ? usablePass.id : undefined,
       });
       if (res.url) {
         window.location.href = res.url;
@@ -205,7 +229,9 @@ export function RegistrationFlow() {
           <p style={{ color: colors.muted, fontSize: 17, margin: "0 0 28px" }}>
             {form.trial
               ? `We've emailed ${form.email || "you"} the details for ${form.childFirst || "your child"}'s free trial.`
-              : `Pay €${confirmedTotalEuro.toFixed(2)} in cash at the club — no online payment needed. We've emailed ${form.email || "you"} the details.`}
+              : usePass
+                ? `Covered by your pass — one credit used. We've emailed ${form.email || "you"} the details.`
+                : `Pay €${confirmedTotalEuro.toFixed(2)} in cash at the club — no online payment needed. We've emailed ${form.email || "you"} the details.`}
           </p>
           <div style={{ background: "#fff", border: `1px solid ${colors.border}`, borderRadius: 18, padding: 24, textAlign: "left", marginBottom: 24 }}>
             <div style={{ fontWeight: 700, fontSize: 18, marginBottom: 2 }}>{club.name}</div>
@@ -225,7 +251,7 @@ export function RegistrationFlow() {
               </div>
               <div>
                 <div style={{ fontSize: 12, color: colors.faint, fontWeight: 600 }}>STATUS</div>
-                <div style={{ fontWeight: 600 }}>{form.trial ? "Free trial" : "Cash on arrival"}</div>
+                <div style={{ fontWeight: 600 }}>{form.trial ? "Free trial" : usePass ? "Paid via pass" : "Cash on arrival"}</div>
               </div>
             </div>
           </div>
@@ -377,14 +403,49 @@ export function RegistrationFlow() {
                 <h2 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 23, margin: "0 0 6px", letterSpacing: "-.01em" }}>
                   Membership & payment
                 </h2>
-                <div style={{ background: colors.bg, border: `1px solid ${colors.border}`, borderRadius: 14, padding: 16, display: "flex", alignItems: "center", gap: 14, margin: "16px 0 20px" }}>
-                  <input type="checkbox" checked={form.trial} onChange={(e) => set("trial", e.target.checked)} style={{ width: 18, height: 18, accentColor: colors.orange, flex: "none" }} />
+                {sessions.length > 0 && (
+                  <div style={{ margin: "16px 0" }}>
+                    <label style={labelStyle}>Which session?</label>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                      {sessions.map((s) => (
+                        <Chip key={s.id} label={sessionLabel(s)} active={sessionId === s.id} onClick={() => setSessionId(s.id)} accent="orange" radius={11} padding="9px 16px" />
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {usablePass && (
+                  <label
+                    style={{ display: "flex", alignItems: "center", gap: 14, background: colors.greenBg, border: `1px solid ${colors.green}`, borderRadius: 14, padding: 16, marginBottom: 12, cursor: "pointer" }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={usePass}
+                      onChange={(e) => {
+                        setUsePass(e.target.checked);
+                        if (e.target.checked) set("trial", false);
+                      }}
+                      style={{ width: 18, height: 18, accentColor: colors.green, flex: "none" }}
+                    />
+                    <div>
+                      <div style={{ fontWeight: 700, fontSize: 15, color: colors.greenText }}>
+                        Use a pass credit — {usablePass.creditsTotal - usablePass.creditsUsed} left
+                      </div>
+                      <div style={{ color: colors.mutedLight, fontSize: 13 }}>No charge — this registration is covered by your pass.</div>
+                    </div>
+                  </label>
+                )}
+                <div style={{ background: colors.bg, border: `1px solid ${colors.border}`, borderRadius: 14, padding: 16, display: "flex", alignItems: "center", gap: 14, margin: "0 0 20px", opacity: usePass ? 0.5 : 1, pointerEvents: usePass ? "none" : "auto" }}>
+                  <input type="checkbox" checked={form.trial} onChange={(e) => set("trial", e.target.checked)} disabled={usePass} style={{ width: 18, height: 18, accentColor: colors.orange, flex: "none" }} />
                   <div>
                     <div style={{ fontWeight: 700, fontSize: 15 }}>Start with a free trial instead</div>
                     <div style={{ color: colors.mutedLight, fontSize: 13 }}>Try one session free — pay only if they'd like to continue.</div>
                   </div>
                 </div>
-                {!form.trial ? (
+                {usePass ? (
+                  <p style={{ color: colors.muted, fontSize: 15, lineHeight: 1.5, margin: "4px 0 0" }}>
+                    This registration will be confirmed immediately using one of your pass credits — no payment needed.
+                  </p>
+                ) : !form.trial ? (
                   <>
                     <p style={{ color: colors.mutedLight, fontSize: 14, margin: "0 0 16px" }}>
                       {isCash
@@ -478,11 +539,13 @@ export function RegistrationFlow() {
                 {step === 4
                   ? submitting
                     ? "Please wait…"
-                    : form.trial
-                      ? "Book free trial"
-                      : isCash
-                        ? `Confirm registration — pay €${(totalCents / 100).toFixed(2)} on arrival`
-                        : `Continue to pay €${(totalCents / 100).toFixed(2)}`
+                    : usePass
+                      ? "Redeem pass credit"
+                      : form.trial
+                        ? "Book free trial"
+                        : isCash
+                          ? `Confirm registration — pay €${(totalCents / 100).toFixed(2)} on arrival`
+                          : `Continue to pay €${(totalCents / 100).toFixed(2)}`
                   : "Continue"}
               </button>
             </div>
@@ -523,7 +586,7 @@ export function RegistrationFlow() {
                 <span style={{ fontWeight: 600 }}>{form.team || "Not set"}</span>
               </div>
             </div>
-            {!form.trial && (
+            {!form.trial && !usePass && (
               <div style={{ borderTop: "1px solid #EEEBE3", margin: "16px 0", paddingTop: 14, display: "flex", flexDirection: "column", gap: 9, fontSize: 14 }}>
                 <div style={{ display: "flex", justifyContent: "space-between" }}>
                   <span style={{ color: colors.mutedLight }}>Membership</span>
@@ -546,8 +609,8 @@ export function RegistrationFlow() {
               </div>
             )}
             <div style={{ borderTop: "1px solid #EEEBE3", marginTop: 16, paddingTop: 14, display: "flex", justifyContent: "space-between", fontFamily: fonts.display, fontWeight: 700, fontSize: 18 }}>
-              <span>{form.trial ? "Due now" : isCash ? "Due in cash" : "Total"}</span>
-              <span>{form.trial ? "€0" : `€${(totalCents / 100).toFixed(2)}`}</span>
+              <span>{usePass ? "Covered by pass" : form.trial ? "Due now" : isCash ? "Due in cash" : "Total"}</span>
+              <span>{usePass || form.trial ? "€0" : `€${(totalCents / 100).toFixed(2)}`}</span>
             </div>
           </div>
         </div>

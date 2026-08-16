@@ -1,22 +1,24 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { fetchCentres, fetchClubs } from "../api";
+import { fetchCentres, fetchClubs, search } from "../api";
 import { CentreCard } from "../components/CentreCard";
 import { ClubCard } from "../components/ClubCard";
-import { CardSkeleton } from "../components/ui";
+import { CardSkeleton, EmptyState } from "../components/ui";
 import { CommunityIllustration, SportsIllustration } from "../components/illustrations";
 import {
   ArrowRightIcon,
   BallIcon,
   BuildingIcon,
   ChevronRightIcon,
+  CloseIcon,
   HandshakeIcon,
   HeartIcon,
   PinIcon,
+  SearchIcon,
 } from "../components/icons";
 import { nearestCounty } from "../irishCounties";
 import { colors, fonts, maxWidth } from "../theme";
-import type { Centre, Club } from "../types";
+import type { Centre, Club, SearchResult } from "../types";
 
 export function Home() {
   const navigate = useNavigate();
@@ -29,6 +31,16 @@ export function Home() {
   const [featuredClubs, setFeaturedClubs] = useState<Club[]>([]);
   const [loadingClubs, setLoadingClubs] = useState(true);
   const [counties, setCounties] = useState<string[]>(["All"]);
+
+  // Free-text "smart" search (Tier 1 — wires the rule-based /api/search
+  // parser, previously built but never surfaced anywhere in the client).
+  // Deliberately a separate, secondary affordance rather than reworking the
+  // hero pill above — that pill's exact single-row layout was hand-tuned
+  // across several commits and isn't worth risking for this.
+  const [smartOpen, setSmartOpen] = useState(false);
+  const [smartQuery, setSmartQuery] = useState("");
+  const [smartResults, setSmartResults] = useState<SearchResult | null>(null);
+  const [smartSearching, setSmartSearching] = useState(false);
 
   // County dropdown always reflects the full unfiltered set (same pattern as
   // Browse.tsx) so picking a county doesn't shrink the dropdown down to it.
@@ -54,6 +66,23 @@ export function Home() {
   }, [homeCounty]);
 
   const handleSearch = () => navigate(`/browse/${homeCategory}?county=${encodeURIComponent(homeCounty)}`);
+
+  const handleSmartSearch = async () => {
+    const q = smartQuery.trim();
+    if (!q) return;
+    setSmartSearching(true);
+    try {
+      setSmartResults(await search(q));
+    } finally {
+      setSmartSearching(false);
+    }
+  };
+
+  const closeSmartSearch = () => {
+    setSmartOpen(false);
+    setSmartQuery("");
+    setSmartResults(null);
+  };
 
   // Permission is only ever requested here, on explicit click — never on page load.
   // Resolves entirely client-side: the real coordinate is matched against real
@@ -242,7 +271,7 @@ export function Home() {
             </button>
           </div>
 
-          <div style={{ marginTop: 12, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+          <div style={{ marginTop: 12, display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
             <button
               onClick={handleUseMyLocation}
               disabled={locating}
@@ -262,7 +291,78 @@ export function Home() {
               <PinIcon size={14} /> {locating ? "Locating…" : "Use my current location"}
             </button>
             {locationError && <span style={{ color: "#b00020", fontSize: 13 }}>{locationError}</span>}
+            <button
+              onClick={() => (smartOpen ? closeSmartSearch() : setSmartOpen(true))}
+              style={{ display: "inline-flex", alignItems: "center", gap: 6, background: "none", border: "none", color: colors.muted, fontWeight: 700, fontSize: 14, cursor: "pointer", padding: 0 }}
+            >
+              <SearchIcon size={14} /> {smartOpen ? "Hide smart search" : "Or try a smart search"}
+            </button>
           </div>
+
+          {smartOpen && (
+            <div className="pop-in" style={{ marginTop: 14, background: "#fff", border: `1px solid ${colors.border}`, borderRadius: 16, padding: 16 }}>
+              <div style={{ display: "flex", gap: 8 }}>
+                <input
+                  value={smartQuery}
+                  onChange={(e) => setSmartQuery(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && handleSmartSearch()}
+                  placeholder="e.g. free badminton in Dublin this evening"
+                  autoFocus
+                  style={{ flex: 1, padding: "11px 13px", border: `1px solid ${colors.inputBorder}`, borderRadius: 11, fontSize: 14.5, outline: "none" }}
+                />
+                <button
+                  onClick={handleSmartSearch}
+                  disabled={smartSearching || !smartQuery.trim()}
+                  style={{ flex: "none", background: colors.dark, color: "#fff", border: "none", borderRadius: 11, padding: "0 18px", fontWeight: 700, fontSize: 14, cursor: "pointer", opacity: smartSearching ? 0.6 : 1 }}
+                >
+                  {smartSearching ? "Searching…" : "Search"}
+                </button>
+                <button
+                  onClick={closeSmartSearch}
+                  aria-label="Close search"
+                  style={{ flex: "none", background: "none", border: "none", color: colors.faint, cursor: "pointer", display: "flex", alignItems: "center" }}
+                >
+                  <CloseIcon size={16} />
+                </button>
+              </div>
+
+              {smartResults && (
+                <div style={{ marginTop: 16 }}>
+                  {smartResults.parsed && (
+                    <div style={{ fontSize: 12.5, color: colors.faint, marginBottom: 12 }}>
+                      Understood as: {[smartResults.parsed.county, smartResults.parsed.free ? "free" : null, smartResults.parsed.timeOfDay, ...smartResults.parsed.keywords].filter(Boolean).join(" · ") || "no specific filters"}
+                    </div>
+                  )}
+                  {smartResults.centres.length === 0 && smartResults.clubs.length === 0 ? (
+                    <EmptyState icon={<SearchIcon size={18} />} title="Nothing matched" subtitle="Try a different phrasing, or broaden it — e.g. drop the county." />
+                  ) : (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                      {smartResults.centres.map((c) => (
+                        <button
+                          key={c.id}
+                          onClick={() => navigate(`/centres/${c.id}`)}
+                          style={{ textAlign: "left", background: colors.bg, border: `1px solid ${colors.border}`, borderRadius: 12, padding: "10px 14px", cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center" }}
+                        >
+                          <span><strong>{c.name}</strong> <span style={{ color: colors.mutedLight, fontSize: 13 }}>· {c.area}</span></span>
+                          <span style={{ fontSize: 12, fontWeight: 700, color: colors.greenText, background: colors.greenBg, borderRadius: 999, padding: "2px 9px" }}>Centre</span>
+                        </button>
+                      ))}
+                      {smartResults.clubs.map((c) => (
+                        <button
+                          key={c.id}
+                          onClick={() => navigate(`/clubs/${c.id}`)}
+                          style={{ textAlign: "left", background: colors.bg, border: `1px solid ${colors.border}`, borderRadius: 12, padding: "10px 14px", cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center" }}
+                        >
+                          <span><strong>{c.name}</strong> <span style={{ color: colors.mutedLight, fontSize: 13 }}>· {c.sport}</span></span>
+                          <span style={{ fontSize: 12, fontWeight: 700, color: colors.orangeDark, background: colors.orangeBg, borderRadius: 999, padding: "2px 9px" }}>Club</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         <div className="hero-visual" style={{ position: "relative" }}>

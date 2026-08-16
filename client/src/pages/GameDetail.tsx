@@ -1,0 +1,138 @@
+import { useEffect, useState } from "react";
+import { useNavigate, useParams } from "react-router-dom";
+import { cancelGame, fetchGame, joinGame, joinGameWaitlist, leaveGame, leaveGameWaitlist } from "../api";
+import { CalendarIcon, ChevronLeftIcon, ClockIcon, PinIcon, UsersIcon } from "../components/icons";
+import { Button, Card, PageSpinner } from "../components/ui";
+import { useGuest } from "../GuestContext";
+import { colors, fonts } from "../theme";
+import type { Game } from "../types";
+
+// Game detail (Tier 1) — Games.tsx was list-only; this gives a game a
+// shareable URL, room to show host-only controls, and a clearer "who's
+// coming" summary than the list card had space for.
+
+export function GameDetail() {
+  const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
+  const { resident } = useGuest();
+  const [game, setGame] = useState<Game | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = () => {
+    if (!id) return;
+    setLoading(true);
+    fetchGame(id)
+      .then(setGame)
+      .catch(() => setGame(null))
+      .finally(() => setLoading(false));
+  };
+
+  useEffect(load, [id]);
+
+  if (loading) return <PageSpinner />;
+  if (!game) {
+    return (
+      <section style={{ maxWidth: 640, margin: "0 auto", padding: "60px 24px", textAlign: "center" }}>
+        <p style={{ color: colors.mutedLight }}>This game doesn't exist, or has been cancelled.</p>
+        <Button onClick={() => navigate("/games")}>Back to games</Button>
+      </section>
+    );
+  }
+
+  const isHost = resident?.id === game.hostResidentId;
+  const cancelled = game.status === "cancelled";
+  const full = game.spotsLeft === 0;
+
+  const run = async (fn: () => Promise<unknown>) => {
+    setError(null);
+    setBusy(true);
+    try {
+      const res = (await fn()) as { url?: string } | undefined;
+      if (res?.url) {
+        window.location.href = res.url;
+        return;
+      }
+      load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Something went wrong");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div style={{ animation: "fadeUp .3s ease both" }}>
+      <section style={{ maxWidth: 640, margin: "0 auto", padding: "26px 24px 80px" }}>
+        <button
+          onClick={() => navigate("/games")}
+          style={{ display: "inline-flex", alignItems: "center", background: "none", border: "none", color: colors.muted, fontWeight: 600, fontSize: 14, cursor: "pointer", padding: 0, marginBottom: 20 }}
+        >
+          <ChevronLeftIcon size={14} style={{ marginRight: 4 }} /> All games
+        </button>
+
+        <Card>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, marginBottom: 14 }}>
+            <div>
+              <h1 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 26, margin: "0 0 4px", letterSpacing: "-.01em" }}>{game.activityLabel}</h1>
+              <div style={{ display: "flex", alignItems: "center", gap: 6, color: colors.mutedLight, fontSize: 14.5 }}>
+                <PinIcon size={14} /> {game.centreName ?? game.locationText}
+              </div>
+            </div>
+            {game.priceCents ? (
+              <div style={{ fontWeight: 700, fontSize: 20, color: colors.greenText }}>€{(game.priceCents / 100).toFixed(2)}</div>
+            ) : (
+              <div style={{ fontWeight: 700, fontSize: 14, color: colors.greenText, background: colors.greenBg, borderRadius: 999, padding: "4px 12px" }}>Free</div>
+            )}
+          </div>
+
+          {cancelled && (
+            <div style={{ background: "#F6E3E3", color: "#b00020", borderRadius: 12, padding: "10px 14px", fontWeight: 700, fontSize: 13.5, marginBottom: 16 }}>
+              This game was cancelled by the host.
+            </div>
+          )}
+
+          <div style={{ display: "flex", gap: 20, margin: "16px 0", fontSize: 14.5, color: colors.muted, flexWrap: "wrap" }}>
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}><CalendarIcon size={15} /> {game.date}</span>
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}><ClockIcon size={15} /> {game.time}</span>
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}><UsersIcon size={15} /> {game.joined}/{game.capacity} joined</span>
+            {game.skillLevel && <span>· {game.skillLevel}</span>}
+          </div>
+
+          {error && <p style={{ color: "#b00020", fontSize: 13.5, margin: "0 0 12px" }}>{error}</p>}
+
+          {!cancelled && (
+            <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 16 }}>
+              {isHost ? (
+                <Button variant="danger" onClick={() => run(() => cancelGame(game.id))} disabled={busy}>
+                  Cancel this game
+                </Button>
+              ) : !resident ? (
+                <Button onClick={() => navigate("/bookings")}>Sign in to join</Button>
+              ) : game.joinedByMe ? (
+                <Button variant="ghost" onClick={() => run(() => leaveGame(game.id))} disabled={busy}>
+                  Leave game
+                </Button>
+              ) : full ? (
+                game.waitlistedByMe ? (
+                  <Button variant="ghost" onClick={() => run(() => leaveGameWaitlist(game.id))} disabled={busy}>
+                    Leave waitlist
+                  </Button>
+                ) : (
+                  <Button variant="orange" onClick={() => run(() => joinGameWaitlist(game.id))} disabled={busy}>
+                    Join waitlist
+                  </Button>
+                )
+              ) : (
+                <Button onClick={() => run(() => joinGame(game.id))} disabled={busy}>
+                  {busy ? "Please wait…" : "Join game"}
+                </Button>
+              )}
+            </div>
+          )}
+        </Card>
+      </section>
+    </div>
+  );
+}

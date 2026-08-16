@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { createCircle, fetchCircles, joinCircle, leaveCircle } from "../api";
 import { UsersIcon } from "../components/icons";
 import { Button, Card, EmptyState, PageSpinner, inputStyle, labelStyle } from "../components/ui";
@@ -11,6 +12,7 @@ import type { Circle } from "../types";
 // membership + what's coming up. Deliberately minimal v1.
 
 export function Circles() {
+  const navigate = useNavigate();
   const { resident } = useGuest();
   const [circles, setCircles] = useState<Circle[]>([]);
   const [loading, setLoading] = useState(true);
@@ -102,7 +104,12 @@ export function Circles() {
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 16 }}>
             {circles.map((c) => (
               <Card key={c.id}>
-                <div style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 17, marginBottom: 4 }}>{c.name}</div>
+                <button
+                  onClick={() => navigate(`/circles/${c.id}`)}
+                  style={{ background: "none", border: "none", padding: 0, cursor: "pointer", textAlign: "left", fontFamily: fonts.display, fontWeight: 700, fontSize: 17, marginBottom: 4, color: colors.text, display: "block" }}
+                >
+                  {c.name}
+                </button>
                 <div style={{ color: colors.mutedLight, fontSize: 13.5, marginBottom: 10 }}>
                   {[c.activityLabel, c.area, c.county].filter(Boolean).join(" · ") || "General"}
                 </div>
