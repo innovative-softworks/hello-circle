@@ -1,22 +1,69 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { fetchCentre } from "../api";
+import { addFavourite, fetchCentre, fetchFavourites, fetchGames, joinGame, removeFavourite } from "../api";
 import { ClaimListingCTA } from "../components/ClaimListingCTA";
 import { PhotoGallery } from "../components/PhotoGallery";
 import { Reviews } from "../components/Reviews";
-import { CheckIcon, ChevronLeftIcon, ClockIcon, PinIcon, RepeatIcon, StarIcon, WheelchairIcon } from "../components/icons";
-import { ListingDetailSkeleton } from "../components/ui";
+import { CalendarIcon, CheckIcon, ChevronLeftIcon, ClockIcon, HeartIcon, PinIcon, RepeatIcon, StarIcon, UsersIcon, WheelchairIcon } from "../components/icons";
+import { Button, ListingDetailSkeleton } from "../components/ui";
+import { isFavorite, toggleFavorite } from "../favorites";
+import { useGuest } from "../GuestContext";
 import { colors, fonts, maxWidth } from "../theme";
-import type { Centre } from "../types";
+import type { Centre, Game } from "../types";
 
 export function CentreDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const { resident } = useGuest();
   const [centre, setCentre] = useState<Centre | null>(null);
+  const [favourited, setFavourited] = useState(false);
+  const [games, setGames] = useState<Game[]>([]);
+  const [joiningId, setJoiningId] = useState<string | null>(null);
 
   useEffect(() => {
     if (id) fetchCentre(id).then(setCentre);
   }, [id]);
+
+  // Server-backed favourites when signed in (MVP); localStorage otherwise —
+  // see client/src/favorites.ts for the anonymous fallback.
+  useEffect(() => {
+    if (!id) return;
+    if (resident) fetchFavourites().then((rows) => setFavourited(rows.some((r) => r.listingType === "centre" && r.listingId === id)));
+    else setFavourited(isFavorite("centre", id));
+  }, [id, resident]);
+
+  // "Join a Game" CTA (MVP — Book vs Join) — open games hosted at this venue.
+  useEffect(() => {
+    if (!id) return;
+    fetchGames().then((rows) => setGames(rows.filter((g) => g.centreId === id)));
+  }, [id]);
+
+  const handleToggleFavourite = async () => {
+    if (!id) return;
+    if (resident) {
+      if (favourited) await removeFavourite("centre", id);
+      else await addFavourite("centre", id);
+      setFavourited((f) => !f);
+    } else {
+      setFavourited(toggleFavorite("centre", id));
+    }
+  };
+
+  const handleJoinGame = async (gameId: string) => {
+    setJoiningId(gameId);
+    try {
+      const res = await joinGame(gameId);
+      if (res.url) {
+        window.location.href = res.url;
+        return;
+      }
+      setGames((rows) => rows.map((g) => (g.id === gameId ? { ...g, joined: g.joined + 1, spotsLeft: g.spotsLeft - 1 } : g)));
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "Couldn't join this game");
+    } finally {
+      setJoiningId(null);
+    }
+  };
 
   const reloadRating = () => {
     if (id) fetchCentre(id).then(setCentre);
@@ -51,8 +98,15 @@ export function CentreDetail() {
             )}
             <span style={{ color: colors.faint }}>up to {centre.capacity} guests</span>
           </div>
-          <h1 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: "clamp(26px, 5vw, 36px)", margin: "0 0 4px", letterSpacing: "-.025em" }}>
+          <h1 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: "clamp(26px, 5vw, 36px)", margin: "0 0 4px", letterSpacing: "-.025em", display: "flex", alignItems: "center", gap: 10 }}>
             {centre.name}
+            <button
+              onClick={handleToggleFavourite}
+              aria-label={favourited ? "Remove from favourites" : "Add to favourites"}
+              style={{ background: "none", border: "none", cursor: "pointer", padding: 0, display: "inline-flex", color: favourited ? colors.orange : colors.faint }}
+            >
+              <HeartIcon size={22} style={favourited ? { fill: colors.orange } : undefined} />
+            </button>
           </h1>
           <p style={{ color: colors.mutedLight, fontSize: 16, margin: "0 0 22px", display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
             <span>{centre.area} · Managed by {centre.managedBy}</span>
@@ -76,6 +130,32 @@ export function CentreDetail() {
             ))}
           </div>
 
+          {games.length > 0 && (
+            <>
+              <h3 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 20, margin: "0 0 4px", letterSpacing: "-.01em" }}>
+                Open games here
+              </h3>
+              <p style={{ color: colors.mutedLight, fontSize: 14, margin: "0 0 14px" }}>
+                Don't need the whole venue? Join people who are already playing.
+              </p>
+              <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 32 }}>
+                {games.map((g) => (
+                  <div key={g.id} style={{ border: `1px solid ${colors.border}`, borderRadius: 14, padding: "14px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+                    <div>
+                      <div style={{ fontWeight: 700 }}>{g.activityLabel}</div>
+                      <div style={{ fontSize: 13, color: colors.mutedLight, display: "flex", gap: 12, marginTop: 2 }}>
+                        <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}><CalendarIcon size={13} /> {g.date} · {g.time}</span>
+                        <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}><UsersIcon size={13} /> {g.spotsLeft} spot{g.spotsLeft === 1 ? "" : "s"} left</span>
+                      </div>
+                    </div>
+                    <Button onClick={() => handleJoinGame(g.id)} disabled={joiningId === g.id || g.spotsLeft === 0}>
+                      {g.spotsLeft === 0 ? "Full" : joiningId === g.id ? "Joining…" : "Join game"}
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
         </div>
         <div
           className="sticky-aside"

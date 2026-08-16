@@ -1,23 +1,33 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import {
+  addFavourite,
+  addHouseholdMember,
   cancelBooking,
   cancelRegistration,
+  deleteHouseholdMember,
+  fetchFavourites,
+  fetchHousehold,
   fetchMyBookings,
+  fetchMyPasses,
   fetchMyRegistrations,
+  fetchResidentNotifications,
   guestLogout,
   lookupBooking,
   lookupRegistration,
+  markResidentNotificationRead,
+  removeFavourite,
   requestGuestLink,
+  updateResidentMe,
   verifyGuestLink,
 } from "../api";
 import { ChevronRightIcon } from "../components/icons";
 import { Photo } from "../components/Photo";
-import { Button, RowSkeleton, inputStyle, labelStyle } from "../components/ui";
+import { Button, EmptyState, RowSkeleton, Tabs, inputStyle, labelStyle } from "../components/ui";
 import { dateLabel, euro } from "../euro";
 import { useGuest } from "../GuestContext";
 import { colors, fonts } from "../theme";
-import type { MyBooking, MyRegistration } from "../types";
+import type { Favourite, HouseholdMember, MyBooking, MyRegistration, Pass, ResidentNotification } from "../types";
 
 const cancelledBadgeStyle: React.CSSProperties = { fontSize: 11, fontWeight: 700, color: "#b00020", background: "#F6E3E3", borderRadius: 999, padding: "2px 8px" };
 const recoveredBadgeStyle: React.CSSProperties = { fontSize: 11, fontWeight: 700, color: colors.greenText, background: colors.greenBg, borderRadius: 999, padding: "2px 8px" };
@@ -108,10 +118,257 @@ function RegistrationRow({
 
 type LookupResult = { kind: "booking"; data: MyBooking } | { kind: "registration"; data: MyRegistration };
 
+// --- Household (MVP) -------------------------------------------------------
+
+function HouseholdPanel() {
+  const [members, setMembers] = useState<HouseholdMember[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
+  const [dob, setDob] = useState("");
+  const [adding, setAdding] = useState(false);
+
+  const load = () => {
+    setLoading(true);
+    fetchHousehold()
+      .then(setMembers)
+      .finally(() => setLoading(false));
+  };
+
+  useEffect(load, []);
+
+  const handleAdd = async () => {
+    if (!firstName.trim() || !lastName.trim()) return;
+    setAdding(true);
+    try {
+      await addHouseholdMember({ firstName: firstName.trim(), lastName: lastName.trim(), dob: dob || undefined });
+      setFirstName("");
+      setLastName("");
+      setDob("");
+      load();
+    } finally {
+      setAdding(false);
+    }
+  };
+
+  const handleRemove = async (id: number) => {
+    await deleteHouseholdMember(id);
+    setMembers((rows) => rows.filter((m) => m.id !== id));
+  };
+
+  return (
+    <div>
+      <p style={{ color: colors.mutedLight, fontSize: 14, margin: "0 0 20px" }}>
+        Add kids or dependants once — pick them straight from here next time you register for a club instead of retyping their details.
+      </p>
+      <div style={{ background: "#fff", border: `1px solid ${colors.border}`, borderRadius: 16, padding: "18px 20px", marginBottom: 20 }}>
+        <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 12 }}>Add a household member</div>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 10, alignItems: "flex-end" }}>
+          <div style={{ flex: "1 1 160px" }}>
+            <label style={labelStyle}>First name</label>
+            <input value={firstName} onChange={(e) => setFirstName(e.target.value)} style={inputStyle} />
+          </div>
+          <div style={{ flex: "1 1 160px" }}>
+            <label style={labelStyle}>Last name</label>
+            <input value={lastName} onChange={(e) => setLastName(e.target.value)} style={inputStyle} />
+          </div>
+          <div style={{ flex: "1 1 160px" }}>
+            <label style={labelStyle}>Date of birth</label>
+            <input type="date" value={dob} onChange={(e) => setDob(e.target.value)} style={inputStyle} />
+          </div>
+          <Button onClick={handleAdd} disabled={adding || !firstName.trim() || !lastName.trim()}>
+            {adding ? "Adding…" : "Add"}
+          </Button>
+        </div>
+      </div>
+
+      {loading ? (
+        <RowSkeleton />
+      ) : members.length === 0 ? (
+        <EmptyState icon={<ChevronRightIcon size={20} />} title="No household members yet" subtitle="Add one above to speed up club registrations." />
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          {members.map((m) => (
+            <div key={m.id} style={{ background: "#fff", border: `1px solid ${colors.border}`, borderRadius: 14, padding: "14px 18px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <div>
+                <div style={{ fontWeight: 700 }}>{m.firstName} {m.lastName}</div>
+                {m.dob && <div style={{ fontSize: 13, color: colors.mutedLight }}>Born {m.dob}</div>}
+              </div>
+              <Button variant="danger" onClick={() => handleRemove(m.id)}>Remove</Button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// --- Favourites (MVP) -------------------------------------------------------
+
+function FavouritesPanel() {
+  const navigate = useNavigate();
+  const [favourites, setFavourites] = useState<Favourite[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetchFavourites()
+      .then(setFavourites)
+      .finally(() => setLoading(false));
+  }, []);
+
+  const handleRemove = async (f: Favourite) => {
+    await removeFavourite(f.listingType, f.listingId);
+    setFavourites((rows) => rows.filter((r) => !(r.listingType === f.listingType && r.listingId === f.listingId)));
+  };
+
+  if (loading) return <RowSkeleton />;
+  if (favourites.length === 0) {
+    return <EmptyState icon={<ChevronRightIcon size={20} />} title="No favourites yet" subtitle="Tap the heart on a centre or club to save it here." />;
+  }
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      {favourites.map((f) => (
+        <div key={`${f.listingType}:${f.listingId}`} style={{ background: "#fff", border: `1px solid ${colors.border}`, borderRadius: 14, padding: "14px 18px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <button
+            onClick={() => navigate(f.listingType === "centre" ? `/centres/${f.listingId}` : `/clubs/${f.listingId}`)}
+            style={{ background: "none", border: "none", padding: 0, cursor: "pointer", fontWeight: 700, color: colors.text, textAlign: "left" }}
+          >
+            {f.listingType === "centre" ? "Community centre" : "Sports club"} — view listing
+          </button>
+          <Button variant="danger" onClick={() => handleRemove(f)}>Remove</Button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// --- Resident notifications (MVP) -------------------------------------------
+
+function NotificationsPanel() {
+  const [notifications, setNotifications] = useState<ResidentNotification[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const load = () => {
+    setLoading(true);
+    fetchResidentNotifications()
+      .then(setNotifications)
+      .finally(() => setLoading(false));
+  };
+
+  useEffect(load, []);
+
+  const handleRead = async (id: number) => {
+    await markResidentNotificationRead(id);
+    setNotifications((rows) => rows.map((n) => (n.id === id ? { ...n, read: 1 } : n)));
+  };
+
+  if (loading) return <RowSkeleton />;
+  if (notifications.length === 0) {
+    return <EmptyState icon={<ChevronRightIcon size={20} />} title="Nothing yet" subtitle="Waitlist offers and game updates will show up here." />;
+  }
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      {notifications.map((n) => (
+        <div
+          key={n.id}
+          onClick={() => !n.read && handleRead(n.id)}
+          style={{
+            background: n.read ? "#fff" : colors.greenBg,
+            border: `1px solid ${colors.border}`,
+            borderRadius: 14,
+            padding: "14px 18px",
+            cursor: n.read ? "default" : "pointer",
+          }}
+        >
+          <div style={{ fontWeight: 700, fontSize: 14.5 }}>{n.title}</div>
+          <div style={{ fontSize: 13.5, color: colors.mutedLight, marginTop: 2 }}>{n.body}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// --- Passes (NEXT) -----------------------------------------------------
+
+function PassesPanel() {
+  const [passes, setPasses] = useState<Pass[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetchMyPasses()
+      .then(setPasses)
+      .finally(() => setLoading(false));
+  }, []);
+
+  if (loading) return <RowSkeleton />;
+  if (passes.length === 0) {
+    return <EmptyState icon={<ChevronRightIcon size={20} />} title="No passes yet" subtitle="A club offering a credit pack will show it on their page." />;
+  }
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      {passes.map((p) => (
+        <div key={p.id} style={{ background: "#fff", border: `1px solid ${colors.border}`, borderRadius: 14, padding: "14px 18px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <div>
+            <div style={{ fontWeight: 700 }}>{p.listingName}</div>
+            <div style={{ fontSize: 13, color: colors.mutedLight }}>{p.creditsTotal - p.creditsUsed} of {p.creditsTotal} credits left</div>
+          </div>
+          <div style={{ fontWeight: 700 }}>{euro(p.purchasedCents / 100)}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// --- profile (name / home county) -------------------------------------------
+
+function ProfilePanel() {
+  const { resident, refresh } = useGuest();
+  const [name, setName] = useState(resident?.name ?? "");
+  const [homeCounty, setHomeCounty] = useState(resident?.homeCounty ?? "");
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  const handleSave = async () => {
+    setSaving(true);
+    setSaved(false);
+    try {
+      await updateResidentMe({ name, homeCounty });
+      await refresh();
+      setSaved(true);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div style={{ background: "#fff", border: `1px solid ${colors.border}`, borderRadius: 16, padding: "18px 20px", maxWidth: 420 }}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+        <div>
+          <label style={labelStyle}>Name</label>
+          <input value={name} onChange={(e) => setName(e.target.value)} style={inputStyle} />
+        </div>
+        <div>
+          <label style={labelStyle}>Home county</label>
+          <input value={homeCounty} onChange={(e) => setHomeCounty(e.target.value)} style={inputStyle} />
+        </div>
+        <Button onClick={handleSave} disabled={saving}>
+          {saving ? "Saving…" : saved ? "Saved" : "Save"}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+type MyStuffTab = "bookings" | "household" | "favourites" | "notifications" | "passes" | "profile";
+
 export function MyBookings() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const { email: guestEmail, refresh: refreshGuest } = useGuest();
+  const [tab, setTab] = useState<MyStuffTab>("bookings");
   const [bookings, setBookings] = useState<MyBooking[]>([]);
   const [regs, setRegs] = useState<MyRegistration[]>([]);
   const [loading, setLoading] = useState(true);
@@ -251,10 +508,35 @@ export function MyBookings() {
   return (
     <div style={{ animation: "fadeUp .35s ease both" }}>
       <section style={{ maxWidth: 900, margin: "0 auto", padding: "36px 24px 80px" }}>
-        <h1 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 34, margin: "0 0 24px", letterSpacing: "-.02em" }}>
+        <h1 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 34, margin: "0 0 20px", letterSpacing: "-.02em" }}>
           My bookings
         </h1>
 
+        {guestEmail && (
+          <div style={{ marginBottom: 24 }}>
+            <Tabs
+              value={tab}
+              onChange={setTab}
+              options={[
+                { key: "bookings", label: "Bookings" },
+                { key: "household", label: "Household" },
+                { key: "favourites", label: "Favourites" },
+                { key: "notifications", label: "Notifications" },
+                { key: "passes", label: "Passes" },
+                { key: "profile", label: "Profile" },
+              ]}
+            />
+          </div>
+        )}
+
+        {tab === "household" && <HouseholdPanel />}
+        {tab === "favourites" && <FavouritesPanel />}
+        {tab === "notifications" && <NotificationsPanel />}
+        {tab === "passes" && <PassesPanel />}
+        {tab === "profile" && <ProfilePanel />}
+
+        {tab === "bookings" && (
+        <>
         {verifying && (
           <div style={{ background: colors.greenBg, color: colors.greenText, borderRadius: 16, padding: "14px 20px", marginBottom: 20, fontSize: 14, fontWeight: 600 }}>
             Signing you in…
@@ -403,6 +685,8 @@ export function MyBookings() {
               ))}
             </div>
           </>
+        )}
+        </>
         )}
       </section>
     </div>

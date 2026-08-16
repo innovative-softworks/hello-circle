@@ -6,8 +6,18 @@ import { computePricing, evaluateCoupon } from "../pricing.js";
 import { lookupLimiter } from "../rateLimit.js";
 import { CLIENT_URL, stripe } from "../stripe.js";
 import { BadRequestError, clientIdFrom, generateRef, isValidEmail } from "../util.js";
+import { promoteNextWaitlistEntry } from "../waitlist.js";
 
 export const registrationsRouter = Router();
+
+// Safeguarding scaffolding (FUTURE, best-effort) — records which version of
+// the guardian consent/waiver text a registration was submitted under,
+// alongside the existing `consent` boolean. Bump this constant whenever the
+// waiver copy shown in RegistrationFlow.tsx materially changes, so past
+// registrations stay attributable to the text the guardian actually saw.
+// This is a record-keeping mechanism only, not a substitute for legal
+// review of that text.
+export const WAIVER_VERSION = "2026-08-v1";
 
 interface CreateRegistrationBody {
   clubId: string;
@@ -32,9 +42,9 @@ interface CreateRegistrationBody {
 async function insertRegistration(ref: string, clientId: string, body: CreateRegistrationBody, pricing: ReturnType<typeof computePricing>, status: "pending" | "paid") {
   await db.prepare(
     `INSERT INTO registrations (ref, client_id, club_id, team, child_first, child_last, dob, g_first, g_last, email, phone, address, ec_name, ec_phone, ec_rel, medical, consent, trial,
-      subtotal_cents, discount_cents, vat_cents, platform_fee_cents, coupon_code, total_cents, payment_status)
+      subtotal_cents, discount_cents, vat_cents, platform_fee_cents, coupon_code, total_cents, payment_status, waiver_version)
      VALUES (@ref, @clientId, @clubId, @team, @childFirst, @childLast, @dob, @gFirst, @gLast, @email, @phone, @address, @ecName, @ecPhone, @ecRel, @medical, @consent, @trial,
-      @subtotalCents, @discountCents, @vatCents, @platformFeeCents, @couponCode, @totalCents, @status)`
+      @subtotalCents, @discountCents, @vatCents, @platformFeeCents, @couponCode, @totalCents, @status, @waiverVersion)`
   ).run({
     ref,
     clientId,
@@ -61,6 +71,7 @@ async function insertRegistration(ref: string, clientId: string, body: CreateReg
     couponCode: pricing.couponCode,
     totalCents: pricing.totalCents,
     status,
+    waiverVersion: body.consent ? WAIVER_VERSION : "",
   });
 }
 
@@ -83,6 +94,20 @@ registrationsRouter.post("/checkout", async (req, res) => {
 
   const club = await getClub(body.clubId);
   if (!club) return res.status(404).json({ error: "Club not found" });
+
+  // Capacity/waitlist (MVP) — nullable capacity means unlimited, matching
+  // every club's behaviour before this existed. Not race-proof the way
+  // bookings.ts's room lock is (a club registration has no single row to
+  // lock against) — acceptable here since going slightly over capacity on a
+  // club roster is a minor operational issue, not a double-booked venue.
+  if (club.capacity !== null) {
+    const { n: paidCount } = (await db
+      .prepare(`SELECT COUNT(*) as n FROM registrations WHERE club_id = ? AND payment_status = 'paid' AND status != 'cancelled'`)
+      .get(club.id)) as { n: number };
+    if (paidCount >= club.capacity) {
+      return res.status(409).json({ error: "This club is currently full", full: true });
+    }
+  }
 
   const subtotalCents = body.trial ? 0 : club.price * 100;
   let discountCents = 0;
@@ -273,6 +298,11 @@ registrationsRouter.post("/:ref/cancel", lookupLimiter, async (req, res) => {
     ref: row.ref,
     detailsText: `${row.childFirst} ${row.childLast} · ${row.team}`,
   }).catch((e) => console.error("[notifications] registration cancellation notify failed:", e));
+
+  // A cancelled paid registration frees a capacity spot (NEXT — waitlist
+  // auto-promotion). No-op if the club has no capacity set or no one is
+  // waiting — promoteNextWaitlistEntry never throws.
+  promoteNextWaitlistEntry("club", row.clubId, row.clubName);
 
   res.json({ ok: true });
 });

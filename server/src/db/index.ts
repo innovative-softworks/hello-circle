@@ -301,6 +301,194 @@ export async function initSchema() {
       status VARCHAR(20) NOT NULL DEFAULT 'pending',
       created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
       decided_at DATETIME
+    );
+
+    -- Resident identity (MVP). Created the first time a guest verifies a
+    -- magic link (see guestAuth.ts) — deliberately separate from 'users'
+    -- (vendor/admin accounts): residents never get a password, same
+    -- passwordless model guest_sessions already uses. Anonymous X-Client-Id
+    -- checkout keeps working unchanged — this is additive identity, not a
+    -- login wall.
+    CREATE TABLE IF NOT EXISTS residents (
+      id VARCHAR(191) PRIMARY KEY,
+      email VARCHAR(255) NOT NULL UNIQUE,
+      name VARCHAR(255) NOT NULL DEFAULT '',
+      home_county VARCHAR(255) NOT NULL DEFAULT '',
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- Household members (MVP) a resident registers/books on behalf of.
+    CREATE TABLE IF NOT EXISTS household_members (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      resident_id VARCHAR(191) NOT NULL,
+      first_name VARCHAR(255) NOT NULL,
+      last_name VARCHAR(255) NOT NULL,
+      dob VARCHAR(20) NOT NULL DEFAULT '',
+      notes TEXT NOT NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- Server-side favourites (MVP) for a signed-in resident. Signed-out
+    -- guests keep the existing client/src/favorites.ts localStorage-only
+    -- behaviour unchanged.
+    CREATE TABLE IF NOT EXISTS favourites (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      resident_id VARCHAR(191) NOT NULL,
+      listing_type VARCHAR(20) NOT NULL,
+      listing_id VARCHAR(191) NOT NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE KEY uniq_favourite (resident_id, listing_type, listing_id)
+    );
+
+    -- FIFO waitlist (MVP) for a full club (see clubs.capacity below) or a
+    -- full game (see games below).
+    CREATE TABLE IF NOT EXISTS waitlist_entries (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      listing_type VARCHAR(20) NOT NULL,
+      listing_id VARCHAR(191) NOT NULL,
+      resident_id VARCHAR(191),
+      client_id VARCHAR(191) NOT NULL,
+      name VARCHAR(255) NOT NULL DEFAULT '',
+      email VARCHAR(255) NOT NULL DEFAULT '',
+      status VARCHAR(20) NOT NULL DEFAULT 'waiting',
+      offer_expires_at DATETIME,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- "Join a Game" (MVP) — a lightweight joinable activity, deliberately
+    -- independent of bookings/registrations and (in v1) of Stripe/pricing.ts.
+    CREATE TABLE IF NOT EXISTS games (
+      id VARCHAR(191) PRIMARY KEY,
+      host_resident_id VARCHAR(191) NOT NULL,
+      activity_label VARCHAR(255) NOT NULL,
+      centre_id VARCHAR(191),
+      location_text VARCHAR(500) NOT NULL DEFAULT '',
+      date VARCHAR(20) NOT NULL,
+      time VARCHAR(20) NOT NULL,
+      skill_level VARCHAR(50) NOT NULL DEFAULT '',
+      capacity INT NOT NULL,
+      price_cents INT,
+      visibility VARCHAR(20) NOT NULL DEFAULT 'public',
+      status VARCHAR(20) NOT NULL DEFAULT 'open',
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- payment_status/stripe_session_id/ref (NEXT — paid Join-a-Game) mirror
+    -- the bookings/registrations pattern: a free/cash game inserts straight
+    -- in as 'joined'/'paid' — a priced game inserts as 'pending_payment' and
+    -- only flips once the Stripe webhook confirms it (see routes/games.ts,
+    -- routes/stripeWebhook.ts). 'status' counts toward capacity for both
+    -- 'joined' and 'pending_payment' so a spot isn't oversold mid-checkout.
+    CREATE TABLE IF NOT EXISTS game_participants (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      game_id VARCHAR(191) NOT NULL,
+      resident_id VARCHAR(191) NOT NULL,
+      ref VARCHAR(191) UNIQUE,
+      joined_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      status VARCHAR(20) NOT NULL DEFAULT 'joined',
+      payment_status VARCHAR(20) NOT NULL DEFAULT 'paid',
+      stripe_session_id VARCHAR(255),
+      UNIQUE KEY uniq_participant (game_id, resident_id)
+    );
+
+    -- Recurring per-session schedule for a club (NEXT phase) — turns the
+    -- flat "register" action into a real session with its own capacity.
+    -- Not yet wired into registrations.ts checkout (see CLAUDE.md-style note
+    -- in routes/clubSessions.ts) — v1 of this table is read/manage only.
+    CREATE TABLE IF NOT EXISTS club_sessions (
+      id VARCHAR(191) PRIMARY KEY,
+      club_id VARCHAR(191) NOT NULL,
+      day_of_week INT NOT NULL,
+      time VARCHAR(20) NOT NULL,
+      capacity INT,
+      label VARCHAR(255) NOT NULL DEFAULT '',
+      active TINYINT NOT NULL DEFAULT 1,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- Circles (NEXT) — a persistent group anchored to recurring
+    -- participation, not a generic social feed.
+    CREATE TABLE IF NOT EXISTS circles (
+      id VARCHAR(191) PRIMARY KEY,
+      name VARCHAR(255) NOT NULL,
+      activity_label VARCHAR(255) NOT NULL DEFAULT '',
+      area VARCHAR(255) NOT NULL DEFAULT '',
+      county VARCHAR(255) NOT NULL DEFAULT '',
+      about TEXT NOT NULL,
+      centre_id VARCHAR(191),
+      created_by_resident_id VARCHAR(191) NOT NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS circle_members (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      circle_id VARCHAR(191) NOT NULL,
+      resident_id VARCHAR(191) NOT NULL,
+      role VARCHAR(20) NOT NULL DEFAULT 'member',
+      joined_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE KEY uniq_circle_member (circle_id, resident_id)
+    );
+
+    -- Credit-pack passes (NEXT) — a resident buys N credits up front,
+    -- redeemable against a club/game instead of paying per-booking.
+    CREATE TABLE IF NOT EXISTS passes (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      ref VARCHAR(191) UNIQUE,
+      resident_id VARCHAR(191) NOT NULL,
+      listing_type VARCHAR(20) NOT NULL,
+      listing_id VARCHAR(191) NOT NULL,
+      credits_total INT NOT NULL,
+      credits_used INT NOT NULL DEFAULT 0,
+      purchased_cents INT NOT NULL,
+      payment_status VARCHAR(20) NOT NULL DEFAULT 'pending',
+      stripe_session_id VARCHAR(255),
+      expires_at DATETIME,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- Logged zero/low-result searches (NEXT — demand intelligence),
+    -- aggregated into a signal shown to vendors/admins.
+    CREATE TABLE IF NOT EXISTS search_misses (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      query_text VARCHAR(500) NOT NULL,
+      listing_type VARCHAR(20) NOT NULL DEFAULT '',
+      county VARCHAR(255) NOT NULL DEFAULT '',
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- Targeted vendor -> participant messages (NEXT), distinct from the
+    -- automatic booking/registration notifications in notifications.ts.
+    CREATE TABLE IF NOT EXISTS vendor_messages (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      vendor_id VARCHAR(191) NOT NULL,
+      listing_type VARCHAR(20) NOT NULL,
+      listing_id VARCHAR(191) NOT NULL,
+      subject VARCHAR(255) NOT NULL,
+      body TEXT NOT NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- Multi-tenant org hierarchy scaffolding (FUTURE, best-effort). A real
+    -- multi-org deployment would scope centres/clubs under one of these via
+    -- their new nullable org_id column below — every existing listing has
+    -- org_id NULL and behaves exactly as before — this is data-model only,
+    -- not tenant isolation (see plan doc "Not yet" section).
+    CREATE TABLE IF NOT EXISTS organisations (
+      id VARCHAR(191) PRIMARY KEY,
+      name VARCHAR(255) NOT NULL,
+      kind VARCHAR(50) NOT NULL DEFAULT 'council',
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- Manual/staff attendance check-in (FUTURE, best-effort) against a paid
+    -- booking or registration ref. No hardware/QR-scanning integration —
+    -- staff look up the ref and mark it, see routes/vendor.ts check-in route.
+    CREATE TABLE IF NOT EXISTS attendance (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      kind VARCHAR(20) NOT NULL,
+      ref VARCHAR(191) NOT NULL UNIQUE,
+      checked_in_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      checked_in_by VARCHAR(191)
     )
   `);
 
@@ -459,4 +647,40 @@ export async function initSchema() {
   // payment — this is a distinct booking-lifecycle flag.
   await ensureColumn("bookings", "status", "status VARCHAR(20) NOT NULL DEFAULT 'confirmed'");
   await ensureColumn("registrations", "status", "status VARCHAR(20) NOT NULL DEFAULT 'confirmed'");
+
+  // Resident linkage (MVP) — populated only when the guest was signed in at
+  // checkout; client_id remains the primary scoping key, this is additive.
+  await ensureColumn("bookings", "resident_id", "resident_id VARCHAR(191)");
+  await ensureColumn("registrations", "resident_id", "resident_id VARCHAR(191)");
+
+  // A notification may now target a resident directly (MVP), not only a
+  // vendor/admin — same polymorphic shape, just a second nullable recipient
+  // column rather than overloading recipient_id across two identity spaces.
+  await ensureColumn("notifications", "resident_id", "resident_id VARCHAR(191)");
+
+  // Club capacity (MVP) — nullable = unlimited, matching every existing
+  // club's current (uncapped) behaviour exactly. Only once this is set does
+  // "full" / "join the waitlist" mean anything for a club.
+  await ensureColumn("clubs", "capacity", "capacity INT");
+
+  // Org scoping (FUTURE, best-effort) — nullable, unused by any query today;
+  // see organisations table above.
+  await ensureColumn("centres", "org_id", "org_id VARCHAR(191)");
+  await ensureColumn("clubs", "org_id", "org_id VARCHAR(191)");
+
+  // Lightweight RBAC scaffolding (FUTURE, best-effort) — an additional,
+  // optional named role layered on top of the existing role='vendor'|'admin'
+  // (e.g. 'centre_manager', 'finance', 'read_only_analyst'), checked by the
+  // new requirePlatformRole() guard in auth.ts. Existing requireVendor /
+  // requireAdmin / requireVendorOrAdmin are completely unchanged.
+  await ensureColumn("users", "platform_role", "platform_role VARCHAR(30)");
+
+  // Marketplace provider-tier scaffolding (FUTURE, best-effort) — a data
+  // field only; no commercial/billing logic is attached to it.
+  await ensureColumn("users", "provider_tier", "provider_tier VARCHAR(20) NOT NULL DEFAULT 'standard'");
+
+  // Safeguarding scaffolding (FUTURE, best-effort) — records which waiver
+  // text version a guardian agreed to alongside the existing `consent` flag.
+  // Not a substitute for legal review of the waiver text itself.
+  await ensureColumn("registrations", "waiver_version", "waiver_version VARCHAR(20) NOT NULL DEFAULT ''");
 }

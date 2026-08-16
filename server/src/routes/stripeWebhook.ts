@@ -1,6 +1,6 @@
 import type { Request, Response } from "express";
 import { db } from "../db/index.js";
-import { notifyNewBookingOrRegistration } from "../notifications.js";
+import { notifyNewBookingOrRegistration, notifyResident } from "../notifications.js";
 import { recordCouponUse } from "../pricing.js";
 import { STRIPE_WEBHOOK_SECRET, stripe } from "../stripe.js";
 import type Stripe from "stripe";
@@ -92,10 +92,58 @@ async function confirmRegistration(ref: string) {
   }).catch((e) => console.error("[notifications] registration notify failed:", e));
 }
 
+interface GameJoinForNotify {
+  game_id: string;
+  host_resident_id: string;
+  activity_label: string;
+  date: string;
+  time: string;
+  capacity: number;
+  resident_id: string;
+}
+
+/** Paid Join-a-Game confirmation (NEXT). Same idempotent
+ * only-flip-if-still-pending pattern as confirmBooking/confirmRegistration
+ * above — a retried webhook delivery is a safe no-op. */
+async function confirmGameJoin(ref: string) {
+  const info = await db.prepare(`UPDATE game_participants SET status = 'joined', payment_status = 'paid' WHERE ref = ? AND payment_status = 'pending'`).run(ref);
+  if (info.changes === 0) return;
+
+  const row = (await db
+    .prepare(
+      `SELECT gp.game_id, gp.resident_id, g.host_resident_id, g.activity_label, g.date, g.time, g.capacity
+       FROM game_participants gp JOIN games g ON g.id = gp.game_id WHERE gp.ref = ?`
+    )
+    .get(ref)) as GameJoinForNotify | undefined;
+  if (!row) return;
+
+  const { n: joined } = (await db.prepare(`SELECT COUNT(*) as n FROM game_participants WHERE game_id = ? AND status = 'joined'`).get(row.game_id)) as {
+    n: number;
+  };
+  if (joined >= row.capacity) {
+    await notifyResident({
+      residentId: row.host_resident_id,
+      kind: "game",
+      title: `Your game is full: ${row.activity_label}`,
+      body: `${row.date} at ${row.time} — all ${row.capacity} spots are taken.`,
+      listingType: "game",
+      listingId: row.game_id,
+      ref: row.game_id,
+    }).catch((e) => console.error("[notifications] game notify failed:", e));
+  }
+}
+
+/** Credit-pack pass confirmation (NEXT) — same idempotent pattern. */
+async function confirmPass(ref: string) {
+  await db.prepare(`UPDATE passes SET payment_status = 'paid' WHERE ref = ? AND payment_status = 'pending'`).run(ref);
+}
+
 async function markFailed(metadata: Stripe.Metadata | null | undefined) {
   if (!metadata?.ref) return;
   if (metadata.type === "booking") await db.prepare(`UPDATE bookings SET payment_status = 'failed' WHERE ref = ? AND payment_status = 'pending'`).run(metadata.ref);
   else if (metadata.type === "registration") await db.prepare(`UPDATE registrations SET payment_status = 'failed' WHERE ref = ? AND payment_status = 'pending'`).run(metadata.ref);
+  else if (metadata.type === "game") await db.prepare(`DELETE FROM game_participants WHERE ref = ? AND payment_status = 'pending'`).run(metadata.ref);
+  else if (metadata.type === "pass") await db.prepare(`DELETE FROM passes WHERE ref = ? AND payment_status = 'pending'`).run(metadata.ref);
 }
 
 /** Registered with express.raw() (not express.json()) — Stripe's signature
@@ -130,6 +178,8 @@ export async function stripeWebhookHandler(req: Request, res: Response) {
     const { type, ref } = session.metadata ?? {};
     if (type === "booking" && ref) await confirmBooking(ref);
     else if (type === "registration" && ref) await confirmRegistration(ref);
+    else if (type === "game" && ref) await confirmGameJoin(ref);
+    else if (type === "pass" && ref) await confirmPass(ref);
   } else if (event.type === "checkout.session.expired") {
     const session = event.data.object as Stripe.Checkout.Session;
     await markFailed(session.metadata);

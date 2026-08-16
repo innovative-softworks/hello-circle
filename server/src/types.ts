@@ -54,6 +54,8 @@ export interface Club {
   paymentMethod: PaymentMethod;
   mapUrl: string;
   claimed: boolean;
+  /** Nullable = unlimited (every club's behaviour before this existed). */
+  capacity: number | null;
 }
 
 export interface Review {

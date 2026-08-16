@@ -2,6 +2,7 @@ import { Router } from "express";
 import { sendMail } from "../email.js";
 import { GUEST_SESSION_COOKIE, consumeLoginToken, createGuestSession, createLoginToken, destroyGuestSession } from "../guestAuth.js";
 import { magicLinkLimiter } from "../rateLimit.js";
+import { findOrCreateResident } from "../residents.js";
 import { CLIENT_URL } from "../stripe.js";
 import { isValidEmail } from "../util.js";
 
@@ -42,6 +43,11 @@ guestAuthRouter.post("/verify", async (req, res) => {
 
   const { token: sessionToken } = await createGuestSession(email);
   res.cookie(GUEST_SESSION_COOKIE, sessionToken, cookieOpts);
+  // Promotes the verified email into a persistent resident profile the
+  // first time it's seen — idempotent on every later sign-in. See
+  // residents.ts; this is what makes household/favourites/notifications
+  // possible without requiring a password or a separate signup step.
+  await findOrCreateResident(email);
   res.json({ email });
 });
 

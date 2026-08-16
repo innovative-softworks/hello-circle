@@ -3,6 +3,7 @@ import { Router } from "express";
 import { requireVendor } from "../auth.js";
 import { db } from "../db/index.js";
 import { getCentre, getClub } from "../db/queries.js";
+import { sendMail } from "../email.js";
 
 export const vendorRouter = Router();
 vendorRouter.use(requireVendor);
@@ -292,6 +293,8 @@ interface ClubInput {
   includes?: string[];
   paymentMethod?: "online" | "cash";
   mapUrl?: string;
+  /** Nullable = unlimited (MVP — see clubs.capacity / waitlist_entries). */
+  capacity?: number | null;
 }
 
 vendorRouter.post("/clubs", async (req, res) => {
@@ -303,9 +306,9 @@ vendorRouter.post("/clubs", async (req, res) => {
   const id = crypto.randomUUID();
   await db.transaction(async (tx) => {
     await tx.prepare(
-      `INSERT INTO clubs (id, name, sport, area, county, ages, price, unit, trial, ph, image_url, blurb, vendor_id, status, created_at, payment_method, map_url)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, '', ?, ?, ?, 'pending', NOW(), ?, ?)`
-    ).run(id, b.name, b.sport, b.area, b.county, b.ages ?? "", b.price ?? 0, b.unit ?? "year", b.trial ? 1 : 0, (b.images ?? [])[0] ?? b.image ?? "", b.blurb, req.user!.id, b.paymentMethod ?? "online", b.mapUrl ?? "");
+      `INSERT INTO clubs (id, name, sport, area, county, ages, price, unit, trial, ph, image_url, blurb, vendor_id, status, created_at, payment_method, map_url, capacity)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, '', ?, ?, ?, 'pending', NOW(), ?, ?, ?)`
+    ).run(id, b.name, b.sport, b.area, b.county, b.ages ?? "", b.price ?? 0, b.unit ?? "year", b.trial ? 1 : 0, (b.images ?? [])[0] ?? b.image ?? "", b.blurb, req.user!.id, b.paymentMethod ?? "online", b.mapUrl ?? "", b.capacity ?? null);
     for (const [i, item] of (b.includes ?? []).entries()) {
       await tx.prepare(`INSERT INTO club_includes (club_id, item, sort_order) VALUES (?, ?, ?)`).run(id, item, i);
     }
@@ -325,7 +328,8 @@ vendorRouter.put("/clubs/:id", async (req, res) => {
       `UPDATE clubs SET name = COALESCE(?, name), sport = COALESCE(?, sport), area = COALESCE(?, area),
        county = COALESCE(?, county), ages = COALESCE(?, ages), price = COALESCE(?, price), unit = COALESCE(?, unit),
        trial = COALESCE(?, trial), image_url = COALESCE(?, image_url), blurb = COALESCE(?, blurb),
-       payment_method = COALESCE(?, payment_method), map_url = COALESCE(?, map_url)
+       payment_method = COALESCE(?, payment_method), map_url = COALESCE(?, map_url),
+       capacity = CASE WHEN ? THEN capacity ELSE ? END
        WHERE id = ?`
     ).run(
       b.name,
@@ -340,6 +344,8 @@ vendorRouter.put("/clubs/:id", async (req, res) => {
       b.blurb,
       b.paymentMethod,
       b.mapUrl,
+      b.capacity === undefined ? 1 : 0,
+      b.capacity === undefined ? null : b.capacity,
       req.params.id
     );
     if (b.includes) {
@@ -412,4 +418,95 @@ vendorRouter.post("/notifications/:id/read", async (req, res) => {
   const info = await db.prepare(`UPDATE notifications SET \`read\` = 1 WHERE id = ? AND recipient_id = ?`).run(req.params.id, req.user!.id);
   if (info.changes === 0) return res.status(404).json({ error: "Not found" });
   res.json({ ok: true });
+});
+
+// --- targeted communications (NEXT) ---------------------------------------
+// Distinct from the automatic booking/registration notifications above — a
+// vendor-authored message to everyone with a paid booking/registration on
+// one of their own listings. Deliberately email-only (no in-app inbox for
+// this yet) to keep this a small, self-contained addition.
+
+interface MessageInput {
+  listingType: "centre" | "club";
+  listingId: string;
+  subject: string;
+  body: string;
+}
+
+vendorRouter.post("/messages", async (req, res) => {
+  const b = req.body as MessageInput;
+  if (!b.listingType || !b.listingId || !b.subject || !b.body) return res.status(400).json({ error: "Missing required fields" });
+  const owns = b.listingType === "centre" ? await ownsCentre(req.user!.id, b.listingId) : await ownsClub(req.user!.id, b.listingId);
+  if (!owns) return res.status(403).json({ error: "Not your listing" });
+
+  const recipients = (
+    b.listingType === "centre"
+      ? await db.prepare(`SELECT DISTINCT email FROM bookings WHERE centre_id = ? AND payment_status = 'paid' AND status != 'cancelled'`).all(b.listingId)
+      : await db.prepare(`SELECT DISTINCT email FROM registrations WHERE club_id = ? AND payment_status = 'paid' AND status != 'cancelled'`).all(b.listingId)
+  ) as { email: string }[];
+
+  await db
+    .prepare(`INSERT INTO vendor_messages (vendor_id, listing_type, listing_id, subject, body) VALUES (?, ?, ?, ?, ?)`)
+    .run(req.user!.id, b.listingType, b.listingId, b.subject, b.body);
+
+  for (const r of recipients) {
+    await sendMail({ to: r.email, subject: b.subject, text: b.body }).catch((e) => console.error("[vendor messages] send failed:", e));
+  }
+
+  res.status(201).json({ ok: true, recipientCount: recipients.length });
+});
+
+vendorRouter.get("/messages", async (req, res) => {
+  const rows = await db
+    .prepare(
+      `SELECT id, listing_type as listingType, listing_id as listingId, subject, body, created_at as createdAt
+       FROM vendor_messages WHERE vendor_id = ? ORDER BY created_at DESC`
+    )
+    .all(req.user!.id);
+  res.json(rows);
+});
+
+// --- attendance check-in (FUTURE, best-effort) ----------------------------
+// Manual: staff look up a booking/registration ref and mark it — no
+// hardware/QR-scanning integration (see plan doc "Not yet" section).
+
+vendorRouter.post("/checkin/:kind/:ref", async (req, res) => {
+  const { kind, ref } = req.params as { kind: "booking" | "registration"; ref: string };
+  if (kind !== "booking" && kind !== "registration") return res.status(400).json({ error: "kind must be booking or registration" });
+
+  const table = kind === "booking" ? "bookings" : "registrations";
+  const listingCol = kind === "booking" ? "centre_id" : "club_id";
+  const listingTable = kind === "booking" ? "centres" : "clubs";
+  const row = (await db
+    .prepare(`SELECT t.${listingCol} as listingId, l.vendor_id as vendorId, t.payment_status as paymentStatus FROM ${table} t JOIN ${listingTable} l ON l.id = t.${listingCol} WHERE t.ref = ?`)
+    .get(ref)) as { listingId: string; vendorId: string | null; paymentStatus: string } | undefined;
+  if (!row) return res.status(404).json({ error: "Not found" });
+  if (row.vendorId !== req.user!.id) return res.status(403).json({ error: "Not your listing" });
+  if (row.paymentStatus !== "paid") return res.status(409).json({ error: "This isn't a paid booking/registration" });
+
+  await db
+    .prepare(`INSERT INTO attendance (kind, ref, checked_in_by) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE checked_in_at = NOW(), checked_in_by = VALUES(checked_in_by)`)
+    .run(kind, ref, req.user!.id);
+  res.json({ ok: true });
+});
+
+vendorRouter.get("/checkin/:kind/:ref", async (req, res) => {
+  const row = await db.prepare(`SELECT checked_in_at as checkedInAt FROM attendance WHERE kind = ? AND ref = ?`).get(req.params.kind, req.params.ref);
+  res.json({ checkedIn: !!row, checkedInAt: (row as { checkedInAt: string } | undefined)?.checkedInAt ?? null });
+});
+
+// --- demand intelligence (NEXT) -------------------------------------------
+// Aggregated read of server/src/routes/search.ts's logged zero-result
+// searches, scoped to this vendor's own county/sport-ish relevance being
+// left to them to judge — v1 just surfaces the raw aggregate, not
+// personalised matching.
+
+vendorRouter.get("/demand", async (req, res) => {
+  const rows = await db
+    .prepare(
+      `SELECT query_text as queryText, county, COUNT(*) as count, MAX(created_at) as lastSeenAt
+       FROM search_misses GROUP BY query_text, county ORDER BY count DESC LIMIT 25`
+    )
+    .all();
+  res.json(rows);
 });

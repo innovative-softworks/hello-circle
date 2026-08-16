@@ -1,18 +1,41 @@
 import { getClientId } from "./clientId";
 import type {
+  AdminOrganisation,
   AdminStats,
   AuthUser,
   Centre,
+  Circle,
   Club,
+  ClubSession,
+  DemandRow,
+  Favourite,
+  Game,
+  HouseholdMember,
   MyBooking,
   MyRegistration,
+  Pass,
+  Resident,
+  ResidentNotification,
   Review,
   Role,
   RoomBlock,
+  SearchResult,
   VendorListingSummary,
   VendorNotification,
   VendorStats,
+  WaitlistPosition,
 } from "./types";
+
+/** Thrown instead of a plain Error so callers that need more than the
+ * message (e.g. registrations.ts's `{ error, full: true }` on a capacity
+ * conflict) can inspect the parsed response body without a second fetch. */
+export class ApiError extends Error {
+  body: Record<string, unknown>;
+  constructor(message: string, body: Record<string, unknown>) {
+    super(message);
+    this.body = body;
+  }
+}
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`/api${path}`, {
@@ -26,7 +49,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({ error: res.statusText }));
-    throw new Error(body.error || `Request failed: ${res.status}`);
+    throw new ApiError(body.error || `Request failed: ${res.status}`, body);
   }
   return res.json() as Promise<T>;
 }
@@ -216,6 +239,226 @@ export function fetchGuestSession(): Promise<{ email: string | null }> {
   return request(`/guest/me`);
 }
 
+// --- resident identity (MVP) -----------------------------------------------
+
+export function fetchResidentMe(): Promise<{ resident: Resident | null }> {
+  return request(`/residents/me`);
+}
+
+export function updateResidentMe(input: { name?: string; homeCounty?: string }): Promise<{ ok: boolean }> {
+  return request(`/residents/me`, { method: "PUT", body: JSON.stringify(input) });
+}
+
+export function fetchResidentNotifications(): Promise<ResidentNotification[]> {
+  return request(`/residents/me/notifications`);
+}
+
+export function markResidentNotificationRead(id: number): Promise<{ ok: boolean }> {
+  return request(`/residents/me/notifications/${id}/read`, { method: "POST" });
+}
+
+// --- household (MVP) ---------------------------------------------------
+
+export function fetchHousehold(): Promise<HouseholdMember[]> {
+  return request(`/household`);
+}
+
+export function addHouseholdMember(input: { firstName: string; lastName: string; dob?: string; notes?: string }): Promise<{ id: number }> {
+  return request(`/household`, { method: "POST", body: JSON.stringify(input) });
+}
+
+export function updateHouseholdMember(id: number, input: Partial<{ firstName: string; lastName: string; dob: string; notes: string }>): Promise<{ ok: boolean }> {
+  return request(`/household/${id}`, { method: "PUT", body: JSON.stringify(input) });
+}
+
+export function deleteHouseholdMember(id: number): Promise<{ ok: boolean }> {
+  return request(`/household/${id}`, { method: "DELETE" });
+}
+
+// --- favourites (MVP) ---------------------------------------------------
+
+export function fetchFavourites(): Promise<Favourite[]> {
+  return request(`/favourites`);
+}
+
+export function addFavourite(listingType: "centre" | "club", listingId: string): Promise<{ ok: boolean }> {
+  return request(`/favourites`, { method: "POST", body: JSON.stringify({ listingType, listingId }) });
+}
+
+export function removeFavourite(listingType: "centre" | "club", listingId: string): Promise<{ ok: boolean }> {
+  return request(`/favourites`, { method: "DELETE", body: JSON.stringify({ listingType, listingId }) });
+}
+
+// --- club waitlist (MVP) -------------------------------------------------
+
+export function fetchWaitlistPosition(clubId: string): Promise<WaitlistPosition> {
+  return request(`/clubs/${clubId}/waitlist/position`);
+}
+
+export function joinClubWaitlist(clubId: string, input: { name?: string; email?: string }): Promise<{ ok: boolean }> {
+  return request(`/clubs/${clubId}/waitlist`, { method: "POST", body: JSON.stringify(input) });
+}
+
+export function leaveClubWaitlist(clubId: string): Promise<{ ok: boolean }> {
+  return request(`/clubs/${clubId}/waitlist`, { method: "DELETE" });
+}
+
+// --- Join a Game (MVP) / paid games (NEXT) ----------------------------------
+
+export function fetchGames(county?: string): Promise<Game[]> {
+  return request(`/games${county ? `?county=${encodeURIComponent(county)}` : ""}`);
+}
+
+export function fetchGame(id: string): Promise<Game> {
+  return request(`/games/${id}`);
+}
+
+export interface CreateGameInput {
+  activityLabel: string;
+  centreId?: string;
+  locationText?: string;
+  date: string;
+  time: string;
+  skillLevel?: string;
+  capacity: number;
+  priceCents?: number;
+  visibility?: "public" | "circle" | "invite";
+}
+
+export function createGame(input: CreateGameInput): Promise<Game> {
+  return request(`/games`, { method: "POST", body: JSON.stringify(input) });
+}
+
+/** Free/cash games resolve `{ ok: true }` immediately; a priced game
+ * (NEXT) instead returns a Stripe `url` to redirect to. */
+export function joinGame(id: string): Promise<{ ok?: boolean; ref?: string; url?: string; totalEuro?: number }> {
+  return request(`/games/${id}/join`, { method: "POST" });
+}
+
+export function leaveGame(id: string): Promise<{ ok: boolean }> {
+  return request(`/games/${id}/join`, { method: "DELETE" });
+}
+
+export function joinGameWaitlist(id: string): Promise<{ ok: boolean }> {
+  return request(`/games/${id}/waitlist`, { method: "POST" });
+}
+
+export function leaveGameWaitlist(id: string): Promise<{ ok: boolean }> {
+  return request(`/games/${id}/waitlist`, { method: "DELETE" });
+}
+
+// --- Circles (NEXT) ----------------------------------------------------
+
+export function fetchCircles(county?: string): Promise<Circle[]> {
+  return request(`/circles${county ? `?county=${encodeURIComponent(county)}` : ""}`);
+}
+
+export function fetchCircle(id: string): Promise<Circle> {
+  return request(`/circles/${id}`);
+}
+
+export function fetchCircleUpcoming(id: string): Promise<{ id: string; activityLabel: string; date: string; time: string }[]> {
+  return request(`/circles/${id}/upcoming`);
+}
+
+export function createCircle(input: { name: string; activityLabel?: string; area?: string; county?: string; about?: string; centreId?: string }): Promise<{ id: string }> {
+  return request(`/circles`, { method: "POST", body: JSON.stringify(input) });
+}
+
+export function joinCircle(id: string): Promise<{ ok: boolean }> {
+  return request(`/circles/${id}/join`, { method: "POST" });
+}
+
+export function leaveCircle(id: string): Promise<{ ok: boolean }> {
+  return request(`/circles/${id}/join`, { method: "DELETE" });
+}
+
+export function fetchCircleMembership(id: string): Promise<{ member: boolean; role: string | null }> {
+  return request(`/circles/${id}/membership`);
+}
+
+// --- recurring club sessions (NEXT) -----------------------------------------
+
+export function fetchClubSessions(clubId: string): Promise<ClubSession[]> {
+  return request(`/club-sessions?clubId=${encodeURIComponent(clubId)}`);
+}
+
+export function createClubSession(input: { clubId: string; dayOfWeek: number; time: string; capacity?: number; label?: string }): Promise<{ id: string }> {
+  return request(`/club-sessions`, { method: "POST", body: JSON.stringify(input) });
+}
+
+export function deleteClubSession(id: string): Promise<{ ok: boolean }> {
+  return request(`/club-sessions/${id}`, { method: "DELETE" });
+}
+
+// --- passes (NEXT) -----------------------------------------------------
+
+export function fetchMyPasses(): Promise<Pass[]> {
+  return request(`/passes/me`);
+}
+
+export function createPassCheckout(input: { listingId: string; creditsTotal: number }): Promise<{ ref: string; url?: string; totalEuro: number }> {
+  return request(`/passes/checkout`, { method: "POST", body: JSON.stringify({ listingType: "club", ...input }) });
+}
+
+// --- search (FUTURE, best-effort) -------------------------------------------
+
+export function search(q: string): Promise<SearchResult> {
+  return request(`/search?q=${encodeURIComponent(q)}`);
+}
+
+// --- vendor: messages / demand / check-in (NEXT / FUTURE) ------------------
+
+export function sendVendorMessage(input: { listingType: "centre" | "club"; listingId: string; subject: string; body: string }): Promise<{ ok: boolean; recipientCount: number }> {
+  return request(`/vendor/messages`, { method: "POST", body: JSON.stringify(input) });
+}
+
+export function fetchVendorMessages(): Promise<{ id: number; listingType: string; listingId: string; subject: string; body: string; createdAt: string }[]> {
+  return request(`/vendor/messages`);
+}
+
+export function fetchVendorDemand(): Promise<DemandRow[]> {
+  return request(`/vendor/demand`);
+}
+
+export function checkInBooking(kind: "booking" | "registration", ref: string): Promise<{ ok: boolean }> {
+  return request(`/vendor/checkin/${kind}/${encodeURIComponent(ref)}`, { method: "POST" });
+}
+
+export function fetchCheckInStatus(kind: "booking" | "registration", ref: string): Promise<{ checkedIn: boolean; checkedInAt: string | null }> {
+  return request(`/vendor/checkin/${kind}/${encodeURIComponent(ref)}`);
+}
+
+// --- admin: organisations / RBAC / provider tier / demand (FUTURE) ---------
+
+export function fetchAdminOrganisations(): Promise<AdminOrganisation[]> {
+  return request(`/admin/organisations`);
+}
+
+export function createAdminOrganisation(input: { name: string; kind?: string }): Promise<{ id: string }> {
+  return request(`/admin/organisations`, { method: "POST", body: JSON.stringify(input) });
+}
+
+export function setCentreOrganisation(id: string, organisationId: string | null): Promise<{ ok: boolean }> {
+  return request(`/admin/centres/${id}/organisation`, { method: "PUT", body: JSON.stringify({ organisationId }) });
+}
+
+export function setClubOrganisation(id: string, organisationId: string | null): Promise<{ ok: boolean }> {
+  return request(`/admin/clubs/${id}/organisation`, { method: "PUT", body: JSON.stringify({ organisationId }) });
+}
+
+export function setVendorPlatformRole(id: string, platformRole: string | null): Promise<{ ok: boolean }> {
+  return request(`/admin/vendors/${id}/platform-role`, { method: "PUT", body: JSON.stringify({ platformRole }) });
+}
+
+export function setVendorProviderTier(id: string, providerTier: "standard" | "verified" | "featured"): Promise<{ ok: boolean }> {
+  return request(`/admin/vendors/${id}/provider-tier`, { method: "PUT", body: JSON.stringify({ providerTier }) });
+}
+
+export function fetchAdminDemand(): Promise<DemandRow[]> {
+  return request(`/admin/demand`);
+}
+
 // --- reviews -------------------------------------------------------------
 
 export function fetchReviews(listingType: "centre" | "club", listingId: string): Promise<Review[]> {
@@ -293,6 +536,8 @@ export interface ClubInput {
   includes?: string[];
   paymentMethod?: "online" | "cash";
   mapUrl?: string;
+  /** Nullable = unlimited (MVP — see clubs.capacity / waitlist). */
+  capacity?: number | null;
 }
 
 export function fetchVendorListings(): Promise<{ centres: VendorListingSummary[]; clubs: VendorListingSummary[] }> {

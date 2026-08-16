@@ -200,3 +200,19 @@ export function requireVendorOrAdmin(req: Request, res: Response, next: NextFunc
   if (req.user.role === "vendor" && req.user.status === "approved") return next();
   return res.status(403).json({ error: "Not authorized" });
 }
+
+/** Lightweight RBAC scaffolding (FUTURE, best-effort) — layered entirely on
+ * top of the existing role='vendor'|'admin' system via the optional
+ * platform_role column (e.g. 'centre_manager', 'finance',
+ * 'read_only_analyst'). An admin always passes (superset of every named
+ * role); requireVendor/requireAdmin/requireVendorOrAdmin above are
+ * completely unaffected and remain the guards every existing route uses. */
+export function requirePlatformRole(...roles: string[]) {
+  return (req: Request, res: Response, next: NextFunction) => {
+    if (!req.user) return res.status(401).json({ error: "Login required" });
+    if (req.user.role === "admin") return next();
+    const platformRole = (req.user as AuthedUser & { platformRole?: string | null }).platformRole;
+    if (platformRole && roles.includes(platformRole)) return next();
+    return res.status(403).json({ error: "Not authorized for this role" });
+  };
+}

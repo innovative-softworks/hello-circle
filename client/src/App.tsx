@@ -8,9 +8,11 @@ import { MyStuffProvider } from "./MyStuffContext";
 import { AdminDashboard } from "./pages/AdminDashboard";
 import { Browse } from "./pages/Browse";
 import { CentreDetail } from "./pages/CentreDetail";
+import { Circles } from "./pages/Circles";
 import { ClubDetail } from "./pages/ClubDetail";
 import { BookingFlow } from "./pages/BookingFlow";
 import { CookiePolicy } from "./pages/CookiePolicy";
+import { Games } from "./pages/Games";
 import { Home } from "./pages/Home";
 import { Login } from "./pages/Login";
 import { MyBookings } from "./pages/MyBookings";
@@ -38,6 +40,8 @@ export function App() {
               <Route path="/clubs/:id" element={<ClubDetail />} />
               <Route path="/book/:centreId" element={<BookingFlow />} />
               <Route path="/register/:clubId" element={<RegistrationFlow />} />
+              <Route path="/games" element={<Games />} />
+              <Route path="/circles" element={<Circles />} />
               <Route path="/bookings" element={<MyBookings />} />
               <Route path="/payment/success" element={<PaymentSuccess />} />
               <Route path="/payment/cancel" element={<PaymentCancel />} />

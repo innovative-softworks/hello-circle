@@ -38,6 +38,7 @@ interface ClubRow {
   vendor_id: string | null;
   payment_method: "online" | "cash";
   map_url: string;
+  capacity: number | null;
 }
 
 const amenitiesStmt = db.prepare(
@@ -116,6 +117,7 @@ async function toClub(row: ClubRow): Promise<Club> {
     paymentMethod: row.payment_method,
     mapUrl: row.map_url,
     claimed: row.vendor_id !== null,
+    capacity: row.capacity,
   };
 }
 

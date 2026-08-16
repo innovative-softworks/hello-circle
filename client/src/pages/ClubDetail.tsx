@@ -1,23 +1,60 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { fetchClub } from "../api";
+import { addFavourite, createPassCheckout, fetchClub, fetchFavourites, removeFavourite } from "../api";
 import { ClaimListingCTA } from "../components/ClaimListingCTA";
 import { PhotoGallery } from "../components/PhotoGallery";
 import { Reviews } from "../components/Reviews";
 import { priceLabel } from "../priceLabel";
-import { CheckIcon, ChevronLeftIcon, ClockIcon, PinIcon, StarIcon } from "../components/icons";
+import { CheckIcon, ChevronLeftIcon, ClockIcon, HeartIcon, PinIcon, StarIcon } from "../components/icons";
 import { ListingDetailSkeleton } from "../components/ui";
+import { isFavorite, toggleFavorite } from "../favorites";
+import { useGuest } from "../GuestContext";
 import { colors, fonts, maxWidth } from "../theme";
 import type { Club } from "../types";
 
 export function ClubDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const { resident } = useGuest();
   const [club, setClub] = useState<Club | null>(null);
+  const [favourited, setFavourited] = useState(false);
+  const [passLoading, setPassLoading] = useState(false);
 
   useEffect(() => {
     if (id) fetchClub(id).then(setClub);
   }, [id]);
+
+  useEffect(() => {
+    if (!id) return;
+    if (resident) fetchFavourites().then((rows) => setFavourited(rows.some((r) => r.listingType === "club" && r.listingId === id)));
+    else setFavourited(isFavorite("club", id));
+  }, [id, resident]);
+
+  const handleToggleFavourite = async () => {
+    if (!id) return;
+    if (resident) {
+      if (favourited) await removeFavourite("club", id);
+      else await addFavourite("club", id);
+      setFavourited((f) => !f);
+    } else {
+      setFavourited(toggleFavorite("club", id));
+    }
+  };
+
+  // Credit-pack pass purchase (NEXT) — a simple fixed 10-credit pack;
+  // a real product would let the vendor configure pack size/pricing.
+  const handleBuyPass = async () => {
+    if (!id) return;
+    setPassLoading(true);
+    try {
+      const res = await createPassCheckout({ listingId: id, creditsTotal: 10 });
+      if (res.url) window.location.href = res.url;
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "Couldn't start checkout");
+    } finally {
+      setPassLoading(false);
+    }
+  };
 
   const reloadRating = () => {
     if (id) fetchClub(id).then(setClub);
@@ -68,7 +105,21 @@ export function ClubDetail() {
               Free trial session available
             </span>
           )}
-          <h1 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: "clamp(26px, 5vw, 36px)", margin: "0 0 4px", letterSpacing: "-.025em" }}>{club.name}</h1>
+          <h1 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: "clamp(26px, 5vw, 36px)", margin: "0 0 4px", letterSpacing: "-.025em", display: "flex", alignItems: "center", gap: 10 }}>
+            {club.name}
+            <button
+              onClick={handleToggleFavourite}
+              aria-label={favourited ? "Remove from favourites" : "Add to favourites"}
+              style={{ background: "none", border: "none", cursor: "pointer", padding: 0, display: "inline-flex", color: favourited ? colors.orange : colors.faint }}
+            >
+              <HeartIcon size={22} style={favourited ? { fill: colors.orange } : undefined} />
+            </button>
+          </h1>
+          {club.capacity !== null && (
+            <span style={{ display: "inline-block", background: colors.panel, color: colors.muted, borderRadius: 20, padding: "3px 11px", fontSize: 12, fontWeight: 700, marginBottom: 8 }}>
+              Limited to {club.capacity} members
+            </span>
+          )}
           <p style={{ color: colors.mutedLight, fontSize: 16, margin: "0 0 8px", display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
             <span>{club.area} · {club.sport} · ages {club.ages}</span>
             {club.mapUrl && (
@@ -116,6 +167,15 @@ export function ClubDetail() {
           >
             Register my child
           </button>
+          {resident && club.paymentMethod !== "cash" && (
+            <button
+              onClick={handleBuyPass}
+              disabled={passLoading}
+              style={{ width: "100%", background: "#fff", color: colors.orangeDark, border: `1px solid ${colors.orange}`, borderRadius: 12, padding: 12, fontSize: 14, fontWeight: 700, cursor: "pointer", marginBottom: 10 }}
+            >
+              {passLoading ? "Please wait…" : `Buy a 10-session pass — €${(club.price * 10).toFixed(0)}`}
+            </button>
+          )}
           <div style={{ display: "flex", flexDirection: "column", gap: 9, marginTop: 16, fontSize: 14, color: colors.muted }}>
             <div style={{ display: "flex", gap: 10 }}>
               <ClockIcon size={16} style={{ color: colors.orange }} /> Training year-round

@@ -19,6 +19,43 @@ const insertNotification = db.prepare(
    VALUES (@recipientId, @kind, @title, @body, @listingType, @listingId, @ref)`
 );
 
+const insertResidentNotification = db.prepare(
+  `INSERT INTO notifications (recipient_id, resident_id, kind, title, body, listing_type, listing_id, ref)
+   VALUES ('', @residentId, @kind, @title, @body, @listingType, @listingId, @ref)`
+);
+
+/** Resident-facing in-app notification (MVP) — used for waitlist/game
+ * activity, not the vendor/admin booking-confirmation feed above. Never
+ * throws, same contract as the vendor/admin notifiers: a failed insert must
+ * not fail whatever triggered it. `recipient_id` stays NOT NULL (existing
+ * schema), so this writes '' there and resident_id instead — the two
+ * recipient spaces are deliberately distinct, matched by whichever route
+ * queries the table (routes/vendor.ts by recipient_id, routes/residents.ts
+ * by resident_id). */
+export async function notifyResident(params: {
+  residentId: string;
+  kind: "booking" | "registration" | "waitlist" | "game";
+  title: string;
+  body: string;
+  listingType: "centre" | "club" | "game";
+  listingId: string;
+  ref: string;
+}) {
+  try {
+    await insertResidentNotification.run({
+      residentId: params.residentId,
+      kind: params.kind,
+      title: params.title,
+      body: params.body,
+      listingType: params.listingType,
+      listingId: params.listingId,
+      ref: params.ref,
+    });
+  } catch (e) {
+    console.error("[notifications] resident notify failed:", e);
+  }
+}
+
 async function recipients(vendorId: string | null) {
   const admins = (await db.prepare(`SELECT id, email FROM users WHERE role = 'admin'`).all()) as { id: string; email: string }[];
   const vendorEmail = vendorId

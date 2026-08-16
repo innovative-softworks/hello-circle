@@ -135,10 +135,10 @@ function blankCentreInput(): CentreInput {
   return { name: "", area: "", county: "", capacity: 0, from: 0, managedBy: "", image: "", images: [], blurb: "", amenities: [], opensAt: "09:00", closesAt: "21:00", paymentMethod: "online", isOpen: true, mapUrl: "" };
 }
 function clubToInput(c: Club): ClubInput {
-  return { name: c.name, sport: c.sport, area: c.area, county: c.county, ages: c.ages, price: c.price, unit: c.unit, trial: c.trial, image: c.image, images: c.images, blurb: c.blurb, includes: c.includes, paymentMethod: c.paymentMethod, mapUrl: c.mapUrl };
+  return { name: c.name, sport: c.sport, area: c.area, county: c.county, ages: c.ages, price: c.price, unit: c.unit, trial: c.trial, image: c.image, images: c.images, blurb: c.blurb, includes: c.includes, paymentMethod: c.paymentMethod, mapUrl: c.mapUrl, capacity: c.capacity };
 }
 function blankClubInput(): ClubInput {
-  return { name: "", sport: "", area: "", county: "", ages: "", price: 0, unit: "year", trial: false, image: "", images: [], blurb: "", includes: [], paymentMethod: "online", mapUrl: "" };
+  return { name: "", sport: "", area: "", county: "", ages: "", price: 0, unit: "year", trial: false, image: "", images: [], blurb: "", includes: [], paymentMethod: "online", mapUrl: "", capacity: null };
 }
 
 // --- centre editor (fields + rooms) -----------------------------------------
@@ -402,6 +402,19 @@ function ClubEditor({ clubId, onClose, onSaved }: { clubId: string | "new"; onCl
         <input type="checkbox" checked={!!form.trial} onChange={(e) => set("trial", e.target.checked)} style={{ accentColor: colors.orange, width: 16, height: 16 }} />
         Offers a free trial session
       </label>
+
+      <label style={labelStyle}>Membership cap (leave blank for unlimited)</label>
+      <input
+        type="number"
+        min={0}
+        value={form.capacity ?? ""}
+        onChange={(e) => set("capacity", e.target.value === "" ? null : Number(e.target.value))}
+        placeholder="e.g. 30"
+        style={{ ...inputStyle, marginBottom: 4 }}
+      />
+      <p style={{ fontSize: 12.5, color: colors.mutedLight, margin: "0 0 14px" }}>
+        Once paid registrations reach this number, new sign-ups are offered a waitlist instead.
+      </p>
 
       <label style={labelStyle}>Registration payment</label>
       <select value={form.paymentMethod ?? "online"} onChange={(e) => set("paymentMethod", e.target.value as "online" | "cash")} style={{ ...inputStyle, marginBottom: 14 }}>

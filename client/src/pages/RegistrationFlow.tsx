@@ -1,10 +1,12 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { createRegistrationCheckout, fetchClub, validateCoupon, PLATFORM_FEE_RATE, VAT_RATE } from "../api";
+import { ApiError, createRegistrationCheckout, fetchClub, fetchHousehold, joinClubWaitlist, validateCoupon, PLATFORM_FEE_RATE, VAT_RATE } from "../api";
 import { Chip } from "../components/Chip";
+import { useGuest } from "../GuestContext";
+import type { HouseholdMember } from "../types";
 import { Photo } from "../components/Photo";
 import { Stepper } from "../components/Stepper";
-import { PageSpinner } from "../components/ui";
+import { Button, PageSpinner } from "../components/ui";
 import { AGE_GROUPS } from "../constants";
 import { useMyStuff } from "../MyStuffContext";
 import { priceLabel } from "../priceLabel";
@@ -48,6 +50,7 @@ export function RegistrationFlow() {
   const { clubId } = useParams<{ clubId: string }>();
   const navigate = useNavigate();
   const { refresh } = useMyStuff();
+  const { email: guestEmail } = useGuest();
   const [club, setClub] = useState<Club | null>(null);
   const [step, setStep] = useState(1);
   const [form, setForm] = useState<RegForm>(blankForm());
@@ -55,6 +58,12 @@ export function RegistrationFlow() {
   const [confirmedTotalEuro, setConfirmedTotalEuro] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [household, setHousehold] = useState<HouseholdMember[]>([]);
+  // Set when checkout comes back 409 { full: true } (see clubs.capacity /
+  // routes/registrations.ts) — offers the waitlist instead of a dead end.
+  const [clubFull, setClubFull] = useState(false);
+  const [waitlisted, setWaitlisted] = useState(false);
+  const [waitlistJoining, setWaitlistJoining] = useState(false);
 
   const [couponInput, setCouponInput] = useState("");
   const [coupon, setCoupon] = useState<{ code: string; discountCents: number } | null>(null);
@@ -64,6 +73,11 @@ export function RegistrationFlow() {
   useEffect(() => {
     if (clubId) fetchClub(clubId).then(setClub);
   }, [clubId]);
+
+  // Household picker (MVP) — only useful when signed in; empty otherwise.
+  useEffect(() => {
+    if (guestEmail) fetchHousehold().then(setHousehold).catch(() => {});
+  }, [guestEmail]);
 
   const set = <K extends keyof RegForm>(field: K, value: RegForm[K]) => setForm((f) => ({ ...f, [field]: value }));
   const top = () => window.scrollTo({ top: 0, behavior: "smooth" });
@@ -106,6 +120,7 @@ export function RegistrationFlow() {
   const submit = async () => {
     if (!clubId) return;
     setError(null);
+    setClubFull(false);
     setSubmitting(true);
     try {
       const res = await createRegistrationCheckout({
@@ -125,9 +140,29 @@ export function RegistrationFlow() {
       refresh();
       top();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Something went wrong");
+      // Capacity conflict (MVP — see clubs.capacity) offers a waitlist
+      // instead of just a dead-end error message.
+      if (e instanceof ApiError && e.body.full) {
+        setClubFull(true);
+        top();
+      } else {
+        setError(e instanceof Error ? e.message : "Something went wrong");
+      }
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const handleJoinWaitlist = async () => {
+    if (!clubId) return;
+    setWaitlistJoining(true);
+    try {
+      await joinClubWaitlist(clubId, { name: `${form.gFirst} ${form.gLast}`.trim(), email: form.email });
+      setWaitlisted(true);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Couldn't join the waitlist");
+    } finally {
+      setWaitlistJoining(false);
     }
   };
 
@@ -232,6 +267,28 @@ export function RegistrationFlow() {
                     <input value={form.childLast} onChange={(e) => set("childLast", e.target.value)} placeholder="Child's last name" style={inputStyle} />
                   </div>
                 </div>
+                {household.length > 0 && (
+                  <div style={{ margin: "14px 0 4px" }}>
+                    <label style={labelStyle}>Or pick from your household</label>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                      {household.map((m) => (
+                        <Chip
+                          key={m.id}
+                          label={`${m.firstName} ${m.lastName}`}
+                          active={form.childFirst === m.firstName && form.childLast === m.lastName}
+                          onClick={() => {
+                            set("childFirst", m.firstName);
+                            set("childLast", m.lastName);
+                            if (m.dob) set("dob", m.dob);
+                          }}
+                          accent="orange"
+                          radius={11}
+                          padding="7px 14px"
+                        />
+                      ))}
+                    </div>
+                  </div>
+                )}
                 <label style={{ ...labelStyle, margin: "16px 0 6px" }}>Date of birth</label>
                 <input type="date" value={form.dob} onChange={(e) => set("dob", e.target.value)} style={inputStyle} />
                 <label style={{ ...labelStyle, margin: "18px 0 10px" }}>Age group</label>
@@ -380,6 +437,30 @@ export function RegistrationFlow() {
 
             {error && <p style={{ color: "#b00020", fontSize: 14, marginTop: 16 }}>{error}</p>}
 
+            {clubFull && (
+              <div style={{ background: colors.orangeBg, border: `1px solid ${colors.orange}`, borderRadius: 14, padding: 18, marginTop: 18 }}>
+                {waitlisted ? (
+                  <p style={{ margin: 0, color: colors.orangeDark, fontWeight: 600, fontSize: 14.5 }}>
+                    You're on the waitlist — we'll email you the moment a spot opens up.
+                  </p>
+                ) : (
+                  <>
+                    <p style={{ margin: "0 0 12px", color: colors.orangeDark, fontWeight: 700, fontSize: 15 }}>
+                      This club is currently full.
+                    </p>
+                    <p style={{ margin: "0 0 14px", color: colors.text, fontSize: 14 }}>
+                      Join the waitlist and we'll let you know the moment a spot opens up — you'll have 48 hours to claim it.
+                    </p>
+                    <Button onClick={handleJoinWaitlist} disabled={waitlistJoining || !form.email}>
+                      {waitlistJoining ? "Joining…" : "Join waitlist"}
+                    </Button>
+                    {!form.email && <p style={{ margin: "8px 0 0", fontSize: 12.5, color: colors.orangeDark }}>Add your email on the previous step first.</p>}
+                  </>
+                )}
+              </div>
+            )}
+
+            {!clubFull && (
             <div style={{ display: "flex", gap: 12, marginTop: 26 }}>
               {step > 1 && (
                 <button onClick={prev} style={{ background: "#fff", color: colors.text, border: `1px solid ${colors.borderStrong}`, borderRadius: 12, padding: "13px 20px", fontWeight: 600, fontSize: 15, cursor: "pointer" }}>
@@ -405,6 +486,7 @@ export function RegistrationFlow() {
                   : "Continue"}
               </button>
             </div>
+            )}
           </div>
 
           <div className="sticky-aside" style={{ position: "sticky", top: 90, background: "#fff", border: `1px solid ${colors.border}`, borderRadius: 18, padding: 22 }}>

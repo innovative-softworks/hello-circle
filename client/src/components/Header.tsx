@@ -212,6 +212,20 @@ export function Header() {
           >
             Sports clubs
           </button>
+          <button
+            className="tab-btn"
+            style={isActive(["/games"]) ? { ...navBtn, background: colors.greenBg, color: colors.greenText, fontWeight: 700 } : navBtn}
+            onClick={() => go("/games")}
+          >
+            Join a game
+          </button>
+          <button
+            className="tab-btn"
+            style={isActive(["/circles"]) ? { ...navBtn, background: colors.greenBg, color: colors.greenText, fontWeight: 700 } : navBtn}
+            onClick={() => go("/circles")}
+          >
+            Circles
+          </button>
         </nav>
         <div className="desktop-actions" style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10 }}>
           <div ref={countyMenuRef} style={{ position: "relative" }}>
@@ -390,6 +404,12 @@ export function Header() {
           </button>
           <button style={mobileNavBtn} onClick={() => go("/browse/clubs")}>
             Sports clubs
+          </button>
+          <button style={mobileNavBtn} onClick={() => go("/games")}>
+            Join a game
+          </button>
+          <button style={mobileNavBtn} onClick={() => go("/circles")}>
+            Circles
           </button>
           <button style={mobileNavBtn} onClick={() => go("/bookings")}>
             My bookings ({count})

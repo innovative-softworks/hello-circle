@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import { Router } from "express";
 import { requireAdmin } from "../auth.js";
 import { db } from "../db/index.js";
@@ -362,4 +363,71 @@ adminRouter.delete("/coupons/:id", async (req, res) => {
   const info = await db.prepare(`DELETE FROM coupons WHERE id = ?`).run(req.params.id);
   if (info.changes === 0) return res.status(404).json({ error: "Coupon not found" });
   res.json({ ok: true });
+});
+
+// --- multi-tenant org hierarchy scaffolding (FUTURE, best-effort) ----------
+// Data-model only — no tenant isolation is enforced anywhere else in the app
+// (every query is still platform-wide). See plan doc "Not yet" section.
+
+adminRouter.get("/organisations", async (_req, res) => {
+  const rows = await db.prepare(`SELECT id, name, kind, created_at as createdAt FROM organisations ORDER BY name`).all();
+  res.json(rows);
+});
+
+adminRouter.post("/organisations", async (req, res) => {
+  const { name, kind } = req.body as { name?: string; kind?: string };
+  if (!name) return res.status(400).json({ error: "name is required" });
+  const id = crypto.randomUUID();
+  await db.prepare(`INSERT INTO organisations (id, name, kind) VALUES (?, ?, ?)`).run(id, name, kind ?? "council");
+  res.status(201).json({ id });
+});
+
+adminRouter.put("/centres/:id/organisation", async (req, res) => {
+  const { organisationId } = req.body as { organisationId: string | null };
+  const info = await db.prepare(`UPDATE centres SET org_id = ? WHERE id = ?`).run(organisationId, req.params.id);
+  if (info.changes === 0) return res.status(404).json({ error: "Centre not found" });
+  res.json({ ok: true });
+});
+
+adminRouter.put("/clubs/:id/organisation", async (req, res) => {
+  const { organisationId } = req.body as { organisationId: string | null };
+  const info = await db.prepare(`UPDATE clubs SET org_id = ? WHERE id = ?`).run(organisationId, req.params.id);
+  if (info.changes === 0) return res.status(404).json({ error: "Club not found" });
+  res.json({ ok: true });
+});
+
+// --- RBAC + marketplace-tier scaffolding (FUTURE, best-effort) -------------
+
+const PLATFORM_ROLES = ["centre_manager", "facility_manager", "finance", "communications", "read_only_analyst"];
+
+adminRouter.put("/vendors/:id/platform-role", async (req, res) => {
+  const { platformRole } = req.body as { platformRole: string | null };
+  if (platformRole !== null && !PLATFORM_ROLES.includes(platformRole)) {
+    return res.status(400).json({ error: `platformRole must be one of ${PLATFORM_ROLES.join(", ")}, or null` });
+  }
+  const info = await db.prepare(`UPDATE users SET platform_role = ? WHERE id = ? AND role = 'vendor'`).run(platformRole, req.params.id);
+  if (info.changes === 0) return res.status(404).json({ error: "Vendor not found" });
+  res.json({ ok: true });
+});
+
+adminRouter.put("/vendors/:id/provider-tier", async (req, res) => {
+  const { providerTier } = req.body as { providerTier?: string };
+  if (!providerTier || !["standard", "verified", "featured"].includes(providerTier)) {
+    return res.status(400).json({ error: "providerTier must be standard, verified or featured" });
+  }
+  const info = await db.prepare(`UPDATE users SET provider_tier = ? WHERE id = ? AND role = 'vendor'`).run(providerTier, req.params.id);
+  if (info.changes === 0) return res.status(404).json({ error: "Vendor not found" });
+  res.json({ ok: true });
+});
+
+// --- demand intelligence (NEXT) — platform-wide view ------------------------
+
+adminRouter.get("/demand", async (_req, res) => {
+  const rows = await db
+    .prepare(
+      `SELECT query_text as queryText, county, COUNT(*) as count, MAX(created_at) as lastSeenAt
+       FROM search_misses GROUP BY query_text, county ORDER BY count DESC LIMIT 50`
+    )
+    .all();
+  res.json(rows);
 });
