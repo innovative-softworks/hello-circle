@@ -138,12 +138,37 @@ async function confirmPass(ref: string) {
   await db.prepare(`UPDATE passes SET payment_status = 'paid' WHERE ref = ? AND payment_status = 'pending'`).run(ref);
 }
 
+/** Program enrollment confirmation (Phase B) — same idempotent pattern. */
+async function confirmProgramEnrollment(ref: string) {
+  const info = await db.prepare(`UPDATE program_enrollments SET payment_status = 'paid' WHERE ref = ? AND payment_status = 'pending'`).run(ref);
+  if (info.changes === 0) return;
+  const row = (await db
+    .prepare(
+      `SELECT pe.participant_name as participantName, pe.email, p.title, p.vendor_id as vendorId, p.listing_type as listingType, p.listing_id as listingId, pe.total_cents as totalCents
+       FROM program_enrollments pe JOIN programs p ON p.id = pe.program_id WHERE pe.ref = ?`
+    )
+    .get(ref)) as { participantName: string; email: string; title: string; vendorId: string; listingType: "centre" | "club"; listingId: string; totalCents: number } | undefined;
+  if (!row) return;
+  notifyNewBookingOrRegistration({
+    kind: "registration",
+    listingType: row.listingType,
+    listingId: row.listingId,
+    listingName: row.title,
+    vendorId: row.vendorId,
+    guestName: row.participantName,
+    guestEmail: row.email,
+    ref,
+    detailsText: `${row.participantName} enrolled in ${row.title} · €${(row.totalCents / 100).toFixed(2)} total`,
+  }).catch((e) => console.error("[notifications] program enrollment notify failed:", e));
+}
+
 async function markFailed(metadata: Stripe.Metadata | null | undefined) {
   if (!metadata?.ref) return;
   if (metadata.type === "booking") await db.prepare(`UPDATE bookings SET payment_status = 'failed' WHERE ref = ? AND payment_status = 'pending'`).run(metadata.ref);
   else if (metadata.type === "registration") await db.prepare(`UPDATE registrations SET payment_status = 'failed' WHERE ref = ? AND payment_status = 'pending'`).run(metadata.ref);
   else if (metadata.type === "game") await db.prepare(`DELETE FROM game_participants WHERE ref = ? AND payment_status = 'pending'`).run(metadata.ref);
   else if (metadata.type === "pass") await db.prepare(`DELETE FROM passes WHERE ref = ? AND payment_status = 'pending'`).run(metadata.ref);
+  else if (metadata.type === "program") await db.prepare(`DELETE FROM program_enrollments WHERE ref = ? AND payment_status = 'pending'`).run(metadata.ref);
 }
 
 /** Registered with express.raw() (not express.json()) — Stripe's signature
@@ -180,6 +205,7 @@ export async function stripeWebhookHandler(req: Request, res: Response) {
     else if (type === "registration" && ref) await confirmRegistration(ref);
     else if (type === "game" && ref) await confirmGameJoin(ref);
     else if (type === "pass" && ref) await confirmPass(ref);
+    else if (type === "program" && ref) await confirmProgramEnrollment(ref);
   } else if (event.type === "checkout.session.expired") {
     const session = event.data.object as Stripe.Checkout.Session;
     await markFailed(session.metadata);

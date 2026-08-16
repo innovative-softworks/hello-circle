@@ -2,28 +2,44 @@ import { getClientId } from "./clientId";
 import type {
   AdminOrganisation,
   AdminStats,
+  AuditEntry,
   AuthUser,
   Centre,
+  CentreHoursRow,
   Circle,
   Club,
   ClubSession,
   DemandRow,
   Favourite,
+  FeatureFlag,
   Game,
   HouseholdMember,
+  ModerationReport,
   MyBooking,
   MyRegistration,
+  OrgProfile,
+  Participant,
   Pass,
+  PlatformDashboardStats,
+  Program,
+  Receipt,
   Resident,
+  ResidentFull,
   ResidentNotification,
   Review,
   Role,
   RoomBlock,
+  ScheduleEntry,
   SearchResult,
+  TenantSummary,
+  VendorInsights,
   VendorListingSummary,
   VendorNotification,
+  VendorPayments,
+  VendorProgramSummary,
   VendorStats,
   WaitlistEntry,
+  WaitlistOfferStatus,
   WaitlistPosition,
 } from "./types";
 
@@ -782,6 +798,244 @@ export function setAdminCouponActive(id: number, active: boolean): Promise<{ ok:
 
 export function deleteAdminCoupon(id: number): Promise<{ ok: boolean }> {
   return request(`/admin/coupons/${id}`, { method: "DELETE" });
+}
+
+// --- Phase A: onboarding, preferences, receipts, feedback -----------------
+
+export function fetchResidentFull(): Promise<{ resident: ResidentFull | null }> {
+  return request(`/residents/me`);
+}
+
+export function saveOnboarding(input: { homeCounty?: string; searchRadiusKm?: number; interests?: string[]; availability?: string[] }): Promise<{ ok: boolean }> {
+  return request(`/residents/me/onboarding`, { method: "PUT", body: JSON.stringify(input) });
+}
+
+export function skipOnboarding(): Promise<{ ok: boolean }> {
+  return request(`/residents/me/onboarding/skip`, { method: "POST" });
+}
+
+export function saveNotificationPrefs(prefs: Record<string, boolean>): Promise<{ ok: boolean }> {
+  return request(`/residents/me/notification-prefs`, { method: "PUT", body: JSON.stringify(prefs) });
+}
+
+export function saveAccessibilityPrefs(prefs: string[]): Promise<{ ok: boolean }> {
+  return request(`/residents/me/accessibility-prefs`, { method: "PUT", body: JSON.stringify({ prefs }) });
+}
+
+export function fetchReceipts(): Promise<Receipt[]> {
+  return request(`/residents/me/receipts`);
+}
+
+export function requestPasswordReset(email: string): Promise<{ ok: boolean }> {
+  return request(`/auth/request-reset`, { method: "POST", body: JSON.stringify({ email }) });
+}
+
+export function resetPassword(token: string, password: string): Promise<{ ok: boolean }> {
+  return request(`/auth/reset-password`, { method: "POST", body: JSON.stringify({ token, password }) });
+}
+
+export function rescheduleBooking(ref: string, date: string, time: string, email?: string): Promise<{ ok: boolean }> {
+  return request(`/bookings/${encodeURIComponent(ref)}/reschedule`, { method: "POST", body: JSON.stringify({ date, time, email }) });
+}
+
+export function fetchWaitlistOfferStatus(clubId: string): Promise<WaitlistOfferStatus> {
+  return request(`/clubs/${clubId}/waitlist/position`);
+}
+
+export function submitFeedback(kind: string, ref: string, response: "yes" | "maybe" | "no"): Promise<{ ok: boolean }> {
+  return request(`/feedback`, { method: "POST", body: JSON.stringify({ kind, ref, response }) });
+}
+
+export function fetchFeedbackStatus(kind: string, ref: string): Promise<{ response: string | null }> {
+  return request(`/feedback/status?kind=${kind}&ref=${encodeURIComponent(ref)}`);
+}
+
+export function submitReport(targetType: string, targetId: string, reason: string): Promise<{ ok: boolean }> {
+  return request(`/reports`, { method: "POST", body: JSON.stringify({ targetType, targetId, reason }) });
+}
+
+// --- Phase B: Programs / Sessions -----------------------------------------
+
+export function fetchPrograms(listingType: "centre" | "club", listingId: string): Promise<Program[]> {
+  return request(`/programs?listingType=${listingType}&listingId=${encodeURIComponent(listingId)}`);
+}
+
+export function fetchProgram(id: string): Promise<Program> {
+  return request(`/programs/${id}`);
+}
+
+export function enrollInProgram(
+  id: string,
+  input: { participantName: string; participantDob?: string; email: string; phone?: string }
+): Promise<{ ref: string; url?: string; totalEuro: number }> {
+  return request(`/programs/${id}/enroll`, { method: "POST", body: JSON.stringify(input) });
+}
+
+export function fetchVendorPrograms(): Promise<VendorProgramSummary[]> {
+  return request(`/vendor/programs`);
+}
+
+export interface ProgramInput {
+  listingType: "centre" | "club";
+  listingId: string;
+  title: string;
+  description: string;
+  ageRange?: string;
+  imageUrl?: string;
+  priceCents?: number;
+  capacity?: number | null;
+}
+
+export function createVendorProgram(input: ProgramInput): Promise<{ id: string }> {
+  return request(`/vendor/programs`, { method: "POST", body: JSON.stringify(input) });
+}
+
+export function updateVendorProgram(id: string, input: Partial<ProgramInput> & { status?: string }): Promise<{ ok: boolean }> {
+  return request(`/vendor/programs/${id}`, { method: "PUT", body: JSON.stringify(input) });
+}
+
+export function deleteVendorProgram(id: string): Promise<{ ok: boolean }> {
+  return request(`/vendor/programs/${id}`, { method: "DELETE" });
+}
+
+export function addProgramSession(programId: string, input: { date: string; time: string; durationMinutes?: number; capacity?: number }): Promise<{ id: string }> {
+  return request(`/vendor/programs/${programId}/sessions`, { method: "POST", body: JSON.stringify(input) });
+}
+
+export function removeProgramSession(programId: string, sessionId: string): Promise<{ ok: boolean }> {
+  return request(`/vendor/programs/${programId}/sessions/${sessionId}`, { method: "DELETE" });
+}
+
+export interface ProgramEnrollment {
+  id: number;
+  ref: string;
+  participantName: string;
+  participantDob: string;
+  email: string;
+  phone: string;
+  totalCents: number;
+  createdAt: string;
+  status: string;
+}
+
+export function fetchProgramEnrollments(programId: string): Promise<ProgramEnrollment[]> {
+  return request(`/vendor/programs/${programId}/enrollments`);
+}
+
+export function markSessionAttendance(sessionId: string, enrollmentId: number): Promise<{ ok: boolean }> {
+  return request(`/vendor/program-sessions/${sessionId}/attendance/${enrollmentId}`, { method: "POST" });
+}
+
+export function fetchSessionAttendance(programId: string, sessionId: string): Promise<string[]> {
+  return request(`/vendor/programs/${programId}/sessions/${sessionId}/attendance`);
+}
+
+export function fetchVendorSchedule(from?: string, days?: number): Promise<ScheduleEntry[]> {
+  const params = new URLSearchParams();
+  if (from) params.set("from", from);
+  if (days) params.set("days", String(days));
+  const qs = params.toString();
+  return request(`/vendor/schedule${qs ? `?${qs}` : ""}`);
+}
+
+export function fetchCentreHours(centreId: string): Promise<CentreHoursRow[]> {
+  return request(`/vendor/centres/${centreId}/hours`);
+}
+
+export function saveCentreHours(centreId: string, days: CentreHoursRow[]): Promise<{ ok: boolean }> {
+  return request(`/vendor/centres/${centreId}/hours`, { method: "PUT", body: JSON.stringify({ days }) });
+}
+
+// --- Phase C: Organisation / Staff / RBAC / Insights ------------------
+
+export function fetchOrgProfile(): Promise<OrgProfile> {
+  return request(`/vendor/org`);
+}
+
+export function updateOrgProfile(input: { name?: string; kind?: string }): Promise<{ ok: boolean }> {
+  return request(`/vendor/org`, { method: "PUT", body: JSON.stringify(input) });
+}
+
+export function updateOrgPolicies(input: { cancellationHours?: number; bookingWindowDays?: number }): Promise<{ ok: boolean }> {
+  return request(`/vendor/org/policies`, { method: "PUT", body: JSON.stringify(input) });
+}
+
+export function inviteStaff(email: string, platformRole: string): Promise<{ ok: boolean }> {
+  return request(`/vendor/org/staff/invite`, { method: "POST", body: JSON.stringify({ email, platformRole }) });
+}
+
+export function revokeInvite(token: string): Promise<{ ok: boolean }> {
+  return request(`/vendor/org/staff/invite/${token}`, { method: "DELETE" });
+}
+
+export function fetchInviteDetails(token: string): Promise<{ email: string; platformRole: string; orgName: string }> {
+  return request(`/invites/${token}`);
+}
+
+export function acceptInvite(input: { token: string; name: string; password: string }): Promise<{ user: AuthUser }> {
+  return request(`/auth/accept-invite`, { method: "POST", body: JSON.stringify(input) });
+}
+
+export function fetchParticipants(q?: string): Promise<Participant[]> {
+  return request(`/vendor/participants${q ? `?q=${encodeURIComponent(q)}` : ""}`);
+}
+
+export function fetchVendorInsights(): Promise<VendorInsights> {
+  return request(`/vendor/insights`);
+}
+
+export function fetchVendorPayments(): Promise<VendorPayments> {
+  return request(`/vendor/payments`);
+}
+
+export function bookingsReportCsvUrl(): string {
+  return `/api/vendor/reports/bookings.csv`;
+}
+
+// --- Phase D: Platform Admin (best-effort) -----------------------------
+
+export function fetchPlatformDashboard(): Promise<PlatformDashboardStats> {
+  return request(`/platform-admin/dashboard`);
+}
+
+export function fetchTenants(): Promise<TenantSummary[]> {
+  return request(`/platform-admin/tenants`);
+}
+
+export function fetchTenantDetail(id: string): Promise<{ org: TenantSummary; staff: unknown[]; flags: FeatureFlag[] }> {
+  return request(`/platform-admin/tenants/${id}`);
+}
+
+export function fetchPlatformUsers(): Promise<{ id: string; email: string; name: string; role: string; status: string; orgId: string | null; platformRole: string | null; createdAt: string }[]> {
+  return request(`/platform-admin/users`);
+}
+
+export function fetchFeatureFlags(orgId: string): Promise<FeatureFlag[]> {
+  return request(`/platform-admin/feature-flags/${orgId}`);
+}
+
+export function setFeatureFlag(orgId: string, flagKey: string, enabled: boolean): Promise<{ ok: boolean }> {
+  return request(`/platform-admin/feature-flags/${orgId}`, { method: "PUT", body: JSON.stringify({ flagKey, enabled }) });
+}
+
+export function fetchModerationReports(): Promise<ModerationReport[]> {
+  return request(`/platform-admin/moderation/reports`);
+}
+
+export function resolveReport(id: number, status: "dismissed" | "actioned"): Promise<{ ok: boolean }> {
+  return request(`/platform-admin/moderation/reports/${id}`, { method: "PUT", body: JSON.stringify({ status }) });
+}
+
+export function fetchAuditLog(actorUserId?: string): Promise<AuditEntry[]> {
+  return request(`/platform-admin/audit${actorUserId ? `?actorUserId=${actorUserId}` : ""}`);
+}
+
+export function supportSearch(q: string): Promise<{ bookings: unknown[]; registrations: unknown[]; users: unknown[] }> {
+  return request(`/platform-admin/support/search?q=${encodeURIComponent(q)}`);
+}
+
+export function fetchSystemStatus(): Promise<{ database: string; stripeConfigured: boolean; smtpConfigured: boolean }> {
+  return request(`/platform-admin/status`);
 }
 
 export type { Role };

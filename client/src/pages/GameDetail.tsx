@@ -3,6 +3,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import { cancelGame, fetchGame, joinGame, joinGameWaitlist, leaveGame, leaveGameWaitlist } from "../api";
 import { CalendarIcon, ChevronLeftIcon, ClockIcon, PinIcon, UsersIcon } from "../components/icons";
 import { Button, Card, PageSpinner } from "../components/ui";
+import { InviteButton } from "../components/InviteButton";
 import { useGuest } from "../GuestContext";
 import { colors, fonts } from "../theme";
 import type { Game } from "../types";
@@ -129,6 +130,7 @@ export function GameDetail() {
                   {busy ? "Please wait…" : "Join game"}
                 </Button>
               )}
+              <InviteButton title={game.activityLabel} text={`Join me for ${game.activityLabel} on ${game.date}`} />
             </div>
           )}
         </Card>

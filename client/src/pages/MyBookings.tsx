@@ -7,17 +7,25 @@ import {
   cancelRegistration,
   deleteHouseholdMember,
   fetchFavourites,
+  fetchFeedbackStatus,
   fetchHousehold,
   fetchMyBookings,
   fetchMyPasses,
   fetchMyRegistrations,
+  fetchReceipts,
+  fetchResidentFull,
   fetchResidentNotifications,
+  fetchWaitlistOfferStatus,
   guestLogout,
   lookupBooking,
   lookupRegistration,
   markResidentNotificationRead,
   removeFavourite,
   requestGuestLink,
+  rescheduleBooking,
+  saveAccessibilityPrefs,
+  saveNotificationPrefs,
+  submitFeedback,
   updateResidentMe,
   verifyGuestLink,
 } from "../api";
@@ -27,10 +35,79 @@ import { Button, EmptyState, RowSkeleton, Tabs, inputStyle, labelStyle } from ".
 import { dateLabel, euro } from "../euro";
 import { useGuest } from "../GuestContext";
 import { colors, fonts } from "../theme";
-import type { Favourite, HouseholdMember, MyBooking, MyRegistration, Pass, ResidentNotification } from "../types";
+import { ACCESSIBILITY_OPTIONS } from "../types";
+import type { Favourite, HouseholdMember, MyBooking, MyRegistration, NotificationPrefs, Pass, Receipt, ResidentNotification, WaitlistOfferStatus } from "../types";
 
 const cancelledBadgeStyle: React.CSSProperties = { fontSize: 11, fontWeight: 700, color: "#b00020", background: "#F6E3E3", borderRadius: 999, padding: "2px 8px" };
 const recoveredBadgeStyle: React.CSSProperties = { fontSize: 11, fontWeight: 700, color: colors.greenText, background: colors.greenBg, borderRadius: 999, padding: "2px 8px" };
+
+// QR display (Phase A) — generated client-side, no network call, just a
+// scannable encoding of the booking reference for a vendor's manual
+// check-in (see VendorDashboard.tsx's CheckInButton).
+function BookingQr({ ref }: { ref: string }) {
+  const [dataUrl, setDataUrl] = useState<string | null>(null);
+  useEffect(() => {
+    import("qrcode").then((QRCode) => QRCode.toDataURL(ref, { width: 160, margin: 1 }).then(setDataUrl));
+  }, [ref]);
+  if (!dataUrl) return null;
+  return <img src={dataUrl} alt={`QR code for ${ref}`} style={{ width: 120, height: 120, borderRadius: 10, border: `1px solid ${colors.border}` }} />;
+}
+
+function RescheduleForm({ booking, onDone }: { booking: MyBooking; onDone: () => void }) {
+  const [date, setDate] = useState(booking.date);
+  const [time, setTime] = useState(booking.time);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const submit = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      await rescheduleBooking(booking.ref, date, time);
+      onDone();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Couldn't reschedule");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "flex-end" }}>
+      <input type="date" value={date} onChange={(e) => setDate(e.target.value)} style={{ ...inputStyle, width: 150 }} />
+      <input type="time" value={time} onChange={(e) => setTime(e.target.value)} style={{ ...inputStyle, width: 110 }} />
+      <Button onClick={submit} disabled={busy}>{busy ? "Saving…" : "Confirm new time"}</Button>
+      {error && <span style={{ color: "#b00020", fontSize: 12.5 }}>{error}</span>}
+    </div>
+  );
+}
+
+// Post-activity feedback (Phase A) — a light "would you do this again",
+// only offered once the booking's date has passed.
+function FeedbackPrompt({ kind, ref }: { kind: "booking" | "registration"; ref: string }) {
+  const [response, setResponse] = useState<string | null | "loading">("loading");
+  useEffect(() => {
+    fetchFeedbackStatus(kind, ref).then((r) => setResponse(r.response));
+  }, [kind, ref]);
+
+  if (response === "loading") return null;
+  if (response) return <span style={{ fontSize: 12, color: colors.greenText, fontWeight: 700 }}>Thanks for the feedback!</span>;
+
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12.5, color: colors.muted }}>
+      Would you do this again?
+      {(["yes", "maybe", "no"] as const).map((r) => (
+        <button
+          key={r}
+          onClick={() => submitFeedback(kind, ref, r).then(() => setResponse(r))}
+          style={{ background: colors.panel, border: "none", borderRadius: 999, padding: "3px 10px", fontSize: 12, cursor: "pointer", fontWeight: 600 }}
+        >
+          {r}
+        </button>
+      ))}
+    </div>
+  );
+}
 
 function BookingRow({
   booking,
@@ -45,30 +122,84 @@ function BookingRow({
   error?: string;
   recovered?: boolean;
 }) {
+  const [expanded, setExpanded] = useState(false);
   const cancelled = booking.status === "cancelled";
+  const isPast = new Date(`${booking.date}T00:00:00`) < new Date(new Date().toDateString());
   return (
-    <div style={{ background: "#fff", border: `1px solid ${colors.border}`, borderRadius: 16, padding: "18px 20px", display: "flex", alignItems: "center", gap: 18, opacity: cancelled ? 0.6 : 1 }}>
-      <Photo src={booking.image} alt={booking.centreName} ph={booking.ph} style={{ width: 52, height: 52, borderRadius: 12, overflow: "hidden", flex: "none" }} />
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-          <span style={{ fontWeight: 700, fontSize: 16 }}>{booking.centreName}</span>
-          {cancelled && <span style={cancelledBadgeStyle}>Cancelled</span>}
-          {recovered && <span style={recoveredBadgeStyle}>Found by reference</span>}
+    <div style={{ background: "#fff", border: `1px solid ${colors.border}`, borderRadius: 16, padding: "18px 20px", opacity: cancelled ? 0.6 : 1 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 18 }}>
+        <Photo src={booking.image} alt={booking.centreName} ph={booking.ph} style={{ width: 52, height: 52, borderRadius: 12, overflow: "hidden", flex: "none" }} />
+        <div style={{ flex: 1, minWidth: 0, cursor: "pointer" }} onClick={() => setExpanded((e) => !e)}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+            <span style={{ fontWeight: 700, fontSize: 16 }}>{booking.centreName}</span>
+            {cancelled && <span style={cancelledBadgeStyle}>Cancelled</span>}
+            {recovered && <span style={recoveredBadgeStyle}>Found by reference</span>}
+          </div>
+          <div style={{ color: colors.mutedLight, fontSize: 14 }}>
+            {dateLabel(booking.date)} · {booking.time}
+          </div>
+          {error && <div style={{ color: "#b00020", fontSize: 12, marginTop: 4 }}>{error}</div>}
         </div>
-        <div style={{ color: colors.mutedLight, fontSize: 14 }}>
-          {dateLabel(booking.date)} · {booking.time}
+        <div style={{ textAlign: "right", flex: "none" }}>
+          <div style={{ fontWeight: 700 }}>{euro(booking.totalCents / 100)}</div>
+          <div style={{ fontSize: 12, color: colors.faint, marginBottom: cancelled ? 0 : 8 }}>{booking.ref}</div>
+          {!cancelled && (
+            <Button variant="danger" onClick={onCancel} disabled={cancelling}>
+              {cancelling ? "Cancelling…" : "Cancel"}
+            </Button>
+          )}
         </div>
-        {error && <div style={{ color: "#b00020", fontSize: 12, marginTop: 4 }}>{error}</div>}
       </div>
-      <div style={{ textAlign: "right", flex: "none" }}>
-        <div style={{ fontWeight: 700 }}>{euro(booking.totalCents / 100)}</div>
-        <div style={{ fontSize: 12, color: colors.faint, marginBottom: cancelled ? 0 : 8 }}>{booking.ref}</div>
-        {!cancelled && (
-          <Button variant="danger" onClick={onCancel} disabled={cancelling}>
-            {cancelling ? "Cancelling…" : "Cancel"}
-          </Button>
-        )}
+      {expanded && !cancelled && (
+        <div style={{ marginTop: 16, paddingTop: 16, borderTop: `1px solid ${colors.border}`, display: "flex", flexWrap: "wrap", gap: 24 }}>
+          <div>
+            <div style={{ fontSize: 12, fontWeight: 700, color: colors.muted, marginBottom: 8 }}>CHECK-IN CODE</div>
+            <BookingQr ref={booking.ref} />
+          </div>
+          <div style={{ flex: "1 1 260px" }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: colors.muted, marginBottom: 8 }}>RESCHEDULE</div>
+            <RescheduleForm booking={booking} onDone={() => window.location.reload()} />
+            {isPast && (
+              <div style={{ marginTop: 16 }}>
+                <FeedbackPrompt kind="booking" ref={booking.ref} />
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Waitlist-offer countdown (Phase A) — polls the same endpoint the "join
+// waitlist" flow used to check position, which now also surfaces an
+// active offer + its expiry once a spot opens up (see clubs.ts).
+function WaitlistOfferBanner({ clubId }: { clubId: string }) {
+  const [status, setStatus] = useState<WaitlistOfferStatus | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    fetchWaitlistOfferStatus(clubId).then((s) => {
+      if (!cancelled) setStatus(s);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [clubId]);
+
+  if (!status?.onWaitlist) return null;
+
+  if (status.offered) {
+    const expires = status.offerExpiresAt ? new Date(status.offerExpiresAt) : null;
+    return (
+      <div style={{ marginTop: 10, background: colors.orangeBg, color: colors.orangeDark, borderRadius: 10, padding: "8px 12px", fontSize: 13, fontWeight: 600 }}>
+        A spot has opened up! {expires ? `Respond by ${expires.toLocaleString("en-IE", { dateStyle: "medium", timeStyle: "short" })} or it passes to the next person.` : "Respond soon or it passes to the next person."}
       </div>
+    );
+  }
+
+  return (
+    <div style={{ marginTop: 10, color: colors.mutedLight, fontSize: 13 }}>
+      On the waitlist{typeof status.position === "number" ? ` · position ${status.position}${status.total ? ` of ${status.total}` : ""}` : ""}
     </div>
   );
 }
@@ -88,30 +219,33 @@ function RegistrationRow({
 }) {
   const cancelled = registration.status === "cancelled";
   return (
-    <div style={{ background: "#fff", border: `1px solid ${colors.border}`, borderRadius: 16, padding: "18px 20px", display: "flex", alignItems: "center", gap: 18, opacity: cancelled ? 0.6 : 1 }}>
-      <div style={{ width: 52, height: 52, borderRadius: 12, background: colors.orangeBg, flex: "none", display: "flex", alignItems: "center", justifyContent: "center", color: colors.orangeDark, fontWeight: 700, fontSize: 12 }}>
-        {registration.sport}
-      </div>
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-          <span style={{ fontWeight: 700, fontSize: 16 }}>{`${registration.childFirst} ${registration.childLast}`.trim()}</span>
-          {cancelled && <span style={cancelledBadgeStyle}>Cancelled</span>}
-          {recovered && <span style={recoveredBadgeStyle}>Found by reference</span>}
+    <div style={{ background: "#fff", border: `1px solid ${colors.border}`, borderRadius: 16, padding: "18px 20px", opacity: cancelled ? 0.6 : 1 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 18 }}>
+        <div style={{ width: 52, height: 52, borderRadius: 12, background: colors.orangeBg, flex: "none", display: "flex", alignItems: "center", justifyContent: "center", color: colors.orangeDark, fontWeight: 700, fontSize: 12 }}>
+          {registration.sport}
         </div>
-        <div style={{ color: colors.mutedLight, fontSize: 14 }}>
-          {registration.clubName} · {registration.team}
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+            <span style={{ fontWeight: 700, fontSize: 16 }}>{`${registration.childFirst} ${registration.childLast}`.trim()}</span>
+            {cancelled && <span style={cancelledBadgeStyle}>Cancelled</span>}
+            {recovered && <span style={recoveredBadgeStyle}>Found by reference</span>}
+          </div>
+          <div style={{ color: colors.mutedLight, fontSize: 14 }}>
+            {registration.clubName} · {registration.team}
+          </div>
+          {error && <div style={{ color: "#b00020", fontSize: 12, marginTop: 4 }}>{error}</div>}
         </div>
-        {error && <div style={{ color: "#b00020", fontSize: 12, marginTop: 4 }}>{error}</div>}
+        <div style={{ textAlign: "right", flex: "none" }}>
+          <div style={{ fontWeight: 700 }}>{registration.trial ? "Free trial" : euro(registration.totalCents / 100)}</div>
+          <div style={{ fontSize: 12, color: colors.faint, marginBottom: cancelled ? 0 : 8 }}>{registration.ref}</div>
+          {!cancelled && (
+            <Button variant="danger" onClick={onCancel} disabled={cancelling}>
+              {cancelling ? "Cancelling…" : "Cancel"}
+            </Button>
+          )}
+        </div>
       </div>
-      <div style={{ textAlign: "right", flex: "none" }}>
-        <div style={{ fontWeight: 700 }}>{registration.trial ? "Free trial" : euro(registration.totalCents / 100)}</div>
-        <div style={{ fontSize: 12, color: colors.faint, marginBottom: cancelled ? 0 : 8 }}>{registration.ref}</div>
-        {!cancelled && (
-          <Button variant="danger" onClick={onCancel} disabled={cancelling}>
-            {cancelling ? "Cancelling…" : "Cancel"}
-          </Button>
-        )}
-      </div>
+      {!cancelled && <WaitlistOfferBanner clubId={registration.clubId} />}
     </div>
   );
 }
@@ -322,14 +456,86 @@ function PassesPanel() {
   );
 }
 
+// --- receipts / payment history (Phase A) -----------------------------
+
+const RECEIPT_LABELS: Record<Receipt["kind"], string> = { booking: "Hall booking", registration: "Club registration", game: "Game", pass: "Pass" };
+
+function ReceiptsPanel() {
+  const [receipts, setReceipts] = useState<Receipt[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetchReceipts()
+      .then(setReceipts)
+      .finally(() => setLoading(false));
+  }, []);
+
+  if (loading) return <RowSkeleton />;
+  if (receipts.length === 0) {
+    return <EmptyState icon={<ChevronRightIcon size={20} />} title="No payments yet" />;
+  }
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      {receipts.map((r) => (
+        <div key={r.ref} style={{ background: "#fff", border: `1px solid ${colors.border}`, borderRadius: 14, padding: "14px 18px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <div>
+            <div style={{ fontWeight: 700 }}>{r.label}</div>
+            <div style={{ fontSize: 13, color: colors.mutedLight }}>{RECEIPT_LABELS[r.kind]} · {r.ref} · {dateLabel(r.createdAt.slice(0, 10))}</div>
+          </div>
+          <div style={{ textAlign: "right" }}>
+            <div style={{ fontWeight: 700 }}>{euro(r.totalCents / 100)}</div>
+            <div style={{ fontSize: 11, color: r.paymentStatus === "paid" ? colors.greenText : colors.faint }}>{r.paymentStatus}</div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // --- profile (name / home county) -------------------------------------------
 
+const NOTIFICATION_CATEGORIES: { key: keyof NotificationPrefs; label: string }[] = [
+  { key: "bookingConfirmations", label: "Booking confirmations" },
+  { key: "bookingReminders", label: "Reminders" },
+  { key: "waitlistOffers", label: "Waitlist offers" },
+  { key: "recommendations", label: "Recommendations" },
+  { key: "circleAnnouncements", label: "Circle announcements" },
+];
+
 function ProfilePanel() {
+  const navigate = useNavigate();
   const { resident, refresh } = useGuest();
   const [name, setName] = useState(resident?.name ?? "");
   const [homeCounty, setHomeCounty] = useState(resident?.homeCounty ?? "");
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [notifPrefs, setNotifPrefs] = useState<NotificationPrefs>({
+    bookingConfirmations: true,
+    bookingReminders: true,
+    waitlistOffers: true,
+    recommendations: true,
+    circleAnnouncements: true,
+  });
+  const [accessibility, setAccessibility] = useState<string[]>([]);
+
+  useEffect(() => {
+    fetchResidentFull().then(({ resident: r }) => {
+      if (!r) return;
+      setName(r.name);
+      setHomeCounty(r.homeCounty);
+      setAccessibility(r.accessibilityPrefs);
+      setNotifPrefs(
+        r.notificationPrefs ?? {
+          bookingConfirmations: true,
+          bookingReminders: true,
+          waitlistOffers: true,
+          recommendations: true,
+          circleAnnouncements: true,
+        }
+      );
+    });
+  }, []);
 
   const handleSave = async () => {
     setSaving(true);
@@ -343,26 +549,76 @@ function ProfilePanel() {
     }
   };
 
+  const toggleNotifPref = async (key: keyof NotificationPrefs) => {
+    const next = { ...notifPrefs, [key]: !notifPrefs[key] };
+    setNotifPrefs(next);
+    await saveNotificationPrefs(next);
+  };
+
+  const toggleAccessibility = async (opt: string) => {
+    const next = accessibility.includes(opt) ? accessibility.filter((a) => a !== opt) : [...accessibility, opt];
+    setAccessibility(next);
+    await saveAccessibilityPrefs(next);
+  };
+
   return (
-    <div style={{ background: "#fff", border: `1px solid ${colors.border}`, borderRadius: 16, padding: "18px 20px", maxWidth: 420 }}>
-      <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-        <div>
-          <label style={labelStyle}>Name</label>
-          <input value={name} onChange={(e) => setName(e.target.value)} style={inputStyle} />
+    <div style={{ display: "flex", flexDirection: "column", gap: 20, maxWidth: 480 }}>
+      <div style={{ background: "#fff", border: `1px solid ${colors.border}`, borderRadius: 16, padding: "18px 20px" }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+          <div>
+            <label style={labelStyle}>Name</label>
+            <input value={name} onChange={(e) => setName(e.target.value)} style={inputStyle} />
+          </div>
+          <div>
+            <label style={labelStyle}>Home county</label>
+            <input value={homeCounty} onChange={(e) => setHomeCounty(e.target.value)} style={inputStyle} />
+          </div>
+          <Button onClick={handleSave} disabled={saving}>
+            {saving ? "Saving…" : saved ? "Saved" : "Save"}
+          </Button>
+          <button onClick={() => navigate("/onboarding")} style={{ background: "none", border: "none", padding: 0, color: colors.greenText, fontWeight: 700, fontSize: 13, cursor: "pointer", textAlign: "left" }}>
+            Revisit interests & availability
+          </button>
         </div>
-        <div>
-          <label style={labelStyle}>Home county</label>
-          <input value={homeCounty} onChange={(e) => setHomeCounty(e.target.value)} style={inputStyle} />
+      </div>
+
+      <div style={{ background: "#fff", border: `1px solid ${colors.border}`, borderRadius: 16, padding: "18px 20px" }}>
+        <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 12 }}>Notifications</div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          {NOTIFICATION_CATEGORIES.map((c) => (
+            <label key={c.key} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 14 }}>
+              {c.label}
+              <input type="checkbox" checked={notifPrefs[c.key] !== false} onChange={() => toggleNotifPref(c.key)} style={{ accentColor: colors.green }} />
+            </label>
+          ))}
         </div>
-        <Button onClick={handleSave} disabled={saving}>
-          {saving ? "Saving…" : saved ? "Saved" : "Save"}
-        </Button>
+      </div>
+
+      <div style={{ background: "#fff", border: `1px solid ${colors.border}`, borderRadius: 16, padding: "18px 20px" }}>
+        <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>Accessibility</div>
+        <p style={{ fontSize: 12.5, color: colors.mutedLight, margin: "0 0 12px" }}>Used to improve filtering — never shown to other participants.</p>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+          {ACCESSIBILITY_OPTIONS.map((opt) => (
+            <button
+              key={opt}
+              onClick={() => toggleAccessibility(opt)}
+              style={{
+                border: `1px solid ${accessibility.includes(opt) ? colors.green : colors.border}`,
+                background: accessibility.includes(opt) ? colors.greenBg : "#fff",
+                color: accessibility.includes(opt) ? colors.greenText : colors.text,
+                borderRadius: 999, padding: "7px 14px", fontSize: 13, fontWeight: 600, cursor: "pointer",
+              }}
+            >
+              {opt}
+            </button>
+          ))}
+        </div>
       </div>
     </div>
   );
 }
 
-type MyStuffTab = "bookings" | "household" | "favourites" | "notifications" | "passes" | "profile";
+type MyStuffTab = "bookings" | "household" | "favourites" | "notifications" | "passes" | "receipts" | "profile";
 
 export function MyBookings() {
   const navigate = useNavigate();
@@ -420,15 +676,18 @@ export function MyBookings() {
     if (!token || verifiedTokenRef.current === token) return;
     verifiedTokenRef.current = token;
     setVerifying(true);
+    let destination = "/bookings";
     verifyGuestLink(token)
       .then(async () => {
         await refreshGuest();
         await loadMyStuff();
+        const full = await fetchResidentFull().catch(() => null);
+        if (full?.resident && !full.resident.onboardingCompleted) destination = "/onboarding";
       })
       .catch((e) => setVerifyError(e instanceof Error ? e.message : "That sign-in link didn't work"))
       .finally(() => {
         setVerifying(false);
-        navigate("/bookings", { replace: true });
+        navigate(destination, { replace: true });
       });
     // Only ever act on the token once, on arrival — not on every searchParams change.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -523,6 +782,7 @@ export function MyBookings() {
                 { key: "favourites", label: "Favourites" },
                 { key: "notifications", label: "Notifications" },
                 { key: "passes", label: "Passes" },
+                { key: "receipts", label: "Receipts" },
                 { key: "profile", label: "Profile" },
               ]}
             />
@@ -533,6 +793,7 @@ export function MyBookings() {
         {tab === "favourites" && <FavouritesPanel />}
         {tab === "notifications" && <NotificationsPanel />}
         {tab === "passes" && <PassesPanel />}
+        {tab === "receipts" && <ReceiptsPanel />}
         {tab === "profile" && <ProfilePanel />}
 
         {tab === "bookings" && (

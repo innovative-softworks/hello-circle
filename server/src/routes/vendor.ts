@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 import { Router } from "express";
-import { requireVendor } from "../auth.js";
-import { db } from "../db/index.js";
+import { requirePlatformRole, requireVendor } from "../auth.js";
+import { approximateCoords, db } from "../db/index.js";
 import { getCentre, getClub } from "../db/queries.js";
 import { sendMail } from "../email.js";
 
@@ -147,10 +147,11 @@ vendorRouter.post("/centres", async (req, res) => {
   if (!b.name || !b.area || !b.county || !b.blurb) return res.status(400).json({ error: "Missing required fields" });
 
   const id = crypto.randomUUID();
+  const { lat, lng } = approximateCoords(b.county, id);
   await db.transaction(async (tx) => {
     await tx.prepare(
-      `INSERT INTO centres (id, name, area, county, rating, reviews, capacity, from_price, managed_by, ph, image_url, blurb, vendor_id, status, created_at, opens_at, closes_at, payment_method, map_url)
-       VALUES (?, ?, ?, ?, 0, 0, ?, ?, ?, '', ?, ?, ?, 'pending', NOW(), ?, ?, ?, ?)`
+      `INSERT INTO centres (id, name, area, county, rating, reviews, capacity, from_price, managed_by, ph, image_url, blurb, vendor_id, status, created_at, opens_at, closes_at, payment_method, map_url, lat, lng)
+       VALUES (?, ?, ?, ?, 0, 0, ?, ?, ?, '', ?, ?, ?, 'pending', NOW(), ?, ?, ?, ?, ?, ?)`
     ).run(
       id,
       b.name,
@@ -165,7 +166,9 @@ vendorRouter.post("/centres", async (req, res) => {
       b.opensAt ?? "09:00",
       b.closesAt ?? "21:00",
       b.paymentMethod ?? "online",
-      b.mapUrl ?? ""
+      b.mapUrl ?? "",
+      lat,
+      lng
     );
     for (const [i, a] of (b.amenities ?? []).entries()) {
       await tx.prepare(`INSERT INTO centre_amenities (centre_id, amenity, sort_order) VALUES (?, ?, ?)`).run(id, a, i);
@@ -186,6 +189,9 @@ vendorRouter.post("/centres", async (req, res) => {
 vendorRouter.put("/centres/:id", async (req, res) => {
   if (!(await ownsCentre(req.user!.id, req.params.id))) return res.status(403).json({ error: "Not your listing" });
   const b = req.body as Partial<CentreInput>;
+  // A county change moves the county-centroid the map pin approximates —
+  // re-jitter from the new county; otherwise leave the existing pin alone.
+  const coords = b.county ? approximateCoords(b.county, req.params.id) : { lat: undefined, lng: undefined };
 
   await db.transaction(async (tx) => {
     await tx.prepare(
@@ -193,7 +199,7 @@ vendorRouter.put("/centres/:id", async (req, res) => {
        capacity = COALESCE(?, capacity), from_price = COALESCE(?, from_price), managed_by = COALESCE(?, managed_by),
        image_url = COALESCE(?, image_url), blurb = COALESCE(?, blurb),
        opens_at = COALESCE(?, opens_at), closes_at = COALESCE(?, closes_at), payment_method = COALESCE(?, payment_method),
-       is_open = COALESCE(?, is_open), map_url = COALESCE(?, map_url)
+       is_open = COALESCE(?, is_open), map_url = COALESCE(?, map_url), lat = COALESCE(?, lat), lng = COALESCE(?, lng)
        WHERE id = ?`
     ).run(
       b.name,
@@ -209,6 +215,8 @@ vendorRouter.put("/centres/:id", async (req, res) => {
       b.paymentMethod,
       b.isOpen === undefined ? undefined : b.isOpen ? 1 : 0,
       b.mapUrl,
+      coords.lat,
+      coords.lng,
       req.params.id
     );
     if (b.amenities) {
@@ -271,6 +279,33 @@ vendorRouter.delete("/centres/:id/blocks/:blockId", async (req, res) => {
   res.json({ ok: true });
 });
 
+// --- per-day opening hours (Phase B) — optional; a centre with none set
+// keeps using its single opens_at/closes_at window (see availability.ts's
+// hoursFor()). --------------------------------------------------------
+
+vendorRouter.get("/centres/:id/hours", async (req, res) => {
+  if (!(await ownsCentre(req.user!.id, req.params.id))) return res.status(403).json({ error: "Not your listing" });
+  const rows = await db
+    .prepare(`SELECT day_of_week as dayOfWeek, opens_at as opensAt, closes_at as closesAt, closed FROM centre_hours WHERE centre_id = ? ORDER BY day_of_week`)
+    .all(req.params.id);
+  res.json(rows);
+});
+
+vendorRouter.put("/centres/:id/hours", async (req, res) => {
+  if (!(await ownsCentre(req.user!.id, req.params.id))) return res.status(403).json({ error: "Not your listing" });
+  const { days } = req.body as { days: { dayOfWeek: number; opensAt: string; closesAt: string; closed: boolean }[] };
+  if (!Array.isArray(days)) return res.status(400).json({ error: "days array is required" });
+  await db.transaction(async (tx) => {
+    await tx.prepare(`DELETE FROM centre_hours WHERE centre_id = ?`).run(req.params.id);
+    for (const d of days) {
+      await tx
+        .prepare(`INSERT INTO centre_hours (centre_id, day_of_week, opens_at, closes_at, closed) VALUES (?, ?, ?, ?, ?)`)
+        .run(req.params.id, d.dayOfWeek, d.opensAt, d.closesAt, d.closed ? 1 : 0);
+    }
+  });
+  res.json({ ok: true });
+});
+
 vendorRouter.get("/clubs/:id", async (req, res) => {
   if (!(await ownsClub(req.user!.id, req.params.id))) return res.status(403).json({ error: "Not your listing" });
   res.json(await getClub(req.params.id));
@@ -304,11 +339,12 @@ vendorRouter.post("/clubs", async (req, res) => {
   }
 
   const id = crypto.randomUUID();
+  const { lat, lng } = approximateCoords(b.county, id);
   await db.transaction(async (tx) => {
     await tx.prepare(
-      `INSERT INTO clubs (id, name, sport, area, county, ages, price, unit, trial, ph, image_url, blurb, vendor_id, status, created_at, payment_method, map_url, capacity)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, '', ?, ?, ?, 'pending', NOW(), ?, ?, ?)`
-    ).run(id, b.name, b.sport, b.area, b.county, b.ages ?? "", b.price ?? 0, b.unit ?? "year", b.trial ? 1 : 0, (b.images ?? [])[0] ?? b.image ?? "", b.blurb, req.user!.id, b.paymentMethod ?? "online", b.mapUrl ?? "", b.capacity ?? null);
+      `INSERT INTO clubs (id, name, sport, area, county, ages, price, unit, trial, ph, image_url, blurb, vendor_id, status, created_at, payment_method, map_url, capacity, lat, lng)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, '', ?, ?, ?, 'pending', NOW(), ?, ?, ?, ?, ?)`
+    ).run(id, b.name, b.sport, b.area, b.county, b.ages ?? "", b.price ?? 0, b.unit ?? "year", b.trial ? 1 : 0, (b.images ?? [])[0] ?? b.image ?? "", b.blurb, req.user!.id, b.paymentMethod ?? "online", b.mapUrl ?? "", b.capacity ?? null, lat, lng);
     for (const [i, item] of (b.includes ?? []).entries()) {
       await tx.prepare(`INSERT INTO club_includes (club_id, item, sort_order) VALUES (?, ?, ?)`).run(id, item, i);
     }
@@ -322,6 +358,7 @@ vendorRouter.post("/clubs", async (req, res) => {
 vendorRouter.put("/clubs/:id", async (req, res) => {
   if (!(await ownsClub(req.user!.id, req.params.id))) return res.status(403).json({ error: "Not your listing" });
   const b = req.body as Partial<ClubInput>;
+  const coords = b.county ? approximateCoords(b.county, req.params.id) : { lat: undefined, lng: undefined };
 
   await db.transaction(async (tx) => {
     await tx.prepare(
@@ -329,7 +366,8 @@ vendorRouter.put("/clubs/:id", async (req, res) => {
        county = COALESCE(?, county), ages = COALESCE(?, ages), price = COALESCE(?, price), unit = COALESCE(?, unit),
        trial = COALESCE(?, trial), image_url = COALESCE(?, image_url), blurb = COALESCE(?, blurb),
        payment_method = COALESCE(?, payment_method), map_url = COALESCE(?, map_url),
-       capacity = CASE WHEN ? THEN capacity ELSE ? END
+       capacity = CASE WHEN ? THEN capacity ELSE ? END,
+       lat = COALESCE(?, lat), lng = COALESCE(?, lng)
        WHERE id = ?`
     ).run(
       b.name,
@@ -346,6 +384,8 @@ vendorRouter.put("/clubs/:id", async (req, res) => {
       b.mapUrl,
       b.capacity === undefined ? 1 : 0,
       b.capacity === undefined ? null : b.capacity,
+      coords.lat,
+      coords.lng,
       req.params.id
     );
     if (b.includes) {
@@ -418,6 +458,146 @@ vendorRouter.post("/notifications/:id/read", async (req, res) => {
   const info = await db.prepare(`UPDATE notifications SET \`read\` = 1 WHERE id = ? AND recipient_id = ?`).run(req.params.id, req.user!.id);
   if (info.changes === 0) return res.status(404).json({ error: "Not found" });
   res.json({ ok: true });
+});
+
+// --- Programs, sessions, attendance (Phase B) -------------------------
+// See server/src/db/index.ts's programs/program_sessions/program_enrollments
+// comments for the model. Deliberately independent of centre-hire and
+// club-registration — this is new activity types only, not a migration.
+
+interface ProgramInput {
+  listingType: "centre" | "club";
+  listingId: string;
+  title: string;
+  description: string;
+  ageRange?: string;
+  imageUrl?: string;
+  priceCents?: number;
+  capacity?: number | null;
+}
+
+async function ownsListing(vendorId: string, listingType: "centre" | "club", listingId: string): Promise<boolean> {
+  return listingType === "centre" ? ownsCentre(vendorId, listingId) : ownsClub(vendorId, listingId);
+}
+
+vendorRouter.get("/programs", async (req, res) => {
+  const rows = await db
+    .prepare(
+      `SELECT id, listing_type as listingType, listing_id as listingId, title, status, price_cents as priceCents, capacity, created_at as createdAt
+       FROM programs WHERE vendor_id = ? ORDER BY created_at DESC`
+    )
+    .all(req.user!.id);
+  res.json(rows);
+});
+
+vendorRouter.post("/programs", async (req, res) => {
+  const b = req.body as ProgramInput;
+  if (!b.listingType || !b.listingId || !b.title || !b.description) return res.status(400).json({ error: "Missing required fields" });
+  if (!(await ownsListing(req.user!.id, b.listingType, b.listingId))) return res.status(403).json({ error: "Not your listing" });
+
+  const id = crypto.randomUUID();
+  await db
+    .prepare(
+      `INSERT INTO programs (id, listing_type, listing_id, vendor_id, title, description, age_range, image_url, price_cents, capacity)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    )
+    .run(id, b.listingType, b.listingId, req.user!.id, b.title, b.description, b.ageRange ?? "", b.imageUrl ?? "", b.priceCents ?? 0, b.capacity ?? null);
+  res.status(201).json({ id });
+});
+
+async function ownsProgram(vendorId: string, programId: string): Promise<boolean> {
+  const row = (await db.prepare(`SELECT vendor_id FROM programs WHERE id = ?`).get(programId)) as { vendor_id: string } | undefined;
+  return !!row && row.vendor_id === vendorId;
+}
+
+vendorRouter.put("/programs/:id", async (req, res) => {
+  if (!(await ownsProgram(req.user!.id, req.params.id))) return res.status(403).json({ error: "Not your program" });
+  const b = req.body as Partial<ProgramInput> & { status?: string };
+  await db
+    .prepare(
+      `UPDATE programs SET title = COALESCE(?, title), description = COALESCE(?, description), age_range = COALESCE(?, age_range),
+       image_url = COALESCE(?, image_url), price_cents = COALESCE(?, price_cents), status = COALESCE(?, status),
+       capacity = CASE WHEN ? THEN capacity ELSE ? END
+       WHERE id = ?`
+    )
+    .run(b.title, b.description, b.ageRange, b.imageUrl, b.priceCents, b.status, b.capacity === undefined ? 1 : 0, b.capacity === undefined ? null : b.capacity, req.params.id);
+  res.json({ ok: true });
+});
+
+vendorRouter.delete("/programs/:id", async (req, res) => {
+  if (!(await ownsProgram(req.user!.id, req.params.id))) return res.status(403).json({ error: "Not your program" });
+  await db.prepare(`UPDATE programs SET status = 'archived' WHERE id = ?`).run(req.params.id);
+  res.json({ ok: true });
+});
+
+vendorRouter.post("/programs/:id/sessions", async (req, res) => {
+  if (!(await ownsProgram(req.user!.id, req.params.id))) return res.status(403).json({ error: "Not your program" });
+  const { date, time, durationMinutes, capacity } = req.body as { date?: string; time?: string; durationMinutes?: number; capacity?: number };
+  if (!date || !time) return res.status(400).json({ error: "date and time are required" });
+  const id = crypto.randomUUID();
+  await db
+    .prepare(`INSERT INTO program_sessions (id, program_id, date, time, duration_minutes, capacity) VALUES (?, ?, ?, ?, ?, ?)`)
+    .run(id, req.params.id, date, time, durationMinutes ?? 60, capacity ?? null);
+  res.status(201).json({ id });
+});
+
+vendorRouter.delete("/programs/:programId/sessions/:sessionId", async (req, res) => {
+  if (!(await ownsProgram(req.user!.id, req.params.programId))) return res.status(403).json({ error: "Not your program" });
+  await db.prepare(`UPDATE program_sessions SET status = 'cancelled' WHERE id = ? AND program_id = ?`).run(req.params.sessionId, req.params.programId);
+  res.json({ ok: true });
+});
+
+vendorRouter.get("/programs/:id/enrollments", async (req, res) => {
+  if (!(await ownsProgram(req.user!.id, req.params.id))) return res.status(403).json({ error: "Not your program" });
+  const rows = await db
+    .prepare(
+      `SELECT id, ref, participant_name as participantName, participant_dob as participantDob, email, phone, total_cents as totalCents, created_at as createdAt, status
+       FROM program_enrollments WHERE program_id = ? AND payment_status = 'paid' ORDER BY created_at DESC`
+    )
+    .all(req.params.id);
+  res.json(rows);
+});
+
+// Per-session attendance (Phase B) — reuses the generic attendance table
+// from Tier 3's manual check-in, keyed by a composite ref rather than a new
+// table, since the shape (kind, ref, checked_in_at, checked_in_by) already
+// fits exactly.
+vendorRouter.post("/program-sessions/:sessionId/attendance/:enrollmentId", async (req, res) => {
+  const session = (await db.prepare(`SELECT program_id as programId FROM program_sessions WHERE id = ?`).get(req.params.sessionId)) as { programId: string } | undefined;
+  if (!session || !(await ownsProgram(req.user!.id, session.programId))) return res.status(403).json({ error: "Not your session" });
+  const ref = `${req.params.sessionId}:${req.params.enrollmentId}`;
+  await db
+    .prepare(`INSERT INTO attendance (kind, ref, checked_in_by) VALUES ('program_session', ?, ?) ON DUPLICATE KEY UPDATE checked_in_at = NOW(), checked_in_by = VALUES(checked_in_by)`)
+    .run(ref, req.user!.id);
+  res.json({ ok: true });
+});
+
+vendorRouter.get("/programs/:id/sessions/:sessionId/attendance", async (req, res) => {
+  if (!(await ownsProgram(req.user!.id, req.params.id))) return res.status(403).json({ error: "Not your program" });
+  const rows = (await db.prepare(`SELECT ref FROM attendance WHERE kind = 'program_session' AND ref LIKE ?`).all(`${req.params.sessionId}:%`)) as { ref: string }[];
+  res.json(rows.map((r) => r.ref.split(":")[1]));
+});
+
+// --- Schedule / Today's Operations (Phase B) --------------------------
+// Aggregates the vendor's own program_sessions — the one genuinely new,
+// generic "session" concept — for a given date range. Deliberately does
+// NOT also try to fold in centre-hire bookings or club registrations onto
+// the same calendar shape; those stay in their own existing screens (see
+// plan doc: not migrating old flows onto the new model).
+
+vendorRouter.get("/schedule", async (req, res) => {
+  const from = typeof req.query.from === "string" ? req.query.from : new Date().toISOString().slice(0, 10);
+  const days = Math.min(Number(req.query.days) || 30, 90);
+  const rows = await db
+    .prepare(
+      `SELECT ps.id, ps.date, ps.time, ps.duration_minutes as durationMinutes, ps.capacity, p.title, p.id as programId,
+              (SELECT COUNT(*) FROM program_enrollments pe WHERE pe.program_id = p.id AND pe.payment_status = 'paid' AND pe.status != 'cancelled') as enrolled
+       FROM program_sessions ps JOIN programs p ON p.id = ps.program_id
+       WHERE p.vendor_id = ? AND ps.status != 'cancelled' AND ps.date >= ? AND ps.date <= DATE_ADD(?, INTERVAL ? DAY)
+       ORDER BY ps.date, ps.time`
+    )
+    .all(req.user!.id, from, from, days);
+  res.json(rows);
 });
 
 // --- club waitlist visibility (Tier 3 — was genuinely missing, not just
@@ -507,6 +687,103 @@ vendorRouter.post("/checkin/:kind/:ref", async (req, res) => {
 vendorRouter.get("/checkin/:kind/:ref", async (req, res) => {
   const row = await db.prepare(`SELECT checked_in_at as checkedInAt FROM attendance WHERE kind = ? AND ref = ?`).get(req.params.kind, req.params.ref);
   res.json({ checkedIn: !!row, checkedInAt: (row as { checkedInAt: string } | undefined)?.checkedInAt ?? null });
+});
+
+// --- participant directory (Phase C) ------------------------------------
+// Searchable across everyone with a paid booking/registration on any of
+// this vendor's own listings — previously only visible inline per-row on
+// the flat Bookings tab.
+
+vendorRouter.get("/participants", async (req, res) => {
+  const q = typeof req.query.q === "string" ? `%${req.query.q}%` : "%";
+  const rows = await db
+    .prepare(
+      `SELECT b.name, b.email, b.phone, 'booking' as kind, c.name as listingName, b.created_at as lastActivity
+       FROM bookings b JOIN centres c ON c.id = b.centre_id
+       WHERE c.vendor_id = ? AND b.payment_status = 'paid' AND (b.name LIKE ? OR b.email LIKE ?)
+       UNION ALL
+       SELECT CONCAT(r.g_first, ' ', r.g_last) as name, r.email, r.phone, 'registration' as kind, c.name as listingName, r.created_at as lastActivity
+       FROM registrations r JOIN clubs c ON c.id = r.club_id
+       WHERE c.vendor_id = ? AND r.payment_status = 'paid' AND (r.g_first LIKE ? OR r.g_last LIKE ? OR r.email LIKE ?)
+       ORDER BY lastActivity DESC LIMIT 200`
+    )
+    .all(req.user!.id, q, q, req.user!.id, q, q, q);
+  res.json(rows);
+});
+
+// --- insights / reports (Phase C) ---------------------------------------
+// Decision-focused aggregates, not vanity charting — participation,
+// cancellation rate, and a day/hour utilisation grid for hall bookings (the
+// one listing type with a real time dimension today).
+
+vendorRouter.get("/insights", async (req, res) => {
+  const vendorId = req.user!.id;
+  const totals = (await db
+    .prepare(
+      `SELECT
+        (SELECT COUNT(*) FROM bookings b JOIN centres c ON c.id = b.centre_id WHERE c.vendor_id = ? AND b.payment_status = 'paid') as totalBookings,
+        (SELECT COUNT(*) FROM bookings b JOIN centres c ON c.id = b.centre_id WHERE c.vendor_id = ? AND b.status = 'cancelled') as cancelledBookings,
+        (SELECT COUNT(*) FROM registrations r JOIN clubs c ON c.id = r.club_id WHERE c.vendor_id = ? AND r.payment_status = 'paid') as totalRegistrations,
+        (SELECT COUNT(*) FROM registrations r JOIN clubs c ON c.id = r.club_id WHERE c.vendor_id = ? AND r.status = 'cancelled') as cancelledRegistrations,
+        (SELECT COUNT(DISTINCT b.client_id) FROM bookings b JOIN centres c ON c.id = b.centre_id WHERE c.vendor_id = ? AND b.payment_status = 'paid') as uniqueBookers`
+    )
+    .get(vendorId, vendorId, vendorId, vendorId, vendorId)) as Record<string, number>;
+
+  const utilisation = await db
+    .prepare(
+      `SELECT DAYOFWEEK(b.date) as dayOfWeek, SUBSTRING(b.time, 1, 2) as hour, COUNT(*) as n
+       FROM bookings b JOIN centres c ON c.id = b.centre_id
+       WHERE c.vendor_id = ? AND b.payment_status = 'paid'
+       GROUP BY dayOfWeek, hour`
+    )
+    .all(vendorId);
+
+  res.json({ totals, utilisation });
+});
+
+vendorRouter.get("/reports/bookings.csv", async (req, res) => {
+  const rows = (await db
+    .prepare(
+      `SELECT b.ref, c.name as centre, b.date, b.time, b.duration, b.guests, b.name, b.email, b.total_cents as totalCents, b.status
+       FROM bookings b JOIN centres c ON c.id = b.centre_id WHERE c.vendor_id = ? AND b.payment_status = 'paid' ORDER BY b.date DESC`
+    )
+    .all(req.user!.id)) as Record<string, unknown>[];
+  const header = "ref,centre,date,time,duration,guests,name,email,total_euro,status";
+  const csvRows = rows.map((r) =>
+    [r.ref, r.centre, r.date, r.time, r.duration, r.guests, r.name, r.email, ((r.totalCents as number) / 100).toFixed(2), r.status]
+      .map((v) => `"${String(v).replace(/"/g, '""')}"`)
+      .join(",")
+  );
+  res.setHeader("Content-Type", "text/csv");
+  res.setHeader("Content-Disposition", "attachment; filename=bookings.csv");
+  res.send([header, ...csvRows].join("\n"));
+});
+
+// --- payments summary (Phase C) -----------------------------------------
+// Deliberately gated with requirePlatformRole('finance') — the one place in
+// this codebase RBAC actually restricts an invited staff member's access
+// rather than just recording a role field nobody checks. The org owner
+// (invitedStaff=false) always passes regardless of role.
+
+vendorRouter.get("/payments", requirePlatformRole("finance"), async (req, res) => {
+  const vendorId = req.user!.id;
+  const [bookings, registrations] = await Promise.all([
+    db
+      .prepare(
+        `SELECT b.ref, 'booking' as kind, c.name as listingName, b.total_cents as totalCents, b.created_at as createdAt, b.payment_status as paymentStatus
+         FROM bookings b JOIN centres c ON c.id = b.centre_id WHERE c.vendor_id = ? ORDER BY b.created_at DESC LIMIT 100`
+      )
+      .all(vendorId),
+    db
+      .prepare(
+        `SELECT r.ref, 'registration' as kind, c.name as listingName, r.total_cents as totalCents, r.created_at as createdAt, r.payment_status as paymentStatus
+         FROM registrations r JOIN clubs c ON c.id = r.club_id WHERE c.vendor_id = ? ORDER BY r.created_at DESC LIMIT 100`
+      )
+      .all(vendorId),
+  ]);
+  const all = [...bookings, ...registrations].sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  const totalPaidCents = all.filter((r: any) => r.paymentStatus === "paid").reduce((sum: number, r: any) => sum + r.totalCents, 0);
+  res.json({ transactions: all.slice(0, 150), totalPaidCents });
 });
 
 // --- demand intelligence (NEXT) -------------------------------------------

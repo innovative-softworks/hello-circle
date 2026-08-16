@@ -5,6 +5,7 @@ import { BrowseIllustration } from "../components/BrowseIllustration";
 import { Chip } from "../components/Chip";
 import { CentreCard } from "../components/CentreCard";
 import { ClubCard } from "../components/ClubCard";
+import { DiscoveryMap } from "../components/DiscoveryMap";
 import { ChevronLeftIcon, ChevronRightIcon, GridIcon, HomeIcon, PinIcon, SearchIcon } from "../components/icons";
 import { CardSkeleton } from "../components/ui";
 import { colors, fonts, maxWidth } from "../theme";
@@ -41,6 +42,7 @@ export function Browse() {
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<SortKey>("popular");
   const [page, setPage] = useState(1);
+  const [view, setView] = useState<"list" | "map">("list");
 
   const isClubs = category === "clubs";
   const [centres, setCentres] = useState<Centre[]>([]);
@@ -223,6 +225,29 @@ export function Browse() {
                   </option>
                 ))}
               </select>
+              <div style={{ display: "flex", border: `1px solid ${colors.inputBorder}`, borderRadius: 11, overflow: "hidden" }}>
+                {(["list", "map"] as const).map((v) => (
+                  <button
+                    key={v}
+                    onClick={() => setView(v)}
+                    className="btn"
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 6,
+                      padding: "9px 13px",
+                      border: "none",
+                      background: view === v ? colors[accent] : colors.bg,
+                      color: view === v ? "#fff" : colors.text,
+                      fontSize: 13.5,
+                      fontWeight: 600,
+                    }}
+                  >
+                    {v === "list" ? <GridIcon size={13} /> : <PinIcon size={13} />}
+                    {v === "list" ? "List" : "Map"}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
           {isClubs && (
@@ -248,12 +273,14 @@ export function Browse() {
           <div className="grid-responsive-3" style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 20 }}>
             {Array.from({ length: PAGE_SIZE }, (_, i) => <CardSkeleton key={i} photoHeight={140} />)}
           </div>
-        ) : pageRows.length === 0 ? (
+        ) : filtered.length === 0 ? (
           <div style={{ border: `1.5px dashed ${colors.border}`, borderRadius: 18, padding: "56px 20px", textAlign: "center", color: colors.mutedLight }}>
             <div style={{ display: "flex", justifyContent: "center", marginBottom: 10, color: colors.faint }}><SearchIcon size={28} /></div>
             <div style={{ fontWeight: 700, color: colors.muted, marginBottom: 4 }}>No results</div>
             <div style={{ fontSize: 14 }}>Try a different area, search term, or clear the filters.</div>
           </div>
+        ) : view === "map" ? (
+          <DiscoveryMap centres={isClubs ? [] : (filtered as Centre[])} clubs={isClubs ? (filtered as Club[]) : []} />
         ) : (
           <div className="grid-responsive-3" style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 20 }}>
             {isClubs
@@ -263,7 +290,7 @@ export function Browse() {
         )}
       </section>
 
-      {!loading && filtered.length > 0 && (
+      {view === "list" && !loading && filtered.length > 0 && (
         <section className="section-pad" style={{ maxWidth, margin: "0 auto", padding: "0 24px 70px", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
           <span style={{ color: colors.mutedLight, fontSize: 14 }}>
             Showing {(pageSafe - 1) * PAGE_SIZE + 1} to {Math.min(pageSafe * PAGE_SIZE, filtered.length)} of {filtered.length} results

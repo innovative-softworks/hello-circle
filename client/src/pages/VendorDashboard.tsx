@@ -10,6 +10,7 @@ import {
   deleteVendorBlock,
   deleteVendorCentre,
   deleteVendorClub,
+  fetchCentreHours,
   fetchClubSessions,
   fetchVendorBlocks,
   fetchVendorBookings,
@@ -23,6 +24,7 @@ import {
   fetchVendorRegistrations,
   fetchVendorStats,
   markVendorNotificationRead,
+  saveCentreHours,
   sendVendorMessage,
   updateVendorCentre,
   updateVendorClub,
@@ -55,6 +57,8 @@ import {
   UsersIcon,
 } from "../components/icons";
 import { Avatar, BadgedIcon, Button, Card, DashboardTopPanel, EmptyState, PageSpinner, StatRow, StatTile, StatusBadge, inputStyle, labelStyle } from "../components/ui";
+import { VendorOrgTab } from "../components/VendorOrg";
+import { VendorProgramsTab, VendorScheduleTab } from "../components/VendorPrograms";
 import { colors, fonts, maxWidth } from "../theme";
 import type {
   Centre,
@@ -334,9 +338,84 @@ function CentreEditor({ centreId, onClose, onSaved }: { centreId: string | "new"
             <input placeholder="Reason (e.g. Festival)" value={blockForm.reason} onChange={(e) => setBlockForm((f) => ({ ...f, reason: e.target.value }))} style={inputStyle} />
             <Button variant="ghost" onClick={addBlock}>Block</Button>
           </div>
+          <FacilityHoursEditor centreId={centre.id} />
         </div>
       )}
     </Card>
+  );
+}
+
+// --- per-day opening hours (Phase B) — optional; falls back to the single
+// opens_at/closes_at window above when no rows are saved. --------------
+
+function FacilityHoursEditor({ centreId }: { centreId: string }) {
+  const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+  const [days, setDays] = useState<{ dayOfWeek: number; opensAt: string; closesAt: string; closed: boolean }[]>([]);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    fetchCentreHours(centreId).then((rows) => {
+      if (rows.length > 0) setDays(rows);
+    });
+  }, [centreId]);
+
+  const ensureAllDays = () => {
+    if (days.length === 7) return days;
+    const filled = DAY_NAMES.map((_, i) => days.find((d) => d.dayOfWeek === i) ?? { dayOfWeek: i, opensAt: "09:00", closesAt: "21:00", closed: false });
+    setDays(filled);
+    return filled;
+  };
+
+  const update = (dayOfWeek: number, patch: Partial<{ opensAt: string; closesAt: string; closed: boolean }>) => {
+    const base = days.length === 7 ? days : ensureAllDays();
+    setDays(base.map((d) => (d.dayOfWeek === dayOfWeek ? { ...d, ...patch } : d)));
+  };
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      await saveCentreHours(centreId, days.length === 7 ? days : ensureAllDays());
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div style={{ marginTop: 26, borderTop: `1px solid ${colors.border}`, paddingTop: 20 }}>
+      <h4 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 15, margin: "0 0 4px" }}>Per-day hours (optional)</h4>
+      <p style={{ fontSize: 13, color: colors.mutedLight, margin: "0 0 12px" }}>
+        Leave unset to keep using the single opening-hours window above for every day.
+      </p>
+      {days.length === 0 ? (
+        <Button variant="ghost" onClick={ensureAllDays}>Set per-day hours</Button>
+      ) : (
+        <>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 12 }}>
+            {DAY_NAMES.map((name, i) => {
+              const d = days.find((x) => x.dayOfWeek === i) ?? { dayOfWeek: i, opensAt: "09:00", closesAt: "21:00", closed: false };
+              return (
+                <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13.5 }}>
+                  <span style={{ width: 90, flex: "none" }}>{name}</span>
+                  <label style={{ display: "flex", alignItems: "center", gap: 5 }}>
+                    <input type="checkbox" checked={!d.closed} onChange={(e) => update(i, { closed: !e.target.checked })} style={{ accentColor: colors.green }} /> Open
+                  </label>
+                  {!d.closed && (
+                    <>
+                      <input type="time" value={d.opensAt} onChange={(e) => update(i, { opensAt: e.target.value })} style={{ ...inputStyle, width: 100, padding: "6px 8px" }} />
+                      <span>–</span>
+                      <input type="time" value={d.closesAt} onChange={(e) => update(i, { closesAt: e.target.value })} style={{ ...inputStyle, width: 100, padding: "6px 8px" }} />
+                    </>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+          <Button variant="ghost" onClick={save} disabled={saving}>
+            {saving ? "Saving…" : "Save hours"}
+          </Button>
+        </>
+      )}
+    </div>
   );
 }
 
@@ -1048,9 +1127,9 @@ export function VendorDashboard() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const initialTab = searchParams.get("tab");
-  const [tab, setTab] = useState<"listings" | "messages" | "bookings" | "demand">(
-    initialTab === "bookings" || initialTab === "messages" || initialTab === "demand" ? initialTab : "listings"
-  );
+  type VendorTab = "listings" | "messages" | "bookings" | "demand" | "programs" | "schedule" | "org";
+  const VENDOR_TABS: VendorTab[] = ["listings", "messages", "bookings", "demand", "programs", "schedule", "org"];
+  const [tab, setTab] = useState<VendorTab>(VENDOR_TABS.includes(initialTab as VendorTab) ? (initialTab as VendorTab) : "listings");
   const [listings, setListings] = useState<{ centres: VendorListingSummary[]; clubs: VendorListingSummary[] }>({ centres: [], clubs: [] });
   const [stats, setStats] = useState<VendorStats | null>(null);
   const [editingCentre, setEditingCentre] = useState<string | "new" | null>(null);
@@ -1110,9 +1189,12 @@ export function VendorDashboard() {
                 accent="green"
                 tabs={[
                   { key: "listings", label: "Listings", icon: <ClipboardIcon size={15} /> },
+                  { key: "programs", label: "Programs", icon: <CalendarIcon size={15} /> },
+                  { key: "schedule", label: "Schedule", icon: <CalendarIcon size={15} /> },
                   { key: "messages", label: "Messages", icon: <ChatIcon size={15} /> },
                   { key: "bookings", label: "Bookings & registrations", icon: <CalendarIcon size={15} /> },
                   { key: "demand", label: "Demand", icon: <TrendUpIcon size={15} /> },
+                  { key: "org", label: "Organisation", icon: <UsersIcon size={15} /> },
                 ]}
                 activeTab={tab}
                 onTabChange={setTab}
@@ -1155,6 +1237,9 @@ export function VendorDashboard() {
         {tab === "messages" && <MessagesTab onRead={loadUnreadCount} listings={listings} />}
         {tab === "bookings" && <BookingsTab />}
         {tab === "demand" && <DemandTab />}
+        {tab === "programs" && <VendorProgramsTab listings={listings} />}
+        {tab === "schedule" && <VendorScheduleTab />}
+        {tab === "org" && <VendorOrgTab />}
       </section>
     </div>
   );

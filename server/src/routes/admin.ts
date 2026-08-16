@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import { Router } from "express";
 import { requireAdmin } from "../auth.js";
+import { writeAudit } from "../audit.js";
 import { db } from "../db/index.js";
 import { getCentre, getClub } from "../db/queries.js";
 import { endOfIrelandDay } from "../irelandTime.js";
@@ -56,8 +57,10 @@ adminRouter.put("/vendors/:id/status", async (req, res) => {
   // steps: approving the account only lets the vendor log in and finish
   // setting up their listing (rooms/price/photos/etc) — the listing itself
   // still needs its own admin review once that setup is done.
+  const before = (await db.prepare(`SELECT status FROM users WHERE id = ?`).get(req.params.id)) as { status: string } | undefined;
   const info = await db.prepare(`UPDATE users SET status = ? WHERE id = ? AND role = 'vendor'`).run(status, req.params.id);
   if (info.changes === 0) return res.status(404).json({ error: "Vendor not found" });
+  writeAudit({ actorUserId: req.user!.id, action: "vendor.status_changed", objectType: "user", objectId: req.params.id, previousValue: before?.status, newValue: status });
   res.json({ ok: true });
 });
 

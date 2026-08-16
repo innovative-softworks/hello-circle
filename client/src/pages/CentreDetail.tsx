@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { addFavourite, fetchCentre, fetchFavourites, fetchGames, joinGame, removeFavourite } from "../api";
+import { addFavourite, fetchCentre, fetchFavourites, fetchGames, fetchPrograms, joinGame, removeFavourite } from "../api";
 import { ClaimListingCTA } from "../components/ClaimListingCTA";
 import { PhotoGallery } from "../components/PhotoGallery";
 import { Reviews } from "../components/Reviews";
@@ -9,7 +9,7 @@ import { Button, ListingDetailSkeleton } from "../components/ui";
 import { isFavorite, toggleFavorite } from "../favorites";
 import { useGuest } from "../GuestContext";
 import { colors, fonts, maxWidth } from "../theme";
-import type { Centre, Game } from "../types";
+import type { Centre, Game, Program } from "../types";
 
 export function CentreDetail() {
   const { id } = useParams<{ id: string }>();
@@ -19,6 +19,7 @@ export function CentreDetail() {
   const [favourited, setFavourited] = useState(false);
   const [games, setGames] = useState<Game[]>([]);
   const [joiningId, setJoiningId] = useState<string | null>(null);
+  const [programs, setPrograms] = useState<Program[]>([]);
 
   useEffect(() => {
     if (id) fetchCentre(id).then(setCentre);
@@ -36,6 +37,11 @@ export function CentreDetail() {
   useEffect(() => {
     if (!id) return;
     fetchGames().then((rows) => setGames(rows.filter((g) => g.centreId === id)));
+  }, [id]);
+
+  // Programs (Phase B) — multi-session activities run at this centre.
+  useEffect(() => {
+    if (id) fetchPrograms("centre", id).then(setPrograms).catch(() => {});
   }, [id]);
 
   const handleToggleFavourite = async () => {
@@ -129,6 +135,29 @@ export function CentreDetail() {
               </div>
             ))}
           </div>
+
+          {programs.length > 0 && (
+            <>
+              <h3 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 20, margin: "0 0 12px", letterSpacing: "-.01em" }}>
+                Programs & classes
+              </h3>
+              <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 32 }}>
+                {programs.map((p) => (
+                  <button
+                    key={p.id}
+                    onClick={() => navigate(`/programs/${p.id}`)}
+                    style={{ textAlign: "left", border: `1px solid ${colors.border}`, borderRadius: 14, padding: "14px 16px", cursor: "pointer", background: "#fff", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, width: "100%" }}
+                  >
+                    <div>
+                      <div style={{ fontWeight: 700 }}>{p.title}</div>
+                      <div style={{ fontSize: 13, color: colors.mutedLight }}>{p.sessions.length} session{p.sessions.length === 1 ? "" : "s"}{p.ageRange ? ` · ${p.ageRange}` : ""}</div>
+                    </div>
+                    <div style={{ fontWeight: 700 }}>{p.priceCents ? `€${(p.priceCents / 100).toFixed(2)}` : "Free"}</div>
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
 
           {games.length > 0 && (
             <>

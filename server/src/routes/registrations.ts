@@ -274,7 +274,7 @@ registrationsRouter.get("/", async (req, res) => {
         .prepare(
           `SELECT r.ref, r.team, r.child_first as childFirst, r.child_last as childLast, r.trial, r.status,
                   r.total_cents as totalCents, r.created_at as createdAt,
-                  c.name as clubName, c.sport as sport
+                  c.id as clubId, c.name as clubName, c.sport as sport
            FROM registrations r
            JOIN clubs c ON c.id = r.club_id
            WHERE (r.client_id = ? OR LOWER(r.email) = LOWER(?)) AND r.payment_status = 'paid'
@@ -285,7 +285,7 @@ registrationsRouter.get("/", async (req, res) => {
         .prepare(
           `SELECT r.ref, r.team, r.child_first as childFirst, r.child_last as childLast, r.trial, r.status,
                   r.total_cents as totalCents, r.created_at as createdAt,
-                  c.name as clubName, c.sport as sport
+                  c.id as clubId, c.name as clubName, c.sport as sport
            FROM registrations r
            JOIN clubs c ON c.id = r.club_id
            WHERE r.client_id = ? AND r.payment_status = 'paid'
@@ -309,7 +309,7 @@ registrationsRouter.post("/lookup", lookupLimiter, async (req, res) => {
     .prepare(
       `SELECT r.ref, r.team, r.child_first as childFirst, r.child_last as childLast, r.trial, r.status,
               r.total_cents as totalCents, r.created_at as createdAt,
-              c.name as clubName, c.sport as sport
+              c.id as clubId, c.name as clubName, c.sport as sport
        FROM registrations r
        JOIN clubs c ON c.id = r.club_id
        WHERE r.ref = ? AND LOWER(r.email) = LOWER(?)`

@@ -32,6 +32,8 @@ export interface Centre {
   isOpen: boolean;
   mapUrl: string;
   claimed: boolean;
+  lat: number | null;
+  lng: number | null;
 }
 
 export interface Club {
@@ -56,6 +58,8 @@ export interface Club {
   claimed: boolean;
   /** Nullable = unlimited (every club's behaviour before this existed). */
   capacity: number | null;
+  lat: number | null;
+  lng: number | null;
 }
 
 export interface Review {

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { addFavourite, createPassCheckout, fetchClub, fetchFavourites, removeFavourite } from "../api";
+import { addFavourite, createPassCheckout, fetchClub, fetchFavourites, fetchPrograms, removeFavourite } from "../api";
 import { ClaimListingCTA } from "../components/ClaimListingCTA";
 import { PhotoGallery } from "../components/PhotoGallery";
 import { Reviews } from "../components/Reviews";
@@ -10,7 +10,7 @@ import { ListingDetailSkeleton } from "../components/ui";
 import { isFavorite, toggleFavorite } from "../favorites";
 import { useGuest } from "../GuestContext";
 import { colors, fonts, maxWidth } from "../theme";
-import type { Club } from "../types";
+import type { Club, Program } from "../types";
 
 export function ClubDetail() {
   const { id } = useParams<{ id: string }>();
@@ -19,9 +19,14 @@ export function ClubDetail() {
   const [club, setClub] = useState<Club | null>(null);
   const [favourited, setFavourited] = useState(false);
   const [passLoading, setPassLoading] = useState(false);
+  const [programs, setPrograms] = useState<Program[]>([]);
 
   useEffect(() => {
     if (id) fetchClub(id).then(setClub);
+  }, [id]);
+
+  useEffect(() => {
+    if (id) fetchPrograms("club", id).then(setPrograms).catch(() => {});
   }, [id]);
 
   useEffect(() => {
@@ -147,6 +152,29 @@ export function ClubDetail() {
               </div>
             ))}
           </div>
+
+          {programs.length > 0 && (
+            <>
+              <h3 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 20, margin: "24px 0 12px", letterSpacing: "-.01em" }}>
+                Programs & classes
+              </h3>
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                {programs.map((p) => (
+                  <button
+                    key={p.id}
+                    onClick={() => navigate(`/programs/${p.id}`)}
+                    style={{ textAlign: "left", border: `1px solid ${colors.border}`, borderRadius: 14, padding: "14px 16px", cursor: "pointer", background: "#fff", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, width: "100%" }}
+                  >
+                    <div>
+                      <div style={{ fontWeight: 700 }}>{p.title}</div>
+                      <div style={{ fontSize: 13, color: colors.mutedLight }}>{p.sessions.length} session{p.sessions.length === 1 ? "" : "s"}{p.ageRange ? ` · ${p.ageRange}` : ""}</div>
+                    </div>
+                    <div style={{ fontWeight: 700 }}>{p.priceCents ? `€${(p.priceCents / 100).toFixed(2)}` : "Free"}</div>
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
         </div>
         <div
           className="sticky-aside"

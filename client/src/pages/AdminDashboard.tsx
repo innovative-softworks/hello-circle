@@ -603,6 +603,12 @@ export function AdminDashboard() {
                 onTabChange={setTab}
                 bottomSpacing={0}
               />
+              <button
+                onClick={() => navigate("/platform-admin")}
+                style={{ background: "none", border: "none", padding: 0, marginTop: 8, color: colors.orangeDark, fontWeight: 700, cursor: "pointer", fontSize: 13 }}
+              >
+                Platform Admin →
+              </button>
             </div>
             <div style={{ flex: "1 1 380px" }}>
               <AdminHeroPanel />

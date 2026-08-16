@@ -19,6 +19,8 @@ interface CentreRow {
   payment_method: "online" | "cash";
   is_open: number;
   map_url: string;
+  lat: number | null;
+  lng: number | null;
 }
 
 interface ClubRow {
@@ -39,6 +41,8 @@ interface ClubRow {
   payment_method: "online" | "cash";
   map_url: string;
   capacity: number | null;
+  lat: number | null;
+  lng: number | null;
 }
 
 const amenitiesStmt = db.prepare(
@@ -91,6 +95,8 @@ async function toCentre(row: CentreRow): Promise<Centre> {
     isOpen: !!row.is_open,
     mapUrl: row.map_url,
     claimed: row.vendor_id !== null,
+    lat: row.lat !== null ? Number(row.lat) : null,
+    lng: row.lng !== null ? Number(row.lng) : null,
   };
 }
 
@@ -118,6 +124,8 @@ async function toClub(row: ClubRow): Promise<Club> {
     mapUrl: row.map_url,
     claimed: row.vendor_id !== null,
     capacity: row.capacity,
+    lat: row.lat !== null ? Number(row.lat) : null,
+    lng: row.lng !== null ? Number(row.lng) : null,
   };
 }
 

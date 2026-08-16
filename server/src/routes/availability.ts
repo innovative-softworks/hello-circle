@@ -40,6 +40,21 @@ async function blocksFor(centreId: string, roomId: string, date: string): Promis
     .all(centreId, date, roomId)) as BlockRow[];
 }
 
+/** Per-day hours (Phase B) when a centre_hours row exists for that weekday,
+ * else the centre's single opens_at/closes_at window — so a centre with no
+ * per-day rules configured behaves exactly as before this existed. Midday
+ * UTC avoids any date-shifting from timezone conversion when computing the
+ * weekday from a plain "YYYY-MM-DD" string. */
+async function hoursFor(centreId: string, date: string): Promise<CentreHours & { closed: boolean }> {
+  const dayOfWeek = new Date(`${date}T12:00:00Z`).getUTCDay();
+  const perDay = (await db.prepare(`SELECT opens_at, closes_at, closed FROM centre_hours WHERE centre_id = ? AND day_of_week = ?`).get(centreId, dayOfWeek)) as
+    | (CentreHours & { closed: number })
+    | undefined;
+  if (perDay) return { opens_at: perDay.opens_at, closes_at: perDay.closes_at, closed: !!perDay.closed };
+  const fallback = (await db.prepare(`SELECT opens_at, closes_at FROM centres WHERE id = ?`).get(centreId)) as CentreHours;
+  return { ...fallback, closed: false };
+}
+
 availabilityRouter.get("/", async (req, res) => {
   const { roomId, date, duration } = req.query;
   if (typeof roomId !== "string" || typeof date !== "string") {
@@ -53,8 +68,8 @@ availabilityRouter.get("/", async (req, res) => {
   const room = (await db.prepare(`SELECT centre_id FROM rooms WHERE id = ?`).get(roomId)) as { centre_id: string } | undefined;
   if (!room) return res.status(404).json({ error: "Room not found" });
 
-  const hours = (await db.prepare(`SELECT opens_at, closes_at FROM centres WHERE id = ?`).get(room.centre_id)) as CentreHours;
-  const slots = slotsWithinHours(hours);
+  const hours = await hoursFor(room.centre_id, date);
+  const slots = hours.closed ? [] : slotsWithinHours(hours);
 
   const bookings = (await db.prepare(`SELECT time, duration FROM bookings WHERE room_id = ? AND date = ? AND payment_status != 'failed'`).all(roomId, date)) as BookingRow[];
   const bookingIntervals = bookings.map((b) => {
@@ -63,7 +78,7 @@ availabilityRouter.get("/", async (req, res) => {
   });
 
   const blocks = await blocksFor(room.centre_id, roomId, date);
-  const closed = blocks.some((b) => b.time === null);
+  const closed = hours.closed || blocks.some((b) => b.time === null);
   const blockedHours = new Set<number>();
   for (const b of blocks) {
     if (b.time !== null) blockedHours.add(parseInt(b.time.slice(0, 2), 10));

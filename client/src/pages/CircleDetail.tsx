@@ -3,6 +3,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import { fetchCircle, fetchCircleMembership, fetchCircleUpcoming, joinCircle, leaveCircle } from "../api";
 import { CalendarIcon, ChevronLeftIcon, ClockIcon, UsersIcon } from "../components/icons";
 import { Button, Card, EmptyState, PageSpinner } from "../components/ui";
+import { InviteButton } from "../components/InviteButton";
 import { useGuest } from "../GuestContext";
 import { colors, fonts } from "../theme";
 import type { Circle } from "../types";
@@ -80,11 +81,14 @@ export function CircleDetail() {
                 {[circle.activityLabel, circle.area, circle.county].filter(Boolean).join(" · ") || "General"}
               </div>
             </div>
-            {resident && (
-              <Button variant={isMember ? "ghost" : "primary"} onClick={handleToggleMembership} disabled={busy}>
-                {isMember ? "Leave circle" : "Join circle"}
-              </Button>
-            )}
+            <div style={{ display: "flex", gap: 8, flex: "none" }}>
+              {resident && (
+                <Button variant={isMember ? "ghost" : "primary"} onClick={handleToggleMembership} disabled={busy}>
+                  {isMember ? "Leave circle" : "Join circle"}
+                </Button>
+              )}
+              <InviteButton title={circle.name} text={`Join the "${circle.name}" circle on HelloCircle`} />
+            </div>
           </div>
           {circle.about && <p style={{ margin: "16px 0 0", color: "#3B423C", fontSize: 15, lineHeight: 1.55 }}>{circle.about}</p>}
           <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 16, fontSize: 13.5, color: colors.muted }}>

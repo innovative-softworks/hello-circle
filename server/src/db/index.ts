@@ -90,7 +90,20 @@ export const db = {
     }
   },
   async exec(sql: string): Promise<void> {
-    for (const statement of sql.split(";").map((s) => s.trim()).filter(Boolean)) {
+    // Strip `-- ...` line comments before splitting/running. Three separate
+    // bugs (a semicolon, a backtick, and an apostrophe each once appearing
+    // inside a comment) all traced back to the same root cause: neither the
+    // naive `split(";")` below nor mysql2's named-placeholders quote-tracker
+    // understands SQL line comments, so any semicolon/backtick/quote inside
+    // one — completely normal in an English sentence — corrupts statement
+    // splitting or the placeholder scan of a later, real string literal in
+    // the same statement. Comments stay in this source file for developers;
+    // they're just never part of what's actually sent to MySQL.
+    const withoutComments = sql
+      .split("\n")
+      .filter((line) => !line.trim().startsWith("--"))
+      .join("\n");
+    for (const statement of withoutComments.split(";").map((s) => s.trim()).filter(Boolean)) {
       await pool.query(statement);
     }
   },
@@ -483,12 +496,160 @@ export async function initSchema() {
     -- Manual/staff attendance check-in (FUTURE, best-effort) against a paid
     -- booking or registration ref. No hardware/QR-scanning integration —
     -- staff look up the ref and mark it, see routes/vendor.ts check-in route.
+    -- Also reused for per-session Program attendance (Phase B) with
+    -- kind='program_session' and ref = "<sessionId>:<enrollmentId>".
     CREATE TABLE IF NOT EXISTS attendance (
       id INT AUTO_INCREMENT PRIMARY KEY,
       kind VARCHAR(20) NOT NULL,
       ref VARCHAR(191) NOT NULL UNIQUE,
       checked_in_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
       checked_in_by VARCHAR(191)
+    );
+
+    -- Password reset (Phase A) — vendor/admin only, residents are
+    -- passwordless. Same single-use/expiry shape as guest_login_tokens.
+    CREATE TABLE IF NOT EXISTS password_reset_tokens (
+      token VARCHAR(191) PRIMARY KEY,
+      user_id VARCHAR(191) NOT NULL,
+      expires_at DATETIME NOT NULL
+    );
+
+    -- Post-activity feedback (Phase A) — a light "would you do this again"
+    -- prompt, not a 5-star review request every time.
+    CREATE TABLE IF NOT EXISTS activity_feedback (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      kind VARCHAR(20) NOT NULL,
+      ref VARCHAR(191) NOT NULL,
+      resident_id VARCHAR(191),
+      client_id VARCHAR(191) NOT NULL,
+      response VARCHAR(20) NOT NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE KEY uniq_feedback (kind, ref, client_id)
+    );
+
+    -- Programs (Phase B — Gate 1 from the plan doc). A generalised
+    -- multi-session activity — deliberately NOT a migration of centre-hire
+    -- or club-registration, which keep working exactly as they do today.
+    -- This is the seed a real Activity/Session model grows from, applied to
+    -- new activity types only, decided this way on purpose (see plan doc
+    -- "decisions" section: don't touch working payment code for a
+    -- data-model purity goal).
+    CREATE TABLE IF NOT EXISTS programs (
+      id VARCHAR(191) PRIMARY KEY,
+      listing_type VARCHAR(20) NOT NULL,
+      listing_id VARCHAR(191) NOT NULL,
+      vendor_id VARCHAR(191) NOT NULL,
+      title VARCHAR(255) NOT NULL,
+      description TEXT NOT NULL,
+      age_range VARCHAR(100) NOT NULL DEFAULT '',
+      image_url VARCHAR(500) NOT NULL DEFAULT '',
+      price_cents INT NOT NULL DEFAULT 0,
+      capacity INT,
+      status VARCHAR(20) NOT NULL DEFAULT 'active',
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- A concrete date/time instance of a program — this is the "session"
+    -- half of the Activity/Session model the plan doc calls Gate 1.
+    CREATE TABLE IF NOT EXISTS program_sessions (
+      id VARCHAR(191) PRIMARY KEY,
+      program_id VARCHAR(191) NOT NULL,
+      date VARCHAR(20) NOT NULL,
+      time VARCHAR(20) NOT NULL,
+      duration_minutes INT NOT NULL DEFAULT 60,
+      capacity INT,
+      status VARCHAR(20) NOT NULL DEFAULT 'scheduled',
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- One registration covers every session of a program (matches "8-week
+    -- program, one sign-up" from the spec) rather than per-session booking.
+    CREATE TABLE IF NOT EXISTS program_enrollments (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      ref VARCHAR(191) UNIQUE,
+      program_id VARCHAR(191) NOT NULL,
+      resident_id VARCHAR(191),
+      client_id VARCHAR(191) NOT NULL,
+      participant_name VARCHAR(255) NOT NULL,
+      participant_dob VARCHAR(20) NOT NULL DEFAULT '',
+      email VARCHAR(255) NOT NULL,
+      phone VARCHAR(255) NOT NULL DEFAULT '',
+      total_cents INT NOT NULL DEFAULT 0,
+      payment_status VARCHAR(20) NOT NULL DEFAULT 'pending',
+      stripe_session_id VARCHAR(255),
+      status VARCHAR(20) NOT NULL DEFAULT 'confirmed',
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- Per-day opening hours (Phase B) — supersedes a centre's single
+    -- opens_at/closes_at window when rows exist for it, falling back to
+    -- that single window when a centre has none, so every existing centre
+    -- keeps behaving exactly as before.
+    CREATE TABLE IF NOT EXISTS centre_hours (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      centre_id VARCHAR(191) NOT NULL,
+      day_of_week INT NOT NULL,
+      opens_at VARCHAR(10) NOT NULL DEFAULT '09:00',
+      closes_at VARCHAR(10) NOT NULL DEFAULT '21:00',
+      closed TINYINT NOT NULL DEFAULT 0,
+      UNIQUE KEY uniq_centre_day (centre_id, day_of_week)
+    );
+
+    -- Staff invitations (Phase C — Gate 2), same single-use-token shape as
+    -- guest_login_tokens. Accepting one creates a normal users row with
+    -- role='vendor' and the invited platform_role, linked via org_id.
+    CREATE TABLE IF NOT EXISTS org_invites (
+      token VARCHAR(191) PRIMARY KEY,
+      org_id VARCHAR(191) NOT NULL,
+      email VARCHAR(255) NOT NULL,
+      platform_role VARCHAR(30) NOT NULL,
+      status VARCHAR(20) NOT NULL DEFAULT 'pending',
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      expires_at DATETIME NOT NULL
+    );
+
+    -- Configurable per-org policy (Phase C) — today's hard-coded 48h
+    -- cancellation cutoff becomes this table's default value, so nothing
+    -- changes for any org until it explicitly sets its own row.
+    CREATE TABLE IF NOT EXISTS org_policies (
+      org_id VARCHAR(191) PRIMARY KEY,
+      cancellation_hours INT NOT NULL DEFAULT 48,
+      booking_window_days INT NOT NULL DEFAULT 90
+    );
+
+    -- Feature flags (Phase D, best-effort) per organisation.
+    CREATE TABLE IF NOT EXISTS feature_flags (
+      org_id VARCHAR(191) NOT NULL,
+      flag_key VARCHAR(50) NOT NULL,
+      enabled TINYINT NOT NULL DEFAULT 1,
+      PRIMARY KEY (org_id, flag_key)
+    );
+
+    -- Moderation reports (Phase D, best-effort) — the only user-generated
+    -- surfaces today are Circles and reviews (reviews already had their own
+    -- hide/unhide path — this generalises reporting itself).
+    CREATE TABLE IF NOT EXISTS reports (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      target_type VARCHAR(20) NOT NULL,
+      target_id VARCHAR(191) NOT NULL,
+      reporter_client_id VARCHAR(191) NOT NULL,
+      reason TEXT NOT NULL,
+      status VARCHAR(20) NOT NULL DEFAULT 'pending',
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- Platform-wide audit log (Phase D, best-effort) — written to going
+    -- forward from admin/platform-admin routes. Nothing is backfilled for
+    -- actions taken before this existed.
+    CREATE TABLE IF NOT EXISTS audit_log (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      actor_user_id VARCHAR(191),
+      action VARCHAR(100) NOT NULL,
+      object_type VARCHAR(50) NOT NULL,
+      object_id VARCHAR(191) NOT NULL,
+      previous_value TEXT,
+      new_value TEXT,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
     )
   `);
 
@@ -694,4 +855,99 @@ export async function initSchema() {
   // spending a credit-pack pass instead of a normal charge. NULL for every
   // registration that pays/registers the ordinary way.
   await ensureColumn("registrations", "pass_id", "pass_id INT");
+
+  // Resident onboarding + preferences (Phase A). Signal-only for now — see
+  // plan doc: "store the signal, wire it into recommendations later, don't
+  // block on personalization existing yet". interests/availability are
+  // comma-joined plain text, not JSON, to avoid a JSON column type
+  // dependency for what's currently just a stored list.
+  await ensureColumn("residents", "interests", "interests TEXT");
+  await ensureColumn("residents", "availability", "availability TEXT");
+  await ensureColumn("residents", "onboarding_completed", "onboarding_completed TINYINT NOT NULL DEFAULT 0");
+  await ensureColumn("residents", "notification_prefs", "notification_prefs TEXT");
+  await ensureColumn("residents", "accessibility_prefs", "accessibility_prefs TEXT");
+  await ensureColumn("residents", "search_radius_km", "search_radius_km INT NOT NULL DEFAULT 10");
+
+  // Organisation linkage (Phase C — Gate 2). Every existing vendor is
+  // backfilled with their own 1:1 organisation below so nothing about the
+  // current one-login-per-vendor model breaks — org_id is additive.
+  await ensureColumn("users", "org_id", "org_id VARCHAR(191)");
+
+  // Distinguishes the org owner (the vendor who signed up — unrestricted,
+  // same access they've always had) from staff added later via an invite
+  // (restricted to their assigned platform_role). Every existing vendor
+  // defaults to 0 = owner, preserving today's behaviour exactly.
+  await ensureColumn("users", "invited_staff", "invited_staff TINYINT NOT NULL DEFAULT 0");
+
+  const vendorsNeedingOrg = (await db
+    .prepare(`SELECT id, business_name FROM users WHERE role = 'vendor' AND org_id IS NULL`)
+    .all()) as { id: string; business_name: string }[];
+  for (const v of vendorsNeedingOrg) {
+    const orgId = crypto.randomUUID();
+    await db.prepare(`INSERT INTO organisations (id, name, kind) VALUES (?, ?, 'vendor')`).run(orgId, v.business_name || "My organisation");
+    await db.prepare(`UPDATE users SET org_id = ? WHERE id = ?`).run(orgId, v.id);
+  }
+
+  // Map discovery view (Phase E, best-effort) — there's no real geocoding
+  // integration, so lat/lng are approximated from a static county-centroid
+  // table plus a small deterministic offset (hashed from the listing id, so
+  // it's stable across restarts and multiple listings in the same county
+  // don't stack on one marker). Good enough to plot pins on a map; not
+  // accurate enough for turn-by-turn directions.
+  await ensureColumn("centres", "lat", "lat DECIMAL(9,6)");
+  await ensureColumn("centres", "lng", "lng DECIMAL(9,6)");
+  await ensureColumn("clubs", "lat", "lat DECIMAL(9,6)");
+  await ensureColumn("clubs", "lng", "lng DECIMAL(9,6)");
+  for (const table of ["centres", "clubs"] as const) {
+    const rows = (await db.prepare(`SELECT id, county FROM ${table} WHERE lat IS NULL`).all()) as { id: string; county: string }[];
+    for (const row of rows) {
+      const { lat, lng } = approximateCoords(row.county, row.id);
+      await db.prepare(`UPDATE ${table} SET lat = ?, lng = ? WHERE id = ?`).run(lat, lng, row.id);
+    }
+  }
+}
+
+export const COUNTY_CENTROIDS: Record<string, { lat: number; lng: number }> = {
+  antrim: { lat: 54.72, lng: -6.2 },
+  armagh: { lat: 54.35, lng: -6.65 },
+  carlow: { lat: 52.71, lng: -6.93 },
+  cavan: { lat: 53.99, lng: -7.36 },
+  clare: { lat: 52.85, lng: -8.98 },
+  cork: { lat: 51.9, lng: -8.47 },
+  derry: { lat: 54.99, lng: -7.31 },
+  donegal: { lat: 54.87, lng: -8.11 },
+  down: { lat: 54.33, lng: -5.71 },
+  dublin: { lat: 53.35, lng: -6.26 },
+  fermanagh: { lat: 54.35, lng: -7.64 },
+  galway: { lat: 53.27, lng: -9.05 },
+  kerry: { lat: 52.15, lng: -9.57 },
+  kildare: { lat: 53.16, lng: -6.91 },
+  kilkenny: { lat: 52.65, lng: -7.25 },
+  laois: { lat: 53.03, lng: -7.33 },
+  leitrim: { lat: 54.13, lng: -8.0 },
+  limerick: { lat: 52.66, lng: -8.63 },
+  longford: { lat: 53.73, lng: -7.79 },
+  louth: { lat: 53.92, lng: -6.45 },
+  mayo: { lat: 53.85, lng: -9.3 },
+  meath: { lat: 53.6, lng: -6.66 },
+  monaghan: { lat: 54.25, lng: -6.97 },
+  offaly: { lat: 53.27, lng: -7.49 },
+  roscommon: { lat: 53.76, lng: -8.19 },
+  sligo: { lat: 54.27, lng: -8.47 },
+  tipperary: { lat: 52.67, lng: -7.83 },
+  tyrone: { lat: 54.6, lng: -7.31 },
+  waterford: { lat: 52.26, lng: -7.11 },
+  westmeath: { lat: 53.53, lng: -7.35 },
+  wexford: { lat: 52.42, lng: -6.47 },
+  wicklow: { lat: 52.98, lng: -6.37 },
+};
+
+export function approximateCoords(county: string, seedId: string): { lat: number; lng: number } {
+  const centroid = COUNTY_CENTROIDS[county.trim().toLowerCase()] ?? COUNTY_CENTROIDS.dublin;
+  let hash = 0;
+  for (let i = 0; i < seedId.length; i++) hash = (hash * 31 + seedId.charCodeAt(i)) >>> 0;
+  // Two pseudo-random offsets in [-0.06, 0.06) degrees (~±6km) from the hash's low/high bits.
+  const offsetLat = (((hash & 0xffff) / 0xffff) - 0.5) * 0.12;
+  const offsetLng = ((((hash >>> 16) & 0xffff) / 0xffff) - 0.5) * 0.12;
+  return { lat: centroid.lat + offsetLat, lng: centroid.lng + offsetLng };
 }

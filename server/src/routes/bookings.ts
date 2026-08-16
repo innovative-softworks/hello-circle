@@ -327,3 +327,84 @@ bookingsRouter.post("/:ref/cancel", lookupLimiter, async (req, res) => {
 
   res.json({ ok: true });
 });
+
+/** Reschedule (Phase A) — same ownership/cutoff rules as cancel, but keeps
+ * the same ref/payment instead of cancel-and-rebook. Re-runs the identical
+ * row-locked overlap check checkout uses, against the *new* slot, so a
+ * reschedule can never silently double-book a room. */
+bookingsRouter.post("/:ref/reschedule", lookupLimiter, async (req, res) => {
+  const { email, date, time } = req.body as { email?: string; date?: string; time?: string };
+  const headerClientId = req.header("X-Client-Id");
+  if (!headerClientId && !email) return res.status(400).json({ error: "X-Client-Id header or email is required" });
+  if (!date || !time) return res.status(400).json({ error: "A new date and time are required" });
+
+  const row = (await db
+    .prepare(
+      `SELECT b.ref, b.date, b.time, b.duration, b.status, b.payment_status as paymentStatus, b.room_id as roomId,
+              b.name, b.email, b.centre_id as centreId, c.name as centreName, c.vendor_id as vendorId, c.opens_at as opensAt, c.closes_at as closesAt
+       FROM bookings b JOIN centres c ON c.id = b.centre_id
+       WHERE b.ref = ? AND (b.client_id = ? OR LOWER(b.email) = LOWER(?))`
+    )
+    .get(req.params.ref, headerClientId ?? "", (email ?? "").trim())) as
+    | {
+        ref: string; date: string; time: string; duration: number; status: string; paymentStatus: string; roomId: string;
+        name: string; email: string; centreId: string; centreName: string; vendorId: string | null; opensAt: string; closesAt: string;
+      }
+    | undefined;
+  if (!row) return res.status(404).json({ error: "Booking not found" });
+  if (row.status === "cancelled") return res.status(409).json({ error: "This booking is already cancelled" });
+  if (row.paymentStatus !== "paid") return res.status(409).json({ error: "This booking can't be rescheduled" });
+
+  const currentStartHour = parseInt(row.time.slice(0, 2), 10);
+  const currentEventStart = irelandWallTimeToUtc(row.date, currentStartHour);
+  if (currentEventStart.getTime() - Date.now() < 48 * 60 * 60 * 1000) {
+    return res.status(409).json({ error: "This booking is within 48 hours and can no longer be rescheduled online — please contact the venue directly" });
+  }
+
+  const startHour = parseInt(time.slice(0, 2), 10);
+  const reqEnd = bookingEndHour(startHour, row.duration);
+  const opensHour = parseInt(row.opensAt.slice(0, 2), 10);
+  const closesHour = parseInt(row.closesAt.slice(0, 2), 10);
+  if (startHour < opensHour || reqEnd > closesHour) {
+    return res.status(409).json({ error: "That time is outside the venue's opening hours" });
+  }
+
+  try {
+    await db.transaction(async (tx) => {
+      await tx.prepare(`SELECT id FROM rooms WHERE id = ? FOR UPDATE`).get(row.roomId);
+      const overlapping = (await tx
+        .prepare(`SELECT ref, time, duration FROM bookings WHERE room_id = ? AND date = ? AND ref != ? AND payment_status != 'failed' AND status != 'cancelled'`)
+        .all(row.roomId, date, row.ref)) as { ref: string; time: string; duration: number }[];
+      const clashes = overlapping.some((b) => {
+        const bStart = parseInt(b.time.slice(0, 2), 10);
+        return hoursOverlap(startHour, reqEnd, bStart, bookingEndHour(bStart, b.duration));
+      });
+      if (clashes) throw new ConflictError("That new time is no longer available");
+
+      const blocks = (await tx
+        .prepare(`SELECT time FROM room_blocks WHERE centre_id = ? AND date = ? AND (room_id = ? OR room_id IS NULL)`)
+        .all(row.centreId, date, row.roomId)) as { time: string | null }[];
+      const blocked = blocks.some((b) => (b.time === null ? true : parseInt(b.time.slice(0, 2), 10) >= startHour && parseInt(b.time.slice(0, 2), 10) < reqEnd));
+      if (blocked) throw new ConflictError("The vendor has closed that date/time");
+
+      await tx.prepare(`UPDATE bookings SET date = ?, time = ? WHERE ref = ?`).run(date, time, row.ref);
+    });
+  } catch (e) {
+    if (e instanceof ConflictError) return res.status(409).json({ error: e.message });
+    throw e;
+  }
+
+  notifyNewBookingOrRegistration({
+    kind: "booking",
+    listingType: "centre",
+    listingId: row.centreId,
+    listingName: row.centreName,
+    vendorId: row.vendorId,
+    guestName: row.name,
+    guestEmail: row.email,
+    ref: row.ref,
+    detailsText: `Rescheduled to ${date} at ${time} (was ${row.date} at ${row.time})`,
+  }).catch((e) => console.error("[notifications] reschedule notify failed:", e));
+
+  res.json({ ok: true, date, time });
+});

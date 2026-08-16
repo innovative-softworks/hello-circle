@@ -37,6 +37,14 @@ clubsRouter.get("/:id/waitlist/position", async (req, res) => {
     if (e instanceof BadRequestError) return res.status(400).json({ error: e.message });
     throw e;
   }
+  // A resident with an 'offered' entry (Phase A — waitlist-offer countdown)
+  // gets checked first, separately, since they're no longer in the plain
+  // waiting queue and its position numbering doesn't apply to them.
+  const offered = (await db
+    .prepare(`SELECT offer_expires_at as offerExpiresAt FROM waitlist_entries WHERE listing_type = 'club' AND listing_id = ? AND client_id = ? AND status = 'offered'`)
+    .get(req.params.id, clientId)) as { offerExpiresAt: string } | undefined;
+  if (offered) return res.json({ onWaitlist: true, offered: true, offerExpiresAt: offered.offerExpiresAt });
+
   const rows = (await db
     .prepare(`SELECT id, client_id as clientId FROM waitlist_entries WHERE listing_type = 'club' AND listing_id = ? AND status = 'waiting' ORDER BY id`)
     .all(req.params.id)) as { id: number; clientId: string }[];

@@ -33,6 +33,9 @@ export interface AuthedUser {
   mobile: string;
   landline: string;
   description: string;
+  orgId: string | null;
+  platformRole: string | null;
+  invitedStaff: boolean;
 }
 
 interface UserRow {
@@ -49,6 +52,9 @@ interface UserRow {
   mobile: string;
   landline: string;
   description: string;
+  org_id: string | null;
+  platform_role: string | null;
+  invited_staff: number;
 }
 
 declare global {
@@ -78,13 +84,18 @@ export async function createUser(
   // Accepts a transaction's `tx` in place of the module-level pool so this
   // insert participates in a caller's transaction (see signup in
   // routes/auth.ts, which inserts the user + their draft listing together).
-  conn: Pick<typeof db, "prepare"> = db
+  conn: Pick<typeof db, "prepare"> = db,
+  // Organisation linkage (Phase C). orgId unset = this account gets its own
+  // 1:1 organisation via the initSchema backfill on next boot, same as
+  // every vendor before this existed — only the invite-acceptance route
+  // passes an explicit orgId (joining an existing organisation as staff).
+  org?: { orgId?: string; platformRole?: string; invitedStaff?: boolean }
 ): Promise<AuthedUser> {
   const id = crypto.randomUUID();
   const normalizedEmail = email.toLowerCase().trim();
   await conn.prepare(
-    `INSERT INTO users (id, email, password_hash, role, status, name, vendor_type, business_name, address, county, mobile, landline, description)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    `INSERT INTO users (id, email, password_hash, role, status, name, vendor_type, business_name, address, county, mobile, landline, description, org_id, platform_role, invited_staff)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
     id,
     normalizedEmail,
@@ -98,7 +109,10 @@ export async function createUser(
     profile?.county ?? "",
     profile?.mobile ?? "",
     profile?.landline ?? "",
-    profile?.description ?? ""
+    profile?.description ?? "",
+    org?.orgId ?? null,
+    org?.platformRole ?? null,
+    org?.invitedStaff ? 1 : 0
   );
   return {
     id,
@@ -113,6 +127,9 @@ export async function createUser(
     mobile: profile?.mobile ?? "",
     landline: profile?.landline ?? "",
     description: profile?.description ?? "",
+    orgId: org?.orgId ?? null,
+    platformRole: org?.platformRole ?? null,
+    invitedStaff: !!org?.invitedStaff,
   };
 }
 
@@ -130,13 +147,16 @@ function rowToUser(row: UserRow): AuthedUser {
     mobile: row.mobile,
     landline: row.landline,
     description: row.description,
+    orgId: row.org_id,
+    platformRole: row.platform_role,
+    invitedStaff: !!row.invited_staff,
   };
 }
 
 export async function findUserByEmail(email: string): Promise<(AuthedUser & { passwordHash: string }) | null> {
   const row = (await db
     .prepare(
-      `SELECT id, email, password_hash, role, status, name, vendor_type, business_name, address, county, mobile, landline, description
+      `SELECT id, email, password_hash, role, status, name, vendor_type, business_name, address, county, mobile, landline, description, org_id, platform_role, invited_staff
        FROM users WHERE email = ?`
     )
     .get(email.toLowerCase().trim())) as UserRow | undefined;
@@ -164,7 +184,7 @@ export async function destroySession(token: string) {
 async function userFromToken(token: string): Promise<AuthedUser | null> {
   const row = (await db
     .prepare(
-      `SELECT u.id, u.email, u.role, u.status, u.name, u.vendor_type, u.business_name, u.address, u.county, u.mobile, u.landline, u.description
+      `SELECT u.id, u.email, u.role, u.status, u.name, u.vendor_type, u.business_name, u.address, u.county, u.mobile, u.landline, u.description, u.org_id, u.platform_role, u.invited_staff
        FROM sessions s JOIN users u ON u.id = s.user_id
        WHERE s.token = ? AND s.expires_at > NOW()`
     )
@@ -201,18 +221,18 @@ export function requireVendorOrAdmin(req: Request, res: Response, next: NextFunc
   return res.status(403).json({ error: "Not authorized" });
 }
 
-/** Lightweight RBAC scaffolding (FUTURE, best-effort) — layered entirely on
- * top of the existing role='vendor'|'admin' system via the optional
- * platform_role column (e.g. 'centre_manager', 'finance',
- * 'read_only_analyst'). An admin always passes (superset of every named
- * role); requireVendor/requireAdmin/requireVendorOrAdmin above are
- * completely unaffected and remain the guards every existing route uses. */
+/** RBAC (Phase C — wired into real routes, no longer just a stored field).
+ * An admin always passes. A vendor who is the organisation's owner (i.e.
+ * not `invitedStaff` — every vendor before Phase C, and every vendor who
+ * signs up directly today) is unrestricted, same access they've always
+ * had — RBAC only ever narrows an *invited staff member's* access down to
+ * their assigned platform_role, never an owner's. */
 export function requirePlatformRole(...roles: string[]) {
   return (req: Request, res: Response, next: NextFunction) => {
     if (!req.user) return res.status(401).json({ error: "Login required" });
     if (req.user.role === "admin") return next();
-    const platformRole = (req.user as AuthedUser & { platformRole?: string | null }).platformRole;
-    if (platformRole && roles.includes(platformRole)) return next();
+    if (req.user.role === "vendor" && !req.user.invitedStaff) return next();
+    if (req.user.platformRole && roles.includes(req.user.platformRole)) return next();
     return res.status(403).json({ error: "Not authorized for this role" });
   };
 }
