@@ -1,8 +1,8 @@
 import { Router } from "express";
+import { createCheckoutSession, pricingLineItems } from "../checkoutService.js";
 import { db } from "../db/index.js";
 import { computePricing } from "../pricing.js";
 import { requireResident } from "../residents.js";
-import { CLIENT_URL, stripe } from "../stripe.js";
 import { generateRef } from "../util.js";
 
 export const passesRouter = Router();
@@ -49,31 +49,17 @@ passesRouter.post("/checkout", requireResident, async (req, res) => {
     .prepare(`INSERT INTO passes (ref, resident_id, listing_type, listing_id, credits_total, purchased_cents, payment_status) VALUES (?, ?, 'club', ?, ?, ?, 'pending')`)
     .run(ref, req.resident!.id, b.listingId, b.creditsTotal, pricing.totalCents);
 
-  if (!stripe) {
+  const result = await createCheckoutSession({
+    ref,
+    type: "pass",
+    customerEmail: req.resident!.email,
+    lineItems: pricingLineItems(pricing, { name: `${club.name} — ${b.creditsTotal}-credit pass` }),
+  });
+  if (!result.ok) {
     await db.prepare(`DELETE FROM passes WHERE ref = ?`).run(ref);
-    return res.status(503).json({ error: "Payments aren't configured yet" });
+    return res.status(result.status).json({ error: result.error });
   }
 
-  let session;
-  try {
-    session = await stripe.checkout.sessions.create({
-      mode: "payment",
-      line_items: [
-        { price_data: { currency: "eur", product_data: { name: `${club.name} — ${b.creditsTotal}-credit pass` }, unit_amount: pricing.taxableCents }, quantity: 1 },
-        { price_data: { currency: "eur", product_data: { name: "VAT (23%)" }, unit_amount: pricing.vatCents }, quantity: 1 },
-        { price_data: { currency: "eur", product_data: { name: "Platform fee" }, unit_amount: pricing.platformFeeCents }, quantity: 1 },
-      ],
-      customer_email: req.resident!.email,
-      success_url: `${CLIENT_URL}/payment/success?ref=${ref}`,
-      cancel_url: `${CLIENT_URL}/payment/cancel?ref=${ref}`,
-      metadata: { type: "pass", ref },
-    });
-  } catch (e) {
-    await db.prepare(`DELETE FROM passes WHERE ref = ?`).run(ref);
-    console.error("[stripe] pass checkout session creation failed:", e instanceof Error ? e.message : e);
-    return res.status(400).json({ error: "Couldn't start checkout — please try again" });
-  }
-
-  await db.prepare(`UPDATE passes SET stripe_session_id = ? WHERE ref = ?`).run(session.id, ref);
-  res.status(201).json({ ref, url: session.url, totalEuro: pricing.totalCents / 100 });
+  await db.prepare(`UPDATE passes SET stripe_session_id = ? WHERE ref = ?`).run(result.session.id, ref);
+  res.status(201).json({ ref, url: result.session.url, totalEuro: pricing.totalCents / 100 });
 });

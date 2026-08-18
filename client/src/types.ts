@@ -8,6 +8,7 @@ export interface Room {
   rate: number;
   desc: string;
   paymentMethod: PaymentMethod;
+  active: boolean;
 }
 
 export interface Centre {
@@ -34,6 +35,8 @@ export interface Centre {
   lat: number | null;
   lng: number | null;
   claimed: boolean;
+  phone: string;
+  accessibility: string[];
 }
 
 export interface RoomBlock {
@@ -41,6 +44,8 @@ export interface RoomBlock {
   date: string;
   reason: string;
   createdAt: string;
+  /** null/undefined = whole-centre block (every room); set = only that room. */
+  roomId: string | null;
 }
 
 export interface Club {
@@ -66,6 +71,9 @@ export interface Club {
   capacity: number | null;
   lat: number | null;
   lng: number | null;
+  phone: string;
+  accessibility: string[];
+  category: string;
 }
 
 export type BookingStatus = "confirmed" | "cancelled";
@@ -77,6 +85,7 @@ export interface MyBooking {
   totalCents: number;
   createdAt: string;
   centreName: string;
+  roomName: string | null;
   ph: string;
   image: string;
   status: BookingStatus;
@@ -128,6 +137,8 @@ export interface AuthUser {
   orgId: string | null;
   platformRole: string | null;
   invitedStaff: boolean;
+  providerTier: "standard" | "verified" | "featured";
+  createdAt: string;
 }
 
 export interface Review {
@@ -150,6 +161,19 @@ export interface VendorListingSummary {
   createdAt: string;
   bookingsCount: number;
   image: string;
+  blurb: string;
+  rating: number;
+  reviews: number;
+  /** Centres only. */
+  capacity: number | null;
+  /** Centres only, plain euros (not cents). */
+  fromPrice: number | null;
+  /** Clubs only. */
+  ages: string | null;
+  /** Clubs only, plain euros (not cents). */
+  price: number | null;
+  /** Clubs only. */
+  unit: string | null;
 }
 
 export interface VendorStats {
@@ -165,6 +189,9 @@ export interface AdminStats {
   vendorCount: number;
   totalListings: number;
   reviewCount: number;
+  bookingsToday: number;
+  paymentFailures: number;
+  openReports: number;
 }
 
 // --- resident identity / household / favourites (MVP) ---------------------
@@ -259,6 +286,7 @@ export interface ClubSession {
   capacity: number | null;
   label: string;
   active: boolean;
+  instructorName: string;
 }
 
 // --- passes (NEXT) ----------------------------------------------------------
@@ -306,6 +334,8 @@ export interface DemandRow {
   queryText: string;
   county: string;
   count: number;
+  /** Same row, just the last 7 days — a lightweight trend signal. */
+  recentCount: number;
   lastSeenAt: string;
 }
 
@@ -369,7 +399,12 @@ export interface ProgramSession {
   durationMinutes: number;
   capacity: number | null;
   status: string;
+  instructorName: string;
+  roomId: string | null;
+  roomName: string | null;
 }
+
+export type ProgramStatus = "draft" | "published" | "paused" | "archived";
 
 export interface Program {
   id: string;
@@ -384,9 +419,13 @@ export interface Program {
   capacity: number | null;
   enrolled: number;
   spotsLeft: number | null;
-  status: string;
+  status: ProgramStatus;
   sessions: ProgramSession[];
   createdAt: string;
+  category: string;
+  skillLevel: string;
+  equipment: string[];
+  instructorName: string;
 }
 
 export interface VendorProgramSummary {
@@ -409,6 +448,11 @@ export interface ScheduleEntry {
   title: string;
   programId: string;
   enrolled: number;
+}
+
+export interface VendorToday {
+  bookings: { ref: string; time: string; duration: number; guests: number; name: string; centreName: string }[];
+  clubSessions: { id: string; time: string; label: string; capacity: number | null; instructorName: string; clubName: string }[];
 }
 
 export interface CentreHoursRow {
@@ -456,29 +500,8 @@ export interface VendorPayments {
   totalPaidCents: number;
 }
 
-// --- Platform Admin (Phase D, best-effort) ----------------------------
-
-export interface PlatformDashboardStats {
-  tenants: number;
-  activeListings: number;
-  bookingsToday: number;
-  paymentFailures: number;
-  openReports: number;
-}
-
-export interface TenantSummary {
-  id: string;
-  name: string;
-  kind: string;
-  createdAt: string;
-  userCount: number;
-  listingCount: number;
-}
-
-export interface FeatureFlag {
-  flagKey: string;
-  enabled: boolean;
-}
+// --- Admin: moderation reports, audit log, support search (folded into
+// AdminDashboard.tsx from the former Platform Admin page) ----------------
 
 export interface ModerationReport {
   id: number;
@@ -499,4 +522,31 @@ export interface AuditEntry {
   previousValue: string | null;
   newValue: string | null;
   createdAt: string;
+}
+
+export interface SupportBooking {
+  ref: string;
+  name: string;
+  email: string;
+  date: string;
+  time: string;
+  status: string;
+  paymentStatus: string;
+}
+
+export interface SupportRegistration {
+  ref: string;
+  gFirst: string;
+  gLast: string;
+  email: string;
+  status: string;
+  paymentStatus: string;
+}
+
+export interface SupportUser {
+  id: string;
+  email: string;
+  name: string;
+  role: string;
+  status: string;
 }

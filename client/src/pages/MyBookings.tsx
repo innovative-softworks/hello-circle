@@ -44,13 +44,13 @@ const recoveredBadgeStyle: React.CSSProperties = { fontSize: 11, fontWeight: 700
 // QR display (Phase A) — generated client-side, no network call, just a
 // scannable encoding of the booking reference for a vendor's manual
 // check-in (see VendorDashboard.tsx's CheckInButton).
-function BookingQr({ ref }: { ref: string }) {
+function BookingQr({ reference }: { reference: string }) {
   const [dataUrl, setDataUrl] = useState<string | null>(null);
   useEffect(() => {
-    import("qrcode").then((QRCode) => QRCode.toDataURL(ref, { width: 160, margin: 1 }).then(setDataUrl));
-  }, [ref]);
+    import("qrcode").then((QRCode) => QRCode.toDataURL(reference, { width: 160, margin: 1 }).then(setDataUrl));
+  }, [reference]);
   if (!dataUrl) return null;
-  return <img src={dataUrl} alt={`QR code for ${ref}`} style={{ width: 120, height: 120, borderRadius: 10, border: `1px solid ${colors.border}` }} />;
+  return <img src={dataUrl} alt={`QR code for ${reference}`} style={{ width: 120, height: 120, borderRadius: 10, border: `1px solid ${colors.border}` }} />;
 }
 
 function RescheduleForm({ booking, onDone }: { booking: MyBooking; onDone: () => void }) {
@@ -84,11 +84,11 @@ function RescheduleForm({ booking, onDone }: { booking: MyBooking; onDone: () =>
 
 // Post-activity feedback (Phase A) — a light "would you do this again",
 // only offered once the booking's date has passed.
-function FeedbackPrompt({ kind, ref }: { kind: "booking" | "registration"; ref: string }) {
+function FeedbackPrompt({ kind, reference }: { kind: "booking" | "registration"; reference: string }) {
   const [response, setResponse] = useState<string | null | "loading">("loading");
   useEffect(() => {
-    fetchFeedbackStatus(kind, ref).then((r) => setResponse(r.response));
-  }, [kind, ref]);
+    fetchFeedbackStatus(kind, reference).then((r) => setResponse(r.response));
+  }, [kind, reference]);
 
   if (response === "loading") return null;
   if (response) return <span style={{ fontSize: 12, color: colors.greenText, fontWeight: 700 }}>Thanks for the feedback!</span>;
@@ -99,7 +99,7 @@ function FeedbackPrompt({ kind, ref }: { kind: "booking" | "registration"; ref: 
       {(["yes", "maybe", "no"] as const).map((r) => (
         <button
           key={r}
-          onClick={() => submitFeedback(kind, ref, r).then(() => setResponse(r))}
+          onClick={() => submitFeedback(kind, reference, r).then(() => setResponse(r))}
           style={{ background: colors.panel, border: "none", borderRadius: 999, padding: "3px 10px", fontSize: 12, cursor: "pointer", fontWeight: 600 }}
         >
           {r}
@@ -131,7 +131,7 @@ function BookingRow({
         <Photo src={booking.image} alt={booking.centreName} ph={booking.ph} style={{ width: 52, height: 52, borderRadius: 12, overflow: "hidden", flex: "none" }} />
         <div style={{ flex: 1, minWidth: 0, cursor: "pointer" }} onClick={() => setExpanded((e) => !e)}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-            <span style={{ fontWeight: 700, fontSize: 16 }}>{booking.centreName}</span>
+            <span style={{ fontWeight: 700, fontSize: 16 }}>{booking.centreName}{booking.roomName ? ` — ${booking.roomName}` : ""}</span>
             {cancelled && <span style={cancelledBadgeStyle}>Cancelled</span>}
             {recovered && <span style={recoveredBadgeStyle}>Found by reference</span>}
           </div>
@@ -154,14 +154,14 @@ function BookingRow({
         <div style={{ marginTop: 16, paddingTop: 16, borderTop: `1px solid ${colors.border}`, display: "flex", flexWrap: "wrap", gap: 24 }}>
           <div>
             <div style={{ fontSize: 12, fontWeight: 700, color: colors.muted, marginBottom: 8 }}>CHECK-IN CODE</div>
-            <BookingQr ref={booking.ref} />
+            <BookingQr reference={booking.ref} />
           </div>
           <div style={{ flex: "1 1 260px" }}>
             <div style={{ fontSize: 12, fontWeight: 700, color: colors.muted, marginBottom: 8 }}>RESCHEDULE</div>
             <RescheduleForm booking={booking} onDone={() => window.location.reload()} />
             {isPast && (
               <div style={{ marginTop: 16 }}>
-                <FeedbackPrompt kind="booking" ref={booking.ref} />
+                <FeedbackPrompt kind="booking" reference={booking.ref} />
               </div>
             )}
           </div>

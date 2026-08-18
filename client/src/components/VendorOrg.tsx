@@ -13,7 +13,7 @@ import {
 import { PLATFORM_ROLES } from "../types";
 import type { OrgProfile, Participant, VendorInsights, VendorPayments } from "../types";
 import { SearchIcon, TrashIcon, TrendUpIcon, UsersIcon } from "./icons";
-import { Button, Card, EmptyState, PageSpinner, Tabs, inputStyle, labelStyle } from "./ui";
+import { Button, Card, ConfirmDialog, EmptyState, PageSpinner, Tabs, inputStyle, labelStyle, tableStyle, tdStyle, thStyle } from "./ui";
 import { colors, fonts } from "../theme";
 
 // Organisation entity + Staff + RBAC (Phase C — Gate 2 from the plan doc).
@@ -48,7 +48,7 @@ function SettingsPanel({ profile, reload }: { profile: OrgProfile; reload: () =>
         <input value={name} onChange={(e) => setName(e.target.value)} disabled={!profile.isOwner} style={{ ...inputStyle, marginBottom: 14 }} />
         <label style={labelStyle}>Cancellation window (hours before start)</label>
         <input type="number" value={cancellationHours} onChange={(e) => setCancellationHours(Number(e.target.value))} disabled={!profile.isOwner} style={{ ...inputStyle, marginBottom: 6, width: 120 }} />
-        <p style={{ fontSize: 12, color: colors.faint, margin: "0 0 14px" }}>Stored for reference — hall bookings still enforce the platform's 48h cutoff today; this is the config a future release would read.</p>
+        <p style={{ fontSize: 12, color: colors.faint, margin: "0 0 14px" }}>Enforced on every hall booking cancellation/reschedule across your organisation's centres.</p>
         {profile.isOwner && (
           <Button onClick={save} disabled={saving}>
             {saving ? "Saving…" : "Save"}
@@ -74,6 +74,7 @@ function StaffPanel({ profile, reload }: { profile: OrgProfile; reload: () => vo
   const [email, setEmail] = useState("");
   const [role, setRole] = useState<string>(PLATFORM_ROLES[0]);
   const [inviting, setInviting] = useState(false);
+  const [confirmingToken, setConfirmingToken] = useState<string | null>(null);
 
   const invite = async () => {
     if (!email.trim()) return;
@@ -110,19 +111,31 @@ function StaffPanel({ profile, reload }: { profile: OrgProfile; reload: () => vo
             </Button>
           </div>
           <p style={{ fontSize: 12, color: colors.faint, margin: "10px 0 0" }}>
-            RBAC is only actually enforced on the Payments tab today (finance role) — every other permission here is recorded, not yet checked.
+            RBAC is enforced on: editing/deleting centres and programs on centres (centre manager), editing/deleting clubs, club sessions and programs on clubs (facility manager), check-in (whichever manager matches booking vs. registration), Payments and reports (finance), demand insights (finance/read-only analyst), and sending messages (communications). The org owner always has full access regardless of role.
           </p>
         </Card>
       )}
       <Card>
         <h4 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 15, margin: "0 0 14px" }}>Team</h4>
-        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-          {profile.staff.map((s) => (
-            <div key={s.id} style={{ display: "flex", justifyContent: "space-between", fontSize: 13.5, background: colors.bg, borderRadius: 10, padding: "8px 12px" }}>
-              <span>{s.name || s.email} <span style={{ color: colors.faint }}>· {s.email}</span></span>
-              <span style={{ fontWeight: 700 }}>{s.platformRole ? s.platformRole.replace(/_/g, " ") : "Owner"}</span>
-            </div>
-          ))}
+        <div style={{ overflowX: "auto" }}>
+          <table style={tableStyle}>
+            <thead>
+              <tr>
+                <th style={thStyle}>Name</th>
+                <th style={thStyle}>Email</th>
+                <th style={thStyle}>Role</th>
+              </tr>
+            </thead>
+            <tbody>
+              {profile.staff.map((s) => (
+                <tr key={s.id}>
+                  <td style={tdStyle}>{s.name || "—"}</td>
+                  <td style={tdStyle}>{s.email}</td>
+                  <td style={{ ...tdStyle, fontWeight: 700 }}>{s.platformRole ? s.platformRole.replace(/_/g, " ") : "Owner"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
         {profile.pendingInvites.length > 0 && (
           <>
@@ -132,7 +145,7 @@ function StaffPanel({ profile, reload }: { profile: OrgProfile; reload: () => vo
                 <div key={i.token} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 13.5, background: colors.orangeBg, borderRadius: 10, padding: "8px 12px" }}>
                   <span>{i.email} · {i.platformRole.replace(/_/g, " ")}</span>
                   {profile.isOwner && (
-                    <button onClick={() => revokeInvite(i.token).then(reload)} style={{ background: "none", border: "none", cursor: "pointer", color: colors.faint }}>
+                    <button onClick={() => setConfirmingToken(i.token)} style={{ background: "none", border: "none", cursor: "pointer", color: colors.faint }}>
                       <TrashIcon size={14} />
                     </button>
                   )}
@@ -142,6 +155,15 @@ function StaffPanel({ profile, reload }: { profile: OrgProfile; reload: () => vo
           </>
         )}
       </Card>
+
+      <ConfirmDialog
+        open={confirmingToken !== null}
+        title="Revoke this invite?"
+        message="They won't be able to accept it anymore. You can send a new invite to the same email at any time."
+        confirmLabel="Revoke"
+        onConfirm={() => { if (confirmingToken !== null) revokeInvite(confirmingToken).then(reload); setConfirmingToken(null); }}
+        onCancel={() => setConfirmingToken(null)}
+      />
     </div>
   );
 }
@@ -172,13 +194,25 @@ function ParticipantsPanel() {
       {loading ? null : rows.length === 0 ? (
         <EmptyState icon={<UsersIcon size={22} />} title="No participants found" />
       ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-          {rows.map((r, i) => (
-            <div key={i} style={{ fontSize: 13.5, background: colors.bg, borderRadius: 10, padding: "8px 12px", display: "flex", justifyContent: "space-between" }}>
-              <span>{r.name} · {r.email}</span>
-              <span style={{ color: colors.faint }}>{r.listingName}</span>
-            </div>
-          ))}
+        <div style={{ overflowX: "auto" }}>
+          <table style={tableStyle}>
+            <thead>
+              <tr>
+                <th style={thStyle}>Name</th>
+                <th style={thStyle}>Email</th>
+                <th style={thStyle}>Listing</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r, i) => (
+                <tr key={i}>
+                  <td style={tdStyle}>{r.name}</td>
+                  <td style={tdStyle}>{r.email}</td>
+                  <td style={{ ...tdStyle, color: colors.faint }}>{r.listingName}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
     </Card>
@@ -252,14 +286,32 @@ function PaymentsPanel() {
     <Card>
       <div style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 22, marginBottom: 4 }}>€{(data.totalPaidCents / 100).toFixed(2)}</div>
       <div style={{ fontSize: 12.5, color: colors.mutedLight, marginBottom: 18 }}>Total paid, last 200 transactions</div>
-      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-        {data.transactions.map((t) => (
-          <div key={t.ref} style={{ display: "flex", justifyContent: "space-between", fontSize: 13.5, background: colors.bg, borderRadius: 10, padding: "8px 12px" }}>
-            <span>{t.listingName} · {t.ref}</span>
-            <span style={{ fontWeight: 700 }}>€{(t.totalCents / 100).toFixed(2)} <span style={{ fontWeight: 400, color: colors.faint }}>({t.paymentStatus})</span></span>
-          </div>
-        ))}
-      </div>
+      {data.transactions.length === 0 ? (
+        <EmptyState icon={<UsersIcon size={22} />} title="No transactions yet" />
+      ) : (
+        <div style={{ overflowX: "auto" }}>
+          <table style={tableStyle}>
+            <thead>
+              <tr>
+                <th style={thStyle}>Listing</th>
+                <th style={thStyle}>Ref</th>
+                <th style={thStyle}>Amount</th>
+                <th style={thStyle}>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.transactions.map((t) => (
+                <tr key={t.ref}>
+                  <td style={tdStyle}>{t.listingName}</td>
+                  <td style={{ ...tdStyle, fontFamily: "monospace" }}>{t.ref}</td>
+                  <td style={{ ...tdStyle, fontWeight: 700 }}>€{(t.totalCents / 100).toFixed(2)}</td>
+                  <td style={{ ...tdStyle, color: colors.mutedLight }}>{t.paymentStatus}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </Card>
   );
 }

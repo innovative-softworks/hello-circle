@@ -1,8 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { fetchCentres, fetchClubs, search } from "../api";
 import { CentreCard } from "../components/CentreCard";
 import { ClubCard } from "../components/ClubCard";
+import { HeroCarousel, type HeroCarouselSlide } from "../components/HeroCarousel";
 import { CardSkeleton, EmptyState } from "../components/ui";
 import { CommunityIllustration, SportsIllustration } from "../components/illustrations";
 import {
@@ -19,6 +20,13 @@ import {
 import { nearestCounty } from "../irishCounties";
 import { colors, fonts, maxWidth } from "../theme";
 import type { Centre, Club, SearchResult } from "../types";
+
+// Shown only until real listing images load (or if a fresh dev DB genuinely
+// has none for the current county) — same picsum seed the static hero image
+// used before, so there's no visible flash of unrelated stock photography.
+const FALLBACK_HERO_SLIDES: HeroCarouselSlide[] = [
+  { src: "https://picsum.photos/seed/halla-hero/900/720", alt: "A community centre in Ireland" },
+];
 
 export function Home() {
   const navigate = useNavigate();
@@ -64,6 +72,22 @@ export function Home() {
       setLoadingClubs(false);
     });
   }, [homeCounty]);
+
+  // Hero carousel shows real photos from whatever's currently featured
+  // (already fetched for the cards below) so it stays "related" to actual
+  // listings instead of generic stock imagery — centres first, then clubs,
+  // deduped by URL since seed data can reuse the same picsum photo.
+  const heroSlides = useMemo(() => {
+    const fromListing = (l: Centre | Club) => {
+      const src = l.images[0] || l.image;
+      return src ? { src, alt: `${l.name}, ${l.area}` } : null;
+    };
+    const slides = [...featuredCentres, ...featuredClubs]
+      .map(fromListing)
+      .filter((s): s is HeroCarouselSlide => s !== null);
+    const deduped = Array.from(new Map(slides.map((s) => [s.src, s])).values());
+    return deduped.length > 0 ? deduped : FALLBACK_HERO_SLIDES;
+  }, [featuredCentres, featuredClubs]);
 
   const handleSearch = () => navigate(`/browse/${homeCategory}?county=${encodeURIComponent(homeCounty)}`);
 
@@ -415,11 +439,7 @@ export function Home() {
               border: `1px solid ${colors.border}`,
             }}
           >
-            <img
-              src="https://picsum.photos/seed/halla-hero/900/720"
-              alt="A community centre in Ireland"
-              style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
-            />
+            <HeroCarousel slides={heroSlides} />
           </div>
 
           <div

@@ -745,34 +745,30 @@ export async function initSchema() {
   await ensureColumn("clubs", "payment_method", "payment_method VARCHAR(20) NOT NULL DEFAULT 'online'");
   await ensureColumn("centres", "payment_method", "payment_method VARCHAR(20) NOT NULL DEFAULT 'online'");
 
-  // "Rooms" is now a pure internal implementation detail — bookings and
-  // availability stay keyed by room_id (unchanged), but vendors no longer add
-  // multiple rooms; a centre's own capacity/from_price/payment_method are the
-  // single source of truth, kept in sync with its one room on every save (see
-  // vendor.ts). One-time backfill to collapse every centre down to exactly one
-  // room — idempotent, since afterward every centre already has exactly one.
-  const centresForRoomCollapse = (await db.prepare(`SELECT id, capacity, from_price, payment_method FROM centres`).all()) as {
+  // Every centre must have at least one bookable room — a centre with zero
+  // rooms (e.g. from data predating this table, or a partial signup) can't
+  // ever be booked. This is a one-time, idempotent safety backfill, not a
+  // collapse: unlike the old migration this replaced, it never merges or
+  // deletes existing rooms, so a centre with multiple rooms keeps all of them.
+  const centresForRoomBackfill = (await db.prepare(`SELECT id, capacity, from_price, payment_method FROM centres`).all()) as {
     id: string;
     capacity: number;
     from_price: number;
     payment_method: string;
   }[];
-  for (const c of centresForRoomCollapse) {
-    const rooms = (await db.prepare(`SELECT id FROM rooms WHERE centre_id = ? ORDER BY sort_order`).all(c.id)) as { id: string }[];
-    if (rooms.length === 0) {
+  for (const c of centresForRoomBackfill) {
+    const roomCount = (await db.prepare(`SELECT COUNT(*) as n FROM rooms WHERE centre_id = ?`).get(c.id)) as { n: number };
+    if (roomCount.n === 0) {
       await db
-        .prepare(`INSERT INTO rooms (id, centre_id, name, cap, rate, \`desc\`, sort_order, payment_method) VALUES (?, ?, '', ?, ?, '', 0, ?)`)
+        .prepare(`INSERT INTO rooms (id, centre_id, name, cap, rate, \`desc\`, sort_order, payment_method) VALUES (?, ?, 'Main Room', ?, ?, '', 0, ?)`)
         .run(crypto.randomUUID(), c.id, c.capacity, c.from_price, c.payment_method);
-    } else if (rooms.length > 1) {
-      const keepId = rooms[0].id;
-      for (const { id: otherId } of rooms.slice(1)) {
-        await db.prepare(`UPDATE bookings SET room_id = ? WHERE centre_id = ? AND room_id = ?`).run(keepId, c.id, otherId);
-        await db.prepare(`UPDATE room_blocks SET room_id = ? WHERE centre_id = ? AND room_id = ?`).run(keepId, c.id, otherId);
-        await db.prepare(`DELETE FROM rooms WHERE centre_id = ? AND id = ?`).run(c.id, otherId);
-      }
-      await db.prepare(`UPDATE rooms SET cap = ?, rate = ? WHERE centre_id = ? AND id = ?`).run(c.capacity, c.from_price, c.id, keepId);
     }
   }
+
+  // Soft-delete flag for rooms (same pattern as club_sessions.active) — a
+  // "removed" room is deactivated, never hard-deleted, so historical
+  // bookings.room_id references stay valid.
+  await ensureColumn("rooms", "active", "active TINYINT NOT NULL DEFAULT 1");
 
   // Vendor-controlled "open for bookings" switch — when closed, the venue
   // stays visible/approved but families can't start a new booking.
@@ -905,6 +901,52 @@ export async function initSchema() {
       await db.prepare(`UPDATE ${table} SET lat = ?, lng = ? WHERE id = ?`).run(lat, lng, row.id);
     }
   }
+
+  // A real contact number for the listing itself — distinct from `ph`
+  // (a decorative CSS placeholder pattern shown behind a photo before it
+  // loads, not a phone field — was being misread as one in the admin UI
+  // until this session) and distinct from the vendor account's own
+  // mobile/landline, which was never surfaced to the public.
+  await ensureColumn("centres", "phone", "phone VARCHAR(255) NOT NULL DEFAULT ''");
+  await ensureColumn("clubs", "phone", "phone VARCHAR(255) NOT NULL DEFAULT ''");
+
+  // Structured accessibility features, kept separate from the general
+  // amenities/includes free-text bag so it can be filtered on directly
+  // (see routes/centres.ts, routes/clubs.ts) rather than just displayed as
+  // one more bullet point. Comma-joined TEXT, same tradeoff already made
+  // for residents.interests etc. — avoids a JSON column type dependency for
+  // what's currently just a stored, filterable list.
+  // MySQL TEXT columns can't carry a DEFAULT — left nullable instead, same
+  // as residents.interests/.accessibility_prefs above; reader code treats
+  // NULL the same as '' (both mean "no accessibility info yet").
+  await ensureColumn("centres", "accessibility", "accessibility TEXT");
+  await ensureColumn("clubs", "accessibility", "accessibility TEXT");
+
+  // Phase 3 first slice: a lightweight, fixed activity-category tag (see
+  // client/src/constants.ts's ACTIVITY_CATEGORIES) — deliberately not a new
+  // taxonomy table, just a loosely-validated string alongside the existing
+  // free-text clubs.sport/programs.title, which stay as-is.
+  await ensureColumn("clubs", "category", "category VARCHAR(50) NOT NULL DEFAULT ''");
+  await ensureColumn("programs", "category", "category VARCHAR(50) NOT NULL DEFAULT ''");
+  await ensureColumn("programs", "skill_level", "skill_level VARCHAR(30) NOT NULL DEFAULT ''");
+  // TEXT column, nullable (no DEFAULT — see the accessibility columns above
+  // for why); comma-joined list, same convention as accessibility/amenities.
+  await ensureColumn("programs", "equipment", "equipment TEXT");
+  await ensureColumn("programs", "instructor_name", "instructor_name VARCHAR(255) NOT NULL DEFAULT ''");
+  // Session-level instructor overrides the program/club's own instructor
+  // when set; empty string means "use the parent's instructor".
+  await ensureColumn("program_sessions", "instructor_name", "instructor_name VARCHAR(255) NOT NULL DEFAULT ''");
+  // Purely descriptive — which of the centre's rooms this session happens
+  // in. Not wired into room availability/booking conflict checks; a
+  // program session and a paid room booking are still separate concepts.
+  await ensureColumn("program_sessions", "room_id", "room_id VARCHAR(191)");
+  await ensureColumn("club_sessions", "instructor_name", "instructor_name VARCHAR(255) NOT NULL DEFAULT ''");
+
+  // programs.status grows from a two-state active/archived model to a real
+  // draft/published/paused/archived lifecycle — one-time, idempotent
+  // backfill of every existing 'active' row (after this, 'active' is
+  // retired; the app only ever reads/writes the four new values).
+  await db.prepare(`UPDATE programs SET status = 'published' WHERE status = 'active'`).run();
 }
 
 export const COUNTY_CENTROIDS: Record<string, { lat: number; lng: number }> = {

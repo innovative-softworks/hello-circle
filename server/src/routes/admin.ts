@@ -3,7 +3,7 @@ import { Router } from "express";
 import { requireAdmin } from "../auth.js";
 import { writeAudit } from "../audit.js";
 import { db } from "../db/index.js";
-import { getCentre, getClub } from "../db/queries.js";
+import { getCentre, getClub, getDemandSignals } from "../db/queries.js";
 import { endOfIrelandDay } from "../irelandTime.js";
 
 export const adminRouter = Router();
@@ -23,6 +23,23 @@ adminRouter.get("/stats", async (_req, res) => {
     )
     .get()) as { n: number };
   const reviewCount = (await db.prepare(`SELECT COUNT(*) as n FROM reviews`).get()) as { n: number };
+  // Folded in from the old /platform-admin dashboard — genuinely new signals,
+  // not shown anywhere else in this dashboard.
+  const bookingsToday = (await db
+    .prepare(
+      `SELECT
+        (SELECT COUNT(*) FROM bookings WHERE DATE(created_at) = CURDATE()) +
+        (SELECT COUNT(*) FROM registrations WHERE DATE(created_at) = CURDATE()) as n`
+    )
+    .get()) as { n: number };
+  const paymentFailures = (await db
+    .prepare(
+      `SELECT
+        (SELECT COUNT(*) FROM bookings WHERE payment_status = 'failed') +
+        (SELECT COUNT(*) FROM registrations WHERE payment_status = 'failed') as n`
+    )
+    .get()) as { n: number };
+  const openReports = (await db.prepare(`SELECT COUNT(*) as n FROM reports WHERE status = 'pending'`).get()) as { n: number };
 
   res.json({
     centresPending: centresPending.n,
@@ -30,6 +47,9 @@ adminRouter.get("/stats", async (_req, res) => {
     vendorCount: vendorCount.n,
     totalListings: totalListings.n,
     reviewCount: reviewCount.n,
+    bookingsToday: bookingsToday.n,
+    paymentFailures: paymentFailures.n,
+    openReports: openReports.n,
   });
 });
 
@@ -40,6 +60,7 @@ adminRouter.get("/vendors", async (_req, res) => {
     .prepare(
       `SELECT id, email, name, status, created_at as createdAt,
               vendor_type as vendorType, business_name as businessName, address, county, mobile, landline, description,
+              org_id as orgId, platform_role as platformRole, provider_tier as providerTier, invited_staff as invitedStaff,
               (SELECT COUNT(*) FROM centres WHERE vendor_id = users.id) as centreCount,
               (SELECT COUNT(*) FROM clubs WHERE vendor_id = users.id) as clubCount
        FROM users WHERE role = 'vendor' ORDER BY created_at DESC`
@@ -67,9 +88,9 @@ adminRouter.put("/vendors/:id/status", async (req, res) => {
 // --- listing moderation --------------------------------------------------
 
 const PENDING_CENTRE_COLUMNS = `c.id, c.name, c.status, c.area, c.county, c.capacity, c.from_price as \`from\`, c.managed_by as managedBy,
-              c.ph, c.image_url as image, c.blurb, u.email as vendorEmail, u.name as vendorName, u.status as vendorStatus`;
+              c.ph, c.image_url as image, c.blurb, c.vendor_id as vendorId, u.email as vendorEmail, u.name as vendorName, u.status as vendorStatus`;
 const PENDING_CLUB_COLUMNS = `c.id, c.name, c.status, c.sport, c.area, c.county, c.ages, c.price, c.unit,
-              c.ph, c.image_url as image, c.blurb, u.email as vendorEmail, u.name as vendorName, u.status as vendorStatus`;
+              c.ph, c.image_url as image, c.blurb, c.vendor_id as vendorId, u.email as vendorEmail, u.name as vendorName, u.status as vendorStatus`;
 
 adminRouter.get("/listings/pending", async (_req, res) => {
   const centres = await db
@@ -87,17 +108,20 @@ adminRouter.get("/listings/pending", async (_req, res) => {
   res.json({ centres, clubs });
 });
 
+// Pending listings sort first (regardless of name) so an admin doing
+// triage sees what needs a decision without scanning the whole
+// alphabetical list — everything else stays alphabetical within its group.
 adminRouter.get("/listings", async (_req, res) => {
   const centres = await db
     .prepare(
       `SELECT ${PENDING_CENTRE_COLUMNS}
-       FROM centres c LEFT JOIN users u ON u.id = c.vendor_id ORDER BY c.name`
+       FROM centres c LEFT JOIN users u ON u.id = c.vendor_id ORDER BY (c.status = 'pending') DESC, c.name`
     )
     .all();
   const clubs = await db
     .prepare(
       `SELECT ${PENDING_CLUB_COLUMNS}
-       FROM clubs c LEFT JOIN users u ON u.id = c.vendor_id ORDER BY c.name`
+       FROM clubs c LEFT JOIN users u ON u.id = c.vendor_id ORDER BY (c.status = 'pending') DESC, c.name`
     )
     .all();
   res.json({ centres, clubs });
@@ -408,8 +432,17 @@ adminRouter.put("/vendors/:id/platform-role", async (req, res) => {
   if (platformRole !== null && !PLATFORM_ROLES.includes(platformRole)) {
     return res.status(400).json({ error: `platformRole must be one of ${PLATFORM_ROLES.join(", ")}, or null` });
   }
+  const before = (await db.prepare(`SELECT platform_role as platformRole FROM users WHERE id = ?`).get(req.params.id)) as { platformRole: string | null } | undefined;
   const info = await db.prepare(`UPDATE users SET platform_role = ? WHERE id = ? AND role = 'vendor'`).run(platformRole, req.params.id);
   if (info.changes === 0) return res.status(404).json({ error: "Vendor not found" });
+  writeAudit({
+    actorUserId: req.user!.id,
+    action: "vendor.platform_role_changed",
+    objectType: "user",
+    objectId: req.params.id,
+    previousValue: before?.platformRole ?? null,
+    newValue: platformRole,
+  });
   res.json({ ok: true });
 });
 
@@ -426,11 +459,75 @@ adminRouter.put("/vendors/:id/provider-tier", async (req, res) => {
 // --- demand intelligence (NEXT) — platform-wide view ------------------------
 
 adminRouter.get("/demand", async (_req, res) => {
-  const rows = await db
-    .prepare(
-      `SELECT query_text as queryText, county, COUNT(*) as count, MAX(created_at) as lastSeenAt
-       FROM search_misses GROUP BY query_text, county ORDER BY count DESC LIMIT 50`
-    )
-    .all();
+  const rows = await getDemandSignals({ limit: 50 });
   res.json(rows);
+});
+
+// --- reports queue (moved from platformAdmin.ts — the only genuinely
+// distinct piece of that page's "Moderation" tab; report creation itself is
+// public, see routes/reports.ts) ---------------------------------------
+
+adminRouter.get("/reports", async (_req, res) => {
+  const rows = await db.prepare(`SELECT id, target_type as targetType, target_id as targetId, reason, status, created_at as createdAt FROM reports WHERE status = 'pending' ORDER BY created_at`).all();
+  res.json(rows);
+});
+
+adminRouter.put("/reports/:id", async (req, res) => {
+  const { status } = req.body as { status?: string };
+  if (!status || !["dismissed", "actioned"].includes(status)) return res.status(400).json({ error: "status must be dismissed or actioned" });
+  const info = await db.prepare(`UPDATE reports SET status = ? WHERE id = ?`).run(status, req.params.id);
+  if (info.changes === 0) return res.status(404).json({ error: "Report not found" });
+  res.json({ ok: true });
+});
+
+// --- audit log (moved from platformAdmin.ts) ----------------------------
+
+adminRouter.get("/audit", async (req, res) => {
+  const actorUserId = typeof req.query.actorUserId === "string" ? req.query.actorUserId : undefined;
+  const rows = actorUserId
+    ? await db
+        .prepare(
+          `SELECT al.id, al.actor_user_id as actorUserId, u.email as actorEmail, al.action, al.object_type as objectType, al.object_id as objectId,
+                  al.previous_value as previousValue, al.new_value as newValue, al.created_at as createdAt
+           FROM audit_log al LEFT JOIN users u ON u.id = al.actor_user_id WHERE al.actor_user_id = ? ORDER BY al.created_at DESC LIMIT 200`
+        )
+        .all(actorUserId)
+    : await db
+        .prepare(
+          `SELECT al.id, al.actor_user_id as actorUserId, u.email as actorEmail, al.action, al.object_type as objectType, al.object_id as objectId,
+                  al.previous_value as previousValue, al.new_value as newValue, al.created_at as createdAt
+           FROM audit_log al LEFT JOIN users u ON u.id = al.actor_user_id ORDER BY al.created_at DESC LIMIT 200`
+        )
+        .all();
+  res.json(rows);
+});
+
+// --- support console (moved from platformAdmin.ts) ------------------------
+
+adminRouter.get("/support/search", async (req, res) => {
+  const q = typeof req.query.q === "string" ? req.query.q.trim() : "";
+  if (!q) return res.json({ bookings: [], registrations: [], users: [] });
+  const like = `%${q}%`;
+  const [bookings, registrations, users] = await Promise.all([
+    db.prepare(`SELECT ref, name, email, date, time, status, payment_status as paymentStatus FROM bookings WHERE ref = ? OR email LIKE ? LIMIT 20`).all(q, like),
+    db.prepare(`SELECT ref, g_first as gFirst, g_last as gLast, email, status, payment_status as paymentStatus FROM registrations WHERE ref = ? OR email LIKE ? LIMIT 20`).all(q, like),
+    db.prepare(`SELECT id, email, name, role, status FROM users WHERE email LIKE ? LIMIT 20`).all(like),
+  ]);
+  res.json({ bookings, registrations, users });
+});
+
+// --- system status (moved from platformAdmin.ts — best-effort, not real
+// monitoring) ----------------------------------------------------------
+
+adminRouter.get("/status", async (_req, res) => {
+  const dbOk = await db
+    .prepare(`SELECT 1 as ok`)
+    .get()
+    .then(() => true)
+    .catch(() => false);
+  res.json({
+    database: dbOk ? "ok" : "down",
+    stripeConfigured: !!process.env.STRIPE_SECRET_KEY,
+    smtpConfigured: !!process.env.SMTP_HOST,
+  });
 });

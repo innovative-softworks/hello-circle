@@ -1,10 +1,11 @@
 import { Router } from "express";
+import { createCheckoutSession, pricingLineItems } from "../checkoutService.js";
 import { db } from "../db/index.js";
 import { getClub } from "../db/queries.js";
 import { notifyCancellation, notifyNewBookingOrRegistration } from "../notifications.js";
 import { computePricing, evaluateCoupon } from "../pricing.js";
 import { lookupLimiter } from "../rateLimit.js";
-import { CLIENT_URL, stripe } from "../stripe.js";
+import { stripe } from "../stripe.js";
 import { BadRequestError, ConflictError, clientIdFrom, generateRef, isValidEmail } from "../util.js";
 import { promoteNextWaitlistEntry } from "../waitlist.js";
 
@@ -53,9 +54,14 @@ async function insertRegistration(
   body: CreateRegistrationBody,
   pricing: ReturnType<typeof computePricing>,
   status: "pending" | "paid",
-  passId: number | null = null
+  passId: number | null = null,
+  // Accepts a transaction's `tx` in place of the module-level pool so this
+  // insert can participate in a caller's transaction — see
+  // insertRegistrationWithSessionLock, which needs the session capacity
+  // check and this insert to commit atomically together.
+  conn: Pick<typeof db, "prepare"> = db
 ) {
-  await db.prepare(
+  await conn.prepare(
     `INSERT INTO registrations (ref, client_id, resident_id, club_id, session_id, pass_id, team, child_first, child_last, dob, g_first, g_last, email, phone, address, ec_name, ec_phone, ec_rel, medical, consent, trial,
       subtotal_cents, discount_cents, vat_cents, platform_fee_cents, coupon_code, total_cents, payment_status, waiver_version)
      VALUES (@ref, @clientId, @residentId, @clubId, @sessionId, @passId, @team, @childFirst, @childLast, @dob, @gFirst, @gLast, @email, @phone, @address, @ecName, @ecPhone, @ecRel, @medical, @consent, @trial,
@@ -90,6 +96,44 @@ async function insertRegistration(
     totalCents: pricing.totalCents,
     status,
     waiverVersion: body.consent ? WAIVER_VERSION : "",
+  });
+}
+
+/** Locks and checks a specific club_session's own capacity (independent of
+ * the club-wide capacity check above — a club can configure both), then
+ * inserts the registration in the same transaction so the check and the
+ * insert are atomic. A club_session's capacity tends to be much smaller
+ * than the whole club's, so the race the club-wide check accepts as a minor
+ * risk matters more here — hence the row lock, matching the pattern
+ * bookings.ts/games.ts/programs.ts already use for their own capacity
+ * checks. No-ops to the plain unlocked insert when the registration isn't
+ * tied to a session — every club without sessions configured behaves
+ * exactly as before. */
+async function insertRegistrationWithSessionLock(
+  ref: string,
+  clientId: string,
+  residentId: string | null,
+  body: CreateRegistrationBody,
+  pricing: ReturnType<typeof computePricing>,
+  status: "pending" | "paid",
+  passId: number | null = null
+) {
+  if (!body.sessionId) {
+    await insertRegistration(ref, clientId, residentId, body, pricing, status, passId);
+    return;
+  }
+  await db.transaction(async (tx) => {
+    const session = (await tx
+      .prepare(`SELECT id, capacity FROM club_sessions WHERE id = ? AND club_id = ? AND active = 1 FOR UPDATE`)
+      .get(body.sessionId, body.clubId)) as { id: string; capacity: number | null } | undefined;
+    if (!session) throw new ConflictError("That session is no longer available — please pick another");
+    if (session.capacity !== null) {
+      const { n } = (await tx
+        .prepare(`SELECT COUNT(*) as n FROM registrations WHERE session_id = ? AND payment_status = 'paid' AND status != 'cancelled'`)
+        .get(body.sessionId)) as { n: number };
+      if (n >= session.capacity) throw new ConflictError("That session is full — please pick another");
+    }
+    await insertRegistration(ref, clientId, residentId, body, pricing, status, passId, tx);
   });
 }
 
@@ -149,9 +193,22 @@ registrationsRouter.post("/checkout", async (req, res) => {
         if (pass.expires_at && new Date(pass.expires_at) < new Date()) throw new ConflictError("That pass has expired");
         if (pass.credits_used >= pass.credits_total) throw new ConflictError("That pass has no credits left");
 
+        if (body.sessionId) {
+          const session = (await tx
+            .prepare(`SELECT id, capacity FROM club_sessions WHERE id = ? AND club_id = ? AND active = 1 FOR UPDATE`)
+            .get(body.sessionId, body.clubId)) as { id: string; capacity: number | null } | undefined;
+          if (!session) throw new ConflictError("That session is no longer available — please pick another");
+          if (session.capacity !== null) {
+            const { n } = (await tx
+              .prepare(`SELECT COUNT(*) as n FROM registrations WHERE session_id = ? AND payment_status = 'paid' AND status != 'cancelled'`)
+              .get(body.sessionId)) as { n: number };
+            if (n >= session.capacity) throw new ConflictError("That session is full — please pick another");
+          }
+        }
+
         await tx.prepare(`UPDATE passes SET credits_used = credits_used + 1 WHERE id = ?`).run(pass.id);
         const zeroPricing = computePricing(0, 0, 0, null);
-        await insertRegistration(ref, clientId, req.resident!.id, body, zeroPricing, "paid", pass.id);
+        await insertRegistration(ref, clientId, req.resident!.id, body, zeroPricing, "paid", pass.id, tx);
       });
     } catch (e) {
       if (e instanceof ConflictError) return res.status(409).json({ error: e.message });
@@ -201,44 +258,41 @@ registrationsRouter.post("/checkout", async (req, res) => {
       detailsText: `${body.childFirst} ${body.childLast} (DOB ${body.dob}) · ${body.team}${body.trial ? " · Trial session" : ""} · €${(pricing.totalCents / 100).toFixed(2)}${isCash ? " due in cash on arrival" : " total"}`,
     }).catch((e) => console.error("[notifications] registration notify failed:", e));
   if (pricing.totalCents === 0 || isCash) {
-    await insertRegistration(ref, clientId, req.resident?.id ?? null, body, pricing, "paid");
+    try {
+      await insertRegistrationWithSessionLock(ref, clientId, req.resident?.id ?? null, body, pricing, "paid");
+    } catch (e) {
+      if (e instanceof ConflictError) return res.status(409).json({ error: e.message, full: true });
+      throw e;
+    }
     notify("paid");
     return res.status(201).json({ ref, totalEuro: pricing.totalCents / 100, trial: body.trial });
   }
 
   if (!stripe) return res.status(503).json({ error: "Payments aren't configured yet" });
 
-  await insertRegistration(ref, clientId, req.resident?.id ?? null, body, pricing, "pending");
-
-  let session;
   try {
-    session = await stripe.checkout.sessions.create({
-      mode: "payment",
-      line_items: [
-        {
-          price_data: {
-            currency: "eur",
-            product_data: { name: `${club.name} registration`, description: `${body.childFirst} ${body.childLast} — ${body.team}${couponCode ? ` (coupon ${couponCode} applied)` : ""}` },
-            unit_amount: pricing.taxableCents,
-          },
-          quantity: 1,
-        },
-        { price_data: { currency: "eur", product_data: { name: "VAT (23%)" }, unit_amount: pricing.vatCents }, quantity: 1 },
-        { price_data: { currency: "eur", product_data: { name: "Platform fee" }, unit_amount: pricing.platformFeeCents }, quantity: 1 },
-      ],
-      customer_email: body.email,
-      success_url: `${CLIENT_URL}/payment/success?ref=${ref}`,
-      cancel_url: `${CLIENT_URL}/payment/cancel?ref=${ref}`,
-      metadata: { type: "registration", ref },
-    });
+    await insertRegistrationWithSessionLock(ref, clientId, req.resident?.id ?? null, body, pricing, "pending");
   } catch (e) {
-    await db.prepare(`DELETE FROM registrations WHERE ref = ?`).run(ref);
-    console.error("[stripe] checkout session creation failed:", e instanceof Error ? e.message : e);
-    return res.status(400).json({ error: "Couldn't start checkout — please check your details and try again" });
+    if (e instanceof ConflictError) return res.status(409).json({ error: e.message, full: true });
+    throw e;
   }
 
-  await db.prepare(`UPDATE registrations SET stripe_session_id = ? WHERE ref = ?`).run(session.id, ref);
-  res.status(201).json({ ref, url: session.url, totalEuro: pricing.totalCents / 100, trial: body.trial });
+  const result = await createCheckoutSession({
+    ref,
+    type: "registration",
+    customerEmail: body.email,
+    lineItems: pricingLineItems(pricing, {
+      name: `${club.name} registration`,
+      description: `${body.childFirst} ${body.childLast} — ${body.team}${couponCode ? ` (coupon ${couponCode} applied)` : ""}`,
+    }),
+  });
+  if (!result.ok) {
+    await db.prepare(`DELETE FROM registrations WHERE ref = ?`).run(ref);
+    return res.status(result.status).json({ error: result.error });
+  }
+
+  await db.prepare(`UPDATE registrations SET stripe_session_id = ? WHERE ref = ?`).run(result.session.id, ref);
+  res.status(201).json({ ref, url: result.session.url, totalEuro: pricing.totalCents / 100, trial: body.trial });
 });
 
 registrationsRouter.get("/status/:ref", async (req, res) => {
@@ -364,7 +418,12 @@ registrationsRouter.post("/:ref/cancel", lookupLimiter, async (req, res) => {
 
   // A cancelled paid registration frees a capacity spot (NEXT — waitlist
   // auto-promotion). No-op if the club has no capacity set or no one is
-  // waiting — promoteNextWaitlistEntry never throws.
+  // waiting — promoteNextWaitlistEntry never throws. Club-scoped only: if
+  // this registration was tied to a specific session (see
+  // insertRegistrationWithSessionLock above), the freed spot is on that
+  // session, but there's no session-level waitlist concept yet — this only
+  // promotes from the club-wide waitlist. Fine for now since sessions are
+  // opt-in per club and waitlisting is still club-wide everywhere else too.
   promoteNextWaitlistEntry("club", row.clubId, row.clubName);
 
   res.json({ ok: true });

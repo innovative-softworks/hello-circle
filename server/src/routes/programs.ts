@@ -1,8 +1,8 @@
 import { Router } from "express";
+import { createCheckoutSession, pricingLineItems } from "../checkoutService.js";
 import { db } from "../db/index.js";
 import { notifyNewBookingOrRegistration } from "../notifications.js";
 import { computePricing } from "../pricing.js";
-import { CLIENT_URL, stripe } from "../stripe.js";
 import { BadRequestError, clientIdFrom, generateRef, isValidEmail } from "../util.js";
 
 export const programsRouter = Router();
@@ -26,11 +26,20 @@ interface ProgramRow {
   capacity: number | null;
   status: string;
   created_at: string;
+  category: string;
+  skill_level: string;
+  equipment: string | null;
+  instructor_name: string;
 }
 
 async function toProgramJson(row: ProgramRow) {
   const sessions = await db
-    .prepare(`SELECT id, date, time, duration_minutes as durationMinutes, capacity, status FROM program_sessions WHERE program_id = ? AND status != 'cancelled' ORDER BY date, time`)
+    .prepare(
+      `SELECT ps.id, ps.date, ps.time, ps.duration_minutes as durationMinutes, ps.capacity, ps.status,
+              ps.instructor_name as instructorName, ps.room_id as roomId, r.name as roomName
+       FROM program_sessions ps LEFT JOIN rooms r ON r.id = ps.room_id
+       WHERE ps.program_id = ? AND ps.status != 'cancelled' ORDER BY ps.date, ps.time`
+    )
     .all(row.id);
   const { n: enrolled } = (await db
     .prepare(`SELECT COUNT(*) as n FROM program_enrollments WHERE program_id = ? AND payment_status = 'paid' AND status != 'cancelled'`)
@@ -53,6 +62,10 @@ async function toProgramJson(row: ProgramRow) {
     status: row.status,
     sessions,
     createdAt: row.created_at,
+    category: row.category,
+    skillLevel: row.skill_level,
+    equipment: row.equipment ? row.equipment.split(",").filter(Boolean) : [],
+    instructorName: row.instructor_name,
   };
 }
 
@@ -60,7 +73,7 @@ programsRouter.get("/", async (req, res) => {
   const { listingType, listingId } = req.query as { listingType?: string; listingId?: string };
   if (!listingType || !listingId) return res.status(400).json({ error: "listingType and listingId are required" });
   const rows = (await db
-    .prepare(`SELECT * FROM programs WHERE listing_type = ? AND listing_id = ? AND status = 'active' ORDER BY created_at DESC`)
+    .prepare(`SELECT * FROM programs WHERE listing_type = ? AND listing_id = ? AND status = 'published' ORDER BY created_at DESC`)
     .all(listingType, listingId)) as ProgramRow[];
   res.json(await Promise.all(rows.map(toProgramJson)));
 });
@@ -96,7 +109,7 @@ programsRouter.post("/:id/enroll", async (req, res) => {
 
   const program = (await db.prepare(`SELECT * FROM programs WHERE id = ?`).get(req.params.id)) as ProgramRow | undefined;
   if (!program) return res.status(404).json({ error: "Program not found" });
-  if (program.status !== "active") return res.status(409).json({ error: "This program is no longer open for enrollment" });
+  if (program.status !== "published") return res.status(409).json({ error: "This program is no longer open for enrollment" });
 
   const ref = generateRef("PR");
   const pricing = computePricing(program.price_cents, 0, 0, null);
@@ -141,30 +154,19 @@ programsRouter.post("/:id/enroll", async (req, res) => {
     return res.status(201).json({ ref, totalEuro: 0 });
   }
 
-  if (!stripe) return res.status(503).json({ error: "Payments aren't configured yet" });
-
-  let session;
-  try {
-    session = await stripe.checkout.sessions.create({
-      mode: "payment",
-      line_items: [
-        { price_data: { currency: "eur", product_data: { name: program.title, description: `${body.participantName}` }, unit_amount: pricing.taxableCents }, quantity: 1 },
-        { price_data: { currency: "eur", product_data: { name: "VAT (23%)" }, unit_amount: pricing.vatCents }, quantity: 1 },
-        { price_data: { currency: "eur", product_data: { name: "Platform fee" }, unit_amount: pricing.platformFeeCents }, quantity: 1 },
-      ],
-      customer_email: body.email,
-      success_url: `${CLIENT_URL}/payment/success?ref=${ref}`,
-      cancel_url: `${CLIENT_URL}/payment/cancel?ref=${ref}`,
-      metadata: { type: "program", ref },
-    });
-  } catch (e) {
+  const result = await createCheckoutSession({
+    ref,
+    type: "program",
+    customerEmail: body.email,
+    lineItems: pricingLineItems(pricing, { name: program.title, description: body.participantName }),
+  });
+  if (!result.ok) {
     await db.prepare(`DELETE FROM program_enrollments WHERE ref = ?`).run(ref);
-    console.error("[stripe] program checkout session creation failed:", e instanceof Error ? e.message : e);
-    return res.status(400).json({ error: "Couldn't start checkout — please try again" });
+    return res.status(result.status).json({ error: result.error });
   }
 
-  await db.prepare(`UPDATE program_enrollments SET stripe_session_id = ? WHERE ref = ?`).run(session.id, ref);
-  res.status(201).json({ ref, url: session.url, totalEuro: pricing.totalCents / 100 });
+  await db.prepare(`UPDATE program_enrollments SET stripe_session_id = ? WHERE ref = ?`).run(result.session.id, ref);
+  res.status(201).json({ ref, url: result.session.url, totalEuro: pricing.totalCents / 100 });
 });
 
 programsRouter.get("/enrollments/status/:ref", async (req, res) => {

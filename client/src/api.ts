@@ -11,7 +11,6 @@ import type {
   ClubSession,
   DemandRow,
   Favourite,
-  FeatureFlag,
   Game,
   HouseholdMember,
   ModerationReport,
@@ -20,7 +19,6 @@ import type {
   OrgProfile,
   Participant,
   Pass,
-  PlatformDashboardStats,
   Program,
   Receipt,
   Resident,
@@ -28,16 +26,20 @@ import type {
   ResidentNotification,
   Review,
   Role,
+  Room,
   RoomBlock,
   ScheduleEntry,
   SearchResult,
-  TenantSummary,
+  SupportBooking,
+  SupportRegistration,
+  SupportUser,
   VendorInsights,
   VendorListingSummary,
   VendorNotification,
   VendorPayments,
   VendorProgramSummary,
   VendorStats,
+  VendorToday,
   WaitlistEntry,
   WaitlistOfferStatus,
   WaitlistPosition,
@@ -406,7 +408,9 @@ export function fetchClubSessions(clubId: string): Promise<ClubSession[]> {
   return request(`/club-sessions?clubId=${encodeURIComponent(clubId)}`);
 }
 
-export function createClubSession(input: { clubId: string; dayOfWeek: number; time: string; capacity?: number; label?: string }): Promise<{ id: string }> {
+export function createClubSession(
+  input: { clubId: string; dayOfWeek: number; time: string; capacity?: number; label?: string; instructorName?: string }
+): Promise<{ id: string }> {
   return request(`/club-sessions`, { method: "POST", body: JSON.stringify(input) });
 }
 
@@ -444,8 +448,8 @@ export function fetchVendorMessages(): Promise<{ id: number; listingType: string
   return request(`/vendor/messages`);
 }
 
-export function fetchVendorDemand(): Promise<DemandRow[]> {
-  return request(`/vendor/demand`);
+export function fetchVendorDemand(scope: "own" | "all" = "own"): Promise<DemandRow[]> {
+  return request(`/vendor/demand${scope === "all" ? "?scope=all" : ""}`);
 }
 
 export function checkInBooking(kind: "booking" | "registration", ref: string): Promise<{ ok: boolean }> {
@@ -534,8 +538,11 @@ export interface CentreInput {
   name: string;
   area: string;
   county: string;
-  capacity: number;
-  from: number;
+  /** Only meaningful at creation time, to seed the centre's starter room —
+   * ignored by PUT /vendor/centres/:id. See vendor.ts's rooms CRUD to edit
+   * capacity/rate/payment for an existing centre. */
+  capacity?: number;
+  from?: number;
   managedBy: string;
   image?: string;
   images?: string[];
@@ -546,6 +553,8 @@ export interface CentreInput {
   paymentMethod?: "online" | "cash";
   isOpen?: boolean;
   mapUrl?: string;
+  phone?: string;
+  accessibility?: string[];
 }
 
 export interface ClubInput {
@@ -565,6 +574,9 @@ export interface ClubInput {
   mapUrl?: string;
   /** Nullable = unlimited (MVP — see clubs.capacity / waitlist). */
   capacity?: number | null;
+  phone?: string;
+  accessibility?: string[];
+  category?: string;
 }
 
 export function fetchVendorListings(): Promise<{ centres: VendorListingSummary[]; clubs: VendorListingSummary[] }> {
@@ -604,6 +616,8 @@ export function deleteVendorCentre(id: string): Promise<{ ok: boolean }> {
 export interface BlockInput {
   date: string;
   reason?: string;
+  /** Omit = whole-centre block; set = only that one room. */
+  roomId?: string;
 }
 
 export function fetchVendorBlocks(centreId: string): Promise<RoomBlock[]> {
@@ -616,6 +630,27 @@ export function createVendorBlock(centreId: string, input: BlockInput): Promise<
 
 export function deleteVendorBlock(centreId: string, blockId: number): Promise<{ ok: boolean }> {
   return request(`/vendor/centres/${centreId}/blocks/${blockId}`, { method: "DELETE" });
+}
+
+export interface RoomInput {
+  name: string;
+  cap: number;
+  rate: number;
+  desc?: string;
+  paymentMethod?: "online" | "cash";
+  active?: boolean;
+}
+
+export function fetchVendorRooms(centreId: string): Promise<Room[]> {
+  return request(`/vendor/centres/${centreId}/rooms`);
+}
+
+export function createVendorRoom(centreId: string, input: RoomInput): Promise<{ id: string }> {
+  return request(`/vendor/centres/${centreId}/rooms`, { method: "POST", body: JSON.stringify(input) });
+}
+
+export function updateVendorRoom(centreId: string, roomId: string, input: Partial<RoomInput>): Promise<{ ok: boolean }> {
+  return request(`/vendor/centres/${centreId}/rooms/${roomId}`, { method: "PUT", body: JSON.stringify(input) });
 }
 
 export function createVendorClub(input: ClubInput): Promise<Club> {
@@ -663,6 +698,10 @@ export interface AdminVendor {
   mobile: string;
   landline: string;
   description: string;
+  orgId: string | null;
+  platformRole: string | null;
+  providerTier: "standard" | "verified" | "featured";
+  invitedStaff: number;
 }
 
 export interface AdminListingSummary {
@@ -674,6 +713,7 @@ export interface AdminListingSummary {
   ph: string;
   image: string;
   blurb: string;
+  vendorId: string | null;
   vendorEmail: string | null;
   vendorName?: string | null;
   vendorStatus?: "pending" | "approved" | "suspended" | null;
@@ -884,6 +924,10 @@ export interface ProgramInput {
   imageUrl?: string;
   priceCents?: number;
   capacity?: number | null;
+  category?: string;
+  skillLevel?: string;
+  equipment?: string[];
+  instructorName?: string;
 }
 
 export function createVendorProgram(input: ProgramInput): Promise<{ id: string }> {
@@ -898,7 +942,10 @@ export function deleteVendorProgram(id: string): Promise<{ ok: boolean }> {
   return request(`/vendor/programs/${id}`, { method: "DELETE" });
 }
 
-export function addProgramSession(programId: string, input: { date: string; time: string; durationMinutes?: number; capacity?: number }): Promise<{ id: string }> {
+export function addProgramSession(
+  programId: string,
+  input: { date: string; time: string; durationMinutes?: number; capacity?: number; instructorName?: string; roomId?: string }
+): Promise<{ id: string }> {
   return request(`/vendor/programs/${programId}/sessions`, { method: "POST", body: JSON.stringify(input) });
 }
 
@@ -936,6 +983,10 @@ export function fetchVendorSchedule(from?: string, days?: number): Promise<Sched
   if (days) params.set("days", String(days));
   const qs = params.toString();
   return request(`/vendor/schedule${qs ? `?${qs}` : ""}`);
+}
+
+export function fetchVendorToday(): Promise<VendorToday> {
+  return request(`/vendor/today`);
 }
 
 export function fetchCentreHours(centreId: string): Promise<CentreHoursRow[]> {
@@ -992,50 +1043,27 @@ export function bookingsReportCsvUrl(): string {
   return `/api/vendor/reports/bookings.csv`;
 }
 
-// --- Phase D: Platform Admin (best-effort) -----------------------------
-
-export function fetchPlatformDashboard(): Promise<PlatformDashboardStats> {
-  return request(`/platform-admin/dashboard`);
-}
-
-export function fetchTenants(): Promise<TenantSummary[]> {
-  return request(`/platform-admin/tenants`);
-}
-
-export function fetchTenantDetail(id: string): Promise<{ org: TenantSummary; staff: unknown[]; flags: FeatureFlag[] }> {
-  return request(`/platform-admin/tenants/${id}`);
-}
-
-export function fetchPlatformUsers(): Promise<{ id: string; email: string; name: string; role: string; status: string; orgId: string | null; platformRole: string | null; createdAt: string }[]> {
-  return request(`/platform-admin/users`);
-}
-
-export function fetchFeatureFlags(orgId: string): Promise<FeatureFlag[]> {
-  return request(`/platform-admin/feature-flags/${orgId}`);
-}
-
-export function setFeatureFlag(orgId: string, flagKey: string, enabled: boolean): Promise<{ ok: boolean }> {
-  return request(`/platform-admin/feature-flags/${orgId}`, { method: "PUT", body: JSON.stringify({ flagKey, enabled }) });
-}
+// --- Admin: moderation, audit, support (folded in from the former
+// Platform Admin page — see AdminDashboard.tsx's Reviews/Audit/Support tabs) --
 
 export function fetchModerationReports(): Promise<ModerationReport[]> {
-  return request(`/platform-admin/moderation/reports`);
+  return request(`/admin/reports`);
 }
 
 export function resolveReport(id: number, status: "dismissed" | "actioned"): Promise<{ ok: boolean }> {
-  return request(`/platform-admin/moderation/reports/${id}`, { method: "PUT", body: JSON.stringify({ status }) });
+  return request(`/admin/reports/${id}`, { method: "PUT", body: JSON.stringify({ status }) });
 }
 
 export function fetchAuditLog(actorUserId?: string): Promise<AuditEntry[]> {
-  return request(`/platform-admin/audit${actorUserId ? `?actorUserId=${actorUserId}` : ""}`);
+  return request(`/admin/audit${actorUserId ? `?actorUserId=${actorUserId}` : ""}`);
 }
 
-export function supportSearch(q: string): Promise<{ bookings: unknown[]; registrations: unknown[]; users: unknown[] }> {
-  return request(`/platform-admin/support/search?q=${encodeURIComponent(q)}`);
+export function supportSearch(q: string): Promise<{ bookings: SupportBooking[]; registrations: SupportRegistration[]; users: SupportUser[] }> {
+  return request(`/admin/support/search?q=${encodeURIComponent(q)}`);
 }
 
 export function fetchSystemStatus(): Promise<{ database: string; stripeConfigured: boolean; smtpConfigured: boolean }> {
-  return request(`/platform-admin/status`);
+  return request(`/admin/status`);
 }
 
 export type { Role };

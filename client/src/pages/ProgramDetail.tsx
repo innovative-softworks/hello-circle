@@ -88,10 +88,22 @@ export function ProgramDetail() {
             <div>
               <h1 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 26, margin: "0 0 4px" }}>{program.title}</h1>
               <div style={{ color: colors.mutedLight, fontSize: 14.5 }}>{program.listingName}{program.ageRange ? ` · ${program.ageRange}` : ""}</div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 10 }}>
+                {program.category && (
+                  <span style={{ fontSize: 12, fontWeight: 700, color: colors.greenText, background: colors.greenBg, borderRadius: 999, padding: "3px 10px" }}>{program.category}</span>
+                )}
+                {program.skillLevel && (
+                  <span style={{ fontSize: 12, fontWeight: 700, color: colors.muted, background: colors.panel, borderRadius: 999, padding: "3px 10px" }}>{program.skillLevel}</span>
+                )}
+              </div>
             </div>
             <div style={{ fontWeight: 700, fontSize: 20 }}>{program.priceCents ? `€${(program.priceCents / 100).toFixed(2)}` : "Free"}</div>
           </div>
           {program.description && <p style={{ margin: "16px 0 0", color: "#3B423C", fontSize: 15, lineHeight: 1.55 }}>{program.description}</p>}
+          {program.instructorName && <p style={{ margin: "10px 0 0", color: colors.muted, fontSize: 13.5 }}>Instructor: {program.instructorName}</p>}
+          {program.equipment.length > 0 && (
+            <p style={{ margin: "6px 0 0", color: colors.muted, fontSize: 13.5 }}>Bring: {program.equipment.join(", ")}</p>
+          )}
           {program.capacity !== null && (
             <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 14, fontSize: 13.5, color: full ? "#b00020" : colors.greenText, fontWeight: 700 }}>
               <UsersIcon size={14} /> {full ? "Full" : `${program.spotsLeft} of ${program.capacity} spots left`}
@@ -102,9 +114,11 @@ export function ProgramDetail() {
         <h2 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 18, margin: "0 0 12px" }}>Full schedule</h2>
         <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 28 }}>
           {program.sessions.map((s) => (
-            <div key={s.id} style={{ background: "#fff", border: `1px solid ${colors.border}`, borderRadius: 12, padding: "12px 16px", display: "flex", gap: 16, fontSize: 13.5, color: colors.muted }}>
+            <div key={s.id} style={{ background: "#fff", border: `1px solid ${colors.border}`, borderRadius: 12, padding: "12px 16px", display: "flex", flexWrap: "wrap", gap: 16, fontSize: 13.5, color: colors.muted }}>
               <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><CalendarIcon size={13} /> {s.date}</span>
               <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><ClockIcon size={13} /> {s.time} · {s.durationMinutes}min</span>
+              {s.instructorName && <span>{s.instructorName}</span>}
+              {s.roomName && <span>{s.roomName}</span>}
             </div>
           ))}
           {program.sessions.length === 0 && <p style={{ color: colors.faint, fontSize: 13.5 }}>No sessions scheduled yet.</p>}

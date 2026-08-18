@@ -6,9 +6,10 @@ import { colors } from "../theme";
 import { Button } from "./ui";
 
 /** Shown on a listing's detail page only when it has no owning vendor yet
- * (vendor_id IS NULL — true of every seeded centre/club today). Lets a
- * matching-type, already-approved vendor request ownership; an admin
- * approves/rejects it (see AdminDashboard's Claims tab). */
+ * (vendor_id IS NULL — true of every seeded centre/club today). Lets any
+ * already-approved vendor request ownership, regardless of their own
+ * signup-time vendorType — a vendor can manage both a centre and a club;
+ * an admin approves/rejects it (see AdminDashboard's Claims tab). */
 export function ClaimListingCTA({
   listingType,
   listingId,
@@ -28,7 +29,6 @@ export function ClaimListingCTA({
 
   if (claimed || user?.role === "admin") return null;
 
-  const expectedVendorType = listingType === "centre" ? "community" : "sports";
   const label = listingType === "centre" ? "community centre" : "sports club";
 
   const handleSubmit = async () => {
@@ -81,15 +81,6 @@ export function ClaimListingCTA({
             Sign up as a vendor
           </button>
         </div>
-      </div>
-    );
-  }
-
-  if (user.vendorType !== expectedVendorType) {
-    return (
-      <div style={wrapStyle}>
-        <div style={titleStyle}>Manage this {label}?</div>
-        <p style={{ ...bodyStyle, marginBottom: 0 }}>This listing can only be claimed by a {label} organisation.</p>
       </div>
     );
   }

@@ -1,10 +1,10 @@
 import crypto from "node:crypto";
 import { Router } from "express";
+import { createCheckoutSession, pricingLineItems } from "../checkoutService.js";
 import { db } from "../db/index.js";
 import { notifyResident } from "../notifications.js";
 import { computePricing } from "../pricing.js";
 import { requireResident } from "../residents.js";
-import { CLIENT_URL, stripe } from "../stripe.js";
 import { ConflictError, generateRef } from "../util.js";
 import { promoteNextWaitlistEntry } from "../waitlist.js";
 
@@ -228,35 +228,21 @@ gamesRouter.post("/:id/join", requireResident, async (req, res) => {
 
   if (!insertedRef || !checkoutRow) return res.json({ ok: true });
 
-  if (!stripe) {
-    await db.prepare(`DELETE FROM game_participants WHERE ref = ?`).run(insertedRef);
-    return res.status(503).json({ error: "Payments aren't configured yet" });
-  }
-
   const row = checkoutRow as GameRow;
   const pricing = computePricing(row.price_cents!, 0, 0, null);
-  let session;
-  try {
-    session = await stripe.checkout.sessions.create({
-      mode: "payment",
-      line_items: [
-        { price_data: { currency: "eur", product_data: { name: `${row.activity_label} — ${row.date} ${row.time}` }, unit_amount: pricing.taxableCents }, quantity: 1 },
-        { price_data: { currency: "eur", product_data: { name: "VAT (23%)" }, unit_amount: pricing.vatCents }, quantity: 1 },
-        { price_data: { currency: "eur", product_data: { name: "Platform fee" }, unit_amount: pricing.platformFeeCents }, quantity: 1 },
-      ],
-      customer_email: req.resident!.email,
-      success_url: `${CLIENT_URL}/payment/success?ref=${insertedRef}`,
-      cancel_url: `${CLIENT_URL}/payment/cancel?ref=${insertedRef}`,
-      metadata: { type: "game", ref: insertedRef },
-    });
-  } catch (e) {
+  const result = await createCheckoutSession({
+    ref: insertedRef,
+    type: "game",
+    customerEmail: req.resident!.email,
+    lineItems: pricingLineItems(pricing, { name: `${row.activity_label} — ${row.date} ${row.time}` }),
+  });
+  if (!result.ok) {
     await db.prepare(`DELETE FROM game_participants WHERE ref = ?`).run(insertedRef);
-    console.error("[stripe] game checkout session creation failed:", e instanceof Error ? e.message : e);
-    return res.status(400).json({ error: "Couldn't start checkout — please try again" });
+    return res.status(result.status).json({ error: result.error });
   }
 
-  await db.prepare(`UPDATE game_participants SET stripe_session_id = ? WHERE ref = ?`).run(session.id, insertedRef);
-  res.status(201).json({ ref: insertedRef, url: session.url, totalEuro: pricing.totalCents / 100 });
+  await db.prepare(`UPDATE game_participants SET stripe_session_id = ? WHERE ref = ?`).run(result.session.id, insertedRef);
+  res.status(201).json({ ref: insertedRef, url: result.session.url, totalEuro: pricing.totalCents / 100 });
 });
 
 // --- waitlist (NEXT) — mirrors routes/clubs.ts's club waitlist ------------

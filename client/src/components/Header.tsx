@@ -2,9 +2,11 @@ import { useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { fetchAdminPendingListings, fetchCentres, fetchResidentNotifications, fetchVendorListings, guestLogout, logout, markResidentNotificationRead } from "../api";
 import { useAuth } from "../AuthContext";
+import { useDashboardNav } from "../DashboardNavContext";
 import { useGuest } from "../GuestContext";
-import { BellIcon, CloseIcon, LogoMark, MenuIcon, PinIcon } from "./icons";
-import { colors, fonts, maxWidth } from "../theme";
+import { BellIcon, ChevronDownIcon, CloseIcon, MenuIcon, PinIcon } from "./icons";
+import { Avatar } from "./ui";
+import { colors, maxWidth } from "../theme";
 import { useMyStuff } from "../MyStuffContext";
 import type { ResidentNotification } from "../types";
 
@@ -14,6 +16,10 @@ export function Header() {
   const { count } = useMyStuff();
   const { user, refresh } = useAuth();
   const { email: guestEmail, resident, refresh: refreshGuest } = useGuest();
+  // Set only while an Admin/Vendor dashboard is mounted (see
+  // DashboardNavContext) — that's what makes this burger admin/vendor-only
+  // without Header needing to know about routes or tab lists itself.
+  const { openNav } = useDashboardNav();
   const [menuOpen, setMenuOpen] = useState(false);
   const [alerts, setAlerts] = useState(0);
   const [countyMenuOpen, setCountyMenuOpen] = useState(false);
@@ -208,14 +214,31 @@ export function Header() {
           gap: 26,
         }}
       >
+        {openNav && (
+          <button
+            onClick={openNav}
+            aria-label="Open dashboard menu"
+            style={{
+              width: 38,
+              height: 38,
+              borderRadius: 10,
+              border: `1px solid ${colors.borderStrong}`,
+              background: "#fff",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              cursor: "pointer",
+              flex: "none",
+            }}
+          >
+            <MenuIcon size={17} />
+          </button>
+        )}
         <div
           onClick={() => go("/")}
           style={{ display: "flex", alignItems: "center", gap: 9, cursor: "pointer" }}
         >
-          <LogoMark size={31} style={{ flex: "none" }} />
-          <span style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 21, letterSpacing: "-.015em" }}>
-            Hello Circle
-          </span>
+          <img src="/illustrations/Logo.svg" alt="Hello Circle" style={{ height: 36, flex: "none" }} />
         </div>
         <nav className="desktop-nav" style={{ display: "flex", gap: 2, marginLeft: 8 }}>
           <button
@@ -295,6 +318,39 @@ export function Header() {
             )}
           </div>
 
+          {user && (user.role === "admin" || user.role === "vendor") && (
+            <button
+              className="btn btn-ghost"
+              onClick={() => navigate(user.role === "admin" ? "/admin?tab=pending" : "/vendor?tab=messages")}
+              aria-label="Notifications"
+              style={{ ...circleBtnStyle, position: "relative" }}
+            >
+              <BellIcon size={17} />
+              {alerts > 0 && (
+                <span
+                  style={{
+                    position: "absolute",
+                    top: -3,
+                    right: -3,
+                    background: colors.orange,
+                    color: "#fff",
+                    borderRadius: 999,
+                    fontSize: 10,
+                    fontWeight: 700,
+                    minWidth: 16,
+                    height: 16,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    padding: "0 3px",
+                  }}
+                >
+                  {alerts}
+                </span>
+              )}
+            </button>
+          )}
+
           {resident && (
             <div ref={notifRef} style={{ position: "relative" }}>
               <button
@@ -368,9 +424,20 @@ export function Header() {
               className="btn btn-ghost"
               onClick={() => setAccountMenuOpen((o) => !o)}
               aria-label="Menu"
-              style={circleBtnStyle}
+              style={
+                user
+                  ? { display: "flex", alignItems: "center", gap: 4, border: "none", background: "none", cursor: "pointer", padding: 0 }
+                  : circleBtnStyle
+              }
             >
-              <MenuIcon size={17} />
+              {user ? (
+                <>
+                  <Avatar name={user.name} size={36} />
+                  <ChevronDownIcon size={15} style={{ color: colors.muted }} />
+                </>
+              ) : (
+                <MenuIcon size={17} />
+              )}
             </button>
             {accountMenuOpen && (
               <div className="pop-in" style={{ ...dropdownStyle, minWidth: 240 }}>

@@ -5,7 +5,7 @@ import { ClaimListingCTA } from "../components/ClaimListingCTA";
 import { PhotoGallery } from "../components/PhotoGallery";
 import { Reviews } from "../components/Reviews";
 import { priceLabel } from "../priceLabel";
-import { CheckIcon, ChevronLeftIcon, ClockIcon, HeartIcon, PinIcon, StarIcon } from "../components/icons";
+import { CheckIcon, ChevronLeftIcon, ClockIcon, HeartIcon, PinIcon, StarIcon, WheelchairIcon } from "../components/icons";
 import { ListingDetailSkeleton } from "../components/ui";
 import { isFavorite, toggleFavorite } from "../favorites";
 import { useGuest } from "../GuestContext";
@@ -127,6 +127,9 @@ export function ClubDetail() {
           )}
           <p style={{ color: colors.mutedLight, fontSize: 16, margin: "0 0 8px", display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
             <span>{club.area} · {club.sport} · ages {club.ages}</span>
+            {club.category && (
+              <span style={{ fontSize: 12, fontWeight: 700, color: colors.orangeDark, background: colors.orangeBg, borderRadius: 999, padding: "3px 10px" }}>{club.category}</span>
+            )}
             {club.mapUrl && (
               <a href={club.mapUrl} target="_blank" rel="noopener noreferrer" className="link-accent" style={{ display: "inline-flex", alignItems: "center", gap: 4, color: colors.orangeDark, fontSize: 14, fontWeight: 600 }}>
                 <PinIcon size={14} /> View on map
@@ -152,6 +155,22 @@ export function ClubDetail() {
               </div>
             ))}
           </div>
+
+          {club.accessibility.length > 0 && (
+            <>
+              <h3 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 20, margin: "0 0 12px", letterSpacing: "-.01em" }}>
+                Accessibility
+              </h3>
+              <div className="grid-responsive" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px 24px", marginBottom: 20 }}>
+                {club.accessibility.map((a) => (
+                  <div key={a} style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 15, color: "#3B423C" }}>
+                    <WheelchairIcon size={16} style={{ color: colors.orange }} />
+                    {a}
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
 
           {programs.length > 0 && (
             <>
@@ -211,6 +230,13 @@ export function ClubDetail() {
             <div style={{ display: "flex", gap: 10 }}>
               <CheckIcon size={16} style={{ color: colors.orange }} /> Garda-vetted, qualified coaches
             </div>
+            {club.phone && (
+              <div style={{ display: "flex", gap: 10 }}>
+                <a href={`tel:${club.phone}`} className="link-accent" style={{ color: colors.muted }}>
+                  {club.phone}
+                </a>
+              </div>
+            )}
           </div>
         </div>
       </section>

@@ -21,17 +21,23 @@ searchRouter.get("/", async (req, res) => {
 
   const [allCentres, allClubs] = await Promise.all([listCentres(parsed.county ?? undefined), listClubs(parsed.county ?? undefined)]);
 
-  const centres = allCentres.filter((c) => matchesKeywords(`${c.name} ${c.blurb} ${c.amenities.join(" ")}`));
+  const centres = allCentres.filter((c) => matchesKeywords(`${c.name} ${c.blurb} ${c.amenities.join(" ")} ${c.accessibility.join(" ")}`));
   const clubs = allClubs
-    .filter((c) => matchesKeywords(`${c.name} ${c.sport} ${c.blurb}`))
+    .filter((c) => matchesKeywords(`${c.name} ${c.sport} ${c.blurb} ${c.accessibility.join(" ")}`))
     .filter((c) => !parsed.free || c.trial || c.price === 0)
     .filter((c) => parsed.maxPriceEuro === null || c.price <= parsed.maxPriceEuro);
 
-  if (centres.length === 0 && clubs.length === 0) {
-    await db
-      .prepare(`INSERT INTO search_misses (query_text, county) VALUES (?, ?)`)
-      .run(q.trim().slice(0, 500), parsed.county ?? "")
-      .catch(() => {});
+  // Logged per listing type independently, not just when both are empty —
+  // one query box searches centres and clubs simultaneously, so "no clubs
+  // matched" and "no centres matched" are two different demand signals
+  // (see routes/vendor.ts GET /demand, which scopes by vendor_type/county).
+  const queryText = q.trim().slice(0, 500);
+  const county = parsed.county ?? "";
+  if (centres.length === 0) {
+    await db.prepare(`INSERT INTO search_misses (query_text, listing_type, county) VALUES (?, 'centre', ?)`).run(queryText, county).catch(() => {});
+  }
+  if (clubs.length === 0) {
+    await db.prepare(`INSERT INTO search_misses (query_text, listing_type, county) VALUES (?, 'club', ?)`).run(queryText, county).catch(() => {});
   }
 
   res.json({ parsed, centres, clubs });

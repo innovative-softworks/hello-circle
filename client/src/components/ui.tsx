@@ -1,5 +1,6 @@
-import { useState, type CSSProperties, type ReactNode } from "react";
-import { CheckIcon, StarIcon } from "./icons";
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { createPortal } from "react-dom";
+import { CheckIcon, CloseIcon, StarIcon } from "./icons";
 import { colors, fonts, maxWidth } from "../theme";
 
 // Shared, reusable building blocks for the vendor/admin/reviews UI — kept in
@@ -71,6 +72,43 @@ export function Button({
     >
       {children}
     </button>
+  );
+}
+
+// --- LinkButton ------------------------------------------------------------
+// Same visual/hover styling as Button (shares its base styles + the .btn/
+// .btn-* CSS classes that drive the hover lift/shadow), but renders an <a>
+// — for actions that navigate (e.g. "View live listing" opening the public
+// page in a new tab) rather than firing a click handler.
+
+export function LinkButton({
+  variant = "primary",
+  href,
+  target,
+  children,
+  style,
+}: {
+  variant?: ButtonVariant;
+  href: string;
+  target?: string;
+  children: ReactNode;
+  style?: CSSProperties;
+}) {
+  return (
+    <a
+      href={href}
+      target={target}
+      rel={target === "_blank" ? "noopener noreferrer" : undefined}
+      className={`btn ${variantClass[variant]}`}
+      style={{
+        ...buttonBase,
+        ...buttonVariants[variant],
+        textDecoration: "none",
+        ...style,
+      }}
+    >
+      {children}
+    </a>
   );
 }
 
@@ -413,6 +451,8 @@ export function DashboardTopPanel<T extends string>({
   activeTab,
   onTabChange,
   bottomSpacing = 32,
+  hideTabs = false,
+  badge,
 }: {
   title: string;
   subtitle: string;
@@ -423,6 +463,13 @@ export function DashboardTopPanel<T extends string>({
   activeTab: T;
   onTabChange: (v: T) => void;
   bottomSpacing?: number;
+  /** Skips rendering the tab row inside this panel — for callers whose tab
+   * count has outgrown a horizontal row and use a NavSidebar instead,
+   * opened from the burger button in Header.tsx (see DashboardNavContext). */
+  hideTabs?: boolean;
+  /** Optional pill(s) rendered under the title/subtitle, e.g. a verified /
+   * member-since badge. */
+  badge?: ReactNode;
 }) {
   const isGreen = accent === "green";
   const blob = isGreen ? "rgba(30,122,76,.14)" : "rgba(232,98,42,.14)";
@@ -437,7 +484,8 @@ export function DashboardTopPanel<T extends string>({
           <Avatar name={avatarName} size={44} />
           <div>
             <h1 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 27, margin: 0, letterSpacing: "-.02em" }}>{title}</h1>
-            <p style={{ color: colors.muted, fontSize: 13, margin: 0 }}>{subtitle}</p>
+            <p style={{ color: colors.muted, fontSize: 13, margin: badge ? "0 0 8px" : 0 }}>{subtitle}</p>
+            {badge}
           </div>
         </div>
 
@@ -450,7 +498,7 @@ export function DashboardTopPanel<T extends string>({
         )}
       </div>
 
-      <Tabs value={activeTab} onChange={onTabChange} options={tabs} />
+      {!hideTabs && <Tabs value={activeTab} onChange={onTabChange} options={tabs} />}
     </div>
   );
 }
@@ -540,3 +588,312 @@ export const labelStyle: CSSProperties = {
   margin: "0 0 6px",
   letterSpacing: ".01em",
 };
+
+// --- shared table styles ---------------------------------------------------
+// Plain <table> markup, not a generic <Table> component — column-specific
+// content (StatusBadge, Avatar, action buttons) inside cells fights a
+// prop-driven abstraction more than it's helped by one. Wrap every table in
+// a `<div style={{ overflowX: "auto" }}>` so it scrolls on narrow viewports
+// instead of breaking layout.
+
+export const tableStyle: CSSProperties = { width: "100%", borderCollapse: "collapse", fontSize: 13.5 };
+export const thStyle: CSSProperties = {
+  textAlign: "left",
+  padding: "8px 10px",
+  color: colors.muted,
+  fontWeight: 700,
+  fontSize: 12,
+  borderBottom: `2px solid ${colors.border}`,
+  whiteSpace: "nowrap",
+};
+export const tdStyle: CSSProperties = { padding: "10px", borderBottom: `1px solid ${colors.border}`, verticalAlign: "middle" };
+
+// --- Drawer --------------------------------------------------------------
+// Generalizes PhotoGallery.tsx's Lightbox overlay mechanics (portal to
+// document.body, fixed scrim, Escape/backdrop-click to close) into a
+// reusable slide-over panel for entity detail views — the list behind it
+// stays visible/scrolled in place rather than being replaced or navigated
+// away from. z-index 300 is one level above the lightbox's existing 200 so
+// a drawer can never be hidden behind an open photo lightbox (they're not
+// expected to be open together, but this keeps the ordering unambiguous).
+
+export function Drawer({
+  open,
+  onClose,
+  title,
+  children,
+  size = "default",
+}: {
+  open: boolean;
+  onClose: () => void;
+  title: string;
+  children: ReactNode;
+  /** "wide" is for content that genuinely needs the room — a multi-field
+   * edit form — rather than a compact detail/actions view. */
+  size?: "default" | "wide";
+}) {
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open, onClose]);
+
+  if (!open) return null;
+
+  return createPortal(
+    <div style={{ position: "fixed", inset: 0, zIndex: 300, background: "rgba(20,22,20,.45)" }} onClick={onClose}>
+      <div
+        className="slide-in-right"
+        style={{
+          position: "absolute",
+          right: 0,
+          top: 0,
+          bottom: 0,
+          width: size === "wide" ? "min(680px, 94vw)" : "min(480px, 92vw)",
+          background: colors.bg,
+          boxShadow: "-16px 0 40px rgba(20,22,20,.18)",
+          display: "flex",
+          flexDirection: "column",
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            padding: "18px 22px",
+            borderBottom: `1px solid ${colors.border}`,
+            flex: "none",
+          }}
+        >
+          <span style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 17 }}>{title}</span>
+          <button
+            onClick={onClose}
+            aria-label="Close"
+            style={{
+              background: colors.panel,
+              border: "none",
+              borderRadius: "50%",
+              width: 34,
+              height: 34,
+              color: colors.text,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              cursor: "pointer",
+              flex: "none",
+            }}
+          >
+            <CloseIcon size={16} />
+          </button>
+        </div>
+        <div style={{ flex: 1, overflowY: "auto", padding: "20px 22px" }}>{children}</div>
+      </div>
+    </div>,
+    document.body
+  );
+}
+
+// --- ConfirmDialog -------------------------------------------------------
+// A centered yes/no interrupt for destructive actions — distinct from Drawer
+// (a slide-over for detail/edit views), so it doesn't slide in and isn't
+// full-height. z-index 400, one above Drawer's 300, since a confirm can fire
+// from inside an already-open Drawer (e.g. deleting a listing from its own
+// edit drawer) and must always render on top of it.
+
+export function ConfirmDialog({
+  open,
+  title,
+  message,
+  confirmLabel = "Delete",
+  cancelLabel = "Cancel",
+  tone = "danger",
+  busy,
+  onConfirm,
+  onCancel,
+}: {
+  open: boolean;
+  title: string;
+  message: ReactNode;
+  confirmLabel?: string;
+  cancelLabel?: string;
+  tone?: "danger" | "neutral";
+  busy?: boolean;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onCancel();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open, onCancel]);
+
+  if (!open) return null;
+
+  return createPortal(
+    <div
+      style={{ position: "fixed", inset: 0, zIndex: 400, background: "rgba(20,22,20,.45)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}
+      onClick={onCancel}
+    >
+      <div
+        className="pop-in"
+        style={{ background: "#fff", borderRadius: 16, padding: 24, maxWidth: 380, width: "100%", boxShadow: "0 20px 60px rgba(20,22,20,.25)" }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h3 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 17, margin: "0 0 8px" }}>{title}</h3>
+        <div style={{ fontSize: 14, color: colors.muted, lineHeight: 1.5, marginBottom: 20 }}>{message}</div>
+        <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+          <Button variant="ghost" onClick={onCancel} disabled={busy}>
+            {cancelLabel}
+          </Button>
+          <Button variant="dark" onClick={onConfirm} disabled={busy} style={tone === "danger" ? { background: "#b00020" } : undefined}>
+            {busy ? "…" : confirmLabel}
+          </Button>
+        </div>
+      </div>
+    </div>,
+    document.body
+  );
+}
+
+// --- NavSidebar --------------------------------------------------------
+// A true sidebar, not a modal drawer: no dimming backdrop, the rest of the
+// page stays visible and interactive while it's open. Used by Admin/Vendor
+// dashboards to replace their horizontal tab strip once it outgrows a
+// single row (Admin has 10 tabs). Closes via Escape, clicking a nav item,
+// or clicking anywhere outside the panel (a document-level listener, same
+// pattern Header.tsx already uses for its dropdowns — there's no backdrop
+// element here to catch that click). Half the width of a standard Drawer,
+// since a nav list doesn't need as much room as a detail form.
+
+export function NavSidebar<T extends string>({
+  open,
+  onClose,
+  title,
+  options,
+  value,
+  onChange,
+}: {
+  open: boolean;
+  onClose: () => void;
+  title: string;
+  options: { key: T; label: string; icon?: ReactNode }[];
+  value: T;
+  onChange: (v: T) => void;
+}) {
+  const panelRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    const onDocClick = (e: MouseEvent) => {
+      if (panelRef.current && !panelRef.current.contains(e.target as Node)) onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    // mousedown, not click — matches Header.tsx's dropdown-outside-click
+    // pattern, and avoids racing the burger button's own click handler.
+    document.addEventListener("mousedown", onDocClick);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      document.removeEventListener("mousedown", onDocClick);
+    };
+  }, [open, onClose]);
+
+  if (!open) return null;
+
+  return createPortal(
+    <div
+      ref={panelRef}
+      className="slide-in-left"
+      style={{
+        position: "fixed",
+        left: 0,
+        top: 0,
+        bottom: 0,
+        zIndex: 300,
+        width: "min(240px, 80vw)",
+        background: colors.bg,
+        borderRight: `1px solid ${colors.border}`,
+        boxShadow: "16px 0 40px rgba(20,22,20,.12)",
+        display: "flex",
+        flexDirection: "column",
+      }}
+    >
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          padding: "16px 16px",
+          borderBottom: `1px solid ${colors.border}`,
+          flex: "none",
+        }}
+      >
+        <span style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 15 }}>{title}</span>
+        <button
+          onClick={onClose}
+          aria-label="Close menu"
+          style={{
+            background: colors.panel,
+            border: "none",
+            borderRadius: "50%",
+            width: 30,
+            height: 30,
+            color: colors.text,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            cursor: "pointer",
+            flex: "none",
+          }}
+        >
+          <CloseIcon size={14} />
+        </button>
+      </div>
+      <div style={{ flex: 1, overflowY: "auto", padding: "12px" }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+          {options.map((o) => {
+            const active = o.key === value;
+            return (
+              <button
+                key={o.key}
+                onClick={() => {
+                  onChange(o.key);
+                  onClose();
+                }}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 10,
+                  width: "100%",
+                  textAlign: "left",
+                  background: active ? colors.dark : "none",
+                  color: active ? "#fff" : colors.text,
+                  border: "none",
+                  borderRadius: 10,
+                  padding: "11px 12px",
+                  fontSize: 13.5,
+                  fontWeight: active ? 700 : 500,
+                  cursor: "pointer",
+                }}
+              >
+                {o.icon}
+                {o.label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    </div>,
+    document.body
+  );
+}

@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import { Router } from "express";
 import { requireVendor } from "../auth.js";
+import { writeAudit } from "../audit.js";
 import { db } from "../db/index.js";
 import { sendMail } from "../email.js";
 import { CLIENT_URL } from "../stripe.js";
@@ -45,19 +46,30 @@ orgRouter.get("/", async (req, res) => {
 orgRouter.put("/", async (req, res) => {
   if (req.user!.invitedStaff) return res.status(403).json({ error: "Only the organisation owner can edit this" });
   const { name, kind } = req.body as { name?: string; kind?: string };
+  const before = (await db.prepare(`SELECT name, kind FROM organisations WHERE id = ?`).get(req.user!.orgId)) as { name: string; kind: string } | undefined;
   await db.prepare(`UPDATE organisations SET name = COALESCE(?, name), kind = COALESCE(?, kind) WHERE id = ?`).run(name, kind, req.user!.orgId);
+  writeAudit({ actorUserId: req.user!.id, action: "org.profile_updated", objectType: "organisation", objectId: req.user!.orgId!, previousValue: before, newValue: { name, kind } });
   res.json({ ok: true });
 });
 
 orgRouter.put("/policies", async (req, res) => {
   if (req.user!.invitedStaff) return res.status(403).json({ error: "Only the organisation owner can edit this" });
   const { cancellationHours, bookingWindowDays } = req.body as { cancellationHours?: number; bookingWindowDays?: number };
+  const before = await db.prepare(`SELECT cancellation_hours as cancellationHours, booking_window_days as bookingWindowDays FROM org_policies WHERE org_id = ?`).get(req.user!.orgId);
   await db
     .prepare(
       `INSERT INTO org_policies (org_id, cancellation_hours, booking_window_days) VALUES (?, ?, ?)
        ON DUPLICATE KEY UPDATE cancellation_hours = VALUES(cancellation_hours), booking_window_days = VALUES(booking_window_days)`
     )
     .run(req.user!.orgId, cancellationHours ?? 48, bookingWindowDays ?? 90);
+  writeAudit({
+    actorUserId: req.user!.id,
+    action: "org.policies_updated",
+    objectType: "organisation",
+    objectId: req.user!.orgId!,
+    previousValue: before,
+    newValue: { cancellationHours, bookingWindowDays },
+  });
   res.json({ ok: true });
 });
 
@@ -71,6 +83,13 @@ orgRouter.post("/staff/invite", async (req, res) => {
   await db
     .prepare(`INSERT INTO org_invites (token, org_id, email, platform_role, expires_at) VALUES (?, ?, ?, ?, DATE_ADD(NOW(), INTERVAL 7 DAY))`)
     .run(token, req.user!.orgId, email.toLowerCase().trim(), platformRole);
+  writeAudit({
+    actorUserId: req.user!.id,
+    action: "org.staff_invited",
+    objectType: "org_invite",
+    objectId: token,
+    newValue: { email: email.toLowerCase().trim(), platformRole },
+  });
   await sendMail({
     to: email,
     subject: "You've been invited to join a Hello Circle organisation",
@@ -82,6 +101,7 @@ orgRouter.post("/staff/invite", async (req, res) => {
 orgRouter.delete("/staff/invite/:token", async (req, res) => {
   if (req.user!.invitedStaff) return res.status(403).json({ error: "Only the organisation owner can manage invites" });
   await db.prepare(`UPDATE org_invites SET status = 'revoked' WHERE token = ? AND org_id = ?`).run(req.params.token, req.user!.orgId);
+  writeAudit({ actorUserId: req.user!.id, action: "org.staff_invite_revoked", objectType: "org_invite", objectId: req.params.token });
   res.json({ ok: true });
 });
 

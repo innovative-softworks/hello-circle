@@ -1,11 +1,11 @@
 import { Router } from "express";
+import { createCheckoutSession, pricingLineItems } from "../checkoutService.js";
 import { db } from "../db/index.js";
-import { getCentre } from "../db/queries.js";
+import { getCentre, orgPoliciesForVendor } from "../db/queries.js";
 import { irelandWallTimeToUtc } from "../irelandTime.js";
 import { notifyCancellation, notifyNewBookingOrRegistration } from "../notifications.js";
 import { computePricing, evaluateCoupon } from "../pricing.js";
 import { lookupLimiter } from "../rateLimit.js";
-import { CLIENT_URL, stripe } from "../stripe.js";
 import { BadRequestError, ConflictError, bookingEndHour, clientIdFrom, generateRef, hoursOverlap, isValidEmail } from "../util.js";
 
 export const bookingsRouter = Router();
@@ -60,6 +60,13 @@ bookingsRouter.post("/checkout", async (req, res) => {
   const closesHour = parseInt(centre.closesAt.slice(0, 2), 10);
   if (startHour < opensHour || reqEnd > closesHour) {
     return res.status(409).json({ error: "That time is outside the venue's opening hours" });
+  }
+
+  const centreVendorRow = (await db.prepare(`SELECT vendor_id FROM centres WHERE id = ?`).get(body.centreId)) as { vendor_id: string | null } | undefined;
+  const { bookingWindowDays } = await orgPoliciesForVendor(centreVendorRow?.vendor_id ?? null);
+  const eventStart = irelandWallTimeToUtc(body.date, startHour);
+  if (eventStart.getTime() - Date.now() > bookingWindowDays * 24 * 60 * 60 * 1000) {
+    return res.status(409).json({ error: `This venue only takes bookings up to ${bookingWindowDays} days in advance` });
   }
 
   const isCash = room.paymentMethod === "cash";
@@ -161,40 +168,22 @@ bookingsRouter.post("/checkout", async (req, res) => {
     return res.status(201).json({ ref, totalEuro: pricing.totalCents / 100 });
   }
 
-  if (!stripe) return res.status(503).json({ error: "Payments aren't configured yet" });
-
-  const lineItems: { price_data: { currency: string; product_data: { name: string; description?: string }; unit_amount: number }; quantity: number }[] = [
-    {
-      price_data: {
-        currency: "eur",
-        product_data: { name: centre.name, description: `${body.date} at ${body.time}, ${body.duration}h${couponCode ? ` (coupon ${couponCode} applied)` : ""}` },
-        unit_amount: pricing.taxableCents,
-      },
-      quantity: 1,
-    },
-    { price_data: { currency: "eur", product_data: { name: "VAT (23%)" }, unit_amount: pricing.vatCents }, quantity: 1 },
-    { price_data: { currency: "eur", product_data: { name: "Platform fee" }, unit_amount: pricing.platformFeeCents }, quantity: 1 },
-    { price_data: { currency: "eur", product_data: { name: "Refundable deposit", description: "Refunded within 5 days after your event" }, unit_amount: pricing.depositCents }, quantity: 1 },
-  ];
-
-  let session;
-  try {
-    session = await stripe.checkout.sessions.create({
-      mode: "payment",
-      line_items: lineItems,
-      customer_email: body.email,
-      success_url: `${CLIENT_URL}/payment/success?ref=${ref}`,
-      cancel_url: `${CLIENT_URL}/payment/cancel?ref=${ref}`,
-      metadata: { type: "booking", ref },
-    });
-  } catch (e) {
+  const result = await createCheckoutSession({
+    ref,
+    type: "booking",
+    customerEmail: body.email,
+    lineItems: pricingLineItems(pricing, {
+      name: room.name ? `${centre.name} — ${room.name}` : centre.name,
+      description: `${body.date} at ${body.time}, ${body.duration}h${couponCode ? ` (coupon ${couponCode} applied)` : ""}`,
+    }),
+  });
+  if (!result.ok) {
     await db.prepare(`DELETE FROM bookings WHERE ref = ?`).run(ref);
-    console.error("[stripe] checkout session creation failed:", e instanceof Error ? e.message : e);
-    return res.status(400).json({ error: "Couldn't start checkout — please check your details and try again" });
+    return res.status(result.status).json({ error: result.error });
   }
 
-  await db.prepare(`UPDATE bookings SET stripe_session_id = ? WHERE ref = ?`).run(session.id, ref);
-  res.status(201).json({ ref, url: session.url, totalEuro: pricing.totalCents / 100 });
+  await db.prepare(`UPDATE bookings SET stripe_session_id = ? WHERE ref = ?`).run(result.session.id, ref);
+  res.status(201).json({ ref, url: result.session.url, totalEuro: pricing.totalCents / 100 });
 });
 
 bookingsRouter.get("/status/:ref", async (req, res) => {
@@ -229,9 +218,10 @@ bookingsRouter.get("/", async (req, res) => {
     ? await db
         .prepare(
           `SELECT b.ref, b.date, b.time, b.total_cents as totalCents, b.created_at as createdAt, b.status,
-                  c.name as centreName, c.ph as ph, c.image_url as image
+                  c.name as centreName, c.ph as ph, c.image_url as image, r.name as roomName
            FROM bookings b
            JOIN centres c ON c.id = b.centre_id
+           LEFT JOIN rooms r ON r.id = b.room_id
            WHERE (b.client_id = ? OR LOWER(b.email) = LOWER(?)) AND b.payment_status = 'paid'
            ORDER BY b.created_at DESC`
         )
@@ -239,9 +229,10 @@ bookingsRouter.get("/", async (req, res) => {
     : await db
         .prepare(
           `SELECT b.ref, b.date, b.time, b.total_cents as totalCents, b.created_at as createdAt, b.status,
-                  c.name as centreName, c.ph as ph, c.image_url as image
+                  c.name as centreName, c.ph as ph, c.image_url as image, r.name as roomName
            FROM bookings b
            JOIN centres c ON c.id = b.centre_id
+           LEFT JOIN rooms r ON r.id = b.room_id
            WHERE b.client_id = ? AND b.payment_status = 'paid'
            ORDER BY b.created_at DESC`
         )
@@ -262,9 +253,10 @@ bookingsRouter.post("/lookup", lookupLimiter, async (req, res) => {
   const row = await db
     .prepare(
       `SELECT b.ref, b.date, b.time, b.total_cents as totalCents, b.created_at as createdAt, b.status,
-              c.name as centreName, c.ph as ph, c.image_url as image
+              c.name as centreName, c.ph as ph, c.image_url as image, r.name as roomName
        FROM bookings b
        JOIN centres c ON c.id = b.centre_id
+       LEFT JOIN rooms r ON r.id = b.room_id
        WHERE b.ref = ? AND LOWER(b.email) = LOWER(?)`
     )
     .get(ref.trim(), email.trim());
@@ -303,12 +295,13 @@ bookingsRouter.post("/:ref/cancel", lookupLimiter, async (req, res) => {
   if (row.paymentStatus !== "paid") return res.status(409).json({ error: "This booking can't be cancelled" });
 
   // Venues are physically in Ireland — the booking's date/time is an Irish
-  // wall-clock time, so the 48h cutoff must be computed against that, not
+  // wall-clock time, so the cutoff must be computed against that, not
   // against whatever timezone this server process happens to be running in.
+  const { cancellationHours } = await orgPoliciesForVendor(row.vendorId);
   const startHour = parseInt(row.time.slice(0, 2), 10);
   const eventStart = irelandWallTimeToUtc(row.date, startHour);
-  if (eventStart.getTime() - Date.now() < 48 * 60 * 60 * 1000) {
-    return res.status(409).json({ error: "This booking is within 48 hours and can no longer be cancelled online — please contact the venue directly" });
+  if (eventStart.getTime() - Date.now() < cancellationHours * 60 * 60 * 1000) {
+    return res.status(409).json({ error: `This booking is within ${cancellationHours} hours and can no longer be cancelled online — please contact the venue directly` });
   }
 
   await db.prepare(`UPDATE bookings SET status = 'cancelled' WHERE ref = ?`).run(row.ref);
@@ -355,10 +348,11 @@ bookingsRouter.post("/:ref/reschedule", lookupLimiter, async (req, res) => {
   if (row.status === "cancelled") return res.status(409).json({ error: "This booking is already cancelled" });
   if (row.paymentStatus !== "paid") return res.status(409).json({ error: "This booking can't be rescheduled" });
 
+  const { cancellationHours, bookingWindowDays } = await orgPoliciesForVendor(row.vendorId);
   const currentStartHour = parseInt(row.time.slice(0, 2), 10);
   const currentEventStart = irelandWallTimeToUtc(row.date, currentStartHour);
-  if (currentEventStart.getTime() - Date.now() < 48 * 60 * 60 * 1000) {
-    return res.status(409).json({ error: "This booking is within 48 hours and can no longer be rescheduled online — please contact the venue directly" });
+  if (currentEventStart.getTime() - Date.now() < cancellationHours * 60 * 60 * 1000) {
+    return res.status(409).json({ error: `This booking is within ${cancellationHours} hours and can no longer be rescheduled online — please contact the venue directly` });
   }
 
   const startHour = parseInt(time.slice(0, 2), 10);
@@ -367,6 +361,11 @@ bookingsRouter.post("/:ref/reschedule", lookupLimiter, async (req, res) => {
   const closesHour = parseInt(row.closesAt.slice(0, 2), 10);
   if (startHour < opensHour || reqEnd > closesHour) {
     return res.status(409).json({ error: "That time is outside the venue's opening hours" });
+  }
+
+  const newEventStart = irelandWallTimeToUtc(date, startHour);
+  if (newEventStart.getTime() - Date.now() > bookingWindowDays * 24 * 60 * 60 * 1000) {
+    return res.status(409).json({ error: `This venue only takes bookings up to ${bookingWindowDays} days in advance` });
   }
 
   try {

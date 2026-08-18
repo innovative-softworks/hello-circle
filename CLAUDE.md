@@ -95,11 +95,20 @@ way for new schema changes; never edit an already-shipped `CREATE TABLE` block. 
 (`listCentres`, `getCentre`, `getClub`, …) live in `server/src/db/queries.ts`; seed data + first-run admin
 bootstrap + the `reset-demo` script's reset logic live in `server/src/db/seed.ts`.
 
-**"Rooms" is now a pure internal implementation detail**, not a user-facing concept — every centre gets
-exactly one room row, kept in sync with the centre's own capacity/rate, purely so booking/availability logic
-(keyed by `room_id`) didn't need a schema rewrite. The public booking flow no longer asks a guest to pick a
-room: the route is `/book/:centreId` (not `/book/:centreId/:roomId` as on `main`), and vendors edit
-capacity/rate/description as fields directly on the centre, not through a separate rooms sub-resource.
+**Rooms are real, independently bookable spaces again** — a centre can have any number of named rooms, each
+with its own capacity/rate/payment method/active flag, managed via `GET/POST/PUT /vendor/centres/:id/rooms`
+in `server/src/routes/vendor.ts` (alongside that file's `/blocks`/`/hours` sub-resources, same
+`ownsCentre()`-gated pattern). `centres.capacity`/`.from_price` are a computed rollup (`MAX(cap)`/`MIN(rate)`
+over active rooms — see `recomputeCentreRollup()` in `vendor.ts`), not vendor-editable directly, so every
+existing read surface (`CentreCard`, `DiscoveryMap`, `Browse.tsx`'s price sort, admin's listing facts) keeps
+working unchanged against those two scalars. A centre always has >= 1 active room — enforced both by a
+zero-rooms backfill in `initSchema()` and by a "can't deactivate your last room" 409 guard in the rooms `PUT`
+handler — a "removed" room is deactivated (`active = 0`), never hard-deleted, so historical `bookings.room_id`
+references stay valid. The public booking route is still `/book/:centreId` (no `:roomId` segment) — room
+selection happens as the first step *inside* `BookingFlow.tsx` instead, defaulting instantly for
+single-room centres. `room_blocks` can be scoped to one room or the whole centre (`room_id IS NULL`).
+Per-room opening hours don't exist yet — every room in a centre still shares the centre's single
+`opens_at`/`closes_at` window (or `centre_hours` if set).
 
 **Routes are mounted flat in `server/src/index.ts`** under `/api/*`, one router per resource
 (`routes/centres.ts`, `routes/clubs.ts`, `routes/bookings.ts`, `routes/registrations.ts`,

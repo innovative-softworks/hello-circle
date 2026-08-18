@@ -136,6 +136,22 @@ export function CentreDetail() {
             ))}
           </div>
 
+          {centre.accessibility.length > 0 && (
+            <>
+              <h3 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 20, margin: "0 0 12px", letterSpacing: "-.01em" }}>
+                Accessibility
+              </h3>
+              <div className="grid-responsive" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px 24px", marginBottom: 32 }}>
+                {centre.accessibility.map((a) => (
+                  <div key={a} style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 15, color: "#3B423C" }}>
+                    <WheelchairIcon size={16} style={{ color: colors.green }} />
+                    {a}
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+
           {programs.length > 0 && (
             <>
               <h3 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 20, margin: "0 0 12px", letterSpacing: "-.01em" }}>
@@ -224,9 +240,19 @@ export function CentreDetail() {
             <div style={{ display: "flex", gap: 10 }}>
               <RepeatIcon size={16} style={{ color: colors.green }} /> Free cancellation up to 48h before
             </div>
-            <div style={{ display: "flex", gap: 10 }}>
-              <WheelchairIcon size={16} style={{ color: colors.green }} /> Wheelchair accessible
-            </div>
+            {centre.accessibility.length > 0 && (
+              <div style={{ display: "flex", gap: 10 }}>
+                <WheelchairIcon size={16} style={{ color: colors.green }} /> {centre.accessibility[0]}
+                {centre.accessibility.length > 1 ? ` +${centre.accessibility.length - 1} more` : ""}
+              </div>
+            )}
+            {centre.phone && (
+              <div style={{ display: "flex", gap: 10 }}>
+                <a href={`tel:${centre.phone}`} className="link-accent" style={{ color: colors.muted }}>
+                  {centre.phone}
+                </a>
+              </div>
+            )}
           </div>
         </div>
       </section>

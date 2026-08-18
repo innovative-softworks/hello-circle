@@ -8,6 +8,7 @@ export interface Room {
   rate: number;
   desc: string;
   paymentMethod: PaymentMethod;
+  active: boolean;
 }
 
 export interface Centre {
@@ -34,6 +35,8 @@ export interface Centre {
   claimed: boolean;
   lat: number | null;
   lng: number | null;
+  phone: string;
+  accessibility: string[];
 }
 
 export interface Club {
@@ -60,6 +63,9 @@ export interface Club {
   capacity: number | null;
   lat: number | null;
   lng: number | null;
+  phone: string;
+  accessibility: string[];
+  category: string;
 }
 
 export interface Review {

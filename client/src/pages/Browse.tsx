@@ -39,6 +39,8 @@ export function Browse() {
   const [searchParams, setSearchParams] = useSearchParams();
   const county = searchParams.get("county") || "All";
   const sport = searchParams.get("sport") || "All";
+  const selectedAmenities = useMemo(() => (searchParams.get("amenities") || "").split(",").filter(Boolean), [searchParams]);
+  const selectedAccessibility = useMemo(() => (searchParams.get("accessibility") || "").split(",").filter(Boolean), [searchParams]);
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<SortKey>("popular");
   const [page, setPage] = useState(1);
@@ -50,6 +52,8 @@ export function Browse() {
   const [loading, setLoading] = useState(true);
   const [countyOptions, setCountyOptions] = useState<string[]>([]);
   const [sportOptions, setSportOptions] = useState<string[]>(["All"]);
+  const [amenityOptions, setAmenityOptions] = useState<string[]>([]);
+  const [accessibilityOptions, setAccessibilityOptions] = useState<string[]>([]);
 
   useEffect(() => {
     setLoading(true);
@@ -74,9 +78,15 @@ export function Browse() {
       fetchClubs().then((rows) => {
         setCountyOptions(uniqueSorted(rows.map((r) => r.county)));
         setSportOptions(["All", ...uniqueSorted(rows.map((r) => r.sport))]);
+        setAccessibilityOptions(uniqueSorted(rows.flatMap((r) => r.accessibility)));
+        setAmenityOptions([]);
       });
     } else {
-      fetchCentres().then((rows) => setCountyOptions(uniqueSorted(rows.map((r) => r.county))));
+      fetchCentres().then((rows) => {
+        setCountyOptions(uniqueSorted(rows.map((r) => r.county)));
+        setAmenityOptions(uniqueSorted(rows.flatMap((r) => r.amenities)));
+        setAccessibilityOptions(uniqueSorted(rows.flatMap((r) => r.accessibility)));
+      });
     }
   }, [isClubs]);
 
@@ -84,6 +94,10 @@ export function Browse() {
     setPage(1);
     setQuery("");
   }, [isClubs, county, sport]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [selectedAmenities, selectedAccessibility]);
 
   const setCounty = (c: string) => {
     const next = new URLSearchParams(searchParams);
@@ -95,6 +109,20 @@ export function Browse() {
     next.set("sport", s);
     setSearchParams(next);
   };
+  const toggleAmenity = (a: string) => {
+    const next = new URLSearchParams(searchParams);
+    const nextList = selectedAmenities.includes(a) ? selectedAmenities.filter((x) => x !== a) : [...selectedAmenities, a];
+    if (nextList.length) next.set("amenities", nextList.join(","));
+    else next.delete("amenities");
+    setSearchParams(next);
+  };
+  const toggleAccessibility = (a: string) => {
+    const next = new URLSearchParams(searchParams);
+    const nextList = selectedAccessibility.includes(a) ? selectedAccessibility.filter((x) => x !== a) : [...selectedAccessibility, a];
+    if (nextList.length) next.set("accessibility", nextList.join(","));
+    else next.delete("accessibility");
+    setSearchParams(next);
+  };
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -102,14 +130,22 @@ export function Browse() {
     const searched = q
       ? rows.filter((r) => r.name.toLowerCase().includes(q) || r.area.toLowerCase().includes(q))
       : rows;
-    const sorted = [...searched].sort((a, b) => {
+    // Every selected chip must be present on the listing — a guest picking
+    // both "Wheelchair accessible" and "Hearing loop" needs both, not either.
+    const withAmenities = selectedAmenities.length
+      ? searched.filter((r) => !isClubs && selectedAmenities.every((a) => (r as Centre).amenities.includes(a)))
+      : searched;
+    const withAccessibility = selectedAccessibility.length
+      ? withAmenities.filter((r) => selectedAccessibility.every((a) => r.accessibility.includes(a)))
+      : withAmenities;
+    const sorted = [...withAccessibility].sort((a, b) => {
       if (sort === "name") return a.name.localeCompare(b.name);
       if (sort === "price-asc") return (isClubs ? clubPrice(a as Club) : centrePrice(a as Centre)) - (isClubs ? clubPrice(b as Club) : centrePrice(b as Centre));
       if (sort === "price-desc") return (isClubs ? clubPrice(b as Club) : centrePrice(b as Centre)) - (isClubs ? clubPrice(a as Club) : centrePrice(a as Centre));
       return b.rating - a.rating || b.reviews - a.reviews;
     });
     return sorted;
-  }, [isClubs, clubs, centres, query, sort]);
+  }, [isClubs, clubs, centres, query, sort, selectedAmenities, selectedAccessibility]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const pageSafe = Math.min(page, totalPages);
@@ -262,6 +298,22 @@ export function Browse() {
                   padding="7px 13px"
                   fontSize={13}
                 />
+              ))}
+            </div>
+          )}
+          {!isClubs && amenityOptions.length > 0 && (
+            <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8, marginTop: 12, paddingTop: 12, borderTop: `1px solid ${colors.border}` }}>
+              <span style={{ fontSize: 12.5, fontWeight: 700, color: colors.mutedLight, marginRight: 2 }}>Amenities:</span>
+              {amenityOptions.map((a) => (
+                <Chip key={a} label={a} active={selectedAmenities.includes(a)} onClick={() => toggleAmenity(a)} accent={accent} padding="7px 13px" fontSize={13} />
+              ))}
+            </div>
+          )}
+          {accessibilityOptions.length > 0 && (
+            <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8, marginTop: 12, paddingTop: 12, borderTop: `1px solid ${colors.border}` }}>
+              <span style={{ fontSize: 12.5, fontWeight: 700, color: colors.mutedLight, marginRight: 2 }}>Accessibility:</span>
+              {accessibilityOptions.map((a) => (
+                <Chip key={a} label={a} active={selectedAccessibility.includes(a)} onClick={() => toggleAccessibility(a)} accent={accent} padding="7px 13px" fontSize={13} />
               ))}
             </div>
           )}

@@ -1,6 +1,5 @@
 import { useNavigate } from "react-router-dom";
-import { LogoMark } from "./icons";
-import { colors, fonts, maxWidth } from "../theme";
+import { colors, maxWidth } from "../theme";
 
 export function Footer() {
   const navigate = useNavigate();
@@ -19,8 +18,7 @@ export function Footer() {
         }}
       >
         <div style={{ display: "flex", alignItems: "center", gap: 9, cursor: "pointer" }} onClick={() => navigate("/")}>
-          <LogoMark size={28} />
-          <span style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 19 }}>Hello Circle</span>
+          <img src="/illustrations/Logo.svg" alt="Hello Circle" style={{ height: 38 }} />
         </div>
         <p style={{ margin: 0, color: "#8A928B", fontSize: 14, maxWidth: 420 }}>
           Local community spaces & sports clubs across Ireland. A concept prototype — not affiliated with any council

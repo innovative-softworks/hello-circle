@@ -82,7 +82,7 @@ authRouter.post("/signup", async (req, res) => {
       // "Rooms" is a pure internal implementation detail (see vendor.ts) —
       // every centre gets exactly one, matching its own capacity/rate.
       await tx.prepare(
-        `INSERT INTO rooms (id, centre_id, name, cap, rate, \`desc\`, sort_order) VALUES (?, ?, '', 0, 0, '', 0)`
+        `INSERT INTO rooms (id, centre_id, name, cap, rate, \`desc\`, sort_order) VALUES (?, ?, 'Main Room', 0, 0, '', 0)`
       ).run(crypto.randomUUID(), listingId);
     } else {
       await tx.prepare(

@@ -246,6 +246,14 @@ export function ChevronRightIcon({ size = 18, style, className }: IconProps) {
   );
 }
 
+export function ChevronDownIcon({ size = 18, style, className }: IconProps) {
+  return (
+    <svg {...stroke(size)} style={style} className={className}>
+      <path d="M5 8l7 7 7-7" />
+    </svg>
+  );
+}
+
 export function ArrowRightIcon({ size = 18, style, className }: IconProps) {
   return (
     <svg {...stroke(size)} style={style} className={className}>
@@ -414,56 +422,6 @@ export function BookOpenIcon({ size = 18, style, className }: IconProps) {
   );
 }
 
-/** Small circular brand mark — house + person + community wave inside a
- * ring, echoing the full illustrated Hello Circle badge at a size that still reads
- * clearly in the header/footer (31px and below). */
-/** Circular brand badge — two houses, a goal + ball, a shop, a group of
- * people and a wave inside a ring, echoing the full illustrated Hello Circle mark. */
-export function LogoMark({ size = 31, style, className }: IconProps) {
-  return (
-    <svg viewBox="0 0 100 100" width={size} height={size} style={style} className={className} role="img" aria-label="Hello Circle">
-      <circle cx={50} cy={50} r={42} fill="#fff" stroke="#1E7A4C" strokeWidth={4.4} />
-
-      {/* green house (front) */}
-      <polygon points="14,42 22,34 30,42" fill="#5CB85C" />
-      <rect x={15.5} y={42} width={13} height={16} fill="#5CB85C" />
-      <rect x={19.5} y={49} width={5} height={9} fill="#fff" />
-
-      {/* teal house (behind, taller) */}
-      <polygon points="27,29 36.5,21 46,29" fill="#2E9B9B" />
-      <rect x={28.5} y={29} width={16} height={29} fill="#2E9B9B" />
-      <rect x={31} y={33.5} width={4.4} height={4.4} fill="#fff" />
-      <rect x={38} y={33.5} width={4.4} height={4.4} fill="#fff" />
-      <rect x={34} y={48} width={5} height={10} fill="#fff" />
-
-      {/* goal + ball + flag */}
-      <path d="M54 58 V30 H72 V58" fill="none" stroke="#175f3b" strokeWidth={2.6} strokeLinecap="round" strokeLinejoin="round" />
-      <path d="M54 36 L64 30 M54 44 L69 32 M54 52 L71.5 38 M60 58 L72 45" fill="none" stroke="#175f3b" strokeWidth={1} opacity={0.55} />
-      <path d="M63 30 V17.5" stroke="#175f3b" strokeWidth={2.2} strokeLinecap="round" />
-      <path d="M63 17.5 L71 20.5 L63 23.5 Z" fill="#E8622A" />
-      <circle cx={61.5} cy={49} r={7.2} fill="#fff" stroke="#1E2420" strokeWidth={2} />
-      <polygon points="61.5,44.3 65.2,47 63.8,51.5 59.2,51.5 57.8,47" fill="#1E2420" />
-
-      {/* shop */}
-      <path d="M70 32 L88 32 L90 38 L68 38 Z" fill="#8DC63F" />
-      <path d="M70.5 32 L73.5 38 M75.5 32 L78.5 38 M80.5 32 L83.5 38 M85.5 32 L88 38" stroke="#fff" strokeWidth={1.3} />
-      <rect x={69} y={38} width={19} height={20} fill="#8DC63F" />
-      <rect x={73} y={46} width={11} height={12} fill="#fff" />
-
-      {/* people (celebrating together) */}
-      <path d="M32 66c0-6.5 5-9.5 11-9.5s11 3 11 9.5v2.5c-3.4-4.6-6.9-6-11-6s-7.6 1.4-11 6Z" fill="#8DC63F" />
-      <circle cx={43} cy={54.5} r={5.4} fill="#8DC63F" />
-      <path d="M68 66c0-6.5-5-9.5-11-9.5s-11 3-11 9.5v2.5c3.4-4.6 6.9-6 11-6s7.6 1.4 11 6Z" fill="#2E9B9B" />
-      <circle cx={57} cy={54.5} r={5.4} fill="#2E9B9B" />
-      <path d="M32.5 70c0-9.5 7.5-13.5 17.5-13.5s17.5 4 17.5 13.5v3c-4.4-6.4-10-8.4-17.5-8.4s-13.1 2-17.5 8.4Z" fill="#1E7A4C" />
-      <circle cx={50} cy={53} r={7.6} fill="#1E7A4C" />
-
-      {/* wave */}
-      <path d="M16 74c10 6.5 21 9 34 9s24-2.5 34-9" fill="none" stroke="#5CB85C" strokeWidth={5.2} strokeLinecap="round" />
-    </svg>
-  );
-}
-
 export function TagIcon({ size = 18, style, className }: IconProps) {
   return (
     <svg {...stroke(size)} style={style} className={className}>
@@ -525,6 +483,16 @@ export function PhotoStackIcon({ size = 18, style, className }: IconProps) {
       <path d="M7 7V5.5a1.5 1.5 0 0 1 1.5-1.5h10a1.5 1.5 0 0 1 1.5 1.5V17a1.5 1.5 0 0 1-1.5 1.5H18" />
       <circle cx={7.7} cy={11.7} r={1.3} />
       <path d="M4.5 18l3.3-3.3a1 1 0 0 1 1.4 0l1.6 1.6 2.6-2.6a1 1 0 0 1 1.4 0L16.5 15" />
+    </svg>
+  );
+}
+
+export function LightbulbIcon({ size = 18, style, className }: IconProps) {
+  return (
+    <svg {...stroke(size)} style={style} className={className}>
+      <path d="M9 18h6" />
+      <path d="M10 21h4" />
+      <path d="M12 3a6 6 0 0 0-3.5 10.9c.6.44 1 1.16 1 1.95V16h5v-.15c0-.79.4-1.51 1-1.95A6 6 0 0 0 12 3Z" />
     </svg>
   );
 }

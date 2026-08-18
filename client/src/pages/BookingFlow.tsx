@@ -62,6 +62,7 @@ export function BookingFlow() {
   const { centreId } = useParams<{ centreId: string }>();
   const navigate = useNavigate();
   const [centre, setCentre] = useState<Centre | null>(null);
+  const [selectedRoomId, setSelectedRoomId] = useState<string | null>(null);
   const [step, setStep] = useState(1);
   const [form, setForm] = useState<BookingForm>(blankForm());
   const [bookedTimes, setBookedTimes] = useState<string[]>([]);
@@ -82,9 +83,14 @@ export function BookingFlow() {
     if (centreId) fetchCentre(centreId).then(setCentre);
   }, [centreId]);
 
-  // A centre has exactly one (internal, never user-picked) room — resolve it
-  // here once the centre loads.
-  const room: Room | undefined = centre?.rooms[0];
+  // Most centres only have one bookable room — skip the picker step's
+  // decision entirely when there's nothing to actually choose between.
+  // A centre with several rooms leaves selectedRoomId null until step 1.
+  useEffect(() => {
+    if (centre && centre.rooms.length === 1) setSelectedRoomId(centre.rooms[0].id);
+  }, [centre]);
+
+  const room: Room | undefined = centre?.rooms.find((r) => r.id === selectedRoomId);
   const roomId = room?.id;
   const isCash = room?.paymentMethod === "cash";
 
@@ -138,9 +144,10 @@ export function BookingFlow() {
   const depositCents = isCash ? 0 : DEPOSIT_EURO * 100;
   const totalCents = taxableCents + vatCents + feeCents + depositCents;
 
+  const b0Ready = !!selectedRoomId;
   const b1Ready = !!(form.date && form.time && form.duration);
   const b2Ready = !!(form.eventType && form.guests && form.name && form.email && isValidEmail(form.email) && form.phone);
-  const ready = step === 1 ? b1Ready : step === 2 ? b2Ready : true;
+  const ready = step === 1 ? b0Ready : step === 2 ? b1Ready : step === 3 ? b2Ready : true;
 
   const set = <K extends keyof BookingForm>(field: K, value: BookingForm[K]) =>
     setForm((f) => ({ ...f, [field]: value }));
@@ -203,7 +210,7 @@ export function BookingFlow() {
 
   const next = () => {
     if (!ready) return;
-    if (step < 3) {
+    if (step < 4) {
       setStep(step + 1);
       top();
     } else {
@@ -221,7 +228,10 @@ export function BookingFlow() {
     else navigate(`/centres/${centreId}`);
   };
 
-  if (!centre || !room) return <PageSpinner />;
+  // Unlike the rest of the flow, `room` is legitimately undefined here
+  // whenever the guest hasn't picked one yet (step 1) — only `centre` not
+  // loading yet is a spinner condition.
+  if (!centre) return <PageSpinner />;
 
   if (confirmedRef) {
     return (
@@ -237,7 +247,7 @@ export function BookingFlow() {
             Pay {euro(totalCents / 100)} in cash at the venue — no online payment needed. We've emailed {form.email || "you"} the details.
           </p>
           <div style={{ background: "#fff", border: `1px solid ${colors.border}`, borderRadius: 18, padding: 24, textAlign: "left", marginBottom: 24 }}>
-            <div style={{ fontWeight: 700, fontSize: 18, marginBottom: 2 }}>{centre.name}</div>
+            <div style={{ fontWeight: 700, fontSize: 18, marginBottom: 2 }}>{centre.name}{room ? ` — ${room.name}` : ""}</div>
             <div style={{ color: colors.mutedLight, fontSize: 14, marginBottom: 16 }}>{dateLabel(form.date)} at {form.time}</div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
               <div>
@@ -269,11 +279,49 @@ export function BookingFlow() {
         <button onClick={back} style={{ display: "inline-flex", alignItems: "center", background: "none", border: "none", color: colors.muted, fontWeight: 600, fontSize: 14, cursor: "pointer", padding: 0, marginBottom: 20 }}>
           <ChevronLeftIcon size={14} style={{ marginRight: 4 }} /> {step > 1 ? "Back a step" : "Back to centre"}
         </button>
-        <Stepper labels={["Date & time", "Event details", "Review & pay"]} current={step} accent="green" />
+        <Stepper labels={["Room", "Date & time", "Event details", "Review & pay"]} current={step} accent="green" />
 
         <div className="grid-responsive" style={{ display: "grid", gridTemplateColumns: "1.5fr 1fr", gap: 32, alignItems: "start" }}>
           <div style={{ minWidth: 0, background: "#fff", border: `1px solid ${colors.border}`, borderRadius: 18, padding: 28 }}>
             {step === 1 && (
+              <>
+                <h2 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 23, margin: "0 0 18px", letterSpacing: "-.01em" }}>
+                  Which room?
+                </h2>
+                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                  {centre.rooms.map((r) => (
+                    <button
+                      key={r.id}
+                      onClick={() => setSelectedRoomId(r.id)}
+                      style={{
+                        textAlign: "left",
+                        border: `1.5px solid ${selectedRoomId === r.id ? colors.green : colors.border}`,
+                        background: selectedRoomId === r.id ? colors.greenBg : "#fff",
+                        borderRadius: 14,
+                        padding: "14px 16px",
+                        cursor: "pointer",
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "center",
+                        gap: 12,
+                        width: "100%",
+                      }}
+                    >
+                      <div>
+                        <div style={{ fontWeight: 700, fontSize: 15 }}>{r.name}</div>
+                        <div style={{ fontSize: 13, color: colors.mutedLight, marginTop: 2 }}>
+                          Up to {r.cap} guests{r.desc ? ` · ${r.desc}` : ""}
+                          {r.paymentMethod === "cash" ? " · Cash on arrival" : ""}
+                        </div>
+                      </div>
+                      <div style={{ fontWeight: 700, fontSize: 16, flex: "none" }}>€{r.rate}<span style={{ fontSize: 12, fontWeight: 400, color: colors.faint }}>/hr</span></div>
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+
+            {step === 2 && (
               <>
                 <h2 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 23, margin: "0 0 18px", letterSpacing: "-.01em" }}>
                   Pick a date & time
@@ -384,7 +432,7 @@ export function BookingFlow() {
               </>
             )}
 
-            {step === 2 && (
+            {step === 3 && (
               <>
                 <h2 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 23, margin: "0 0 18px", letterSpacing: "-.01em" }}>
                   Event details
@@ -421,7 +469,7 @@ export function BookingFlow() {
               </>
             )}
 
-            {step === 3 && (
+            {step === 4 && (
               <>
                 <h2 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 23, margin: "0 0 6px", letterSpacing: "-.01em" }}>Review & pay</h2>
                 <p style={{ color: colors.mutedLight, fontSize: 14, margin: "0 0 20px" }}>
@@ -431,7 +479,7 @@ export function BookingFlow() {
                 </p>
 
                 <div style={{ background: colors.bg, border: `1px solid ${colors.border}`, borderRadius: 14, padding: 18, marginBottom: 18 }}>
-                  <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 10 }}>{centre.name}</div>
+                  <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 10 }}>{centre.name}{room ? ` — ${room.name}` : ""}</div>
                   <div style={{ fontSize: 14, color: colors.muted, display: "flex", flexDirection: "column", gap: 4 }}>
                     <div>{dateLabel(form.date)} at {form.time} · {DURATION_OPTIONS.find((d) => d.hours === form.duration)?.label}</div>
                     <div>{form.eventType} · {form.guests} guests</div>
@@ -489,7 +537,7 @@ export function BookingFlow() {
                   fontWeight: 700, fontSize: 15, cursor: "pointer", opacity: ready && !submitting ? 1 : 0.45, pointerEvents: ready && !submitting ? "auto" : "none",
                 }}
               >
-                {step === 3
+                {step === 4
                   ? submitting
                     ? isCash ? "Confirming…" : "Redirecting to secure payment…"
                     : isCash
@@ -503,7 +551,7 @@ export function BookingFlow() {
           <div className="sticky-aside" style={{ position: "sticky", top: 90, background: "#fff", border: `1px solid ${colors.border}`, borderRadius: 18, padding: 22 }}>
             <Photo src={centre.image} alt={centre.name} ph={centre.ph} style={{ height: 90, borderRadius: 12, overflow: "hidden", marginBottom: 14 }} />
             <div style={{ fontWeight: 700, fontSize: 17, marginBottom: 2 }}>{centre.name}</div>
-            <div style={{ color: colors.mutedLight, fontSize: 14, marginBottom: 16 }}>{centre.area}</div>
+            <div style={{ color: colors.mutedLight, fontSize: 14, marginBottom: 16 }}>{room ? `${room.name} · ${centre.area}` : centre.area}</div>
             <div style={{ display: "flex", flexDirection: "column", gap: 9, fontSize: 14 }}>
               <div style={{ display: "flex", justifyContent: "space-between" }}>
                 <span style={{ color: colors.mutedLight }}>Date</span>

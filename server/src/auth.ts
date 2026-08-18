@@ -36,6 +36,8 @@ export interface AuthedUser {
   orgId: string | null;
   platformRole: string | null;
   invitedStaff: boolean;
+  providerTier: "standard" | "verified" | "featured";
+  createdAt: string;
 }
 
 interface UserRow {
@@ -55,6 +57,8 @@ interface UserRow {
   org_id: string | null;
   platform_role: string | null;
   invited_staff: number;
+  provider_tier: "standard" | "verified" | "featured";
+  created_at: string;
 }
 
 declare global {
@@ -62,6 +66,8 @@ declare global {
   namespace Express {
     interface Request {
       user?: AuthedUser;
+      /** Every user id sharing req.user's organisation — see orgVendorIds(). */
+      vendorIds?: string[];
     }
   }
 }
@@ -130,6 +136,8 @@ export async function createUser(
     orgId: org?.orgId ?? null,
     platformRole: org?.platformRole ?? null,
     invitedStaff: !!org?.invitedStaff,
+    providerTier: "standard",
+    createdAt: new Date().toISOString(),
   };
 }
 
@@ -150,13 +158,15 @@ function rowToUser(row: UserRow): AuthedUser {
     orgId: row.org_id,
     platformRole: row.platform_role,
     invitedStaff: !!row.invited_staff,
+    providerTier: row.provider_tier,
+    createdAt: row.created_at,
   };
 }
 
 export async function findUserByEmail(email: string): Promise<(AuthedUser & { passwordHash: string }) | null> {
   const row = (await db
     .prepare(
-      `SELECT id, email, password_hash, role, status, name, vendor_type, business_name, address, county, mobile, landline, description, org_id, platform_role, invited_staff
+      `SELECT id, email, password_hash, role, status, name, vendor_type, business_name, address, county, mobile, landline, description, org_id, platform_role, invited_staff, provider_tier, created_at
        FROM users WHERE email = ?`
     )
     .get(email.toLowerCase().trim())) as UserRow | undefined;
@@ -184,7 +194,7 @@ export async function destroySession(token: string) {
 async function userFromToken(token: string): Promise<AuthedUser | null> {
   const row = (await db
     .prepare(
-      `SELECT u.id, u.email, u.role, u.status, u.name, u.vendor_type, u.business_name, u.address, u.county, u.mobile, u.landline, u.description, u.org_id, u.platform_role, u.invited_staff
+      `SELECT u.id, u.email, u.role, u.status, u.name, u.vendor_type, u.business_name, u.address, u.county, u.mobile, u.landline, u.description, u.org_id, u.platform_role, u.invited_staff, u.provider_tier, u.created_at
        FROM sessions s JOIN users u ON u.id = s.user_id
        WHERE s.token = ? AND s.expires_at > NOW()`
     )
@@ -221,18 +231,47 @@ export function requireVendorOrAdmin(req: Request, res: Response, next: NextFunc
   return res.status(403).json({ error: "Not authorized" });
 }
 
+/** Every user id belonging to the same organisation as `user` — i.e. the set
+ * of vendor_id values that should count as "this vendor's own listing" now
+ * that a listing can be owned by any org member, not just its creator. Every
+ * vendor is backfilled with a 1:1 organisation on server boot (see
+ * initSchema()'s vendorsNeedingOrg loop in db/index.ts), so orgId is
+ * expected to be set for an approved vendor — the null fallback below just
+ * behaves like the pre-Phase-C single-vendor scoping if it's ever missing. */
+export async function orgVendorIds(user: AuthedUser): Promise<string[]> {
+  if (!user.orgId) return [user.id];
+  const rows = (await db.prepare(`SELECT id FROM users WHERE org_id = ?`).all(user.orgId)) as { id: string }[];
+  return rows.length ? rows.map((r) => r.id) : [user.id];
+}
+
+/** Attaches req.vendorIds — mount after requireVendor. */
+export async function attachVendorIds(req: Request, _res: Response, next: NextFunction) {
+  req.vendorIds = await orgVendorIds(req.user!);
+  next();
+}
+
 /** RBAC (Phase C — wired into real routes, no longer just a stored field).
  * An admin always passes. A vendor who is the organisation's owner (i.e.
  * not `invitedStaff` — every vendor before Phase C, and every vendor who
  * signs up directly today) is unrestricted, same access they've always
  * had — RBAC only ever narrows an *invited staff member's* access down to
- * their assigned platform_role, never an owner's. */
+ * their assigned platform_role, never an owner's.
+ *
+ * Pulled out as a plain function (not just the requirePlatformRole
+ * middleware below) because some routes only know which role applies after
+ * a DB lookup — e.g. a program's role requirement depends on its
+ * listing_type, not the URL — so they need to call this inline mid-handler
+ * instead of as static route middleware. */
+export function hasPlatformRole(user: AuthedUser, ...roles: string[]): boolean {
+  if (user.role === "admin") return true;
+  if (user.role === "vendor" && !user.invitedStaff) return true;
+  return !!user.platformRole && roles.includes(user.platformRole);
+}
+
 export function requirePlatformRole(...roles: string[]) {
   return (req: Request, res: Response, next: NextFunction) => {
     if (!req.user) return res.status(401).json({ error: "Login required" });
-    if (req.user.role === "admin") return next();
-    if (req.user.role === "vendor" && !req.user.invitedStaff) return next();
-    if (req.user.platformRole && roles.includes(req.user.platformRole)) return next();
+    if (hasPlatformRole(req.user, ...roles)) return next();
     return res.status(403).json({ error: "Not authorized for this role" });
   };
 }
