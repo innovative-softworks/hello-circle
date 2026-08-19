@@ -1,10 +1,11 @@
+import crypto from "node:crypto";
 import { Router } from "express";
 import { createCheckoutSession, pricingLineItems } from "../checkoutService.js";
 import { db } from "../db/index.js";
 import { getCentre, orgPoliciesForVendor } from "../db/queries.js";
 import { irelandWallTimeToUtc } from "../irelandTime.js";
 import { notifyCancellation, notifyNewBookingOrRegistration } from "../notifications.js";
-import { computePricing, evaluateCoupon } from "../pricing.js";
+import { computePricing, evaluateCoupon, splitCostPerPerson } from "../pricing.js";
 import { lookupLimiter } from "../rateLimit.js";
 import { BadRequestError, ConflictError, bookingEndHour, clientIdFrom, generateRef, hoursOverlap, isValidEmail } from "../util.js";
 
@@ -23,6 +24,9 @@ interface CreateBookingBody {
   phone: string;
   notes?: string;
   couponCode?: string;
+  /** Open Booking (Phase 3) — how many additional spots (beyond the
+   * booker) to open to other residents once this booking is confirmed. */
+  openSpots?: number;
 }
 
 function hireCost(rate: number, duration: number): number {
@@ -30,6 +34,39 @@ function hireCost(rate: number, duration: number): number {
 }
 
 const DEPOSIT_CENTS = 100 * 100;
+const MAX_OPEN_SPOTS = 20;
+
+/** Open Booking (Phase 3) — once a booking with open_spots is confirmed
+ * (paid, or cash-immediate), create the joinable Game other residents
+ * discover and pay their own way into. Idempotent (games.booking_ref is
+ * checked first) since confirmBooking can run more than once for the same
+ * ref if a webhook retries. Never throws — a failure here shouldn't undo
+ * an already-confirmed booking. */
+export async function createGameFromOpenBooking(ref: string) {
+  try {
+    const row = (await db
+      .prepare(
+        `SELECT b.open_spots as openSpots, b.resident_id as residentId, b.centre_id as centreId, b.date, b.time,
+                b.event_type as eventType, b.total_cents as totalCents
+         FROM bookings b WHERE b.ref = ? AND b.payment_status = 'paid'`
+      )
+      .get(ref)) as { openSpots: number | null; residentId: string | null; centreId: string; date: string; time: string; eventType: string; totalCents: number } | undefined;
+    if (!row || !row.openSpots || !row.residentId) return;
+
+    const existing = await db.prepare(`SELECT id FROM games WHERE booking_ref = ?`).get(ref);
+    if (existing) return;
+
+    const id = crypto.randomUUID();
+    await db
+      .prepare(
+        `INSERT INTO games (id, host_resident_id, activity_label, centre_id, date, time, capacity, price_cents, visibility, booking_ref)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'public', ?)`
+      )
+      .run(id, row.residentId, row.eventType || "Open booking", row.centreId, row.date, row.time, row.openSpots, splitCostPerPerson(row.totalCents, row.openSpots), ref);
+  } catch (e) {
+    console.error("[bookings] createGameFromOpenBooking failed:", e);
+  }
+}
 
 bookingsRouter.post("/checkout", async (req, res) => {
   let clientId: string;
@@ -46,6 +83,17 @@ bookingsRouter.post("/checkout", async (req, res) => {
   }
   if (!isValidEmail(body.email)) {
     return res.status(400).json({ error: "That doesn't look like a valid email address" });
+  }
+  // Open Booking (Phase 3) — the resulting Game needs a resident to host
+  // it (same requirement as creating any game directly), so this isn't
+  // available to a pure guest checkout.
+  let openSpots: number | null = null;
+  if (body.openSpots) {
+    if (!req.resident) return res.status(400).json({ error: "Sign in to open this booking to other players" });
+    if (!Number.isInteger(body.openSpots) || body.openSpots < 1 || body.openSpots > MAX_OPEN_SPOTS) {
+      return res.status(400).json({ error: `Open spots must be a whole number between 1 and ${MAX_OPEN_SPOTS}` });
+    }
+    openSpots = body.openSpots;
   }
 
   const centre = await getCentre(body.centreId);
@@ -121,9 +169,9 @@ bookingsRouter.post("/checkout", async (req, res) => {
       await tx
         .prepare(
           `INSERT INTO bookings (ref, client_id, resident_id, centre_id, room_id, date, time, duration, event_type, guests, name, email, phone, notes,
-            subtotal_cents, discount_cents, vat_cents, platform_fee_cents, coupon_code, total_cents, payment_status)
+            subtotal_cents, discount_cents, vat_cents, platform_fee_cents, coupon_code, total_cents, payment_status, open_spots)
            VALUES (@ref, @clientId, @residentId, @centreId, @roomId, @date, @time, @duration, @eventType, @guests, @name, @email, @phone, @notes,
-            @subtotalCents, @discountCents, @vatCents, @platformFeeCents, @couponCode, @totalCents, @status)`
+            @subtotalCents, @discountCents, @vatCents, @platformFeeCents, @couponCode, @totalCents, @status, @openSpots)`
         )
         .run({
           ref,
@@ -144,6 +192,7 @@ bookingsRouter.post("/checkout", async (req, res) => {
           discountCents: pricing.discountCents,
           vatCents: pricing.vatCents,
           platformFeeCents: pricing.platformFeeCents,
+          openSpots,
           couponCode: pricing.couponCode,
           totalCents: pricing.totalCents,
           status: isCash ? "paid" : "pending",
@@ -168,6 +217,7 @@ bookingsRouter.post("/checkout", async (req, res) => {
       ref,
       detailsText: `${body.date} at ${body.time} · ${body.duration}h · ${body.guests} guests · €${(pricing.totalCents / 100).toFixed(2)} due in cash on arrival`,
     }).catch((e) => console.error("[notifications] booking notify failed:", e));
+    if (openSpots) await createGameFromOpenBooking(ref);
     return res.status(201).json({ ref, totalEuro: pricing.totalCents / 100 });
   }
 

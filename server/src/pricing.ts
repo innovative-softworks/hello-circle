@@ -26,6 +26,20 @@ export function computePricing(subtotalCents: number, depositCents: number, disc
   return { subtotalCents, discountCents, taxableCents, vatCents, platformFeeCents, depositCents, totalCents, couponCode };
 }
 
+/** Open Booking (implementation plan Phase 3) — splits a booking's total
+ * evenly across the booker plus every open spot, rounding up so the sum
+ * of what joiners pay never falls short of the booking's own total.
+ * Deliberately simple: each joiner pays their own share via the existing
+ * paid-game Stripe flow (checkoutService.ts) as new, separate revenue —
+ * this does not reduce or refund the original booker's charge. Real cost-
+ * splitting (crediting the booker back as others join) would need actual
+ * refund automation, which this app deliberately doesn't have yet (see
+ * bookings.ts/registrations.ts/games.ts's identical "refunds are handled
+ * off-platform" convention on cancellation). */
+export function splitCostPerPerson(totalCents: number, openSpots: number): number {
+  return Math.ceil(totalCents / (openSpots + 1));
+}
+
 interface CouponRow {
   id: number;
   code: string;

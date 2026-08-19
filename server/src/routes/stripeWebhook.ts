@@ -1,4 +1,5 @@
 import type { Request, Response } from "express";
+import { createGameFromOpenBooking } from "./bookings.js";
 import { db } from "../db/index.js";
 import { notifyNewBookingOrRegistration, notifyResident } from "../notifications.js";
 import { recordCouponUse } from "../pricing.js";
@@ -63,6 +64,8 @@ async function confirmBooking(ref: string) {
     ref: row.ref,
     detailsText: `${row.date} at ${row.time} · ${row.duration}h · ${row.guests} guests · €${(row.total_cents / 100).toFixed(2)} total`,
   }).catch((e) => console.error("[notifications] booking notify failed:", e));
+
+  await createGameFromOpenBooking(row.ref);
 }
 
 async function confirmRegistration(ref: string) {

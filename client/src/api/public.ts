@@ -52,6 +52,9 @@ export interface CreateBookingInput {
   phone: string;
   notes?: string;
   couponCode?: string;
+  /** Open Booking (Phase 3) — how many additional spots to open to other
+   * residents once this booking is confirmed. Requires being signed in. */
+  openSpots?: number;
 }
 
 /** Creates a pending booking + a Stripe Checkout session — the caller

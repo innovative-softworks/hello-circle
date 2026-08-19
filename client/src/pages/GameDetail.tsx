@@ -101,6 +101,12 @@ export function GameDetail() {
             </div>
           )}
 
+          {game.bookingRef && (
+            <div style={{ background: colors.panel, color: colors.muted, borderRadius: 12, padding: "10px 14px", fontSize: 13, marginBottom: 16 }}>
+              This game is happening as part of the host's existing room booking — you'll pay your own share to join.
+            </div>
+          )}
+
           <div style={{ display: "flex", gap: 20, margin: "16px 0", fontSize: 14.5, color: colors.muted, flexWrap: "wrap" }}>
             <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}><CalendarIcon size={15} /> {game.date}</span>
             <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}><ClockIcon size={15} /> {game.time}</span>

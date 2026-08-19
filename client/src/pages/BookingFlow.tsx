@@ -8,6 +8,7 @@ import { PageSpinner } from "../components/ui";
 import { DURATION_OPTIONS, EVENT_TYPES, TIME_SLOTS } from "../constants";
 import { dateLabel, euro } from "../euro";
 import { ChevronLeftIcon, ChevronRightIcon, CheckIcon, CloseIcon } from "../components/icons";
+import { useGuest } from "../GuestContext";
 import { colors, fonts } from "../theme";
 import type { Centre, Room } from "../types";
 import { isValidEmail } from "../validate";
@@ -22,10 +23,13 @@ interface BookingForm {
   email: string;
   phone: string;
   notes: string;
+  /** Open Booking (Phase 3) — "" means private (default); a number string
+   * means "open this many spots to other residents". */
+  openSpots: string;
 }
 
 function blankForm(): BookingForm {
-  return { date: null, time: null, duration: 3, eventType: "", guests: "", name: "", email: "", phone: "", notes: "" };
+  return { date: null, time: null, duration: 3, eventType: "", guests: "", name: "", email: "", phone: "", notes: "", openSpots: "" };
 }
 
 const MONTH_NAMES = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
@@ -61,6 +65,7 @@ const labelStyle: React.CSSProperties = { display: "block", fontSize: 13, fontWe
 export function BookingFlow() {
   const { centreId } = useParams<{ centreId: string }>();
   const navigate = useNavigate();
+  const { resident } = useGuest();
   const [centre, setCentre] = useState<Centre | null>(null);
   const [selectedRoomId, setSelectedRoomId] = useState<string | null>(null);
   const [step, setStep] = useState(1);
@@ -193,6 +198,7 @@ export function BookingFlow() {
         phone: form.phone,
         notes: form.notes,
         couponCode: coupon?.code,
+        openSpots: resident && form.openSpots ? Number(form.openSpots) : undefined,
       });
       if (res.url) {
         window.location.href = res.url;
@@ -466,6 +472,32 @@ export function BookingFlow() {
                 </div>
                 <label style={{ ...labelStyle, margin: "16px 0 6px" }}>Anything the centre should know? (optional)</label>
                 <textarea value={form.notes} onChange={(e) => set("notes", e.target.value)} rows={2} placeholder="Setup needs, catering, accessibility…" style={{ ...inputStyle, resize: "vertical" }} />
+
+                {resident && (
+                  <div style={{ marginTop: 22, background: colors.bg, border: `1px solid ${colors.border}`, borderRadius: 14, padding: 16 }}>
+                    <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 10 }}>Playing privately, or looking for more players?</div>
+                    <div style={{ display: "flex", gap: 8, marginBottom: form.openSpots ? 12 : 0 }}>
+                      <Chip label="Private" active={!form.openSpots} onClick={() => set("openSpots", "")} />
+                      <Chip label="Open spots" active={!!form.openSpots} onClick={() => set("openSpots", form.openSpots || "1")} />
+                    </div>
+                    {form.openSpots && (
+                      <>
+                        <label style={labelStyle}>How many spots to open?</label>
+                        <input
+                          type="number"
+                          min={1}
+                          max={20}
+                          value={form.openSpots}
+                          onChange={(e) => set("openSpots", e.target.value)}
+                          style={{ ...inputStyle, width: 100 }}
+                        />
+                        <p style={{ fontSize: 12.5, color: colors.mutedLight, margin: "10px 0 0" }}>
+                          Other residents will be able to find and join this booking, each paying their own share of the cost. This creates a public listing under "Games" once your booking is confirmed.
+                        </p>
+                      </>
+                    )}
+                  </div>
+                )}
               </>
             )}
 
@@ -484,6 +516,11 @@ export function BookingFlow() {
                     <div>{dateLabel(form.date)} at {form.time} · {DURATION_OPTIONS.find((d) => d.hours === form.duration)?.label}</div>
                     <div>{form.eventType} · {form.guests} guests</div>
                     <div>{form.name} · {form.email} · {form.phone}</div>
+                    {!!form.openSpots && (
+                      <div style={{ color: colors.greenText, fontWeight: 600 }}>
+                        Open to {form.openSpots} more player{Number(form.openSpots) === 1 ? "" : "s"} · €{(Math.ceil(totalCents / (Number(form.openSpots) + 1)) / 100).toFixed(2)} each
+                      </div>
+                    )}
                   </div>
                 </div>
 

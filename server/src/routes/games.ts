@@ -25,6 +25,7 @@ interface GameRow {
   status: string;
   created_at: string;
   solo_friendly: number;
+  booking_ref: string | null;
 }
 
 async function toGameJson(row: GameRow) {
@@ -52,6 +53,10 @@ async function toGameJson(row: GameRow) {
     status: row.status,
     createdAt: row.created_at,
     soloFriendly: !!row.solo_friendly,
+    /** Open Booking (Phase 3) — set when this game exists because someone
+     * opened spots on their own room booking, rather than being created
+     * standalone. Lets the UI show it's linked to an existing reservation. */
+    bookingRef: row.booking_ref,
   };
 }
 

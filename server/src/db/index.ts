@@ -971,6 +971,18 @@ export async function initSchema() {
   // "come alone" concern maps directly onto a pickup game); programs/club
   // sessions can grow this later if it proves useful there too.
   await ensureColumn("games", "solo_friendly", "solo_friendly TINYINT NOT NULL DEFAULT 0");
+
+  // Open Booking (implementation plan Phase 3) — a private room booking can
+  // optionally open some of its spots to other residents. open_spots is
+  // NULL for a normal private booking (the default, unchanged behavior);
+  // a number means "once confirmed, create a joinable Game for this many
+  // additional spots." games.booking_ref links the resulting Game back to
+  // its source booking (by ref, matching how bookings are addressed
+  // everywhere else in this codebase, not by the internal auto-increment
+  // id) so its date/time/venue are traceable to one authoritative booking
+  // rather than duplicated. See bookings.ts's createGameFromOpenBooking.
+  await ensureColumn("bookings", "open_spots", "open_spots INT");
+  await ensureColumn("games", "booking_ref", "booking_ref VARCHAR(191)");
 }
 
 export const COUNTY_CENTROIDS: Record<string, { lat: number; lng: number }> = {

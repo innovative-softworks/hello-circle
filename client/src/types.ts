@@ -290,6 +290,9 @@ export interface Game {
   /** Set by the host at creation — signals the game welcomes someone
    * without an existing partner/group (implementation plan Phase 2). */
   soloFriendly: boolean;
+  /** Open Booking (Phase 3) — set when this game exists because someone
+   * opened spots on their own room booking. */
+  bookingRef: string | null;
   /** Only present on the single-game detail fetch, not the list. */
   joinedByMe?: boolean;
   waitlistedByMe?: boolean;
