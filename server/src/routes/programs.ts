@@ -78,8 +78,13 @@ programsRouter.get("/", async (req, res) => {
   res.json(await Promise.all(rows.map(toProgramJson)));
 });
 
+// Same "approved/published only" contract as getApprovedCentre/getApprovedClub
+// in db/queries.ts — a draft/paused/archived program has no public detail
+// page, matching the list endpoint above. Vendors see every status of their
+// own programs via GET /vendor/programs instead, so nothing legitimate reads
+// a non-published program through this route.
 programsRouter.get("/:id", async (req, res) => {
-  const row = (await db.prepare(`SELECT * FROM programs WHERE id = ?`).get(req.params.id)) as ProgramRow | undefined;
+  const row = (await db.prepare(`SELECT * FROM programs WHERE id = ? AND status = 'published'`).get(req.params.id)) as ProgramRow | undefined;
   if (!row) return res.status(404).json({ error: "Program not found" });
   res.json(await toProgramJson(row));
 });
