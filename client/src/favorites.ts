@@ -12,11 +12,13 @@ function writeAll(ids: Set<string>) {
   localStorage.setItem(KEY, JSON.stringify([...ids]));
 }
 
-export function isFavorite(kind: "centre" | "club", id: string): boolean {
+export type FavoriteKind = "centre" | "club" | "game" | "program_session" | "club_session";
+
+export function isFavorite(kind: FavoriteKind, id: string): boolean {
   return readAll().has(`${kind}:${id}`);
 }
 
-export function toggleFavorite(kind: "centre" | "club", id: string): boolean {
+export function toggleFavorite(kind: FavoriteKind, id: string): boolean {
   const all = readAll();
   const key = `${kind}:${id}`;
   const next = !all.has(key);

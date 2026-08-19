@@ -319,6 +319,39 @@ export interface SearchResult {
   clubs: Club[];
 }
 
+// --- homepage discovery feeds (Phase 5) ---------------------------------
+
+export interface DiscoverItem {
+  kind: "game" | "program_session" | "club_session";
+  id: string;
+  title: string;
+  date: string;
+  time: string;
+  centreName: string | null;
+  clubName: string | null;
+  area: string | null;
+  county: string | null;
+  priceCents: number | null;
+  href: string;
+  /** Games only — lets the card offer an inline "Join" instead of only a
+   * link through to the detail page. null for program/club sessions. */
+  spotsLeft: number | null;
+  /** Games only, and only real data — how many residents have joined.
+   * Deliberately not populated for program/club sessions, neither of which
+   * tracks a real per-session attendee count. */
+  joined: number | null;
+  /** Only program sessions can have a real photo (via the parent Program).
+   * null means the card falls back to a kind-tinted placeholder. */
+  imageUrl: string | null;
+  /** Best-effort "happening right now" — see server/src/routes/discover.ts. */
+  isLive: boolean;
+}
+
+export interface DiscoverFeed {
+  today: DiscoverItem[];
+  weekend: DiscoverItem[];
+}
+
 // --- demand intelligence (NEXT) ---------------------------------------------
 
 export interface WaitlistEntry {

@@ -177,7 +177,11 @@ Per-room opening hours don't exist yet — every room in a centre still shares t
 `index.ts` itself for the full current mount list rather than trusting a stale summary here, since routers
 have been added/removed (`platformAdmin.ts` was deleted; `circles.ts`, `games.ts`, `passes.ts`, `programs.ts`,
 `household.ts`, `favourites.ts`, `feedback.ts`, `residents.ts`, `guestAuth.ts`, `org.ts` were added since the
-original MVP). Public centre/club routes only ever return `approved` rows. The Stripe webhook
+original MVP). `routes/vendor.ts` itself is now just a ~20-line mounter — `requireVendor`/`attachVendorIds`
+applied once, then four domain sub-routers (`vendorListings.ts`, `vendorPrograms.ts`, `vendorOperations.ts`,
+`vendorInsights.ts`, plus shared ownership/rollup helpers in `vendorHelpers.ts`) mounted under it, split out
+of what used to be one 1088-line file — still reached the same way from outside (`/api/vendor/*`). Public
+centre/club routes only ever return `approved` rows. The Stripe webhook
 (`routes/stripeWebhook.ts`) is mounted *before* `express.json()` with `express.raw()` instead, because
 Stripe's signature check needs the untouched raw body bytes — keep any new raw-body-dependent route ahead of
 the JSON body parser too. In production (`NODE_ENV=production`) the webhook handler *requires*
@@ -219,9 +223,16 @@ than trusting a stale enumeration here. `AuthContext.tsx` holds vendor/admin ses
 holds resident/magic-link session state, `MyStuffContext.tsx` holds the guest "my bookings" count,
 `DashboardNavContext.tsx` lets the Vendor/Admin dashboards register a burger-menu trigger in the global
 `Header`. `api.ts` has one typed fetch wrapper per API endpoint — add new server routes there rather than
-calling `fetch` ad hoc from pages; it's grown into a large single file (~1000+ lines) and is a reasonable
-future split candidate, same pattern already used to split `VendorOrg.tsx`/`VendorPrograms.tsx` out of
-`VendorDashboard.tsx`. `types.ts` mirrors server response shapes by hand (no shared/generated types package
+calling `fetch` ad hoc from pages. It's now a thin barrel (`export * from "./api/core"` etc.) re-exporting six
+domain modules under `client/src/api/` — `core.ts` (the shared `request()`/`ApiError`), `public.ts`
+(guest-facing browsing/transactions, no account needed), `resident.ts` (magic-link session, household,
+favourites, games, circles, passes, …), `vendorAuth.ts` (signup/login/password-reset/invite-accept),
+`vendor.ts` (the vendor dashboard's own CRUD/ops/insights calls), and `admin.ts` — split out of what used to
+be one 1076-line file. Every existing `from "../api"` import site is unchanged, since the barrel keeps the
+public import path stable; add a new wrapper to whichever domain module it belongs to (or `api.ts` itself
+stays untouched). `VendorDashboard.tsx` similarly split into `components/Vendor*.tsx` files (one per tab) plus
+`vendorFormat.ts` for shared formatters, the same pattern already used for `VendorOrg.tsx`/`VendorPrograms.tsx`.
+`types.ts` mirrors server response shapes by hand (no shared/generated types package
 between client and server — keep both in sync manually when changing an API shape). No CSS framework;
 styling is hand-rolled via `theme.ts` (design tokens, no formal spacing/type scale yet — inline pixel values
 are common) and `index.css` (also the home of the app's `@media` responsive escape-hatch utility classes,

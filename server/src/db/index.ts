@@ -942,6 +942,15 @@ export async function initSchema() {
   await ensureColumn("program_sessions", "room_id", "room_id VARCHAR(191)");
   await ensureColumn("club_sessions", "instructor_name", "instructor_name VARCHAR(255) NOT NULL DEFAULT ''");
 
+  // Neither games nor club_sessions had a photo at all — the homepage
+  // discovery feed (routes/discover.ts) needs one to render a real card
+  // background instead of always falling back to a placeholder. No
+  // create/edit UI sets these yet (out of scope for that feed's first
+  // pass) — same additive-ahead-of-the-write-path pattern as several other
+  // columns in this file.
+  await ensureColumn("games", "image_url", "image_url VARCHAR(500) NOT NULL DEFAULT ''");
+  await ensureColumn("club_sessions", "image_url", "image_url VARCHAR(500) NOT NULL DEFAULT ''");
+
   // programs.status grows from a two-state active/archived model to a real
   // draft/published/paused/archived lifecycle — one-time, idempotent
   // backfill of every existing 'active' row (after this, 'active' is

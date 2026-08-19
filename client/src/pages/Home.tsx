@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { fetchCentres, fetchClubs, search } from "../api";
+import { fetchCentres, fetchClubs, fetchDiscover, search } from "../api";
 import { CentreCard } from "../components/CentreCard";
 import { ClubCard } from "../components/ClubCard";
+import { DiscoverRow } from "../components/DiscoverRow";
 import { HeroCarousel, type HeroCarouselSlide } from "../components/HeroCarousel";
 import { CardSkeleton, EmptyState } from "../components/ui";
 import { CommunityIllustration, SportsIllustration } from "../components/illustrations";
@@ -17,9 +18,9 @@ import {
   PinIcon,
   SearchIcon,
 } from "../components/icons";
-import { nearestCounty } from "../irishCounties";
+import { haversineDistanceKm, nearestCounty } from "../irishCounties";
 import { colors, fonts, maxWidth } from "../theme";
-import type { Centre, Club, SearchResult } from "../types";
+import type { Centre, Club, DiscoverFeed, SearchResult } from "../types";
 
 // Shown only until real listing images load (or if a fresh dev DB genuinely
 // has none for the current county) — same picsum seed the static hero image
@@ -39,6 +40,21 @@ export function Home() {
   const [featuredClubs, setFeaturedClubs] = useState<Club[]>([]);
   const [loadingClubs, setLoadingClubs] = useState(true);
   const [counties, setCounties] = useState<string[]>(["All"]);
+
+  // Full (unsliced) county-scoped lists, captured alongside the 3-card
+  // "featured" slices below — reused for the Near You distance sort so it
+  // has a wider pool to choose from without a dedicated fetch.
+  const [allCentres, setAllCentres] = useState<Centre[]>([]);
+  const [allClubs, setAllClubs] = useState<Club[]>([]);
+
+  // "Happening today" / "This weekend" (Phase 5) — games + program sessions
+  // + recurring club sessions in one feed, see routes/discover.ts.
+  const [discoverFeed, setDiscoverFeed] = useState<DiscoverFeed | null>(null);
+
+  // Set only once real coordinates are resolved via handleUseMyLocation —
+  // drives the Near You section, which otherwise stays hidden (no
+  // server-side geocoding to fall back on, see CLAUDE.md).
+  const [userCoords, setUserCoords] = useState<{ lat: number; lng: number } | null>(null);
 
   // Free-text "smart" search (Tier 1 — wires the rule-based /api/search
   // parser, previously built but never surfaced anywhere in the client).
@@ -63,15 +79,38 @@ export function Home() {
   useEffect(() => {
     setLoadingCentres(true);
     fetchCentres(homeCounty).then((centres) => {
+      setAllCentres(centres);
       setFeaturedCentres(centres.slice(0, 3));
       setLoadingCentres(false);
     });
     setLoadingClubs(true);
     fetchClubs(homeCounty).then((clubs) => {
+      setAllClubs(clubs);
       setFeaturedClubs(clubs.slice(0, 3));
       setLoadingClubs(false);
     });
   }, [homeCounty]);
+
+  useEffect(() => {
+    fetchDiscover(homeCounty === "All" ? undefined : homeCounty)
+      .then(setDiscoverFeed)
+      .catch(() => setDiscoverFeed({ today: [], weekend: [] }));
+  }, [homeCounty]);
+
+  // Closest centres/clubs to the resolved coordinates, from the pool already
+  // fetched above — no dedicated fetch, just a client-side sort/slice.
+  const nearYouItems = useMemo(() => {
+    if (!userCoords) return [];
+    const tagged: ({ kind: "centre"; listing: Centre } | { kind: "club"; listing: Club })[] = [
+      ...allCentres.map((listing) => ({ kind: "centre" as const, listing })),
+      ...allClubs.map((listing) => ({ kind: "club" as const, listing })),
+    ];
+    return tagged
+      .filter((t) => t.listing.lat !== null && t.listing.lng !== null)
+      .map((t) => ({ ...t, km: haversineDistanceKm(userCoords.lat, userCoords.lng, t.listing.lat!, t.listing.lng!) }))
+      .sort((a, b) => a.km - b.km)
+      .slice(0, 6);
+  }, [userCoords, allCentres, allClubs]);
 
   // Hero carousel shows real photos from whatever's currently featured
   // (already fetched for the cards below) so it stays "related" to actual
@@ -121,6 +160,7 @@ export function Home() {
     setLocating(true);
     navigator.geolocation.getCurrentPosition(
       (pos) => {
+        setUserCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude });
         const match = nearestCounty(pos.coords.latitude, pos.coords.longitude, counties.filter((c) => c !== "All"));
         if (match) setHomeCounty(match);
         else setLocationError("Couldn't match your location to a county we cover yet.");
@@ -485,6 +525,70 @@ export function Home() {
           </div>
         </div>
       </section>
+
+      {discoverFeed && discoverFeed.today.length > 0 && (
+        <section className="section-pad" style={{ maxWidth, margin: "0 auto", padding: "18px 24px 8px" }}>
+          <DiscoverRow title="Happening today" items={discoverFeed.today} isToday />
+        </section>
+      )}
+
+      {discoverFeed && discoverFeed.weekend.length > 0 && (
+        <section className="section-pad" style={{ maxWidth, margin: "0 auto", padding: "18px 24px 8px" }}>
+          <DiscoverRow title="This weekend" items={discoverFeed.weekend} />
+        </section>
+      )}
+
+      {nearYouItems.length > 0 && (
+        <section className="section-pad" style={{ maxWidth, margin: "0 auto", padding: "18px 24px 8px" }}>
+          <h2 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 20, margin: "0 0 14px", letterSpacing: "-.01em" }}>Near you</h2>
+          <div className="grid-responsive-3" style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 20 }}>
+            {nearYouItems.map((t) => (
+              <div key={`${t.kind}-${t.listing.id}`}>
+                <div style={{ position: "relative" }}>
+                  {t.kind === "centre" ? <CentreCard centre={t.listing} height={132} /> : <ClubCard club={t.listing} />}
+                  <span
+                    style={{
+                      position: "absolute",
+                      top: 10,
+                      left: 10,
+                      zIndex: 1,
+                      background: "rgba(255,255,255,.92)",
+                      borderRadius: 999,
+                      padding: "4px 10px",
+                      fontSize: 11.5,
+                      fontWeight: 700,
+                      color: colors.text,
+                      pointerEvents: "none",
+                    }}
+                  >
+                    {t.km < 1 ? `${Math.round(t.km * 1000)} m away` : `${t.km.toFixed(1)} km away`}
+                  </span>
+                </div>
+                {t.listing.mapUrl && (
+                  <button
+                    onClick={() => window.open(t.listing.mapUrl, "_blank", "noopener,noreferrer")}
+                    className="link-accent"
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 5,
+                      background: "none",
+                      border: "none",
+                      cursor: "pointer",
+                      color: colors.muted,
+                      fontSize: 12.5,
+                      fontWeight: 600,
+                      padding: "6px 0 0",
+                    }}
+                  >
+                    <PinIcon size={12} /> Get directions
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
 
       <section className="section-pad" style={{ maxWidth, margin: "0 auto", padding: "26px 24px 10px" }}>
         <div className="grid-responsive" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
