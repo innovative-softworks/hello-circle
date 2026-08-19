@@ -1,4 +1,5 @@
 import type {
+  AttendanceStatus,
   Centre,
   CentreHoursRow,
   Club,
@@ -10,6 +11,7 @@ import type {
   Room,
   RoomBlock,
   ScheduleEntry,
+  SessionAttendanceEntry,
   VendorInsights,
   VendorListingSummary,
   VendorNotification,
@@ -277,11 +279,11 @@ export function fetchProgramEnrollments(programId: string): Promise<ProgramEnrol
   return request(`/vendor/programs/${programId}/enrollments`);
 }
 
-export function markSessionAttendance(sessionId: string, enrollmentId: number): Promise<{ ok: boolean }> {
-  return request(`/vendor/program-sessions/${sessionId}/attendance/${enrollmentId}`, { method: "POST" });
+export function markSessionAttendance(sessionId: string, enrollmentId: number, status: AttendanceStatus): Promise<{ ok: boolean }> {
+  return request(`/vendor/program-sessions/${sessionId}/attendance/${enrollmentId}`, { method: "POST", body: JSON.stringify({ status }) });
 }
 
-export function fetchSessionAttendance(programId: string, sessionId: string): Promise<string[]> {
+export function fetchSessionAttendance(programId: string, sessionId: string): Promise<SessionAttendanceEntry[]> {
   return request(`/vendor/programs/${programId}/sessions/${sessionId}/attendance`);
 }
 

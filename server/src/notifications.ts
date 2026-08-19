@@ -24,15 +24,31 @@ const insertResidentNotification = db.prepare(
    VALUES ('', @residentId, @kind, @title, @body, @listingType, @listingId, @ref)`
 );
 
-/** Resident-facing in-app notification (MVP) — used for waitlist/game
- * activity, not the vendor/admin booking-confirmation feed above. Never
- * throws, same contract as the vendor/admin notifiers: a failed insert must
- * not fail whatever triggered it. `recipient_id` stays NOT NULL (existing
- * schema), so this writes '' there and resident_id instead — the two
- * recipient spaces are deliberately distinct, matched by whichever route
- * queries the table (routes/vendor.ts by recipient_id, routes/residents.ts
- * by resident_id). */
-export async function notifyResident(params: {
+// Maps a notifyResident `kind` to the NotificationPrefs key that gates it
+// (client/src/types.ts's NotificationPrefs) — only kinds with a real
+// opt-out today are listed; a kind with no entry here always sends, since
+// there's no preference field for a resident to have turned it off with.
+const PREF_KEY_BY_KIND: Partial<Record<NotifyResidentParams["kind"], string>> = {
+  waitlist: "waitlistOffers",
+};
+
+/** `residents.notification_prefs` was previously collected
+ * (saveNotificationPrefs) but never read anywhere — turning a category off
+ * had no effect. Resolves true (send) unless the resident has explicitly
+ * saved that category as false; a resident with no prefs saved yet
+ * defaults to receiving everything, matching the client's own all-true
+ * default. Exported so callers that email a resident directly (not via
+ * notifyResident's in-app insert, e.g. waitlist.ts) can respect the same
+ * preference instead of only gating the in-app copy. */
+export async function residentAllows(residentId: string, prefKey: string): Promise<boolean> {
+  const row = (await db.prepare(`SELECT notification_prefs as prefs FROM residents WHERE id = ?`).get(residentId)) as
+    | { prefs: string | null }
+    | undefined;
+  const prefs = row?.prefs ? (JSON.parse(row.prefs) as Record<string, boolean>) : null;
+  return !(prefs && prefs[prefKey] === false);
+}
+
+interface NotifyResidentParams {
   residentId: string;
   kind: "booking" | "registration" | "waitlist" | "game";
   title: string;
@@ -40,8 +56,24 @@ export async function notifyResident(params: {
   listingType: "centre" | "club" | "game";
   listingId: string;
   ref: string;
-}) {
+}
+
+/** Resident-facing in-app notification (MVP) — used for waitlist/game
+ * activity, not the vendor/admin booking-confirmation feed above. Never
+ * throws, same contract as the vendor/admin notifiers: a failed insert must
+ * not fail whatever triggered it. `recipient_id` stays NOT NULL (existing
+ * schema), so this writes '' there and resident_id instead — the two
+ * recipient spaces are deliberately distinct, matched by whichever route
+ * queries the table (routes/vendor.ts by recipient_id, routes/residents.ts
+ * by resident_id).
+ *
+ * Checks the resident's notification_prefs (via residentAllows) before
+ * inserting — only gates kinds with a matching pref key (see
+ * PREF_KEY_BY_KIND). */
+export async function notifyResident(params: NotifyResidentParams) {
   try {
+    const prefKey = PREF_KEY_BY_KIND[params.kind];
+    if (prefKey && !(await residentAllows(params.residentId, prefKey))) return;
     await insertResidentNotification.run({
       residentId: params.residentId,
       kind: params.kind,

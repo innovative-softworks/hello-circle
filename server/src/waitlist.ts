@@ -1,6 +1,6 @@
 import { db } from "./db/index.js";
 import { sendMail } from "./email.js";
-import { notifyResident } from "./notifications.js";
+import { notifyResident, residentAllows } from "./notifications.js";
 import { CLIENT_URL } from "./stripe.js";
 
 const OFFER_WINDOW_HOURS = 48;
@@ -44,7 +44,12 @@ export async function promoteNextWaitlistEntry(listingType: "club" | "game", lis
         ref: String(next.id),
       });
     }
-    if (next.email) {
+    // A pure guest (no resident_id) has no other way to hear about this, so
+    // always email them. A signed-in resident's own waitlistOffers
+    // preference gates the email the same way it gates the in-app copy
+    // above — respecting an explicit opt-out even for a time-sensitive
+    // notice, since the pref exists specifically for this category.
+    if (next.email && (!next.resident_id || (await residentAllows(next.resident_id, "waitlistOffers")))) {
       await sendMail({
         to: next.email,
         subject: `A spot opened up — ${listingName}`,
@@ -53,5 +58,37 @@ export async function promoteNextWaitlistEntry(listingType: "club" | "game", lis
     }
   } catch (e) {
     console.error("[waitlist] promotion failed:", e);
+  }
+}
+
+interface ExpiredOfferRow {
+  id: number;
+  listing_type: "club" | "game";
+  listing_id: string;
+}
+
+/** Sweeps every 'offered' entry whose 48h window has passed: marks it
+ * 'expired' and promotes the next waiting entry in its place, so an
+ * unclaimed offer doesn't just sit there forever blocking the list. No
+ * cron infrastructure exists in this app (see rateLimit.ts's identical
+ * single-instance/in-memory rationale) — a periodic in-process sweep is
+ * the simplest thing that works at current scale; see index.ts for the
+ * interval that calls this. */
+export async function sweepExpiredWaitlistOffers() {
+  try {
+    const expired = (await db
+      .prepare(`SELECT id, listing_type, listing_id FROM waitlist_entries WHERE status = 'offered' AND offer_expires_at < NOW()`)
+      .all()) as ExpiredOfferRow[];
+    for (const row of expired) {
+      await db.prepare(`UPDATE waitlist_entries SET status = 'expired' WHERE id = ?`).run(row.id);
+      const listingName =
+        row.listing_type === "club"
+          ? ((await db.prepare(`SELECT name FROM clubs WHERE id = ?`).get(row.listing_id)) as { name: string } | undefined)?.name
+          : ((await db.prepare(`SELECT activity_label as name FROM games WHERE id = ?`).get(row.listing_id)) as { name: string } | undefined)?.name;
+      if (listingName) await promoteNextWaitlistEntry(row.listing_type, row.listing_id, listingName);
+    }
+    if (expired.length > 0) console.log(`[waitlist] swept ${expired.length} expired offer(s)`);
+  } catch (e) {
+    console.error("[waitlist] sweep failed:", e);
   }
 }

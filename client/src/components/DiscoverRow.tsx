@@ -103,7 +103,7 @@ function JoinControl({ item }: { item: DiscoverItem }) {
   );
 }
 
-function DiscoverCard({ item, isToday }: { item: DiscoverItem; isToday: boolean }) {
+export function DiscoverCard({ item, isToday }: { item: DiscoverItem; isToday: boolean }) {
   const navigate = useNavigate();
   const meta = KIND_META[item.kind];
   const place = item.centreName ?? item.clubName;

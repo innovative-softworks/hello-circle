@@ -397,10 +397,22 @@ export function Home() {
                       Understood as: {[smartResults.parsed.county, smartResults.parsed.free ? "free" : null, smartResults.parsed.timeOfDay, ...smartResults.parsed.keywords].filter(Boolean).join(" · ") || "no specific filters"}
                     </div>
                   )}
-                  {smartResults.centres.length === 0 && smartResults.clubs.length === 0 ? (
+                  {smartResults.centres.length === 0 && smartResults.clubs.length === 0 && smartResults.activities.length === 0 ? (
                     <EmptyState icon={<SearchIcon size={18} />} title="Nothing matched" subtitle="Try a different phrasing, or broaden it — e.g. drop the county." />
                   ) : (
                     <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                      {smartResults.activities.map((a) => (
+                        <button
+                          key={`${a.kind}-${a.id}`}
+                          onClick={() => navigate(a.href)}
+                          style={{ textAlign: "left", background: colors.bg, border: `1px solid ${colors.border}`, borderRadius: 12, padding: "10px 14px", cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center" }}
+                        >
+                          <span><strong>{a.title}</strong> <span style={{ color: colors.mutedLight, fontSize: 13 }}>· {a.date} {a.time}{a.centreName || a.clubName ? ` · ${a.centreName ?? a.clubName}` : ""}</span></span>
+                          <span style={{ fontSize: 12, fontWeight: 700, color: "#3B5FCC", background: "#E9F0FC", borderRadius: 999, padding: "2px 9px", flex: "none", marginLeft: 8 }}>
+                            {a.kind === "game" ? "Game" : a.kind === "program_session" ? "Program" : "Club session"}
+                          </span>
+                        </button>
+                      ))}
                       {smartResults.centres.map((c) => (
                         <button
                           key={c.id}

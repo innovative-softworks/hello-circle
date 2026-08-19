@@ -43,6 +43,20 @@ circlesRouter.get("/", async (req, res) => {
   res.json(await Promise.all(rows.map(toCircleJson)));
 });
 
+// Every circle this resident belongs to — distinct from GET / (public
+// browse list), which isn't scoped to any one resident.
+circlesRouter.get("/mine", requireResident, async (req, res) => {
+  const rows = (await db
+    .prepare(
+      `SELECT c.* FROM circles c
+       JOIN circle_members cm ON cm.circle_id = c.id
+       WHERE cm.resident_id = ?
+       ORDER BY c.name`
+    )
+    .all(req.resident!.id)) as CircleRow[];
+  res.json(await Promise.all(rows.map(toCircleJson)));
+});
+
 circlesRouter.get("/:id", async (req, res) => {
   const row = (await db.prepare(`SELECT * FROM circles WHERE id = ?`).get(req.params.id)) as CircleRow | undefined;
   if (!row) return res.status(404).json({ error: "Circle not found" });

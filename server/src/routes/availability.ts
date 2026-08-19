@@ -56,22 +56,30 @@ async function hoursFor(centreId: string, date: string): Promise<CentreHours & {
 }
 
 availabilityRouter.get("/", async (req, res) => {
-  const { roomId, date, duration } = req.query;
-  if (typeof roomId !== "string" || typeof date !== "string") {
-    return res.status(400).json({ error: "roomId and date query params are required" });
+  const { centreId, roomId, date, duration } = req.query;
+  if (typeof centreId !== "string" || typeof roomId !== "string" || typeof date !== "string") {
+    return res.status(400).json({ error: "centreId, roomId and date query params are required" });
   }
   // The requested duration determines how far a start time reaches, so a
   // slot must be blocked if [start, start+duration) overlaps an existing
   // booking — not just if the slot's own hour happens to already be booked.
   const reqDuration = Math.max(1, Number(duration) || 1);
 
-  const room = (await db.prepare(`SELECT centre_id FROM rooms WHERE id = ?`).get(roomId)) as { centre_id: string } | undefined;
+  // rooms.id is only unique per-centre (PRIMARY KEY (centre_id, id)) — a
+  // room_id-only lookup can silently resolve a different centre's room
+  // that happens to share the same short id (verified live: a seed-data
+  // collision made one centre's booking incorrectly block another
+  // centre's identical-id room). Scoping by centreId here, and using the
+  // now-verified room.centre_id for every query below, closes that.
+  const room = (await db.prepare(`SELECT centre_id FROM rooms WHERE id = ? AND centre_id = ?`).get(roomId, centreId)) as { centre_id: string } | undefined;
   if (!room) return res.status(404).json({ error: "Room not found" });
 
   const hours = await hoursFor(room.centre_id, date);
   const slots = hours.closed ? [] : slotsWithinHours(hours);
 
-  const bookings = (await db.prepare(`SELECT time, duration FROM bookings WHERE room_id = ? AND date = ? AND payment_status != 'failed'`).all(roomId, date)) as BookingRow[];
+  const bookings = (await db
+    .prepare(`SELECT time, duration FROM bookings WHERE room_id = ? AND centre_id = ? AND date = ? AND payment_status != 'failed'`)
+    .all(roomId, room.centre_id, date)) as BookingRow[];
   const bookingIntervals = bookings.map((b) => {
     const bStart = parseInt(b.time.slice(0, 2), 10);
     return { start: bStart, end: bookingEndHour(bStart, b.duration) };
@@ -100,13 +108,14 @@ availabilityRouter.get("/", async (req, res) => {
  * grey out vendor-closed days across a multi-month calendar without fetching
  * full slot detail for every day. */
 availabilityRouter.get("/range", async (req, res) => {
-  const { roomId, from, days } = req.query;
-  if (typeof roomId !== "string" || typeof from !== "string") {
-    return res.status(400).json({ error: "roomId and from query params are required" });
+  const { centreId, roomId, from, days } = req.query;
+  if (typeof centreId !== "string" || typeof roomId !== "string" || typeof from !== "string") {
+    return res.status(400).json({ error: "centreId, roomId and from query params are required" });
   }
   const numDays = Math.min(Number(days) || 60, 90);
 
-  const room = (await db.prepare(`SELECT centre_id FROM rooms WHERE id = ?`).get(roomId)) as { centre_id: string } | undefined;
+  // Same room_id-only ambiguity as GET / above — scope by centreId.
+  const room = (await db.prepare(`SELECT centre_id FROM rooms WHERE id = ? AND centre_id = ?`).get(roomId, centreId)) as { centre_id: string } | undefined;
   if (!room) return res.status(404).json({ error: "Room not found" });
 
   const wholeDayBlocks = new Set(

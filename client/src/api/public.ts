@@ -1,5 +1,5 @@
 import { getClientId } from "../clientId";
-import type { Centre, Club, DiscoverFeed, MyBooking, MyRegistration, Program, Review, SearchResult } from "../types";
+import type { Centre, Club, DiscoverFeed, MyBooking, MyProgramEnrollment, MyRegistration, Program, Review, SearchResult } from "../types";
 import { request } from "./core";
 
 // Guest-facing browsing + transactions — no account needed. Centres/clubs,
@@ -28,12 +28,15 @@ export function fetchClub(id: string): Promise<Club> {
   return request(`/clubs/${id}`);
 }
 
-export function fetchAvailability(roomId: string, date: string, duration = 1): Promise<{ slots: string[]; bookedTimes: string[]; closed: boolean }> {
-  return request(`/availability?roomId=${encodeURIComponent(roomId)}&date=${encodeURIComponent(date)}&duration=${duration}`);
+/** `centreId` disambiguates `roomId` — rooms.id is only unique per-centre
+ * (schema's own PRIMARY KEY (centre_id, id)), so a room_id-only lookup can
+ * silently resolve a different centre's room sharing the same short id. */
+export function fetchAvailability(centreId: string, roomId: string, date: string, duration = 1): Promise<{ slots: string[]; bookedTimes: string[]; closed: boolean }> {
+  return request(`/availability?centreId=${encodeURIComponent(centreId)}&roomId=${encodeURIComponent(roomId)}&date=${encodeURIComponent(date)}&duration=${duration}`);
 }
 
-export function fetchAvailabilityRange(roomId: string, from: string, days = 60): Promise<{ closedDates: string[] }> {
-  return request(`/availability/range?roomId=${encodeURIComponent(roomId)}&from=${encodeURIComponent(from)}&days=${days}`);
+export function fetchAvailabilityRange(centreId: string, roomId: string, from: string, days = 60): Promise<{ closedDates: string[] }> {
+  return request(`/availability/range?centreId=${encodeURIComponent(centreId)}&roomId=${encodeURIComponent(roomId)}&from=${encodeURIComponent(from)}&days=${days}`);
 }
 
 export interface CreateBookingInput {
@@ -218,4 +221,11 @@ export function enrollInProgram(
   input: { participantName: string; participantDob?: string; email: string; phone?: string }
 ): Promise<{ ref: string; url?: string; totalEuro: number }> {
   return request(`/programs/${id}/enroll`, { method: "POST", body: JSON.stringify(input) });
+}
+
+/** Every program enrollment under this device's client_id or (if signed
+ * in) this resident — same guest-or-resident ownership model as
+ * fetchMyBookings/fetchMyRegistrations above. */
+export function fetchMyProgramEnrollments(): Promise<MyProgramEnrollment[]> {
+  return request(`/programs/enrollments/mine`);
 }

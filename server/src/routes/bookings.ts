@@ -96,9 +96,12 @@ bookingsRouter.post("/checkout", async (req, res) => {
     await db.transaction(async (tx) => {
       await tx.prepare(`SELECT id FROM rooms WHERE id = ? AND centre_id = ? FOR UPDATE`).get(body.roomId, body.centreId);
 
+      // rooms.id is only unique per-centre (PRIMARY KEY (centre_id, id)) —
+      // without this, a different centre's booking on a colliding room_id
+      // could wrongly reject this checkout as clashing.
       const overlapping = (await tx
-        .prepare(`SELECT time, duration FROM bookings WHERE room_id = ? AND date = ? AND payment_status != 'failed' AND status != 'cancelled'`)
-        .all(body.roomId, body.date)) as { time: string; duration: number }[];
+        .prepare(`SELECT time, duration FROM bookings WHERE room_id = ? AND centre_id = ? AND date = ? AND payment_status != 'failed' AND status != 'cancelled'`)
+        .all(body.roomId, body.centreId, body.date)) as { time: string; duration: number }[];
       const clashes = overlapping.some((b) => {
         const bStart = parseInt(b.time.slice(0, 2), 10);
         return hoursOverlap(startHour, reqEnd, bStart, bookingEndHour(bStart, b.duration));
@@ -221,7 +224,7 @@ bookingsRouter.get("/", async (req, res) => {
                   c.name as centreName, c.ph as ph, c.image_url as image, r.name as roomName
            FROM bookings b
            JOIN centres c ON c.id = b.centre_id
-           LEFT JOIN rooms r ON r.id = b.room_id
+           LEFT JOIN rooms r ON r.id = b.room_id AND r.centre_id = b.centre_id
            WHERE (b.client_id = ? OR LOWER(b.email) = LOWER(?)) AND b.payment_status = 'paid'
            ORDER BY b.created_at DESC`
         )
@@ -232,7 +235,7 @@ bookingsRouter.get("/", async (req, res) => {
                   c.name as centreName, c.ph as ph, c.image_url as image, r.name as roomName
            FROM bookings b
            JOIN centres c ON c.id = b.centre_id
-           LEFT JOIN rooms r ON r.id = b.room_id
+           LEFT JOIN rooms r ON r.id = b.room_id AND r.centre_id = b.centre_id
            WHERE b.client_id = ? AND b.payment_status = 'paid'
            ORDER BY b.created_at DESC`
         )
@@ -256,7 +259,7 @@ bookingsRouter.post("/lookup", lookupLimiter, async (req, res) => {
               c.name as centreName, c.ph as ph, c.image_url as image, r.name as roomName
        FROM bookings b
        JOIN centres c ON c.id = b.centre_id
-       LEFT JOIN rooms r ON r.id = b.room_id
+       LEFT JOIN rooms r ON r.id = b.room_id AND r.centre_id = b.centre_id
        WHERE b.ref = ? AND LOWER(b.email) = LOWER(?)`
     )
     .get(ref.trim(), email.trim());
@@ -370,10 +373,13 @@ bookingsRouter.post("/:ref/reschedule", lookupLimiter, async (req, res) => {
 
   try {
     await db.transaction(async (tx) => {
-      await tx.prepare(`SELECT id FROM rooms WHERE id = ? FOR UPDATE`).get(row.roomId);
+      // rooms.id is only unique per-centre (PRIMARY KEY (centre_id, id)) —
+      // scope both the lock and the overlap check by row.centreId (already
+      // fetched above), same fix as availability.ts/queries.ts/programs.ts.
+      await tx.prepare(`SELECT id FROM rooms WHERE id = ? AND centre_id = ? FOR UPDATE`).get(row.roomId, row.centreId);
       const overlapping = (await tx
-        .prepare(`SELECT ref, time, duration FROM bookings WHERE room_id = ? AND date = ? AND ref != ? AND payment_status != 'failed' AND status != 'cancelled'`)
-        .all(row.roomId, date, row.ref)) as { ref: string; time: string; duration: number }[];
+        .prepare(`SELECT ref, time, duration FROM bookings WHERE room_id = ? AND centre_id = ? AND date = ? AND ref != ? AND payment_status != 'failed' AND status != 'cancelled'`)
+        .all(row.roomId, row.centreId, date, row.ref)) as { ref: string; time: string; duration: number }[];
       const clashes = overlapping.some((b) => {
         const bStart = parseInt(b.time.slice(0, 2), 10);
         return hoursOverlap(startHour, reqEnd, bStart, bookingEndHour(bStart, b.duration));

@@ -956,6 +956,14 @@ export async function initSchema() {
   // backfill of every existing 'active' row (after this, 'active' is
   // retired; the app only ever reads/writes the four new values).
   await db.prepare(`UPDATE programs SET status = 'published' WHERE status = 'active'`).run();
+
+  // attendance grows from "row exists = checked in" to a real status —
+  // Present/Absent/Late/Cancelled/No-show for Program session attendance
+  // (vendorPrograms.ts). Every existing row (all from the booking/
+  // registration front-door check-in flow in vendorOperations.ts, which
+  // stays binary — a tapped "Check in" always means present) backfills to
+  // 'present', preserving its current meaning exactly.
+  await ensureColumn("attendance", "status", "status VARCHAR(20) NOT NULL DEFAULT 'present'");
 }
 
 export const COUNTY_CENTROIDS: Record<string, { lat: number; lng: number }> = {

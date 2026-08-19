@@ -16,9 +16,17 @@ import {
 } from "../api";
 import { CalendarIcon, PlusIcon, TrashIcon, UsersIcon } from "./icons";
 import { Button, Card, ConfirmDialog, Drawer, EmptyState, inputStyle, labelStyle } from "./ui";
-import { ACTIVITY_CATEGORIES, PROGRAM_STATUSES, SKILL_LEVELS } from "../constants";
+import { ACTIVITY_CATEGORIES, ATTENDANCE_STATUSES, ATTENDANCE_STATUS_LABELS, PROGRAM_STATUSES, SKILL_LEVELS } from "../constants";
 import { colors, fonts } from "../theme";
-import type { Program, ProgramStatus, Room, VendorProgramSummary } from "../types";
+import type { AttendanceStatus, Program, ProgramStatus, Room, VendorProgramSummary } from "../types";
+
+const ATTENDANCE_STATUS_COLORS: Record<AttendanceStatus, { fg: string; bg: string }> = {
+  present: { fg: colors.greenText, bg: colors.greenBg },
+  late: { fg: "#9A6B00", bg: "#FFF3D6" },
+  absent: { fg: colors.orangeDark, bg: colors.orangeBg },
+  no_show: { fg: "#b00020", bg: "#F6E3E3" },
+  cancelled: { fg: colors.muted, bg: colors.panel },
+};
 
 // Program wizard + session/attendance management (Phase B) — the vendor
 // side of the new Activity/Session model. Deliberately a plain create form
@@ -35,7 +43,7 @@ function ProgramManager({ programId, onChanged }: { programId: string; onChanged
   const [sessionInstructor, setSessionInstructor] = useState("");
   const [sessionRoomId, setSessionRoomId] = useState("");
   const [rooms, setRooms] = useState<Room[]>([]);
-  const [attendance, setAttendance] = useState<Record<string, string[]>>({});
+  const [attendance, setAttendance] = useState<Record<string, Record<string, AttendanceStatus>>>({});
   const [error, setError] = useState<string | null>(null);
   const [statusSaving, setStatusSaving] = useState(false);
   const [confirmingSessionId, setConfirmingSessionId] = useState<string | null>(null);
@@ -98,14 +106,16 @@ function ProgramManager({ programId, onChanged }: { programId: string; onChanged
   };
 
   const loadAttendance = async (sessionId: string) => {
-    const ids = await fetchSessionAttendance(programId, sessionId);
-    setAttendance((a) => ({ ...a, [sessionId]: ids }));
+    const rows = await fetchSessionAttendance(programId, sessionId);
+    const byEnrollment: Record<string, AttendanceStatus> = {};
+    for (const r of rows) byEnrollment[r.enrollmentId] = r.status;
+    setAttendance((a) => ({ ...a, [sessionId]: byEnrollment }));
   };
 
-  const toggleAttendance = async (sessionId: string, enrollmentId: number) => {
+  const setAttendanceStatus = async (sessionId: string, enrollmentId: number, status: AttendanceStatus) => {
     setError(null);
     try {
-      await markSessionAttendance(sessionId, enrollmentId);
+      await markSessionAttendance(sessionId, enrollmentId, status);
       loadAttendance(sessionId);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Couldn't mark attendance");
@@ -167,14 +177,38 @@ function ProgramManager({ programId, onChanged }: { programId: string; onChanged
               </div>
             </div>
             {attendance[s.id] && (
-              <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 6 }}>
+              <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 8 }}>
                 {enrollments.map((e) => {
-                  const checked = attendance[s.id].includes(String(e.id));
+                  const status = attendance[s.id][String(e.id)];
                   return (
-                    <label key={e.id} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13 }}>
-                      <input type="checkbox" checked={checked} onChange={() => !checked && toggleAttendance(s.id, e.id)} disabled={checked} style={{ accentColor: colors.green }} />
-                      {e.participantName}
-                    </label>
+                    <div key={e.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+                      <span style={{ fontSize: 13 }}>{e.participantName}</span>
+                      <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
+                        {ATTENDANCE_STATUSES.map((st) => {
+                          const active = status === st;
+                          const palette = ATTENDANCE_STATUS_COLORS[st];
+                          return (
+                            <button
+                              key={st}
+                              onClick={() => setAttendanceStatus(s.id, e.id, st)}
+                              disabled={active}
+                              style={{
+                                border: "none",
+                                borderRadius: 999,
+                                padding: "3px 9px",
+                                fontSize: 11,
+                                fontWeight: 700,
+                                cursor: active ? "default" : "pointer",
+                                background: active ? palette.bg : colors.panel,
+                                color: active ? palette.fg : colors.muted,
+                              }}
+                            >
+                              {ATTENDANCE_STATUS_LABELS[st]}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
                   );
                 })}
                 {enrollments.length === 0 && <span style={{ fontSize: 12.5, color: colors.faint }}>No enrollments yet.</span>}

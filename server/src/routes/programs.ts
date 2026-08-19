@@ -33,14 +33,21 @@ interface ProgramRow {
 }
 
 async function toProgramJson(row: ProgramRow) {
+  // rooms.id is only unique per-centre (PRIMARY KEY (centre_id, id)) — a
+  // room_id-only join can match another centre's room that happens to
+  // share the same id. A program session's room only ever belongs to its
+  // own centre-attached program (vendorPrograms.ts rejects a roomId on a
+  // club-attached one), so scope by row.listing_id when applicable; ''
+  // never matches a real centre_id, so a club-attached program's (always
+  // room_id-less) sessions are unaffected.
   const sessions = await db
     .prepare(
       `SELECT ps.id, ps.date, ps.time, ps.duration_minutes as durationMinutes, ps.capacity, ps.status,
               ps.instructor_name as instructorName, ps.room_id as roomId, r.name as roomName
-       FROM program_sessions ps LEFT JOIN rooms r ON r.id = ps.room_id
+       FROM program_sessions ps LEFT JOIN rooms r ON r.id = ps.room_id AND r.centre_id = ?
        WHERE ps.program_id = ? AND ps.status != 'cancelled' ORDER BY ps.date, ps.time`
     )
-    .all(row.id);
+    .all(row.listing_type === "centre" ? row.listing_id : "", row.id);
   const { n: enrolled } = (await db
     .prepare(`SELECT COUNT(*) as n FROM program_enrollments WHERE program_id = ? AND payment_status = 'paid' AND status != 'cancelled'`)
     .get(row.id)) as { n: number };
@@ -172,6 +179,35 @@ programsRouter.post("/:id/enroll", async (req, res) => {
 
   await db.prepare(`UPDATE program_enrollments SET stripe_session_id = ? WHERE ref = ?`).run(result.session.id, ref);
   res.status(201).json({ ref, url: result.session.url, totalEuro: pricing.totalCents / 100 });
+});
+
+// Every program enrollment under this device's client_id or (if signed in)
+// this resident's email — same OR-matched ownership pattern as GET /
+// on bookings.ts/registrations.ts, since program_enrollments supports pure
+// guest checkout the same way those do.
+programsRouter.get("/enrollments/mine", async (req, res) => {
+  let clientId: string;
+  try {
+    clientId = clientIdFrom(req);
+  } catch (e) {
+    if (e instanceof BadRequestError) return res.status(400).json({ error: e.message });
+    throw e;
+  }
+  const rows = await db
+    .prepare(
+      `SELECT pe.ref, pe.program_id as programId, pe.participant_name as participantName, pe.total_cents as totalCents,
+              pe.status, pe.payment_status as paymentStatus, pe.created_at as createdAt,
+              p.title, p.image_url as imageUrl, p.listing_type as listingType,
+              COALESCE(c.name, cl.name) as listingName
+       FROM program_enrollments pe
+       JOIN programs p ON p.id = pe.program_id
+       LEFT JOIN centres c ON p.listing_type = 'centre' AND c.id = p.listing_id
+       LEFT JOIN clubs cl ON p.listing_type = 'club' AND cl.id = p.listing_id
+       WHERE (pe.client_id = ? OR (pe.resident_id IS NOT NULL AND pe.resident_id = ?)) AND pe.payment_status = 'paid'
+       ORDER BY pe.created_at DESC`
+    )
+    .all(clientId, req.resident?.id ?? "");
+  res.json(rows);
 });
 
 programsRouter.get("/enrollments/status/:ref", async (req, res) => {

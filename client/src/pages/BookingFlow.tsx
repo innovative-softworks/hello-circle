@@ -95,12 +95,12 @@ export function BookingFlow() {
   const isCash = room?.paymentMethod === "cash";
 
   useEffect(() => {
-    if (roomId) fetchAvailabilityRange(roomId, toIso(new Date()), 62).then((r) => setClosedDates(new Set(r.closedDates)));
-  }, [roomId]);
+    if (centreId && roomId) fetchAvailabilityRange(centreId, roomId, toIso(new Date()), 62).then((r) => setClosedDates(new Set(r.closedDates)));
+  }, [centreId, roomId]);
 
   useEffect(() => {
-    if (roomId && form.date) {
-      fetchAvailability(roomId, form.date, form.duration).then((r) => {
+    if (centreId && roomId && form.date) {
+      fetchAvailability(centreId, roomId, form.date, form.duration).then((r) => {
         setBookedTimes(r.bookedTimes);
         setDaySlots(r.slots);
         setDayClosed(r.closed);
@@ -110,7 +110,7 @@ export function BookingFlow() {
         setForm((f) => (f.time && r.bookedTimes.includes(f.time) ? { ...f, time: null } : f));
       });
     }
-  }, [roomId, form.date, form.duration]);
+  }, [centreId, roomId, form.date, form.duration]);
 
   // Venues are in Ireland, so "today" should be Ireland's calendar date even
   // if a guest happens to be browsing from a different timezone — not the

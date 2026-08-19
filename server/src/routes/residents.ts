@@ -1,8 +1,30 @@
 import { Router } from "express";
 import { db } from "../db/index.js";
+import { listResidentParticipation } from "../db/queries.js";
 import { requireResident, updateResident } from "../residents.js";
+import { BadRequestError, clientIdFrom } from "../util.js";
 
 export const residentsRouter = Router();
+
+// Everything this person has done or is doing, across all 5 participation
+// tables — the shared foundation Phase 0's per-type "mine" endpoints
+// didn't need (they render rich, type-specific rows) but later
+// aggregate-only consumers do (MyStuffContext's nav badge today; My Life/
+// Participation Passport/My Places later — see the implementation plan).
+// Guest-friendly like bookings/registrations/programs' own endpoints —
+// games/circles simply come back empty for a signed-out visitor, since
+// those always required a resident account to join in the first place.
+residentsRouter.get("/me/participation", async (req, res) => {
+  let clientId: string;
+  try {
+    clientId = clientIdFrom(req);
+  } catch (e) {
+    if (e instanceof BadRequestError) return res.status(400).json({ error: e.message });
+    throw e;
+  }
+  const items = await listResidentParticipation(clientId, req.guestEmail ?? null, req.resident?.id ?? null);
+  res.json(items);
+});
 
 residentsRouter.get("/me", async (req, res) => {
   if (!req.resident) return res.json({ resident: null });

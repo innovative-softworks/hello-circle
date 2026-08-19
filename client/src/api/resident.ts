@@ -4,6 +4,7 @@ import type {
   Favourite,
   Game,
   HouseholdMember,
+  ParticipationEntry,
   Pass,
   Receipt,
   Resident,
@@ -55,6 +56,14 @@ export function fetchResidentNotifications(): Promise<ResidentNotification[]> {
 
 export function markResidentNotificationRead(id: number): Promise<{ ok: boolean }> {
   return request(`/residents/me/notifications/${id}/read`, { method: "POST" });
+}
+
+/** Everything this person has done or is doing — bookings, registrations,
+ * program enrollments, games, circles — in one normalized list. Guest-
+ * friendly like fetchMyBookings/fetchMyRegistrations (games/circles just
+ * come back empty when signed out). */
+export function fetchMyParticipation(): Promise<ParticipationEntry[]> {
+  return request(`/residents/me/participation`);
 }
 
 // --- household (MVP) ---------------------------------------------------
@@ -113,6 +122,12 @@ export function fetchGame(id: string): Promise<Game> {
   return request(`/games/${id}`);
 }
 
+/** Every game this resident is hosting or has joined — distinct from
+ * fetchGames(), the public "what's open" list. */
+export function fetchMyGames(): Promise<Game[]> {
+  return request(`/games/mine`);
+}
+
 export interface CreateGameInput {
   activityLabel: string;
   centreId?: string;
@@ -159,6 +174,12 @@ export function fetchCircles(county?: string): Promise<Circle[]> {
 
 export function fetchCircle(id: string): Promise<Circle> {
   return request(`/circles/${id}`);
+}
+
+/** Every circle this resident belongs to — distinct from fetchCircles(),
+ * the public browse list. */
+export function fetchMyCircles(): Promise<Circle[]> {
+  return request(`/circles/mine`);
 }
 
 export function fetchCircleUpcoming(id: string): Promise<{ id: string; activityLabel: string; date: string; time: string }[]> {

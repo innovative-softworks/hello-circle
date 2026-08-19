@@ -73,6 +73,23 @@ gamesRouter.get("/", async (req, res) => {
   res.json(await Promise.all(rows.map(toGameJson)));
 });
 
+// Every game this resident is hosting or has joined — the host is always
+// also a participant row (see POST / below), so one query covers both.
+// Distinct from GET / (public "what's open" list), which only ever shows
+// status='open' games — this shows the resident's own history regardless
+// of status, so a cancelled game they were in still appears.
+gamesRouter.get("/mine", requireResident, async (req, res) => {
+  const rows = (await db
+    .prepare(
+      `SELECT g.* FROM games g
+       JOIN game_participants gp ON gp.game_id = g.id
+       WHERE gp.resident_id = ? AND gp.status = 'joined'
+       ORDER BY g.date DESC, g.time DESC`
+    )
+    .all(req.resident!.id)) as GameRow[];
+  res.json(await Promise.all(rows.map(toGameJson)));
+});
+
 gamesRouter.get("/:id", async (req, res) => {
   const row = (await db.prepare(`SELECT * FROM games WHERE id = ?`).get(req.params.id)) as GameRow | undefined;
   if (!row) return res.status(404).json({ error: "Game not found" });

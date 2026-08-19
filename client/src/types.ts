@@ -105,6 +105,30 @@ export interface MyRegistration {
   status: BookingStatus;
 }
 
+export interface ParticipationEntry {
+  kind: "booking" | "registration" | "program_enrollment" | "game" | "circle";
+  ref: string;
+  title: string;
+  subtitle: string;
+  date: string;
+  status: string;
+  href: string;
+}
+
+export interface MyProgramEnrollment {
+  ref: string;
+  programId: string;
+  participantName: string;
+  totalCents: number;
+  status: string;
+  paymentStatus: string;
+  createdAt: string;
+  title: string;
+  imageUrl: string;
+  listingType: "centre" | "club";
+  listingName: string;
+}
+
 export interface VendorNotification {
   id: number;
   kind: "booking" | "registration";
@@ -317,6 +341,9 @@ export interface SearchResult {
   parsed: SearchParsed | null;
   centres: Centre[];
   clubs: Club[];
+  /** Games/program sessions/club sessions matching the query (Phase 6) —
+   * same shape as the homepage discovery feed's DiscoverItem below. */
+  activities: DiscoverItem[];
 }
 
 // --- homepage discovery feeds (Phase 5) ---------------------------------
@@ -438,6 +465,13 @@ export interface ProgramSession {
 }
 
 export type ProgramStatus = "draft" | "published" | "paused" | "archived";
+
+export type AttendanceStatus = "present" | "absent" | "late" | "cancelled" | "no_show";
+
+export interface SessionAttendanceEntry {
+  enrollmentId: string;
+  status: AttendanceStatus;
+}
 
 export interface Program {
   id: string;

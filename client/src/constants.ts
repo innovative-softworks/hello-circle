@@ -29,3 +29,11 @@ export const ACTIVITY_CATEGORIES = [
 ];
 export const SKILL_LEVELS = ["All levels", "Beginner", "Intermediate", "Advanced"];
 export const PROGRAM_STATUSES = ["draft", "published", "paused", "archived"] as const;
+export const ATTENDANCE_STATUSES = ["present", "absent", "late", "cancelled", "no_show"] as const;
+export const ATTENDANCE_STATUS_LABELS: Record<(typeof ATTENDANCE_STATUSES)[number], string> = {
+  present: "Present",
+  absent: "Absent",
+  late: "Late",
+  cancelled: "Cancelled",
+  no_show: "No-show",
+};

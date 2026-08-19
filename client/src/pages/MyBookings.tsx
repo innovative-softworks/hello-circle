@@ -10,7 +10,10 @@ import {
   fetchFeedbackStatus,
   fetchHousehold,
   fetchMyBookings,
+  fetchMyCircles,
+  fetchMyGames,
   fetchMyPasses,
+  fetchMyProgramEnrollments,
   fetchMyRegistrations,
   fetchReceipts,
   fetchResidentFull,
@@ -36,7 +39,7 @@ import { dateLabel, euro } from "../euro";
 import { useGuest } from "../GuestContext";
 import { colors, fonts } from "../theme";
 import { ACCESSIBILITY_OPTIONS } from "../types";
-import type { Favourite, HouseholdMember, MyBooking, MyRegistration, NotificationPrefs, Pass, Receipt, ResidentNotification, WaitlistOfferStatus } from "../types";
+import type { Circle, Favourite, Game, HouseholdMember, MyBooking, MyProgramEnrollment, MyRegistration, NotificationPrefs, Pass, Receipt, ResidentNotification, WaitlistOfferStatus } from "../types";
 
 const cancelledBadgeStyle: React.CSSProperties = { fontSize: 11, fontWeight: 700, color: "#b00020", background: "#F6E3E3", borderRadius: 999, padding: "2px 8px" };
 const recoveredBadgeStyle: React.CSSProperties = { fontSize: 11, fontWeight: 700, color: colors.greenText, background: colors.greenBg, borderRadius: 999, padding: "2px 8px" };
@@ -246,6 +249,88 @@ function RegistrationRow({
         </div>
       </div>
       {!cancelled && <WaitlistOfferBanner clubId={registration.clubId} />}
+    </div>
+  );
+}
+
+// Read-only rows for games/circles/program enrollments — Phase 0 is about
+// making these visible at all (they were previously invisible in a
+// resident's own history), not about inline management. Leave/cancel
+// already exists on each item's own detail page.
+function GameRow({ game }: { game: Game }) {
+  const navigate = useNavigate();
+  const cancelled = game.status === "cancelled";
+  return (
+    <div
+      onClick={() => navigate(`/games/${game.id}`)}
+      style={{ background: "#fff", border: `1px solid ${colors.border}`, borderRadius: 16, padding: "18px 20px", opacity: cancelled ? 0.6 : 1, cursor: "pointer" }}
+    >
+      <div style={{ display: "flex", alignItems: "center", gap: 18 }}>
+        <div style={{ width: 52, height: 52, borderRadius: 12, background: colors.greenBg, flex: "none", display: "flex", alignItems: "center", justifyContent: "center", color: colors.greenText, fontWeight: 700, fontSize: 18 }}>
+          {game.activityLabel.charAt(0)}
+        </div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+            <span style={{ fontWeight: 700, fontSize: 16 }}>{game.activityLabel}</span>
+            {cancelled && <span style={cancelledBadgeStyle}>Cancelled</span>}
+          </div>
+          <div style={{ color: colors.mutedLight, fontSize: 14 }}>
+            {dateLabel(game.date)} · {game.time}{game.centreName ? ` · ${game.centreName}` : game.locationText ? ` · ${game.locationText}` : ""}
+          </div>
+        </div>
+        <ChevronRightIcon size={16} style={{ flex: "none", color: colors.faint }} />
+      </div>
+    </div>
+  );
+}
+
+function CircleRow({ circle }: { circle: Circle }) {
+  const navigate = useNavigate();
+  return (
+    <div
+      onClick={() => navigate(`/circles/${circle.id}`)}
+      style={{ background: "#fff", border: `1px solid ${colors.border}`, borderRadius: 16, padding: "18px 20px", cursor: "pointer" }}
+    >
+      <div style={{ display: "flex", alignItems: "center", gap: 18 }}>
+        <div style={{ width: 52, height: 52, borderRadius: 12, background: colors.orangeBg, flex: "none", display: "flex", alignItems: "center", justifyContent: "center", color: colors.orangeDark, fontWeight: 700, fontSize: 18 }}>
+          {circle.name.charAt(0)}
+        </div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontWeight: 700, fontSize: 16 }}>{circle.name}</div>
+          <div style={{ color: colors.mutedLight, fontSize: 14 }}>
+            {circle.members} member{circle.members === 1 ? "" : "s"}{circle.area ? ` · ${circle.area}` : ""}
+          </div>
+        </div>
+        <ChevronRightIcon size={16} style={{ flex: "none", color: colors.faint }} />
+      </div>
+    </div>
+  );
+}
+
+function ProgramEnrollmentRow({ enrollment }: { enrollment: MyProgramEnrollment }) {
+  const navigate = useNavigate();
+  const cancelled = enrollment.status === "cancelled";
+  return (
+    <div
+      onClick={() => navigate(`/programs/${enrollment.programId}`)}
+      style={{ background: "#fff", border: `1px solid ${colors.border}`, borderRadius: 16, padding: "18px 20px", opacity: cancelled ? 0.6 : 1, cursor: "pointer" }}
+    >
+      <div style={{ display: "flex", alignItems: "center", gap: 18 }}>
+        <Photo src={enrollment.imageUrl} alt={enrollment.title} ph={colors.panel} style={{ width: 52, height: 52, borderRadius: 12, overflow: "hidden", flex: "none" }} />
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+            <span style={{ fontWeight: 700, fontSize: 16 }}>{enrollment.title}</span>
+            {cancelled && <span style={cancelledBadgeStyle}>Cancelled</span>}
+          </div>
+          <div style={{ color: colors.mutedLight, fontSize: 14 }}>
+            {enrollment.participantName} · {enrollment.listingName}
+          </div>
+        </div>
+        <div style={{ textAlign: "right", flex: "none" }}>
+          <div style={{ fontWeight: 700 }}>{enrollment.totalCents ? euro(enrollment.totalCents / 100) : "Free"}</div>
+          <div style={{ fontSize: 12, color: colors.faint }}>{enrollment.ref}</div>
+        </div>
+      </div>
     </div>
   );
 }
@@ -627,6 +712,9 @@ export function MyBookings() {
   const [tab, setTab] = useState<MyStuffTab>("bookings");
   const [bookings, setBookings] = useState<MyBooking[]>([]);
   const [regs, setRegs] = useState<MyRegistration[]>([]);
+  const [games, setGames] = useState<Game[]>([]);
+  const [circles, setCircles] = useState<Circle[]>([]);
+  const [programEnrollments, setProgramEnrollments] = useState<MyProgramEnrollment[]>([]);
   const [loading, setLoading] = useState(true);
   const [cancellingRef, setCancellingRef] = useState<string | null>(null);
   const [cancelErrors, setCancelErrors] = useState<Record<string, string>>({});
@@ -647,7 +735,16 @@ export function MyBookings() {
 
   const loadMyStuff = () => {
     setLoading(true);
-    return Promise.all([fetchMyBookings().then(setBookings), fetchMyRegistrations().then(setRegs)]).then(() => setLoading(false));
+    return Promise.all([
+      fetchMyBookings().then(setBookings),
+      fetchMyRegistrations().then(setRegs),
+      fetchMyProgramEnrollments().then(setProgramEnrollments),
+      // Games/Circles require a signed-in resident (join/membership always
+      // did) — a pure guest gets a 403 here, so fall back to empty rather
+      // than let it reject the whole Promise.all.
+      fetchMyGames().then(setGames).catch(() => setGames([])),
+      fetchMyCircles().then(setCircles).catch(() => setCircles([])),
+    ]).then(() => setLoading(false));
   };
 
   useEffect(() => {
@@ -714,7 +811,7 @@ export function MyBookings() {
     await loadMyStuff();
   };
 
-  const hasNone = !loading && bookings.length === 0 && regs.length === 0;
+  const hasNone = !loading && bookings.length === 0 && regs.length === 0 && games.length === 0 && circles.length === 0 && programEnrollments.length === 0;
 
   const handleCancelBooking = async (ref: string, email?: string) => {
     setCancellingRef(ref);
@@ -934,7 +1031,7 @@ export function MyBookings() {
             <h2 style={{ fontSize: 15, fontWeight: 700, color: colors.muted, margin: "0 0 12px", letterSpacing: ".02em" }}>
               CLUB REGISTRATIONS
             </h2>
-            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: 12, marginBottom: 32 }}>
               {regs.map((r) => (
                 <RegistrationRow
                   key={r.ref}
@@ -943,6 +1040,42 @@ export function MyBookings() {
                   cancelling={cancellingRef === r.ref}
                   error={cancelErrors[r.ref]}
                 />
+              ))}
+            </div>
+          </>
+        )}
+        {programEnrollments.length > 0 && (
+          <>
+            <h2 style={{ fontSize: 15, fontWeight: 700, color: colors.muted, margin: "0 0 12px", letterSpacing: ".02em" }}>
+              PROGRAMS
+            </h2>
+            <div style={{ display: "flex", flexDirection: "column", gap: 12, marginBottom: 32 }}>
+              {programEnrollments.map((e) => (
+                <ProgramEnrollmentRow key={e.ref} enrollment={e} />
+              ))}
+            </div>
+          </>
+        )}
+        {games.length > 0 && (
+          <>
+            <h2 style={{ fontSize: 15, fontWeight: 700, color: colors.muted, margin: "0 0 12px", letterSpacing: ".02em" }}>
+              GAMES
+            </h2>
+            <div style={{ display: "flex", flexDirection: "column", gap: 12, marginBottom: 32 }}>
+              {games.map((g) => (
+                <GameRow key={g.id} game={g} />
+              ))}
+            </div>
+          </>
+        )}
+        {circles.length > 0 && (
+          <>
+            <h2 style={{ fontSize: 15, fontWeight: 700, color: colors.muted, margin: "0 0 12px", letterSpacing: ".02em" }}>
+              CIRCLES
+            </h2>
+            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              {circles.map((c) => (
+                <CircleRow key={c.id} circle={c} />
               ))}
             </div>
           </>

@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
-import { fetchMyBookings, fetchMyRegistrations } from "./api";
+import { fetchMyParticipation } from "./api";
 
 interface MyStuffContextValue {
   count: number;
@@ -11,9 +11,12 @@ const MyStuffContext = createContext<MyStuffContextValue>({ count: 0, refresh: (
 export function MyStuffProvider({ children }: { children: ReactNode }) {
   const [count, setCount] = useState(0);
 
+  // Previously only counted bookings+registrations — the same games/
+  // circles/programs blind spot Phase 0 fixed for the list view (see
+  // MyBookings.tsx), now fixed here too via the shared unified query.
   const refresh = useCallback(() => {
-    Promise.all([fetchMyBookings(), fetchMyRegistrations()])
-      .then(([bookings, regs]) => setCount(bookings.length + regs.length))
+    fetchMyParticipation()
+      .then((items) => setCount(items.length))
       .catch(() => {});
   }, []);
 

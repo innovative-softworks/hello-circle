@@ -29,6 +29,7 @@ interface ProgramInput {
 }
 
 const PROGRAM_STATUSES = ["draft", "published", "paused", "archived"];
+const ATTENDANCE_STATUSES = ["present", "absent", "late", "cancelled", "no_show"];
 
 vendorProgramsRouter.get("/programs", async (req, res) => {
   const ids = req.vendorIds!;
@@ -182,26 +183,38 @@ vendorProgramsRouter.get("/programs/:id/enrollments", async (req, res) => {
   res.json(rows);
 });
 
-// Per-session attendance (Phase B) — reuses the generic attendance table
-// from Tier 3's manual check-in (vendorOperations.ts), keyed by a
+// Per-session attendance (Phase B/Phase 10) — reuses the generic attendance
+// table from Tier 3's manual check-in (vendorOperations.ts), keyed by a
 // composite ref rather than a new table, since the shape (kind, ref,
-// checked_in_at, checked_in_by) already fits exactly.
+// checked_in_at, checked_in_by, status) already fits exactly. `status` is a
+// real Present/Absent/Late/Cancelled/No-show value here — distinct from the
+// booking/registration check-in flow, which stays a simple binary tap and
+// always writes 'present' (see vendorOperations.ts's checkInBooking).
 vendorProgramsRouter.post("/program-sessions/:sessionId/attendance/:enrollmentId", async (req, res) => {
   const session = (await db.prepare(`SELECT program_id as programId FROM program_sessions WHERE id = ?`).get(req.params.sessionId)) as { programId: string } | undefined;
   if (!session) return res.status(403).json({ error: "Not your session" });
   const { owns, requiredRole } = await programOwnership(req.vendorIds!, session.programId);
   if (!owns) return res.status(403).json({ error: "Not your session" });
   if (!hasPlatformRole(req.user!, requiredRole!)) return res.status(403).json({ error: "Not authorized for this role" });
+  const status = typeof req.body?.status === "string" ? req.body.status : "present";
+  if (!ATTENDANCE_STATUSES.includes(status)) {
+    return res.status(400).json({ error: `status must be one of: ${ATTENDANCE_STATUSES.join(", ")}` });
+  }
   const ref = `${req.params.sessionId}:${req.params.enrollmentId}`;
   await db
-    .prepare(`INSERT INTO attendance (kind, ref, checked_in_by) VALUES ('program_session', ?, ?) ON DUPLICATE KEY UPDATE checked_in_at = NOW(), checked_in_by = VALUES(checked_in_by)`)
-    .run(ref, req.user!.id);
+    .prepare(
+      `INSERT INTO attendance (kind, ref, checked_in_by, status) VALUES ('program_session', ?, ?, ?)
+       ON DUPLICATE KEY UPDATE checked_in_at = NOW(), checked_in_by = VALUES(checked_in_by), status = VALUES(status)`
+    )
+    .run(ref, req.user!.id, status);
   res.json({ ok: true });
 });
 
 vendorProgramsRouter.get("/programs/:id/sessions/:sessionId/attendance", async (req, res) => {
   const { owns } = await programOwnership(req.vendorIds!, req.params.id);
   if (!owns) return res.status(403).json({ error: "Not your program" });
-  const rows = (await db.prepare(`SELECT ref FROM attendance WHERE kind = 'program_session' AND ref LIKE ?`).all(`${req.params.sessionId}:%`)) as { ref: string }[];
-  res.json(rows.map((r) => r.ref.split(":")[1]));
+  const rows = (await db
+    .prepare(`SELECT ref, status FROM attendance WHERE kind = 'program_session' AND ref LIKE ?`)
+    .all(`${req.params.sessionId}:%`)) as { ref: string; status: string }[];
+  res.json(rows.map((r) => ({ enrollmentId: r.ref.split(":")[1], status: r.status })));
 });

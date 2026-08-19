@@ -36,6 +36,7 @@ import { searchRouter } from "./routes/search.js";
 import { stripeWebhookHandler } from "./routes/stripeWebhook.js";
 import { uploadsRouter } from "./routes/uploads.js";
 import { vendorRouter } from "./routes/vendor.js";
+import { sweepExpiredWaitlistOffers } from "./waitlist.js";
 
 // MySQL access is async, so the schema/seed must finish before the server
 // starts accepting requests — top-level await (supported by this project's
@@ -50,6 +51,15 @@ await seedAdminIfMissing();
 process.on("unhandledRejection", (reason) => {
   console.error("[unhandledRejection]", reason);
 });
+
+// Sweeps waitlist offers whose 48h window has expired without being
+// claimed, promoting the next person in line — run once at startup to
+// catch anything that expired while the server was down, then every 15
+// minutes. Single-instance, in-process, same rationale as rateLimit.ts's
+// in-memory store: no cron infrastructure exists in this app, and this is
+// the simplest thing that works at current scale.
+sweepExpiredWaitlistOffers();
+setInterval(sweepExpiredWaitlistOffers, 15 * 60 * 1000);
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 

@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { search } from "../api";
 import { CentreCard } from "../components/CentreCard";
 import { ClubCard } from "../components/ClubCard";
+import { DiscoverCard } from "../components/DiscoverRow";
 import { SearchIcon } from "../components/icons";
 import { CardSkeleton, EmptyState } from "../components/ui";
 import { colors, fonts, maxWidth } from "../theme";
@@ -122,13 +123,27 @@ export function Search() {
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 18 }}>
                 {Array.from({ length: 6 }, (_, i) => <CardSkeleton key={i} />)}
               </div>
-            ) : result && result.centres.length === 0 && result.clubs.length === 0 ? (
+            ) : result && result.centres.length === 0 && result.clubs.length === 0 && result.activities.length === 0 ? (
               <EmptyState icon={<SearchIcon size={22} />} title="Nothing matched" subtitle="Try a different phrasing, or broaden it — e.g. drop the county." />
             ) : (
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 18 }}>
-                {result?.centres.map((c) => <CentreCard key={c.id} centre={c} />)}
-                {result?.clubs.map((c) => <ClubCard key={c.id} club={c} />)}
-              </div>
+              <>
+                {result && result.activities.length > 0 && (
+                  <div style={{ marginBottom: 28 }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: colors.muted, marginBottom: 12 }}>THINGS TO DO</div>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 18 }}>
+                      {result.activities.map((a) => (
+                        <DiscoverCard key={`${a.kind}-${a.id}`} item={a} isToday={a.date === new Date().toISOString().slice(0, 10)} />
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {result && (result.centres.length > 0 || result.clubs.length > 0) && (
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 18 }}>
+                    {result.centres.map((c) => <CentreCard key={c.id} centre={c} />)}
+                    {result.clubs.map((c) => <ClubCard key={c.id} club={c} />)}
+                  </div>
+                )}
+              </>
             )}
           </>
         )}
