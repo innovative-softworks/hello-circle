@@ -79,8 +79,37 @@ async function reviewStats(listingType: "centre" | "club", listingId: string): P
   return { rating: Math.round(row.avg * 10) / 10, reviews: row.count };
 }
 
+// "Participation Confidence" (implementation plan Phase 2) — a "would you
+// do this again?" percentage instead of/alongside star ratings, computed
+// from the SAME activity_feedback rows the existing post-activity prompt
+// (feedback.ts, MyBookings.tsx's FeedbackPrompt) already collects — no new
+// collection mechanism, just aggregating what's already there. Joined
+// through bookings/registrations by ref since activity_feedback is keyed
+// per-transaction, not per-listing. wouldRepeatPercent is null (not 0)
+// when there's no feedback yet, so the UI can distinguish "nobody's said
+// no" from "nobody's said anything".
+const confidenceStmts = {
+  centre: db.prepare(
+    `SELECT SUM(CASE WHEN af.response = 'yes' THEN 1 ELSE 0 END) as yesCount, COUNT(*) as total
+     FROM activity_feedback af JOIN bookings b ON af.kind = 'booking' AND af.ref = b.ref
+     WHERE b.centre_id = ?`
+  ),
+  club: db.prepare(
+    `SELECT SUM(CASE WHEN af.response = 'yes' THEN 1 ELSE 0 END) as yesCount, COUNT(*) as total
+     FROM activity_feedback af JOIN registrations r ON af.kind = 'registration' AND af.ref = r.ref
+     WHERE r.club_id = ?`
+  ),
+};
+
+async function confidenceStats(listingType: "centre" | "club", listingId: string): Promise<{ wouldRepeatPercent: number | null; wouldRepeatCount: number }> {
+  const row = (await confidenceStmts[listingType].get(listingId)) as { yesCount: number | null; total: number };
+  if (!row.total) return { wouldRepeatPercent: null, wouldRepeatCount: 0 };
+  return { wouldRepeatPercent: Math.round((100 * (row.yesCount ?? 0)) / row.total), wouldRepeatCount: row.total };
+}
+
 async function toCentre(row: CentreRow): Promise<Centre> {
   const { rating, reviews } = await reviewStats("centre", row.id);
+  const { wouldRepeatPercent, wouldRepeatCount } = await confidenceStats("centre", row.id);
   const images = ((await centreImagesStmt.all(row.id)) as { url: string }[]).map((r) => r.url);
   return {
     id: row.id,
@@ -89,6 +118,8 @@ async function toCentre(row: CentreRow): Promise<Centre> {
     county: row.county,
     rating,
     reviews,
+    wouldRepeatPercent,
+    wouldRepeatCount,
     capacity: row.capacity,
     from: row.from_price,
     managedBy: row.managed_by,
@@ -113,6 +144,7 @@ async function toCentre(row: CentreRow): Promise<Centre> {
 
 async function toClub(row: ClubRow): Promise<Club> {
   const { rating, reviews } = await reviewStats("club", row.id);
+  const { wouldRepeatPercent, wouldRepeatCount } = await confidenceStats("club", row.id);
   const images = ((await clubImagesStmt.all(row.id)) as { url: string }[]).map((r) => r.url);
   return {
     id: row.id,
@@ -131,6 +163,8 @@ async function toClub(row: ClubRow): Promise<Club> {
     includes: ((await includesStmt.all(row.id)) as { item: string }[]).map((r) => r.item),
     rating,
     reviews,
+    wouldRepeatPercent,
+    wouldRepeatCount,
     paymentMethod: row.payment_method,
     mapUrl: row.map_url,
     claimed: row.vendor_id !== null,

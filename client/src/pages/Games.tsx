@@ -20,13 +20,20 @@ function GameCard({ game, onJoin, onLeave, joining }: { game: Game; onJoin: () =
     <Card>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
         <div>
-          <button
-            onClick={() => navigate(`/games/${game.id}`)}
-            style={{ background: "none", border: "none", padding: 0, cursor: "pointer", textAlign: "left", fontFamily: fonts.display, fontWeight: 700, fontSize: 18, marginBottom: 4, color: colors.text }}
-          >
-            {game.activityLabel}
-          </button>
-          <div style={{ color: colors.mutedLight, fontSize: 14 }}>{game.centreName ?? game.locationText}</div>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+            <button
+              onClick={() => navigate(`/games/${game.id}`)}
+              style={{ background: "none", border: "none", padding: 0, cursor: "pointer", textAlign: "left", fontFamily: fonts.display, fontWeight: 700, fontSize: 18, color: colors.text }}
+            >
+              {game.activityLabel}
+            </button>
+            {game.soloFriendly && (
+              <span style={{ fontSize: 11, fontWeight: 700, color: colors.greenText, background: colors.greenBg, borderRadius: 999, padding: "2px 8px" }}>
+                Solo friendly
+              </span>
+            )}
+          </div>
+          <div style={{ color: colors.mutedLight, fontSize: 14, marginTop: 4 }}>{game.centreName ?? game.locationText}</div>
         </div>
         {game.priceCents ? (
           <div style={{ fontWeight: 700, color: colors.greenText }}>€{(game.priceCents / 100).toFixed(2)}</div>
@@ -78,7 +85,7 @@ export function Games() {
   const [creating, setCreating] = useState(false);
 
   const [centres, setCentres] = useState<Centre[]>([]);
-  const [form, setForm] = useState({ activityLabel: "", centreId: "", locationText: "", date: "", time: "", capacity: 4, priceCents: "" });
+  const [form, setForm] = useState({ activityLabel: "", centreId: "", locationText: "", date: "", time: "", capacity: 4, priceCents: "", soloFriendly: false });
   const [createError, setCreateError] = useState<string | null>(null);
 
   const load = () => {
@@ -130,8 +137,9 @@ export function Games() {
         time: form.time,
         capacity: form.capacity,
         priceCents: form.priceCents ? Math.round(parseFloat(form.priceCents) * 100) : undefined,
+        soloFriendly: form.soloFriendly,
       });
-      setForm({ activityLabel: "", centreId: "", locationText: "", date: "", time: "", capacity: 4, priceCents: "" });
+      setForm({ activityLabel: "", centreId: "", locationText: "", date: "", time: "", capacity: 4, priceCents: "", soloFriendly: false });
       load();
     } catch (e) {
       setCreateError(e instanceof Error ? e.message : "Couldn't create this game");
@@ -194,6 +202,10 @@ export function Games() {
                 <input value={form.priceCents} onChange={(e) => setForm((f) => ({ ...f, priceCents: e.target.value }))} placeholder="e.g. 5" style={inputStyle} />
               </div>
             </div>
+            <label style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 12, fontSize: 13.5, color: colors.muted, cursor: "pointer" }}>
+              <input type="checkbox" checked={form.soloFriendly} onChange={(e) => setForm((f) => ({ ...f, soloFriendly: e.target.checked }))} />
+              Solo friendly — welcome someone who doesn't have a partner or group
+            </label>
             {createError && <p style={{ color: "#b00020", fontSize: 13, margin: "12px 0 0" }}>{createError}</p>}
             <div style={{ marginTop: 14 }}>
               <Button onClick={handleCreate} disabled={creating}>

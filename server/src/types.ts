@@ -18,6 +18,10 @@ export interface Centre {
   county: string;
   rating: number;
   reviews: number;
+  /** "Would you do this again?" percentage from activity_feedback, joined
+   * through this listing's bookings — null when nobody's answered yet. */
+  wouldRepeatPercent: number | null;
+  wouldRepeatCount: number;
   capacity: number;
   from: number;
   managedBy: string;
@@ -56,6 +60,10 @@ export interface Club {
   includes: string[];
   rating: number;
   reviews: number;
+  /** "Would you do this again?" percentage from activity_feedback, joined
+   * through this listing's registrations — null when nobody's answered yet. */
+  wouldRepeatPercent: number | null;
+  wouldRepeatCount: number;
   paymentMethod: PaymentMethod;
   mapUrl: string;
   claimed: boolean;

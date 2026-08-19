@@ -143,6 +143,12 @@ export function ClubDetail() {
               <span style={{ color: colors.faint }}>({club.reviews} reviews)</span>
             </div>
           )}
+          {club.wouldRepeatPercent !== null && (
+            <div style={{ display: "inline-flex", alignItems: "center", gap: 6, background: colors.greenBg, color: colors.greenText, borderRadius: 999, padding: "5px 12px", fontSize: 13, fontWeight: 700, marginBottom: 14 }}>
+              {club.wouldRepeatPercent}% would do this again
+              <span style={{ fontWeight: 500, color: colors.muted }}>({club.wouldRepeatCount})</span>
+            </div>
+          )}
           <p style={{ fontSize: 16, lineHeight: 1.6, color: "#3B423C", margin: "0 0 28px" }}>{club.blurb}</p>
           <h3 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 20, margin: "0 0 12px", letterSpacing: "-.01em" }}>
             What's included

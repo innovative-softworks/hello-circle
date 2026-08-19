@@ -24,6 +24,7 @@ interface GameRow {
   visibility: string;
   status: string;
   created_at: string;
+  solo_friendly: number;
 }
 
 async function toGameJson(row: GameRow) {
@@ -50,6 +51,7 @@ async function toGameJson(row: GameRow) {
     visibility: row.visibility,
     status: row.status,
     createdAt: row.created_at,
+    soloFriendly: !!row.solo_friendly,
   };
 }
 
@@ -149,6 +151,7 @@ interface CreateGameInput {
   capacity: number;
   priceCents?: number;
   visibility?: "public" | "circle" | "invite";
+  soloFriendly?: boolean;
 }
 
 gamesRouter.post("/", requireResident, async (req, res) => {
@@ -164,8 +167,8 @@ gamesRouter.post("/", requireResident, async (req, res) => {
   await db.transaction(async (tx) => {
     await tx
       .prepare(
-        `INSERT INTO games (id, host_resident_id, activity_label, centre_id, location_text, date, time, skill_level, capacity, price_cents, visibility)
-         VALUES (@id, @hostResidentId, @activityLabel, @centreId, @locationText, @date, @time, @skillLevel, @capacity, @priceCents, @visibility)`
+        `INSERT INTO games (id, host_resident_id, activity_label, centre_id, location_text, date, time, skill_level, capacity, price_cents, visibility, solo_friendly)
+         VALUES (@id, @hostResidentId, @activityLabel, @centreId, @locationText, @date, @time, @skillLevel, @capacity, @priceCents, @visibility, @soloFriendly)`
       )
       .run({
         id,
@@ -179,6 +182,7 @@ gamesRouter.post("/", requireResident, async (req, res) => {
         capacity: b.capacity,
         priceCents: b.priceCents ?? null,
         visibility: b.visibility ?? "public",
+        soloFriendly: b.soloFriendly ? 1 : 0,
       });
     // The host is automatically a participant — they take one of the capacity spots.
     await tx.prepare(`INSERT INTO game_participants (game_id, resident_id) VALUES (?, ?)`).run(id, req.resident!.id);

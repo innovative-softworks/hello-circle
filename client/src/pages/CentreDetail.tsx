@@ -104,6 +104,12 @@ export function CentreDetail() {
             )}
             <span style={{ color: colors.faint }}>up to {centre.capacity} guests</span>
           </div>
+          {centre.wouldRepeatPercent !== null && (
+            <div style={{ display: "inline-flex", alignItems: "center", gap: 6, background: colors.greenBg, color: colors.greenText, borderRadius: 999, padding: "5px 12px", fontSize: 13, fontWeight: 700, marginBottom: 10 }}>
+              {centre.wouldRepeatPercent}% would do this again
+              <span style={{ fontWeight: 500, color: colors.muted }}>({centre.wouldRepeatCount})</span>
+            </div>
+          )}
           <h1 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: "clamp(26px, 5vw, 36px)", margin: "0 0 4px", letterSpacing: "-.025em", display: "flex", alignItems: "center", gap: 10 }}>
             {centre.name}
             <button

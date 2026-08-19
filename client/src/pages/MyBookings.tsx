@@ -221,6 +221,11 @@ function RegistrationRow({
   recovered?: boolean;
 }) {
   const cancelled = registration.status === "cancelled";
+  // Registrations are ongoing membership, not a single dated event like a
+  // booking — there's no "the event has passed" moment to gate on, so
+  // approximate it: enough time since sign-up that they've likely attended
+  // at least one session.
+  const enoughTimeSinceSignup = Date.now() - new Date(registration.createdAt).getTime() > 14 * 24 * 60 * 60 * 1000;
   return (
     <div style={{ background: "#fff", border: `1px solid ${colors.border}`, borderRadius: 16, padding: "18px 20px", opacity: cancelled ? 0.6 : 1 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 18 }}>
@@ -249,6 +254,11 @@ function RegistrationRow({
         </div>
       </div>
       {!cancelled && <WaitlistOfferBanner clubId={registration.clubId} />}
+      {!cancelled && enoughTimeSinceSignup && (
+        <div style={{ marginTop: 12, paddingTop: 12, borderTop: `1px solid ${colors.border}` }}>
+          <FeedbackPrompt kind="registration" reference={registration.ref} />
+        </div>
+      )}
     </div>
   );
 }

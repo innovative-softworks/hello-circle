@@ -76,7 +76,14 @@ export function GameDetail() {
         <Card>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, marginBottom: 14 }}>
             <div>
-              <h1 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 26, margin: "0 0 4px", letterSpacing: "-.01em" }}>{game.activityLabel}</h1>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                <h1 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 26, margin: "0 0 4px", letterSpacing: "-.01em" }}>{game.activityLabel}</h1>
+                {game.soloFriendly && (
+                  <span style={{ fontSize: 12, fontWeight: 700, color: colors.greenText, background: colors.greenBg, borderRadius: 999, padding: "3px 10px", marginBottom: 4 }}>
+                    Solo friendly
+                  </span>
+                )}
+              </div>
               <div style={{ display: "flex", alignItems: "center", gap: 6, color: colors.mutedLight, fontSize: 14.5 }}>
                 <PinIcon size={14} /> {game.centreName ?? game.locationText}
               </div>

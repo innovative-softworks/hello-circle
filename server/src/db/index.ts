@@ -964,6 +964,13 @@ export async function initSchema() {
   // stays binary — a tapped "Check in" always means present) backfills to
   // 'present', preserving its current meaning exactly.
   await ensureColumn("attendance", "status", "status VARCHAR(20) NOT NULL DEFAULT 'present'");
+
+  // Solo-friendly (implementation plan Phase 2) — an explicit signal that a
+  // game welcomes someone who doesn't already have a partner/group, set by
+  // the host at creation time. Games only for now (the clearest fit —
+  // "come alone" concern maps directly onto a pickup game); programs/club
+  // sessions can grow this later if it proves useful there too.
+  await ensureColumn("games", "solo_friendly", "solo_friendly TINYINT NOT NULL DEFAULT 0");
 }
 
 export const COUNTY_CENTROIDS: Record<string, { lat: number; lng: number }> = {

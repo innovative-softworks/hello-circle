@@ -138,6 +138,7 @@ export interface CreateGameInput {
   capacity: number;
   priceCents?: number;
   visibility?: "public" | "circle" | "invite";
+  soloFriendly?: boolean;
 }
 
 export function createGame(input: CreateGameInput): Promise<Game> {

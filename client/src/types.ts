@@ -18,6 +18,9 @@ export interface Centre {
   county: string;
   rating: number;
   reviews: number;
+  /** "Would you do this again?" — null when nobody's answered yet. */
+  wouldRepeatPercent: number | null;
+  wouldRepeatCount: number;
   capacity: number;
   from: number;
   managedBy: string;
@@ -65,6 +68,9 @@ export interface Club {
   includes: string[];
   rating: number;
   reviews: number;
+  /** "Would you do this again?" — null when nobody's answered yet. */
+  wouldRepeatPercent: number | null;
+  wouldRepeatCount: number;
   paymentMethod: PaymentMethod;
   mapUrl: string;
   claimed: boolean;
@@ -281,6 +287,9 @@ export interface Game {
   visibility: string;
   status: string;
   createdAt: string;
+  /** Set by the host at creation — signals the game welcomes someone
+   * without an existing partner/group (implementation plan Phase 2). */
+  soloFriendly: boolean;
   /** Only present on the single-game detail fetch, not the list. */
   joinedByMe?: boolean;
   waitlistedByMe?: boolean;
