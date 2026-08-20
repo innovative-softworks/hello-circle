@@ -75,7 +75,7 @@ export function MultiImageUpload({ images, onChange }: { images: string[]; onCha
           <input type="file" accept="image/*" multiple onChange={(e) => onFiles(e.target.files)} disabled={uploading} style={{ display: "none" }} />
         </label>
       </div>
-      {error && <p style={{ color: "#b00020", fontSize: 12, margin: "6px 0 0" }}>{error}</p>}
+      {error && <p style={{ color: colors.danger, fontSize: 12, margin: "6px 0 0" }}>{error}</p>}
     </div>
   );
 }

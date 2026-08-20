@@ -44,7 +44,7 @@ export function ResetPassword() {
             <h1 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 26, margin: "0 0 10px" }}>Set a new password</h1>
             <label style={labelStyle}>New password</label>
             <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} style={{ ...inputStyle, marginBottom: 8 }} />
-            {error && <p style={{ color: "#b00020", fontSize: 13, margin: "0 0 12px" }}>{error}</p>}
+            {error && <p style={{ color: colors.danger, fontSize: 13, margin: "0 0 12px" }}>{error}</p>}
             <Button full onClick={submit} disabled={loading || !password}>
               {loading ? "Saving…" : "Set password"}
             </Button>

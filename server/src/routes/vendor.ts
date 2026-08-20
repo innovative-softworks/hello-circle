@@ -1,14 +1,16 @@
 import { Router } from "express";
 import { attachVendorIds, requireVendor } from "../auth.js";
+import { vendorExperiencesRouter } from "./vendorExperiences.js";
 import { vendorInsightsRouter } from "./vendorInsights.js";
 import { vendorListingsRouter } from "./vendorListings.js";
 import { vendorOperationsRouter } from "./vendorOperations.js";
 import { vendorProgramsRouter } from "./vendorPrograms.js";
 
-// Split from a single 1088-line file into four domain sub-routers — see
+// Split from a single 1088-line file into domain sub-routers — see
 // vendorListings.ts / vendorPrograms.ts / vendorOperations.ts /
-// vendorInsights.ts for what each covers, and vendorHelpers.ts for the
-// shared ownership/scoping helpers (see CLAUDE.md for the rationale).
+// vendorInsights.ts / vendorExperiences.ts for what each covers, and
+// vendorHelpers.ts for the shared ownership/scoping helpers (see CLAUDE.md
+// for the rationale).
 
 export const vendorRouter = Router();
 vendorRouter.use(requireVendor);
@@ -25,3 +27,4 @@ vendorRouter.use(vendorListingsRouter);
 vendorRouter.use(vendorProgramsRouter);
 vendorRouter.use(vendorOperationsRouter);
 vendorRouter.use(vendorInsightsRouter);
+vendorRouter.use(vendorExperiencesRouter);

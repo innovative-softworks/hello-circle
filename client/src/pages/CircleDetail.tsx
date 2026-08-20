@@ -1,9 +1,11 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { fetchCircle, fetchCircleMembership, fetchCircleUpcoming, joinCircle, leaveCircle } from "../api";
-import { CalendarIcon, ChevronLeftIcon, ClockIcon, UsersIcon } from "../components/icons";
+import { AwardIcon, CalendarIcon, ClockIcon, UsersIcon } from "../components/icons";
 import { Button, Card, EmptyState, PageSpinner } from "../components/ui";
+import { BackLink } from "../components/BackLink";
 import { ChatPanel } from "../components/ChatPanel";
+import { PageTitle } from "../components/PageTitle";
 import { InviteButton } from "../components/InviteButton";
 import { useGuest } from "../GuestContext";
 import { colors, fonts } from "../theme";
@@ -67,20 +69,25 @@ export function CircleDetail() {
   return (
     <div style={{ animation: "fadeUp .3s ease both" }}>
       <section style={{ maxWidth: 700, margin: "0 auto", padding: "26px 24px 80px" }}>
-        <button
-          onClick={() => navigate("/circles")}
-          style={{ display: "inline-flex", alignItems: "center", background: "none", border: "none", color: colors.muted, fontWeight: 600, fontSize: 14, cursor: "pointer", padding: 0, marginBottom: 20 }}
-        >
-          <ChevronLeftIcon size={14} style={{ marginRight: 4 }} /> All circles
-        </button>
+        <BackLink onClick={() => navigate("/circles")}>All circles</BackLink>
 
         <Card style={{ marginBottom: 20 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
             <div>
-              <h1 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 26, margin: "0 0 4px", letterSpacing: "-.01em" }}>{circle.name}</h1>
+              <PageTitle level="section" style={{ margin: "0 0 4px" }}>{circle.name}</PageTitle>
               <div style={{ color: colors.mutedLight, fontSize: 14.5 }}>
                 {[circle.activityLabel, circle.area, circle.county].filter(Boolean).join(" · ") || "General"}
               </div>
+              {circle.hostName && (
+                <div style={{ display: "flex", alignItems: "center", gap: 6, color: colors.mutedLight, fontSize: 13.5, marginTop: 4 }}>
+                  Started by {circle.hostName}
+                  {circle.hostVerified && (
+                    <span style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 11, fontWeight: 700, color: colors.greenText, background: colors.greenBg, borderRadius: 999, padding: "2px 8px" }}>
+                      <AwardIcon size={11} /> Verified Host
+                    </span>
+                  )}
+                </div>
+              )}
             </div>
             <div style={{ display: "flex", gap: 8, flex: "none" }}>
               {resident && (

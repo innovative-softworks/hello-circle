@@ -108,6 +108,25 @@ export function fetchAdminPendingListings(): Promise<{ centres: AdminListingSumm
   return request(`/admin/listings/pending`);
 }
 
+// --- "Host" trust tier (IA spec five-layer audit) --------------------------
+
+export interface HostApplication {
+  id: string;
+  name: string;
+  email: string;
+  bio: string;
+  phone: string;
+  appliedAt: string;
+}
+
+export function fetchHostApplications(): Promise<HostApplication[]> {
+  return request(`/admin/host-applications`);
+}
+
+export function setHostApplicationStatus(residentId: string, status: "verified" | "rejected"): Promise<{ ok: boolean }> {
+  return request(`/admin/host-applications/${residentId}/status`, { method: "PUT", body: JSON.stringify({ status }) });
+}
+
 export function fetchAdminListings(): Promise<{ centres: AdminListingSummary[]; clubs: AdminListingSummary[] }> {
   return request(`/admin/listings`);
 }

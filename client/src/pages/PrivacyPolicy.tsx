@@ -46,7 +46,7 @@ export function PrivacyPolicy() {
           <h2 style={h2Style}>2. What we collect</h2>
           <p style={pStyle}>What we collect depends on how you use the site:</p>
           <ul style={{ margin: "0 0 10px", paddingLeft: 20 }}>
-            <li style={liStyle}><strong>Browsing:</strong> a random identifier stored in your browser (not a cookie) so "My bookings" works without an account — see our <a href="/cookies" style={{ color: colors.greenText }}>Cookie Policy</a>.</li>
+            <li style={liStyle}><strong>Browsing:</strong> a random identifier stored in your browser (not a cookie) so "My Life" works without an account — see our <a href="/cookies" style={{ color: colors.greenText }}>Cookie Policy</a>.</li>
             <li style={liStyle}><strong>Hall bookings:</strong> your name, email, phone number, event details and any notes you provide.</li>
             <li style={liStyle}><strong>Club registrations:</strong> a child's name and date of birth, a parent/guardian's name, email, phone and address, an emergency contact, and any medical information you choose to share so the club can look after your child safely.</li>
             <li style={liStyle}><strong>Vendor accounts:</strong> business name, address, contact details and a description, if you list a venue or club with us.</li>

@@ -27,8 +27,8 @@ const buttonVariants: Record<ButtonVariant, CSSProperties> = {
   primary: { background: colors.green, color: "#fff", border: "none" },
   orange: { background: colors.orange, color: "#fff", border: "none" },
   dark: { background: colors.dark, color: "#fff", border: "none" },
-  ghost: { background: "#fff", color: colors.text, border: `1px solid ${colors.borderStrong}` },
-  danger: { background: "none", color: "#b00020", border: "none", padding: "6px 6px", fontWeight: 600, fontSize: 13 },
+  ghost: { background: colors.surface, color: colors.text, border: `1px solid ${colors.borderStrong}` },
+  danger: { background: "none", color: colors.danger, border: "none", padding: "6px 6px", fontWeight: 600, fontSize: 13 },
 };
 
 const variantClass: Record<ButtonVariant, string> = {
@@ -130,7 +130,7 @@ export function Card({
       onClick={onClick}
       className={`card-surface ${hover ? "card-hover" : ""}`}
       style={{
-        background: "#fff",
+        background: colors.surface,
         border: `1px solid ${colors.border}`,
         borderRadius: 16,
         padding: 20,
@@ -148,8 +148,8 @@ export function Card({
 const statusStyles: Record<ListingStatus, { bg: string; fg: string; label: string }> = {
   pending: { bg: "#FCEDE4", fg: colors.orangeDark, label: "Pending review" },
   approved: { bg: colors.greenBg, fg: colors.greenText, label: "Live" },
-  rejected: { bg: "#F6E3E3", fg: "#b00020", label: "Rejected" },
-  suspended: { bg: "#F6E3E3", fg: "#b00020", label: "Suspended" },
+  rejected: { bg: colors.dangerBg, fg: colors.danger, label: "Rejected" },
+  suspended: { bg: colors.dangerBg, fg: colors.danger, label: "Suspended" },
   deleted: { bg: colors.panel, fg: colors.muted, label: "Deleted" },
 };
 
@@ -247,7 +247,7 @@ export function Skeleton({
 /** Stands in for CentreCard/ClubCard while a listing grid loads. */
 export function CardSkeleton({ photoHeight = 140 }: { photoHeight?: number }) {
   return (
-    <div style={{ background: "#fff", border: `1px solid ${colors.border}`, borderRadius: 18, overflow: "hidden" }}>
+    <div style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 18, overflow: "hidden" }}>
       <Skeleton height={photoHeight} radius={0} />
       <div style={{ padding: "16px 18px 18px" }}>
         <Skeleton width={90} height={13} style={{ marginBottom: 12 }} />
@@ -292,7 +292,7 @@ export function ListingDetailSkeleton() {
 /** Stands in for a MyBookings row while bookings/registrations load. */
 export function RowSkeleton() {
   return (
-    <div style={{ background: "#fff", border: `1px solid ${colors.border}`, borderRadius: 16, padding: "18px 20px", display: "flex", alignItems: "center", gap: 18 }}>
+    <div style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 16, padding: "18px 20px", display: "flex", alignItems: "center", gap: 18 }}>
       <Skeleton width={52} height={52} radius={12} />
       <div style={{ flex: 1 }}>
         <Skeleton width="40%" height={16} style={{ marginBottom: 8 }} />
@@ -421,7 +421,7 @@ export function Tabs<T extends string>({
             className={`tab-btn ${active ? "tab-btn-active" : ""}`}
             style={{
               ...buttonBase,
-              background: active ? colors.dark : "#fff",
+              background: active ? colors.dark : colors.surface,
               color: active ? "#fff" : colors.text,
               border: active ? "none" : `1px solid ${colors.borderStrong}`,
               padding: "9px 16px",
@@ -555,7 +555,7 @@ export function StatRow({ children, marginBottom = 34 }: { children: ReactNode; 
       style={{
         display: "flex",
         flexWrap: "wrap",
-        background: "#fff",
+        background: colors.surface,
         border: `1px solid ${colors.border}`,
         borderRadius: 16,
         marginBottom,
@@ -575,7 +575,7 @@ export const inputStyle: CSSProperties = {
   border: `1px solid ${colors.inputBorder}`,
   borderRadius: 11,
   fontSize: 14,
-  background: "#fff",
+  background: colors.surface,
   color: colors.text,
   outline: "none",
   transition: "border-color .15s ease, box-shadow .15s ease",
@@ -744,7 +744,7 @@ export function ConfirmDialog({
     >
       <div
         className="pop-in"
-        style={{ background: "#fff", borderRadius: 16, padding: 24, maxWidth: 380, width: "100%", boxShadow: "0 20px 60px rgba(20,22,20,.25)" }}
+        style={{ background: colors.surface, borderRadius: 16, padding: 24, maxWidth: 380, width: "100%", boxShadow: "0 20px 60px rgba(20,22,20,.25)" }}
         onClick={(e) => e.stopPropagation()}
       >
         <h3 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 17, margin: "0 0 8px" }}>{title}</h3>
@@ -753,7 +753,7 @@ export function ConfirmDialog({
           <Button variant="ghost" onClick={onCancel} disabled={busy}>
             {cancelLabel}
           </Button>
-          <Button variant="dark" onClick={onConfirm} disabled={busy} style={tone === "danger" ? { background: "#b00020" } : undefined}>
+          <Button variant="dark" onClick={onConfirm} disabled={busy} style={tone === "danger" ? { background: colors.danger } : undefined}>
             {busy ? "…" : confirmLabel}
           </Button>
         </div>

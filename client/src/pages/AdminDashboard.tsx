@@ -15,6 +15,7 @@ import {
   fetchAdminVendors,
   fetchAuditLog,
   fetchClaims,
+  fetchHostApplications,
   fetchModerationReports,
   fetchSystemStatus,
   hideReview,
@@ -25,6 +26,7 @@ import {
   setClaimStatus,
   setClubOrganisation,
   setClubStatus,
+  setHostApplicationStatus,
   setVendorPlatformRole,
   setVendorProviderTier,
   setVendorStatus,
@@ -34,11 +36,12 @@ import {
   type AdminListingSummary,
   type AdminVendor,
   type ClaimSummary,
+  type HostApplication,
 } from "../api";
 import { useAuth } from "../AuthContext";
 import { useDashboardNav } from "../DashboardNavContext";
 import { AdminIllustration } from "../components/illustrations";
-import { BallIcon, BuildingIcon, CalendarIcon, CheckIcon, ClipboardIcon, EyeIcon, IdCardIcon, PinIcon, SearchIcon, StarIcon, TagIcon, TrendUpIcon, UsersIcon } from "../components/icons";
+import { AwardIcon, BallIcon, BuildingIcon, CalendarIcon, CheckIcon, ClipboardIcon, EyeIcon, IdCardIcon, PinIcon, SearchIcon, StarIcon, TagIcon, TrendUpIcon, UsersIcon } from "../components/icons";
 import { Avatar, BadgedIcon, Button, Card, ConfirmDialog, DashboardTopPanel, Drawer, EmptyState, NavSidebar, PageSpinner, StarDisplay, StatRow, StatTile, StatusBadge, inputStyle, labelStyle, tableStyle, tdStyle, thStyle, type ListingStatus } from "../components/ui";
 import { DemandSignalsView } from "../components/DemandSignals";
 import { colors, fonts, maxWidth } from "../theme";
@@ -360,6 +363,52 @@ function ClaimsTab() {
         confirmLabel="Reject"
         onConfirm={() => { if (confirmingId !== null) setClaimStatus(confirmingId, "rejected").then(load); setConfirmingId(null); }}
         onCancel={() => setConfirmingId(null)}
+      />
+    </div>
+  );
+}
+
+// "Host" trust tier (IA spec five-layer audit) — badge-only queue, mirrors
+// ClaimsTab's approve/reject-with-confirm shape exactly.
+function HostApplicationsTab() {
+  const [applications, setApplications] = useState<HostApplication[]>([]);
+  const [rejectingId, setRejectingId] = useState<string | null>(null);
+  const load = () => fetchHostApplications().then(setApplications);
+  useEffect(() => { load(); }, []);
+
+  return (
+    <div className="fade-panel" style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+      {applications.map((a) => (
+        <Card key={a.id} style={{ padding: 15, display: "flex", flexWrap: "wrap", gap: 14, justifyContent: "space-between", alignItems: "flex-start" }}>
+          <div style={{ display: "flex", gap: 12, minWidth: 0 }}>
+            <Avatar name={a.name} size={36} />
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontWeight: 700, fontSize: 14 }}>{a.name}</div>
+              <div style={{ fontSize: 12, color: colors.mutedLight, marginTop: 2 }}>
+                {a.email}{a.phone ? ` · ${a.phone}` : ""} · applied {new Date(a.appliedAt).toLocaleDateString()}
+              </div>
+              {a.bio && <div style={{ fontSize: 12.5, color: colors.muted, marginTop: 6, maxWidth: 480 }}>{a.bio}</div>}
+            </div>
+          </div>
+          <div style={{ display: "flex", gap: 8, flex: "none" }}>
+            <Button variant="dark" onClick={() => setHostApplicationStatus(a.id, "verified").then(load)}>
+              Approve
+            </Button>
+            <Button variant="ghost" onClick={() => setRejectingId(a.id)}>
+              Reject
+            </Button>
+          </div>
+        </Card>
+      ))}
+      {applications.length === 0 && <EmptyState icon={<AwardIcon size={26} />} title="No host applications waiting on you" />}
+
+      <ConfirmDialog
+        open={rejectingId !== null}
+        title="Reject this host application?"
+        message="The resident can still host a Game or Circle either way — this just declines the Verified Host badge. They're welcome to reapply."
+        confirmLabel="Reject"
+        onConfirm={() => { if (rejectingId !== null) setHostApplicationStatus(rejectingId, "rejected").then(load); setRejectingId(null); }}
+        onCancel={() => setRejectingId(null)}
       />
     </div>
   );
@@ -933,7 +982,7 @@ function CouponsTab() {
         <p style={{ fontSize: 12, color: colors.mutedLight, margin: "10px 0 0" }}>
           "€ off" amounts are in cents (e.g. 500 = €5.00). Applies to the pre-VAT/fee subtotal on any booking or registration.
         </p>
-        {error && <p className="pop-in" style={{ color: "#b00020", fontSize: 13, margin: "12px 0 0", background: "#FBEAEA", padding: "9px 12px", borderRadius: 10 }}>{error}</p>}
+        {error && <p className="pop-in" style={{ color: colors.danger, fontSize: 13, margin: "12px 0 0", background: colors.dangerBg, padding: "9px 12px", borderRadius: 10 }}>{error}</p>}
       </Card>
 
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
@@ -1097,7 +1146,7 @@ function AdminDemandTab() {
   );
 }
 
-type AdminTab = "overview" | "vendors" | "pending" | "listings" | "claims" | "reviews" | "coupons" | "organisations" | "demand" | "audit" | "support";
+type AdminTab = "overview" | "vendors" | "pending" | "listings" | "claims" | "hostApplications" | "reviews" | "coupons" | "organisations" | "demand" | "audit" | "support";
 
 const ADMIN_TABS: { key: AdminTab; label: string; icon: ReactNode }[] = [
   { key: "overview", label: "Overview", icon: <EyeIcon size={15} /> },
@@ -1105,6 +1154,7 @@ const ADMIN_TABS: { key: AdminTab; label: string; icon: ReactNode }[] = [
   { key: "vendors", label: "Vendors", icon: <UsersIcon size={15} /> },
   { key: "listings", label: "All listings", icon: <CalendarIcon size={15} /> },
   { key: "claims", label: "Claims", icon: <IdCardIcon size={15} /> },
+  { key: "hostApplications", label: "Host applications", icon: <AwardIcon size={15} /> },
   { key: "reviews", label: "Reviews", icon: <StarIcon size={15} /> },
   { key: "coupons", label: "Coupons", icon: <TagIcon size={15} /> },
   { key: "organisations", label: "Organisations", icon: <BuildingIcon size={15} /> },
@@ -1135,8 +1185,8 @@ function AdminOverviewTab({ stats }: { stats: AdminStats }) {
         <StatTile icon={<CalendarIcon size={19} />} iconBg="#E9F0FC" iconColor="#3B5FCC" value={stats.totalListings} label="Total listings" sublabel="All time" sublabelColor="#3B5FCC" />
         <StatTile icon={<StarIcon size={19} />} iconBg="#FCF3D9" iconColor="#B8860B" value={stats.reviewCount} label="Reviews" sublabel="Total" sublabelColor="#B8860B" />
         <StatTile icon={<CheckIcon size={19} />} iconBg="#E9F0FC" iconColor="#3B5FCC" value={stats.bookingsToday} label="Bookings today" sublabel="All types" sublabelColor="#3B5FCC" />
-        <StatTile icon={<IdCardIcon size={19} />} iconBg="#F6E3E3" iconColor="#b00020" value={stats.paymentFailures} label="Payment failures" sublabel="All time" sublabelColor="#b00020" />
-        <StatTile icon={<ClipboardIcon size={19} />} iconBg="#F6E3E3" iconColor="#b00020" value={stats.openReports} label="Open reports" sublabel="Awaiting action" sublabelColor="#b00020" />
+        <StatTile icon={<IdCardIcon size={19} />} iconBg={colors.dangerBg} iconColor={colors.danger} value={stats.paymentFailures} label="Payment failures" sublabel="All time" sublabelColor={colors.danger} />
+        <StatTile icon={<ClipboardIcon size={19} />} iconBg={colors.dangerBg} iconColor={colors.danger} value={stats.openReports} label="Open reports" sublabel="Awaiting action" sublabelColor={colors.danger} />
       </StatRow>
       <Card>
         <h4 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 15, margin: "0 0 12px" }}>Recent activity</h4>
@@ -1233,6 +1283,7 @@ export function AdminDashboard() {
           <ListingsTab pendingOnly={false} openRequest={openListingRequest} onOpenRequestHandled={() => setOpenListingRequest(null)} />
         )}
         {tab === "claims" && <ClaimsTab />}
+        {tab === "hostApplications" && <HostApplicationsTab />}
         {tab === "reviews" && <ReviewsTab />}
         {tab === "coupons" && <CouponsTab />}
         {tab === "organisations" && (

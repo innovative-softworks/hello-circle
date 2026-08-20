@@ -5,6 +5,17 @@ import { scoreActivities, type DiscoverItem } from "./discover.js";
 import { parseSearchQuery, type ParsedQuery } from "../searchParser.js";
 import type { Centre, Club } from "../types.js";
 
+interface ExperienceSearchRow {
+  id: string;
+  kind: "adventure" | "experience";
+  title: string;
+  area: string;
+  county: string;
+  blurb: string;
+  price_cents: number;
+  image_url: string;
+}
+
 export const searchRouter = Router();
 
 // Natural-language-ish search (FUTURE, best-effort — "AI search" without an
@@ -38,11 +49,23 @@ function bucketTimeOfDay(time: string): ParsedQuery["timeOfDay"] {
   return "evening";
 }
 
+export interface ExperienceSearchResult {
+  id: string;
+  kind: "adventure" | "experience";
+  title: string;
+  area: string;
+  county: string;
+  blurb: string;
+  priceCents: number;
+  imageUrl: string;
+}
+
 export interface StructuredSearchResult {
   parsed: ParsedQuery;
   centres: Centre[];
   clubs: Club[];
   activities: DiscoverItem[];
+  experiences: ExperienceSearchResult[];
 }
 
 /** The actual "run this parsed query against real data" logic — shared by
@@ -55,13 +78,29 @@ export async function runStructuredSearch(q: string, residentId: string | null, 
   const parsed = parseSearchQuery(q);
   const matchesKeywords = (haystack: string) => parsed.keywords.length === 0 || parsed.keywords.some((k) => haystack.toLowerCase().includes(k));
 
-  const [allCentres, allClubs] = await Promise.all([listCentres(parsed.county ?? undefined), listClubs(parsed.county ?? undefined)]);
+  const [allCentres, allClubs, allExperiencesRaw] = await Promise.all([
+    listCentres(parsed.county ?? undefined),
+    listClubs(parsed.county ?? undefined),
+    parsed.county
+      ? db.prepare(`SELECT id, kind, title, area, county, blurb, price_cents, image_url FROM experiences WHERE status = 'approved' AND county = ?`).all(parsed.county)
+      : db.prepare(`SELECT id, kind, title, area, county, blurb, price_cents, image_url FROM experiences WHERE status = 'approved'`).all(),
+  ]);
+  const allExperiences = allExperiencesRaw as ExperienceSearchRow[];
 
   const centres = allCentres.filter((c) => matchesKeywords(`${c.name} ${c.blurb} ${c.amenities.join(" ")} ${c.accessibility.join(" ")}`));
   const clubs = allClubs
     .filter((c) => matchesKeywords(`${c.name} ${c.sport} ${c.blurb} ${c.accessibility.join(" ")}`))
     .filter((c) => !parsed.free || c.trial || c.price === 0)
     .filter((c) => parsed.maxPriceEuro === null || c.price <= parsed.maxPriceEuro);
+  // Not run through scoreActivities/DiscoverItem — an experience is a
+  // browsable listing with multiple future departures (like a centre/club),
+  // not itself a single dated activity, so it's filtered the same simple
+  // way centres/clubs are rather than ranked alongside games/sessions.
+  const experiences: ExperienceSearchResult[] = allExperiences
+    .filter((e) => matchesKeywords(`${e.title} ${e.blurb} ${e.kind}`))
+    .filter((e) => !parsed.free || e.price_cents === 0)
+    .filter((e) => parsed.maxPriceEuro === null || e.price_cents <= parsed.maxPriceEuro * 100)
+    .map((e) => ({ id: e.id, kind: e.kind, title: e.title, area: e.area, county: e.county, blurb: e.blurb, priceCents: e.price_cents, imageUrl: e.image_url }));
 
   const now = new Date();
   const windowEnd = new Date(now);
@@ -94,12 +133,12 @@ export async function runStructuredSearch(q: string, residentId: string | null, 
     await db.prepare(`INSERT INTO search_misses (query_text, listing_type, county) VALUES (?, 'club', ?)`).run(queryText, county).catch(() => {});
   }
 
-  return { parsed, centres, clubs, activities };
+  return { parsed, centres, clubs, activities, experiences };
 }
 
 searchRouter.get("/", async (req, res) => {
   const q = typeof req.query.q === "string" ? req.query.q : "";
-  if (!q.trim()) return res.json({ parsed: null, centres: [], clubs: [], activities: [] });
+  if (!q.trim()) return res.json({ parsed: null, centres: [], clubs: [], activities: [], experiences: [] });
 
   const result = await runStructuredSearch(q, req.resident?.id ?? null, req.resident?.homeCounty ?? null);
   res.json(result);

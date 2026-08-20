@@ -20,12 +20,13 @@ export const askRouter = Router();
 const RESULT_CAP = 5;
 
 function buildReply(result: StructuredSearchResult): string {
-  const total = result.centres.length + result.clubs.length + result.activities.length;
+  const total = result.centres.length + result.clubs.length + result.activities.length + result.experiences.length;
   if (total === 0) {
     return "I couldn't find anything matching that — try a different activity, a wider budget, or another county.";
   }
   const parts: string[] = [];
   if (result.activities.length) parts.push(`${result.activities.length} activit${result.activities.length === 1 ? "y" : "ies"}`);
+  if (result.experiences.length) parts.push(`${result.experiences.length} adventure${result.experiences.length === 1 ? "" : "s"}/experience${result.experiences.length === 1 ? "" : "s"}`);
   if (result.centres.length) parts.push(`${result.centres.length} centre${result.centres.length === 1 ? "" : "s"}`);
   if (result.clubs.length) parts.push(`${result.clubs.length} club${result.clubs.length === 1 ? "" : "s"}`);
   let reply = `Here's what I found — ${parts.join(", ")}.`;
@@ -48,8 +49,10 @@ askRouter.post("/", async (req, res) => {
     centres: result.centres.slice(0, RESULT_CAP),
     clubs: result.clubs.slice(0, RESULT_CAP),
     activities: result.activities.slice(0, RESULT_CAP),
+    experiences: result.experiences.slice(0, RESULT_CAP),
     totalCentres: result.centres.length,
     totalClubs: result.clubs.length,
     totalActivities: result.activities.length,
+    totalExperiences: result.experiences.length,
   });
 });

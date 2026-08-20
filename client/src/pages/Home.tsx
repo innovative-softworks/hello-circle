@@ -17,6 +17,7 @@ import {
   HeartIcon,
   PinIcon,
   SearchIcon,
+  TreeIconSmall,
   TrendUpIcon,
 } from "../components/icons";
 import { haversineDistanceKm, nearestCounty } from "../irishCounties";
@@ -366,7 +367,7 @@ export function Home() {
             >
               <PinIcon size={14} /> {locating ? "Locating…" : "Use my current location"}
             </button>
-            {locationError && <span style={{ color: "#b00020", fontSize: 13 }}>{locationError}</span>}
+            {locationError && <span style={{ color: colors.danger, fontSize: 13 }}>{locationError}</span>}
             <button
               onClick={() => (smartOpen ? closeSmartSearch() : setSmartOpen(true))}
               style={{ display: "inline-flex", alignItems: "center", gap: 6, background: "none", border: "none", color: colors.muted, fontWeight: 700, fontSize: 14, cursor: "pointer", padding: 0 }}
@@ -561,6 +562,128 @@ export function Home() {
           <DiscoverRow title="This weekend" items={discoverFeed.weekend} />
         </section>
       )}
+
+      {/* Make It Happen CTA (UI/UX plan phase 4) — previously only reachable
+          via a menu row inside the Explore dropdown, the same visual weight
+          as "Sports clubs," despite being arguably the single most
+          distinctive thing this product does (find a venue, price it, and
+          recruit a group — nothing else in this space does that). Reuses
+          the same icon-circle + heading + button band this page already
+          established for the "List your venue" vendor CTA further down. */}
+      <section className="section-pad" style={{ maxWidth, margin: "0 auto", padding: "18px 24px 8px" }}>
+        <div
+          style={{
+            display: "flex",
+            flexWrap: "wrap",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: 20,
+            background: colors.orangeBg,
+            border: `1px solid ${colors.border}`,
+            borderRadius: 20,
+            padding: "24px 28px",
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+            <div
+              style={{
+                width: 48,
+                height: 48,
+                borderRadius: "50%",
+                background: colors.surface,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                flex: "none",
+                color: colors.orangeDark,
+              }}
+            >
+              <HandshakeIcon size={22} />
+            </div>
+            <div>
+              <h3 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 19, margin: "0 0 4px" }}>
+                Nothing planned? Make it happen.
+              </h3>
+              <p style={{ margin: 0, color: colors.muted, fontSize: 14.5 }}>
+                Tell us the activity, time and budget — we'll find a venue and start recruiting your group.
+              </p>
+            </div>
+          </div>
+          <button
+            className="btn"
+            onClick={() => navigate("/make-it-happen")}
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 8,
+              background: colors.orangeDark,
+              color: "#fff",
+              border: "none",
+              borderRadius: 12,
+              padding: "13px 20px",
+              fontSize: 15,
+              fontWeight: 600,
+              cursor: "pointer",
+              whiteSpace: "nowrap",
+            }}
+          >
+            <HandshakeIcon size={16} /> Make It Happen <ArrowRightIcon size={15} />
+          </button>
+        </div>
+      </section>
+
+      {/* Adventures / Experiences teasers — two separate destinations
+          (own nav entries, own URLs, own browse pages) rather than one
+          combined CTA, since they're now distinct places to go, not one
+          feature with a filter. Same icon-circle visual language as the
+          Make It Happen CTA above, tinted green, split into a 2-up grid
+          instead of one wide band. */}
+      <section className="section-pad" style={{ maxWidth, margin: "0 auto", padding: "18px 24px 8px" }}>
+        <div className="grid-responsive" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+          {[
+            { to: "/adventures", title: "Adventures", subtitle: "Guided hikes, kayaking and outdoor trips.", },
+            { to: "/experiences", title: "Experiences", subtitle: "Workshops, classes and one-off outings.", },
+          ].map((t) => (
+            <button
+              key={t.to}
+              className="btn"
+              onClick={() => navigate(t.to)}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 16,
+                background: colors.greenBg,
+                border: `1px solid ${colors.border}`,
+                borderRadius: 20,
+                padding: "20px 22px",
+                cursor: "pointer",
+                textAlign: "left",
+              }}
+            >
+              <div
+                style={{
+                  width: 44,
+                  height: 44,
+                  borderRadius: "50%",
+                  background: colors.surface,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  flex: "none",
+                  color: colors.greenText,
+                }}
+              >
+                <TreeIconSmall size={20} />
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <h3 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 17, margin: "0 0 2px" }}>{t.title}</h3>
+                <p style={{ margin: 0, color: colors.muted, fontSize: 13.5 }}>{t.subtitle}</p>
+              </div>
+              <ArrowRightIcon size={16} style={{ color: colors.greenText, flex: "none" }} />
+            </button>
+          ))}
+        </div>
+      </section>
 
       {momentum.length > 0 && (
         <section className="section-pad" style={{ maxWidth, margin: "0 auto", padding: "18px 24px 8px" }}>
@@ -832,7 +955,7 @@ export function Home() {
                 width: 48,
                 height: 48,
                 borderRadius: "50%",
-                background: "#fff",
+                background: colors.surface,
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",

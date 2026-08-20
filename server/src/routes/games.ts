@@ -36,9 +36,18 @@ async function toGameJson(row: GameRow) {
     n: number;
   };
   const centre = row.centre_id ? ((await db.prepare(`SELECT name, area, county FROM centres WHERE id = ?`).get(row.centre_id)) as { name: string; area: string; county: string } | undefined) : undefined;
+  // "Host" trust tier (IA spec five-layer audit) — badge-only, joined off
+  // the same host_resident_id that already gates cancellation elsewhere in
+  // this file. Neither field existed on this response before; nothing
+  // previously surfaced a host's name at all.
+  const host = (await db.prepare(`SELECT name, host_status as hostStatus FROM residents WHERE id = ?`).get(row.host_resident_id)) as
+    | { name: string; hostStatus: string }
+    | undefined;
   return {
     id: row.id,
     hostResidentId: row.host_resident_id,
+    hostName: host?.name ?? "",
+    hostVerified: host?.hostStatus === "verified",
     activityLabel: row.activity_label,
     centreId: row.centre_id,
     centreName: centre?.name ?? null,

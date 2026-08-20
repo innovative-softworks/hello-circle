@@ -12,6 +12,7 @@ import {
   ClockIcon,
   EyeIcon,
   PlusIcon,
+  TreeIconSmall,
   TrendUpIcon,
   UsersIcon,
 } from "../components/icons";
@@ -19,6 +20,7 @@ import { Button, Card, DashboardTopPanel, Drawer, NavSidebar, PageSpinner } from
 import { BookingsTab, DemandTab } from "../components/VendorBookings";
 import { CentreEditor } from "../components/VendorCentreEditor";
 import { ClubEditor } from "../components/VendorClubEditor";
+import { VendorExperiencesTab } from "../components/VendorExperiences";
 import { ListingsTab } from "../components/VendorListings";
 import { MessagesTab } from "../components/VendorMessages";
 import { VendorOrgTab } from "../components/VendorOrg";
@@ -32,12 +34,13 @@ import type { VendorListingSummary, VendorStats } from "../types";
 // lives in its own file under components/Vendor*.tsx (split out of what
 // used to be a single 1826-line file; see CLAUDE.md).
 
-type VendorTab = "overview" | "listings" | "messages" | "bookings" | "demand" | "programs" | "schedule" | "org";
+type VendorTab = "overview" | "listings" | "messages" | "bookings" | "demand" | "programs" | "experiences" | "schedule" | "org";
 
 const VENDOR_TABS: { key: VendorTab; label: string; icon: ReactNode }[] = [
   { key: "overview", label: "Overview", icon: <EyeIcon size={15} /> },
   { key: "listings", label: "Listings", icon: <ClipboardIcon size={15} /> },
   { key: "programs", label: "Programs", icon: <CalendarIcon size={15} /> },
+  { key: "experiences", label: "Adventures & Experiences", icon: <TreeIconSmall size={15} /> },
   { key: "schedule", label: "Schedule", icon: <CalendarIcon size={15} /> },
   { key: "messages", label: "Messages", icon: <ChatIcon size={15} /> },
   { key: "bookings", label: "Bookings & registrations", icon: <CalendarIcon size={15} /> },
@@ -191,6 +194,7 @@ export function VendorDashboard() {
         {tab === "bookings" && <BookingsTab />}
         {tab === "demand" && <DemandTab />}
         {tab === "programs" && <VendorProgramsTab listings={listings} creatingOpen={creatingProgram} onCreatingOpenChange={setCreatingProgram} />}
+        {tab === "experiences" && <VendorExperiencesTab />}
         {tab === "schedule" && <VendorScheduleTab />}
         {tab === "org" && <VendorOrgTab />}
 

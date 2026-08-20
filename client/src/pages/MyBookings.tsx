@@ -34,15 +34,17 @@ import {
   verifyGuestLink,
 } from "../api";
 import { ChevronRightIcon } from "../components/icons";
+import { HostApplicationPanel } from "../components/HostApplicationPanel";
 import { Photo } from "../components/Photo";
 import { Button, EmptyState, RowSkeleton, Tabs, inputStyle, labelStyle } from "../components/ui";
+import { PageTitle } from "../components/PageTitle";
 import { dateLabel, euro } from "../euro";
 import { useGuest } from "../GuestContext";
 import { colors, fonts } from "../theme";
 import { ACCESSIBILITY_OPTIONS } from "../types";
-import type { Circle, Favourite, Game, HouseholdMember, MyBooking, MyProgramEnrollment, MyRegistration, NotificationPrefs, Pass, Receipt, ResidentNotification, WaitlistOfferStatus } from "../types";
+import type { Circle, Favourite, Game, HostStatus, HouseholdMember, MyBooking, MyProgramEnrollment, MyRegistration, NotificationPrefs, Pass, Receipt, ResidentNotification, WaitlistOfferStatus } from "../types";
 
-const cancelledBadgeStyle: React.CSSProperties = { fontSize: 11, fontWeight: 700, color: "#b00020", background: "#F6E3E3", borderRadius: 999, padding: "2px 8px" };
+const cancelledBadgeStyle: React.CSSProperties = { fontSize: 11, fontWeight: 700, color: colors.danger, background: colors.dangerBg, borderRadius: 999, padding: "2px 8px" };
 const recoveredBadgeStyle: React.CSSProperties = { fontSize: 11, fontWeight: 700, color: colors.greenText, background: colors.greenBg, borderRadius: 999, padding: "2px 8px" };
 
 // QR display (Phase A) — generated client-side, no network call, just a
@@ -81,7 +83,7 @@ function RescheduleForm({ booking, onDone }: { booking: MyBooking; onDone: () =>
       <input type="date" value={date} onChange={(e) => setDate(e.target.value)} style={{ ...inputStyle, width: 150 }} />
       <input type="time" value={time} onChange={(e) => setTime(e.target.value)} style={{ ...inputStyle, width: 110 }} />
       <Button onClick={submit} disabled={busy}>{busy ? "Saving…" : "Confirm new time"}</Button>
-      {error && <span style={{ color: "#b00020", fontSize: 12.5 }}>{error}</span>}
+      {error && <span style={{ color: colors.danger, fontSize: 12.5 }}>{error}</span>}
     </div>
   );
 }
@@ -142,7 +144,7 @@ function BookingRow({
           <div style={{ color: colors.mutedLight, fontSize: 14 }}>
             {dateLabel(booking.date)} · {booking.time}
           </div>
-          {error && <div style={{ color: "#b00020", fontSize: 12, marginTop: 4 }}>{error}</div>}
+          {error && <div style={{ color: colors.danger, fontSize: 12, marginTop: 4 }}>{error}</div>}
         </div>
         <div style={{ textAlign: "right", flex: "none" }}>
           <div style={{ fontWeight: 700 }}>{euro(booking.totalCents / 100)}</div>
@@ -242,7 +244,7 @@ function RegistrationRow({
           <div style={{ color: colors.mutedLight, fontSize: 14 }}>
             {registration.clubName} · {registration.team}
           </div>
-          {error && <div style={{ color: "#b00020", fontSize: 12, marginTop: 4 }}>{error}</div>}
+          {error && <div style={{ color: colors.danger, fontSize: 12, marginTop: 4 }}>{error}</div>}
         </div>
         <div style={{ textAlign: "right", flex: "none" }}>
           <div style={{ fontWeight: 700 }}>{registration.trial ? "Free trial" : euro(registration.totalCents / 100)}</div>
@@ -370,7 +372,7 @@ function PassportSummary({
         { label: "Places", value: places.size },
         { label: "Circles", value: circles.length },
       ].map((stat) => (
-        <div key={stat.label} style={{ flex: "1 1 100px", background: "#fff", border: `1px solid ${colors.border}`, borderRadius: 14, padding: "12px 16px", textAlign: "center" }}>
+        <div key={stat.label} style={{ flex: "1 1 100px", background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 14, padding: "12px 16px", textAlign: "center" }}>
           <div style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 22, color: colors.greenText }}>{stat.value}</div>
           <div style={{ fontSize: 11.5, fontWeight: 700, color: colors.muted, textTransform: "uppercase", letterSpacing: ".03em" }}>{stat.label}</div>
         </div>
@@ -390,12 +392,48 @@ function MyPlaces({ bookings, regs }: { bookings: MyBooking[]; regs: MyRegistrat
       <h2 style={{ fontSize: 15, fontWeight: 700, color: colors.muted, margin: "0 0 12px", letterSpacing: ".02em" }}>PLACES BECOMING PART OF YOUR LIFE</h2>
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
         {top.map(([name, count]) => (
-          <div key={name} style={{ background: "#fff", border: `1px solid ${colors.border}`, borderRadius: 14, padding: "10px 16px" }}>
+          <div key={name} style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 14, padding: "10px 16px" }}>
             <div style={{ fontWeight: 700, fontSize: 14 }}>{name}</div>
             <div style={{ fontSize: 12.5, color: colors.mutedLight }}>{count} visits</div>
           </div>
         ))}
       </div>
+    </div>
+  );
+}
+
+// Collapsible wrapper (UI/UX plan phase 5) — Passport + My Places used to
+// always render at full height above the timeline, meaning a resident hit
+// two stat-card rows before seeing any of their actual bookings. Collapsed
+// by default now, showing just a one-line summary; the underlying
+// PassportSummary/MyPlaces components and their own real-data logic are
+// unchanged, only where they render.
+function MyLifeSummary(props: { bookings: MyBooking[]; regs: MyRegistration[]; games: Game[]; programEnrollments: MyProgramEnrollment[]; circles: Circle[] }) {
+  const { bookings, regs, games, programEnrollments, circles } = props;
+  const [expanded, setExpanded] = useState(false);
+  const totalActivities = bookings.length + regs.length + games.length + programEnrollments.length;
+  const places = new Set<string>();
+  bookings.forEach((b) => places.add(b.centreName));
+  regs.forEach((r) => places.add(r.clubName));
+  if (totalActivities === 0 && circles.length === 0) return null;
+
+  return (
+    <div style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 14, marginBottom: 20, overflow: "hidden" }}>
+      <button
+        onClick={() => setExpanded((e) => !e)}
+        style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, background: "none", border: "none", padding: "14px 16px", cursor: "pointer", textAlign: "left" }}
+      >
+        <span style={{ fontSize: 14, fontWeight: 700, color: colors.text }}>
+          {totalActivities} activit{totalActivities === 1 ? "y" : "ies"} · {places.size} place{places.size === 1 ? "" : "s"} · {circles.length} circle{circles.length === 1 ? "" : "s"}
+        </span>
+        <ChevronRightIcon size={16} style={{ color: colors.muted, flex: "none", transform: expanded ? "rotate(90deg)" : "none", transition: "transform .15s ease" }} />
+      </button>
+      {expanded && (
+        <div style={{ padding: "0 16px 16px" }}>
+          <PassportSummary bookings={bookings} regs={regs} games={games} programEnrollments={programEnrollments} circles={circles} />
+          <MyPlaces bookings={bookings} regs={regs} />
+        </div>
+      )}
     </div>
   );
 }
@@ -715,13 +753,19 @@ function ProfilePanel() {
     circleAnnouncements: true,
   });
   const [accessibility, setAccessibility] = useState<string[]>([]);
+  const [hostStatus, setHostStatus] = useState<HostStatus>("none");
+  const [hostBio, setHostBio] = useState("");
+  const [hostPhone, setHostPhone] = useState("");
 
-  useEffect(() => {
+  const loadProfile = () => {
     fetchResidentFull().then(({ resident: r }) => {
       if (!r) return;
       setName(r.name);
       setHomeCounty(r.homeCounty);
       setAccessibility(r.accessibilityPrefs);
+      setHostStatus(r.hostStatus);
+      setHostBio(r.hostBio);
+      setHostPhone(r.hostPhone);
       setNotifPrefs(
         r.notificationPrefs ?? {
           bookingConfirmations: true,
@@ -732,7 +776,9 @@ function ProfilePanel() {
         }
       );
     });
-  }, []);
+  };
+
+  useEffect(loadProfile, []);
 
   const handleSave = async () => {
     setSaving(true);
@@ -811,17 +857,38 @@ function ProfilePanel() {
           ))}
         </div>
       </div>
+
+      <HostApplicationPanel hostStatus={hostStatus} hostBio={hostBio} hostPhone={hostPhone} onApplied={loadProfile} />
     </div>
   );
 }
 
 type MyStuffTab = "bookings" | "household" | "favourites" | "notifications" | "passes" | "receipts" | "profile";
 
+// Two-tier tabs (UI/UX plan phase 5) — the flat 7-tab bar put every panel at
+// equal visual weight regardless of how often a resident actually reaches
+// for it. Primary tier stays a single click away; the rest sit behind one
+// "More" toggle, matching this app's existing dropdown-with-outside-click
+// convention (see Header.tsx).
+const PRIMARY_TABS: { key: MyStuffTab; label: string }[] = [
+  { key: "bookings", label: "Bookings" },
+  { key: "household", label: "Household" },
+  { key: "profile", label: "Profile" },
+];
+const MORE_TABS: { key: MyStuffTab; label: string }[] = [
+  { key: "favourites", label: "Favourites" },
+  { key: "notifications", label: "Notifications" },
+  { key: "passes", label: "Passes" },
+  { key: "receipts", label: "Receipts" },
+];
+
 export function MyBookings() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const { email: guestEmail, refresh: refreshGuest } = useGuest();
   const [tab, setTab] = useState<MyStuffTab>("bookings");
+  const [moreMenuOpen, setMoreMenuOpen] = useState(false);
+  const moreMenuRef = useRef<HTMLDivElement>(null);
   const [bookings, setBookings] = useState<MyBooking[]>([]);
   const [regs, setRegs] = useState<MyRegistration[]>([]);
   const [games, setGames] = useState<Game[]>([]);
@@ -861,6 +928,14 @@ export function MyBookings() {
 
   useEffect(() => {
     loadMyStuff();
+  }, []);
+
+  useEffect(() => {
+    function onDocClick(e: MouseEvent) {
+      if (moreMenuRef.current && !moreMenuRef.current.contains(e.target as Node)) setMoreMenuOpen(false);
+    }
+    document.addEventListener("mousedown", onDocClick);
+    return () => document.removeEventListener("mousedown", onDocClick);
   }, []);
 
   // A confirmation email links back to /bookings?ref=... (see server/src/notifications.ts)
@@ -999,25 +1074,48 @@ export function MyBookings() {
   return (
     <div style={{ animation: "fadeUp .35s ease both" }}>
       <section style={{ maxWidth: 900, margin: "0 auto", padding: "36px 24px 80px" }}>
-        <h1 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 34, margin: "0 0 20px", letterSpacing: "-.02em" }}>
-          My bookings
-        </h1>
+        <PageTitle style={{ margin: "0 0 20px" }}>My Life</PageTitle>
 
         {guestEmail && (
-          <div style={{ marginBottom: 24 }}>
-            <Tabs
-              value={tab}
-              onChange={setTab}
-              options={[
-                { key: "bookings", label: "Bookings" },
-                { key: "household", label: "Household" },
-                { key: "favourites", label: "Favourites" },
-                { key: "notifications", label: "Notifications" },
-                { key: "passes", label: "Passes" },
-                { key: "receipts", label: "Receipts" },
-                { key: "profile", label: "Profile" },
-              ]}
-            />
+          <div style={{ marginBottom: 24, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-start" }}>
+            <Tabs value={tab} onChange={setTab} options={PRIMARY_TABS} />
+            <div ref={moreMenuRef} style={{ position: "relative" }}>
+              <button
+                className={`tab-btn ${MORE_TABS.some((t) => t.key === tab) ? "tab-btn-active" : ""}`}
+                onClick={() => setMoreMenuOpen((o) => !o)}
+                style={{
+                  display: "inline-flex", alignItems: "center", gap: 4, borderRadius: 10, fontWeight: 700, fontSize: 14, padding: "9px 16px",
+                  background: MORE_TABS.some((t) => t.key === tab) ? colors.dark : colors.surface,
+                  color: MORE_TABS.some((t) => t.key === tab) ? "#fff" : colors.text,
+                  border: MORE_TABS.some((t) => t.key === tab) ? "none" : `1px solid ${colors.borderStrong}`,
+                }}
+              >
+                More <ChevronRightIcon size={13} style={{ transform: moreMenuOpen ? "rotate(90deg)" : "none", transition: "transform .15s ease" }} />
+              </button>
+              {moreMenuOpen && (
+                <div
+                  className="pop-in"
+                  style={{ position: "absolute", top: "calc(100% + 8px)", left: 0, zIndex: 30, minWidth: 180, background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 14, boxShadow: "0 16px 36px rgba(30,40,32,.14)", padding: 8 }}
+                >
+                  {MORE_TABS.map((t) => (
+                    <button
+                      key={t.key}
+                      className="dropdown-item"
+                      onClick={() => {
+                        setTab(t.key);
+                        setMoreMenuOpen(false);
+                      }}
+                      style={{
+                        display: "block", width: "100%", background: t.key === tab ? colors.panel : "none", border: "none", borderRadius: 10,
+                        padding: "10px 12px", fontSize: 14.5, fontWeight: t.key === tab ? 700 : 600, color: colors.text, textAlign: "left", cursor: "pointer",
+                      }}
+                    >
+                      {t.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         )}
 
@@ -1036,7 +1134,7 @@ export function MyBookings() {
           </div>
         )}
         {verifyError && (
-          <div style={{ background: "#F6E3E3", color: "#b00020", borderRadius: 16, padding: "14px 20px", marginBottom: 20, fontSize: 14 }}>
+          <div style={{ background: colors.dangerBg, color: colors.danger, borderRadius: 16, padding: "14px 20px", marginBottom: 20, fontSize: 14 }}>
             {verifyError}
           </div>
         )}
@@ -1072,7 +1170,7 @@ export function MyBookings() {
                   {signInLoading ? "Sending…" : "Send me a link"}
                 </Button>
               </div>
-              {signInError && <div style={{ color: "#b00020", fontSize: 13, marginTop: 10 }}>{signInError}</div>}
+              {signInError && <div style={{ color: colors.danger, fontSize: 13, marginTop: 10 }}>{signInError}</div>}
             </>
           )}
         </div>
@@ -1100,7 +1198,7 @@ export function MyBookings() {
               </Button>
             </div>
           )}
-          {lookupError && <div style={{ color: "#b00020", fontSize: 13, marginTop: 10 }}>{lookupError}</div>}
+          {lookupError && <div style={{ color: colors.danger, fontSize: 13, marginTop: 10 }}>{lookupError}</div>}
         </div>
 
         {lookupResult && (
@@ -1144,10 +1242,7 @@ export function MyBookings() {
           </div>
         )}
         {!loading && !hasNone && (
-          <>
-            <PassportSummary bookings={bookings} regs={regs} games={games} programEnrollments={programEnrollments} circles={circles} />
-            <MyPlaces bookings={bookings} regs={regs} />
-          </>
+          <MyLifeSummary bookings={bookings} regs={regs} games={games} programEnrollments={programEnrollments} circles={circles} />
         )}
         {upcomingRows.length > 0 && (
           <>

@@ -147,7 +147,7 @@ export function Header() {
     height: 40,
     borderRadius: "50%",
     border: `1px solid ${colors.borderStrong}`,
-    background: "#fff",
+    background: colors.surface,
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
@@ -159,7 +159,7 @@ export function Header() {
     right: 0,
     zIndex: 60,
     minWidth: 200,
-    background: "#fff",
+    background: colors.surface,
     border: `1px solid ${colors.border}`,
     borderRadius: 14,
     boxShadow: "0 16px 36px rgba(30,40,32,.14)",
@@ -206,7 +206,7 @@ export function Header() {
         position: "sticky",
         top: 0,
         zIndex: 50,
-        background: "rgba(251,250,247,.86)",
+        background: colors.headerBg,
         backdropFilter: "blur(12px)",
         borderBottom: `1px solid ${colors.border}`,
       }}
@@ -230,7 +230,7 @@ export function Header() {
               height: 38,
               borderRadius: 10,
               border: `1px solid ${colors.borderStrong}`,
-              background: "#fff",
+              background: colors.surface,
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
@@ -252,7 +252,7 @@ export function Header() {
             <button
               className="tab-btn"
               style={
-                isActive(["/browse/centres", "/centres/", "/browse/clubs", "/clubs/", "/games", "/make-it-happen"])
+                isActive(["/browse/centres", "/centres/", "/browse/clubs", "/clubs/", "/games", "/make-it-happen", "/adventures", "/experiences"])
                   ? { ...navBtn, background: colors.greenBg, color: colors.greenText, fontWeight: 700, display: "inline-flex", alignItems: "center", gap: 4 }
                   : { ...navBtn, display: "inline-flex", alignItems: "center", gap: 4 }
               }
@@ -270,6 +270,12 @@ export function Header() {
                 </button>
                 <button className="dropdown-item" style={dropdownItemStyle} onClick={() => go("/games")}>
                   Join a game
+                </button>
+                <button className="dropdown-item" style={dropdownItemStyle} onClick={() => go("/adventures")}>
+                  Adventures
+                </button>
+                <button className="dropdown-item" style={dropdownItemStyle} onClick={() => go("/experiences")}>
+                  Experiences
                 </button>
                 <button className="dropdown-item" style={dropdownItemStyle} onClick={() => go("/make-it-happen")}>
                   Make It Happen
@@ -292,7 +298,7 @@ export function Header() {
             My Life
           </button>
           <button
-            className="tab-btn"
+            className="tab-btn hide-tablet"
             style={isActive(["/ask"]) ? { ...navBtn, background: colors.greenBg, color: colors.greenText, fontWeight: 700 } : navBtn}
             onClick={() => go("/ask")}
           >
@@ -301,7 +307,7 @@ export function Header() {
         </nav>
         <div className="desktop-actions" style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10 }}>
           <button
-            className="btn btn-ghost"
+            className="btn btn-ghost hide-tablet"
             onClick={() => go("/free-time")}
             aria-label="Free Time Mode"
             title="Free Time Mode"
@@ -573,7 +579,7 @@ export function Header() {
             height: 40,
             borderRadius: 11,
             border: `1px solid ${colors.borderStrong}`,
-            background: "#fff",
+            background: colors.surface,
             alignItems: "center",
             justifyContent: "center",
             flex: "none",
@@ -592,31 +598,21 @@ export function Header() {
             padding: "10px 20px 20px",
           }}
         >
-          <button style={{ ...mobileNavBtn, display: "flex", alignItems: "center", gap: 8, color: colors.orangeDark, fontWeight: 700 }} onClick={() => go("/free-time")}>
+          {/* Primary destinations (Community centres/Sports clubs/Join a
+              game/Adventures/Experiences/Circles/My Life) moved to the
+              persistent mobile bottom tab bar (see MobileTabBar.tsx) — this
+              drawer now only holds what the bottom bar doesn't cover:
+              secondary actions and account/auth. Grouped by intent (UI/UX
+              plan phase 4). */}
+          <div style={{ ...dropdownLabelStyle, padding: "2px 6px 2px" }}>Not sure yet?</div>
+          <button style={{ ...mobileNavBtn, display: "flex", alignItems: "center", gap: 8 }} onClick={() => go("/free-time")}>
             <LightbulbIcon size={16} /> Free Time Mode
-          </button>
-          <div style={{ ...dropdownLabelStyle, padding: "10px 6px 2px" }}>Explore</div>
-          <button style={mobileNavBtn} onClick={() => go("/browse/centres")}>
-            Community centres
-          </button>
-          <button style={mobileNavBtn} onClick={() => go("/browse/clubs")}>
-            Sports clubs
-          </button>
-          <button style={mobileNavBtn} onClick={() => go("/games")}>
-            Join a game
-          </button>
-          <button style={mobileNavBtn} onClick={() => go("/make-it-happen")}>
-            Make It Happen
-          </button>
-          <button style={mobileNavBtn} onClick={() => go("/circles")}>
-            Circles
-          </button>
-          <button style={mobileNavBtn} onClick={() => go("/bookings")}>
-            My Life ({count})
           </button>
           <button style={{ ...mobileNavBtn, display: "flex", alignItems: "center", gap: 8 }} onClick={() => go("/ask")}>
             <ChatIcon size={16} /> Ask HelloCircle
           </button>
+
+          <div style={{ ...dropdownLabelStyle, padding: "10px 6px 2px" }}>You</div>
           {resident && (
             <button style={{ ...mobileNavBtn, display: "flex", alignItems: "center", gap: 8 }} onClick={() => go("/bookings")}>
               <BellIcon size={16} /> Notifications{unreadNotifs > 0 ? ` (${unreadNotifs})` : ""}

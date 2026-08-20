@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { createCircle, fetchCircleSuggestions, fetchCircles, joinCircle, leaveCircle } from "../api";
 import { UsersIcon } from "../components/icons";
 import { Button, Card, EmptyState, PageSpinner, inputStyle, labelStyle } from "../components/ui";
+import { PageTitle } from "../components/PageTitle";
 import { useGuest } from "../GuestContext";
 import { colors, fonts } from "../theme";
 import type { Circle, CircleSuggestion } from "../types";
@@ -85,9 +86,7 @@ export function Circles() {
   return (
     <div style={{ animation: "fadeUp .35s ease both" }}>
       <section style={{ maxWidth: 900, margin: "0 auto", padding: "36px 24px 80px" }}>
-        <h1 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 34, margin: "0 0 8px", letterSpacing: "-.02em" }}>
-          Circles
-        </h1>
+        <PageTitle>Circles</PageTitle>
         <p style={{ color: colors.mutedLight, fontSize: 15, margin: "0 0 28px" }}>
           Recurring groups built around the things people actually do together.
         </p>
@@ -146,7 +145,7 @@ export function Circles() {
         )}
 
         {circles.length === 0 ? (
-          <EmptyState icon={<UsersIcon size={20} />} title="No circles yet" subtitle={resident ? "Start one above." : "Sign in from My bookings to start one."} />
+          <EmptyState icon={<UsersIcon size={20} />} title="No circles yet" subtitle={resident ? "Start one above." : "Sign in from My Life to start one."} />
         ) : (
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 16 }}>
             {circles.map((c) => (

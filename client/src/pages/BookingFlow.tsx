@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { createBookingCheckout, fetchAvailability, fetchAvailabilityRange, fetchCentre, validateCoupon, PLATFORM_FEE_RATE, VAT_RATE } from "../api";
 import { Chip } from "../components/Chip";
+import { PageTitle } from "../components/PageTitle";
 import { Photo } from "../components/Photo";
 import { Stepper } from "../components/Stepper";
 import { PageSpinner } from "../components/ui";
@@ -10,6 +11,7 @@ import { dateLabel, euro } from "../euro";
 import { ChevronLeftIcon, ChevronRightIcon, CheckIcon, CloseIcon } from "../components/icons";
 import { useGuest } from "../GuestContext";
 import { colors, fonts } from "../theme";
+import { fallbackCopy } from "../copy";
 import type { Centre, Room } from "../types";
 import { isValidEmail } from "../validate";
 
@@ -209,7 +211,7 @@ export function BookingFlow() {
         top();
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Something went wrong");
+      setError(e instanceof Error ? e.message : fallbackCopy.generic);
       setSubmitting(false);
     }
   };
@@ -246,9 +248,7 @@ export function BookingFlow() {
           <div style={{ width: 74, height: 74, borderRadius: "50%", background: colors.greenBg, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 22px", fontSize: 34, color: colors.green }}>
             <CheckIcon size={32} />
           </div>
-          <h1 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 34, margin: "0 0 8px", letterSpacing: "-.02em" }}>
-            Booking confirmed!
-          </h1>
+          <PageTitle>Booking confirmed!</PageTitle>
           <p style={{ color: colors.muted, fontSize: 17, margin: "0 0 28px" }}>
             Pay {euro(totalCents / 100)} in cash at the venue — no online payment needed. We've emailed {form.email || "you"} the details.
           </p>
@@ -462,7 +462,7 @@ export function BookingFlow() {
                     <label style={labelStyle}>Email</label>
                     <input type="email" value={form.email} onChange={(e) => set("email", e.target.value)} placeholder="you@email.ie" style={inputStyle} />
                     {form.email && !isValidEmail(form.email) && (
-                      <p style={{ color: "#b00020", fontSize: 12, margin: "6px 0 0" }}>Enter a valid email address</p>
+                      <p style={{ color: colors.danger, fontSize: 12, margin: "6px 0 0" }}>Enter a valid email address</p>
                     )}
                   </div>
                   <div>
@@ -552,13 +552,13 @@ export function BookingFlow() {
                         {couponChecking ? "Checking…" : "Apply"}
                       </button>
                     </div>
-                    {couponError && <p style={{ color: "#b00020", fontSize: 13, margin: "8px 0 0" }}>{couponError}</p>}
+                    {couponError && <p style={{ color: colors.danger, fontSize: 13, margin: "8px 0 0" }}>{couponError}</p>}
                   </div>
                 )}
               </>
             )}
 
-            {error && <p style={{ color: "#b00020", fontSize: 14, marginTop: 16 }}>{error}</p>}
+            {error && <p style={{ color: colors.danger, fontSize: 14, marginTop: 16 }}>{error}</p>}
 
             <div style={{ display: "flex", gap: 12, marginTop: 26 }}>
               {step > 1 && (

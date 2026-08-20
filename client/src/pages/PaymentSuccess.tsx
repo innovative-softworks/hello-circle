@@ -88,7 +88,7 @@ export function PaymentSuccess() {
             </div>
             <h1 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 28, margin: "0 0 8px", letterSpacing: "-.02em" }}>Still confirming</h1>
             <p style={{ color: colors.muted, fontSize: 16, lineHeight: 1.5, marginBottom: 28 }}>
-              Your payment is taking a little longer to confirm than usual. It'll show up in "My bookings" as soon as it's through — reference <b style={{ color: colors.text }}>{ref}</b>.
+              Your payment is taking a little longer to confirm than usual. It'll show up in "My Life" as soon as it's through — reference <b style={{ color: colors.text }}>{ref}</b>.
             </p>
             <button onClick={() => navigate("/bookings")} style={{ background: colors.green, color: "#fff", border: "none", borderRadius: 12, padding: "13px 22px", fontWeight: 700, fontSize: 15, cursor: "pointer" }}>
               Check my bookings

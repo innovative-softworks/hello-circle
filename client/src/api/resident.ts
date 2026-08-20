@@ -282,6 +282,13 @@ export function fetchWaitlistOfferStatus(clubId: string): Promise<WaitlistOfferS
   return request(`/clubs/${clubId}/waitlist/position`);
 }
 
+// --- "Host" trust tier (IA spec five-layer audit) --------------------------
+// Badge-only — see server/src/routes/residents.ts's own comment. Submitting
+// this is also the guidelines acceptance for v1.
+export function applyToBecomeHost(input: { bio: string; phone?: string }): Promise<{ ok: boolean }> {
+  return request(`/residents/me/host-application`, { method: "POST", body: JSON.stringify(input) });
+}
+
 export function submitFeedback(kind: string, ref: string, response: "yes" | "maybe" | "no"): Promise<{ ok: boolean }> {
   return request(`/feedback`, { method: "POST", body: JSON.stringify({ kind, ref, response }) });
 }

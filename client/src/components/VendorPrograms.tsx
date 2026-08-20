@@ -24,7 +24,7 @@ const ATTENDANCE_STATUS_COLORS: Record<AttendanceStatus, { fg: string; bg: strin
   present: { fg: colors.greenText, bg: colors.greenBg },
   late: { fg: "#9A6B00", bg: "#FFF3D6" },
   absent: { fg: colors.orangeDark, bg: colors.orangeBg },
-  no_show: { fg: "#b00020", bg: "#F6E3E3" },
+  no_show: { fg: colors.danger, bg: colors.dangerBg },
   cancelled: { fg: colors.muted, bg: colors.panel },
 };
 

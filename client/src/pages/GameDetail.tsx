@@ -1,12 +1,15 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { cancelGame, fetchGame, joinGame, joinGameWaitlist, leaveGame, leaveGameWaitlist } from "../api";
-import { CalendarIcon, ChevronLeftIcon, ClockIcon, PinIcon, UsersIcon } from "../components/icons";
+import { AwardIcon, CalendarIcon, ClockIcon, PinIcon, UsersIcon } from "../components/icons";
 import { Button, Card, PageSpinner } from "../components/ui";
+import { BackLink } from "../components/BackLink";
 import { ChatPanel } from "../components/ChatPanel";
+import { PageTitle } from "../components/PageTitle";
 import { InviteButton } from "../components/InviteButton";
 import { useGuest } from "../GuestContext";
 import { colors, fonts } from "../theme";
+import { fallbackCopy } from "../copy";
 import type { Game } from "../types";
 
 // Game detail (Tier 1) — Games.tsx was list-only; this gives a game a
@@ -59,7 +62,7 @@ export function GameDetail() {
       }
       load();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Something went wrong");
+      setError(e instanceof Error ? e.message : fallbackCopy.generic);
     } finally {
       setBusy(false);
     }
@@ -68,18 +71,13 @@ export function GameDetail() {
   return (
     <div style={{ animation: "fadeUp .3s ease both" }}>
       <section style={{ maxWidth: 640, margin: "0 auto", padding: "26px 24px 80px" }}>
-        <button
-          onClick={() => navigate("/games")}
-          style={{ display: "inline-flex", alignItems: "center", background: "none", border: "none", color: colors.muted, fontWeight: 600, fontSize: 14, cursor: "pointer", padding: 0, marginBottom: 20 }}
-        >
-          <ChevronLeftIcon size={14} style={{ marginRight: 4 }} /> All games
-        </button>
+        <BackLink onClick={() => navigate("/games")}>All games</BackLink>
 
         <Card>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, marginBottom: 14 }}>
             <div>
               <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                <h1 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 26, margin: "0 0 4px", letterSpacing: "-.01em" }}>{game.activityLabel}</h1>
+                <PageTitle level="section" style={{ margin: "0 0 4px" }}>{game.activityLabel}</PageTitle>
                 {game.soloFriendly && (
                   <span style={{ fontSize: 12, fontWeight: 700, color: colors.greenText, background: colors.greenBg, borderRadius: 999, padding: "3px 10px", marginBottom: 4 }}>
                     Solo friendly
@@ -89,6 +87,16 @@ export function GameDetail() {
               <div style={{ display: "flex", alignItems: "center", gap: 6, color: colors.mutedLight, fontSize: 14.5 }}>
                 <PinIcon size={14} /> {game.centreName ?? game.locationText}
               </div>
+              {game.hostName && (
+                <div style={{ display: "flex", alignItems: "center", gap: 6, color: colors.mutedLight, fontSize: 13.5, marginTop: 4 }}>
+                  Hosted by {game.hostName}
+                  {game.hostVerified && (
+                    <span style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 11, fontWeight: 700, color: colors.greenText, background: colors.greenBg, borderRadius: 999, padding: "2px 8px" }}>
+                      <AwardIcon size={11} /> Verified Host
+                    </span>
+                  )}
+                </div>
+              )}
             </div>
             {game.priceCents ? (
               <div style={{ fontWeight: 700, fontSize: 20, color: colors.greenText }}>€{(game.priceCents / 100).toFixed(2)}</div>
@@ -98,7 +106,7 @@ export function GameDetail() {
           </div>
 
           {cancelled && (
-            <div style={{ background: "#F6E3E3", color: "#b00020", borderRadius: 12, padding: "10px 14px", fontWeight: 700, fontSize: 13.5, marginBottom: 16 }}>
+            <div style={{ background: colors.dangerBg, color: colors.danger, borderRadius: 12, padding: "10px 14px", fontWeight: 700, fontSize: 13.5, marginBottom: 16 }}>
               This game was cancelled by the host.
             </div>
           )}
@@ -128,7 +136,7 @@ export function GameDetail() {
             {game.skillLevel && <span>· {game.skillLevel}</span>}
           </div>
 
-          {error && <p style={{ color: "#b00020", fontSize: 13.5, margin: "0 0 12px" }}>{error}</p>}
+          {error && <p style={{ color: colors.danger, fontSize: 13.5, margin: "0 0 12px" }}>{error}</p>}
 
           {!cancelled && (
             <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 16 }}>

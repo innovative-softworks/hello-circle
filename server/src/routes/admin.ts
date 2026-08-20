@@ -14,12 +14,14 @@ adminRouter.use(requireAdmin);
 adminRouter.get("/stats", async (_req, res) => {
   const centresPending = (await db.prepare(`SELECT COUNT(*) as n FROM centres WHERE status = 'pending'`).get()) as { n: number };
   const clubsPending = (await db.prepare(`SELECT COUNT(*) as n FROM clubs WHERE status = 'pending'`).get()) as { n: number };
+  const experiencesPending = (await db.prepare(`SELECT COUNT(*) as n FROM experiences WHERE status = 'pending'`).get()) as { n: number };
   const vendorCount = (await db.prepare(`SELECT COUNT(*) as n FROM users WHERE role = 'vendor'`).get()) as { n: number };
   const totalListings = (await db
     .prepare(
       `SELECT
         (SELECT COUNT(*) FROM centres WHERE status != 'deleted') +
-        (SELECT COUNT(*) FROM clubs WHERE status != 'deleted') as n`
+        (SELECT COUNT(*) FROM clubs WHERE status != 'deleted') +
+        (SELECT COUNT(*) FROM experiences WHERE status != 'deleted') as n`
     )
     .get()) as { n: number };
   const reviewCount = (await db.prepare(`SELECT COUNT(*) as n FROM reviews`).get()) as { n: number };
@@ -44,6 +46,7 @@ adminRouter.get("/stats", async (_req, res) => {
   res.json({
     centresPending: centresPending.n,
     clubsPending: clubsPending.n,
+    experiencesPending: experiencesPending.n,
     vendorCount: vendorCount.n,
     totalListings: totalListings.n,
     reviewCount: reviewCount.n,
@@ -85,12 +88,46 @@ adminRouter.put("/vendors/:id/status", async (req, res) => {
   res.json({ ok: true });
 });
 
+// --- Host tier applications (IA spec five-layer audit) --------------------
+// A resident's application to become a verified community Host — badge-
+// only trust signal (see games.ts/circles.ts), never a gate on hosting.
+// Mirrors the vendor moderation pair above exactly: a pending queue plus a
+// single status-mutating endpoint, audited the same way.
+
+adminRouter.get("/host-applications", async (_req, res) => {
+  const rows = await db
+    .prepare(
+      `SELECT id, name, email, host_bio as bio, host_phone as phone, host_applied_at as appliedAt
+       FROM residents WHERE host_status = 'pending' ORDER BY host_applied_at`
+    )
+    .all();
+  res.json(rows);
+});
+
+adminRouter.put("/host-applications/:id/status", async (req, res) => {
+  const { status } = req.body as { status?: string };
+  if (!status || !["verified", "rejected"].includes(status)) {
+    return res.status(400).json({ error: "status must be verified or rejected" });
+  }
+  const before = (await db.prepare(`SELECT host_status FROM residents WHERE id = ?`).get(req.params.id)) as { host_status: string } | undefined;
+  const info = await db
+    .prepare(`UPDATE residents SET host_status = ?, host_decided_at = NOW() WHERE id = ? AND host_status = 'pending'`)
+    .run(status, req.params.id);
+  if (info.changes === 0) return res.status(404).json({ error: "No pending host application for this resident" });
+  writeAudit({ actorUserId: req.user!.id, action: "resident.host_status_changed", objectType: "resident_host_application", objectId: req.params.id, previousValue: before?.host_status, newValue: status });
+  res.json({ ok: true });
+});
+
 // --- listing moderation --------------------------------------------------
 
 const PENDING_CENTRE_COLUMNS = `c.id, c.name, c.status, c.area, c.county, c.capacity, c.from_price as \`from\`, c.managed_by as managedBy,
               c.ph, c.image_url as image, c.blurb, c.vendor_id as vendorId, u.email as vendorEmail, u.name as vendorName, u.status as vendorStatus`;
 const PENDING_CLUB_COLUMNS = `c.id, c.name, c.status, c.sport, c.area, c.county, c.ages, c.price, c.unit,
               c.ph, c.image_url as image, c.blurb, c.vendor_id as vendorId, u.email as vendorEmail, u.name as vendorName, u.status as vendorStatus`;
+// experiences has no `ph`/`sport` — image_url/blurb/kind/price_cents stand
+// in as the fields an admin triage card needs at a glance.
+const PENDING_EXPERIENCE_COLUMNS = `c.id, c.name, c.status, c.kind, c.area, c.county, c.price_cents as \`from\`,
+              c.image_url as image, c.blurb, c.vendor_id as vendorId, u.email as vendorEmail, u.name as vendorName, u.status as vendorStatus`;
 
 adminRouter.get("/listings/pending", async (_req, res) => {
   const centres = await db
@@ -105,7 +142,13 @@ adminRouter.get("/listings/pending", async (_req, res) => {
        FROM clubs c LEFT JOIN users u ON u.id = c.vendor_id WHERE c.status = 'pending' ORDER BY c.name`
     )
     .all();
-  res.json({ centres, clubs });
+  const experiences = await db
+    .prepare(
+      `SELECT ${PENDING_EXPERIENCE_COLUMNS.replace("c.name", "c.title as name")}
+       FROM experiences c LEFT JOIN users u ON u.id = c.vendor_id WHERE c.status = 'pending' ORDER BY c.title`
+    )
+    .all();
+  res.json({ centres, clubs, experiences });
 });
 
 // Pending listings sort first (regardless of name) so an admin doing
@@ -124,7 +167,13 @@ adminRouter.get("/listings", async (_req, res) => {
        FROM clubs c LEFT JOIN users u ON u.id = c.vendor_id ORDER BY (c.status = 'pending') DESC, c.name`
     )
     .all();
-  res.json({ centres, clubs });
+  const experiences = await db
+    .prepare(
+      `SELECT ${PENDING_EXPERIENCE_COLUMNS.replace("c.name", "c.title as name")}
+       FROM experiences c LEFT JOIN users u ON u.id = c.vendor_id ORDER BY (c.status = 'pending') DESC, c.title`
+    )
+    .all();
+  res.json({ centres, clubs, experiences });
 });
 
 /** A listing can't go live before the vendor account behind it has been
@@ -132,7 +181,7 @@ adminRouter.get("/listings", async (_req, res) => {
  * AdminDashboard.tsx. Grandfathered listings with no vendor (vendor_id
  * NULL) are exempt, matching how they're already treated as pre-approved
  * elsewhere. */
-async function vendorNotApprovedFor(table: "centres" | "clubs", id: string): Promise<boolean> {
+async function vendorNotApprovedFor(table: "centres" | "clubs" | "experiences", id: string): Promise<boolean> {
   const row = (await db
     .prepare(`SELECT u.status FROM ${table} c LEFT JOIN users u ON u.id = c.vendor_id WHERE c.id = ?`)
     .get(id)) as { status: string | null } | undefined;
@@ -163,6 +212,19 @@ adminRouter.put("/clubs/:id/status", async (req, res) => {
   const info = await db.prepare(`UPDATE clubs SET status = ? WHERE id = ?`).run(status, req.params.id);
   if (info.changes === 0) return res.status(404).json({ error: "Club not found" });
   res.json(await getClub(req.params.id));
+});
+
+adminRouter.put("/experiences/:id/status", async (req, res) => {
+  const { status } = req.body as { status?: string };
+  if (!status || !["pending", "approved", "rejected", "deleted"].includes(status)) {
+    return res.status(400).json({ error: "Invalid status" });
+  }
+  if (status === "approved" && (await vendorNotApprovedFor("experiences", req.params.id))) {
+    return res.status(409).json({ error: "Approve the vendor's account before approving their listing" });
+  }
+  const info = await db.prepare(`UPDATE experiences SET status = ? WHERE id = ?`).run(status, req.params.id);
+  if (info.changes === 0) return res.status(404).json({ error: "Experience not found" });
+  res.json({ ok: true });
 });
 
 // --- listing claims ----------------------------------------------------------

@@ -1,5 +1,5 @@
 import { getClientId } from "../clientId";
-import type { Centre, Club, DiscoverFeed, DiscoverItem, LocalMomentumSignal, MyBooking, MyProgramEnrollment, MyRegistration, Program, Review, SearchParsed, SearchResult } from "../types";
+import type { Centre, Club, DiscoverFeed, DiscoverItem, Experience, ExperienceSearchResult, LocalMomentumSignal, MyBooking, MyExperienceBooking, MyProgramEnrollment, MyRegistration, Program, Review, SearchParsed, SearchResult } from "../types";
 import { request } from "./core";
 
 // Guest-facing browsing + transactions — no account needed. Centres/clubs,
@@ -224,9 +224,11 @@ export interface AskHelloCircleResponse {
   centres: Centre[];
   clubs: Club[];
   activities: DiscoverItem[];
+  experiences: ExperienceSearchResult[];
   totalCentres: number;
   totalClubs: number;
   totalActivities: number;
+  totalExperiences: number;
 }
 
 export function askHelloCircle(message: string): Promise<AskHelloCircleResponse> {
@@ -323,4 +325,35 @@ export function enrollInProgram(
  * fetchMyBookings/fetchMyRegistrations above. */
 export function fetchMyProgramEnrollments(): Promise<MyProgramEnrollment[]> {
   return request(`/programs/enrollments/mine`);
+}
+
+// --- Adventures & Experiences (guest-facing browsing + booking) -----------
+
+export function fetchExperiences(kind?: "adventure" | "experience", county?: string): Promise<Experience[]> {
+  const params = new URLSearchParams();
+  if (kind) params.set("kind", kind);
+  if (county && county !== "All") params.set("county", county);
+  const qs = params.toString();
+  return request(`/experiences${qs ? `?${qs}` : ""}`);
+}
+
+export function fetchExperience(id: string): Promise<Experience> {
+  return request(`/experiences/${id}`);
+}
+
+export function bookExperienceSession(
+  experienceId: string,
+  sessionId: string,
+  input: { participantName: string; email: string; phone?: string; partySize?: number; couponCode?: string }
+): Promise<{ ref: string; url?: string; totalEuro: number }> {
+  return request(`/experiences/${experienceId}/sessions/${sessionId}/checkout`, { method: "POST", body: JSON.stringify(input) });
+}
+
+/** Same guest-or-resident ownership model as fetchMyProgramEnrollments. */
+export function fetchMyExperienceBookings(): Promise<MyExperienceBooking[]> {
+  return request(`/experiences/bookings/mine`);
+}
+
+export function fetchExperienceBookingStatus(ref: string): Promise<{ ref: string; paymentStatus: string; totalCents: number }> {
+  return request(`/experiences/bookings/status/${encodeURIComponent(ref)}`);
 }

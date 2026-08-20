@@ -298,7 +298,7 @@ export function VendorSignup() {
           </div>
 
           {error && (
-            <p className="pop-in" style={{ color: "#b00020", fontSize: 14, margin: "16px 0 0", background: "#FBEAEA", padding: "9px 12px", borderRadius: 10 }}>
+            <p className="pop-in" style={{ color: colors.danger, fontSize: 14, margin: "16px 0 0", background: colors.dangerBg, padding: "9px 12px", borderRadius: 10 }}>
               {error}
             </p>
           )}

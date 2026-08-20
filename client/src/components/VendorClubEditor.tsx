@@ -155,7 +155,7 @@ export function ClubEditor({ clubId, onSaved }: { clubId: string | "new"; onSave
         <MultiImageUpload images={form.images ?? []} onChange={(images) => set("images", images)} />
       </div>
 
-      {error && <p className="pop-in" style={{ color: "#b00020", fontSize: 13, margin: "0 0 12px", background: "#FBEAEA", padding: "9px 12px", borderRadius: 10 }}>{error}</p>}
+      {error && <p className="pop-in" style={{ color: colors.danger, fontSize: 13, margin: "0 0 12px", background: colors.dangerBg, padding: "9px 12px", borderRadius: 10 }}>{error}</p>}
       <Button variant="orange" disabled={saving || !form.name} onClick={save}>
         {clubId === "new" ? "Create (goes to admin for approval)" : "Save changes"}
       </Button>

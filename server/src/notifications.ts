@@ -4,7 +4,7 @@ import { CLIENT_URL } from "./stripe.js";
 
 interface NotifyParams {
   kind: "booking" | "registration";
-  listingType: "centre" | "club";
+  listingType: "centre" | "club" | "experience";
   listingId: string;
   listingName: string;
   vendorId: string | null;

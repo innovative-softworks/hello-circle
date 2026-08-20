@@ -52,7 +52,7 @@ export function AcceptInvite() {
     <div style={{ animation: "fadeUp .3s ease both" }}>
       <section style={{ maxWidth: 440, margin: "0 auto", padding: "64px 24px" }}>
         {!invite ? (
-          <p style={{ color: "#b00020" }}>{error ?? "This invite is no longer valid."}</p>
+          <p style={{ color: colors.danger }}>{error ?? "This invite is no longer valid."}</p>
         ) : (
           <>
             <h1 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 26, margin: "0 0 8px" }}>Join {invite.orgName}</h1>
@@ -63,7 +63,7 @@ export function AcceptInvite() {
             <input value={name} onChange={(e) => setName(e.target.value)} style={{ ...inputStyle, marginBottom: 14 }} />
             <label style={labelStyle}>Set a password</label>
             <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} style={{ ...inputStyle, marginBottom: 8 }} />
-            {error && <p style={{ color: "#b00020", fontSize: 13, margin: "0 0 12px" }}>{error}</p>}
+            {error && <p style={{ color: colors.danger, fontSize: 13, margin: "0 0 12px" }}>{error}</p>}
             <Button full onClick={submit} disabled={submitting}>
               {submitting ? "Joining…" : "Accept & join"}
             </Button>

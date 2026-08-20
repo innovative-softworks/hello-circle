@@ -77,7 +77,7 @@ export function Login() {
             style={{ ...inputStyle, marginBottom: 20 }}
           />
           {error && (
-            <p className="pop-in" style={{ color: "#b00020", fontSize: 14, margin: "0 0 16px", background: "#FBEAEA", padding: "9px 12px", borderRadius: 10 }}>
+            <p className="pop-in" style={{ color: colors.danger, fontSize: 14, margin: "0 0 16px", background: colors.dangerBg, padding: "9px 12px", borderRadius: 10 }}>
               {error}
             </p>
           )}

@@ -1,28 +1,62 @@
+// Every value below is a CSS custom property reference, not a literal hex —
+// the actual light/dark values live in index.css's `:root` block (+ its
+// `@media (prefers-color-scheme: dark)` override), so every one of this
+// object's ~970 call sites across the app gets dark-mode support for free,
+// with zero per-call-site changes. Two values were deliberately changed
+// from their original hex here (see index.css's :root comment for the
+// measured before/after): `mutedLight` and `faint` previously failed WCAG
+// AA contrast at the sizes they're actually used at (3.73:1 and 2.56:1
+// respectively, against a 4.5:1 requirement for body text) — this is the
+// app's most-used secondary/metadata text color, not an edge case. `orange`
+// and `orangeDark` were both deepened slightly for the same reason (white-
+// on-orange button text was 3.38:1; orangeDark-on-orangeBg badge text was
+// 4.36:1) — small enough shifts that the palette still reads as the same
+// brand color, just legible. `surface` is new: card/panel backgrounds were
+// hardcoded as a literal `"#fff"` at 171 call sites app-wide (never part of
+// this object) rather than a token, meaning they'd stay pure white against
+// a dark page background in dark mode. `ui.tsx`'s `Card` (this app's actual
+// shared surface primitive) and this session's own newer components now use
+// `colors.surface`; the remaining hand-rolled white boxes across older
+// pages are a known, explicitly-flagged follow-up, not silently fixed.
 export const colors = {
-  bg: "#FBFAF7",
-  text: "#1E2420",
-  muted: "#5B635C",
-  mutedLight: "#7C837B",
-  faint: "#9AA098",
-  border: "#E7E4DC",
-  borderStrong: "#D8D4CB",
-  inputBorder: "#D8D4CB",
-  panel: "#F0EEE8",
-  footerBg: "#F6F4EF",
+  bg: "var(--color-bg)",
+  surface: "var(--color-surface)",
+  text: "var(--color-text)",
+  muted: "var(--color-muted)",
+  mutedLight: "var(--color-muted-light)",
+  faint: "var(--color-faint)",
+  border: "var(--color-border)",
+  borderStrong: "var(--color-border-strong)",
+  inputBorder: "var(--color-input-border)",
+  panel: "var(--color-panel)",
+  footerBg: "var(--color-footer-bg)",
 
-  green: "#1E7A4C",
-  greenDark: "#175f3b",
-  greenBg: "#EAF4EE",
-  greenText: "#175f3b",
+  green: "var(--color-green)",
+  greenDark: "var(--color-green-dark)",
+  greenBg: "var(--color-green-bg)",
+  greenText: "var(--color-green-text)",
 
-  orange: "#E8622A",
-  orangeDark: "#C0491E",
-  orangeBg: "#FCEDE4",
-  orangeBgHover: "#F8DDCC",
+  orange: "var(--color-orange)",
+  orangeDark: "var(--color-orange-dark)",
+  orangeBg: "var(--color-orange-bg)",
+  orangeBgHover: "var(--color-orange-bg-hover)",
 
-  gold: "#E8A33A",
-  dark: "#1E2420",
-  darkHover: "#252d27",
+  gold: "var(--color-gold)",
+  dark: "var(--color-dark)",
+  darkHover: "var(--color-dark-hover)",
+
+  // Previously a hand-copied literal (#b00020 / #FBEAEA or #F6E3E3, two
+  // slightly different reds for the same "error" role) in 23 files, never
+  // part of this object — meaning it couldn't adapt to dark mode. Both call
+  // sites now converge on one danger red.
+  danger: "var(--color-danger)",
+  dangerBg: "var(--color-danger-bg)",
+
+  /** The sticky header's translucent backdrop-blur fill — its own token
+   * (not `bg` + an opacity trick) since it needs a real `rgba()`, and
+   * `rgba(var(--color-bg-rgb), .86)` isn't reliably available without also
+   * defining bg as separate r/g/b channel variables. */
+  headerBg: "var(--color-header-bg)",
 };
 
 export const fonts = {
@@ -31,3 +65,59 @@ export const fonts = {
 };
 
 export const maxWidth = 1440;
+
+// --- Design tokens (UI/UX plan phases 2 & 6) --------------------------------
+// Previously nothing governed spacing/type/radius choices beyond hand-picked
+// inline pixel values per call site — 309 borderRadius declarations across
+// 255 distinct values, 21 different sizes used for a page's own <h1>, was
+// the measured result. These are additive: nothing existing was migrated to
+// use them yet (a mechanical, low-risk follow-up), but all new/touched code
+// should reach for these instead of a fresh hand-picked number.
+
+/** 4px-based spacing scale — most of the app's existing inline padding/gap
+ * values already round to something close to one of these; naming it stops
+ * further drift rather than requiring an immediate rewrite. */
+export const space = {
+  1: 4,
+  2: 8,
+  3: 12,
+  4: 16,
+  5: 24,
+  6: 32,
+  7: 48,
+  8: 64,
+  9: 96,
+} as const;
+
+/** A 4-step type scale — this app doesn't do long-form article content that
+ * would justify a denser scale. `hero` is for a page's own primary <h1>
+ * only; everything one level below a page title should use `section`. */
+export const type = {
+  hero: { size: 38, weight: 800 },
+  section: { size: 28, weight: 700 },
+  card: { size: 20, weight: 700 },
+  label: { size: 15, weight: 600 },
+} as const;
+
+/** Named radii — `999` (the "pill" shape) was already the one radius value
+ * this codebase converged on consistently (46 uses); `control`/`card` name
+ * the two other real shapes in use so new code stops picking a fresh number
+ * each time. */
+export const radius = {
+  control: 10,
+  card: 16,
+  pill: 999,
+} as const;
+
+/** Canonical breakpoints — index.css's actual `@media` queries are the
+ * source of truth (CSS can't import a JS constant), kept in sync with these
+ * by hand; this object exists so any future JS-side viewport logic (e.g. a
+ * `matchMedia` call) references the same three numbers instead of a fresh
+ * guess. Today's app has exactly one meaningful nav breakpoint (860px) —
+ * `tablet`/`desktop` are named here so a tablet-specific header treatment
+ * has somewhere real to plug into. */
+export const breakpoints = {
+  mobile: 640,
+  tablet: 860,
+  desktop: 1024,
+} as const;

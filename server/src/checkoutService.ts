@@ -10,7 +10,7 @@ import { CLIENT_URL, stripe } from "./stripe.js";
 // transaction around the insert, so ownership of that insert (and of
 // cleanup on failure) stays with the caller.
 
-export type CheckoutType = "booking" | "registration" | "game" | "program" | "pass";
+export type CheckoutType = "booking" | "registration" | "game" | "program" | "pass" | "experience";
 
 export interface CheckoutLineItem {
   name: string;

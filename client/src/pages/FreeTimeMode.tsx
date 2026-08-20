@@ -2,9 +2,12 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { fetchFreeTimeOptions } from "../api";
 import { DiscoverCard } from "../components/DiscoverRow";
-import { BallIcon, ChevronLeftIcon, ClockIcon, LightbulbIcon, PinIcon } from "../components/icons";
+import { BallIcon, ClockIcon, LightbulbIcon, PinIcon } from "../components/icons";
 import { Button, PageSpinner } from "../components/ui";
+import { BackLink } from "../components/BackLink";
+import { PageTitle } from "../components/PageTitle";
 import { colors, fonts } from "../theme";
+import { fallbackCopy } from "../copy";
 import type { DiscoverItem } from "../types";
 
 // Free Time Mode (implementation plan Phase 9) — a new discovery entry
@@ -46,7 +49,7 @@ function ChoiceGrid({ options, onPick }: { options: { label: string }[]; onPick:
           onClick={() => onPick(i)}
           className="btn-hover"
           style={{
-            background: "#fff",
+            background: colors.surface,
             border: `1px solid ${colors.border}`,
             borderRadius: 16,
             padding: "22px 18px",
@@ -90,7 +93,7 @@ export function FreeTimeMode() {
       });
       setOptions(rows);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Couldn't find anything right now");
+      setError(e instanceof Error ? e.message : fallbackCopy.notFound);
     } finally {
       setLoading(false);
     }
@@ -141,19 +144,14 @@ export function FreeTimeMode() {
     <div style={{ animation: "fadeUp .35s ease both" }}>
       <section style={{ maxWidth: 720, margin: "0 auto", padding: "36px 24px 80px" }}>
         {step !== "duration" && (
-          <button
-            onClick={() => setStep(step === "distance" ? "duration" : step === "mood" ? "distance" : "duration")}
-            style={{ display: "inline-flex", alignItems: "center", background: "none", border: "none", color: colors.muted, fontWeight: 600, fontSize: 14, cursor: "pointer", padding: 0, marginBottom: 16 }}
-          >
-            <ChevronLeftIcon size={14} style={{ marginRight: 4 }} /> Back
-          </button>
+          <BackLink onClick={() => setStep(step === "distance" ? "duration" : step === "mood" ? "distance" : "duration")} marginBottom={16}>
+            Back
+          </BackLink>
         )}
 
         <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
           <LightbulbIcon size={22} style={{ color: colors.orange }} />
-          <h1 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 30, margin: 0, letterSpacing: "-.02em" }}>
-            Free Time Mode
-          </h1>
+          <PageTitle style={{ margin: 0 }}>Free Time Mode</PageTitle>
         </div>
 
         {step === "duration" && (
@@ -195,9 +193,9 @@ export function FreeTimeMode() {
             {loading ? (
               <PageSpinner />
             ) : error ? (
-              <p style={{ color: "#b00020", fontSize: 14 }}>{error}</p>
+              <p style={{ color: colors.danger, fontSize: 14 }}>{error}</p>
             ) : options.length === 0 ? (
-              <div style={{ background: "#fff", border: `1px dashed ${colors.borderStrong}`, borderRadius: 18, padding: 40, textAlign: "center" }}>
+              <div style={{ background: colors.surface, border: `1px dashed ${colors.borderStrong}`, borderRadius: 18, padding: 40, textAlign: "center" }}>
                 <p style={{ color: colors.mutedLight, fontSize: 15, margin: "0 0 18px" }}>
                   Nothing matches that combination right now — try a wider distance or a different mood.
                 </p>

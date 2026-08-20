@@ -4,6 +4,9 @@ import type {
   CentreHoursRow,
   Club,
   DemandRow,
+  Experience,
+  ExperienceKind,
+  ExperienceSessionRow,
   MyBooking,
   MyRegistration,
   OrgProfile,
@@ -12,6 +15,8 @@ import type {
   RoomBlock,
   ScheduleEntry,
   SessionAttendanceEntry,
+  VendorExperienceBooking,
+  VendorExperienceSummary,
   VendorInsights,
   VendorListingSummary,
   VendorNotification,
@@ -297,6 +302,71 @@ export function fetchVendorSchedule(from?: string, days?: number): Promise<Sched
 
 export function fetchVendorToday(): Promise<VendorToday> {
   return request(`/vendor/today`);
+}
+
+// --- Adventures & Experiences (vendor side) --------------------------------
+
+export interface ExperienceInput {
+  kind?: ExperienceKind;
+  title: string;
+  area?: string;
+  county?: string;
+  lat?: number | null;
+  lng?: number | null;
+  meetingPoint?: string;
+  blurb: string;
+  description?: string;
+  difficulty?: string;
+  durationMinutes?: number;
+  fitnessRequirements?: string;
+  itinerary?: string;
+  equipmentProvided?: string;
+  equipmentRequired?: string;
+  transportInfo?: string;
+  safetyInfo?: string;
+  weatherPolicy?: string;
+  eligibility?: string;
+  cancellationTerms?: string;
+  priceCents?: number;
+  capacity?: number;
+  paymentMethod?: "online" | "cash";
+  images?: string[];
+}
+
+export function fetchVendorExperiences(): Promise<VendorExperienceSummary[]> {
+  return request(`/vendor/experiences`);
+}
+
+export function fetchVendorExperience(id: string): Promise<Experience> {
+  return request(`/vendor/experiences/${id}`);
+}
+
+export function createVendorExperience(input: ExperienceInput): Promise<{ id: string }> {
+  return request(`/vendor/experiences`, { method: "POST", body: JSON.stringify(input) });
+}
+
+export function updateVendorExperience(id: string, input: Partial<ExperienceInput>): Promise<{ ok: boolean }> {
+  return request(`/vendor/experiences/${id}`, { method: "PUT", body: JSON.stringify(input) });
+}
+
+export function deleteVendorExperience(id: string): Promise<{ ok: boolean }> {
+  return request(`/vendor/experiences/${id}`, { method: "DELETE" });
+}
+
+export function fetchVendorExperienceSessions(experienceId: string): Promise<ExperienceSessionRow[]> {
+  return request(`/vendor/experiences/${experienceId}/sessions`);
+}
+
+export function addExperienceSession(experienceId: string, input: { date: string; time: string; capacity?: number }): Promise<{ id: string }> {
+  return request(`/vendor/experiences/${experienceId}/sessions`, { method: "POST", body: JSON.stringify(input) });
+}
+
+export function removeExperienceSession(experienceId: string, sessionId: string): Promise<{ ok: boolean }> {
+  return request(`/vendor/experiences/${experienceId}/sessions/${sessionId}`, { method: "DELETE" });
+}
+
+export function fetchVendorExperienceBookings(experienceId: string): Promise<VendorExperienceBooking[]> {
+  return request(`/vendor/experiences/${experienceId}/bookings`);
 }
 
 // --- Phase C: Organisation / Staff / RBAC / Insights ------------------

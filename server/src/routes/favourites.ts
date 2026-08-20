@@ -15,7 +15,7 @@ type FavouriteStatus = (typeof STATUSES)[number];
 // Matches client/src/favorites.ts's FavoriteKind — the client-local
 // (signed-out) favourites already covered all 5 kinds; the server only
 // covered centre/club until this phase.
-const LISTING_TYPES = ["centre", "club", "game", "program_session", "club_session"] as const;
+const LISTING_TYPES = ["centre", "club", "game", "program_session", "club_session", "experience"] as const;
 type ListingType = (typeof LISTING_TYPES)[number];
 
 favouritesRouter.get("/", async (req, res) => {

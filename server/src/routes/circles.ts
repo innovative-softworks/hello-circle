@@ -20,6 +20,12 @@ interface CircleRow {
 
 async function toCircleJson(row: CircleRow) {
   const { n: members } = (await db.prepare(`SELECT COUNT(*) as n FROM circle_members WHERE circle_id = ?`).get(row.id)) as { n: number };
+  // "Host" trust tier (IA spec five-layer audit) — badge-only, same
+  // convention as games.ts's toGameJson. Neither the creator's id nor name
+  // was exposed on this response before.
+  const creator = (await db.prepare(`SELECT name, host_status as hostStatus FROM residents WHERE id = ?`).get(row.created_by_resident_id)) as
+    | { name: string; hostStatus: string }
+    | undefined;
   return {
     id: row.id,
     name: row.name,
@@ -30,6 +36,9 @@ async function toCircleJson(row: CircleRow) {
     centreId: row.centre_id,
     members,
     createdAt: row.created_at,
+    createdByResidentId: row.created_by_resident_id,
+    hostName: creator?.name ?? "",
+    hostVerified: creator?.hostStatus === "verified",
   };
 }
 

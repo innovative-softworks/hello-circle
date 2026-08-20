@@ -116,7 +116,7 @@ export function ClaimListingCTA({
         rows={2}
         style={{ width: "100%", border: `1px solid ${colors.border}`, borderRadius: 10, padding: 10, fontSize: 14, fontFamily: "inherit", marginBottom: 10, resize: "vertical", boxSizing: "border-box" }}
       />
-      {error && <div style={{ color: "#b00020", fontSize: 13, marginBottom: 10 }}>{error}</div>}
+      {error && <div style={{ color: colors.danger, fontSize: 13, marginBottom: 10 }}>{error}</div>}
       <Button onClick={handleSubmit} disabled={submitting}>
         {submitting ? "Submitting…" : "Submit claim"}
       </Button>

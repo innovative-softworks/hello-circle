@@ -173,6 +173,41 @@ async function confirmProgramEnrollment(ref: string) {
   }).catch((e) => console.error("[notifications] program enrollment notify failed:", e));
 }
 
+/** Adventure/Experience session booking confirmation — same idempotent
+ * pattern as confirmBooking/confirmRegistration above. */
+async function confirmExperienceBooking(ref: string) {
+  const info = await db.prepare(`UPDATE experience_bookings SET payment_status = 'paid' WHERE ref = ? AND payment_status = 'pending'`).run(ref);
+  if (info.changes === 0) return;
+
+  const row = (await db
+    .prepare(
+      `SELECT eb.ref, eb.participant_name as participantName, eb.email, eb.party_size as partySize, eb.total_cents as totalCents,
+              eb.resident_id as residentId, e.id as experienceId, e.title, e.vendor_id as vendorId, es.date, es.time
+       FROM experience_bookings eb
+       JOIN experiences e ON e.id = eb.experience_id
+       JOIN experience_sessions es ON es.id = eb.session_id
+       WHERE eb.ref = ?`
+    )
+    .get(ref)) as
+    | { ref: string; participantName: string; email: string; partySize: number; totalCents: number; residentId: string | null; experienceId: string; title: string; vendorId: string; date: string; time: string }
+    | undefined;
+  if (!row) return;
+
+  notifyNewBookingOrRegistration({
+    kind: "booking",
+    listingType: "experience",
+    listingId: row.experienceId,
+    listingName: row.title,
+    vendorId: row.vendorId,
+    guestName: row.participantName,
+    guestEmail: row.email,
+    ref: row.ref,
+    detailsText: `${row.date} at ${row.time} · party of ${row.partySize} · €${(row.totalCents / 100).toFixed(2)} total`,
+  }).catch((e) => console.error("[notifications] experience booking notify failed:", e));
+
+  if (row.residentId) await upgradeFavouriteStatus(row.residentId, "experience", row.experienceId);
+}
+
 async function markFailed(metadata: Stripe.Metadata | null | undefined) {
   if (!metadata?.ref) return;
   if (metadata.type === "booking") await db.prepare(`UPDATE bookings SET payment_status = 'failed' WHERE ref = ? AND payment_status = 'pending'`).run(metadata.ref);
@@ -180,6 +215,7 @@ async function markFailed(metadata: Stripe.Metadata | null | undefined) {
   else if (metadata.type === "game") await db.prepare(`DELETE FROM game_participants WHERE ref = ? AND payment_status = 'pending'`).run(metadata.ref);
   else if (metadata.type === "pass") await db.prepare(`DELETE FROM passes WHERE ref = ? AND payment_status = 'pending'`).run(metadata.ref);
   else if (metadata.type === "program") await db.prepare(`DELETE FROM program_enrollments WHERE ref = ? AND payment_status = 'pending'`).run(metadata.ref);
+  else if (metadata.type === "experience") await db.prepare(`DELETE FROM experience_bookings WHERE ref = ? AND payment_status = 'pending'`).run(metadata.ref);
 }
 
 /** Registered with express.raw() (not express.json()) — Stripe's signature
@@ -217,6 +253,7 @@ export async function stripeWebhookHandler(req: Request, res: Response) {
     else if (type === "game" && ref) await confirmGameJoin(ref);
     else if (type === "pass" && ref) await confirmPass(ref);
     else if (type === "program" && ref) await confirmProgramEnrollment(ref);
+    else if (type === "experience" && ref) await confirmExperienceBooking(ref);
   } else if (event.type === "checkout.session.expired") {
     const session = event.data.object as Stripe.Checkout.Session;
     await markFailed(session.metadata);

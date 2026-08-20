@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { createGame, fetchCentres, fetchGames, joinGame, joinGameWaitlist, leaveGame } from "../api";
 import { CalendarIcon, ClockIcon, PlusIcon, UsersIcon } from "../components/icons";
 import { Button, Card, EmptyState, PageSpinner, inputStyle, labelStyle } from "../components/ui";
+import { PageTitle } from "../components/PageTitle";
 import { useGuest } from "../GuestContext";
 import { colors, fonts } from "../theme";
 import type { Centre, Game } from "../types";
@@ -77,7 +78,7 @@ function GameCard({ game, onJoin, onLeave, joining }: { game: Game; onJoin: () =
           </Button>
         </div>
       )}
-      {!resident && <div style={{ fontSize: 12, color: colors.faint, marginTop: 8 }}>Sign in from My bookings to join a game.</div>}
+      {!resident && <div style={{ fontSize: 12, color: colors.faint, marginTop: 8 }}>Sign in from My Life to join a game.</div>}
     </Card>
   );
 }
@@ -160,9 +161,7 @@ export function Games() {
   return (
     <div style={{ animation: "fadeUp .35s ease both" }}>
       <section style={{ maxWidth: 900, margin: "0 auto", padding: "36px 24px 80px" }}>
-        <h1 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 34, margin: "0 0 8px", letterSpacing: "-.02em" }}>
-          Join a game
-        </h1>
+        <PageTitle>Join a game</PageTitle>
         <p style={{ color: colors.mutedLight, fontSize: 15, margin: "0 0 28px" }}>
           Don't book a whole venue — join people who are already playing.
         </p>
@@ -230,7 +229,7 @@ export function Games() {
               <input type="checkbox" checked={form.soloFriendly} onChange={(e) => setForm((f) => ({ ...f, soloFriendly: e.target.checked }))} />
               Solo friendly — welcome someone who doesn't have a partner or group
             </label>
-            {createError && <p style={{ color: "#b00020", fontSize: 13, margin: "12px 0 0" }}>{createError}</p>}
+            {createError && <p style={{ color: colors.danger, fontSize: 13, margin: "12px 0 0" }}>{createError}</p>}
             <div style={{ marginTop: 14 }}>
               <Button onClick={handleCreate} disabled={creating}>
                 {creating ? "Creating…" : "Create game"}

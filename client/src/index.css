@@ -1,3 +1,115 @@
+/* --- design tokens (theme.ts's `colors` object is CSS-var references into
+   this block, not literal hex — see theme.ts's own comment) ---------------
+   `--color-muted-light` and `--color-faint` are deliberately NOT their
+   original hex (#7C837B / #9AA098): those failed WCAG AA contrast at the
+   sizes they're actually used at (3.73:1 and 2.56:1 against a 4.5:1
+   requirement) — this app's most-used secondary/metadata text color, not
+   an edge case. `--color-orange`/`--color-orange-dark` are similarly
+   deepened slightly (white-on-orange button text was 3.38:1; orange-dark
+   on orange-bg badge text was 4.36:1) — both now pass at 4.5:1+. */
+:root {
+  --color-bg: #fbfaf7;
+  --color-surface: #ffffff;
+  --color-text: #1e2420;
+  --color-muted: #5b635c;
+  --color-muted-light: #5f675e;
+  --color-faint: #656d64;
+  --color-border: #e7e4dc;
+  --color-border-strong: #d8d4cb;
+  --color-input-border: #d8d4cb;
+  --color-panel: #f0eee8;
+  --color-footer-bg: #f6f4ef;
+
+  --color-green: #1e7a4c;
+  --color-green-dark: #175f3b;
+  --color-green-bg: #eaf4ee;
+  --color-green-text: #175f3b;
+
+  --color-orange: #c74c1a;
+  --color-orange-dark: #b0401a;
+  --color-orange-bg: #fcede4;
+  --color-orange-bg-hover: #f8ddcc;
+
+  --color-gold: #e8a33a;
+  --color-dark: #1e2420;
+  --color-dark-hover: #252d27;
+
+  --color-skeleton: #edeae1;
+  --color-skeleton-highlight: #f5f3ec;
+
+  /* A real "error" color existed as a hand-copied #b00020/#FBEAEA literal in
+     23 files, never added to the token set — harmless in light mode, but it
+     would have shipped a 2.43:1 (badly-failing) contrast ratio the moment
+     dark mode's background went live, since a hardcoded hex can't adapt. */
+  --color-danger: #b00020;
+  --color-danger-bg: #fbeaea;
+
+  --color-header-bg: rgba(251, 250, 247, 0.86);
+
+  color-scheme: light;
+}
+
+/* Dark mode (UI/UX plan phase 8) — not requested anywhere in the product
+   yet, added for completeness alongside the rest of the token system. OS-
+   driven only (`prefers-color-scheme`) — there's no in-app theme toggle to
+   stamp a `data-theme` attribute, so that override isn't included; add one
+   here the same shape as this block if a manual toggle is ever built. */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-bg: #15181a;
+    --color-surface: #1d2220;
+    --color-text: #ecefe9;
+    --color-muted: #b6bcb1;
+    --color-muted-light: #a3a99d;
+    --color-faint: #8b9289;
+    --color-border: #2b302d;
+    --color-border-strong: #3b423d;
+    --color-input-border: #3b423d;
+    --color-panel: #1d2220;
+    --color-footer-bg: #1a1e1c;
+
+    /* `--color-green`/`--color-orange` deliberately DON'T lighten for dark
+       mode, unlike almost every other token here — they're a filled-button
+       background with white text on top (Button's primary/orange variants:
+       `background: colors.green, color: "#fff"`), and white-on-a-lightened-
+       green drops to ~2.7:1. A single value can't pass AA as both "text
+       readable against the dark page bg" and "background behind white
+       button text" at once — the two constraints point in opposite
+       directions once the page bg is this dark. Keeping the fill unchanged
+       protects the button (the highest-traffic consumer of these two
+       tokens); `--color-green-text`/`--color-orange-dark` — the tokens
+       already semantically meant for "text on a tinted badge/chip
+       background" — carry the lightened dark-mode treatment instead. */
+    --color-green: #1e7a4c;
+    --color-green-dark: #175f3b;
+    --color-green-bg: #1c3327;
+    --color-green-text: #7fd3a5;
+
+    --color-orange: #c74c1a;
+    --color-orange-dark: #f0996a;
+    --color-orange-bg: #3a2517;
+    --color-orange-bg-hover: #472d1c;
+
+    --color-gold: #e8a33a;
+    /* Same reasoning as green/orange above (white button text on top), but
+       `--color-dark`'s light-mode value is near-black — unusably close to
+       the dark-mode page bg if left unchanged, so it gets a lighter, muted
+       sage tone instead of staying literal-black-on-black. */
+    --color-dark: #444d46;
+    --color-dark-hover: #525c54;
+
+    --color-skeleton: #23282a;
+    --color-skeleton-highlight: #2d3335;
+
+    --color-danger: #e37272;
+    --color-danger-bg: #3a1f1f;
+
+    --color-header-bg: rgba(21, 24, 26, 0.86);
+
+    color-scheme: dark;
+  }
+}
+
 * {
   box-sizing: border-box;
 }
@@ -6,8 +118,8 @@ body {
   margin: 0;
 }
 body {
-  background: #fbfaf7;
-  color: #1e2420;
+  background: var(--color-bg);
+  color: var(--color-text);
   font-family: "Hanken Grotesk", system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
 }
@@ -20,15 +132,28 @@ button {
 input:focus,
 select:focus,
 textarea:focus {
-  border-color: #1e7a4c !important;
+  border-color: var(--color-green) !important;
   box-shadow: 0 0 0 3px rgba(30, 122, 76, 0.13);
 }
 ::selection {
-  background: #1e7a4c;
+  background: var(--color-green);
   color: #fff;
 }
 ::placeholder {
-  color: #a7ada6;
+  color: var(--color-faint);
+}
+
+/* --- keyboard focus (UI/UX plan phase 1/2) --------------------------------
+   Previously :focus was scoped to inputs/selects/textareas only — a
+   keyboard user tabbing through the app had no visible indication of which
+   button/link/tab was focused anywhere. `:focus-visible` (not plain
+   `:focus`) so a mouse click doesn't also trigger the ring. */
+.btn:focus-visible,
+.tab-btn:focus-visible,
+.dropdown-item:focus-visible,
+.link-accent:focus-visible {
+  outline: 2px solid var(--color-green);
+  outline-offset: 2px;
 }
 @keyframes fadeUp {
   from {
@@ -74,8 +199,8 @@ textarea:focus {
    ring for point-loads (auth gate, multi-step flow) where a full skeleton
    layout isn't worth building. */
 .skeleton {
-  background: #EDEAE1;
-  background-image: linear-gradient(90deg, #EDEAE1 0px, #F5F3EC 40px, #EDEAE1 80px);
+  background: var(--color-skeleton);
+  background-image: linear-gradient(90deg, var(--color-skeleton) 0px, var(--color-skeleton-highlight) 40px, var(--color-skeleton) 80px);
   background-size: 240px 100%;
   background-repeat: no-repeat;
   animation: shimmer 1.4s ease-in-out infinite;
@@ -83,8 +208,8 @@ textarea:focus {
 .spinner {
   display: inline-block;
   border-radius: 50%;
-  border: 3px solid #E7E4DC;
-  border-top-color: #1E7A4C;
+  border: 3px solid var(--color-border);
+  border-top-color: var(--color-green);
   animation: spin 0.7s linear infinite;
 }
 
@@ -115,11 +240,11 @@ textarea:focus {
   box-shadow: 0 8px 20px rgba(30, 36, 32, 0.25);
 }
 .btn-ghost:hover:not(:disabled) {
-  background: #f0eee8 !important;
-  border-color: #c8c4ba !important;
+  background: var(--color-panel) !important;
+  border-color: var(--color-border-strong) !important;
 }
 .btn-danger:hover:not(:disabled) {
-  background: #fbeaea !important;
+  background: var(--color-danger-bg) !important;
 }
 
 .card-surface {
@@ -128,14 +253,14 @@ textarea:focus {
 .card-hover:hover {
   transform: translateY(-3px);
   box-shadow: 0 12px 28px rgba(30, 40, 32, 0.09);
-  border-color: #d8d4cb;
+  border-color: var(--color-border-strong);
 }
 
 .tab-btn {
   transition: transform 0.15s ease, background-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
 }
 .tab-btn:hover:not(.tab-btn-active) {
-  background: #f0eee8;
+  background: var(--color-panel);
 }
 .tab-btn-active {
   box-shadow: 0 6px 16px rgba(30, 36, 32, 0.18);
@@ -184,15 +309,15 @@ textarea:focus {
   transition: border-color 0.15s ease, background-color 0.15s ease;
 }
 .image-drop:hover {
-  border-color: #1e7a4c !important;
-  background: #eaf4ee !important;
+  border-color: var(--color-green) !important;
+  background: var(--color-green-bg) !important;
 }
 
 .dropdown-item {
   transition: background-color 0.12s ease;
 }
 .dropdown-item:hover {
-  background: #f0eee8;
+  background: var(--color-panel);
 }
 
 /* --- responsive ---------------------------------------------------------
@@ -207,6 +332,40 @@ textarea:focus {
   display: none;
 }
 
+/* Mobile bottom tab bar (IA spec five-layer audit's highest-leverage
+   remaining gap — see MobileTabBar.tsx) — persistent primary nav, hidden
+   above the same 860px cutover the header's own hamburger already uses.
+   `.mobile-tab-bar-space` reserves room at the bottom of <main> so page
+   content (and the Footer) never sits underneath the fixed bar; height
+   here (56px content + padding) must match the bar's own real height. */
+.mobile-tab-bar {
+  display: none;
+}
+.mobile-tab-bar-space {
+  padding-bottom: 0;
+}
+
+/* Tablet-range header (UI/UX plan phase 6) — previously the header went
+   straight from full desktop chrome (4 text nav items + 4 icon actions) to
+   hamburger-only at 860px, a cliff rather than a slope, with nothing easing
+   the transition on the way down. The actual 860px hamburger cutover below
+   is UNCHANGED (it already works, and narrowing it further without visual
+   verification would be the riskier direction) — this only adds a step
+   above it: between the tablet (860) and desktop (1024) breakpoints from
+   theme.ts's `breakpoints` token, the two lowest-priority items (Free Time
+   Mode's icon action, the "Ask HelloCircle" text nav item — both secondary
+   to core browsing/Circles/My Life, and both still reachable once the
+   hamburger takes over just below) fold away first, so there's genuinely
+   less happening in the header right before it collapses, not a sudden
+   jump from eight items to zero. CSS can't read a JS constant, so these
+   px values are the manually-kept-in-sync source of truth theme.ts's own
+   comment on `breakpoints` already flags. */
+@media (max-width: 1024px) and (min-width: 861px) {
+  .hide-tablet {
+    display: none !important;
+  }
+}
+
 @media (max-width: 860px) {
   .desktop-nav,
   .desktop-actions {
@@ -214,6 +373,21 @@ textarea:focus {
   }
   .mobile-menu-btn {
     display: inline-flex !important;
+  }
+  .mobile-tab-bar {
+    display: flex !important;
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 250;
+    background: var(--color-surface);
+    border-top: 1px solid var(--color-border);
+    padding: 6px 4px calc(6px + env(safe-area-inset-bottom));
+    box-shadow: 0 -6px 24px rgba(20, 22, 20, 0.08);
+  }
+  .mobile-tab-bar-space {
+    padding-bottom: calc(64px + env(safe-area-inset-bottom)) !important;
   }
 }
 

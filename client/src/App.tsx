@@ -5,6 +5,7 @@ import { DashboardNavProvider } from "./DashboardNavContext";
 import { Footer } from "./components/Footer";
 import { GuestProvider } from "./GuestContext";
 import { Header } from "./components/Header";
+import { MobileTabBar } from "./components/MobileTabBar";
 import { MyStuffProvider } from "./MyStuffContext";
 import { AcceptInvite } from "./pages/AcceptInvite";
 import { AdminDashboard } from "./pages/AdminDashboard";
@@ -16,6 +17,9 @@ import { Circles } from "./pages/Circles";
 import { ClubDetail } from "./pages/ClubDetail";
 import { BookingFlow } from "./pages/BookingFlow";
 import { CookiePolicy } from "./pages/CookiePolicy";
+import { Adventures } from "./pages/Adventures";
+import { ExperienceDetail } from "./pages/ExperienceDetail";
+import { Experiences } from "./pages/Experiences";
 import { ForgotPassword } from "./pages/ForgotPassword";
 import { FreeTimeMode } from "./pages/FreeTimeMode";
 import { GameDetail } from "./pages/GameDetail";
@@ -38,6 +42,11 @@ import { VendorSignup } from "./pages/VendorSignup";
 export function App() {
   const location = useLocation();
   const hideHeader = location.pathname === "/login" || location.pathname === "/onboarding";
+  // The bottom tab bar is participant-facing primary nav (IA spec's
+  // Home/Explore/Create/Circles/My Life) — the vendor/admin dashboards
+  // already have their own nav model (NavSidebar, see CLAUDE.md), so it
+  // would either duplicate or conflict with that, not complement it.
+  const hideTabBar = hideHeader || location.pathname.startsWith("/vendor") || location.pathname.startsWith("/admin");
 
   return (
     <AuthProvider>
@@ -45,7 +54,7 @@ export function App() {
         <MyStuffProvider>
           <DashboardNavProvider>
             {!hideHeader && <Header />}
-            <main style={{ minHeight: "70vh" }}>
+            <main className={hideTabBar ? undefined : "mobile-tab-bar-space"} style={{ minHeight: "70vh" }}>
               <Routes>
                 <Route path="/" element={<Home />} />
                 <Route path="/browse/:category" element={<Browse />} />
@@ -62,6 +71,10 @@ export function App() {
                 <Route path="/circles/:id" element={<CircleDetail />} />
                 <Route path="/bookings" element={<MyBookings />} />
                 <Route path="/programs/:id" element={<ProgramDetail />} />
+                <Route path="/adventures" element={<Adventures />} />
+                <Route path="/adventures/:id" element={<ExperienceDetail />} />
+                <Route path="/experiences" element={<Experiences />} />
+                <Route path="/experiences/:id" element={<ExperienceDetail />} />
                 <Route path="/search" element={<Search />} />
                 <Route path="/onboarding" element={<Onboarding />} />
                 <Route path="/payment/success" element={<PaymentSuccess />} />
@@ -80,6 +93,7 @@ export function App() {
             </main>
             <Footer />
             <CookieNotice />
+            {!hideTabBar && <MobileTabBar />}
           </DashboardNavProvider>
         </MyStuffProvider>
       </GuestProvider>

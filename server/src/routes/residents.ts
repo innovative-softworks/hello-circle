@@ -31,7 +31,8 @@ residentsRouter.get("/me", async (req, res) => {
   const row = (await db
     .prepare(
       `SELECT interests, availability, onboarding_completed as onboardingCompleted, notification_prefs as notificationPrefs,
-              accessibility_prefs as accessibilityPrefs, search_radius_km as searchRadiusKm
+              accessibility_prefs as accessibilityPrefs, search_radius_km as searchRadiusKm,
+              host_status as hostStatus, host_bio as hostBio, host_phone as hostPhone
        FROM residents WHERE id = ?`
     )
     .get(req.resident.id)) as {
@@ -41,6 +42,9 @@ residentsRouter.get("/me", async (req, res) => {
     notificationPrefs: string | null;
     accessibilityPrefs: string | null;
     searchRadiusKm: number;
+    hostStatus: "none" | "pending" | "verified" | "rejected";
+    hostBio: string | null;
+    hostPhone: string;
   };
   res.json({
     resident: {
@@ -51,6 +55,9 @@ residentsRouter.get("/me", async (req, res) => {
       notificationPrefs: row.notificationPrefs ? JSON.parse(row.notificationPrefs) : null,
       accessibilityPrefs: row.accessibilityPrefs ? JSON.parse(row.accessibilityPrefs) : [],
       searchRadiusKm: row.searchRadiusKm,
+      hostStatus: row.hostStatus,
+      hostBio: row.hostBio ?? "",
+      hostPhone: row.hostPhone,
     },
   });
 });
@@ -58,6 +65,30 @@ residentsRouter.get("/me", async (req, res) => {
 residentsRouter.put("/me", requireResident, async (req, res) => {
   const { name, homeCounty } = req.body as { name?: string; homeCounty?: string };
   await updateResident(req.resident!.id, { name, homeCounty });
+  res.json({ ok: true });
+});
+
+// --- Host tier (IA spec five-layer audit) ---------------------------------
+// Badge-only trust signal, never a gate on hosting a Game/Circle — see
+// games.ts/circles.ts, which surface hostVerified from host_status but
+// never check it before allowing a create. Submitting this form is the
+// guidelines acceptance for v1 — no separate accept/versioning step.
+residentsRouter.post("/me/host-application", requireResident, async (req, res) => {
+  const { bio, phone } = req.body as { bio?: string; phone?: string };
+  if (!bio || !bio.trim()) return res.status(400).json({ error: "A short bio is required" });
+
+  const current = (await db.prepare(`SELECT host_status as hostStatus FROM residents WHERE id = ?`).get(req.resident!.id)) as
+    | { hostStatus: string }
+    | undefined;
+  if (current?.hostStatus === "pending" || current?.hostStatus === "verified") {
+    return res.status(409).json({ error: "You already have a host application on file" });
+  }
+
+  await db
+    .prepare(
+      `UPDATE residents SET host_status = 'pending', host_bio = ?, host_phone = ?, host_applied_at = NOW(), host_decided_at = NULL WHERE id = ?`
+    )
+    .run(bio.trim(), phone ?? "", req.resident!.id);
   res.json({ ok: true });
 });
 

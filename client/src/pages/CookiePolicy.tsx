@@ -22,7 +22,7 @@ const ITEMS: StorageItem[] = [
   {
     name: "hello_circle_client_id",
     type: "Local storage",
-    purpose: "A random ID (not linked to your identity) so \"My bookings\" can show your bookings without requiring an account.",
+    purpose: "A random ID (not linked to your identity) so \"My Life\" can show your bookings without requiring an account.",
     duration: "Until you clear your browser's site data",
   },
   {

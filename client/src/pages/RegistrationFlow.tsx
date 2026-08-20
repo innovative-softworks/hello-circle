@@ -12,6 +12,7 @@ import { useMyStuff } from "../MyStuffContext";
 import { priceLabel } from "../priceLabel";
 import { CheckIcon, ChevronLeftIcon, CloseIcon } from "../components/icons";
 import { colors, fonts } from "../theme";
+import { fallbackCopy } from "../copy";
 import type { Club } from "../types";
 import { isValidEmail } from "../validate";
 
@@ -170,7 +171,7 @@ export function RegistrationFlow() {
         setClubFull(true);
         top();
       } else {
-        setError(e instanceof Error ? e.message : "Something went wrong");
+        setError(e instanceof Error ? e.message : fallbackCopy.generic);
       }
     } finally {
       setSubmitting(false);
@@ -344,7 +345,7 @@ export function RegistrationFlow() {
                     <label style={labelStyle}>Email</label>
                     <input type="email" value={form.email} onChange={(e) => set("email", e.target.value)} placeholder="you@email.ie" style={inputStyle} />
                     {form.email && !isValidEmail(form.email) && (
-                      <p style={{ color: "#b00020", fontSize: 12, margin: "6px 0 0" }}>Enter a valid email address</p>
+                      <p style={{ color: colors.danger, fontSize: 12, margin: "6px 0 0" }}>Enter a valid email address</p>
                     )}
                   </div>
                   <div>
@@ -482,7 +483,7 @@ export function RegistrationFlow() {
                             {couponChecking ? "Checking…" : "Apply"}
                           </button>
                         </div>
-                        {couponError && <p style={{ color: "#b00020", fontSize: 13, margin: "8px 0 0" }}>{couponError}</p>}
+                        {couponError && <p style={{ color: colors.danger, fontSize: 13, margin: "8px 0 0" }}>{couponError}</p>}
                       </div>
                     )}
                     </>
@@ -496,7 +497,7 @@ export function RegistrationFlow() {
               </>
             )}
 
-            {error && <p style={{ color: "#b00020", fontSize: 14, marginTop: 16 }}>{error}</p>}
+            {error && <p style={{ color: colors.danger, fontSize: 14, marginTop: 16 }}>{error}</p>}
 
             {clubFull && (
               <div style={{ background: colors.orangeBg, border: `1px solid ${colors.orange}`, borderRadius: 14, padding: 18, marginTop: 18 }}>

@@ -4,10 +4,36 @@ import { search } from "../api";
 import { CentreCard } from "../components/CentreCard";
 import { ClubCard } from "../components/ClubCard";
 import { DiscoverCard } from "../components/DiscoverRow";
-import { SearchIcon } from "../components/icons";
-import { CardSkeleton, EmptyState } from "../components/ui";
+import { SearchIcon, TreeIconSmall } from "../components/icons";
+import { Card, CardSkeleton, EmptyState } from "../components/ui";
 import { colors, fonts, maxWidth } from "../theme";
-import type { SearchResult } from "../types";
+import type { ExperienceSearchResult, SearchResult } from "../types";
+
+export function ExperienceSearchCard({ e }: { e: ExperienceSearchResult }) {
+  const navigate = useNavigate();
+  return (
+    <Card hover onClick={() => navigate(`/${e.kind === "adventure" ? "adventures" : "experiences"}/${e.id}`)} style={{ padding: 0, overflow: "hidden" }}>
+      <div
+        style={{
+          height: 110,
+          background: e.imageUrl ? `url(${e.imageUrl}) center/cover` : e.kind === "adventure" ? colors.greenBg : colors.orangeBg,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+        }}
+      >
+        {!e.imageUrl && <TreeIconSmall size={22} style={{ color: e.kind === "adventure" ? colors.greenText : colors.orangeDark, opacity: 0.6 }} />}
+      </div>
+      <div style={{ padding: 13 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
+          <h4 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 14.5, margin: 0 }}>{e.title}</h4>
+          <span style={{ fontWeight: 700, fontSize: 13.5, whiteSpace: "nowrap" }}>{e.priceCents ? `€${(e.priceCents / 100).toFixed(2)}` : "Free"}</span>
+        </div>
+        <div style={{ color: colors.mutedLight, fontSize: 12.5, marginTop: 3 }}>{e.area}{e.area && e.county ? ", " : ""}{e.county}</div>
+      </div>
+    </Card>
+  );
+}
 
 const RECENT_KEY = "hello_circle_recent_searches";
 const POPULAR = ["Badminton tonight", "Swimming near me", "Free activities this weekend", "Kids art"];
@@ -123,7 +149,7 @@ export function Search() {
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 18 }}>
                 {Array.from({ length: 6 }, (_, i) => <CardSkeleton key={i} />)}
               </div>
-            ) : result && result.centres.length === 0 && result.clubs.length === 0 && result.activities.length === 0 ? (
+            ) : result && result.centres.length === 0 && result.clubs.length === 0 && result.activities.length === 0 && result.experiences.length === 0 ? (
               <EmptyState icon={<SearchIcon size={22} />} title="Nothing matched" subtitle="Try a different phrasing, or broaden it — e.g. drop the county." />
             ) : (
               <>
@@ -134,6 +160,14 @@ export function Search() {
                       {result.activities.map((a) => (
                         <DiscoverCard key={`${a.kind}-${a.id}`} item={a} isToday={a.date === new Date().toISOString().slice(0, 10)} />
                       ))}
+                    </div>
+                  </div>
+                )}
+                {result && result.experiences.length > 0 && (
+                  <div style={{ marginBottom: 28 }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: colors.muted, marginBottom: 12 }}>ADVENTURES &amp; EXPERIENCES</div>
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: 14 }}>
+                      {result.experiences.map((e) => <ExperienceSearchCard key={e.id} e={e} />)}
                     </div>
                   </div>
                 )}

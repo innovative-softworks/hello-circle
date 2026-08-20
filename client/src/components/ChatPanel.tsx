@@ -85,7 +85,7 @@ export function ChatPanel({ scopeType, scopeId, residentId }: { scopeType: ChatS
   if (forbidden) return null;
 
   return (
-    <div style={{ background: "#fff", border: `1px solid ${colors.border}`, borderRadius: 16, overflow: "hidden" }}>
+    <div style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 16, overflow: "hidden" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "12px 16px", borderBottom: `1px solid ${colors.border}`, fontWeight: 700, fontSize: 14.5 }}>
         <ChatIcon size={16} /> Chat
       </div>

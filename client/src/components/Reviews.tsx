@@ -113,7 +113,7 @@ export function Reviews({ listingType, listingId, accent, onReviewPosted }: Prop
             rows={3}
             style={{ ...inputStyle, resize: "vertical", marginBottom: 12 }}
           />
-          {reviewError && <p className="pop-in" style={{ color: "#b00020", fontSize: 13, margin: "0 0 12px", background: "#FBEAEA", padding: "8px 11px", borderRadius: 9 }}>{reviewError}</p>}
+          {reviewError && <p className="pop-in" style={{ color: colors.danger, fontSize: 13, margin: "0 0 12px", background: colors.dangerBg, padding: "8px 11px", borderRadius: 9 }}>{reviewError}</p>}
           <Button variant={accentVariant} disabled={reviewSubmitting || !reviewName} onClick={submitTheReview}>
             {reviewSubmitting ? "Posting…" : "Post review"}
           </Button>

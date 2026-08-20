@@ -2,11 +2,15 @@ import { useState } from "react";
 import { askHelloCircle } from "../api";
 import type { AskHelloCircleResponse } from "../api";
 import { CentreCard } from "../components/CentreCard";
+import { ChatBubble } from "../components/ChatBubble";
 import { ChatIcon, SearchIcon } from "../components/icons";
 import { ClubCard } from "../components/ClubCard";
 import { DiscoverCard } from "../components/DiscoverRow";
+import { PageTitle } from "../components/PageTitle";
 import { Spinner } from "../components/ui";
 import { colors, fonts } from "../theme";
+import { fallbackCopy } from "../copy";
+import { ExperienceSearchCard } from "./Search";
 
 // Ask HelloCircle (implementation plan Phase 12) — a chat-style front door
 // onto the exact same structured search the /search page already runs
@@ -40,7 +44,7 @@ export function AskHelloCircle() {
       const result = await askHelloCircle(text);
       setTurns((t) => [...t, { role: "assistant", text: result.reply, result }]);
     } catch (e) {
-      setTurns((t) => [...t, { role: "assistant", text: e instanceof Error ? e.message : "Something went wrong — try again." }]);
+      setTurns((t) => [...t, { role: "assistant", text: e instanceof Error ? e.message : fallbackCopy.generic }]);
     } finally {
       setAsking(false);
     }
@@ -51,9 +55,7 @@ export function AskHelloCircle() {
       <section style={{ maxWidth: 720, margin: "0 auto", padding: "26px 24px 100px" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
           <ChatIcon size={22} style={{ color: colors.green }} />
-          <h1 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 30, margin: 0, letterSpacing: "-.02em" }}>
-            Ask HelloCircle
-          </h1>
+          <PageTitle style={{ margin: 0 }}>Ask HelloCircle</PageTitle>
         </div>
         <p style={{ color: colors.mutedLight, fontSize: 15, margin: "0 0 24px" }}>
           A simple search assistant — it only ever finds real, currently-open activities and listings, nothing made up.
@@ -62,26 +64,19 @@ export function AskHelloCircle() {
         <div style={{ display: "flex", flexDirection: "column", gap: 18, marginBottom: 24 }}>
           {turns.map((t, i) => (
             <div key={i} style={{ display: "flex", flexDirection: "column", alignItems: t.role === "user" ? "flex-end" : "flex-start" }}>
-              <div
-                style={{
-                  maxWidth: "85%",
-                  background: t.role === "user" ? colors.green : "#fff",
-                  color: t.role === "user" ? "#fff" : colors.text,
-                  border: t.role === "assistant" ? `1px solid ${colors.border}` : "none",
-                  borderRadius: 16,
-                  padding: "10px 16px",
-                  fontSize: 14.5,
-                }}
-              >
-                {t.text}
-              </div>
-              {t.result && (t.result.activities.length > 0 || t.result.centres.length > 0 || t.result.clubs.length > 0) && (
+              <ChatBubble mine={t.role === "user"}>{t.text}</ChatBubble>
+              {t.result && (t.result.activities.length > 0 || t.result.centres.length > 0 || t.result.clubs.length > 0 || t.result.experiences.length > 0) && (
                 <div style={{ marginTop: 10, width: "100%" }}>
                   {t.result.activities.length > 0 && (
                     <div style={{ display: "flex", gap: 14, overflowX: "auto", paddingBottom: 6, marginBottom: 10 }}>
                       {t.result.activities.map((a) => (
                         <DiscoverCard key={`${a.kind}-${a.id}`} item={a} isToday={a.date === new Date().toISOString().slice(0, 10)} />
                       ))}
+                    </div>
+                  )}
+                  {t.result.experiences.length > 0 && (
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: 14, marginBottom: 10 }}>
+                      {t.result.experiences.map((e) => <ExperienceSearchCard key={e.id} e={e} />)}
                     </div>
                   )}
                   {(t.result.centres.length > 0 || t.result.clubs.length > 0) && (
@@ -96,9 +91,9 @@ export function AskHelloCircle() {
           ))}
           {asking && (
             <div style={{ display: "flex", justifyContent: "flex-start" }}>
-              <div style={{ background: "#fff", border: `1px solid ${colors.border}`, borderRadius: 16, padding: "10px 16px" }}>
+              <ChatBubble mine={false}>
                 <Spinner size={16} />
-              </div>
+              </ChatBubble>
             </div>
           )}
         </div>

@@ -105,7 +105,7 @@ export function ProgramDetail() {
             <p style={{ margin: "6px 0 0", color: colors.muted, fontSize: 13.5 }}>Bring: {program.equipment.join(", ")}</p>
           )}
           {program.capacity !== null && (
-            <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 14, fontSize: 13.5, color: full ? "#b00020" : colors.greenText, fontWeight: 700 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 14, fontSize: 13.5, color: full ? colors.danger : colors.greenText, fontWeight: 700 }}>
               <UsersIcon size={14} /> {full ? "Full" : `${program.spotsLeft} of ${program.capacity} spots left`}
             </div>
           )}
@@ -145,7 +145,7 @@ export function ProgramDetail() {
                 <input value={form.phone} onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))} style={inputStyle} />
               </div>
             </div>
-            {error && <p style={{ color: "#b00020", fontSize: 13, margin: "12px 0 0" }}>{error}</p>}
+            {error && <p style={{ color: colors.danger, fontSize: 13, margin: "12px 0 0" }}>{error}</p>}
             <div style={{ marginTop: 16 }}>
               <Button onClick={submit} disabled={submitting}>
                 {submitting ? "Please wait…" : program.priceCents ? `Continue to pay €${(program.priceCents / 100).toFixed(2)}` : "Enroll for free"}

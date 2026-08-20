@@ -90,7 +90,7 @@ export function BookingsTab() {
                     <td style={{ ...tdStyle, color: colors.mutedLight }}>{b.email}, {b.phone}</td>
                     <td style={tdStyle}>
                       {b.status === "cancelled" ? (
-                        <span style={{ fontSize: 11, fontWeight: 700, color: "#b00020", background: "#F6E3E3", borderRadius: 999, padding: "2px 8px" }}>Cancelled</span>
+                        <span style={{ fontSize: 11, fontWeight: 700, color: colors.danger, background: colors.dangerBg, borderRadius: 999, padding: "2px 8px" }}>Cancelled</span>
                       ) : (
                         <CheckInButton kind="booking" reference={b.ref} />
                       )}
@@ -130,7 +130,7 @@ export function BookingsTab() {
                     <td style={{ ...tdStyle, color: colors.mutedLight }}>{r.email}, {r.phone}</td>
                     <td style={tdStyle}>
                       {r.status === "cancelled" ? (
-                        <span style={{ fontSize: 11, fontWeight: 700, color: "#b00020", background: "#F6E3E3", borderRadius: 999, padding: "2px 8px" }}>Cancelled</span>
+                        <span style={{ fontSize: 11, fontWeight: 700, color: colors.danger, background: colors.dangerBg, borderRadius: 999, padding: "2px 8px" }}>Cancelled</span>
                       ) : (
                         <CheckInButton kind="registration" reference={r.ref} />
                       )}

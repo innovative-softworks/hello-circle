@@ -600,6 +600,96 @@ export async function initSchema() {
       created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
 
+    -- Experiences & Adventures (implementation plan, added post-IA-spec-audit)
+    -- — a real, standalone third listing type alongside centres/clubs, not a
+    -- sub-type of either: an adventure/experience has its own location
+    -- (area/county/meeting point), not a room inside a centre. 'kind'
+    -- distinguishes the two ('adventure' gets the fuller
+    -- difficulty/itinerary/equipment/transport/weather field set; 'experience'
+    -- is the lighter sibling — same table, most of those fields just stay
+    -- empty). Existing vendor accounts create these (no new "operator"
+    -- account type) — same vendor_id/org ownership model as centres/clubs.
+    CREATE TABLE IF NOT EXISTS experiences (
+      id VARCHAR(191) PRIMARY KEY,
+      vendor_id VARCHAR(191) NOT NULL,
+      kind VARCHAR(20) NOT NULL DEFAULT 'experience',
+      title VARCHAR(255) NOT NULL,
+      area VARCHAR(255) NOT NULL DEFAULT '',
+      county VARCHAR(255) NOT NULL DEFAULT '',
+      lat DECIMAL(9,6),
+      lng DECIMAL(9,6),
+      meeting_point VARCHAR(500) NOT NULL DEFAULT '',
+      blurb TEXT NOT NULL,
+      description TEXT NOT NULL,
+      difficulty VARCHAR(20) NOT NULL DEFAULT '',
+      duration_minutes INT NOT NULL DEFAULT 120,
+      fitness_requirements TEXT NOT NULL,
+      itinerary TEXT NOT NULL,
+      equipment_provided TEXT NOT NULL,
+      equipment_required TEXT NOT NULL,
+      transport_info TEXT NOT NULL,
+      safety_info TEXT NOT NULL,
+      weather_policy TEXT NOT NULL,
+      eligibility TEXT NOT NULL,
+      cancellation_terms TEXT NOT NULL,
+      price_cents INT NOT NULL DEFAULT 0,
+      capacity INT NOT NULL DEFAULT 8,
+      payment_method VARCHAR(20) NOT NULL DEFAULT 'online',
+      image_url VARCHAR(500) NOT NULL DEFAULT '',
+      status VARCHAR(20) NOT NULL DEFAULT 'pending',
+      views INT NOT NULL DEFAULT 0,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS experience_images (
+      experience_id VARCHAR(191) NOT NULL,
+      url VARCHAR(500) NOT NULL,
+      sort_order INT NOT NULL
+    );
+
+    -- A bookable date/time instance (a specific departure) — mirrors
+    -- program_sessions, but experience_bookings below books ONE session at a
+    -- time (a single hike on a single day), not "enroll once, attend every
+    -- session" the way a program enrollment does.
+    CREATE TABLE IF NOT EXISTS experience_sessions (
+      id VARCHAR(191) PRIMARY KEY,
+      experience_id VARCHAR(191) NOT NULL,
+      date VARCHAR(20) NOT NULL,
+      time VARCHAR(20) NOT NULL,
+      capacity INT,
+      status VARCHAR(20) NOT NULL DEFAULT 'scheduled',
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- Same subtotal/discount/vat/platform_fee/coupon/total shape as
+    -- bookings/registrations/program_enrollments so this can go straight
+    -- through the existing computePricing()/checkoutService.ts unchanged.
+    -- party_size (not present on those other tables) is real here — an
+    -- adventure booking is commonly "2 spots on Saturday's hike," not
+    -- always a single participant.
+    CREATE TABLE IF NOT EXISTS experience_bookings (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      ref VARCHAR(191) UNIQUE,
+      experience_id VARCHAR(191) NOT NULL,
+      session_id VARCHAR(191) NOT NULL,
+      client_id VARCHAR(191) NOT NULL,
+      resident_id VARCHAR(191),
+      participant_name VARCHAR(255) NOT NULL,
+      email VARCHAR(255) NOT NULL,
+      phone VARCHAR(255) NOT NULL DEFAULT '',
+      party_size INT NOT NULL DEFAULT 1,
+      subtotal_cents INT NOT NULL DEFAULT 0,
+      discount_cents INT NOT NULL DEFAULT 0,
+      vat_cents INT NOT NULL DEFAULT 0,
+      platform_fee_cents INT NOT NULL DEFAULT 0,
+      coupon_code VARCHAR(191),
+      total_cents INT NOT NULL DEFAULT 0,
+      payment_status VARCHAR(20) NOT NULL DEFAULT 'pending',
+      stripe_session_id VARCHAR(255),
+      status VARCHAR(20) NOT NULL DEFAULT 'confirmed',
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
     -- Per-day opening hours (Phase B) — supersedes a centre's single
     -- opens_at/closes_at window when rows exist for it, falling back to
     -- that single window when a centre has none, so every existing centre
@@ -882,6 +972,21 @@ export async function initSchema() {
   await ensureColumn("residents", "notification_prefs", "notification_prefs TEXT");
   await ensureColumn("residents", "accessibility_prefs", "accessibility_prefs TEXT");
   await ensureColumn("residents", "search_radius_km", "search_radius_km INT NOT NULL DEFAULT 10");
+
+  // "Host" trust tier (IA spec five-layer audit) — a resident who's applied
+  // to be a verified community host, distinct from the vendor/admin roles
+  // in auth.ts. Deliberately an attribute of the existing residents row,
+  // not a new identity system or table (see CLAUDE.md's existing
+  // three-identity-system note) — badge-only for v1, never gates hosting a
+  // Game/Circle (see games.ts/circles.ts).
+  await ensureColumn("residents", "host_status", "host_status VARCHAR(20) NOT NULL DEFAULT 'none'");
+  // TEXT can't carry a DEFAULT in MySQL (ER_BLOB_CANT_HAVE_DEFAULT) — nullable,
+  // same convention as interests/availability above; application code treats
+  // NULL as empty (see residents.ts's GET /me).
+  await ensureColumn("residents", "host_bio", "host_bio TEXT");
+  await ensureColumn("residents", "host_phone", "host_phone VARCHAR(255) NOT NULL DEFAULT ''");
+  await ensureColumn("residents", "host_applied_at", "host_applied_at DATETIME");
+  await ensureColumn("residents", "host_decided_at", "host_decided_at DATETIME");
 
   // Organisation linkage (Phase C — Gate 2). Every existing vendor is
   // backfilled with their own 1:1 organisation below so nothing about the

@@ -274,6 +274,11 @@ export interface WaitlistPosition {
 export interface Game {
   id: string;
   hostResidentId: string;
+  /** "Host" trust tier (IA spec five-layer audit) — badge-only, never a
+   * gate on creating a game. hostVerified is true only once an admin has
+   * approved this resident's host application. */
+  hostName: string;
+  hostVerified: boolean;
   activityLabel: string;
   centreId: string | null;
   centreName: string | null;
@@ -326,7 +331,13 @@ export interface Circle {
   centreId: string | null;
   members: number;
   createdAt: string;
+  createdByResidentId: string;
+  /** "Host" trust tier — same badge-only convention as Game above. */
+  hostName: string;
+  hostVerified: boolean;
 }
+
+export type HostStatus = "none" | "pending" | "verified" | "rejected";
 
 // --- Participation Chat (implementation plan Phase 11) ----------------------
 
@@ -385,6 +396,17 @@ export interface SearchParsed {
   timeOfDay: "morning" | "afternoon" | "evening" | null;
 }
 
+export interface ExperienceSearchResult {
+  id: string;
+  kind: ExperienceKind;
+  title: string;
+  area: string;
+  county: string;
+  blurb: string;
+  priceCents: number;
+  imageUrl: string;
+}
+
 export interface SearchResult {
   parsed: SearchParsed | null;
   centres: Centre[];
@@ -392,6 +414,9 @@ export interface SearchResult {
   /** Games/program sessions/club sessions matching the query (Phase 6) —
    * same shape as the homepage discovery feed's DiscoverItem below. */
   activities: DiscoverItem[];
+  /** Filtered the same simple way centres/clubs are, not ranked alongside
+   * activities — see server/src/routes/search.ts's comment. */
+  experiences: ExperienceSearchResult[];
 }
 
 // --- homepage discovery feeds (Phase 5) ---------------------------------
@@ -485,6 +510,10 @@ export interface ResidentFull extends Resident {
   notificationPrefs: NotificationPrefs | null;
   accessibilityPrefs: string[];
   searchRadiusKm: number;
+  /** "Host" trust tier (IA spec five-layer audit) — badge-only. */
+  hostStatus: HostStatus;
+  hostBio: string;
+  hostPhone: string;
 }
 
 export interface NotificationPrefs {
@@ -572,6 +601,105 @@ export interface VendorProgramSummary {
   priceCents: number;
   capacity: number | null;
   createdAt: string;
+}
+
+// --- Adventures & Experiences ------------------------------------------
+// A standalone third listing type alongside centres/clubs (not nested under
+// either) — see server/src/db/index.ts's experiences/experience_sessions/
+// experience_bookings comments. Booked per-session (a single departure),
+// not a multi-session enrollment the way a Program is.
+
+export type ExperienceKind = "adventure" | "experience";
+
+export interface ExperienceSessionSlot {
+  id: string;
+  date: string;
+  time: string;
+  capacity: number;
+  spotsLeft: number;
+}
+
+export interface Experience {
+  id: string;
+  kind: ExperienceKind;
+  title: string;
+  area: string;
+  county: string;
+  lat: number | null;
+  lng: number | null;
+  meetingPoint: string;
+  blurb: string;
+  description: string;
+  difficulty: string;
+  durationMinutes: number;
+  fitnessRequirements: string;
+  itinerary: string;
+  equipmentProvided: string;
+  equipmentRequired: string;
+  transportInfo: string;
+  safetyInfo: string;
+  weatherPolicy: string;
+  eligibility: string;
+  cancellationTerms: string;
+  priceCents: number;
+  capacity: number;
+  paymentMethod: "online" | "cash";
+  imageUrl: string;
+  images: string[];
+  sessions: ExperienceSessionSlot[];
+  createdAt: string;
+}
+
+export interface VendorExperienceSummary {
+  id: string;
+  kind: ExperienceKind;
+  title: string;
+  status: string;
+  area: string;
+  county: string;
+  priceCents: number;
+  capacity: number;
+  views: number;
+  createdAt: string;
+  imageUrl: string;
+}
+
+export interface ExperienceSessionRow {
+  id: string;
+  date: string;
+  time: string;
+  capacity: number | null;
+  status: string;
+}
+
+export interface MyExperienceBooking {
+  ref: string;
+  experienceId: string;
+  participantName: string;
+  partySize: number;
+  totalCents: number;
+  status: string;
+  paymentStatus: string;
+  createdAt: string;
+  title: string;
+  imageUrl: string;
+  kind: ExperienceKind;
+  date: string;
+  time: string;
+}
+
+export interface VendorExperienceBooking {
+  id: number;
+  ref: string;
+  participantName: string;
+  email: string;
+  phone: string;
+  partySize: number;
+  totalCents: number;
+  status: string;
+  createdAt: string;
+  date: string;
+  time: string;
 }
 
 export interface ScheduleEntry {

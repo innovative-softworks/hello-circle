@@ -2,10 +2,13 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { confirmMakeItHappen, fetchCentres, searchMakeItHappen } from "../api";
 import type { MakeItHappenCandidate } from "../api";
-import { CalendarIcon, ChevronLeftIcon, ClockIcon, HandshakeIcon, PinIcon, UsersIcon } from "../components/icons";
+import { CalendarIcon, ClockIcon, HandshakeIcon, PinIcon, UsersIcon } from "../components/icons";
 import { Button, Card, PageSpinner, inputStyle, labelStyle } from "../components/ui";
+import { BackLink } from "../components/BackLink";
+import { PageTitle } from "../components/PageTitle";
 import { useGuest } from "../GuestContext";
 import { colors, fonts } from "../theme";
+import { fallbackCopy } from "../copy";
 
 // Make It Happen (implementation plan Phase 10) — "pick activity/time/
 // place/participant-count/budget → HelloCircle finds a facility, prices
@@ -65,7 +68,7 @@ export function MakeItHappen() {
       setCandidates(rows);
       setStep("results");
     } catch (e) {
-      setSearchError(e instanceof Error ? e.message : "Couldn't search right now");
+      setSearchError(e instanceof Error ? e.message : fallbackCopy.notFound);
     } finally {
       setSearching(false);
     }
@@ -106,7 +109,7 @@ export function MakeItHappen() {
     return (
       <section style={{ maxWidth: 640, margin: "0 auto", padding: "60px 24px", textAlign: "center" }}>
         <HandshakeIcon size={28} style={{ color: colors.orange, marginBottom: 12 }} />
-        <h1 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 26, margin: "0 0 10px" }}>Make It Happen</h1>
+        <PageTitle level="section" style={{ margin: "0 0 10px" }}>Make It Happen</PageTitle>
         <p style={{ color: colors.mutedLight, marginBottom: 20 }}>
           Sign in to have HelloCircle find a venue, book it, and recruit the rest of your group.
         </p>
@@ -119,19 +122,14 @@ export function MakeItHappen() {
     <div style={{ animation: "fadeUp .35s ease both" }}>
       <section style={{ maxWidth: 640, margin: "0 auto", padding: "26px 24px 80px" }}>
         {step !== "form" && step !== "done" && (
-          <button
-            onClick={() => setStep(step === "details" ? "results" : "form")}
-            style={{ display: "inline-flex", alignItems: "center", background: "none", border: "none", color: colors.muted, fontWeight: 600, fontSize: 14, cursor: "pointer", padding: 0, marginBottom: 16 }}
-          >
-            <ChevronLeftIcon size={14} style={{ marginRight: 4 }} /> Back
-          </button>
+          <BackLink onClick={() => setStep(step === "details" ? "results" : "form")} marginBottom={16}>
+            Back
+          </BackLink>
         )}
 
         <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
           <HandshakeIcon size={22} style={{ color: colors.orange }} />
-          <h1 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 30, margin: 0, letterSpacing: "-.02em" }}>
-            Make It Happen
-          </h1>
+          <PageTitle style={{ margin: 0 }}>Make It Happen</PageTitle>
         </div>
         <p style={{ color: colors.mutedLight, fontSize: 15, margin: "0 0 24px" }}>
           Nothing planned yet? Tell us what you're after — we'll find a venue, price it, and start recruiting your group.
@@ -175,7 +173,7 @@ export function MakeItHappen() {
                   <input value={maxBudgetPerPerson} onChange={(e) => setMaxBudgetPerPerson(e.target.value)} placeholder="e.g. 15" style={inputStyle} />
                 </div>
               </div>
-              {searchError && <p style={{ color: "#b00020", fontSize: 13.5, margin: 0 }}>{searchError}</p>}
+              {searchError && <p style={{ color: colors.danger, fontSize: 13.5, margin: 0 }}>{searchError}</p>}
               <Button onClick={handleSearch} disabled={searching || !date || !time}>
                 {searching ? "Searching…" : "Find a venue"}
               </Button>
@@ -187,7 +185,7 @@ export function MakeItHappen() {
           searching ? (
             <PageSpinner />
           ) : candidates.length === 0 ? (
-            <div style={{ background: "#fff", border: `1px dashed ${colors.borderStrong}`, borderRadius: 18, padding: 40, textAlign: "center" }}>
+            <div style={{ background: colors.surface, border: `1px dashed ${colors.borderStrong}`, borderRadius: 18, padding: 40, textAlign: "center" }}>
               <p style={{ color: colors.mutedLight, fontSize: 15, margin: "0 0 18px" }}>
                 Nothing matches that combination right now — try a different time, a wider budget, or another county.
               </p>
@@ -257,7 +255,7 @@ export function MakeItHappen() {
                 <label style={labelStyle}>Phone</label>
                 <input value={phone} onChange={(e) => setPhone(e.target.value)} style={inputStyle} />
               </div>
-              {confirmError && <p style={{ color: "#b00020", fontSize: 13.5, margin: 0 }}>{confirmError}</p>}
+              {confirmError && <p style={{ color: colors.danger, fontSize: 13.5, margin: 0 }}>{confirmError}</p>}
               <Button onClick={handleConfirm} disabled={confirming || !name.trim() || !email.trim() || !phone.trim()}>
                 {confirming ? "Booking…" : "Confirm & book"}
               </Button>
@@ -266,7 +264,7 @@ export function MakeItHappen() {
         )}
 
         {step === "done" && bookedRef && (
-          <div style={{ background: "#fff", border: `1px solid ${colors.border}`, borderRadius: 18, padding: 32, textAlign: "center" }}>
+          <div style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 18, padding: 32, textAlign: "center" }}>
             <p style={{ fontSize: 16, fontWeight: 700, margin: "0 0 8px" }}>It's happening — venue secured.</p>
             <p style={{ color: colors.mutedLight, fontSize: 14, margin: "0 0 20px" }}>
               Booking reference <strong>{bookedRef}</strong>. We've opened the rest of the spots for others to join —
