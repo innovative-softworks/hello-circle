@@ -8,6 +8,7 @@ import { Header } from "./components/Header";
 import { MyStuffProvider } from "./MyStuffContext";
 import { AcceptInvite } from "./pages/AcceptInvite";
 import { AdminDashboard } from "./pages/AdminDashboard";
+import { AskHelloCircle } from "./pages/AskHelloCircle";
 import { Browse } from "./pages/Browse";
 import { CentreDetail } from "./pages/CentreDetail";
 import { CircleDetail } from "./pages/CircleDetail";
@@ -55,6 +56,7 @@ export function App() {
                 <Route path="/games" element={<Games />} />
                 <Route path="/free-time" element={<FreeTimeMode />} />
                 <Route path="/make-it-happen" element={<MakeItHappen />} />
+                <Route path="/ask" element={<AskHelloCircle />} />
                 <Route path="/games/:id" element={<GameDetail />} />
                 <Route path="/circles" element={<Circles />} />
                 <Route path="/circles/:id" element={<CircleDetail />} />

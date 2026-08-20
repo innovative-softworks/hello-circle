@@ -1,7 +1,9 @@
 import { Router } from "express";
 import { db } from "../db/index.js";
 import { listClubs, listCentres, listScheduledActivities, type ScheduledActivity } from "../db/queries.js";
+import { scoreActivities, type DiscoverItem } from "./discover.js";
 import { parseSearchQuery, type ParsedQuery } from "../searchParser.js";
+import type { Centre, Club } from "../types.js";
 
 export const searchRouter = Router();
 
@@ -16,6 +18,12 @@ export const searchRouter = Router();
 // queries are logged to search_misses for demand intelligence (see
 // routes/vendor.ts GET /demand, routes/admin.ts GET /demand) — unchanged,
 // still only tracks the centre/club signal it always has.
+//
+// Activities are ranked (implementation plan Phase 12), not just sorted by
+// date — via discover.ts's shared scoreActivities(), the exact same
+// personalization + rankScore() the homepage feed uses, so a signed-in
+// resident sees the same "why this fits" reasons everywhere. Centres/clubs
+// stay unranked (see personalization.ts's own scope note).
 
 const SEARCH_WINDOW_DAYS = 60;
 
@@ -30,10 +38,20 @@ function bucketTimeOfDay(time: string): ParsedQuery["timeOfDay"] {
   return "evening";
 }
 
-searchRouter.get("/", async (req, res) => {
-  const q = typeof req.query.q === "string" ? req.query.q : "";
-  if (!q.trim()) return res.json({ parsed: null, centres: [], clubs: [], activities: [] });
+export interface StructuredSearchResult {
+  parsed: ParsedQuery;
+  centres: Centre[];
+  clubs: Club[];
+  activities: DiscoverItem[];
+}
 
+/** The actual "run this parsed query against real data" logic — shared by
+ * the search box route below and routes/ask.ts's rule-based "Ask
+ * HelloCircle" (Phase 12), so the two entry points can't drift apart on
+ * what counts as a match. Also logs zero-result misses for demand
+ * intelligence, same as the search box always has, since a miss from
+ * either entry point is the same real signal. */
+export async function runStructuredSearch(q: string, residentId: string | null, residentHomeCounty: string | null): Promise<StructuredSearchResult> {
   const parsed = parseSearchQuery(q);
   const matchesKeywords = (haystack: string) => parsed.keywords.length === 0 || parsed.keywords.some((k) => haystack.toLowerCase().includes(k));
 
@@ -50,12 +68,15 @@ searchRouter.get("/", async (req, res) => {
   windowEnd.setUTCDate(now.getUTCDate() + SEARCH_WINDOW_DAYS);
   const allActivities = await listScheduledActivities({ county: parsed.county ?? undefined, from: now, to: windowEnd });
 
-  const activities = allActivities
+  const matchingActivities = allActivities
     .filter((a: ScheduledActivity) => matchesKeywords(`${a.title} ${a.centreName ?? ""} ${a.clubName ?? ""}`))
     .filter((a) => !parsed.free || !a.priceCents)
     .filter((a) => parsed.maxPriceEuro === null || a.priceCents === null || a.priceCents <= parsed.maxPriceEuro * 100)
-    .filter((a) => parsed.timeOfDay === null || bucketTimeOfDay(a.time) === parsed.timeOfDay)
-    .sort((a, b) => a.date.localeCompare(b.date) || a.time.localeCompare(b.time));
+    .filter((a) => parsed.timeOfDay === null || bucketTimeOfDay(a.time) === parsed.timeOfDay);
+
+  const scored = await scoreActivities(matchingActivities, now, residentId, residentHomeCounty);
+  scored.sort((a, b) => b.score - a.score || a.item.date.localeCompare(b.item.date) || a.item.time.localeCompare(b.item.time));
+  const activities = scored.map((e) => e.item);
 
   // Logged per listing type independently, not just when both are empty —
   // one query box searches centres and clubs simultaneously, so "no clubs
@@ -73,5 +94,13 @@ searchRouter.get("/", async (req, res) => {
     await db.prepare(`INSERT INTO search_misses (query_text, listing_type, county) VALUES (?, 'club', ?)`).run(queryText, county).catch(() => {});
   }
 
-  res.json({ parsed, centres, clubs, activities });
+  return { parsed, centres, clubs, activities };
+}
+
+searchRouter.get("/", async (req, res) => {
+  const q = typeof req.query.q === "string" ? req.query.q : "";
+  if (!q.trim()) return res.json({ parsed: null, centres: [], clubs: [], activities: [] });
+
+  const result = await runStructuredSearch(q, req.resident?.id ?? null, req.resident?.homeCounty ?? null);
+  res.json(result);
 });

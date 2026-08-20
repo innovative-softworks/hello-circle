@@ -247,6 +247,11 @@ export function DiscoverCard({ item, isToday }: { item: DiscoverItem; isToday: b
             {item.area ? `, ${item.area}` : ""}
           </div>
         )}
+        {item.matchReasons.length > 0 && (
+          <div style={{ fontSize: 11.5, fontWeight: 700, color: colors.greenText, background: colors.greenBg, borderRadius: 8, padding: "3px 8px", marginTop: 2, display: "inline-block", width: "fit-content" }}>
+            {item.matchReasons[0]}
+          </div>
+        )}
         {isJoinableGame && (
           <div style={{ marginTop: "auto", paddingTop: 8, display: "flex", flexDirection: "column", gap: 8 }}>
             {!!item.joined && (

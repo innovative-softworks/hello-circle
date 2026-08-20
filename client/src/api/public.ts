@@ -1,5 +1,5 @@
 import { getClientId } from "../clientId";
-import type { Centre, Club, DiscoverFeed, DiscoverItem, LocalMomentumSignal, MyBooking, MyProgramEnrollment, MyRegistration, Program, Review, SearchResult } from "../types";
+import type { Centre, Club, DiscoverFeed, DiscoverItem, LocalMomentumSignal, MyBooking, MyProgramEnrollment, MyRegistration, Program, Review, SearchParsed, SearchResult } from "../types";
 import { request } from "./core";
 
 // Guest-facing browsing + transactions — no account needed. Centres/clubs,
@@ -210,6 +210,27 @@ export function validateCoupon(code: string, subtotalCents: number): Promise<{ c
 
 export function search(q: string): Promise<SearchResult> {
   return request(`/search?q=${encodeURIComponent(q)}`);
+}
+
+// --- Ask HelloCircle (implementation plan Phase 12) -------------------------
+// Rule-based, not an LLM (this app has no AI API key/SDK configured) — a
+// conversational framing over the exact same structured search above, via
+// the server's shared runStructuredSearch(). Never invents availability;
+// every result is a real DB row.
+
+export interface AskHelloCircleResponse {
+  reply: string;
+  parsed: SearchParsed | null;
+  centres: Centre[];
+  clubs: Club[];
+  activities: DiscoverItem[];
+  totalCentres: number;
+  totalClubs: number;
+  totalActivities: number;
+}
+
+export function askHelloCircle(message: string): Promise<AskHelloCircleResponse> {
+  return request(`/ask`, { method: "POST", body: JSON.stringify({ message }) });
 }
 
 // --- homepage discovery feeds (Phase 5) ---------------------------------

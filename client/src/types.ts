@@ -426,6 +426,10 @@ export interface DiscoverItem {
   /** From the hosting centre/club — null if it has no coordinates set. */
   lat: number | null;
   lng: number | null;
+  /** "Why this fits" (implementation plan Phase 12) — empty for a signed-
+   * out visitor, or when nothing about this item matched the resident's
+   * own signals (interests/home county/familiar co-players). */
+  matchReasons: string[];
 }
 
 export interface DiscoverFeed {

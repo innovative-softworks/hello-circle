@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { irelandWallTimeToUtc } from "../irelandTime.js";
 import { getLocalMomentum, listScheduledActivities, type ScheduledActivity } from "../db/queries.js";
+import { personalizeActivity } from "../personalization.js";
 
 export const discoverRouter = Router();
 
@@ -12,7 +13,7 @@ export const discoverRouter = Router();
 // ranking + today/weekend bucketing. Deliberately read-only and public — no
 // capacity/checkout logic here, just "what's on."
 
-export type DiscoverItem = ScheduledActivity;
+export type DiscoverItem = ScheduledActivity & { matchReasons: string[] };
 
 export interface DiscoverFeed {
   today: DiscoverItem[];
@@ -21,8 +22,7 @@ export interface DiscoverFeed {
 
 /** Ranking, not just chronological sort — deliberately rule-based (no ML,
  * same "start simple" spirit as searchParser.ts elsewhere in this
- * codebase; personalization/ML-backed ranking is Phase 18+ in the
- * roadmap, well past where this app is). Four signals, in priority order:
+ * codebase). Five signals, in priority order:
  *   1. Live beats everything — something happening right now is the most
  *      compelling thing to surface first, full stop.
  *   2. Starting soon beats starting later — decays smoothly rather than a
@@ -30,19 +30,53 @@ export interface DiscoverFeed {
  *   3. Filling up (games only, real capacity/joined data) signals real
  *      demand — genuine social proof, not urgency theatre, since it's
  *      backed by actual joins.
- *   4. Small, deliberately minor boosts for free (lower friction to act
+ *   4. Personalization (implementation plan Phase 12) — a signed-in
+ *      resident's own interests/home county/familiar co-players, via
+ *      personalization.ts. Zero for a signed-out visitor.
+ *   5. Small, deliberately minor boosts for free (lower friction to act
  *      on) and for having a real photo (more compelling in a photo-driven
  *      feed) — tie-breakers, not primary signals.
  * `minutesUntilStart` is negative once a (non-live, already-ended) item
  * has passed — those still sort last naturally since every term is >= 0. */
-function rankScore(params: { isLive: boolean; minutesUntilStart: number; fillRatio: number | null; isFree: boolean; hasPhoto: boolean }): number {
+export function rankScore(params: { isLive: boolean; minutesUntilStart: number; fillRatio: number | null; isFree: boolean; hasPhoto: boolean; personalizationBonus?: number }): number {
   let score = 0;
   if (params.isLive) score += 1000;
   else score += Math.max(0, 300 - Math.max(0, params.minutesUntilStart) / 10);
   if (params.fillRatio !== null && params.fillRatio >= 0.5) score += params.fillRatio * 100;
+  score += params.personalizationBonus ?? 0;
   if (params.isFree) score += 20;
   if (params.hasPhoto) score += 10;
   return score;
+}
+
+function minutesUntil(now: Date, date: string, time: string): number {
+  const [hour, minute] = time.split(":").map(Number);
+  return (irelandWallTimeToUtc(date, hour, minute).getTime() - now.getTime()) / 60000;
+}
+
+/** Scores + attaches matchReasons for a batch of activities against one
+ * (possibly signed-out) resident — shared by "/", "/free-time" below, and
+ * routes/search.ts so all three surfaces rank/explain consistently. */
+export async function scoreActivities(
+  activities: ScheduledActivity[],
+  now: Date,
+  residentId: string | null,
+  residentHomeCounty: string | null
+): Promise<{ item: DiscoverItem; score: number }[]> {
+  return Promise.all(
+    activities.map(async (item) => {
+      const personalization = await personalizeActivity(item, residentId, residentHomeCounty);
+      const score = rankScore({
+        isLive: item.isLive,
+        minutesUntilStart: minutesUntil(now, item.date, item.time),
+        fillRatio: item.kind === "game" && item.joined !== null && item.spotsLeft !== null && item.joined + item.spotsLeft > 0 ? item.joined / (item.joined + item.spotsLeft) : null,
+        isFree: !item.priceCents,
+        hasPhoto: !!item.imageUrl,
+        personalizationBonus: personalization.bonus,
+      });
+      return { item: { ...item, matchReasons: personalization.reasons }, score };
+    })
+  );
 }
 
 discoverRouter.get("/", async (req, res) => {
@@ -54,22 +88,7 @@ discoverRouter.get("/", async (req, res) => {
   const weekFromNowIso = weekFromNow.toISOString().slice(0, 10);
 
   const activities = await listScheduledActivities({ county, from: now, to: weekFromNow });
-
-  const minutesUntil = (date: string, time: string): number => {
-    const [hour, minute] = time.split(":").map(Number);
-    return (irelandWallTimeToUtc(date, hour, minute).getTime() - now.getTime()) / 60000;
-  };
-
-  const scored = activities.map((item) => ({
-    item,
-    score: rankScore({
-      isLive: item.isLive,
-      minutesUntilStart: minutesUntil(item.date, item.time),
-      fillRatio: item.kind === "game" && item.joined !== null && item.spotsLeft !== null && item.joined + item.spotsLeft > 0 ? item.joined / (item.joined + item.spotsLeft) : null,
-      isFree: !item.priceCents,
-      hasPhoto: !!item.imageUrl,
-    }),
-  }));
+  const scored = await scoreActivities(activities, now, req.resident?.id ?? null, req.resident?.homeCounty ?? null);
 
   const today: { item: DiscoverItem; score: number }[] = [];
   const weekend: { item: DiscoverItem; score: number }[] = [];
@@ -149,21 +168,7 @@ discoverRouter.get("/free-time", async (req, res) => {
     activities = activities.filter((a) => a.lat !== null && a.lng !== null && haversineKm(lat, lng, a.lat, a.lng) <= radiusKm);
   }
 
-  const minutesUntil = (date: string, time: string): number => {
-    const [hour, minute] = time.split(":").map(Number);
-    return (irelandWallTimeToUtc(date, hour, minute).getTime() - now.getTime()) / 60000;
-  };
-
-  const scored = activities.map((item) => ({
-    item,
-    score: rankScore({
-      isLive: item.isLive,
-      minutesUntilStart: minutesUntil(item.date, item.time),
-      fillRatio: item.kind === "game" && item.joined !== null && item.spotsLeft !== null && item.joined + item.spotsLeft > 0 ? item.joined / (item.joined + item.spotsLeft) : null,
-      isFree: !item.priceCents,
-      hasPhoto: !!item.imageUrl,
-    }),
-  }));
+  const scored = await scoreActivities(activities, now, req.resident?.id ?? null, req.resident?.homeCounty ?? null);
   scored.sort((a, b) => b.score - a.score || a.item.time.localeCompare(b.item.time));
 
   res.json(scored.slice(0, 3).map((e) => e.item));

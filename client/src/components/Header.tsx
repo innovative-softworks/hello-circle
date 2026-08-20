@@ -4,7 +4,7 @@ import { fetchAdminPendingListings, fetchCentres, fetchResidentNotifications, fe
 import { useAuth } from "../AuthContext";
 import { useDashboardNav } from "../DashboardNavContext";
 import { useGuest } from "../GuestContext";
-import { BellIcon, ChevronDownIcon, CloseIcon, LightbulbIcon, MenuIcon, PinIcon } from "./icons";
+import { BellIcon, ChatIcon, ChevronDownIcon, CloseIcon, LightbulbIcon, MenuIcon, PinIcon } from "./icons";
 import { Avatar } from "./ui";
 import { colors, maxWidth } from "../theme";
 import { useMyStuff } from "../MyStuffContext";
@@ -290,6 +290,13 @@ export function Header() {
             onClick={() => go("/bookings")}
           >
             My Life
+          </button>
+          <button
+            className="tab-btn"
+            style={isActive(["/ask"]) ? { ...navBtn, background: colors.greenBg, color: colors.greenText, fontWeight: 700 } : navBtn}
+            onClick={() => go("/ask")}
+          >
+            Ask HelloCircle
           </button>
         </nav>
         <div className="desktop-actions" style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10 }}>
@@ -606,6 +613,9 @@ export function Header() {
           </button>
           <button style={mobileNavBtn} onClick={() => go("/bookings")}>
             My Life ({count})
+          </button>
+          <button style={{ ...mobileNavBtn, display: "flex", alignItems: "center", gap: 8 }} onClick={() => go("/ask")}>
+            <ChatIcon size={16} /> Ask HelloCircle
           </button>
           {resident && (
             <button style={{ ...mobileNavBtn, display: "flex", alignItems: "center", gap: 8 }} onClick={() => go("/bookings")}>
