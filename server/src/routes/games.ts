@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import { Router } from "express";
 import { createCheckoutSession, pricingLineItems } from "../checkoutService.js";
 import { db } from "../db/index.js";
+import { countFamiliarCoParticipants } from "../db/queries.js";
 import { upgradeFavouriteStatus } from "./favourites.js";
 import { notifyResident } from "../notifications.js";
 import { computePricing } from "../pricing.js";
@@ -112,6 +113,10 @@ gamesRouter.get("/:id", async (req, res) => {
   // without a second round trip — only computed here, not on the list.
   let joinedByMe = false;
   let waitlistedByMe = false;
+  // Contextual familiarity (Phase 8) — "N people you've played with before
+  // are joining," computed only inside this one game's own context, never
+  // as a browsable list. 0 for a signed-out visitor (nothing to compute).
+  let familiarCount = 0;
   if (req.resident) {
     const p = await db.prepare(`SELECT status FROM game_participants WHERE game_id = ? AND resident_id = ?`).get(req.params.id, req.resident.id);
     joinedByMe = !!p;
@@ -119,8 +124,9 @@ gamesRouter.get("/:id", async (req, res) => {
       .prepare(`SELECT id FROM waitlist_entries WHERE listing_type = 'game' AND listing_id = ? AND resident_id = ? AND status = 'waiting'`)
       .get(req.params.id, req.resident.id);
     waitlistedByMe = !!w;
+    familiarCount = await countFamiliarCoParticipants(req.resident.id, req.params.id);
   }
-  res.json({ ...json, joinedByMe, waitlistedByMe });
+  res.json({ ...json, joinedByMe, waitlistedByMe, familiarCount });
 });
 
 // Host-only — closes a game early (e.g. plans changed). Distinct from a

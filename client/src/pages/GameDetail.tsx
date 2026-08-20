@@ -3,6 +3,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import { cancelGame, fetchGame, joinGame, joinGameWaitlist, leaveGame, leaveGameWaitlist } from "../api";
 import { CalendarIcon, ChevronLeftIcon, ClockIcon, PinIcon, UsersIcon } from "../components/icons";
 import { Button, Card, PageSpinner } from "../components/ui";
+import { ChatPanel } from "../components/ChatPanel";
 import { InviteButton } from "../components/InviteButton";
 import { useGuest } from "../GuestContext";
 import { colors, fonts } from "../theme";
@@ -114,6 +115,12 @@ export function GameDetail() {
             </div>
           )}
 
+          {!cancelled && !!game.familiarCount && (
+            <div style={{ background: colors.greenBg, color: colors.greenText, borderRadius: 12, padding: "10px 14px", fontWeight: 700, fontSize: 13.5, marginBottom: 16 }}>
+              {game.familiarCount} {game.familiarCount === 1 ? "person" : "people"} you've played with before {game.familiarCount === 1 ? "is" : "are"} joining.
+            </div>
+          )}
+
           <div style={{ display: "flex", gap: 20, margin: "16px 0", fontSize: 14.5, color: colors.muted, flexWrap: "wrap" }}>
             <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}><CalendarIcon size={15} /> {game.date}</span>
             <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}><ClockIcon size={15} /> {game.time}</span>
@@ -154,6 +161,12 @@ export function GameDetail() {
             </div>
           )}
         </Card>
+
+        {resident && (isHost || game.joinedByMe) && (
+          <div style={{ marginTop: 20 }}>
+            <ChatPanel scopeType="game" scopeId={game.id} residentId={resident.id} />
+          </div>
+        )}
       </section>
     </div>
   );

@@ -442,6 +442,25 @@ export async function initSchema() {
       UNIQUE KEY uniq_circle_member (circle_id, resident_id)
     );
 
+    -- Participation Chat (implementation plan Phase 11) — polling-based, not
+    -- WebSocket (no real-time infra exists anywhere else in this stack, and
+    -- current traffic doesn't justify adding an always-on connection layer;
+    -- see routes/chat.ts). scope_type is 'game' (temporary, opens 24h before
+    -- the game and archives some hours after — see routes/chat.ts's
+    -- CHAT_OPENS_BEFORE_MS/CHAT_ARCHIVES_AFTER_MS) or 'circle' (persistent,
+    -- no window). scope_id is the game/circle id. Membership (who can
+    -- read/post) is derived from game_participants/circle_members at
+    -- request time, not duplicated onto this table.
+    CREATE TABLE IF NOT EXISTS chat_messages (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      scope_type VARCHAR(20) NOT NULL,
+      scope_id VARCHAR(191) NOT NULL,
+      resident_id VARCHAR(191) NOT NULL,
+      body TEXT NOT NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      KEY idx_chat_scope (scope_type, scope_id, id)
+    );
+
     -- Credit-pack passes (NEXT) — a resident buys N credits up front,
     -- redeemable against a club/game instead of paying per-booking.
     CREATE TABLE IF NOT EXISTS passes (
@@ -1005,6 +1024,18 @@ export async function initSchema() {
   // — never downgraded automatically, since "I did this" shouldn't quietly
   // revert.
   await ensureColumn("favourites", "status", "status VARCHAR(20) NOT NULL DEFAULT 'interested'");
+
+  // Make It Happen (implementation plan Phase 10) — reuses Open Booking's
+  // open_spots/games.booking_ref mechanism (a Make It Happen request IS an
+  // Open Booking started from a blank search instead of an existing
+  // reservation), but additionally requires the FULL requested group before
+  // the activity is "viable": min_participants mirrors open_spots exactly
+  // (not a partial threshold) and is read by createGameFromOpenBooking()
+  // to set the resulting game's own min_participants (Phase 4 machinery,
+  // unchanged) — the linked game starts 'pending_participants' instead of
+  // 'open' until every requested spot is filled. NULL for a plain Open
+  // Booking (Phase 3), which keeps starting 'open' immediately as before.
+  await ensureColumn("bookings", "min_participants", "min_participants INT");
 }
 
 export const COUNTY_CENTROIDS: Record<string, { lat: number; lng: number }> = {

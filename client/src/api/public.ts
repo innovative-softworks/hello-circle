@@ -1,5 +1,5 @@
 import { getClientId } from "../clientId";
-import type { Centre, Club, DiscoverFeed, MyBooking, MyProgramEnrollment, MyRegistration, Program, Review, SearchResult } from "../types";
+import type { Centre, Club, DiscoverFeed, DiscoverItem, LocalMomentumSignal, MyBooking, MyProgramEnrollment, MyRegistration, Program, Review, SearchResult } from "../types";
 import { request } from "./core";
 
 // Guest-facing browsing + transactions — no account needed. Centres/clubs,
@@ -66,6 +66,57 @@ export function createBookingCheckout(input: CreateBookingInput): Promise<{ ref:
 
 export function fetchBookingStatus(ref: string): Promise<{ ref: string; paymentStatus: string; totalCents: number }> {
   return request(`/bookings/status/${encodeURIComponent(ref)}`);
+}
+
+// --- Make It Happen (implementation plan Phase 10) --------------------------
+// "Pick activity/time/place/participant-count/budget → HelloCircle finds a
+// facility, prices it, proposes it, recruits participants, confirms once
+// viable." Functionally Open Booking + Minimum Participation started from a
+// blank search instead of an existing reservation — see makeItHappen.ts.
+
+export interface MakeItHappenSearchInput {
+  activityLabel: string;
+  county?: string;
+  date: string;
+  time: string;
+  duration: number;
+  partySize: number;
+  maxBudgetPerPersonCents?: number;
+}
+
+export interface MakeItHappenCandidate {
+  centreId: string;
+  centreName: string;
+  area: string;
+  county: string;
+  roomId: string;
+  roomName: string;
+  capacity: number;
+  perPersonCents: number;
+  totalCents: number;
+  paymentMethod: "online" | "cash";
+}
+
+/** Read-only — finds up to 3 ranked candidate venues/slots, cheapest per
+ * person first. Nothing is booked until confirmMakeItHappen(). */
+export function searchMakeItHappen(input: MakeItHappenSearchInput): Promise<MakeItHappenCandidate[]> {
+  return request(`/make-it-happen/search`, { method: "POST", body: JSON.stringify(input) });
+}
+
+export interface MakeItHappenConfirmInput extends MakeItHappenSearchInput {
+  centreId: string;
+  roomId: string;
+  name: string;
+  email: string;
+  phone: string;
+  notes?: string;
+}
+
+/** Books the chosen candidate — same behavior as createBookingCheckout
+ * (redirect to `url` if present), but requires a signed-in resident since
+ * the recruiting game needs a host. */
+export function confirmMakeItHappen(input: MakeItHappenConfirmInput): Promise<{ ref: string; url?: string; totalEuro: number }> {
+  return request(`/make-it-happen/confirm`, { method: "POST", body: JSON.stringify(input) });
 }
 
 export function fetchMyBookings(): Promise<MyBooking[]> {
@@ -165,6 +216,26 @@ export function search(q: string): Promise<SearchResult> {
 
 export function fetchDiscover(county?: string): Promise<DiscoverFeed> {
   return request(`/discover${county ? `?county=${encodeURIComponent(county)}` : ""}`);
+}
+
+/** "Picking up near you" (Phase 7) — the resident-facing counterpart to
+ * getDemandSignals(), which is vendor/admin-only. */
+export function fetchLocalMomentum(county?: string): Promise<LocalMomentumSignal[]> {
+  return request(`/discover/momentum${county ? `?county=${encodeURIComponent(county)}` : ""}`);
+}
+
+/** Free Time Mode (Phase 9) — duration → distance → mood → 3 options,
+ * ranked by the exact same logic as fetchDiscover(); this is only a
+ * narrower, filtered front door onto that same pool. */
+export function fetchFreeTimeOptions(opts: { county?: string; maxMinutes?: number; mood?: string; lat?: number; lng?: number; radiusKm?: number }): Promise<DiscoverItem[]> {
+  const params = new URLSearchParams();
+  if (opts.county) params.set("county", opts.county);
+  if (opts.maxMinutes !== undefined) params.set("maxMinutes", String(opts.maxMinutes));
+  if (opts.mood) params.set("mood", opts.mood);
+  if (opts.lat !== undefined) params.set("lat", String(opts.lat));
+  if (opts.lng !== undefined) params.set("lng", String(opts.lng));
+  if (opts.radiusKm !== undefined) params.set("radiusKm", String(opts.radiusKm));
+  return request(`/discover/free-time?${params.toString()}`);
 }
 
 // --- reviews -------------------------------------------------------------

@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { irelandWallTimeToUtc } from "../irelandTime.js";
-import { listScheduledActivities, type ScheduledActivity } from "../db/queries.js";
+import { getLocalMomentum, listScheduledActivities, type ScheduledActivity } from "../db/queries.js";
 
 export const discoverRouter = Router();
 
@@ -88,4 +88,83 @@ discoverRouter.get("/", async (req, res) => {
     today: today.map((e) => e.item),
     weekend: weekend.map((e) => e.item),
   } satisfies DiscoverFeed);
+});
+
+// Local Momentum (implementation plan Phase 7) — a resident-facing "picking
+// up near you" signal, the positive-growth counterpart to admin/vendor-only
+// getDemandSignals() (unmet demand). Deliberately its own small endpoint
+// rather than folded into "/" above — a homepage strip, not a per-activity
+// feed, and cheap enough not to need the same today/weekend bucketing.
+discoverRouter.get("/momentum", async (req, res) => {
+  const county = typeof req.query.county === "string" && req.query.county !== "All" ? req.query.county : undefined;
+  const signals = await getLocalMomentum({ county, limit: 6 });
+  res.json(signals);
+});
+
+// Free Time Mode (implementation plan Phase 9) — duration → distance →
+// mood → 3 options. Deliberately reuses listScheduledActivities() and the
+// exact same rankScore() as "/" above rather than a new ranking algorithm —
+// this endpoint is only a different, narrower front door onto the same
+// underlying "what's on" pool, matching the phase's own stated scope.
+const EARTH_RADIUS_KM = 6371;
+function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLng = ((lng2 - lng1) * Math.PI) / 180;
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLng / 2) ** 2;
+  return EARTH_RADIUS_KM * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+// Mood is a lightweight keyword filter over each activity's own title, not a
+// new taxonomy/column — a reasonable, documented assumption in the same
+// spirit as queries.ts's ASSUMED_DURATION_MINUTES, not real tagged data.
+const MOOD_KEYWORDS: Record<string, string[]> = {
+  active: ["football", "soccer", "gaa", "rugby", "basketball", "tennis", "badminton", "swim", "athletics", "martial", "run", "parkrun", "gym", "hockey", "sport"],
+  chill: ["yoga", "meditation", "chess", "walk", "book", "reading"],
+  social: ["meetup", "club", "circle", "social", "coffee", "chat", "board game"],
+  creative: ["art", "craft", "music", "paint", "dance", "drama", "photography"],
+};
+
+discoverRouter.get("/free-time", async (req, res) => {
+  const county = typeof req.query.county === "string" && req.query.county !== "All" ? req.query.county : undefined;
+  const maxMinutes = typeof req.query.maxMinutes === "string" ? parseInt(req.query.maxMinutes, 10) : undefined;
+  const mood = typeof req.query.mood === "string" && req.query.mood !== "any" ? req.query.mood : undefined;
+  const lat = typeof req.query.lat === "string" ? parseFloat(req.query.lat) : undefined;
+  const lng = typeof req.query.lng === "string" ? parseFloat(req.query.lng) : undefined;
+  const radiusKm = typeof req.query.radiusKm === "string" ? parseFloat(req.query.radiusKm) : undefined;
+
+  const now = new Date();
+  const weekFromNow = new Date(now);
+  weekFromNow.setUTCDate(now.getUTCDate() + 7);
+
+  let activities = await listScheduledActivities({ county, from: now, to: weekFromNow });
+
+  if (maxMinutes !== undefined && !Number.isNaN(maxMinutes)) {
+    activities = activities.filter((a) => a.durationMinutes <= maxMinutes);
+  }
+  if (mood) {
+    const keywords = MOOD_KEYWORDS[mood] ?? [];
+    activities = activities.filter((a) => keywords.some((k) => a.title.toLowerCase().includes(k)));
+  }
+  if (lat !== undefined && lng !== undefined && radiusKm !== undefined && !Number.isNaN(lat) && !Number.isNaN(lng) && !Number.isNaN(radiusKm)) {
+    activities = activities.filter((a) => a.lat !== null && a.lng !== null && haversineKm(lat, lng, a.lat, a.lng) <= radiusKm);
+  }
+
+  const minutesUntil = (date: string, time: string): number => {
+    const [hour, minute] = time.split(":").map(Number);
+    return (irelandWallTimeToUtc(date, hour, minute).getTime() - now.getTime()) / 60000;
+  };
+
+  const scored = activities.map((item) => ({
+    item,
+    score: rankScore({
+      isLive: item.isLive,
+      minutesUntilStart: minutesUntil(item.date, item.time),
+      fillRatio: item.kind === "game" && item.joined !== null && item.spotsLeft !== null && item.joined + item.spotsLeft > 0 ? item.joined / (item.joined + item.spotsLeft) : null,
+      isFree: !item.priceCents,
+      hasPhoto: !!item.imageUrl,
+    }),
+  }));
+  scored.sort((a, b) => b.score - a.score || a.item.time.localeCompare(b.item.time));
+
+  res.json(scored.slice(0, 3).map((e) => e.item));
 });

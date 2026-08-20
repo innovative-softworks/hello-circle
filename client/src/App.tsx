@@ -16,10 +16,12 @@ import { ClubDetail } from "./pages/ClubDetail";
 import { BookingFlow } from "./pages/BookingFlow";
 import { CookiePolicy } from "./pages/CookiePolicy";
 import { ForgotPassword } from "./pages/ForgotPassword";
+import { FreeTimeMode } from "./pages/FreeTimeMode";
 import { GameDetail } from "./pages/GameDetail";
 import { Games } from "./pages/Games";
 import { Home } from "./pages/Home";
 import { Login } from "./pages/Login";
+import { MakeItHappen } from "./pages/MakeItHappen";
 import { MyBookings } from "./pages/MyBookings";
 import { Onboarding } from "./pages/Onboarding";
 import { PaymentCancel } from "./pages/PaymentCancel";
@@ -51,6 +53,8 @@ export function App() {
                 <Route path="/book/:centreId" element={<BookingFlow />} />
                 <Route path="/register/:clubId" element={<RegistrationFlow />} />
                 <Route path="/games" element={<Games />} />
+                <Route path="/free-time" element={<FreeTimeMode />} />
+                <Route path="/make-it-happen" element={<MakeItHappen />} />
                 <Route path="/games/:id" element={<GameDetail />} />
                 <Route path="/circles" element={<Circles />} />
                 <Route path="/circles/:id" element={<CircleDetail />} />

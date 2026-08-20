@@ -291,6 +291,117 @@ export async function getDemandSignals(opts: { listingType?: "centre" | "club"; 
     .all(...params)) as DemandSignal[];
 }
 
+export interface LocalMomentumSignal {
+  label: string;
+  county: string;
+  recentSpots: number;
+  priorSpots: number;
+  growth: number;
+}
+
+/** The inverse of getDemandSignals() above — that tracks unmet demand
+ * (searches that found nothing); this tracks growing supply: new game
+ * capacity created in the last 7 days vs the 7 days before that, grouped
+ * by activity + county ("Badminton: +14 spaces this week"). Scoped to
+ * games only, not program/club sessions — those are set up once by a
+ * vendor and recur on a fixed schedule, so "created this week" isn't a
+ * meaningful growth signal for them the way a fresh ad-hoc game is.
+ * Resident-facing (routes/discover.ts) — unlike getDemandSignals, which
+ * has only ever been vendor/admin-only. Only games attached to a centre
+ * (and so a real county) count; free-location games have nowhere to
+ * attribute the growth to. */
+export async function getLocalMomentum(opts: { county?: string; limit: number }): Promise<LocalMomentumSignal[]> {
+  const params: string[] = [];
+  let countyClause = "";
+  if (opts.county) {
+    countyClause = "AND c.county = ?";
+    params.push(opts.county);
+  }
+  const limit = Math.max(1, Math.min(50, Math.floor(opts.limit)));
+  const rows = (await db
+    .prepare(
+      `SELECT g.activity_label as label, c.county as county,
+              CAST(SUM(CASE WHEN g.created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY) THEN g.capacity ELSE 0 END) AS SIGNED) as recentSpots,
+              CAST(SUM(CASE WHEN g.created_at >= DATE_SUB(NOW(), INTERVAL 14 DAY) AND g.created_at < DATE_SUB(NOW(), INTERVAL 7 DAY) THEN g.capacity ELSE 0 END) AS SIGNED) as priorSpots
+       FROM games g JOIN centres c ON c.id = g.centre_id
+       WHERE g.status != 'cancelled' ${countyClause}
+       GROUP BY g.activity_label, c.county
+       HAVING recentSpots > priorSpots
+       ORDER BY (recentSpots - priorSpots) DESC
+       LIMIT ${limit}`
+    )
+    .all(...params)) as { label: string; county: string; recentSpots: number; priorSpots: number }[];
+  return rows.map((r) => ({ ...r, growth: r.recentSpots - r.priorSpots }));
+}
+
+// Familiarity & Circles-from-repetition (implementation plan Phase 8).
+// Scoped to games only — game_participants is the one participation table
+// with clean per-session multi-resident membership, real dates, and a real
+// activity label, i.e. exactly "same activity + same date/session + >1
+// resident." Registrations/program enrollments/bookings don't give a clean
+// "who else was there with me" signal the same way.
+
+/** "N people you've played with before are joining" — counts OTHER
+ * residents currently joined to `gameId` who have previously shared a
+ * *different* joined game with `residentId`. Deliberately count-only, never
+ * names — shown inside one game's own context (GameDetail.tsx), never a
+ * browsable "people near you" list. */
+export async function countFamiliarCoParticipants(residentId: string, gameId: string): Promise<number> {
+  const { n } = (await db
+    .prepare(
+      `SELECT COUNT(DISTINCT gp_now.resident_id) as n
+       FROM game_participants gp_now
+       WHERE gp_now.game_id = ? AND gp_now.status = 'joined' AND gp_now.resident_id != ?
+         AND EXISTS (
+           SELECT 1 FROM game_participants gp_before
+           WHERE gp_before.resident_id = gp_now.resident_id AND gp_before.status = 'joined' AND gp_before.game_id != ?
+             AND EXISTS (SELECT 1 FROM game_participants gp_me WHERE gp_me.game_id = gp_before.game_id AND gp_me.resident_id = ? AND gp_me.status = 'joined')
+         )`
+    )
+    .get(gameId, residentId, gameId, residentId)) as { n: number };
+  return n;
+}
+
+export interface CircleSuggestion {
+  activityLabel: string;
+  familiarCount: number;
+}
+
+/** Repetition-detection → "Make this a Circle?" — matches the differentiator's
+ * own stated example: a resident who's shared 3+ distinct games with the
+ * same other person, for the same activity, has a "familiar" co-player for
+ * that activity; once 2+ such people exist for one activity, suggest
+ * forming a Circle around it. Excludes activities the resident is already
+ * circled on, so a suggestion doesn't linger after they've acted on it. */
+export async function getCircleSuggestions(residentId: string): Promise<CircleSuggestion[]> {
+  const rows = (await db
+    .prepare(
+      `SELECT activityLabel, COUNT(*) as familiarCount FROM (
+         SELECT g.activity_label as activityLabel, gp2.resident_id as otherResidentId, COUNT(DISTINCT gp1.game_id) as sharedCount
+         FROM game_participants gp1
+         JOIN game_participants gp2 ON gp2.game_id = gp1.game_id AND gp2.resident_id != gp1.resident_id AND gp2.status = 'joined'
+         JOIN games g ON g.id = gp1.game_id
+         WHERE gp1.resident_id = ? AND gp1.status = 'joined' AND g.activity_label != ''
+         GROUP BY g.activity_label, gp2.resident_id
+         HAVING sharedCount >= 3
+       ) pairs
+       GROUP BY activityLabel
+       HAVING familiarCount >= 2
+       ORDER BY familiarCount DESC`
+    )
+    .all(residentId)) as CircleSuggestion[];
+
+  const existing = (await db
+    .prepare(
+      `SELECT DISTINCT c.activity_label as activityLabel FROM circles c
+       JOIN circle_members cm ON cm.circle_id = c.id
+       WHERE cm.resident_id = ?`
+    )
+    .all(residentId)) as { activityLabel: string }[];
+  const existingLabels = new Set(existing.map((e) => e.activityLabel));
+  return rows.filter((r) => !existingLabels.has(r.activityLabel));
+}
+
 // Games/program_sessions/club_sessions: the three scheduled-activity
 // sources, each with its own status/active concept ('open', 'published' +
 // session status != 'cancelled', active=1). Centralized here so
@@ -319,6 +430,15 @@ export interface ScheduledActivity {
   joined: number | null;
   imageUrl: string | null;
   isLive: boolean;
+  /** Real for program sessions (their own duration_minutes); a documented
+   * assumption for games/club_sessions, same ASSUMED_DURATION_MINUTES used
+   * internally for isLive — see there. Powers Free Time Mode's "fits in my
+   * window" filter (implementation plan Phase 9). */
+  durationMinutes: number;
+  /** From the hosting centre/club — null if that listing has no
+   * coordinates set. Powers Free Time Mode's distance filter. */
+  lat: number | null;
+  lng: number | null;
 }
 
 interface GameRow {
@@ -333,6 +453,8 @@ interface GameRow {
   area: string | null;
   county: string | null;
   joined: number;
+  lat: number | string | null;
+  lng: number | string | null;
 }
 
 interface ProgramSessionRow {
@@ -347,6 +469,8 @@ interface ProgramSessionRow {
   area: string | null;
   county: string | null;
   duration_minutes: number;
+  lat: number | string | null;
+  lng: number | string | null;
 }
 
 interface ClubSessionRow {
@@ -360,6 +484,8 @@ interface ClubSessionRow {
   area: string;
   county: string;
   price: number;
+  lat: number | string | null;
+  lng: number | string | null;
 }
 
 /** The next date (today or later) this weekday falls on, YYYY-MM-DD. */
@@ -374,7 +500,7 @@ function nextOccurrence(dayOfWeek: number, today: Date): string {
 // documented assumptions (a pickup game runs ~2h, a club training session
 // ~90m), not real data. Program sessions have a real duration_minutes and
 // use that instead.
-const ASSUMED_DURATION_MINUTES: Record<ScheduledActivity["kind"], number> = {
+export const ASSUMED_DURATION_MINUTES: Record<ScheduledActivity["kind"], number> = {
   game: 120,
   club_session: 90,
   program_session: 0, // unused — program sessions always pass their own real duration
@@ -401,7 +527,7 @@ export async function listScheduledActivities(opts: { county?: string; from: Dat
     county
       ? await db
           .prepare(
-            `SELECT g.id, g.activity_label, g.date, g.time, g.price_cents, g.capacity, g.image_url, c.name as centre_name, c.area, c.county,
+            `SELECT g.id, g.activity_label, g.date, g.time, g.price_cents, g.capacity, g.image_url, c.name as centre_name, c.area, c.county, c.lat, c.lng,
                     (SELECT COUNT(*) FROM game_participants gp WHERE gp.game_id = g.id AND gp.status = 'joined') as joined
              FROM games g LEFT JOIN centres c ON c.id = g.centre_id
              WHERE g.status = 'open' AND g.date >= ? AND g.date <= ? AND c.county = ?`
@@ -409,7 +535,7 @@ export async function listScheduledActivities(opts: { county?: string; from: Dat
           .all(fromIso, toIso, county)
       : await db
           .prepare(
-            `SELECT g.id, g.activity_label, g.date, g.time, g.price_cents, g.capacity, g.image_url, c.name as centre_name, c.area, c.county,
+            `SELECT g.id, g.activity_label, g.date, g.time, g.price_cents, g.capacity, g.image_url, c.name as centre_name, c.area, c.county, c.lat, c.lng,
                     (SELECT COUNT(*) FROM game_participants gp WHERE gp.game_id = g.id AND gp.status = 'joined') as joined
              FROM games g LEFT JOIN centres c ON c.id = g.centre_id
              WHERE g.status = 'open' AND g.date >= ? AND g.date <= ?`
@@ -420,7 +546,8 @@ export async function listScheduledActivities(opts: { county?: string; from: Dat
   const programSessions = (await db
     .prepare(
       `SELECT ps.id, ps.date, ps.time, ps.duration_minutes, p.title, p.price_cents, p.listing_type, p.image_url,
-              COALESCE(c.name, cl.name) as listing_name, COALESCE(c.area, cl.area) as area, COALESCE(c.county, cl.county) as county
+              COALESCE(c.name, cl.name) as listing_name, COALESCE(c.area, cl.area) as area, COALESCE(c.county, cl.county) as county,
+              COALESCE(c.lat, cl.lat) as lat, COALESCE(c.lng, cl.lng) as lng
        FROM program_sessions ps
        JOIN programs p ON p.id = ps.program_id
        LEFT JOIN centres c ON p.listing_type = 'centre' AND c.id = p.listing_id
@@ -432,7 +559,7 @@ export async function listScheduledActivities(opts: { county?: string; from: Dat
 
   const clubSessions = (await db
     .prepare(
-      `SELECT cs.id, cs.day_of_week, cs.time, cs.label, cs.image_url, cl.id as club_id, cl.name as club_name, cl.area, cl.county, cl.price
+      `SELECT cs.id, cs.day_of_week, cs.time, cs.label, cs.image_url, cl.id as club_id, cl.name as club_name, cl.area, cl.county, cl.price, cl.lat, cl.lng
        FROM club_sessions cs JOIN clubs cl ON cl.id = cs.club_id
        WHERE cs.active = 1 ${county ? "AND cl.county = ?" : ""}`
     )
@@ -456,6 +583,9 @@ export async function listScheduledActivities(opts: { county?: string; from: Dat
       joined: g.joined,
       imageUrl: g.image_url || null,
       isLive: computeIsLive("game", g.date, g.time, 0, now),
+      durationMinutes: ASSUMED_DURATION_MINUTES.game,
+      lat: g.lat !== null ? Number(g.lat) : null,
+      lng: g.lng !== null ? Number(g.lng) : null,
     })),
     ...programSessions.map((p) => ({
       kind: "program_session" as const,
@@ -473,6 +603,9 @@ export async function listScheduledActivities(opts: { county?: string; from: Dat
       joined: null,
       imageUrl: p.image_url || null,
       isLive: computeIsLive("program_session", p.date, p.time, p.duration_minutes, now),
+      durationMinutes: p.duration_minutes,
+      lat: p.lat !== null ? Number(p.lat) : null,
+      lng: p.lng !== null ? Number(p.lng) : null,
     })),
     ...clubSessions.map((cs) => {
       const date = nextOccurrence(cs.day_of_week, now);
@@ -492,6 +625,9 @@ export async function listScheduledActivities(opts: { county?: string; from: Dat
         joined: null,
         imageUrl: cs.image_url || null,
         isLive: computeIsLive("club_session", date, cs.time, 0, now),
+        durationMinutes: ASSUMED_DURATION_MINUTES.club_session,
+        lat: cs.lat !== null ? Number(cs.lat) : null,
+        lng: cs.lng !== null ? Number(cs.lng) : null,
       };
     }),
   ];

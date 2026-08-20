@@ -303,9 +303,18 @@ export interface Game {
   /** Only present on the single-game detail fetch, not the list. */
   joinedByMe?: boolean;
   waitlistedByMe?: boolean;
+  /** Contextual familiarity (implementation plan Phase 8) — how many
+   * currently-joined participants the signed-in resident has previously
+   * shared a different game with. 0 for a signed-out visitor. */
+  familiarCount?: number;
 }
 
 // --- Circles (NEXT) --------------------------------------------------------
+
+export interface CircleSuggestion {
+  activityLabel: string;
+  familiarCount: number;
+}
 
 export interface Circle {
   id: string;
@@ -317,6 +326,26 @@ export interface Circle {
   centreId: string | null;
   members: number;
   createdAt: string;
+}
+
+// --- Participation Chat (implementation plan Phase 11) ----------------------
+
+export type ChatScopeType = "game" | "circle";
+
+export interface ChatMessage {
+  id: number;
+  residentId: string;
+  residentName: string;
+  body: string;
+  createdAt: string;
+}
+
+export interface ChatFeed {
+  messages: ChatMessage[];
+  canPost: boolean;
+  postBlockedReason?: string;
+  opensAt?: string;
+  archivesAt?: string;
 }
 
 // --- recurring club sessions (NEXT) -----------------------------------------
@@ -391,11 +420,27 @@ export interface DiscoverItem {
   imageUrl: string | null;
   /** Best-effort "happening right now" — see server/src/routes/discover.ts. */
   isLive: boolean;
+  /** Real for program sessions; a documented assumption for games/club
+   * sessions (implementation plan Phase 9's Free Time Mode duration filter). */
+  durationMinutes: number;
+  /** From the hosting centre/club — null if it has no coordinates set. */
+  lat: number | null;
+  lng: number | null;
 }
 
 export interface DiscoverFeed {
   today: DiscoverItem[];
   weekend: DiscoverItem[];
+}
+
+// --- Local Momentum (implementation plan Phase 7) --------------------------
+
+export interface LocalMomentumSignal {
+  label: string;
+  county: string;
+  recentSpots: number;
+  priorSpots: number;
+  growth: number;
 }
 
 // --- demand intelligence (NEXT) ---------------------------------------------

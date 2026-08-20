@@ -1,11 +1,11 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { createCircle, fetchCircles, joinCircle, leaveCircle } from "../api";
+import { createCircle, fetchCircleSuggestions, fetchCircles, joinCircle, leaveCircle } from "../api";
 import { UsersIcon } from "../components/icons";
 import { Button, Card, EmptyState, PageSpinner, inputStyle, labelStyle } from "../components/ui";
 import { useGuest } from "../GuestContext";
 import { colors, fonts } from "../theme";
-import type { Circle } from "../types";
+import type { Circle, CircleSuggestion } from "../types";
 
 // Circles (NEXT) — a persistent group anchored to recurring participation
 // (see Games), not a generic social feed: no posts, no likes, just
@@ -20,6 +20,11 @@ export function Circles() {
   const [creating, setCreating] = useState(false);
   const [form, setForm] = useState({ name: "", activityLabel: "", area: "", county: "" });
 
+  // Repetition-detection → "Make this a Circle?" (Phase 8) — activities
+  // where this resident keeps playing games with the same 2+ people.
+  const [suggestions, setSuggestions] = useState<CircleSuggestion[]>([]);
+  const [suggestionBusy, setSuggestionBusy] = useState<string | null>(null);
+
   const load = () => {
     setLoading(true);
     fetchCircles()
@@ -27,7 +32,25 @@ export function Circles() {
       .finally(() => setLoading(false));
   };
 
+  const loadSuggestions = () => {
+    if (resident) fetchCircleSuggestions().then(setSuggestions).catch(() => setSuggestions([]));
+    else setSuggestions([]);
+  };
+
   useEffect(load, []);
+  useEffect(loadSuggestions, [resident]);
+
+  const handleCreateFromSuggestion = async (s: CircleSuggestion) => {
+    setSuggestionBusy(s.activityLabel);
+    try {
+      const { id } = await createCircle({ name: `${s.activityLabel} Circle`, activityLabel: s.activityLabel });
+      setSuggestions((rows) => rows.filter((r) => r.activityLabel !== s.activityLabel));
+      load();
+      navigate(`/circles/${id}`);
+    } finally {
+      setSuggestionBusy(null);
+    }
+  };
 
   const handleJoin = async (id: string) => {
     await joinCircle(id);
@@ -68,6 +91,30 @@ export function Circles() {
         <p style={{ color: colors.mutedLight, fontSize: 15, margin: "0 0 28px" }}>
           Recurring groups built around the things people actually do together.
         </p>
+
+        {suggestions.length > 0 && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 28 }}>
+            {suggestions.map((s) => (
+              <div
+                key={s.activityLabel}
+                style={{
+                  display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap",
+                  background: colors.greenBg, border: `1px solid ${colors.green}`, borderRadius: 16, padding: "16px 20px",
+                }}
+              >
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <UsersIcon size={18} style={{ color: colors.greenText, flex: "none" }} />
+                  <span style={{ fontSize: 14.5, color: colors.text }}>
+                    You've played <strong>{s.activityLabel}</strong> with the same {s.familiarCount} people more than once. Make it a Circle?
+                  </span>
+                </div>
+                <Button onClick={() => handleCreateFromSuggestion(s)} disabled={suggestionBusy === s.activityLabel}>
+                  {suggestionBusy === s.activityLabel ? "Creating…" : `Create ${s.activityLabel} Circle`}
+                </Button>
+              </div>
+            ))}
+          </div>
+        )}
 
         {resident && (
           <div style={{ background: "#fff", border: `1px solid ${colors.border}`, borderRadius: 16, padding: "18px 20px", marginBottom: 28 }}>

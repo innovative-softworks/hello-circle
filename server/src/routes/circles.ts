@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import { Router } from "express";
 import { db } from "../db/index.js";
+import { getCircleSuggestions } from "../db/queries.js";
 import { requireResident } from "../residents.js";
 
 export const circlesRouter = Router();
@@ -55,6 +56,13 @@ circlesRouter.get("/mine", requireResident, async (req, res) => {
     )
     .all(req.resident!.id)) as CircleRow[];
   res.json(await Promise.all(rows.map(toCircleJson)));
+});
+
+// Repetition-detection → "Make this a Circle?" (Phase 8) — activities where
+// this resident has 2+ people they've each shared 3+ games with, and isn't
+// already circled on. Must be registered before /:id below.
+circlesRouter.get("/suggestions", requireResident, async (req, res) => {
+  res.json(await getCircleSuggestions(req.resident!.id));
 });
 
 circlesRouter.get("/:id", async (req, res) => {

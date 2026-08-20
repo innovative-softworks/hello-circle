@@ -30,12 +30,12 @@ interface CreateBookingBody {
   openSpots?: number;
 }
 
-function hireCost(rate: number, duration: number): number {
+export function hireCost(rate: number, duration: number): number {
   return duration >= 8 ? Math.round(rate * 6.5) : rate * duration;
 }
 
-const DEPOSIT_CENTS = 100 * 100;
-const MAX_OPEN_SPOTS = 20;
+export const DEPOSIT_CENTS = 100 * 100;
+export const MAX_OPEN_SPOTS = 20;
 
 /** Open Booking (Phase 3) — once a booking with open_spots is confirmed
  * (paid, or cash-immediate), create the joinable Game other residents
@@ -47,26 +47,222 @@ export async function createGameFromOpenBooking(ref: string) {
   try {
     const row = (await db
       .prepare(
-        `SELECT b.open_spots as openSpots, b.resident_id as residentId, b.centre_id as centreId, b.date, b.time,
+        `SELECT b.open_spots as openSpots, b.min_participants as minParticipants, b.resident_id as residentId, b.centre_id as centreId, b.date, b.time,
                 b.event_type as eventType, b.total_cents as totalCents
          FROM bookings b WHERE b.ref = ? AND b.payment_status = 'paid'`
       )
-      .get(ref)) as { openSpots: number | null; residentId: string | null; centreId: string; date: string; time: string; eventType: string; totalCents: number } | undefined;
+      .get(ref)) as
+      | { openSpots: number | null; minParticipants: number | null; residentId: string | null; centreId: string; date: string; time: string; eventType: string; totalCents: number }
+      | undefined;
     if (!row || !row.openSpots || !row.residentId) return;
 
     const existing = await db.prepare(`SELECT id FROM games WHERE booking_ref = ?`).get(ref);
     if (existing) return;
 
+    // Make It Happen (Phase 10) sets min_participants = openSpots (the
+    // whole requested group is required) — since the host isn't inserted
+    // as a game_participant on this game (their spot is the room booking
+    // itself), any set threshold >= 1 means the game isn't "viable" yet.
+    const startsPending = !!row.minParticipants && row.minParticipants > 0;
+
     const id = crypto.randomUUID();
     await db
       .prepare(
-        `INSERT INTO games (id, host_resident_id, activity_label, centre_id, date, time, capacity, price_cents, visibility, booking_ref)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'public', ?)`
+        `INSERT INTO games (id, host_resident_id, activity_label, centre_id, date, time, capacity, price_cents, visibility, booking_ref, min_participants, status)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'public', ?, ?, ?)`
       )
-      .run(id, row.residentId, row.eventType || "Open booking", row.centreId, row.date, row.time, row.openSpots, splitCostPerPerson(row.totalCents, row.openSpots), ref);
+      .run(
+        id,
+        row.residentId,
+        row.eventType || "Open booking",
+        row.centreId,
+        row.date,
+        row.time,
+        row.openSpots,
+        splitCostPerPerson(row.totalCents, row.openSpots),
+        ref,
+        row.minParticipants,
+        startsPending ? "pending_participants" : "open"
+      );
   } catch (e) {
     console.error("[bookings] createGameFromOpenBooking failed:", e);
   }
+}
+
+export interface CreateBookingInternalInput {
+  centreId: string;
+  roomId: string;
+  date: string;
+  time: string;
+  duration: number;
+  eventType: string;
+  guests: number;
+  name: string;
+  email: string;
+  phone: string;
+  notes?: string;
+  couponCode?: string;
+  openSpots?: number | null;
+  minParticipants?: number | null;
+  residentId: string | null;
+  clientId: string;
+}
+
+export type CreateBookingResult =
+  | { ok: true; ref: string; totalEuro: number; url?: string }
+  | { ok: false; status: number; error: string };
+
+/** The actual booking-creation logic shared by POST /checkout below and
+ * Make It Happen's confirm step (routes/makeItHappen.ts) — extracted so
+ * the two entry points can't drift apart on anything payment-adjacent
+ * (overlap-locking, pricing, Stripe session creation). The route handler
+ * below does request-shape validation (missing fields, email format) and
+ * maps the result to an HTTP response; this function assumes its input is
+ * already validated. */
+export async function createBookingInternal(input: CreateBookingInternalInput): Promise<CreateBookingResult> {
+  const centre = await getCentre(input.centreId);
+  const room = centre?.rooms.find((r) => r.id === input.roomId);
+  if (!centre || !room) return { ok: false, status: 404, error: "Centre or room not found" };
+  if (!centre.isOpen) return { ok: false, status: 409, error: "This venue isn't currently taking bookings" };
+
+  const startHour = parseInt(input.time.slice(0, 2), 10);
+  const reqEnd = bookingEndHour(startHour, input.duration);
+
+  const opensHour = parseInt(centre.opensAt.slice(0, 2), 10);
+  const closesHour = parseInt(centre.closesAt.slice(0, 2), 10);
+  if (startHour < opensHour || reqEnd > closesHour) {
+    return { ok: false, status: 409, error: "That time is outside the venue's opening hours" };
+  }
+
+  const centreVendorRow = (await db.prepare(`SELECT vendor_id FROM centres WHERE id = ?`).get(input.centreId)) as { vendor_id: string | null } | undefined;
+  const { bookingWindowDays } = await orgPoliciesForVendor(centreVendorRow?.vendor_id ?? null);
+  const eventStart = irelandWallTimeToUtc(input.date, startHour);
+  if (eventStart.getTime() - Date.now() > bookingWindowDays * 24 * 60 * 60 * 1000) {
+    return { ok: false, status: 409, error: `This venue only takes bookings up to ${bookingWindowDays} days in advance` };
+  }
+
+  const isCash = room.paymentMethod === "cash";
+  const subtotalCents = hireCost(room.rate, input.duration) * 100;
+  let discountCents = 0;
+  let couponCode: string | null = null;
+  if (input.couponCode) {
+    const result = await evaluateCoupon(input.couponCode, subtotalCents);
+    if (!result.valid) return { ok: false, status: 400, error: result.error! };
+    discountCents = result.discountCents!;
+    couponCode = result.code!;
+  }
+  // Cash bookings skip the refundable deposit too — there's no online charge to hold it against.
+  const pricing = computePricing(subtotalCents, isCash ? 0 : DEPOSIT_CENTS, discountCents, couponCode);
+  const ref = generateRef("HB");
+
+  // The availability check and the insert must be atomic against concurrent
+  // checkouts for the same room — otherwise two guests can both pass the
+  // overlap check for the same slot before either has inserted their row
+  // (a plain read-then-insert race). `SELECT ... FOR UPDATE` on the room's
+  // own row (which always exists, regardless of date) takes an InnoDB row
+  // lock for the rest of this transaction: a second transaction's own
+  // `FOR UPDATE` on the same room blocks until the first commits or rolls
+  // back, so by the time it re-reads bookings/room_blocks, the first
+  // transaction's insert (or failure) is already visible.
+  try {
+    await db.transaction(async (tx) => {
+      await tx.prepare(`SELECT id FROM rooms WHERE id = ? AND centre_id = ? FOR UPDATE`).get(input.roomId, input.centreId);
+
+      // rooms.id is only unique per-centre (PRIMARY KEY (centre_id, id)) —
+      // without this, a different centre's booking on a colliding room_id
+      // could wrongly reject this checkout as clashing.
+      const overlapping = (await tx
+        .prepare(`SELECT time, duration FROM bookings WHERE room_id = ? AND centre_id = ? AND date = ? AND payment_status != 'failed' AND status != 'cancelled'`)
+        .all(input.roomId, input.centreId, input.date)) as { time: string; duration: number }[];
+      const clashes = overlapping.some((b) => {
+        const bStart = parseInt(b.time.slice(0, 2), 10);
+        return hoursOverlap(startHour, reqEnd, bStart, bookingEndHour(bStart, b.duration));
+      });
+      if (clashes) throw new ConflictError("That slot is no longer available");
+
+      const blocks = (await tx
+        .prepare(`SELECT time FROM room_blocks WHERE centre_id = ? AND date = ? AND (room_id = ? OR room_id IS NULL)`)
+        .all(input.centreId, input.date, input.roomId)) as { time: string | null }[];
+      const blocked = blocks.some((b) => {
+        if (b.time === null) return true;
+        const bh = parseInt(b.time.slice(0, 2), 10);
+        return bh >= startHour && bh < reqEnd;
+      });
+      if (blocked) throw new ConflictError("The vendor has closed that date/time");
+
+      await tx
+        .prepare(
+          `INSERT INTO bookings (ref, client_id, resident_id, centre_id, room_id, date, time, duration, event_type, guests, name, email, phone, notes,
+            subtotal_cents, discount_cents, vat_cents, platform_fee_cents, coupon_code, total_cents, payment_status, open_spots, min_participants)
+           VALUES (@ref, @clientId, @residentId, @centreId, @roomId, @date, @time, @duration, @eventType, @guests, @name, @email, @phone, @notes,
+            @subtotalCents, @discountCents, @vatCents, @platformFeeCents, @couponCode, @totalCents, @status, @openSpots, @minParticipants)`
+        )
+        .run({
+          ref,
+          clientId: input.clientId,
+          residentId: input.residentId,
+          centreId: input.centreId,
+          roomId: input.roomId,
+          date: input.date,
+          time: input.time,
+          duration: input.duration,
+          eventType: input.eventType,
+          guests: input.guests,
+          name: input.name,
+          email: input.email,
+          phone: input.phone,
+          notes: input.notes ?? "",
+          subtotalCents: pricing.taxableCents,
+          discountCents: pricing.discountCents,
+          vatCents: pricing.vatCents,
+          platformFeeCents: pricing.platformFeeCents,
+          openSpots: input.openSpots ?? null,
+          minParticipants: input.minParticipants ?? null,
+          couponCode: pricing.couponCode,
+          totalCents: pricing.totalCents,
+          status: isCash ? "paid" : "pending",
+        });
+    });
+  } catch (e) {
+    if (e instanceof ConflictError) return { ok: false, status: 409, error: e.message };
+    throw e;
+  }
+
+  // Cash rooms skip Stripe entirely — confirmed immediately, paid on arrival.
+  if (isCash) {
+    const centreVendor = (await db.prepare(`SELECT vendor_id FROM centres WHERE id = ?`).get(centre.id)) as { vendor_id: string | null } | undefined;
+    notifyNewBookingOrRegistration({
+      kind: "booking",
+      listingType: "centre",
+      listingId: centre.id,
+      listingName: centre.name,
+      vendorId: centreVendor?.vendor_id ?? null,
+      guestName: input.name,
+      guestEmail: input.email,
+      ref,
+      detailsText: `${input.date} at ${input.time} · ${input.duration}h · ${input.guests} guests · €${(pricing.totalCents / 100).toFixed(2)} due in cash on arrival`,
+    }).catch((e) => console.error("[notifications] booking notify failed:", e));
+    if (input.openSpots) await createGameFromOpenBooking(ref);
+    if (input.residentId) await upgradeFavouriteStatus(input.residentId, "centre", centre.id);
+    return { ok: true, ref, totalEuro: pricing.totalCents / 100 };
+  }
+
+  const result = await createCheckoutSession({
+    ref,
+    type: "booking",
+    customerEmail: input.email,
+    lineItems: pricingLineItems(pricing, {
+      name: room.name ? `${centre.name} — ${room.name}` : centre.name,
+      description: `${input.date} at ${input.time}, ${input.duration}h${couponCode ? ` (coupon ${couponCode} applied)` : ""}`,
+    }),
+  });
+  if (!result.ok) {
+    await db.prepare(`DELETE FROM bookings WHERE ref = ?`).run(ref);
+    return { ok: false, status: result.status, error: result.error };
+  }
+
+  await db.prepare(`UPDATE bookings SET stripe_session_id = ? WHERE ref = ?`).run(result.session.id, ref);
+  return { ok: true, ref, url: result.session.url ?? undefined, totalEuro: pricing.totalCents / 100 };
 }
 
 bookingsRouter.post("/checkout", async (req, res) => {
@@ -97,148 +293,25 @@ bookingsRouter.post("/checkout", async (req, res) => {
     openSpots = body.openSpots;
   }
 
-  const centre = await getCentre(body.centreId);
-  const room = centre?.rooms.find((r) => r.id === body.roomId);
-  if (!centre || !room) return res.status(404).json({ error: "Centre or room not found" });
-  if (!centre.isOpen) return res.status(409).json({ error: "This venue isn't currently taking bookings" });
-
-  const startHour = parseInt(body.time.slice(0, 2), 10);
-  const reqEnd = bookingEndHour(startHour, body.duration);
-
-  const opensHour = parseInt(centre.opensAt.slice(0, 2), 10);
-  const closesHour = parseInt(centre.closesAt.slice(0, 2), 10);
-  if (startHour < opensHour || reqEnd > closesHour) {
-    return res.status(409).json({ error: "That time is outside the venue's opening hours" });
-  }
-
-  const centreVendorRow = (await db.prepare(`SELECT vendor_id FROM centres WHERE id = ?`).get(body.centreId)) as { vendor_id: string | null } | undefined;
-  const { bookingWindowDays } = await orgPoliciesForVendor(centreVendorRow?.vendor_id ?? null);
-  const eventStart = irelandWallTimeToUtc(body.date, startHour);
-  if (eventStart.getTime() - Date.now() > bookingWindowDays * 24 * 60 * 60 * 1000) {
-    return res.status(409).json({ error: `This venue only takes bookings up to ${bookingWindowDays} days in advance` });
-  }
-
-  const isCash = room.paymentMethod === "cash";
-  const subtotalCents = hireCost(room.rate, body.duration) * 100;
-  let discountCents = 0;
-  let couponCode: string | null = null;
-  if (body.couponCode) {
-    const result = await evaluateCoupon(body.couponCode, subtotalCents);
-    if (!result.valid) return res.status(400).json({ error: result.error });
-    discountCents = result.discountCents!;
-    couponCode = result.code!;
-  }
-  // Cash bookings skip the refundable deposit too — there's no online charge to hold it against.
-  const pricing = computePricing(subtotalCents, isCash ? 0 : DEPOSIT_CENTS, discountCents, couponCode);
-  const ref = generateRef("HB");
-
-  // The availability check and the insert must be atomic against concurrent
-  // checkouts for the same room — otherwise two guests can both pass the
-  // overlap check for the same slot before either has inserted their row
-  // (a plain read-then-insert race). `SELECT ... FOR UPDATE` on the room's
-  // own row (which always exists, regardless of date) takes an InnoDB row
-  // lock for the rest of this transaction: a second transaction's own
-  // `FOR UPDATE` on the same room blocks until the first commits or rolls
-  // back, so by the time it re-reads bookings/room_blocks, the first
-  // transaction's insert (or failure) is already visible.
-  try {
-    await db.transaction(async (tx) => {
-      await tx.prepare(`SELECT id FROM rooms WHERE id = ? AND centre_id = ? FOR UPDATE`).get(body.roomId, body.centreId);
-
-      // rooms.id is only unique per-centre (PRIMARY KEY (centre_id, id)) —
-      // without this, a different centre's booking on a colliding room_id
-      // could wrongly reject this checkout as clashing.
-      const overlapping = (await tx
-        .prepare(`SELECT time, duration FROM bookings WHERE room_id = ? AND centre_id = ? AND date = ? AND payment_status != 'failed' AND status != 'cancelled'`)
-        .all(body.roomId, body.centreId, body.date)) as { time: string; duration: number }[];
-      const clashes = overlapping.some((b) => {
-        const bStart = parseInt(b.time.slice(0, 2), 10);
-        return hoursOverlap(startHour, reqEnd, bStart, bookingEndHour(bStart, b.duration));
-      });
-      if (clashes) throw new ConflictError("That slot is no longer available");
-
-      const blocks = (await tx
-        .prepare(`SELECT time FROM room_blocks WHERE centre_id = ? AND date = ? AND (room_id = ? OR room_id IS NULL)`)
-        .all(body.centreId, body.date, body.roomId)) as { time: string | null }[];
-      const blocked = blocks.some((b) => {
-        if (b.time === null) return true;
-        const bh = parseInt(b.time.slice(0, 2), 10);
-        return bh >= startHour && bh < reqEnd;
-      });
-      if (blocked) throw new ConflictError("The vendor has closed that date/time");
-
-      await tx
-        .prepare(
-          `INSERT INTO bookings (ref, client_id, resident_id, centre_id, room_id, date, time, duration, event_type, guests, name, email, phone, notes,
-            subtotal_cents, discount_cents, vat_cents, platform_fee_cents, coupon_code, total_cents, payment_status, open_spots)
-           VALUES (@ref, @clientId, @residentId, @centreId, @roomId, @date, @time, @duration, @eventType, @guests, @name, @email, @phone, @notes,
-            @subtotalCents, @discountCents, @vatCents, @platformFeeCents, @couponCode, @totalCents, @status, @openSpots)`
-        )
-        .run({
-          ref,
-          clientId,
-          residentId: req.resident?.id ?? null,
-          centreId: body.centreId,
-          roomId: body.roomId,
-          date: body.date,
-          time: body.time,
-          duration: body.duration,
-          eventType: body.eventType,
-          guests: body.guests,
-          name: body.name,
-          email: body.email,
-          phone: body.phone,
-          notes: body.notes ?? "",
-          subtotalCents: pricing.taxableCents,
-          discountCents: pricing.discountCents,
-          vatCents: pricing.vatCents,
-          platformFeeCents: pricing.platformFeeCents,
-          openSpots,
-          couponCode: pricing.couponCode,
-          totalCents: pricing.totalCents,
-          status: isCash ? "paid" : "pending",
-        });
-    });
-  } catch (e) {
-    if (e instanceof ConflictError) return res.status(409).json({ error: e.message });
-    throw e;
-  }
-
-  // Cash rooms skip Stripe entirely — confirmed immediately, paid on arrival.
-  if (isCash) {
-    const centreVendor = (await db.prepare(`SELECT vendor_id FROM centres WHERE id = ?`).get(centre.id)) as { vendor_id: string | null } | undefined;
-    notifyNewBookingOrRegistration({
-      kind: "booking",
-      listingType: "centre",
-      listingId: centre.id,
-      listingName: centre.name,
-      vendorId: centreVendor?.vendor_id ?? null,
-      guestName: body.name,
-      guestEmail: body.email,
-      ref,
-      detailsText: `${body.date} at ${body.time} · ${body.duration}h · ${body.guests} guests · €${(pricing.totalCents / 100).toFixed(2)} due in cash on arrival`,
-    }).catch((e) => console.error("[notifications] booking notify failed:", e));
-    if (openSpots) await createGameFromOpenBooking(ref);
-    if (req.resident) await upgradeFavouriteStatus(req.resident.id, "centre", centre.id);
-    return res.status(201).json({ ref, totalEuro: pricing.totalCents / 100 });
-  }
-
-  const result = await createCheckoutSession({
-    ref,
-    type: "booking",
-    customerEmail: body.email,
-    lineItems: pricingLineItems(pricing, {
-      name: room.name ? `${centre.name} — ${room.name}` : centre.name,
-      description: `${body.date} at ${body.time}, ${body.duration}h${couponCode ? ` (coupon ${couponCode} applied)` : ""}`,
-    }),
+  const result = await createBookingInternal({
+    centreId: body.centreId,
+    roomId: body.roomId,
+    date: body.date,
+    time: body.time,
+    duration: body.duration,
+    eventType: body.eventType,
+    guests: body.guests,
+    name: body.name,
+    email: body.email,
+    phone: body.phone,
+    notes: body.notes,
+    couponCode: body.couponCode,
+    openSpots,
+    residentId: req.resident?.id ?? null,
+    clientId,
   });
-  if (!result.ok) {
-    await db.prepare(`DELETE FROM bookings WHERE ref = ?`).run(ref);
-    return res.status(result.status).json({ error: result.error });
-  }
-
-  await db.prepare(`UPDATE bookings SET stripe_session_id = ? WHERE ref = ?`).run(result.session.id, ref);
-  res.status(201).json({ ref, url: result.session.url, totalEuro: pricing.totalCents / 100 });
+  if (!result.ok) return res.status(result.status).json({ error: result.error });
+  res.status(201).json({ ref: result.ref, url: result.url, totalEuro: result.totalEuro });
 });
 
 bookingsRouter.get("/status/:ref", async (req, res) => {

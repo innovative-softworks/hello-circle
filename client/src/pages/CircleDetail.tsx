@@ -3,6 +3,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import { fetchCircle, fetchCircleMembership, fetchCircleUpcoming, joinCircle, leaveCircle } from "../api";
 import { CalendarIcon, ChevronLeftIcon, ClockIcon, UsersIcon } from "../components/icons";
 import { Button, Card, EmptyState, PageSpinner } from "../components/ui";
+import { ChatPanel } from "../components/ChatPanel";
 import { InviteButton } from "../components/InviteButton";
 import { useGuest } from "../GuestContext";
 import { colors, fonts } from "../theme";
@@ -124,6 +125,15 @@ export function CircleDetail() {
                 </span>
               </button>
             ))}
+          </div>
+        )}
+
+        {resident && isMember && (
+          <div style={{ marginTop: 24 }}>
+            <h2 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 19, margin: "0 0 12px", letterSpacing: "-.01em" }}>
+              Chat
+            </h2>
+            <ChatPanel scopeType="circle" scopeId={circle.id} residentId={resident.id} />
           </div>
         )}
       </section>

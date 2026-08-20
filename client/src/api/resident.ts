@@ -1,5 +1,9 @@
 import type {
+  ChatFeed,
+  ChatMessage,
+  ChatScopeType,
   Circle,
+  CircleSuggestion,
   ClubSession,
   Favourite,
   FavouriteStatus,
@@ -197,6 +201,12 @@ export function fetchCircleUpcoming(id: string): Promise<{ id: string; activityL
   return request(`/circles/${id}/upcoming`);
 }
 
+/** Repetition-detection → "Make this a Circle?" (implementation plan Phase
+ * 8) — activities where this resident keeps playing with the same people. */
+export function fetchCircleSuggestions(): Promise<CircleSuggestion[]> {
+  return request(`/circles/suggestions`);
+}
+
 export function createCircle(input: { name: string; activityLabel?: string; area?: string; county?: string; about?: string; centreId?: string }): Promise<{ id: string }> {
   return request(`/circles`, { method: "POST", body: JSON.stringify(input) });
 }
@@ -211,6 +221,19 @@ export function leaveCircle(id: string): Promise<{ ok: boolean }> {
 
 export function fetchCircleMembership(id: string): Promise<{ member: boolean; role: string | null }> {
   return request(`/circles/${id}/membership`);
+}
+
+// --- Participation Chat (implementation plan Phase 11) ----------------------
+// Polling, not WebSocket (see server/src/routes/chat.ts). 'game' scope is
+// temporary (opens 24h before, archives some hours after); 'circle' scope
+// is persistent. `after` fetches only messages newer than that id.
+
+export function fetchChatMessages(scopeType: ChatScopeType, scopeId: string, after?: number): Promise<ChatFeed> {
+  return request(`/chat/${scopeType}/${scopeId}/messages${after ? `?after=${after}` : ""}`);
+}
+
+export function postChatMessage(scopeType: ChatScopeType, scopeId: string, body: string): Promise<ChatMessage> {
+  return request(`/chat/${scopeType}/${scopeId}/messages`, { method: "POST", body: JSON.stringify({ body }) });
 }
 
 // --- recurring club sessions (NEXT), read side ------------------------------

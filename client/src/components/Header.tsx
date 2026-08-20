@@ -4,7 +4,7 @@ import { fetchAdminPendingListings, fetchCentres, fetchResidentNotifications, fe
 import { useAuth } from "../AuthContext";
 import { useDashboardNav } from "../DashboardNavContext";
 import { useGuest } from "../GuestContext";
-import { BellIcon, ChevronDownIcon, CloseIcon, MenuIcon, PinIcon } from "./icons";
+import { BellIcon, ChevronDownIcon, CloseIcon, LightbulbIcon, MenuIcon, PinIcon } from "./icons";
 import { Avatar } from "./ui";
 import { colors, maxWidth } from "../theme";
 import { useMyStuff } from "../MyStuffContext";
@@ -24,9 +24,14 @@ export function Header() {
   const [alerts, setAlerts] = useState(0);
   const [countyMenuOpen, setCountyMenuOpen] = useState(false);
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
+  // Free Time Mode + nav restructure (Phase 9) — collapses the old flat
+  // Community centres/Sports clubs/Join a game tabs into one "Explore"
+  // dropdown, matching the target nav's intent-based grouping.
+  const [exploreMenuOpen, setExploreMenuOpen] = useState(false);
   const [counties, setCounties] = useState<string[]>([]);
   const countyMenuRef = useRef<HTMLDivElement>(null);
   const accountMenuRef = useRef<HTMLDivElement>(null);
+  const exploreMenuRef = useRef<HTMLDivElement>(null);
 
   // Resident notification bell (Tier 1) — previously these only lived
   // inside My Bookings > Notifications, easy to miss entirely.
@@ -44,6 +49,7 @@ export function Header() {
     setCountyMenuOpen(false);
     setAccountMenuOpen(false);
     setNotifOpen(false);
+    setExploreMenuOpen(false);
   }, [location.pathname]);
 
   useEffect(() => {
@@ -74,6 +80,7 @@ export function Header() {
     function onDocClick(e: MouseEvent) {
       if (countyMenuRef.current && !countyMenuRef.current.contains(e.target as Node)) setCountyMenuOpen(false);
       if (accountMenuRef.current && !accountMenuRef.current.contains(e.target as Node)) setAccountMenuOpen(false);
+      if (exploreMenuRef.current && !exploreMenuRef.current.contains(e.target as Node)) setExploreMenuOpen(false);
     }
     document.addEventListener("mousedown", onDocClick);
     return () => document.removeEventListener("mousedown", onDocClick);
@@ -240,36 +247,36 @@ export function Header() {
         >
           <img src="/illustrations/Logo.svg" alt="Hello Circle" style={{ height: 36, flex: "none" }} />
         </div>
-        <nav className="desktop-nav" style={{ display: "flex", gap: 2, marginLeft: 8 }}>
-          <button
-            className="tab-btn"
-            style={
-              isActive(["/browse/centres", "/centres/"])
-                ? { ...navBtn, background: colors.greenBg, color: colors.greenText, fontWeight: 700 }
-                : navBtn
-            }
-            onClick={() => go("/browse/centres")}
-          >
-            Community centres
-          </button>
-          <button
-            className="tab-btn"
-            style={
-              isActive(["/browse/clubs", "/clubs/"])
-                ? { ...navBtn, background: colors.orangeBg, color: colors.orangeDark, fontWeight: 700 }
-                : navBtn
-            }
-            onClick={() => go("/browse/clubs")}
-          >
-            Sports clubs
-          </button>
-          <button
-            className="tab-btn"
-            style={isActive(["/games"]) ? { ...navBtn, background: colors.greenBg, color: colors.greenText, fontWeight: 700 } : navBtn}
-            onClick={() => go("/games")}
-          >
-            Join a game
-          </button>
+        <nav className="desktop-nav" style={{ display: "flex", alignItems: "center", gap: 2, marginLeft: 8 }}>
+          <div ref={exploreMenuRef} style={{ position: "relative" }}>
+            <button
+              className="tab-btn"
+              style={
+                isActive(["/browse/centres", "/centres/", "/browse/clubs", "/clubs/", "/games", "/make-it-happen"])
+                  ? { ...navBtn, background: colors.greenBg, color: colors.greenText, fontWeight: 700, display: "inline-flex", alignItems: "center", gap: 4 }
+                  : { ...navBtn, display: "inline-flex", alignItems: "center", gap: 4 }
+              }
+              onClick={() => setExploreMenuOpen((o) => !o)}
+            >
+              Explore <ChevronDownIcon size={13} style={{ transform: exploreMenuOpen ? "rotate(180deg)" : "none", transition: "transform .15s ease" }} />
+            </button>
+            {exploreMenuOpen && (
+              <div className="pop-in" style={dropdownStyle}>
+                <button className="dropdown-item" style={dropdownItemStyle} onClick={() => go("/browse/centres")}>
+                  Community centres
+                </button>
+                <button className="dropdown-item" style={dropdownItemStyle} onClick={() => go("/browse/clubs")}>
+                  Sports clubs
+                </button>
+                <button className="dropdown-item" style={dropdownItemStyle} onClick={() => go("/games")}>
+                  Join a game
+                </button>
+                <button className="dropdown-item" style={dropdownItemStyle} onClick={() => go("/make-it-happen")}>
+                  Make It Happen
+                </button>
+              </div>
+            )}
+          </div>
           <button
             className="tab-btn"
             style={isActive(["/circles"]) ? { ...navBtn, background: colors.greenBg, color: colors.greenText, fontWeight: 700 } : navBtn}
@@ -277,8 +284,24 @@ export function Header() {
           >
             Circles
           </button>
+          <button
+            className="tab-btn"
+            style={isActive(["/bookings"]) ? { ...navBtn, background: colors.greenBg, color: colors.greenText, fontWeight: 700 } : navBtn}
+            onClick={() => go("/bookings")}
+          >
+            My Life
+          </button>
         </nav>
         <div className="desktop-actions" style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10 }}>
+          <button
+            className="btn btn-ghost"
+            onClick={() => go("/free-time")}
+            aria-label="Free Time Mode"
+            title="Free Time Mode"
+            style={isActive(["/free-time"]) ? { ...circleBtnStyle, background: colors.orangeBg, borderColor: colors.orange } : circleBtnStyle}
+          >
+            <LightbulbIcon size={17} style={{ color: colors.orange }} />
+          </button>
           <div ref={countyMenuRef} style={{ position: "relative" }}>
             <button
               className="btn btn-ghost"
@@ -450,7 +473,7 @@ export function Header() {
                     go("/bookings");
                   }}
                 >
-                  My bookings
+                  My Life
                   {count > 0 && <span style={countBadgeStyle}>{count}</span>}
                 </button>
 
@@ -562,6 +585,10 @@ export function Header() {
             padding: "10px 20px 20px",
           }}
         >
+          <button style={{ ...mobileNavBtn, display: "flex", alignItems: "center", gap: 8, color: colors.orangeDark, fontWeight: 700 }} onClick={() => go("/free-time")}>
+            <LightbulbIcon size={16} /> Free Time Mode
+          </button>
+          <div style={{ ...dropdownLabelStyle, padding: "10px 6px 2px" }}>Explore</div>
           <button style={mobileNavBtn} onClick={() => go("/browse/centres")}>
             Community centres
           </button>
@@ -571,11 +598,14 @@ export function Header() {
           <button style={mobileNavBtn} onClick={() => go("/games")}>
             Join a game
           </button>
+          <button style={mobileNavBtn} onClick={() => go("/make-it-happen")}>
+            Make It Happen
+          </button>
           <button style={mobileNavBtn} onClick={() => go("/circles")}>
             Circles
           </button>
           <button style={mobileNavBtn} onClick={() => go("/bookings")}>
-            My bookings ({count})
+            My Life ({count})
           </button>
           {resident && (
             <button style={{ ...mobileNavBtn, display: "flex", alignItems: "center", gap: 8 }} onClick={() => go("/bookings")}>

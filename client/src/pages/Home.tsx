@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { fetchCentres, fetchClubs, fetchDiscover, search } from "../api";
+import { fetchCentres, fetchClubs, fetchDiscover, fetchLocalMomentum, search } from "../api";
 import { CentreCard } from "../components/CentreCard";
 import { ClubCard } from "../components/ClubCard";
 import { DiscoverRow } from "../components/DiscoverRow";
@@ -17,10 +17,11 @@ import {
   HeartIcon,
   PinIcon,
   SearchIcon,
+  TrendUpIcon,
 } from "../components/icons";
 import { haversineDistanceKm, nearestCounty } from "../irishCounties";
 import { colors, fonts, maxWidth } from "../theme";
-import type { Centre, Club, DiscoverFeed, SearchResult } from "../types";
+import type { Centre, Club, DiscoverFeed, LocalMomentumSignal, SearchResult } from "../types";
 
 // Shown only until real listing images load (or if a fresh dev DB genuinely
 // has none for the current county) — same picsum seed the static hero image
@@ -50,6 +51,11 @@ export function Home() {
   // "Happening today" / "This weekend" (Phase 5) — games + program sessions
   // + recurring club sessions in one feed, see routes/discover.ts.
   const [discoverFeed, setDiscoverFeed] = useState<DiscoverFeed | null>(null);
+
+  // Local Momentum (Phase 7) — "picking up near you," the positive-growth
+  // counterpart to Trending. Empty in a fresh/quiet county, not an error —
+  // it just means nothing's grown enough to say yet, so the strip hides.
+  const [momentum, setMomentum] = useState<LocalMomentumSignal[]>([]);
 
   // Set only once real coordinates are resolved via handleUseMyLocation —
   // drives the Near You section, which otherwise stays hidden (no
@@ -95,6 +101,12 @@ export function Home() {
     fetchDiscover(homeCounty === "All" ? undefined : homeCounty)
       .then(setDiscoverFeed)
       .catch(() => setDiscoverFeed({ today: [], weekend: [] }));
+  }, [homeCounty]);
+
+  useEffect(() => {
+    fetchLocalMomentum(homeCounty === "All" ? undefined : homeCounty)
+      .then(setMomentum)
+      .catch(() => setMomentum([]));
   }, [homeCounty]);
 
   // Closest centres/clubs to the resolved coordinates, from the pool already
@@ -547,6 +559,32 @@ export function Home() {
       {discoverFeed && discoverFeed.weekend.length > 0 && (
         <section className="section-pad" style={{ maxWidth, margin: "0 auto", padding: "18px 24px 8px" }}>
           <DiscoverRow title="This weekend" items={discoverFeed.weekend} />
+        </section>
+      )}
+
+      {momentum.length > 0 && (
+        <section className="section-pad" style={{ maxWidth, margin: "0 auto", padding: "18px 24px 8px" }}>
+          <h2 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 20, margin: "0 0 14px", letterSpacing: "-.01em" }}>
+            Picking up near you
+          </h2>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
+            {momentum.map((m) => (
+              <div
+                key={`${m.label}-${m.county}`}
+                style={{
+                  display: "flex", alignItems: "center", gap: 8,
+                  background: colors.greenBg, border: `1px solid ${colors.green}`, borderRadius: 999,
+                  padding: "9px 16px",
+                }}
+              >
+                <TrendUpIcon size={15} style={{ color: colors.greenText, flex: "none" }} />
+                <span style={{ fontSize: 13.5, color: colors.text }}>
+                  <strong>{m.label}</strong>: +{m.growth} space{m.growth === 1 ? "" : "s"} this week
+                  {homeCounty === "All" && <> · {m.county}</>}
+                </span>
+              </div>
+            ))}
+          </div>
         </section>
       )}
 
