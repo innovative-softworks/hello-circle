@@ -44,6 +44,7 @@ export function GameDetail() {
 
   const isHost = resident?.id === game.hostResidentId;
   const cancelled = game.status === "cancelled";
+  const pending = game.status === "pending_participants";
   const full = game.spotsLeft === 0;
 
   const run = async (fn: () => Promise<unknown>) => {
@@ -104,6 +105,12 @@ export function GameDetail() {
           {game.bookingRef && (
             <div style={{ background: colors.panel, color: colors.muted, borderRadius: 12, padding: "10px 14px", fontSize: 13, marginBottom: 16 }}>
               This game is happening as part of the host's existing room booking — you'll pay your own share to join.
+            </div>
+          )}
+
+          {pending && !cancelled && (
+            <div style={{ background: "#FFF3D6", color: "#9A6B00", borderRadius: 12, padding: "10px 14px", fontWeight: 700, fontSize: 13.5, marginBottom: 16 }}>
+              Needs {Math.max(0, (game.minParticipants ?? 0) - game.joined)} more player{Math.max(0, (game.minParticipants ?? 0) - game.joined) === 1 ? "" : "s"} to confirm — still joinable while waiting.
             </div>
           )}
 

@@ -16,6 +16,7 @@ function GameCard({ game, onJoin, onLeave, joining }: { game: Game; onJoin: () =
   const navigate = useNavigate();
   const { resident } = useGuest();
   const full = game.spotsLeft === 0;
+  const pending = game.status === "pending_participants";
   return (
     <Card>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
@@ -30,6 +31,11 @@ function GameCard({ game, onJoin, onLeave, joining }: { game: Game; onJoin: () =
             {game.soloFriendly && (
               <span style={{ fontSize: 11, fontWeight: 700, color: colors.greenText, background: colors.greenBg, borderRadius: 999, padding: "2px 8px" }}>
                 Solo friendly
+              </span>
+            )}
+            {pending && (
+              <span style={{ fontSize: 11, fontWeight: 700, color: "#9A6B00", background: "#FFF3D6", borderRadius: 999, padding: "2px 8px" }}>
+                Needs {Math.max(0, (game.minParticipants ?? 0) - game.joined)} more to confirm
               </span>
             )}
           </div>
@@ -85,7 +91,7 @@ export function Games() {
   const [creating, setCreating] = useState(false);
 
   const [centres, setCentres] = useState<Centre[]>([]);
-  const [form, setForm] = useState({ activityLabel: "", centreId: "", locationText: "", date: "", time: "", capacity: 4, priceCents: "", soloFriendly: false });
+  const [form, setForm] = useState({ activityLabel: "", centreId: "", locationText: "", date: "", time: "", capacity: 4, priceCents: "", soloFriendly: false, minParticipants: "" });
   const [createError, setCreateError] = useState<string | null>(null);
 
   const load = () => {
@@ -138,8 +144,9 @@ export function Games() {
         capacity: form.capacity,
         priceCents: form.priceCents ? Math.round(parseFloat(form.priceCents) * 100) : undefined,
         soloFriendly: form.soloFriendly,
+        minParticipants: form.minParticipants ? parseInt(form.minParticipants, 10) : undefined,
       });
-      setForm({ activityLabel: "", centreId: "", locationText: "", date: "", time: "", capacity: 4, priceCents: "", soloFriendly: false });
+      setForm({ activityLabel: "", centreId: "", locationText: "", date: "", time: "", capacity: 4, priceCents: "", soloFriendly: false, minParticipants: "" });
       load();
     } catch (e) {
       setCreateError(e instanceof Error ? e.message : "Couldn't create this game");
@@ -201,7 +208,24 @@ export function Games() {
                 <label style={labelStyle}>Price per player (optional)</label>
                 <input value={form.priceCents} onChange={(e) => setForm((f) => ({ ...f, priceCents: e.target.value }))} placeholder="e.g. 5" style={inputStyle} />
               </div>
+              <div>
+                <label style={labelStyle}>Minimum to run (optional)</label>
+                <input
+                  type="number"
+                  min={1}
+                  max={form.capacity}
+                  value={form.minParticipants}
+                  onChange={(e) => setForm((f) => ({ ...f, minParticipants: e.target.value }))}
+                  placeholder="e.g. 4"
+                  style={inputStyle}
+                />
+              </div>
             </div>
+            {form.minParticipants && (
+              <p style={{ fontSize: 12.5, color: colors.mutedLight, margin: "8px 0 0" }}>
+                This game stays "pending" — but still joinable — until {form.minParticipants} players (including you) have joined.
+              </p>
+            )}
             <label style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 12, fontSize: 13.5, color: colors.muted, cursor: "pointer" }}>
               <input type="checkbox" checked={form.soloFriendly} onChange={(e) => setForm((f) => ({ ...f, soloFriendly: e.target.checked }))} />
               Solo friendly — welcome someone who doesn't have a partner or group

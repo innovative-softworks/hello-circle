@@ -1,5 +1,6 @@
 import type { Request, Response } from "express";
 import { createGameFromOpenBooking } from "./bookings.js";
+import { checkMinParticipantsThreshold } from "./games.js";
 import { db } from "../db/index.js";
 import { notifyNewBookingOrRegistration, notifyResident } from "../notifications.js";
 import { recordCouponUse } from "../pricing.js";
@@ -134,6 +135,8 @@ async function confirmGameJoin(ref: string) {
       ref: row.game_id,
     }).catch((e) => console.error("[notifications] game notify failed:", e));
   }
+
+  await checkMinParticipantsThreshold(row.game_id);
 }
 
 /** Credit-pack pass confirmation (NEXT) — same idempotent pattern. */

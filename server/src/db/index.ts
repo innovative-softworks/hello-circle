@@ -983,6 +983,17 @@ export async function initSchema() {
   // rather than duplicated. See bookings.ts's createGameFromOpenBooking.
   await ensureColumn("bookings", "open_spots", "open_spots INT");
   await ensureColumn("games", "booking_ref", "booking_ref VARCHAR(191)");
+
+  // Minimum Participation Booking (implementation plan Phase 4) — a game
+  // can require N participants before it's confirmed. Scoped to games only
+  // (not a new facility-hold/reservation system): a threshold game starts
+  // 'pending_participants' instead of 'open', stays joinable and paid the
+  // exact same way any other game is, and flips to 'open' the moment
+  // joined count reaches min_participants (see games.ts's join handler).
+  // If a game never reaches its threshold, cancelling and refunding
+  // whoever already joined is handled off-platform, same convention as
+  // every other cancellation in this app.
+  await ensureColumn("games", "min_participants", "min_participants INT");
 }
 
 export const COUNTY_CENTROIDS: Record<string, { lat: number; lng: number }> = {

@@ -26,6 +26,7 @@ interface GameRow {
   created_at: string;
   solo_friendly: number;
   booking_ref: string | null;
+  min_participants: number | null;
 }
 
 async function toGameJson(row: GameRow) {
@@ -57,6 +58,11 @@ async function toGameJson(row: GameRow) {
      * opened spots on their own room booking, rather than being created
      * standalone. Lets the UI show it's linked to an existing reservation. */
     bookingRef: row.booking_ref,
+    /** Minimum Participation Booking (Phase 4) — null means no threshold
+     * (the game is 'open' from creation, as before). When set, the game
+     * starts 'pending_participants' and flips to 'open' once `joined`
+     * reaches this number. */
+    minParticipants: row.min_participants,
   };
 }
 
@@ -157,6 +163,9 @@ interface CreateGameInput {
   priceCents?: number;
   visibility?: "public" | "circle" | "invite";
   soloFriendly?: boolean;
+  /** Minimum Participation Booking (Phase 4) — total players needed
+   * (including the host) before the game is confirmed. */
+  minParticipants?: number;
 }
 
 gamesRouter.post("/", requireResident, async (req, res) => {
@@ -167,13 +176,20 @@ gamesRouter.post("/", requireResident, async (req, res) => {
   if (!b.centreId && !b.locationText) {
     return res.status(400).json({ error: "A venue or a location is required" });
   }
+  if (b.minParticipants !== undefined && (!Number.isInteger(b.minParticipants) || b.minParticipants < 1 || b.minParticipants > b.capacity)) {
+    return res.status(400).json({ error: "Minimum players must be a whole number between 1 and the game's capacity" });
+  }
+  // The host is auto-joined below, so a threshold of 1 (or unset) is
+  // already met at creation — only start pending if more than the host
+  // is genuinely required.
+  const startsPending = !!b.minParticipants && b.minParticipants > 1;
 
   const id = crypto.randomUUID();
   await db.transaction(async (tx) => {
     await tx
       .prepare(
-        `INSERT INTO games (id, host_resident_id, activity_label, centre_id, location_text, date, time, skill_level, capacity, price_cents, visibility, solo_friendly)
-         VALUES (@id, @hostResidentId, @activityLabel, @centreId, @locationText, @date, @time, @skillLevel, @capacity, @priceCents, @visibility, @soloFriendly)`
+        `INSERT INTO games (id, host_resident_id, activity_label, centre_id, location_text, date, time, skill_level, capacity, price_cents, visibility, solo_friendly, min_participants, status)
+         VALUES (@id, @hostResidentId, @activityLabel, @centreId, @locationText, @date, @time, @skillLevel, @capacity, @priceCents, @visibility, @soloFriendly, @minParticipants, @status)`
       )
       .run({
         id,
@@ -188,6 +204,8 @@ gamesRouter.post("/", requireResident, async (req, res) => {
         priceCents: b.priceCents ?? null,
         visibility: b.visibility ?? "public",
         soloFriendly: b.soloFriendly ? 1 : 0,
+        minParticipants: b.minParticipants ?? null,
+        status: startsPending ? "pending_participants" : "open",
       });
     // The host is automatically a participant — they take one of the capacity spots.
     await tx.prepare(`INSERT INTO game_participants (game_id, resident_id) VALUES (?, ?)`).run(id, req.resident!.id);
@@ -196,6 +214,43 @@ gamesRouter.post("/", requireResident, async (req, res) => {
   const row = (await db.prepare(`SELECT * FROM games WHERE id = ?`).get(id)) as GameRow;
   res.status(201).json(await toGameJson(row));
 });
+
+/** Minimum Participation Booking (Phase 4) — call after any join (free, or
+ * a paid join once Stripe confirms it — see stripeWebhook.ts). If the game
+ * is still 'pending_participants' and enough people have now joined,
+ * flips it to 'open' and lets everyone who's in so far know. Never
+ * throws — a failed notification/flip shouldn't fail the join that
+ * triggered it. Reads via plain `db`, not a transaction handle, so callers
+ * must invoke this only after their own transaction has committed. */
+export async function checkMinParticipantsThreshold(gameId: string) {
+  try {
+    const row = (await db.prepare(`SELECT status, min_participants as minParticipants, activity_label as activityLabel, date, time FROM games WHERE id = ?`).get(gameId)) as
+      | { status: string; minParticipants: number | null; activityLabel: string; date: string; time: string }
+      | undefined;
+    if (!row || row.status !== "pending_participants" || !row.minParticipants) return;
+
+    const { n: joined } = (await db.prepare(`SELECT COUNT(*) as n FROM game_participants WHERE game_id = ? AND status = 'joined'`).get(gameId)) as { n: number };
+    if (joined < row.minParticipants) return;
+
+    const info = await db.prepare(`UPDATE games SET status = 'open' WHERE id = ? AND status = 'pending_participants'`).run(gameId);
+    if (info.changes === 0) return; // already flipped (concurrent join) — don't double-notify
+
+    const participants = (await db.prepare(`SELECT resident_id FROM game_participants WHERE game_id = ? AND status = 'joined'`).all(gameId)) as { resident_id: string }[];
+    for (const p of participants) {
+      await notifyResident({
+        residentId: p.resident_id,
+        kind: "game",
+        title: `Confirmed: ${row.activityLabel}`,
+        body: `Enough players joined — ${row.date} at ${row.time} is on.`,
+        listingType: "game",
+        listingId: gameId,
+        ref: gameId,
+      });
+    }
+  } catch (e) {
+    console.error("[games] checkMinParticipantsThreshold failed:", e);
+  }
+}
 
 // Row-locked the same way bookings.ts locks a room before checking overlap —
 // prevents two joins from both passing the "spots left" check for the last
@@ -212,7 +267,9 @@ gamesRouter.post("/:id/join", requireResident, async (req, res) => {
     await db.transaction(async (tx) => {
       const row = (await tx.prepare(`SELECT * FROM games WHERE id = ? FOR UPDATE`).get(req.params.id)) as GameRow | undefined;
       if (!row) throw new ConflictError("Game not found");
-      if (row.status !== "open") throw new ConflictError("This game is no longer open");
+      // A 'pending_participants' game (Phase 4) is still joinable — that's
+      // exactly how it reaches its threshold — only 'cancelled' blocks it.
+      if (row.status !== "open" && row.status !== "pending_participants") throw new ConflictError("This game is no longer open");
 
       const already = await tx.prepare(`SELECT id FROM game_participants WHERE game_id = ? AND resident_id = ?`).get(req.params.id, req.resident!.id);
       if (already) throw new ConflictError("You've already joined this game");
@@ -251,6 +308,11 @@ gamesRouter.post("/:id/join", requireResident, async (req, res) => {
     if (e instanceof ConflictError) return res.status(409).json({ error: e.message });
     throw e;
   }
+
+  // A free join is already 'joined' the moment the transaction above
+  // commits — check the threshold now. A paid join isn't 'joined' until
+  // stripeWebhook.ts's confirmGameJoin runs, which checks it there instead.
+  if (!insertedRef) await checkMinParticipantsThreshold(req.params.id);
 
   if (!insertedRef || !checkoutRow) return res.json({ ok: true });
 

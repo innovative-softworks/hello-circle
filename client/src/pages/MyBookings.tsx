@@ -345,6 +345,60 @@ function ProgramEnrollmentRow({ enrollment }: { enrollment: MyProgramEnrollment 
   );
 }
 
+// My Life (Phase 5) — Participation Passport + My Places. Both pure
+// aggregation over data the page already loads (bookings/regs/games/
+// programEnrollments/circles), no new schema and no new API calls.
+// Deliberately excludes "hours participating" and "routines/new things
+// tried" from the doc's own passport example — those need duration math
+// or Phase 8's repetition-detection, neither of which exists yet; showing
+// three honest, real numbers beats a plausible-looking fake one.
+function PassportSummary({
+  bookings, regs, games, programEnrollments, circles,
+}: {
+  bookings: MyBooking[]; regs: MyRegistration[]; games: Game[]; programEnrollments: MyProgramEnrollment[]; circles: Circle[];
+}) {
+  const totalActivities = bookings.length + regs.length + games.length + programEnrollments.length;
+  const places = new Set<string>();
+  bookings.forEach((b) => places.add(b.centreName));
+  regs.forEach((r) => places.add(r.clubName));
+  if (totalActivities === 0 && circles.length === 0) return null;
+  return (
+    <div style={{ display: "flex", gap: 10, marginBottom: 20, flexWrap: "wrap" }}>
+      {[
+        { label: "Activities", value: totalActivities },
+        { label: "Places", value: places.size },
+        { label: "Circles", value: circles.length },
+      ].map((stat) => (
+        <div key={stat.label} style={{ flex: "1 1 100px", background: "#fff", border: `1px solid ${colors.border}`, borderRadius: 14, padding: "12px 16px", textAlign: "center" }}>
+          <div style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 22, color: colors.greenText }}>{stat.value}</div>
+          <div style={{ fontSize: 11.5, fontWeight: 700, color: colors.muted, textTransform: "uppercase", letterSpacing: ".03em" }}>{stat.label}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function MyPlaces({ bookings, regs }: { bookings: MyBooking[]; regs: MyRegistration[] }) {
+  const counts = new Map<string, number>();
+  bookings.forEach((b) => counts.set(b.centreName, (counts.get(b.centreName) ?? 0) + 1));
+  regs.forEach((r) => counts.set(r.clubName, (counts.get(r.clubName) ?? 0) + 1));
+  const top = [...counts.entries()].filter(([, n]) => n > 1).sort((a, b) => b[1] - a[1]).slice(0, 3);
+  if (top.length === 0) return null;
+  return (
+    <div style={{ marginBottom: 28 }}>
+      <h2 style={{ fontSize: 15, fontWeight: 700, color: colors.muted, margin: "0 0 12px", letterSpacing: ".02em" }}>PLACES BECOMING PART OF YOUR LIFE</h2>
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+        {top.map(([name, count]) => (
+          <div key={name} style={{ background: "#fff", border: `1px solid ${colors.border}`, borderRadius: 14, padding: "10px 16px" }}>
+            <div style={{ fontWeight: 700, fontSize: 14 }}>{name}</div>
+            <div style={{ fontSize: 12.5, color: colors.mutedLight }}>{count} visits</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 type LookupResult = { kind: "booking"; data: MyBooking } | { kind: "registration"; data: MyRegistration };
 
 // --- Household (MVP) -------------------------------------------------------
@@ -823,6 +877,29 @@ export function MyBookings() {
 
   const hasNone = !loading && bookings.length === 0 && regs.length === 0 && games.length === 0 && circles.length === 0 && programEnrollments.length === 0;
 
+  // Time-grouped view (Phase 5) — bookings/games have a real event date so
+  // they sort into UPCOMING/PAST; registrations/programEnrollments/circles
+  // are ongoing memberships with no single event date, so they always sit
+  // under ONGOING regardless of when they started.
+  const today = new Date().toISOString().slice(0, 10);
+  const timelineRows: { date: string; el: JSX.Element }[] = [
+    ...bookings.map((b) => ({
+      date: b.date,
+      el: (
+        <BookingRow
+          key={`b-${b.ref}`}
+          booking={b}
+          onCancel={() => handleCancelBooking(b.ref, guestEmail ?? undefined)}
+          cancelling={cancellingRef === b.ref}
+          error={cancelErrors[b.ref]}
+        />
+      ),
+    })),
+    ...games.map((g) => ({ date: g.date, el: <GameRow key={`g-${g.id}`} game={g} /> })),
+  ];
+  const upcomingRows = timelineRows.filter((r) => r.date >= today).sort((a, b) => a.date.localeCompare(b.date));
+  const pastRows = timelineRows.filter((r) => r.date < today).sort((a, b) => b.date.localeCompare(a.date));
+
   const handleCancelBooking = async (ref: string, email?: string) => {
     setCancellingRef(ref);
     setCancelErrors((e) => ({ ...e, [ref]: "" }));
@@ -1018,28 +1095,26 @@ export function MyBookings() {
             </button>
           </div>
         )}
-        {bookings.length > 0 && (
+        {!loading && !hasNone && (
+          <>
+            <PassportSummary bookings={bookings} regs={regs} games={games} programEnrollments={programEnrollments} circles={circles} />
+            <MyPlaces bookings={bookings} regs={regs} />
+          </>
+        )}
+        {upcomingRows.length > 0 && (
           <>
             <h2 style={{ fontSize: 15, fontWeight: 700, color: colors.muted, margin: "0 0 12px", letterSpacing: ".02em" }}>
-              HALL BOOKINGS
+              UPCOMING
             </h2>
             <div style={{ display: "flex", flexDirection: "column", gap: 12, marginBottom: 32 }}>
-              {bookings.map((b) => (
-                <BookingRow
-                  key={b.ref}
-                  booking={b}
-                  onCancel={() => handleCancelBooking(b.ref, guestEmail ?? undefined)}
-                  cancelling={cancellingRef === b.ref}
-                  error={cancelErrors[b.ref]}
-                />
-              ))}
+              {upcomingRows.map((r) => r.el)}
             </div>
           </>
         )}
-        {regs.length > 0 && (
+        {(regs.length > 0 || circles.length > 0 || programEnrollments.length > 0) && (
           <>
             <h2 style={{ fontSize: 15, fontWeight: 700, color: colors.muted, margin: "0 0 12px", letterSpacing: ".02em" }}>
-              CLUB REGISTRATIONS
+              ONGOING
             </h2>
             <div style={{ display: "flex", flexDirection: "column", gap: 12, marginBottom: 32 }}>
               {regs.map((r) => (
@@ -1051,42 +1126,22 @@ export function MyBookings() {
                   error={cancelErrors[r.ref]}
                 />
               ))}
-            </div>
-          </>
-        )}
-        {programEnrollments.length > 0 && (
-          <>
-            <h2 style={{ fontSize: 15, fontWeight: 700, color: colors.muted, margin: "0 0 12px", letterSpacing: ".02em" }}>
-              PROGRAMS
-            </h2>
-            <div style={{ display: "flex", flexDirection: "column", gap: 12, marginBottom: 32 }}>
+              {circles.map((c) => (
+                <CircleRow key={c.id} circle={c} />
+              ))}
               {programEnrollments.map((e) => (
                 <ProgramEnrollmentRow key={e.ref} enrollment={e} />
               ))}
             </div>
           </>
         )}
-        {games.length > 0 && (
+        {pastRows.length > 0 && (
           <>
             <h2 style={{ fontSize: 15, fontWeight: 700, color: colors.muted, margin: "0 0 12px", letterSpacing: ".02em" }}>
-              GAMES
-            </h2>
-            <div style={{ display: "flex", flexDirection: "column", gap: 12, marginBottom: 32 }}>
-              {games.map((g) => (
-                <GameRow key={g.id} game={g} />
-              ))}
-            </div>
-          </>
-        )}
-        {circles.length > 0 && (
-          <>
-            <h2 style={{ fontSize: 15, fontWeight: 700, color: colors.muted, margin: "0 0 12px", letterSpacing: ".02em" }}>
-              CIRCLES
+              PAST
             </h2>
             <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-              {circles.map((c) => (
-                <CircleRow key={c.id} circle={c} />
-              ))}
+              {pastRows.map((r) => r.el)}
             </div>
           </>
         )}

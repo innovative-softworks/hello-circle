@@ -293,6 +293,10 @@ export interface Game {
   /** Open Booking (Phase 3) — set when this game exists because someone
    * opened spots on their own room booking. */
   bookingRef: string | null;
+  /** Minimum Participation Booking (Phase 4) — total players needed
+   * (including the host) before the game leaves 'pending_participants'
+   * and becomes 'open'. Null means no threshold. */
+  minParticipants: number | null;
   /** Only present on the single-game detail fetch, not the list. */
   joinedByMe?: boolean;
   waitlistedByMe?: boolean;
