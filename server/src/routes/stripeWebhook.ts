@@ -1,5 +1,6 @@
 import type { Request, Response } from "express";
 import { createGameFromOpenBooking } from "./bookings.js";
+import { upgradeFavouriteStatus } from "./favourites.js";
 import { checkMinParticipantsThreshold } from "./games.js";
 import { db } from "../db/index.js";
 import { notifyNewBookingOrRegistration, notifyResident } from "../notifications.js";
@@ -46,11 +47,11 @@ async function confirmBooking(ref: string) {
   const row = (await db
     .prepare(
       `SELECT b.ref, b.centre_id, c.name as centre_name, c.vendor_id,
-              b.name, b.email, b.date, b.time, b.duration, b.guests, b.coupon_code, b.total_cents
+              b.name, b.email, b.date, b.time, b.duration, b.guests, b.coupon_code, b.total_cents, b.resident_id
        FROM bookings b JOIN centres c ON c.id = b.centre_id
        WHERE b.ref = ?`
     )
-    .get(ref)) as BookingForNotify | undefined;
+    .get(ref)) as (BookingForNotify & { resident_id: string | null }) | undefined;
   if (!row) return;
 
   if (row.coupon_code) await recordCouponUse(row.coupon_code);
@@ -66,6 +67,7 @@ async function confirmBooking(ref: string) {
     detailsText: `${row.date} at ${row.time} · ${row.duration}h · ${row.guests} guests · €${(row.total_cents / 100).toFixed(2)} total`,
   }).catch((e) => console.error("[notifications] booking notify failed:", e));
 
+  if (row.resident_id) await upgradeFavouriteStatus(row.resident_id, "centre", row.centre_id);
   await createGameFromOpenBooking(row.ref);
 }
 
@@ -76,10 +78,10 @@ async function confirmRegistration(ref: string) {
   const row = (await db
     .prepare(
       `SELECT r.ref, r.club_id, c.name as club_name, c.vendor_id, r.g_first, r.g_last, r.email,
-              r.child_first, r.child_last, r.dob, r.team, r.trial, r.coupon_code, r.total_cents
+              r.child_first, r.child_last, r.dob, r.team, r.trial, r.coupon_code, r.total_cents, r.resident_id
        FROM registrations r JOIN clubs c ON c.id = r.club_id WHERE r.ref = ?`
     )
-    .get(ref)) as RegistrationForNotify | undefined;
+    .get(ref)) as (RegistrationForNotify & { resident_id: string | null }) | undefined;
   if (!row) return;
 
   if (row.coupon_code) await recordCouponUse(row.coupon_code);
@@ -94,6 +96,8 @@ async function confirmRegistration(ref: string) {
     ref: row.ref,
     detailsText: `${row.child_first} ${row.child_last} (DOB ${row.dob}) · ${row.team}${row.trial ? " · Trial session" : ""} · €${(row.total_cents / 100).toFixed(2)} total`,
   }).catch((e) => console.error("[notifications] registration notify failed:", e));
+
+  if (row.resident_id) await upgradeFavouriteStatus(row.resident_id, "club", row.club_id);
 }
 
 interface GameJoinForNotify {
@@ -137,6 +141,7 @@ async function confirmGameJoin(ref: string) {
   }
 
   await checkMinParticipantsThreshold(row.game_id);
+  await upgradeFavouriteStatus(row.resident_id, "game", row.game_id);
 }
 
 /** Credit-pack pass confirmation (NEXT) — same idempotent pattern. */

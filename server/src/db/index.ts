@@ -994,6 +994,17 @@ export async function initSchema() {
   // whoever already joined is handled off-platform, same convention as
   // every other cancellation in this app.
   await ensureColumn("games", "min_participants", "min_participants INT");
+
+  // Interest → Participation states (implementation plan Phase 6) — a
+  // favourite is no longer just saved-or-not. 'interested' is the default
+  // (what every existing row backfills to); 'planning' is a resident
+  // manually signalling stronger intent; 'joined' is set automatically the
+  // moment a real booking/registration/game-join confirms for that exact
+  // listing (see favourites.ts's upgradeFavouriteStatus, called from
+  // bookings.ts/registrations.ts/games.ts/stripeWebhook.ts's confirm paths)
+  // — never downgraded automatically, since "I did this" shouldn't quietly
+  // revert.
+  await ensureColumn("favourites", "status", "status VARCHAR(20) NOT NULL DEFAULT 'interested'");
 }
 
 export const COUNTY_CENTROIDS: Record<string, { lat: number; lng: number }> = {

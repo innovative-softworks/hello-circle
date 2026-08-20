@@ -2,6 +2,7 @@ import { Router } from "express";
 import { createCheckoutSession, pricingLineItems } from "../checkoutService.js";
 import { db } from "../db/index.js";
 import { getClub } from "../db/queries.js";
+import { upgradeFavouriteStatus } from "./favourites.js";
 import { notifyCancellation, notifyNewBookingOrRegistration } from "../notifications.js";
 import { computePricing, evaluateCoupon } from "../pricing.js";
 import { lookupLimiter } from "../rateLimit.js";
@@ -227,6 +228,7 @@ registrationsRouter.post("/checkout", async (req, res) => {
       ref,
       detailsText: `${body.childFirst} ${body.childLast} (DOB ${body.dob}) · ${body.team} · redeemed via pass`,
     }).catch((e) => console.error("[notifications] registration notify failed:", e));
+    await upgradeFavouriteStatus(req.resident!.id, "club", club.id);
     return res.status(201).json({ ref, totalEuro: 0, trial: false });
   }
 
@@ -265,6 +267,7 @@ registrationsRouter.post("/checkout", async (req, res) => {
       throw e;
     }
     notify("paid");
+    if (req.resident) await upgradeFavouriteStatus(req.resident.id, "club", club.id);
     return res.status(201).json({ ref, totalEuro: pricing.totalCents / 100, trial: body.trial });
   }
 

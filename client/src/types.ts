@@ -243,9 +243,12 @@ export interface HouseholdMember {
   createdAt: string;
 }
 
+export type FavouriteStatus = "interested" | "planning" | "joined";
+
 export interface Favourite {
-  listingType: "centre" | "club";
+  listingType: "centre" | "club" | "game" | "program_session" | "club_session";
   listingId: string;
+  status: FavouriteStatus;
 }
 
 export interface ResidentNotification {

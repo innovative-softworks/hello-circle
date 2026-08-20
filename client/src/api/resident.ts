@@ -2,6 +2,7 @@ import type {
   Circle,
   ClubSession,
   Favourite,
+  FavouriteStatus,
   Game,
   HouseholdMember,
   ParticipationEntry,
@@ -90,12 +91,20 @@ export function fetchFavourites(): Promise<Favourite[]> {
   return request(`/favourites`);
 }
 
-export function addFavourite(listingType: "centre" | "club", listingId: string): Promise<{ ok: boolean }> {
-  return request(`/favourites`, { method: "POST", body: JSON.stringify({ listingType, listingId }) });
+export function addFavourite(listingType: Favourite["listingType"], listingId: string, status?: FavouriteStatus): Promise<{ ok: boolean }> {
+  return request(`/favourites`, { method: "POST", body: JSON.stringify({ listingType, listingId, status }) });
 }
 
-export function removeFavourite(listingType: "centre" | "club", listingId: string): Promise<{ ok: boolean }> {
+export function removeFavourite(listingType: Favourite["listingType"], listingId: string): Promise<{ ok: boolean }> {
   return request(`/favourites`, { method: "DELETE", body: JSON.stringify({ listingType, listingId }) });
+}
+
+/** Moves a favourite between Interested/Planning/Joined — 'joined' is
+ * normally set automatically by a real booking/registration/game-join (see
+ * server/src/routes/favourites.ts's upgradeFavouriteStatus), this is for a
+ * resident manually signalling stronger intent (e.g. "Planning to go"). */
+export function updateFavouriteStatus(listingType: Favourite["listingType"], listingId: string, status: FavouriteStatus): Promise<{ ok: boolean }> {
+  return request(`/favourites/status`, { method: "PUT", body: JSON.stringify({ listingType, listingId, status }) });
 }
 
 // --- club waitlist (MVP) -------------------------------------------------

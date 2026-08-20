@@ -29,6 +29,7 @@ import {
   saveAccessibilityPrefs,
   saveNotificationPrefs,
   submitFeedback,
+  updateFavouriteStatus,
   updateResidentMe,
   verifyGuestLink,
 } from "../api";
@@ -488,6 +489,27 @@ function HouseholdPanel() {
 
 // --- Favourites (MVP) -------------------------------------------------------
 
+const FAVOURITE_LISTING_LABEL: Record<Favourite["listingType"], string> = {
+  centre: "Community centre",
+  club: "Sports club",
+  game: "Game",
+  program_session: "Program session",
+  club_session: "Club session",
+};
+
+// Interest → Participation states (Phase 6). 'joined' is normally set
+// automatically by a real booking/registration/game-join — cycling forward
+// here is a resident manually signalling stronger intent before that
+// happens; you can't cycle backwards out of 'joined' since "I did this"
+// shouldn't quietly revert.
+const STATUS_LABEL: Record<Favourite["status"], string> = { interested: "Interested", planning: "Planning", joined: "Joined" };
+const NEXT_STATUS: Record<Favourite["status"], Favourite["status"] | null> = { interested: "planning", planning: "joined", joined: null };
+const STATUS_COLOR: Record<Favourite["status"], { fg: string; bg: string }> = {
+  interested: { fg: colors.muted, bg: colors.panel },
+  planning: { fg: colors.orangeDark, bg: "#FFF3D6" },
+  joined: { fg: colors.greenText, bg: colors.greenBg },
+};
+
 function FavouritesPanel() {
   const navigate = useNavigate();
   const [favourites, setFavourites] = useState<Favourite[]>([]);
@@ -504,6 +526,13 @@ function FavouritesPanel() {
     setFavourites((rows) => rows.filter((r) => !(r.listingType === f.listingType && r.listingId === f.listingId)));
   };
 
+  const handleAdvanceStatus = async (f: Favourite) => {
+    const next = NEXT_STATUS[f.status];
+    if (!next) return;
+    await updateFavouriteStatus(f.listingType, f.listingId, next);
+    setFavourites((rows) => rows.map((r) => (r.listingType === f.listingType && r.listingId === f.listingId ? { ...r, status: next } : r)));
+  };
+
   if (loading) return <RowSkeleton />;
   if (favourites.length === 0) {
     return <EmptyState icon={<ChevronRightIcon size={20} />} title="No favourites yet" subtitle="Tap the heart on a centre or club to save it here." />;
@@ -511,17 +540,36 @@ function FavouritesPanel() {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-      {favourites.map((f) => (
-        <div key={`${f.listingType}:${f.listingId}`} style={{ background: "#fff", border: `1px solid ${colors.border}`, borderRadius: 14, padding: "14px 18px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <button
-            onClick={() => navigate(f.listingType === "centre" ? `/centres/${f.listingId}` : `/clubs/${f.listingId}`)}
-            style={{ background: "none", border: "none", padding: 0, cursor: "pointer", fontWeight: 700, color: colors.text, textAlign: "left" }}
-          >
-            {f.listingType === "centre" ? "Community centre" : "Sports club"} — view listing
-          </button>
-          <Button variant="danger" onClick={() => handleRemove(f)}>Remove</Button>
-        </div>
-      ))}
+      {favourites.map((f) => {
+        const next = NEXT_STATUS[f.status];
+        const detailHref = f.listingType === "centre" ? `/centres/${f.listingId}` : f.listingType === "club" ? `/clubs/${f.listingId}` : f.listingType === "game" ? `/games/${f.listingId}` : null;
+        return (
+          <div key={`${f.listingType}:${f.listingId}`} style={{ background: "#fff", border: `1px solid ${colors.border}`, borderRadius: 14, padding: "14px 18px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+            <button
+              onClick={() => detailHref && navigate(detailHref)}
+              disabled={!detailHref}
+              style={{ background: "none", border: "none", padding: 0, cursor: detailHref ? "pointer" : "default", fontWeight: 700, color: colors.text, textAlign: "left" }}
+            >
+              {FAVOURITE_LISTING_LABEL[f.listingType]} — view listing
+            </button>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <button
+                onClick={() => handleAdvanceStatus(f)}
+                disabled={!next}
+                title={next ? `Mark as ${STATUS_LABEL[next]}` : "Already joined"}
+                style={{
+                  fontSize: 12, fontWeight: 700, borderRadius: 999, padding: "4px 12px", border: "none",
+                  color: STATUS_COLOR[f.status].fg, background: STATUS_COLOR[f.status].bg,
+                  cursor: next ? "pointer" : "default",
+                }}
+              >
+                {STATUS_LABEL[f.status]}
+              </button>
+              <Button variant="danger" onClick={() => handleRemove(f)}>Remove</Button>
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }

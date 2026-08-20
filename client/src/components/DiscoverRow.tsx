@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { joinGame, joinGameWaitlist } from "../api";
+import { addFavourite, fetchFavourites, joinGame, joinGameWaitlist, removeFavourite } from "../api";
 import { isFavorite, toggleFavorite } from "../favorites";
 import { useGuest } from "../GuestContext";
 import { AwardIcon, BallIcon, CheckIcon, ChevronLeftIcon, ChevronRightIcon, HeartIcon, RepeatIcon, UsersIcon } from "./icons";
@@ -105,10 +105,33 @@ function JoinControl({ item }: { item: DiscoverItem }) {
 
 export function DiscoverCard({ item, isToday }: { item: DiscoverItem; isToday: boolean }) {
   const navigate = useNavigate();
+  const { resident } = useGuest();
   const meta = KIND_META[item.kind];
   const place = item.centreName ?? item.clubName;
   const isJoinableGame = item.kind === "game" && item.spotsLeft !== null;
   const [saved, setSaved] = useState(() => isFavorite(item.kind, item.id));
+
+  // Signed-in residents get a real server-side favourite (Phase 6 — the
+  // server only covered centre/club until now, matching what
+  // client/src/favorites.ts already stored locally for signed-out
+  // visitors). Same "fetch the whole list, check one entry" pattern
+  // CentreDetail.tsx/ClubDetail.tsx already use.
+  useEffect(() => {
+    if (resident) fetchFavourites().then((rows) => setSaved(rows.some((r) => r.listingType === item.kind && r.listingId === item.id)));
+    else setSaved(isFavorite(item.kind, item.id));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [resident, item.kind, item.id]);
+
+  const handleToggleSave = async () => {
+    if (resident) {
+      const next = !saved;
+      setSaved(next);
+      if (next) await addFavourite(item.kind, item.id);
+      else await removeFavourite(item.kind, item.id);
+    } else {
+      setSaved(toggleFavorite(item.kind, item.id));
+    }
+  };
 
   return (
     <div
@@ -193,7 +216,7 @@ export function DiscoverCard({ item, isToday }: { item: DiscoverItem; isToday: b
         <button
           onClick={(e) => {
             e.stopPropagation();
-            setSaved(toggleFavorite(item.kind, item.id));
+            handleToggleSave();
           }}
           aria-label={saved ? "Remove from saved" : "Save"}
           className="btn"

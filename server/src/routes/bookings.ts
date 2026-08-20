@@ -3,6 +3,7 @@ import { Router } from "express";
 import { createCheckoutSession, pricingLineItems } from "../checkoutService.js";
 import { db } from "../db/index.js";
 import { getCentre, orgPoliciesForVendor } from "../db/queries.js";
+import { upgradeFavouriteStatus } from "./favourites.js";
 import { irelandWallTimeToUtc } from "../irelandTime.js";
 import { notifyCancellation, notifyNewBookingOrRegistration } from "../notifications.js";
 import { computePricing, evaluateCoupon, splitCostPerPerson } from "../pricing.js";
@@ -218,6 +219,7 @@ bookingsRouter.post("/checkout", async (req, res) => {
       detailsText: `${body.date} at ${body.time} · ${body.duration}h · ${body.guests} guests · €${(pricing.totalCents / 100).toFixed(2)} due in cash on arrival`,
     }).catch((e) => console.error("[notifications] booking notify failed:", e));
     if (openSpots) await createGameFromOpenBooking(ref);
+    if (req.resident) await upgradeFavouriteStatus(req.resident.id, "centre", centre.id);
     return res.status(201).json({ ref, totalEuro: pricing.totalCents / 100 });
   }
 

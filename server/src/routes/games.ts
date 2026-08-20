@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import { Router } from "express";
 import { createCheckoutSession, pricingLineItems } from "../checkoutService.js";
 import { db } from "../db/index.js";
+import { upgradeFavouriteStatus } from "./favourites.js";
 import { notifyResident } from "../notifications.js";
 import { computePricing } from "../pricing.js";
 import { requireResident } from "../residents.js";
@@ -312,7 +313,10 @@ gamesRouter.post("/:id/join", requireResident, async (req, res) => {
   // A free join is already 'joined' the moment the transaction above
   // commits — check the threshold now. A paid join isn't 'joined' until
   // stripeWebhook.ts's confirmGameJoin runs, which checks it there instead.
-  if (!insertedRef) await checkMinParticipantsThreshold(req.params.id);
+  if (!insertedRef) {
+    await checkMinParticipantsThreshold(req.params.id);
+    await upgradeFavouriteStatus(req.resident!.id, "game", req.params.id);
+  }
 
   if (!insertedRef || !checkoutRow) return res.json({ ok: true });
 
