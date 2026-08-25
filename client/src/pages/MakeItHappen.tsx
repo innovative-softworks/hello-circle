@@ -6,6 +6,7 @@ import { CalendarIcon, ClockIcon, HandshakeIcon, PinIcon, UsersIcon } from "../c
 import { Button, Card, PageSpinner, inputStyle, labelStyle } from "../components/ui";
 import { BackLink } from "../components/BackLink";
 import { PageTitle } from "../components/PageTitle";
+import { clearContinuePlanning, saveContinuePlanning } from "../continuePlanning";
 import { useGuest } from "../GuestContext";
 import { colors, fonts } from "../theme";
 import { fallbackCopy } from "../copy";
@@ -67,6 +68,7 @@ export function MakeItHappen() {
       });
       setCandidates(rows);
       setStep("results");
+      saveContinuePlanning({ activityLabel, county, date, time });
     } catch (e) {
       setSearchError(e instanceof Error ? e.message : fallbackCopy.notFound);
     } finally {
@@ -98,6 +100,7 @@ export function MakeItHappen() {
       }
       setBookedRef(res.ref);
       setStep("done");
+      clearContinuePlanning();
     } catch (e) {
       setConfirmError(e instanceof Error ? e.message : "Couldn't confirm this booking");
     } finally {

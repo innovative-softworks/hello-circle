@@ -5,6 +5,19 @@ import { Button, inputStyle, labelStyle } from "./ui";
 import { colors, fonts } from "../theme";
 import type { HostStatus } from "../types";
 
+// Host guidelines (IA spec §15) — static content, no versioning/re-consent
+// flow for v1 (see the plan's own explicit scope note). The checkbox below
+// is the "explicit acceptance" the spec asks for; submitting the form
+// itself still doubles as the acceptance record server-side (no separate
+// accept-guidelines endpoint), same as before this pass.
+const HOST_GUIDELINES = [
+  "Be honest about the activity — skill level, what to bring, and roughly how long it runs.",
+  "Show up, or cancel with enough notice for people to make other plans.",
+  "Everyone gets treated with respect, regardless of ability or experience.",
+  "No promoting anything unrelated to the activity — this isn't an ad slot.",
+  "Follow the venue's own rules if you're hosting at a community centre or club.",
+];
+
 // "Host" trust tier (IA spec five-layer audit) — badge-only for v1: a
 // resident who applies and is admin-approved gets a "Verified Host" badge
 // shown to other participants on any Game/Circle they create (see
@@ -26,12 +39,17 @@ export function HostApplicationPanel({
 }) {
   const [bio, setBio] = useState(hostBio);
   const [phone, setPhone] = useState(hostPhone);
+  const [agreed, setAgreed] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const submit = async () => {
     if (!bio.trim()) {
       setError("A short bio is required");
+      return;
+    }
+    if (!agreed) {
+      setError("Please confirm you've read and agree to the Host Guidelines");
       return;
     }
     setError(null);
@@ -89,9 +107,23 @@ export function HostApplicationPanel({
             style={{ ...inputStyle, resize: "vertical", marginBottom: 10 }}
           />
           <label style={labelStyle}>Phone (optional)</label>
-          <input value={phone} onChange={(e) => setPhone(e.target.value)} style={{ ...inputStyle, marginBottom: 12 }} />
+          <input value={phone} onChange={(e) => setPhone(e.target.value)} style={{ ...inputStyle, marginBottom: 14 }} />
+
+          <div style={{ background: colors.panel, borderRadius: 10, padding: "12px 14px", marginBottom: 12 }}>
+            <div style={{ fontSize: 12.5, fontWeight: 700, marginBottom: 6 }}>Host Guidelines</div>
+            <ul style={{ margin: 0, paddingLeft: 18, display: "flex", flexDirection: "column", gap: 4 }}>
+              {HOST_GUIDELINES.map((g) => (
+                <li key={g} style={{ fontSize: 12, color: colors.mutedLight }}>{g}</li>
+              ))}
+            </ul>
+          </div>
+          <label style={{ display: "flex", alignItems: "flex-start", gap: 8, fontSize: 12.5, color: colors.mutedLight, marginBottom: 12, cursor: "pointer" }}>
+            <input type="checkbox" checked={agreed} onChange={(e) => setAgreed(e.target.checked)} style={{ accentColor: colors.green, marginTop: 2 }} />
+            I've read and agree to the Host Guidelines above
+          </label>
+
           {error && <p style={{ color: colors.danger, fontSize: 13, margin: "0 0 10px" }}>{error}</p>}
-          <Button onClick={submit} disabled={submitting}>
+          <Button onClick={submit} disabled={submitting || !agreed}>
             {submitting ? "Submitting…" : "Apply to become a Host"}
           </Button>
         </>

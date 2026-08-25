@@ -16,7 +16,7 @@ export function ExperienceCard({ e }: { e: Experience }) {
   const navigate = useNavigate();
   const nextSession = e.sessions[0];
   return (
-    <Card hover onClick={() => navigate(`/${e.kind === "adventure" ? "adventures" : "experiences"}/${e.id}`)} style={{ padding: 0, overflow: "hidden" }}>
+    <Card hover onClick={() => navigate(`/${e.kind === "adventure" ? "adventures" : "experiences"}/${e.slug ?? e.id}`)} style={{ padding: 0, overflow: "hidden" }}>
       <div
         style={{
           height: 140,

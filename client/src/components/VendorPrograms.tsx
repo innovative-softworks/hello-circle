@@ -15,6 +15,7 @@ import {
   type ProgramEnrollment,
 } from "../api";
 import { CalendarIcon, PlusIcon, TrashIcon, UsersIcon } from "./icons";
+import { MonthCalendar } from "./MonthCalendar";
 import { Button, Card, ConfirmDialog, Drawer, EmptyState, inputStyle, labelStyle } from "./ui";
 import { ACTIVITY_CATEGORIES, ATTENDANCE_STATUSES, ATTENDANCE_STATUS_LABELS, PROGRAM_STATUSES, SKILL_LEVELS } from "../constants";
 import { colors, fonts } from "../theme";
@@ -298,6 +299,8 @@ export function VendorProgramsTab({
     category: "",
     skillLevel: "",
     instructorName: "",
+    guardianRules: "",
+    safeguardingInfo: "",
   });
   const [equipmentText, setEquipmentText] = useState("");
 
@@ -325,8 +328,10 @@ export function VendorProgramsTab({
         skillLevel: form.skillLevel,
         equipment: equipmentText.split("\n").map((s) => s.trim()).filter(Boolean),
         instructorName: form.instructorName,
+        guardianRules: form.guardianRules,
+        safeguardingInfo: form.safeguardingInfo,
       });
-      setForm({ listingType: "centre", listingId: "", title: "", description: "", ageRange: "", priceCents: "", capacity: "", category: "", skillLevel: "", instructorName: "" });
+      setForm({ listingType: "centre", listingId: "", title: "", description: "", ageRange: "", priceCents: "", capacity: "", category: "", skillLevel: "", instructorName: "", guardianRules: "", safeguardingInfo: "" });
       setEquipmentText("");
       onCreatingOpenChange(false);
       load();
@@ -418,6 +423,14 @@ export function VendorProgramsTab({
             <label style={labelStyle}>Equipment needed (one per line, optional)</label>
             <textarea value={equipmentText} onChange={(e) => setEquipmentText(e.target.value)} rows={2} style={{ ...inputStyle, resize: "vertical" }} />
           </div>
+          <div style={{ gridColumn: "1 / -1" }}>
+            <label style={labelStyle}>Guardian rules (optional — for programs involving children/dependants)</label>
+            <textarea value={form.guardianRules} onChange={(e) => setForm((f) => ({ ...f, guardianRules: e.target.value }))} rows={2} style={{ ...inputStyle, resize: "vertical" }} />
+          </div>
+          <div style={{ gridColumn: "1 / -1" }}>
+            <label style={labelStyle}>Safeguarding info (optional)</label>
+            <textarea value={form.safeguardingInfo} onChange={(e) => setForm((f) => ({ ...f, safeguardingInfo: e.target.value }))} rows={2} style={{ ...inputStyle, resize: "vertical" }} />
+          </div>
         </div>
         {error && <p style={{ fontSize: 12.5, color: colors.orangeDark, margin: "0 0 12px" }}>{error}</p>}
         <Button onClick={create} disabled={creating || !form.title || !form.listingId}>
@@ -478,6 +491,9 @@ export function VendorProgramsTab({
 export function VendorScheduleTab() {
   const [entries, setEntries] = useState<{ id: string; date: string; time: string; durationMinutes: number; capacity: number | null; title: string; programId: string; enrolled: number }[]>([]);
   const [loading, setLoading] = useState(true);
+  // Calendar grid view (IA spec §14) — same List/Calendar toggle convention
+  // as My Life's booking view (MyBookings.tsx), reusing MonthCalendar as-is.
+  const [view, setView] = useState<"list" | "calendar">("list");
 
   useEffect(() => {
     fetchVendorSchedule()
@@ -491,38 +507,65 @@ export function VendorScheduleTab() {
 
   if (loading) return null;
 
+  const entryRow = (e: (typeof entries)[number]) => (
+    <div style={{ display: "flex", justifyContent: "space-between", background: colors.bg, borderRadius: 10, padding: "10px 14px", fontSize: 13.5 }}>
+      <span>{e.time} · {e.title}</span>
+      <span>{e.enrolled}{e.capacity ? `/${e.capacity}` : ""} enrolled</span>
+    </div>
+  );
+
   return (
     <div className="fade-panel" style={{ display: "flex", flexDirection: "column", gap: 24 }}>
-      <Card>
-        <h4 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 16, margin: "0 0 14px" }}>Today</h4>
-        {todayEntries.length === 0 ? (
-          <EmptyState icon={<CalendarIcon size={22} />} title="Nothing scheduled today" />
-        ) : (
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {todayEntries.map((e) => (
-              <div key={e.id} style={{ display: "flex", justifyContent: "space-between", background: colors.greenBg, borderRadius: 10, padding: "10px 14px", fontSize: 13.5 }}>
-                <span><strong>{e.time}</strong> · {e.title}</span>
-                <span>{e.enrolled}{e.capacity ? `/${e.capacity}` : ""} enrolled</span>
+      <div style={{ display: "flex", gap: 6 }}>
+        {(["list", "calendar"] as const).map((v) => (
+          <button
+            key={v}
+            onClick={() => setView(v)}
+            style={{
+              border: "none", borderRadius: 999, padding: "6px 14px", fontSize: 12.5, fontWeight: 700, cursor: "pointer", textTransform: "capitalize",
+              background: view === v ? colors.dark : colors.panel, color: view === v ? "#fff" : colors.muted,
+            }}
+          >
+            {v}
+          </button>
+        ))}
+      </div>
+
+      {view === "calendar" ? (
+        <Card>
+          <MonthCalendar items={entries.map((e) => ({ date: e.date, el: entryRow(e) }))} />
+        </Card>
+      ) : (
+        <>
+          <Card>
+            <h4 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 16, margin: "0 0 14px" }}>Today</h4>
+            {todayEntries.length === 0 ? (
+              <EmptyState icon={<CalendarIcon size={22} />} title="Nothing scheduled today" />
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {todayEntries.map((e) => (
+                  <div key={e.id} style={{ display: "flex", justifyContent: "space-between", background: colors.greenBg, borderRadius: 10, padding: "10px 14px", fontSize: 13.5 }}>
+                    <span><strong>{e.time}</strong> · {e.title}</span>
+                    <span>{e.enrolled}{e.capacity ? `/${e.capacity}` : ""} enrolled</span>
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
-        )}
-      </Card>
-      <Card>
-        <h4 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 16, margin: "0 0 14px" }}>Upcoming (next 30 days)</h4>
-        {upcoming.length === 0 ? (
-          <EmptyState icon={<CalendarIcon size={22} />} title="Nothing else scheduled" />
-        ) : (
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {upcoming.map((e) => (
-              <div key={e.id} style={{ display: "flex", justifyContent: "space-between", background: colors.bg, borderRadius: 10, padding: "10px 14px", fontSize: 13.5 }}>
-                <span>{e.date} · {e.time} · {e.title}</span>
-                <span>{e.enrolled}{e.capacity ? `/${e.capacity}` : ""} enrolled</span>
+            )}
+          </Card>
+          <Card>
+            <h4 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 16, margin: "0 0 14px" }}>Upcoming (next 30 days)</h4>
+            {upcoming.length === 0 ? (
+              <EmptyState icon={<CalendarIcon size={22} />} title="Nothing else scheduled" />
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {upcoming.map((e) => (
+                  <div key={e.id}>{entryRow(e)}</div>
+                ))}
               </div>
-            ))}
-          </div>
-        )}
-      </Card>
+            )}
+          </Card>
+        </>
+      )}
     </div>
   );
 }

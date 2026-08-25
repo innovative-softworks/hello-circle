@@ -1,5 +1,6 @@
 import { db } from "./db/index.js";
 import { sendMail } from "./email.js";
+import { renderTemplate } from "./notificationTemplates.js";
 import { CLIENT_URL } from "./stripe.js";
 
 interface NotifyParams {
@@ -106,13 +107,14 @@ export async function notifyNewBookingOrRegistration(params: NotifyParams) {
 
   const { admins, vendorEmail } = await recipients(vendorId);
 
+  const inApp = await renderTemplate("booking_new_inapp", { noun, listingName }, { title: kind === "booking" ? `New booking: ${listingName}` : `New registration: ${listingName}` });
   const recipientIds = new Set<string>(admins.map((a) => a.id));
   if (vendorId) recipientIds.add(vendorId);
   for (const recipientId of recipientIds) {
     await insertNotification.run({
       recipientId,
       kind,
-      title: kind === "booking" ? `New booking: ${listingName}` : `New registration: ${listingName}`,
+      title: inApp.title,
       body: detailsText,
       listingType,
       listingId,
@@ -120,26 +122,30 @@ export async function notifyNewBookingOrRegistration(params: NotifyParams) {
     });
   }
 
-  await sendMail({
-    to: guestEmail,
+  const manageUrl = `${CLIENT_URL}/bookings?ref=${ref}`;
+  const guestVars = { guestName, noun, listingName, ref, detailsText, manageUrl };
+  const guestMsg = await renderTemplate("booking_new_guest_email", guestVars, {
     subject: `Your ${noun} is confirmed — ${listingName} (${ref})`,
-    text: `Hi ${guestName},\n\nYour ${noun} for ${listingName} is confirmed.\nReference: ${ref}\n\n${detailsText}\n\nView or manage this ${noun} any time: ${CLIENT_URL}/bookings?ref=${ref}\n\nThanks for using Hello Circle.`,
+    body: `Hi ${guestName},\n\nYour ${noun} for ${listingName} is confirmed.\nReference: ${ref}\n\n${detailsText}\n\nView or manage this ${noun} any time: ${manageUrl}\n\nThanks for using Hello Circle.`,
   });
+  await sendMail({ to: guestEmail, subject: guestMsg.subject!, text: guestMsg.body! });
 
   if (vendorEmail) {
-    await sendMail({
-      to: vendorEmail,
+    const vendorVars = { noun, listingName, ref, detailsText, guestName, guestEmail };
+    const vendorMsg = await renderTemplate("booking_new_vendor_email", vendorVars, {
       subject: `New ${noun} — ${listingName} (${ref})`,
-      text: `You have a new ${noun} for ${listingName}.\nReference: ${ref}\n\n${detailsText}\n\nGuest: ${guestName} (${guestEmail})`,
+      body: `You have a new ${noun} for ${listingName}.\nReference: ${ref}\n\n${detailsText}\n\nGuest: ${guestName} (${guestEmail})`,
     });
+    await sendMail({ to: vendorEmail, subject: vendorMsg.subject!, text: vendorMsg.body! });
   }
 
   for (const admin of admins) {
-    await sendMail({
-      to: admin.email,
+    const adminVars = { noun, listingName, ref, detailsText, guestName, guestEmail };
+    const adminMsg = await renderTemplate("booking_new_admin_email", adminVars, {
       subject: `[Hello Circle] New ${noun} — ${listingName} (${ref})`,
-      text: `New ${noun} recorded on the platform.\nListing: ${listingName}\nReference: ${ref}\n\n${detailsText}\n\nGuest: ${guestName} (${guestEmail})`,
+      body: `New ${noun} recorded on the platform.\nListing: ${listingName}\nReference: ${ref}\n\n${detailsText}\n\nGuest: ${guestName} (${guestEmail})`,
     });
+    await sendMail({ to: admin.email, subject: adminMsg.subject!, text: adminMsg.body! });
   }
 }
 
@@ -150,16 +156,18 @@ export async function notifyNewBookingOrRegistration(params: NotifyParams) {
 export async function notifyCancellation(params: NotifyParams) {
   const { kind, listingType, listingId, listingName, vendorId, guestName, guestEmail, ref, detailsText } = params;
   const noun = kind === "booking" ? "booking" : "registration";
+  const nounCap = `${noun[0].toUpperCase()}${noun.slice(1)}`;
 
   const { admins, vendorEmail } = await recipients(vendorId);
 
+  const inApp = await renderTemplate("booking_cancel_inapp", { noun, listingName }, { title: kind === "booking" ? `Booking cancelled: ${listingName}` : `Registration cancelled: ${listingName}` });
   const recipientIds = new Set<string>(admins.map((a) => a.id));
   if (vendorId) recipientIds.add(vendorId);
   for (const recipientId of recipientIds) {
     await insertNotification.run({
       recipientId,
       kind,
-      title: kind === "booking" ? `Booking cancelled: ${listingName}` : `Registration cancelled: ${listingName}`,
+      title: inApp.title,
       body: detailsText,
       listingType,
       listingId,
@@ -167,25 +175,28 @@ export async function notifyCancellation(params: NotifyParams) {
     });
   }
 
-  await sendMail({
-    to: guestEmail,
+  const guestVars = { guestName, noun, listingName, ref, detailsText };
+  const guestMsg = await renderTemplate("booking_cancel_guest_email", guestVars, {
     subject: `Your ${noun} was cancelled — ${listingName} (${ref})`,
-    text: `Hi ${guestName},\n\nYour ${noun} for ${listingName} (ref ${ref}) has been cancelled as requested.\n\n${detailsText}\n\nIf you paid online and are due a refund, we'll be in touch about that separately.\n\nThanks for using Hello Circle.`,
+    body: `Hi ${guestName},\n\nYour ${noun} for ${listingName} (ref ${ref}) has been cancelled as requested.\n\n${detailsText}\n\nIf you paid online and are due a refund, we'll be in touch about that separately.\n\nThanks for using Hello Circle.`,
   });
+  await sendMail({ to: guestEmail, subject: guestMsg.subject!, text: guestMsg.body! });
 
   if (vendorEmail) {
-    await sendMail({
-      to: vendorEmail,
-      subject: `${noun[0].toUpperCase()}${noun.slice(1)} cancelled — ${listingName} (${ref})`,
-      text: `A guest has cancelled their ${noun} for ${listingName}.\nReference: ${ref}\n\n${detailsText}\n\nGuest: ${guestName} (${guestEmail})`,
+    const vendorVars = { noun, listingName, ref, detailsText, guestName, guestEmail };
+    const vendorMsg = await renderTemplate("booking_cancel_vendor_email", vendorVars, {
+      subject: `${nounCap} cancelled — ${listingName} (${ref})`,
+      body: `A guest has cancelled their ${noun} for ${listingName}.\nReference: ${ref}\n\n${detailsText}\n\nGuest: ${guestName} (${guestEmail})`,
     });
+    await sendMail({ to: vendorEmail, subject: vendorMsg.subject!, text: vendorMsg.body! });
   }
 
   for (const admin of admins) {
-    await sendMail({
-      to: admin.email,
-      subject: `[Hello Circle] ${noun[0].toUpperCase()}${noun.slice(1)} cancelled — ${listingName} (${ref})`,
-      text: `A ${noun} was cancelled on the platform.\nListing: ${listingName}\nReference: ${ref}\n\n${detailsText}\n\nGuest: ${guestName} (${guestEmail})`,
+    const adminVars = { noun, listingName, ref, detailsText, guestName, guestEmail };
+    const adminMsg = await renderTemplate("booking_cancel_admin_email", adminVars, {
+      subject: `[Hello Circle] ${nounCap} cancelled — ${listingName} (${ref})`,
+      body: `A ${noun} was cancelled on the platform.\nListing: ${listingName}\nReference: ${ref}\n\n${detailsText}\n\nGuest: ${guestName} (${guestEmail})`,
     });
+    await sendMail({ to: admin.email, subject: adminMsg.subject!, text: adminMsg.body! });
   }
 }

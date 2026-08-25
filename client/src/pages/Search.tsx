@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { search } from "../api";
+import { createSearchAlert, search } from "../api";
 import { CentreCard } from "../components/CentreCard";
 import { ClubCard } from "../components/ClubCard";
 import { DiscoverCard } from "../components/DiscoverRow";
-import { SearchIcon, TreeIconSmall } from "../components/icons";
+import { BellIcon, SearchIcon, TreeIconSmall } from "../components/icons";
 import { Card, CardSkeleton, EmptyState } from "../components/ui";
+import { useGuest } from "../GuestContext";
 import { colors, fonts, maxWidth } from "../theme";
 import type { ExperienceSearchResult, SearchResult } from "../types";
 
@@ -57,18 +58,35 @@ function pushRecent(q: string) {
 
 export function Search() {
   const navigate = useNavigate();
+  const { resident } = useGuest();
   const [searchParams] = useSearchParams();
   const [query, setQuery] = useState(searchParams.get("q") ?? "");
   const [result, setResult] = useState<SearchResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [recent, setRecent] = useState<string[]>([]);
+  const [alertState, setAlertState] = useState<"idle" | "saving" | "saved">("idle");
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const saveAlert = async () => {
+    if (!result?.parsed) return;
+    setAlertState("saving");
+    try {
+      await createSearchAlert({
+        county: result.parsed.county || undefined,
+        keywords: result.parsed.keywords.join(" ") || undefined,
+      });
+      setAlertState("saved");
+    } catch {
+      setAlertState("idle");
+    }
+  };
 
   useEffect(() => {
     setRecent(loadRecent());
   }, []);
 
   const runSearch = (q: string) => {
+    setAlertState("idle");
     if (!q.trim()) {
       setResult(null);
       return;
@@ -141,8 +159,32 @@ export function Search() {
         {query.trim() && (
           <>
             {result?.parsed && (
-              <div style={{ fontSize: 13, color: colors.faint, marginBottom: 16 }}>
-                Understood as: {[result.parsed.county, result.parsed.free ? "free" : null, result.parsed.timeOfDay, ...result.parsed.keywords].filter(Boolean).join(" · ") || "no specific filters"}
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10, marginBottom: 16 }}>
+                <div style={{ fontSize: 13, color: colors.faint }}>
+                  Understood as: {[result.parsed.county, result.parsed.free ? "free" : null, result.parsed.timeOfDay, ...result.parsed.keywords].filter(Boolean).join(" · ") || "no specific filters"}
+                </div>
+                {resident && (result.parsed.county || result.parsed.keywords.length > 0) && (
+                  <button
+                    onClick={saveAlert}
+                    disabled={alertState !== "idle"}
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 6,
+                      background: alertState === "saved" ? colors.greenBg : "none",
+                      color: alertState === "saved" ? colors.greenText : colors.muted,
+                      border: `1px solid ${alertState === "saved" ? colors.green : colors.border}`,
+                      borderRadius: 999,
+                      padding: "6px 12px",
+                      fontSize: 12.5,
+                      fontWeight: 600,
+                      cursor: alertState === "idle" ? "pointer" : "default",
+                    }}
+                  >
+                    <BellIcon size={13} />
+                    {alertState === "saved" ? "We'll notify you" : alertState === "saving" ? "Saving…" : "Notify me about new games like this"}
+                  </button>
+                )}
               </div>
             )}
             {loading ? (

@@ -132,6 +132,17 @@ export async function runStructuredSearch(q: string, residentId: string | null, 
   if (clubs.length === 0) {
     await db.prepare(`INSERT INTO search_misses (query_text, listing_type, county) VALUES (?, 'club', ?)`).run(queryText, county).catch(() => {});
   }
+  // IA spec §16 — demand intelligence previously only covered centres/clubs;
+  // activities (games/sessions) and experiences are just as real a signal
+  // of unmet demand, and getDemandSignals()'s own WHERE clause already
+  // treats an unrecognised listing_type as "show everywhere" (listing_type
+  // = '' OR listing_type = ?), so no query-side change was needed there.
+  if (matchingActivities.length === 0) {
+    await db.prepare(`INSERT INTO search_misses (query_text, listing_type, county) VALUES (?, 'activity', ?)`).run(queryText, county).catch(() => {});
+  }
+  if (experiences.length === 0) {
+    await db.prepare(`INSERT INTO search_misses (query_text, listing_type, county) VALUES (?, 'experience', ?)`).run(queryText, county).catch(() => {});
+  }
 
   return { parsed, centres, clubs, activities, experiences };
 }

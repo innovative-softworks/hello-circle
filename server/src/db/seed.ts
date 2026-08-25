@@ -75,6 +75,35 @@ const CLUBS: SeedClub[] = [
   { id: "s8", name: "Shotokan Kids Martial Arts", sport: "Martial Arts", area: "Ballincollig, Cork", county: "Cork", ages: "5–15", price: 110, unit: "term", trial: true, ph: "repeating-linear-gradient(135deg,#EDE0EC 0 14px,#F2E9F1 14px 28px)", image: img("s8"), blurb: "Traditional karate for children focused on discipline, respect and confidence. A structured belt system gives kids clear goals to work towards.", includes: ["Twice-weekly classes", "Grading & belts", "Starter gi included", "Insured, vetted instructors"] },
 ];
 
+// Community-contributed places (master-prompt punch list #4) — demo rows
+// for the admin review queue. Deliberately anonymous (client_id only, no
+// resident_id) since that's the one piece of this batch that doesn't
+// require a signed-in resident identity — see the "seed data for phases
+// 3/5" comment on resetDemoListings() below for why game/host reviews and
+// search alerts aren't seeded the same way.
+const PLACE_SUGGESTIONS = [
+  {
+    id: "demo-place-1",
+    clientId: "demo-seed-client",
+    suggestedName: "Ranelagh Multi Sports Club",
+    category: "club" as const,
+    area: "Ranelagh",
+    county: "Dublin",
+    description: "Astro pitch behind the church hall — five-a-side and junior camogie on weekends. Not on HelloCircle yet as far as I can tell!",
+    contactInfo: "ranelaghmultisports@example.ie",
+  },
+  {
+    id: "demo-place-2",
+    clientId: "demo-seed-client",
+    suggestedName: "Tramore Seafront Pavilion",
+    category: "centre" as const,
+    area: "Tramore",
+    county: "Waterford",
+    description: "Small function room right on the promenade, used for the local drama group and toddler groups.",
+    contactInfo: "",
+  },
+];
+
 async function insertSeedListings() {
   await db.transaction(async (tx) => {
     const insertCentre = tx.prepare(
@@ -115,10 +144,26 @@ async function insertSeedListings() {
   });
 }
 
+async function insertSeedPlaceSuggestions() {
+  const insert = db.prepare(
+    `INSERT INTO place_suggestions (id, client_id, suggested_name, category, area, county, description, contact_info)
+     VALUES (@id, @clientId, @suggestedName, @category, @area, @county, @description, @contactInfo)`
+  );
+  for (const s of PLACE_SUGGESTIONS) await insert.run(s);
+}
+
 /** Wipes every centre/club listing plus everything that references one —
  * rooms, amenities, images, bookings, registrations, reviews, notifications,
  * room blocks — then reseeds just the CENTRES/CLUBS demo set above. Leaves
- * users, sessions and coupons untouched. Run once via `npm run reset-demo`. */
+ * users, sessions and coupons untouched. Run once via `npm run reset-demo`.
+ *
+ * Doesn't touch residents/games/circles/search_alerts or game/host reviews
+ * (master-prompt punch list #3/#5) — those are resident-scoped by design,
+ * and this app has never pre-seeded a resident identity anywhere (they're
+ * always find-or-created live via the magic-link flow, same as routines/
+ * favourites/passes/circles today). Community place suggestions (#4) are
+ * the one addition here that genuinely doesn't need a resident — anonymous
+ * client-id submission is native to that table. */
 export async function resetDemoListings() {
   await db.transaction(async (tx) => {
     for (const table of [
@@ -134,11 +179,13 @@ export async function resetDemoListings() {
       "notifications",
       "centres",
       "clubs",
+      "place_suggestions",
     ]) {
       await tx.prepare(`DELETE FROM ${table}`).run();
     }
   });
   await insertSeedListings();
+  await insertSeedPlaceSuggestions();
 }
 
 export async function seedIfEmpty() {
@@ -146,8 +193,12 @@ export async function seedIfEmpty() {
 
   if (count === 0) {
     await insertSeedListings();
+    await insertSeedPlaceSuggestions();
     return;
   }
+
+  const { count: placeSuggestionCount } = (await db.prepare("SELECT COUNT(*) as count FROM place_suggestions").get()) as { count: number };
+  if (placeSuggestionCount === 0) await insertSeedPlaceSuggestions();
 
   // Database was seeded before image_url existed — backfill it in place.
   await db.transaction(async (tx) => {

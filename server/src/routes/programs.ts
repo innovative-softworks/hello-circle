@@ -30,6 +30,8 @@ interface ProgramRow {
   skill_level: string;
   equipment: string | null;
   instructor_name: string;
+  guardian_rules: string | null;
+  safeguarding_info: string | null;
 }
 
 async function toProgramJson(row: ProgramRow) {
@@ -73,6 +75,9 @@ async function toProgramJson(row: ProgramRow) {
     skillLevel: row.skill_level,
     equipment: row.equipment ? row.equipment.split(",").filter(Boolean) : [],
     instructorName: row.instructor_name,
+    /** Community program detail (IA spec §5) — both optional, vendor-set. */
+    guardianRules: row.guardian_rules ?? "",
+    safeguardingInfo: row.safeguarding_info ?? "",
   };
 }
 
@@ -170,6 +175,7 @@ programsRouter.post("/:id/enroll", async (req, res) => {
     ref,
     type: "program",
     customerEmail: body.email,
+    residentId: req.resident?.id ?? null,
     lineItems: pricingLineItems(pricing, { name: program.title, description: body.participantName }),
   });
   if (!result.ok) {

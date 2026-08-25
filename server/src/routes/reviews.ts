@@ -7,9 +7,18 @@ import type { Review } from "../types.js";
 
 export const reviewsRouter = Router();
 
+// Host & Activity reviews (master-prompt punch list #3) — extends this
+// already-moderated system (rating/comment/admin hide-unhide) to 2 more
+// listing types rather than building a parallel one. Centre/club stay
+// client-id-eligible (a booking/registration doesn't require an account);
+// game/host reviews are necessarily resident-id-eligible instead, since
+// joining a Game has always required a signed-in resident (requireResident
+// on games.ts's own join route) — see isEligibleToReview()'s branch below.
+type ReviewListingType = "centre" | "club" | "game" | "host";
+
 interface ReviewRow {
   id: number;
-  listing_type: "centre" | "club";
+  listing_type: ReviewListingType;
   listing_id: string;
   name: string;
   rating: number;
@@ -32,18 +41,42 @@ function toReview(row: ReviewRow): Review {
 async function listingExists(listingType: string, listingId: string): Promise<boolean> {
   if (listingType === "centre") return !!(await getCentre(listingId));
   if (listingType === "club") return !!(await getClub(listingId));
+  if (listingType === "game") return !!(await db.prepare(`SELECT 1 FROM games WHERE id = ?`).get(listingId));
+  // Host reviews only ever resolve for a verified host — same gate
+  // GET /residents/:id/host-profile already applies.
+  if (listingType === "host") return !!(await db.prepare(`SELECT 1 FROM residents WHERE id = ? AND host_status = 'verified'`).get(listingId));
   return false;
 }
 
-// Reviews are restricted to guests who actually booked (centre) or
-// registered (club) at that specific listing — matched by their client id.
-async function hasStayed(clientId: string, listingType: string, listingId: string): Promise<boolean> {
+async function isEligibleToReview(clientId: string, residentId: string | null, listingType: string, listingId: string): Promise<boolean> {
   if (listingType === "centre") {
     const row = await db.prepare(`SELECT 1 FROM bookings WHERE client_id = ? AND centre_id = ? LIMIT 1`).get(clientId, listingId);
     return !!row;
   }
   if (listingType === "club") {
     const row = await db.prepare(`SELECT 1 FROM registrations WHERE client_id = ? AND club_id = ? LIMIT 1`).get(clientId, listingId);
+    return !!row;
+  }
+  if (listingType === "game") {
+    if (!residentId) return false;
+    const row = await db
+      .prepare(
+        `SELECT 1 FROM game_participants gp JOIN games g ON g.id = gp.game_id
+         WHERE gp.resident_id = ? AND gp.game_id = ? AND gp.status = 'joined' AND g.date < CURDATE() LIMIT 1`
+      )
+      .get(residentId, listingId);
+    return !!row;
+  }
+  if (listingType === "host") {
+    if (!residentId) return false;
+    // Eligible once this resident has actually joined a past Game hosted
+    // by listingId — reviewing "the host," not any one specific game.
+    const row = await db
+      .prepare(
+        `SELECT 1 FROM game_participants gp JOIN games g ON g.id = gp.game_id
+         WHERE gp.resident_id = ? AND gp.status = 'joined' AND g.host_resident_id = ? AND g.date < CURDATE() LIMIT 1`
+      )
+      .get(residentId, listingId);
     return !!row;
   }
   return false;
@@ -71,7 +104,7 @@ reviewsRouter.get("/eligible", async (req, res) => {
     if (e instanceof BadRequestError) return res.status(400).json({ error: e.message });
     throw e;
   }
-  res.json({ eligible: await hasStayed(clientId, listingType, listingId) });
+  res.json({ eligible: await isEligibleToReview(clientId, req.resident?.id ?? null, listingType, listingId) });
 });
 
 reviewsRouter.post("/", async (req, res) => {
@@ -84,7 +117,7 @@ reviewsRouter.post("/", async (req, res) => {
   }
 
   const { listingType, listingId, name, rating, comment } = req.body as {
-    listingType?: "centre" | "club";
+    listingType?: ReviewListingType;
     listingId?: string;
     name?: string;
     rating?: number;
@@ -96,12 +129,14 @@ reviewsRouter.post("/", async (req, res) => {
   }
   if (rating < 1 || rating > 5) return res.status(400).json({ error: "rating must be between 1 and 5" });
   if (!(await listingExists(listingType, listingId))) return res.status(404).json({ error: "Listing not found" });
-  if (!(await hasStayed(clientId, listingType, listingId))) {
-    return res.status(403).json({
-      error: listingType === "centre"
-        ? "You can only review a centre after booking it."
-        : "You can only review a club after registering with it.",
-    });
+  if (!(await isEligibleToReview(clientId, req.resident?.id ?? null, listingType, listingId))) {
+    const messages: Record<ReviewListingType, string> = {
+      centre: "You can only review a centre after booking it.",
+      club: "You can only review a club after registering with it.",
+      game: "You can only review a game after actually attending a past one.",
+      host: "You can only review a host after playing in one of their past games.",
+    };
+    return res.status(403).json({ error: messages[listingType] });
   }
 
   const info = await db

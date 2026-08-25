@@ -4,6 +4,7 @@ import { requirePlatformRole } from "../auth.js";
 import { writeAudit } from "../audit.js";
 import { approximateCoords, db } from "../db/index.js";
 import { getCentre, getClub } from "../db/queries.js";
+import { generateSlug } from "../slugify.js";
 import { inClause, ownsCentre, ownsClub, recomputeCentreRollup } from "./vendorHelpers.js";
 
 // Own-listing CRUD: overview/stats, claims, centres (+ rooms, blocked
@@ -162,10 +163,11 @@ vendorListingsRouter.post("/centres", requirePlatformRole("centre_manager"), asy
 
   const id = crypto.randomUUID();
   const { lat, lng } = approximateCoords(b.county, id);
+  const slug = await generateSlug("centres", b.name);
   await db.transaction(async (tx) => {
     await tx.prepare(
-      `INSERT INTO centres (id, name, area, county, rating, reviews, capacity, from_price, managed_by, ph, image_url, blurb, vendor_id, status, created_at, opens_at, closes_at, payment_method, map_url, lat, lng, phone, accessibility)
-       VALUES (?, ?, ?, ?, 0, 0, ?, ?, ?, '', ?, ?, ?, 'pending', NOW(), ?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO centres (id, name, area, county, rating, reviews, capacity, from_price, managed_by, ph, image_url, blurb, vendor_id, status, created_at, opens_at, closes_at, payment_method, map_url, lat, lng, phone, accessibility, slug)
+       VALUES (?, ?, ?, ?, 0, 0, ?, ?, ?, '', ?, ?, ?, 'pending', NOW(), ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
       id,
       b.name,
@@ -184,7 +186,8 @@ vendorListingsRouter.post("/centres", requirePlatformRole("centre_manager"), asy
       lat,
       lng,
       b.phone ?? "",
-      (b.accessibility ?? []).join(",")
+      (b.accessibility ?? []).join(","),
+      slug
     );
     for (const [i, a] of (b.amenities ?? []).entries()) {
       await tx.prepare(`INSERT INTO centre_amenities (centre_id, amenity, sort_order) VALUES (?, ?, ?)`).run(id, a, i);
@@ -433,11 +436,12 @@ vendorListingsRouter.post("/clubs", requirePlatformRole("facility_manager"), asy
 
   const id = crypto.randomUUID();
   const { lat, lng } = approximateCoords(b.county, id);
+  const slug = await generateSlug("clubs", b.name);
   await db.transaction(async (tx) => {
     await tx.prepare(
-      `INSERT INTO clubs (id, name, sport, area, county, ages, price, unit, trial, ph, image_url, blurb, vendor_id, status, created_at, payment_method, map_url, capacity, lat, lng, phone, accessibility, category)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, '', ?, ?, ?, 'pending', NOW(), ?, ?, ?, ?, ?, ?, ?, ?)`
-    ).run(id, b.name, b.sport, b.area, b.county, b.ages ?? "", b.price ?? 0, b.unit ?? "year", b.trial ? 1 : 0, (b.images ?? [])[0] ?? b.image ?? "", b.blurb, req.user!.id, b.paymentMethod ?? "online", b.mapUrl ?? "", b.capacity ?? null, lat, lng, b.phone ?? "", (b.accessibility ?? []).join(","), b.category ?? "");
+      `INSERT INTO clubs (id, name, sport, area, county, ages, price, unit, trial, ph, image_url, blurb, vendor_id, status, created_at, payment_method, map_url, capacity, lat, lng, phone, accessibility, category, slug)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, '', ?, ?, ?, 'pending', NOW(), ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(id, b.name, b.sport, b.area, b.county, b.ages ?? "", b.price ?? 0, b.unit ?? "year", b.trial ? 1 : 0, (b.images ?? [])[0] ?? b.image ?? "", b.blurb, req.user!.id, b.paymentMethod ?? "online", b.mapUrl ?? "", b.capacity ?? null, lat, lng, b.phone ?? "", (b.accessibility ?? []).join(","), b.category ?? "", slug);
     for (const [i, item] of (b.includes ?? []).entries()) {
       await tx.prepare(`INSERT INTO club_includes (club_id, item, sort_order) VALUES (?, ?, ?)`).run(id, item, i);
     }

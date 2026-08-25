@@ -37,10 +37,19 @@ export interface Centre {
   isOpen: boolean;
   mapUrl: string;
   claimed: boolean;
+  /** Provider public profile (IA spec §5) — null for an unclaimed listing. */
+  vendorId: string | null;
   lat: number | null;
   lng: number | null;
   phone: string;
   accessibility: string[];
+  /** Bounded "featured" flag (IA spec §16) — admin-toggled promotion. */
+  featured: boolean;
+  /** Feature flags (implementation backlog #5) — whether this centre's org
+   * has Open Booking enabled. */
+  openBookingEnabled: boolean;
+  /** Slugs (master-prompt punch list #1) — null until backfilled/generated. */
+  slug: string | null;
 }
 
 export interface Club {
@@ -67,6 +76,7 @@ export interface Club {
   paymentMethod: PaymentMethod;
   mapUrl: string;
   claimed: boolean;
+  vendorId: string | null;
   /** Nullable = unlimited (every club's behaviour before this existed). */
   capacity: number | null;
   lat: number | null;
@@ -74,11 +84,17 @@ export interface Club {
   phone: string;
   accessibility: string[];
   category: string;
+  /** Bounded "featured" flag (IA spec §16) — admin-toggled promotion. */
+  featured: boolean;
+  /** Slugs (master-prompt punch list #1) — null until backfilled/generated. */
+  slug: string | null;
 }
 
 export interface Review {
   id: number;
-  listingType: "centre" | "club";
+  /** Host & Activity reviews (master-prompt punch list #3) — kept separate
+   * per listing_type, matching the different trust signal each represents. */
+  listingType: "centre" | "club" | "game" | "host";
   listingId: string;
   name: string;
   rating: number;

@@ -1,24 +1,35 @@
 import type {
+  BlockedResident,
   ChatFeed,
   ChatMessage,
   ChatScopeType,
   Circle,
+  CircleInvitation,
+  CirclePoll,
   CircleSuggestion,
   ClubSession,
   Favourite,
   FavouriteStatus,
   Game,
+  HostProfile,
   HouseholdMember,
+  Routine,
+  RoutineSuggestion,
   ParticipationEntry,
   Pass,
+  PlaceSuggestion,
   Receipt,
+  ReportRecord,
   Resident,
+  ResidentSearchResult,
+  SavedPaymentMethod,
   ResidentFull,
   ResidentNotification,
+  SearchAlert,
   WaitlistOfferStatus,
   WaitlistPosition,
 } from "../types";
-import { request } from "./core";
+import { downloadIcs, request } from "./core";
 
 // Resident/guest-facing account features — magic-link session, identity,
 // household, favourites, club waitlist, games, circles, club-session
@@ -77,16 +88,68 @@ export function fetchHousehold(): Promise<HouseholdMember[]> {
   return request(`/household`);
 }
 
-export function addHouseholdMember(input: { firstName: string; lastName: string; dob?: string; notes?: string }): Promise<{ id: number }> {
+export function addHouseholdMember(input: { firstName: string; lastName: string; dob?: string; notes?: string; guardianConsentGiven?: boolean }): Promise<{ id: number }> {
   return request(`/household`, { method: "POST", body: JSON.stringify(input) });
 }
 
-export function updateHouseholdMember(id: number, input: Partial<{ firstName: string; lastName: string; dob: string; notes: string }>): Promise<{ ok: boolean }> {
+export function updateHouseholdMember(
+  id: number,
+  input: Partial<{ firstName: string; lastName: string; dob: string; notes: string; guardianConsentGiven: boolean }>
+): Promise<{ ok: boolean }> {
   return request(`/household/${id}`, { method: "PUT", body: JSON.stringify(input) });
 }
 
 export function deleteHouseholdMember(id: number): Promise<{ ok: boolean }> {
   return request(`/household/${id}`, { method: "DELETE" });
+}
+
+// --- Safety Centre (IA spec §13) ---------------------------------------
+
+export function fetchBlockedResidents(): Promise<BlockedResident[]> {
+  return request(`/residents/me/blocked`);
+}
+
+export function blockResident(residentId: string): Promise<{ ok: boolean }> {
+  return request(`/residents/me/blocked/${residentId}`, { method: "POST" });
+}
+
+export function unblockResident(residentId: string): Promise<{ ok: boolean }> {
+  return request(`/residents/me/blocked/${residentId}`, { method: "DELETE" });
+}
+
+export function fetchMyReports(): Promise<ReportRecord[]> {
+  return request(`/reports/mine`);
+}
+
+export function updatePrivacyPrefs(input: { hideFromFamiliarCount?: boolean; discoverableByName?: boolean }): Promise<{ ok: boolean }> {
+  return request(`/residents/me/privacy-prefs`, { method: "PUT", body: JSON.stringify(input) });
+}
+
+export function downloadGameIcs(id: string): Promise<void> {
+  return downloadIcs(`/games/${id}/ics`, `game-${id}.ics`);
+}
+
+// Circle invite picker (implementation backlog #3) — only ever matches
+// residents who've opted in via discoverableByName.
+export function searchResidents(q: string): Promise<ResidentSearchResult[]> {
+  return request(`/residents/search?q=${encodeURIComponent(q)}`);
+}
+
+// --- Payment methods (implementation backlog #1) -------------------------
+// No "add a card" call here on purpose — cards get saved via Stripe
+// Checkout's own "Save my payment details" checkbox during a real
+// purchase, not a separate form. This is list/set-default/remove only.
+
+export function fetchPaymentMethods(): Promise<{ methods: SavedPaymentMethod[]; defaultMethodId: string | null }> {
+  return request(`/residents/me/payment-methods`);
+}
+
+export function setDefaultPaymentMethod(id: string): Promise<{ ok: boolean }> {
+  return request(`/residents/me/payment-methods/${id}/default`, { method: "PUT" });
+}
+
+export function removePaymentMethod(id: string): Promise<{ ok: boolean }> {
+  return request(`/residents/me/payment-methods/${id}`, { method: "DELETE" });
 }
 
 // --- favourites (MVP) ---------------------------------------------------
@@ -153,6 +216,7 @@ export interface CreateGameInput {
   visibility?: "public" | "circle" | "invite";
   soloFriendly?: boolean;
   minParticipants?: number;
+  confirmationDeadline?: string;
 }
 
 export function createGame(input: CreateGameInput): Promise<Game> {
@@ -181,6 +245,16 @@ export function leaveGameWaitlist(id: string): Promise<{ ok: boolean }> {
   return request(`/games/${id}/waitlist`, { method: "DELETE" });
 }
 
+// --- Self-serve check-in + attendance confirmation (IA spec §11) -----------
+
+export function checkInGame(id: string): Promise<{ ok: boolean }> {
+  return request(`/games/${id}/check-in`, { method: "POST" });
+}
+
+export function confirmGameAttendance(id: string, attended: boolean): Promise<{ ok: boolean }> {
+  return request(`/games/${id}/confirm-attendance`, { method: "POST", body: JSON.stringify({ attended }) });
+}
+
 // --- Circles (NEXT) ----------------------------------------------------
 
 export function fetchCircles(county?: string): Promise<Circle[]> {
@@ -207,7 +281,7 @@ export function fetchCircleSuggestions(): Promise<CircleSuggestion[]> {
   return request(`/circles/suggestions`);
 }
 
-export function createCircle(input: { name: string; activityLabel?: string; area?: string; county?: string; about?: string; centreId?: string }): Promise<{ id: string }> {
+export function createCircle(input: { name: string; activityLabel?: string; area?: string; county?: string; about?: string; centreId?: string }): Promise<{ id: string; slug: string }> {
   return request(`/circles`, { method: "POST", body: JSON.stringify(input) });
 }
 
@@ -221,6 +295,40 @@ export function leaveCircle(id: string): Promise<{ ok: boolean }> {
 
 export function fetchCircleMembership(id: string): Promise<{ member: boolean; role: string | null }> {
   return request(`/circles/${id}/membership`);
+}
+
+// --- Circle settings, invitations & planning polls (IA spec §10) -----------
+
+export function setCircleStatus(id: string, status: "active" | "closed"): Promise<{ ok: boolean }> {
+  return request(`/circles/${id}/status`, { method: "PUT", body: JSON.stringify({ status }) });
+}
+
+export function inviteToCircle(circleId: string, residentId: string): Promise<{ ok: boolean }> {
+  return request(`/circles/${circleId}/invite`, { method: "POST", body: JSON.stringify({ residentId }) });
+}
+
+export function fetchMyCircleInvitations(): Promise<CircleInvitation[]> {
+  return request(`/circles/invitations/mine`);
+}
+
+export function respondToCircleInvitation(id: string, accept: boolean): Promise<{ ok: boolean }> {
+  return request(`/circles/invitations/${id}/respond`, { method: "POST", body: JSON.stringify({ accept }) });
+}
+
+export function fetchCirclePolls(circleId: string): Promise<CirclePoll[]> {
+  return request(`/circles/${circleId}/polls`);
+}
+
+export function createCirclePoll(circleId: string, input: { question: string; options: { date: string; time?: string }[] }): Promise<{ id: string }> {
+  return request(`/circles/${circleId}/polls`, { method: "POST", body: JSON.stringify(input) });
+}
+
+export function voteOnCirclePollOption(circleId: string, pollId: string, optionId: number): Promise<{ ok: boolean }> {
+  return request(`/circles/${circleId}/polls/${pollId}/options/${optionId}/vote`, { method: "POST" });
+}
+
+export function closeCirclePoll(circleId: string, pollId: string): Promise<{ ok: boolean }> {
+  return request(`/circles/${circleId}/polls/${pollId}/close`, { method: "POST" });
 }
 
 // --- Participation Chat (implementation plan Phase 11) ----------------------
@@ -258,7 +366,17 @@ export function fetchResidentFull(): Promise<{ resident: ResidentFull | null }> 
   return request(`/residents/me`);
 }
 
-export function saveOnboarding(input: { homeCounty?: string; searchRadiusKm?: number; interests?: string[]; availability?: string[] }): Promise<{ ok: boolean }> {
+export function saveOnboarding(input: {
+  homeCounty?: string;
+  searchRadiusKm?: number;
+  interests?: string[];
+  availability?: string[];
+  goals?: string[];
+  prefGroupSize?: string;
+  prefBeginnerFriendly?: boolean;
+  prefSoloFriendly?: boolean;
+  prefBudget?: string;
+}): Promise<{ ok: boolean }> {
   return request(`/residents/me/onboarding`, { method: "PUT", body: JSON.stringify(input) });
 }
 
@@ -289,14 +407,89 @@ export function applyToBecomeHost(input: { bio: string; phone?: string }): Promi
   return request(`/residents/me/host-application`, { method: "POST", body: JSON.stringify(input) });
 }
 
-export function submitFeedback(kind: string, ref: string, response: "yes" | "maybe" | "no"): Promise<{ ok: boolean }> {
-  return request(`/feedback`, { method: "POST", body: JSON.stringify({ kind, ref, response }) });
+/** Public — no auth required, resolves only for a verified host. */
+export function fetchHostProfile(residentId: string): Promise<HostProfile> {
+  return request(`/residents/${residentId}/host-profile`);
 }
 
-export function fetchFeedbackStatus(kind: string, ref: string): Promise<{ response: string | null }> {
+// --- Routines-as-an-object (IA spec §9) -------------------------------------
+
+export function fetchRoutineSuggestions(): Promise<RoutineSuggestion[]> {
+  return request(`/residents/me/routine-suggestions`);
+}
+
+export function fetchMyRoutines(): Promise<Routine[]> {
+  return request(`/residents/me/routines`);
+}
+
+export function createRoutine(input: { activityLabel: string; centreId?: string | null; dayOfWeek: number; time?: string }): Promise<{ id: string }> {
+  return request(`/residents/me/routines`, { method: "POST", body: JSON.stringify(input) });
+}
+
+export function updateRoutine(id: string, input: { status?: "active" | "paused" | "cancelled"; time?: string }): Promise<{ ok: boolean }> {
+  return request(`/residents/me/routines/${id}`, { method: "PUT", body: JSON.stringify(input) });
+}
+
+type FeedbackAnswer = "yes" | "maybe" | "no";
+
+/** Fuller post-activity feedback (IA spec §11) — the 4 extra questions are
+ * all optional, same as server-side; pass only the ones you're collecting. */
+export function submitFeedback(
+  kind: string,
+  ref: string,
+  response: FeedbackAnswer,
+  extra?: { beginnerFriendly?: FeedbackAnswer; soloFriendly?: FeedbackAnswer; descriptionAccurate?: FeedbackAnswer; welcoming?: FeedbackAnswer }
+): Promise<{ ok: boolean }> {
+  return request(`/feedback`, { method: "POST", body: JSON.stringify({ kind, ref, response, ...extra }) });
+}
+
+export interface FeedbackStatus {
+  response: FeedbackAnswer | null;
+  beginnerFriendly: FeedbackAnswer | null;
+  soloFriendly: FeedbackAnswer | null;
+  descriptionAccurate: FeedbackAnswer | null;
+  welcoming: FeedbackAnswer | null;
+}
+
+export function fetchFeedbackStatus(kind: string, ref: string): Promise<FeedbackStatus> {
   return request(`/feedback/status?kind=${kind}&ref=${encodeURIComponent(ref)}`);
 }
 
 export function submitReport(targetType: string, targetId: string, reason: string): Promise<{ ok: boolean }> {
   return request(`/reports`, { method: "POST", body: JSON.stringify({ targetType, targetId, reason }) });
+}
+
+// --- Community-contributed places (master-prompt punch list #4) -----------
+
+export function submitPlaceSuggestion(input: {
+  suggestedName: string;
+  category: "centre" | "club";
+  area?: string;
+  county?: string;
+  description?: string;
+  contactInfo?: string;
+}): Promise<{ id: string }> {
+  return request(`/place-suggestions`, { method: "POST", body: JSON.stringify(input) });
+}
+
+export function fetchMyPlaceSuggestions(): Promise<PlaceSuggestion[]> {
+  return request(`/place-suggestions/mine`);
+}
+
+// --- Saved-search alerts (master-prompt punch list #5) -----------------
+
+export function fetchSearchAlerts(): Promise<SearchAlert[]> {
+  return request(`/residents/me/search-alerts`);
+}
+
+export function createSearchAlert(input: { county?: string; keywords?: string; mood?: string }): Promise<{ id: string }> {
+  return request(`/residents/me/search-alerts`, { method: "POST", body: JSON.stringify(input) });
+}
+
+export function setSearchAlertActive(id: string, active: boolean): Promise<{ ok: boolean }> {
+  return request(`/residents/me/search-alerts/${id}`, { method: "PUT", body: JSON.stringify({ active }) });
+}
+
+export function deleteSearchAlert(id: string): Promise<{ ok: boolean }> {
+  return request(`/residents/me/search-alerts/${id}`, { method: "DELETE" });
 }

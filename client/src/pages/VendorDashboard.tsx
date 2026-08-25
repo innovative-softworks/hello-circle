@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { fetchVendorListings, fetchVendorNotifications, fetchVendorStats } from "../api";
+import { fetchOrgProfile, fetchVendorListings, fetchVendorNotifications, fetchVendorStats } from "../api";
 import { useAuth } from "../AuthContext";
 import { useDashboardNav } from "../DashboardNavContext";
 import {
@@ -61,6 +61,11 @@ export function VendorDashboard() {
   const [editingClub, setEditingClub] = useState<string | "new" | null>(null);
   const [creatingProgram, setCreatingProgram] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
+  // Feature flags (implementation backlog #5) — read-only here, admin
+  // controls them (AdminDashboard.tsx's Organisations tab). Defaults to
+  // enabled while loading so the button doesn't flash disabled-then-enabled
+  // on every page load for the common case.
+  const [programsEnabled, setProgramsEnabled] = useState(true);
   const { setOpenNav } = useDashboardNav();
 
   // Registers the Header.tsx burger's click handler while this page is
@@ -81,7 +86,10 @@ export function VendorDashboard() {
   };
 
   useEffect(() => {
-    if (user?.role === "vendor" && user.status === "approved") reload();
+    if (user?.role === "vendor" && user.status === "approved") {
+      reload();
+      fetchOrgProfile().then((p) => setProgramsEnabled(p.flags.programs));
+    }
   }, [user]);
 
   if (loading) return <PageSpinner />;
@@ -170,9 +178,14 @@ export function VendorDashboard() {
             {displayTabs.find((t) => t.key === tab)?.label}
           </h2>
           {tab === "programs" && (
-            <Button onClick={() => setCreatingProgram(true)}>
-              <PlusIcon size={14} /> Add program
-            </Button>
+            <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4 }}>
+              <Button onClick={() => setCreatingProgram(true)} disabled={!programsEnabled}>
+                <PlusIcon size={14} /> Add program
+              </Button>
+              {!programsEnabled && (
+                <span style={{ fontSize: 11, color: colors.orangeDark }}>Not enabled for your organisation</span>
+              )}
+            </div>
           )}
         </div>
 

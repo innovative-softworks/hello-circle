@@ -1,12 +1,12 @@
 import { useEffect, useState } from "react";
-import { checkReviewEligibility, fetchReviews, submitReview } from "../api";
+import { checkReviewEligibility, fetchReviews, submitReview, type ReviewListingType } from "../api";
 import { colors, fonts } from "../theme";
 import type { Review } from "../types";
 import { CheckCircleIcon, StarIcon } from "./icons";
 import { Avatar, Button, Card, EmptyState, StarDisplay, StarPicker, inputStyle } from "./ui";
 
 interface Props {
-  listingType: "centre" | "club";
+  listingType: ReviewListingType;
   listingId: string;
   accent: "green" | "orange";
   onReviewPosted?: () => void;
@@ -94,7 +94,10 @@ export function Reviews({ listingType, listingId, accent, onReviewPosted }: Prop
       {eligible === false && !reviewSent && (
         <Card style={{ padding: 18, background: colors.bg }}>
           <p style={{ fontSize: 13, color: colors.mutedLight, margin: 0 }}>
-            Only guests who've booked or registered here can leave a review — {listingType === "centre" ? "book a room" : "register your child"} first, then come back to share how it went.
+            {listingType === "centre" && "Only guests who've booked here can leave a review — book a room first, then come back to share how it went."}
+            {listingType === "club" && "Only guests who've registered here can leave a review — register your child first, then come back to share how it went."}
+            {listingType === "game" && "Only residents who attended a past game can review it."}
+            {listingType === "host" && "Only residents who've played in one of this host's past games can review them."}
           </p>
         </Card>
       )}

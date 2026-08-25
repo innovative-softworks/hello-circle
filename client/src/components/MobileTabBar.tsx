@@ -7,6 +7,7 @@ import {
   HandshakeIcon,
   HomeIcon,
   PersonIcon,
+  PinIcon,
   PlusIcon,
   RepeatIcon,
   TreeIconSmall,
@@ -148,6 +149,9 @@ export function MobileTabBar() {
         </button>
         <button style={sheetItemStyle} onClick={() => go("/make-it-happen")}>
           <HandshakeIcon size={18} style={{ color: colors.orangeDark, flex: "none" }} /> Make It Happen
+        </button>
+        <button style={sheetItemStyle} onClick={() => go("/suggest-place")}>
+          <PinIcon size={18} style={{ color: colors.greenText, flex: "none" }} /> Suggest a place
         </button>
       </Drawer>
     </>

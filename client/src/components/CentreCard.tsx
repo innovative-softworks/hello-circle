@@ -12,7 +12,7 @@ export function CentreCard({ centre, height = 140 }: { centre: Centre; height?: 
 
   return (
     <div
-      onClick={() => navigate(`/centres/${centre.id}`)}
+      onClick={() => navigate(`/centres/${centre.slug ?? centre.id}`)}
       className="card-hover card-surface"
       style={{
         cursor: "pointer",

@@ -6,10 +6,14 @@ import {
   createAdminCoupon,
   createAdminOrganisation,
   deleteAdminCoupon,
+  fetchActivityOverview,
   fetchAdminCoupons,
   fetchAdminDemand,
   fetchAdminListings,
   fetchAdminOrganisations,
+  fetchAdminPlaceSuggestions,
+  fetchNotificationTemplates,
+  fetchOrgFeatureFlags,
   fetchAdminReviews,
   fetchAdminStats,
   fetchAdminVendors,
@@ -17,6 +21,7 @@ import {
   fetchClaims,
   fetchHostApplications,
   fetchModerationReports,
+  fetchReportCase,
   fetchSystemStatus,
   hideReview,
   resolveReport,
@@ -26,7 +31,12 @@ import {
   setClaimStatus,
   setClubOrganisation,
   setClubStatus,
+  resetNotificationTemplate,
   setHostApplicationStatus,
+  setListingFeatured,
+  setNotificationTemplate,
+  setOrgFeatureFlag,
+  setPlaceSuggestionStatus,
   setVendorPlatformRole,
   setVendorProviderTier,
   setVendorStatus,
@@ -41,11 +51,12 @@ import {
 import { useAuth } from "../AuthContext";
 import { useDashboardNav } from "../DashboardNavContext";
 import { AdminIllustration } from "../components/illustrations";
-import { AwardIcon, BallIcon, BuildingIcon, CalendarIcon, CheckIcon, ClipboardIcon, EyeIcon, IdCardIcon, PinIcon, SearchIcon, StarIcon, TagIcon, TrendUpIcon, UsersIcon } from "../components/icons";
+import { AwardIcon, BallIcon, BuildingIcon, CalendarIcon, CheckIcon, ClipboardIcon, EyeIcon, IdCardIcon, MailIcon, PinIcon, SearchIcon, StarIcon, TagIcon, TrendUpIcon, UsersIcon } from "../components/icons";
 import { Avatar, BadgedIcon, Button, Card, ConfirmDialog, DashboardTopPanel, Drawer, EmptyState, NavSidebar, PageSpinner, StarDisplay, StatRow, StatTile, StatusBadge, inputStyle, labelStyle, tableStyle, tdStyle, thStyle, type ListingStatus } from "../components/ui";
 import { DemandSignalsView } from "../components/DemandSignals";
 import { colors, fonts, maxWidth } from "../theme";
-import type { AdminOrganisation, AdminStats, AuditEntry, DemandRow, ModerationReport, Review, SupportBooking, SupportRegistration, SupportUser } from "../types";
+import { FEATURE_FLAG_KEYS, FEATURE_FLAG_LABELS } from "../types";
+import type { AdminOrganisation, AdminStats, AuditEntry, CircleActivity, DemandRow, FeatureFlagKey, FeatureFlags, ModerationReport, NotificationTemplateInfo, OpenBookingActivity, PlaceSuggestion, ReportCase, Review, SupportBooking, SupportCircle, SupportGame, SupportRegistration, SupportUser } from "../types";
 
 const PLATFORM_ROLES = ["centre_manager", "facility_manager", "finance", "communications", "read_only_analyst"];
 
@@ -414,6 +425,50 @@ function HostApplicationsTab() {
   );
 }
 
+function PlaceSuggestionsTab() {
+  const [suggestions, setSuggestions] = useState<PlaceSuggestion[]>([]);
+  const [rejectingId, setRejectingId] = useState<string | null>(null);
+  const load = () => fetchAdminPlaceSuggestions().then(setSuggestions);
+  useEffect(() => { load(); }, []);
+
+  return (
+    <div className="fade-panel" style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+      {suggestions.map((s) => (
+        <Card key={s.id} style={{ padding: 15, display: "flex", flexWrap: "wrap", gap: 14, justifyContent: "space-between", alignItems: "flex-start" }}>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontWeight: 700, fontSize: 14 }}>
+              {s.suggestedName} <span style={{ fontWeight: 500, color: colors.mutedLight, fontSize: 12 }}>({s.category})</span>
+            </div>
+            <div style={{ fontSize: 12, color: colors.mutedLight, marginTop: 2 }}>
+              {[s.area, s.county].filter(Boolean).join(", ") || "No location given"} · submitted {new Date(s.createdAt).toLocaleDateString()}
+            </div>
+            {s.description && <div style={{ fontSize: 12.5, color: colors.muted, marginTop: 6, maxWidth: 480 }}>{s.description}</div>}
+            {s.contactInfo && <div style={{ fontSize: 12, color: colors.mutedLight, marginTop: 4 }}>Contact: {s.contactInfo}</div>}
+          </div>
+          <div style={{ display: "flex", gap: 8, flex: "none" }}>
+            <Button variant="dark" onClick={() => setPlaceSuggestionStatus(s.id, "approved").then(load)}>
+              Approve & publish
+            </Button>
+            <Button variant="ghost" onClick={() => setRejectingId(s.id)}>
+              Reject
+            </Button>
+          </div>
+        </Card>
+      ))}
+      {suggestions.length === 0 && <EmptyState icon={<PinIcon size={26} />} title="No place suggestions waiting on you" />}
+
+      <ConfirmDialog
+        open={rejectingId !== null}
+        title="Reject this suggestion?"
+        message="No listing will be created. The person who submitted it can see the status if they check back."
+        confirmLabel="Reject"
+        onConfirm={() => { if (rejectingId !== null) setPlaceSuggestionStatus(rejectingId, "rejected").then(load); setRejectingId(null); }}
+        onCancel={() => setRejectingId(null)}
+      />
+    </div>
+  );
+}
+
 function listingFacts(item: AdminListingSummary, type: "centre" | "club") {
   // Area already includes the county for seeded listings ("Cabra, Dublin")
   // but not necessarily for vendor-entered ones, so only append county when
@@ -458,6 +513,18 @@ function ListingRow({
           <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
             <span style={{ fontWeight: 700, fontSize: 14 }}>{item.name}</span>
             <StatusBadge status={item.status as ListingStatus} />
+            {/* Bounded "featured" flag (IA spec §16) — the entire CMS
+                surface: toggle, no scheduling/placement rules. */}
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                setListingFeatured(type === "centre" ? "centres" : "clubs", item.id, !item.featured).then(onChanged);
+              }}
+              title={item.featured ? "Remove from featured" : "Feature this listing"}
+              style={{ background: "none", border: "none", padding: 0, cursor: "pointer", color: item.featured ? "#E0A22B" : colors.faint, display: "inline-flex" }}
+            >
+              <StarIcon size={15} />
+            </button>
           </div>
           {item.vendorEmail && (
             <div style={{ fontSize: 12, color: colors.mutedLight, marginTop: 2 }}>
@@ -706,43 +773,130 @@ function ReviewsTab() {
 // separate user-submitted-flag queue that can target a review or a circle,
 // distinct from directly hiding a review above) --------------------------
 
+// Trust & Safety (IA spec §16) — each report expands into a case view
+// (fetchReportCase) showing the resolved target + every other report ever
+// filed against it, plus an investigation-notes field (saved independently
+// of status) and a "Suspend" action that acts on the underlying target
+// (closes a circle / hides a review), not just the report row.
 function ReportsSection() {
   const [reports, setReports] = useState<ModerationReport[]>([]);
-  const [confirmingId, setConfirmingId] = useState<number | null>(null);
-  const load = () => fetchModerationReports().then(setReports);
-  useEffect(() => { load(); }, []);
+  const [showAll, setShowAll] = useState(false);
+  const [expandedId, setExpandedId] = useState<number | null>(null);
+  const [caseData, setCaseData] = useState<ReportCase | null>(null);
+  const [notes, setNotes] = useState("");
+  const [confirming, setConfirming] = useState<{ id: number; status: "actioned" | "suspended" } | null>(null);
+
+  const load = () => fetchModerationReports(showAll).then(setReports);
+  useEffect(() => { load(); }, [showAll]);
+
+  const toggleExpand = (id: number) => {
+    if (expandedId === id) {
+      setExpandedId(null);
+      setCaseData(null);
+      return;
+    }
+    setExpandedId(id);
+    setCaseData(null);
+    fetchReportCase(id).then((c) => {
+      setCaseData(c);
+      setNotes(c.report.adminNotes ?? "");
+    });
+  };
+
+  const saveNotes = async (id: number) => {
+    await resolveReport(id, { notes });
+    load();
+  };
+
+  const resolve = async (id: number, status: "dismissed" | "actioned" | "suspended") => {
+    await resolveReport(id, { status });
+    setExpandedId(null);
+    setCaseData(null);
+    load();
+  };
 
   return (
     <div>
-      <h3 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 17, margin: "0 0 6px", letterSpacing: "-.01em" }}>Reports</h3>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+        <h3 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 17, margin: 0, letterSpacing: "-.01em" }}>Reports</h3>
+        <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12.5, color: colors.mutedLight, cursor: "pointer" }}>
+          <input type="checkbox" checked={showAll} onChange={(e) => setShowAll(e.target.checked)} /> Show resolved
+        </label>
+      </div>
       <p style={{ fontSize: 12.5, color: colors.mutedLight, margin: "0 0 14px" }}>
-        User-submitted flags on reviews or circles, separate from directly hiding a review above.
+        User-submitted flags on reviews or circles. Expand a report to see the case — the resolved target, every
+        related report against it, and investigation notes.
       </p>
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         {reports.map((r) => (
           <Card key={r.id} style={{ padding: 15 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, cursor: "pointer" }} onClick={() => toggleExpand(r.id)}>
               <div>
                 <div style={{ fontWeight: 700, fontSize: 14 }}>{r.targetType} · {r.targetId}</div>
                 <div style={{ fontSize: 13, color: colors.mutedLight, marginTop: 2 }}>{r.reason}</div>
+                {r.status !== "pending" && (
+                  <span style={{ fontSize: 11, fontWeight: 700, color: colors.mutedLight, textTransform: "uppercase" }}>{r.status}</span>
+                )}
               </div>
-              <div style={{ display: "flex", gap: 8, flex: "none" }}>
-                <Button variant="ghost" onClick={() => resolveReport(r.id, "dismissed").then(load)}>Dismiss</Button>
-                <Button variant="danger" onClick={() => setConfirmingId(r.id)}>Action</Button>
-              </div>
+              {r.status === "pending" && (
+                <div style={{ display: "flex", gap: 8, flex: "none" }} onClick={(e) => e.stopPropagation()}>
+                  <Button variant="ghost" onClick={() => resolve(r.id, "dismissed")}>Dismiss</Button>
+                  <Button variant="danger" onClick={() => setConfirming({ id: r.id, status: "suspended" })}>Suspend</Button>
+                  <Button variant="danger" onClick={() => setConfirming({ id: r.id, status: "actioned" })}>Action</Button>
+                </div>
+              )}
             </div>
+            {expandedId === r.id && (
+              <div style={{ marginTop: 14, paddingTop: 14, borderTop: `1px solid ${colors.border}` }}>
+                {!caseData ? (
+                  <span style={{ fontSize: 12.5, color: colors.faint }}>Loading case…</span>
+                ) : (
+                  <>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: colors.muted, marginBottom: 6, textTransform: "uppercase" }}>Target</div>
+                    {caseData.target ? (
+                      <pre style={{ fontSize: 12, background: colors.panel, borderRadius: 8, padding: 10, overflowX: "auto", margin: "0 0 12px" }}>
+                        {JSON.stringify(caseData.target, null, 2)}
+                      </pre>
+                    ) : (
+                      <p style={{ fontSize: 12.5, color: colors.faint, margin: "0 0 12px" }}>Target no longer resolvable.</p>
+                    )}
+                    {caseData.relatedReports.length > 0 && (
+                      <>
+                        <div style={{ fontSize: 12, fontWeight: 700, color: colors.muted, marginBottom: 6, textTransform: "uppercase" }}>
+                          Related reports ({caseData.relatedReports.length})
+                        </div>
+                        <div style={{ display: "flex", flexDirection: "column", gap: 4, marginBottom: 12 }}>
+                          {caseData.relatedReports.map((rr) => (
+                            <div key={rr.id} style={{ fontSize: 12.5, color: colors.mutedLight }}>
+                              {rr.reason} — <span style={{ fontWeight: 700 }}>{rr.status}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </>
+                    )}
+                    <label style={labelStyle}>Investigation notes</label>
+                    <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} style={{ ...inputStyle, resize: "vertical", marginBottom: 8 }} />
+                    <Button variant="ghost" onClick={() => saveNotes(r.id)}>Save notes</Button>
+                  </>
+                )}
+              </div>
+            )}
           </Card>
         ))}
         {reports.length === 0 && <EmptyState icon={<IdCardIcon size={26} />} title="Nothing pending" subtitle="No reports waiting on review." />}
       </div>
 
       <ConfirmDialog
-        open={confirmingId !== null}
-        title="Action this report?"
-        message="Marks it as actioned and removes it from the queue. If you meant to hide the content itself, do that from the Reviews tab first."
-        confirmLabel="Action"
-        onConfirm={() => { if (confirmingId !== null) resolveReport(confirmingId, "actioned").then(load); setConfirmingId(null); }}
-        onCancel={() => setConfirmingId(null)}
+        open={confirming !== null}
+        title={confirming?.status === "suspended" ? "Suspend the reported content?" : "Action this report?"}
+        message={
+          confirming?.status === "suspended"
+            ? "Closes the reported Circle, or hides the reported review, and marks the report suspended."
+            : "Marks it as actioned and removes it from the queue. If you meant to hide the content itself, do that from the Reviews tab first."
+        }
+        confirmLabel={confirming?.status === "suspended" ? "Suspend" : "Action"}
+        onConfirm={() => { if (confirming) resolve(confirming.id, confirming.status); setConfirming(null); }}
+        onCancel={() => setConfirming(null)}
       />
     </div>
   );
@@ -813,23 +967,196 @@ function AuditTab() {
   );
 }
 
+// --- notification templates (implementation backlog #2) -------------------
+// An override layer over notifications.ts's own hardcoded fallbacks — see
+// notificationTemplates.ts's own comment for the exact scope (the 2 shared
+// functions every booking/registration/experience/program path already
+// calls, not every notification call site in the app). Leaving every field
+// blank means every message stays exactly what it is today; a blank field
+// on save clears back to that fallback (DELETE, not an empty-string row).
+
+function NotificationTemplateCard({ t, onSaved }: { t: NotificationTemplateInfo; onSaved: () => void }) {
+  const [subject, setSubject] = useState(t.subjectTemplate ?? "");
+  const [title, setTitle] = useState(t.titleTemplate ?? "");
+  const [body, setBody] = useState(t.bodyTemplate ?? "");
+  const [saving, setSaving] = useState(false);
+  const isOverridden = t.subjectTemplate !== null || t.titleTemplate !== null || t.bodyTemplate !== null;
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      await setNotificationTemplate(t.key, {
+        subjectTemplate: t.fields.includes("subject") ? subject || null : undefined,
+        titleTemplate: t.fields.includes("title") ? title || null : undefined,
+        bodyTemplate: t.fields.includes("body") ? body || null : undefined,
+      });
+      onSaved();
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const reset = async () => {
+    await resetNotificationTemplate(t.key);
+    setSubject("");
+    setTitle("");
+    setBody("");
+    onSaved();
+  };
+
+  return (
+    <Card style={{ padding: 18 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, marginBottom: 8 }}>
+        <div>
+          <div style={{ fontWeight: 700, fontSize: 14 }}>{t.key}</div>
+          <div style={{ fontSize: 12.5, color: colors.mutedLight, marginTop: 2 }}>{t.description}</div>
+        </div>
+        {isOverridden && (
+          <span style={{ fontSize: 11, fontWeight: 700, color: colors.greenText, background: colors.greenBg, borderRadius: 999, padding: "2px 8px", flex: "none" }}>Custom</span>
+        )}
+      </div>
+      <p style={{ fontSize: 11.5, color: colors.faint, margin: "0 0 10px" }}>
+        Placeholders: {t.vars.map((v) => `{{${v}}}`).join(", ")}. Leave a field blank to use the built-in default.
+      </p>
+      {t.fields.includes("subject") && (
+        <>
+          <label style={labelStyle}>Subject</label>
+          <input value={subject} onChange={(e) => setSubject(e.target.value)} style={{ ...inputStyle, marginBottom: 10 }} />
+        </>
+      )}
+      {t.fields.includes("title") && (
+        <>
+          <label style={labelStyle}>Title</label>
+          <input value={title} onChange={(e) => setTitle(e.target.value)} style={{ ...inputStyle, marginBottom: 10 }} />
+        </>
+      )}
+      {t.fields.includes("body") && (
+        <>
+          <label style={labelStyle}>Body</label>
+          <textarea value={body} onChange={(e) => setBody(e.target.value)} rows={4} style={{ ...inputStyle, resize: "vertical", marginBottom: 10 }} />
+        </>
+      )}
+      <div style={{ display: "flex", gap: 8 }}>
+        <Button onClick={save} disabled={saving}>{saving ? "Saving…" : "Save"}</Button>
+        {isOverridden && <Button variant="ghost" onClick={reset}>Reset to default</Button>}
+      </div>
+    </Card>
+  );
+}
+
+function NotificationTemplatesTab() {
+  const [templates, setTemplates] = useState<NotificationTemplateInfo[] | null>(null);
+
+  const load = () => fetchNotificationTemplates().then(setTemplates);
+  useEffect(() => { load(); }, []);
+
+  if (!templates) return <PageSpinner />;
+
+  return (
+    <div className="fade-panel" style={{ display: "flex", flexDirection: "column", gap: 24 }}>
+      <p style={{ fontSize: 13, color: colors.mutedLight, margin: 0, maxWidth: 640 }}>
+        Covers the confirmation and cancellation emails sent for every booking, registration, experience booking and
+        program enrollment — the highest-volume transactional messages in the app. Other notifications (waitlist
+        offers, game updates, Circle activity) aren't covered here yet and stay as built-in copy.
+      </p>
+      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        {templates.map((t) => (
+          <NotificationTemplateCard key={t.key} t={t} onSaved={load} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // --- support search (folded in from the former Platform Admin page) -------
 
+// Platform-wide booking/registration explorer (IA spec §16) — extended
+// with games/circles and a default "recent activity" load (no query
+// required), not just search-by-ref/email as before this pass.
 function SupportTab() {
   const [q, setQ] = useState("");
-  const [results, setResults] = useState<{ bookings: SupportBooking[]; registrations: SupportRegistration[]; users: SupportUser[] } | null>(null);
+  const [results, setResults] = useState<{ bookings: SupportBooking[]; registrations: SupportRegistration[]; users: SupportUser[]; games: SupportGame[]; circles: SupportCircle[] } | null>(null);
+  const [overview, setOverview] = useState<{ openBookings: OpenBookingActivity[]; circleActivity: CircleActivity[] } | null>(null);
+
+  useEffect(() => {
+    supportSearch("").then(setResults);
+    fetchActivityOverview().then(setOverview);
+  }, []);
 
   const run = () => {
-    if (!q.trim()) return;
     supportSearch(q.trim()).then(setResults);
   };
 
   return (
     <div className="fade-panel">
       <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
-        <input value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => e.key === "Enter" && run()} placeholder="Booking/registration ref, or an email address" style={inputStyle} />
+        <input value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => e.key === "Enter" && run()} placeholder="Booking/registration/game/circle ref or name, or an email address" style={inputStyle} />
         <Button onClick={run}><SearchIcon size={14} /> Search</Button>
       </div>
+
+      {overview && (overview.openBookings.length > 0 || overview.circleActivity.length > 0) && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 24, marginBottom: 24, paddingBottom: 24, borderBottom: `1px solid ${colors.border}` }}>
+          <div>
+            <h4 style={{ fontSize: 12, fontWeight: 700, color: colors.muted, margin: "0 0 8px", textTransform: "uppercase" }}>Open Bookings (most recent 50)</h4>
+            {overview.openBookings.length === 0 ? (
+              <span style={{ fontSize: 13, color: colors.faint }}>None yet.</span>
+            ) : (
+              <div style={{ overflowX: "auto" }}>
+                <table style={tableStyle}>
+                  <thead>
+                    <tr>
+                      <th style={thStyle}>Game</th>
+                      <th style={thStyle}>Booking</th>
+                      <th style={thStyle}>Centre</th>
+                      <th style={thStyle}>Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {overview.openBookings.map((o) => (
+                      <tr key={o.id}>
+                        <td style={tdStyle}>{o.activityLabel} <span style={{ color: colors.faint }}>{o.date} {o.time}</span></td>
+                        <td style={{ ...tdStyle, fontFamily: "monospace" }}>{o.bookingRefFull} <span style={{ color: colors.faint, fontFamily: fonts.body }}>({o.bookingName})</span></td>
+                        <td style={tdStyle}>{o.centreName ?? "—"}</td>
+                        <td style={{ ...tdStyle, color: colors.mutedLight }}>{o.status}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+          <div>
+            <h4 style={{ fontSize: 12, fontWeight: 700, color: colors.muted, margin: "0 0 8px", textTransform: "uppercase" }}>Circle activity (most recent 50)</h4>
+            {overview.circleActivity.length === 0 ? (
+              <span style={{ fontSize: 13, color: colors.faint }}>None yet.</span>
+            ) : (
+              <div style={{ overflowX: "auto" }}>
+                <table style={tableStyle}>
+                  <thead>
+                    <tr>
+                      <th style={thStyle}>Name</th>
+                      <th style={thStyle}>Activity</th>
+                      <th style={thStyle}>Members</th>
+                      <th style={thStyle}>Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {overview.circleActivity.map((c) => (
+                      <tr key={c.id}>
+                        <td style={tdStyle}>{c.name}</td>
+                        <td style={{ ...tdStyle, color: colors.mutedLight }}>{c.activityLabel}</td>
+                        <td style={tdStyle}>{c.memberCount}</td>
+                        <td style={{ ...tdStyle, color: colors.mutedLight }}>{c.status}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {results && (
         <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
           <div>
@@ -910,6 +1237,62 @@ function SupportTab() {
                         <td style={tdStyle}>{u.email}</td>
                         <td style={{ ...tdStyle, color: colors.mutedLight }}>{u.role}</td>
                         <td style={{ ...tdStyle, color: colors.mutedLight }}>{u.status}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+          <div>
+            <h4 style={{ fontSize: 12, fontWeight: 700, color: colors.muted, margin: "0 0 8px", textTransform: "uppercase" }}>Games</h4>
+            {results.games.length === 0 ? (
+              <span style={{ fontSize: 13, color: colors.faint }}>No matches.</span>
+            ) : (
+              <div style={{ overflowX: "auto" }}>
+                <table style={tableStyle}>
+                  <thead>
+                    <tr>
+                      <th style={thStyle}>Activity</th>
+                      <th style={thStyle}>Date/Time</th>
+                      <th style={thStyle}>Status</th>
+                      <th style={thStyle}>Open Booking</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {results.games.map((g) => (
+                      <tr key={g.id}>
+                        <td style={tdStyle}>{g.activityLabel}</td>
+                        <td style={{ ...tdStyle, whiteSpace: "nowrap" }}>{g.date} {g.time}</td>
+                        <td style={{ ...tdStyle, color: colors.mutedLight }}>{g.status}</td>
+                        <td style={{ ...tdStyle, color: colors.mutedLight }}>{g.bookingRef ?? "—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+          <div>
+            <h4 style={{ fontSize: 12, fontWeight: 700, color: colors.muted, margin: "0 0 8px", textTransform: "uppercase" }}>Circles</h4>
+            {results.circles.length === 0 ? (
+              <span style={{ fontSize: 13, color: colors.faint }}>No matches.</span>
+            ) : (
+              <div style={{ overflowX: "auto" }}>
+                <table style={tableStyle}>
+                  <thead>
+                    <tr>
+                      <th style={thStyle}>Name</th>
+                      <th style={thStyle}>Activity</th>
+                      <th style={thStyle}>Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {results.circles.map((c) => (
+                      <tr key={c.id}>
+                        <td style={tdStyle}>{c.name}</td>
+                        <td style={{ ...tdStyle, color: colors.mutedLight }}>{c.activityLabel}</td>
+                        <td style={{ ...tdStyle, color: colors.mutedLight }}>{c.status}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -1033,12 +1416,46 @@ function CouponsTab() {
 // remains platform-wide). Assignment happens per-listing in ListingRow
 // above; this tab is just create/list. -------------------------------------
 
+// Feature flags (implementation backlog #5) — real per-org capability
+// toggles. Expands under a vendor-org card so an admin can turn Open
+// Booking/Programs/Experiences on or off for that org specifically;
+// server-enforced independently (see routes/bookings.ts, vendorPrograms.ts,
+// vendorExperiences.ts), this is just where an admin actually flips them.
+function OrgFlagsRow({ orgId }: { orgId: string }) {
+  const [flags, setFlags] = useState<FeatureFlags | null>(null);
+
+  useEffect(() => {
+    fetchOrgFeatureFlags(orgId).then(setFlags);
+  }, [orgId]);
+
+  const toggle = async (key: FeatureFlagKey) => {
+    if (!flags) return;
+    const next = { ...flags, [key]: !flags[key] };
+    setFlags(next);
+    await setOrgFeatureFlag(orgId, key, next[key]);
+  };
+
+  if (!flags) return <span style={{ fontSize: 12, color: colors.faint }}>Loading flags…</span>;
+
+  return (
+    <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }} onClick={(e) => e.stopPropagation()}>
+      {FEATURE_FLAG_KEYS.map((key) => (
+        <label key={key} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12.5, cursor: "pointer" }}>
+          <input type="checkbox" checked={flags[key]} onChange={() => toggle(key)} style={{ accentColor: colors.green }} />
+          {FEATURE_FLAG_LABELS[key]}
+        </label>
+      ))}
+    </div>
+  );
+}
+
 function OrganisationsTab({ onOpenVendor }: { onOpenVendor: (vendorId: string) => void }) {
   const [orgs, setOrgs] = useState<AdminOrganisation[]>([]);
   const [vendors, setVendors] = useState<AdminVendor[]>([]);
   const [name, setName] = useState("");
   const [kind, setKind] = useState("council");
   const [creating, setCreating] = useState(false);
+  const [expandedOrgId, setExpandedOrgId] = useState<string | null>(null);
 
   const load = () => fetchAdminOrganisations().then(setOrgs);
   useEffect(() => { load(); }, []);
@@ -1078,10 +1495,31 @@ function OrganisationsTab({ onOpenVendor }: { onOpenVendor: (vendorId: string) =
           {vendorOrgs.map((o) => {
             const owner = vendors.find((v) => v.orgId === o.id && !v.invitedStaff);
             const memberCount = vendors.filter((v) => v.orgId === o.id).length;
+            const expanded = expandedOrgId === o.id;
             return (
-              <Card key={o.id} hover={!!owner} onClick={owner ? () => onOpenVendor(owner.id) : undefined} style={{ padding: 15, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <span style={{ fontWeight: 700, fontSize: 14 }}>{o.name}</span>
-                <span style={{ fontSize: 12, color: colors.mutedLight }}>{memberCount} {memberCount === 1 ? "member" : "members"}</span>
+              <Card key={o.id} style={{ padding: 15 }}>
+                <div
+                  style={{ display: "flex", justifyContent: "space-between", alignItems: "center", cursor: "pointer" }}
+                  onClick={() => setExpandedOrgId(expanded ? null : o.id)}
+                >
+                  <span style={{ fontWeight: 700, fontSize: 14 }}>{o.name}</span>
+                  <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                    <span style={{ fontSize: 12, color: colors.mutedLight }}>{memberCount} {memberCount === 1 ? "member" : "members"}</span>
+                    {owner && (
+                      <span onClick={(e) => e.stopPropagation()}>
+                        <Button variant="ghost" onClick={() => onOpenVendor(owner.id)}>
+                          View vendor
+                        </Button>
+                      </span>
+                    )}
+                  </div>
+                </div>
+                {expanded && (
+                  <div style={{ marginTop: 12, paddingTop: 12, borderTop: `1px solid ${colors.border}` }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: colors.faint, textTransform: "uppercase", marginBottom: 8 }}>Feature flags</div>
+                    <OrgFlagsRow orgId={o.id} />
+                  </div>
+                )}
               </Card>
             );
           })}
@@ -1146,7 +1584,7 @@ function AdminDemandTab() {
   );
 }
 
-type AdminTab = "overview" | "vendors" | "pending" | "listings" | "claims" | "hostApplications" | "reviews" | "coupons" | "organisations" | "demand" | "audit" | "support";
+type AdminTab = "overview" | "vendors" | "pending" | "listings" | "claims" | "hostApplications" | "placeSuggestions" | "reviews" | "coupons" | "organisations" | "demand" | "audit" | "support" | "notificationTemplates";
 
 const ADMIN_TABS: { key: AdminTab; label: string; icon: ReactNode }[] = [
   { key: "overview", label: "Overview", icon: <EyeIcon size={15} /> },
@@ -1155,12 +1593,14 @@ const ADMIN_TABS: { key: AdminTab; label: string; icon: ReactNode }[] = [
   { key: "listings", label: "All listings", icon: <CalendarIcon size={15} /> },
   { key: "claims", label: "Claims", icon: <IdCardIcon size={15} /> },
   { key: "hostApplications", label: "Host applications", icon: <AwardIcon size={15} /> },
+  { key: "placeSuggestions", label: "Place suggestions", icon: <PinIcon size={15} /> },
   { key: "reviews", label: "Reviews", icon: <StarIcon size={15} /> },
   { key: "coupons", label: "Coupons", icon: <TagIcon size={15} /> },
   { key: "organisations", label: "Organisations", icon: <BuildingIcon size={15} /> },
   { key: "demand", label: "Demand", icon: <TrendUpIcon size={15} /> },
   { key: "audit", label: "Audit", icon: <ClipboardIcon size={15} /> },
   { key: "support", label: "Support", icon: <SearchIcon size={15} /> },
+  { key: "notificationTemplates", label: "Notification templates", icon: <MailIcon size={15} /> },
 ];
 
 // At-a-glance landing tab — the KPI row (moved here from the top-of-page
@@ -1284,6 +1724,7 @@ export function AdminDashboard() {
         )}
         {tab === "claims" && <ClaimsTab />}
         {tab === "hostApplications" && <HostApplicationsTab />}
+        {tab === "placeSuggestions" && <PlaceSuggestionsTab />}
         {tab === "reviews" && <ReviewsTab />}
         {tab === "coupons" && <CouponsTab />}
         {tab === "organisations" && (
@@ -1292,6 +1733,7 @@ export function AdminDashboard() {
         {tab === "demand" && <AdminDemandTab />}
         {tab === "audit" && <AuditTab />}
         {tab === "support" && <SupportTab />}
+        {tab === "notificationTemplates" && <NotificationTemplatesTab />}
       </section>
     </div>
   );

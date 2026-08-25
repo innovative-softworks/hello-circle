@@ -10,24 +10,25 @@ interface HouseholdMemberInput {
   lastName: string;
   dob?: string;
   notes?: string;
+  guardianConsentGiven?: boolean;
 }
 
 householdRouter.get("/", async (req, res) => {
   const rows = await db
     .prepare(
-      `SELECT id, first_name as firstName, last_name as lastName, dob, notes, created_at as createdAt
+      `SELECT id, first_name as firstName, last_name as lastName, dob, notes, guardian_consent_given as guardianConsentGiven, created_at as createdAt
        FROM household_members WHERE resident_id = ? ORDER BY first_name`
     )
     .all(req.resident!.id);
-  res.json(rows);
+  res.json((rows as any[]).map((r) => ({ ...r, guardianConsentGiven: !!r.guardianConsentGiven })));
 });
 
 householdRouter.post("/", async (req, res) => {
   const b = req.body as HouseholdMemberInput;
   if (!b.firstName || !b.lastName) return res.status(400).json({ error: "First and last name are required" });
   const info = await db
-    .prepare(`INSERT INTO household_members (resident_id, first_name, last_name, dob, notes) VALUES (?, ?, ?, ?, ?)`)
-    .run(req.resident!.id, b.firstName, b.lastName, b.dob ?? "", b.notes ?? "");
+    .prepare(`INSERT INTO household_members (resident_id, first_name, last_name, dob, notes, guardian_consent_given) VALUES (?, ?, ?, ?, ?, ?)`)
+    .run(req.resident!.id, b.firstName, b.lastName, b.dob ?? "", b.notes ?? "", b.guardianConsentGiven ? 1 : 0);
   res.status(201).json({ id: info.lastInsertRowid });
 });
 
@@ -42,9 +43,9 @@ householdRouter.put("/:id", async (req, res) => {
   await db
     .prepare(
       `UPDATE household_members SET first_name = COALESCE(?, first_name), last_name = COALESCE(?, last_name),
-       dob = COALESCE(?, dob), notes = COALESCE(?, notes) WHERE id = ?`
+       dob = COALESCE(?, dob), notes = COALESCE(?, notes), guardian_consent_given = COALESCE(?, guardian_consent_given) WHERE id = ?`
     )
-    .run(b.firstName, b.lastName, b.dob, b.notes, req.params.id);
+    .run(b.firstName, b.lastName, b.dob, b.notes, b.guardianConsentGiven === undefined ? undefined : b.guardianConsentGiven ? 1 : 0, req.params.id);
   res.json({ ok: true });
 });
 

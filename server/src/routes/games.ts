@@ -4,9 +4,12 @@ import { createCheckoutSession, pricingLineItems } from "../checkoutService.js";
 import { db } from "../db/index.js";
 import { countFamiliarCoParticipants } from "../db/queries.js";
 import { upgradeFavouriteStatus } from "./favourites.js";
+import { buildIcsEvent } from "../ics.js";
+import { irelandWallTimeToUtc } from "../irelandTime.js";
 import { notifyResident } from "../notifications.js";
 import { computePricing } from "../pricing.js";
 import { requireResident } from "../residents.js";
+import { matchSearchAlertsForGame } from "../searchAlerts.js";
 import { ConflictError, generateRef } from "../util.js";
 import { promoteNextWaitlistEntry } from "../waitlist.js";
 
@@ -29,6 +32,7 @@ interface GameRow {
   solo_friendly: number;
   booking_ref: string | null;
   min_participants: number | null;
+  confirmation_deadline: string | null;
 }
 
 async function toGameJson(row: GameRow) {
@@ -74,6 +78,9 @@ async function toGameJson(row: GameRow) {
      * starts 'pending_participants' and flips to 'open' once `joined`
      * reaches this number. */
     minParticipants: row.min_participants,
+    /** Open game detail (IA spec §5) — display-only, see db/index.ts's
+     * ensureColumn comment; never enforced server-side. */
+    confirmationDeadline: row.confirmation_deadline,
   };
 }
 
@@ -135,7 +142,73 @@ gamesRouter.get("/:id", async (req, res) => {
     waitlistedByMe = !!w;
     familiarCount = await countFamiliarCoParticipants(req.resident.id, req.params.id);
   }
-  res.json({ ...json, joinedByMe, waitlistedByMe, familiarCount });
+  // Self-serve check-in + attendance confirmation (IA spec §11) — only
+  // meaningful for this resident's own participation, same "only computed
+  // here, not on the list" reasoning as joinedByMe above.
+  let checkedInAt: string | null = null;
+  let attended: boolean | null = null;
+  if (req.resident) {
+    const p = (await db.prepare(`SELECT checked_in_at as checkedInAt, attended FROM game_participants WHERE game_id = ? AND resident_id = ?`).get(req.params.id, req.resident.id)) as
+      | { checkedInAt: string | null; attended: number | null }
+      | undefined;
+    checkedInAt = p?.checkedInAt ?? null;
+    attended = p?.attended === null || p?.attended === undefined ? null : !!p.attended;
+  }
+  res.json({ ...json, joinedByMe, waitlistedByMe, familiarCount, checkedInAt, attended });
+});
+
+// "Add to calendar" (IA spec §13) — public like GET /:id itself (games are
+// visible to anyone with the link). Games have no stored duration, so this
+// defaults to a 2-hour block — display-only, same "informational, not
+// enforced" spirit as the confirmation-deadline field.
+const GAME_ICS_DURATION_MS = 2 * 60 * 60 * 1000;
+
+gamesRouter.get("/:id/ics", async (req, res) => {
+  const row = (await db.prepare(`SELECT * FROM games WHERE id = ?`).get(req.params.id)) as GameRow | undefined;
+  if (!row) return res.status(404).json({ error: "Game not found" });
+  const json = await toGameJson(row);
+  const [h, m] = json.time.split(":").map(Number);
+  const start = irelandWallTimeToUtc(json.date, h, m);
+  const end = new Date(start.getTime() + GAME_ICS_DURATION_MS);
+  const ics = buildIcsEvent({
+    uid: `game-${row.id}`,
+    title: json.activityLabel,
+    location: json.centreName ?? json.locationText,
+    start,
+    end,
+  });
+  res.setHeader("Content-Type", "text/calendar; charset=utf-8");
+  res.setHeader("Content-Disposition", `attachment; filename="game-${row.id}.ics"`);
+  res.send(ics);
+});
+
+// Self-serve check-in (IA spec §11) — distinct from the existing vendor-QR
+// check-in machinery (routes/vendorOperations.ts), which is bookings/
+// registrations-only and always vendor-initiated. This is resident-
+// initiated, for a Game specifically. Deliberately unrestricted by time
+// window server-side (the client only shows the button in-window) — a
+// late/early check-in isn't worth hard-blocking over.
+gamesRouter.post("/:id/check-in", requireResident, async (req, res) => {
+  const info = await db
+    .prepare(`UPDATE game_participants SET checked_in_at = NOW() WHERE game_id = ? AND resident_id = ? AND status = 'joined'`)
+    .run(req.params.id, req.resident!.id);
+  if (info.changes === 0) return res.status(404).json({ error: "You're not joined to this game" });
+  res.json({ ok: true });
+});
+
+// "Did you attend?" (IA spec §11) — resolves unverified attendance without
+// treating the resident as dishonest, matching the spec's own explicit
+// instruction for this screen. Available any time after joining (not
+// gated on check-in — someone might check in late or not at all but still
+// confirm they went).
+gamesRouter.post("/:id/confirm-attendance", requireResident, async (req, res) => {
+  const { attended } = req.body as { attended?: boolean };
+  if (typeof attended !== "boolean") return res.status(400).json({ error: "attended must be a boolean" });
+  const info = await db
+    .prepare(`UPDATE game_participants SET attended = ? WHERE game_id = ? AND resident_id = ? AND status = 'joined'`)
+    .run(attended ? 1 : 0, req.params.id, req.resident!.id);
+  if (info.changes === 0) return res.status(404).json({ error: "You're not joined to this game" });
+  res.json({ ok: true });
 });
 
 // Host-only — closes a game early (e.g. plans changed). Distinct from a
@@ -182,6 +255,9 @@ interface CreateGameInput {
   /** Minimum Participation Booking (Phase 4) — total players needed
    * (including the host) before the game is confirmed. */
   minParticipants?: number;
+  /** Open game detail (IA spec §5) — display-only, see db/index.ts's
+   * ensureColumn comment. ISO datetime string. */
+  confirmationDeadline?: string;
 }
 
 gamesRouter.post("/", requireResident, async (req, res) => {
@@ -204,8 +280,8 @@ gamesRouter.post("/", requireResident, async (req, res) => {
   await db.transaction(async (tx) => {
     await tx
       .prepare(
-        `INSERT INTO games (id, host_resident_id, activity_label, centre_id, location_text, date, time, skill_level, capacity, price_cents, visibility, solo_friendly, min_participants, status)
-         VALUES (@id, @hostResidentId, @activityLabel, @centreId, @locationText, @date, @time, @skillLevel, @capacity, @priceCents, @visibility, @soloFriendly, @minParticipants, @status)`
+        `INSERT INTO games (id, host_resident_id, activity_label, centre_id, location_text, date, time, skill_level, capacity, price_cents, visibility, solo_friendly, min_participants, confirmation_deadline, status)
+         VALUES (@id, @hostResidentId, @activityLabel, @centreId, @locationText, @date, @time, @skillLevel, @capacity, @priceCents, @visibility, @soloFriendly, @minParticipants, @confirmationDeadline, @status)`
       )
       .run({
         id,
@@ -221,6 +297,7 @@ gamesRouter.post("/", requireResident, async (req, res) => {
         visibility: b.visibility ?? "public",
         soloFriendly: b.soloFriendly ? 1 : 0,
         minParticipants: b.minParticipants ?? null,
+        confirmationDeadline: b.confirmationDeadline ?? null,
         status: startsPending ? "pending_participants" : "open",
       });
     // The host is automatically a participant — they take one of the capacity spots.
@@ -228,6 +305,14 @@ gamesRouter.post("/", requireResident, async (req, res) => {
   });
 
   const row = (await db.prepare(`SELECT * FROM games WHERE id = ?`).get(id)) as GameRow;
+  await matchSearchAlertsForGame({
+    id: row.id,
+    activityLabel: row.activity_label,
+    hostResidentId: row.host_resident_id,
+    centreId: row.centre_id,
+    date: row.date,
+    time: row.time,
+  });
   res.status(201).json(await toGameJson(row));
 });
 
@@ -341,6 +426,7 @@ gamesRouter.post("/:id/join", requireResident, async (req, res) => {
     ref: insertedRef,
     type: "game",
     customerEmail: req.resident!.email,
+    residentId: req.resident!.id,
     lineItems: pricingLineItems(pricing, { name: `${row.activity_label} — ${row.date} ${row.time}` }),
   });
   if (!result.ok) {

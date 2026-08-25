@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { createBookingCheckout, fetchAvailability, fetchAvailabilityRange, fetchCentre, validateCoupon, PLATFORM_FEE_RATE, VAT_RATE } from "../api";
+import { createBookingCheckout, fetchAvailability, fetchAvailabilityRange, fetchCentre, fetchCentres, validateCoupon, PLATFORM_FEE_RATE, VAT_RATE } from "../api";
 import { Chip } from "../components/Chip";
 import { PageTitle } from "../components/PageTitle";
 import { Photo } from "../components/Photo";
@@ -28,10 +28,12 @@ interface BookingForm {
   /** Open Booking (Phase 3) — "" means private (default); a number string
    * means "open this many spots to other residents". */
   openSpots: string;
+  /** Open-booking setup (IA spec §6) — datetime-local string, "" = none. */
+  confirmationDeadline: string;
 }
 
 function blankForm(): BookingForm {
-  return { date: null, time: null, duration: 3, eventType: "", guests: "", name: "", email: "", phone: "", notes: "", openSpots: "" };
+  return { date: null, time: null, duration: 3, eventType: "", guests: "", name: "", email: "", phone: "", notes: "", openSpots: "", confirmationDeadline: "" };
 }
 
 const MONTH_NAMES = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
@@ -77,6 +79,9 @@ export function BookingFlow() {
   const [dayClosed, setDayClosed] = useState(false);
   const [closedDates, setClosedDates] = useState<Set<string>>(new Set());
   const [monthOffset, setMonthOffset] = useState(0);
+  // Booking failure/recovery (IA spec §6) — real alternatives, fetched only
+  // once an error actually occurs, never pre-loaded speculatively.
+  const [similarCentres, setSimilarCentres] = useState<Centre[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [confirmedRef, setConfirmedRef] = useState<string | null>(null);
@@ -201,6 +206,7 @@ export function BookingFlow() {
         notes: form.notes,
         couponCode: coupon?.code,
         openSpots: resident && form.openSpots ? Number(form.openSpots) : undefined,
+        confirmationDeadline: resident && form.openSpots && form.confirmationDeadline ? new Date(form.confirmationDeadline).toISOString() : undefined,
       });
       if (res.url) {
         window.location.href = res.url;
@@ -213,6 +219,11 @@ export function BookingFlow() {
     } catch (e) {
       setError(e instanceof Error ? e.message : fallbackCopy.generic);
       setSubmitting(false);
+      if (centre) {
+        fetchCentres(centre.county)
+          .then((rows) => setSimilarCentres(rows.filter((c) => c.id !== centre.id).slice(0, 3)))
+          .catch(() => setSimilarCentres([]));
+      }
     }
   };
 
@@ -473,7 +484,7 @@ export function BookingFlow() {
                 <label style={{ ...labelStyle, margin: "16px 0 6px" }}>Anything the centre should know? (optional)</label>
                 <textarea value={form.notes} onChange={(e) => set("notes", e.target.value)} rows={2} placeholder="Setup needs, catering, accessibility…" style={{ ...inputStyle, resize: "vertical" }} />
 
-                {resident && (
+                {resident && centre.openBookingEnabled && (
                   <div style={{ marginTop: 22, background: colors.bg, border: `1px solid ${colors.border}`, borderRadius: 14, padding: 16 }}>
                     <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 10 }}>Playing privately, or looking for more players?</div>
                     <div style={{ display: "flex", gap: 8, marginBottom: form.openSpots ? 12 : 0 }}>
@@ -491,9 +502,17 @@ export function BookingFlow() {
                           onChange={(e) => set("openSpots", e.target.value)}
                           style={{ ...inputStyle, width: 100 }}
                         />
-                        <p style={{ fontSize: 12.5, color: colors.mutedLight, margin: "10px 0 0" }}>
+                        <p style={{ fontSize: 12.5, color: colors.mutedLight, margin: "10px 0 14px" }}>
                           Other residents will be able to find and join this booking, each paying their own share of the cost. This creates a public listing under "Games" once your booking is confirmed.
                         </p>
+                        <label style={labelStyle}>Confirm by (optional)</label>
+                        <input
+                          type="datetime-local"
+                          value={form.confirmationDeadline}
+                          onChange={(e) => set("confirmationDeadline", e.target.value)}
+                          style={{ ...inputStyle, maxWidth: 240 }}
+                        />
+                        <p style={{ fontSize: 12, color: colors.faint, margin: "4px 0 0" }}>Shown on the listing as a target — not automatically enforced.</p>
                       </>
                     )}
                   </div>
@@ -558,7 +577,27 @@ export function BookingFlow() {
               </>
             )}
 
-            {error && <p style={{ color: colors.danger, fontSize: 14, marginTop: 16 }}>{error}</p>}
+            {error && (
+              <div style={{ marginTop: 16 }}>
+                <p style={{ color: colors.danger, fontSize: 14, margin: 0 }}>{error}</p>
+                {similarCentres && similarCentres.length > 0 && (
+                  <div style={{ marginTop: 12 }}>
+                    <p style={{ fontSize: 13, color: colors.mutedLight, margin: "0 0 8px" }}>Other places nearby:</p>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                      {similarCentres.map((c) => (
+                        <button
+                          key={c.id}
+                          onClick={() => navigate(`/centres/${c.slug ?? c.id}`)}
+                          style={{ background: colors.panel, border: "none", borderRadius: 10, padding: "8px 12px", fontSize: 13, fontWeight: 600, cursor: "pointer", textAlign: "left" }}
+                        >
+                          {c.name}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
 
             <div style={{ display: "flex", gap: 12, marginTop: 26 }}>
               {step > 1 && (

@@ -1,7 +1,10 @@
+import crypto from "node:crypto";
 import { Router } from "express";
 import { db } from "../db/index.js";
-import { listResidentParticipation } from "../db/queries.js";
+import { getRoutineSuggestions, listResidentParticipation, reviewStats } from "../db/queries.js";
+import { MOOD_KEYWORDS } from "./discover.js";
 import { requireResident, updateResident } from "../residents.js";
+import { stripe } from "../stripe.js";
 import { BadRequestError, clientIdFrom } from "../util.js";
 
 export const residentsRouter = Router();
@@ -32,7 +35,10 @@ residentsRouter.get("/me", async (req, res) => {
     .prepare(
       `SELECT interests, availability, onboarding_completed as onboardingCompleted, notification_prefs as notificationPrefs,
               accessibility_prefs as accessibilityPrefs, search_radius_km as searchRadiusKm,
-              host_status as hostStatus, host_bio as hostBio, host_phone as hostPhone
+              host_status as hostStatus, host_bio as hostBio, host_phone as hostPhone,
+              goals, pref_group_size as prefGroupSize, pref_beginner_friendly as prefBeginnerFriendly,
+              pref_solo_friendly as prefSoloFriendly, pref_budget as prefBudget,
+              hide_from_familiar_count as hideFromFamiliarCount, discoverable_by_name as discoverableByName
        FROM residents WHERE id = ?`
     )
     .get(req.resident.id)) as {
@@ -45,6 +51,13 @@ residentsRouter.get("/me", async (req, res) => {
     hostStatus: "none" | "pending" | "verified" | "rejected";
     hostBio: string | null;
     hostPhone: string;
+    goals: string | null;
+    prefGroupSize: string;
+    prefBeginnerFriendly: number;
+    prefSoloFriendly: number;
+    prefBudget: string;
+    hideFromFamiliarCount: number;
+    discoverableByName: number;
   };
   res.json({
     resident: {
@@ -58,6 +71,13 @@ residentsRouter.get("/me", async (req, res) => {
       hostStatus: row.hostStatus,
       hostBio: row.hostBio ?? "",
       hostPhone: row.hostPhone,
+      goals: row.goals ? row.goals.split(",").filter(Boolean) : [],
+      prefGroupSize: row.prefGroupSize,
+      prefBeginnerFriendly: !!row.prefBeginnerFriendly,
+      prefSoloFriendly: !!row.prefSoloFriendly,
+      prefBudget: row.prefBudget,
+      hideFromFamiliarCount: !!row.hideFromFamiliarCount,
+      discoverableByName: !!row.discoverableByName,
     },
   });
 });
@@ -92,6 +112,122 @@ residentsRouter.post("/me/host-application", requireResident, async (req, res) =
   res.json({ ok: true });
 });
 
+// Host public profile (IA spec §5) — public, no auth required, and only
+// ever resolves for a verified host. Never exposes email/phone; only what
+// participation-relevant info the spec's own "Host public profile" screen
+// asks for (activities hosted, verification, hosting experience).
+residentsRouter.get("/:id/host-profile", async (req, res) => {
+  const host = (await db.prepare(`SELECT id, name, host_bio as bio, host_status as hostStatus FROM residents WHERE id = ?`).get(req.params.id)) as
+    | { id: string; name: string; bio: string | null; hostStatus: string }
+    | undefined;
+  if (!host || host.hostStatus !== "verified") return res.status(404).json({ error: "Host not found" });
+
+  const today = new Date().toISOString().slice(0, 10);
+  const games = await db
+    .prepare(`SELECT id, activity_label as activityLabel, date, time FROM games WHERE host_resident_id = ? AND status = 'open' AND date >= ? ORDER BY date, time`)
+    .all(req.params.id, today);
+  const circles = await db
+    .prepare(`SELECT id, name, activity_label as activityLabel, slug FROM circles WHERE created_by_resident_id = ? ORDER BY name`)
+    .all(req.params.id);
+  const { n: gamesHostedTotal } = (await db.prepare(`SELECT COUNT(*) as n FROM games WHERE host_resident_id = ?`).get(req.params.id)) as { n: number };
+  // Host reviews (master-prompt punch list #3) — reuses the same
+  // reviewStats() aggregation centres/clubs already use, just for
+  // listing_type='host'.
+  const { rating, reviews } = await reviewStats("host", req.params.id);
+
+  res.json({ id: host.id, name: host.name, bio: host.bio ?? "", upcomingGames: games, circles, gamesHostedTotal, rating, reviews });
+});
+
+// --- Routines-as-an-object (IA spec §9) ------------------------------------
+// A personal planning aid, never an automatic booking — see db/index.ts's
+// routines table comment. `day_of_week` is MySQL's DAYOFWEEK() convention
+// (1=Sunday..7=Saturday), matched by getRoutineSuggestions().
+
+residentsRouter.get("/me/routine-suggestions", requireResident, async (req, res) => {
+  res.json(await getRoutineSuggestions(req.resident!.id));
+});
+
+residentsRouter.get("/me/routines", requireResident, async (req, res) => {
+  const rows = await db
+    .prepare(
+      `SELECT r.id, r.activity_label as activityLabel, r.centre_id as centreId, c.name as centreName, r.day_of_week as dayOfWeek, r.time, r.status, r.created_at as createdAt
+       FROM routines r LEFT JOIN centres c ON c.id = r.centre_id
+       WHERE r.resident_id = ? AND r.status != 'cancelled' ORDER BY r.day_of_week, r.time`
+    )
+    .all(req.resident!.id);
+  res.json(rows);
+});
+
+residentsRouter.post("/me/routines", requireResident, async (req, res) => {
+  const { activityLabel, centreId, dayOfWeek, time } = req.body as { activityLabel?: string; centreId?: string; dayOfWeek?: number; time?: string };
+  if (!activityLabel || dayOfWeek === undefined || dayOfWeek < 1 || dayOfWeek > 7) {
+    return res.status(400).json({ error: "activityLabel and a valid dayOfWeek (1-7) are required" });
+  }
+  const id = crypto.randomUUID();
+  await db
+    .prepare(`INSERT INTO routines (id, resident_id, activity_label, centre_id, day_of_week, time) VALUES (?, ?, ?, ?, ?, ?)`)
+    .run(id, req.resident!.id, activityLabel, centreId ?? null, dayOfWeek, time ?? "");
+  res.status(201).json({ id });
+});
+
+residentsRouter.put("/me/routines/:id", requireResident, async (req, res) => {
+  const { status, time } = req.body as { status?: string; time?: string };
+  if (status !== undefined && !["active", "paused", "cancelled"].includes(status)) {
+    return res.status(400).json({ error: "status must be active, paused or cancelled" });
+  }
+  const info = await db
+    .prepare(`UPDATE routines SET status = COALESCE(?, status), time = COALESCE(?, time) WHERE id = ? AND resident_id = ?`)
+    .run(status, time, req.params.id, req.resident!.id);
+  if (info.changes === 0) return res.status(404).json({ error: "Routine not found" });
+  res.json({ ok: true });
+});
+
+// --- saved-search alerts (master-prompt punch list #5) -----------------
+// Trigger-based matching happens at game-creation time — see
+// ../searchAlerts.ts's matchSearchAlertsForGame(), called from
+// games.ts's POST /.
+
+residentsRouter.get("/me/search-alerts", requireResident, async (req, res) => {
+  const rows = await db
+    .prepare(
+      `SELECT id, county, keywords, mood, active, created_at as createdAt
+       FROM search_alerts WHERE resident_id = ? ORDER BY created_at DESC`
+    )
+    .all(req.resident!.id);
+  res.json(rows);
+});
+
+residentsRouter.post("/me/search-alerts", requireResident, async (req, res) => {
+  const { county, keywords, mood } = req.body as { county?: string; keywords?: string; mood?: string };
+  if (!county?.trim() && !keywords?.trim() && !mood?.trim()) {
+    return res.status(400).json({ error: "Give at least a county, keywords, or a mood to match on" });
+  }
+  if (mood && !Object.keys(MOOD_KEYWORDS).includes(mood)) {
+    return res.status(400).json({ error: "Unrecognised mood" });
+  }
+  const id = crypto.randomUUID();
+  await db
+    .prepare(`INSERT INTO search_alerts (id, resident_id, county, keywords, mood) VALUES (?, ?, ?, ?, ?)`)
+    .run(id, req.resident!.id, county?.trim() ?? "", keywords?.trim() || null, mood?.trim() || null);
+  res.status(201).json({ id });
+});
+
+residentsRouter.put("/me/search-alerts/:id", requireResident, async (req, res) => {
+  const { active } = req.body as { active?: boolean };
+  if (active === undefined) return res.status(400).json({ error: "active is required" });
+  const info = await db
+    .prepare(`UPDATE search_alerts SET active = ? WHERE id = ? AND resident_id = ?`)
+    .run(active ? 1 : 0, req.params.id, req.resident!.id);
+  if (info.changes === 0) return res.status(404).json({ error: "Alert not found" });
+  res.json({ ok: true });
+});
+
+residentsRouter.delete("/me/search-alerts/:id", requireResident, async (req, res) => {
+  const info = await db.prepare(`DELETE FROM search_alerts WHERE id = ? AND resident_id = ?`).run(req.params.id, req.resident!.id);
+  if (info.changes === 0) return res.status(404).json({ error: "Alert not found" });
+  res.json({ ok: true });
+});
+
 // --- onboarding (Phase A) ---------------------------------------------
 // Signal-only: stored and returned, wired into recommendations later (see
 // plan doc). Skippable at every step on the client — nothing here is ever
@@ -102,6 +238,17 @@ interface OnboardingBody {
   searchRadiusKm?: number;
   interests?: string[];
   availability?: string[];
+  /** IA spec §2 — "what would make life better right now", multi-select. */
+  goals?: string[];
+  /** IA spec §2's "participation comfort" step — travel distance and
+   * preferred times already exist above (searchRadiusKm/availability), so
+   * only the remaining 3 fields are collected here. Empty string means
+   * no preference, not unset — never gates anything, same as every other
+   * onboarding field. */
+  prefGroupSize?: string;
+  prefBeginnerFriendly?: boolean;
+  prefSoloFriendly?: boolean;
+  prefBudget?: string;
 }
 
 residentsRouter.put("/me/onboarding", requireResident, async (req, res) => {
@@ -113,10 +260,26 @@ residentsRouter.put("/me/onboarding", requireResident, async (req, res) => {
         search_radius_km = COALESCE(?, search_radius_km),
         interests = COALESCE(?, interests),
         availability = COALESCE(?, availability),
+        goals = COALESCE(?, goals),
+        pref_group_size = COALESCE(?, pref_group_size),
+        pref_beginner_friendly = COALESCE(?, pref_beginner_friendly),
+        pref_solo_friendly = COALESCE(?, pref_solo_friendly),
+        pref_budget = COALESCE(?, pref_budget),
         onboarding_completed = 1
        WHERE id = ?`
     )
-    .run(b.homeCounty, b.searchRadiusKm, b.interests ? b.interests.join(",") : undefined, b.availability ? b.availability.join(",") : undefined, req.resident!.id);
+    .run(
+      b.homeCounty,
+      b.searchRadiusKm,
+      b.interests ? b.interests.join(",") : undefined,
+      b.availability ? b.availability.join(",") : undefined,
+      b.goals ? b.goals.join(",") : undefined,
+      b.prefGroupSize,
+      b.prefBeginnerFriendly === undefined ? undefined : b.prefBeginnerFriendly ? 1 : 0,
+      b.prefSoloFriendly === undefined ? undefined : b.prefSoloFriendly ? 1 : 0,
+      b.prefBudget,
+      req.resident!.id
+    );
   res.json({ ok: true });
 });
 
@@ -195,5 +358,124 @@ residentsRouter.get("/me/notifications", requireResident, async (req, res) => {
 residentsRouter.post("/me/notifications/:id/read", requireResident, async (req, res) => {
   const info = await db.prepare(`UPDATE notifications SET \`read\` = 1 WHERE id = ? AND resident_id = ?`).run(req.params.id, req.resident!.id);
   if (info.changes === 0) return res.status(404).json({ error: "Not found" });
+  res.json({ ok: true });
+});
+
+// --- Safety Centre (IA spec §13) ---------------------------------------
+// Storage + visibility only, deliberately — see blocked_residents' own
+// comment in db/index.ts. Nothing in chat/game-join reads this table yet;
+// this is the resident-facing "who have I blocked" list itself.
+
+residentsRouter.get("/me/blocked", requireResident, async (req, res) => {
+  const rows = await db
+    .prepare(
+      `SELECT b.blocked_resident_id as id, r.name, b.created_at as createdAt
+       FROM blocked_residents b JOIN residents r ON r.id = b.blocked_resident_id
+       WHERE b.blocker_resident_id = ? ORDER BY b.created_at DESC`
+    )
+    .all(req.resident!.id);
+  res.json(rows);
+});
+
+residentsRouter.post("/me/blocked/:residentId", requireResident, async (req, res) => {
+  if (req.params.residentId === req.resident!.id) return res.status(400).json({ error: "You can't block yourself" });
+  await db
+    .prepare(`INSERT IGNORE INTO blocked_residents (blocker_resident_id, blocked_resident_id) VALUES (?, ?)`)
+    .run(req.resident!.id, req.params.residentId);
+  res.json({ ok: true });
+});
+
+residentsRouter.delete("/me/blocked/:residentId", requireResident, async (req, res) => {
+  await db.prepare(`DELETE FROM blocked_residents WHERE blocker_resident_id = ? AND blocked_resident_id = ?`).run(req.resident!.id, req.params.residentId);
+  res.json({ ok: true });
+});
+
+// Privacy toggles: opt out of appearing in someone else's "familiar
+// participants" count (read by countFamiliarCoParticipants() in
+// queries.ts), and opt IN to being findable by GET /search below (off by
+// default — see discoverable_by_name's own schema comment).
+residentsRouter.put("/me/privacy-prefs", requireResident, async (req, res) => {
+  const { hideFromFamiliarCount, discoverableByName } = req.body as { hideFromFamiliarCount?: boolean; discoverableByName?: boolean };
+  await db
+    .prepare(`UPDATE residents SET hide_from_familiar_count = COALESCE(?, hide_from_familiar_count), discoverable_by_name = COALESCE(?, discoverable_by_name) WHERE id = ?`)
+    .run(hideFromFamiliarCount === undefined ? undefined : hideFromFamiliarCount ? 1 : 0, discoverableByName === undefined ? undefined : discoverableByName ? 1 : 0, req.resident!.id);
+  res.json({ ok: true });
+});
+
+// Circle invite picker (implementation backlog #3) — only ever matches
+// residents who opted in via discoverable_by_name; never returns
+// email/phone, matching the "no PII beyond a name" convention
+// HostProfile/ProviderProfile already use for public-ish lookups.
+residentsRouter.get("/search", requireResident, async (req, res) => {
+  const q = typeof req.query.q === "string" ? req.query.q.trim() : "";
+  if (q.length < 2) return res.json([]);
+  const rows = await db
+    .prepare(
+      `SELECT id, name FROM residents WHERE discoverable_by_name = 1 AND id != ? AND name LIKE ? ORDER BY name LIMIT 10`
+    )
+    .all(req.resident!.id, `%${q}%`);
+  res.json(rows);
+});
+
+// --- Payment methods (implementation backlog #1) --------------------------
+// No separate "add a card" flow here — a card gets saved the idiomatic way
+// for a Stripe-Checkout-based app: the "Save my payment details" checkbox
+// checkoutService.ts's createCheckoutSession() now offers on every real
+// purchase (see its own saved_payment_method_options comment). This is
+// read/manage-only: list what's saved, set a default, remove one. 503s the
+// same way every other Stripe-dependent route in this app does when
+// unconfigured — never a hard crash.
+
+residentsRouter.get("/me/payment-methods", requireResident, async (req, res) => {
+  if (!stripe) return res.status(503).json({ error: "Payments aren't configured yet" });
+  const row = (await db.prepare(`SELECT stripe_customer_id as stripeCustomerId FROM residents WHERE id = ?`).get(req.resident!.id)) as
+    | { stripeCustomerId: string | null }
+    | undefined;
+  if (!row?.stripeCustomerId) return res.json({ methods: [], defaultMethodId: null });
+
+  const [methods, customer] = await Promise.all([
+    stripe.paymentMethods.list({ customer: row.stripeCustomerId, type: "card" }),
+    stripe.customers.retrieve(row.stripeCustomerId),
+  ]);
+  const defaultMethodId =
+    !customer.deleted && typeof customer.invoice_settings?.default_payment_method === "string"
+      ? customer.invoice_settings.default_payment_method
+      : null;
+
+  res.json({
+    methods: methods.data.map((m) => ({
+      id: m.id,
+      brand: m.card?.brand ?? "card",
+      last4: m.card?.last4 ?? "????",
+      expMonth: m.card?.exp_month ?? 0,
+      expYear: m.card?.exp_year ?? 0,
+    })),
+    defaultMethodId,
+  });
+});
+
+residentsRouter.put("/me/payment-methods/:id/default", requireResident, async (req, res) => {
+  if (!stripe) return res.status(503).json({ error: "Payments aren't configured yet" });
+  const row = (await db.prepare(`SELECT stripe_customer_id as stripeCustomerId FROM residents WHERE id = ?`).get(req.resident!.id)) as
+    | { stripeCustomerId: string | null }
+    | undefined;
+  if (!row?.stripeCustomerId) return res.status(404).json({ error: "No saved payment methods" });
+  await stripe.customers.update(row.stripeCustomerId, { invoice_settings: { default_payment_method: req.params.id } });
+  res.json({ ok: true });
+});
+
+residentsRouter.delete("/me/payment-methods/:id", requireResident, async (req, res) => {
+  if (!stripe) return res.status(503).json({ error: "Payments aren't configured yet" });
+  // detach() takes no customer id — the payment_method id alone identifies
+  // it, but only after confirming it actually belongs to this resident's
+  // customer, so one resident can't detach another's saved card by guessing
+  // a payment_method id.
+  const row = (await db.prepare(`SELECT stripe_customer_id as stripeCustomerId FROM residents WHERE id = ?`).get(req.resident!.id)) as
+    | { stripeCustomerId: string | null }
+    | undefined;
+  if (!row?.stripeCustomerId) return res.status(404).json({ error: "No saved payment methods" });
+  const method = await stripe.paymentMethods.retrieve(req.params.id);
+  if (method.customer !== row.stripeCustomerId) return res.status(403).json({ error: "Not your payment method" });
+  await stripe.paymentMethods.detach(req.params.id);
   res.json({ ok: true });
 });

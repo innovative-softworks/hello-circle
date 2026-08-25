@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import { Router } from "express";
 import { hasPlatformRole } from "../auth.js";
 import { db } from "../db/index.js";
+import { orgFeatureFlags } from "../db/queries.js";
 import { inClause, ownsListing } from "./vendorHelpers.js";
 
 // Programs, sessions, attendance (Phase B) — split out of the original
@@ -26,6 +27,8 @@ interface ProgramInput {
   skillLevel?: string;
   equipment?: string[];
   instructorName?: string;
+  guardianRules?: string;
+  safeguardingInfo?: string;
 }
 
 const PROGRAM_STATUSES = ["draft", "published", "paused", "archived"];
@@ -52,12 +55,17 @@ vendorProgramsRouter.post("/programs", async (req, res) => {
   if (!hasPlatformRole(req.user!, b.listingType === "centre" ? "centre_manager" : "facility_manager")) {
     return res.status(403).json({ error: "Not authorized for this role" });
   }
+  // Feature flags (implementation backlog #5) — admin can disable Programs
+  // for an org; server-enforced, not just a hidden button client-side.
+  if (!(await orgFeatureFlags(req.user!.id)).programs) {
+    return res.status(403).json({ error: "Programs aren't enabled for your organisation" });
+  }
 
   const id = crypto.randomUUID();
   await db
     .prepare(
-      `INSERT INTO programs (id, listing_type, listing_id, vendor_id, title, description, age_range, image_url, price_cents, capacity, status, category, skill_level, equipment, instructor_name)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?, ?)`
+      `INSERT INTO programs (id, listing_type, listing_id, vendor_id, title, description, age_range, image_url, price_cents, capacity, status, category, skill_level, equipment, instructor_name, guardian_rules, safeguarding_info)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?, ?, ?, ?)`
     )
     .run(
       id,
@@ -73,7 +81,9 @@ vendorProgramsRouter.post("/programs", async (req, res) => {
       b.category ?? "",
       b.skillLevel ?? "",
       (b.equipment ?? []).join(","),
-      b.instructorName ?? ""
+      b.instructorName ?? "",
+      b.guardianRules ?? "",
+      b.safeguardingInfo ?? ""
     );
   res.status(201).json({ id });
 });
@@ -103,7 +113,8 @@ vendorProgramsRouter.put("/programs/:id", async (req, res) => {
       `UPDATE programs SET title = COALESCE(?, title), description = COALESCE(?, description), age_range = COALESCE(?, age_range),
        image_url = COALESCE(?, image_url), price_cents = COALESCE(?, price_cents), status = COALESCE(?, status),
        category = COALESCE(?, category), skill_level = COALESCE(?, skill_level), equipment = COALESCE(?, equipment),
-       instructor_name = COALESCE(?, instructor_name),
+       instructor_name = COALESCE(?, instructor_name), guardian_rules = COALESCE(?, guardian_rules),
+       safeguarding_info = COALESCE(?, safeguarding_info),
        capacity = CASE WHEN ? THEN capacity ELSE ? END
        WHERE id = ?`
     )
@@ -118,6 +129,8 @@ vendorProgramsRouter.put("/programs/:id", async (req, res) => {
       b.skillLevel,
       b.equipment ? b.equipment.join(",") : undefined,
       b.instructorName,
+      b.guardianRules,
+      b.safeguardingInfo,
       b.capacity === undefined ? 1 : 0,
       b.capacity === undefined ? null : b.capacity,
       req.params.id

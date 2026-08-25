@@ -53,6 +53,7 @@ passesRouter.post("/checkout", requireResident, async (req, res) => {
     ref,
     type: "pass",
     customerEmail: req.resident!.email,
+    residentId: req.resident!.id,
     lineItems: pricingLineItems(pricing, { name: `${club.name} — ${b.creditsTotal}-credit pass` }),
   });
   if (!result.ok) {

@@ -2,6 +2,8 @@ import crypto from "node:crypto";
 import { Router } from "express";
 import { requirePlatformRole } from "../auth.js";
 import { db } from "../db/index.js";
+import { orgFeatureFlags } from "../db/queries.js";
+import { generateSlug } from "../slugify.js";
 
 // Adventures & Experiences — vendor-side CRUD, split out the same way
 // vendorListings.ts/vendorPrograms.ts are (see CLAUDE.md). Mounted under
@@ -69,22 +71,29 @@ vendorExperiencesRouter.get("/experiences/:id", async (req, res) => {
 vendorExperiencesRouter.post("/experiences", requirePlatformRole(...EXPERIENCE_ROLES), async (req, res) => {
   const b = req.body as ExperienceInput;
   if (!b.title || !b.blurb) return res.status(400).json({ error: "Title and blurb are required" });
+  // Feature flags (implementation backlog #5) — admin can disable
+  // Experiences for an org; server-enforced, not just a hidden button.
+  if (!(await orgFeatureFlags(req.user!.id)).experiences) {
+    return res.status(403).json({ error: "Experiences aren't enabled for your organisation" });
+  }
 
   const id = crypto.randomUUID();
+  const slug = await generateSlug("experiences", b.title);
   await db.transaction(async (tx) => {
     await tx
       .prepare(
         `INSERT INTO experiences (id, vendor_id, kind, title, area, county, lat, lng, meeting_point, blurb, description,
           difficulty, duration_minutes, fitness_requirements, itinerary, equipment_provided, equipment_required,
           transport_info, safety_info, weather_policy, eligibility, cancellation_terms, price_cents, capacity,
-          payment_method, image_url, status)
+          payment_method, image_url, status, slug)
          VALUES (@id, @vendorId, @kind, @title, @area, @county, @lat, @lng, @meetingPoint, @blurb, @description,
           @difficulty, @durationMinutes, @fitnessRequirements, @itinerary, @equipmentProvided, @equipmentRequired,
           @transportInfo, @safetyInfo, @weatherPolicy, @eligibility, @cancellationTerms, @priceCents, @capacity,
-          @paymentMethod, @imageUrl, 'pending')`
+          @paymentMethod, @imageUrl, 'pending', @slug)`
       )
       .run({
         id,
+        slug,
         vendorId: req.user!.id,
         kind: b.kind === "adventure" ? "adventure" : "experience",
         title: b.title,

@@ -26,7 +26,10 @@ const INFO_FIELDS: { key: keyof Experience; label: string }[] = [
 ];
 
 export function ExperienceDetail() {
-  const { id } = useParams<{ id: string }>();
+  // Slugs (master-prompt punch list #1) — see CentreDetail.tsx's own
+  // comment; booking submits with experience.id once loaded, never this
+  // raw param.
+  const { id: idOrSlug } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { resident } = useGuest();
   const [experience, setExperience] = useState<Experience | null>(null);
@@ -38,22 +41,22 @@ export function ExperienceDetail() {
   const [confirmed, setConfirmed] = useState<{ ref: string } | null>(null);
 
   useEffect(() => {
-    if (id) fetchExperience(id).then(setExperience).finally(() => setLoading(false));
-  }, [id]);
+    if (idOrSlug) fetchExperience(idOrSlug).then(setExperience).finally(() => setLoading(false));
+  }, [idOrSlug]);
 
   useEffect(() => {
     if (resident?.email) setForm((f) => ({ ...f, email: resident.email }));
   }, [resident]);
 
   const submit = async () => {
-    if (!id || !selectedSession || !form.participantName || !isValidEmail(form.email)) {
+    if (!experience || !selectedSession || !form.participantName || !isValidEmail(form.email)) {
       setError("A participant name, a valid email and a departure are required");
       return;
     }
     setError(null);
     setSubmitting(true);
     try {
-      const res = await bookExperienceSession(id, selectedSession.id, form);
+      const res = await bookExperienceSession(experience.id, selectedSession.id, form);
       if (res.url) {
         window.location.href = res.url;
         return;

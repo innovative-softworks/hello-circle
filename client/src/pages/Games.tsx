@@ -92,7 +92,7 @@ export function Games() {
   const [creating, setCreating] = useState(false);
 
   const [centres, setCentres] = useState<Centre[]>([]);
-  const [form, setForm] = useState({ activityLabel: "", centreId: "", locationText: "", date: "", time: "", capacity: 4, priceCents: "", soloFriendly: false, minParticipants: "" });
+  const [form, setForm] = useState({ activityLabel: "", centreId: "", locationText: "", date: "", time: "", capacity: 4, priceCents: "", soloFriendly: false, minParticipants: "", confirmationDeadline: "" });
   const [createError, setCreateError] = useState<string | null>(null);
 
   const load = () => {
@@ -146,8 +146,9 @@ export function Games() {
         priceCents: form.priceCents ? Math.round(parseFloat(form.priceCents) * 100) : undefined,
         soloFriendly: form.soloFriendly,
         minParticipants: form.minParticipants ? parseInt(form.minParticipants, 10) : undefined,
+        confirmationDeadline: form.minParticipants && form.confirmationDeadline ? new Date(form.confirmationDeadline).toISOString() : undefined,
       });
-      setForm({ activityLabel: "", centreId: "", locationText: "", date: "", time: "", capacity: 4, priceCents: "", soloFriendly: false, minParticipants: "" });
+      setForm({ activityLabel: "", centreId: "", locationText: "", date: "", time: "", capacity: 4, priceCents: "", soloFriendly: false, minParticipants: "", confirmationDeadline: "" });
       load();
     } catch (e) {
       setCreateError(e instanceof Error ? e.message : "Couldn't create this game");
@@ -221,9 +222,21 @@ export function Games() {
               </div>
             </div>
             {form.minParticipants && (
-              <p style={{ fontSize: 12.5, color: colors.mutedLight, margin: "8px 0 0" }}>
-                This game stays "pending" — but still joinable — until {form.minParticipants} players (including you) have joined.
-              </p>
+              <>
+                <p style={{ fontSize: 12.5, color: colors.mutedLight, margin: "8px 0 0" }}>
+                  This game stays "pending" — but still joinable — until {form.minParticipants} players (including you) have joined.
+                </p>
+                <div style={{ marginTop: 10 }}>
+                  <label style={labelStyle}>Confirm by (optional)</label>
+                  <input
+                    type="datetime-local"
+                    value={form.confirmationDeadline}
+                    onChange={(e) => setForm((f) => ({ ...f, confirmationDeadline: e.target.value }))}
+                    style={{ ...inputStyle, maxWidth: 240 }}
+                  />
+                  <p style={{ fontSize: 12, color: colors.faint, margin: "4px 0 0" }}>Shown to players as a target — not automatically enforced.</p>
+                </div>
+              </>
             )}
             <label style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 12, fontSize: 13.5, color: colors.muted, cursor: "pointer" }}>
               <input type="checkbox" checked={form.soloFriendly} onChange={(e) => setForm((f) => ({ ...f, soloFriendly: e.target.checked }))} />

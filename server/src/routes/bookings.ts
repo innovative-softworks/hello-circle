@@ -2,8 +2,9 @@ import crypto from "node:crypto";
 import { Router } from "express";
 import { createCheckoutSession, pricingLineItems } from "../checkoutService.js";
 import { db } from "../db/index.js";
-import { getCentre, orgPoliciesForVendor } from "../db/queries.js";
+import { getCentre, orgFeatureFlags, orgPoliciesForVendor } from "../db/queries.js";
 import { upgradeFavouriteStatus } from "./favourites.js";
+import { buildIcsEvent } from "../ics.js";
 import { irelandWallTimeToUtc } from "../irelandTime.js";
 import { notifyCancellation, notifyNewBookingOrRegistration } from "../notifications.js";
 import { computePricing, evaluateCoupon, splitCostPerPerson } from "../pricing.js";
@@ -28,6 +29,9 @@ interface CreateBookingBody {
   /** Open Booking (Phase 3) — how many additional spots (beyond the
    * booker) to open to other residents once this booking is confirmed. */
   openSpots?: number;
+  /** Open-booking setup (IA spec §6) — display-only, passed through to the
+   * resulting game by createGameFromOpenBooking(). */
+  confirmationDeadline?: string;
 }
 
 export function hireCost(rate: number, duration: number): number {
@@ -48,11 +52,11 @@ export async function createGameFromOpenBooking(ref: string) {
     const row = (await db
       .prepare(
         `SELECT b.open_spots as openSpots, b.min_participants as minParticipants, b.resident_id as residentId, b.centre_id as centreId, b.date, b.time,
-                b.event_type as eventType, b.total_cents as totalCents
+                b.event_type as eventType, b.total_cents as totalCents, b.confirmation_deadline as confirmationDeadline
          FROM bookings b WHERE b.ref = ? AND b.payment_status = 'paid'`
       )
       .get(ref)) as
-      | { openSpots: number | null; minParticipants: number | null; residentId: string | null; centreId: string; date: string; time: string; eventType: string; totalCents: number }
+      | { openSpots: number | null; minParticipants: number | null; residentId: string | null; centreId: string; date: string; time: string; eventType: string; totalCents: number; confirmationDeadline: string | null }
       | undefined;
     if (!row || !row.openSpots || !row.residentId) return;
 
@@ -68,8 +72,8 @@ export async function createGameFromOpenBooking(ref: string) {
     const id = crypto.randomUUID();
     await db
       .prepare(
-        `INSERT INTO games (id, host_resident_id, activity_label, centre_id, date, time, capacity, price_cents, visibility, booking_ref, min_participants, status)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'public', ?, ?, ?)`
+        `INSERT INTO games (id, host_resident_id, activity_label, centre_id, date, time, capacity, price_cents, visibility, booking_ref, min_participants, confirmation_deadline, status)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'public', ?, ?, ?, ?)`
       )
       .run(
         id,
@@ -82,6 +86,7 @@ export async function createGameFromOpenBooking(ref: string) {
         splitCostPerPerson(row.totalCents, row.openSpots),
         ref,
         row.minParticipants,
+        row.confirmationDeadline,
         startsPending ? "pending_participants" : "open"
       );
   } catch (e) {
@@ -104,6 +109,7 @@ export interface CreateBookingInternalInput {
   couponCode?: string;
   openSpots?: number | null;
   minParticipants?: number | null;
+  confirmationDeadline?: string | null;
   residentId: string | null;
   clientId: string;
 }
@@ -139,6 +145,14 @@ export async function createBookingInternal(input: CreateBookingInternalInput): 
   const eventStart = irelandWallTimeToUtc(input.date, startHour);
   if (eventStart.getTime() - Date.now() > bookingWindowDays * 24 * 60 * 60 * 1000) {
     return { ok: false, status: 409, error: `This venue only takes bookings up to ${bookingWindowDays} days in advance` };
+  }
+
+  // Feature flags (implementation backlog #5) — admin can disable Open
+  // Booking for an org; checked here (the single internal function shared
+  // by direct checkout and Make It Happen's confirm step) rather than at
+  // each entry point separately, so neither can drift out of enforcement.
+  if (input.openSpots && !(await orgFeatureFlags(centreVendorRow?.vendor_id ?? null)).open_booking) {
+    return { ok: false, status: 403, error: "Open Booking isn't enabled for this venue" };
   }
 
   const isCash = room.paymentMethod === "cash";
@@ -193,9 +207,9 @@ export async function createBookingInternal(input: CreateBookingInternalInput): 
       await tx
         .prepare(
           `INSERT INTO bookings (ref, client_id, resident_id, centre_id, room_id, date, time, duration, event_type, guests, name, email, phone, notes,
-            subtotal_cents, discount_cents, vat_cents, platform_fee_cents, coupon_code, total_cents, payment_status, open_spots, min_participants)
+            subtotal_cents, discount_cents, vat_cents, platform_fee_cents, coupon_code, total_cents, payment_status, open_spots, min_participants, confirmation_deadline)
            VALUES (@ref, @clientId, @residentId, @centreId, @roomId, @date, @time, @duration, @eventType, @guests, @name, @email, @phone, @notes,
-            @subtotalCents, @discountCents, @vatCents, @platformFeeCents, @couponCode, @totalCents, @status, @openSpots, @minParticipants)`
+            @subtotalCents, @discountCents, @vatCents, @platformFeeCents, @couponCode, @totalCents, @status, @openSpots, @minParticipants, @confirmationDeadline)`
         )
         .run({
           ref,
@@ -218,6 +232,7 @@ export async function createBookingInternal(input: CreateBookingInternalInput): 
           platformFeeCents: pricing.platformFeeCents,
           openSpots: input.openSpots ?? null,
           minParticipants: input.minParticipants ?? null,
+          confirmationDeadline: input.confirmationDeadline ?? null,
           couponCode: pricing.couponCode,
           totalCents: pricing.totalCents,
           status: isCash ? "paid" : "pending",
@@ -251,6 +266,7 @@ export async function createBookingInternal(input: CreateBookingInternalInput): 
     ref,
     type: "booking",
     customerEmail: input.email,
+    residentId: input.residentId,
     lineItems: pricingLineItems(pricing, {
       name: room.name ? `${centre.name} — ${room.name}` : centre.name,
       description: `${input.date} at ${input.time}, ${input.duration}h${couponCode ? ` (coupon ${couponCode} applied)` : ""}`,
@@ -307,6 +323,7 @@ bookingsRouter.post("/checkout", async (req, res) => {
     notes: body.notes,
     couponCode: body.couponCode,
     openSpots,
+    confirmationDeadline: openSpots ? body.confirmationDeadline ?? null : null,
     residentId: req.resident?.id ?? null,
     clientId,
   });
@@ -328,6 +345,37 @@ bookingsRouter.get("/status/:ref", async (req, res) => {
     .get(req.params.ref, clientId);
   if (!row) return res.status(404).json({ error: "Booking not found" });
   res.json(row);
+});
+
+// "Add to calendar" (IA spec §13) — same client_id ownership gate as
+// GET /status/:ref, server-generated .ics rather than a client-side
+// library since a paid booking's date/time/venue are already known here.
+bookingsRouter.get("/:ref/ics", async (req, res) => {
+  let clientId: string;
+  try {
+    clientId = clientIdFrom(req);
+  } catch (e) {
+    if (e instanceof BadRequestError) return res.status(400).json({ error: e.message });
+    throw e;
+  }
+  const row = (await db
+    .prepare(
+      `SELECT b.ref, b.date, b.time, b.duration, c.name as centreName, c.area as area, c.county as county
+       FROM bookings b JOIN centres c ON c.id = b.centre_id
+       WHERE b.ref = ? AND b.client_id = ? AND b.payment_status = 'paid'`
+    )
+    .get(req.params.ref, clientId)) as
+    | { ref: string; date: string; time: string; duration: number; centreName: string; area: string; county: string }
+    | undefined;
+  if (!row) return res.status(404).json({ error: "Booking not found" });
+
+  const [h, m] = row.time.split(":").map(Number);
+  const start = irelandWallTimeToUtc(row.date, h, m);
+  const end = new Date(start.getTime() + row.duration * 60 * 60 * 1000);
+  const ics = buildIcsEvent({ uid: `booking-${row.ref}`, title: `${row.centreName} booking`, location: `${row.area}, ${row.county}`, start, end });
+  res.setHeader("Content-Type", "text/calendar; charset=utf-8");
+  res.setHeader("Content-Disposition", `attachment; filename="booking-${row.ref}.ics"`);
+  res.send(ics);
 });
 
 bookingsRouter.get("/", async (req, res) => {

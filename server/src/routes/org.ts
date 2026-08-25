@@ -3,6 +3,7 @@ import { Router } from "express";
 import { requireVendor } from "../auth.js";
 import { writeAudit } from "../audit.js";
 import { db } from "../db/index.js";
+import { orgFeatureFlagsById } from "../db/queries.js";
 import { sendMail } from "../email.js";
 import { CLIENT_URL } from "../stripe.js";
 import { isValidEmail } from "../util.js";
@@ -32,6 +33,11 @@ orgRouter.get("/", async (req, res) => {
     .prepare(`SELECT token, email, platform_role as platformRole, created_at as createdAt FROM org_invites WHERE org_id = ? AND status = 'pending' AND expires_at > NOW()`)
     .all(orgId);
   const locations = await db.prepare(`SELECT id, name, 'centre' as type FROM centres WHERE vendor_id IN (SELECT id FROM users WHERE org_id = ?) UNION ALL SELECT id, name, 'club' as type FROM clubs WHERE vendor_id IN (SELECT id FROM users WHERE org_id = ?)`).all(orgId, orgId);
+  // Read-only here — feature flags are admin-controlled, never vendor-self-
+  // serve (see routes/admin.ts's GET/PUT). Surfaced so the vendor UI can
+  // proactively hide/disable a create button rather than only ever failing
+  // server-side after the fact.
+  const flags = await orgFeatureFlagsById(orgId);
 
   res.json({
     org,
@@ -40,6 +46,7 @@ orgRouter.get("/", async (req, res) => {
     pendingInvites,
     locations,
     isOwner: !req.user!.invitedStaff,
+    flags,
   });
 });
 

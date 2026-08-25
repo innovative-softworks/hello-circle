@@ -2,12 +2,15 @@ import "dotenv/config";
 import cookieParser from "cookie-parser";
 import cors from "cors";
 import express from "express";
+import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { injectOgTags, resolveOgMeta } from "./ogMeta.js";
 import { attachUser } from "./auth.js";
 import { dataDir } from "./dataDir.js";
 import { initSchema } from "./db/index.js";
 import { seedAdminIfMissing, seedIfEmpty } from "./db/seed.js";
+import { backfillSlugs } from "./slugify.js";
 import { attachGuestEmail } from "./guestAuth.js";
 import { attachResident } from "./residents.js";
 import { adminRouter } from "./routes/admin.js";
@@ -17,6 +20,7 @@ import { bookingsRouter } from "./routes/bookings.js";
 import { chatRouter } from "./routes/chat.js";
 import { makeItHappenRouter } from "./routes/makeItHappen.js";
 import { centresRouter } from "./routes/centres.js";
+import { providersRouter } from "./routes/providers.js";
 import { circlesRouter } from "./routes/circles.js";
 import { clubSessionsRouter } from "./routes/clubSessions.js";
 import { clubsRouter } from "./routes/clubs.js";
@@ -30,6 +34,7 @@ import { guestAuthRouter } from "./routes/guestAuth.js";
 import { householdRouter } from "./routes/household.js";
 import { orgRouter, publicInviteRouter } from "./routes/org.js";
 import { passesRouter } from "./routes/passes.js";
+import { placeSuggestionsRouter } from "./routes/placeSuggestions.js";
 import { programsRouter } from "./routes/programs.js";
 import { reportsRouter } from "./routes/reports.js";
 import { registrationsRouter } from "./routes/registrations.js";
@@ -48,6 +53,7 @@ import { sweepExpiredWaitlistOffers } from "./waitlist.js";
 await initSchema();
 await seedIfEmpty();
 await seedAdminIfMissing();
+await backfillSlugs();
 
 // A route handler throwing inside an unawaited/uncaught async path (e.g. a
 // third-party API call like Stripe rejecting) would otherwise crash the
@@ -88,6 +94,7 @@ app.use("/api/favourites", favouritesRouter);
 app.use("/api/feedback", feedbackRouter);
 app.use("/api/discover", discoverRouter);
 app.use("/api/centres", centresRouter);
+app.use("/api/providers", providersRouter);
 app.use("/api/clubs", clubsRouter);
 app.use("/api/club-sessions", clubSessionsRouter);
 app.use("/api/availability", availabilityRouter);
@@ -98,6 +105,7 @@ app.use("/api/registrations", registrationsRouter);
 app.use("/api/games", gamesRouter);
 app.use("/api/circles", circlesRouter);
 app.use("/api/passes", passesRouter);
+app.use("/api/place-suggestions", placeSuggestionsRouter);
 app.use("/api/programs", programsRouter);
 app.use("/api/experiences", experiencesRouter);
 app.use("/api/vendor/org", orgRouter);
@@ -116,10 +124,32 @@ app.get("/api/health", (_req, res) => res.json({ ok: true }));
 // Serve the built React client from the same origin/process as the API —
 // avoids cross-origin cookie/CORS complications for the session cookie.
 const clientDist = path.join(__dirname, "..", "..", "client", "dist");
+const indexHtmlPath = path.join(clientDist, "index.html");
+// Read once and cache in memory — the built file never changes at runtime,
+// re-reading it from disk on every request would be pure waste.
+let indexHtmlTemplate: string | null = null;
+function readIndexHtmlTemplate(): string {
+  if (indexHtmlTemplate === null) indexHtmlTemplate = fs.readFileSync(indexHtmlPath, "utf-8");
+  return indexHtmlTemplate;
+}
+
 app.use(express.static(clientDist));
-app.get("*", (req, res, next) => {
+app.get("*", async (req, res, next) => {
   if (req.path.startsWith("/api/") || req.path.startsWith("/uploads/")) return next();
-  res.sendFile(path.join(clientDist, "index.html"));
+
+  // Shareable link previews (master-prompt punch list #1) — only the
+  // handful of public detail routes get their <head> customized; every
+  // other route serves the exact same static file as before.
+  try {
+    const meta = await resolveOgMeta(req.path, `${req.protocol}://${req.get("host")}`);
+    if (meta) {
+      res.setHeader("Content-Type", "text/html");
+      return res.send(injectOgTags(readIndexHtmlTemplate(), meta));
+    }
+  } catch (e) {
+    console.error("[og-meta] lookup failed, falling back to plain index.html:", e instanceof Error ? e.message : e);
+  }
+  res.sendFile(indexHtmlPath);
 });
 
 const port = Number(process.env.PORT) || 3001;

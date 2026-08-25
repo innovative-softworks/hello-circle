@@ -1,25 +1,33 @@
 import { getClientId } from "../clientId";
-import type { Centre, Club, DiscoverFeed, DiscoverItem, Experience, ExperienceSearchResult, LocalMomentumSignal, MyBooking, MyExperienceBooking, MyProgramEnrollment, MyRegistration, Program, Review, SearchParsed, SearchResult } from "../types";
-import { request } from "./core";
+import type { Centre, Club, DiscoverFeed, DiscoverItem, Experience, ExperienceSearchResult, LocalMomentumSignal, MyBooking, MyExperienceBooking, MyProgramEnrollment, MyRegistration, Program, ProviderProfile, Review, SearchParsed, SearchResult } from "../types";
+import { downloadIcs, request } from "./core";
 
 // Guest-facing browsing + transactions — no account needed. Centres/clubs,
 // availability, bookings/registrations, pricing/coupons, search, discovery
 // feeds, reviews, uploads. Split out of the original single api.ts (see
 // CLAUDE.md).
 
-export function fetchCentres(county?: string): Promise<Centre[]> {
-  const qs = county && county !== "All" ? `?county=${encodeURIComponent(county)}` : "";
-  return request(`/centres${qs}`);
+// Discovery-radius filtering (master-prompt punch list #2) — radiusKm is
+// strictly opt-in (omit it and every call here behaves exactly as before
+// this existed); the server resolves the actual lat/lng to filter from —
+// the signed-in resident's home-county centroid, no client-side geocoding.
+export function fetchCentres(county?: string, radiusKm?: number): Promise<Centre[]> {
+  const params = new URLSearchParams();
+  if (county && county !== "All") params.set("county", county);
+  if (radiusKm) params.set("radiusKm", String(radiusKm));
+  const qs = params.toString();
+  return request(`/centres${qs ? `?${qs}` : ""}`);
 }
 
 export function fetchCentre(id: string): Promise<Centre> {
   return request(`/centres/${id}`);
 }
 
-export function fetchClubs(county?: string, sport?: string): Promise<Club[]> {
+export function fetchClubs(county?: string, sport?: string, radiusKm?: number): Promise<Club[]> {
   const params = new URLSearchParams();
   if (county && county !== "All") params.set("county", county);
   if (sport && sport !== "All") params.set("sport", sport);
+  if (radiusKm) params.set("radiusKm", String(radiusKm));
   const qs = params.toString();
   return request(`/clubs${qs ? `?${qs}` : ""}`);
 }
@@ -55,6 +63,8 @@ export interface CreateBookingInput {
   /** Open Booking (Phase 3) — how many additional spots to open to other
    * residents once this booking is confirmed. Requires being signed in. */
   openSpots?: number;
+  /** Open-booking setup (IA spec §6) — display-only, see server's comment. */
+  confirmationDeadline?: string;
 }
 
 /** Creates a pending booking + a Stripe Checkout session — the caller
@@ -141,6 +151,10 @@ export function cancelBooking(ref: string, email?: string): Promise<{ ok: boolea
 
 export function rescheduleBooking(ref: string, date: string, time: string, email?: string): Promise<{ ok: boolean }> {
   return request(`/bookings/${encodeURIComponent(ref)}/reschedule`, { method: "POST", body: JSON.stringify({ date, time, email }) });
+}
+
+export function downloadBookingIcs(ref: string): Promise<void> {
+  return downloadIcs(`/bookings/${encodeURIComponent(ref)}/ics`, `booking-${ref}.ics`);
 }
 
 export interface CreateRegistrationInput {
@@ -237,8 +251,14 @@ export function askHelloCircle(message: string): Promise<AskHelloCircleResponse>
 
 // --- homepage discovery feeds (Phase 5) ---------------------------------
 
-export function fetchDiscover(county?: string): Promise<DiscoverFeed> {
-  return request(`/discover${county ? `?county=${encodeURIComponent(county)}` : ""}`);
+// Discovery-radius filtering (master-prompt punch list #2) — see
+// fetchCentres()'s own comment.
+export function fetchDiscover(county?: string, radiusKm?: number): Promise<DiscoverFeed> {
+  const params = new URLSearchParams();
+  if (county) params.set("county", county);
+  if (radiusKm) params.set("radiusKm", String(radiusKm));
+  const qs = params.toString();
+  return request(`/discover${qs ? `?${qs}` : ""}`);
 }
 
 /** "Picking up near you" (Phase 7) — the resident-facing counterpart to
@@ -261,14 +281,28 @@ export function fetchFreeTimeOptions(opts: { county?: string; maxMinutes?: numbe
   return request(`/discover/free-time?${params.toString()}`);
 }
 
+/** "Next Best Participation" (implementation backlog #4) — one ranked list
+ * blending the same scoring fetchDiscover() uses with two extra signals
+ * neither it nor Free Time Mode reads: active Routines and Circle
+ * membership. No mood/duration input required — proactive, not picked. */
+export function fetchNextBestParticipation(): Promise<DiscoverItem[]> {
+  return request(`/discover/next-best`);
+}
+
 // --- reviews -------------------------------------------------------------
 
-export function fetchReviews(listingType: "centre" | "club", listingId: string): Promise<Review[]> {
+// Host & Activity reviews (master-prompt punch list #3) — same reviews
+// system, 2 more listing types. "game" needs having actually attended a
+// past game; "host" needs having played in one of that resident's past
+// games (see reviews.ts's isEligibleToReview()).
+export type ReviewListingType = "centre" | "club" | "game" | "host";
+
+export function fetchReviews(listingType: ReviewListingType, listingId: string): Promise<Review[]> {
   return request(`/reviews?listingType=${listingType}&listingId=${encodeURIComponent(listingId)}`);
 }
 
 export function submitReview(input: {
-  listingType: "centre" | "club";
+  listingType: ReviewListingType;
   listingId: string;
   name: string;
   rating: number;
@@ -281,7 +315,7 @@ export function hideReview(id: number): Promise<{ ok: boolean }> {
   return request(`/reviews/${id}`, { method: "DELETE" });
 }
 
-export function checkReviewEligibility(listingType: "centre" | "club", listingId: string): Promise<{ eligible: boolean }> {
+export function checkReviewEligibility(listingType: ReviewListingType, listingId: string): Promise<{ eligible: boolean }> {
   return request(`/reviews/eligible?listingType=${listingType}&listingId=${encodeURIComponent(listingId)}`);
 }
 
@@ -356,4 +390,10 @@ export function fetchMyExperienceBookings(): Promise<MyExperienceBooking[]> {
 
 export function fetchExperienceBookingStatus(ref: string): Promise<{ ref: string; paymentStatus: string; totalCents: number }> {
   return request(`/experiences/bookings/status/${encodeURIComponent(ref)}`);
+}
+
+// --- Provider public profile (IA spec §5) ----------------------------------
+
+export function fetchProviderProfile(vendorId: string): Promise<ProviderProfile> {
+  return request(`/providers/${vendorId}`);
 }

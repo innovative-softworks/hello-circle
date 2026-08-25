@@ -1,4 +1,5 @@
 import { db } from "./index.js";
+import { haversineKm, type RadiusFilter } from "../geo.js";
 import { irelandWallTimeToUtc } from "../irelandTime.js";
 import type { Centre, Club, Room } from "../types.js";
 
@@ -24,6 +25,8 @@ interface CentreRow {
   lng: number | null;
   phone: string;
   accessibility: string;
+  featured: number;
+  slug: string | null;
 }
 
 interface ClubRow {
@@ -49,6 +52,8 @@ interface ClubRow {
   phone: string;
   accessibility: string;
   category: string;
+  featured: number;
+  slug: string | null;
 }
 
 const amenitiesStmt = db.prepare(
@@ -73,8 +78,11 @@ const reviewStatsStmt = db.prepare(
   `SELECT COALESCE(AVG(rating), 0) as avg, COUNT(*) as count FROM reviews WHERE listing_type = ? AND listing_id = ? AND hidden = 0`
 );
 
-/** Live rating computed from real submitted reviews — replaces the old seeded static number. */
-async function reviewStats(listingType: "centre" | "club", listingId: string): Promise<{ rating: number; reviews: number }> {
+/** Live rating computed from real submitted reviews — replaces the old
+ * seeded static number. Exported (Host & Activity reviews, master-prompt
+ * punch list #3) so residents.ts's host-profile route can reuse the exact
+ * same aggregation for listing_type='host' instead of hand-rolling one. */
+export async function reviewStats(listingType: "centre" | "club" | "game" | "host", listingId: string): Promise<{ rating: number; reviews: number }> {
   const row = (await reviewStatsStmt.get(listingType, listingId)) as { avg: number; count: number };
   return { rating: Math.round(row.avg * 10) / 10, reviews: row.count };
 }
@@ -111,6 +119,11 @@ async function toCentre(row: CentreRow): Promise<Centre> {
   const { rating, reviews } = await reviewStats("centre", row.id);
   const { wouldRepeatPercent, wouldRepeatCount } = await confidenceStats("centre", row.id);
   const images = ((await centreImagesStmt.all(row.id)) as { url: string }[]).map((r) => r.url);
+  // Feature flags (implementation backlog #5) — lets BookingFlow.tsx hide
+  // the Open Booking checkbox proactively; createBookingInternal() is the
+  // real server-side enforcement, this is just so the UI doesn't offer an
+  // option that would fail.
+  const { open_booking: openBookingEnabled } = await orgFeatureFlags(row.vendor_id);
   return {
     id: row.id,
     name: row.name,
@@ -135,10 +148,15 @@ async function toCentre(row: CentreRow): Promise<Centre> {
     isOpen: !!row.is_open,
     mapUrl: row.map_url,
     claimed: row.vendor_id !== null,
+    /** Provider public profile (IA spec §5) — links to /provider/:id. */
+    vendorId: row.vendor_id,
     lat: row.lat !== null ? Number(row.lat) : null,
     lng: row.lng !== null ? Number(row.lng) : null,
     phone: row.phone,
     accessibility: row.accessibility ? row.accessibility.split(",").filter(Boolean) : [],
+    featured: !!row.featured,
+    openBookingEnabled,
+    slug: row.slug,
   };
 }
 
@@ -168,12 +186,15 @@ async function toClub(row: ClubRow): Promise<Club> {
     paymentMethod: row.payment_method,
     mapUrl: row.map_url,
     claimed: row.vendor_id !== null,
+    vendorId: row.vendor_id,
     capacity: row.capacity,
     lat: row.lat !== null ? Number(row.lat) : null,
     lng: row.lng !== null ? Number(row.lng) : null,
     phone: row.phone,
     accessibility: row.accessibility ? row.accessibility.split(",").filter(Boolean) : [],
     category: row.category,
+    featured: !!row.featured,
+    slug: row.slug,
   };
 }
 
@@ -181,13 +202,29 @@ async function toClub(row: ClubRow): Promise<Club> {
 // routes) fetch by id directly via getCentre/getClub, which don't filter by
 // status, so a vendor can see their own pending/rejected listings.
 
-export async function listCentres(county?: string): Promise<Centre[]> {
+// Featured listings sort first (IA spec §16) — a bounded promotion signal,
+// not a placement/ranking system; everything else stays alphabetical.
+/** Discovery-radius filtering (master-prompt punch list #2) — applied
+ * app-side, after the normal county/status query, on whatever set of rows
+ * already have real lat/lng. A row with no coordinates is dropped rather
+ * than kept-by-default, since "within Xkm" can't be evaluated for it.
+ * Sorted nearest-first when active; callers with no radius filter keep
+ * whatever order they already had (featured/name, or unsorted). */
+function applyRadiusFilter<T extends { lat: number | null; lng: number | null }>(rows: T[], radius: RadiusFilter | undefined): T[] {
+  if (!radius) return rows;
+  return rows
+    .filter((r) => r.lat !== null && r.lng !== null && haversineKm(radius.lat, radius.lng, r.lat, r.lng) <= radius.km)
+    .sort((a, b) => haversineKm(radius.lat, radius.lng, a.lat!, a.lng!) - haversineKm(radius.lat, radius.lng, b.lat!, b.lng!));
+}
+
+export async function listCentres(county?: string, radius?: RadiusFilter): Promise<Centre[]> {
   const rows = (
     county && county !== "All"
-      ? await db.prepare(`SELECT * FROM centres WHERE status = 'approved' AND county = ? ORDER BY name`).all(county)
-      : await db.prepare(`SELECT * FROM centres WHERE status = 'approved' ORDER BY name`).all()
+      ? await db.prepare(`SELECT * FROM centres WHERE status = 'approved' AND county = ? ORDER BY featured DESC, name`).all(county)
+      : await db.prepare(`SELECT * FROM centres WHERE status = 'approved' ORDER BY featured DESC, name`).all()
   ) as CentreRow[];
-  return Promise.all(rows.map(toCentre));
+  const centres = await Promise.all(rows.map(toCentre));
+  return applyRadiusFilter(centres, radius);
 }
 
 export async function getCentre(id: string): Promise<Centre | null> {
@@ -197,16 +234,21 @@ export async function getCentre(id: string): Promise<Centre | null> {
 
 const bumpCentreViews = db.prepare(`UPDATE centres SET views = views + 1 WHERE id = ?`);
 
-export async function getApprovedCentre(id: string): Promise<Centre | null> {
-  const row = (await db.prepare(`SELECT * FROM centres WHERE id = ? AND status = 'approved'`).get(id)) as
+// Slugs (master-prompt punch list #1) — resolves by slug first, falls back
+// to the raw id (idOrSlug used for both so a plain UUID still matches the
+// `slug = ?` half harmlessly). Old bookmarked/shared UUID links keep
+// working forever; getCentre() above stays id-only for internal callers
+// (bookings.ts, admin routes) that always already hold the real id.
+export async function getApprovedCentre(idOrSlug: string): Promise<Centre | null> {
+  const row = (await db.prepare(`SELECT * FROM centres WHERE (slug = ? OR id = ?) AND status = 'approved'`).get(idOrSlug, idOrSlug)) as
     | CentreRow
     | undefined;
   if (!row) return null;
-  await bumpCentreViews.run(id);
+  await bumpCentreViews.run(row.id);
   return toCentre(row);
 }
 
-export async function listClubs(county?: string, sport?: string): Promise<Club[]> {
+export async function listClubs(county?: string, sport?: string, radius?: RadiusFilter): Promise<Club[]> {
   const clauses: string[] = ["status = 'approved'"];
   const params: string[] = [];
   if (county && county !== "All") {
@@ -218,9 +260,10 @@ export async function listClubs(county?: string, sport?: string): Promise<Club[]
     params.push(sport);
   }
   const rows = (await db
-    .prepare(`SELECT * FROM clubs WHERE ${clauses.join(" AND ")} ORDER BY name`)
+    .prepare(`SELECT * FROM clubs WHERE ${clauses.join(" AND ")} ORDER BY featured DESC, name`)
     .all(...params)) as ClubRow[];
-  return Promise.all(rows.map(toClub));
+  const clubs = await Promise.all(rows.map(toClub));
+  return applyRadiusFilter(clubs, radius);
 }
 
 export async function getClub(id: string): Promise<Club | null> {
@@ -230,10 +273,13 @@ export async function getClub(id: string): Promise<Club | null> {
 
 const bumpClubViews = db.prepare(`UPDATE clubs SET views = views + 1 WHERE id = ?`);
 
-export async function getApprovedClub(id: string): Promise<Club | null> {
-  const row = (await db.prepare(`SELECT * FROM clubs WHERE id = ? AND status = 'approved'`).get(id)) as ClubRow | undefined;
+// Slugs (master-prompt punch list #1) — see getApprovedCentre's own
+// comment; same slug-or-id resolution, same "old UUID link still works"
+// guarantee.
+export async function getApprovedClub(idOrSlug: string): Promise<Club | null> {
+  const row = (await db.prepare(`SELECT * FROM clubs WHERE (slug = ? OR id = ?) AND status = 'approved'`).get(idOrSlug, idOrSlug)) as ClubRow | undefined;
   if (!row) return null;
-  await bumpClubViews.run(id);
+  await bumpClubViews.run(row.id);
   return toClub(row);
 }
 
@@ -254,6 +300,48 @@ export async function orgPoliciesForVendor(vendorId: string | null): Promise<{ c
     )
     .get(vendorId)) as { cancellationHours: number; bookingWindowDays: number } | undefined;
   return row ?? DEFAULT_ORG_POLICIES;
+}
+
+// --- feature flags (implementation backlog #5) ---------------------------
+// The `feature_flags` table existed as pure dead scaffolding before this —
+// zero routes, zero queries, zero UI reference. Wired up here as real
+// per-org capability toggles (admin-controlled, never vendor-self-serve —
+// see routes/admin.ts's GET/PUT and routes/org.ts's read-only GET), gating
+// 3 real, already-built features rather than inventing generic config.
+// Enabled-by-default (opt-out): a missing row means "on," matching the
+// table's own `enabled TINYINT NOT NULL DEFAULT 1` — an admin only ever
+// creates a row to turn something OFF for one org.
+export const FEATURE_FLAG_KEYS = ["open_booking", "programs", "experiences"] as const;
+export type FeatureFlagKey = (typeof FEATURE_FLAG_KEYS)[number];
+export type FeatureFlags = Record<FeatureFlagKey, boolean>;
+
+const DEFAULT_FEATURE_FLAGS: FeatureFlags = { open_booking: true, programs: true, experiences: true };
+
+export async function orgFeatureFlags(vendorId: string | null): Promise<FeatureFlags> {
+  if (!vendorId) return { ...DEFAULT_FEATURE_FLAGS };
+  const rows = (await db
+    .prepare(
+      `SELECT f.flag_key as flagKey, f.enabled FROM users u JOIN feature_flags f ON f.org_id = u.org_id WHERE u.id = ?`
+    )
+    .all(vendorId)) as { flagKey: string; enabled: number }[];
+  const flags = { ...DEFAULT_FEATURE_FLAGS };
+  for (const r of rows) {
+    if ((FEATURE_FLAG_KEYS as readonly string[]).includes(r.flagKey)) flags[r.flagKey as FeatureFlagKey] = !!r.enabled;
+  }
+  return flags;
+}
+
+export async function orgFeatureFlagsById(orgId: string | null): Promise<FeatureFlags> {
+  if (!orgId) return { ...DEFAULT_FEATURE_FLAGS };
+  const rows = (await db.prepare(`SELECT flag_key as flagKey, enabled FROM feature_flags WHERE org_id = ?`).all(orgId)) as {
+    flagKey: string;
+    enabled: number;
+  }[];
+  const flags = { ...DEFAULT_FEATURE_FLAGS };
+  for (const r of rows) {
+    if ((FEATURE_FLAG_KEYS as readonly string[]).includes(r.flagKey)) flags[r.flagKey as FeatureFlagKey] = !!r.enabled;
+  }
+  return flags;
 }
 
 export interface DemandSignal {
@@ -351,7 +439,8 @@ export async function countFamiliarCoParticipants(residentId: string, gameId: st
     .prepare(
       `SELECT COUNT(DISTINCT gp_now.resident_id) as n
        FROM game_participants gp_now
-       WHERE gp_now.game_id = ? AND gp_now.status = 'joined' AND gp_now.resident_id != ?
+       JOIN residents r ON r.id = gp_now.resident_id
+       WHERE gp_now.game_id = ? AND gp_now.status = 'joined' AND gp_now.resident_id != ? AND r.hide_from_familiar_count = 0
          AND EXISTS (
            SELECT 1 FROM game_participants gp_before
            WHERE gp_before.resident_id = gp_now.resident_id AND gp_before.status = 'joined' AND gp_before.game_id != ?
@@ -400,6 +489,43 @@ export async function getCircleSuggestions(residentId: string): Promise<CircleSu
     .all(residentId)) as { activityLabel: string }[];
   const existingLabels = new Set(existing.map((e) => e.activityLabel));
   return rows.filter((r) => !existingLabels.has(r.activityLabel));
+}
+
+export interface RoutineSuggestion {
+  activityLabel: string;
+  dayOfWeek: number;
+  time: string;
+  centreId: string | null;
+  sessionCount: number;
+}
+
+/** Routines-as-an-object (IA spec §9) — the personal counterpart to
+ * getCircleSuggestions() above: repeated attendance on the same weekday,
+ * regardless of who else was there (a Circle needs shared people; a
+ * routine doesn't). MySQL's DAYOFWEEK() is 1=Sunday..7=Saturday; kept as-is
+ * rather than remapped, since routines.day_of_week just needs to be
+ * internally consistent, not match any particular JS/display convention
+ * (the client remaps for display). Excludes activities already turned into
+ * an active routine. */
+export async function getRoutineSuggestions(residentId: string): Promise<RoutineSuggestion[]> {
+  const rows = (await db
+    .prepare(
+      `SELECT g.activity_label as activityLabel, DAYOFWEEK(g.date) as dayOfWeek, COUNT(*) as sessionCount,
+              MAX(g.time) as time, MAX(g.centre_id) as centreId
+       FROM game_participants gp
+       JOIN games g ON g.id = gp.game_id
+       WHERE gp.resident_id = ? AND gp.status = 'joined' AND g.activity_label != '' AND g.date >= DATE_SUB(CURDATE(), INTERVAL 8 WEEK)
+       GROUP BY g.activity_label, DAYOFWEEK(g.date)
+       HAVING sessionCount >= 3
+       ORDER BY sessionCount DESC`
+    )
+    .all(residentId)) as RoutineSuggestion[];
+
+  const existing = (await db
+    .prepare(`SELECT activity_label as activityLabel, day_of_week as dayOfWeek FROM routines WHERE resident_id = ? AND status != 'cancelled'`)
+    .all(residentId)) as { activityLabel: string; dayOfWeek: number }[];
+  const existingKeys = new Set(existing.map((e) => `${e.activityLabel}::${e.dayOfWeek}`));
+  return rows.filter((r) => !existingKeys.has(`${r.activityLabel}::${r.dayOfWeek}`));
 }
 
 // Games/program_sessions/club_sessions: the three scheduled-activity
@@ -518,7 +644,7 @@ function computeIsLive(kind: ScheduledActivity["kind"], date: string, time: stri
  * weekly occurrences roll forward — see nextOccurrence), optionally scoped
  * to one county. Callers apply their own ranking/keyword/filter logic on
  * top — this only owns the "is it real and currently offered" contract. */
-export async function listScheduledActivities(opts: { county?: string; from: Date; to: Date }): Promise<ScheduledActivity[]> {
+export async function listScheduledActivities(opts: { county?: string; from: Date; to: Date; radius?: RadiusFilter }): Promise<ScheduledActivity[]> {
   const { county, from, to } = opts;
   const fromIso = from.toISOString().slice(0, 10);
   const toIso = to.toISOString().slice(0, 10);
@@ -632,7 +758,7 @@ export async function listScheduledActivities(opts: { county?: string; from: Dat
     }),
   ];
 
-  return items;
+  return applyRadiusFilter(items, opts.radius);
 }
 
 // listResidentParticipation: the shared foundation for "everything this

@@ -3,6 +3,7 @@ import {
   addExperienceSession,
   createVendorExperience,
   deleteVendorExperience,
+  fetchOrgProfile,
   fetchVendorExperience,
   fetchVendorExperienceBookings,
   fetchVendorExperienceSessions,
@@ -360,11 +361,18 @@ export function VendorExperiencesTab() {
   const [experiences, setExperiences] = useState<VendorExperienceSummary[]>([]);
   const [editing, setEditing] = useState<string | "new" | null>(null);
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
+  // Feature flags (implementation backlog #5) — read-only here, admin
+  // controls it. Only gates creating a new listing, not editing an
+  // already-created one (matches the server-side POST-only 403).
+  const [experiencesEnabled, setExperiencesEnabled] = useState(true);
 
   const load = () => {
     fetchVendorExperiences().then(setExperiences);
   };
   useEffect(load, []);
+  useEffect(() => {
+    fetchOrgProfile().then((p) => setExperiencesEnabled(p.flags.experiences));
+  }, []);
 
   const onSaved = () => {
     setEditing(null);
@@ -379,10 +387,13 @@ export function VendorExperiencesTab() {
 
   return (
     <div className="fade-panel" style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-      <div style={{ display: "flex", justifyContent: "flex-end" }}>
-        <Button onClick={() => setEditing("new")}>
+      <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4 }}>
+        <Button onClick={() => setEditing("new")} disabled={!experiencesEnabled}>
           <PlusIcon size={14} /> Add adventure/experience
         </Button>
+        {!experiencesEnabled && (
+          <span style={{ fontSize: 11, color: colors.orangeDark }}>Not enabled for your organisation</span>
+        )}
       </div>
 
       <Drawer

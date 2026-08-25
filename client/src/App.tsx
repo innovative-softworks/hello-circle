@@ -18,13 +18,16 @@ import { ClubDetail } from "./pages/ClubDetail";
 import { BookingFlow } from "./pages/BookingFlow";
 import { CookiePolicy } from "./pages/CookiePolicy";
 import { Adventures } from "./pages/Adventures";
+import { Compare } from "./pages/Compare";
 import { ExperienceDetail } from "./pages/ExperienceDetail";
 import { Experiences } from "./pages/Experiences";
+import { Explore } from "./pages/Explore";
 import { ForgotPassword } from "./pages/ForgotPassword";
 import { FreeTimeMode } from "./pages/FreeTimeMode";
 import { GameDetail } from "./pages/GameDetail";
 import { Games } from "./pages/Games";
 import { Home } from "./pages/Home";
+import { HostProfilePage } from "./pages/HostProfile";
 import { Login } from "./pages/Login";
 import { MakeItHappen } from "./pages/MakeItHappen";
 import { MyBookings } from "./pages/MyBookings";
@@ -32,10 +35,13 @@ import { Onboarding } from "./pages/Onboarding";
 import { PaymentCancel } from "./pages/PaymentCancel";
 import { PaymentSuccess } from "./pages/PaymentSuccess";
 import { PrivacyPolicy } from "./pages/PrivacyPolicy";
+import { SuggestPlacePage } from "./pages/SuggestPlace";
 import { ProgramDetail } from "./pages/ProgramDetail";
+import { ProviderProfilePage } from "./pages/ProviderProfile";
 import { RegistrationFlow } from "./pages/RegistrationFlow";
 import { ResetPassword } from "./pages/ResetPassword";
 import { Search } from "./pages/Search";
+import { ThemeProvider } from "./ThemeContext";
 import { VendorDashboard } from "./pages/VendorDashboard";
 import { VendorSignup } from "./pages/VendorSignup";
 
@@ -49,7 +55,7 @@ export function App() {
   const hideTabBar = hideHeader || location.pathname.startsWith("/vendor") || location.pathname.startsWith("/admin");
 
   return (
-    <AuthProvider>
+    <ThemeProvider><AuthProvider>
       <GuestProvider>
         <MyStuffProvider>
           <DashboardNavProvider>
@@ -65,12 +71,17 @@ export function App() {
                 <Route path="/games" element={<Games />} />
                 <Route path="/free-time" element={<FreeTimeMode />} />
                 <Route path="/make-it-happen" element={<MakeItHappen />} />
+                <Route path="/suggest-place" element={<SuggestPlacePage />} />
                 <Route path="/ask" element={<AskHelloCircle />} />
                 <Route path="/games/:id" element={<GameDetail />} />
                 <Route path="/circles" element={<Circles />} />
                 <Route path="/circles/:id" element={<CircleDetail />} />
                 <Route path="/bookings" element={<MyBookings />} />
                 <Route path="/programs/:id" element={<ProgramDetail />} />
+                <Route path="/provider/:id" element={<ProviderProfilePage />} />
+                <Route path="/host/:id" element={<HostProfilePage />} />
+                <Route path="/explore" element={<Explore />} />
+                <Route path="/compare" element={<Compare />} />
                 <Route path="/adventures" element={<Adventures />} />
                 <Route path="/adventures/:id" element={<ExperienceDetail />} />
                 <Route path="/experiences" element={<Experiences />} />
@@ -97,6 +108,6 @@ export function App() {
           </DashboardNavProvider>
         </MyStuffProvider>
       </GuestProvider>
-    </AuthProvider>
+    </AuthProvider></ThemeProvider>
   );
 }

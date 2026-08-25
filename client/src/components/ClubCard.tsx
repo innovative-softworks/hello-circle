@@ -13,7 +13,7 @@ export function ClubCard({ club }: { club: Club }) {
 
   return (
     <div
-      onClick={() => navigate(`/clubs/${club.id}`)}
+      onClick={() => navigate(`/clubs/${club.slug ?? club.id}`)}
       className="card-hover card-surface"
       style={{
         cursor: "pointer",

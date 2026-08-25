@@ -284,6 +284,7 @@ registrationsRouter.post("/checkout", async (req, res) => {
     ref,
     type: "registration",
     customerEmail: body.email,
+    residentId: req.resident?.id ?? null,
     lineItems: pricingLineItems(pricing, {
       name: `${club.name} registration`,
       description: `${body.childFirst} ${body.childLast} — ${body.team}${couponCode ? ` (coupon ${couponCode} applied)` : ""}`,

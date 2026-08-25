@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { fetchCentres, fetchClubs, fetchDiscover, fetchLocalMomentum, search } from "../api";
+import { fetchCentres, fetchClubs, fetchDiscover, fetchFreeTimeOptions, fetchLocalMomentum, fetchMyCircles, fetchNextBestParticipation, search } from "../api";
 import { CentreCard } from "../components/CentreCard";
 import { ClubCard } from "../components/ClubCard";
-import { DiscoverRow } from "../components/DiscoverRow";
+import { DiscoverCard, DiscoverRow } from "../components/DiscoverRow";
 import { HeroCarousel, type HeroCarouselSlide } from "../components/HeroCarousel";
 import { CardSkeleton, EmptyState } from "../components/ui";
 import { CommunityIllustration, SportsIllustration } from "../components/illustrations";
@@ -16,13 +16,30 @@ import {
   HandshakeIcon,
   HeartIcon,
   PinIcon,
+  RepeatIcon,
   SearchIcon,
   TreeIconSmall,
   TrendUpIcon,
 } from "../components/icons";
+import { clearContinuePlanning, readContinuePlanning, type ContinuePlanningDraft } from "../continuePlanning";
+import { useGuest } from "../GuestContext";
 import { haversineDistanceKm, nearestCounty } from "../irishCounties";
 import { colors, fonts, maxWidth } from "../theme";
-import type { Centre, Club, DiscoverFeed, LocalMomentumSignal, SearchResult } from "../types";
+import type { Centre, Circle, Club, DiscoverFeed, DiscoverItem, LocalMomentumSignal, SearchResult } from "../types";
+
+// Home's intent selector (IA spec §3) — reuses discover.ts's existing mood
+// keyword filter (built for Free Time Mode) rather than a new taxonomy.
+// "Explore" navigates straight to the Explore landing page since that IS
+// the destination for "not sure, just browsing"; "Surprise me" calls the
+// same endpoint with no mood filter and highlights whatever comes back.
+const INTENT_CHIPS: { key: string; label: string; mood?: string }[] = [
+  { key: "active", label: "Get active", mood: "active" },
+  { key: "social", label: "Meet people", mood: "social" },
+  { key: "chill", label: "Relax", mood: "chill" },
+  { key: "explore", label: "Explore" },
+  { key: "learn", label: "Learn", mood: "learn" },
+  { key: "surprise", label: "Surprise me" },
+];
 
 // Shown only until real listing images load (or if a fresh dev DB genuinely
 // has none for the current county) — same picsum seed the static hero image
@@ -33,7 +50,13 @@ const FALLBACK_HERO_SLIDES: HeroCarouselSlide[] = [
 
 export function Home() {
   const navigate = useNavigate();
+  const { resident } = useGuest();
   const [homeCounty, setHomeCounty] = useState("All");
+  const [intent, setIntent] = useState<string | null>(null);
+  const [intentResults, setIntentResults] = useState<DiscoverItem[] | null>(null);
+  const [intentLoading, setIntentLoading] = useState(false);
+  const [continuePlan, setContinuePlan] = useState<ContinuePlanningDraft | null>(null);
+  const [myCircles, setMyCircles] = useState<Circle[]>([]);
   const [homeCategory, setHomeCategory] = useState<"centres" | "clubs">("centres");
   const [locating, setLocating] = useState(false);
   const [locationError, setLocationError] = useState<string | null>(null);
@@ -57,6 +80,12 @@ export function Home() {
   // counterpart to Trending. Empty in a fresh/quiet county, not an error —
   // it just means nothing's grown enough to say yet, so the strip hides.
   const [momentum, setMomentum] = useState<LocalMomentumSignal[]>([]);
+
+  // "Next Best Participation" (implementation backlog #4) — proactive,
+  // signed-in-resident-only (a guest gets nothing extra over the plain
+  // Discover feed, since the two signals that make this distinct — Routines
+  // and Circle membership — both require an identity).
+  const [nextBest, setNextBest] = useState<DiscoverItem[]>([]);
 
   // Set only once real coordinates are resolved via handleUseMyLocation —
   // drives the Near You section, which otherwise stays hidden (no
@@ -109,6 +138,46 @@ export function Home() {
       .then(setMomentum)
       .catch(() => setMomentum([]));
   }, [homeCounty]);
+
+  // Continue Planning (IA spec §3) — a saved in-progress Make It Happen
+  // search, read once on mount. Re-checked on focus too, since the user
+  // typically left this exact tab to go finish (or abandon) that flow in
+  // MakeItHappen.tsx and comes straight back to Home.
+  useEffect(() => {
+    setContinuePlan(readContinuePlanning());
+    const onFocus = () => setContinuePlan(readContinuePlanning());
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  }, []);
+
+  // Your Circles (IA spec §3) — only for a signed-in resident; Circles.tsx
+  // remains the full browse/manage surface, this is just a Home teaser.
+  useEffect(() => {
+    if (resident) fetchMyCircles().then(setMyCircles).catch(() => setMyCircles([]));
+    else setMyCircles([]);
+  }, [resident]);
+
+  // "Next Best Participation" (implementation backlog #4).
+  useEffect(() => {
+    if (resident) fetchNextBestParticipation().then(setNextBest).catch(() => setNextBest([]));
+    else setNextBest([]);
+  }, [resident]);
+
+  const pickIntent = async (chip: (typeof INTENT_CHIPS)[number]) => {
+    if (chip.key === "explore") {
+      navigate("/explore");
+      return;
+    }
+    setIntent(chip.key);
+    setIntentLoading(true);
+    setIntentResults(null);
+    try {
+      const rows = await fetchFreeTimeOptions({ county: homeCounty === "All" ? undefined : homeCounty, mood: chip.key === "surprise" ? undefined : chip.mood });
+      setIntentResults(chip.key === "surprise" && rows.length > 1 ? [rows[Math.floor(Math.random() * rows.length)]] : rows);
+    } finally {
+      setIntentLoading(false);
+    }
+  };
 
   // Closest centres/clubs to the resolved coordinates, from the pool already
   // fetched above — no dedicated fetch, just a client-side sort/slice.
@@ -429,7 +498,7 @@ export function Home() {
                       {smartResults.centres.map((c) => (
                         <button
                           key={c.id}
-                          onClick={() => navigate(`/centres/${c.id}`)}
+                          onClick={() => navigate(`/centres/${c.slug ?? c.id}`)}
                           style={{ textAlign: "left", background: colors.bg, border: `1px solid ${colors.border}`, borderRadius: 12, padding: "10px 14px", cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center" }}
                         >
                           <span><strong>{c.name}</strong> <span style={{ color: colors.mutedLight, fontSize: 13 }}>· {c.area}</span></span>
@@ -439,7 +508,7 @@ export function Home() {
                       {smartResults.clubs.map((c) => (
                         <button
                           key={c.id}
-                          onClick={() => navigate(`/clubs/${c.id}`)}
+                          onClick={() => navigate(`/clubs/${c.slug ?? c.id}`)}
                           style={{ textAlign: "left", background: colors.bg, border: `1px solid ${colors.border}`, borderRadius: 12, padding: "10px 14px", cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center" }}
                         >
                           <span><strong>{c.name}</strong> <span style={{ color: colors.mutedLight, fontSize: 13 }}>· {c.sport}</span></span>
@@ -551,6 +620,147 @@ export function Home() {
         </div>
       </section>
 
+      {/* Intent selector (IA spec §3) — "What would you like from today?" */}
+      <section className="section-pad" style={{ maxWidth, margin: "0 auto", padding: "18px 24px 8px" }}>
+        <h2 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 19, margin: "0 0 12px" }}>What would you like from today?</h2>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: intent ? 16 : 0 }}>
+          {INTENT_CHIPS.map((chip) => (
+            <button
+              key={chip.key}
+              onClick={() => pickIntent(chip)}
+              style={{
+                border: "none",
+                borderRadius: 999,
+                padding: "8px 16px",
+                fontSize: 13.5,
+                fontWeight: 700,
+                cursor: "pointer",
+                background: intent === chip.key ? colors.green : colors.panel,
+                color: intent === chip.key ? "#fff" : colors.muted,
+              }}
+            >
+              {chip.label}
+            </button>
+          ))}
+        </div>
+        {intent && (
+          <div>
+            {intentLoading ? (
+              <div style={{ display: "flex", gap: 14, overflowX: "auto", paddingBottom: 6 }}>
+                {Array.from({ length: 3 }).map((_, i) => (
+                  <CardSkeleton key={i} />
+                ))}
+              </div>
+            ) : intentResults && intentResults.length > 0 ? (
+              <div style={{ display: "flex", gap: 14, overflowX: "auto", paddingBottom: 6 }}>
+                {intentResults.map((item) => (
+                  <DiscoverCard key={`${item.kind}-${item.id}`} item={item} isToday={item.date === new Date().toISOString().slice(0, 10)} />
+                ))}
+              </div>
+            ) : (
+              <EmptyState icon={<SearchIcon size={22} />} title="Nothing matching that just yet" subtitle="Try a different mood, widen your area, or explore what's around." />
+            )}
+          </div>
+        )}
+      </section>
+
+      {/* "Next Best Participation" (implementation backlog #4) — proactive,
+          blending Discover's own ranking with active Routines + Circle
+          membership; no mood/duration input required. */}
+      {resident && nextBest.length > 0 && (
+        <section className="section-pad" style={{ maxWidth, margin: "0 auto", padding: "18px 24px 8px" }}>
+          <h2 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 19, margin: "0 0 4px" }}>Next best for you</h2>
+          <p style={{ fontSize: 13, color: colors.mutedLight, margin: "0 0 12px" }}>
+            Ranked from what's on, your routines, and your Circles — no filters needed.
+          </p>
+          <div style={{ display: "flex", gap: 14, overflowX: "auto", paddingBottom: 6 }}>
+            {nextBest.map((item) => (
+              <DiscoverCard key={`${item.kind}-${item.id}`} item={item} isToday={item.date === new Date().toISOString().slice(0, 10)} />
+            ))}
+          </div>
+        </section>
+      )}
+
+      {/* Continue Planning (IA spec §3) */}
+      {continuePlan && (
+        <section className="section-pad" style={{ maxWidth, margin: "0 auto", padding: "18px 24px 8px" }}>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: 16,
+              background: colors.orangeBg,
+              border: `1px solid ${colors.border}`,
+              borderRadius: 16,
+              padding: "16px 20px",
+            }}
+          >
+            <div>
+              <div style={{ fontWeight: 700, fontSize: 15 }}>Continue planning {continuePlan.activityLabel || "your activity"}?</div>
+              <div style={{ fontSize: 13, color: colors.muted, marginTop: 2 }}>
+                {[continuePlan.county, continuePlan.date, continuePlan.time].filter(Boolean).join(" · ") || "You were part-way through Make It Happen."}
+              </div>
+            </div>
+            <div style={{ display: "flex", gap: 8, flex: "none" }}>
+              <button
+                onClick={() => {
+                  clearContinuePlanning();
+                  setContinuePlan(null);
+                }}
+                style={{ background: "none", border: "none", color: colors.muted, fontSize: 13, cursor: "pointer" }}
+              >
+                Dismiss
+              </button>
+              <button
+                className="btn"
+                onClick={() => navigate("/make-it-happen")}
+                style={{ background: colors.orangeDark, color: "#fff", border: "none", borderRadius: 10, padding: "9px 16px", fontSize: 13.5, fontWeight: 700, cursor: "pointer" }}
+              >
+                Continue
+              </button>
+            </div>
+          </div>
+        </section>
+      )}
+
+      {/* Your Circles (IA spec §3) */}
+      {resident && myCircles.length > 0 && (
+        <section className="section-pad" style={{ maxWidth, margin: "0 auto", padding: "18px 24px 8px" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+            <h2 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 19, margin: 0 }}>Your Circles</h2>
+            <button onClick={() => navigate("/circles")} style={{ background: "none", border: "none", color: colors.greenText, fontWeight: 700, fontSize: 13.5, cursor: "pointer" }}>
+              See all
+            </button>
+          </div>
+          <div style={{ display: "flex", gap: 12, overflowX: "auto", paddingBottom: 6 }}>
+            {myCircles.slice(0, 4).map((c) => (
+              <button
+                key={c.id}
+                onClick={() => navigate(`/circles/${c.slug ?? c.id}`)}
+                style={{
+                  flex: "none",
+                  width: 200,
+                  textAlign: "left",
+                  background: "#fff",
+                  border: `1px solid ${colors.border}`,
+                  borderRadius: 14,
+                  padding: 14,
+                  cursor: "pointer",
+                }}
+              >
+                <div style={{ display: "flex", alignItems: "center", gap: 6, color: colors.greenText, marginBottom: 6 }}>
+                  <RepeatIcon size={14} />
+                  <span style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".03em" }}>Circle</span>
+                </div>
+                <div style={{ fontWeight: 700, fontSize: 14.5 }}>{c.name}</div>
+                <div style={{ fontSize: 12.5, color: colors.mutedLight, marginTop: 2 }}>{c.members} member{c.members === 1 ? "" : "s"}</div>
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
+
       {discoverFeed && discoverFeed.today.length > 0 && (
         <section className="section-pad" style={{ maxWidth, margin: "0 auto", padding: "18px 24px 8px" }}>
           <DiscoverRow title="Happening today" items={discoverFeed.today} isToday />
@@ -560,6 +770,32 @@ export function Home() {
       {discoverFeed && discoverFeed.weekend.length > 0 && (
         <section className="section-pad" style={{ maxWidth, margin: "0 auto", padding: "18px 24px 8px" }}>
           <DiscoverRow title="This weekend" items={discoverFeed.weekend} />
+        </section>
+      )}
+
+      {/* No-local-inventory empty state (IA spec §3) — a real recovery
+          decision, not a dead end, shown only once the feed has actually
+          loaded and come back with nothing at all. */}
+      {discoverFeed && discoverFeed.today.length === 0 && discoverFeed.weekend.length === 0 && (
+        <section className="section-pad" style={{ maxWidth, margin: "0 auto", padding: "18px 24px 8px" }}>
+          <div style={{ background: colors.panel, borderRadius: 16, padding: "22px 24px" }}>
+            <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 4 }}>Nothing scheduled near you just yet</div>
+            <p style={{ fontSize: 13.5, color: colors.mutedLight, margin: "0 0 14px" }}>Here's what usually helps:</p>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+              <button onClick={() => setHomeCounty("All")} style={{ background: "#fff", border: `1px solid ${colors.border}`, borderRadius: 999, padding: "8px 14px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
+                Widen to all counties
+              </button>
+              <button onClick={() => navigate("/browse/centres")} style={{ background: "#fff", border: `1px solid ${colors.border}`, borderRadius: 999, padding: "8px 14px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
+                View places
+              </button>
+              <button onClick={() => navigate("/games")} style={{ background: "#fff", border: `1px solid ${colors.border}`, borderRadius: 999, padding: "8px 14px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
+                Start an activity
+              </button>
+              <button onClick={() => navigate("/make-it-happen")} style={{ background: "#fff", border: `1px solid ${colors.border}`, borderRadius: 999, padding: "8px 14px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
+                Make it happen
+              </button>
+            </div>
+          </div>
         </section>
       )}
 

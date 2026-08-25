@@ -243,6 +243,8 @@ export interface ProgramInput {
   skillLevel?: string;
   equipment?: string[];
   instructorName?: string;
+  guardianRules?: string;
+  safeguardingInfo?: string;
 }
 
 export function createVendorProgram(input: ProgramInput): Promise<{ id: string }> {

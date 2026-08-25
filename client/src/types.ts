@@ -38,8 +38,19 @@ export interface Centre {
   lat: number | null;
   lng: number | null;
   claimed: boolean;
+  /** Provider public profile (IA spec §5) — null for an unclaimed listing. */
+  vendorId: string | null;
   phone: string;
   accessibility: string[];
+  /** Bounded "featured" flag (IA spec §16) — admin-toggled promotion. */
+  featured: boolean;
+  /** Feature flags (implementation backlog #5) — whether this centre's org
+   * has Open Booking enabled; gates BookingFlow.tsx's checkbox client-side
+   * (createBookingInternal() is the real server-side enforcement). */
+  openBookingEnabled: boolean;
+  /** Slugs (master-prompt punch list #1) — null until backfilled/generated;
+   * link-construction call sites use <code>slug ?? id</code>. */
+  slug: string | null;
 }
 
 export interface RoomBlock {
@@ -74,12 +85,17 @@ export interface Club {
   paymentMethod: PaymentMethod;
   mapUrl: string;
   claimed: boolean;
+  vendorId: string | null;
   capacity: number | null;
   lat: number | null;
   lng: number | null;
   phone: string;
   accessibility: string[];
   category: string;
+  /** Bounded "featured" flag (IA spec §16) — admin-toggled promotion. */
+  featured: boolean;
+  /** Slugs (master-prompt punch list #1) — null until backfilled/generated. */
+  slug: string | null;
 }
 
 export type BookingStatus = "confirmed" | "cancelled";
@@ -173,7 +189,9 @@ export interface AuthUser {
 
 export interface Review {
   id: number;
-  listingType: "centre" | "club";
+  /** Host & Activity reviews (master-prompt punch list #3) — kept separate
+   * per listing_type, matching the different trust signal each represents. */
+  listingType: "centre" | "club" | "game" | "host";
   listingId: string;
   name: string;
   rating: number;
@@ -240,6 +258,8 @@ export interface HouseholdMember {
   lastName: string;
   dob: string;
   notes: string;
+  /** IA spec §13 — guardian consent on file for this household member. */
+  guardianConsentGiven: boolean;
   createdAt: string;
 }
 
@@ -312,6 +332,13 @@ export interface Game {
    * currently-joined participants the signed-in resident has previously
    * shared a different game with. 0 for a signed-out visitor. */
   familiarCount?: number;
+  /** Open game detail (IA spec §5) — display-only, never enforced server-side. */
+  confirmationDeadline: string | null;
+  /** Self-serve check-in + attendance confirmation (IA spec §11) — only
+   * meaningful for the signed-in resident's own participation; both null
+   * for a signed-out visitor or a game the resident hasn't joined. */
+  checkedInAt?: string | null;
+  attended?: boolean | null;
 }
 
 // --- Circles (NEXT) --------------------------------------------------------
@@ -335,9 +362,115 @@ export interface Circle {
   /** "Host" trust tier — same badge-only convention as Game above. */
   hostName: string;
   hostVerified: boolean;
+  /** Close Circle (IA spec §10) — a closed circle drops out of public browse. */
+  status: "active" | "closed";
+  /** Slugs (master-prompt punch list #1) — null until backfilled/generated. */
+  slug: string | null;
+}
+
+// --- Circle invitations & planning polls (IA spec §10) ---------------------
+
+export interface CircleInvitation {
+  id: string;
+  circleId: string;
+  circleName: string;
+  activityLabel: string;
+  invitedByName: string;
+  createdAt: string;
+}
+
+export interface CirclePollOption {
+  id: number;
+  date: string;
+  time: string;
+  voteCount: number;
+  votedByMe: boolean;
+}
+
+export interface CirclePoll {
+  id: string;
+  question: string;
+  createdByResidentId: string;
+  status: "open" | "closed";
+  createdAt: string;
+  options: CirclePollOption[];
 }
 
 export type HostStatus = "none" | "pending" | "verified" | "rejected";
+
+// --- Saved-search alerts (master-prompt punch list #5) ---------------------
+
+export type SearchAlertMood = "active" | "chill" | "social" | "creative" | "learn";
+
+export interface SearchAlert {
+  id: string;
+  county: string;
+  keywords: string | null;
+  mood: SearchAlertMood | null;
+  active: number;
+  createdAt: string;
+}
+
+// --- Provider / Host public profiles (IA spec §5) --------------------------
+
+export interface ProviderProfileListing {
+  id: string;
+  name: string;
+  area: string;
+  county: string;
+  image: string;
+  blurb: string;
+  /** Slugs (master-prompt punch list #1) — null until backfilled/generated. */
+  slug: string | null;
+}
+
+export interface ProviderProfile {
+  id: string;
+  name: string;
+  description: string;
+  verified: boolean;
+  providerTier: string;
+  county: string;
+  centres: ProviderProfileListing[];
+  clubs: (ProviderProfileListing & { sport: string })[];
+  experiences: (ProviderProfileListing & { kind: "adventure" | "experience"; title: string })[];
+  policies: { cancellationHours: number; bookingWindowDays: number };
+}
+
+// --- Routines-as-an-object (IA spec §9) -------------------------------------
+// A personal planning aid, never an automatic booking. dayOfWeek follows
+// MySQL's DAYOFWEEK() convention: 1=Sunday..7=Saturday.
+
+export interface Routine {
+  id: string;
+  activityLabel: string;
+  centreId: string | null;
+  centreName: string | null;
+  dayOfWeek: number;
+  time: string;
+  status: "active" | "paused" | "cancelled";
+  createdAt: string;
+}
+
+export interface RoutineSuggestion {
+  activityLabel: string;
+  dayOfWeek: number;
+  time: string;
+  centreId: string | null;
+  sessionCount: number;
+}
+
+export interface HostProfile {
+  id: string;
+  name: string;
+  bio: string;
+  upcomingGames: { id: string; activityLabel: string; date: string; time: string }[];
+  circles: { id: string; name: string; activityLabel: string; slug: string | null }[];
+  gamesHostedTotal: number;
+  /** Host reviews (master-prompt punch list #3). */
+  rating: number;
+  reviews: number;
+}
 
 // --- Participation Chat (implementation plan Phase 11) ----------------------
 
@@ -514,6 +647,83 @@ export interface ResidentFull extends Resident {
   hostStatus: HostStatus;
   hostBio: string;
   hostPhone: string;
+  /** Onboarding §2 (IA spec) — goals + participation comfort. Empty string
+   * on the pref fields means no preference stated, not unset. */
+  goals: string[];
+  prefGroupSize: string;
+  prefBeginnerFriendly: boolean;
+  prefSoloFriendly: boolean;
+  prefBudget: string;
+  /** Safety Centre (IA spec §13) — opt out of other people's "familiar
+   * participants" counts. */
+  hideFromFamiliarCount: boolean;
+  /** Circle invite picker (implementation backlog #3) — opt IN to being
+   * findable by GET /residents/search. Off by default. */
+  discoverableByName: boolean;
+}
+
+/** Circle invite picker (implementation backlog #3) — deliberately name-
+ * only, never email/phone (same "no PII beyond a name" convention as
+ * HostProfile/ProviderProfile). */
+export interface ResidentSearchResult {
+  id: string;
+  name: string;
+}
+
+/** Payment-methods screen (implementation backlog #1). Never carries a full
+ * card number — Stripe itself never returns one via the API. */
+export interface SavedPaymentMethod {
+  id: string;
+  brand: string;
+  last4: string;
+  expMonth: number;
+  expYear: number;
+}
+
+/** Notification templates (implementation backlog #2) — an override layer,
+ * not the source of truth; a null *Template field means "using the
+ * hardcoded fallback," not "empty." */
+export interface NotificationTemplateInfo {
+  key: string;
+  description: string;
+  fields: readonly ("subject" | "title" | "body")[];
+  vars: readonly string[];
+  subjectTemplate: string | null;
+  titleTemplate: string | null;
+  bodyTemplate: string | null;
+  updatedAt: string | null;
+}
+
+// --- Safety Centre (IA spec §13) -------------------------------------
+
+export interface BlockedResident {
+  id: string;
+  name: string;
+  createdAt: string;
+}
+
+export interface ReportRecord {
+  id: number;
+  targetType: string;
+  targetId: string;
+  reason: string;
+  status: string;
+  createdAt: string;
+}
+
+// --- Community-contributed places (master-prompt punch list #4) -----------
+
+export interface PlaceSuggestion {
+  id: string;
+  suggestedName: string;
+  category: "centre" | "club";
+  area: string;
+  county: string;
+  description?: string;
+  contactInfo?: string;
+  status: "pending" | "approved" | "rejected";
+  publishedListingId: string | null;
+  createdAt: string;
 }
 
 export interface NotificationPrefs {
@@ -522,6 +732,16 @@ export interface NotificationPrefs {
   waitlistOffers: boolean;
   recommendations: boolean;
   circleAnnouncements: boolean;
+  /** IA spec §12 — the 4 categories the spec names that this app didn't
+   * have a preference field for yet. Same signal-only convention as the
+   * 3 above that aren't wired to real gating logic either (only
+   * waitlistOffers currently gates a real send — see notifications.ts's
+   * PREF_KEY_BY_KIND) — stored and respected where it's already wired,
+   * ready for the rest as those notification types get built out. */
+  activityReminders: boolean;
+  openSpots: boolean;
+  routineReminders: boolean;
+  marketing: boolean;
 }
 
 export const ACCESSIBILITY_OPTIONS = ["Wheelchair access", "Step-free access", "Accessible changing", "Accessible parking", "Hearing loop", "Sensory-friendly"];
@@ -529,6 +749,22 @@ export const ACCESSIBILITY_OPTIONS = ["Wheelchair access", "Step-free access", "
 export const INTEREST_OPTIONS = ["Badminton", "Football", "Swimming", "Fitness", "Yoga", "Walking", "Kids activities", "Arts", "Learning", "Community events", "Outdoor", "Wellbeing"];
 
 export const AVAILABILITY_OPTIONS = ["Weekday mornings", "Weekday afternoons", "Weekday evenings", "Saturday", "Sunday"];
+
+export const GOAL_OPTIONS = ["Become more active", "Meet new people", "Find a hobby", "Get outdoors", "Try something new", "Do more with family", "Build a routine", "Explore my area"];
+
+export const GROUP_SIZE_OPTIONS = [
+  { key: "solo", label: "Just me" },
+  { key: "small", label: "Small group" },
+  { key: "large", label: "Larger group" },
+  { key: "any", label: "No preference" },
+];
+
+export const BUDGET_OPTIONS = [
+  { key: "free", label: "Free only" },
+  { key: "low", label: "€" },
+  { key: "medium", label: "€€" },
+  { key: "any", label: "No preference" },
+];
 
 export interface Receipt {
   ref: string;
@@ -590,6 +826,9 @@ export interface Program {
   skillLevel: string;
   equipment: string[];
   instructorName: string;
+  /** Community program detail (IA spec §5) — both optional. */
+  guardianRules: string;
+  safeguardingInfo: string;
 }
 
 export interface VendorProgramSummary {
@@ -647,6 +886,10 @@ export interface Experience {
   imageUrl: string;
   images: string[];
   sessions: ExperienceSessionSlot[];
+  /** Bounded "featured" flag (IA spec §16) — admin-toggled promotion. */
+  featured: boolean;
+  /** Slugs (master-prompt punch list #1) — null until backfilled/generated. */
+  slug: string | null;
   createdAt: string;
 }
 
@@ -734,7 +977,20 @@ export interface OrgProfile {
   pendingInvites: { token: string; email: string; platformRole: string; createdAt: string }[];
   locations: { id: string; name: string; type: "centre" | "club" }[];
   isOwner: boolean;
+  flags: FeatureFlags;
 }
+
+/** Feature flags (implementation backlog #5) — real per-org capability
+ * toggles, admin-controlled. Read-only for a vendor (routes/org.ts's GET);
+ * admin toggles them in AdminDashboard.tsx's Organisations tab. */
+export const FEATURE_FLAG_KEYS = ["open_booking", "programs", "experiences"] as const;
+export type FeatureFlagKey = (typeof FEATURE_FLAG_KEYS)[number];
+export type FeatureFlags = Record<FeatureFlagKey, boolean>;
+export const FEATURE_FLAG_LABELS: Record<FeatureFlagKey, string> = {
+  open_booking: "Open Booking",
+  programs: "Programs",
+  experiences: "Adventures & Experiences",
+};
 
 export const PLATFORM_ROLES = ["centre_manager", "facility_manager", "finance", "communications", "read_only_analyst"] as const;
 
@@ -772,7 +1028,15 @@ export interface ModerationReport {
   targetId: string;
   reason: string;
   status: string;
+  /** Trust & Safety investigation notes (IA spec §16). */
+  adminNotes: string | null;
   createdAt: string;
+}
+
+export interface ReportCase {
+  report: ModerationReport & { reporterClientId: string };
+  target: Record<string, unknown> | null;
+  relatedReports: { id: number; reason: string; status: string; createdAt: string }[];
 }
 
 export interface AuditEntry {
@@ -812,4 +1076,45 @@ export interface SupportUser {
   name: string;
   role: string;
   status: string;
+}
+
+export interface SupportGame {
+  id: string;
+  activityLabel: string;
+  date: string;
+  time: string;
+  status: string;
+  bookingRef: string | null;
+}
+
+export interface SupportCircle {
+  id: string;
+  name: string;
+  activityLabel: string;
+  status: string;
+  createdAt: string;
+}
+
+// --- admin activity overview: Open Bookings & Circle activity (IA spec
+// §16) ----------------------------------------------------------------
+
+export interface OpenBookingActivity {
+  id: string;
+  activityLabel: string;
+  date: string;
+  time: string;
+  status: string;
+  bookingRef: string;
+  bookingRefFull: string;
+  bookingName: string;
+  centreName: string | null;
+}
+
+export interface CircleActivity {
+  id: string;
+  name: string;
+  activityLabel: string;
+  status: string;
+  createdAt: string;
+  memberCount: number;
 }

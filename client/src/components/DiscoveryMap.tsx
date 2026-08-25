@@ -46,7 +46,7 @@ export function DiscoveryMap({ centres, clubs }: { centres: Centre[]; clubs: Clu
                   {kind === "centre" ? `From ${euro((item as Centre).from)}` : euro((item as Club).price) + ` / ${(item as Club).unit}`}
                 </div>
                 <button
-                  onClick={() => navigate(kind === "centre" ? `/centres/${item.id}` : `/clubs/${item.id}`)}
+                  onClick={() => navigate(kind === "centre" ? `/centres/${item.slug ?? item.id}` : `/clubs/${item.slug ?? item.id}`)}
                   style={{ background: "#1C5B3D", color: "#fff", border: "none", borderRadius: 8, padding: "6px 10px", fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}
                 >
                   View details

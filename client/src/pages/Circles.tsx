@@ -1,12 +1,12 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { createCircle, fetchCircleSuggestions, fetchCircles, joinCircle, leaveCircle } from "../api";
-import { UsersIcon } from "../components/icons";
+import { createCircle, fetchCircleSuggestions, fetchCircles, fetchMyCircleInvitations, joinCircle, leaveCircle, respondToCircleInvitation } from "../api";
+import { AwardIcon, UsersIcon } from "../components/icons";
 import { Button, Card, EmptyState, PageSpinner, inputStyle, labelStyle } from "../components/ui";
 import { PageTitle } from "../components/PageTitle";
 import { useGuest } from "../GuestContext";
 import { colors, fonts } from "../theme";
-import type { Circle, CircleSuggestion } from "../types";
+import type { Circle, CircleInvitation, CircleSuggestion } from "../types";
 
 // Circles (NEXT) — a persistent group anchored to recurring participation
 // (see Games), not a generic social feed: no posts, no likes, just
@@ -25,6 +25,10 @@ export function Circles() {
   // where this resident keeps playing games with the same 2+ people.
   const [suggestions, setSuggestions] = useState<CircleSuggestion[]>([]);
   const [suggestionBusy, setSuggestionBusy] = useState<string | null>(null);
+  // Circle Invitations (IA spec §10) — the invite-then-accept path
+  // alongside the always-available direct "Join" button below.
+  const [invitations, setInvitations] = useState<CircleInvitation[]>([]);
+  const [respondingId, setRespondingId] = useState<string | null>(null);
 
   const load = () => {
     setLoading(true);
@@ -38,16 +42,33 @@ export function Circles() {
     else setSuggestions([]);
   };
 
+  const loadInvitations = () => {
+    if (resident) fetchMyCircleInvitations().then(setInvitations).catch(() => setInvitations([]));
+    else setInvitations([]);
+  };
+
   useEffect(load, []);
   useEffect(loadSuggestions, [resident]);
+  useEffect(loadInvitations, [resident]);
+
+  const handleRespond = async (invite: CircleInvitation, accept: boolean) => {
+    setRespondingId(invite.id);
+    try {
+      await respondToCircleInvitation(invite.id, accept);
+      setInvitations((rows) => rows.filter((r) => r.id !== invite.id));
+      if (accept) load();
+    } finally {
+      setRespondingId(null);
+    }
+  };
 
   const handleCreateFromSuggestion = async (s: CircleSuggestion) => {
     setSuggestionBusy(s.activityLabel);
     try {
-      const { id } = await createCircle({ name: `${s.activityLabel} Circle`, activityLabel: s.activityLabel });
+      const { id, slug } = await createCircle({ name: `${s.activityLabel} Circle`, activityLabel: s.activityLabel });
       setSuggestions((rows) => rows.filter((r) => r.activityLabel !== s.activityLabel));
       load();
-      navigate(`/circles/${id}`);
+      navigate(`/circles/${slug ?? id}`);
     } finally {
       setSuggestionBusy(null);
     }
@@ -90,6 +111,28 @@ export function Circles() {
         <p style={{ color: colors.mutedLight, fontSize: 15, margin: "0 0 28px" }}>
           Recurring groups built around the things people actually do together.
         </p>
+
+        {invitations.length > 0 && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 28 }}>
+            {invitations.map((inv) => (
+              <div
+                key={inv.id}
+                style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap", background: "#fff", border: `1px solid ${colors.border}`, borderRadius: 16, padding: "16px 20px" }}
+              >
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <AwardIcon size={18} style={{ color: colors.greenText, flex: "none" }} />
+                  <span style={{ fontSize: 14.5 }}>
+                    <strong>{inv.invitedByName}</strong> invited you to <strong>{inv.circleName}</strong>{inv.activityLabel ? ` (${inv.activityLabel})` : ""}
+                  </span>
+                </div>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <Button onClick={() => handleRespond(inv, true)} disabled={respondingId === inv.id}>Accept</Button>
+                  <Button variant="ghost" onClick={() => handleRespond(inv, false)} disabled={respondingId === inv.id}>Decline</Button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
 
         {suggestions.length > 0 && (
           <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 28 }}>
@@ -151,7 +194,7 @@ export function Circles() {
             {circles.map((c) => (
               <Card key={c.id}>
                 <button
-                  onClick={() => navigate(`/circles/${c.id}`)}
+                  onClick={() => navigate(`/circles/${c.slug ?? c.id}`)}
                   style={{ background: "none", border: "none", padding: 0, cursor: "pointer", textAlign: "left", fontFamily: fonts.display, fontWeight: 700, fontSize: 17, marginBottom: 4, color: colors.text, display: "block" }}
                 >
                   {c.name}

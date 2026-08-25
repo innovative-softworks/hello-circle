@@ -4,6 +4,7 @@ import { BallIcon, BuildingIcon, CalendarIcon, ChatIcon, CheckIcon, EyeIcon, Lig
 import { Card, EmptyState, StatRow, StatTile } from "./ui";
 import { CommunityIllustration } from "./illustrations";
 import { VendorScheduleTab } from "./VendorPrograms";
+import { useAuth } from "../AuthContext";
 import { colors, fonts } from "../theme";
 import type { VendorStats, VendorToday } from "../types";
 
@@ -55,6 +56,7 @@ function TipsPanel() {
 // the standalone Schedule tab's own Today/Upcoming (program sessions), and
 // a static engagement-tips panel.
 export function VendorOverviewTab({ stats, unreadCount }: { stats: VendorStats; unreadCount: number }) {
+  const { user } = useAuth();
   const [today, setToday] = useState<VendorToday | null>(null);
   const [todayError, setTodayError] = useState(false);
   useEffect(() => {
@@ -67,6 +69,20 @@ export function VendorOverviewTab({ stats, unreadCount }: { stats: VendorStats; 
 
   return (
     <div className="fade-panel" style={{ display: "flex", flexDirection: "column", gap: 24 }}>
+      {/* Public profile preview (IA spec §14) — links to the same page
+          built for the resident-facing side in §5 (routes/providers.ts,
+          ProviderProfile.tsx); only resolves once the vendor account is
+          approved, same gate as the route itself. */}
+      {user && (
+        <a
+          href={`/provider/${user.id}`}
+          target="_blank"
+          rel="noreferrer"
+          style={{ display: "inline-flex", alignItems: "center", gap: 6, alignSelf: "flex-start", fontSize: 13, fontWeight: 700, color: colors.greenText, textDecoration: "none" }}
+        >
+          <EyeIcon size={14} /> View your public profile
+        </a>
+      )}
       <StatRow marginBottom={0}>
         <StatTile icon={<BuildingIcon size={19} />} iconBg={colors.greenBg} iconColor={colors.green} value={stats.centresLive} label="Community centres" sublabel="Live listings" sublabelColor={colors.greenText} />
         <StatTile icon={<BallIcon size={19} />} iconBg={colors.orangeBg} iconColor={colors.orange} value={stats.clubsLive} label="Sports clubs" sublabel="Live listings" sublabelColor={colors.orangeDark} />

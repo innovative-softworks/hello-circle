@@ -1,14 +1,18 @@
 import { Router } from "express";
 import { db } from "../db/index.js";
 import { getApprovedClub, getClub, listClubs } from "../db/queries.js";
+import { resolveRadiusFilter } from "../geo.js";
 import { BadRequestError, clientIdFrom } from "../util.js";
 
 export const clubsRouter = Router();
 
+// Discovery-radius filtering (master-prompt punch list #2) — see
+// centres.ts's own comment, same opt-in convention.
 clubsRouter.get("/", async (req, res) => {
   const county = typeof req.query.county === "string" ? req.query.county : undefined;
   const sport = typeof req.query.sport === "string" ? req.query.sport : undefined;
-  res.json(await listClubs(county, sport));
+  const radius = resolveRadiusFilter(req.query, req.resident?.homeCounty ?? null);
+  res.json(await listClubs(county, sport, radius));
 });
 
 clubsRouter.get("/:id", async (req, res) => {

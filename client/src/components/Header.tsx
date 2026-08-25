@@ -4,7 +4,8 @@ import { fetchAdminPendingListings, fetchCentres, fetchResidentNotifications, fe
 import { useAuth } from "../AuthContext";
 import { useDashboardNav } from "../DashboardNavContext";
 import { useGuest } from "../GuestContext";
-import { BellIcon, ChatIcon, ChevronDownIcon, CloseIcon, LightbulbIcon, MenuIcon, PinIcon } from "./icons";
+import { useTheme } from "../ThemeContext";
+import { BellIcon, ChatIcon, ChevronDownIcon, CloseIcon, LightbulbIcon, MenuIcon, MoonIcon, PinIcon, PlusIcon, SearchIcon, SunIcon } from "./icons";
 import { Avatar } from "./ui";
 import { colors, maxWidth } from "../theme";
 import { useMyStuff } from "../MyStuffContext";
@@ -20,6 +21,7 @@ export function Header() {
   // DashboardNavContext) — that's what makes this burger admin/vendor-only
   // without Header needing to know about routes or tab lists itself.
   const { openNav } = useDashboardNav();
+  const { resolvedTheme, setTheme } = useTheme();
   const [menuOpen, setMenuOpen] = useState(false);
   const [alerts, setAlerts] = useState(0);
   const [countyMenuOpen, setCountyMenuOpen] = useState(false);
@@ -28,10 +30,17 @@ export function Header() {
   // Community centres/Sports clubs/Join a game tabs into one "Explore"
   // dropdown, matching the target nav's intent-based grouping.
   const [exploreMenuOpen, setExploreMenuOpen] = useState(false);
+  // Global Create hub (IA spec §1 audit) — desktop-only counterpart to
+  // MobileTabBar.tsx's Create sheet, same three destinations. Book a
+  // place/Join a game routes overlap with Explore's own, so only
+  // Make It Happen is exclusive to this menu — moved out of the Explore
+  // dropdown below to avoid two entry points for the same destination.
+  const [createMenuOpen, setCreateMenuOpen] = useState(false);
   const [counties, setCounties] = useState<string[]>([]);
   const countyMenuRef = useRef<HTMLDivElement>(null);
   const accountMenuRef = useRef<HTMLDivElement>(null);
   const exploreMenuRef = useRef<HTMLDivElement>(null);
+  const createMenuRef = useRef<HTMLDivElement>(null);
 
   // Resident notification bell (Tier 1) — previously these only lived
   // inside My Bookings > Notifications, easy to miss entirely.
@@ -50,6 +59,7 @@ export function Header() {
     setAccountMenuOpen(false);
     setNotifOpen(false);
     setExploreMenuOpen(false);
+    setCreateMenuOpen(false);
   }, [location.pathname]);
 
   useEffect(() => {
@@ -81,6 +91,7 @@ export function Header() {
       if (countyMenuRef.current && !countyMenuRef.current.contains(e.target as Node)) setCountyMenuOpen(false);
       if (accountMenuRef.current && !accountMenuRef.current.contains(e.target as Node)) setAccountMenuOpen(false);
       if (exploreMenuRef.current && !exploreMenuRef.current.contains(e.target as Node)) setExploreMenuOpen(false);
+      if (createMenuRef.current && !createMenuRef.current.contains(e.target as Node)) setCreateMenuOpen(false);
     }
     document.addEventListener("mousedown", onDocClick);
     return () => document.removeEventListener("mousedown", onDocClick);
@@ -252,7 +263,7 @@ export function Header() {
             <button
               className="tab-btn"
               style={
-                isActive(["/browse/centres", "/centres/", "/browse/clubs", "/clubs/", "/games", "/make-it-happen", "/adventures", "/experiences"])
+                isActive(["/browse/centres", "/centres/", "/browse/clubs", "/clubs/", "/games", "/adventures", "/experiences"])
                   ? { ...navBtn, background: colors.greenBg, color: colors.greenText, fontWeight: 700, display: "inline-flex", alignItems: "center", gap: 4 }
                   : { ...navBtn, display: "inline-flex", alignItems: "center", gap: 4 }
               }
@@ -276,9 +287,6 @@ export function Header() {
                 </button>
                 <button className="dropdown-item" style={dropdownItemStyle} onClick={() => go("/experiences")}>
                   Experiences
-                </button>
-                <button className="dropdown-item" style={dropdownItemStyle} onClick={() => go("/make-it-happen")}>
-                  Make It Happen
                 </button>
               </div>
             )}
@@ -306,6 +314,52 @@ export function Header() {
           </button>
         </nav>
         <div className="desktop-actions" style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10 }}>
+          <button
+            className="btn btn-ghost"
+            onClick={() => setTheme(resolvedTheme === "dark" ? "light" : "dark")}
+            aria-label={resolvedTheme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+            title={resolvedTheme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+            style={circleBtnStyle}
+          >
+            {resolvedTheme === "dark" ? <SunIcon size={17} /> : <MoonIcon size={17} />}
+          </button>
+          <button
+            className="btn btn-ghost"
+            onClick={() => go("/search")}
+            aria-label="Search"
+            title="Search"
+            style={isActive(["/search"]) ? { ...circleBtnStyle, background: colors.greenBg, borderColor: colors.green } : circleBtnStyle}
+          >
+            <SearchIcon size={17} />
+          </button>
+          <div ref={createMenuRef} style={{ position: "relative" }}>
+            <button
+              className="btn btn-ghost"
+              onClick={() => setCreateMenuOpen((o) => !o)}
+              aria-label="Create"
+              title="Create"
+              style={isActive(["/make-it-happen"]) ? { ...circleBtnStyle, background: colors.greenBg, borderColor: colors.green } : circleBtnStyle}
+            >
+              <PlusIcon size={18} />
+            </button>
+            {createMenuOpen && (
+              <div className="pop-in" style={dropdownStyle}>
+                <div style={dropdownLabelStyle}>Create</div>
+                <button className="dropdown-item" style={dropdownItemStyle} onClick={() => go("/browse/centres")}>
+                  Book a place
+                </button>
+                <button className="dropdown-item" style={dropdownItemStyle} onClick={() => go("/games")}>
+                  Start a game
+                </button>
+                <button className="dropdown-item" style={dropdownItemStyle} onClick={() => go("/make-it-happen")}>
+                  Make It Happen
+                </button>
+                <button className="dropdown-item" style={dropdownItemStyle} onClick={() => go("/suggest-place")}>
+                  Suggest a place
+                </button>
+              </div>
+            )}
+          </div>
           <button
             className="btn btn-ghost hide-tablet"
             onClick={() => go("/free-time")}
@@ -605,6 +659,9 @@ export function Header() {
               secondary actions and account/auth. Grouped by intent (UI/UX
               plan phase 4). */}
           <div style={{ ...dropdownLabelStyle, padding: "2px 6px 2px" }}>Not sure yet?</div>
+          <button style={{ ...mobileNavBtn, display: "flex", alignItems: "center", gap: 8 }} onClick={() => go("/search")}>
+            <SearchIcon size={16} /> Search
+          </button>
           <button style={{ ...mobileNavBtn, display: "flex", alignItems: "center", gap: 8 }} onClick={() => go("/free-time")}>
             <LightbulbIcon size={16} /> Free Time Mode
           </button>
@@ -618,6 +675,13 @@ export function Header() {
               <BellIcon size={16} /> Notifications{unreadNotifs > 0 ? ` (${unreadNotifs})` : ""}
             </button>
           )}
+          <button
+            style={{ ...mobileNavBtn, display: "flex", alignItems: "center", gap: 8 }}
+            onClick={() => setTheme(resolvedTheme === "dark" ? "light" : "dark")}
+          >
+            {resolvedTheme === "dark" ? <SunIcon size={16} /> : <MoonIcon size={16} />}
+            {resolvedTheme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+          </button>
           <div style={{ borderTop: `1px solid ${colors.border}`, margin: "8px 0" }} />
           {user ? (
             <>

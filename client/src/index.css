@@ -49,11 +49,12 @@
   color-scheme: light;
 }
 
-/* Dark mode (UI/UX plan phase 8) — not requested anywhere in the product
-   yet, added for completeness alongside the rest of the token system. OS-
-   driven only (`prefers-color-scheme`) — there's no in-app theme toggle to
-   stamp a `data-theme` attribute, so that override isn't included; add one
-   here the same shape as this block if a manual toggle is ever built. */
+/* Dark mode (UI/UX plan phase 8), OS-driven by default via
+   `prefers-color-scheme` below. A manual in-app toggle (ThemeContext.tsx,
+   Header.tsx's sun/moon button) now also exists — it stamps
+   `data-theme="dark"`/`"light"` on <html>, which the two blocks right after
+   this media query override with (both need to win in both directions,
+   independent of the OS preference). */
 @media (prefers-color-scheme: dark) {
   :root {
     --color-bg: #15181a;
@@ -108,6 +109,90 @@
 
     color-scheme: dark;
   }
+}
+
+/* Manual in-app toggle overrides (ThemeContext.tsx stamps this attribute on
+   <html>) — same variable values as the media query above, duplicated
+   rather than shared because a media query can't be referenced from a
+   plain selector. `[data-theme="dark"]` needs to win even when the OS is
+   in light mode; `[data-theme="light"]` needs to win even when the OS is
+   in dark mode — both attribute selectors (specificity 0-2-0) already beat
+   the plain `:root` inside the media query (0-1-0), so no `!important` or
+   extra specificity hacks are needed. */
+:root[data-theme="dark"] {
+  --color-bg: #15181a;
+  --color-surface: #1d2220;
+  --color-text: #ecefe9;
+  --color-muted: #b6bcb1;
+  --color-muted-light: #a3a99d;
+  --color-faint: #8b9289;
+  --color-border: #2b302d;
+  --color-border-strong: #3b423d;
+  --color-input-border: #3b423d;
+  --color-panel: #1d2220;
+  --color-footer-bg: #1a1e1c;
+
+  --color-green: #1e7a4c;
+  --color-green-dark: #175f3b;
+  --color-green-bg: #1c3327;
+  --color-green-text: #7fd3a5;
+
+  --color-orange: #c74c1a;
+  --color-orange-dark: #f0996a;
+  --color-orange-bg: #3a2517;
+  --color-orange-bg-hover: #472d1c;
+
+  --color-gold: #e8a33a;
+  --color-dark: #444d46;
+  --color-dark-hover: #525c54;
+
+  --color-skeleton: #23282a;
+  --color-skeleton-highlight: #2d3335;
+
+  --color-danger: #e37272;
+  --color-danger-bg: #3a1f1f;
+
+  --color-header-bg: rgba(21, 24, 26, 0.86);
+
+  color-scheme: dark;
+}
+
+:root[data-theme="light"] {
+  --color-bg: #fbfaf7;
+  --color-surface: #ffffff;
+  --color-text: #1e2420;
+  --color-muted: #5b635c;
+  --color-muted-light: #5f675e;
+  --color-faint: #656d64;
+  --color-border: #e7e4dc;
+  --color-border-strong: #d8d4cb;
+  --color-input-border: #d8d4cb;
+  --color-panel: #f0eee8;
+  --color-footer-bg: #f6f4ef;
+
+  --color-green: #1e7a4c;
+  --color-green-dark: #175f3b;
+  --color-green-bg: #eaf4ee;
+  --color-green-text: #175f3b;
+
+  --color-orange: #c74c1a;
+  --color-orange-dark: #b0401a;
+  --color-orange-bg: #fcede4;
+  --color-orange-bg-hover: #f8ddcc;
+
+  --color-gold: #e8a33a;
+  --color-dark: #1e2420;
+  --color-dark-hover: #252d27;
+
+  --color-skeleton: #edeae1;
+  --color-skeleton-highlight: #f5f3ec;
+
+  --color-danger: #b00020;
+  --color-danger-bg: #fbeaea;
+
+  --color-header-bg: rgba(251, 250, 247, 0.86);
+
+  color-scheme: light;
 }
 
 * {

@@ -4,6 +4,17 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <link rel="icon" type="image/svg+xml" href="/illustrations/Fav.svg" />
+  <!-- Applies a saved light/dark choice before first paint, so there's no
+       flash of the wrong theme while main.tsx's module script (deferred by
+       `type="module"`) is still loading. "system" (no localStorage key)
+       intentionally sets no attribute — index.css's own
+       `prefers-color-scheme` media query already handles that case. -->
+  <script>
+    (function () {
+      var t = localStorage.getItem("hello-circle-theme");
+      if (t === "light" || t === "dark") document.documentElement.setAttribute("data-theme", t);
+    })();
+  </script>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link

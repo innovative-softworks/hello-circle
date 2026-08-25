@@ -44,6 +44,8 @@ interface ExperienceRow {
   image_url: string;
   status: string;
   views: number;
+  featured: number;
+  slug: string | null;
   created_at: string;
 }
 
@@ -97,6 +99,8 @@ async function toExperienceJson(row: ExperienceRow) {
     imageUrl: row.image_url,
     images: images.map((i) => i.url),
     sessions: withAvailability,
+    featured: !!row.featured,
+    slug: row.slug,
     createdAt: row.created_at,
   };
 }
@@ -116,18 +120,22 @@ experiencesRouter.get("/", async (req, res) => {
     params.push(county);
   }
   const rows = (await db
-    .prepare(`SELECT * FROM experiences WHERE ${conditions.join(" AND ")} ORDER BY created_at DESC`)
+    .prepare(`SELECT * FROM experiences WHERE ${conditions.join(" AND ")} ORDER BY featured DESC, created_at DESC`)
     .all(...params)) as ExperienceRow[];
   res.json(await Promise.all(rows.map(toExperienceJson)));
 });
 
 // Same "approved only" contract as getApprovedCentre/getApprovedClub — a
 // pending/rejected/deleted experience has no public detail page. Vendors see
-// every status of their own via GET /vendor/experiences instead.
+// every status of their own via GET /vendor/experiences instead. Slug-or-id
+// resolution (master-prompt punch list #1) — same convention as centres/
+// clubs/circles.
 experiencesRouter.get("/:id", async (req, res) => {
-  const row = (await db.prepare(`SELECT * FROM experiences WHERE id = ? AND status = 'approved'`).get(req.params.id)) as ExperienceRow | undefined;
+  const row = (await db.prepare(`SELECT * FROM experiences WHERE (slug = ? OR id = ?) AND status = 'approved'`).get(req.params.id, req.params.id)) as
+    | ExperienceRow
+    | undefined;
   if (!row) return res.status(404).json({ error: "Experience not found" });
-  await db.prepare(`UPDATE experiences SET views = views + 1 WHERE id = ?`).run(req.params.id);
+  await db.prepare(`UPDATE experiences SET views = views + 1 WHERE id = ?`).run(row.id);
   res.json(await toExperienceJson(row));
 });
 
@@ -243,6 +251,7 @@ experiencesRouter.post("/:id/sessions/:sessionId/checkout", async (req, res) => 
     ref,
     type: "experience",
     customerEmail: body.email,
+    residentId: req.resident?.id ?? null,
     lineItems: pricingLineItems(pricing, {
       name: experience.title,
       description: `${body.participantName} · party of ${partySize}${couponCode ? ` (coupon ${couponCode} applied)` : ""}`,

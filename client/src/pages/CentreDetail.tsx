@@ -12,7 +12,12 @@ import { colors, fonts, maxWidth } from "../theme";
 import type { Centre, Game, Program } from "../types";
 
 export function CentreDetail() {
-  const { id } = useParams<{ id: string }>();
+  // Slugs (master-prompt punch list #1) — the URL param may be a slug or a
+  // raw UUID; fetchCentre() resolves either. Every OTHER call in this
+  // component uses centre.id (the resolved canonical id) once loaded, never
+  // this raw param directly, so a slug-based sub-resource lookup can never
+  // silently 404.
+  const { id: idOrSlug } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { resident } = useGuest();
   const [centre, setCentre] = useState<Centre | null>(null);
@@ -22,36 +27,36 @@ export function CentreDetail() {
   const [programs, setPrograms] = useState<Program[]>([]);
 
   useEffect(() => {
-    if (id) fetchCentre(id).then(setCentre);
-  }, [id]);
+    if (idOrSlug) fetchCentre(idOrSlug).then(setCentre);
+  }, [idOrSlug]);
 
   // Server-backed favourites when signed in (MVP); localStorage otherwise —
   // see client/src/favorites.ts for the anonymous fallback.
   useEffect(() => {
-    if (!id) return;
-    if (resident) fetchFavourites().then((rows) => setFavourited(rows.some((r) => r.listingType === "centre" && r.listingId === id)));
-    else setFavourited(isFavorite("centre", id));
-  }, [id, resident]);
+    if (!centre) return;
+    if (resident) fetchFavourites().then((rows) => setFavourited(rows.some((r) => r.listingType === "centre" && r.listingId === centre.id)));
+    else setFavourited(isFavorite("centre", centre.id));
+  }, [centre, resident]);
 
   // "Join a Game" CTA (MVP — Book vs Join) — open games hosted at this venue.
   useEffect(() => {
-    if (!id) return;
-    fetchGames().then((rows) => setGames(rows.filter((g) => g.centreId === id)));
-  }, [id]);
+    if (!centre) return;
+    fetchGames().then((rows) => setGames(rows.filter((g) => g.centreId === centre.id)));
+  }, [centre]);
 
   // Programs (Phase B) — multi-session activities run at this centre.
   useEffect(() => {
-    if (id) fetchPrograms("centre", id).then(setPrograms).catch(() => {});
-  }, [id]);
+    if (centre) fetchPrograms("centre", centre.id).then(setPrograms).catch(() => {});
+  }, [centre]);
 
   const handleToggleFavourite = async () => {
-    if (!id) return;
+    if (!centre) return;
     if (resident) {
-      if (favourited) await removeFavourite("centre", id);
-      else await addFavourite("centre", id);
+      if (favourited) await removeFavourite("centre", centre.id);
+      else await addFavourite("centre", centre.id);
       setFavourited((f) => !f);
     } else {
-      setFavourited(toggleFavorite("centre", id));
+      setFavourited(toggleFavorite("centre", centre.id));
     }
   };
 
@@ -72,7 +77,7 @@ export function CentreDetail() {
   };
 
   const reloadRating = () => {
-    if (id) fetchCentre(id).then(setCentre);
+    if (idOrSlug) fetchCentre(idOrSlug).then(setCentre);
   };
 
   if (!centre) return <ListingDetailSkeleton />;
@@ -121,7 +126,16 @@ export function CentreDetail() {
             </button>
           </h1>
           <p style={{ color: colors.mutedLight, fontSize: 16, margin: "0 0 22px", display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-            <span>{centre.area} · Managed by {centre.managedBy}</span>
+            <span>
+              {centre.area} · Managed by{" "}
+              {centre.vendorId ? (
+                <button onClick={() => navigate(`/provider/${centre.vendorId}`)} style={{ background: "none", border: "none", padding: 0, color: colors.greenText, font: "inherit", fontWeight: 600, cursor: "pointer", textDecoration: "underline" }}>
+                  {centre.managedBy}
+                </button>
+              ) : (
+                centre.managedBy
+              )}
+            </span>
             {centre.mapUrl && (
               <a href={centre.mapUrl} target="_blank" rel="noopener noreferrer" className="link-accent" style={{ display: "inline-flex", alignItems: "center", gap: 4, color: colors.greenText, fontSize: 14, fontWeight: 600 }}>
                 <PinIcon size={14} /> View on map

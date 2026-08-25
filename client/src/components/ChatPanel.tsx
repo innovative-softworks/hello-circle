@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { fetchChatMessages, postChatMessage } from "../api";
+import { blockResident, fetchChatMessages, postChatMessage } from "../api";
 import { ChatIcon } from "./icons";
 import { colors, fonts } from "../theme";
 import type { ChatMessage, ChatScopeType } from "../types";
@@ -27,8 +27,19 @@ export function ChatPanel({ scopeType, scopeId, residentId }: { scopeType: ChatS
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const [loaded, setLoaded] = useState(false);
+  const [blockedIds, setBlockedIds] = useState<Set<string>>(new Set());
   const lastIdRef = useRef(0);
   const listRef = useRef<HTMLDivElement>(null);
+
+  // Safety Centre (IA spec §13) — block right from the conversation where
+  // the problem actually happened, rather than only via a resident-id
+  // lookup. Doesn't affect this chat itself (no per-thread filtering yet —
+  // see blocked_residents' own comment in db/index.ts); it's the "who have
+  // I blocked" list surfaced in My Life → Safety Centre.
+  const handleBlock = async (targetId: string) => {
+    await blockResident(targetId);
+    setBlockedIds((s) => new Set(s).add(targetId));
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -101,6 +112,15 @@ export function ChatPanel({ scopeType, scopeId, residentId }: { scopeType: ChatS
                 {m.residentName || "A resident"}
               </span>{" "}
               <span style={{ color: colors.faint, fontSize: 11 }}>{timeLabel(m.createdAt)}</span>
+              {m.residentId !== residentId && (
+                <button
+                  onClick={() => handleBlock(m.residentId)}
+                  disabled={blockedIds.has(m.residentId)}
+                  style={{ background: "none", border: "none", padding: 0, marginLeft: 6, fontSize: 11, color: colors.faint, textDecoration: "underline", cursor: blockedIds.has(m.residentId) ? "default" : "pointer" }}
+                >
+                  {blockedIds.has(m.residentId) ? "Blocked" : "Block"}
+                </button>
+              )}
               <div style={{ color: colors.muted, marginTop: 1, wordBreak: "break-word" }}>{m.body}</div>
             </div>
           ))

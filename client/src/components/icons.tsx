@@ -496,3 +496,30 @@ export function LightbulbIcon({ size = 18, style, className }: IconProps) {
     </svg>
   );
 }
+
+export function SunIcon({ size = 18, style, className }: IconProps) {
+  return (
+    <svg {...stroke(size)} style={style} className={className}>
+      <circle cx={12} cy={12} r={4.2} />
+      <path d="M12 2.5v2.4M12 19.1v2.4M4.2 4.2l1.7 1.7M18.1 18.1l1.7 1.7M2.5 12h2.4M19.1 12h2.4M4.2 19.8l1.7-1.7M18.1 5.9l1.7-1.7" />
+    </svg>
+  );
+}
+
+export function MoonIcon({ size = 18, style, className }: IconProps) {
+  return (
+    <svg {...stroke(size)} style={style} className={className}>
+      <path d="M20.5 14.7A8.5 8.5 0 1 1 9.3 3.5a7 7 0 0 0 11.2 11.2Z" />
+    </svg>
+  );
+}
+
+export function CardIcon({ size = 18, style, className }: IconProps) {
+  return (
+    <svg {...stroke(size)} style={style} className={className}>
+      <rect x={2.5} y={5.5} width={19} height={13} rx={2} />
+      <path d="M2.5 9.5h19" />
+      <path d="M6 14.5h4" />
+    </svg>
+  );
+}

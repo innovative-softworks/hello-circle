@@ -66,6 +66,11 @@ async function findCandidates(body: SearchBody): Promise<Candidate[]> {
 
   for (const centre of centres as Centre[]) {
     if (!centre.isOpen) continue;
+    // Feature flags (implementation backlog #5) — Make It Happen always
+    // requests openSpots, so a centre whose org has Open Booking disabled
+    // can never actually be confirmed; excluded from candidates entirely
+    // rather than surfaced and then failing at /confirm.
+    if (!centre.openBookingEnabled) continue;
     const opensHour = parseInt(centre.opensAt.slice(0, 2), 10);
     const closesHour = parseInt(centre.closesAt.slice(0, 2), 10);
     if (startHour < opensHour || reqEnd > closesHour) continue;

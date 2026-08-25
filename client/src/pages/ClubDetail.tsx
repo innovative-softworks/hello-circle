@@ -13,7 +13,10 @@ import { colors, fonts, maxWidth } from "../theme";
 import type { Club, Program } from "../types";
 
 export function ClubDetail() {
-  const { id } = useParams<{ id: string }>();
+  // Slugs (master-prompt punch list #1) — see CentreDetail.tsx's own
+  // comment; every call below uses club.id once loaded, never this raw
+  // param.
+  const { id: idOrSlug } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { resident } = useGuest();
   const [club, setClub] = useState<Club | null>(null);
@@ -22,37 +25,37 @@ export function ClubDetail() {
   const [programs, setPrograms] = useState<Program[]>([]);
 
   useEffect(() => {
-    if (id) fetchClub(id).then(setClub);
-  }, [id]);
+    if (idOrSlug) fetchClub(idOrSlug).then(setClub);
+  }, [idOrSlug]);
 
   useEffect(() => {
-    if (id) fetchPrograms("club", id).then(setPrograms).catch(() => {});
-  }, [id]);
+    if (club) fetchPrograms("club", club.id).then(setPrograms).catch(() => {});
+  }, [club]);
 
   useEffect(() => {
-    if (!id) return;
-    if (resident) fetchFavourites().then((rows) => setFavourited(rows.some((r) => r.listingType === "club" && r.listingId === id)));
-    else setFavourited(isFavorite("club", id));
-  }, [id, resident]);
+    if (!club) return;
+    if (resident) fetchFavourites().then((rows) => setFavourited(rows.some((r) => r.listingType === "club" && r.listingId === club.id)));
+    else setFavourited(isFavorite("club", club.id));
+  }, [club, resident]);
 
   const handleToggleFavourite = async () => {
-    if (!id) return;
+    if (!club) return;
     if (resident) {
-      if (favourited) await removeFavourite("club", id);
-      else await addFavourite("club", id);
+      if (favourited) await removeFavourite("club", club.id);
+      else await addFavourite("club", club.id);
       setFavourited((f) => !f);
     } else {
-      setFavourited(toggleFavorite("club", id));
+      setFavourited(toggleFavorite("club", club.id));
     }
   };
 
   // Credit-pack pass purchase (NEXT) — a simple fixed 10-credit pack;
   // a real product would let the vendor configure pack size/pricing.
   const handleBuyPass = async () => {
-    if (!id) return;
+    if (!club) return;
     setPassLoading(true);
     try {
-      const res = await createPassCheckout({ listingId: id, creditsTotal: 10 });
+      const res = await createPassCheckout({ listingId: club.id, creditsTotal: 10 });
       if (res.url) window.location.href = res.url;
     } catch (e) {
       alert(e instanceof Error ? e.message : "Couldn't start checkout");
@@ -62,7 +65,7 @@ export function ClubDetail() {
   };
 
   const reloadRating = () => {
-    if (id) fetchClub(id).then(setClub);
+    if (idOrSlug) fetchClub(idOrSlug).then(setClub);
   };
 
   if (!club) return <ListingDetailSkeleton />;

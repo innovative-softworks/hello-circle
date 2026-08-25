@@ -27,3 +27,23 @@ export async function request<T>(path: string, init?: RequestInit): Promise<T> {
   }
   return res.json() as Promise<T>;
 }
+
+/** "Add to calendar" (IA spec §13) — the .ics routes need the same
+ * X-Client-Id/cookie auth as `request()`, but return text/calendar, not
+ * JSON, so this triggers a browser download instead of parsing a body. */
+export async function downloadIcs(path: string, filename: string): Promise<void> {
+  const res = await fetch(`/api${path}`, {
+    credentials: "include",
+    headers: { "X-Client-Id": getClientId() },
+  });
+  if (!res.ok) throw new ApiError(`Request failed: ${res.status}`, {});
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}

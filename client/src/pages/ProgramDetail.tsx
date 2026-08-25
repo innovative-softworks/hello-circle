@@ -104,6 +104,18 @@ export function ProgramDetail() {
           {program.equipment.length > 0 && (
             <p style={{ margin: "6px 0 0", color: colors.muted, fontSize: 13.5 }}>Bring: {program.equipment.join(", ")}</p>
           )}
+          {program.guardianRules && (
+            <div style={{ background: colors.panel, borderRadius: 10, padding: "10px 12px", marginTop: 12 }}>
+              <div style={{ fontSize: 11.5, fontWeight: 700, color: colors.muted, marginBottom: 3 }}>GUARDIAN RULES</div>
+              <p style={{ fontSize: 13, color: "#3B423C", margin: 0, whiteSpace: "pre-wrap" }}>{program.guardianRules}</p>
+            </div>
+          )}
+          {program.safeguardingInfo && (
+            <div style={{ background: colors.panel, borderRadius: 10, padding: "10px 12px", marginTop: 8 }}>
+              <div style={{ fontSize: 11.5, fontWeight: 700, color: colors.muted, marginBottom: 3 }}>SAFEGUARDING</div>
+              <p style={{ fontSize: 13, color: "#3B423C", margin: 0, whiteSpace: "pre-wrap" }}>{program.safeguardingInfo}</p>
+            </div>
+          )}
           {program.capacity !== null && (
             <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 14, fontSize: 13.5, color: full ? colors.danger : colors.greenText, fontWeight: 700 }}>
               <UsersIcon size={14} /> {full ? "Full" : `${program.spotsLeft} of ${program.capacity} spots left`}

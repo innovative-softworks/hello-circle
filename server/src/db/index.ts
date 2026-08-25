@@ -442,6 +442,72 @@ export async function initSchema() {
       UNIQUE KEY uniq_circle_member (circle_id, resident_id)
     );
 
+    -- Circle Invitations (IA spec §10) — a distinct invite-then-accept path
+    -- alongside the existing instant self-serve POST /:id/join (kept
+    -- unchanged — Circles stay publicly joinable). An organiser (role in
+    -- circle_members) invites a specific resident; the invite sits
+    -- 'pending' until the invitee accepts (which also inserts the
+    -- circle_members row) or declines.
+    CREATE TABLE IF NOT EXISTS circle_invites (
+      id VARCHAR(191) PRIMARY KEY,
+      circle_id VARCHAR(191) NOT NULL,
+      resident_id VARCHAR(191) NOT NULL,
+      invited_by_resident_id VARCHAR(191) NOT NULL,
+      status VARCHAR(20) NOT NULL DEFAULT 'pending',
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE KEY uniq_circle_invite (circle_id, resident_id)
+    );
+
+    -- Circle planning / availability poll (IA spec §10) — members propose
+    -- date/time options, others vote for every option they're available
+    -- for (not single-choice — a real availability poll needs multi-select).
+    -- The "recommended option" the spec wants is derived client-side from
+    -- vote counts, not stored.
+    CREATE TABLE IF NOT EXISTS circle_polls (
+      id VARCHAR(191) PRIMARY KEY,
+      circle_id VARCHAR(191) NOT NULL,
+      question VARCHAR(255) NOT NULL,
+      created_by_resident_id VARCHAR(191) NOT NULL,
+      status VARCHAR(20) NOT NULL DEFAULT 'open',
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS circle_poll_options (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      poll_id VARCHAR(191) NOT NULL,
+      date VARCHAR(20) NOT NULL,
+      time VARCHAR(20) NOT NULL DEFAULT '',
+      sort_order INT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS circle_poll_votes (
+      poll_id VARCHAR(191) NOT NULL,
+      option_id INT NOT NULL,
+      resident_id VARCHAR(191) NOT NULL,
+      PRIMARY KEY (poll_id, option_id, resident_id)
+    );
+
+    -- Routines-as-an-object (IA spec §9) — the single most-named gap across
+    -- every audit this project has run. Circles-from-repetition
+    -- (getCircleSuggestions above) already detects "you keep showing up
+    -- with the same people"; this is the personal counterpart — "you keep
+    -- showing up on the same day," regardless of who else is there — and,
+    -- unlike a Circle suggestion, actually materializes into an object a
+    -- resident can see/pause/edit/cancel (see getRoutineSuggestions() in
+    -- queries.ts and routes/residents.ts's routine endpoints). A routine is
+    -- a personal planning aid, never an automatic booking — matches the
+    -- spec's own explicit instruction for this screen.
+    CREATE TABLE IF NOT EXISTS routines (
+      id VARCHAR(191) PRIMARY KEY,
+      resident_id VARCHAR(191) NOT NULL,
+      activity_label VARCHAR(255) NOT NULL,
+      centre_id VARCHAR(191),
+      day_of_week INT NOT NULL,
+      time VARCHAR(20) NOT NULL DEFAULT '',
+      status VARCHAR(20) NOT NULL DEFAULT 'active',
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
     -- Participation Chat (implementation plan Phase 11) — polling-based, not
     -- WebSocket (no real-time infra exists anywhere else in this stack, and
     -- current traffic doesn't justify adding an always-on connection layer;
@@ -734,6 +800,24 @@ export async function initSchema() {
       PRIMARY KEY (org_id, flag_key)
     );
 
+    -- Admin-editable notification templates (implementation backlog #2).
+    -- Deliberately an override layer, not the source of truth: every real
+    -- call site (notifications.ts) already has a hardcoded fallback
+    -- subject/title/body, and only consults a row here if one exists for
+    -- that template_key — an empty table (the default, on every existing
+    -- install) means zero behavior change. All 3 *_template columns are
+    -- nullable TEXT with no DEFAULT (MySQL TEXT+DEFAULT gotcha, see
+    -- CLAUDE.md) since a given template_key only ever uses a subset (an
+    -- in-app title has no subject; an email has no title).
+    CREATE TABLE IF NOT EXISTS notification_templates (
+      template_key VARCHAR(100) PRIMARY KEY,
+      description VARCHAR(500) NOT NULL DEFAULT '',
+      subject_template TEXT,
+      title_template TEXT,
+      body_template TEXT,
+      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    );
+
     -- Moderation reports (Phase D, best-effort) — the only user-generated
     -- surfaces today are Circles and reviews (reviews already had their own
     -- hide/unhide path — this generalises reporting itself).
@@ -745,6 +829,19 @@ export async function initSchema() {
       reason TEXT NOT NULL,
       status VARCHAR(20) NOT NULL DEFAULT 'pending',
       created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- Resident safety centre (IA spec §13) — a resident's own blocked-users
+    -- list. Deliberately app-level-enforced-nowhere-yet (no chat/join
+    -- filtering reads this table in this pass) — it's the storage +
+    -- visibility half of the spec's ask; wiring it into Circle
+    -- chat/game-join visibility is a real, separate follow-up.
+    CREATE TABLE IF NOT EXISTS blocked_residents (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      blocker_resident_id VARCHAR(191) NOT NULL,
+      blocked_resident_id VARCHAR(191) NOT NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE KEY uniq_block (blocker_resident_id, blocked_resident_id)
     );
 
     -- Platform-wide audit log (Phase D, best-effort) — written to going
@@ -988,6 +1085,54 @@ export async function initSchema() {
   await ensureColumn("residents", "host_applied_at", "host_applied_at DATETIME");
   await ensureColumn("residents", "host_decided_at", "host_decided_at DATETIME");
 
+  // Onboarding §2 (IA spec) — goals + participation-comfort steps. Same
+  // signal-only convention as interests/availability above: stored, wired
+  // into recommendations later, never required. `goals` is comma-joined
+  // TEXT (no DEFAULT — see host_bio's comment on why); the comfort fields
+  // are short enums stored as plain VARCHAR, not booleans, so a future
+  // "any/no preference" state has somewhere to live besides NULL.
+  await ensureColumn("residents", "goals", "goals TEXT");
+  await ensureColumn("residents", "pref_group_size", "pref_group_size VARCHAR(20) NOT NULL DEFAULT ''");
+  await ensureColumn("residents", "pref_beginner_friendly", "pref_beginner_friendly TINYINT NOT NULL DEFAULT 0");
+  await ensureColumn("residents", "pref_solo_friendly", "pref_solo_friendly TINYINT NOT NULL DEFAULT 0");
+  await ensureColumn("residents", "pref_budget", "pref_budget VARCHAR(20) NOT NULL DEFAULT ''");
+
+  // Fuller post-activity feedback (IA spec §11) — activity_feedback's
+  // `response` column already carries "would you do this again"; these are
+  // the spec's other 4 structured questions, additive and all optional (a
+  // resident can still answer just the original one, same convenience as
+  // before). VARCHAR 'yes'/'maybe'/'no'/NULL, same shape as `response`.
+  await ensureColumn("activity_feedback", "beginner_friendly", "beginner_friendly VARCHAR(20)");
+  await ensureColumn("activity_feedback", "solo_friendly", "solo_friendly VARCHAR(20)");
+  await ensureColumn("activity_feedback", "description_accurate", "description_accurate VARCHAR(20)");
+  await ensureColumn("activity_feedback", "welcoming", "welcoming VARCHAR(20)");
+
+  // Self-serve attendance confirmation + check-in (IA spec §11) — "did you
+  // attend?" for a Game, resident-initiated (existing check-in machinery is
+  // vendor-QR-scan-only, for bookings/registrations, not this). NULL =
+  // unanswered; check-in is a separate, earlier signal (can check in
+  // without yet confirming attendance after the fact).
+  await ensureColumn("game_participants", "checked_in_at", "checked_in_at DATETIME");
+  await ensureColumn("game_participants", "attended", "attended TINYINT");
+
+  // Circle settings — "Close Circle" (IA spec §10). A closed circle drops
+  // out of public browse (GET / filters status='active') but stays visible
+  // to its own members (GET /:id and /mine don't filter) — same
+  // soft-delete convention as every other status-based "remove" in this app.
+  await ensureColumn("circles", "status", "status VARCHAR(20) NOT NULL DEFAULT 'active'");
+
+  // Household guardian consent (IA spec §13) — a household member profile
+  // itself has no consent concept today; the only consent/waiver in this
+  // app lives on club registrations (registrations.consent), a different
+  // table entirely. This is the household-level counterpart.
+  await ensureColumn("household_members", "guardian_consent_given", "guardian_consent_given TINYINT NOT NULL DEFAULT 0");
+
+  // Privacy: opt out of appearing in someone else's "familiar participants"
+  // count (IA spec §13) — countFamiliarCoParticipants() reads this to
+  // exclude the resident from other people's counts; it never removes
+  // their own familiarCount, which is about who's familiar TO them.
+  await ensureColumn("residents", "hide_from_familiar_count", "hide_from_familiar_count TINYINT NOT NULL DEFAULT 0");
+
   // Organisation linkage (Phase C — Gate 2). Every existing vendor is
   // backfilled with their own 1:1 organisation below so nothing about the
   // current one-login-per-vendor model breaks — org_id is additive.
@@ -1018,13 +1163,7 @@ export async function initSchema() {
   await ensureColumn("centres", "lng", "lng DECIMAL(9,6)");
   await ensureColumn("clubs", "lat", "lat DECIMAL(9,6)");
   await ensureColumn("clubs", "lng", "lng DECIMAL(9,6)");
-  for (const table of ["centres", "clubs"] as const) {
-    const rows = (await db.prepare(`SELECT id, county FROM ${table} WHERE lat IS NULL`).all()) as { id: string; county: string }[];
-    for (const row of rows) {
-      const { lat, lng } = approximateCoords(row.county, row.id);
-      await db.prepare(`UPDATE ${table} SET lat = ?, lng = ? WHERE id = ?`).run(lat, lng, row.id);
-    }
-  }
+  await backfillCentreClubCoords();
 
   // A real contact number for the listing itself — distinct from `ph`
   // (a decorative CSS placeholder pattern shown behind a photo before it
@@ -1057,6 +1196,11 @@ export async function initSchema() {
   // for why); comma-joined list, same convention as accessibility/amenities.
   await ensureColumn("programs", "equipment", "equipment TEXT");
   await ensureColumn("programs", "instructor_name", "instructor_name VARCHAR(255) NOT NULL DEFAULT ''");
+  // Community program detail (IA spec §5) — guardian rules/safeguarding
+  // info, both optional free text a vendor can fill in for programs aimed
+  // at children/dependants. Nullable TEXT, same convention as `equipment`.
+  await ensureColumn("programs", "guardian_rules", "guardian_rules TEXT");
+  await ensureColumn("programs", "safeguarding_info", "safeguarding_info TEXT");
   // Session-level instructor overrides the program/club's own instructor
   // when set; empty string means "use the parent's instructor".
   await ensureColumn("program_sessions", "instructor_name", "instructor_name VARCHAR(255) NOT NULL DEFAULT ''");
@@ -1118,6 +1262,12 @@ export async function initSchema() {
   // whoever already joined is handled off-platform, same convention as
   // every other cancellation in this app.
   await ensureColumn("games", "min_participants", "min_participants INT");
+  // Open game detail (IA spec §5) — an optional, display-only deadline by
+  // which the min_participants threshold needs to be met. Purely
+  // informational: this app has no scheduled-job infrastructure anywhere to
+  // auto-cancel/notify once a deadline passes, so enforcing it is out of
+  // scope for this pass — it's shown to participants, not acted on.
+  await ensureColumn("games", "confirmation_deadline", "confirmation_deadline DATETIME");
 
   // Interest → Participation states (implementation plan Phase 6) — a
   // favourite is no longer just saved-or-not. 'interested' is the default
@@ -1141,6 +1291,98 @@ export async function initSchema() {
   // 'open' until every requested spot is filled. NULL for a plain Open
   // Booking (Phase 3), which keeps starting 'open' immediately as before.
   await ensureColumn("bookings", "min_participants", "min_participants INT");
+  // Open-booking setup (IA spec §6) — same display-only, never-enforced
+  // convention as games.confirmation_deadline; passed through to the
+  // resulting game by createGameFromOpenBooking() (see bookings.ts).
+  await ensureColumn("bookings", "confirmation_deadline", "confirmation_deadline DATETIME");
+
+  // Trust & Safety investigation notes (IA spec §16) — an admin's own
+  // working notes on a report, separate from `status` (which drives the
+  // queue). Nullable TEXT, no DEFAULT (see CLAUDE.md's MySQL TEXT+DEFAULT
+  // gotcha).
+  await ensureColumn("reports", "admin_notes", "admin_notes TEXT");
+
+  // Bounded "featured" flag (IA spec §16) — replaces a full CMS with the
+  // smallest thing that lets an admin promote a listing: one boolean,
+  // sorted first in public listing/browse order. No scheduling, no
+  // placement rules, no separate featured-content table.
+  await ensureColumn("centres", "featured", "featured TINYINT NOT NULL DEFAULT 0");
+  await ensureColumn("clubs", "featured", "featured TINYINT NOT NULL DEFAULT 0");
+  await ensureColumn("experiences", "featured", "featured TINYINT NOT NULL DEFAULT 0");
+
+  // Circle invite picker (implementation backlog #3) — opt-in, off by
+  // default: this app has never had a resident directory, and the raw
+  // Resident-ID field it replaces couldn't leak anyone's name/email to a
+  // stranger by definition. A real search needs a real privacy model, not
+  // just "search everyone" — GET /residents/search only ever matches
+  // residents who've explicitly turned this on (see residents.ts), the
+  // opposite polarity from hide_from_familiar_count (that one is opt-OUT
+  // of something already visible; this is opt-IN to something that wasn't).
+  await ensureColumn("residents", "discoverable_by_name", "discoverable_by_name TINYINT NOT NULL DEFAULT 0");
+
+  // Payment-methods screen (implementation backlog #1) — the Stripe
+  // Customer id behind a signed-in resident, created lazily on first
+  // checkout (see checkoutService.ts's resolveStripeCustomer()), never
+  // eagerly at signup. Nullable, no DEFAULT needed (plain VARCHAR).
+  await ensureColumn("residents", "stripe_customer_id", "stripe_customer_id VARCHAR(255)");
+
+  // Slugs (master-prompt punch list #1) — human-readable, shareable URLs
+  // for the 4 listing types worth indexing (centres/clubs/experiences/
+  // circles; Games are ephemeral one-offs and deliberately excluded).
+  // Nullable — generated at create time and backfilled once for existing
+  // rows (see slugify.ts's ensureSlugsBackfilled()). Uniqueness is enforced
+  // at generation time (check-then-insert with a random suffix on
+  // collision), not a DB constraint — this table set is demo-scale, a
+  // formal UNIQUE index isn't worth the added migration complexity here.
+  await ensureColumn("centres", "slug", "slug VARCHAR(255)");
+  await ensureColumn("clubs", "slug", "slug VARCHAR(255)");
+  await ensureColumn("experiences", "slug", "slug VARCHAR(255)");
+  await ensureColumn("circles", "slug", "slug VARCHAR(255)");
+
+  // Host & Activity reviews (master-prompt punch list #3) — reviews.
+  // listing_type was already a flexible VARCHAR(20) (centre/club only in
+  // practice); no schema change needed there. Nothing to add here besides
+  // this note — see routes/reviews.ts for the eligibility-logic extension.
+
+  // Community-contributed places (master-prompt punch list #4) — a
+  // resident-submitted venue, reviewed by admin, auto-published as a real
+  // unclaimed listing on approval (same vendor_id-NULL pattern seed.ts
+  // already uses for platform-curated venues).
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS place_suggestions (
+      id VARCHAR(191) PRIMARY KEY,
+      client_id VARCHAR(191) NOT NULL,
+      resident_id VARCHAR(191),
+      suggested_name VARCHAR(255) NOT NULL,
+      category VARCHAR(20) NOT NULL,
+      area VARCHAR(255) NOT NULL DEFAULT '',
+      county VARCHAR(255) NOT NULL DEFAULT '',
+      description TEXT NOT NULL,
+      contact_info VARCHAR(500) NOT NULL DEFAULT '',
+      status VARCHAR(20) NOT NULL DEFAULT 'pending',
+      published_listing_id VARCHAR(191),
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      reviewed_at DATETIME
+    )
+  `);
+
+  // Saved-search alerts (master-prompt punch list #5) — trigger-based, not
+  // cron (this app has no scheduled-job infrastructure anywhere, a
+  // standing constraint — see waitlist.ts's own sweep-on-interval comment
+  // for the one exception, which is a fixed in-process timer, not a real
+  // job queue). Matching happens at the moment a new Game is created (see
+  // games.ts's POST / ), not on a periodic scan.
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS search_alerts (
+      id VARCHAR(191) PRIMARY KEY,
+      resident_id VARCHAR(191) NOT NULL,
+      county VARCHAR(255) NOT NULL DEFAULT '',
+      keywords VARCHAR(500),
+      mood VARCHAR(20),
+      active TINYINT NOT NULL DEFAULT 1,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
 }
 
 export const COUNTY_CENTROIDS: Record<string, { lat: number; lng: number }> = {
@@ -1177,6 +1419,22 @@ export const COUNTY_CENTROIDS: Record<string, { lat: number; lng: number }> = {
   wexford: { lat: 52.42, lng: -6.47 },
   wicklow: { lat: 52.98, lng: -6.37 },
 };
+
+/** Fills in lat/lng for any centre/club row that's missing them — an
+ * idempotent, re-runnable backfill (not just a one-shot migration step),
+ * since resetDemoListings() re-inserts centres/clubs with no coordinates
+ * and initSchema() only runs once at server boot. resetDemo.ts's script
+ * calls this again after resetDemoListings() for exactly that reason —
+ * see its own comment (mirrors the same fix needed for backfillSlugs()). */
+export async function backfillCentreClubCoords() {
+  for (const table of ["centres", "clubs"] as const) {
+    const rows = (await db.prepare(`SELECT id, county FROM ${table} WHERE lat IS NULL`).all()) as { id: string; county: string }[];
+    for (const row of rows) {
+      const { lat, lng } = approximateCoords(row.county, row.id);
+      await db.prepare(`UPDATE ${table} SET lat = ?, lng = ? WHERE id = ?`).run(lat, lng, row.id);
+    }
+  }
+}
 
 export function approximateCoords(county: string, seedId: string): { lat: number; lng: number } {
   const centroid = COUNTY_CENTROIDS[county.trim().toLowerCase()] ?? COUNTY_CENTROIDS.dublin;

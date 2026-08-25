@@ -1,4 +1,6 @@
 import { Router } from "express";
+import { db } from "../db/index.js";
+import { haversineKm, resolveRadiusFilter } from "../geo.js";
 import { irelandWallTimeToUtc } from "../irelandTime.js";
 import { getLocalMomentum, listScheduledActivities, type ScheduledActivity } from "../db/queries.js";
 import { personalizeActivity } from "../personalization.js";
@@ -79,15 +81,19 @@ export async function scoreActivities(
   );
 }
 
+// Discovery-radius filtering (master-prompt punch list #2) — see
+// resolveRadiusFilter's own comment; strictly opt-in via ?radiusKm=, zero
+// change to the default nationwide/by-county feed otherwise.
 discoverRouter.get("/", async (req, res) => {
   const county = typeof req.query.county === "string" && req.query.county !== "All" ? req.query.county : undefined;
+  const radius = resolveRadiusFilter(req.query, req.resident?.homeCounty ?? null);
   const now = new Date();
   const todayIso = now.toISOString().slice(0, 10);
   const weekFromNow = new Date(now);
   weekFromNow.setUTCDate(now.getUTCDate() + 7);
   const weekFromNowIso = weekFromNow.toISOString().slice(0, 10);
 
-  const activities = await listScheduledActivities({ county, from: now, to: weekFromNow });
+  const activities = await listScheduledActivities({ county, from: now, to: weekFromNow, radius });
   const scored = await scoreActivities(activities, now, req.resident?.id ?? null, req.resident?.homeCounty ?? null);
 
   const today: { item: DiscoverItem; score: number }[] = [];
@@ -125,22 +131,20 @@ discoverRouter.get("/momentum", async (req, res) => {
 // exact same rankScore() as "/" above rather than a new ranking algorithm —
 // this endpoint is only a different, narrower front door onto the same
 // underlying "what's on" pool, matching the phase's own stated scope.
-const EARTH_RADIUS_KM = 6371;
-function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number): number {
-  const dLat = ((lat2 - lat1) * Math.PI) / 180;
-  const dLng = ((lng2 - lng1) * Math.PI) / 180;
-  const a = Math.sin(dLat / 2) ** 2 + Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLng / 2) ** 2;
-  return EARTH_RADIUS_KM * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-}
+// haversineKm now lives in geo.ts (shared with queries.ts's discovery-
+// radius filtering, master-prompt punch list #2).
 
 // Mood is a lightweight keyword filter over each activity's own title, not a
 // new taxonomy/column — a reasonable, documented assumption in the same
 // spirit as queries.ts's ASSUMED_DURATION_MINUTES, not real tagged data.
-const MOOD_KEYWORDS: Record<string, string[]> = {
+export const MOOD_KEYWORDS: Record<string, string[]> = {
   active: ["football", "soccer", "gaa", "rugby", "basketball", "tennis", "badminton", "swim", "athletics", "martial", "run", "parkrun", "gym", "hockey", "sport"],
   chill: ["yoga", "meditation", "chess", "walk", "book", "reading"],
   social: ["meetup", "club", "circle", "social", "coffee", "chat", "board game"],
   creative: ["art", "craft", "music", "paint", "dance", "drama", "photography"],
+  // Home's intent selector (IA spec §3) — "Learn" is the one chip label with
+  // no existing mood bucket to reuse.
+  learn: ["class", "course", "workshop", "language", "coding", "cookery", "cooking"],
 };
 
 discoverRouter.get("/free-time", async (req, res) => {
@@ -172,4 +176,69 @@ discoverRouter.get("/free-time", async (req, res) => {
   scored.sort((a, b) => b.score - a.score || a.item.time.localeCompare(b.item.time));
 
   res.json(scored.slice(0, 3).map((e) => e.item));
+});
+
+// "Next Best Participation" (implementation backlog #4, P3 intelligence
+// tier) — the one thing Free Time Mode/Ask HelloCircle/Phase 12
+// personalization never did on their own: blend them into a single ranked
+// "what should I do next" list, proactively, with no query or mood/duration
+// picker required from the resident. Built on top of the exact same
+// scoreActivities() every other feed already uses (not a new algorithm)
+// plus two additional signals neither Free Time Mode nor plain
+// personalization reads: active Routines (§9) and Circle membership (§10)
+// — both genuinely new blending, not a rename of an existing feed.
+
+async function personalBoostSignals(residentId: string | null): Promise<{
+  routines: { activityLabel: string; dayOfWeek: number }[];
+  circleActivityLabels: Set<string>;
+}> {
+  if (!residentId) return { routines: [], circleActivityLabels: new Set() };
+  const [routines, circles] = await Promise.all([
+    db.prepare(`SELECT activity_label as activityLabel, day_of_week as dayOfWeek FROM routines WHERE resident_id = ? AND status = 'active'`).all(residentId) as Promise<
+      { activityLabel: string; dayOfWeek: number }[]
+    >,
+    db
+      .prepare(`SELECT c.activity_label as activityLabel FROM circle_members cm JOIN circles c ON c.id = cm.circle_id WHERE cm.resident_id = ? AND c.status = 'active'`)
+      .all(residentId) as Promise<{ activityLabel: string }[]>,
+  ]);
+  return { routines, circleActivityLabels: new Set(circles.map((c) => c.activityLabel.toLowerCase()).filter(Boolean)) };
+}
+
+export async function getNextBestParticipation(residentId: string | null, homeCounty: string | null, limit: number): Promise<DiscoverItem[]> {
+  const now = new Date();
+  const weekFromNow = new Date(now);
+  weekFromNow.setUTCDate(now.getUTCDate() + 7);
+
+  const activities = await listScheduledActivities({ county: homeCounty ?? undefined, from: now, to: weekFromNow });
+  const scored = await scoreActivities(activities, now, residentId, homeCounty);
+  const { routines, circleActivityLabels } = await personalBoostSignals(residentId);
+
+  const blended = scored.map(({ item, score }) => {
+    let bonus = 0;
+    const extraReasons: string[] = [];
+    // Same UTC-noon-anchored day-of-week convention discover.ts's own
+    // weekend bucketing above already uses, +1 to convert JS's 0=Sunday
+    // convention to MySQL's DAYOFWEEK() 1=Sunday convention (routines.day_
+    // of_week is written by getRoutineSuggestions() using DAYOFWEEK()).
+    const itemDow = new Date(`${item.date}T12:00:00Z`).getUTCDay() + 1;
+    for (const r of routines) {
+      if (r.dayOfWeek === itemDow && item.title.toLowerCase().includes(r.activityLabel.toLowerCase())) {
+        bonus += 150;
+        extraReasons.push(`Fits your ${r.activityLabel} routine`);
+        break;
+      }
+    }
+    if (circleActivityLabels.has(item.title.toLowerCase())) {
+      bonus += 100;
+      extraReasons.push("From a Circle you're in");
+    }
+    return { item: { ...item, matchReasons: [...item.matchReasons, ...extraReasons] }, score: score + bonus };
+  });
+  blended.sort((a, b) => b.score - a.score || a.item.time.localeCompare(b.item.time));
+  return blended.slice(0, limit).map((b) => b.item);
+}
+
+discoverRouter.get("/next-best", async (req, res) => {
+  const items = await getNextBestParticipation(req.resident?.id ?? null, req.resident?.homeCounty ?? null, 8);
+  res.json(items);
 });
