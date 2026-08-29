@@ -1,4 +1,5 @@
 import { useNavigate } from "react-router-dom";
+import { Button } from "../components/ui";
 import { SearchIcon } from "../components/icons";
 import { colors, fonts } from "../theme";
 
@@ -20,12 +21,12 @@ export function NotFound() {
           The link might be out of date, or the plan, Circle or listing it pointed to may have been removed.
         </p>
         <div style={{ display: "flex", gap: 12, justifyContent: "center", flexWrap: "wrap" }}>
-          <button onClick={() => navigate("/explore")} style={{ background: colors.green, color: "#fff", border: "none", borderRadius: 12, padding: "13px 22px", fontWeight: 700, fontSize: 15, cursor: "pointer" }}>
+          <Button variant="primary" onClick={() => navigate("/explore")}>
             Explore what's on
-          </button>
-          <button onClick={() => navigate("/")} style={{ background: "#fff", color: colors.text, border: `1px solid ${colors.borderStrong}`, borderRadius: 12, padding: "13px 22px", fontWeight: 600, fontSize: 15, cursor: "pointer" }}>
+          </Button>
+          <Button variant="ghost" onClick={() => navigate("/")}>
             Back home
-          </button>
+          </Button>
         </div>
       </section>
     </div>

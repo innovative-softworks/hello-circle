@@ -6,6 +6,7 @@ import { CalendarIcon, CheckIcon, PinIcon, UsersIcon } from "./icons";
 import { InviteButton } from "./InviteButton";
 import { Avatar, Button, Card, ConfirmDialog } from "./ui";
 import { dateLabel } from "../euro";
+import { primaryCtaLabel as gamePrimaryCtaLabel } from "../gameCta";
 import { colors, fonts } from "../theme";
 import type { Game, Resident } from "../types";
 
@@ -24,7 +25,7 @@ function computeState(game: Game, resident: Resident | null, isHost: boolean): J
 }
 
 function ctaLabel(game: Game, state: JoinState): string {
-  if (state === "available") return game.priceCents ? `Join · €${(game.priceCents / 100).toFixed(2)}` : "I'm in";
+  if (state === "available") return gamePrimaryCtaLabel(game);
   if (state === "full") return "Join waitlist";
   return "";
 }

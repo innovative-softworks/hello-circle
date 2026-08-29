@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { fetchCircleMembers } from "../api";
-import { Avatar, Card } from "./ui";
+import { Card, ParticipantStack } from "./ui";
 import { colors, fonts } from "../theme";
 import type { Circle } from "../types";
 
@@ -49,27 +49,12 @@ export function CircleMembersCard({ circle }: { circle: Circle }) {
       <p style={{ margin: "4px 0 14px", fontSize: 13, color: colors.mutedLight }}>
         {circle.activityLabel ? `From first-timers to regulars of ${circle.activityLabel.toLowerCase()}.` : "A real, active local community."}
       </p>
-      <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: expanded ? 8 : 0 }}>
-        {names.map((m, i) => (
-          <div
-            key={m.residentId}
-            title={m.role === "organiser" ? `${m.name} · Organiser` : m.name}
-            style={{ marginLeft: expanded || i === 0 ? 0 : -10, border: `2px solid ${colors.surface}`, borderRadius: "50%" }}
-          >
-            <Avatar name={m.name} size={34} />
-          </div>
-        ))}
-        {!expanded && overflow > 0 && (
-          <div
-            style={{
-              marginLeft: -10, width: 34, height: 34, borderRadius: "50%", border: `2px solid ${colors.surface}`, background: colors.panel,
-              color: colors.muted, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, flex: "none",
-            }}
-          >
-            +{overflow}
-          </div>
-        )}
-      </div>
+      <ParticipantStack
+        people={names.map((m) => ({ id: m.residentId, name: m.name, title: m.role === "organiser" ? `${m.name} · Organiser` : m.name }))}
+        overflow={expanded ? 0 : overflow}
+        size={34}
+        expanded={expanded}
+      />
     </Card>
   );
 }

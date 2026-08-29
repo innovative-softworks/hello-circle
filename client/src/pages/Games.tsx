@@ -14,6 +14,7 @@ import { AuthContextCard } from "../components/AuthShell";
 import { SignInPanel } from "../components/SignInPanel";
 import { isFavorite, toggleFavorite } from "../favorites";
 import { dateLabel } from "../euro";
+import { gameState, primaryCtaLabel } from "../gameCta";
 import { useGuest } from "../GuestContext";
 import { colors, fonts, maxWidth } from "../theme";
 import { SKILL_LEVELS } from "../constants";
@@ -184,16 +185,6 @@ function uniqueSorted(values: (string | null | undefined)[]): string[] {
   return Array.from(new Set(values.filter((v): v is string => !!v))).sort((a, b) => a.localeCompare(b));
 }
 
-/** One participation state per game — drives badge, CTA copy/tone, and the
- * Availability filter. Mirrors needHeadline's own thresholds (1-2 spots left
- * or still below its minimum reads as urgent) without touching that function,
- * since GameCard above still depends on its exact original behavior. */
-function gameState(game: Game): AvailabilityFilter {
-  if (game.spotsLeft === 0) return "full";
-  if (game.status === "pending_participants" || game.spotsLeft <= 2) return "needs";
-  return "available";
-}
-
 /** The plain-language "X going · Y spots left" line under a card's title -
  * urgency is carried by wording/color here rather than a bold image badge. */
 function spotsLabel(game: Game): string {
@@ -203,11 +194,6 @@ function spotsLabel(game: Game): string {
     return needed === 1 ? "1 more to confirm" : `${needed} more to confirm`;
   }
   return game.spotsLeft === 1 ? "1 spot left" : `${game.spotsLeft} spots left`;
-}
-
-function primaryCtaLabel(game: Game): string {
-  const base = gameState(game) === "needs" ? "I'm in" : "Join";
-  return game.priceCents ? `${base} · €${(game.priceCents / 100).toFixed(2)}` : base;
 }
 
 function relativeWhenLabel(iso: string): string {
@@ -1111,7 +1097,7 @@ export function Games() {
       </section>
 
       {/* Closing CTA band — echoes Home.tsx's dark closing band, with the
-          Swiss/minimal type treatment from HomeSectionHeader (uppercase,
+          Swiss/minimal type treatment from SectionHeader (uppercase,
           letter-spaced eyebrow + tight-tracked display heading) rather than
           the plain <h2>/<p> pair the rest of this page still uses. Sits
           below the results grid so it reads as "still haven't found it?

@@ -267,7 +267,7 @@ function ExperienceEditor({ id, onSaved }: { id: string | "new"; onSaved: () => 
       </div>
 
       {error && <p className="pop-in" style={{ color: colors.danger, fontSize: 13, margin: "0 0 12px", background: colors.dangerBg, padding: "9px 12px", borderRadius: 10 }}>{error}</p>}
-      <Button variant="orange" disabled={saving || !form.title || !form.blurb} onClick={save}>
+      <Button variant="primary" disabled={saving || !form.title || !form.blurb} onClick={save}>
         {id === "new" ? "Create (goes to admin for approval)" : "Save changes"}
       </Button>
 

@@ -25,6 +25,11 @@ export const colors = {
   muted: "var(--color-muted)",
   mutedLight: "var(--color-muted-light)",
   faint: "var(--color-faint)",
+  /** A third body-text tier, softer than `text` but stronger than `muted` —
+   * see index.css's own token comment for the measured contrast rationale.
+   * Reach for this for long-form paragraph copy that repeatedly hardcoded
+   * `#3B423C` before this token existed. */
+  textSoft: "var(--color-text-soft)",
   border: "var(--color-border)",
   borderStrong: "var(--color-border-strong)",
   inputBorder: "var(--color-input-border)",
@@ -142,3 +147,30 @@ export const breakpoints = {
 export function minWidth(breakpoint: number): number {
   return breakpoint + 1;
 }
+
+/** Named z-index scale (post-audit hardening pass), listed low to high in
+ * actual stacking order. Before this, every file picked a fresh round
+ * number by imitation — the same value (400) backed two unrelated overlays,
+ * and `1` alone covered at least four unrelated decorative layers. This
+ * names the stacking order that was already implicitly in use rather than
+ * renumbering it — existing raw values matching one of these still work,
+ * migrate call sites to the token incrementally. */
+export const zIndex = {
+  /** Card-internal overlay layers (photo captions, gradient scrims) — never
+   * needs to beat page chrome. */
+  decorative: 1,
+  /** Sticky headers/filter bars/cookie notice. */
+  sticky: 50,
+  /** Dropdown menus anchored to sticky chrome — must beat it. */
+  dropdown: 60,
+  /** Fullscreen photo lightbox. */
+  lightbox: 200,
+  /** Mobile bottom tab bar + its sticky join bar — floats above a lightbox
+   * so it stays reachable even mid-gallery. */
+  mobileBar: 250,
+  /** Slide-over Drawer / NavSidebar panels. */
+  drawer: 300,
+  /** ConfirmDialog and other centered modals — always wins, since a confirm
+   * can fire from inside an already-open Drawer. */
+  modal: 400,
+} as const;

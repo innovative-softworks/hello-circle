@@ -1,15 +1,16 @@
 import type { ReactNode } from "react";
 import { colors, fonts } from "../theme";
 
-/** Home page section header (Swiss/minimal redesign) — a small uppercase
- * eyebrow label, a title, an optional supporting line, and an optional
- * right-aligned action. Static short eyebrow text rather than sequential
- * "01/02/03" numbering: several Home sections are conditionally rendered
- * (resident-only, or only once data exists), so a strict running count
- * would skip/shift per visitor and read as a bug rather than a design
- * motif. Replaces the ad hoc <h2>/<p> pair that used to be repeated with
- * slightly different styling in every section of Home.tsx. */
-export function HomeSectionHeader({
+/** Shared editorial section header (Swiss/minimal design system) — a small
+ * uppercase eyebrow label, a title, an optional supporting line, and an
+ * optional right-aligned action. Originated on Home.tsx (still its biggest
+ * consumer) but is the app-wide pattern now; reach for this instead of a
+ * fresh ad hoc <h2>/<p> pair on any page. Static short eyebrow text rather
+ * than sequential "01/02/03" numbering: several sections across the app are
+ * conditionally rendered (resident-only, or only once data exists), so a
+ * strict running count would skip/shift per visitor and read as a bug
+ * rather than a design motif. */
+export function SectionHeader({
   eyebrow,
   title,
   subtitle,

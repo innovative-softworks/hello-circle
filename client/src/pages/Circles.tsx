@@ -18,7 +18,7 @@ import { CircleCountList } from "../components/CircleCountList";
 import { CircleDiscoveryCard } from "../components/CircleDiscoveryCard";
 import { CircleHappeningThisWeek } from "../components/CircleHappeningThisWeek";
 import { DropdownOption, FilterDropdown } from "../components/FilterDropdown";
-import { HomeSectionHeader } from "../components/HomeSectionHeader";
+import { SectionHeader } from "../components/SectionHeader";
 import { IntentCaptureForm } from "../components/IntentCaptureForm";
 import { Photo } from "../components/Photo";
 import { Button, Card, CardSkeleton, EmptyState, inputStyle, labelStyle } from "../components/ui";
@@ -451,7 +451,7 @@ export function Circles() {
 
         {/* DISCOVERY GRID */}
         <div ref={resultsRef} style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 12, flexWrap: "wrap", marginBottom: 20 }}>
-          <HomeSectionHeader eyebrow="Discover Circles" title="Find your people" subtitle="Recurring groups around the things you actually want to do." />
+          <SectionHeader eyebrow="Discover Circles" title="Find your people" subtitle="Recurring groups around the things you actually want to do." />
         </div>
 
         {loading ? (

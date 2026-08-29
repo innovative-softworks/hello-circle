@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { fetchGameParticipants } from "../api";
-import { Avatar } from "./ui";
+import { ParticipantStack } from "./ui";
 import { colors, fonts } from "../theme";
 import type { Game } from "../types";
 
@@ -35,23 +35,7 @@ export function GameParticipants({ game }: { game: Game }) {
         <h2 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 18, margin: 0 }}>Who's going</h2>
         <span style={{ fontSize: 13.5, fontWeight: 700, color: colors.muted }}>{game.joined} / {game.capacity} joined</span>
       </div>
-      <div style={{ display: "flex", alignItems: "center" }}>
-        {names.map((p, i) => (
-          <div key={p.residentId} style={{ marginLeft: i === 0 ? 0 : -10, border: `2px solid ${colors.surface}`, borderRadius: "50%" }}>
-            <Avatar name={p.name} size={36} />
-          </div>
-        ))}
-        {overflow > 0 && (
-          <div
-            style={{
-              marginLeft: -10, width: 36, height: 36, borderRadius: "50%", border: `2px solid ${colors.surface}`, background: colors.panel,
-              color: colors.muted, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700, flex: "none",
-            }}
-          >
-            +{overflow}
-          </div>
-        )}
-      </div>
+      <ParticipantStack people={names.map((p) => ({ id: p.residentId, name: p.name }))} overflow={overflow} size={36} />
       {needed > 0 && (
         <div style={{ marginTop: 10, fontSize: 13.5, fontWeight: 700, color: colors.orangeDark }}>
           {needed === 1 ? "Only 1 more person needed!" : `Only ${needed} more people needed!`}

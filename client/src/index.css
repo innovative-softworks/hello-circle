@@ -6,7 +6,13 @@
    requirement) — this app's most-used secondary/metadata text color, not
    an edge case. `--color-orange`/`--color-orange-dark` are similarly
    deepened slightly (white-on-orange button text was 3.38:1; orange-dark
-   on orange-bg badge text was 4.36:1) — both now pass at 4.5:1+. */
+   on orange-bg badge text was 4.36:1) — both now pass at 4.5:1+.
+   `--color-text-soft` (design-system unification pass) names a third body-
+   text tier that was already in real, repeated use as a raw `#3B423C`
+   literal in 9+ files (long-form blurb/paragraph copy) — measurably
+   distinct from both `--color-text` (15.1:1 on canvas) and `--color-muted`
+   (5.9:1), sitting at 9.9:1, so it's a real third value, not a duplicate
+   of either existing token. */
 :root {
   --color-bg: #fbfaf7;
   --color-surface: #ffffff;
@@ -14,6 +20,7 @@
   --color-muted: #5b635c;
   --color-muted-light: #5f675e;
   --color-faint: #656d64;
+  --color-text-soft: #3b423c;
   --color-border: #e7e4dc;
   --color-border-strong: #d8d4cb;
   --color-input-border: #d8d4cb;
@@ -63,6 +70,7 @@
     --color-muted: #b6bcb1;
     --color-muted-light: #a3a99d;
     --color-faint: #8b9289;
+    --color-text-soft: #c7cdc0;
     --color-border: #2b302d;
     --color-border-strong: #3b423d;
     --color-input-border: #3b423d;
@@ -126,6 +134,7 @@
   --color-muted: #b6bcb1;
   --color-muted-light: #a3a99d;
   --color-faint: #8b9289;
+  --color-text-soft: #c7cdc0;
   --color-border: #2b302d;
   --color-border-strong: #3b423d;
   --color-input-border: #3b423d;
@@ -164,6 +173,7 @@
   --color-muted: #5b635c;
   --color-muted-light: #5f675e;
   --color-faint: #656d64;
+  --color-text-soft: #3b423c;
   --color-border: #e7e4dc;
   --color-border-strong: #d8d4cb;
   --color-input-border: #d8d4cb;

@@ -100,9 +100,9 @@ export function CircleDiscoveryCard({ circle, joined, onJoin, onLeave, busy }: {
           <UsersIcon size={12} /> {circle.members} member{circle.members === 1 ? "" : "s"}
         </span>
         {joined ? (
-          <Button variant="ghost" style={{ padding: "8px 16px", fontSize: 13 }} onClick={onLeave} disabled={busy}>Joined ✓</Button>
+          <Button variant="ghost" style={{ padding: "8px 16px", fontSize: 13 }} onClick={onLeave} disabled={busy}>You're in</Button>
         ) : (
-          <Button style={{ padding: "8px 16px", fontSize: 13 }} onClick={onJoin} disabled={busy}>{circle.nextPlan ? "Join" : "Follow"}</Button>
+          <Button style={{ padding: "8px 16px", fontSize: 13 }} onClick={onJoin} disabled={busy}>Join Circle</Button>
         )}
       </div>
     </Card>

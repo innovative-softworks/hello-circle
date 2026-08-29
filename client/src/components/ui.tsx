@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { CheckIcon, CloseIcon, StarIcon } from "./icons";
-import { colors, fonts, maxWidth, radius } from "../theme";
+import { colors, fonts, maxWidth, radius, zIndex } from "../theme";
 
 // Shared, reusable building blocks for the vendor/admin/reviews UI — kept in
 // one place so button/card/badge styling can't drift between dashboards.
@@ -196,6 +196,58 @@ export function StatusBadge({ status }: { status: string }) {
   );
 }
 
+// --- AvailabilityBadge (signature participation-status language) -----------
+// The "spots left / full / waitlist / joined" status was independently
+// reimplemented with different colors and different urgency thresholds
+// across CentreDetail.tsx (plain muted text, no color coding),
+// ProgramDetail.tsx (danger/greenText + icon), and ExperienceDetail.tsx
+// (which used two different colors for the identical "Full" state in one
+// file). One state→color mapping here; callers still compose their own
+// label text, since "N spots left" vs "N players needed" is a real per-
+// domain wording difference, not something to force into one string.
+
+export type AvailabilityState = "open" | "urgent" | "full" | "waitlist" | "joined";
+
+const availabilityStyles: Record<AvailabilityState, { bg: string; fg: string }> = {
+  open: { bg: colors.greenBg, fg: colors.greenText },
+  urgent: { bg: colors.orangeBg, fg: colors.orangeDark },
+  full: { bg: colors.panel, fg: colors.muted },
+  waitlist: { bg: colors.orangeBg, fg: colors.orangeDark },
+  joined: { bg: colors.greenBg, fg: colors.greenText },
+};
+
+/** Derives open/urgent/full from a raw spots-left count so every call site
+ * agrees on the same urgency threshold instead of picking its own ≤1/≤2/≤3
+ * cutoff by feel. */
+export function availabilityFromSpots(spotsLeft: number, urgentAt = 2): AvailabilityState {
+  if (spotsLeft <= 0) return "full";
+  if (spotsLeft <= urgentAt) return "urgent";
+  return "open";
+}
+
+export function AvailabilityBadge({ state, children, style }: { state: AvailabilityState; children: ReactNode; style?: CSSProperties }) {
+  const s = availabilityStyles[state];
+  return (
+    <span
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 4,
+        background: s.bg,
+        color: s.fg,
+        borderRadius: radius.pill,
+        padding: "3px 11px",
+        fontSize: 12.5,
+        fontWeight: 700,
+        letterSpacing: ".01em",
+        ...style,
+      }}
+    >
+      {children}
+    </span>
+  );
+}
+
 // --- Avatar (initials, deterministic colour from the name) -----------------
 
 const AVATAR_PALETTE = [colors.green, colors.orange, "#4C6FE7", "#B8548C", "#2E9B9B", colors.gold];
@@ -227,6 +279,62 @@ export function Avatar({ name, size = 32 }: { name: string; size?: number }) {
       }}
     >
       {initials}
+    </div>
+  );
+}
+
+// --- ParticipantStack (signature HelloCircle element) -----------------------
+// Overlapping avatars for "who's going" / "members" — was hand-duplicated in
+// GameParticipants.tsx and CircleMembersCard.tsx (identical -10px overlap,
+// 2px surface-colored ring, "+N" overflow circle); now one shared primitive
+// so the visual language can't drift between the two call sites.
+
+export function ParticipantStack({
+  people,
+  overflow = 0,
+  size = 34,
+  expanded = false,
+}: {
+  people: { id: string; name: string; title?: string }[];
+  /** Count of additional participants beyond `people`, shown as a "+N" tile. */
+  overflow?: number;
+  size?: number;
+  /** Lays avatars out with a gap instead of overlapping — for an expanded
+   * "see all" view where every name should be individually legible. */
+  expanded?: boolean;
+}) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", flexWrap: expanded ? "wrap" : "nowrap", gap: expanded ? 8 : 0 }}>
+      {people.map((p, i) => (
+        <div
+          key={p.id}
+          title={p.title ?? p.name}
+          style={{ marginLeft: expanded || i === 0 ? 0 : -10, border: `2px solid ${colors.surface}`, borderRadius: "50%" }}
+        >
+          <Avatar name={p.name} size={size} />
+        </div>
+      ))}
+      {overflow > 0 && (
+        <div
+          style={{
+            marginLeft: expanded ? 0 : -10,
+            width: size,
+            height: size,
+            borderRadius: "50%",
+            border: `2px solid ${colors.surface}`,
+            background: colors.panel,
+            color: colors.muted,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            fontSize: size * 0.34,
+            fontWeight: 700,
+            flex: "none",
+          }}
+        >
+          +{overflow}
+        </div>
+      )}
     </div>
   );
 }
@@ -666,7 +774,7 @@ export function Drawer({
   if (!open) return null;
 
   return createPortal(
-    <div style={{ position: "fixed", inset: 0, zIndex: 300, background: "rgba(20,22,20,.45)" }} onClick={onClose}>
+    <div style={{ position: "fixed", inset: 0, zIndex: zIndex.drawer, background: "rgba(20,22,20,.45)" }} onClick={onClose}>
       <div
         className="slide-in-right"
         style={{
@@ -761,7 +869,7 @@ export function ConfirmDialog({
 
   return createPortal(
     <div
-      style={{ position: "fixed", inset: 0, zIndex: 400, background: "rgba(20,22,20,.45)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}
+      style={{ position: "fixed", inset: 0, zIndex: zIndex.modal, background: "rgba(20,22,20,.45)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}
       onClick={onCancel}
     >
       <div
@@ -841,7 +949,7 @@ export function NavSidebar<T extends string>({
         left: 0,
         top: 0,
         bottom: 0,
-        zIndex: 300,
+        zIndex: zIndex.drawer,
         width: "min(240px, 80vw)",
         background: colors.bg,
         borderRight: `1px solid ${colors.border}`,

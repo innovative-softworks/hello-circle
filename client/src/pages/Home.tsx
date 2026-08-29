@@ -21,7 +21,7 @@ import { ClubCard } from "../components/ClubCard";
 import { DiscoverCard, DiscoverRow } from "../components/DiscoverRow";
 import { GameCard } from "./Games";
 import { HeroScrollSplit, type HeroScrollImage } from "../components/HeroScrollSplit";
-import { HomeSectionHeader } from "../components/HomeSectionHeader";
+import { SectionHeader } from "../components/SectionHeader";
 import { CardSkeleton } from "../components/ui";
 import {
   ArrowRightIcon,
@@ -742,7 +742,7 @@ export function Home() {
       {/* §3 — Mood/intent selector. Immediately after the hero. */}
       <section style={fullBleedStyle(colors.bg)}>
         <div className="section-pad" style={innerWrapStyle}>
-          <HomeSectionHeader eyebrow="Mood" title="What are you in the mood for?" titleSize="clamp(24px, 2.8vw, 30px)" titleColor="#ee4826" />
+          <SectionHeader eyebrow="Mood" title="What are you in the mood for?" titleSize="clamp(24px, 2.8vw, 30px)" titleColor="#ee4826" />
           {/* Not .grid-responsive — that utility collapses to a single
               column under 900px, which would stack all 6 tiles into one
               tall column. auto-fit/minmax reflows naturally instead. */}
@@ -875,7 +875,7 @@ export function Home() {
       {needPeopleGames.length > 0 && (
         <section id="need-people" style={fullBleedStyle(colors.bg)}>
           <div className="section-pad" style={innerWrapStyle}>
-            <HomeSectionHeader
+            <SectionHeader
               eyebrow="Needs people"
               title="They just need a few more people"
               subtitle="Join local plans that are close to happening."
@@ -923,7 +923,7 @@ export function Home() {
       {resident && nextBest.length > 0 && (
         <section style={fullBleedStyle(colors.bg)}>
           <div className="section-pad" style={innerWrapStyle}>
-            <HomeSectionHeader eyebrow="For you" title="Matches for you" subtitle="Ranked from what's on, your routines, and your Circles — no filters needed." />
+            <SectionHeader eyebrow="For you" title="Matches for you" subtitle="Ranked from what's on, your routines, and your Circles — no filters needed." />
             <div style={{ display: "flex", gap: 14, overflowX: "auto", paddingBottom: 6 }}>
               {nextBest.map((item) => (
                 <DiscoverCard key={`${item.kind}-${item.id}`} item={item} isToday={item.date === new Date().toISOString().slice(0, 10)} />
@@ -976,7 +976,7 @@ export function Home() {
       {!resident && (
         <section style={fullBleedStyle(colors.bg)}>
           <div className="section-pad" style={innerWrapStyle}>
-            <HomeSectionHeader eyebrow="How HelloCircle works" title="One idea. Different ways to make it happen." subtitle={'Say "badminton tonight" and HelloCircle can mean any of these.'} />
+            <SectionHeader eyebrow="How HelloCircle works" title="One idea. Different ways to make it happen." subtitle={'Say "badminton tonight" and HelloCircle can mean any of these.'} />
             <div className="grid-responsive" style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 1, background: colors.border }}>
               {[
                 { eyebrow: "Plan", title: "Join a plan", detail: "A few more players needed nearby.", cta: "See open plans", to: "/games" },
@@ -1113,7 +1113,7 @@ export function Home() {
       {resident && myCircles.length > 0 && (
         <section style={fullBleedStyle(colors.bg)}>
           <div className="section-pad" style={innerWrapStyle}>
-            <HomeSectionHeader
+            <SectionHeader
               eyebrow="Circles"
               title="Your Circles"
               action={
@@ -1145,7 +1145,7 @@ export function Home() {
           <div className="section-pad" style={innerWrapStyle}>
             {circlesNearby.length > 0 ? (
               <>
-                <HomeSectionHeader
+                <SectionHeader
                   eyebrow="Circles"
                   title="Find your circle"
                   subtitle="Join people who keep showing up for the same things you enjoy."
@@ -1231,7 +1231,7 @@ export function Home() {
       {momentum.length > 0 && (
         <section style={fullBleedStyle(colors.bg)}>
           <div className="section-pad" style={innerWrapStyle}>
-            <HomeSectionHeader eyebrow="Trending" title="People are joining these now" />
+            <SectionHeader eyebrow="Trending" title="People are joining these now" />
             <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
               {momentum.map((m) => (
                 <div
@@ -1270,7 +1270,7 @@ export function Home() {
           listed yet). */}
       <section style={fullBleedStyle(colors.bg)}>
         <div className="section-pad" style={innerWrapStyle}>
-          <HomeSectionHeader eyebrow="More ways to go" title="Try something different" />
+          <SectionHeader eyebrow="More ways to go" title="Try something different" />
           <div className="grid-responsive" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 28 }}>
             {[
               { kind: "adventure" as const, to: "/adventures", title: "Adventures", subtitle: "Guided hikes, kayaking and outdoor trips.", rows: previewAdventures },
@@ -1321,7 +1321,7 @@ export function Home() {
       {userCoords && (
         <section style={fullBleedStyle(colors.bg)}>
           <div className="section-pad" style={innerWrapStyle}>
-            <HomeSectionHeader eyebrow="Nearby" title="Near you" />
+            <SectionHeader eyebrow="Nearby" title="Near you" />
             <div style={{ display: "flex", gap: 8, marginBottom: 16, marginTop: -8 }}>
               {[2, 5, 10, 25].map((r) => (
                 <button key={r} onClick={() => setRadiusKm(r)} style={chipStyle(radiusKm === r)}>
@@ -1387,7 +1387,7 @@ export function Home() {
           participation, not the main product — kept in the lower half. */}
       <section style={fullBleedStyle(colors.bg)}>
         <div className="section-pad" style={innerWrapStyle}>
-          <HomeSectionHeader eyebrow="Places" title="Need somewhere to do it?" subtitle="Find courts, studios, community halls and local spaces when your plan needs one." />
+          <SectionHeader eyebrow="Places" title="Need somewhere to do it?" subtitle="Find courts, studios, community halls and local spaces when your plan needs one." />
           <div className="grid-responsive" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 1, background: colors.border }}>
             <button
               onClick={() => navigate("/browse/centres")}
@@ -1514,7 +1514,7 @@ export function Home() {
       {!resident && (
         <section style={fullBleedStyle(colors.bg)}>
           <div className="section-pad" style={innerWrapStyle}>
-            <HomeSectionHeader eyebrow="How it works" title={'From "maybe" to "I\'m in."'} />
+            <SectionHeader eyebrow="How it works" title={'From "maybe" to "I\'m in."'} />
             <div className="grid-responsive" style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 1, background: colors.border }}>
               {[
                 { n: "01", title: "Say what you want to do", text: "Football tonight? Hiking Saturday? Coffee nearby?" },

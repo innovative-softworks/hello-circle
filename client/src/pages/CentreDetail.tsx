@@ -1,14 +1,16 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { addFavourite, fetchCentre, fetchFavourites, fetchGames, fetchPrograms, joinGame, removeFavourite } from "../api";
+import { BackLink } from "../components/BackLink";
 import { ClaimListingCTA } from "../components/ClaimListingCTA";
 import { PhotoGallery } from "../components/PhotoGallery";
 import { Reviews } from "../components/Reviews";
-import { CalendarIcon, CheckIcon, ChevronLeftIcon, ClockIcon, HeartIcon, PinIcon, RepeatIcon, StarIcon, UsersIcon, WheelchairIcon } from "../components/icons";
-import { Button, ListingDetailSkeleton } from "../components/ui";
+import { SinglePinMap } from "../components/SinglePinMap";
+import { CalendarIcon, CheckIcon, ClockIcon, HeartIcon, PinIcon, RepeatIcon, StarIcon, UsersIcon, WheelchairIcon } from "../components/icons";
+import { AvailabilityBadge, availabilityFromSpots, Button, ListingDetailSkeleton } from "../components/ui";
 import { isFavorite, toggleFavorite } from "../favorites";
 import { useGuest } from "../GuestContext";
-import { colors, fonts, maxWidth } from "../theme";
+import { colors, fonts, maxWidth, radius } from "../theme";
 import type { Centre, Game, Program } from "../types";
 
 export function CentreDetail() {
@@ -85,12 +87,7 @@ export function CentreDetail() {
   return (
     <div style={{ animation: "fadeUp .35s ease both" }}>
       <section className="section-pad" style={{ maxWidth, margin: "0 auto", padding: "26px 24px 0" }}>
-        <button
-          onClick={() => navigate("/browse/centres")}
-          style={{ display: "inline-flex", alignItems: "center", background: "none", border: "none", color: colors.muted, fontWeight: 600, fontSize: 14, cursor: "pointer", padding: 0, marginBottom: 16 }}
-        >
-          <ChevronLeftIcon size={14} style={{ marginRight: 4 }} /> All community centres
-        </button>
+        <BackLink onClick={() => navigate("/browse/centres")} marginBottom={16}>All community centres</BackLink>
         <PhotoGallery images={centre.images} alt={centre.name} ph={centre.ph} />
       </section>
       <section
@@ -142,14 +139,14 @@ export function CentreDetail() {
               </a>
             )}
           </p>
-          <p style={{ fontSize: 16, lineHeight: 1.6, color: "#3B423C", margin: "0 0 28px" }}>{centre.blurb}</p>
+          <p style={{ fontSize: 16, lineHeight: 1.6, color: colors.textSoft, margin: "0 0 28px" }}>{centre.blurb}</p>
 
           <h3 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 20, margin: "0 0 12px", letterSpacing: "-.01em" }}>
             Facilities
           </h3>
           <div className="grid-responsive" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px 24px", marginBottom: 32 }}>
             {centre.amenities.map((a) => (
-              <div key={a} style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 15, color: "#3B423C" }}>
+              <div key={a} style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 15, color: colors.textSoft }}>
                 <CheckIcon size={16} style={{ color: colors.green }} />
                 {a}
               </div>
@@ -163,12 +160,22 @@ export function CentreDetail() {
               </h3>
               <div className="grid-responsive" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px 24px", marginBottom: 32 }}>
                 {centre.accessibility.map((a) => (
-                  <div key={a} style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 15, color: "#3B423C" }}>
+                  <div key={a} style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 15, color: colors.textSoft }}>
                     <WheelchairIcon size={16} style={{ color: colors.green }} />
                     {a}
                   </div>
                 ))}
               </div>
+            </>
+          )}
+
+          {centre.lat !== null && centre.lng !== null && (
+            <>
+              <h3 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 20, margin: "0 0 12px", letterSpacing: "-.01em" }}>
+                Location
+              </h3>
+              <SinglePinMap lat={centre.lat} lng={centre.lng} label={centre.name} height={220} />
+              <div style={{ marginBottom: 32 }} />
             </>
           )}
 
@@ -182,7 +189,7 @@ export function CentreDetail() {
                   <button
                     key={p.id}
                     onClick={() => navigate(`/programs/${p.id}`)}
-                    style={{ textAlign: "left", border: `1px solid ${colors.border}`, borderRadius: 14, padding: "14px 16px", cursor: "pointer", background: "#fff", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, width: "100%" }}
+                    style={{ textAlign: "left", border: `1px solid ${colors.border}`, borderRadius: 14, padding: "14px 16px", cursor: "pointer", background: colors.surface, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, width: "100%" }}
                   >
                     <div>
                       <div style={{ fontWeight: 700 }}>{p.title}</div>
@@ -210,11 +217,13 @@ export function CentreDetail() {
                       <div style={{ fontWeight: 700 }}>{g.activityLabel}</div>
                       <div style={{ fontSize: 13, color: colors.mutedLight, display: "flex", gap: 12, marginTop: 2 }}>
                         <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}><CalendarIcon size={13} /> {g.date} · {g.time}</span>
-                        <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}><UsersIcon size={13} /> {g.spotsLeft} spot{g.spotsLeft === 1 ? "" : "s"} left</span>
                       </div>
+                      <AvailabilityBadge state={availabilityFromSpots(g.spotsLeft)} style={{ marginTop: 6 }}>
+                        <UsersIcon size={12} /> {g.spotsLeft === 0 ? "Full" : `${g.spotsLeft} spot${g.spotsLeft === 1 ? "" : "s"} left`}
+                      </AvailabilityBadge>
                     </div>
                     <Button onClick={() => handleJoinGame(g.id)} disabled={joiningId === g.id || g.spotsLeft === 0}>
-                      {g.spotsLeft === 0 ? "Full" : joiningId === g.id ? "Joining…" : "Join game"}
+                      {g.spotsLeft === 0 ? "Full" : joiningId === g.id ? "Joining…" : "I'm in"}
                     </Button>
                   </div>
                 ))}
@@ -224,12 +233,12 @@ export function CentreDetail() {
         </div>
         <div
           className="sticky-aside"
-          style={{ position: "sticky", top: 90, background: "#fff", border: `1px solid ${colors.border}`, borderRadius: 18, padding: 22, boxShadow: "0 8px 30px rgba(30,40,32,.05)" }}
+          style={{ position: "sticky", top: 90, background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 18, padding: 22, boxShadow: "0 8px 30px rgba(30,40,32,.05)" }}
         >
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
             <div style={{ fontSize: 14, color: colors.mutedLight }}>Hire from</div>
             {centre.paymentMethod === "cash" && (
-              <span style={{ fontSize: 11, fontWeight: 700, color: colors.orangeDark, background: colors.orangeBg, borderRadius: 999, padding: "2px 8px" }}>
+              <span style={{ fontSize: 11, fontWeight: 700, color: colors.orangeDark, background: colors.orangeBg, borderRadius: radius.pill, padding: "2px 8px" }}>
                 Cash on arrival
               </span>
             )}
@@ -242,12 +251,9 @@ export function CentreDetail() {
             {centre.paymentMethod === "cash" ? "No online deposit needed" : "+ €100 refundable deposit"}
           </div>
           {centre.isOpen ? (
-            <button
-              onClick={() => navigate(`/book/${centre.id}`)}
-              style={{ width: "100%", background: colors.green, color: "#fff", border: "none", borderRadius: 12, padding: 14, fontSize: 15, fontWeight: 700, cursor: "pointer", marginBottom: 10 }}
-            >
+            <Button variant="primary" full onClick={() => navigate(`/book/${centre.id}`)} style={{ padding: 14, fontSize: 15, marginBottom: 10 }}>
               Check availability
-            </button>
+            </Button>
           ) : (
             <div style={{ width: "100%", background: colors.panel, color: colors.muted, border: "none", borderRadius: 12, padding: 14, fontSize: 14, fontWeight: 600, textAlign: "center", marginBottom: 10 }}>
               Not currently taking bookings

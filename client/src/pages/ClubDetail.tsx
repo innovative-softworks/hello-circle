@@ -1,12 +1,14 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { addFavourite, createPassCheckout, fetchClub, fetchFavourites, fetchPrograms, removeFavourite } from "../api";
+import { BackLink } from "../components/BackLink";
 import { ClaimListingCTA } from "../components/ClaimListingCTA";
 import { PhotoGallery } from "../components/PhotoGallery";
 import { Reviews } from "../components/Reviews";
+import { SinglePinMap } from "../components/SinglePinMap";
 import { priceLabel } from "../priceLabel";
-import { CheckIcon, ChevronLeftIcon, ClockIcon, HeartIcon, PinIcon, StarIcon, WheelchairIcon } from "../components/icons";
-import { ListingDetailSkeleton } from "../components/ui";
+import { CheckIcon, ClockIcon, HeartIcon, PinIcon, StarIcon, WheelchairIcon } from "../components/icons";
+import { Button, ListingDetailSkeleton } from "../components/ui";
 import { isFavorite, toggleFavorite } from "../favorites";
 import { useGuest } from "../GuestContext";
 import { colors, fonts, maxWidth, radius } from "../theme";
@@ -73,12 +75,7 @@ export function ClubDetail() {
   return (
     <div style={{ animation: "fadeUp .35s ease both" }}>
       <section className="section-pad" style={{ maxWidth, margin: "0 auto", padding: "26px 24px 0" }}>
-        <button
-          onClick={() => navigate("/browse/clubs")}
-          style={{ display: "inline-flex", alignItems: "center", background: "none", border: "none", color: colors.muted, fontWeight: 600, fontSize: 14, cursor: "pointer", padding: 0, marginBottom: 16 }}
-        >
-          <ChevronLeftIcon size={14} style={{ marginRight: 4 }} /> All sports clubs
-        </button>
+        <BackLink onClick={() => navigate("/browse/clubs")} marginBottom={16}>All sports clubs</BackLink>
         <div style={{ position: "relative" }}>
           <PhotoGallery images={club.images} alt={club.name} ph={club.ph} />
           <span
@@ -152,13 +149,13 @@ export function ClubDetail() {
               <span style={{ fontWeight: 500, color: colors.muted }}>({club.wouldRepeatCount})</span>
             </div>
           )}
-          <p style={{ fontSize: 16, lineHeight: 1.6, color: "#3B423C", margin: "0 0 28px" }}>{club.blurb}</p>
+          <p style={{ fontSize: 16, lineHeight: 1.6, color: colors.textSoft, margin: "0 0 28px" }}>{club.blurb}</p>
           <h3 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 20, margin: "0 0 12px", letterSpacing: "-.01em" }}>
             What's included
           </h3>
           <div className="grid-responsive" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px 24px", marginBottom: 20 }}>
             {club.includes.map((a) => (
-              <div key={a} style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 15, color: "#3B423C" }}>
+              <div key={a} style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 15, color: colors.textSoft }}>
                 <CheckIcon size={16} style={{ color: colors.orange }} />
                 {a}
               </div>
@@ -172,12 +169,22 @@ export function ClubDetail() {
               </h3>
               <div className="grid-responsive" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px 24px", marginBottom: 20 }}>
                 {club.accessibility.map((a) => (
-                  <div key={a} style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 15, color: "#3B423C" }}>
+                  <div key={a} style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 15, color: colors.textSoft }}>
                     <WheelchairIcon size={16} style={{ color: colors.orange }} />
                     {a}
                   </div>
                 ))}
               </div>
+            </>
+          )}
+
+          {club.lat !== null && club.lng !== null && (
+            <>
+              <h3 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 20, margin: "0 0 12px", letterSpacing: "-.01em" }}>
+                Location
+              </h3>
+              <SinglePinMap lat={club.lat} lng={club.lng} label={club.name} height={220} />
+              <div style={{ marginBottom: 20 }} />
             </>
           )}
 
@@ -191,7 +198,7 @@ export function ClubDetail() {
                   <button
                     key={p.id}
                     onClick={() => navigate(`/programs/${p.id}`)}
-                    style={{ textAlign: "left", border: `1px solid ${colors.border}`, borderRadius: 14, padding: "14px 16px", cursor: "pointer", background: "#fff", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, width: "100%" }}
+                    style={{ textAlign: "left", border: `1px solid ${colors.border}`, borderRadius: 14, padding: "14px 16px", cursor: "pointer", background: colors.surface, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, width: "100%" }}
                   >
                     <div>
                       <div style={{ fontWeight: 700 }}>{p.title}</div>
@@ -206,7 +213,7 @@ export function ClubDetail() {
         </div>
         <div
           className="sticky-aside"
-          style={{ position: "sticky", top: 90, background: "#fff", border: `1px solid ${colors.border}`, borderRadius: 18, padding: 22, boxShadow: "0 8px 30px rgba(30,40,32,.05)" }}
+          style={{ position: "sticky", top: 90, background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 18, padding: 22, boxShadow: "0 8px 30px rgba(30,40,32,.05)" }}
         >
           <div style={{ fontSize: 14, color: colors.mutedLight, marginBottom: 4 }}>Membership</div>
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 16 }}>
@@ -217,20 +224,13 @@ export function ClubDetail() {
               </span>
             )}
           </div>
-          <button
-            onClick={() => navigate(`/register/${club.id}`)}
-            style={{ width: "100%", background: colors.orange, color: "#fff", border: "none", borderRadius: 12, padding: 14, fontSize: 15, fontWeight: 700, cursor: "pointer", marginBottom: 10 }}
-          >
+          <Button variant="orange" full onClick={() => navigate(`/register/${club.id}`)} style={{ padding: 14, fontSize: 15, marginBottom: 10 }}>
             Register my child
-          </button>
+          </Button>
           {resident && club.paymentMethod !== "cash" && (
-            <button
-              onClick={handleBuyPass}
-              disabled={passLoading}
-              style={{ width: "100%", background: "#fff", color: colors.orangeDark, border: `1px solid ${colors.orange}`, borderRadius: 12, padding: 12, fontSize: 14, fontWeight: 700, cursor: "pointer", marginBottom: 10 }}
-            >
+            <Button variant="ghost" full onClick={handleBuyPass} disabled={passLoading} style={{ padding: 12, fontSize: 14, marginBottom: 10 }}>
               {passLoading ? "Please wait…" : `Buy a 10-session pass — €${(club.price * 10).toFixed(0)}`}
-            </button>
+            </Button>
           )}
           <div style={{ display: "flex", flexDirection: "column", gap: 9, marginTop: 16, fontSize: 14, color: colors.muted }}>
             <div style={{ display: "flex", gap: 10 }}>

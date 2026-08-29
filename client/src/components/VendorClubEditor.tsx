@@ -156,7 +156,7 @@ export function ClubEditor({ clubId, onSaved }: { clubId: string | "new"; onSave
       </div>
 
       {error && <p className="pop-in" style={{ color: colors.danger, fontSize: 13, margin: "0 0 12px", background: colors.dangerBg, padding: "9px 12px", borderRadius: 10 }}>{error}</p>}
-      <Button variant="orange" disabled={saving || !form.name} onClick={save}>
+      <Button variant="primary" disabled={saving || !form.name} onClick={save}>
         {clubId === "new" ? "Create (goes to admin for approval)" : "Save changes"}
       </Button>
 
