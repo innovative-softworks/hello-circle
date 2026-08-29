@@ -73,7 +73,8 @@ export function ClubDetail() {
   if (!club) return <ListingDetailSkeleton />;
 
   return (
-    <div style={{ animation: "fadeUp .35s ease both" }}>
+    <>
+    <div className="club-detail-mobile-pad" style={{ animation: "fadeUp .35s ease both" }}>
       <section className="section-pad" style={{ maxWidth, margin: "0 auto", padding: "26px 24px 0" }}>
         <BackLink onClick={() => navigate("/browse/clubs")} marginBottom={16}>All sports clubs</BackLink>
         <div style={{ position: "relative" }}>
@@ -256,5 +257,14 @@ export function ClubDetail() {
         <ClaimListingCTA listingType="club" listingId={club.id} claimed={club.claimed} />
       </section>
     </div>
+
+    <div className="mobile-join-bar">
+      <div>
+        <div style={{ fontWeight: 800, fontSize: 15, fontFamily: fonts.display }}>{club.name}</div>
+        <div style={{ fontSize: 12.5, color: colors.mutedLight }}>{priceLabel(club)}</div>
+      </div>
+      <Button variant="orange" style={{ flex: "none" }} onClick={() => navigate(`/register/${club.id}`)}>Register my child</Button>
+    </div>
+    </>
   );
 }

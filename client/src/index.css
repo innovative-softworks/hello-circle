@@ -597,7 +597,9 @@ textarea:focus {
      Detail and Circle Detail. */
   .game-detail-mobile-pad,
   .circle-detail-mobile-pad,
-  .experience-detail-mobile-pad {
+  .experience-detail-mobile-pad,
+  .centre-detail-mobile-pad,
+  .club-detail-mobile-pad {
     padding-bottom: 76px;
   }
   .mobile-join-bar {

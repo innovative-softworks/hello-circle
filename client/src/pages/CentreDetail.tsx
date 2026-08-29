@@ -85,7 +85,8 @@ export function CentreDetail() {
   if (!centre) return <ListingDetailSkeleton />;
 
   return (
-    <div style={{ animation: "fadeUp .35s ease both" }}>
+    <>
+    <div className="centre-detail-mobile-pad" style={{ animation: "fadeUp .35s ease both" }}>
       <section className="section-pad" style={{ maxWidth, margin: "0 auto", padding: "26px 24px 0" }}>
         <BackLink onClick={() => navigate("/browse/centres")} marginBottom={16}>All community centres</BackLink>
         <PhotoGallery images={centre.images} alt={centre.name} ph={centre.ph} />
@@ -289,5 +290,20 @@ export function CentreDetail() {
         <ClaimListingCTA listingType="centre" listingId={centre.id} claimed={centre.claimed} />
       </section>
     </div>
+
+    {/* Mobile sticky CTA bar — mirrors the rail card's own state (open/not
+        taking bookings) so the two never disagree. */}
+    <div className="mobile-join-bar">
+      <div>
+        <div style={{ fontWeight: 800, fontSize: 15, fontFamily: fonts.display }}>{centre.name}</div>
+        <div style={{ fontSize: 12.5, color: colors.mutedLight }}>€{centre.from}/hour</div>
+      </div>
+      {centre.isOpen ? (
+        <Button style={{ flex: "none" }} onClick={() => navigate(`/book/${centre.id}`)}>Check availability</Button>
+      ) : (
+        <Button variant="ghost" disabled style={{ flex: "none" }}>Not taking bookings</Button>
+      )}
+    </div>
+    </>
   );
 }
