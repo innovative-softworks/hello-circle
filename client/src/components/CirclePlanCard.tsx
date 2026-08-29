@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { CalendarIcon, HeartIcon } from "./icons";
 import { Photo } from "./Photo";
 import { isFavorite, toggleFavorite } from "../favorites";
-import { colors, fonts } from "../theme";
+import { colors, fonts, radius } from "../theme";
 import type { CirclePlanPreview } from "../types";
 
 // Upcoming plan card (reference §11-13) — date/time badge over a photo,
@@ -52,7 +52,7 @@ export function CirclePlanCard({ plan }: { plan: CirclePlanPreview }) {
         style={{ height: 150 }}
         contentStyle={{ padding: 10, display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}
       >
-        <span style={{ background: "rgba(255,255,255,.92)", color: colors.text, borderRadius: 999, padding: "4px 10px", fontSize: 11, fontWeight: 800, letterSpacing: ".02em" }}>
+        <span style={{ background: "rgba(255,255,255,.92)", color: colors.text, borderRadius: radius.pill, padding: "4px 10px", fontSize: 11, fontWeight: 800, letterSpacing: ".02em" }}>
           {dayMonthLabel(plan.date)} · {plan.time}
         </span>
         <button

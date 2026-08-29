@@ -15,7 +15,7 @@ import {
 import { CalendarIcon, PlusIcon, TreeIconSmall, TrashIcon, UsersIcon } from "./icons";
 import { Button, Card, ConfirmDialog, Drawer, EmptyState, inputStyle, labelStyle } from "./ui";
 import { MultiImageUpload } from "./VendorImageUpload";
-import { colors, fonts } from "../theme";
+import { colors, fonts, radius } from "../theme";
 import type { Experience, ExperienceSessionRow, VendorExperienceBooking, VendorExperienceSummary } from "../types";
 
 // Adventures & Experiences — vendor create/edit form + session/booking
@@ -266,7 +266,7 @@ function ExperienceEditor({ id, onSaved }: { id: string | "new"; onSaved: () => 
         <MultiImageUpload images={form.images ?? []} onChange={(images) => set("images", images)} />
       </div>
 
-      {error && <p className="pop-in" style={{ color: colors.danger, fontSize: 13, margin: "0 0 12px", background: colors.dangerBg, padding: "9px 12px", borderRadius: 10 }}>{error}</p>}
+      {error && <p className="pop-in" style={{ color: colors.danger, fontSize: 13, margin: "0 0 12px", background: colors.dangerBg, padding: "9px 12px", borderRadius: radius.control }}>{error}</p>}
       <Button variant="primary" disabled={saving || !form.title || !form.blurb} onClick={save}>
         {id === "new" ? "Create (goes to admin for approval)" : "Save changes"}
       </Button>
@@ -327,7 +327,7 @@ function SessionsManager({ experienceId }: { experienceId: string }) {
       {sessions.length > 0 && (
         <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 14 }}>
           {sessions.map((s) => (
-            <div key={s.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: colors.bg, borderRadius: 10, padding: "8px 12px", fontSize: 13.5 }}>
+            <div key={s.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: colors.bg, borderRadius: radius.control, padding: "8px 12px", fontSize: 13.5 }}>
               <span>
                 {s.date} · {s.time}
                 {s.capacity ? ` · cap ${s.capacity}` : ""}
@@ -385,7 +385,7 @@ function BookingsPanel({ experienceId }: { experienceId: string }) {
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
           {bookings.map((b) => (
-            <div key={b.id} style={{ fontSize: 13.5, display: "flex", justifyContent: "space-between", background: colors.bg, borderRadius: 10, padding: "8px 12px" }}>
+            <div key={b.id} style={{ fontSize: 13.5, display: "flex", justifyContent: "space-between", background: colors.bg, borderRadius: radius.control, padding: "8px 12px" }}>
               <span>{b.participantName} · party of {b.partySize} · {b.date} {b.time}</span>
               <span style={{ fontWeight: 700 }}>€{(b.totalCents / 100).toFixed(2)}</span>
             </div>
@@ -456,7 +456,7 @@ export function VendorExperiencesTab() {
                 <div style={{ fontSize: 12, color: colors.mutedLight, display: "flex", alignItems: "center", gap: 6, marginTop: 2 }}>
                   <CalendarIcon size={12} />
                   {e.kind === "adventure" ? "Adventure" : "Experience"} · {e.priceCents ? `€${(e.priceCents / 100).toFixed(2)}pp` : "Free"}
-                  <span style={{ fontSize: 11, fontWeight: 700, borderRadius: 999, padding: "2px 8px", background: palette.bg, color: palette.fg, textTransform: "capitalize" }}>{e.status}</span>
+                  <span style={{ fontSize: 11, fontWeight: 700, borderRadius: radius.pill, padding: "2px 8px", background: palette.bg, color: palette.fg, textTransform: "capitalize" }}>{e.status}</span>
                 </div>
               </div>
               <button

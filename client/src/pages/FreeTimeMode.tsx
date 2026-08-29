@@ -6,7 +6,7 @@ import { BallIcon, ClockIcon, LightbulbIcon, PinIcon } from "../components/icons
 import { Button, PageSpinner } from "../components/ui";
 import { BackLink } from "../components/BackLink";
 import { PageTitle } from "../components/PageTitle";
-import { colors, fonts } from "../theme";
+import { colors, fonts, radius } from "../theme";
 import { fallbackCopy } from "../copy";
 import type { DiscoverItem } from "../types";
 
@@ -51,7 +51,7 @@ function ChoiceGrid({ options, onPick }: { options: { label: string }[]; onPick:
           style={{
             background: colors.surface,
             border: `1px solid ${colors.border}`,
-            borderRadius: 16,
+            borderRadius: radius.card,
             padding: "22px 18px",
             fontSize: 16,
             fontWeight: 700,

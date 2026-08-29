@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { fetchHostProfile } from "../api";
 import { AwardIcon, StarIcon } from "./icons";
 import { Avatar } from "./ui";
-import { colors, fonts } from "../theme";
+import { colors, fonts, radius } from "../theme";
 import type { Circle, HostProfile } from "../types";
 
 // Organiser trust section (Circle Detail full rewrite §10/§14) — an
@@ -37,7 +37,7 @@ export function CircleOrganiserCard({ circle }: { circle: Circle }) {
         <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 4 }}>
           <span style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 24, letterSpacing: "-.01em" }}>{circle.hostName}</span>
           {circle.hostVerified && (
-            <span style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 11, fontWeight: 700, color: colors.greenText, background: colors.greenBg, borderRadius: 999, padding: "3px 9px" }}>
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 11, fontWeight: 700, color: colors.greenText, background: colors.greenBg, borderRadius: radius.pill, padding: "3px 9px" }}>
               <AwardIcon size={11} /> Verified
             </span>
           )}

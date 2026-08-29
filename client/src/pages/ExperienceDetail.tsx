@@ -13,7 +13,7 @@ import { Button, Card, Drawer, PageSpinner, inputStyle, labelStyle } from "../co
 import { isFavorite, toggleFavorite } from "../favorites";
 import { useGuest } from "../GuestContext";
 import { dateLabel } from "../euro";
-import { colors, fonts, maxWidth, photoOverlay } from "../theme";
+import { colors, fonts, maxWidth, photoOverlay, radius } from "../theme";
 import { isValidEmail } from "../validate";
 import type { Experience, ExperienceSessionSlot } from "../types";
 
@@ -40,7 +40,7 @@ const outlineButtonStyle: React.CSSProperties = {
   gap: 6,
   background: colors.surface,
   border: `1px solid ${colors.borderStrong}`,
-  borderRadius: 10,
+  borderRadius: radius.control,
   padding: "9px 16px",
   fontSize: 13.5,
   fontWeight: 600,
@@ -423,14 +423,14 @@ export function ExperienceDetail() {
               contentStyle={{ padding: 16, display: "flex", alignItems: "flex-start", justifyContent: "space-between" }}
             >
               {session ? (
-                <span style={{ display: "inline-flex", alignItems: "center", gap: 6, background: photoOverlay.whiteBg, color: colors.text, borderRadius: 999, padding: "6px 12px", fontSize: 13, fontWeight: 700 }}>
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 6, background: photoOverlay.whiteBg, color: colors.text, borderRadius: radius.pill, padding: "6px 12px", fontSize: 13, fontWeight: 700 }}>
                   <CalendarIcon size={13} /> {dateLabel(session.date)} · {session.time}
                 </span>
               ) : <span />}
               {session && (
                 <span
                   style={{
-                    display: "inline-flex", alignItems: "center", gap: 6, borderRadius: 999, padding: "6px 12px", fontSize: 13, fontWeight: 700,
+                    display: "inline-flex", alignItems: "center", gap: 6, borderRadius: radius.pill, padding: "6px 12px", fontSize: 13, fontWeight: 700,
                     background: full ? photoOverlay.whiteBg : photoOverlay.goldBg,
                     color: full ? colors.muted : photoOverlay.goldText,
                   }}
@@ -463,7 +463,7 @@ export function ExperienceDetail() {
                 {experience.priceCents ? (
                   <div style={{ fontWeight: 800, fontSize: 22, color: colors.text }}>€{(experience.priceCents / 100).toFixed(2)}</div>
                 ) : (
-                  <div style={{ fontWeight: 700, fontSize: 14, color: colors.greenText, background: colors.greenBg, borderRadius: 999, padding: "4px 12px" }}>Free</div>
+                  <div style={{ fontWeight: 700, fontSize: 14, color: colors.greenText, background: colors.greenBg, borderRadius: radius.pill, padding: "4px 12px" }}>Free</div>
                 )}
               </div>
             </div>
@@ -608,7 +608,7 @@ export function ExperienceDetail() {
                   <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                     <span style={{ fontWeight: 700, fontSize: 14.5 }}>{experience.vendorName}</span>
                     {experience.vendorVerified && (
-                      <span style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 11, fontWeight: 700, color: colors.greenText, background: colors.greenBg, borderRadius: 999, padding: "2px 8px" }}>
+                      <span style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 11, fontWeight: 700, color: colors.greenText, background: colors.greenBg, borderRadius: radius.pill, padding: "2px 8px" }}>
                         <AwardIcon size={11} /> Verified provider
                       </span>
                     )}

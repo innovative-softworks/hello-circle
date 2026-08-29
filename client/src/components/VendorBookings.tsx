@@ -3,7 +3,7 @@ import { checkInBooking, fetchVendorBookings, fetchVendorDemand, fetchVendorRegi
 import { AwardIcon, CalendarIcon } from "./icons";
 import { Avatar, Card, EmptyState, tableStyle, tdStyle, thStyle } from "./ui";
 import { DemandSignalsView } from "./DemandSignals";
-import { colors, fonts } from "../theme";
+import { colors, fonts, radius } from "../theme";
 import type { DemandRow, MyBooking, MyRegistration } from "../types";
 
 // Bookings/registrations visibility (with manual check-in) + demand
@@ -33,7 +33,7 @@ function CheckInButton({ kind, reference }: { kind: "booking" | "registration"; 
   };
 
   if (checkedIn) {
-    return <span style={{ fontSize: 11, fontWeight: 700, color: colors.greenText, background: colors.greenBg, borderRadius: 999, padding: "3px 10px", flex: "none" }}>✓ Checked in</span>;
+    return <span style={{ fontSize: 11, fontWeight: 700, color: colors.greenText, background: colors.greenBg, borderRadius: radius.pill, padding: "3px 10px", flex: "none" }}>✓ Checked in</span>;
   }
   return (
     <span style={{ display: "flex", alignItems: "center", gap: 8, flex: "none" }}>
@@ -41,7 +41,7 @@ function CheckInButton({ kind, reference }: { kind: "booking" | "registration"; 
       <button
         onClick={handleClick}
         disabled={busy}
-        style={{ fontSize: 11, fontWeight: 700, color: colors.muted, background: colors.panel, border: "none", borderRadius: 999, padding: "3px 10px", cursor: "pointer", flex: "none" }}
+        style={{ fontSize: 11, fontWeight: 700, color: colors.muted, background: colors.panel, border: "none", borderRadius: radius.pill, padding: "3px 10px", cursor: "pointer", flex: "none" }}
       >
         {busy ? "…" : "Check in"}
       </button>
@@ -90,7 +90,7 @@ export function BookingsTab() {
                     <td style={{ ...tdStyle, color: colors.mutedLight }}>{b.email}, {b.phone}</td>
                     <td style={tdStyle}>
                       {b.status === "cancelled" ? (
-                        <span style={{ fontSize: 11, fontWeight: 700, color: colors.danger, background: colors.dangerBg, borderRadius: 999, padding: "2px 8px" }}>Cancelled</span>
+                        <span style={{ fontSize: 11, fontWeight: 700, color: colors.danger, background: colors.dangerBg, borderRadius: radius.pill, padding: "2px 8px" }}>Cancelled</span>
                       ) : (
                         <CheckInButton kind="booking" reference={b.ref} />
                       )}
@@ -130,7 +130,7 @@ export function BookingsTab() {
                     <td style={{ ...tdStyle, color: colors.mutedLight }}>{r.email}, {r.phone}</td>
                     <td style={tdStyle}>
                       {r.status === "cancelled" ? (
-                        <span style={{ fontSize: 11, fontWeight: 700, color: colors.danger, background: colors.dangerBg, borderRadius: 999, padding: "2px 8px" }}>Cancelled</span>
+                        <span style={{ fontSize: 11, fontWeight: 700, color: colors.danger, background: colors.dangerBg, borderRadius: radius.pill, padding: "2px 8px" }}>Cancelled</span>
                       ) : (
                         <CheckInButton kind="registration" reference={r.ref} />
                       )}

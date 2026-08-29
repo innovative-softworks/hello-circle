@@ -3,7 +3,7 @@ import { AwardIcon, CalendarIcon, RepeatIcon, UsersIcon } from "./icons";
 import { Photo } from "./Photo";
 import { Button, Card } from "./ui";
 import { dateLabel } from "../euro";
-import { colors, fonts, photoOverlay } from "../theme";
+import { colors, fonts, photoOverlay, radius } from "../theme";
 import type { Circle } from "../types";
 
 const DAY_MS = 86400000;
@@ -53,14 +53,14 @@ export function CircleDiscoveryCard({ circle, joined, onJoin, onLeave, busy }: {
               style={{
                 background: state === "active-now" ? photoOverlay.goldBg : photoOverlay.whiteBg,
                 color: state === "active-now" ? photoOverlay.goldText : colors.text,
-                borderRadius: 999, padding: "4px 11px", fontSize: 11.5, fontWeight: 800, letterSpacing: ".03em", textTransform: "uppercase",
+                borderRadius: radius.pill, padding: "4px 11px", fontSize: 11.5, fontWeight: 800, letterSpacing: ".03em", textTransform: "uppercase",
               }}
             >
               {state === "active-now" ? "Active now" : "New"}
             </span>
           ) : <span />}
           {urgent && (
-            <span style={{ background: photoOverlay.goldBg, color: photoOverlay.goldText, borderRadius: 999, padding: "4px 11px", fontSize: 11.5, fontWeight: 800 }}>
+            <span style={{ background: photoOverlay.goldBg, color: photoOverlay.goldText, borderRadius: radius.pill, padding: "4px 11px", fontSize: 11.5, fontWeight: 800 }}>
               {spotsLabel(circle.nextPlan!.spotsLeft)}
             </span>
           )}
@@ -71,7 +71,7 @@ export function CircleDiscoveryCard({ circle, joined, onJoin, onLeave, busy }: {
           <div style={{ display: "flex", alignItems: "center", gap: 6, color: colors.mutedLight, fontSize: 13.5, marginBottom: 12 }}>
             {[circle.activityLabel, circle.area || circle.county].filter(Boolean).join(" · ") || "General"}
             {circle.hostVerified && (
-              <span style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 10.5, fontWeight: 700, color: colors.greenText, background: colors.greenBg, borderRadius: 999, padding: "2px 7px" }}>
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 10.5, fontWeight: 700, color: colors.greenText, background: colors.greenBg, borderRadius: radius.pill, padding: "2px 7px" }}>
                 <AwardIcon size={10} /> Verified
               </span>
             )}

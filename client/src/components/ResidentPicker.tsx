@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { searchResidents } from "../api";
 import { Button } from "./ui";
-import { colors } from "../theme";
+import { colors, radius } from "../theme";
 import type { ResidentSearchResult } from "../types";
 
 const DEBOUNCE_MS = 250;
@@ -76,7 +76,7 @@ export function ResidentPicker({ onInvite }: { onInvite: (residentId: string) =>
           value={manualId}
           onChange={(e) => setManualId(e.target.value)}
           placeholder="Resident ID"
-          style={{ border: `1px solid ${colors.border}`, borderRadius: 10, padding: "8px 12px", fontSize: 13.5, maxWidth: 220 }}
+          style={{ border: `1px solid ${colors.border}`, borderRadius: radius.control, padding: "8px 12px", fontSize: 13.5, maxWidth: 220 }}
         />
         <Button variant="ghost" onClick={submitManual} disabled={busy || !manualId.trim()}>Invite</Button>
         <button onClick={() => setManualMode(false)} style={{ background: "none", border: "none", padding: 0, color: colors.faint, fontSize: 12, textDecoration: "underline", cursor: "pointer" }}>
@@ -95,7 +95,7 @@ export function ResidentPicker({ onInvite }: { onInvite: (residentId: string) =>
           onFocus={() => results.length > 0 && setOpen(true)}
           placeholder="Search by name to invite…"
           disabled={busy}
-          style={{ border: `1px solid ${colors.border}`, borderRadius: 10, padding: "8px 12px", fontSize: 13.5, maxWidth: 220 }}
+          style={{ border: `1px solid ${colors.border}`, borderRadius: radius.control, padding: "8px 12px", fontSize: 13.5, maxWidth: 220 }}
         />
         <button onClick={() => setManualMode(true)} style={{ background: "none", border: "none", padding: 0, color: colors.faint, fontSize: 12, textDecoration: "underline", cursor: "pointer" }}>
           Have a Resident ID instead?
@@ -105,7 +105,7 @@ export function ResidentPicker({ onInvite }: { onInvite: (residentId: string) =>
         <div
           style={{
             position: "absolute", top: "calc(100% + 4px)", left: 0, zIndex: 20, minWidth: 200,
-            background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 10,
+            background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: radius.control,
             boxShadow: "0 10px 24px rgba(30,40,32,.14)", overflow: "hidden",
           }}
         >

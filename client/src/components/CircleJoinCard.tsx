@@ -5,7 +5,7 @@ import { CheckIcon, PlusIcon } from "./icons";
 import { InviteButton } from "./InviteButton";
 import { ResidentPicker } from "./ResidentPicker";
 import { Button, Card } from "./ui";
-import { colors, fonts } from "../theme";
+import { colors, fonts, radius } from "../theme";
 import type { Circle } from "../types";
 
 // Right-rail Join card (reference §21-22) — the single strongest CTA on the
@@ -52,7 +52,7 @@ export function CircleJoinCard({ circle, state, busy, onJoin, onLeave, onMessage
 
       <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
         {state === "closed" && (
-          <div style={{ fontWeight: 700, fontSize: 13.5, color: colors.muted, background: colors.panel, borderRadius: 10, padding: "10px 14px", textAlign: "center" }}>
+          <div style={{ fontWeight: 700, fontSize: 13.5, color: colors.muted, background: colors.panel, borderRadius: radius.control, padding: "10px 14px", textAlign: "center" }}>
             Closed to new activity
           </div>
         )}
@@ -80,7 +80,7 @@ export function CircleJoinCard({ circle, state, busy, onJoin, onLeave, onMessage
 
         {state === "member" && (
           <>
-            <div style={{ display: "inline-flex", alignItems: "center", gap: 6, fontWeight: 700, fontSize: 14, color: colors.greenText, background: colors.greenBg, borderRadius: 10, padding: "10px 14px", justifyContent: "center" }}>
+            <div style={{ display: "inline-flex", alignItems: "center", gap: 6, fontWeight: 700, fontSize: 14, color: colors.greenText, background: colors.greenBg, borderRadius: radius.control, padding: "10px 14px", justifyContent: "center" }}>
               <CheckIcon size={14} /> Joined
             </div>
             {circle.nextPlan && (

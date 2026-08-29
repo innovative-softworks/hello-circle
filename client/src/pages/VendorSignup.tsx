@@ -17,7 +17,7 @@ import {
   UsersIcon,
 } from "../components/icons";
 import { Button, Card, inputStyle, labelStyle } from "../components/ui";
-import { colors, fonts } from "../theme";
+import { colors, fonts, radius } from "../theme";
 import type { VendorType } from "../types";
 
 const DESCRIPTION_MAX = 300;
@@ -298,7 +298,7 @@ export function VendorSignup() {
           </div>
 
           {error && (
-            <p className="pop-in" style={{ color: colors.danger, fontSize: 14, margin: "16px 0 0", background: colors.dangerBg, padding: "9px 12px", borderRadius: 10 }}>
+            <p className="pop-in" style={{ color: colors.danger, fontSize: 14, margin: "16px 0 0", background: colors.dangerBg, padding: "9px 12px", borderRadius: radius.control }}>
               {error}
             </p>
           )}

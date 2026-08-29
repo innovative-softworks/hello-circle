@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { colors, fonts } from "../theme";
+import { colors, fonts, radius } from "../theme";
 
 const DISMISSED_KEY = "hello_circle_cookie_notice_dismissed";
 
@@ -36,7 +36,7 @@ export function CookieNotice() {
         margin: "0 auto",
         background: colors.dark,
         color: "#fff",
-        borderRadius: 16,
+        borderRadius: radius.card,
         padding: "16px 18px",
         boxShadow: "0 18px 40px rgba(0,0,0,.25)",
         display: "flex",
@@ -61,7 +61,7 @@ export function CookieNotice() {
           background: "#fff",
           color: colors.dark,
           border: "none",
-          borderRadius: 10,
+          borderRadius: radius.control,
           padding: "9px 18px",
           fontSize: 13.5,
           fontWeight: 700,

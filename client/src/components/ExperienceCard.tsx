@@ -1,7 +1,7 @@
 import { useNavigate } from "react-router-dom";
 import { CalendarIcon, PinIcon, TreeIconSmall } from "./icons";
 import { Card } from "./ui";
-import { colors, fonts } from "../theme";
+import { colors, fonts, radius } from "../theme";
 import type { Experience } from "../types";
 
 // Shared by the Adventures and Experiences browse pages (see
@@ -39,7 +39,7 @@ export function ExperienceCard({ e }: { e: Experience }) {
         {e.blurb && <p style={{ fontSize: 13, color: colors.muted, margin: "8px 0 0", lineHeight: 1.4 }}>{e.blurb}</p>}
         {e.difficulty && (
           <div style={{ marginTop: 10 }}>
-            <span style={{ fontSize: 11, fontWeight: 700, color: colors.muted, background: colors.panel, borderRadius: 999, padding: "2px 8px", textTransform: "capitalize" }}>{e.difficulty}</span>
+            <span style={{ fontSize: 11, fontWeight: 700, color: colors.muted, background: colors.panel, borderRadius: radius.pill, padding: "2px 8px", textTransform: "capitalize" }}>{e.difficulty}</span>
           </div>
         )}
         {nextSession && (

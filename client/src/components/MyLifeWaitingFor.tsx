@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { cancelIntent } from "../api";
-import { colors, fonts } from "../theme";
+import { colors, fonts, radius } from "../theme";
 import type { MyIntent } from "../types";
 
 // "Things you're waiting for" (My Life redesign §29/§30) — real, active
@@ -50,7 +50,7 @@ export function MyLifeWaitingFor({ intents, onChange }: { intents: MyIntent[]; o
           <button
             onClick={() => handleRemove(i.id)}
             disabled={busyId === i.id}
-            style={{ background: "none", border: `1px solid ${colors.borderStrong}`, borderRadius: 999, padding: "6px 14px", fontSize: 12.5, fontWeight: 700, color: colors.text, cursor: "pointer" }}
+            style={{ background: "none", border: `1px solid ${colors.borderStrong}`, borderRadius: radius.pill, padding: "6px 14px", fontSize: 12.5, fontWeight: 700, color: colors.text, cursor: "pointer" }}
           >
             {busyId === i.id ? "…" : "Remove"}
           </button>

@@ -38,7 +38,7 @@ import { IntentCaptureForm } from "../components/IntentCaptureForm";
 import { isFavorite, toggleFavorite } from "../favorites";
 import { useGuest } from "../GuestContext";
 import { dateLabel } from "../euro";
-import { colors, fonts } from "../theme";
+import { colors, fonts, radius } from "../theme";
 import type { Circle, CircleActivityStats, CirclePlanPreview, CirclePoll } from "../types";
 
 const hairline = `1px solid ${colors.border}`;
@@ -67,9 +67,9 @@ function PollCard({ poll, isOrganiser, onVote, onClose }: { poll: CirclePoll; is
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
         <div style={{ fontWeight: 700, fontSize: 14.5 }}>{poll.question}</div>
         {poll.status === "open" ? (
-          <span style={{ fontSize: 11, fontWeight: 700, color: colors.greenText, background: colors.greenBg, borderRadius: 999, padding: "2px 8px", flex: "none" }}>Open</span>
+          <span style={{ fontSize: 11, fontWeight: 700, color: colors.greenText, background: colors.greenBg, borderRadius: radius.pill, padding: "2px 8px", flex: "none" }}>Open</span>
         ) : (
-          <span style={{ fontSize: 11, fontWeight: 700, color: colors.muted, background: colors.panel, borderRadius: 999, padding: "2px 8px", flex: "none" }}>Closed</span>
+          <span style={{ fontSize: 11, fontWeight: 700, color: colors.muted, background: colors.panel, borderRadius: radius.pill, padding: "2px 8px", flex: "none" }}>Closed</span>
         )}
       </div>
       <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 10 }}>
@@ -84,7 +84,7 @@ function PollCard({ poll, isOrganiser, onVote, onClose }: { poll: CirclePoll; is
                 display: "flex", justifyContent: "space-between", alignItems: "center", textAlign: "left",
                 border: `1px solid ${o.votedByMe ? colors.green : colors.border}`,
                 background: o.votedByMe ? colors.greenBg : colors.surface,
-                borderRadius: 10, padding: "9px 12px", cursor: poll.status === "open" ? "pointer" : "default",
+                borderRadius: radius.control, padding: "9px 12px", cursor: poll.status === "open" ? "pointer" : "default",
               }}
             >
               <span style={{ fontSize: 13.5 }}>

@@ -13,7 +13,7 @@ import { PlusIcon, TrashIcon, UsersIcon } from "./icons";
 import { Button, ConfirmDialog, EmptyState, inputStyle, labelStyle } from "./ui";
 import { MultiImageUpload } from "./VendorImageUpload";
 import { ACTIVITY_CATEGORIES } from "../constants";
-import { colors, fonts } from "../theme";
+import { colors, fonts, radius } from "../theme";
 import type { Club, ClubSession, WaitlistEntry } from "../types";
 
 // Club create/edit form + its recurring-sessions and waitlist sub-panels —
@@ -155,7 +155,7 @@ export function ClubEditor({ clubId, onSaved }: { clubId: string | "new"; onSave
         <MultiImageUpload images={form.images ?? []} onChange={(images) => set("images", images)} />
       </div>
 
-      {error && <p className="pop-in" style={{ color: colors.danger, fontSize: 13, margin: "0 0 12px", background: colors.dangerBg, padding: "9px 12px", borderRadius: 10 }}>{error}</p>}
+      {error && <p className="pop-in" style={{ color: colors.danger, fontSize: 13, margin: "0 0 12px", background: colors.dangerBg, padding: "9px 12px", borderRadius: radius.control }}>{error}</p>}
       <Button variant="primary" disabled={saving || !form.name} onClick={save}>
         {clubId === "new" ? "Create (goes to admin for approval)" : "Save changes"}
       </Button>
@@ -221,7 +221,7 @@ function ClubSessionsManager({ clubId }: { clubId: string }) {
       {sessions.length > 0 && (
         <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 14 }}>
           {sessions.map((s) => (
-            <div key={s.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: colors.bg, borderRadius: 10, padding: "8px 12px", fontSize: 13.5 }}>
+            <div key={s.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: colors.bg, borderRadius: radius.control, padding: "8px 12px", fontSize: 13.5 }}>
               <span>
                 {DAY_NAMES[s.dayOfWeek]} {s.time}
                 {s.label ? ` — ${s.label}` : ""}
@@ -292,13 +292,13 @@ function ClubWaitlistPanel({ clubId }: { clubId: string }) {
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
           {entries.map((e) => (
-            <div key={e.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: colors.bg, borderRadius: 10, padding: "8px 12px", fontSize: 13.5 }}>
+            <div key={e.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: colors.bg, borderRadius: radius.control, padding: "8px 12px", fontSize: 13.5 }}>
               <span>{e.name || e.email || "Anonymous"} {e.email && <span style={{ color: colors.mutedLight }}>· {e.email}</span>}</span>
               <span
                 style={{
                   fontSize: 11,
                   fontWeight: 700,
-                  borderRadius: 999,
+                  borderRadius: radius.pill,
                   padding: "3px 10px",
                   background: e.status === "offered" ? colors.orangeBg : colors.panel,
                   color: e.status === "offered" ? colors.orangeDark : colors.muted,

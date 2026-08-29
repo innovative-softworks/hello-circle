@@ -7,7 +7,7 @@ import { InviteButton } from "./InviteButton";
 import { Avatar, Button, Card, ConfirmDialog } from "./ui";
 import { dateLabel } from "../euro";
 import { primaryCtaLabel as gamePrimaryCtaLabel } from "../gameCta";
-import { colors, fonts } from "../theme";
+import { colors, fonts, radius } from "../theme";
 import type { Game, Resident } from "../types";
 
 // The join CTA state machine (Game Detail redesign §19/§20) — one function
@@ -218,7 +218,7 @@ export function GameJoinCard({ game, resident, isHost, onRefresh }: JoinCardProp
 
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
           {state === "cancelled" && (
-            <div style={{ fontWeight: 700, fontSize: 14, color: colors.danger, background: colors.dangerBg, borderRadius: 10, padding: "10px 14px", textAlign: "center" }}>
+            <div style={{ fontWeight: 700, fontSize: 14, color: colors.danger, background: colors.dangerBg, borderRadius: radius.control, padding: "10px 14px", textAlign: "center" }}>
               This plan is no longer happening.
             </div>
           )}

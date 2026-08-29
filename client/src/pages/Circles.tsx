@@ -344,14 +344,14 @@ export function Circles() {
             ph="repeating-linear-gradient(135deg,#DDE8DA 0 14px,#E6EEE3 14px 28px)"
             icon={<RepeatIcon size={40} />}
             iconColor={colors.green}
-            style={{ height: 320, borderRadius: 16 }}
+            style={{ height: 320, borderRadius: radius.card }}
           />
         </div>
       </section>
 
       <section className="section-pad" style={{ maxWidth, margin: "0 auto", padding: "28px 24px 0" }}>
         {/* SEARCH + FILTERS */}
-        <div style={{ border: `1px solid ${colors.border}`, borderRadius: 16, background: colors.surface, boxShadow: "0 8px 24px rgba(30,40,32,.05)", padding: 14, marginBottom: 16 }}>
+        <div style={{ border: `1px solid ${colors.border}`, borderRadius: radius.card, background: colors.surface, boxShadow: "0 8px 24px rgba(30,40,32,.05)", padding: 14, marginBottom: 16 }}>
           <div style={{ position: "relative" }}>
             <SearchIcon size={17} style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", color: colors.faint }} />
             <input

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { deleteSearchAlert, fetchSearchAlerts, setSearchAlertActive } from "../api";
 import { BellIcon } from "./icons";
-import { colors, fonts } from "../theme";
+import { colors, fonts, radius } from "../theme";
 import type { SearchAlert } from "../types";
 
 // Saved-search alerts (master-prompt punch list #5) — a resident saves a
@@ -23,7 +23,7 @@ export function SearchAlertsPanel() {
   if (alerts.length === 0) return null;
 
   return (
-    <div style={{ background: "#fff", border: `1px solid ${colors.border}`, borderRadius: 16, padding: "18px 20px" }}>
+    <div style={{ background: "#fff", border: `1px solid ${colors.border}`, borderRadius: radius.card, padding: "18px 20px" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
         <BellIcon size={16} style={{ color: colors.greenText }} />
         <span style={{ fontFamily: fonts.display, fontSize: 15, fontWeight: 700 }}>Saved search alerts</span>

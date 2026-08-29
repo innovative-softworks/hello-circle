@@ -37,7 +37,7 @@ import { PageTitle } from "../components/PageTitle";
 import { signInHref } from "../authRedirect";
 import { euro } from "../euro";
 import { useGuest } from "../GuestContext";
-import { colors, fonts } from "../theme";
+import { colors, fonts, radius } from "../theme";
 import { ACCESSIBILITY_OPTIONS, BUDGET_OPTIONS, GOAL_OPTIONS, GROUP_SIZE_OPTIONS } from "../types";
 import type { BlockedResident, Favourite, HostStatus, HouseholdMember, NotificationPrefs, Pass, Receipt, ReportRecord, ResidentNotification, Routine, RoutineSuggestion } from "../types";
 
@@ -98,7 +98,7 @@ function HouseholdPanel() {
       <p style={{ color: colors.mutedLight, fontSize: 14, margin: "0 0 20px" }}>
         Add kids or dependants once — pick them straight from here next time you register for a club instead of retyping their details.
       </p>
-      <div style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 16, padding: "18px 20px", marginBottom: 20 }}>
+      <div style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: radius.card, padding: "18px 20px", marginBottom: 20 }}>
         <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 12 }}>Add a household member</div>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 10, alignItems: "flex-end" }}>
           <div style={{ flex: "1 1 160px" }}>
@@ -213,7 +213,7 @@ function FavouritesPanel() {
             key={s.key}
             onClick={() => setStatusFilter(s.key)}
             style={{
-              border: "none", borderRadius: 999, padding: "6px 13px", fontSize: 12.5, fontWeight: 700, cursor: "pointer",
+              border: "none", borderRadius: radius.pill, padding: "6px 13px", fontSize: 12.5, fontWeight: 700, cursor: "pointer",
               background: statusFilter === s.key ? colors.dark : colors.panel, color: statusFilter === s.key ? "#fff" : colors.muted,
             }}
           >
@@ -252,7 +252,7 @@ function FavouritesPanel() {
                     disabled={!next}
                     title={next ? `Mark as ${STATUS_LABEL[next]}` : "Already joined"}
                     style={{
-                      fontSize: 12, fontWeight: 700, borderRadius: 999, padding: "4px 12px", border: "none",
+                      fontSize: 12, fontWeight: 700, borderRadius: radius.pill, padding: "4px 12px", border: "none",
                       color: STATUS_COLOR[f.status].fg, background: STATUS_COLOR[f.status].bg,
                       cursor: next ? "pointer" : "default",
                     }}
@@ -416,7 +416,7 @@ function RoutinesPanel() {
                   </div>
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <span style={{ fontSize: 11, fontWeight: 700, borderRadius: 999, padding: "3px 10px", background: r.status === "active" ? colors.greenBg : colors.panel, color: r.status === "active" ? colors.greenText : colors.muted }}>
+                  <span style={{ fontSize: 11, fontWeight: 700, borderRadius: radius.pill, padding: "3px 10px", background: r.status === "active" ? colors.greenBg : colors.panel, color: r.status === "active" ? colors.greenText : colors.muted }}>
                     {r.status === "active" ? "Active" : "Paused"}
                   </span>
                   <Button variant="ghost" onClick={() => toggleStatus(r)} disabled={busyKey === r.id}>
@@ -663,7 +663,7 @@ function ProfileDetailsPanel() {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 20, maxWidth: 480 }}>
-      <div style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 16, padding: "18px 20px" }}>
+      <div style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: radius.card, padding: "18px 20px" }}>
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
           <div>
             <label style={labelStyle}>Name</label>
@@ -682,7 +682,7 @@ function ProfileDetailsPanel() {
         </div>
       </div>
 
-      <div style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 16, padding: "18px 20px" }}>
+      <div style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: radius.card, padding: "18px 20px" }}>
         <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>Password</div>
         <p style={{ fontSize: 12.5, color: colors.mutedLight, margin: "0 0 12px" }}>
           {hasPassword
@@ -707,7 +707,7 @@ function ProfileDetailsPanel() {
         </div>
       </div>
 
-      <div style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 16, padding: "18px 20px" }}>
+      <div style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: radius.card, padding: "18px 20px" }}>
         <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 12 }}>Notifications</div>
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
           {NOTIFICATION_CATEGORIES.map((c) => (
@@ -719,7 +719,7 @@ function ProfileDetailsPanel() {
         </div>
       </div>
 
-      <div style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 16, padding: "18px 20px" }}>
+      <div style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: radius.card, padding: "18px 20px" }}>
         <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>Accessibility</div>
         <p style={{ fontSize: 12.5, color: colors.mutedLight, margin: "0 0 12px" }}>Used to improve filtering — never shown to other participants.</p>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
@@ -731,7 +731,7 @@ function ProfileDetailsPanel() {
                 border: `1px solid ${accessibility.includes(opt) ? colors.green : colors.border}`,
                 background: accessibility.includes(opt) ? colors.greenBg : colors.surface,
                 color: accessibility.includes(opt) ? colors.greenText : colors.text,
-                borderRadius: 999, padding: "7px 14px", fontSize: 13, fontWeight: 600, cursor: "pointer",
+                borderRadius: radius.pill, padding: "7px 14px", fontSize: 13, fontWeight: 600, cursor: "pointer",
               }}
             >
               {opt}
@@ -740,7 +740,7 @@ function ProfileDetailsPanel() {
         </div>
       </div>
 
-      <div style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 16, padding: "18px 20px" }}>
+      <div style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: radius.card, padding: "18px 20px" }}>
         <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>Participation comfort</div>
         <p style={{ fontSize: 12.5, color: colors.mutedLight, margin: "0 0 12px" }}>Set once during onboarding — edit any time here.</p>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 14 }}>
@@ -752,7 +752,7 @@ function ProfileDetailsPanel() {
                 border: `1px solid ${goals.includes(opt) ? colors.green : colors.border}`,
                 background: goals.includes(opt) ? colors.greenBg : colors.surface,
                 color: goals.includes(opt) ? colors.greenText : colors.text,
-                borderRadius: 999, padding: "6px 12px", fontSize: 12.5, fontWeight: 600, cursor: "pointer",
+                borderRadius: radius.pill, padding: "6px 12px", fontSize: 12.5, fontWeight: 600, cursor: "pointer",
               }}
             >
               {opt}
@@ -790,7 +790,7 @@ function ProfileDetailsPanel() {
         <Button onClick={handleSaveComfort} disabled={comfortSaving}>{comfortSaving ? "Saving…" : "Save"}</Button>
       </div>
 
-      <div style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 16, padding: "18px 20px" }}>
+      <div style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: radius.card, padding: "18px 20px" }}>
         <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>Privacy</div>
         <label style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 14, marginTop: 10 }}>
           <span>Hide me from other people's "familiar faces" counts</span>
@@ -839,7 +839,7 @@ function SafetyCentrePanel() {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 20, maxWidth: 520 }}>
-      <div style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 16, padding: "18px 20px" }}>
+      <div style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: radius.card, padding: "18px 20px" }}>
         <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>Blocked people</div>
         <p style={{ fontSize: 12.5, color: colors.mutedLight, margin: "0 0 12px" }}>
           People you've blocked won't be suggested as familiar faces. Block someone from a Circle or Game's chat.
@@ -858,7 +858,7 @@ function SafetyCentrePanel() {
         )}
       </div>
 
-      <div style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 16, padding: "18px 20px" }}>
+      <div style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: radius.card, padding: "18px 20px" }}>
         <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>Your reports</div>
         <p style={{ fontSize: 12.5, color: colors.mutedLight, margin: "0 0 12px" }}>Content or people you've reported, and their review status.</p>
         {reports.length === 0 ? (
@@ -951,7 +951,7 @@ export function Profile() {
               className={`tab-btn ${MORE_TABS.some((t) => t.key === tab) ? "tab-btn-active" : ""}`}
               onClick={() => setMoreMenuOpen((o) => !o)}
               style={{
-                display: "inline-flex", alignItems: "center", gap: 4, borderRadius: 10, fontWeight: 700, fontSize: 14, padding: "9px 16px",
+                display: "inline-flex", alignItems: "center", gap: 4, borderRadius: radius.control, fontWeight: 700, fontSize: 14, padding: "9px 16px",
                 background: MORE_TABS.some((t) => t.key === tab) ? colors.dark : colors.surface,
                 color: MORE_TABS.some((t) => t.key === tab) ? "#fff" : colors.text,
                 border: MORE_TABS.some((t) => t.key === tab) ? "none" : `1px solid ${colors.borderStrong}`,
@@ -973,7 +973,7 @@ export function Profile() {
                       setMoreMenuOpen(false);
                     }}
                     style={{
-                      display: "block", width: "100%", background: t.key === tab ? colors.panel : "none", border: "none", borderRadius: 10,
+                      display: "block", width: "100%", background: t.key === tab ? colors.panel : "none", border: "none", borderRadius: radius.control,
                       padding: "10px 12px", fontSize: 14.5, fontWeight: t.key === tab ? 700 : 600, color: colors.text, textAlign: "left", cursor: "pointer",
                     }}
                   >

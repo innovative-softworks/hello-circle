@@ -5,7 +5,7 @@ import { Card, EmptyState, StatRow, StatTile } from "./ui";
 import { CommunityIllustration } from "./illustrations";
 import { VendorScheduleTab } from "./VendorPrograms";
 import { useAuth } from "../AuthContext";
-import { colors, fonts, statTile } from "../theme";
+import { colors, fonts, radius, statTile } from "../theme";
 import type { VendorStats, VendorToday } from "../types";
 
 // The Overview tab (KPI row, same-day summary, engagement tips) — split
@@ -24,7 +24,7 @@ function TipsPanel() {
     <Card style={{ display: "flex", gap: 24, alignItems: "center", flexWrap: "wrap" }}>
       <div style={{ flex: "1 1 320px" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
-          <div style={{ width: 34, height: 34, borderRadius: 10, background: "#FFF3D6", color: "#9A6B00", display: "flex", alignItems: "center", justifyContent: "center", flex: "none" }}>
+          <div style={{ width: 34, height: 34, borderRadius: radius.control, background: "#FFF3D6", color: "#9A6B00", display: "flex", alignItems: "center", justifyContent: "center", flex: "none" }}>
             <LightbulbIcon size={17} />
           </div>
           <h4 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 16, margin: 0 }}>Tips to get more bookings</h4>
@@ -101,13 +101,13 @@ export function VendorOverviewTab({ stats, unreadCount }: { stats: VendorStats; 
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             {today.bookings.map((b) => (
-              <div key={b.ref} style={{ display: "flex", justifyContent: "space-between", background: colors.greenBg, borderRadius: 10, padding: "10px 14px", fontSize: 13.5 }}>
+              <div key={b.ref} style={{ display: "flex", justifyContent: "space-between", background: colors.greenBg, borderRadius: radius.control, padding: "10px 14px", fontSize: 13.5 }}>
                 <span><strong>{b.time}</strong> · {b.centreName} — {b.name}</span>
                 <span>{b.guests} guests</span>
               </div>
             ))}
             {today.clubSessions.map((s) => (
-              <div key={s.id} style={{ display: "flex", justifyContent: "space-between", background: colors.orangeBg, borderRadius: 10, padding: "10px 14px", fontSize: 13.5 }}>
+              <div key={s.id} style={{ display: "flex", justifyContent: "space-between", background: colors.orangeBg, borderRadius: radius.control, padding: "10px 14px", fontSize: 13.5 }}>
                 <span><strong>{s.time}</strong> · {s.clubName}{s.label ? ` — ${s.label}` : ""}</span>
                 <span>{s.instructorName || (s.capacity ? `cap ${s.capacity}` : "")}</span>
               </div>

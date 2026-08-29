@@ -8,7 +8,7 @@ import { BellIcon, SearchIcon, TreeIconSmall } from "../components/icons";
 import { IntentCaptureForm } from "../components/IntentCaptureForm";
 import { Card, CardSkeleton, EmptyState } from "../components/ui";
 import { useGuest } from "../GuestContext";
-import { colors, fonts, maxWidth } from "../theme";
+import { colors, fonts, maxWidth, radius } from "../theme";
 import type { ExperienceSearchResult, SearchResult } from "../types";
 
 export function ExperienceSearchCard({ e }: { e: ExperienceSearchResult }) {
@@ -126,7 +126,7 @@ export function Search() {
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="What are you looking for?"
-            style={{ width: "100%", padding: "16px 16px 16px 46px", borderRadius: 16, border: `1px solid ${colors.border}`, fontSize: 17, outline: "none", boxShadow: "0 8px 30px rgba(30,40,32,.06)" }}
+            style={{ width: "100%", padding: "16px 16px 16px 46px", borderRadius: radius.card, border: `1px solid ${colors.border}`, fontSize: 17, outline: "none", boxShadow: "0 8px 30px rgba(30,40,32,.06)" }}
           />
         </div>
 
@@ -137,7 +137,7 @@ export function Search() {
                 <div style={{ fontSize: 13, fontWeight: 700, color: colors.muted, marginBottom: 10 }}>RECENT</div>
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
                   {recent.map((r) => (
-                    <button key={r} onClick={() => setQuery(r)} style={{ background: colors.panel, border: "none", borderRadius: 999, padding: "8px 14px", fontSize: 13.5, cursor: "pointer" }}>
+                    <button key={r} onClick={() => setQuery(r)} style={{ background: colors.panel, border: "none", borderRadius: radius.pill, padding: "8px 14px", fontSize: 13.5, cursor: "pointer" }}>
                       {r}
                     </button>
                   ))}
@@ -148,7 +148,7 @@ export function Search() {
               <div style={{ fontSize: 13, fontWeight: 700, color: colors.muted, marginBottom: 10 }}>POPULAR NEAR YOU</div>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
                 {POPULAR.map((p) => (
-                  <button key={p} onClick={() => setQuery(p)} style={{ background: "#fff", border: `1px solid ${colors.border}`, borderRadius: 999, padding: "8px 14px", fontSize: 13.5, cursor: "pointer" }}>
+                  <button key={p} onClick={() => setQuery(p)} style={{ background: "#fff", border: `1px solid ${colors.border}`, borderRadius: radius.pill, padding: "8px 14px", fontSize: 13.5, cursor: "pointer" }}>
                     {p}
                   </button>
                 ))}
@@ -175,7 +175,7 @@ export function Search() {
                       background: alertState === "saved" ? colors.greenBg : "none",
                       color: alertState === "saved" ? colors.greenText : colors.muted,
                       border: `1px solid ${alertState === "saved" ? colors.green : colors.border}`,
-                      borderRadius: 999,
+                      borderRadius: radius.pill,
                       padding: "6px 12px",
                       fontSize: 12.5,
                       fontWeight: 600,

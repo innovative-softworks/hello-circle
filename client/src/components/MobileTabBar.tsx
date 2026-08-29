@@ -14,7 +14,7 @@ import {
 } from "./icons";
 import { Drawer } from "./ui";
 import { useMyStuff } from "../MyStuffContext";
-import { colors } from "../theme";
+import { colors, radius } from "../theme";
 
 // IA spec five-layer audit's single highest-leverage remaining gap: mobile
 // nav was a hamburger-triggered drawer, a genuinely different pattern from
@@ -77,7 +77,7 @@ function TabButton({ icon, label, active, badge, onClick }: { icon: ReactNode; l
             right: "22%",
             background: colors.green,
             color: "#fff",
-            borderRadius: 999,
+            borderRadius: radius.pill,
             fontSize: 9,
             fontWeight: 700,
             minWidth: 14,

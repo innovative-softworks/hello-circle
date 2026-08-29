@@ -1,5 +1,5 @@
 import type { AnalyticsFunnelRow, LiquidityLabel, LiquidityScore, MarketplaceHealth as MarketplaceHealthData, ReferralAttributionRow } from "../types";
-import { colors, fonts } from "../theme";
+import { colors, fonts, radius } from "../theme";
 import { SearchIcon } from "./icons";
 import { Card, EmptyState } from "./ui";
 
@@ -93,7 +93,7 @@ export function MarketplaceHealthView({
             {liquidity.map((row: LiquidityScore) => (
               <div
                 key={`${row.activityLabel}::${row.county}`}
-                style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, background: colors.bg, borderRadius: 10, padding: "10px 14px", fontSize: 13.5 }}
+                style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, background: colors.bg, borderRadius: radius.control, padding: "10px 14px", fontSize: 13.5 }}
               >
                 <span>
                   {row.activityLabel}
@@ -127,7 +127,7 @@ export function MarketplaceHealthView({
               {referrals.map((r, i) => (
                 <div
                   key={i}
-                  style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, background: colors.bg, borderRadius: 10, padding: "10px 14px", fontSize: 13.5 }}
+                  style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, background: colors.bg, borderRadius: radius.control, padding: "10px 14px", fontSize: 13.5 }}
                 >
                   <span>
                     {r.source || "unknown source"} · landed {new Date(r.landedAt).toLocaleDateString("en-IE")}

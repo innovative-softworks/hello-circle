@@ -3,7 +3,7 @@ import { fetchVendorMessages, fetchVendorNotifications, markVendorNotificationRe
 import { ChatIcon } from "./icons";
 import { Button, Card, EmptyState, inputStyle, labelStyle } from "./ui";
 import { formatDate } from "../vendorFormat";
-import { colors, fonts } from "../theme";
+import { colors, fonts, radius } from "../theme";
 import type { VendorListingSummary, VendorNotification } from "../types";
 
 // Notifications feed (new bookings/registrations) + the vendor-authored
@@ -74,7 +74,7 @@ function MessageComposer({ listings }: { listings: { centres: VendorListingSumma
           <div style={{ fontSize: 12, fontWeight: 700, color: colors.muted, marginBottom: 10 }}>SENT</div>
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             {sent.slice(0, 5).map((m) => (
-              <div key={m.id} style={{ fontSize: 13, background: colors.bg, borderRadius: 10, padding: "8px 12px" }}>
+              <div key={m.id} style={{ fontSize: 13, background: colors.bg, borderRadius: radius.control, padding: "8px 12px" }}>
                 <strong>{m.subject}</strong>
                 <div style={{ color: colors.mutedLight, fontSize: 12, marginTop: 2 }}>{formatDate(m.createdAt)}</div>
               </div>

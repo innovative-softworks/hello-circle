@@ -4,7 +4,7 @@ import { fetchProviderProfile } from "../api";
 import { AwardIcon, BallIcon, BuildingIcon, TreeIconSmall } from "../components/icons";
 import { PageTitle } from "../components/PageTitle";
 import { Card, PageSpinner } from "../components/ui";
-import { colors, fonts } from "../theme";
+import { colors, fonts, radius } from "../theme";
 import type { ProviderProfile } from "../types";
 
 // Provider public profile (IA spec §5) — a dedicated page for the vendor
@@ -45,7 +45,7 @@ export function ProviderProfilePage() {
               <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                 <PageTitle level="section" style={{ margin: 0 }}>{profile.name}</PageTitle>
                 {profile.verified && (
-                  <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11.5, fontWeight: 700, color: colors.greenText, background: colors.greenBg, borderRadius: 999, padding: "3px 10px" }}>
+                  <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11.5, fontWeight: 700, color: colors.greenText, background: colors.greenBg, borderRadius: radius.pill, padding: "3px 10px" }}>
                     <AwardIcon size={12} /> Verified provider
                   </span>
                 )}

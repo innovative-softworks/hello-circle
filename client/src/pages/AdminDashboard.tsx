@@ -61,7 +61,7 @@ import { Avatar, BadgedIcon, Button, Card, ConfirmDialog, DashboardTopPanel, Dra
 import { DemandSignalsView, IntentClusterView } from "../components/DemandSignals";
 import { MarketplaceHealthView } from "../components/MarketplaceHealth";
 import { MarketConfig } from "../components/MarketConfig";
-import { colors, fonts, maxWidth, statTile } from "../theme";
+import { colors, fonts, maxWidth, radius, statTile } from "../theme";
 import { FEATURE_FLAG_KEYS, FEATURE_FLAG_LABELS } from "../types";
 import type { AdminOrganisation, AdminStats, AnalyticsFunnelRow, AuditEntry, CircleActivity, DemandRow, FeatureFlagKey, FeatureFlags, IntentCluster, MarketplaceHealth, ModerationReport, NotificationTemplateInfo, OpenBookingActivity, PlaceSuggestion, ReferralAttributionRow, ReportCase, Review, SupportBooking, SupportCircle, SupportGame, SupportRegistration, SupportUser } from "../types";
 
@@ -78,7 +78,7 @@ function vendorTypePill(vendorType: "community" | "sports" | null) {
         fontSize: 11,
         fontWeight: 700,
         padding: "3px 9px",
-        borderRadius: 999,
+        borderRadius: radius.pill,
         background: vendorType === "sports" ? colors.orangeBg : colors.greenBg,
         color: vendorType === "sports" ? colors.orangeDark : colors.greenText,
       }}
@@ -230,7 +230,7 @@ function VendorDrawer({
                 alignItems: "center",
                 background: colors.panel,
                 border: "none",
-                borderRadius: 10,
+                borderRadius: radius.control,
                 padding: "9px 12px",
                 fontSize: 13,
                 cursor: "pointer",
@@ -342,7 +342,7 @@ function ClaimsTab() {
                       fontSize: 11,
                       fontWeight: 700,
                       padding: "3px 9px",
-                      borderRadius: 999,
+                      borderRadius: radius.pill,
                       background: c.listingType === "club" ? colors.orangeBg : colors.greenBg,
                       color: c.listingType === "club" ? colors.orangeDark : colors.greenText,
                     }}
@@ -514,7 +514,7 @@ function ListingRow({
     <Card hover onClick={onOpen} style={{ padding: 15, display: "flex", flexWrap: "wrap", gap: 14, justifyContent: "space-between", alignItems: "center" }}>
       <div style={{ display: "flex", gap: 12, minWidth: 0 }}>
         {item.image && (
-          <img src={item.image} alt="" style={{ width: 44, height: 44, borderRadius: 10, objectFit: "cover", flex: "none" }} />
+          <img src={item.image} alt="" style={{ width: 44, height: 44, borderRadius: radius.control, objectFit: "cover", flex: "none" }} />
         )}
         <div style={{ minWidth: 0 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
@@ -932,7 +932,7 @@ function StatusPanel() {
         {rows.map(([label, ok]) => (
           <div key={label} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13.5 }}>
             {label}
-            <span style={{ fontWeight: 700, fontSize: 12, padding: "2px 9px", borderRadius: 999, color: ok ? colors.greenText : colors.orangeDark, background: ok ? colors.greenBg : colors.orangeBg }}>
+            <span style={{ fontWeight: 700, fontSize: 12, padding: "2px 9px", borderRadius: radius.pill, color: ok ? colors.greenText : colors.orangeDark, background: ok ? colors.greenBg : colors.orangeBg }}>
               {ok ? "OK" : "Not configured"}
             </span>
           </div>
@@ -1023,7 +1023,7 @@ function NotificationTemplateCard({ t, onSaved }: { t: NotificationTemplateInfo;
           <div style={{ fontSize: 12.5, color: colors.mutedLight, marginTop: 2 }}>{t.description}</div>
         </div>
         {isOverridden && (
-          <span style={{ fontSize: 11, fontWeight: 700, color: colors.greenText, background: colors.greenBg, borderRadius: 999, padding: "2px 8px", flex: "none" }}>Custom</span>
+          <span style={{ fontSize: 11, fontWeight: 700, color: colors.greenText, background: colors.greenBg, borderRadius: radius.pill, padding: "2px 8px", flex: "none" }}>Custom</span>
         )}
       </div>
       <p style={{ fontSize: 11.5, color: colors.faint, margin: "0 0 10px" }}>
@@ -1376,7 +1376,7 @@ function CouponsTab() {
         <p style={{ fontSize: 12, color: colors.mutedLight, margin: "10px 0 0" }}>
           "€ off" amounts are in cents (e.g. 500 = €5.00). Applies to the pre-VAT/fee subtotal on any booking or registration.
         </p>
-        {error && <p className="pop-in" style={{ color: colors.danger, fontSize: 13, margin: "12px 0 0", background: colors.dangerBg, padding: "9px 12px", borderRadius: 10 }}>{error}</p>}
+        {error && <p className="pop-in" style={{ color: colors.danger, fontSize: 13, margin: "12px 0 0", background: colors.dangerBg, padding: "9px 12px", borderRadius: radius.control }}>{error}</p>}
       </Card>
 
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>

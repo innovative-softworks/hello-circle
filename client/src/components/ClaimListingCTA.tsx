@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { submitClaim } from "../api";
 import { useAuth } from "../AuthContext";
-import { colors } from "../theme";
+import { colors, radius } from "../theme";
 import { Button } from "./ui";
 
 /** Shown on a listing's detail page only when it has no owning vendor yet
@@ -47,7 +47,7 @@ export function ClaimListingCTA({
   const wrapStyle: React.CSSProperties = {
     background: "#fff",
     border: `1px dashed ${colors.borderStrong}`,
-    borderRadius: 16,
+    borderRadius: radius.card,
     padding: "20px 22px",
   };
   const titleStyle: React.CSSProperties = { fontWeight: 700, fontSize: 15, marginBottom: 4 };
@@ -114,7 +114,7 @@ export function ClaimListingCTA({
         onChange={(e) => setMessage(e.target.value)}
         placeholder="Optional — tell us about your role at this organisation"
         rows={2}
-        style={{ width: "100%", border: `1px solid ${colors.border}`, borderRadius: 10, padding: 10, fontSize: 14, fontFamily: "inherit", marginBottom: 10, resize: "vertical", boxSizing: "border-box" }}
+        style={{ width: "100%", border: `1px solid ${colors.border}`, borderRadius: radius.control, padding: 10, fontSize: 14, fontFamily: "inherit", marginBottom: 10, resize: "vertical", boxSizing: "border-box" }}
       />
       {error && <div style={{ color: colors.danger, fontSize: 13, marginBottom: 10 }}>{error}</div>}
       <Button onClick={handleSubmit} disabled={submitting}>

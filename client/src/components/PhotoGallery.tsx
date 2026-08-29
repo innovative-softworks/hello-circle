@@ -1,7 +1,7 @@
 import { useEffect, useState, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
 import { ChevronLeftIcon, ChevronRightIcon, CloseIcon, GridIcon } from "./icons";
-import { colors } from "../theme";
+import { colors, radius } from "../theme";
 
 interface PhotoGalleryProps {
   images: string[];
@@ -79,7 +79,7 @@ export function PhotoGallery({ images, alt, ph }: PhotoGalleryProps) {
               gap: 7,
               background: "#fff",
               border: `1.5px solid ${colors.text}`,
-              borderRadius: 10,
+              borderRadius: radius.control,
               padding: "9px 14px",
               fontSize: 13,
               fontWeight: 700,

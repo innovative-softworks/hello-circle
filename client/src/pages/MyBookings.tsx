@@ -43,7 +43,7 @@ import { Button, EmptyState, onActivateProps, RowSkeleton, inputStyle, labelStyl
 import { UpcomingPlanCard } from "../components/UpcomingPlanCard";
 import { dateLabel, euro } from "../euro";
 import { useGuest } from "../GuestContext";
-import { colors, fonts } from "../theme";
+import { colors, fonts, radius } from "../theme";
 import { AVAILABILITY_OPTIONS } from "../types";
 import type { Circle, Favourite, Game, MyBooking, MyExperienceBooking, MyIntent, MyProgramEnrollment, MyRegistration, ParticipationEntry, ResidentFull, RoutineSuggestion, WaitlistOfferStatus } from "../types";
 
@@ -63,8 +63,8 @@ import type { Circle, Favourite, Game, MyBooking, MyExperienceBooking, MyIntent,
 // per-browser and permanent, not "ask again next visit" nagging.
 const INTERESTS_NUDGE_DISMISSED_KEY = "hc_interests_nudge_dismissed";
 
-const cancelledBadgeStyle: React.CSSProperties = { fontSize: 11, fontWeight: 700, color: colors.danger, background: colors.dangerBg, borderRadius: 999, padding: "2px 8px" };
-const recoveredBadgeStyle: React.CSSProperties = { fontSize: 11, fontWeight: 700, color: colors.greenText, background: colors.greenBg, borderRadius: 999, padding: "2px 8px" };
+const cancelledBadgeStyle: React.CSSProperties = { fontSize: 11, fontWeight: 700, color: colors.danger, background: colors.dangerBg, borderRadius: radius.pill, padding: "2px 8px" };
+const recoveredBadgeStyle: React.CSSProperties = { fontSize: 11, fontWeight: 700, color: colors.greenText, background: colors.greenBg, borderRadius: radius.pill, padding: "2px 8px" };
 
 function BookingQr({ reference }: { reference: string }) {
   const [dataUrl, setDataUrl] = useState<string | null>(null);
@@ -72,7 +72,7 @@ function BookingQr({ reference }: { reference: string }) {
     import("qrcode").then((QRCode) => QRCode.toDataURL(reference, { width: 160, margin: 1 }).then(setDataUrl));
   }, [reference]);
   if (!dataUrl) return null;
-  return <img src={dataUrl} alt={`QR code for ${reference}`} style={{ width: 120, height: 120, borderRadius: 10, border: `1px solid ${colors.border}` }} />;
+  return <img src={dataUrl} alt={`QR code for ${reference}`} style={{ width: 120, height: 120, borderRadius: radius.control, border: `1px solid ${colors.border}` }} />;
 }
 
 function RescheduleForm({ booking, onDone }: { booking: MyBooking; onDone: () => void }) {
@@ -113,7 +113,7 @@ function BookingRow({
   const cancelled = booking.status === "cancelled";
   const isPast = new Date(`${booking.date}T00:00:00`) < new Date(new Date().toDateString());
   return (
-    <div style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 16, padding: "18px 20px", opacity: cancelled ? 0.6 : 1 }}>
+    <div style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: radius.card, padding: "18px 20px", opacity: cancelled ? 0.6 : 1 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 18 }}>
         <Photo src={booking.image} alt={booking.centreName} ph={booking.ph} style={{ width: 52, height: 52, borderRadius: 12, overflow: "hidden", flex: "none" }} />
         <div style={{ flex: 1, minWidth: 0, cursor: "pointer" }} {...onActivateProps(() => setExpanded((e) => !e))}>
@@ -147,7 +147,7 @@ function BookingRow({
             {!isPast && (
               <button
                 onClick={() => downloadBookingIcs(booking.ref)}
-                style={{ background: "none", border: `1px solid ${colors.border}`, borderRadius: 999, padding: "5px 12px", fontSize: 12.5, fontWeight: 600, color: colors.text, cursor: "pointer", marginBottom: 12 }}
+                style={{ background: "none", border: `1px solid ${colors.border}`, borderRadius: radius.pill, padding: "5px 12px", fontSize: 12.5, fontWeight: 600, color: colors.text, cursor: "pointer", marginBottom: 12 }}
               >
                 Add to calendar
               </button>
@@ -183,7 +183,7 @@ function WaitlistOfferBanner({ clubId }: { clubId: string }) {
   if (status.offered) {
     const expires = status.offerExpiresAt ? new Date(status.offerExpiresAt) : null;
     return (
-      <div style={{ marginTop: 10, background: colors.orangeBg, color: colors.orangeDark, borderRadius: 10, padding: "8px 12px", fontSize: 13, fontWeight: 600 }}>
+      <div style={{ marginTop: 10, background: colors.orangeBg, color: colors.orangeDark, borderRadius: radius.control, padding: "8px 12px", fontSize: 13, fontWeight: 600 }}>
         A spot has opened up! {expires ? `Respond by ${expires.toLocaleString("en-IE", { dateStyle: "medium", timeStyle: "short" })} or it passes to the next person.` : "Respond soon or it passes to the next person."}
       </div>
     );
@@ -204,7 +204,7 @@ function RegistrationRow({
   const cancelled = registration.status === "cancelled";
   const enoughTimeSinceSignup = Date.now() - new Date(registration.createdAt).getTime() > 14 * 24 * 60 * 60 * 1000;
   return (
-    <div style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 16, padding: "18px 20px", opacity: cancelled ? 0.6 : 1 }}>
+    <div style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: radius.card, padding: "18px 20px", opacity: cancelled ? 0.6 : 1 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 18 }}>
         <div style={{ width: 52, height: 52, borderRadius: 12, background: colors.orangeBg, flex: "none", display: "flex", alignItems: "center", justifyContent: "center", color: colors.orangeDark, fontWeight: 700, fontSize: 12 }}>
           {registration.sport}
@@ -246,7 +246,7 @@ function GameRow({ game }: { game: Game }) {
   return (
     <div
       onClick={() => navigate(`/games/${game.id}`)}
-      style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 16, padding: "18px 20px", opacity: cancelled ? 0.6 : 1, cursor: "pointer" }}
+      style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: radius.card, padding: "18px 20px", opacity: cancelled ? 0.6 : 1, cursor: "pointer" }}
     >
       <div style={{ display: "flex", alignItems: "center", gap: 18 }}>
         <div style={{ width: 52, height: 52, borderRadius: 12, background: colors.greenBg, flex: "none", display: "flex", alignItems: "center", justifyContent: "center", color: colors.greenText, fontWeight: 700, fontSize: 18 }}>
@@ -278,7 +278,7 @@ function ExperienceBookingRow({ booking }: { booking: MyExperienceBooking }) {
   return (
     <div
       onClick={() => navigate(`/experiences/${booking.experienceId}`)}
-      style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 16, padding: "18px 20px", opacity: cancelled ? 0.6 : 1, cursor: "pointer" }}
+      style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: radius.card, padding: "18px 20px", opacity: cancelled ? 0.6 : 1, cursor: "pointer" }}
     >
       <div style={{ display: "flex", alignItems: "center", gap: 18 }}>
         {booking.imageUrl ? (
@@ -312,7 +312,7 @@ function CircleRow({ circle }: { circle: Circle }) {
   return (
     <div
       onClick={() => navigate(`/circles/${circle.slug ?? circle.id}`)}
-      style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 16, padding: "18px 20px", cursor: "pointer" }}
+      style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: radius.card, padding: "18px 20px", cursor: "pointer" }}
     >
       <div style={{ display: "flex", alignItems: "center", gap: 18 }}>
         <div style={{ width: 52, height: 52, borderRadius: 12, background: colors.orangeBg, flex: "none", display: "flex", alignItems: "center", justifyContent: "center", color: colors.orangeDark, fontWeight: 700, fontSize: 18 }}>
@@ -336,7 +336,7 @@ function ProgramEnrollmentRow({ enrollment }: { enrollment: MyProgramEnrollment 
   return (
     <div
       onClick={() => navigate(`/programs/${enrollment.programId}`)}
-      style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 16, padding: "18px 20px", opacity: cancelled ? 0.6 : 1, cursor: "pointer" }}
+      style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: radius.card, padding: "18px 20px", opacity: cancelled ? 0.6 : 1, cursor: "pointer" }}
     >
       <div style={{ display: "flex", alignItems: "center", gap: 18 }}>
         <Photo src={enrollment.imageUrl} alt={enrollment.title} ph={colors.panel} style={{ width: 52, height: 52, borderRadius: 12, overflow: "hidden", flex: "none" }} />
@@ -821,7 +821,7 @@ export function MyBookings() {
                   <h2 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(20px,2.4vw,24px)", letterSpacing: "-.01em", margin: "0 0 16px" }}>When you're usually free</h2>
                   <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
                     {residentFull.availability.map((a) => (
-                      <span key={a} style={{ background: colors.panel, color: colors.text, borderRadius: 999, padding: "7px 14px", fontSize: 13, fontWeight: 600 }}>{a}</span>
+                      <span key={a} style={{ background: colors.panel, color: colors.text, borderRadius: radius.pill, padding: "7px 14px", fontSize: 13, fontWeight: 600 }}>{a}</span>
                     ))}
                     <button onClick={() => navigate("/onboarding")} style={{ background: "none", border: "none", padding: 0, fontSize: 13, fontWeight: 700, color: colors.text, cursor: "pointer", textDecoration: "underline" }}>
                       Update availability
@@ -855,7 +855,7 @@ export function MyBookings() {
                           key={v}
                           onClick={() => setBookingsView(v)}
                           style={{
-                            border: "none", borderRadius: 999, padding: "6px 14px", fontSize: 12.5, fontWeight: 700, cursor: "pointer", textTransform: "capitalize",
+                            border: "none", borderRadius: radius.pill, padding: "6px 14px", fontSize: 12.5, fontWeight: 700, cursor: "pointer", textTransform: "capitalize",
                             background: bookingsView === v ? colors.dark : colors.panel, color: bookingsView === v ? "#fff" : colors.muted,
                           }}
                         >
@@ -865,7 +865,7 @@ export function MyBookings() {
                     </div>
                   )}
                   {bookingsView === "calendar" && (
-                    <div style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 16, padding: 18, marginBottom: 32, maxWidth: 420 }}>
+                    <div style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: radius.card, padding: 18, marginBottom: 32, maxWidth: 420 }}>
                       <MonthCalendar items={[...upcomingRows, ...pastRows]} />
                     </div>
                   )}

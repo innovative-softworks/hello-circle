@@ -2,7 +2,7 @@ import { useState } from "react";
 import { applyToBecomeHost } from "../api";
 import { AwardIcon } from "./icons";
 import { Button, inputStyle, labelStyle } from "./ui";
-import { colors, fonts } from "../theme";
+import { colors, fonts, radius } from "../theme";
 import type { HostStatus } from "../types";
 
 // Host guidelines (IA spec §15) — static content, no versioning/re-consent
@@ -65,7 +65,7 @@ export function HostApplicationPanel({
   };
 
   return (
-    <div style={{ background: "#fff", border: `1px solid ${colors.border}`, borderRadius: 16, padding: "18px 20px" }}>
+    <div style={{ background: "#fff", border: `1px solid ${colors.border}`, borderRadius: radius.card, padding: "18px 20px" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
         <AwardIcon size={16} style={{ color: colors.greenText }} />
         <span style={{ fontFamily: fonts.display, fontSize: 15, fontWeight: 700 }}>Become a Host</span>
@@ -109,7 +109,7 @@ export function HostApplicationPanel({
           <label style={labelStyle}>Phone (optional)</label>
           <input value={phone} onChange={(e) => setPhone(e.target.value)} style={{ ...inputStyle, marginBottom: 14 }} />
 
-          <div style={{ background: colors.panel, borderRadius: 10, padding: "12px 14px", marginBottom: 12 }}>
+          <div style={{ background: colors.panel, borderRadius: radius.control, padding: "12px 14px", marginBottom: 12 }}>
             <div style={{ fontSize: 12.5, fontWeight: 700, marginBottom: 6 }}>Host Guidelines</div>
             <ul style={{ margin: 0, paddingLeft: 18, display: "flex", flexDirection: "column", gap: 4 }}>
               {HOST_GUIDELINES.map((g) => (

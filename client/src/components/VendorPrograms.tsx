@@ -18,7 +18,7 @@ import { CalendarIcon, PlusIcon, TrashIcon, UsersIcon } from "./icons";
 import { MonthCalendar } from "./MonthCalendar";
 import { Button, Card, ConfirmDialog, Drawer, EmptyState, inputStyle, labelStyle } from "./ui";
 import { ACTIVITY_CATEGORIES, ATTENDANCE_STATUSES, ATTENDANCE_STATUS_LABELS, PROGRAM_STATUSES, SKILL_LEVELS } from "../constants";
-import { colors, fonts } from "../theme";
+import { colors, fonts, radius } from "../theme";
 import type { AttendanceStatus, Program, ProgramStatus, Room, VendorProgramSummary } from "../types";
 
 const ATTENDANCE_STATUS_COLORS: Record<AttendanceStatus, { fg: string; bg: string }> = {
@@ -138,7 +138,7 @@ function ProgramManager({ programId, onChanged }: { programId: string; onChanged
             disabled={statusSaving || program.status === s}
             style={{
               border: "none",
-              borderRadius: 999,
+              borderRadius: radius.pill,
               padding: "5px 12px",
               fontSize: 12.5,
               fontWeight: 700,
@@ -195,7 +195,7 @@ function ProgramManager({ programId, onChanged }: { programId: string; onChanged
                               disabled={active}
                               style={{
                                 border: "none",
-                                borderRadius: 999,
+                                borderRadius: radius.pill,
                                 padding: "3px 9px",
                                 fontSize: 11,
                                 fontWeight: 700,
@@ -251,7 +251,7 @@ function ProgramManager({ programId, onChanged }: { programId: string; onChanged
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
           {enrollments.map((e) => (
-            <div key={e.id} style={{ fontSize: 13.5, display: "flex", justifyContent: "space-between", background: colors.bg, borderRadius: 10, padding: "8px 12px" }}>
+            <div key={e.id} style={{ fontSize: 13.5, display: "flex", justifyContent: "space-between", background: colors.bg, borderRadius: radius.control, padding: "8px 12px" }}>
               <span>{e.participantName} · {e.email}</span>
               <span style={{ fontWeight: 700 }}>€{(e.totalCents / 100).toFixed(2)}</span>
             </div>
@@ -508,7 +508,7 @@ export function VendorScheduleTab() {
   if (loading) return null;
 
   const entryRow = (e: (typeof entries)[number]) => (
-    <div style={{ display: "flex", justifyContent: "space-between", background: colors.bg, borderRadius: 10, padding: "10px 14px", fontSize: 13.5 }}>
+    <div style={{ display: "flex", justifyContent: "space-between", background: colors.bg, borderRadius: radius.control, padding: "10px 14px", fontSize: 13.5 }}>
       <span>{e.time} · {e.title}</span>
       <span>{e.enrolled}{e.capacity ? `/${e.capacity}` : ""} enrolled</span>
     </div>
@@ -522,7 +522,7 @@ export function VendorScheduleTab() {
             key={v}
             onClick={() => setView(v)}
             style={{
-              border: "none", borderRadius: 999, padding: "6px 14px", fontSize: 12.5, fontWeight: 700, cursor: "pointer", textTransform: "capitalize",
+              border: "none", borderRadius: radius.pill, padding: "6px 14px", fontSize: 12.5, fontWeight: 700, cursor: "pointer", textTransform: "capitalize",
               background: view === v ? colors.dark : colors.panel, color: view === v ? "#fff" : colors.muted,
             }}
           >
@@ -544,7 +544,7 @@ export function VendorScheduleTab() {
             ) : (
               <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                 {todayEntries.map((e) => (
-                  <div key={e.id} style={{ display: "flex", justifyContent: "space-between", background: colors.greenBg, borderRadius: 10, padding: "10px 14px", fontSize: 13.5 }}>
+                  <div key={e.id} style={{ display: "flex", justifyContent: "space-between", background: colors.greenBg, borderRadius: radius.control, padding: "10px 14px", fontSize: 13.5 }}>
                     <span><strong>{e.time}</strong> · {e.title}</span>
                     <span>{e.enrolled}{e.capacity ? `/${e.capacity}` : ""} enrolled</span>
                   </div>

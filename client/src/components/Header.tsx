@@ -7,7 +7,7 @@ import { useGuest } from "../GuestContext";
 import { useTheme } from "../ThemeContext";
 import { BellIcon, ChatIcon, ChevronDownIcon, CloseIcon, LightbulbIcon, MenuIcon, MoonIcon, PinIcon, PlusIcon, SearchIcon, SunIcon } from "./icons";
 import { Avatar } from "./ui";
-import { colors, maxWidth } from "../theme";
+import { colors, maxWidth, radius } from "../theme";
 import { useMyStuff } from "../MyStuffContext";
 import type { ResidentNotification } from "../types";
 
@@ -139,7 +139,7 @@ export function Header() {
     background: "none",
     border: "none",
     padding: "8px 13px",
-    borderRadius: 10,
+    borderRadius: radius.control,
     fontSize: 15,
     fontWeight: 500,
     color: "#3B423C",
@@ -192,7 +192,7 @@ export function Header() {
     width: "100%",
     background: "none",
     border: "none",
-    borderRadius: 10,
+    borderRadius: radius.control,
     padding: "10px 12px",
     fontSize: 14.5,
     fontWeight: 600,
@@ -239,7 +239,7 @@ export function Header() {
             style={{
               width: 38,
               height: 38,
-              borderRadius: 10,
+              borderRadius: radius.control,
               border: `1px solid ${colors.borderStrong}`,
               background: colors.surface,
               display: "flex",
@@ -424,7 +424,7 @@ export function Header() {
                     right: -3,
                     background: colors.orange,
                     color: "#fff",
-                    borderRadius: 999,
+                    borderRadius: radius.pill,
                     fontSize: 10,
                     fontWeight: 700,
                     minWidth: 16,
@@ -458,7 +458,7 @@ export function Header() {
                       right: -3,
                       background: colors.orange,
                       color: "#fff",
-                      borderRadius: 999,
+                      borderRadius: radius.pill,
                       fontSize: 10,
                       fontWeight: 700,
                       minWidth: 16,
@@ -493,7 +493,7 @@ export function Header() {
                           textAlign: "left",
                           background: n.read ? "none" : colors.greenBg,
                           border: "none",
-                          borderRadius: 10,
+                          borderRadius: radius.control,
                           padding: "10px 12px",
                           cursor: "pointer",
                           marginBottom: 2,

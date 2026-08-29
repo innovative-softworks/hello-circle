@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from "react";
 import { ChevronLeftIcon, ChevronRightIcon } from "./icons";
-import { colors, fonts } from "../theme";
+import { colors, fonts, radius } from "../theme";
 
 // My Life calendar grid view (IA spec §9) — a real month grid over whatever
 // dated rows the caller already has (bookings/games today; nothing new is
@@ -58,7 +58,7 @@ export function MonthCalendar({ items }: { items: { date: string; el: ReactNode 
               style={{
                 aspectRatio: "1",
                 border: isToday ? `1.5px solid ${colors.green}` : "1px solid transparent",
-                borderRadius: 10,
+                borderRadius: radius.control,
                 background: isSelected ? colors.green : count > 0 ? colors.greenBg : "transparent",
                 color: isSelected ? "#fff" : colors.text,
                 cursor: count > 0 ? "pointer" : "default",

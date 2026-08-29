@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { blockResident, fetchChatMessages, postChatMessage } from "../api";
 import { ChatIcon } from "./icons";
-import { colors, fonts } from "../theme";
+import { colors, fonts, radius } from "../theme";
 import type { ChatMessage, ChatScopeType } from "../types";
 
 // Participation Chat (implementation plan Phase 11) — polling, not
@@ -96,7 +96,7 @@ export function ChatPanel({ scopeType, scopeId, residentId }: { scopeType: ChatS
   if (forbidden) return null;
 
   return (
-    <div style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 16, overflow: "hidden" }}>
+    <div style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: radius.card, overflow: "hidden" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "12px 16px", borderBottom: `1px solid ${colors.border}`, fontWeight: 700, fontSize: 14.5 }}>
         <ChatIcon size={16} /> Chat
       </div>
@@ -134,12 +134,12 @@ export function ChatPanel({ scopeType, scopeId, residentId }: { scopeType: ChatS
               onChange={(e) => setDraft(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && handleSend()}
               placeholder="Write a message…"
-              style={{ flex: 1, border: `1px solid ${colors.border}`, borderRadius: 10, padding: "8px 12px", fontSize: 13.5, fontFamily: fonts.body }}
+              style={{ flex: 1, border: `1px solid ${colors.border}`, borderRadius: radius.control, padding: "8px 12px", fontSize: 13.5, fontFamily: fonts.body }}
             />
             <button
               onClick={handleSend}
               disabled={sending || !draft.trim()}
-              style={{ background: colors.green, color: "#fff", border: "none", borderRadius: 10, padding: "8px 16px", fontWeight: 700, fontSize: 13.5, cursor: "pointer" }}
+              style={{ background: colors.green, color: "#fff", border: "none", borderRadius: radius.control, padding: "8px 16px", fontWeight: 700, fontSize: 13.5, cursor: "pointer" }}
             >
               Send
             </button>

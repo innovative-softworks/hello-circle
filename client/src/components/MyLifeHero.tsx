@@ -1,6 +1,6 @@
 import { useNavigate } from "react-router-dom";
 import { Avatar, Button } from "./ui";
-import { colors, fonts } from "../theme";
+import { colors, fonts, radius } from "../theme";
 
 // Compact, image-led personal hero (My Life redesign §6/§7) — same
 // already-in-use Unsplash activity photography Home.tsx's own hero carousel
@@ -22,7 +22,7 @@ export function MyLifeHero({ name, subtitle }: { name: string; subtitle: string 
   return (
     <div
       style={{
-        position: "relative", borderRadius: 16, overflow: "hidden", minHeight: 172,
+        position: "relative", borderRadius: radius.card, overflow: "hidden", minHeight: 172,
         background: `linear-gradient(180deg, rgba(20,26,20,.15) 0%, rgba(16,20,16,.72) 100%), url(${HERO_IMAGE})`,
         backgroundSize: "cover", backgroundPosition: "50% 40%",
       }}

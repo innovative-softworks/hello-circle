@@ -14,7 +14,7 @@ import { PLATFORM_ROLES } from "../types";
 import type { OrgProfile, Participant, VendorInsights, VendorPayments } from "../types";
 import { SearchIcon, TrashIcon, TrendUpIcon, UsersIcon } from "./icons";
 import { Button, Card, ConfirmDialog, EmptyState, PageSpinner, Tabs, inputStyle, labelStyle, tableStyle, tdStyle, thStyle } from "./ui";
-import { colors, fonts } from "../theme";
+import { colors, fonts, radius } from "../theme";
 
 // Organisation entity + Staff + RBAC (Phase C — Gate 2 from the plan doc).
 // Sub-tabbed within one "Organisation" top-level tab rather than five
@@ -59,7 +59,7 @@ function SettingsPanel({ profile, reload }: { profile: OrgProfile; reload: () =>
         <h4 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 15, margin: "0 0 14px" }}>Locations</h4>
         <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
           {profile.locations.map((l) => (
-            <div key={`${l.type}:${l.id}`} style={{ fontSize: 13.5, background: colors.bg, borderRadius: 10, padding: "8px 12px" }}>
+            <div key={`${l.type}:${l.id}`} style={{ fontSize: 13.5, background: colors.bg, borderRadius: radius.control, padding: "8px 12px" }}>
               {l.name} <span style={{ color: colors.faint }}>· {l.type}</span>
             </div>
           ))}
@@ -142,7 +142,7 @@ function StaffPanel({ profile, reload }: { profile: OrgProfile; reload: () => vo
             <h4 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 13, margin: "18px 0 10px", color: colors.muted }}>PENDING INVITES</h4>
             <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
               {profile.pendingInvites.map((i) => (
-                <div key={i.token} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 13.5, background: colors.orangeBg, borderRadius: 10, padding: "8px 12px" }}>
+                <div key={i.token} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 13.5, background: colors.orangeBg, borderRadius: radius.control, padding: "8px 12px" }}>
                   <span>{i.email} · {i.platformRole.replace(/_/g, " ")}</span>
                   {profile.isOwner && (
                     <button onClick={() => setConfirmingToken(i.token)} style={{ background: "none", border: "none", cursor: "pointer", color: colors.faint }}>

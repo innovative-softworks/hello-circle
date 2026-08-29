@@ -12,7 +12,7 @@ import { PageTitle } from "./PageTitle";
 import { Button, Card, CardSkeleton, Drawer, EmptyState } from "./ui";
 import { isFavorite, toggleFavorite } from "../favorites";
 import { dateLabel } from "../euro";
-import { colors, fonts, maxWidth } from "../theme";
+import { colors, fonts, maxWidth, radius } from "../theme";
 import type { Experience, ExperienceKind, ExperienceSessionSlot } from "../types";
 
 // Same marker-icon fix DiscoveryMap.tsx/SinglePinMap.tsx need — see either
@@ -151,7 +151,7 @@ function ExperienceMap({ items }: { items: Experience[] }) {
   const navigate = useNavigate();
   const pins = items.filter((e) => e.lat !== null && e.lng !== null);
   return (
-    <div style={{ borderRadius: 16, overflow: "hidden", border: `1px solid ${colors.border}`, height: 520 }}>
+    <div style={{ borderRadius: radius.card, overflow: "hidden", border: `1px solid ${colors.border}`, height: 520 }}>
       <MapContainer center={IRELAND_CENTER} zoom={7} style={{ height: "100%", width: "100%" }} scrollWheelZoom>
         <TileLayer
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
@@ -209,7 +209,7 @@ function ExperienceBrowseCard({ e }: { e: Experience }) {
               gap: 5,
               background: "rgba(255,255,255,.92)",
               color: colors.text,
-              borderRadius: 999,
+              borderRadius: radius.pill,
               padding: "5px 11px 5px 9px",
               fontSize: 12.5,
               fontWeight: 700,
@@ -224,7 +224,7 @@ function ExperienceBrowseCard({ e }: { e: Experience }) {
               alignItems: "center",
               background: "rgba(255,255,255,.85)",
               color: colors.muted,
-              borderRadius: 999,
+              borderRadius: radius.pill,
               padding: "5px 11px",
               fontSize: 12,
               fontWeight: 700,
@@ -292,7 +292,7 @@ function ExperienceBrowseCard({ e }: { e: Experience }) {
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14 }}>
           {e.difficulty && (
-            <span style={{ fontSize: 11, fontWeight: 700, color: colors.muted, background: colors.panel, borderRadius: 999, padding: "2px 8px", textTransform: "capitalize" }}>
+            <span style={{ fontSize: 11, fontWeight: 700, color: colors.muted, background: colors.panel, borderRadius: radius.pill, padding: "2px 8px", textTransform: "capitalize" }}>
               {e.difficulty}
             </span>
           )}
@@ -458,7 +458,7 @@ export function ExperienceKindBrowse({ kind, title, subtitle }: { kind: Experien
 
         {/* Search / discovery card — mirrors Games.tsx: a prominent free-text
             field on top, compact county/when refinements below it. */}
-        <div style={{ border: `1px solid ${colors.border}`, borderRadius: 16, background: colors.surface, boxShadow: "0 8px 24px rgba(30,40,32,.05)", padding: 14, marginTop: 24, marginBottom: 16 }}>
+        <div style={{ border: `1px solid ${colors.border}`, borderRadius: radius.card, background: colors.surface, boxShadow: "0 8px 24px rgba(30,40,32,.05)", padding: 14, marginTop: 24, marginBottom: 16 }}>
           <div style={{ position: "relative" }}>
             <SearchIcon size={17} style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", color: colors.faint }} />
             <input
@@ -473,7 +473,7 @@ export function ExperienceKindBrowse({ kind, title, subtitle }: { kind: Experien
             <select
               value={county}
               onChange={(e) => setCounty(e.target.value)}
-              style={{ padding: "8px 12px", border: "none", borderRadius: 10, fontSize: 13.5, background: colors.panel, color: colors.text, fontWeight: 600 }}
+              style={{ padding: "8px 12px", border: "none", borderRadius: radius.control, fontSize: 13.5, background: colors.panel, color: colors.text, fontWeight: 600 }}
             >
               <option value="All">Near: anywhere</option>
               {countyOptions.map((c) => (
@@ -483,7 +483,7 @@ export function ExperienceKindBrowse({ kind, title, subtitle }: { kind: Experien
             <select
               value={when}
               onChange={(e) => setWhen(e.target.value as WhenFilter)}
-              style={{ padding: "8px 12px", border: "none", borderRadius: 10, fontSize: 13.5, background: colors.panel, color: colors.text, fontWeight: 600 }}
+              style={{ padding: "8px 12px", border: "none", borderRadius: radius.control, fontSize: 13.5, background: colors.panel, color: colors.text, fontWeight: 600 }}
             >
               {(Object.keys(WHEN_LABELS) as WhenFilter[]).map((w) => (
                 <option key={w} value={w}>{WHEN_LABELS[w]}</option>
@@ -547,13 +547,13 @@ export function ExperienceKindBrowse({ kind, title, subtitle }: { kind: Experien
                 <select
                   value={sort}
                   onChange={(e) => setSort(e.target.value as SortKey)}
-                  style={{ padding: "9px 12px", border: `1px solid ${colors.inputBorder}`, borderRadius: 10, fontSize: 14, background: colors.bg, color: colors.text, outline: "none", fontWeight: 600 }}
+                  style={{ padding: "9px 12px", border: `1px solid ${colors.inputBorder}`, borderRadius: radius.control, fontSize: 14, background: colors.bg, color: colors.text, outline: "none", fontWeight: 600 }}
                 >
                   {(Object.keys(SORT_LABELS) as SortKey[]).map((k) => (
                     <option key={k} value={k}>Sort: {SORT_LABELS[k]}</option>
                   ))}
                 </select>
-                <div style={{ display: "flex", border: `1px solid ${colors.borderStrong}`, borderRadius: 10, overflow: "hidden" }}>
+                <div style={{ display: "flex", border: `1px solid ${colors.borderStrong}`, borderRadius: radius.control, overflow: "hidden" }}>
                   {(["grid", "map"] as const).map((v) => (
                     <button
                       key={v}
@@ -680,14 +680,14 @@ export function ExperienceKindBrowse({ kind, title, subtitle }: { kind: Experien
               <button
                 className="btn"
                 onClick={() => navigate(otherKindPath)}
-                style={{ display: "inline-flex", alignItems: "center", gap: 8, background: "#fff", color: colors.dark, border: "none", borderRadius: 10, padding: "12px 20px", fontSize: 14.5, fontWeight: 700, cursor: "pointer" }}
+                style={{ display: "inline-flex", alignItems: "center", gap: 8, background: "#fff", color: colors.dark, border: "none", borderRadius: radius.control, padding: "12px 20px", fontSize: 14.5, fontWeight: 700, cursor: "pointer" }}
               >
                 Browse {otherKindLabel} <ArrowRightIcon size={14} />
               </button>
               <button
                 className="btn"
                 onClick={() => navigate("/games")}
-                style={{ display: "inline-flex", alignItems: "center", gap: 8, background: "transparent", color: "#fff", border: "1px solid rgba(255,255,255,.4)", borderRadius: 10, padding: "12px 20px", fontSize: 14.5, fontWeight: 700, cursor: "pointer" }}
+                style={{ display: "inline-flex", alignItems: "center", gap: 8, background: "transparent", color: "#fff", border: "1px solid rgba(255,255,255,.4)", borderRadius: radius.control, padding: "12px 20px", fontSize: 14.5, fontWeight: 700, cursor: "pointer" }}
               >
                 Join a Game instead <ArrowRightIcon size={14} />
               </button>

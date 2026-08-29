@@ -16,7 +16,7 @@ import { isFavorite, toggleFavorite } from "../favorites";
 import { dateLabel } from "../euro";
 import { gameState, primaryCtaLabel } from "../gameCta";
 import { useGuest } from "../GuestContext";
-import { colors, fonts, maxWidth } from "../theme";
+import { colors, fonts, maxWidth, radius } from "../theme";
 import { SKILL_LEVELS } from "../constants";
 import type { Centre, Game } from "../types";
 
@@ -86,7 +86,7 @@ export function GameCard({ game, onJoin, onLeave, joining }: { game: Game; onJoi
               {game.activityLabel}
             </button>
             {game.soloFriendly && (
-              <span style={{ fontSize: 11, fontWeight: 700, color: colors.greenText, background: colors.greenBg, borderRadius: 999, padding: "2px 8px" }}>
+              <span style={{ fontSize: 11, fontWeight: 700, color: colors.greenText, background: colors.greenBg, borderRadius: radius.pill, padding: "2px 8px" }}>
                 Solo friendly
               </span>
             )}
@@ -94,7 +94,7 @@ export function GameCard({ game, onJoin, onLeave, joining }: { game: Game; onJoi
           <div style={{ display: "flex", alignItems: "center", gap: 6, color: colors.mutedLight, fontSize: 14, marginTop: 4, flexWrap: "wrap" }}>
             {game.centreName ?? game.locationText}
             {game.hostVerified && (
-              <span style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 11, fontWeight: 700, color: colors.greenText, background: colors.greenBg, borderRadius: 999, padding: "2px 8px" }}>
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 11, fontWeight: 700, color: colors.greenText, background: colors.greenBg, borderRadius: radius.pill, padding: "2px 8px" }}>
                 <AwardIcon size={11} /> Verified Host
               </span>
             )}
@@ -359,7 +359,7 @@ function JoinGameCard({
             gap: 5,
             background: "rgba(255,255,255,.92)",
             color: colors.text,
-            borderRadius: 999,
+            borderRadius: radius.pill,
             padding: "5px 11px 5px 9px",
             fontSize: 12.5,
             fontWeight: 700,
@@ -471,7 +471,7 @@ function JoinAuthModal({ open, game, onClose, onSignedIn }: { open: boolean; gam
     >
       <div
         className="pop-in"
-        style={{ background: colors.surface, borderRadius: 16, padding: 24, maxWidth: 400, width: "100%", boxShadow: "0 20px 60px rgba(20,22,20,.25)" }}
+        style={{ background: colors.surface, borderRadius: radius.card, padding: 24, maxWidth: 400, width: "100%", boxShadow: "0 20px 60px rgba(20,22,20,.25)" }}
         onClick={(e) => e.stopPropagation()}
       >
         {game ? (
@@ -909,7 +909,7 @@ export function Games() {
         {/* Search / discovery card — one grouped control (prominent free-text
             field on top, compact location/time refinements below it) rather
             than four equal-weight boxes bolted side by side. */}
-        <div style={{ border: `1px solid ${colors.border}`, borderRadius: 16, background: colors.surface, boxShadow: "0 8px 24px rgba(30,40,32,.05)", padding: 14, marginTop: 24, marginBottom: 16 }}>
+        <div style={{ border: `1px solid ${colors.border}`, borderRadius: radius.card, background: colors.surface, boxShadow: "0 8px 24px rgba(30,40,32,.05)", padding: 14, marginTop: 24, marginBottom: 16 }}>
           <div style={{ position: "relative" }}>
             <SearchIcon size={17} style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", color: colors.faint }} />
             <input
@@ -924,7 +924,7 @@ export function Games() {
             <select
               value={county}
               onChange={(e) => setCounty(e.target.value)}
-              style={{ padding: "8px 12px", border: "none", borderRadius: 10, fontSize: 13.5, background: colors.panel, color: colors.text, fontWeight: 600 }}
+              style={{ padding: "8px 12px", border: "none", borderRadius: radius.control, fontSize: 13.5, background: colors.panel, color: colors.text, fontWeight: 600 }}
             >
               <option value="All">Near: anywhere</option>
               {countyOptions.map((c) => (
@@ -934,7 +934,7 @@ export function Games() {
             <select
               value={when}
               onChange={(e) => setWhen(e.target.value as WhenFilter)}
-              style={{ padding: "8px 12px", border: "none", borderRadius: 10, fontSize: 13.5, background: colors.panel, color: colors.text, fontWeight: 600 }}
+              style={{ padding: "8px 12px", border: "none", borderRadius: radius.control, fontSize: 13.5, background: colors.panel, color: colors.text, fontWeight: 600 }}
             >
               {(Object.keys(WHEN_LABELS) as WhenFilter[]).map((w) => (
                 <option key={w} value={w}>{WHEN_LABELS[w]}</option>
@@ -1004,7 +1004,7 @@ export function Games() {
                 <select
                   value={sort}
                   onChange={(e) => setSort(e.target.value as SortKey)}
-                  style={{ padding: "9px 12px", border: `1px solid ${colors.inputBorder}`, borderRadius: 10, fontSize: 14, background: colors.bg, color: colors.text, outline: "none", fontWeight: 600 }}
+                  style={{ padding: "9px 12px", border: `1px solid ${colors.inputBorder}`, borderRadius: radius.control, fontSize: 14, background: colors.bg, color: colors.text, outline: "none", fontWeight: 600 }}
                 >
                   {(Object.keys(SORT_LABELS) as SortKey[]).map((k) => (
                     <option key={k} value={k}>Sort: {SORT_LABELS[k]}</option>
@@ -1130,14 +1130,14 @@ export function Games() {
               <button
                 className="btn"
                 onClick={resident ? openCreateForm : () => setAuthPromptOpen(true)}
-                style={{ display: "inline-flex", alignItems: "center", gap: 8, background: "#fff", color: colors.dark, border: "none", borderRadius: 10, padding: "12px 20px", fontSize: 14.5, fontWeight: 700, cursor: "pointer" }}
+                style={{ display: "inline-flex", alignItems: "center", gap: 8, background: "#fff", color: colors.dark, border: "none", borderRadius: radius.control, padding: "12px 20px", fontSize: 14.5, fontWeight: 700, cursor: "pointer" }}
               >
                 <PlusIcon size={16} /> Start a game
               </button>
               <button
                 className="btn"
                 onClick={() => navigate("/circles")}
-                style={{ display: "inline-flex", alignItems: "center", gap: 8, background: "transparent", color: "#fff", border: "1px solid rgba(255,255,255,.4)", borderRadius: 10, padding: "12px 20px", fontSize: 14.5, fontWeight: 700, cursor: "pointer" }}
+                style={{ display: "inline-flex", alignItems: "center", gap: 8, background: "transparent", color: "#fff", border: "1px solid rgba(255,255,255,.4)", borderRadius: radius.control, padding: "12px 20px", fontSize: 14.5, fontWeight: 700, cursor: "pointer" }}
               >
                 Explore Circles instead <ArrowRightIcon size={14} />
               </button>
@@ -1156,7 +1156,7 @@ export function Games() {
       <section className="section-pad" ref={createFormRef} style={{ maxWidth: 900, margin: "0 auto", padding: showCreateForm ? "24px 24px 80px" : 0 }}>
         {showCreateForm ? (
           resident ? (
-            <div style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 16, padding: "18px 20px" }}>
+            <div style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: radius.card, padding: "18px 20px" }}>
               <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 15, fontWeight: 700, marginBottom: 14 }}>
                 <PlusIcon size={16} /> Start a game
               </div>
@@ -1331,7 +1331,7 @@ export function Games() {
               </div>
             </div>
           ) : (
-            <div style={{ background: colors.greenBg, border: `1px solid ${colors.green}`, borderRadius: 16, padding: "16px 20px", fontSize: 14 }}>
+            <div style={{ background: colors.greenBg, border: `1px solid ${colors.green}`, borderRadius: radius.card, padding: "16px 20px", fontSize: 14 }}>
               <button onClick={() => navigate(signInHref())} style={{ background: "none", border: "none", padding: 0, color: colors.greenText, fontWeight: 700, cursor: "pointer" }}>
                 Sign in
               </button>{" "}

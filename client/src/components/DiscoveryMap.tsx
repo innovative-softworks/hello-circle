@@ -4,6 +4,7 @@ import { useNavigate } from "react-router-dom";
 import { MapContainer, Marker, Popup, TileLayer } from "react-leaflet";
 import { euro } from "../euro";
 import type { Centre, Club } from "../types";
+import { radius } from "../theme";
 
 // Vite bundles Leaflet's default marker images under a hashed URL that the
 // library's own CSS doesn't know about — point the default icon at the
@@ -28,7 +29,7 @@ export function DiscoveryMap({ centres, clubs }: { centres: Centre[]; clubs: Clu
   ];
 
   return (
-    <div style={{ borderRadius: 16, overflow: "hidden", border: "1px solid #E4E1D8", height: 520 }}>
+    <div style={{ borderRadius: radius.card, overflow: "hidden", border: "1px solid #E4E1D8", height: 520 }}>
       <MapContainer center={IRELAND_CENTER} zoom={7} style={{ height: "100%", width: "100%" }} scrollWheelZoom>
         <TileLayer
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'

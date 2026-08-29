@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { fetchHostProfile } from "../api";
 import { AwardIcon, StarIcon } from "./icons";
 import { Avatar } from "./ui";
-import { colors, fonts } from "../theme";
+import { colors, fonts, radius } from "../theme";
 import type { Game, HostProfile } from "../types";
 
 // Host trust card (Game Detail redesign §15) — real stats only. gamesHostedTotal/
@@ -37,7 +37,7 @@ export function GameHostCard({ game }: { game: Game }) {
           <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
             <span style={{ fontWeight: 700, fontSize: 15 }}>{game.hostName}</span>
             {game.hostVerified && (
-              <span style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 11, fontWeight: 700, color: colors.greenText, background: colors.greenBg, borderRadius: 999, padding: "2px 8px" }}>
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 11, fontWeight: 700, color: colors.greenText, background: colors.greenBg, borderRadius: radius.pill, padding: "2px 8px" }}>
                 <AwardIcon size={11} /> Verified Host
               </span>
             )}

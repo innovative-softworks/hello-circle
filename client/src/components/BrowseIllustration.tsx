@@ -1,4 +1,5 @@
 import { CommunityIllustration, SportsIllustration } from "./illustrations";
+import { radius } from "../theme";
 
 /** A lightweight decorative banner used on the Browse page (and Home's
  * category cards) — soft blob backdrop behind a hand-built SVG illustration. */
@@ -23,7 +24,7 @@ export function BrowseIllustration({ accent }: { accent: "green" | "orange" }) {
       <div style={{ position: "absolute", bottom: -34, left: -20, width: 105, height: 105, borderRadius: "50%", background: blob }} />
       {/* soft clouds, matching the reference hero backdrop */}
       <div style={{ position: "absolute", top: 16, left: 28, width: 46, height: 22, borderRadius: 20, background: "#fff", opacity: 0.55 }} />
-      <div style={{ position: "absolute", top: 24, left: 60, width: 30, height: 16, borderRadius: 16, background: "#fff", opacity: 0.5 }} />
+      <div style={{ position: "absolute", top: 24, left: 60, width: 30, height: 16, borderRadius: radius.card, background: "#fff", opacity: 0.5 }} />
       <div style={{ position: "absolute", top: 12, right: 40, width: 40, height: 20, borderRadius: 18, background: "#fff", opacity: 0.55 }} />
       <div style={{ position: "absolute", top: 22, right: 20, width: 26, height: 14, borderRadius: 14, background: "#fff", opacity: 0.5 }} />
       <div style={{ position: "relative", width: "100%", height: "100%" }}>

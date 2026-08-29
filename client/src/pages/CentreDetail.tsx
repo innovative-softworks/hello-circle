@@ -108,7 +108,7 @@ export function CentreDetail() {
             <span style={{ color: colors.faint }}>up to {centre.capacity} guests</span>
           </div>
           {centre.wouldRepeatPercent !== null && (
-            <div style={{ display: "inline-flex", alignItems: "center", gap: 6, background: colors.greenBg, color: colors.greenText, borderRadius: 999, padding: "5px 12px", fontSize: 13, fontWeight: 700, marginBottom: 10 }}>
+            <div style={{ display: "inline-flex", alignItems: "center", gap: 6, background: colors.greenBg, color: colors.greenText, borderRadius: radius.pill, padding: "5px 12px", fontSize: 13, fontWeight: 700, marginBottom: 10 }}>
               {centre.wouldRepeatPercent}% would do this again
               <span style={{ fontWeight: 500, color: colors.muted }}>({centre.wouldRepeatCount})</span>
             </div>

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { radius } from "../theme";
 
 export interface HeroCarouselSlide {
   src: string;
@@ -88,7 +89,7 @@ export function HeroCarousel({ slides }: { slides: HeroCarouselSlide[] }) {
               style={{
                 width: i === index ? 18 : 7,
                 height: 7,
-                borderRadius: 999,
+                borderRadius: radius.pill,
                 border: "none",
                 padding: 0,
                 cursor: "pointer",

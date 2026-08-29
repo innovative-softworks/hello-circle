@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { CloseIcon } from "./icons";
 import { fetchCircleMoments } from "../api";
 import type { Circle, CircleMoment } from "../types";
+import { radius } from "../theme";
 
 // "Moments" (Circle Detail full rewrite §07) — an asymmetric photo mosaic,
 // not four identical thumbnails. Sourced from the linked venue's own real
@@ -42,7 +43,7 @@ export function CircleMoments({ circle }: { circle: Circle }) {
             key={m.id}
             className="circle-moments-item"
             onClick={() => setOpen(m.imageUrl)}
-            style={{ ...MOSAIC_AREAS[i], background: `url(${m.imageUrl}) center/cover`, borderRadius: 10, border: "none", padding: 0, cursor: "pointer" }}
+            style={{ ...MOSAIC_AREAS[i], background: `url(${m.imageUrl}) center/cover`, borderRadius: radius.control, border: "none", padding: 0, cursor: "pointer" }}
             aria-label="Enlarge photo"
           />
         ))}

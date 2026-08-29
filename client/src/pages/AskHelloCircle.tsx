@@ -8,7 +8,7 @@ import { ClubCard } from "../components/ClubCard";
 import { DiscoverCard } from "../components/DiscoverRow";
 import { PageTitle } from "../components/PageTitle";
 import { Spinner } from "../components/ui";
-import { colors, fonts } from "../theme";
+import { colors, fonts, radius } from "../theme";
 import { fallbackCopy } from "../copy";
 import { ExperienceSearchCard } from "./Search";
 
@@ -104,7 +104,7 @@ export function AskHelloCircle() {
               <button
                 key={s}
                 onClick={() => send(s)}
-                style={{ background: colors.panel, border: "none", borderRadius: 999, padding: "8px 14px", fontSize: 13.5, cursor: "pointer" }}
+                style={{ background: colors.panel, border: "none", borderRadius: radius.pill, padding: "8px 14px", fontSize: 13.5, cursor: "pointer" }}
               >
                 {s}
               </button>

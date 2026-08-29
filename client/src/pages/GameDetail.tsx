@@ -19,7 +19,7 @@ import { Button, Card, PageSpinner } from "../components/ui";
 import { isFavorite, toggleFavorite } from "../favorites";
 import { useGuest } from "../GuestContext";
 import { dateLabel } from "../euro";
-import { colors, fonts, maxWidth, photoOverlay } from "../theme";
+import { colors, fonts, maxWidth, photoOverlay, radius } from "../theme";
 import type { Game } from "../types";
 
 // Self-serve check-in only makes sense in a real window around the game's
@@ -37,7 +37,7 @@ function isHappeningNow(date: string, time: string): boolean {
 
 const outlineButtonStyle: React.CSSProperties = {
   display: "inline-flex", alignItems: "center", gap: 6, background: colors.surface, border: `1px solid ${colors.borderStrong}`,
-  borderRadius: 10, padding: "9px 16px", fontSize: 13.5, fontWeight: 600, color: colors.text, cursor: "pointer",
+  borderRadius: radius.control, padding: "9px 16px", fontSize: 13.5, fontWeight: 600, color: colors.text, cursor: "pointer",
 };
 
 const factLabelStyle: React.CSSProperties = { fontSize: 11.5, color: colors.mutedLight, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".04em" };
@@ -219,13 +219,13 @@ export function GameDetail() {
               style={{ height: 340, borderRadius: 20, marginBottom: 24 }}
               contentStyle={{ padding: 16, display: "flex", alignItems: "flex-start", justifyContent: "space-between" }}
             >
-              <span style={{ display: "inline-flex", alignItems: "center", gap: 6, background: "rgba(255,255,255,.92)", color: colors.text, borderRadius: 999, padding: "6px 12px", fontSize: 13, fontWeight: 700 }}>
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 6, background: "rgba(255,255,255,.92)", color: colors.text, borderRadius: radius.pill, padding: "6px 12px", fontSize: 13, fontWeight: 700 }}>
                 <CalendarIcon size={13} /> {dateLabel(game.date)} · {game.time}
               </span>
               {!cancelled && (
                 <span
                   style={{
-                    display: "inline-flex", alignItems: "center", gap: 6, borderRadius: 999, padding: "6px 12px", fontSize: 13, fontWeight: 700,
+                    display: "inline-flex", alignItems: "center", gap: 6, borderRadius: radius.pill, padding: "6px 12px", fontSize: 13, fontWeight: 700,
                     background: full ? photoOverlay.whiteBg : photoOverlay.goldBg,
                     color: full ? colors.muted : photoOverlay.goldText,
                   }}
@@ -244,7 +244,7 @@ export function GameDetail() {
                 {game.priceCents ? (
                   <div style={{ fontWeight: 800, fontSize: 22, color: colors.text }}>€{(game.priceCents / 100).toFixed(2)}</div>
                 ) : (
-                  <div style={{ fontWeight: 700, fontSize: 14, color: colors.greenText, background: colors.greenBg, borderRadius: 999, padding: "4px 12px" }}>Free</div>
+                  <div style={{ fontWeight: 700, fontSize: 14, color: colors.greenText, background: colors.greenBg, borderRadius: radius.pill, padding: "4px 12px" }}>Free</div>
                 )}
               </div>
             </div>

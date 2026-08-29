@@ -7,7 +7,7 @@ import { BallIcon, BuildingIcon, CalendarIcon, PinIcon, RepeatIcon, SearchIcon, 
 import { PageTitle } from "../components/PageTitle";
 import { CardSkeleton, EmptyState } from "../components/ui";
 import { useGuest } from "../GuestContext";
-import { colors, fonts, maxWidth } from "../theme";
+import { colors, fonts, maxWidth, radius } from "../theme";
 import type { DiscoverFeed, DiscoverItem } from "../types";
 
 // Mood labels for the section heading only — kept in sync by hand with
@@ -99,7 +99,7 @@ export function Explore() {
       <section className="section-pad" style={{ maxWidth, margin: "0 auto", padding: "36px 24px 90px" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 16, marginBottom: 8 }}>
           <PageTitle style={{ margin: 0 }}>Explore</PageTitle>
-          <button onClick={() => navigate("/browse/centres")} style={{ background: "none", border: `1px solid ${colors.border}`, borderRadius: 999, padding: "8px 16px", fontSize: 13, fontWeight: 700, color: colors.muted, cursor: "pointer", flex: "none" }}>
+          <button onClick={() => navigate("/browse/centres")} style={{ background: "none", border: `1px solid ${colors.border}`, borderRadius: radius.pill, padding: "8px 16px", fontSize: 13, fontWeight: 700, color: colors.muted, cursor: "pointer", flex: "none" }}>
             Compare places
           </button>
         </div>
@@ -147,7 +147,7 @@ export function Explore() {
               key={km}
               onClick={() => setRadiusKm(km)}
               style={{
-                border: "none", borderRadius: 999, padding: "6px 14px", fontSize: 12.5, fontWeight: 700, cursor: "pointer",
+                border: "none", borderRadius: radius.pill, padding: "6px 14px", fontSize: 12.5, fontWeight: 700, cursor: "pointer",
                 background: radiusKm === km ? colors.green : colors.panel, color: radiusKm === km ? "#fff" : colors.muted,
               }}
             >
@@ -161,7 +161,7 @@ export function Explore() {
             <button
               key={c.key}
               onClick={() => navigate(c.to)}
-              style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 10, textAlign: "left", background: "#fff", border: `1px solid ${colors.border}`, borderRadius: 16, padding: 18, cursor: "pointer" }}
+              style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 10, textAlign: "left", background: "#fff", border: `1px solid ${colors.border}`, borderRadius: radius.card, padding: 18, cursor: "pointer" }}
             >
               <div style={{ width: 40, height: 40, borderRadius: "50%", background: colors.greenBg, color: colors.greenText, display: "flex", alignItems: "center", justifyContent: "center" }}>{c.icon}</div>
               <div style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 16 }}>{c.label}</div>
@@ -177,13 +177,13 @@ export function Explore() {
             ))}
           </div>
         ) : feed.today.length === 0 && feed.weekend.length === 0 && radiusKm > 0 ? (
-          <div style={{ background: colors.panel, borderRadius: 16, padding: "24px", textAlign: "center" }}>
+          <div style={{ background: colors.panel, borderRadius: radius.card, padding: "24px", textAlign: "center" }}>
             <p style={{ fontSize: 14.5, color: colors.muted, margin: "0 0 12px" }}>
               Nothing within {radiusKm}km right now.
             </p>
             <button
               onClick={() => setRadiusKm(RADIUS_OPTIONS[Math.min(RADIUS_OPTIONS.indexOf(radiusKm) + 1, RADIUS_OPTIONS.length - 1)])}
-              style={{ background: colors.green, color: "#fff", border: "none", borderRadius: 999, padding: "9px 18px", fontSize: 13.5, fontWeight: 700, cursor: "pointer" }}
+              style={{ background: colors.green, color: "#fff", border: "none", borderRadius: radius.pill, padding: "9px 18px", fontSize: 13.5, fontWeight: 700, cursor: "pointer" }}
             >
               Widen to {RADIUS_OPTIONS[Math.min(RADIUS_OPTIONS.indexOf(radiusKm) + 1, RADIUS_OPTIONS.length - 1)] || "any distance"}
               {RADIUS_OPTIONS[Math.min(RADIUS_OPTIONS.indexOf(radiusKm) + 1, RADIUS_OPTIONS.length - 1)] ? "km" : ""}

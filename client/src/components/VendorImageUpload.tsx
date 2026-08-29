@@ -2,7 +2,7 @@ import { useState } from "react";
 import { uploadImage } from "../api";
 import { CameraIcon, CloseIcon, PlusIcon } from "./icons";
 import { labelStyle } from "./ui";
-import { colors } from "../theme";
+import { colors, radius } from "../theme";
 
 // Used identically by both VendorCentreEditor.tsx and VendorClubEditor.tsx
 // — extracted once rather than living inside either. Split out of the
@@ -37,7 +37,7 @@ export function MultiImageUpload({ images, onChange }: { images: string[]; onCha
       <label style={labelStyle}>Photos</label>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(110px, 1fr))", gap: 10 }}>
         {images.map((url, i) => (
-          <div key={i} style={{ position: "relative", height: 90, borderRadius: 10, overflow: "hidden", background: colors.bg }}>
+          <div key={i} style={{ position: "relative", height: 90, borderRadius: radius.control, overflow: "hidden", background: colors.bg }}>
             <img src={url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
             <button
               onClick={() => removeAt(i)}
@@ -63,7 +63,7 @@ export function MultiImageUpload({ images, onChange }: { images: string[]; onCha
             gap: 4,
             height: 90,
             border: `1.5px dashed ${colors.borderStrong}`,
-            borderRadius: 10,
+            borderRadius: radius.control,
             background: colors.bg,
             color: colors.mutedLight,
             fontSize: 12,

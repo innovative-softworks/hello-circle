@@ -4,7 +4,7 @@ import { enrollInProgram, fetchProgram } from "../api";
 import { CalendarIcon, ChevronLeftIcon, ClockIcon, UsersIcon } from "../components/icons";
 import { Button, Card, PageSpinner, inputStyle, labelStyle } from "../components/ui";
 import { useGuest } from "../GuestContext";
-import { colors, fonts } from "../theme";
+import { colors, fonts, radius } from "../theme";
 import { isValidEmail } from "../validate";
 import type { Program } from "../types";
 
@@ -90,10 +90,10 @@ export function ProgramDetail() {
               <div style={{ color: colors.mutedLight, fontSize: 14.5 }}>{program.listingName}{program.ageRange ? ` · ${program.ageRange}` : ""}</div>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 10 }}>
                 {program.category && (
-                  <span style={{ fontSize: 12, fontWeight: 700, color: colors.greenText, background: colors.greenBg, borderRadius: 999, padding: "3px 10px" }}>{program.category}</span>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: colors.greenText, background: colors.greenBg, borderRadius: radius.pill, padding: "3px 10px" }}>{program.category}</span>
                 )}
                 {program.skillLevel && (
-                  <span style={{ fontSize: 12, fontWeight: 700, color: colors.muted, background: colors.panel, borderRadius: 999, padding: "3px 10px" }}>{program.skillLevel}</span>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: colors.muted, background: colors.panel, borderRadius: radius.pill, padding: "3px 10px" }}>{program.skillLevel}</span>
                 )}
               </div>
             </div>
@@ -105,13 +105,13 @@ export function ProgramDetail() {
             <p style={{ margin: "6px 0 0", color: colors.muted, fontSize: 13.5 }}>Bring: {program.equipment.join(", ")}</p>
           )}
           {program.guardianRules && (
-            <div style={{ background: colors.panel, borderRadius: 10, padding: "10px 12px", marginTop: 12 }}>
+            <div style={{ background: colors.panel, borderRadius: radius.control, padding: "10px 12px", marginTop: 12 }}>
               <div style={{ fontSize: 11.5, fontWeight: 700, color: colors.muted, marginBottom: 3 }}>GUARDIAN RULES</div>
               <p style={{ fontSize: 13, color: "#3B423C", margin: 0, whiteSpace: "pre-wrap" }}>{program.guardianRules}</p>
             </div>
           )}
           {program.safeguardingInfo && (
-            <div style={{ background: colors.panel, borderRadius: 10, padding: "10px 12px", marginTop: 8 }}>
+            <div style={{ background: colors.panel, borderRadius: radius.control, padding: "10px 12px", marginTop: 8 }}>
               <div style={{ fontSize: 11.5, fontWeight: 700, color: colors.muted, marginBottom: 3 }}>SAFEGUARDING</div>
               <p style={{ fontSize: 13, color: "#3B423C", margin: 0, whiteSpace: "pre-wrap" }}>{program.safeguardingInfo}</p>
             </div>

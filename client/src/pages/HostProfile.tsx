@@ -5,7 +5,7 @@ import { AwardIcon, CalendarIcon, RepeatIcon, StarIcon } from "../components/ico
 import { PageTitle } from "../components/PageTitle";
 import { Reviews } from "../components/Reviews";
 import { Avatar, Card, EmptyState, PageSpinner } from "../components/ui";
-import { colors, fonts } from "../theme";
+import { colors, fonts, radius } from "../theme";
 import type { HostProfile } from "../types";
 
 // Host public profile (IA spec §5/§15) — only ever resolves for a verified
@@ -46,7 +46,7 @@ export function HostProfilePage() {
             <div>
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                 <PageTitle level="section" style={{ margin: 0 }}>{profile.name}</PageTitle>
-                <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11.5, fontWeight: 700, color: colors.greenText, background: colors.greenBg, borderRadius: 999, padding: "3px 10px" }}>
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11.5, fontWeight: 700, color: colors.greenText, background: colors.greenBg, borderRadius: radius.pill, padding: "3px 10px" }}>
                   <AwardIcon size={12} /> Verified Host
                 </span>
               </div>

@@ -2,7 +2,7 @@ import { useNavigate } from "react-router-dom";
 import { BallIcon, CalendarIcon } from "./icons";
 import { Photo } from "./Photo";
 import { Button } from "./ui";
-import { colors, fonts } from "../theme";
+import { colors, fonts, radius } from "../theme";
 import type { Game } from "../types";
 
 // My Life redesign §10/§11 — "Your next up" card. Games only: a game
@@ -49,7 +49,7 @@ export function UpcomingPlanCard({ game }: { game: Game }) {
         style={{ height: 140 }}
         contentStyle={{ padding: 10, display: "flex", alignItems: "flex-start" }}
       >
-        <span style={{ display: "inline-flex", alignItems: "center", gap: 5, background: "rgba(255,255,255,.92)", color: colors.text, borderRadius: 999, padding: "5px 10px", fontSize: 11.5, fontWeight: 800 }}>
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 5, background: "rgba(255,255,255,.92)", color: colors.text, borderRadius: radius.pill, padding: "5px 10px", fontSize: 11.5, fontWeight: 800 }}>
           <CalendarIcon size={11} /> {dayMonthLabel(game.date)} · {game.time}
         </span>
       </Photo>

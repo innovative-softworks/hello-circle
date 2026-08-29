@@ -17,7 +17,7 @@ import { CalendarIcon, PlusIcon } from "./icons";
 import { Button, ConfirmDialog, EmptyState, inputStyle, labelStyle } from "./ui";
 import { MultiImageUpload } from "./VendorImageUpload";
 import { formatDate } from "../vendorFormat";
-import { colors, fonts } from "../theme";
+import { colors, fonts, radius } from "../theme";
 import type { Centre, Room, RoomBlock } from "../types";
 
 // Centre create/edit form + its rooms and per-day-hours sub-panels — split
@@ -178,7 +178,7 @@ export function CentreEditor({ centreId, onSaved }: { centreId: string | "new"; 
         <MultiImageUpload images={form.images ?? []} onChange={(images) => set("images", images)} />
       </div>
 
-      {error && <p className="pop-in" style={{ color: colors.danger, fontSize: 13, margin: "0 0 12px", background: colors.dangerBg, padding: "9px 12px", borderRadius: 10 }}>{error}</p>}
+      {error && <p className="pop-in" style={{ color: colors.danger, fontSize: 13, margin: "0 0 12px", background: colors.dangerBg, padding: "9px 12px", borderRadius: radius.control }}>{error}</p>}
       <Button disabled={saving || !form.name} onClick={save}>
         {centreId === "new" ? "Create (goes to admin for approval)" : "Save changes"}
       </Button>
@@ -220,7 +220,7 @@ export function CentreEditor({ centreId, onSaved }: { centreId: string | "new"; 
             <input placeholder="Reason (e.g. Festival)" value={blockForm.reason} onChange={(e) => setBlockForm((f) => ({ ...f, reason: e.target.value }))} style={inputStyle} />
             <Button variant="ghost" onClick={addBlock}>Block</Button>
           </div>
-          {blockError && <p className="pop-in" style={{ color: colors.danger, fontSize: 13, margin: "10px 0 0", background: colors.dangerBg, padding: "9px 12px", borderRadius: 10 }}>{blockError}</p>}
+          {blockError && <p className="pop-in" style={{ color: colors.danger, fontSize: 13, margin: "10px 0 0", background: colors.dangerBg, padding: "9px 12px", borderRadius: radius.control }}>{blockError}</p>}
           <FacilityHoursEditor centreId={centre.id} />
         </div>
       )}
@@ -302,7 +302,7 @@ function RoomsManager({ centreId, rooms, onChanged }: { centreId: string; rooms:
         Guests pick one of these when booking. Each has its own capacity, rate and payment method.
       </p>
 
-      {error && <p className="pop-in" style={{ color: colors.danger, fontSize: 13, margin: "0 0 12px", background: colors.dangerBg, padding: "9px 12px", borderRadius: 10 }}>{error}</p>}
+      {error && <p className="pop-in" style={{ color: colors.danger, fontSize: 13, margin: "0 0 12px", background: colors.dangerBg, padding: "9px 12px", borderRadius: radius.control }}>{error}</p>}
 
       <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 16 }}>
         {rooms.map((r) =>

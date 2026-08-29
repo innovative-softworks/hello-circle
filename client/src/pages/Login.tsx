@@ -6,7 +6,7 @@ import { FieldIcon, OAuthDivider, OAuthNotice, useOAuthNotice } from "../compone
 import { AuthPhotoPanel, AuthShell } from "../components/AuthShell";
 import { ArrowRightIcon, EyeIcon, EyeOffIcon, LockIcon, MailIcon, PinIcon, ShieldIcon, UsersIcon } from "../components/icons";
 import { Button, inputStyle, labelStyle } from "../components/ui";
-import { colors } from "../theme";
+import { colors, radius } from "../theme";
 
 // Vendor/admin sign-in — same split-screen AuthShell as the resident
 // /signin family (real HelloCircle logo, photography column, no header/
@@ -124,7 +124,7 @@ export function Login() {
         </div>
 
         {error && (
-          <p className="pop-in" style={{ color: colors.danger, fontSize: 14, margin: 0, background: colors.dangerBg, padding: "9px 12px", borderRadius: 10 }}>
+          <p className="pop-in" style={{ color: colors.danger, fontSize: 14, margin: 0, background: colors.dangerBg, padding: "9px 12px", borderRadius: radius.control }}>
             {error}
           </p>
         )}

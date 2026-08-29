@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { colors } from "../theme";
+import { colors, radius } from "../theme";
 
 // UI/UX plan phase 3 — extracted from AskHelloCircle.tsx's own inline
 // bubble markup. Note on scope, corrected from the original audit's first
@@ -19,7 +19,7 @@ export function ChatBubble({ mine, children }: { mine: boolean; children: ReactN
         background: mine ? colors.green : colors.surface,
         color: mine ? "#fff" : colors.text,
         border: mine ? "none" : `1px solid ${colors.border}`,
-        borderRadius: 16,
+        borderRadius: radius.card,
         padding: "10px 16px",
         fontSize: 14.5,
       }}

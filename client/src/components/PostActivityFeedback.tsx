@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { fetchFeedbackStatus, submitFeedback } from "../api";
-import { colors } from "../theme";
+import { colors, radius } from "../theme";
 import type { FeedbackStatus } from "../api";
 
 // Fuller post-activity feedback (IA spec §11) — the spec's 5-question set,
@@ -30,7 +30,7 @@ const chipRow = (
         style={{
           background: value === r ? colors.green : colors.panel,
           color: value === r ? "#fff" : colors.muted,
-          border: "none", borderRadius: 999, padding: "3px 10px", fontSize: 12, cursor: "pointer", fontWeight: 600,
+          border: "none", borderRadius: radius.pill, padding: "3px 10px", fontSize: 12, cursor: "pointer", fontWeight: 600,
         }}
       >
         {r}
@@ -84,7 +84,7 @@ export function PostActivityFeedback({ kind, reference }: { kind: string; refere
         )}
       </div>
       {expanded && (
-        <div style={{ display: "flex", flexDirection: "column", gap: 6, background: colors.panel, borderRadius: 10, padding: 10 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 6, background: colors.panel, borderRadius: radius.control, padding: 10 }}>
           {QUESTIONS.map((q) => (
             <div key={q.key} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
               <span>{q.label}</span>

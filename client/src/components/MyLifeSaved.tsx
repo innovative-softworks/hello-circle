@@ -1,7 +1,7 @@
 import { useNavigate } from "react-router-dom";
 import { Photo } from "./Photo";
 import { HeartIcon } from "./icons";
-import { colors, fonts } from "../theme";
+import { colors, fonts, radius } from "../theme";
 import type { Favourite } from "../types";
 
 const LABEL: Record<Favourite["listingType"], string> = {
@@ -38,7 +38,7 @@ export function MyLifeSaved({ favourites }: { favourites: Favourite[] }) {
             key={`${f.listingType}:${f.listingId}`}
             onClick={() => href && navigate(href)}
             disabled={!href}
-            style={{ display: "flex", alignItems: "center", gap: 10, width: "100%", textAlign: "left", background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 10, padding: "8px", cursor: href ? "pointer" : "default" }}
+            style={{ display: "flex", alignItems: "center", gap: 10, width: "100%", textAlign: "left", background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: radius.control, padding: "8px", cursor: href ? "pointer" : "default" }}
           >
             <Photo
               src={f.imageUrl ?? undefined}

@@ -1,6 +1,6 @@
 import { useState, type CSSProperties } from "react";
 import type { DemandRow, IntentCluster } from "../types";
-import { colors, fonts } from "../theme";
+import { colors, fonts, radius } from "../theme";
 import { SearchIcon } from "./icons";
 import { Button, Card, EmptyState, PageSpinner } from "./ui";
 
@@ -70,7 +70,7 @@ export function DemandSignalsView({
           {rows.map((r, i) => (
             <div
               key={i}
-              style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: colors.bg, borderRadius: 10, padding: "10px 14px", fontSize: 13.5 }}
+              style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: colors.bg, borderRadius: radius.control, padding: "10px 14px", fontSize: 13.5 }}
             >
               <span>
                 "{r.queryText}"{r.county ? ` · ${r.county}` : ""}
@@ -136,7 +136,7 @@ export function IntentClusterView({
             return (
               <div
                 key={key}
-                style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, background: colors.bg, borderRadius: 10, padding: "10px 14px", fontSize: 13.5 }}
+                style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, background: colors.bg, borderRadius: radius.control, padding: "10px 14px", fontSize: 13.5 }}
               >
                 <span>
                   {c.activityLabel}

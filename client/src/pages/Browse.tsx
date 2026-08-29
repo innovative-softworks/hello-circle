@@ -9,7 +9,7 @@ import { DropdownCheckbox, DropdownOption, FilterDropdown } from "../components/
 import { CheckIcon, ChevronLeftIcon, ChevronRightIcon, CloseIcon, GridIcon, HomeIcon, PinIcon, SearchIcon } from "../components/icons";
 import { IntentCaptureForm } from "../components/IntentCaptureForm";
 import { Button, CardSkeleton, EmptyState } from "../components/ui";
-import { colors, fonts, maxWidth } from "../theme";
+import { colors, fonts, maxWidth, radius } from "../theme";
 import type { Centre, Club } from "../types";
 
 // Compare mode (post-audit hardening pass) — folded in from the old
@@ -244,7 +244,7 @@ export function Browse() {
             toolbar of "Location ▾ / Amenities ▾ / Accessibility ▾" plus
             search/sort/view reads immediately, and each panel scrolls
             internally instead of pushing the page down. */}
-        <div style={{ background: "#fff", border: `1px solid ${colors.border}`, borderRadius: 16, padding: 16, marginBottom: 22, boxShadow: "0 6px 20px rgba(30,40,32,.04)" }}>
+        <div style={{ background: "#fff", border: `1px solid ${colors.border}`, borderRadius: radius.card, padding: 16, marginBottom: 22, boxShadow: "0 6px 20px rgba(30,40,32,.04)" }}>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
             <FilterDropdown
               label={<span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><PinIcon size={13} />{county === "All" ? "All counties" : county}</span>}

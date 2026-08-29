@@ -6,7 +6,7 @@ import { Chip } from "../components/Chip";
 import { DiscoverCard } from "../components/DiscoverRow";
 import { Button, EmptyState } from "../components/ui";
 import { useGuest } from "../GuestContext";
-import { colors, fonts } from "../theme";
+import { colors, fonts, radius } from "../theme";
 import { CalendarIcon, CheckIcon, PinIcon, SearchIcon } from "../components/icons";
 import { AVAILABILITY_OPTIONS, BUDGET_OPTIONS, GOAL_OPTIONS, GROUP_SIZE_OPTIONS, INTEREST_OPTIONS } from "../types";
 import type { DiscoverItem } from "../types";
@@ -251,7 +251,7 @@ export function Onboarding() {
                     onClick={() => setHomeCounty(c)}
                     style={{
                       display: "flex", alignItems: "center", justifyContent: "space-between", textAlign: "left",
-                      background: homeCounty === c ? colors.greenBg : "transparent", border: "none", borderRadius: 10,
+                      background: homeCounty === c ? colors.greenBg : "transparent", border: "none", borderRadius: radius.control,
                       padding: "10px 12px", fontSize: 14.5, fontWeight: homeCounty === c ? 700 : 500,
                       color: homeCounty === c ? colors.greenText : colors.text, cursor: "pointer",
                     }}

@@ -6,7 +6,7 @@ import { useGuest } from "../GuestContext";
 import { ArrowRightIcon, AwardIcon, BallIcon, CheckIcon, ChevronLeftIcon, ChevronRightIcon, HeartIcon, RepeatIcon, UsersIcon } from "./icons";
 import { Button } from "./ui";
 import { Photo } from "./Photo";
-import { colors, fonts } from "../theme";
+import { colors, fonts, radius } from "../theme";
 import type { DiscoverItem } from "../types";
 
 // Photo-driven cards for the homepage "Happening today" / "This weekend"
@@ -143,7 +143,7 @@ export function DiscoverCard({ item, isToday }: { item: DiscoverItem; isToday: b
         scrollSnapAlign: "start",
         background: "#fff",
         border: `1px solid ${colors.border}`,
-        borderRadius: 16,
+        borderRadius: radius.card,
         cursor: "pointer",
         overflow: "hidden",
         display: "flex",
@@ -168,7 +168,7 @@ export function DiscoverCard({ item, isToday }: { item: DiscoverItem; isToday: b
                 gap: 5,
                 background: colors.dark,
                 color: "#fff",
-                borderRadius: 999,
+                borderRadius: radius.pill,
                 padding: "4px 9px",
                 fontSize: 10.5,
                 fontWeight: 700,
@@ -183,7 +183,7 @@ export function DiscoverCard({ item, isToday }: { item: DiscoverItem; isToday: b
               style={{
                 background: "rgba(255,255,255,.94)",
                 color: meta.fg,
-                borderRadius: 999,
+                borderRadius: radius.pill,
                 padding: "4px 9px",
                 fontSize: 10.5,
                 fontWeight: 700,
@@ -193,7 +193,7 @@ export function DiscoverCard({ item, isToday }: { item: DiscoverItem; isToday: b
               TODAY
             </span>
           ) : (
-            <span style={{ background: "rgba(255,255,255,.94)", color: colors.text, borderRadius: 999, padding: "4px 9px", fontSize: 10.5, fontWeight: 700, letterSpacing: ".02em" }}>
+            <span style={{ background: "rgba(255,255,255,.94)", color: colors.text, borderRadius: radius.pill, padding: "4px 9px", fontSize: 10.5, fontWeight: 700, letterSpacing: ".02em" }}>
               {dayPillLabel(item.date)}
             </span>
           )}
@@ -207,7 +207,7 @@ export function DiscoverCard({ item, isToday }: { item: DiscoverItem; isToday: b
             fontWeight: 700,
             color: item.priceCents ? colors.text : colors.greenText,
             background: "rgba(255,255,255,.94)",
-            borderRadius: 999,
+            borderRadius: radius.pill,
             padding: "4px 10px",
           }}
         >
@@ -392,7 +392,7 @@ export function DiscoverRow({
               gap: 8,
               background: colors.surface,
               border: `1px dashed ${colors.borderStrong}`,
-              borderRadius: 16,
+              borderRadius: radius.card,
               cursor: "pointer",
               color: colors.text,
               fontWeight: 700,
@@ -416,7 +416,7 @@ export function DiscoverRow({
               style={{
                 width: i === activeIndex ? 18 : 6,
                 height: 6,
-                borderRadius: 999,
+                borderRadius: radius.pill,
                 border: "none",
                 padding: 0,
                 cursor: "pointer",

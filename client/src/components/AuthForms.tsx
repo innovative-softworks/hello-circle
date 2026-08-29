@@ -2,7 +2,7 @@ import { useState, type ReactNode } from "react";
 import { loginWithPassword, requestGuestLink, signupWithPassword } from "../api";
 import { AppleIcon, EyeIcon, EyeOffIcon, GoogleIcon, LockIcon, MailIcon, PersonIcon } from "./icons";
 import { Button, inputStyle, labelStyle } from "./ui";
-import { colors } from "../theme";
+import { colors, radius } from "../theme";
 
 // Shared form bodies for every resident authentication surface — the
 // dedicated full-page routes (SignIn.tsx / SignUp.tsx / EmailLinkSignIn.tsx)
@@ -80,7 +80,7 @@ export function OAuthDivider({ onClickProvider }: { onClickProvider: (provider: 
 export function OAuthNotice({ notice }: { notice: string | null }) {
   if (!notice) return null;
   return (
-    <div className="pop-in" style={{ marginTop: 14, maxWidth: 340, fontSize: 12.5, color: colors.mutedLight, background: colors.panel, borderRadius: 10, padding: "9px 12px" }}>
+    <div className="pop-in" style={{ marginTop: 14, maxWidth: 340, fontSize: 12.5, color: colors.mutedLight, background: colors.panel, borderRadius: radius.control, padding: "9px 12px" }}>
       {notice}
     </div>
   );
