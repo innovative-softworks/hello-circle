@@ -127,7 +127,7 @@ function ResetPasswordForm({ token, onSuccess }: { token: string; onSuccess: () 
       <div style={{ display: "flex", flexDirection: "column", gap: 14, maxWidth: 340 }}>
         <PasswordField id="reset-new-password" label="New password" value={password} onChange={setPassword} autoComplete="new-password" placeholder="Enter new password" />
         <PasswordField id="reset-confirm-password" label="Confirm password" value={confirm} onChange={setConfirm} autoComplete="new-password" placeholder="Enter again" />
-        <Button full onClick={submit} disabled={busy || !password || !confirm}>{busy ? "…" : "Update password →"}</Button>
+        <Button full onClick={submit} disabled={busy || !password || !confirm}>{busy ? "…" : "Set password →"}</Button>
       </div>
       {error && <div style={{ color: colors.danger, fontSize: 13, marginTop: 10 }}>{error}</div>}
     </div>
