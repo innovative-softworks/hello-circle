@@ -245,8 +245,8 @@
         Swiss structure carrying warm, human, local content.</p>
       <div class="meta-strip">
         <span><b>167</b> files audited across consumer, booking, vendor, admin and auth surfaces</span>
-        <span><b>23</b> files unified this pass</span>
-        <span><b>194</b> raw-radius call sites remain in the tracked backlog</span>
+        <span><b>90+</b> files unified across 11 commits</span>
+        <span><b>0</b> raw-radius call sites remain — lint-tokens.mjs is clean</span>
       </div>
     </header>
 
@@ -282,15 +282,32 @@
           "Join Circle"), game joining (list and detail page now share one rule), and password-reset ("Update
           password" → "Set password").</li>
         <li class="body"><span class="tag tag-fixed">Migrated</span> <code>CentreDetail</code>, <code>ClubDetail</code>,
-          <code>BookingFlow</code>, and <code>NotFound</code> onto the shared <code>Button</code>/<code>BackLink</code>
-          components, and added real map embeds where a listing has coordinates but the page only linked out to
-          Google Maps.</li>
+          <code>BookingFlow</code>, <code>RegistrationFlow</code>, <code>ProgramDetail</code>, and
+          <code>NotFound</code> onto the shared <code>Button</code>/<code>BackLink</code> components, and added
+          real map embeds where a listing has coordinates but the page only linked out to Google Maps.</li>
+        <li class="body"><span class="tag tag-fixed">Restructured</span> <code>ProgramDetail.tsx</code> onto the
+          main/rail detail pattern (it was the one page that abandoned it entirely), and added a mobile sticky
+          CTA bar to <code>CentreDetail</code>/<code>ClubDetail</code>, whose entire price/CTA rail — button
+          included — disappeared below the fold on mobile.</li>
+        <li class="body"><span class="tag tag-fixed">Adopted</span> <code>AuthShell</code> for
+          <code>ForgotPassword</code>, <code>ResetPassword</code>, and <code>AcceptInvite</code> — three
+          vendor/admin auth-adjacent pages that were a second, undeclared "simple page" shell competing with the
+          real one.</li>
+        <li class="body"><span class="tag tag-fixed">Unified</span> the landing page's entire token system
+          (<code>client/src/landing/theme.ts</code>) onto the shared brand colors and Bricolage
+          Grotesque/Hanken Grotesk pairing — it ran on a separate green, a separate font pairing, and separate
+          accent names, with a comment arguing that was deliberate. Every landing component kept working
+          unchanged; only the token <em>values</em> moved.</li>
+        <li class="body"><span class="tag tag-fixed">Closed</span> the entire raw-radius backlog — 194 call
+          sites at audit time, mechanically swept to 0 across 65 non-landing files plus the 5 landing files,
+          verified behavior-preserving (each replacement is an exact value match, so the rendered CSS is
+          byte-identical).</li>
       </ul>
 
-      <div class="callout" style="margin-top:20px;">This is Phase 1–3 of the six-phase migration in §Roadmap
-        (foundations, primitives, first wave of product pages). The remaining consumer, booking, and
-        vendor/admin pages are a tracked, prioritized backlog — see §Page consistency matrix — not a gap this
-        document is pretending isn't there.</div>
+      <div class="callout" style="margin-top:20px;">All six roadmap phases in §Migration roadmap have real
+        progress now — foundations, primitives, and every P0/P1 item from the original audit are done. What's
+        left is P2/P3 polish: card image aspect ratios, and Home.tsx's own deliberate local button/chip system.
+        See §Page consistency matrix for the current, honest state of every page.</div>
     </section>
 
     <section class="doc" id="audit">
@@ -340,9 +357,9 @@
         <li class="body">An ungoverned mini-palette of purple/blue/gold hexes sitting next to proper
           <code>colors.*</code> tokens in the same admin stat row <span class="tag tag-fixed">named</span> as
           <code>statTile</code>.</li>
-        <li class="body">The landing page (<code>client/src/landing/</code>) runs on an entirely separate token
+        <li class="body">The landing page (<code>client/src/landing/</code>) ran on an entirely separate token
           file — different green, different font pairing, different accent names — with no shared foundation
-          at all <span class="tag tag-backlog">open, large</span>.</li>
+          at all <span class="tag tag-fixed">fixed — now aliases the shared tokens</span>.</li>
       </ul>
     </section>
 
@@ -351,14 +368,14 @@
       <h2 class="sec-title">Current design debt</h2>
       <p class="sec-sub">Classified so effort goes where it's actually load-bearing, not where it's loudest.</p>
       <div class="twrap"><table>
-        <tr><th>Priority</th><th>Item</th><th>Why it's this tier</th></tr>
-        <tr><td><span class="tag tag-p0">P0</span></td><td>No sticky mobile CTA bar on <code>BookingFlow</code>/<code>RegistrationFlow</code>/<code>CentreDetail</code>/<code>ClubDetail</code></td><td>The decision action can scroll off-screen on the exact pages where money changes hands</td></tr>
-        <tr><td><span class="tag tag-p0">P0</span></td><td>Landing page's parallel token system</td><td>A visitor can land on a page that looks like a different product before ever reaching the app</td></tr>
-        <tr><td><span class="tag tag-p1">P1</span></td><td>Auth "orphan" pages not on <code>AuthShell</code> (ForgotPassword, ResetPassword, VendorSignup, AcceptInvite, Onboarding)</td><td>Six of eleven auth-adjacent pages read as a second, undeclared shell</td></tr>
-        <tr><td><span class="tag tag-p1">P1</span></td><td>Three distinct detail-page shapes (rail-based / single-column / no-rail)</td><td>Centre and Club match; Program, Host, and Provider profile pages don't share the main/rail decision pattern §Detail describes</td></tr>
-        <tr><td><span class="tag tag-p1">P1</span></td><td>194 raw radius literals matching an existing token</td><td>Tracked by <code>lint-tokens.mjs</code>; mechanical, low-risk, purely a matter of hours</td></tr>
-        <tr><td><span class="tag tag-p2">P2</span></td><td>Card image aspect ratios (120/130/132/140/150/160px across six components)</td><td>Visually minor drift; needs one deliberate ratio decision, not six independent guesses</td></tr>
-        <tr><td><span class="tag tag-p2">P2</span></td><td>Nav asymmetry — "Ask HelloCircle" absent from the mobile tab bar</td><td>Real but narrow; a content/IA call, not a token fix</td></tr>
+        <tr><th>Priority</th><th>Item</th><th>Status</th></tr>
+        <tr><td><span class="tag tag-p0">P0</span></td><td>No sticky mobile CTA bar on <code>CentreDetail</code>/<code>ClubDetail</code></td><td><span class="tag tag-fixed">Fixed</span> — scope narrowed after checking: BookingFlow/RegistrationFlow's primary button was already inline in the step content, never actually hidden</td></tr>
+        <tr><td><span class="tag tag-p0">P0</span></td><td>Landing page's parallel token system</td><td><span class="tag tag-fixed">Fixed</span> — <code>lc</code>/<code>lcFonts</code> now alias the shared tokens</td></tr>
+        <tr><td><span class="tag tag-p1">P1</span></td><td>Auth "orphan" pages not on <code>AuthShell</code></td><td><span class="tag tag-fixed">Fixed</span> for ForgotPassword/ResetPassword/AcceptInvite. VendorSignup (720px two-column intake) and Onboarding (documented prior exception) don't fit the shell's narrow column — left as-is on purpose</td></tr>
+        <tr><td><span class="tag tag-p1">P1</span></td><td>Three distinct detail-page shapes</td><td><span class="tag tag-fixed">Fixed</span> — ProgramDetail now shares the main/rail pattern. HostProfile/ProviderProfile stay single-column on purpose (no decision, not a transaction)</td></tr>
+        <tr><td><span class="tag tag-p1">P1</span></td><td>Raw radius literals matching an existing token</td><td><span class="tag tag-fixed">Fixed</span> — 194 → 0, <code>lint-tokens.mjs</code> is clean</td></tr>
+        <tr><td><span class="tag tag-p2">P2</span></td><td>Card image aspect ratios (120/130/132/140/150/160px across six components)</td><td><span class="tag tag-backlog">Open</span> — needs one deliberate ratio decision, not six independent guesses</td></tr>
+        <tr><td><span class="tag tag-p2">P2</span></td><td>Nav asymmetry — "Ask HelloCircle" on mobile</td><td><span class="tag tag-keep">Not a gap</span> — reachable via the header hamburger at ≤860px, the same collapse desktop uses in its own tablet range. Audit overstated this on first read</td></tr>
         <tr><td><span class="tag tag-p3">P3</span></td><td>Home.tsx's own local button/chip system</td><td>Deliberate, internally consistent, still token-correct underneath — polish only</td></tr>
       </table></div>
     </section>
@@ -489,8 +506,8 @@
     <section class="doc" id="radius">
       <div class="eyebrow">09 — Foundations</div>
       <h2 class="sec-title">Radius, border, shadow</h2>
-      <p class="sec-sub">A deliberately small radius system, plus a governance note: 194 call sites still use a
-        raw number that already has a token.</p>
+      <p class="sec-sub">A deliberately small radius system — every call site now uses the token, not a raw
+        number.</p>
       <div class="grid grid-3" style="margin-bottom:8px;">
         <div class="card"><div style="width:100%;height:44px;background:var(--green-bg);border-radius:10px;margin-bottom:10px;"></div><h4>control — 10px</h4><p>Inputs, buttons</p></div>
         <div class="card"><div style="width:100%;height:44px;background:var(--green-bg);border-radius:16px;margin-bottom:10px;"></div><h4>card — 16px</h4><p>Cards, panels</p></div>
@@ -500,9 +517,10 @@
         <code>borderStrong</code> for interactive/selected states. Elevation stays restrained — most cards are
         border-only or border-plus-a-hairline-shadow; stronger elevation (<code>shadow-lift</code>) is reserved
         for menus, dialogs, and floating actions, never a resting card.</p>
-      <div class="callout warn" style="margin-top:14px;"><b>Governance gap:</b> <code>lint-tokens.mjs</code>
-        currently reports <b>194</b> raw <code>borderRadius: 10 / 16 / 999</code> literals that already have a
-        token. This is mechanical, low-risk cleanup — see §Roadmap Phase 2.</div>
+      <div class="callout" style="margin-top:14px;"><b>Governance:</b> <code>lint-tokens.mjs</code> reported
+        194 raw <code>borderRadius: 10 / 16 / 999</code> literals at audit time — swept to 0 across all 70
+        flagged files (65 app + 5 landing) in a single mechanical, behavior-preserving pass. The linter now
+        passes clean; it stays in CI-equivalent use to catch new regressions.</div>
     </section>
 
     <section class="doc" id="icons">
@@ -660,7 +678,7 @@
         <tr><td>My Life</td><td>My Life</td><td><span class="tag tag-keep">Match</span></td></tr>
         <tr><td>Logo → Home (icon click)</td><td>Home (labeled tab)</td><td><span class="tag tag-backlog">Asymmetric</span></td></tr>
         <tr><td>Create (icon + dropdown)</td><td>Create (labeled tab, same sheet)</td><td><span class="tag tag-backlog">Asymmetric</span></td></tr>
-        <tr><td>Ask HelloCircle (hidden ≤1024px, buried in hamburger)</td><td>— absent —</td><td><span class="tag tag-p1">Gap</span></td></tr>
+        <tr><td>Ask HelloCircle (hidden ≤1024px, moved into hamburger drawer)</td><td>Reachable via the header hamburger, shown alongside the tab bar at ≤860px</td><td><span class="tag tag-keep">Consistent — mirrors desktop's own tablet-range collapse</span></td></tr>
       </table></div>
     </section>
 
@@ -673,20 +691,19 @@
         <div class="card"><h4>Main — understanding</h4><p>About, facilities/what's included, accessibility, location map, related programs/games.</p></div>
         <div class="card"><h4>Rail — decision</h4><p>Price, availability, the one primary CTA, trust bullets. Sticky on desktop.</p></div>
       </div>
-      <p class="body" style="margin-top:16px;"><code>CentreDetail</code> and <code>ClubDetail</code> already
-        implement this split cleanly (and both gained a map embed and shared <code>Button</code> this pass).
-        <code>ProgramDetail</code> collapses to a single centered column — its decision (the enroll form) scrolls
-        away on a long schedule instead of staying reachable. <code>HostProfile</code> and <code>ProviderProfile</code>
-        are legitimately decision-less (they're profiles, not transactions) so a single column is correct there
-        — three shapes total, not one pattern with variations. <span class="tag tag-backlog">ProgramDetail rail
-        migration is open</span>.</p>
+      <p class="body" style="margin-top:16px;"><code>CentreDetail</code>, <code>ClubDetail</code>, and now
+        <code>ProgramDetail</code> <span class="tag tag-fixed">fixed</span> all implement this split — each
+        gained a shared <code>Card</code> rail, shared <code>Button</code>, and a mobile sticky bar where the
+        primary action would otherwise disappear. <code>HostProfile</code> and <code>ProviderProfile</code> stay
+        single-column on purpose — they're profiles, not transactions, so there's no decision to put in a rail.
+        Two shapes total now, both deliberate, not three with one accidental.</p>
     </section>
 
     <section class="doc" id="states">
       <div class="eyebrow">19 — Patterns</div>
       <h2 class="sec-title">Empty, loading, error, success</h2>
       <div class="grid grid-2">
-        <div class="card"><h4>Empty</h4><p>Headline, one-line explanation, a primary action ("Add my interest", "Start something"). <code>EmptyState</code> is shared but bypassed by hand-rolled dashed boxes in FreeTimeMode/MakeItHappen <span class="tag tag-backlog">open</span>.</p></div>
+        <div class="card"><h4>Empty</h4><p>Headline, one-line explanation, a primary action ("Add my interest", "Start something"). <code>EmptyState</code> is shared and now used by FreeTimeMode/MakeItHappen too <span class="tag tag-fixed">fixed</span> — both hand-rolled a dashed-border box before.</p></div>
         <div class="card"><h4>Loading</h4><p>Shape-matched skeletons (<code>CardSkeleton</code>, <code>ListingDetailSkeleton</code>, <code>RowSkeleton</code>) — never a generic spinner for page content.</p></div>
         <div class="card"><h4>Error</h4><p>Inline for forms, a banner for page-level failures. Direct language: "Connection failed. Please try again," never "Oops!"</p></div>
         <div class="card"><h4>Success</h4><p>A toast for a small action; a contextual success state ("You're in! · Sat 09:00 · View plan") for a major one. No confetti by default.</p></div>
@@ -698,11 +715,14 @@
       <h2 class="sec-title">Mobile pattern</h2>
       <p class="sec-sub">Same typography, status language, cards, chips, and CTA vocabulary as desktop — the
         layout adapts, the product doesn't change.</p>
-      <p class="body">The one real gap: none of the five detail pages have a sticky bottom action bar on
-        mobile — the price/CTA rail just becomes a normal block at the end of the content once the layout
-        collapses under 900px (<code>.sticky-aside</code> is explicitly <code>position: static</code> there).
-        <code>GameJoinCard.tsx</code>'s own <code>MobileJoinBar</code> is the one existing implementation of the
-        pattern this should generalize into. <span class="tag tag-p0">P0</span></p>
+      <p class="body"><code>GameJoinCard.tsx</code>'s <code>MobileJoinBar</code> pattern — a fixed bottom bar,
+        visible only under 900px, sitting just above the app's own tab bar — was already proven on
+        Game/Circle/Experience detail. <code>CentreDetail</code> and <code>ClubDetail</code> now share it too
+        <span class="tag tag-fixed">fixed</span>: their entire price/CTA rail, including the primary button, used
+        to disappear below the fold once <code>.sticky-aside</code> collapsed to <code>position: static</code>.
+        <code>BookingFlow</code>/<code>RegistrationFlow</code> were checked and don't need a duplicate bar — their
+        primary Continue/Confirm button lives inline in the step content, not inside the rail, so it was never
+        actually hidden.</p>
     </section>
 
     <section class="doc" id="admin">
@@ -745,7 +765,7 @@
         <tr><td>Color</td><td class="footprint">theme.ts colors + index.css</td><td><span class="tag tag-keep">Mature</span></td></tr>
         <tr><td>Typography</td><td class="footprint">theme.ts fonts + type</td><td><span class="tag tag-keep">Mature</span></td></tr>
         <tr><td>Spacing</td><td class="footprint">theme.ts space</td><td><span class="tag tag-backlog">Defined, not yet migrated to call sites</span></td></tr>
-        <tr><td>Radius</td><td class="footprint">theme.ts radius</td><td><span class="tag tag-backlog">194 raw literals remain — tracked</span></td></tr>
+        <tr><td>Radius</td><td class="footprint">theme.ts radius</td><td><span class="tag tag-fixed">194 → 0, lint-tokens.mjs clean</span></td></tr>
         <tr><td>Breakpoints</td><td class="footprint">theme.ts breakpoints</td><td><span class="tag tag-backlog">One stray value (560px) undocumented</span></td></tr>
         <tr><td>Z-index</td><td class="footprint">theme.ts zIndex</td><td><span class="tag tag-fixed">New this pass</span> — ui.tsx migrated, app-wide sweep open</td></tr>
         <tr><td>photoOverlay / statTile</td><td class="footprint">theme.ts</td><td><span class="tag tag-fixed">New this pass</span></td></tr>
@@ -783,10 +803,12 @@
         <tr><td>GameDetail / GameJoinCard</td><td>High</td><td><span class="tag tag-fixed">CTA logic merged</span></td></tr>
         <tr><td>AdminDashboard / VendorOverview</td><td>High</td><td><span class="tag tag-fixed">Palette named</span></td></tr>
         <tr><td>Home</td><td>Low, by design</td><td><span class="tag tag-p2">Deliberate local system — polish only</span></td></tr>
-        <tr><td>RegistrationFlow</td><td>Med</td><td><span class="tag tag-backlog">Open — CTA verb, Button adoption</span></td></tr>
-        <tr><td>ProgramDetail</td><td>High components, Med layout</td><td><span class="tag tag-backlog">Open — rail migration</span></td></tr>
-        <tr><td>ForgotPassword / ResetPassword / VendorSignup / AcceptInvite / Onboarding</td><td>Low</td><td><span class="tag tag-backlog">Open — AuthShell adoption</span></td></tr>
-        <tr><td>Landing (client/src/landing/*)</td><td>N/A — separate system</td><td><span class="tag tag-backlog">Open, large</span></td></tr>
+        <tr><td>RegistrationFlow</td><td>High</td><td><span class="tag tag-fixed">Migrated + CTA verb fixed</span></td></tr>
+        <tr><td>ProgramDetail</td><td>High</td><td><span class="tag tag-fixed">Rail migration done</span></td></tr>
+        <tr><td>ForgotPassword / ResetPassword / AcceptInvite</td><td>High</td><td><span class="tag tag-fixed">AuthShell adopted</span></td></tr>
+        <tr><td>VendorSignup / Onboarding</td><td>N/A — bespoke by design</td><td><span class="tag tag-keep">Deliberate exception, see §Debt</span></td></tr>
+        <tr><td>FreeTimeMode / MakeItHappen</td><td>High</td><td><span class="tag tag-fixed">EmptyState adopted</span></td></tr>
+        <tr><td>Landing (client/src/landing/*)</td><td>High</td><td><span class="tag tag-fixed">Token system unified</span></td></tr>
       </table></div>
     </section>
 
@@ -814,9 +836,9 @@
         <tr><td>1 — Foundations</td><td>Tokens, dark mode, spacing/type/radius/z-index scales</td><td><span class="tag tag-fixed">Done</span></td></tr>
         <tr><td>2 — Core primitives</td><td>ParticipantStack, AvailabilityBadge, SectionHeader, gameCta</td><td><span class="tag tag-fixed">Done</span></td></tr>
         <tr><td>3 — First wave of product pages</td><td>CentreDetail, ClubDetail, BookingFlow, NotFound, Circles, ExperienceDetail, admin/vendor stat tiles</td><td><span class="tag tag-fixed">Done</span></td></tr>
-        <tr><td>4 — Remaining core consumer pages</td><td>RegistrationFlow, ProgramDetail rail, Home.tsx polish, FreeTimeMode/MakeItHappen empty states</td><td><span class="tag tag-backlog">Open</span></td></tr>
-        <tr><td>5 — Auth &amp; places/booking</td><td>AuthShell adoption for 5 orphan pages, sticky mobile CTA bar, 194 raw-radius sweep</td><td><span class="tag tag-backlog">Open</span></td></tr>
-        <tr><td>6 — Landing, host/partner/admin polish</td><td>Landing token unification (large), nav asymmetry, chip variant expansion</td><td><span class="tag tag-backlog">Open</span></td></tr>
+        <tr><td>4 — Remaining core consumer pages</td><td>RegistrationFlow, ProgramDetail rail, FreeTimeMode/MakeItHappen empty states</td><td><span class="tag tag-fixed">Done</span> — Home.tsx polish deliberately deferred, see P3</td></tr>
+        <tr><td>5 — Auth &amp; places/booking</td><td>AuthShell adoption, sticky mobile CTA bar, raw-radius sweep</td><td><span class="tag tag-fixed">Done</span> — VendorSignup/Onboarding excluded on purpose, see §Debt</td></tr>
+        <tr><td>6 — Landing, host/partner/admin polish</td><td>Landing token unification, chip variant expansion</td><td><span class="tag tag-fixed">Landing done</span> · <span class="tag tag-backlog">Chip variants + card ratios open</span></td></tr>
       </table></div>
     </section>
 
