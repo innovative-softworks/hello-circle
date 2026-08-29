@@ -85,6 +85,22 @@ export const photoOverlay = {
   whiteBg: "rgba(255,255,255,.92)",
 } as const;
 
+/** Diagonal-stripe placeholder background for Photo's `ph` prop, used when a
+ * listing has no real image yet — was a raw, copy-pasted gradient string in
+ * 10 files. Three color pairs were already established by convention
+ * (green default, blue for programs, orange for club sessions); `size`
+ * controls stripe width (14px default everywhere except AuthShell's larger
+ * photo panel, which used 18px). */
+export function stripedPlaceholder(colorA: string, colorB: string, size = 14): string {
+  return `repeating-linear-gradient(135deg,${colorA} 0 ${size}px,${colorB} ${size}px ${size * 2}px)`;
+}
+
+export const placeholderStripes = {
+  green: stripedPlaceholder("#DDE8DA", "#E6EEE3"),
+  blue: stripedPlaceholder("#D9E6EC", "#E4EDF1"),
+  orange: stripedPlaceholder("#F5E1D3", "#FAEBE0"),
+} as const;
+
 /** Neutral categorical icon-tile colors for admin/vendor KPI stat rows
  * (StatTile) — distinguishes tiles by hue alone (not brand semantics like
  * green=success/orange=urgency), the same way a dashboard chart's series
@@ -158,8 +174,13 @@ export const radius = {
  * `tabletWide` (900) was added post-audit — index.css already used 900 (and
  * its +1 min-width companion, 901) in several places with no corresponding
  * token at all; `minWidth()` below covers that "+1" pairing without needing
- * a separate named constant per breakpoint. */
+ * a separate named constant per breakpoint. `narrowMobile` (560, design-
+ * system unification pass) names a real second mobile-range cutover
+ * index.css already used (Stepper's label truncation on very narrow
+ * phones) with no token at all — narrower than `mobile`, so a distinct step
+ * rather than something to force onto the same 640 value sight-unseen. */
 export const breakpoints = {
+  narrowMobile: 560,
   mobile: 640,
   tablet: 860,
   tabletWide: 900,

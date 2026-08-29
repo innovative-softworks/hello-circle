@@ -1,7 +1,7 @@
 import { CalendarIcon, PinIcon, RepeatIcon } from "./icons";
 import { Photo } from "./Photo";
 import { Avatar } from "./ui";
-import { colors, fonts } from "../theme";
+import { colors, fonts, placeholderStripes } from "../theme";
 import type { Circle } from "../types";
 
 // Circle Detail redesign — landscape hero (~16:6.5) with identity overlaid
@@ -40,7 +40,7 @@ export function CircleHero({ circle, activeThisWeek }: { circle: Circle; activeT
     <Photo
       src={circle.imageUrl ?? undefined}
       alt={circle.name}
-      ph="repeating-linear-gradient(135deg,#DDE8DA 0 14px,#E6EEE3 14px 28px)"
+      ph={placeholderStripes.green}
       icon={!circle.imageUrl ? <RepeatIcon size={32} /> : undefined}
       iconColor={colors.green}
       style={{ height: "clamp(260px,36vw,420px)", borderRadius: 2, overflow: "hidden" }}

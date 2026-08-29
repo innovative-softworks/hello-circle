@@ -4,7 +4,7 @@ import { Photo } from "./Photo";
 import { Button, Card } from "./ui";
 import { dateLabel } from "../euro";
 import { formatCircleAvailability } from "../formatters";
-import { colors, fonts, photoOverlay, radius } from "../theme";
+import { colors, fonts, photoOverlay, placeholderStripes, radius } from "../theme";
 import type { Circle } from "../types";
 
 const DAY_MS = 86400000;
@@ -36,7 +36,7 @@ export function CircleDiscoveryCard({ circle, joined, onJoin, onLeave, busy }: {
         <Photo
           src={circle.imageUrl ?? undefined}
           alt={circle.name}
-          ph="repeating-linear-gradient(135deg,#DDE8DA 0 14px,#E6EEE3 14px 28px)"
+          ph={placeholderStripes.green}
           icon={<RepeatIcon size={22} />}
           iconColor={colors.green}
           style={{ height: 160 }}

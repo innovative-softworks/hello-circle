@@ -668,6 +668,9 @@ textarea:focus {
   }
 }
 
+/* Matches theme.ts's breakpoints.narrowMobile (design-system unification
+   pass) — a real second mobile-range cutover, narrower than the general
+   640px mobile breakpoint, for Stepper's label truncation specifically. */
 @media (max-width: 560px) {
   .stepper-label {
     display: none !important;

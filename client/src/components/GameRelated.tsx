@@ -5,7 +5,7 @@ import { BallIcon } from "./icons";
 import { Photo } from "./Photo";
 import { dateLabel } from "../euro";
 import { formatParticipantCount } from "../formatters";
-import { colors, fonts } from "../theme";
+import { colors, fonts, placeholderStripes } from "../theme";
 import type { Game } from "../types";
 
 // "More like this" (Game Detail redesign §27/§28) — ranked, not random:
@@ -41,7 +41,7 @@ function RelatedCard({ game }: { game: Game }) {
       <Photo
         src={game.imageUrl ?? undefined}
         alt={game.activityLabel}
-        ph="repeating-linear-gradient(135deg,#DDE8DA 0 14px,#E6EEE3 14px 28px)"
+        ph={placeholderStripes.green}
         icon={<BallIcon size={20} />}
         iconColor={colors.green}
         style={{ height: 120, borderRadius: 14, marginBottom: 10 }}

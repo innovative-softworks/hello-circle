@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import type { AuthIntentContext } from "../authRedirect";
-import { colors, fonts } from "../theme";
+import { colors, fonts, stripedPlaceholder } from "../theme";
 
 // Shared shell for every full-page authentication screen — resident
 // (/signin, /signin/create, /signin/email-link) and vendor/admin (/login):
@@ -69,7 +69,7 @@ export function AuthPhotoPanel({
 }) {
   const avatarSeeds = avatarSeedPrefix ? [1, 2, 3, 4].map((n) => `${avatarSeedPrefix}-${n}`) : [];
   return (
-    <div className="signin-photo-col" style={{ position: "relative", background: "repeating-linear-gradient(135deg,#DDE8DA 0 18px,#E6EEE3 18px 36px)" }}>
+    <div className="signin-photo-col" style={{ position: "relative", background: stripedPlaceholder("#DDE8DA", "#E6EEE3", 18) }}>
       <img
         src={`https://picsum.photos/seed/${imageSeed}/1200/1400`}
         alt=""

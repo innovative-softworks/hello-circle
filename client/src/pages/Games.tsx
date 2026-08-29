@@ -17,7 +17,7 @@ import { dateLabel } from "../euro";
 import { formatAvailability, formatDateTime, formatPrice } from "../formatters";
 import { gameState, primaryCtaLabel } from "../gameCta";
 import { useGuest } from "../GuestContext";
-import { colors, fonts, maxWidth, radius } from "../theme";
+import { colors, fonts, maxWidth, placeholderStripes, radius } from "../theme";
 import { SKILL_LEVELS } from "../constants";
 import type { Centre, Game } from "../types";
 
@@ -66,7 +66,7 @@ export function GameCard({ game, onJoin, onLeave, joining }: { game: Game; onJoi
       <Photo
         src={game.imageUrl ?? undefined}
         alt={game.activityLabel}
-        ph="repeating-linear-gradient(135deg,#DDE8DA 0 14px,#E6EEE3 14px 28px)"
+        ph={placeholderStripes.green}
         icon={<BallIcon size={22} />}
         iconColor={colors.green}
         style={{ height: 120 }}
@@ -326,7 +326,7 @@ function JoinGameCard({
       <Photo
         src={game.imageUrl ?? undefined}
         alt={game.activityLabel}
-        ph="repeating-linear-gradient(135deg,#DDE8DA 0 14px,#E6EEE3 14px 28px)"
+        ph={placeholderStripes.green}
         icon={<BallIcon size={24} />}
         iconColor={colors.green}
         style={{ height: 150 }}

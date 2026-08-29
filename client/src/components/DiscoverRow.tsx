@@ -6,7 +6,7 @@ import { ArrowRightIcon, AwardIcon, BallIcon, CheckIcon, ChevronLeftIcon, Chevro
 import { Button } from "./ui";
 import { Photo } from "./Photo";
 import { SaveButton, useSavedState } from "./SaveButton";
-import { colors, fonts, radius } from "../theme";
+import { colors, fonts, placeholderStripes, radius, statTile } from "../theme";
 import type { DiscoverItem } from "../types";
 import { formatPrice } from "../formatters";
 
@@ -18,9 +18,9 @@ import { formatPrice } from "../formatters";
 // types.ts) and stay click-through-to-detail only.
 
 const KIND_META: Record<DiscoverItem["kind"], { icon: React.ReactNode; fg: string; ph: string }> = {
-  game: { icon: <BallIcon size={22} />, fg: colors.green, ph: "repeating-linear-gradient(135deg,#DDE8DA 0 14px,#E6EEE3 14px 28px)" },
-  program_session: { icon: <AwardIcon size={22} />, fg: "#3B5FCC", ph: "repeating-linear-gradient(135deg,#D9E6EC 0 14px,#E4EDF1 14px 28px)" },
-  club_session: { icon: <RepeatIcon size={22} />, fg: colors.orange, ph: "repeating-linear-gradient(135deg,#F5E1D3 0 14px,#FAEBE0 14px 28px)" },
+  game: { icon: <BallIcon size={22} />, fg: colors.green, ph: placeholderStripes.green },
+  program_session: { icon: <AwardIcon size={22} />, fg: statTile.blue.fg, ph: placeholderStripes.blue },
+  club_session: { icon: <RepeatIcon size={22} />, fg: colors.orange, ph: placeholderStripes.orange },
 };
 
 function dayPillLabel(dateIso: string): string {

@@ -23,7 +23,7 @@ import { IntentCaptureForm } from "../components/IntentCaptureForm";
 import { Photo } from "../components/Photo";
 import { Button, Card, CardSkeleton, EmptyState, inputStyle, labelStyle } from "../components/ui";
 import { useGuest } from "../GuestContext";
-import { colors, fonts, maxWidth, radius } from "../theme";
+import { colors, fonts, maxWidth, placeholderStripes, radius } from "../theme";
 import type { Circle, CircleInvitation, CircleSuggestion, Game } from "../types";
 
 // Circles discovery redesign — was a plain database-style list (name, "X
@@ -341,7 +341,7 @@ export function Circles() {
           <Photo
             src={heroPhoto ?? undefined}
             alt="People taking part in a Circle activity"
-            ph="repeating-linear-gradient(135deg,#DDE8DA 0 14px,#E6EEE3 14px 28px)"
+            ph={placeholderStripes.green}
             icon={<RepeatIcon size={40} />}
             iconColor={colors.green}
             style={{ height: 320, borderRadius: radius.card }}

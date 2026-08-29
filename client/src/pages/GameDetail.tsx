@@ -19,7 +19,7 @@ import { Button, Card, PageSpinner } from "../components/ui";
 import { isFavorite, toggleFavorite } from "../favorites";
 import { useGuest } from "../GuestContext";
 import { dateLabel } from "../euro";
-import { colors, fonts, maxWidth, photoOverlay, radius } from "../theme";
+import { colors, fonts, maxWidth, photoOverlay, placeholderStripes, radius } from "../theme";
 import type { Game } from "../types";
 
 // Self-serve check-in only makes sense in a real window around the game's
@@ -213,7 +213,7 @@ export function GameDetail() {
             <Photo
               src={game.imageUrl ?? undefined}
               alt={game.activityLabel}
-              ph="repeating-linear-gradient(135deg,#DDE8DA 0 14px,#E6EEE3 14px 28px)"
+              ph={placeholderStripes.green}
               icon={<BallIcon size={40} />}
               iconColor={colors.green}
               style={{ height: 340, borderRadius: 20, marginBottom: 24 }}

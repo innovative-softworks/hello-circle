@@ -3,7 +3,7 @@ import { BallIcon, CalendarIcon } from "./icons";
 import { Photo } from "./Photo";
 import { Button } from "./ui";
 import { formatAvailability, formatDatePill } from "../formatters";
-import { colors, fonts, radius } from "../theme";
+import { colors, fonts, placeholderStripes, radius } from "../theme";
 import type { Game } from "../types";
 
 // My Life redesign §10/§11 — "Your next up" card. Games only: a game
@@ -35,7 +35,7 @@ export function UpcomingPlanCard({ game }: { game: Game }) {
       <Photo
         src={game.imageUrl ?? undefined}
         alt={game.activityLabel}
-        ph="repeating-linear-gradient(135deg,#DDE8DA 0 14px,#E6EEE3 14px 28px)"
+        ph={placeholderStripes.green}
         icon={<BallIcon size={22} />}
         iconColor={colors.green}
         style={{ height: 140 }}
