@@ -38,7 +38,8 @@ L.Icon.Default.mergeOptions({ iconRetinaUrl: markerIcon2x, iconUrl: markerIcon, 
 // a closing CTA band — rather than the original single filter-bar-plus-grid
 // layout. Booking itself still happens on the detail page (ExperienceDetail
 // picks the actual session), so unlike Games this page has no inline
-// join/auth flow — every card CTA is just "View details".
+// join/auth flow — every card CTA is just "View adventure"/"View experience"
+// (entity-specific, matching ExperienceDetail.tsx's own per-kind wording).
 
 const PAGE_SIZE = 12;
 
@@ -158,7 +159,7 @@ function ExperienceMap({ items }: { items: Experience[] }) {
                   onClick={() => navigate(`/${e.kind === "adventure" ? "adventures" : "experiences"}/${e.slug ?? e.id}`)}
                   style={{ background: colors.dark, color: "#fff", border: "none", borderRadius: 8, padding: "6px 10px", fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}
                 >
-                  View details
+                  View {e.kind === "adventure" ? "adventure" : "experience"}
                 </button>
               </div>
             </Popup>
@@ -277,7 +278,7 @@ function ExperienceBrowseCard({ e }: { e: Experience }) {
             {e.priceCents ? <span style={{ fontSize: 12, fontWeight: 600, color: colors.mutedLight }}> pp</span> : null}
           </span>
           <Button variant="dark" onClick={open} style={{ padding: "8px 16px", fontSize: 13 }}>
-            View details
+            View {e.kind === "adventure" ? "adventure" : "experience"}
           </Button>
         </div>
       </div>

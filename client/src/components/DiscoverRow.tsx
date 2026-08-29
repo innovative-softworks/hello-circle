@@ -98,7 +98,7 @@ function JoinControl({ item }: { item: DiscoverItem }) {
     <div onClick={stopBubble}>
       {error && <div style={{ fontSize: 11.5, color: colors.danger, marginBottom: 6 }}>{error}</div>}
       <Button style={{ width: "100%", fontSize: 13 }} disabled={joining || full} onClick={handleJoin}>
-        {joining ? "Joining…" : full ? "Join waitlist" : "Join now"}
+        {joining ? "Joining…" : full ? "Join waitlist" : "I'm in"}
       </Button>
     </div>
   );
