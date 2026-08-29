@@ -12,6 +12,7 @@ import { PageTitle } from "./PageTitle";
 import { Button, Card, CardSkeleton, Drawer, EmptyState } from "./ui";
 import { isFavorite, toggleFavorite } from "../favorites";
 import { dateLabel } from "../euro";
+import { formatAvailability, formatDateTime, formatPrice } from "../formatters";
 import { colors, fonts, maxWidth, radius } from "../theme";
 import type { Experience, ExperienceKind, ExperienceSessionSlot } from "../types";
 
@@ -74,19 +75,8 @@ function uniqueSorted(values: (string | null | undefined)[]): string[] {
   return Array.from(new Set(values.filter((v): v is string => !!v))).sort((a, b) => a.localeCompare(b));
 }
 
-function relativeWhenLabel(iso: string): string {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const d = new Date(`${iso}T00:00:00`);
-  const diffDays = Math.round((d.getTime() - today.getTime()) / 86400000);
-  if (diffDays === 0) return "Today";
-  if (diffDays === 1) return "Tomorrow";
-  if (diffDays > 1 && diffDays < 7) return ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][d.getDay()];
-  return dateLabel(iso);
-}
-
 function sessionWhenLabel(s: ExperienceSessionSlot): string {
-  return `${relativeWhenLabel(s.date)} · ${s.time}`;
+  return formatDateTime(s.date, s.time);
 }
 
 function priceMatches(e: Experience, tier: PriceTier): boolean {
@@ -163,7 +153,7 @@ function ExperienceMap({ items }: { items: Experience[] }) {
               <div style={{ minWidth: 160 }}>
                 <div style={{ fontWeight: 700, marginBottom: 2 }}>{e.title}</div>
                 <div style={{ fontSize: 12.5, color: "#5B635C", marginBottom: 6 }}>{e.area}{e.area && e.county ? ", " : ""}{e.county}</div>
-                <div style={{ fontSize: 12.5, marginBottom: 8 }}>{e.priceCents ? `€${(e.priceCents / 100).toFixed(2)}pp` : "Free"}</div>
+                <div style={{ fontSize: 12.5, marginBottom: 8 }}>{formatPrice(e.priceCents, { each: true })}</div>
                 <button
                   onClick={() => navigate(`/${e.kind === "adventure" ? "adventures" : "experiences"}/${e.slug ?? e.id}`)}
                   style={{ background: colors.dark, color: "#fff", border: "none", borderRadius: 8, padding: "6px 10px", fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}
@@ -298,13 +288,13 @@ function ExperienceBrowseCard({ e }: { e: Experience }) {
           )}
           {session && (
             <span style={{ fontSize: 12.5, color: session.spotsLeft <= 2 ? colors.orangeDark : colors.mutedLight, fontWeight: session.spotsLeft <= 2 ? 700 : 400 }}>
-              {session.spotsLeft === 0 ? "Full" : session.spotsLeft === 1 ? "1 spot left" : `${session.spotsLeft} spots left`}
+              {formatAvailability(session.spotsLeft)}
             </span>
           )}
         </div>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <span style={{ fontWeight: 700, fontSize: 15, color: e.priceCents ? colors.text : colors.greenText }}>
-            {e.priceCents ? `€${(e.priceCents / 100).toFixed(2)}` : "Free"}
+            {formatPrice(e.priceCents)}
             {e.priceCents ? <span style={{ fontSize: 12, fontWeight: 600, color: colors.mutedLight }}> pp</span> : null}
           </span>
           <Button variant="dark" onClick={open} style={{ padding: "8px 16px", fontSize: 13 }}>

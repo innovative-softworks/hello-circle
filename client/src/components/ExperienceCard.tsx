@@ -3,6 +3,7 @@ import { CalendarIcon, PinIcon, TreeIconSmall } from "./icons";
 import { Card } from "./ui";
 import { colors, fonts, radius } from "../theme";
 import type { Experience } from "../types";
+import { formatPrice } from "../formatters";
 
 // Shared by the Adventures and Experiences browse pages (see
 // pages/Adventures.tsx / pages/Experiences.tsx) — both kinds share one
@@ -31,7 +32,7 @@ export function ExperienceCard({ e }: { e: Experience }) {
       <div style={{ padding: 15 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10 }}>
           <h3 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 16, margin: 0 }}>{e.title}</h3>
-          <span style={{ fontWeight: 700, fontSize: 15, whiteSpace: "nowrap" }}>{e.priceCents ? `€${(e.priceCents / 100).toFixed(2)}` : "Free"}</span>
+          <span style={{ fontWeight: 700, fontSize: 15, whiteSpace: "nowrap" }}>{formatPrice(e.priceCents)}</span>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 5, color: colors.mutedLight, fontSize: 13, marginTop: 4 }}>
           <PinIcon size={12} /> {e.area}{e.area && e.county ? ", " : ""}{e.county}

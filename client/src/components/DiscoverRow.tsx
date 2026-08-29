@@ -8,6 +8,7 @@ import { Button } from "./ui";
 import { Photo } from "./Photo";
 import { colors, fonts, radius } from "../theme";
 import type { DiscoverItem } from "../types";
+import { formatPrice } from "../formatters";
 
 // Photo-driven cards for the homepage "Happening today" / "This weekend"
 // feeds (Phase 5) — matches the rest of the app's photography-forward
@@ -211,7 +212,7 @@ export function DiscoverCard({ item, isToday }: { item: DiscoverItem; isToday: b
             padding: "4px 10px",
           }}
         >
-          {item.priceCents ? `€${(item.priceCents / 100).toFixed(2)}` : "Free"}
+          {formatPrice(item.priceCents)}
         </span>
         <button
           onClick={(e) => {

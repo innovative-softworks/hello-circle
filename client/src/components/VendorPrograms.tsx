@@ -20,6 +20,7 @@ import { Button, Card, ConfirmDialog, Drawer, EmptyState, inputStyle, labelStyle
 import { ACTIVITY_CATEGORIES, ATTENDANCE_STATUSES, ATTENDANCE_STATUS_LABELS, PROGRAM_STATUSES, SKILL_LEVELS } from "../constants";
 import { colors, fonts, radius } from "../theme";
 import type { AttendanceStatus, Program, ProgramStatus, Room, VendorProgramSummary } from "../types";
+import { formatPrice } from "../formatters";
 
 const ATTENDANCE_STATUS_COLORS: Record<AttendanceStatus, { fg: string; bg: string }> = {
   present: { fg: colors.greenText, bg: colors.greenBg },
@@ -453,7 +454,7 @@ export function VendorProgramsTab({
             <div>
               <div style={{ fontWeight: 700, fontSize: 14 }}>{p.title}</div>
               <div style={{ fontSize: 12, color: colors.mutedLight, display: "flex", alignItems: "center", gap: 6, marginTop: 2 }}>
-                <CalendarIcon size={12} /> {p.status} · {p.priceCents ? `€${(p.priceCents / 100).toFixed(2)}` : "Free"}
+                <CalendarIcon size={12} /> {p.status} · {formatPrice(p.priceCents)}
               </div>
             </div>
             <button

@@ -9,6 +9,7 @@ import { dateLabel } from "../euro";
 import { primaryCtaLabel as gamePrimaryCtaLabel } from "../gameCta";
 import { colors, fonts, radius } from "../theme";
 import type { Game, Resident } from "../types";
+import { formatPrice } from "../formatters";
 
 // The join CTA state machine (Game Detail redesign §19/§20) — one function
 // so the desktop sticky card and the mobile bottom bar can never disagree
@@ -57,7 +58,7 @@ function PlanRecap({ game }: { game: Game }) {
       <div style={{ margin: "4px 0" }}>{game.centreName ?? game.locationText}</div>
       <div>{game.joined}/{game.capacity} joined</div>
       <div style={{ fontWeight: 700, color: game.priceCents ? colors.text : colors.greenText }}>
-        {game.priceCents ? `€${(game.priceCents / 100).toFixed(2)} each` : "Free"}
+        {formatPrice(game.priceCents, { each: true })}
       </div>
     </div>
   );
@@ -211,7 +212,7 @@ export function GameJoinCard({ game, resident, isHost, onRefresh }: JoinCardProp
           <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}><CalendarIcon size={14} /> {dateLabel(game.date)} · {game.time}</span>
           <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}><PinIcon size={14} /> {game.centreName ?? game.locationText}</span>
           <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}><UsersIcon size={14} /> {game.joined}/{game.capacity} joined</span>
-          <span style={{ fontWeight: 700, color: game.priceCents ? colors.text : colors.greenText }}>{game.priceCents ? `€${(game.priceCents / 100).toFixed(2)}` : "Free"}</span>
+          <span style={{ fontWeight: 700, color: game.priceCents ? colors.text : colors.greenText }}>{formatPrice(game.priceCents)}</span>
         </div>
 
         {error && <p style={{ color: colors.danger, fontSize: 13.5, margin: "0 0 12px" }}>{error}</p>}
@@ -300,7 +301,7 @@ export function MobileJoinBar({ game, resident, isHost, onRefresh }: JoinCardPro
           <div style={{ fontWeight: 800, fontSize: 15, fontFamily: fonts.display }}>
             {game.status === "pending_participants" ? "Needs players" : game.spotsLeft === 0 ? "Full" : `${game.spotsLeft} spot${game.spotsLeft === 1 ? "" : "s"} left`}
           </div>
-          <div style={{ fontSize: 12.5, color: colors.mutedLight }}>{game.priceCents ? `€${(game.priceCents / 100).toFixed(2)}` : "Free"}</div>
+          <div style={{ fontSize: 12.5, color: colors.mutedLight }}>{formatPrice(game.priceCents)}</div>
         </div>
         <Button onClick={onClick} disabled={busy} style={{ flex: "none" }}>{busy ? "Please wait…" : label}</Button>
       </div>

@@ -14,6 +14,7 @@ import { AuthContextCard } from "../components/AuthShell";
 import { SignInPanel } from "../components/SignInPanel";
 import { isFavorite, toggleFavorite } from "../favorites";
 import { dateLabel } from "../euro";
+import { formatAvailability, formatDateTime, formatPrice } from "../formatters";
 import { gameState, primaryCtaLabel } from "../gameCta";
 import { useGuest } from "../GuestContext";
 import { colors, fonts, maxWidth, radius } from "../theme";
@@ -186,44 +187,23 @@ function uniqueSorted(values: (string | null | undefined)[]): string[] {
 }
 
 /** The plain-language "X going · Y spots left" line under a card's title -
- * urgency is carried by wording/color here rather than a bold image badge. */
+ * urgency is carried by wording/color here rather than a bold image badge.
+ * Delegates to the shared formatAvailability so the wording matches every
+ * other AvailabilityBadge-driven surface in the app. */
 function spotsLabel(game: Game): string {
-  if (game.spotsLeft === 0) return "Full";
-  if (game.status === "pending_participants") {
-    const needed = Math.max(0, (game.minParticipants ?? 0) - game.joined);
-    return needed === 1 ? "1 more to confirm" : `${needed} more to confirm`;
-  }
-  return game.spotsLeft === 1 ? "1 spot left" : `${game.spotsLeft} spots left`;
-}
-
-function relativeWhenLabel(iso: string): string {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const d = new Date(`${iso}T00:00:00`);
-  const diffDays = Math.round((d.getTime() - today.getTime()) / 86400000);
-  if (diffDays === 0) return "Today";
-  if (diffDays === 1) return "Tomorrow";
-  if (diffDays > 1 && diffDays < 7) return ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][d.getDay()];
-  return dateLabel(iso);
-}
-
-function gameWhen(game: Game): string {
-  return `${relativeWhenLabel(game.date)} · ${game.time}`;
+  const needed = game.status === "pending_participants" ? Math.max(0, (game.minParticipants ?? 0) - game.joined) : undefined;
+  return formatAvailability(game.spotsLeft, needed);
 }
 
 /** 12-hour clock, to match the "Today · 7:30 PM" pill badge convention -
  * only used there; everywhere else (confirm sheet, GameCard) keeps the
  * plain 24-hour time already stored/displayed. */
-function formatTime12h(time: string): string {
-  const [hStr, m] = time.split(":");
-  const h = parseInt(hStr, 10);
-  const ampm = h >= 12 ? "PM" : "AM";
-  const h12 = h % 12 || 12;
-  return `${h12}:${m} ${ampm}`;
+function gameWhen(game: Game): string {
+  return formatDateTime(game.date, game.time);
 }
 
 function gameWhen12h(game: Game): string {
-  return `${relativeWhenLabel(game.date)} · ${formatTime12h(game.time)}`;
+  return formatDateTime(game.date, game.time, true);
 }
 
 function priceMatches(game: Game, tier: PriceTier): boolean {
@@ -430,7 +410,7 @@ function JoinGameCard({
         </div>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <span style={{ fontWeight: 700, fontSize: 15, color: game.priceCents ? colors.text : colors.greenText }}>
-            {game.priceCents ? `€${(game.priceCents / 100).toFixed(2)}` : "Free"}
+            {formatPrice(game.priceCents)}
           </span>
           <Button variant={ctaVariant} disabled={busy} onClick={onPrimaryAction} style={ctaStyle}>
             {busy ? "Joining…" : ctaLabel}
@@ -871,7 +851,7 @@ export function Games() {
               <div style={{ margin: "4px 0" }}>{gameWhen(quickJoinGame)}</div>
               <div>{quickJoinGame.joined}/{quickJoinGame.capacity} joined</div>
               <div style={{ fontWeight: 700, color: quickJoinGame.priceCents ? colors.text : colors.greenText }}>
-                {quickJoinGame.priceCents ? `€${(quickJoinGame.priceCents / 100).toFixed(2)} each` : "Free"}
+                {formatPrice(quickJoinGame.priceCents, { each: true })}
               </div>
             </div>
           )

@@ -10,6 +10,7 @@ import { Card, CardSkeleton, EmptyState } from "../components/ui";
 import { useGuest } from "../GuestContext";
 import { colors, fonts, maxWidth, radius } from "../theme";
 import type { ExperienceSearchResult, SearchResult } from "../types";
+import { formatPrice } from "../formatters";
 
 export function ExperienceSearchCard({ e }: { e: ExperienceSearchResult }) {
   const navigate = useNavigate();
@@ -29,7 +30,7 @@ export function ExperienceSearchCard({ e }: { e: ExperienceSearchResult }) {
       <div style={{ padding: 13 }}>
         <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
           <h4 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 14.5, margin: 0 }}>{e.title}</h4>
-          <span style={{ fontWeight: 700, fontSize: 13.5, whiteSpace: "nowrap" }}>{e.priceCents ? `€${(e.priceCents / 100).toFixed(2)}` : "Free"}</span>
+          <span style={{ fontWeight: 700, fontSize: 13.5, whiteSpace: "nowrap" }}>{formatPrice(e.priceCents)}</span>
         </div>
         <div style={{ color: colors.mutedLight, fontSize: 12.5, marginTop: 3 }}>{e.area}{e.area && e.county ? ", " : ""}{e.county}</div>
       </div>

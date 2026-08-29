@@ -5,6 +5,7 @@ import { Photo } from "./Photo";
 import { isFavorite, toggleFavorite } from "../favorites";
 import { colors, fonts, radius } from "../theme";
 import type { CirclePlanPreview } from "../types";
+import { formatPrice } from "../formatters";
 
 // Upcoming plan card (reference §11-13) — date/time badge over a photo,
 // title, location, participation, availability, price. Plans don't carry
@@ -73,7 +74,7 @@ export function CirclePlanCard({ plan }: { plan: CirclePlanPreview }) {
           {plan.joined} going · {spots.text}
         </div>
         <div style={{ fontSize: 13.5, fontWeight: 700, color: plan.priceCents ? colors.text : colors.greenText, marginTop: 4 }}>
-          {plan.priceCents ? `€${(plan.priceCents / 100).toFixed(2)}` : "Free"}
+          {formatPrice(plan.priceCents)}
         </div>
       </div>
     </div>

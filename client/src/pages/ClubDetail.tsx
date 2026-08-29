@@ -13,6 +13,7 @@ import { isFavorite, toggleFavorite } from "../favorites";
 import { useGuest } from "../GuestContext";
 import { colors, fonts, maxWidth, radius } from "../theme";
 import type { Club, Program } from "../types";
+import { formatPrice } from "../formatters";
 
 export function ClubDetail() {
   // Slugs (master-prompt punch list #1) — see CentreDetail.tsx's own
@@ -205,7 +206,7 @@ export function ClubDetail() {
                       <div style={{ fontWeight: 700 }}>{p.title}</div>
                       <div style={{ fontSize: 13, color: colors.mutedLight }}>{p.sessions.length} session{p.sessions.length === 1 ? "" : "s"}{p.ageRange ? ` · ${p.ageRange}` : ""}</div>
                     </div>
-                    <div style={{ fontWeight: 700 }}>{p.priceCents ? `€${(p.priceCents / 100).toFixed(2)}` : "Free"}</div>
+                    <div style={{ fontWeight: 700 }}>{formatPrice(p.priceCents)}</div>
                   </button>
                 ))}
               </div>

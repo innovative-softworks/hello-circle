@@ -17,6 +17,7 @@ import { Button, Card, ConfirmDialog, Drawer, EmptyState, inputStyle, labelStyle
 import { MultiImageUpload } from "./VendorImageUpload";
 import { colors, fonts, radius } from "../theme";
 import type { Experience, ExperienceSessionRow, VendorExperienceBooking, VendorExperienceSummary } from "../types";
+import { formatPrice } from "../formatters";
 
 // Adventures & Experiences — vendor create/edit form + session/booking
 // management, split out the same way VendorPrograms.tsx is (see CLAUDE.md).
@@ -455,7 +456,7 @@ export function VendorExperiencesTab() {
                 <div style={{ fontWeight: 700, fontSize: 14 }}>{e.title}</div>
                 <div style={{ fontSize: 12, color: colors.mutedLight, display: "flex", alignItems: "center", gap: 6, marginTop: 2 }}>
                   <CalendarIcon size={12} />
-                  {e.kind === "adventure" ? "Adventure" : "Experience"} · {e.priceCents ? `€${(e.priceCents / 100).toFixed(2)}pp` : "Free"}
+                  {e.kind === "adventure" ? "Adventure" : "Experience"} · {formatPrice(e.priceCents, { each: true })}
                   <span style={{ fontSize: 11, fontWeight: 700, borderRadius: radius.pill, padding: "2px 8px", background: palette.bg, color: palette.fg, textTransform: "capitalize" }}>{e.status}</span>
                 </div>
               </div>

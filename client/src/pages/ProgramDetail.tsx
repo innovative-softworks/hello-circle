@@ -8,6 +8,7 @@ import { useGuest } from "../GuestContext";
 import { colors, fonts, maxWidth, radius } from "../theme";
 import { isValidEmail } from "../validate";
 import type { Program } from "../types";
+import { formatPrice } from "../formatters";
 
 // Resident-facing Program detail (Phase B) — the "8-week course, one
 // sign-up" counterpart to Activity/Facility detail. One enrollment covers
@@ -163,7 +164,7 @@ export function ProgramDetail() {
           <div className="sticky-aside" style={{ position: "sticky", top: 90 }} ref={enrollCardRef}>
             <Card>
               <div style={{ fontWeight: 700, fontSize: 24, marginBottom: 4, fontFamily: fonts.display }}>
-                {program.priceCents ? `€${(program.priceCents / 100).toFixed(2)}` : "Free"}
+                {formatPrice(program.priceCents)}
               </div>
               {full ? (
                 <p style={{ color: colors.muted, fontSize: 14 }}>This program is full — check back for a future intake.</p>
@@ -180,7 +181,7 @@ export function ProgramDetail() {
       <div className="mobile-join-bar">
         <div>
           <div style={{ fontWeight: 800, fontSize: 15, fontFamily: fonts.display }}>{program.title}</div>
-          <div style={{ fontSize: 12.5, color: colors.mutedLight }}>{program.priceCents ? `€${(program.priceCents / 100).toFixed(2)}` : "Free"}</div>
+          <div style={{ fontSize: 12.5, color: colors.mutedLight }}>{formatPrice(program.priceCents)}</div>
         </div>
         {/* Scrolls to the enroll form rather than submitting directly — unlike
             Centre/ClubDetail's mobile bar (which navigates to a fresh page),

@@ -16,6 +16,7 @@ import { dateLabel } from "../euro";
 import { colors, fonts, maxWidth, photoOverlay, radius } from "../theme";
 import { isValidEmail } from "../validate";
 import type { Experience, ExperienceSessionSlot } from "../types";
+import { formatPrice } from "../formatters";
 
 // Adventures & Experiences detail page — this pass rebuilds it to use
 // GameDetail.tsx as the literal visual/layout source of truth (badge-
@@ -288,7 +289,7 @@ export function ExperienceDetail() {
     ...(experience.elevationGainM !== null ? [{ label: "Elevation gain", value: `${experience.elevationGainM} m` }] : []),
     ...(experience.difficulty ? [{ label: "Difficulty", value: capitalize(experience.difficulty) }] : []),
     { label: "Group size", value: `Up to ${experience.capacity}` },
-    { label: "Price", value: experience.priceCents ? `€${(experience.priceCents / 100).toFixed(2)} pp` : "Free" },
+    { label: "Price", value: formatPrice(experience.priceCents, { each: true }) },
     ...(experience.terrainType ? [{ label: "Terrain", value: experience.terrainType }] : []),
     ...(experience.eligibility ? [{ label: "Requirements", value: experience.eligibility }] : []),
   ];
@@ -707,7 +708,7 @@ export function ExperienceDetail() {
                   <>
                     <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}><CalendarIcon size={14} /> {dateLabel(session.date)} · {session.time}</span>
                     <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}><PinIcon size={14} /> {experience.area}{experience.area && experience.county ? ", " : ""}{experience.county}</span>
-                    <span style={{ fontWeight: 700, color: experience.priceCents ? colors.text : colors.greenText }}>{experience.priceCents ? `€${(experience.priceCents / 100).toFixed(2)} pp` : "Free"}</span>
+                    <span style={{ fontWeight: 700, color: experience.priceCents ? colors.text : colors.greenText }}>{formatPrice(experience.priceCents, { each: true })}</span>
                   </>
                 ) : (
                   <span style={{ color: colors.faint }}>No upcoming departures scheduled yet.</span>
@@ -763,7 +764,7 @@ export function ExperienceDetail() {
         <div className="mobile-join-bar">
           <div>
             <div style={{ fontWeight: 800, fontSize: 15, fontFamily: fonts.display, color: joinHeadlineColor }}>{joinHeadline}</div>
-            <div style={{ fontSize: 12.5, color: colors.mutedLight }}>{experience.priceCents ? `€${(experience.priceCents / 100).toFixed(2)}` : "Free"}</div>
+            <div style={{ fontSize: 12.5, color: colors.mutedLight }}>{formatPrice(experience.priceCents)}</div>
           </div>
           <Button onClick={() => setBookingOpen(true)} style={{ flex: "none" }}>{registerLabel}</Button>
         </div>
