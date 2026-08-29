@@ -742,7 +742,7 @@ export function Home() {
       {/* §3 — Mood/intent selector. Immediately after the hero. */}
       <section style={fullBleedStyle(colors.bg)}>
         <div className="section-pad" style={innerWrapStyle}>
-          <SectionHeader eyebrow="Mood" title="What are you in the mood for?" titleSize="clamp(24px, 2.8vw, 30px)" titleColor="#ee4826" />
+          <SectionHeader eyebrow="Mood" title="What are you in the mood for?" titleSize="clamp(24px, 2.8vw, 30px)" titleColor={colors.logoMark} />
           {/* Not .grid-responsive — that utility collapses to a single
               column under 900px, which would stack all 6 tiles into one
               tall column. auto-fit/minmax reflows naturally instead. */}

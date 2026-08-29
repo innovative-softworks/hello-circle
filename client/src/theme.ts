@@ -62,6 +62,16 @@ export const colors = {
    * `rgba(var(--color-bg-rgb), .86)` isn't reliably available without also
    * defining bg as separate r/g/b channel variables. */
   headerBg: "var(--color-header-bg)",
+
+  /** The exact orange baked into Logo.svg's mark (the two swirl paths,
+   * `.cls-2`) — a literal hex, not a `var(--color-*)` reference like every
+   * other token here, because it names a fixed asset color rather than a
+   * themeable UI color: Logo.svg has no dark-mode variant, so this never
+   * changes with the theme either. Deliberately distinct from `orange`/
+   * `orangeDark` (which were tuned for WCAG contrast as UI accent colors)
+   * — reach for this only when a use is genuinely referencing the logo's
+   * own brand mark, not as a substitute for the functional orange accent. */
+  logoMark: "#ee4826",
 };
 
 export const fonts = {
