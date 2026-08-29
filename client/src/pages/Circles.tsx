@@ -503,11 +503,7 @@ export function Circles() {
         {/* EDITORIAL BREAK — THIS WEEK */}
         {weekByCounty.length > 0 && (
           <div style={{ borderTop: `1px solid ${colors.border}`, padding: "40px 0" }}>
-            <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: ".09em", textTransform: "uppercase", color: colors.mutedLight, marginBottom: 8 }}>This week</div>
-            <h2 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(22px, 2.8vw, 30px)", letterSpacing: "-.01em", margin: "0 0 8px" }}>
-              People are showing up.
-            </h2>
-            <p style={{ fontSize: 15, color: colors.mutedLight, margin: "0 0 22px" }}>See Circles with plans happening across Ireland this week.</p>
+            <SectionHeader eyebrow="This week" title="People are showing up." subtitle="See Circles with plans happening across Ireland this week." titleSize="clamp(22px, 2.8vw, 30px)" />
             {weekByCounty.map((row) => (
               <div key={row.label} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, borderTop: `1px solid ${colors.border}`, padding: "14px 4px" }}>
                 <span style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 16 }}>{row.label}</span>
@@ -527,10 +523,7 @@ export function Circles() {
         {/* BY ACTIVITY */}
         {byActivity.length > 0 && (
           <div style={{ borderTop: `1px solid ${colors.border}`, padding: "40px 0" }}>
-            <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: ".09em", textTransform: "uppercase", color: colors.mutedLight, marginBottom: 8 }}>By activity</div>
-            <h2 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(22px, 2.8vw, 30px)", letterSpacing: "-.01em", margin: "0 0 22px" }}>
-              What are you into?
-            </h2>
+            <SectionHeader eyebrow="By activity" title="What are you into?" titleSize="clamp(22px, 2.8vw, 30px)" />
             <div className="grid-responsive-3" style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 1, background: colors.border }}>
               {byActivity.map((row) => (
                 <button
@@ -549,10 +542,7 @@ export function Circles() {
         {/* AROUND IRELAND */}
         {byCounty.length > 0 && (
           <div style={{ borderTop: `1px solid ${colors.border}`, padding: "40px 0" }}>
-            <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: ".09em", textTransform: "uppercase", color: colors.mutedLight, marginBottom: 8 }}>Around Ireland</div>
-            <h2 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(22px, 2.8vw, 30px)", letterSpacing: "-.01em", margin: "0 0 22px" }}>
-              Find a Circle near you
-            </h2>
+            <SectionHeader eyebrow="Around Ireland" title="Find a Circle near you" titleSize="clamp(22px, 2.8vw, 30px)" />
             <CircleCountList items={byCounty} unit="Circle" onSelect={(label) => { setCounty(label); scrollToResults(); }} />
           </div>
         )}
@@ -562,8 +552,7 @@ export function Circles() {
           <div className="grid-responsive" style={{ borderTop: `1px solid ${colors.border}`, padding: "40px 0", display: "grid", gridTemplateColumns: newCircles.length > 0 && needsPeople.length > 0 ? "1fr 1fr" : "1fr", gap: 40 }}>
             {newCircles.length > 0 && (
               <div>
-                <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: ".09em", textTransform: "uppercase", color: colors.mutedLight, marginBottom: 8 }}>New around you</div>
-                <h2 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 22, letterSpacing: "-.01em", margin: "0 0 16px" }}>Just started</h2>
+                <SectionHeader eyebrow="New around you" title="Just started" titleSize="22px" />
                 <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                   {newCircles.map((c) => (
                     <button key={c.id} onClick={() => navigate(`/circles/${c.slug ?? c.id}`)} style={{ textAlign: "left", background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 14, padding: "14px 16px", cursor: "pointer" }}>
@@ -579,8 +568,7 @@ export function Circles() {
             )}
             {needsPeople.length > 0 && (
               <div>
-                <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: ".09em", textTransform: "uppercase", color: colors.mutedLight, marginBottom: 8 }}>Needs people</div>
-                <h2 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 22, letterSpacing: "-.01em", margin: "0 0 16px" }}>A few more would make it happen</h2>
+                <SectionHeader eyebrow="Needs people" title="A few more would make it happen" titleSize="22px" />
                 <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                   {needsPeople.map((c) => (
                     <button key={c.id} onClick={() => navigate(`/circles/${c.slug ?? c.id}`)} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, textAlign: "left", background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 14, padding: "14px 16px", cursor: "pointer" }}>

@@ -5,7 +5,7 @@ import { Card, EmptyState, StatRow, StatTile } from "./ui";
 import { CommunityIllustration } from "./illustrations";
 import { VendorScheduleTab } from "./VendorPrograms";
 import { useAuth } from "../AuthContext";
-import { colors, fonts } from "../theme";
+import { colors, fonts, statTile } from "../theme";
 import type { VendorStats, VendorToday } from "../types";
 
 // The Overview tab (KPI row, same-day summary, engagement tips) — split
@@ -86,8 +86,8 @@ export function VendorOverviewTab({ stats, unreadCount }: { stats: VendorStats; 
       <StatRow marginBottom={0}>
         <StatTile icon={<BuildingIcon size={19} />} iconBg={colors.greenBg} iconColor={colors.green} value={stats.centresLive} label="Community centres" sublabel="Live listings" sublabelColor={colors.greenText} />
         <StatTile icon={<BallIcon size={19} />} iconBg={colors.orangeBg} iconColor={colors.orange} value={stats.clubsLive} label="Sports clubs" sublabel="Live listings" sublabelColor={colors.orangeDark} />
-        <StatTile icon={<CalendarIcon size={19} />} iconBg="#E9F0FC" iconColor="#3B5FCC" value={stats.totalBookings} label="Total bookings" sublabel="All time" sublabelColor="#3B5FCC" />
-        <StatTile icon={<EyeIcon size={19} />} iconBg="#F1E9FC" iconColor="#7B4FCC" value={stats.totalViews} label="Total views" sublabel="All time" sublabelColor="#7B4FCC" />
+        <StatTile icon={<CalendarIcon size={19} />} iconBg={statTile.blue.bg} iconColor={statTile.blue.fg} value={stats.totalBookings} label="Total bookings" sublabel="All time" sublabelColor={statTile.blue.fg} />
+        <StatTile icon={<EyeIcon size={19} />} iconBg={statTile.purple.bg} iconColor={statTile.purple.fg} value={stats.totalViews} label="Total views" sublabel="All time" sublabelColor={statTile.purple.fg} />
         <StatTile icon={<ChatIcon size={19} />} iconBg={colors.panel} iconColor={colors.muted} value={unreadCount} label="Unread messages" sublabel="From users" sublabelColor={colors.mutedLight} />
       </StatRow>
       <Card>

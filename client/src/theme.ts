@@ -85,6 +85,17 @@ export const photoOverlay = {
   whiteBg: "rgba(255,255,255,.92)",
 } as const;
 
+/** Neutral categorical icon-tile colors for admin/vendor KPI stat rows
+ * (StatTile) — distinguishes tiles by hue alone (not brand semantics like
+ * green=success/orange=urgency), the same way a dashboard chart's series
+ * colors would. Was an identical raw hex pair repeated in AdminDashboard.tsx
+ * and VendorOverview.tsx with no shared name. */
+export const statTile = {
+  purple: { bg: "#F1E9FC", fg: "#7B4FCC" },
+  blue: { bg: "#E9F0FC", fg: "#3B5FCC" },
+  gold: { bg: "#FCF3D9", fg: "#B8860B" },
+} as const;
+
 // --- Design tokens (UI/UX plan phases 2 & 6) --------------------------------
 // Previously nothing governed spacing/type/radius choices beyond hand-picked
 // inline pixel values per call site — 309 borderRadius declarations across

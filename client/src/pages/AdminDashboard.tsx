@@ -61,7 +61,7 @@ import { Avatar, BadgedIcon, Button, Card, ConfirmDialog, DashboardTopPanel, Dra
 import { DemandSignalsView, IntentClusterView } from "../components/DemandSignals";
 import { MarketplaceHealthView } from "../components/MarketplaceHealth";
 import { MarketConfig } from "../components/MarketConfig";
-import { colors, fonts, maxWidth } from "../theme";
+import { colors, fonts, maxWidth, statTile } from "../theme";
 import { FEATURE_FLAG_KEYS, FEATURE_FLAG_LABELS } from "../types";
 import type { AdminOrganisation, AdminStats, AnalyticsFunnelRow, AuditEntry, CircleActivity, DemandRow, FeatureFlagKey, FeatureFlags, IntentCluster, MarketplaceHealth, ModerationReport, NotificationTemplateInfo, OpenBookingActivity, PlaceSuggestion, ReferralAttributionRow, ReportCase, Review, SupportBooking, SupportCircle, SupportGame, SupportRegistration, SupportUser } from "../types";
 
@@ -1657,10 +1657,10 @@ function AdminOverviewTab({ stats }: { stats: AdminStats }) {
       <StatRow marginBottom={0}>
         <StatTile icon={<BuildingIcon size={19} />} iconBg={colors.greenBg} iconColor={colors.green} value={stats.centresPending} label="Community centres" sublabel="Pending approval" sublabelColor={colors.greenText} />
         <StatTile icon={<BallIcon size={19} />} iconBg={colors.orangeBg} iconColor={colors.orange} value={stats.clubsPending} label="Sports clubs" sublabel="Pending approval" sublabelColor={colors.orangeDark} />
-        <StatTile icon={<UsersIcon size={19} />} iconBg="#F1E9FC" iconColor="#7B4FCC" value={stats.vendorCount} label="Vendors" sublabel="Registered" sublabelColor="#7B4FCC" />
-        <StatTile icon={<CalendarIcon size={19} />} iconBg="#E9F0FC" iconColor="#3B5FCC" value={stats.totalListings} label="Total listings" sublabel="All time" sublabelColor="#3B5FCC" />
-        <StatTile icon={<StarIcon size={19} />} iconBg="#FCF3D9" iconColor="#B8860B" value={stats.reviewCount} label="Reviews" sublabel="Total" sublabelColor="#B8860B" />
-        <StatTile icon={<CheckIcon size={19} />} iconBg="#E9F0FC" iconColor="#3B5FCC" value={stats.bookingsToday} label="Bookings today" sublabel="All types" sublabelColor="#3B5FCC" />
+        <StatTile icon={<UsersIcon size={19} />} iconBg={statTile.purple.bg} iconColor={statTile.purple.fg} value={stats.vendorCount} label="Vendors" sublabel="Registered" sublabelColor={statTile.purple.fg} />
+        <StatTile icon={<CalendarIcon size={19} />} iconBg={statTile.blue.bg} iconColor={statTile.blue.fg} value={stats.totalListings} label="Total listings" sublabel="All time" sublabelColor={statTile.blue.fg} />
+        <StatTile icon={<StarIcon size={19} />} iconBg={statTile.gold.bg} iconColor={statTile.gold.fg} value={stats.reviewCount} label="Reviews" sublabel="Total" sublabelColor={statTile.gold.fg} />
+        <StatTile icon={<CheckIcon size={19} />} iconBg={statTile.blue.bg} iconColor={statTile.blue.fg} value={stats.bookingsToday} label="Bookings today" sublabel="All types" sublabelColor={statTile.blue.fg} />
         <StatTile icon={<IdCardIcon size={19} />} iconBg={colors.dangerBg} iconColor={colors.danger} value={stats.paymentFailures} label="Payment failures" sublabel="All time" sublabelColor={colors.danger} />
         <StatTile icon={<ClipboardIcon size={19} />} iconBg={colors.dangerBg} iconColor={colors.danger} value={stats.openReports} label="Open reports" sublabel="Awaiting action" sublabelColor={colors.danger} />
       </StatRow>
