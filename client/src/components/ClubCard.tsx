@@ -1,6 +1,6 @@
 import { useNavigate } from "react-router-dom";
 import type { Club } from "../types";
-import { colors } from "../theme";
+import { cardImageRatio, colors } from "../theme";
 import { priceLabel } from "../priceLabel";
 import { BallIcon } from "./icons";
 import { Photo } from "./Photo";
@@ -30,7 +30,7 @@ export function ClubCard({ club }: { club: Club }) {
         ph={club.ph}
         icon={<BallIcon size={26} />}
         iconColor={colors.orangeDark}
-        style={{ height: 120 }}
+        style={{ aspectRatio: cardImageRatio.discovery }}
         contentStyle={{ display: "flex", alignItems: "flex-end", padding: 12 }}
       >
         <span

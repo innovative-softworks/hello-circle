@@ -2,7 +2,7 @@ import { useNavigate } from "react-router-dom";
 import { CalendarIcon } from "./icons";
 import { Photo } from "./Photo";
 import { SaveButton, useSavedState } from "./SaveButton";
-import { colors, fonts, placeholderStripes, radius } from "../theme";
+import { cardImageRatio, colors, fonts, placeholderStripes, radius } from "../theme";
 import type { CirclePlanPreview } from "../types";
 import { formatCircleAvailability, formatDatePill, formatPrice } from "../formatters";
 
@@ -40,7 +40,7 @@ export function CirclePlanCard({ plan }: { plan: CirclePlanPreview }) {
         ph={placeholderStripes.green}
         icon={<CalendarIcon size={22} />}
         iconColor={colors.green}
-        style={{ height: 150 }}
+        style={{ aspectRatio: cardImageRatio.discovery }}
         contentStyle={{ padding: 10, display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}
       >
         <span style={{ background: "rgba(255,255,255,.92)", color: colors.text, borderRadius: radius.pill, padding: "4px 10px", fontSize: 11, fontWeight: 800, letterSpacing: ".02em" }}>

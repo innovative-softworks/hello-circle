@@ -1336,7 +1336,7 @@ export function Home() {
                 {nearYouItems.map((t) => (
                   <div key={`${t.kind}-${t.listing.id}`}>
                     <div style={{ position: "relative" }}>
-                      {t.kind === "centre" ? <CentreCard centre={t.listing} height={132} /> : <ClubCard club={t.listing} />}
+                      {t.kind === "centre" ? <CentreCard centre={t.listing} /> : <ClubCard club={t.listing} />}
                       <span
                         style={{
                           position: "absolute",
@@ -1455,7 +1455,7 @@ export function Home() {
             <div className="grid-responsive-3" style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 20 }}>
               {loadingCentres
                 ? Array.from({ length: 4 }, (_, i) => <CardSkeleton key={i} photoHeight={132} />)
-                : featuredCentres.map((c) => <CentreCard key={c.id} centre={c} height={132} />)}
+                : featuredCentres.map((c) => <CentreCard key={c.id} centre={c} />)}
             </div>
           )}
         </div>

@@ -4,7 +4,7 @@ import { Photo } from "./Photo";
 import { Button, Card } from "./ui";
 import { dateLabel } from "../euro";
 import { formatCircleAvailability } from "../formatters";
-import { colors, fonts, photoOverlay, placeholderStripes, radius } from "../theme";
+import { cardImageRatio, colors, fonts, photoOverlay, placeholderStripes, radius } from "../theme";
 import type { Circle } from "../types";
 
 const DAY_MS = 86400000;
@@ -39,7 +39,7 @@ export function CircleDiscoveryCard({ circle, joined, onJoin, onLeave, busy }: {
           ph={placeholderStripes.green}
           icon={<RepeatIcon size={22} />}
           iconColor={colors.green}
-          style={{ height: 160 }}
+          style={{ aspectRatio: cardImageRatio.discovery }}
           contentStyle={{ padding: 10, display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}
         >
           {state ? (

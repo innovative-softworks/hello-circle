@@ -6,7 +6,7 @@ import { ArrowRightIcon, AwardIcon, BallIcon, CheckIcon, ChevronLeftIcon, Chevro
 import { Button } from "./ui";
 import { Photo } from "./Photo";
 import { SaveButton, useSavedState } from "./SaveButton";
-import { colors, fonts, placeholderStripes, radius, statTile } from "../theme";
+import { cardImageRatio, colors, fonts, placeholderStripes, radius, statTile } from "../theme";
 import type { DiscoverItem } from "../types";
 import { formatPrice } from "../formatters";
 
@@ -134,7 +134,7 @@ export function DiscoverCard({ item, isToday }: { item: DiscoverItem; isToday: b
         ph={meta.ph}
         icon={meta.icon}
         iconColor={meta.fg}
-        style={{ height: 130 }}
+        style={{ aspectRatio: cardImageRatio.discovery }}
         contentStyle={{ position: "relative" }}
       >
         <div style={{ position: "absolute", top: 10, left: 10 }}>

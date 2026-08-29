@@ -85,6 +85,24 @@ export const photoOverlay = {
   whiteBg: "rgba(255,255,255,.92)",
 } as const;
 
+/** Discovery/listing card image aspect ratios (cards/listings consistency
+ * pass) — before this, six card components each picked their own fixed
+ * pixel height (120/130/132/140/150/160px) with no shared ratio, so cards
+ * in different grids/rails looked proportioned differently even where the
+ * content was the same shape of thing. A ratio (via CSS `aspect-ratio`,
+ * not a fixed height) is the actually-correct fix for cards that render at
+ * different widths in different grid contexts — `discovery`'s image stays
+ * 16:10 whether the card is 220px or 320px wide, where a fixed height
+ * wouldn't. `compact`/`horizontal`/`hero` are named for the same three
+ * other shapes the design-system doc calls for, ready for cards that adopt
+ * them later — only `discovery` is applied anywhere yet. */
+export const cardImageRatio = {
+  discovery: "16/10",
+  compact: "4/3",
+  horizontal: "3/2",
+  hero: "16/6",
+} as const;
+
 /** Diagonal-stripe placeholder background for Photo's `ph` prop, used when a
  * listing has no real image yet — was a raw, copy-pasted gradient string in
  * 10 files. Three color pairs were already established by convention

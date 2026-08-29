@@ -81,7 +81,7 @@ export function AskHelloCircle() {
                   )}
                   {(t.result.centres.length > 0 || t.result.clubs.length > 0) && (
                     <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: 14 }}>
-                      {t.result.centres.map((c) => <CentreCard key={c.id} centre={c} height={110} />)}
+                      {t.result.centres.map((c) => <CentreCard key={c.id} centre={c} />)}
                       {t.result.clubs.map((c) => <ClubCard key={c.id} club={c} />)}
                     </div>
                   )}

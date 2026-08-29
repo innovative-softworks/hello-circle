@@ -409,7 +409,7 @@ export function Browse() {
                       >
                         {picked ? <CheckIcon size={14} /> : "+"}
                       </button>
-                      <CentreCard centre={c} height={140} />
+                      <CentreCard centre={c} />
                     </div>
                   );
                 })}

@@ -1,11 +1,11 @@
 import { useNavigate } from "react-router-dom";
 import type { Centre } from "../types";
-import { colors } from "../theme";
+import { cardImageRatio, colors } from "../theme";
 import { BuildingIcon, StarIcon } from "./icons";
 import { Photo } from "./Photo";
 import { SaveButton, useSavedState } from "./SaveButton";
 
-export function CentreCard({ centre, height = 140 }: { centre: Centre; height?: number }) {
+export function CentreCard({ centre }: { centre: Centre }) {
   const navigate = useNavigate();
   const [fav, toggleFav] = useSavedState("centre", centre.id);
 
@@ -15,7 +15,7 @@ export function CentreCard({ centre, height = 140 }: { centre: Centre; height?: 
       className="card-hover card-surface"
       style={{
         cursor: "pointer",
-        background: "#fff",
+        background: colors.surface,
         border: `1px solid ${colors.border}`,
         borderRadius: 18,
         overflow: "hidden",
@@ -27,7 +27,7 @@ export function CentreCard({ centre, height = 140 }: { centre: Centre; height?: 
         ph={centre.ph}
         icon={<BuildingIcon size={26} />}
         iconColor={colors.green}
-        style={{ height }}
+        style={{ aspectRatio: cardImageRatio.discovery }}
         contentStyle={{ display: "flex", alignItems: "flex-end", padding: 12 }}
       >
         <span

@@ -17,7 +17,7 @@ import { dateLabel } from "../euro";
 import { formatAvailability, formatDateTime, formatPrice } from "../formatters";
 import { gameState, primaryCtaLabel } from "../gameCta";
 import { useGuest } from "../GuestContext";
-import { colors, fonts, maxWidth, placeholderStripes, radius } from "../theme";
+import { cardImageRatio, colors, fonts, maxWidth, placeholderStripes, radius } from "../theme";
 import { SKILL_LEVELS } from "../constants";
 import type { Centre, Game } from "../types";
 
@@ -69,7 +69,7 @@ export function GameCard({ game, onJoin, onLeave, joining }: { game: Game; onJoi
         ph={placeholderStripes.green}
         icon={<BallIcon size={22} />}
         iconColor={colors.green}
-        style={{ height: 120 }}
+        style={{ aspectRatio: cardImageRatio.discovery }}
       />
       <div style={{ padding: 16 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
@@ -329,7 +329,7 @@ function JoinGameCard({
         ph={placeholderStripes.green}
         icon={<BallIcon size={24} />}
         iconColor={colors.green}
-        style={{ height: 150 }}
+        style={{ aspectRatio: cardImageRatio.discovery }}
         contentStyle={{ padding: 10, display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}
       >
         <span

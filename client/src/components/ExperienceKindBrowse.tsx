@@ -13,7 +13,7 @@ import { Button, Card, CardSkeleton, Drawer, EmptyState } from "./ui";
 import { SaveButton, useSavedState } from "./SaveButton";
 import { dateLabel } from "../euro";
 import { formatAvailability, formatDateTime, formatPrice } from "../formatters";
-import { colors, fonts, maxWidth, radius } from "../theme";
+import { cardImageRatio, colors, fonts, maxWidth, radius } from "../theme";
 import type { Experience, ExperienceKind, ExperienceSessionSlot } from "../types";
 
 // Same marker-icon fix DiscoveryMap.tsx/SinglePinMap.tsx need — see either
@@ -189,7 +189,7 @@ function ExperienceBrowseCard({ e }: { e: Experience }) {
         ph={e.kind === "adventure" ? colors.greenBg : colors.orangeBg}
         icon={<TreeIconSmall size={24} />}
         iconColor={e.kind === "adventure" ? colors.greenText : colors.orangeDark}
-        style={{ height: 150 }}
+        style={{ aspectRatio: cardImageRatio.discovery }}
         contentStyle={{ padding: 10, display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}
       >
         {session ? (
