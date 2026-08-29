@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { acceptInvite, fetchInviteDetails } from "../api";
+import { AuthPhotoPanel, AuthShell } from "../components/AuthShell";
 import { Button, PageSpinner, inputStyle, labelStyle } from "../components/ui";
-import { colors, fonts } from "../theme";
+import { colors } from "../theme";
 
 // Staff invite acceptance (Phase C) — reached via the link org.ts's
 // staff/invite route emails.
@@ -49,27 +50,37 @@ export function AcceptInvite() {
   if (loading) return <PageSpinner />;
 
   return (
-    <div style={{ animation: "fadeUp .3s ease both" }}>
-      <section className="section-pad" style={{ maxWidth: 440, margin: "0 auto", padding: "64px 24px" }}>
-        {!invite ? (
-          <p style={{ color: colors.danger }}>{error ?? "This invite is no longer valid."}</p>
-        ) : (
-          <>
-            <h1 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 26, margin: "0 0 8px" }}>Join {invite.orgName}</h1>
-            <p style={{ color: colors.mutedLight, marginBottom: 22 }}>
-              You've been invited as <strong>{invite.platformRole.replace(/_/g, " ")}</strong> — signing in as {invite.email}.
-            </p>
-            <label style={labelStyle}>Your name</label>
-            <input value={name} onChange={(e) => setName(e.target.value)} style={{ ...inputStyle, marginBottom: 14 }} />
-            <label style={labelStyle}>Set a password</label>
-            <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} style={{ ...inputStyle, marginBottom: 8 }} />
-            {error && <p style={{ color: colors.danger, fontSize: 13, margin: "0 0 12px" }}>{error}</p>}
-            <Button full onClick={submit} disabled={submitting}>
-              {submitting ? "Joining…" : "Accept & join"}
-            </Button>
-          </>
-        )}
-      </section>
-    </div>
+    <AuthShell
+      photo={
+        <AuthPhotoPanel
+          imageSeed="hellocircle-vendor-login"
+          heading={<>Fill your rooms.<br />Grow your community.<br />Run it your way.</>}
+          avatarCaption="Join hundreds of venues and clubs already listed."
+          avatarSeedPrefix="hc-vendor-avatar"
+        />
+      }
+    >
+      {!invite ? (
+        <>
+          <h1 style={{ fontWeight: 800, fontSize: "clamp(26px,3vw,32px)", margin: "0 0 8px", letterSpacing: "-.02em" }}>Invite not found</h1>
+          <p style={{ color: colors.danger, fontSize: 15 }}>{error ?? "This invite is no longer valid."}</p>
+        </>
+      ) : (
+        <>
+          <h1 style={{ fontWeight: 800, fontSize: "clamp(26px,3vw,32px)", margin: "0 0 8px", letterSpacing: "-.02em" }}>Join {invite.orgName}</h1>
+          <p style={{ color: colors.mutedLight, fontSize: 15, margin: "0 0 28px" }}>
+            You've been invited as <strong>{invite.platformRole.replace(/_/g, " ")}</strong> — signing in as {invite.email}.
+          </p>
+          <label style={labelStyle}>Your name</label>
+          <input value={name} onChange={(e) => setName(e.target.value)} style={{ ...inputStyle, marginBottom: 14 }} />
+          <label style={labelStyle}>Set a password</label>
+          <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} style={{ ...inputStyle, marginBottom: 8 }} />
+          {error && <p style={{ color: colors.danger, fontSize: 13, margin: "0 0 12px" }}>{error}</p>}
+          <Button full onClick={submit} disabled={submitting}>
+            {submitting ? "Joining…" : "Accept & join →"}
+          </Button>
+        </>
+      )}
+    </AuthShell>
   );
 }

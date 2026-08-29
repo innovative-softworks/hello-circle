@@ -71,17 +71,20 @@ export function App() {
   // chrome layered on top, same reasoning as hiding it for /login.
   const isStandaloneLanding = location.pathname === "/landing";
   // Every full-page authentication surface (vendor/admin login + the
-  // resident sign-in/forgot/reset trio) — auth should feel like its own
-  // focused moment, not a form dropped into the middle of the app's normal
-  // nav/footer chrome. Deliberately does NOT include /onboarding — that
-  // page already had its own "hide header, keep footer" behaviour before
-  // this and isn't part of what was asked for here, so it's left untouched
-  // via the separate hideHeader check below rather than folded into this.
+  // resident sign-in/forgot/reset trio, plus staff invite acceptance — same
+  // AuthShell split-screen treatment, design-system unification pass) — auth
+  // should feel like its own focused moment, not a form dropped into the
+  // middle of the app's normal nav/footer chrome. Deliberately does NOT
+  // include /onboarding — that page already had its own "hide header, keep
+  // footer" behaviour before this and isn't part of what was asked for here,
+  // so it's left untouched via the separate hideHeader check below rather
+  // than folded into this.
   const isAuthPage =
     location.pathname === "/login" ||
     location.pathname.startsWith("/signin") ||
     location.pathname === "/forgot-password" ||
-    location.pathname === "/reset-password";
+    location.pathname === "/reset-password" ||
+    location.pathname === "/accept-invite";
   const hideHeader = isAuthPage || location.pathname === "/onboarding" || isStandaloneLanding;
   // The bottom tab bar is participant-facing primary nav (IA spec's
   // Home/Explore/Create/Circles/My Life) — the vendor/admin dashboards

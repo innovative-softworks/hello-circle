@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { requestPasswordReset } from "../api";
+import { AuthPhotoPanel, AuthShell } from "../components/AuthShell";
 import { Button, inputStyle, labelStyle } from "../components/ui";
-import { colors, fonts } from "../theme";
+import { colors } from "../theme";
 
 // Forgot password (Phase A) — vendor/admin only. Residents got their own
 // optional password login later (My Life auth redesign); their forgot-
@@ -28,27 +29,34 @@ export function ForgotPassword() {
   };
 
   return (
-    <div style={{ animation: "fadeUp .3s ease both" }}>
-      <section className="section-pad" style={{ maxWidth: 420, margin: "0 auto", padding: "64px 24px" }}>
-        {sent ? (
-          <>
-            <h1 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 26, margin: "0 0 10px" }}>Check your email</h1>
-            <p style={{ color: colors.mutedLight }}>
-              If an account exists for <strong>{email}</strong>, we've sent a link to reset your password. It expires in 30 minutes.
-            </p>
-          </>
-        ) : (
-          <>
-            <h1 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 26, margin: "0 0 10px" }}>Reset your password</h1>
-            <p style={{ color: colors.mutedLight, marginBottom: 20 }}>Enter the email on your vendor or admin account.</p>
-            <label style={labelStyle}>Email address</label>
-            <input value={email} onChange={(e) => setEmail(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} style={{ ...inputStyle, marginBottom: 16 }} />
-            <Button full onClick={submit} disabled={loading || !email.trim()}>
-              {loading ? "Sending…" : "Send reset link"}
-            </Button>
-          </>
-        )}
-      </section>
-    </div>
+    <AuthShell
+      photo={
+        <AuthPhotoPanel
+          imageSeed="hellocircle-vendor-login"
+          heading={<>Fill your rooms.<br />Grow your community.<br />Run it your way.</>}
+          avatarCaption="Join hundreds of venues and clubs already listed."
+          avatarSeedPrefix="hc-vendor-avatar"
+        />
+      }
+    >
+      {sent ? (
+        <>
+          <h1 style={{ fontWeight: 800, fontSize: "clamp(26px,3vw,32px)", margin: "0 0 8px", letterSpacing: "-.02em" }}>Check your email</h1>
+          <p style={{ color: colors.mutedLight, fontSize: 15 }}>
+            If an account exists for <strong>{email}</strong>, we've sent a link to reset your password. It expires in 30 minutes.
+          </p>
+        </>
+      ) : (
+        <>
+          <h1 style={{ fontWeight: 800, fontSize: "clamp(26px,3vw,32px)", margin: "0 0 8px", letterSpacing: "-.02em" }}>Reset your password</h1>
+          <p style={{ color: colors.mutedLight, fontSize: 15, margin: "0 0 28px" }}>Enter the email on your vendor or admin account.</p>
+          <label style={labelStyle}>Email address</label>
+          <input value={email} onChange={(e) => setEmail(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} style={{ ...inputStyle, marginBottom: 16 }} />
+          <Button full onClick={submit} disabled={loading || !email.trim()}>
+            {loading ? "Sending…" : "Send reset link →"}
+          </Button>
+        </>
+      )}
+    </AuthShell>
   );
 }

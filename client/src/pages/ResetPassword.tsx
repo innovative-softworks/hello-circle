@@ -1,8 +1,9 @@
 import { useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { resetPassword } from "../api";
+import { AuthPhotoPanel, AuthShell } from "../components/AuthShell";
 import { Button, inputStyle, labelStyle } from "../components/ui";
-import { colors, fonts } from "../theme";
+import { colors } from "../theme";
 
 export function ResetPassword() {
   const navigate = useNavigate();
@@ -32,25 +33,32 @@ export function ResetPassword() {
   };
 
   return (
-    <div style={{ animation: "fadeUp .3s ease both" }}>
-      <section className="section-pad" style={{ maxWidth: 420, margin: "0 auto", padding: "64px 24px" }}>
-        {done ? (
-          <>
-            <h1 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 26, margin: "0 0 10px" }}>Password updated</h1>
-            <p style={{ color: colors.mutedLight }}>Taking you to sign in…</p>
-          </>
-        ) : (
-          <>
-            <h1 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 26, margin: "0 0 10px" }}>Set a new password</h1>
-            <label style={labelStyle}>New password</label>
-            <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} style={{ ...inputStyle, marginBottom: 8 }} />
-            {error && <p style={{ color: colors.danger, fontSize: 13, margin: "0 0 12px" }}>{error}</p>}
-            <Button full onClick={submit} disabled={loading || !password}>
-              {loading ? "Saving…" : "Set password"}
-            </Button>
-          </>
-        )}
-      </section>
-    </div>
+    <AuthShell
+      photo={
+        <AuthPhotoPanel
+          imageSeed="hellocircle-vendor-login"
+          heading={<>Fill your rooms.<br />Grow your community.<br />Run it your way.</>}
+          avatarCaption="Join hundreds of venues and clubs already listed."
+          avatarSeedPrefix="hc-vendor-avatar"
+        />
+      }
+    >
+      {done ? (
+        <>
+          <h1 style={{ fontWeight: 800, fontSize: "clamp(26px,3vw,32px)", margin: "0 0 8px", letterSpacing: "-.02em" }}>Password updated</h1>
+          <p style={{ color: colors.mutedLight, fontSize: 15 }}>Taking you to sign in…</p>
+        </>
+      ) : (
+        <>
+          <h1 style={{ fontWeight: 800, fontSize: "clamp(26px,3vw,32px)", margin: "0 0 8px", letterSpacing: "-.02em" }}>Set a new password</h1>
+          <label style={labelStyle}>New password</label>
+          <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} style={{ ...inputStyle, marginBottom: 8 }} />
+          {error && <p style={{ color: colors.danger, fontSize: 13, margin: "0 0 12px" }}>{error}</p>}
+          <Button full onClick={submit} disabled={loading || !password}>
+            {loading ? "Saving…" : "Set password →"}
+          </Button>
+        </>
+      )}
+    </AuthShell>
   );
 }
