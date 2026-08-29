@@ -62,7 +62,7 @@ export function GameCard({ game, onJoin, onLeave, joining }: { game: Game; onJoi
   const full = game.spotsLeft === 0;
   const headline = needHeadline(game);
   return (
-    <Card style={{ padding: 0, overflow: "hidden" }}>
+    <Card hover style={{ padding: 0, overflow: "hidden", cursor: "pointer" }} onClick={() => navigate(`/games/${game.id}`)}>
       <Photo
         src={game.imageUrl ?? undefined}
         alt={game.activityLabel}
@@ -80,12 +80,9 @@ export function GameCard({ game, onJoin, onLeave, joining }: { game: Game; onJoi
             </div>
           )}
           <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-            <button
-              onClick={() => navigate(`/games/${game.id}`)}
-              style={{ background: "none", border: "none", padding: 0, cursor: "pointer", textAlign: "left", fontFamily: fonts.display, fontWeight: 700, fontSize: 15.5, color: colors.text }}
-            >
+            <span style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 15.5, color: colors.text }}>
               {game.activityLabel}
-            </button>
+            </span>
             {game.soloFriendly && (
               <span style={{ fontSize: 11, fontWeight: 700, color: colors.greenText, background: colors.greenBg, borderRadius: radius.pill, padding: "2px 8px" }}>
                 Solo friendly
@@ -119,7 +116,7 @@ export function GameCard({ game, onJoin, onLeave, joining }: { game: Game; onJoi
         </span>
       </div>
       {full ? (
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }} onClick={(e) => e.stopPropagation()}>
           <span style={{ fontSize: 13, fontWeight: 700, color: colors.orangeDark }}>Full</span>
           <Button
             variant="ghost"
@@ -130,9 +127,11 @@ export function GameCard({ game, onJoin, onLeave, joining }: { game: Game; onJoi
           </Button>
         </div>
       ) : (
-        <Button onClick={onJoin} disabled={joining || !resident} full>
-          {joining ? "Joining…" : "I'm in"}
-        </Button>
+        <div onClick={(e) => e.stopPropagation()}>
+          <Button onClick={onJoin} disabled={joining || !resident} full>
+            {joining ? "Joining…" : "I'm in"}
+          </Button>
+        </div>
       )}
       {!resident && <div style={{ fontSize: 12, color: colors.faint, marginTop: 8 }}>Sign in from My Life to join a game.</div>}
       </div>
@@ -322,7 +321,7 @@ function JoinGameCard({
   const spotsColor = full ? colors.muted : state === "needs" ? colors.orangeDark : colors.mutedLight;
 
   return (
-    <Card hover style={{ padding: 0, overflow: "hidden" }}>
+    <Card hover style={{ padding: 0, overflow: "hidden", cursor: "pointer" }} onClick={() => navigate(`/games/${game.id}`)}>
       <Photo
         src={game.imageUrl ?? undefined}
         alt={game.activityLabel}
@@ -350,15 +349,8 @@ function JoinGameCard({
         <SaveButton saved={saved} onToggle={toggleSaved} />
       </Photo>
       <div style={{ padding: 16 }}>
-        <button
-          onClick={() => navigate(`/games/${game.id}`)}
+        <div
           style={{
-            background: "none",
-            border: "none",
-            padding: 0,
-            cursor: "pointer",
-            textAlign: "left",
-            display: "block",
             fontFamily: fonts.display,
             fontWeight: 700,
             fontSize: 16,
@@ -367,7 +359,7 @@ function JoinGameCard({
           }}
         >
           {game.activityLabel}
-        </button>
+        </div>
         <div
           style={{
             display: "flex",
@@ -391,13 +383,18 @@ function JoinGameCard({
           <span style={{ fontWeight: 700, fontSize: 15, color: game.priceCents ? colors.text : colors.greenText }}>
             {formatPrice(game.priceCents)}
           </span>
-          <Button variant={ctaVariant} disabled={busy} onClick={onPrimaryAction} style={ctaStyle}>
-            {busy ? "Joining…" : ctaLabel}
-          </Button>
+          <div onClick={(e) => e.stopPropagation()}>
+            <Button variant={ctaVariant} disabled={busy} onClick={onPrimaryAction} style={ctaStyle}>
+              {busy ? "Joining…" : ctaLabel}
+            </Button>
+          </div>
         </div>
         {full && !joinedByMe && (
           <button
-            onClick={onFindSimilar}
+            onClick={(e) => {
+              e.stopPropagation();
+              onFindSimilar();
+            }}
             style={{ display: "block", width: "100%", textAlign: "right", background: "none", border: "none", padding: "8px 0 0", cursor: "pointer", fontSize: 12.5, fontWeight: 700, color: colors.muted }}
           >
             Find similar

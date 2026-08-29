@@ -31,8 +31,8 @@ export function CircleDiscoveryCard({ circle, joined, onJoin, onLeave, busy }: {
   const open = () => navigate(`/circles/${circle.slug ?? circle.id}`);
 
   return (
-    <Card hover style={{ padding: 0, overflow: "hidden" }}>
-      <button onClick={open} style={{ display: "block", width: "100%", background: "none", border: "none", padding: 0, cursor: "pointer", textAlign: "left" }}>
+    <Card hover style={{ padding: 0, overflow: "hidden", cursor: "pointer" }} onClick={open}>
+      <div>
         <Photo
           src={circle.imageUrl ?? undefined}
           alt={circle.name}
@@ -87,9 +87,9 @@ export function CircleDiscoveryCard({ circle, joined, onJoin, onLeave, busy }: {
             )}
           </div>
         </div>
-      </button>
+      </div>
 
-      <div style={{ padding: "12px 16px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+      <div style={{ padding: "12px 16px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }} onClick={(e) => e.stopPropagation()}>
         <span style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 12.5, color: colors.mutedLight }}>
           <UsersIcon size={12} /> {circle.members} member{circle.members === 1 ? "" : "s"}
         </span>

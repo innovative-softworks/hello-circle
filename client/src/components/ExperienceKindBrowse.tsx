@@ -182,7 +182,7 @@ function ExperienceBrowseCard({ e }: { e: Experience }) {
   const open = () => navigate(`/${kindPath}/${e.slug ?? e.id}`);
 
   return (
-    <Card hover style={{ padding: 0, overflow: "hidden" }}>
+    <Card hover style={{ padding: 0, overflow: "hidden", cursor: "pointer" }} onClick={open}>
       <Photo
         src={e.imageUrl || undefined}
         alt={e.title}
@@ -227,15 +227,8 @@ function ExperienceBrowseCard({ e }: { e: Experience }) {
         <SaveButton saved={saved} onToggle={toggleSaved} />
       </Photo>
       <div style={{ padding: 16 }}>
-        <button
-          onClick={open}
+        <div
           style={{
-            background: "none",
-            border: "none",
-            padding: 0,
-            cursor: "pointer",
-            textAlign: "left",
-            display: "block",
             fontFamily: fonts.display,
             fontWeight: 700,
             fontSize: 16,
@@ -244,7 +237,7 @@ function ExperienceBrowseCard({ e }: { e: Experience }) {
           }}
         >
           {e.title}
-        </button>
+        </div>
         <div
           style={{
             display: "flex",
