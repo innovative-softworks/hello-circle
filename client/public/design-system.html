@@ -109,6 +109,7 @@
   .tag-p0{background:var(--danger-bg); color:var(--danger);}
   .tag-p1{background:var(--orange-bg); color:var(--orange-dark);}
   .tag-p2{background:var(--panel); color:var(--muted);}
+  .tag-p3{background:var(--panel); color:var(--faint);}
 
   /* ---- cards / grids ---- */
   .grid{display:grid; gap:14px;}
@@ -384,8 +385,9 @@
         <tr><td><span class="tag tag-p1">P1</span></td><td>Auth "orphan" pages not on <code>AuthShell</code></td><td><span class="tag tag-fixed">Fixed</span> for ForgotPassword/ResetPassword/AcceptInvite. VendorSignup (720px two-column intake) and Onboarding (documented prior exception) don't fit the shell's narrow column — left as-is on purpose</td></tr>
         <tr><td><span class="tag tag-p1">P1</span></td><td>Three distinct detail-page shapes</td><td><span class="tag tag-fixed">Fixed</span> — ProgramDetail now shares the main/rail pattern. HostProfile/ProviderProfile stay single-column on purpose (no decision, not a transaction)</td></tr>
         <tr><td><span class="tag tag-p1">P1</span></td><td>Raw radius literals matching an existing token</td><td><span class="tag tag-fixed">Fixed</span> — 194 → 0, <code>lint-tokens.mjs</code> is clean</td></tr>
-        <tr><td><span class="tag tag-p2">P2</span></td><td>Card image aspect ratios (120/130/132/140/150/160px across six components)</td><td><span class="tag tag-backlog">Open</span> — needs one deliberate ratio decision, not six independent guesses</td></tr>
+        <tr><td><span class="tag tag-p2">P2</span></td><td>Card image aspect ratios (120/130/132/140/150/160px across ten components)</td><td><span class="tag tag-fixed">Fixed</span> — standardized to <code>cardImageRatio.discovery</code> (16:10 via <code>aspect-ratio</code>)</td></tr>
         <tr><td><span class="tag tag-p2">P2</span></td><td>Nav asymmetry — "Ask HelloCircle" on mobile</td><td><span class="tag tag-keep">Not a gap</span> — reachable via the header hamburger at ≤860px, the same collapse desktop uses in its own tablet range. Audit overstated this on first read</td></tr>
+        <tr><td><span class="tag tag-p2">P2</span></td><td>Click-target inconsistency (4 cards navigable only via title/CTA)</td><td><span class="tag tag-fixed">Fixed</span> — whole card body now clickable, non-navigation actions stop propagation</td></tr>
         <tr><td><span class="tag tag-p3">P3</span></td><td>Home.tsx's own local button/chip system</td><td>Deliberate, internally consistent, still token-correct underneath — polish only</td></tr>
       </table></div>
     </section>
@@ -686,8 +688,8 @@
         <tr><td>Explore ▾ (centres, clubs, games, adventures, experiences)</td><td>Explore sheet — same 5 items</td><td><span class="tag tag-keep">Match</span></td></tr>
         <tr><td>Circles</td><td>Circles</td><td><span class="tag tag-keep">Match</span></td></tr>
         <tr><td>My Life</td><td>My Life</td><td><span class="tag tag-keep">Match</span></td></tr>
-        <tr><td>Logo → Home (icon click)</td><td>Home (labeled tab)</td><td><span class="tag tag-backlog">Asymmetric</span></td></tr>
-        <tr><td>Create (icon + dropdown)</td><td>Create (labeled tab, same sheet)</td><td><span class="tag tag-backlog">Asymmetric</span></td></tr>
+        <tr><td>Logo → Home (icon click)</td><td>Home (labeled tab)</td><td><span class="tag tag-keep">Not a gap</span> — logo-as-home-link is a standard, universally understood web convention; mobile's tab bar needs an explicit label only because it has no separate logo element</td></tr>
+        <tr><td>Create (icon + dropdown)</td><td>Create (labeled tab, same sheet)</td><td><span class="tag tag-keep">Investigated, no code change</span> — desktop's Create button sits in a row of icon-only siblings (Search, Free Time Mode, theme toggle, notifications) with no labels at all; giving Create alone a text label would fight that row's own consistency more than it fixes cross-device symmetry. Underlying destinations already match exactly</td></tr>
         <tr><td>Ask HelloCircle (hidden ≤1024px, moved into hamburger drawer)</td><td>Reachable via the header hamburger, shown alongside the tab bar at ≤860px</td><td><span class="tag tag-keep">Consistent — mirrors desktop's own tablet-range collapse</span></td></tr>
       </table></div>
     </section>
@@ -856,14 +858,17 @@
 
     <section class="doc" id="card-backlog">
       <div class="eyebrow">Cards &amp; Listings</div>
-      <h2 class="sec-title">Card backlog — flagged, not blindly executed</h2>
-      <p class="sec-sub">Two real findings deliberately left untouched this pass, since fixing them without
-        visual verification (no browser available this session) risks a regression I can't catch.</p>
+      <h2 class="sec-title">Card backlog — resolved on request, verified by build only</h2>
+      <p class="sec-sub">Both items below were deliberately held back in the first pass since fixing them
+        without visual verification (no browser available this session) risks a regression I can't catch. On
+        request, both are now implemented — verified via <code>tsc --noEmit</code> and a full production
+        build, not a browser click-test. Worth a manual spot-check.</p>
       <div class="twrap"><table>
-        <tr><th>Item</th><th>Why it's open</th></tr>
-        <tr><td>Card image heights: 120/130/132/140/150/160px across six components, no shared ratio token</td><td>Changing any of these shifts real card proportions across live grids — needs a deliberate ratio decision (§4's 16:10 recommendation) verified visually, not a mechanical sweep like the radius-token fix</td></tr>
-        <tr><td>Click-target inconsistency: GameCard/JoinGameCard/CircleDiscoveryCard/ExperienceBrowseCard only make the title text + CTA clickable (card body is dead space); most other cards are fully clickable</td><td>Making the whole card body clickable while a CTA button sits inside it needs each card's stopPropagation wiring checked by hand — real risk of double-navigation or a broken CTA click if rushed</td></tr>
+        <tr><th>Item</th><th>What changed</th></tr>
+        <tr><td>Card image heights: 120/130/132/140/150/160px across ten components, no shared ratio token</td><td><span class="tag tag-fixed">Fixed</span> — <code>theme.ts</code>'s new <code>cardImageRatio.discovery</code> (16:10, via CSS <code>aspect-ratio</code> rather than a fixed height, since these cards render at different widths in different grid/rail contexts) applied to CentreCard, ClubCard, Games.tsx's GameCard/JoinGameCard, DiscoverRow's DiscoverCard, CirclePlanCard, UpcomingPlanCard, CircleDiscoveryCard, GameRelated's RelatedCard, and ExperienceKindBrowse's browse card. CentreCard's per-caller <code>height</code> prop is gone — every caller now renders the same ratio.</td></tr>
+        <tr><td>Click-target inconsistency: GameCard/JoinGameCard/CircleDiscoveryCard/ExperienceBrowseCard only made the title text + CTA clickable (card body was dead space)</td><td><span class="tag tag-fixed">Fixed</span> — all four now navigate from anywhere on the card body, matching CentreCard/ClubCard/CirclePlanCard/DiscoverCard. Every action that isn't "go to detail" (join/waitlist/find-similar/leave) stops propagation so it doesn't also trigger navigation.</td></tr>
       </table></div>
+      <div class="callout" style="margin-top:14px;">Also this round: a <code>tag-p3</code> CSS rule that was referenced but never defined (rendered unstyled) is fixed; <code>breakpoints.narrowMobile</code> (560px) names the one stray breakpoint that had no token; the diagonal-stripe "no photo yet" placeholder gradient — copy-pasted raw in 10 files — is now <code>stripedPlaceholder()</code>/<code>placeholderStripes</code> in <code>theme.ts</code>; and <code>Chip.tsx</code> gained <code>AttributeChip</code>/<code>QuickIntentChip</code> primitives (new code only, not yet rolled out to existing pages).</div>
     </section>
 
     <!-- GOVERNANCE ============================================== -->
