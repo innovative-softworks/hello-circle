@@ -1,14 +1,13 @@
-import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import type { Centre } from "../types";
 import { colors } from "../theme";
-import { isFavorite, toggleFavorite } from "../favorites";
-import { BuildingIcon, HeartIcon, StarIcon } from "./icons";
+import { BuildingIcon, StarIcon } from "./icons";
 import { Photo } from "./Photo";
+import { SaveButton, useSavedState } from "./SaveButton";
 
 export function CentreCard({ centre, height = 140 }: { centre: Centre; height?: number }) {
   const navigate = useNavigate();
-  const [fav, setFav] = useState(() => isFavorite("centre", centre.id));
+  const [fav, toggleFav] = useSavedState("centre", centre.id);
 
   return (
     <div
@@ -43,31 +42,7 @@ export function CentreCard({ centre, height = 140 }: { centre: Centre; height?: 
         >
           from €{centre.from}/hr
         </span>
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            setFav(toggleFavorite("centre", centre.id));
-          }}
-          aria-label={fav ? "Remove from favourites" : "Save to favourites"}
-          className="btn"
-          style={{
-            position: "absolute",
-            top: 10,
-            right: 10,
-            width: 30,
-            height: 30,
-            borderRadius: "50%",
-            border: "none",
-            background: "rgba(255,255,255,.9)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            fontSize: 14,
-            color: fav ? colors.orange : "#8A928B",
-          }}
-        >
-          <HeartIcon size={15} filled={fav} />
-        </button>
+        <SaveButton saved={fav} onToggle={toggleFav} />
       </Photo>
       <div style={{ padding: "16px 18px 18px" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>

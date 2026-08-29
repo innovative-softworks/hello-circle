@@ -4,13 +4,13 @@ import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react"
 import { useNavigate } from "react-router-dom";
 import { MapContainer, Marker, Popup, TileLayer } from "react-leaflet";
 import { fetchExperiences } from "../api";
-import { ArrowRightIcon, CalendarIcon, ClockIcon, CloseIcon, GridIcon, HeartIcon, LightbulbIcon, PinIcon, SearchIcon, TreeIconSmall, UsersIcon } from "./icons";
+import { ArrowRightIcon, CalendarIcon, ClockIcon, CloseIcon, GridIcon, LightbulbIcon, PinIcon, SearchIcon, TreeIconSmall, UsersIcon } from "./icons";
 import { Chip } from "./Chip";
 import { DropdownOption, FilterDropdown } from "./FilterDropdown";
 import { Photo } from "./Photo";
 import { PageTitle } from "./PageTitle";
 import { Button, Card, CardSkeleton, Drawer, EmptyState } from "./ui";
-import { isFavorite, toggleFavorite } from "../favorites";
+import { SaveButton, useSavedState } from "./SaveButton";
 import { dateLabel } from "../euro";
 import { formatAvailability, formatDateTime, formatPrice } from "../formatters";
 import { colors, fonts, maxWidth, radius } from "../theme";
@@ -175,7 +175,7 @@ function ExperienceMap({ items }: { items: Experience[] }) {
 
 function ExperienceBrowseCard({ e }: { e: Experience }) {
   const navigate = useNavigate();
-  const [saved, setSaved] = useState(() => isFavorite("experience", e.id));
+  const [saved, toggleSaved] = useSavedState("experience", e.id);
   const session = nextSession(e);
   const kindPath = e.kind === "adventure" ? "adventures" : "experiences";
   const open = () => navigate(`/${kindPath}/${e.slug ?? e.id}`);
@@ -223,28 +223,7 @@ function ExperienceBrowseCard({ e }: { e: Experience }) {
             No dates yet
           </span>
         )}
-        <button
-          onClick={(ev) => {
-            ev.stopPropagation();
-            setSaved(toggleFavorite("experience", e.id));
-          }}
-          aria-label={saved ? "Remove from saved" : "Save this listing"}
-          className="btn"
-          style={{
-            width: 30,
-            height: 30,
-            borderRadius: "50%",
-            border: "none",
-            background: "rgba(255,255,255,.9)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            color: saved ? colors.orange : "#8A928B",
-            flex: "none",
-          }}
-        >
-          <HeartIcon size={14} filled={saved} />
-        </button>
+        <SaveButton saved={saved} onToggle={toggleSaved} />
       </Photo>
       <div style={{ padding: 16 }}>
         <button

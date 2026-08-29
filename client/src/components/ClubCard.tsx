@@ -1,15 +1,14 @@
-import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import type { Club } from "../types";
 import { colors } from "../theme";
-import { isFavorite, toggleFavorite } from "../favorites";
 import { priceLabel } from "../priceLabel";
-import { BallIcon, HeartIcon } from "./icons";
+import { BallIcon } from "./icons";
 import { Photo } from "./Photo";
+import { SaveButton, useSavedState } from "./SaveButton";
 
 export function ClubCard({ club }: { club: Club }) {
   const navigate = useNavigate();
-  const [fav, setFav] = useState(() => isFavorite("club", club.id));
+  const [fav, toggleFav] = useSavedState("club", club.id);
 
   return (
     <div
@@ -46,31 +45,7 @@ export function ClubCard({ club }: { club: Club }) {
         >
           {club.sport}
         </span>
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            setFav(toggleFavorite("club", club.id));
-          }}
-          aria-label={fav ? "Remove from favourites" : "Save to favourites"}
-          className="btn"
-          style={{
-            position: "absolute",
-            top: 10,
-            right: 10,
-            width: 30,
-            height: 30,
-            borderRadius: "50%",
-            border: "none",
-            background: "rgba(255,255,255,.9)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            fontSize: 14,
-            color: fav ? colors.orange : "#8A928B",
-          }}
-        >
-          <HeartIcon size={15} filled={fav} />
-        </button>
+        <SaveButton saved={fav} onToggle={toggleFav} />
       </Photo>
       <div style={{ padding: "16px 18px 18px", flex: 1, display: "flex", flexDirection: "column" }}>
         <h3 style={{ fontSize: 17, fontWeight: 700, margin: "0 0 3px", letterSpacing: "-.01em" }}>{club.name}</h3>

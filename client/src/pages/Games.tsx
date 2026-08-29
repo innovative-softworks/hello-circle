@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { createGame, fetchCentres, fetchGames, fetchMyGames, joinGame, joinGameWaitlist } from "../api";
 import { signInHref } from "../authRedirect";
-import { ArrowRightIcon, AwardIcon, BallIcon, CalendarIcon, ClockIcon, CloseIcon, HeartIcon, LightbulbIcon, PinIcon, PlusIcon, SearchIcon, UsersIcon } from "../components/icons";
+import { ArrowRightIcon, AwardIcon, BallIcon, CalendarIcon, ClockIcon, CloseIcon, LightbulbIcon, PinIcon, PlusIcon, SearchIcon, UsersIcon } from "../components/icons";
 import { Chip } from "../components/Chip";
 import { DropdownCheckbox, DropdownOption, FilterDropdown } from "../components/FilterDropdown";
 import { IntentCaptureForm } from "../components/IntentCaptureForm";
@@ -12,7 +12,7 @@ import { Button, Card, CardSkeleton, ConfirmDialog, Drawer, EmptyState, inputSty
 import { PageTitle } from "../components/PageTitle";
 import { AuthContextCard } from "../components/AuthShell";
 import { SignInPanel } from "../components/SignInPanel";
-import { isFavorite, toggleFavorite } from "../favorites";
+import { SaveButton, useSavedState } from "../components/SaveButton";
 import { dateLabel } from "../euro";
 import { formatAvailability, formatDateTime, formatPrice } from "../formatters";
 import { gameState, primaryCtaLabel } from "../gameCta";
@@ -307,7 +307,7 @@ function JoinGameCard({
   onFindSimilar: () => void;
 }) {
   const navigate = useNavigate();
-  const [saved, setSaved] = useState(() => isFavorite("game", game.id));
+  const [saved, toggleSaved] = useSavedState("game", game.id);
   const state = gameState(game);
   const full = state === "full";
 
@@ -347,28 +347,7 @@ function JoinGameCard({
         >
           <ClockIcon size={12} /> {gameWhen12h(game)}
         </span>
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            setSaved(toggleFavorite("game", game.id));
-          }}
-          aria-label={saved ? "Remove from saved" : "Save this game"}
-          className="btn"
-          style={{
-            width: 30,
-            height: 30,
-            borderRadius: "50%",
-            border: "none",
-            background: "rgba(255,255,255,.9)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            color: saved ? colors.orange : "#8A928B",
-            flex: "none",
-          }}
-        >
-          <HeartIcon size={14} filled={saved} />
-        </button>
+        <SaveButton saved={saved} onToggle={toggleSaved} />
       </Photo>
       <div style={{ padding: 16 }}>
         <button

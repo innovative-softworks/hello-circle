@@ -1,8 +1,7 @@
-import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { CalendarIcon, HeartIcon } from "./icons";
+import { CalendarIcon } from "./icons";
 import { Photo } from "./Photo";
-import { isFavorite, toggleFavorite } from "../favorites";
+import { SaveButton, useSavedState } from "./SaveButton";
 import { colors, fonts, radius } from "../theme";
 import type { CirclePlanPreview } from "../types";
 import { formatCircleAvailability, formatDatePill, formatPrice } from "../formatters";
@@ -24,7 +23,7 @@ function spotsCopy(spotsLeft: number): { text: string; color: string } {
 
 export function CirclePlanCard({ plan }: { plan: CirclePlanPreview }) {
   const navigate = useNavigate();
-  const [saved, setSaved] = useState(() => isFavorite("game", plan.id));
+  const [saved, toggleSaved] = useSavedState("game", plan.id);
   const spots = spotsCopy(plan.spotsLeft);
 
   return (
@@ -47,16 +46,7 @@ export function CirclePlanCard({ plan }: { plan: CirclePlanPreview }) {
         <span style={{ background: "rgba(255,255,255,.92)", color: colors.text, borderRadius: radius.pill, padding: "4px 10px", fontSize: 11, fontWeight: 800, letterSpacing: ".02em" }}>
           {formatDatePill(plan.date)} · {plan.time}
         </span>
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            setSaved(toggleFavorite("game", plan.id));
-          }}
-          aria-label={saved ? "Remove from saved" : "Save"}
-          style={{ background: "rgba(255,255,255,.92)", border: "none", borderRadius: "50%", width: 30, height: 30, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: saved ? colors.orange : colors.text }}
-        >
-          <HeartIcon size={14} filled={saved} />
-        </button>
+        <SaveButton saved={saved} onToggle={toggleSaved} />
       </Photo>
       <div style={{ padding: 14, display: "flex", flexDirection: "column", gap: 4, flex: 1 }}>
         <div style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 15, letterSpacing: "-.005em" }}>{plan.activityLabel}</div>

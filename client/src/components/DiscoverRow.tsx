@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { addFavourite, fetchFavourites, joinGame, joinGameWaitlist, removeFavourite } from "../api";
-import { isFavorite, toggleFavorite } from "../favorites";
+import { joinGame, joinGameWaitlist } from "../api";
 import { useGuest } from "../GuestContext";
-import { ArrowRightIcon, AwardIcon, BallIcon, CheckIcon, ChevronLeftIcon, ChevronRightIcon, HeartIcon, RepeatIcon, UsersIcon } from "./icons";
+import { ArrowRightIcon, AwardIcon, BallIcon, CheckIcon, ChevronLeftIcon, ChevronRightIcon, RepeatIcon, UsersIcon } from "./icons";
 import { Button } from "./ui";
 import { Photo } from "./Photo";
+import { SaveButton, useSavedState } from "./SaveButton";
 import { colors, fonts, radius } from "../theme";
 import type { DiscoverItem } from "../types";
 import { formatPrice } from "../formatters";
@@ -106,33 +106,10 @@ function JoinControl({ item }: { item: DiscoverItem }) {
 
 export function DiscoverCard({ item, isToday }: { item: DiscoverItem; isToday: boolean }) {
   const navigate = useNavigate();
-  const { resident } = useGuest();
   const meta = KIND_META[item.kind];
   const place = item.centreName ?? item.clubName;
   const isJoinableGame = item.kind === "game" && item.spotsLeft !== null;
-  const [saved, setSaved] = useState(() => isFavorite(item.kind, item.id));
-
-  // Signed-in residents get a real server-side favourite (Phase 6 — the
-  // server only covered centre/club until now, matching what
-  // client/src/favorites.ts already stored locally for signed-out
-  // visitors). Same "fetch the whole list, check one entry" pattern
-  // CentreDetail.tsx/ClubDetail.tsx already use.
-  useEffect(() => {
-    if (resident) fetchFavourites().then((rows) => setSaved(rows.some((r) => r.listingType === item.kind && r.listingId === item.id)));
-    else setSaved(isFavorite(item.kind, item.id));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [resident, item.kind, item.id]);
-
-  const handleToggleSave = async () => {
-    if (resident) {
-      const next = !saved;
-      setSaved(next);
-      if (next) await addFavourite(item.kind, item.id);
-      else await removeFavourite(item.kind, item.id);
-    } else {
-      setSaved(toggleFavorite(item.kind, item.id));
-    }
-  };
+  const [saved, toggleSaved] = useSavedState(item.kind, item.id);
 
   return (
     <div
@@ -214,30 +191,7 @@ export function DiscoverCard({ item, isToday }: { item: DiscoverItem; isToday: b
         >
           {formatPrice(item.priceCents)}
         </span>
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            handleToggleSave();
-          }}
-          aria-label={saved ? "Remove from saved" : "Save"}
-          className="btn"
-          style={{
-            position: "absolute",
-            bottom: 10,
-            right: 10,
-            width: 30,
-            height: 30,
-            borderRadius: "50%",
-            border: "none",
-            background: "rgba(255,255,255,.9)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            color: saved ? colors.orange : "#8A928B",
-          }}
-        >
-          <HeartIcon size={15} filled={saved} />
-        </button>
+        <SaveButton saved={saved} onToggle={toggleSaved} position="bottom" />
       </Photo>
       <div style={{ padding: "12px 16px 16px", display: "flex", flexDirection: "column", gap: 4, flex: 1 }}>
         <div style={{ fontSize: 12.5, fontWeight: 700, color: colors.muted }}>{item.time}</div>
