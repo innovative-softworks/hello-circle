@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { fetchFreeTimeOptions } from "../api";
 import { DiscoverCard } from "../components/DiscoverRow";
 import { BallIcon, ClockIcon, LightbulbIcon, PinIcon } from "../components/icons";
-import { Button, PageSpinner } from "../components/ui";
+import { Button, EmptyState, PageSpinner } from "../components/ui";
 import { BackLink } from "../components/BackLink";
 import { PageTitle } from "../components/PageTitle";
 import { colors, fonts, radius } from "../theme";
@@ -195,12 +195,12 @@ export function FreeTimeMode() {
             ) : error ? (
               <p style={{ color: colors.danger, fontSize: 14 }}>{error}</p>
             ) : options.length === 0 ? (
-              <div style={{ background: colors.surface, border: `1px dashed ${colors.borderStrong}`, borderRadius: 18, padding: 40, textAlign: "center" }}>
-                <p style={{ color: colors.mutedLight, fontSize: 15, margin: "0 0 18px" }}>
-                  Nothing matches that combination right now — try a wider distance or a different mood.
-                </p>
-                <Button onClick={restart}>Start over</Button>
-              </div>
+              <EmptyState
+                icon={<LightbulbIcon size={22} />}
+                title="Nothing matches yet"
+                subtitle="Try a wider distance or a different mood."
+                action={<Button onClick={restart}>Start over</Button>}
+              />
             ) : (
               <>
                 <p style={{ color: colors.mutedLight, fontSize: 15, margin: "0 0 20px" }}>Here's what fits:</p>

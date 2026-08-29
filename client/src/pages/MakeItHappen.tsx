@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { confirmMakeItHappen, fetchCentres, searchMakeItHappen } from "../api";
 import type { MakeItHappenCandidate } from "../api";
 import { CalendarIcon, ClockIcon, HandshakeIcon, PinIcon, UsersIcon } from "../components/icons";
-import { Button, Card, PageSpinner, inputStyle, labelStyle } from "../components/ui";
+import { Button, Card, EmptyState, PageSpinner, inputStyle, labelStyle } from "../components/ui";
 import { BackLink } from "../components/BackLink";
 import { PageTitle } from "../components/PageTitle";
 import { signInHref } from "../authRedirect";
@@ -189,12 +189,12 @@ export function MakeItHappen() {
           searching ? (
             <PageSpinner />
           ) : candidates.length === 0 ? (
-            <div style={{ background: colors.surface, border: `1px dashed ${colors.borderStrong}`, borderRadius: 18, padding: 40, textAlign: "center" }}>
-              <p style={{ color: colors.mutedLight, fontSize: 15, margin: "0 0 18px" }}>
-                Nothing matches that combination right now — try a different time, a wider budget, or another county.
-              </p>
-              <Button onClick={() => setStep("form")}>Try again</Button>
-            </div>
+            <EmptyState
+              icon={<HandshakeIcon size={22} />}
+              title="Nothing matches yet"
+              subtitle="Try a different time, a wider budget, or another county."
+              action={<Button onClick={() => setStep("form")}>Try again</Button>}
+            />
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
               <p style={{ color: colors.mutedLight, fontSize: 14, margin: "0 0 4px" }}>
