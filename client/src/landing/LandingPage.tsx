@@ -33,7 +33,7 @@ import {
   WEEKEND_ACTIVITIES,
 } from "./data";
 import { ArrowUpRightIcon, SparkleIcon } from "./icons";
-import { lc, lcFonts, lcMaxWidth } from "./theme";
+import { lc, lcFonts, lcMaxWidth, lcRadius } from "./theme";
 import "./landing.css";
 
 const img = (seed: string, w = 900, h = 700) => `https://picsum.photos/seed/${seed}/${w}/${h}`;
@@ -133,7 +133,7 @@ export function LandingPage() {
         <SectionHeader eyebrow="More than events" title="More than events." subtitle="HelloCircle connects everything needed to turn an idea into a real-world experience." align="center" />
 
         <div style={{ textAlign: "center", marginBottom: 40 }}>
-          <span style={{ display: "inline-flex", alignItems: "center", gap: 8, background: lc.forestBg, color: lc.forestDark, padding: "10px 20px", borderRadius: 999, fontWeight: 700, fontSize: 15 }}>
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 8, background: lc.forestBg, color: lc.forestDark, padding: "10px 20px", borderRadius: lcRadius.pill, fontWeight: 700, fontSize: 15 }}>
             <SparkleIcon size={15} /> "I want to play badminton tonight"
           </span>
         </div>

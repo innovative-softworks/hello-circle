@@ -1,6 +1,6 @@
 import { PinIcon } from "../../components/icons";
 import type { LandingVenue } from "../data";
-import { lc, lcFonts } from "../theme";
+import { lc, lcFonts, lcRadius } from "../theme";
 
 export function VenueCard({ venue }: { venue: LandingVenue }) {
   return (
@@ -8,7 +8,7 @@ export function VenueCard({ venue }: { venue: LandingVenue }) {
       <div className="lc-card-image" style={{ height: 168 }}>
         <img src={venue.image} alt="" loading="lazy" />
         {venue.unclaimed && (
-          <span style={{ position: "absolute", top: 12, left: 12, background: lc.emberBg, color: lc.ember, fontSize: 11, fontWeight: 700, padding: "5px 10px", borderRadius: 999 }}>
+          <span style={{ position: "absolute", top: 12, left: 12, background: lc.emberBg, color: lc.ember, fontSize: 11, fontWeight: 700, padding: "5px 10px", borderRadius: lcRadius.pill }}>
             Unclaimed venue
           </span>
         )}

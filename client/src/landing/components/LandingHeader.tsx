@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { CloseIcon, MenuIcon } from "../../components/icons";
-import { lc, lcFonts, lcMaxWidth } from "../theme";
+import { lc, lcFonts, lcMaxWidth, lcRadius } from "../theme";
 
 const NAV_LINKS = [
   { label: "Explore", href: "/explore" },
@@ -80,7 +80,7 @@ export function LandingHeader() {
             </button>
           ))}
           <div style={{ display: "flex", gap: 10, marginTop: 12 }}>
-            <button onClick={() => go("/login")} style={{ flex: 1, background: lc.paperRaised, border: "none", borderRadius: 999, padding: "12px 0", fontWeight: 700, fontSize: 14 }}>
+            <button onClick={() => go("/login")} style={{ flex: 1, background: lc.paperRaised, border: "none", borderRadius: lcRadius.pill, padding: "12px 0", fontWeight: 700, fontSize: 14 }}>
               Log in
             </button>
             <button className="lc-btn" style={{ flex: 1, background: lc.forest, color: lc.white }} onClick={() => go("/explore")}>

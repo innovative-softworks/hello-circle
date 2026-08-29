@@ -1,12 +1,13 @@
 /* Styles for the standalone marketing landing page only. Every rule is
    scoped under .lc-* class names (never a bare element selector) so this
-   can never bleed into the rest of the app — see theme.ts's own comment
-   for why this page keeps a fully separate design system. */
-
-@import url("https://fonts.googleapis.com/css2?family=Manrope:wght@500;700;800&family=Inter:wght@400;500;600&display=swap");
+   can never bleed into the rest of the app. Typography now shares the
+   app-wide Bricolage Grotesque/Hanken Grotesk pairing (already loaded
+   globally by index.html) — see theme.ts's own comment on why the old
+   separate Manrope/Inter load was removed (design-system unification
+   pass). */
 
 .lc-page {
-  font-family: "Inter", "Segoe UI", sans-serif;
+  font-family: "Hanken Grotesk", "Segoe UI", sans-serif;
   -webkit-font-smoothing: antialiased;
 }
 
@@ -14,7 +15,7 @@
 .lc-page h2,
 .lc-page h3,
 .lc-page h4 {
-  font-family: "Manrope", "Segoe UI", sans-serif;
+  font-family: "Bricolage Grotesque", "Segoe UI", sans-serif;
   margin: 0;
   text-wrap: balance;
 }
@@ -91,7 +92,7 @@
 }
 
 .lc-btn:focus-visible {
-  outline: 2px solid #1c5c42;
+  outline: 2px solid var(--color-green);
   outline-offset: 2px;
 }
 

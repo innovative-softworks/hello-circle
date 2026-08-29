@@ -1,6 +1,6 @@
 import { useNavigate } from "react-router-dom";
 import { NETWORK_LABELS } from "../data";
-import { lc, lcFonts, lcMaxWidth } from "../theme";
+import { lc, lcFonts, lcMaxWidth, lcRadius } from "../theme";
 
 export function CTASection() {
   const navigate = useNavigate();
@@ -39,7 +39,7 @@ export function CTASection() {
       >
         <div style={{ display: "flex", gap: 40, flexWrap: "wrap", maxWidth: 900, justifyContent: "center" }}>
           {NETWORK_LABELS.map((label) => (
-            <span key={label} className="lc-network-pin" style={{ fontFamily: lcFonts.display, fontSize: 13, fontWeight: 700, color: lc.paper, border: "1px solid rgba(250,248,242,0.3)", borderRadius: 999, padding: "8px 16px" }}>
+            <span key={label} className="lc-network-pin" style={{ fontFamily: lcFonts.display, fontSize: 13, fontWeight: 700, color: lc.paper, border: "1px solid rgba(250,248,242,0.3)", borderRadius: lcRadius.pill, padding: "8px 16px" }}>
               {label}
             </span>
           ))}

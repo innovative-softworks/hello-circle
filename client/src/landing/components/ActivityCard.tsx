@@ -1,6 +1,6 @@
 import { ClockIcon, PinIcon } from "../../components/icons";
 import type { LandingActivity } from "../data";
-import { lc, lcFonts } from "../theme";
+import { lc, lcFonts, lcRadius } from "../theme";
 
 export function ActivityCard({ activity, width = 280 }: { activity: LandingActivity; width?: number }) {
   return (
@@ -17,7 +17,7 @@ export function ActivityCard({ activity, width = 280 }: { activity: LandingActiv
             fontSize: 11.5,
             fontWeight: 700,
             padding: "5px 10px",
-            borderRadius: 999,
+            borderRadius: lcRadius.pill,
             display: "flex",
             alignItems: "center",
             gap: 5,
