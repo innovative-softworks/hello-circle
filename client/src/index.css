@@ -599,7 +599,8 @@ textarea:focus {
   .circle-detail-mobile-pad,
   .experience-detail-mobile-pad,
   .centre-detail-mobile-pad,
-  .club-detail-mobile-pad {
+  .club-detail-mobile-pad,
+  .program-detail-mobile-pad {
     padding-bottom: 76px;
   }
   .mobile-join-bar {
