@@ -2,6 +2,7 @@ import { useNavigate } from "react-router-dom";
 import { BallIcon, CalendarIcon } from "./icons";
 import { Photo } from "./Photo";
 import { Button } from "./ui";
+import { formatAvailability, formatDatePill } from "../formatters";
 import { colors, fonts, radius } from "../theme";
 import type { Game } from "../types";
 
@@ -15,17 +16,8 @@ import type { Game } from "../types";
 
 function spotsCopy(spotsLeft: number, joinedByMe: boolean): { text: string; color: string } {
   if (joinedByMe) return { text: "You're in", color: colors.greenText };
-  if (spotsLeft === 0) return { text: "Full", color: colors.muted };
-  if (spotsLeft === 1) return { text: "1 spot left", color: colors.orangeDark };
-  if (spotsLeft <= 3) return { text: `${spotsLeft} spots left`, color: colors.orangeDark };
-  return { text: `${spotsLeft} spots left`, color: colors.mutedLight };
-}
-
-function dayMonthLabel(iso: string): string {
-  const d = new Date(`${iso}T00:00:00`);
-  const dow = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"][d.getDay()];
-  const mon = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"][d.getMonth()];
-  return `${dow} ${d.getDate()} ${mon}`;
+  const color = spotsLeft === 0 ? colors.muted : spotsLeft <= 2 ? colors.orangeDark : colors.mutedLight;
+  return { text: formatAvailability(spotsLeft), color };
 }
 
 export function UpcomingPlanCard({ game }: { game: Game }) {
@@ -50,7 +42,7 @@ export function UpcomingPlanCard({ game }: { game: Game }) {
         contentStyle={{ padding: 10, display: "flex", alignItems: "flex-start" }}
       >
         <span style={{ display: "inline-flex", alignItems: "center", gap: 5, background: "rgba(255,255,255,.92)", color: colors.text, borderRadius: radius.pill, padding: "5px 10px", fontSize: 11.5, fontWeight: 800 }}>
-          <CalendarIcon size={11} /> {dayMonthLabel(game.date)} · {game.time}
+          <CalendarIcon size={11} /> {formatDatePill(game.date)} · {game.time}
         </span>
       </Photo>
       <div style={{ padding: 14, display: "flex", flexDirection: "column", gap: 4, flex: 1 }}>

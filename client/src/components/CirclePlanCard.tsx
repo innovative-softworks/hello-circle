@@ -5,7 +5,7 @@ import { Photo } from "./Photo";
 import { isFavorite, toggleFavorite } from "../favorites";
 import { colors, fonts, radius } from "../theme";
 import type { CirclePlanPreview } from "../types";
-import { formatPrice } from "../formatters";
+import { formatCircleAvailability, formatDatePill, formatPrice } from "../formatters";
 
 // Upcoming plan card (reference §11-13) — date/time badge over a photo,
 // title, location, participation, availability, price. Plans don't carry
@@ -17,18 +17,9 @@ import { formatPrice } from "../formatters";
 // (see CircleDetail.tsx's handleJoinPlan), so this isn't new data, just an
 // existing mechanism applied to a card that didn't expose it before.
 
-function dayMonthLabel(iso: string): string {
-  const d = new Date(`${iso}T00:00:00`);
-  const dow = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"][d.getDay()];
-  const mon = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"][d.getMonth()];
-  return `${dow} ${d.getDate()} ${mon}`;
-}
-
 function spotsCopy(spotsLeft: number): { text: string; color: string } {
-  if (spotsLeft === 0) return { text: "Full", color: colors.muted };
-  if (spotsLeft === 1) return { text: "1 spot left", color: colors.orangeDark };
-  if (spotsLeft <= 3) return { text: `${spotsLeft} spots left`, color: colors.orangeDark };
-  return { text: `${spotsLeft} more welcome`, color: colors.greenText };
+  const color = spotsLeft === 0 ? colors.muted : spotsLeft <= 3 ? colors.orangeDark : colors.greenText;
+  return { text: formatCircleAvailability(spotsLeft), color };
 }
 
 export function CirclePlanCard({ plan }: { plan: CirclePlanPreview }) {
@@ -54,7 +45,7 @@ export function CirclePlanCard({ plan }: { plan: CirclePlanPreview }) {
         contentStyle={{ padding: 10, display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}
       >
         <span style={{ background: "rgba(255,255,255,.92)", color: colors.text, borderRadius: radius.pill, padding: "4px 10px", fontSize: 11, fontWeight: 800, letterSpacing: ".02em" }}>
-          {dayMonthLabel(plan.date)} · {plan.time}
+          {formatDatePill(plan.date)} · {plan.time}
         </span>
         <button
           onClick={(e) => {

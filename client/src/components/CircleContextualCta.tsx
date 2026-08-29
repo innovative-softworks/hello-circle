@@ -3,6 +3,7 @@ import { signInHref } from "../authRedirect";
 import { ArrowRightIcon } from "./icons";
 import { Button } from "./ui";
 import { dateLabel } from "../euro";
+import { formatCircleAvailability } from "../formatters";
 import { colors, fonts } from "../theme";
 import type { Circle } from "../types";
 
@@ -12,12 +13,6 @@ import type { Circle } from "../types";
 // "Join this Circle" repeat of the rail card: only renders when there's an
 // actual next plan to point at, and hides for members/organisers/closed
 // Circles, since the rail Join card already covers those states.
-
-function spotsLabel(spotsLeft: number): string {
-  if (spotsLeft === 0) return "Full";
-  if (spotsLeft === 1) return "1 spot left";
-  return `${spotsLeft} spots left`;
-}
 
 export function CircleContextualCta({
   circle,
@@ -62,7 +57,7 @@ export function CircleContextualCta({
       <div style={{ flex: "0 1 200px", fontSize: 14 }}>
         <div style={{ fontWeight: 700, color: colors.text }}>{dateLabel(plan.date)} · {plan.time}</div>
         <div style={{ marginTop: 2, fontWeight: plan.spotsLeft <= 3 ? 700 : 400, color: plan.spotsLeft <= 3 ? colors.orangeDark : colors.mutedLight }}>
-          {plan.joined} going · {spotsLabel(plan.spotsLeft)}
+          {plan.joined} going · {formatCircleAvailability(plan.spotsLeft)}
         </div>
       </div>
 

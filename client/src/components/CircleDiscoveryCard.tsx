@@ -3,6 +3,7 @@ import { AwardIcon, CalendarIcon, RepeatIcon, UsersIcon } from "./icons";
 import { Photo } from "./Photo";
 import { Button, Card } from "./ui";
 import { dateLabel } from "../euro";
+import { formatCircleAvailability } from "../formatters";
 import { colors, fonts, photoOverlay, radius } from "../theme";
 import type { Circle } from "../types";
 
@@ -21,13 +22,6 @@ function activityState(circle: Circle): "active-now" | "new" | null {
   const ageDays = (Date.now() - new Date(circle.createdAt).getTime()) / DAY_MS;
   if (ageDays <= 21) return "new";
   return null;
-}
-
-function spotsLabel(spotsLeft: number): string {
-  if (spotsLeft === 0) return "Full";
-  if (spotsLeft === 1) return "1 spot left";
-  if (spotsLeft <= 3) return `${spotsLeft} spots left`;
-  return `${spotsLeft} more welcome`;
 }
 
 export function CircleDiscoveryCard({ circle, joined, onJoin, onLeave, busy }: { circle: Circle; joined: boolean; onJoin: () => void; onLeave: () => void; busy: boolean }) {
@@ -61,7 +55,7 @@ export function CircleDiscoveryCard({ circle, joined, onJoin, onLeave, busy }: {
           ) : <span />}
           {urgent && (
             <span style={{ background: photoOverlay.goldBg, color: photoOverlay.goldText, borderRadius: radius.pill, padding: "4px 11px", fontSize: 11.5, fontWeight: 800 }}>
-              {spotsLabel(circle.nextPlan!.spotsLeft)}
+              {formatCircleAvailability(circle.nextPlan!.spotsLeft)}
             </span>
           )}
         </Photo>
@@ -85,7 +79,7 @@ export function CircleDiscoveryCard({ circle, joined, onJoin, onLeave, busy }: {
                   <CalendarIcon size={13} /> {dateLabel(circle.nextPlan.date)} · {circle.nextPlan.time}
                 </div>
                 <div style={{ fontSize: 13, color: circle.nextPlan.spotsLeft <= 3 ? colors.orangeDark : colors.muted, fontWeight: circle.nextPlan.spotsLeft <= 3 ? 700 : 400, marginTop: 3 }}>
-                  {circle.nextPlan.joined} going · {spotsLabel(circle.nextPlan.spotsLeft)}
+                  {circle.nextPlan.joined} going · {formatCircleAvailability(circle.nextPlan.spotsLeft)}
                 </div>
               </>
             ) : (

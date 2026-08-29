@@ -4,6 +4,7 @@ import { fetchGames } from "../api";
 import { BallIcon } from "./icons";
 import { Photo } from "./Photo";
 import { dateLabel } from "../euro";
+import { formatParticipantCount } from "../formatters";
 import { colors, fonts } from "../theme";
 import type { Game } from "../types";
 
@@ -48,7 +49,7 @@ function RelatedCard({ game }: { game: Game }) {
       <div style={{ fontWeight: 700, fontSize: 14.5, marginBottom: 3 }}>{game.activityLabel}</div>
       <div style={{ fontSize: 12.5, color: colors.mutedLight, marginBottom: 4 }}>{game.centreName ?? game.locationText}</div>
       <div style={{ fontSize: 12, fontWeight: 700, color: full ? colors.muted : colors.greenText }}>
-        {dateLabel(game.date)} · {full ? "Full" : `${game.joined}/${game.capacity} joined`}
+        {dateLabel(game.date)} · {full ? "Full" : formatParticipantCount(game.joined, game.capacity, "joined")}
       </div>
     </button>
   );

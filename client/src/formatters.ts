@@ -39,6 +39,17 @@ export function formatDateTime(iso: string, time: string, hour12 = false): strin
   return `${formatRelativeDay(iso)} · ${hour12 ? formatTime12h(time) : time}`;
 }
 
+/** "SAT 29 AUG" — the uppercase date-pill format used on hero-photo overlay
+ * badges (distinct from dateLabel's title-case "Sat 29 Aug" body-copy
+ * format). Was a byte-identical local `dayMonthLabel` in both
+ * CirclePlanCard.tsx and UpcomingPlanCard.tsx. */
+export function formatDatePill(iso: string): string {
+  const d = new Date(`${iso}T00:00:00`);
+  const dow = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"][d.getDay()];
+  const mon = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"][d.getMonth()];
+  return `${dow} ${d.getDate()} ${mon}`;
+}
+
 /** "1.8 km" under 10km (one decimal — the resolution that actually matters
  * at walking/cycling distance), "12 km" at 10 and above (a decimal stops
  * being meaningful), "450 m" under 1km. Was previously `.toFixed(1)`, plain
@@ -89,4 +100,19 @@ export function formatAvailability(spotsLeft: number, needed?: number): string {
   if (spotsLeft === 1) return "1 spot left";
   if (spotsLeft <= 2) return `${spotsLeft} spots left`;
   return `${spotsLeft} spots available`;
+}
+
+/** Circle-specific spots-left phrasing — "X more welcome" past the urgent
+ * threshold instead of "X spots available". A deliberate warmer,
+ * community-oriented tone (vs. a Game/Plan's more transactional wording)
+ * that two of three Circle cards had already independently converged on;
+ * the third was the outlier and is now conformed to this instead of the
+ * other way around. Pair with `availabilityFromSpots(spotsLeft, 3)` from
+ * ui.tsx for the matching color (Circle cards use a ≤3 urgent threshold,
+ * not the ≤2 default). */
+export function formatCircleAvailability(spotsLeft: number): string {
+  if (spotsLeft <= 0) return "Full";
+  if (spotsLeft === 1) return "1 spot left";
+  if (spotsLeft <= 3) return `${spotsLeft} spots left`;
+  return `${spotsLeft} more welcome`;
 }
