@@ -70,8 +70,16 @@ export const colors = {
    * changes with the theme either. Deliberately distinct from `orange`/
    * `orangeDark` (which were tuned for WCAG contrast as UI accent colors)
    * — reach for this only when a use is genuinely referencing the logo's
-   * own brand mark, not as a substitute for the functional orange accent. */
+   * own brand mark, not as a substitute for the functional orange accent.
+   * `#ee4826` itself fails normal-text AA contrast (~3.3-3.8:1) against
+   * every realistic background — never use `logoMark` for text. */
   logoMark: "#ee4826",
+  /** A text-safe derivative of `logoMark` — same hue/saturation, lightness
+   * tuned per theme until it cleared 4.5:1+ with real margin (see
+   * index.css's own token comment for the exact search). Use this, not
+   * `logoMark`, wherever a badge/label wants the logo's brand-orange
+   * character as actual text. */
+  logoMarkText: "var(--color-logo-mark-text)",
 };
 
 export const fonts = {

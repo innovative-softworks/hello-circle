@@ -12,7 +12,17 @@
    literal in 9+ files (long-form blurb/paragraph copy) — measurably
    distinct from both `--color-text` (15.1:1 on canvas) and `--color-muted`
    (5.9:1), sitting at 9.9:1, so it's a real third value, not a duplicate
-   of either existing token. */
+   of either existing token.
+   `--color-logo-mark-text` is a text-safe derivative of Logo.svg's mark
+   color (`colors.logoMark`, #ee4826 — a literal, not a var, since it names
+   a fixed asset color, defined in theme.ts) — the raw logo orange measures
+   only ~3.3-3.8:1 against any realistic background, failing normal-text
+   AA (4.5:1) the same way the original `--color-orange` did before it was
+   tuned. Same hue/saturation as the logo mark (10°, 85%), lightness
+   adjusted per theme (42% light / 65% dark) until both passed 4.5:1+ with
+   real margin — used for badge text that specifically wants the logo's
+   brand-orange character (not a substitute for `--color-orange-dark`
+   generally). */
 :root {
   --color-bg: #fbfaf7;
   --color-surface: #ffffff;
@@ -36,6 +46,7 @@
   --color-orange-dark: #b0401a;
   --color-orange-bg: #fcede4;
   --color-orange-bg-hover: #f8ddcc;
+  --color-logo-mark-text: #c72f10;
 
   --color-gold: #e8a33a;
   --color-dark: #1e2420;
@@ -98,6 +109,7 @@
     --color-orange-dark: #f0996a;
     --color-orange-bg: #3a2517;
     --color-orange-bg-hover: #472d1c;
+    --color-logo-mark-text: #f27359;
 
     --color-gold: #e8a33a;
     /* Same reasoning as green/orange above (white button text on top), but
@@ -150,6 +162,7 @@
   --color-orange-dark: #f0996a;
   --color-orange-bg: #3a2517;
   --color-orange-bg-hover: #472d1c;
+  --color-logo-mark-text: #f27359;
 
   --color-gold: #e8a33a;
   --color-dark: #444d46;
@@ -189,6 +202,7 @@
   --color-orange-dark: #b0401a;
   --color-orange-bg: #fcede4;
   --color-orange-bg-hover: #f8ddcc;
+  --color-logo-mark-text: #c72f10;
 
   --color-gold: #e8a33a;
   --color-dark: #1e2420;

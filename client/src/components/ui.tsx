@@ -208,11 +208,15 @@ export function StatusBadge({ status }: { status: string }) {
 
 export type AvailabilityState = "open" | "urgent" | "full" | "waitlist" | "joined";
 
+// urgent/waitlist use `logoMarkText` (a WCAG-safe derivative of the logo
+// mark's own brand orange, #ee4826 — see theme.ts's own comment) rather
+// than the general `orangeDark` UI accent, so the app's single most
+// urgency-charged state visually ties back to the logo's brand color.
 const availabilityStyles: Record<AvailabilityState, { bg: string; fg: string }> = {
   open: { bg: colors.greenBg, fg: colors.greenText },
-  urgent: { bg: colors.orangeBg, fg: colors.orangeDark },
+  urgent: { bg: colors.orangeBg, fg: colors.logoMarkText },
   full: { bg: colors.panel, fg: colors.muted },
-  waitlist: { bg: colors.orangeBg, fg: colors.orangeDark },
+  waitlist: { bg: colors.orangeBg, fg: colors.logoMarkText },
   joined: { bg: colors.greenBg, fg: colors.greenText },
 };
 
