@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { CSSProperties, InputHTMLAttributes, ReactNode } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { signup } from "../api";
 import {
   BallIcon,
@@ -309,9 +309,9 @@ export function VendorSignup() {
 
         <p style={{ textAlign: "center", color: colors.muted, fontSize: 14, marginTop: 18 }}>
           Already have an account?{" "}
-          <span className="link-accent" style={{ color: colors.green, fontWeight: 700, cursor: "pointer" }} onClick={() => navigate("/login")}>
+          <Link to="/login" className="link-accent" style={{ textDecoration: "none", color: colors.green, fontWeight: 700 }}>
             Log in
-          </span>
+          </Link>
         </p>
       </section>
     </div>

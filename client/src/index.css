@@ -390,6 +390,34 @@ textarea:focus {
   animation: slideInLeft 0.22s cubic-bezier(0.34, 1.56, 0.64, 1) both;
 }
 
+/* Hero scroll-split's horizontal image strip (HeroScrollSplit.tsx) — native
+   overflow-x scrolling stays fully functional, this just hides the
+   scrollbar chrome since a photo strip reads better without one. */
+.hide-scrollbar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.hide-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+/* Mood tiles (Home.tsx's "What are you in the mood for?" grid) — icon
+   cards, not photo tiles: on hover the tile's border darkens and the icon
+   circle inverts (dark fill, white icon) and scales up slightly, rather
+   than the app's usual lift+shadow .card-hover (a drop shadow reads wrong
+   on a flat icon card). */
+.mood-tile {
+  transition: border-color 0.2s ease;
+}
+.mood-tile:hover {
+  border-color: var(--color-dark) !important;
+}
+.mood-tile:hover .mood-tile-icon {
+  background: var(--color-dark);
+  color: #fff;
+  transform: scale(1.08);
+}
+
 .image-drop {
   transition: border-color 0.15s ease, background-color 0.15s ease;
 }
@@ -485,6 +513,29 @@ textarea:focus {
   min-width: 0;
 }
 
+/* SignIn.tsx's split-screen auth layout — photography side stretches to
+   match the form column's own height (default grid stretch), so a taller
+   form (e.g. signup, with its Terms line) naturally gets a taller image
+   alongside it rather than a fixed viewport-height mismatch. Mobile removes
+   the image entirely per the brief's own instruction — a large photo above
+   the form would push it below the fold, not below "removed". */
+.signin-split {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  min-height: 100vh;
+}
+@media (max-width: 900px) {
+  .signin-split {
+    grid-template-columns: 1fr;
+  }
+  .signin-photo-col {
+    display: none;
+  }
+  .signin-form-col {
+    padding: 40px 24px !important;
+  }
+}
+
 @media (max-width: 900px) {
   .grid-responsive {
     grid-template-columns: 1fr !important;
@@ -506,6 +557,54 @@ textarea:focus {
   .hero-visual {
     overflow: hidden;
   }
+  .games-sidebar {
+    display: none !important;
+  }
+}
+
+/* Join a Game page (Games.tsx) — the persistent "Refine" filter column only
+   makes sense once there's room beside the results grid; below that same
+   900px break it moves into a Drawer opened by a "Filters" trigger instead,
+   so this hides that trigger once the sidebar itself has room to show. */
+@media (min-width: 901px) {
+  .games-filter-trigger {
+    display: none !important;
+  }
+}
+
+/* Game Detail's mobile sticky join bar (GameJoinCard.tsx's MobileJoinBar) —
+   hidden on desktop (the sticky rail card already covers it there), fixed
+   just above the app's own persistent bottom tab bar on mobile so the two
+   don't overlap. Both are position: fixed with the tab bar's own 250
+   z-index winning if they ever needed to stack instead of sit side by side. */
+.mobile-join-bar {
+  display: none;
+}
+@media (max-width: 900px) {
+  /* Extra breathing room at the very bottom of a page's own content, on any
+     page that renders the fixed .mobile-join-bar above, so the last section
+     isn't hidden behind it + the app's own bottom tab bar. Shared by Game
+     Detail and Circle Detail. */
+  .game-detail-mobile-pad,
+  .circle-detail-mobile-pad,
+  .experience-detail-mobile-pad {
+    padding-bottom: 76px;
+  }
+  .mobile-join-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: calc(64px + env(safe-area-inset-bottom));
+    z-index: 240;
+    background: var(--color-surface);
+    border-top: 1px solid var(--color-border);
+    padding: 10px 16px;
+    box-shadow: 0 -6px 20px rgba(20, 22, 20, 0.08);
+  }
 }
 
 /* The hero search bar's Search button stands slightly proud of the pill's own
@@ -520,6 +619,18 @@ textarea:focus {
 @media (max-width: 640px) {
   .grid-responsive-3 {
     grid-template-columns: 1fr !important;
+  }
+  /* CircleMoments' asymmetric mosaic (varied grid-column/row spans per
+     photo) has no clean single-column collapse — reset to a plain 2x2
+     instead, since the generic .grid-responsive 1fr override alone would
+     leave every photo's explicit row/column span intact and overlapping. */
+  .circle-moments-grid {
+    grid-template-columns: repeat(2, 1fr) !important;
+    grid-template-rows: repeat(2, 140px) !important;
+  }
+  .circle-moments-item {
+    grid-column: auto !important;
+    grid-row: auto !important;
   }
   .section-pad {
     padding-left: 16px !important;

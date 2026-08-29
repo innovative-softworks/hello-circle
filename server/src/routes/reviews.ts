@@ -14,7 +14,7 @@ export const reviewsRouter = Router();
 // game/host reviews are necessarily resident-id-eligible instead, since
 // joining a Game has always required a signed-in resident (requireResident
 // on games.ts's own join route) — see isEligibleToReview()'s branch below.
-type ReviewListingType = "centre" | "club" | "game" | "host";
+type ReviewListingType = "centre" | "club" | "game" | "host" | "experience";
 
 interface ReviewRow {
   id: number;
@@ -45,6 +45,7 @@ async function listingExists(listingType: string, listingId: string): Promise<bo
   // Host reviews only ever resolve for a verified host — same gate
   // GET /residents/:id/host-profile already applies.
   if (listingType === "host") return !!(await db.prepare(`SELECT 1 FROM residents WHERE id = ? AND host_status = 'verified'`).get(listingId));
+  if (listingType === "experience") return !!(await db.prepare(`SELECT 1 FROM experiences WHERE id = ?`).get(listingId));
   return false;
 }
 
@@ -77,6 +78,18 @@ async function isEligibleToReview(clientId: string, residentId: string | null, l
          WHERE gp.resident_id = ? AND gp.status = 'joined' AND g.host_resident_id = ? AND g.date < CURDATE() LIMIT 1`
       )
       .get(residentId, listingId);
+    return !!row;
+  }
+  if (listingType === "experience") {
+    // client_id-eligible like centre/club, not resident-only like game/host
+    // — an Experience booking is the same guest-form-no-account-required
+    // shape as a centre booking, not a resident-authenticated Game join.
+    const row = await db
+      .prepare(
+        `SELECT 1 FROM experience_bookings eb JOIN experience_sessions es ON es.id = eb.session_id
+         WHERE eb.client_id = ? AND eb.experience_id = ? AND eb.payment_status = 'paid' AND es.date < CURDATE() LIMIT 1`
+      )
+      .get(clientId, listingId);
     return !!row;
   }
   return false;
@@ -135,6 +148,7 @@ reviewsRouter.post("/", async (req, res) => {
       club: "You can only review a club after registering with it.",
       game: "You can only review a game after actually attending a past one.",
       host: "You can only review a host after playing in one of their past games.",
+      experience: "You can only review this after a past booking on it.",
     };
     return res.status(403).json({ error: messages[listingType] });
   }

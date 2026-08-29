@@ -9,6 +9,11 @@ import {
   fetchActivityOverview,
   fetchAdminCoupons,
   fetchAdminDemand,
+  fetchAdminIntentClusters,
+  fetchAdminReferrals,
+  fetchAnalyticsFunnel,
+  fetchMarketplaceHealth,
+  notifyIntentCluster,
   fetchAdminListings,
   fetchAdminOrganisations,
   fetchAdminPlaceSuggestions,
@@ -51,12 +56,14 @@ import {
 import { useAuth } from "../AuthContext";
 import { useDashboardNav } from "../DashboardNavContext";
 import { AdminIllustration } from "../components/illustrations";
-import { AwardIcon, BallIcon, BuildingIcon, CalendarIcon, CheckIcon, ClipboardIcon, EyeIcon, IdCardIcon, MailIcon, PinIcon, SearchIcon, StarIcon, TagIcon, TrendUpIcon, UsersIcon } from "../components/icons";
-import { Avatar, BadgedIcon, Button, Card, ConfirmDialog, DashboardTopPanel, Drawer, EmptyState, NavSidebar, PageSpinner, StarDisplay, StatRow, StatTile, StatusBadge, inputStyle, labelStyle, tableStyle, tdStyle, thStyle, type ListingStatus } from "../components/ui";
-import { DemandSignalsView } from "../components/DemandSignals";
+import { AwardIcon, BallIcon, BuildingIcon, CalendarIcon, CheckIcon, ClipboardIcon, EyeIcon, GridIcon, IdCardIcon, MailIcon, PinIcon, SearchIcon, StarIcon, TagIcon, TrendUpIcon, UsersIcon } from "../components/icons";
+import { Avatar, BadgedIcon, Button, Card, ConfirmDialog, DashboardTopPanel, Drawer, EmptyState, NavSidebar, onActivateProps, PageSpinner, StarDisplay, StatRow, StatTile, StatusBadge, inputStyle, labelStyle, tableStyle, tdStyle, thStyle, type ListingStatus } from "../components/ui";
+import { DemandSignalsView, IntentClusterView } from "../components/DemandSignals";
+import { MarketplaceHealthView } from "../components/MarketplaceHealth";
+import { MarketConfig } from "../components/MarketConfig";
 import { colors, fonts, maxWidth } from "../theme";
 import { FEATURE_FLAG_KEYS, FEATURE_FLAG_LABELS } from "../types";
-import type { AdminOrganisation, AdminStats, AuditEntry, CircleActivity, DemandRow, FeatureFlagKey, FeatureFlags, ModerationReport, NotificationTemplateInfo, OpenBookingActivity, PlaceSuggestion, ReportCase, Review, SupportBooking, SupportCircle, SupportGame, SupportRegistration, SupportUser } from "../types";
+import type { AdminOrganisation, AdminStats, AnalyticsFunnelRow, AuditEntry, CircleActivity, DemandRow, FeatureFlagKey, FeatureFlags, IntentCluster, MarketplaceHealth, ModerationReport, NotificationTemplateInfo, OpenBookingActivity, PlaceSuggestion, ReferralAttributionRow, ReportCase, Review, SupportBooking, SupportCircle, SupportGame, SupportRegistration, SupportUser } from "../types";
 
 const PLATFORM_ROLES = ["centre_manager", "facility_manager", "finance", "communications", "read_only_analyst"];
 
@@ -830,7 +837,7 @@ function ReportsSection() {
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         {reports.map((r) => (
           <Card key={r.id} style={{ padding: 15 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, cursor: "pointer" }} onClick={() => toggleExpand(r.id)}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, cursor: "pointer" }} {...onActivateProps(() => toggleExpand(r.id))}>
               <div>
                 <div style={{ fontWeight: 700, fontSize: 14 }}>{r.targetType} · {r.targetId}</div>
                 <div style={{ fontSize: 13, color: colors.mutedLight, marginTop: 2 }}>{r.reason}</div>
@@ -838,8 +845,12 @@ function ReportsSection() {
                   <span style={{ fontSize: 11, fontWeight: 700, color: colors.mutedLight, textTransform: "uppercase" }}>{r.status}</span>
                 )}
               </div>
+              {/* Real Buttons below handle their own Enter/Space activation —
+                  stop both click AND keydown from bubbling to the row's new
+                  onKeyDown (added for keyboard access), or focusing one of
+                  these and pressing Enter would also re-toggle the row. */}
               {r.status === "pending" && (
-                <div style={{ display: "flex", gap: 8, flex: "none" }} onClick={(e) => e.stopPropagation()}>
+                <div style={{ display: "flex", gap: 8, flex: "none" }} onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
                   <Button variant="ghost" onClick={() => resolve(r.id, "dismissed")}>Dismiss</Button>
                   <Button variant="danger" onClick={() => setConfirming({ id: r.id, status: "suspended" })}>Suspend</Button>
                   <Button variant="danger" onClick={() => setConfirming({ id: r.id, status: "actioned" })}>Action</Button>
@@ -1569,12 +1580,15 @@ function OrganisationsTab({ onOpenVendor }: { onOpenVendor: (vendorId: string) =
 
 function AdminDemandTab() {
   const [rows, setRows] = useState<DemandRow[] | null>(null);
+  const [clusters, setClusters] = useState<IntentCluster[] | null>(null);
   useEffect(() => {
     fetchAdminDemand().then(setRows).catch(() => setRows([]));
+    fetchAdminIntentClusters().then(setClusters).catch(() => setClusters([]));
   }, []);
 
   return (
-    <div className="fade-panel">
+    <div className="fade-panel" style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+      <IntentClusterView clusters={clusters} onNotify={notifyIntentCluster} />
       <DemandSignalsView
         title="Unmet demand, platform-wide"
         subtitle="Searches that returned nothing, aggregated across every vendor — useful for spotting a gap no one's listing yet."
@@ -1584,7 +1598,28 @@ function AdminDemandTab() {
   );
 }
 
-type AdminTab = "overview" | "vendors" | "pending" | "listings" | "claims" | "hostApplications" | "placeSuggestions" | "reviews" | "coupons" | "organisations" | "demand" | "audit" | "support" | "notificationTemplates";
+// --- marketplace health / liquidity (participation-intent plan Phase 2) ----
+
+function AdminMarketplaceHealthTab() {
+  const [data, setData] = useState<MarketplaceHealth | null>(null);
+  const [referrals, setReferrals] = useState<ReferralAttributionRow[] | null>(null);
+  const [funnel, setFunnel] = useState<AnalyticsFunnelRow[] | null>(null);
+  useEffect(() => {
+    fetchMarketplaceHealth().then(setData);
+    fetchAdminReferrals().then(setReferrals).catch(() => setReferrals([]));
+    fetchAnalyticsFunnel().then(setFunnel).catch(() => setFunnel([]));
+  }, []);
+
+  if (!data) return <PageSpinner />;
+  return (
+    <div className="fade-panel" style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+      <MarketConfig />
+      <MarketplaceHealthView data={data} referrals={referrals} funnel={funnel} />
+    </div>
+  );
+}
+
+type AdminTab = "overview" | "vendors" | "pending" | "listings" | "claims" | "hostApplications" | "placeSuggestions" | "reviews" | "coupons" | "organisations" | "demand" | "marketplaceHealth" | "audit" | "support" | "notificationTemplates";
 
 const ADMIN_TABS: { key: AdminTab; label: string; icon: ReactNode }[] = [
   { key: "overview", label: "Overview", icon: <EyeIcon size={15} /> },
@@ -1598,6 +1633,7 @@ const ADMIN_TABS: { key: AdminTab; label: string; icon: ReactNode }[] = [
   { key: "coupons", label: "Coupons", icon: <TagIcon size={15} /> },
   { key: "organisations", label: "Organisations", icon: <BuildingIcon size={15} /> },
   { key: "demand", label: "Demand", icon: <TrendUpIcon size={15} /> },
+  { key: "marketplaceHealth", label: "Marketplace health", icon: <GridIcon size={15} /> },
   { key: "audit", label: "Audit", icon: <ClipboardIcon size={15} /> },
   { key: "support", label: "Support", icon: <SearchIcon size={15} /> },
   { key: "notificationTemplates", label: "Notification templates", icon: <MailIcon size={15} /> },
@@ -1731,6 +1767,7 @@ export function AdminDashboard() {
           <OrganisationsTab onOpenVendor={(vendorId) => { setOpenVendorRequest(vendorId); setTab("vendors"); }} />
         )}
         {tab === "demand" && <AdminDemandTab />}
+        {tab === "marketplaceHealth" && <AdminMarketplaceHealthTab />}
         {tab === "audit" && <AuditTab />}
         {tab === "support" && <SupportTab />}
         {tab === "notificationTemplates" && <NotificationTemplatesTab />}

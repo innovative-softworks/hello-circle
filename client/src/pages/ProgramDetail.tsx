@@ -55,7 +55,7 @@ export function ProgramDetail() {
   if (loading) return <PageSpinner />;
   if (!program) {
     return (
-      <section style={{ maxWidth: 640, margin: "0 auto", padding: "60px 24px", textAlign: "center" }}>
+      <section className="section-pad" style={{ maxWidth: 640, margin: "0 auto", padding: "60px 24px", textAlign: "center" }}>
         <p style={{ color: colors.mutedLight }}>This program doesn't exist.</p>
       </section>
     );
@@ -63,7 +63,7 @@ export function ProgramDetail() {
 
   if (confirmed) {
     return (
-      <section style={{ maxWidth: 560, margin: "0 auto", padding: "64px 24px", textAlign: "center" }}>
+      <section className="section-pad" style={{ maxWidth: 560, margin: "0 auto", padding: "64px 24px", textAlign: "center" }}>
         <h1 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 28, margin: "0 0 10px" }}>You're enrolled.</h1>
         <p style={{ color: colors.mutedLight, marginBottom: 20 }}>{program.title} · Reference {confirmed.ref}</p>
         <Button onClick={() => navigate("/bookings")}>View my bookings</Button>
@@ -75,7 +75,7 @@ export function ProgramDetail() {
 
   return (
     <div style={{ animation: "fadeUp .3s ease both" }}>
-      <section style={{ maxWidth: 720, margin: "0 auto", padding: "26px 24px 80px" }}>
+      <section className="section-pad" style={{ maxWidth: 720, margin: "0 auto", padding: "26px 24px 80px" }}>
         <button
           onClick={() => navigate(-1)}
           style={{ display: "inline-flex", alignItems: "center", background: "none", border: "none", color: colors.muted, fontWeight: 600, fontSize: 14, cursor: "pointer", padding: 0, marginBottom: 20 }}

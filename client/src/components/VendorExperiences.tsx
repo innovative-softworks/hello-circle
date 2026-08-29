@@ -35,6 +35,9 @@ function blankExperienceInput(): ExperienceInput {
     description: "",
     difficulty: "",
     durationMinutes: 120,
+    distanceKm: null,
+    elevationGainM: null,
+    terrainType: "",
     fitnessRequirements: "",
     itinerary: "",
     equipmentProvided: "",
@@ -64,6 +67,9 @@ function experienceToInput(e: Experience): ExperienceInput {
     description: e.description,
     difficulty: e.difficulty,
     durationMinutes: e.durationMinutes,
+    distanceKm: e.distanceKm,
+    elevationGainM: e.elevationGainM,
+    terrainType: e.terrainType,
     fitnessRequirements: e.fitnessRequirements,
     itinerary: e.itinerary,
     equipmentProvided: e.equipmentProvided,
@@ -158,6 +164,41 @@ function ExperienceEditor({ id, onSaved }: { id: string | "new"; onSaved: () => 
           <input type="number" min={1} value={form.capacity ?? 8} onChange={(e) => set("capacity", Number(e.target.value))} style={inputStyle} />
         </div>
       </div>
+
+      {form.kind === "adventure" && (
+        <div className="grid-responsive" style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 14, marginBottom: 14 }}>
+          <div>
+            <label style={labelStyle}>Distance (km, optional)</label>
+            <input
+              type="number"
+              min={0}
+              step="0.1"
+              value={form.distanceKm ?? ""}
+              onChange={(e) => set("distanceKm", e.target.value ? Number(e.target.value) : null)}
+              style={inputStyle}
+            />
+          </div>
+          <div>
+            <label style={labelStyle}>Elevation gain (m, optional)</label>
+            <input
+              type="number"
+              min={0}
+              value={form.elevationGainM ?? ""}
+              onChange={(e) => set("elevationGainM", e.target.value ? Number(e.target.value) : null)}
+              style={inputStyle}
+            />
+          </div>
+          <div>
+            <label style={labelStyle}>Terrain (optional)</label>
+            <input
+              value={form.terrainType ?? ""}
+              onChange={(e) => set("terrainType", e.target.value)}
+              placeholder="e.g. Trail & mountain"
+              style={inputStyle}
+            />
+          </div>
+        </div>
+      )}
 
       <label style={labelStyle}>Meeting point</label>
       <input value={form.meetingPoint ?? ""} onChange={(e) => set("meetingPoint", e.target.value)} placeholder="Where participants gather" style={{ ...inputStyle, marginBottom: 14 }} />

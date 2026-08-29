@@ -94,7 +94,7 @@ export interface Review {
   id: number;
   /** Host & Activity reviews (master-prompt punch list #3) — kept separate
    * per listing_type, matching the different trust signal each represents. */
-  listingType: "centre" | "club" | "game" | "host";
+  listingType: "centre" | "club" | "game" | "host" | "experience";
   listingId: string;
   name: string;
   rating: number;

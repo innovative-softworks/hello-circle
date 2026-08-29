@@ -1,5 +1,6 @@
 import type {
   AdminOrganisation,
+  AnalyticsFunnelRow,
   FeatureFlagKey,
   FeatureFlags,
   NotificationTemplateInfo,
@@ -9,7 +10,11 @@ import type {
   CircleActivity,
   Club,
   DemandRow,
+  IntentCluster,
+  MarketCategoryFlags,
+  MarketplaceHealth,
   ModerationReport,
+  ReferralAttributionRow,
   OpenBookingActivity,
   PlaceSuggestion,
   ReportCase,
@@ -62,6 +67,34 @@ export function setVendorProviderTier(id: string, providerTier: "standard" | "ve
 
 export function fetchAdminDemand(): Promise<DemandRow[]> {
   return request(`/admin/demand`);
+}
+
+export function fetchAdminIntentClusters(): Promise<IntentCluster[]> {
+  return request(`/admin/demand/intents`);
+}
+
+export function notifyIntentCluster(activityLabel: string, county: string): Promise<{ ok: boolean; notified: number }> {
+  return request(`/admin/demand/intents/notify`, { method: "POST", body: JSON.stringify({ activityLabel, county }) });
+}
+
+export function fetchMarketplaceHealth(county?: string): Promise<MarketplaceHealth> {
+  return request(`/admin/marketplace-health${county ? `?county=${encodeURIComponent(county)}` : ""}`);
+}
+
+export function fetchAdminReferrals(): Promise<ReferralAttributionRow[]> {
+  return request(`/admin/referrals`);
+}
+
+export function fetchAnalyticsFunnel(windowDays?: number): Promise<AnalyticsFunnelRow[]> {
+  return request(`/admin/analytics/funnel${windowDays ? `?windowDays=${windowDays}` : ""}`);
+}
+
+export function fetchAdminMarketCategories(county: string): Promise<MarketCategoryFlags> {
+  return request(`/admin/market-categories?county=${encodeURIComponent(county)}`);
+}
+
+export function setMarketCategory(county: string, category: string, enabled: boolean): Promise<{ ok: boolean }> {
+  return request(`/admin/market-categories`, { method: "PUT", body: JSON.stringify({ county, category, enabled }) });
 }
 
 export interface AdminVendor {

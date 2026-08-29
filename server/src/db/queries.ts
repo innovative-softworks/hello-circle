@@ -422,6 +422,327 @@ export async function getLocalMomentum(opts: { county?: string; limit: number })
   return rows.map((r) => ({ ...r, growth: r.recentSpots - r.priorSpots }));
 }
 
+export interface IntentCluster {
+  activityLabel: string;
+  county: string;
+  count: number;
+  residentCount: number;
+  sampleNames: string[];
+  latestAt: string;
+}
+
+/** Explicit unmet-demand clusters from participation_intents (see
+ * routes/participationIntents.ts) — unlike getDemandSignals() above, these
+ * are resident-linkable, actionable rows (can be notified), not anonymous
+ * query-text logging. Only active, non-expired intents count; there's no
+ * background sweep that flips expired rows, so every read filters
+ * expires_at directly. */
+export async function getIntentClusters(opts: { county?: string; minCount?: number }): Promise<IntentCluster[]> {
+  const params: string[] = [];
+  let countyClause = "";
+  if (opts.county) {
+    countyClause = "AND county = ?";
+    params.push(opts.county);
+  }
+  const minCount = Math.max(1, Math.floor(opts.minCount ?? 1));
+  const rows = (await db
+    .prepare(
+      `SELECT activity_label as activityLabel, county, COUNT(*) as count,
+              CAST(SUM(CASE WHEN resident_id IS NOT NULL THEN 1 ELSE 0 END) AS UNSIGNED) as residentCount,
+              MAX(created_at) as latestAt,
+              SUBSTRING_INDEX(GROUP_CONCAT(NULLIF(name, '') ORDER BY created_at DESC), ',', 5) as sampleNamesRaw
+       FROM participation_intents
+       WHERE status = 'active' AND (expires_at IS NULL OR expires_at > NOW()) ${countyClause}
+       GROUP BY activity_label, county
+       HAVING count >= ${minCount}
+       ORDER BY count DESC`
+    )
+    .all(...params)) as (Omit<IntentCluster, "sampleNames"> & { sampleNamesRaw: string | null })[];
+  return rows.map(({ sampleNamesRaw, ...r }) => ({ ...r, sampleNames: sampleNamesRaw ? sampleNamesRaw.split(",") : [] }));
+}
+
+// Marketplace health / liquidity (participation-intent plan Phase 2) — admin-
+// only aggregates. Kept in this file alongside the other demand/supply
+// signals above rather than a separate module, since every function here
+// follows the exact same "one grouped SQL read, exported as a named
+// function" shape as getDemandSignals/getLocalMomentum/getIntentClusters.
+
+export interface SupplyOverview {
+  upcomingGames: number;
+  openSpots: number;
+  activeCircles: number;
+  activeHosts: number;
+}
+
+/** Upcoming = not yet happened (date >= today) and not cancelled. openSpots
+ * sums capacity - joined across those games (never negative per game).
+ * activeHosts = distinct hosts of a game created in the last 30 days —
+ * mirrors getLocalMomentum's own "created recently" growth window. */
+export async function getSupplyOverview(): Promise<SupplyOverview> {
+  const { n: upcomingGames } = (await db
+    .prepare(`SELECT COUNT(*) as n FROM games WHERE status IN ('open','pending_participants') AND date >= CURDATE()`)
+    .get()) as { n: number };
+  const { n: openSpots } = (await db
+    .prepare(
+      `SELECT CAST(COALESCE(SUM(GREATEST(g.capacity - COALESCE(jc.joined, 0), 0)), 0) AS SIGNED) as n
+       FROM games g
+       LEFT JOIN (SELECT game_id, COUNT(*) as joined FROM game_participants WHERE status = 'joined' GROUP BY game_id) jc ON jc.game_id = g.id
+       WHERE g.status IN ('open','pending_participants') AND g.date >= CURDATE()`
+    )
+    .get()) as { n: number };
+  const { n: activeCircles } = (await db.prepare(`SELECT COUNT(*) as n FROM circles WHERE status = 'active'`).get()) as { n: number };
+  const { n: activeHosts } = (await db
+    .prepare(`SELECT COUNT(DISTINCT host_resident_id) as n FROM games WHERE created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)`)
+    .get()) as { n: number };
+  return { upcomingGames, openSpots, activeCircles, activeHosts };
+}
+
+export interface ParticipationStats {
+  joined: number;
+  attended: number;
+  noShow: number;
+  totalResidents: number;
+  repeatResidents: number;
+  repeatRate: number;
+}
+
+/** Scoped to games whose date has already passed within the trailing
+ * `windowDays` (default 90) — attended/no-show is only a meaningful signal
+ * once the activity has actually happened. `game_participants.attended` is
+ * the only real signal in this app (no dedicated no_show value) — a joined
+ * row with `attended` 0 or still NULL after the date has passed counts as a
+ * no-show-equivalent. repeatRate = residents who joined more than one
+ * distinct game date in the window, over every resident who joined at least
+ * one — a coarse, cheap repeat-participation proxy, not a true cohort
+ * retention curve. */
+export async function getParticipationStats(windowDays = 90): Promise<ParticipationStats> {
+  const row = (await db
+    .prepare(
+      `SELECT COUNT(*) as joined,
+              CAST(COALESCE(SUM(CASE WHEN gp.attended = 1 THEN 1 ELSE 0 END), 0) AS UNSIGNED) as attended,
+              CAST(COALESCE(SUM(CASE WHEN gp.attended IS NULL OR gp.attended = 0 THEN 1 ELSE 0 END), 0) AS UNSIGNED) as noShow
+       FROM game_participants gp
+       JOIN games g ON g.id = gp.game_id
+       WHERE gp.status = 'joined' AND g.date < CURDATE() AND g.date >= DATE_SUB(CURDATE(), INTERVAL ${windowDays} DAY)`
+    )
+    .get()) as { joined: number; attended: number; noShow: number };
+
+  const repeatRow = (await db
+    .prepare(
+      `SELECT COUNT(*) as totalResidents, CAST(COALESCE(SUM(CASE WHEN cnt > 1 THEN 1 ELSE 0 END), 0) AS UNSIGNED) as repeatResidents FROM (
+         SELECT gp.resident_id, COUNT(DISTINCT g.date) as cnt
+         FROM game_participants gp JOIN games g ON g.id = gp.game_id
+         WHERE gp.status = 'joined' AND g.date <= CURDATE() AND g.date >= DATE_SUB(CURDATE(), INTERVAL ${windowDays} DAY)
+         GROUP BY gp.resident_id
+       ) t`
+    )
+    .get()) as { totalResidents: number; repeatResidents: number };
+
+  return {
+    ...row,
+    totalResidents: repeatRow.totalResidents,
+    repeatResidents: repeatRow.repeatResidents,
+    repeatRate: repeatRow.totalResidents > 0 ? repeatRow.repeatResidents / repeatRow.totalResidents : 0,
+  };
+}
+
+export type LiquidityLabel = "LOW" | "DEVELOPING" | "HEALTHY" | "HIGH";
+
+export interface LiquidityScore {
+  activityLabel: string;
+  county: string;
+  demandCount: number;
+  matchRate: number;
+  openSpots: number;
+  upcomingPlans: number;
+  label: LiquidityLabel;
+}
+
+/** Deterministic, hand-tunable v1 scoring — deliberately kept in one small
+ * pure function rather than scattered across the query/route, per the
+ * source doc's own "keep ranking logic in a dedicated service" instruction.
+ * Admin-only terminology (LOW/DEVELOPING/HEALTHY/HIGH) — never shown to a
+ * resident. Weights are a starting point, not a tuned model. */
+export function computeLiquidityLabel(m: { demandCount: number; openSpots: number; upcomingPlans: number; matchRate: number }): LiquidityLabel {
+  const score = m.demandCount * 2 + m.upcomingPlans * 3 + m.openSpots * 1 + m.matchRate * 10;
+  if (score >= 30) return "HIGH";
+  if (score >= 15) return "HEALTHY";
+  if (score >= 5) return "DEVELOPING";
+  return "LOW";
+}
+
+/** Merges two independent aggregates (unmet demand from participation_intents,
+ * upcoming supply from games) in JS rather than one large multi-join SQL
+ * query — keeps each half debuggable on its own and avoids a fragile UNION
+ * across two differently-shaped tables. */
+export async function getLiquidityScores(county?: string): Promise<LiquidityScore[]> {
+  const countyClause = county ? "AND county = ?" : "";
+  const countyParams = county ? [county] : [];
+
+  const demandRows = (await db
+    .prepare(
+      `SELECT activity_label as activityLabel, county, COUNT(*) as demandCount,
+              CAST(COALESCE(SUM(CASE WHEN status = 'converted' THEN 1 ELSE 0 END), 0) AS UNSIGNED) as convertedCount
+       FROM participation_intents
+       WHERE status IN ('active','converted') ${countyClause}
+       GROUP BY activity_label, county`
+    )
+    .all(...countyParams)) as { activityLabel: string; county: string; demandCount: number; convertedCount: number }[];
+
+  const supplyCountyClause = county ? "AND c.county = ?" : "";
+  const supplyRows = (await db
+    .prepare(
+      `SELECT g.activity_label as activityLabel, c.county as county,
+              COUNT(DISTINCT g.id) as upcomingPlans,
+              CAST(COALESCE(SUM(GREATEST(g.capacity - COALESCE(jc.joined, 0), 0)), 0) AS SIGNED) as openSpots
+       FROM games g
+       JOIN centres c ON c.id = g.centre_id
+       LEFT JOIN (SELECT game_id, COUNT(*) as joined FROM game_participants WHERE status = 'joined' GROUP BY game_id) jc ON jc.game_id = g.id
+       WHERE g.status IN ('open','pending_participants') AND g.date >= CURDATE() ${supplyCountyClause}
+       GROUP BY g.activity_label, c.county`
+    )
+    .all(...countyParams)) as { activityLabel: string; county: string; upcomingPlans: number; openSpots: number }[];
+
+  const key = (activityLabel: string, county: string) => `${activityLabel}::${county}`;
+  const merged = new Map<string, LiquidityScore>();
+  for (const d of demandRows) {
+    merged.set(key(d.activityLabel, d.county), {
+      activityLabel: d.activityLabel,
+      county: d.county,
+      demandCount: d.demandCount,
+      matchRate: d.demandCount > 0 ? d.convertedCount / d.demandCount : 0,
+      openSpots: 0,
+      upcomingPlans: 0,
+      label: "LOW",
+    });
+  }
+  for (const s of supplyRows) {
+    const k = key(s.activityLabel, s.county);
+    const existing = merged.get(k);
+    if (existing) {
+      existing.openSpots = s.openSpots;
+      existing.upcomingPlans = s.upcomingPlans;
+    } else {
+      merged.set(k, { activityLabel: s.activityLabel, county: s.county, demandCount: 0, matchRate: 0, openSpots: s.openSpots, upcomingPlans: s.upcomingPlans, label: "LOW" });
+    }
+  }
+
+  const results = Array.from(merged.values());
+  for (const r of results) r.label = computeLiquidityLabel(r);
+  results.sort((a, b) => b.demandCount + b.upcomingPlans - (a.demandCount + a.upcomingPlans));
+  return results;
+}
+
+// --- market/category launch config (participation-intent plan Phase 4) ---
+// Same enabled-by-default/missing-row-means-on shape as feature_flags above,
+// scoped by county. Same category list as client/src/types.ts's
+// INTEREST_OPTIONS — kept in sync by hand (same convention as
+// irishCounties.ts's own kept-in-sync-by-hand county list comment), since
+// the server can't import client code.
+export const MARKET_CATEGORIES = ["Badminton", "Football", "Swimming", "Fitness", "Yoga", "Walking", "Kids activities", "Arts", "Learning", "Community events", "Outdoor", "Wellbeing"] as const;
+export type MarketCategory = (typeof MARKET_CATEGORIES)[number];
+export type MarketCategoryFlags = Record<MarketCategory, boolean>;
+
+function defaultMarketCategories(): MarketCategoryFlags {
+  return Object.fromEntries(MARKET_CATEGORIES.map((c) => [c, true])) as MarketCategoryFlags;
+}
+
+export async function getMarketCategories(county: string): Promise<MarketCategoryFlags> {
+  const rows = (await db.prepare(`SELECT category, enabled FROM market_categories WHERE county = ?`).all(county)) as { category: string; enabled: number }[];
+  const flags = defaultMarketCategories();
+  for (const r of rows) {
+    if ((MARKET_CATEGORIES as readonly string[]).includes(r.category)) flags[r.category as MarketCategory] = !!r.enabled;
+  }
+  return flags;
+}
+
+export interface ReferralAttributionRow {
+  referrerClientId: string;
+  source: string;
+  landedAt: string;
+  visitorClientId: string;
+  converted: boolean;
+  convertedKind: "booking" | "registration" | "game" | null;
+}
+
+/** Best-effort, read-side referral attribution (participation-intent plan
+ * Phase 3, tightened in the post-audit hardening pass) — joins each 'land'
+ * event to a real booking/registration/game-join within `windowDays` after
+ * the landing. Deliberately NOT a hard link (no foreign key, nothing written
+ * back onto the booking/registration/game_participants row) — this is an
+ * estimate for the admin dashboard, not a conversion-tracking system
+ * threaded through checkout.
+ *
+ * Matches on EITHER `visitor_client_id` (the original, anonymous-capable
+ * path) OR `visitor_resident_id` (captured on land only when the visitor
+ * happened to already be signed in) — note this is the *visitor's* own
+ * resident id, not `referrer_resident_id` (which identifies the person who
+ * *shared* the link; joining on that would incorrectly attribute the
+ * sharer's own bookings instead of the visitor's). The resident-id path is
+ * also what makes game_participants attributable at all: that table has no
+ * client_id column (resident-only), so an anonymous visitor's game join
+ * still can't be traced this way, but a signed-in visitor's now can. */
+export async function getReferralAttribution(windowDays = 7, limit = 100): Promise<ReferralAttributionRow[]> {
+  const days = Math.max(1, Math.min(365, Math.floor(windowDays)));
+  const rowLimit = Math.max(1, Math.min(500, Math.floor(limit)));
+  const rows = (await db
+    .prepare(
+      `SELECT r.referrer_client_id as referrerClientId, r.source, r.created_at as landedAt, r.visitor_client_id as visitorClientId,
+              b.ref as bookingRef, reg.ref as registrationRef, gp.id as gameParticipantId
+       FROM referrals r
+       LEFT JOIN bookings b ON (b.client_id = r.visitor_client_id OR (r.visitor_resident_id IS NOT NULL AND b.resident_id = r.visitor_resident_id))
+         AND b.created_at BETWEEN r.created_at AND DATE_ADD(r.created_at, INTERVAL ? DAY)
+       LEFT JOIN registrations reg ON (reg.client_id = r.visitor_client_id OR (r.visitor_resident_id IS NOT NULL AND reg.resident_id = r.visitor_resident_id))
+         AND reg.created_at BETWEEN r.created_at AND DATE_ADD(r.created_at, INTERVAL ? DAY)
+       LEFT JOIN game_participants gp ON r.visitor_resident_id IS NOT NULL AND gp.resident_id = r.visitor_resident_id
+         AND gp.joined_at BETWEEN r.created_at AND DATE_ADD(r.created_at, INTERVAL ? DAY)
+       WHERE r.event = 'land'
+       ORDER BY r.created_at DESC
+       LIMIT ?`
+    )
+    .all(days, days, days, rowLimit)) as {
+    referrerClientId: string;
+    source: string;
+    landedAt: string;
+    visitorClientId: string;
+    bookingRef: string | null;
+    registrationRef: string | null;
+    gameParticipantId: number | null;
+  }[];
+
+  return rows.map((r) => ({
+    referrerClientId: r.referrerClientId,
+    source: r.source,
+    landedAt: r.landedAt,
+    visitorClientId: r.visitorClientId,
+    converted: !!(r.bookingRef || r.registrationRef || r.gameParticipantId),
+    convertedKind: r.bookingRef ? "booking" : r.registrationRef ? "registration" : r.gameParticipantId ? "game" : null,
+  }));
+}
+
+export interface AnalyticsFunnelRow {
+  eventType: string;
+  count: number;
+}
+
+/** Minimal admin rollup over analytics_events (post-audit hardening pass) —
+ * a single GROUP BY count per funnel stage over a recent window, not a
+ * dashboard/analytics product. See analytics.ts's logEvent() for the event
+ * vocabulary this counts. */
+export async function getAnalyticsFunnel(windowDays = 30): Promise<AnalyticsFunnelRow[]> {
+  const days = Math.max(1, Math.min(365, Math.floor(windowDays)));
+  const rows = (await db
+    .prepare(
+      `SELECT event_type as eventType, COUNT(*) as count
+       FROM analytics_events
+       WHERE created_at >= DATE_SUB(NOW(), INTERVAL ? DAY)
+       GROUP BY event_type
+       ORDER BY count DESC`
+    )
+    .all(days)) as { eventType: string; count: number }[];
+  return rows.map((r) => ({ eventType: r.eventType, count: Number(r.count) }));
+}
+
 // Familiarity & Circles-from-repetition (implementation plan Phase 8).
 // Scoped to games only — game_participants is the one participation table
 // with clean per-session multi-resident membership, real dates, and a real
@@ -441,13 +762,18 @@ export async function countFamiliarCoParticipants(residentId: string, gameId: st
        FROM game_participants gp_now
        JOIN residents r ON r.id = gp_now.resident_id
        WHERE gp_now.game_id = ? AND gp_now.status = 'joined' AND gp_now.resident_id != ? AND r.hide_from_familiar_count = 0
+         AND NOT EXISTS (
+           SELECT 1 FROM blocked_residents br
+           WHERE (br.blocker_resident_id = ? AND br.blocked_resident_id = gp_now.resident_id)
+              OR (br.blocker_resident_id = gp_now.resident_id AND br.blocked_resident_id = ?)
+         )
          AND EXISTS (
            SELECT 1 FROM game_participants gp_before
            WHERE gp_before.resident_id = gp_now.resident_id AND gp_before.status = 'joined' AND gp_before.game_id != ?
              AND EXISTS (SELECT 1 FROM game_participants gp_me WHERE gp_me.game_id = gp_before.game_id AND gp_me.resident_id = ? AND gp_me.status = 'joined')
          )`
     )
-    .get(gameId, residentId, gameId, residentId)) as { n: number };
+    .get(gameId, residentId, residentId, residentId, gameId, residentId)) as { n: number };
   return n;
 }
 

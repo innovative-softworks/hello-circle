@@ -12,7 +12,7 @@ function writeAll(ids: Set<string>) {
   localStorage.setItem(KEY, JSON.stringify([...ids]));
 }
 
-export type FavoriteKind = "centre" | "club" | "game" | "program_session" | "club_session";
+export type FavoriteKind = "centre" | "club" | "game" | "program_session" | "club_session" | "experience" | "circle";
 
 export function isFavorite(kind: FavoriteKind, id: string): boolean {
   return readAll().has(`${kind}:${id}`);

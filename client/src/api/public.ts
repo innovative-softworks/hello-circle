@@ -1,5 +1,5 @@
 import { getClientId } from "../clientId";
-import type { Centre, Club, DiscoverFeed, DiscoverItem, Experience, ExperienceSearchResult, LocalMomentumSignal, MyBooking, MyExperienceBooking, MyProgramEnrollment, MyRegistration, Program, ProviderProfile, Review, SearchParsed, SearchResult } from "../types";
+import type { Centre, Club, DiscoverFeed, DiscoverItem, Experience, ExperienceSearchResult, IntentCount, LocalMomentumSignal, MyBooking, MyExperienceBooking, MyIntent, MyProgramEnrollment, MyRegistration, Program, ProviderProfile, Review, SearchParsed, SearchResult } from "../types";
 import { downloadIcs, request } from "./core";
 
 // Guest-facing browsing + transactions — no account needed. Centres/clubs,
@@ -65,6 +65,9 @@ export interface CreateBookingInput {
   openSpots?: number;
   /** Open-booking setup (IA spec §6) — display-only, see server's comment. */
   confirmationDeadline?: string;
+  /** Minimum Participation Booking (participation-intent plan Phase 5) —
+   * only meaningful alongside openSpots. See server's comment. */
+  minParticipants?: number;
 }
 
 /** Creates a pending booking + a Stripe Checkout session — the caller
@@ -155,6 +158,44 @@ export function rescheduleBooking(ref: string, date: string, time: string, email
 
 export function downloadBookingIcs(ref: string): Promise<void> {
   return downloadIcs(`/bookings/${encodeURIComponent(ref)}/ics`, `booking-${ref}.ics`);
+}
+
+// --- Participation Intent (demand capture) — works for guests via the
+// X-Client-Id header request() already sends on every call, no separate
+// auth needed. ---------------------------------------------------------
+
+export function fetchIntentCount(activityLabel: string, county: string): Promise<IntentCount> {
+  return request(`/intents/count?activityLabel=${encodeURIComponent(activityLabel)}&county=${encodeURIComponent(county)}`);
+}
+
+export function submitIntent(input: {
+  activityLabel: string;
+  county: string;
+  preferredDate?: string;
+  preferredTimeWindow?: string;
+  notes?: string;
+  name?: string;
+  email?: string;
+}): Promise<{ id: string }> {
+  return request(`/intents`, { method: "POST", body: JSON.stringify(input) });
+}
+
+export function fetchMyIntents(): Promise<MyIntent[]> {
+  return request(`/intents/mine`);
+}
+
+export function cancelIntent(id: string): Promise<{ ok: boolean }> {
+  return request(`/intents/${encodeURIComponent(id)}`, { method: "DELETE" });
+}
+
+// --- Referral attribution (best-effort, read-side only) -----------------
+
+export function logReferralShare(input: { source: string; listingType: string; listingId: string }): Promise<{ ok: boolean }> {
+  return request(`/referrals/share`, { method: "POST", body: JSON.stringify(input) });
+}
+
+export function logReferralLand(ref: string, source?: string): Promise<{ ok: boolean }> {
+  return request(`/referrals/land`, { method: "POST", body: JSON.stringify({ ref, source }) });
 }
 
 export interface CreateRegistrationInput {
@@ -267,6 +308,21 @@ export function fetchLocalMomentum(county?: string): Promise<LocalMomentumSignal
   return request(`/discover/momentum${county ? `?county=${encodeURIComponent(county)}` : ""}`);
 }
 
+export interface LocalActivityFeed {
+  county: string;
+  activityQuery: string;
+  count: number;
+  items: DiscoverItem[];
+}
+
+export function fetchLocalActivity(county: string, activity: string): Promise<LocalActivityFeed> {
+  return request(`/discover/local/${encodeURIComponent(county)}/${encodeURIComponent(activity)}`);
+}
+
+export function fetchMarketCategories(county: string): Promise<Record<string, boolean>> {
+  return request(`/discover/market-categories?county=${encodeURIComponent(county)}`);
+}
+
 /** Free Time Mode (Phase 9) — duration → distance → mood → 3 options,
  * ranked by the exact same logic as fetchDiscover(); this is only a
  * narrower, filtered front door onto that same pool. */
@@ -295,7 +351,7 @@ export function fetchNextBestParticipation(): Promise<DiscoverItem[]> {
 // system, 2 more listing types. "game" needs having actually attended a
 // past game; "host" needs having played in one of that resident's past
 // games (see reviews.ts's isEligibleToReview()).
-export type ReviewListingType = "centre" | "club" | "game" | "host";
+export type ReviewListingType = "centre" | "club" | "game" | "host" | "experience";
 
 export function fetchReviews(listingType: ReviewListingType, listingId: string): Promise<Review[]> {
   return request(`/reviews?listingType=${listingType}&listingId=${encodeURIComponent(listingId)}`);
@@ -390,6 +446,10 @@ export function fetchMyExperienceBookings(): Promise<MyExperienceBooking[]> {
 
 export function fetchExperienceBookingStatus(ref: string): Promise<{ ref: string; paymentStatus: string; totalCents: number }> {
   return request(`/experiences/bookings/status/${encodeURIComponent(ref)}`);
+}
+
+export function downloadExperienceBookingIcs(ref: string): Promise<void> {
+  return downloadIcs(`/experiences/bookings/${encodeURIComponent(ref)}/ics`, `experience-booking-${ref}.ics`);
 }
 
 // --- Provider public profile (IA spec §5) ----------------------------------

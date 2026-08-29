@@ -320,6 +320,9 @@ export interface ExperienceInput {
   description?: string;
   difficulty?: string;
   durationMinutes?: number;
+  distanceKm?: number | null;
+  elevationGainM?: number | null;
+  terrainType?: string;
   fitnessRequirements?: string;
   itinerary?: string;
   equipmentProvided?: string;

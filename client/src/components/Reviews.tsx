@@ -98,6 +98,7 @@ export function Reviews({ listingType, listingId, accent, onReviewPosted }: Prop
             {listingType === "club" && "Only guests who've registered here can leave a review — register your child first, then come back to share how it went."}
             {listingType === "game" && "Only residents who attended a past game can review it."}
             {listingType === "host" && "Only residents who've played in one of this host's past games can review them."}
+            {listingType === "experience" && "Only guests with a past booking can leave a review — book a session first, then come back once it's happened."}
           </p>
         </Card>
       )}

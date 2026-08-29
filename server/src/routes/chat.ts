@@ -74,14 +74,24 @@ chatRouter.get("/:scopeType/:scopeId/messages", async (req, res) => {
   if (!membership.allowed) return res.status(403).json({ error: "You're not part of this conversation" });
 
   const after = typeof req.query.after === "string" ? parseInt(req.query.after, 10) : 0;
+  // Mutual-block filter (post-audit hardening pass) — checkGameMembership/
+  // checkCircleMembership only check the requester's own participation, not
+  // the other party, so blocking is enforced here at read time instead:
+  // hide messages from anyone the viewer has blocked or been blocked by.
+  const viewerId = req.resident!.id;
   const rows = await db
     .prepare(
       `SELECT cm.id, cm.resident_id as residentId, r.name as residentName, cm.body, cm.created_at as createdAt
        FROM chat_messages cm JOIN residents r ON r.id = cm.resident_id
        WHERE cm.scope_type = ? AND cm.scope_id = ? AND cm.id > ?
+         AND cm.resident_id NOT IN (
+           SELECT blocked_resident_id FROM blocked_residents WHERE blocker_resident_id = ?
+           UNION
+           SELECT blocker_resident_id FROM blocked_residents WHERE blocked_resident_id = ?
+         )
        ORDER BY cm.id ASC LIMIT 200`
     )
-    .all(scopeType, req.params.scopeId, Number.isFinite(after) ? after : 0);
+    .all(scopeType, req.params.scopeId, Number.isFinite(after) ? after : 0, viewerId, viewerId);
 
   res.json({
     messages: rows,

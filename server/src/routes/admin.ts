@@ -3,9 +3,10 @@ import { Router } from "express";
 import { requireAdmin } from "../auth.js";
 import { writeAudit } from "../audit.js";
 import { approximateCoords, db } from "../db/index.js";
-import { FEATURE_FLAG_KEYS, getCentre, getClub, getDemandSignals, orgFeatureFlagsById } from "../db/queries.js";
+import { FEATURE_FLAG_KEYS, getAnalyticsFunnel, getCentre, getClub, getDemandSignals, getIntentClusters, getLiquidityScores, getMarketCategories, getParticipationStats, getReferralAttribution, getSupplyOverview, MARKET_CATEGORIES, orgFeatureFlagsById, type MarketCategory } from "../db/queries.js";
 import { endOfIrelandDay } from "../irelandTime.js";
 import { NOTIFICATION_TEMPLATE_KEYS } from "../notificationTemplates.js";
+import { notifyResident } from "../notifications.js";
 import { generateSlug } from "../slugify.js";
 
 export const adminRouter = Router();
@@ -562,6 +563,92 @@ adminRouter.put("/vendors/:id/provider-tier", async (req, res) => {
 adminRouter.get("/demand", async (_req, res) => {
   const rows = await getDemandSignals({ limit: 50 });
   res.json(rows);
+});
+
+// Explicit unmet-demand clusters (participation-intent plan Phase 1) —
+// unlike the passive query-text signal above, these are resident-linkable,
+// actionable rows: an admin can directly notify the people behind a cluster.
+adminRouter.get("/demand/intents", async (_req, res) => {
+  const rows = await getIntentClusters({ minCount: 1 });
+  res.json(rows);
+});
+
+// Marketplace health / liquidity (participation-intent plan Phase 2) — one
+// combined read for the admin dashboard's Marketplace Health tab, kept
+// separate from the two demand-only routes above.
+adminRouter.get("/marketplace-health", async (req, res) => {
+  const county = typeof req.query.county === "string" ? req.query.county : undefined;
+  const [supply, participation, liquidity] = await Promise.all([getSupplyOverview(), getParticipationStats(), getLiquidityScores(county)]);
+  res.json({ supply, participation, liquidity });
+});
+
+// Referral attribution (participation-intent plan Phase 3) — best-effort
+// only, see getReferralAttribution's own docstring for why this is never a
+// hard link.
+adminRouter.get("/referrals", async (_req, res) => {
+  const rows = await getReferralAttribution();
+  res.json(rows);
+});
+
+// Minimal funnel rollup (post-audit hardening pass) — a single grouped
+// count over analytics_events, not a new analytics product. See
+// analytics.ts/getAnalyticsFunnel's own comments.
+adminRouter.get("/analytics/funnel", async (req, res) => {
+  const windowDays = typeof req.query.windowDays === "string" ? parseInt(req.query.windowDays, 10) : 30;
+  const rows = await getAnalyticsFunnel(Number.isFinite(windowDays) ? windowDays : 30);
+  res.json(rows);
+});
+
+// Market/category launch config (participation-intent plan Phase 4) — same
+// enabled-by-default/opt-out shape and GET/PUT split as the org feature-flag
+// routes above, scoped by county instead of org.
+adminRouter.get("/market-categories", async (req, res) => {
+  const county = typeof req.query.county === "string" ? req.query.county : "";
+  if (!county) return res.status(400).json({ error: "county is required" });
+  const flags = await getMarketCategories(county);
+  res.json(flags);
+});
+
+adminRouter.put("/market-categories", async (req, res) => {
+  const { county, category, enabled } = req.body as { county?: string; category?: string; enabled?: boolean };
+  if (!county) return res.status(400).json({ error: "county is required" });
+  if (!category || !(MARKET_CATEGORIES as readonly string[]).includes(category)) {
+    return res.status(400).json({ error: `category must be one of ${MARKET_CATEGORIES.join(", ")}` });
+  }
+  await db
+    .prepare(`INSERT INTO market_categories (county, category, enabled) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE enabled = VALUES(enabled)`)
+    .run(county, category as MarketCategory, enabled ? 1 : 0);
+  await writeAudit({ actorUserId: req.user!.id, action: "market_category.changed", objectType: "market_category", objectId: `${county}::${category}`, newValue: { enabled: !!enabled } });
+  res.json({ ok: true });
+});
+
+adminRouter.post("/demand/intents/notify", async (req, res) => {
+  const { activityLabel, county } = req.body as { activityLabel?: string; county?: string };
+  if (!activityLabel) return res.status(400).json({ error: "activityLabel is required" });
+
+  const rows = (await db
+    .prepare(
+      `SELECT resident_id as residentId FROM participation_intents
+       WHERE status = 'active' AND (expires_at IS NULL OR expires_at > NOW())
+         AND activity_label = ? AND county = ? AND resident_id IS NOT NULL`
+    )
+    .all(activityLabel, county ?? "")) as { residentId: string }[];
+
+  const ref = `${activityLabel}::${county ?? ""}`;
+  for (const row of rows) {
+    await notifyResident({
+      residentId: row.residentId,
+      kind: "intent_match",
+      title: `Enough people are interested in ${activityLabel}`,
+      body: `${rows.length} people${county ? ` near ${county}` : ""} want to do this — want to start a plan?`,
+      listingType: "intent",
+      listingId: ref,
+      ref,
+    });
+  }
+
+  await writeAudit({ actorUserId: req.user!.id, action: "demand.intents_notified", objectType: "participation_intent_cluster", objectId: ref, newValue: { notified: rows.length } });
+  res.json({ ok: true, notified: rows.length });
 });
 
 // --- reports queue (moved from platformAdmin.ts — the only genuinely

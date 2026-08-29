@@ -9,7 +9,7 @@ import { CheckIcon, ChevronLeftIcon, ClockIcon, HeartIcon, PinIcon, StarIcon, Wh
 import { ListingDetailSkeleton } from "../components/ui";
 import { isFavorite, toggleFavorite } from "../favorites";
 import { useGuest } from "../GuestContext";
-import { colors, fonts, maxWidth } from "../theme";
+import { colors, fonts, maxWidth, radius } from "../theme";
 import type { Club, Program } from "../types";
 
 export function ClubDetail() {
@@ -131,7 +131,7 @@ export function ClubDetail() {
           <p style={{ color: colors.mutedLight, fontSize: 16, margin: "0 0 8px", display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
             <span>{club.area} · {club.sport} · ages {club.ages}</span>
             {club.category && (
-              <span style={{ fontSize: 12, fontWeight: 700, color: colors.orangeDark, background: colors.orangeBg, borderRadius: 999, padding: "3px 10px" }}>{club.category}</span>
+              <span style={{ fontSize: 12, fontWeight: 700, color: colors.orangeDark, background: colors.orangeBg, borderRadius: radius.pill, padding: "3px 10px" }}>{club.category}</span>
             )}
             {club.mapUrl && (
               <a href={club.mapUrl} target="_blank" rel="noopener noreferrer" className="link-accent" style={{ display: "inline-flex", alignItems: "center", gap: 4, color: colors.orangeDark, fontSize: 14, fontWeight: 600 }}>
@@ -147,7 +147,7 @@ export function ClubDetail() {
             </div>
           )}
           {club.wouldRepeatPercent !== null && (
-            <div style={{ display: "inline-flex", alignItems: "center", gap: 6, background: colors.greenBg, color: colors.greenText, borderRadius: 999, padding: "5px 12px", fontSize: 13, fontWeight: 700, marginBottom: 14 }}>
+            <div style={{ display: "inline-flex", alignItems: "center", gap: 6, background: colors.greenBg, color: colors.greenText, borderRadius: radius.pill, padding: "5px 12px", fontSize: 13, fontWeight: 700, marginBottom: 14 }}>
               {club.wouldRepeatPercent}% would do this again
               <span style={{ fontWeight: 500, color: colors.muted }}>({club.wouldRepeatCount})</span>
             </div>
@@ -212,7 +212,7 @@ export function ClubDetail() {
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 16 }}>
             <div style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 28 }}>{priceLabel(club)}</div>
             {club.paymentMethod === "cash" && (
-              <span style={{ fontSize: 11, fontWeight: 700, color: colors.orangeDark, background: colors.orangeBg, borderRadius: 999, padding: "2px 8px" }}>
+              <span style={{ fontSize: 11, fontWeight: 700, color: colors.orangeDark, background: colors.orangeBg, borderRadius: radius.pill, padding: "2px 8px" }}>
                 Cash on arrival
               </span>
             )}

@@ -1,13 +1,26 @@
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
-import { fetchDiscover, fetchResidentFull } from "../api";
-import { DiscoverRow } from "../components/DiscoverRow";
-import { BallIcon, BuildingIcon, CalendarIcon, PinIcon, RepeatIcon, TreeIconSmall } from "../components/icons";
+import { useNavigate, useSearchParams } from "react-router-dom";
+import { fetchDiscover, fetchFreeTimeOptions, fetchResidentFull } from "../api";
+import { DiscoverCard, DiscoverRow } from "../components/DiscoverRow";
+import { IntentCaptureForm } from "../components/IntentCaptureForm";
+import { BallIcon, BuildingIcon, CalendarIcon, PinIcon, RepeatIcon, SearchIcon, TreeIconSmall } from "../components/icons";
 import { PageTitle } from "../components/PageTitle";
-import { CardSkeleton } from "../components/ui";
+import { CardSkeleton, EmptyState } from "../components/ui";
 import { useGuest } from "../GuestContext";
 import { colors, fonts, maxWidth } from "../theme";
-import type { DiscoverFeed } from "../types";
+import type { DiscoverFeed, DiscoverItem } from "../types";
+
+// Mood labels for the section heading only — kept in sync by hand with
+// Home.tsx's INTENT_CHIPS (mood value -> label), since there's no shared
+// module between the two for this small a mapping.
+const MOOD_LABELS: Record<string, string> = {
+  active: "Play",
+  move: "Move",
+  social: "Meet",
+  chill: "Relax",
+  learn: "Learn",
+  surprise: "Surprise me",
+};
 
 // Discovery-radius filtering (master-prompt punch list #2) — the field
 // itself (residents.search_radius_km) has existed since onboarding but was
@@ -37,8 +50,35 @@ const CATEGORIES = [
 export function Explore() {
   const navigate = useNavigate();
   const { resident } = useGuest();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [feed, setFeed] = useState<DiscoverFeed | null>(null);
   const [radiusKm, setRadiusKm] = useState(0);
+
+  // Landed here from a Home.tsx mood tile (?mood=&county=) — reuses the
+  // exact same fetchFreeTimeOptions() endpoint Home.tsx used to call
+  // inline, so this is the one place that filtering logic runs now.
+  const mood = searchParams.get("mood");
+  const moodCounty = searchParams.get("county") ?? undefined;
+  const [moodResults, setMoodResults] = useState<DiscoverItem[] | null>(null);
+  const [moodLoading, setMoodLoading] = useState(false);
+
+  useEffect(() => {
+    if (!mood) {
+      setMoodResults(null);
+      return;
+    }
+    setMoodLoading(true);
+    setMoodResults(null);
+    fetchFreeTimeOptions({ county: moodCounty, mood: mood === "surprise" ? undefined : mood })
+      .then((rows) => setMoodResults(mood === "surprise" && rows.length > 1 ? [rows[Math.floor(Math.random() * rows.length)]] : rows))
+      .finally(() => setMoodLoading(false));
+  }, [mood, moodCounty]);
+
+  const clearMood = () => {
+    searchParams.delete("mood");
+    searchParams.delete("county");
+    setSearchParams(searchParams, { replace: true });
+  };
 
   // Pre-fill from the resident's own onboarding preference, once, rather
   // than defaulting to "Any distance" for someone who already told us they
@@ -59,11 +99,44 @@ export function Explore() {
       <section className="section-pad" style={{ maxWidth, margin: "0 auto", padding: "36px 24px 90px" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 16, marginBottom: 8 }}>
           <PageTitle style={{ margin: 0 }}>Explore</PageTitle>
-          <button onClick={() => navigate("/compare")} style={{ background: "none", border: `1px solid ${colors.border}`, borderRadius: 999, padding: "8px 16px", fontSize: 13, fontWeight: 700, color: colors.muted, cursor: "pointer", flex: "none" }}>
+          <button onClick={() => navigate("/browse/centres")} style={{ background: "none", border: `1px solid ${colors.border}`, borderRadius: 999, padding: "8px 16px", fontSize: 13, fontWeight: 700, color: colors.muted, cursor: "pointer", flex: "none" }}>
             Compare places
           </button>
         </div>
         <p style={{ color: colors.mutedLight, fontSize: 15, margin: "0 0 20px" }}>Browse what's out there — Home is for personalized picks, this is for looking around.</p>
+
+        {mood && (
+          <div style={{ marginBottom: 32 }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 14 }}>
+              <h2 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 20, margin: 0 }}>
+                {mood === "surprise" ? "A surprise for you" : `Feeling like: ${MOOD_LABELS[mood] ?? mood}`}
+              </h2>
+              <button onClick={clearMood} style={{ background: "none", border: "none", color: colors.muted, fontWeight: 700, fontSize: 13, cursor: "pointer" }}>
+                Clear
+              </button>
+            </div>
+            {moodLoading ? (
+              <div style={{ display: "flex", gap: 14, overflowX: "auto", paddingBottom: 6 }}>
+                {Array.from({ length: 3 }).map((_, i) => (
+                  <CardSkeleton key={i} />
+                ))}
+              </div>
+            ) : moodResults && moodResults.length > 0 ? (
+              <div style={{ display: "flex", gap: 14, overflowX: "auto", paddingBottom: 6 }}>
+                {moodResults.map((item) => (
+                  <DiscoverCard key={`${item.kind}-${item.id}`} item={item} isToday={item.date === new Date().toISOString().slice(0, 10)} />
+                ))}
+              </div>
+            ) : (
+              <EmptyState
+                icon={<SearchIcon size={22} />}
+                title="Nothing matching that just yet"
+                subtitle="Try a different mood, widen your area, or browse the categories below."
+                action={<IntentCaptureForm activityLabel={MOOD_LABELS[mood] ?? mood} county={moodCounty ?? ""} />}
+              />
+            )}
+          </div>
+        )}
 
         <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 28 }}>
           <span style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 12.5, color: colors.mutedLight, fontWeight: 700 }}>

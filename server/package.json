@@ -6,7 +6,9 @@
     "dev": "tsx watch src/index.ts",
     "build": "tsc -p tsconfig.json",
     "start": "node dist/index.js",
-    "reset-demo": "tsx src/scripts/resetDemo.ts"
+    "reset-demo": "tsx src/scripts/resetDemo.ts",
+    "seed-big": "tsx src/scripts/seedBig.ts",
+    "test": "vitest run"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",
@@ -28,6 +30,7 @@
     "@types/node": "^22.10.2",
     "@types/nodemailer": "^8.0.1",
     "tsx": "^4.19.2",
-    "typescript": "^5.7.2"
+    "typescript": "^5.7.2",
+    "vitest": "^4.1.11"
   }
 }

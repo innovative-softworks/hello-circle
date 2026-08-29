@@ -31,7 +31,7 @@ export function HostProfilePage() {
   if (loading) return <PageSpinner />;
   if (notFound || !profile) {
     return (
-      <section style={{ maxWidth: 640, margin: "0 auto", padding: "60px 24px", textAlign: "center" }}>
+      <section className="section-pad" style={{ maxWidth: 640, margin: "0 auto", padding: "60px 24px", textAlign: "center" }}>
         <p style={{ color: colors.mutedLight }}>This host profile isn't available.</p>
       </section>
     );
@@ -39,7 +39,7 @@ export function HostProfilePage() {
 
   return (
     <div style={{ animation: "fadeUp .3s ease both" }}>
-      <section style={{ maxWidth: 640, margin: "0 auto", padding: "36px 24px 80px" }}>
+      <section className="section-pad" style={{ maxWidth: 640, margin: "0 auto", padding: "36px 24px 80px" }}>
         <Card style={{ marginBottom: 24 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
             <Avatar name={profile.name} size={52} />

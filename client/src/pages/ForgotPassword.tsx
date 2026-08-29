@@ -3,7 +3,11 @@ import { requestPasswordReset } from "../api";
 import { Button, inputStyle, labelStyle } from "../components/ui";
 import { colors, fonts } from "../theme";
 
-// Forgot password (Phase A) — vendor/admin only; residents are passwordless.
+// Forgot password (Phase A) — vendor/admin only. Residents got their own
+// optional password login later (My Life auth redesign); their forgot-
+// password flow lives inside SignInPanel/SignIn.tsx instead of here, since
+// it's a different identity system/session entirely — this page and its
+// backend routes are untouched by that addition.
 // Three-state flow: enter email -> email sent -> (ResetPassword.tsx handles
 // the third state, reached via the emailed link).
 
@@ -25,7 +29,7 @@ export function ForgotPassword() {
 
   return (
     <div style={{ animation: "fadeUp .3s ease both" }}>
-      <section style={{ maxWidth: 420, margin: "0 auto", padding: "64px 24px" }}>
+      <section className="section-pad" style={{ maxWidth: 420, margin: "0 auto", padding: "64px 24px" }}>
         {sent ? (
           <>
             <h1 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 26, margin: "0 0 10px" }}>Check your email</h1>

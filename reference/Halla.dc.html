@@ -24,7 +24,7 @@
 </helmet>
 
 <header style="position:sticky;top:0;z-index:50;background:rgba(251,250,247,.86);backdrop-filter:blur(12px);border-bottom:1px solid #E7E4DC">
-  <div style="max-width:1180px;margin:0 auto;padding:14px 24px;display:flex;align-items:center;gap:26px">
+  <div style="max-width:1440px;margin:0 auto;padding:14px 24px;display:flex;align-items:center;gap:26px">
     <div onClick="{{ goHome }}" style="display:flex;align-items:center;gap:9px;cursor:pointer">
       <div style="width:31px;height:31px;border-radius:10px;background:#1E7A4C;display:flex;align-items:center;justify-content:center;color:#fff;font-family:'Bricolage Grotesque';font-weight:700;font-size:19px;padding-bottom:2px">h</div>
       <span style="font-family:'Bricolage Grotesque';font-weight:700;font-size:21px;letter-spacing:-.015em">halla</span>
@@ -46,7 +46,7 @@
 <!-- ============ HOME ============ -->
 <sc-if value="{{ isHome }}" hint-placeholder-val="{{ true }}">
 <div style="animation:fadeUp .4s ease both">
-  <section style="max-width:1180px;margin:0 auto;padding:64px 24px 34px">
+  <section style="max-width:1440px;margin:0 auto;padding:64px 24px 34px">
     <div style="max-width:720px">
       <div style="display:inline-flex;align-items:center;gap:7px;background:#EAF4EE;color:#175f3b;border-radius:20px;padding:6px 13px;font-size:13px;font-weight:600;margin-bottom:22px">Community life across Ireland, in one place</div>
       <h1 style="font-family:'Bricolage Grotesque';font-weight:700;font-size:56px;line-height:1.02;letter-spacing:-.025em;margin:0 0 18px">Find a hall.<br>Join a club.<br><span style="color:#1E7A4C">Feel at home.</span></h1>
@@ -64,7 +64,7 @@
     </div>
   </section>
 
-  <section style="max-width:1180px;margin:0 auto;padding:26px 24px 10px">
+  <section style="max-width:1440px;margin:0 auto;padding:26px 24px 10px">
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
       <div onClick="{{ goCentres }}" style="cursor:pointer;position:relative;overflow:hidden;border-radius:20px;border:1px solid #E7E4DC;background:#F1F5F0;padding:30px;min-height:190px;display:flex;flex-direction:column;justify-content:flex-end" style-hover="border-color:#1E7A4C">
         <div style="position:absolute;inset:0;background:repeating-linear-gradient(135deg,#E8EFE6 0 16px,#EEF3EC 16px 32px);opacity:.6"></div>
@@ -85,7 +85,7 @@
     </div>
   </section>
 
-  <section style="max-width:1180px;margin:0 auto;padding:34px 24px 8px">
+  <section style="max-width:1440px;margin:0 auto;padding:34px 24px 8px">
     <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:18px">
       <h2 style="font-family:'Bricolage Grotesque';font-weight:700;font-size:24px;margin:0;letter-spacing:-.02em">Popular halls near you</h2>
       <button onClick="{{ goCentres }}" style="background:none;border:none;color:#1E7A4C;font-weight:600;font-size:15px;cursor:pointer">View all →</button>
@@ -106,7 +106,7 @@
     </div>
   </section>
 
-  <section style="max-width:1180px;margin:0 auto;padding:38px 24px 70px">
+  <section style="max-width:1440px;margin:0 auto;padding:38px 24px 70px">
     <div onClick="{{ goChecklist }}" style="cursor:pointer;background:#1E2420;color:#fff;border-radius:20px;padding:34px 38px;display:flex;align-items:center;gap:28px;flex-wrap:wrap" style-hover="background:#252d27">
       <div style="flex:1;min-width:280px">
         <div style="font-family:monospace;font-size:11px;letter-spacing:.1em;color:#8FB89E;margin-bottom:10px">NEW TO IRELAND?</div>
@@ -122,7 +122,7 @@
 <!-- ============ BROWSE ============ -->
 <sc-if value="{{ isBrowse }}" hint-placeholder-val="{{ true }}">
 <div style="animation:fadeUp .35s ease both">
-  <section style="max-width:1180px;margin:0 auto;padding:34px 24px 12px">
+  <section style="max-width:1440px;margin:0 auto;padding:34px 24px 12px">
     <div style="display:inline-flex;background:#F0EEE8;border-radius:12px;padding:4px;margin-bottom:24px">
       <button onClick="{{ tabCentres }}" style="border:none;border-radius:9px;padding:9px 18px;font-size:15px;font-weight:600;cursor:pointer;background:{{ tabCentresBg }};color:{{ tabCentresFg }};box-shadow:{{ tabCentresSh }}">Community centres</button>
       <button onClick="{{ tabClubs }}" style="border:none;border-radius:9px;padding:9px 18px;font-size:15px;font-weight:600;cursor:pointer;background:{{ tabClubsBg }};color:{{ tabClubsFg }};box-shadow:{{ tabClubsSh }}">Sports clubs</button>
@@ -146,7 +146,7 @@
 
   <!-- centre results -->
   <sc-if value="{{ isBrowseCentres }}" hint-placeholder-val="{{ true }}">
-  <section style="max-width:1180px;margin:0 auto;padding:14px 24px 70px">
+  <section style="max-width:1440px;margin:0 auto;padding:14px 24px 70px">
     <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:20px">
       <sc-for list="{{ centreResults }}" as="c" hint-placeholder-count="6">
         <div onClick="{{ c.onOpen }}" style="cursor:pointer;background:#fff;border:1px solid #E7E4DC;border-radius:18px;overflow:hidden" style-hover="border-color:#1E7A4C;transform:translateY(-2px)">
@@ -166,7 +166,7 @@
 
   <!-- club results -->
   <sc-if value="{{ isBrowseClubs }}" hint-placeholder-val="{{ true }}">
-  <section style="max-width:1180px;margin:0 auto;padding:14px 24px 70px">
+  <section style="max-width:1440px;margin:0 auto;padding:14px 24px 70px">
     <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:20px">
       <sc-for list="{{ clubResults }}" as="c" hint-placeholder-count="6">
         <div onClick="{{ c.onOpen }}" style="cursor:pointer;background:#fff;border:1px solid #E7E4DC;border-radius:18px;overflow:hidden;display:flex;flex-direction:column" style-hover="border-color:#E8622A;transform:translateY(-2px)">
@@ -192,13 +192,13 @@
 <!-- ============ CENTRE DETAIL ============ -->
 <sc-if value="{{ isCentre }}" hint-placeholder-val="{{ true }}">
 <div style="animation:fadeUp .35s ease both">
-  <section style="max-width:1180px;margin:0 auto;padding:26px 24px 0">
+  <section style="max-width:1440px;margin:0 auto;padding:26px 24px 0">
     <button onClick="{{ goCentres }}" style="background:none;border:none;color:#5B635C;font-weight:600;font-size:14px;cursor:pointer;padding:0;margin-bottom:16px">← All community centres</button>
     <div style="height:280px;border-radius:20px;background:{{ centre.ph }};display:flex;align-items:flex-end;padding:20px">
       <span style="font-family:monospace;font-size:12px;color:#5f6e5c;background:rgba(255,255,255,.75);border-radius:8px;padding:5px 10px">PHOTO · {{ centre.name }}</span>
     </div>
   </section>
-  <section style="max-width:1180px;margin:0 auto;padding:26px 24px 70px;display:grid;grid-template-columns:1.6fr 1fr;gap:40px;align-items:start">
+  <section style="max-width:1440px;margin:0 auto;padding:26px 24px 70px;display:grid;grid-template-columns:1.6fr 1fr;gap:40px;align-items:start">
     <div>
       <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px"><span style="color:#E8A33A">★</span><span style="font-weight:700">{{ centre.rating }}</span><span style="color:#9AA098">({{ centre.reviews }} reviews)</span><span style="color:#9AA098">· up to {{ centre.capacity }} guests</span></div>
       <h1 style="font-family:'Bricolage Grotesque';font-weight:700;font-size:36px;margin:0 0 4px;letter-spacing:-.025em">{{ centre.name }}</h1>
@@ -393,13 +393,13 @@
 <!-- ============ CLUB DETAIL ============ -->
 <sc-if value="{{ isClub }}" hint-placeholder-val="{{ true }}">
 <div style="animation:fadeUp .35s ease both">
-  <section style="max-width:1180px;margin:0 auto;padding:26px 24px 0">
+  <section style="max-width:1440px;margin:0 auto;padding:26px 24px 0">
     <button onClick="{{ goClubs }}" style="background:none;border:none;color:#5B635C;font-weight:600;font-size:14px;cursor:pointer;padding:0;margin-bottom:16px">← All sports clubs</button>
     <div style="height:220px;border-radius:20px;background:{{ club.ph }};display:flex;align-items:center;justify-content:center">
       <span style="font-family:'Bricolage Grotesque';font-weight:700;font-size:34px;color:#C0491E;letter-spacing:-.02em">{{ club.sport }}</span>
     </div>
   </section>
-  <section style="max-width:1180px;margin:0 auto;padding:26px 24px 70px;display:grid;grid-template-columns:1.6fr 1fr;gap:40px;align-items:start">
+  <section style="max-width:1440px;margin:0 auto;padding:26px 24px 70px;display:grid;grid-template-columns:1.6fr 1fr;gap:40px;align-items:start">
     <div>
       <sc-if value="{{ club.trial }}" hint-placeholder-val="{{ true }}"><span style="display:inline-block;background:#EAF4EE;color:#175f3b;border-radius:20px;padding:4px 12px;font-size:13px;font-weight:700;margin-bottom:12px">Free trial session available</span></sc-if>
       <h1 style="font-family:'Bricolage Grotesque';font-weight:700;font-size:36px;margin:0 0 4px;letter-spacing:-.025em">{{ club.name }}</h1>
@@ -626,7 +626,7 @@
 </main>
 
 <footer style="border-top:1px solid #E7E4DC;background:#F6F4EF">
-  <div style="max-width:1180px;margin:0 auto;padding:34px 24px;display:flex;flex-wrap:wrap;gap:24px;align-items:center">
+  <div style="max-width:1440px;margin:0 auto;padding:34px 24px;display:flex;flex-wrap:wrap;gap:24px;align-items:center">
     <div style="display:flex;align-items:center;gap:9px">
       <div style="width:28px;height:28px;border-radius:9px;background:#1E7A4C;display:flex;align-items:center;justify-content:center;color:#fff;font-family:'Bricolage Grotesque';font-weight:700;font-size:17px;padding-bottom:2px">h</div>
       <span style="font-family:'Bricolage Grotesque';font-weight:700;font-size:19px">halla</span>

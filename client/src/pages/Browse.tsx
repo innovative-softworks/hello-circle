@@ -1,15 +1,34 @@
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { fetchCentres, fetchClubs } from "../api";
 import { BrowseIllustration } from "../components/BrowseIllustration";
-import { Chip } from "../components/Chip";
 import { CentreCard } from "../components/CentreCard";
 import { ClubCard } from "../components/ClubCard";
 import { DiscoveryMap } from "../components/DiscoveryMap";
-import { ChevronLeftIcon, ChevronRightIcon, GridIcon, HomeIcon, PinIcon, SearchIcon } from "../components/icons";
-import { CardSkeleton } from "../components/ui";
+import { DropdownCheckbox, DropdownOption, FilterDropdown } from "../components/FilterDropdown";
+import { CheckIcon, ChevronLeftIcon, ChevronRightIcon, CloseIcon, GridIcon, HomeIcon, PinIcon, SearchIcon } from "../components/icons";
+import { IntentCaptureForm } from "../components/IntentCaptureForm";
+import { Button, CardSkeleton, EmptyState } from "../components/ui";
 import { colors, fonts, maxWidth } from "../theme";
 import type { Centre, Club } from "../types";
+
+// Compare mode (post-audit hardening pass) — folded in from the old
+// standalone /compare page (Compare.tsx, now removed/redirected here), since
+// it only ever compared centres via the same fetchCentres() data this page
+// already loads. Kept centres-only, matching that page's own original
+// scoping ("most valuable for venues/facilities, not every activity").
+const MAX_COMPARE = 3;
+const COMPARE_ROWS: { label: string; render: (c: Centre) => string }[] = [
+  { label: "Area", render: (c) => `${c.area}, ${c.county}` },
+  { label: "From", render: (c) => `€${c.from}/hr` },
+  { label: "Capacity", render: (c) => String(c.capacity) },
+  { label: "Rating", render: (c) => (c.reviews ? `${c.rating.toFixed(1)} (${c.reviews})` : "No reviews yet") },
+  { label: "Would repeat", render: (c) => (c.wouldRepeatPercent !== null ? `${c.wouldRepeatPercent}%` : "—") },
+  { label: "Opening hours", render: (c) => `${c.opensAt}–${c.closesAt}` },
+  { label: "Payment", render: (c) => (c.paymentMethod === "cash" ? "Cash on arrival" : "Online") },
+  { label: "Amenities", render: (c) => (c.amenities.length ? c.amenities.join(", ") : "—") },
+  { label: "Accessibility", render: (c) => (c.accessibility.length ? c.accessibility.join(", ") : "—") },
+];
 
 type SortKey = "popular" | "price-asc" | "price-desc" | "name";
 
@@ -20,7 +39,10 @@ const SORT_LABELS: Record<SortKey, string> = {
   name: "Name: A–Z",
 };
 
-const PAGE_SIZE = 6;
+// A multiple of the 4-column grid below, so every page but the last renders
+// full rows instead of a trailing partial row (was 6 — a leftover from
+// before the grid went from 3 to 4 columns).
+const PAGE_SIZE = 12;
 
 function centrePrice(c: Centre) {
   return c.from;
@@ -45,6 +67,8 @@ export function Browse() {
   const [sort, setSort] = useState<SortKey>("popular");
   const [page, setPage] = useState(1);
   const [view, setView] = useState<"list" | "map">("list");
+  const [compareIds, setCompareIds] = useState<string[]>([]);
+  const [compareOpen, setCompareOpen] = useState(false);
 
   const isClubs = category === "clubs";
   const [centres, setCentres] = useState<Centre[]>([]);
@@ -93,7 +117,18 @@ export function Browse() {
   useEffect(() => {
     setPage(1);
     setQuery("");
+    setCompareIds([]);
+    setCompareOpen(false);
   }, [isClubs, county, sport]);
+
+  const toggleCompare = (id: string) => {
+    setCompareIds((ids) => {
+      if (ids.includes(id)) return ids.filter((i) => i !== id);
+      if (ids.length >= MAX_COMPARE) return ids;
+      return [...ids, id];
+    });
+  };
+  const comparedCentres = compareIds.map((id) => centres.find((c) => c.id === id)).filter((c): c is Centre => !!c);
 
   useEffect(() => {
     setPage(1);
@@ -121,6 +156,16 @@ export function Browse() {
     const nextList = selectedAccessibility.includes(a) ? selectedAccessibility.filter((x) => x !== a) : [...selectedAccessibility, a];
     if (nextList.length) next.set("accessibility", nextList.join(","));
     else next.delete("accessibility");
+    setSearchParams(next);
+  };
+  const clearAmenities = () => {
+    const next = new URLSearchParams(searchParams);
+    next.delete("amenities");
+    setSearchParams(next);
+  };
+  const clearAccessibility = () => {
+    const next = new URLSearchParams(searchParams);
+    next.delete("accessibility");
     setSearchParams(next);
   };
 
@@ -158,9 +203,9 @@ export function Browse() {
     <div className="fade-panel">
       <section className="section-pad" style={{ maxWidth, margin: "0 auto", padding: "26px 24px 12px" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, color: colors.mutedLight, marginBottom: 16 }}>
-          <span onClick={() => navigate("/")} className="link-accent" style={{ cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 4, color: colors.mutedLight }}>
+          <Link to="/" className="link-accent" style={{ textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 4, color: colors.mutedLight }}>
             <HomeIcon size={14} /> Home
-          </span>
+          </Link>
           <ChevronRightIcon size={12} style={{ color: colors.faint }} />
           <span style={{ fontWeight: 600, color: colors.text }}>{isClubs ? "Sports clubs" : "Community centres"}</span>
         </div>
@@ -191,36 +236,60 @@ export function Browse() {
           </div>
         </div>
 
+        {/* Filter bar (UX pass) — every filter is now a dropdown rather than
+            every individual option rendered as its own inline chip. With 16
+            counties + 25+ amenities, the old chip rows grew to 4 wrapped
+            lines before a single result was visible (see the community-
+            centres screenshot this was raised against) — a single-row
+            toolbar of "Location ▾ / Amenities ▾ / Accessibility ▾" plus
+            search/sort/view reads immediately, and each panel scrolls
+            internally instead of pushing the page down. */}
         <div style={{ background: "#fff", border: `1px solid ${colors.border}`, borderRadius: 16, padding: 16, marginBottom: 22, boxShadow: "0 6px 20px rgba(30,40,32,.04)" }}>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
-            <button
-              onClick={() => setCounty("All")}
-              className="btn"
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: 6,
-                border: `1.5px solid ${allBtnActive ? colors[accent] : colors.borderStrong}`,
-                background: allBtnActive ? colors[accent] : "#fff",
-                color: allBtnActive ? "#fff" : "#3B423C",
-                borderRadius: 20,
-                padding: "8px 14px",
-                fontSize: 14,
-                fontWeight: 600,
-              }}
+            <FilterDropdown
+              label={<span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><PinIcon size={13} />{county === "All" ? "All counties" : county}</span>}
+              active={!allBtnActive}
+              accent={accent}
             >
-              <GridIcon size={13} />
-              All
-            </button>
-            {countyOptions.map((c) => (
-              <Chip
-                key={c}
-                label={<span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><PinIcon size={13} />{c}</span>}
-                active={county === c}
-                onClick={() => setCounty(c)}
-                accent={accent}
-              />
-            ))}
+              <DropdownOption label="All counties" active={allBtnActive} onClick={() => setCounty("All")} />
+              {countyOptions.map((c) => (
+                <DropdownOption key={c} label={c} active={county === c} onClick={() => setCounty(c)} />
+              ))}
+            </FilterDropdown>
+
+            {isClubs && sportOptions.length > 1 && (
+              <FilterDropdown label={sport === "All" ? "Any sport" : sport} active={sport !== "All"} accent="orange">
+                {sportOptions.map((s) => (
+                  <DropdownOption key={s} label={s === "All" ? "Any sport" : s} active={sport === s} onClick={() => setSport(s)} />
+                ))}
+              </FilterDropdown>
+            )}
+
+            {!isClubs && amenityOptions.length > 0 && (
+              <FilterDropdown label={`Amenities${selectedAmenities.length ? ` (${selectedAmenities.length})` : ""}`} active={selectedAmenities.length > 0} accent={accent}>
+                {amenityOptions.map((a) => (
+                  <DropdownCheckbox key={a} label={a} checked={selectedAmenities.includes(a)} onChange={() => toggleAmenity(a)} />
+                ))}
+                {selectedAmenities.length > 0 && (
+                  <button onClick={clearAmenities} style={{ display: "block", width: "100%", textAlign: "left", background: "none", border: "none", borderTop: `1px solid ${colors.border}`, marginTop: 6, paddingTop: 8, padding: "8px 10px 2px", fontSize: 13, fontWeight: 700, color: colors.muted, cursor: "pointer" }}>
+                    Clear amenities
+                  </button>
+                )}
+              </FilterDropdown>
+            )}
+
+            {accessibilityOptions.length > 0 && (
+              <FilterDropdown label={`Accessibility${selectedAccessibility.length ? ` (${selectedAccessibility.length})` : ""}`} active={selectedAccessibility.length > 0} accent={accent}>
+                {accessibilityOptions.map((a) => (
+                  <DropdownCheckbox key={a} label={a} checked={selectedAccessibility.includes(a)} onChange={() => toggleAccessibility(a)} />
+                ))}
+                {selectedAccessibility.length > 0 && (
+                  <button onClick={clearAccessibility} style={{ display: "block", width: "100%", textAlign: "left", background: "none", border: "none", borderTop: `1px solid ${colors.border}`, marginTop: 6, paddingTop: 8, padding: "8px 10px 2px", fontSize: 13, fontWeight: 700, color: colors.muted, cursor: "pointer" }}>
+                    Clear accessibility
+                  </button>
+                )}
+              </FilterDropdown>
+            )}
 
             <div style={{ marginLeft: "auto", display: "flex", gap: 10, flexWrap: "wrap" }}>
               <div style={{ position: "relative" }}>
@@ -286,58 +355,64 @@ export function Browse() {
               </div>
             </div>
           </div>
-          {isClubs && (
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 12, paddingTop: 12, borderTop: `1px solid ${colors.border}` }}>
-              {sportOptions.map((s) => (
-                <Chip
-                  key={s}
-                  label={s}
-                  active={sport === s}
-                  onClick={() => setSport(s)}
-                  accent="orange"
-                  padding="7px 13px"
-                  fontSize={13}
-                />
-              ))}
-            </div>
-          )}
-          {!isClubs && amenityOptions.length > 0 && (
-            <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8, marginTop: 12, paddingTop: 12, borderTop: `1px solid ${colors.border}` }}>
-              <span style={{ fontSize: 12.5, fontWeight: 700, color: colors.mutedLight, marginRight: 2 }}>Amenities:</span>
-              {amenityOptions.map((a) => (
-                <Chip key={a} label={a} active={selectedAmenities.includes(a)} onClick={() => toggleAmenity(a)} accent={accent} padding="7px 13px" fontSize={13} />
-              ))}
-            </div>
-          )}
-          {accessibilityOptions.length > 0 && (
-            <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8, marginTop: 12, paddingTop: 12, borderTop: `1px solid ${colors.border}` }}>
-              <span style={{ fontSize: 12.5, fontWeight: 700, color: colors.mutedLight, marginRight: 2 }}>Accessibility:</span>
-              {accessibilityOptions.map((a) => (
-                <Chip key={a} label={a} active={selectedAccessibility.includes(a)} onClick={() => toggleAccessibility(a)} accent={accent} padding="7px 13px" fontSize={13} />
-              ))}
-            </div>
-          )}
         </div>
       </section>
 
       <section className="section-pad" style={{ maxWidth, margin: "0 auto", padding: "0 24px 40px" }}>
         {loading ? (
-          <div className="grid-responsive-3" style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 20 }}>
+          <div className="grid-responsive-3" style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 20 }}>
             {Array.from({ length: PAGE_SIZE }, (_, i) => <CardSkeleton key={i} photoHeight={140} />)}
           </div>
         ) : filtered.length === 0 ? (
-          <div style={{ border: `1.5px dashed ${colors.border}`, borderRadius: 18, padding: "56px 20px", textAlign: "center", color: colors.mutedLight }}>
-            <div style={{ display: "flex", justifyContent: "center", marginBottom: 10, color: colors.faint }}><SearchIcon size={28} /></div>
-            <div style={{ fontWeight: 700, color: colors.muted, marginBottom: 4 }}>No results</div>
-            <div style={{ fontSize: 14 }}>Try a different area, search term, or clear the filters.</div>
-          </div>
+          <EmptyState
+            icon={<SearchIcon size={28} />}
+            title="No results"
+            subtitle="Try a different area, search term, or clear the filters."
+            action={<IntentCaptureForm activityLabel={(isClubs && sport !== "All" ? sport : query) || (isClubs ? "clubs" : "centres")} county={county === "All" ? "" : county} />}
+          />
         ) : view === "map" ? (
           <DiscoveryMap centres={isClubs ? [] : (filtered as Centre[])} clubs={isClubs ? (filtered as Club[]) : []} />
         ) : (
-          <div className="grid-responsive-3" style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 20 }}>
+          <div className="grid-responsive-3" style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 20 }}>
             {isClubs
               ? (pageRows as Club[]).map((c) => <ClubCard key={c.id} club={c} />)
-              : (pageRows as Centre[]).map((c) => <CentreCard key={c.id} centre={c} height={140} />)}
+              : (pageRows as Centre[]).map((c) => {
+                  const picked = compareIds.includes(c.id);
+                  return (
+                    <div key={c.id} style={{ position: "relative" }}>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toggleCompare(c.id);
+                        }}
+                        aria-label={picked ? `Remove ${c.name} from comparison` : `Add ${c.name} to comparison`}
+                        disabled={!picked && compareIds.length >= MAX_COMPARE}
+                        style={{
+                          position: "absolute",
+                          top: 10,
+                          left: 10,
+                          zIndex: 1,
+                          width: 28,
+                          height: 28,
+                          borderRadius: "50%",
+                          border: "none",
+                          background: picked ? colors.green : "rgba(255,255,255,.9)",
+                          color: picked ? "#fff" : colors.text,
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          cursor: !picked && compareIds.length >= MAX_COMPARE ? "not-allowed" : "pointer",
+                          opacity: !picked && compareIds.length >= MAX_COMPARE ? 0.5 : 1,
+                          fontSize: 13,
+                          fontWeight: 700,
+                        }}
+                      >
+                        {picked ? <CheckIcon size={14} /> : "+"}
+                      </button>
+                      <CentreCard centre={c} height={140} />
+                    </div>
+                  );
+                })}
           </div>
         )}
       </section>
@@ -385,6 +460,67 @@ export function Browse() {
             </button>
           </div>
         </section>
+      )}
+
+      {!isClubs && compareIds.length > 0 && (
+        <div style={{ position: "fixed", left: 0, right: 0, bottom: 0, zIndex: 20, background: "#fff", borderTop: `1px solid ${colors.border}`, boxShadow: "0 -6px 20px rgba(30,40,32,.08)" }}>
+          {compareOpen && (
+            <div style={{ maxWidth, margin: "0 auto", padding: "20px 24px 0", maxHeight: "60vh", overflowY: "auto" }}>
+              <div style={{ overflowX: "auto" }}>
+                <table style={{ borderCollapse: "collapse", width: "100%", minWidth: 480 }}>
+                  <thead>
+                    <tr>
+                      <th style={{ textAlign: "left", padding: "10px 12px", fontSize: 12, color: colors.faint, borderBottom: `1px solid ${colors.border}` }} />
+                      {comparedCentres.map((c) => (
+                        <th key={c.id} style={{ textAlign: "left", padding: "10px 12px", borderBottom: `1px solid ${colors.border}`, minWidth: 180 }}>
+                          <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 6 }}>
+                            <button onClick={() => navigate(`/centres/${c.slug ?? c.id}`)} style={{ background: "none", border: "none", padding: 0, textAlign: "left", cursor: "pointer", fontFamily: fonts.display, fontWeight: 700, fontSize: 14.5, color: colors.text }}>
+                              {c.name}
+                            </button>
+                            <button onClick={() => toggleCompare(c.id)} aria-label={`Remove ${c.name}`} style={{ background: "none", border: "none", cursor: "pointer", color: colors.faint, flex: "none" }}>
+                              <CloseIcon size={14} />
+                            </button>
+                          </div>
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {COMPARE_ROWS.map((row) => (
+                      <tr key={row.label}>
+                        <td style={{ padding: "10px 12px", fontSize: 12.5, fontWeight: 700, color: colors.muted, borderBottom: `1px solid ${colors.border}`, whiteSpace: "nowrap" }}>{row.label}</td>
+                        {comparedCentres.map((c) => (
+                          <td key={c.id} style={{ padding: "10px 12px", fontSize: 13.5, borderBottom: `1px solid ${colors.border}` }}>{row.render(c)}</td>
+                        ))}
+                      </tr>
+                    ))}
+                    <tr>
+                      <td style={{ padding: "14px 12px" }} />
+                      {comparedCentres.map((c) => (
+                        <td key={c.id} style={{ padding: "14px 12px" }}>
+                          <Button onClick={() => navigate(`/book/${c.id}`)}>Book</Button>
+                        </td>
+                      ))}
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+          <div style={{ maxWidth, margin: "0 auto", padding: "14px 24px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+            <span style={{ fontSize: 14, fontWeight: 600, color: colors.text }}>
+              {compareIds.length} centre{compareIds.length === 1 ? "" : "s"} selected to compare
+            </span>
+            <div style={{ display: "flex", gap: 10 }}>
+              <button onClick={() => setCompareIds([])} style={{ background: "none", border: "none", color: colors.mutedLight, fontSize: 13.5, fontWeight: 600, cursor: "pointer" }}>
+                Clear
+              </button>
+              <Button onClick={() => setCompareOpen((o) => !o)} disabled={compareIds.length < 2}>
+                {compareOpen ? "Hide comparison" : "Compare"}
+              </Button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

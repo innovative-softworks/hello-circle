@@ -1,0 +1,272 @@
+/* Styles for the standalone marketing landing page only. Every rule is
+   scoped under .lc-* class names (never a bare element selector) so this
+   can never bleed into the rest of the app — see theme.ts's own comment
+   for why this page keeps a fully separate design system. */
+
+@import url("https://fonts.googleapis.com/css2?family=Manrope:wght@500;700;800&family=Inter:wght@400;500;600&display=swap");
+
+.lc-page {
+  font-family: "Inter", "Segoe UI", sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+.lc-page h1,
+.lc-page h2,
+.lc-page h3,
+.lc-page h4 {
+  font-family: "Manrope", "Segoe UI", sans-serif;
+  margin: 0;
+  text-wrap: balance;
+}
+
+.lc-page p {
+  margin: 0;
+}
+
+.lc-page a {
+  text-decoration: none;
+  color: inherit;
+}
+
+.lc-page button {
+  font-family: inherit;
+  cursor: pointer;
+}
+
+/* --- header ---------------------------------------------------------- */
+
+.lc-header {
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  transition: background-color 0.25s ease, box-shadow 0.25s ease, border-color 0.25s ease;
+  border-bottom: 1px solid transparent;
+}
+
+.lc-header.lc-scrolled {
+  box-shadow: 0 1px 0 rgba(20, 23, 15, 0.06);
+}
+
+.lc-nav-link {
+  position: relative;
+  font-size: 14.5px;
+  font-weight: 600;
+}
+
+.lc-nav-link::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -4px;
+  height: 2px;
+  background: currentColor;
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform 0.2s ease;
+}
+
+.lc-nav-link:hover::after {
+  transform: scaleX(1);
+}
+
+/* --- buttons ----------------------------------------------------------- */
+
+.lc-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border-radius: 999px;
+  font-weight: 700;
+  font-size: 14.5px;
+  padding: 13px 24px;
+  border: 1.5px solid transparent;
+  transition: transform 0.15s ease, background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+  white-space: nowrap;
+}
+
+.lc-btn:active {
+  transform: scale(0.97);
+}
+
+.lc-btn:focus-visible {
+  outline: 2px solid #1c5c42;
+  outline-offset: 2px;
+}
+
+/* --- hero photo collage ------------------------------------------------ */
+
+.lc-hero-collage {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  grid-template-rows: repeat(6, 1fr);
+  gap: 12px;
+  aspect-ratio: 1 / 1;
+}
+
+.lc-hero-photo {
+  border-radius: 20px;
+  overflow: hidden;
+  position: relative;
+  background: #d8d4c5;
+  box-shadow: 0 18px 40px rgba(20, 23, 15, 0.16);
+}
+
+.lc-hero-photo img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  transition: transform 0.5s ease;
+}
+
+.lc-hero-photo:hover img {
+  transform: scale(1.06);
+}
+
+.lc-float {
+  animation: lc-float 6s ease-in-out infinite;
+}
+
+@keyframes lc-float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-10px); }
+}
+
+@keyframes lc-fade-up {
+  from { opacity: 0; transform: translateY(14px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.lc-fade-up {
+  animation: lc-fade-up 0.6s ease both;
+}
+
+/* --- search chips -------------------------------------------------------- */
+
+.lc-chip {
+  border-radius: 999px;
+  padding: 8px 16px;
+  font-size: 13.5px;
+  font-weight: 600;
+  white-space: nowrap;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+/* --- carousels ------------------------------------------------------ */
+
+.lc-carousel {
+  display: flex;
+  gap: 18px;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  padding-bottom: 6px;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.lc-carousel::-webkit-scrollbar {
+  display: none;
+}
+
+.lc-carousel > * {
+  scroll-snap-align: start;
+  flex: none;
+}
+
+/* --- cards ------------------------------------------------------------ */
+
+.lc-card {
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.lc-card:hover {
+  transform: translateY(-4px);
+}
+
+.lc-card-image {
+  overflow: hidden;
+  position: relative;
+}
+
+.lc-card-image img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  transition: transform 0.45s ease;
+}
+
+.lc-card:hover .lc-card-image img {
+  transform: scale(1.07);
+}
+
+/* --- category tiles ----------------------------------------------------- */
+
+.lc-category-tile {
+  position: relative;
+  border-radius: 20px;
+  overflow: hidden;
+  isolation: isolate;
+}
+
+.lc-category-tile img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  transition: transform 0.4s ease;
+}
+
+.lc-category-tile:hover img {
+  transform: scale(1.08);
+}
+
+/* --- network grid -------------------------------------------------------- */
+
+.lc-network-pin {
+  animation: lc-pulse 2.6s ease-in-out infinite;
+}
+
+@keyframes lc-pulse {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.08); opacity: 0.85; }
+}
+
+/* --- responsive ---------------------------------------------------------- */
+
+@media (max-width: 900px) {
+  .lc-hero-collage {
+    aspect-ratio: 4 / 5;
+  }
+}
+
+@media (max-width: 720px) {
+  .lc-section {
+    padding-left: 20px !important;
+    padding-right: 20px !important;
+  }
+  .lc-hide-mobile {
+    display: none !important;
+  }
+  .lc-stack-mobile {
+    flex-direction: column !important;
+    grid-template-columns: 1fr !important;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lc-float,
+  .lc-network-pin,
+  .lc-fade-up {
+    animation: none !important;
+  }
+  .lc-card,
+  .lc-card-image img,
+  .lc-category-tile img,
+  .lc-hero-photo img {
+    transition: none !important;
+  }
+}

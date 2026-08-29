@@ -266,17 +266,21 @@ export interface HouseholdMember {
 export type FavouriteStatus = "interested" | "planning" | "joined";
 
 export interface Favourite {
-  listingType: "centre" | "club" | "game" | "program_session" | "club_session";
+  listingType: "centre" | "club" | "game" | "program_session" | "club_session" | "experience";
   listingId: string;
   status: FavouriteStatus;
+  /** Best-effort listing display details — null if the listing was since removed. */
+  name: string | null;
+  imageUrl: string | null;
+  subtitle: string | null;
 }
 
 export interface ResidentNotification {
   id: number;
-  kind: "booking" | "registration" | "waitlist" | "game";
+  kind: "booking" | "registration" | "waitlist" | "game" | "intent_match";
   title: string;
   body: string;
-  listingType: "centre" | "club" | "game";
+  listingType: "centre" | "club" | "game" | "intent";
   listingId: string;
   ref: string;
   read: number;
@@ -287,6 +291,24 @@ export interface WaitlistPosition {
   onWaitlist: boolean;
   position?: number;
   total?: number;
+}
+
+// --- Participation Intent (demand capture, participation-intent plan Phase 1) ---
+
+export interface IntentCount {
+  count: number;
+  residentCount: number;
+}
+
+export interface MyIntent {
+  id: string;
+  activityLabel: string;
+  county: string;
+  preferredDate: string;
+  preferredTimeWindow: string;
+  notes: string | null;
+  status: "active" | "matched" | "converted" | "expired" | "cancelled";
+  createdAt: string;
 }
 
 // --- Join a Game (MVP) / paid games (NEXT) ---------------------------------
@@ -339,6 +361,38 @@ export interface Game {
    * for a signed-out visitor or a game the resident hasn't joined. */
   checkedInAt?: string | null;
   attended?: boolean | null;
+  /** Real photo when set (huge-data seed pass); null falls back to
+   * GameCard's existing tinted placeholder — never a fabricated stock photo
+   * per-activity, since there's no real per-game photography. */
+  imageUrl: string | null;
+  /** Game Detail redesign — optional plan content a host can fill in at
+   * creation. Every field is nullable/empty-string when unset; the client
+   * omits the section it feeds rather than showing a placeholder. */
+  description: string | null;
+  durationMinutes: number | null;
+  equipmentNeeded: string | null;
+  minAge: number | null;
+  surfaceType: string | null;
+  indoorOutdoor: string | null;
+  cancellationPolicy: string | null;
+  /** Only present on the single-game detail fetch, and only populated for
+   * the host or a joined participant — see server routes/games.ts's GET /:id. */
+  meetingInstructions?: string | null;
+}
+
+/** "Who's going" preview (Game Detail redesign §13) — name only, never
+ * email/phone/exact address. `total` lets the client render "+N" beyond
+ * the preview list without fetching every participant. */
+export interface GameParticipantSummary {
+  participants: { residentId: string; name: string }[];
+  total: number;
+}
+
+/** Host-posted announcement for a game ("Latest update" module, §25). */
+export interface GameUpdate {
+  id: number;
+  message: string;
+  createdAt: string;
 }
 
 // --- Circles (NEXT) --------------------------------------------------------
@@ -366,6 +420,88 @@ export interface Circle {
   status: "active" | "closed";
   /** Slugs (master-prompt punch list #1) — null until backfilled/generated. */
   slug: string | null;
+  /** Real photo when set (huge-data seed pass) — null falls back to a
+   * tinted placeholder, same convention as Game.imageUrl above. */
+  imageUrl: string | null;
+  /** Circle discovery redesign — the soonest open game matching this
+   * Circle's activity label (Circles have no first-class plan relationship
+   * — see routes/circles.ts's own comment on nextPlanFor). Null when
+   * nothing's currently scheduled; the client never fakes one. */
+  nextPlan: { id: string; date: string; time: string; joined: number; capacity: number; spotsLeft: number } | null;
+  /** Loose calendar-month count of open games matching this activity —
+   * a participation-health signal, not a stored/cached counter. */
+  plansThisMonth: number;
+  /** Only present on the single-circle detail fetch (see routes/circles.ts's
+   * detailStatsFor) — too expensive to compute per row on the browse list. */
+  participantsThisMonth?: number;
+  repeatParticipants?: number;
+  newMembersThisMonth?: number;
+  /** Real show-up rate — % of confirmed (not just joined) participation
+   * across games matching this activity that were actually attended. Null
+   * when nobody's confirmed attendance yet (not enough signal to show a
+   * rate) rather than defaulting to a fabricated number. */
+  showUpRate?: number | null;
+  /** "X people you've played with before are members" — only present when
+   * a signed-in resident requested this circle; 0 for a signed-out visitor. */
+  familiarMembers?: number;
+  /** Structured "About our community" content (Circle Detail redesign) —
+   * each genuinely optional/organiser-provided; null renders no column. */
+  whatWeDo: string | null;
+  whoCanJoin: string | null;
+  values: string | null;
+  /** My Life redesign — the viewer's own role in this circle. Only present
+   * on GET /circles/mine; role is relative to whoever's asking, not a
+   * property of the circle itself, so every other fetch omits it. */
+  myRole?: "member" | "organiser";
+}
+
+/** A real photo from a recent game matching this Circle's activity (§18) —
+ * not an uploaded gallery, see routes/circles.ts's GET /:id/moments. */
+export interface CircleMoment {
+  id: string;
+  imageUrl: string;
+}
+
+/** Circle members preview (Circle discovery/detail redesign) — name only,
+ * never email/phone/exact address, same privacy stance as
+ * GameParticipantSummary. `total` lets the client render "+N". */
+export interface CircleMemberSummary {
+  members: { residentId: string; name: string; role: string }[];
+  total: number;
+}
+
+/** Upcoming-plan preview for a Circle (Circle Detail redesign §10/§11) —
+ * enough for CirclePlanCard without a full Game fetch per plan. */
+export interface CirclePlanPreview {
+  id: string;
+  activityLabel: string;
+  date: string;
+  time: string;
+  locationText: string;
+  centreName: string | null;
+  capacity: number;
+  joined: number;
+  spotsLeft: number;
+  priceCents: number | null;
+}
+
+/** "Recently in this Circle" row (§20) — a completed game matching this
+ * Circle's activity, with a real confirmed-attendance count. */
+export interface CircleRecentActivity {
+  id: string;
+  activityLabel: string;
+  date: string;
+  attended: number;
+}
+
+/** "Circle activity" card (§26-28) — real, period-scoped participation
+ * signals (see routes/circles.ts's GET /:id/activity). Deliberately no
+ * "photos shared" field — nothing in this app tracks that. */
+export interface CircleActivityStats {
+  period: "week" | "month";
+  newMembers: number;
+  plansCreated: number;
+  participants: number;
 }
 
 // --- Circle invitations & planning polls (IA spec §10) ---------------------
@@ -625,6 +761,78 @@ export interface DemandRow {
   lastSeenAt: string;
 }
 
+/** An explicit unmet-demand cluster from participation_intents — unlike
+ * DemandRow above, these are resident-linkable and actionable (admin can
+ * notify the people behind one). See db/queries.ts's getIntentClusters. */
+export interface IntentCluster {
+  activityLabel: string;
+  county: string;
+  count: number;
+  residentCount: number;
+  sampleNames: string[];
+  latestAt: string;
+}
+
+// --- Marketplace health / liquidity (admin-only) -----------------------
+
+export interface SupplyOverview {
+  upcomingGames: number;
+  openSpots: number;
+  activeCircles: number;
+  activeHosts: number;
+}
+
+export interface ParticipationStats {
+  joined: number;
+  attended: number;
+  noShow: number;
+  totalResidents: number;
+  repeatResidents: number;
+  repeatRate: number;
+}
+
+export type LiquidityLabel = "LOW" | "DEVELOPING" | "HEALTHY" | "HIGH";
+
+export interface LiquidityScore {
+  activityLabel: string;
+  county: string;
+  demandCount: number;
+  matchRate: number;
+  openSpots: number;
+  upcomingPlans: number;
+  label: LiquidityLabel;
+}
+
+export interface MarketplaceHealth {
+  supply: SupplyOverview;
+  participation: ParticipationStats;
+  liquidity: LiquidityScore[];
+}
+
+// --- Referral attribution (admin-only, best-effort) ---------------------
+
+export interface ReferralAttributionRow {
+  referrerClientId: string;
+  source: string;
+  landedAt: string;
+  visitorClientId: string;
+  converted: boolean;
+  convertedKind: "booking" | "registration" | "game" | null;
+}
+
+// --- Minimal analytics funnel rollup (post-audit hardening pass) ---------
+
+export interface AnalyticsFunnelRow {
+  eventType: string;
+  count: number;
+}
+
+// --- Market/category launch config -------------------------------------
+
+/** Same values as INTEREST_OPTIONS below — kept as its own type alias since
+ * this is specifically what market-category config keys/reads by. */
+export type MarketCategoryFlags = Record<string, boolean>;
+
 // --- multi-tenant / RBAC / marketplace scaffolding (FUTURE, best-effort) ---
 
 export interface AdminOrganisation {
@@ -660,6 +868,11 @@ export interface ResidentFull extends Resident {
   /** Circle invite picker (implementation backlog #3) — opt IN to being
    * findable by GET /residents/search. Off by default. */
   discoverableByName: boolean;
+  /** Optional password login (My Life redesign) — true once this resident
+   * has set a password via signup or Profile's "set/change password",
+   * whether or not their account also has magic-link history. Never the
+   * password/hash itself, just whether one exists. */
+  hasPassword: boolean;
 }
 
 /** Circle invite picker (implementation backlog #3) — deliberately name-
@@ -742,6 +955,12 @@ export interface NotificationPrefs {
   openSpots: boolean;
   routineReminders: boolean;
   marketing: boolean;
+  /** Gates "intent_match" notifications (see notifications.ts's
+   * PREF_KEY_BY_KIND) — unlike most other categories here, this one is
+   * triggered by a stranger's action (someone else's game creation, or
+   * enough other residents wanting the same thing), not something the
+   * resident themself just did, so it gets a real opt-out from day one. */
+  intentMatches: boolean;
 }
 
 export const ACCESSIBILITY_OPTIONS = ["Wheelchair access", "Step-free access", "Accessible changing", "Accessible parking", "Hearing loop", "Sensory-friendly"];
@@ -891,6 +1110,16 @@ export interface Experience {
   /** Slugs (master-prompt punch list #1) — null until backfilled/generated. */
   slug: string | null;
   createdAt: string;
+  /** Adventure-relevant, optional — null unless the vendor set them. Not
+   * shown for "experience" kind (a pottery class has no meaningful distance). */
+  distanceKm: number | null;
+  elevationGainM: number | null;
+  terrainType: string;
+  /** Vendor identity ("Hosted by") — businessName-or-name, and a verified
+   * flag derived from provider_tier, same as ProviderProfile's own. */
+  vendorId: string;
+  vendorName: string;
+  vendorVerified: boolean;
 }
 
 export interface VendorExperienceSummary {

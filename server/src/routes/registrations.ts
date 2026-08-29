@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { computeCapacity } from "../capacity.js";
 import { createCheckoutSession, pricingLineItems } from "../checkoutService.js";
 import { db } from "../db/index.js";
 import { getClub } from "../db/queries.js";
@@ -128,11 +129,11 @@ async function insertRegistrationWithSessionLock(
       .prepare(`SELECT id, capacity FROM club_sessions WHERE id = ? AND club_id = ? AND active = 1 FOR UPDATE`)
       .get(body.sessionId, body.clubId)) as { id: string; capacity: number | null } | undefined;
     if (!session) throw new ConflictError("That session is no longer available — please pick another");
-    if (session.capacity !== null) {
+    {
       const { n } = (await tx
         .prepare(`SELECT COUNT(*) as n FROM registrations WHERE session_id = ? AND payment_status = 'paid' AND status != 'cancelled'`)
         .get(body.sessionId)) as { n: number };
-      if (n >= session.capacity) throw new ConflictError("That session is full — please pick another");
+      if (computeCapacity(session.capacity, n).isFull) throw new ConflictError("That session is full — please pick another");
     }
     await insertRegistration(ref, clientId, residentId, body, pricing, status, passId, tx);
   });
@@ -168,11 +169,11 @@ registrationsRouter.post("/checkout", async (req, res) => {
   // bookings.ts's room lock is (a club registration has no single row to
   // lock against) — acceptable here since going slightly over capacity on a
   // club roster is a minor operational issue, not a double-booked venue.
-  if (club.capacity !== null) {
+  {
     const { n: paidCount } = (await db
       .prepare(`SELECT COUNT(*) as n FROM registrations WHERE club_id = ? AND payment_status = 'paid' AND status != 'cancelled'`)
       .get(club.id)) as { n: number };
-    if (paidCount >= club.capacity) {
+    if (computeCapacity(club.capacity, paidCount).isFull) {
       return res.status(409).json({ error: "This club is currently full", full: true });
     }
   }

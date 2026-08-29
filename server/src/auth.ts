@@ -275,3 +275,15 @@ export function requirePlatformRole(...roles: string[]) {
     return res.status(403).json({ error: "Not authorized for this role" });
   };
 }
+
+/** For routes that only know which role applies after a DB lookup (a
+ * program's/session's role requirement depends on its listing_type, not the
+ * URL) and so can't use requirePlatformRole as static middleware — collapses
+ * the repeated `if (!hasPlatformRole(...)) return res.status(403)...` block
+ * into one line. Writes the 403 itself; returns false when it did (caller
+ * should `return` immediately), true when the caller should proceed. */
+export function assertPlatformRole(req: Request, res: Response, ...roles: string[]): boolean {
+  if (hasPlatformRole(req.user!, ...roles)) return true;
+  res.status(403).json({ error: "Not authorized for this role" });
+  return false;
+}

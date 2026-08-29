@@ -2,7 +2,7 @@ import { Router } from "express";
 import { db } from "../db/index.js";
 import { haversineKm, resolveRadiusFilter } from "../geo.js";
 import { irelandWallTimeToUtc } from "../irelandTime.js";
-import { getLocalMomentum, listScheduledActivities, type ScheduledActivity } from "../db/queries.js";
+import { getLocalMomentum, getMarketCategories, listScheduledActivities, type ScheduledActivity } from "../db/queries.js";
 import { personalizeActivity } from "../personalization.js";
 
 export const discoverRouter = Router();
@@ -120,6 +120,17 @@ discoverRouter.get("/", async (req, res) => {
 // getDemandSignals() (unmet demand). Deliberately its own small endpoint
 // rather than folded into "/" above — a homepage strip, not a per-activity
 // feed, and cheap enough not to need the same today/weekend bucketing.
+// Market/category launch config (participation-intent plan Phase 4) —
+// public, read-only. Lets the client know which categories are "live" in a
+// given county (e.g. to show a "Not yet here" affordance in Onboarding
+// instead of hiding a disabled category outright).
+discoverRouter.get("/market-categories", async (req, res) => {
+  const county = typeof req.query.county === "string" ? req.query.county : "";
+  if (!county) return res.status(400).json({ error: "county is required" });
+  const flags = await getMarketCategories(county);
+  res.json(flags);
+});
+
 discoverRouter.get("/momentum", async (req, res) => {
   const county = typeof req.query.county === "string" && req.query.county !== "All" ? req.query.county : undefined;
   const signals = await getLocalMomentum({ county, limit: 6 });
@@ -138,7 +149,14 @@ discoverRouter.get("/momentum", async (req, res) => {
 // new taxonomy/column — a reasonable, documented assumption in the same
 // spirit as queries.ts's ASSUMED_DURATION_MINUTES, not real tagged data.
 export const MOOD_KEYWORDS: Record<string, string[]> = {
-  active: ["football", "soccer", "gaa", "rugby", "basketball", "tennis", "badminton", "swim", "athletics", "martial", "run", "parkrun", "gym", "hockey", "sport"],
+  // "active" stays as-is (team/ball sports) — Home's mood tile for this
+  // bucket is now labelled "Play"; keeping the key name unchanged avoids
+  // touching any other caller (see searchAlerts.ts) that might reference it.
+  active: ["football", "soccer", "gaa", "rugby", "basketball", "tennis", "badminton", "hockey", "sport"],
+  // Split out from "active" (landing/homepage repositioning) — Home's
+  // mood-tile taxonomy wants "Play" (team/ball sports, above) distinct from
+  // "Move" (individual fitness/cardio) rather than one combined bucket.
+  move: ["run", "parkrun", "gym", "swim", "athletics", "cycling", "cycle", "walk", "fitness", "martial"],
   chill: ["yoga", "meditation", "chess", "walk", "book", "reading"],
   social: ["meetup", "club", "circle", "social", "coffee", "chat", "board game"],
   creative: ["art", "craft", "music", "paint", "dance", "drama", "photography"],
@@ -241,4 +259,28 @@ export async function getNextBestParticipation(residentId: string | null, homeCo
 discoverRouter.get("/next-best", async (req, res) => {
   const items = await getNextBestParticipation(req.resident?.id ?? null, req.resident?.homeCounty ?? null, 8);
   res.json(items);
+});
+
+// Local SEO landing pages (participation-intent plan Phase 3) — deterministic
+// county+activity filtering (case-insensitive substring on title, same idiom
+// participationIntents.ts's game-matching already uses), not the NLP-ish
+// search.ts parser. Reuses listScheduledActivities/scoreActivities exactly
+// like every other feed here — this is just a narrower, county-pinned front
+// door onto the same underlying pool, not a new data source.
+discoverRouter.get("/local/:county/:activity", async (req, res) => {
+  const county = req.params.county;
+  const activityQuery = req.params.activity.replace(/-/g, " ").trim();
+  if (!activityQuery) return res.status(400).json({ error: "activity is required" });
+
+  const now = new Date();
+  const monthFromNow = new Date(now);
+  monthFromNow.setUTCDate(now.getUTCDate() + 30);
+
+  const activities = await listScheduledActivities({ county, from: now, to: monthFromNow });
+  const matched = activities.filter((a) => a.title.toLowerCase().includes(activityQuery.toLowerCase()));
+
+  const scored = await scoreActivities(matched, now, req.resident?.id ?? null, req.resident?.homeCounty ?? null);
+  scored.sort((a, b) => b.score - a.score || a.item.time.localeCompare(b.item.time));
+
+  res.json({ county, activityQuery, count: scored.length, items: scored.map((e) => e.item) });
 });

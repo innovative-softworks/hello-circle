@@ -58,6 +58,10 @@ export function HeroCarousel({ slides }: { slides: HeroCarouselSlide[] }) {
             display: "block",
             opacity: i === index ? 1 : 0,
             transition: "opacity 900ms ease",
+            // A bit more color/vibrancy than the raw source photos —
+            // this carousel is the hero's dominant visual, so flat/muted
+            // stock shots read as lifeless next to the bold headline type.
+            filter: "saturate(1.3) contrast(1.05)",
           }}
         />
       ))}

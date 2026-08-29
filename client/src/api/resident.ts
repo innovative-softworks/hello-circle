@@ -4,13 +4,20 @@ import type {
   ChatMessage,
   ChatScopeType,
   Circle,
+  CircleActivityStats,
   CircleInvitation,
+  CircleMemberSummary,
+  CircleMoment,
+  CirclePlanPreview,
   CirclePoll,
+  CircleRecentActivity,
   CircleSuggestion,
   ClubSession,
   Favourite,
   FavouriteStatus,
   Game,
+  GameParticipantSummary,
+  GameUpdate,
   HostProfile,
   HouseholdMember,
   Routine,
@@ -50,6 +57,37 @@ export function verifyGuestLink(token: string): Promise<{ email: string }> {
 
 export function guestLogout(): Promise<{ ok: boolean }> {
   return request(`/guest/logout`, { method: "POST" });
+}
+
+/** Optional password signup — a second, opt-in way into the same resident
+ * identity requestGuestLink/verifyGuestLink above already create/use. If an
+ * account already exists for that email with no password set yet (e.g.
+ * created earlier via magic link), this attaches the password to it rather
+ * than creating a duplicate — same account either way. */
+export function signupWithPassword(input: { name: string; email: string; password: string }): Promise<{ email: string }> {
+  return request(`/guest/signup`, { method: "POST", body: JSON.stringify(input) });
+}
+
+export function loginWithPassword(input: { email: string; password: string }): Promise<{ email: string }> {
+  return request(`/guest/login`, { method: "POST", body: JSON.stringify(input) });
+}
+
+/** Always resolves the same way regardless of whether that email has a
+ * password-login account — same no-existence-leak principle as
+ * requestGuestLink above. */
+export function requestResidentPasswordReset(email: string): Promise<{ ok: boolean }> {
+  return request(`/guest/request-password-reset`, { method: "POST", body: JSON.stringify({ email }) });
+}
+
+export function resetResidentPassword(input: { token: string; password: string }): Promise<{ email: string }> {
+  return request(`/guest/reset-password`, { method: "POST", body: JSON.stringify(input) });
+}
+
+/** Set a password on the currently signed-in resident (any sign-in method),
+ * or change an existing one — see routes/residents.ts's own comment on why
+ * currentPassword is only required when one's already set. */
+export function changeResidentPassword(input: { currentPassword?: string; newPassword: string }): Promise<{ ok: boolean; hasPassword: boolean }> {
+  return request(`/residents/me/password`, { method: "PUT", body: JSON.stringify(input) });
 }
 
 export function fetchGuestSession(): Promise<{ email: string | null }> {
@@ -217,10 +255,34 @@ export interface CreateGameInput {
   soloFriendly?: boolean;
   minParticipants?: number;
   confirmationDeadline?: string;
+  description?: string;
+  durationMinutes?: number;
+  equipmentNeeded?: string;
+  minAge?: number;
+  surfaceType?: string;
+  indoorOutdoor?: "indoor" | "outdoor" | "mixed";
+  meetingInstructions?: string;
+  cancellationPolicy?: string;
 }
 
 export function createGame(input: CreateGameInput): Promise<Game> {
   return request(`/games`, { method: "POST", body: JSON.stringify(input) });
+}
+
+/** "Who's going" preview — public, name-only (see GameParticipantSummary's
+ * own comment in types.ts for the privacy reasoning). */
+export function fetchGameParticipants(id: string): Promise<GameParticipantSummary> {
+  return request(`/games/${id}/participants`);
+}
+
+/** Host-posted announcements — public read. */
+export function fetchGameUpdates(id: string): Promise<GameUpdate[]> {
+  return request(`/games/${id}/updates`);
+}
+
+/** Host-only — posting an update also notifies every joined participant. */
+export function postGameUpdate(id: string, message: string): Promise<GameUpdate> {
+  return request(`/games/${id}/updates`, { method: "POST", body: JSON.stringify({ message }) });
 }
 
 /** Free/cash games resolve `{ ok: true }` immediately; a priced game
@@ -271,8 +333,27 @@ export function fetchMyCircles(): Promise<Circle[]> {
   return request(`/circles/mine`);
 }
 
-export function fetchCircleUpcoming(id: string): Promise<{ id: string; activityLabel: string; date: string; time: string }[]> {
+export function fetchCircleUpcoming(id: string): Promise<CirclePlanPreview[]> {
   return request(`/circles/${id}/upcoming`);
+}
+
+/** Members preview — public, name-only (see CircleMemberSummary's own
+ * comment in types.ts for the privacy reasoning). Pass full:true for
+ * "See all" (every member, not just the preview cap). */
+export function fetchCircleMembers(id: string, full?: boolean): Promise<CircleMemberSummary> {
+  return request(`/circles/${id}/members${full ? "?full=1" : ""}`);
+}
+
+export function fetchCircleRecentActivity(id: string): Promise<CircleRecentActivity[]> {
+  return request(`/circles/${id}/recent-activity`);
+}
+
+export function fetchCircleMoments(id: string): Promise<CircleMoment[]> {
+  return request(`/circles/${id}/moments`);
+}
+
+export function fetchCircleActivity(id: string, period: "week" | "month"): Promise<CircleActivityStats> {
+  return request(`/circles/${id}/activity?period=${period}`);
 }
 
 /** Repetition-detection → "Make this a Circle?" (implementation plan Phase
@@ -281,7 +362,17 @@ export function fetchCircleSuggestions(): Promise<CircleSuggestion[]> {
   return request(`/circles/suggestions`);
 }
 
-export function createCircle(input: { name: string; activityLabel?: string; area?: string; county?: string; about?: string; centreId?: string }): Promise<{ id: string; slug: string }> {
+export function createCircle(input: {
+  name: string;
+  activityLabel?: string;
+  area?: string;
+  county?: string;
+  about?: string;
+  centreId?: string;
+  whatWeDo?: string;
+  whoCanJoin?: string;
+  values?: string;
+}): Promise<{ id: string; slug: string }> {
   return request(`/circles`, { method: "POST", body: JSON.stringify(input) });
 }
 

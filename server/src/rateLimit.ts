@@ -42,3 +42,7 @@ export const lookupLimiter = simpleRateLimit({ windowMs: 15 * 60 * 1000, max: 10
  * concern here isn't guessing a secret (nothing to guess, any email is
  * accepted), it's spamming an inbox with unwanted sign-in emails. */
 export const magicLinkLimiter = simpleRateLimit({ windowMs: 15 * 60 * 1000, max: 5 });
+
+/** Guards password login/signup/change — an actual secret worth guarding
+ * against brute force, unlike the magic-link routes above. */
+export const passwordLoginLimiter = simpleRateLimit({ windowMs: 15 * 60 * 1000, max: 10 });

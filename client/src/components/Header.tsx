@@ -601,10 +601,20 @@ export function Header() {
                       style={dropdownItemStyle}
                       onClick={() => {
                         setAccountMenuOpen(false);
+                        go("/signin");
+                      }}
+                    >
+                      Sign in
+                    </button>
+                    <button
+                      className="dropdown-item"
+                      style={dropdownItemStyle}
+                      onClick={() => {
+                        setAccountMenuOpen(false);
                         go("/login");
                       }}
                     >
-                      Login
+                      Vendor / admin login
                     </button>
                     <button
                       className="dropdown-item"
@@ -711,7 +721,10 @@ export function Header() {
             </>
           ) : (
             <>
-              <button style={{ ...mobileNavBtn, color: colors.greenText, fontWeight: 700 }} onClick={() => go("/login")}>
+              <button style={{ ...mobileNavBtn, color: colors.greenText, fontWeight: 700 }} onClick={() => go("/signin")}>
+                Sign in
+              </button>
+              <button style={mobileNavBtn} onClick={() => go("/login")}>
                 Vendor / admin login
               </button>
               <button style={mobileNavBtn} onClick={() => go("/vendor/signup")}>

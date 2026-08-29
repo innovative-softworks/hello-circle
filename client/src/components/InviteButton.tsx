@@ -1,15 +1,22 @@
 import { useState } from "react";
+import { getClientId } from "../clientId";
+import { logReferralShare } from "../api/public";
 import { Button } from "./ui";
 
 /** Invite-via-link (Phase A) — Web Share API where available (mobile),
  * falling back to copy-to-clipboard (desktop) so there's always a working
- * path with no server-side invite-token machinery needed. */
-export function InviteButton({ title, text }: { title: string; text: string }) {
+ * path with no server-side invite-token machinery needed. Referral
+ * attribution (participation-intent plan Phase 3) appends the sharer's own
+ * client id as `?ref=` and logs a best-effort 'share' event — never blocks
+ * or delays the actual share/copy action if logging fails. */
+export function InviteButton({ title, text, listingType, listingId }: { title: string; text: string; listingType: string; listingId: string }) {
   const [copied, setCopied] = useState(false);
 
   const invite = async () => {
-    const url = window.location.href;
-    if (navigator.share) {
+    logReferralShare({ source: typeof navigator.share === "function" ? "native" : "copy_link", listingType, listingId }).catch(() => {});
+    const base = window.location.href.split("?")[0];
+    const url = `${base}?ref=${encodeURIComponent(getClientId())}`;
+    if (typeof navigator.share === "function") {
       try {
         await navigator.share({ title, text, url });
       } catch {

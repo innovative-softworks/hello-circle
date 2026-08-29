@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { addFavourite, fetchFavourites, joinGame, joinGameWaitlist, removeFavourite } from "../api";
 import { isFavorite, toggleFavorite } from "../favorites";
 import { useGuest } from "../GuestContext";
-import { AwardIcon, BallIcon, CheckIcon, ChevronLeftIcon, ChevronRightIcon, HeartIcon, RepeatIcon, UsersIcon } from "./icons";
+import { ArrowRightIcon, AwardIcon, BallIcon, CheckIcon, ChevronLeftIcon, ChevronRightIcon, HeartIcon, RepeatIcon, UsersIcon } from "./icons";
 import { Button } from "./ui";
 import { Photo } from "./Photo";
 import { colors, fonts } from "../theme";
@@ -252,16 +252,30 @@ export function DiscoverCard({ item, isToday }: { item: DiscoverItem; isToday: b
             {item.matchReasons[0]}
           </div>
         )}
-        {isJoinableGame && (
-          <div style={{ marginTop: "auto", paddingTop: 8, display: "flex", flexDirection: "column", gap: 8 }}>
-            {!!item.joined && (
-              <div style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 12, color: colors.mutedLight }}>
-                <UsersIcon size={13} /> {item.joined} going
-              </div>
-            )}
-            <JoinControl item={item} />
-          </div>
-        )}
+        <div style={{ marginTop: "auto", paddingTop: 8, display: "flex", flexDirection: "column", gap: 8 }}>
+          {isJoinableGame ? (
+            <>
+              {!!item.joined && (
+                <div style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 12, color: colors.mutedLight }}>
+                  <UsersIcon size={13} /> {item.joined} going
+                </div>
+              )}
+              <JoinControl item={item} />
+            </>
+          ) : (
+            // Program/club sessions don't have inline join/capacity data
+            // (see DiscoverItem's own comments) — the whole card already
+            // navigates to item.href on click, but without a visible
+            // button here there was no on-card affordance telling the
+            // visitor what happens next (landing/'s ActivityCard always
+            // pairs a price with an explicit CTA button, never price-only).
+            <div onClick={(e) => e.stopPropagation()}>
+              <Button variant="dark" style={{ width: "100%", fontSize: 13 }} onClick={() => navigate(item.href)}>
+                {item.kind === "program_session" ? "View session" : "View club"}
+              </Button>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -275,26 +289,47 @@ const AUTO_ADVANCE_MS = 4500;
  * advances one card at a time, pauses on hover/touch and permanently once
  * the visitor scrolls it manually (an auto-advancing row that fights a
  * mid-drag user is worse than no auto-advance at all), and respects
- * prefers-reduced-motion by never auto-advancing at all in that case. */
-export function DiscoverRow({ title, items, isToday = false }: { title: string; items: DiscoverItem[]; isToday?: boolean }) {
+ * prefers-reduced-motion by never auto-advancing at all in that case.
+ *
+ * `limit`+`moreHref` (Home.tsx usage) cap the row to a fixed count and
+ * append a "View more" card at the end that navigates to the full listing
+ * page — without them (Explore.tsx's usage, which IS that full listing
+ * page) every item renders and there's nothing to click through to. */
+export function DiscoverRow({
+  title,
+  items,
+  isToday = false,
+  limit,
+  moreHref,
+}: {
+  title: string;
+  items: DiscoverItem[];
+  isToday?: boolean;
+  limit?: number;
+  moreHref?: string;
+}) {
+  const navigate = useNavigate();
   const scrollerRef = useRef<HTMLDivElement>(null);
   const [activeIndex, setActiveIndex] = useState(0);
   const [paused, setPaused] = useState(false);
   const [userInteracted, setUserInteracted] = useState(false);
 
+  const visibleItems = limit && limit > 0 ? items.slice(0, limit) : items;
+  const hasMore = !!moreHref && items.length > visibleItems.length;
+
   const scrollToIndex = (i: number) => {
-    const clamped = (i + items.length) % items.length;
+    const clamped = (i + visibleItems.length) % visibleItems.length;
     scrollerRef.current?.scrollTo({ left: clamped * CARD_STEP, behavior: "smooth" });
     setActiveIndex(clamped);
   };
 
   useEffect(() => {
-    if (paused || userInteracted || items.length <= 1) return;
+    if (paused || userInteracted || visibleItems.length <= 1) return;
     if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
     const id = setInterval(() => scrollToIndex(activeIndex + 1), AUTO_ADVANCE_MS);
     return () => clearInterval(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeIndex, paused, userInteracted, items.length]);
+  }, [activeIndex, paused, userInteracted, visibleItems.length]);
 
   if (items.length === 0) return null;
 
@@ -311,7 +346,7 @@ export function DiscoverRow({ title, items, isToday = false }: { title: string; 
     <>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
         <h2 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 20, margin: 0, letterSpacing: "-.01em" }}>{title}</h2>
-        {items.length > 3 && (
+        {visibleItems.length > 3 && (
           <div className="hide-mobile" style={{ display: "flex", gap: 8 }}>
             <button onClick={() => scrollToIndex(activeIndex - 1)} aria-label="Previous" className="btn btn-ghost" style={arrowBtnStyle}>
               <ChevronLeftIcon size={16} />
@@ -340,13 +375,37 @@ export function DiscoverRow({ title, items, isToday = false }: { title: string; 
           WebkitMaskImage: "linear-gradient(to right, black calc(100% - 24px), transparent)",
         }}
       >
-        {items.map((item) => (
+        {visibleItems.map((item) => (
           <DiscoverCard key={`${item.kind}-${item.id}`} item={item} isToday={isToday} />
         ))}
+        {hasMore && (
+          <button
+            onClick={() => navigate(moreHref!)}
+            style={{
+              flex: "none",
+              width: 180,
+              scrollSnapAlign: "start",
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 8,
+              background: colors.surface,
+              border: `1px dashed ${colors.borderStrong}`,
+              borderRadius: 16,
+              cursor: "pointer",
+              color: colors.text,
+              fontWeight: 700,
+              fontSize: 14,
+            }}
+          >
+            View more <ArrowRightIcon size={15} />
+          </button>
+        )}
       </div>
-      {items.length > 1 && (
+      {visibleItems.length > 1 && (
         <div style={{ display: "flex", justifyContent: "center", gap: 6, marginTop: 12 }}>
-          {items.map((item, i) => (
+          {visibleItems.map((item, i) => (
             <button
               key={`${item.kind}-${item.id}`}
               onClick={() => {

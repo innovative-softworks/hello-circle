@@ -107,17 +107,38 @@ export const radius = {
   control: 10,
   card: 16,
   pill: 999,
+  /** Home.tsx's own tighter, deliberately different "Swiss" section style —
+   * centrally tracked here (post-audit hardening pass) instead of as
+   * page-local magic numbers, without forcing that page onto the
+   * control/card/pill scale above, which would visibly change its design. */
+  swiss: {
+    /** Home.tsx's SWISS_RADIUS. */
+    control: 6,
+    /** Home.tsx's SWISS_CARD_RADIUS — several sharp-cornered banners/rows. */
+    card: 2,
+    /** Home.tsx's MOOD_TILE_RADIUS — the rounder mood-chip tiles specifically. */
+    moodTile: 14,
+  },
 } as const;
 
 /** Canonical breakpoints — index.css's actual `@media` queries are the
  * source of truth (CSS can't import a JS constant), kept in sync with these
  * by hand; this object exists so any future JS-side viewport logic (e.g. a
- * `matchMedia` call) references the same three numbers instead of a fresh
- * guess. Today's app has exactly one meaningful nav breakpoint (860px) —
- * `tablet`/`desktop` are named here so a tablet-specific header treatment
- * has somewhere real to plug into. */
+ * `matchMedia` call) references the same numbers instead of a fresh guess.
+ * `tabletWide` (900) was added post-audit — index.css already used 900 (and
+ * its +1 min-width companion, 901) in several places with no corresponding
+ * token at all; `minWidth()` below covers that "+1" pairing without needing
+ * a separate named constant per breakpoint. */
 export const breakpoints = {
   mobile: 640,
   tablet: 860,
+  tabletWide: 900,
   desktop: 1024,
 } as const;
+
+/** The min-width companion of a max-width breakpoint above, e.g. for a
+ * `@media (min-width: ...)` query that should pick up exactly where a
+ * `(max-width: breakpoints.tablet)` query leaves off. */
+export function minWidth(breakpoint: number): number {
+  return breakpoint + 1;
+}

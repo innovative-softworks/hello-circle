@@ -1,9 +1,11 @@
 import crypto from "node:crypto";
 import { Router } from "express";
+import { hashPassword, verifyPassword } from "../auth.js";
 import { db } from "../db/index.js";
 import { getRoutineSuggestions, listResidentParticipation, reviewStats } from "../db/queries.js";
 import { MOOD_KEYWORDS } from "./discover.js";
-import { requireResident, updateResident } from "../residents.js";
+import { getResidentPasswordHash, requireResident, setResidentPassword, updateResident } from "../residents.js";
+import { passwordLoginLimiter } from "../rateLimit.js";
 import { stripe } from "../stripe.js";
 import { BadRequestError, clientIdFrom } from "../util.js";
 
@@ -38,7 +40,8 @@ residentsRouter.get("/me", async (req, res) => {
               host_status as hostStatus, host_bio as hostBio, host_phone as hostPhone,
               goals, pref_group_size as prefGroupSize, pref_beginner_friendly as prefBeginnerFriendly,
               pref_solo_friendly as prefSoloFriendly, pref_budget as prefBudget,
-              hide_from_familiar_count as hideFromFamiliarCount, discoverable_by_name as discoverableByName
+              hide_from_familiar_count as hideFromFamiliarCount, discoverable_by_name as discoverableByName,
+              (password_hash IS NOT NULL) as hasPassword
        FROM residents WHERE id = ?`
     )
     .get(req.resident.id)) as {
@@ -58,6 +61,7 @@ residentsRouter.get("/me", async (req, res) => {
     prefBudget: string;
     hideFromFamiliarCount: number;
     discoverableByName: number;
+    hasPassword: number;
   };
   res.json({
     resident: {
@@ -78,6 +82,7 @@ residentsRouter.get("/me", async (req, res) => {
       prefBudget: row.prefBudget,
       hideFromFamiliarCount: !!row.hideFromFamiliarCount,
       discoverableByName: !!row.discoverableByName,
+      hasPassword: !!row.hasPassword,
     },
   });
 });
@@ -400,6 +405,26 @@ residentsRouter.put("/me/privacy-prefs", requireResident, async (req, res) => {
     .prepare(`UPDATE residents SET hide_from_familiar_count = COALESCE(?, hide_from_familiar_count), discoverable_by_name = COALESCE(?, discoverable_by_name) WHERE id = ?`)
     .run(hideFromFamiliarCount === undefined ? undefined : hideFromFamiliarCount ? 1 : 0, discoverableByName === undefined ? undefined : discoverableByName ? 1 : 0, req.resident!.id);
   res.json({ ok: true });
+});
+
+// Set/change password (My Life redesign) — lets an existing magic-link-only
+// resident opt into password login later, from Profile. Changing an
+// already-set password requires the current one; setting one for the first
+// time doesn't, since there's nothing to prove yet beyond the session
+// itself (the resident is already signed in via a verified magic link).
+// Same passwordLoginLimiter budget as the login route itself, since this is
+// still a place someone could try to guess a current password.
+residentsRouter.put("/me/password", requireResident, passwordLoginLimiter, async (req, res) => {
+  const { currentPassword, newPassword } = req.body as { currentPassword?: string; newPassword?: string };
+  if (!newPassword || newPassword.length < 8) return res.status(400).json({ error: "Password must be at least 8 characters" });
+  const existing = await getResidentPasswordHash(req.resident!.email);
+  if (existing?.passwordHash) {
+    if (!currentPassword || !verifyPassword(currentPassword, existing.passwordHash)) {
+      return res.status(401).json({ error: "Current password is incorrect" });
+    }
+  }
+  await setResidentPassword(req.resident!.id, hashPassword(newPassword));
+  res.json({ ok: true, hasPassword: true });
 });
 
 // Circle invite picker (implementation backlog #3) — only ever matches

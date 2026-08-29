@@ -1,19 +1,40 @@
-import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { CheckIcon, CloseIcon, StarIcon } from "./icons";
-import { colors, fonts, maxWidth } from "../theme";
+import { colors, fonts, maxWidth, radius } from "../theme";
 
 // Shared, reusable building blocks for the vendor/admin/reviews UI — kept in
 // one place so button/card/badge styling can't drift between dashboards.
 
 export type ListingStatus = "pending" | "approved" | "rejected" | "suspended" | "deleted";
 
+// --- Keyboard-accessible non-navigation clickables (post-audit hardening
+// pass) --------------------------------------------------------------------
+// A handful of pages have a plain `<div onClick={...}>` that toggles/expands
+// something (not a navigation — those should be a real `<Link>`/`<a>`
+// instead) and were only mouse-clickable. Spread this onto the element to
+// make it a real, keyboard-operable button-role region without changing its
+// visual styling.
+export function onActivateProps(handler: () => void) {
+  return {
+    role: "button" as const,
+    tabIndex: 0,
+    onClick: handler,
+    onKeyDown: (e: ReactKeyboardEvent) => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        handler();
+      }
+    },
+  };
+}
+
 // --- Button ------------------------------------------------------------
 
 type ButtonVariant = "primary" | "orange" | "dark" | "ghost" | "danger";
 
 const buttonBase: CSSProperties = {
-  borderRadius: 10,
+  borderRadius: radius.control,
   fontWeight: 700,
   fontSize: 14,
   padding: "10px 16px",
@@ -132,7 +153,7 @@ export function Card({
       style={{
         background: colors.surface,
         border: `1px solid ${colors.border}`,
-        borderRadius: 16,
+        borderRadius: radius.card,
         padding: 20,
         cursor: onClick ? "pointer" : undefined,
         ...style,
@@ -292,7 +313,7 @@ export function ListingDetailSkeleton() {
 /** Stands in for a MyBookings row while bookings/registrations load. */
 export function RowSkeleton() {
   return (
-    <div style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 16, padding: "18px 20px", display: "flex", alignItems: "center", gap: 18 }}>
+    <div style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: radius.card, padding: "18px 20px", display: "flex", alignItems: "center", gap: 18 }}>
       <Skeleton width={52} height={52} radius={12} />
       <div style={{ flex: 1 }}>
         <Skeleton width="40%" height={16} style={{ marginBottom: 8 }} />
@@ -305,12 +326,12 @@ export function RowSkeleton() {
 
 // --- EmptyState --------------------------------------------------------
 
-export function EmptyState({ icon, title, subtitle }: { icon: ReactNode; title: string; subtitle?: string }) {
+export function EmptyState({ icon, title, subtitle, action }: { icon: ReactNode; title: string; subtitle?: string; action?: ReactNode }) {
   return (
     <div
       style={{
         border: `1.5px dashed ${colors.border}`,
-        borderRadius: 16,
+        borderRadius: radius.card,
         padding: "36px 20px",
         textAlign: "center",
         color: colors.mutedLight,
@@ -319,6 +340,7 @@ export function EmptyState({ icon, title, subtitle }: { icon: ReactNode; title: 
       <div style={{ display: "flex", justifyContent: "center", marginBottom: 10, color: colors.faint }}>{icon}</div>
       <div style={{ fontWeight: 700, fontSize: 14, color: colors.muted, marginBottom: subtitle ? 4 : 0 }}>{title}</div>
       {subtitle && <div style={{ fontSize: 13 }}>{subtitle}</div>}
+      {action && <div style={{ marginTop: 16 }}>{action}</div>}
     </div>
   );
 }
@@ -557,7 +579,7 @@ export function StatRow({ children, marginBottom = 34 }: { children: ReactNode; 
         flexWrap: "wrap",
         background: colors.surface,
         border: `1px solid ${colors.border}`,
-        borderRadius: 16,
+        borderRadius: radius.card,
         marginBottom,
         overflow: "hidden",
       }}
@@ -744,7 +766,7 @@ export function ConfirmDialog({
     >
       <div
         className="pop-in"
-        style={{ background: colors.surface, borderRadius: 16, padding: 24, maxWidth: 380, width: "100%", boxShadow: "0 20px 60px rgba(20,22,20,.25)" }}
+        style={{ background: colors.surface, borderRadius: radius.card, padding: 24, maxWidth: 380, width: "100%", boxShadow: "0 20px 60px rgba(20,22,20,.25)" }}
         onClick={(e) => e.stopPropagation()}
       >
         <h3 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 17, margin: "0 0 8px" }}>{title}</h3>
@@ -879,7 +901,7 @@ export function NavSidebar<T extends string>({
                   background: active ? colors.dark : "none",
                   color: active ? "#fff" : colors.text,
                   border: "none",
-                  borderRadius: 10,
+                  borderRadius: radius.control,
                   padding: "11px 12px",
                   fontSize: 13.5,
                   fontWeight: active ? 700 : 500,

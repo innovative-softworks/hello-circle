@@ -6,6 +6,7 @@ import { CalendarIcon, ClockIcon, HandshakeIcon, PinIcon, UsersIcon } from "../c
 import { Button, Card, PageSpinner, inputStyle, labelStyle } from "../components/ui";
 import { BackLink } from "../components/BackLink";
 import { PageTitle } from "../components/PageTitle";
+import { signInHref } from "../authRedirect";
 import { clearContinuePlanning, saveContinuePlanning } from "../continuePlanning";
 import { useGuest } from "../GuestContext";
 import { colors, fonts } from "../theme";
@@ -110,20 +111,20 @@ export function MakeItHappen() {
 
   if (!resident) {
     return (
-      <section style={{ maxWidth: 640, margin: "0 auto", padding: "60px 24px", textAlign: "center" }}>
+      <section className="section-pad" style={{ maxWidth: 640, margin: "0 auto", padding: "60px 24px", textAlign: "center" }}>
         <HandshakeIcon size={28} style={{ color: colors.orange, marginBottom: 12 }} />
         <PageTitle level="section" style={{ margin: "0 0 10px" }}>Make It Happen</PageTitle>
         <p style={{ color: colors.mutedLight, marginBottom: 20 }}>
           Sign in to have HelloCircle find a venue, book it, and recruit the rest of your group.
         </p>
-        <Button onClick={() => navigate("/bookings")}>Sign in</Button>
+        <Button onClick={() => navigate(signInHref())}>Sign in</Button>
       </section>
     );
   }
 
   return (
     <div style={{ animation: "fadeUp .35s ease both" }}>
-      <section style={{ maxWidth: 640, margin: "0 auto", padding: "26px 24px 80px" }}>
+      <section className="section-pad" style={{ maxWidth: 640, margin: "0 auto", padding: "26px 24px 80px" }}>
         {step !== "form" && step !== "done" && (
           <BackLink onClick={() => setStep(step === "details" ? "results" : "form")} marginBottom={16}>
             Back

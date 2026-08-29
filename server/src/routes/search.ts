@@ -1,9 +1,11 @@
 import { Router } from "express";
+import { logEvent } from "../analytics.js";
 import { db } from "../db/index.js";
 import { listClubs, listCentres, listScheduledActivities, type ScheduledActivity } from "../db/queries.js";
 import { scoreActivities, type DiscoverItem } from "./discover.js";
 import { parseSearchQuery, type ParsedQuery } from "../searchParser.js";
 import type { Centre, Club } from "../types.js";
+import { clientIdFrom } from "../util.js";
 
 interface ExperienceSearchRow {
   id: string;
@@ -152,5 +154,13 @@ searchRouter.get("/", async (req, res) => {
   if (!q.trim()) return res.json({ parsed: null, centres: [], clubs: [], activities: [], experiences: [] });
 
   const result = await runStructuredSearch(q, req.resident?.id ?? null, req.resident?.homeCounty ?? null);
+  let clientId: string | null = null;
+  try {
+    clientId = clientIdFrom(req);
+  } catch {
+    // No X-Client-Id header (e.g. a bot, or an older client build) —
+    // logging is best-effort, never a reason to fail a search request.
+  }
+  void logEvent("search_performed", { residentId: req.resident?.id ?? null, clientId, metadata: { query: q } });
   res.json(result);
 });

@@ -2,6 +2,8 @@ import { Router } from "express";
 import { createCheckoutSession, pricingLineItems } from "../checkoutService.js";
 import { db } from "../db/index.js";
 import { upgradeFavouriteStatus } from "./favourites.js";
+import { buildIcsEvent } from "../ics.js";
+import { irelandWallTimeToUtc } from "../irelandTime.js";
 import { notifyNewBookingOrRegistration } from "../notifications.js";
 import { computePricing, evaluateCoupon } from "../pricing.js";
 import { BadRequestError, ConflictError, clientIdFrom, generateRef, isValidEmail } from "../util.js";
@@ -47,6 +49,12 @@ interface ExperienceRow {
   featured: number;
   slug: string | null;
   created_at: string;
+  distance_km: string | null;
+  elevation_gain_m: number | null;
+  terrain_type: string;
+  vendor_business_name: string;
+  vendor_name: string;
+  vendor_provider_tier: string;
 }
 
 async function toExperienceJson(row: ExperienceRow) {
@@ -102,25 +110,48 @@ async function toExperienceJson(row: ExperienceRow) {
     featured: !!row.featured,
     slug: row.slug,
     createdAt: row.created_at,
+    // DECIMAL columns come back from mysql2 as strings, not numbers, unless
+    // decimalNumbers is set on the pool (it isn't) — coerce here, same
+    // pattern vendor.ts's rating/totalViews coercion already uses.
+    distanceKm: row.distance_km === null ? null : Number(row.distance_km),
+    elevationGainM: row.elevation_gain_m,
+    terrainType: row.terrain_type,
+    // Vendor identity ("Hosted by") — the same businessName-or-name and
+    // providerTier-derived verified flag providers.ts already returns for
+    // a vendor's own public profile page; joined in here so the listing
+    // itself can show/link to it without a second round trip.
+    vendorId: row.vendor_id,
+    vendorName: row.vendor_business_name || row.vendor_name,
+    vendorVerified: row.vendor_provider_tier !== "standard",
   };
 }
 
 export const experiencesRouter = Router();
 
+// Both public reads join `users` for vendor identity ("Hosted by" —
+// businessName-or-name + a verified flag off provider_tier, same derivation
+// providers.ts uses for a vendor's own profile page). Conditions are
+// qualified with `e.` throughout since `users` has its own `county` column
+// (the vendor's own county, unrelated to the listing's) that would
+// otherwise collide with the bare column name.
 experiencesRouter.get("/", async (req, res) => {
   const { kind, county } = req.query as { kind?: string; county?: string };
-  const conditions = [`status = 'approved'`];
+  const conditions = [`e.status = 'approved'`];
   const params: string[] = [];
   if (kind === "adventure" || kind === "experience") {
-    conditions.push(`kind = ?`);
+    conditions.push(`e.kind = ?`);
     params.push(kind);
   }
   if (county) {
-    conditions.push(`county = ?`);
+    conditions.push(`e.county = ?`);
     params.push(county);
   }
   const rows = (await db
-    .prepare(`SELECT * FROM experiences WHERE ${conditions.join(" AND ")} ORDER BY featured DESC, created_at DESC`)
+    .prepare(
+      `SELECT e.*, u.business_name as vendor_business_name, u.name as vendor_name, u.provider_tier as vendor_provider_tier
+       FROM experiences e JOIN users u ON u.id = e.vendor_id
+       WHERE ${conditions.join(" AND ")} ORDER BY e.featured DESC, e.created_at DESC`
+    )
     .all(...params)) as ExperienceRow[];
   res.json(await Promise.all(rows.map(toExperienceJson)));
 });
@@ -131,9 +162,13 @@ experiencesRouter.get("/", async (req, res) => {
 // resolution (master-prompt punch list #1) — same convention as centres/
 // clubs/circles.
 experiencesRouter.get("/:id", async (req, res) => {
-  const row = (await db.prepare(`SELECT * FROM experiences WHERE (slug = ? OR id = ?) AND status = 'approved'`).get(req.params.id, req.params.id)) as
-    | ExperienceRow
-    | undefined;
+  const row = (await db
+    .prepare(
+      `SELECT e.*, u.business_name as vendor_business_name, u.name as vendor_name, u.provider_tier as vendor_provider_tier
+       FROM experiences e JOIN users u ON u.id = e.vendor_id
+       WHERE (e.slug = ? OR e.id = ?) AND e.status = 'approved'`
+    )
+    .get(req.params.id, req.params.id)) as ExperienceRow | undefined;
   if (!row) return res.status(404).json({ error: "Experience not found" });
   await db.prepare(`UPDATE experiences SET views = views + 1 WHERE id = ?`).run(row.id);
   res.json(await toExperienceJson(row));
@@ -305,4 +340,45 @@ experiencesRouter.get("/bookings/status/:ref", async (req, res) => {
     .get(req.params.ref, clientId);
   if (!row) return res.status(404).json({ error: "Booking not found" });
   res.json(row);
+});
+
+// "Add to calendar" — same client_id ownership gate + server-generated .ics
+// as bookings.ts's own GET /:ref/ics, adapted to a session's date/time
+// (Ireland wall-clock, DST-aware) and the listing's duration_minutes for
+// the event length instead of a fixed booking duration column.
+experiencesRouter.get("/bookings/:ref/ics", async (req, res) => {
+  let clientId: string;
+  try {
+    clientId = clientIdFrom(req);
+  } catch (e) {
+    if (e instanceof BadRequestError) return res.status(400).json({ error: e.message });
+    throw e;
+  }
+  const row = (await db
+    .prepare(
+      `SELECT eb.ref, es.date, es.time, e.title, e.duration_minutes as durationMinutes, e.area, e.county, e.meeting_point as meetingPoint
+       FROM experience_bookings eb
+       JOIN experience_sessions es ON es.id = eb.session_id
+       JOIN experiences e ON e.id = eb.experience_id
+       WHERE eb.ref = ? AND eb.client_id = ? AND eb.payment_status = 'paid'`
+    )
+    .get(req.params.ref, clientId)) as
+    | { ref: string; date: string; time: string; title: string; durationMinutes: number; area: string; county: string; meetingPoint: string }
+    | undefined;
+  if (!row) return res.status(404).json({ error: "Booking not found" });
+
+  const [h, m] = row.time.split(":").map(Number);
+  const start = irelandWallTimeToUtc(row.date, h, m);
+  const end = new Date(start.getTime() + Math.max(30, row.durationMinutes) * 60 * 1000);
+  const ics = buildIcsEvent({
+    uid: `experience-booking-${row.ref}`,
+    title: row.title,
+    description: row.meetingPoint || undefined,
+    location: `${row.area}, ${row.county}`,
+    start,
+    end,
+  });
+  res.setHeader("Content-Type", "text/calendar; charset=utf-8");
+  res.setHeader("Content-Disposition", `attachment; filename="experience-booking-${row.ref}.ics"`);
+  res.send(ics);
 });

@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 import { Router } from "express";
-import { hasPlatformRole } from "../auth.js";
+import { assertPlatformRole } from "../auth.js";
 import { db } from "../db/index.js";
 import { orgFeatureFlags } from "../db/queries.js";
 import { inClause, ownsListing } from "./vendorHelpers.js";
@@ -52,9 +52,7 @@ vendorProgramsRouter.post("/programs", async (req, res) => {
   // A program's role requirement follows the listing it's attached to — a
   // centre-side program needs centre_manager, a club-side one facility_manager
   // — same split as the direct centres/clubs endpoints in vendorListings.ts.
-  if (!hasPlatformRole(req.user!, b.listingType === "centre" ? "centre_manager" : "facility_manager")) {
-    return res.status(403).json({ error: "Not authorized for this role" });
-  }
+  if (!assertPlatformRole(req, res, b.listingType === "centre" ? "centre_manager" : "facility_manager")) return;
   // Feature flags (implementation backlog #5) — admin can disable Programs
   // for an org; server-enforced, not just a hidden button client-side.
   if (!(await orgFeatureFlags(req.user!.id)).programs) {
@@ -103,7 +101,7 @@ async function programOwnership(vendorIds: string[], programId: string): Promise
 vendorProgramsRouter.put("/programs/:id", async (req, res) => {
   const { owns, requiredRole } = await programOwnership(req.vendorIds!, req.params.id);
   if (!owns) return res.status(403).json({ error: "Not your program" });
-  if (!hasPlatformRole(req.user!, requiredRole!)) return res.status(403).json({ error: "Not authorized for this role" });
+  if (!assertPlatformRole(req, res, requiredRole!)) return;
   const b = req.body as Partial<ProgramInput> & { status?: string };
   if (b.status !== undefined && !PROGRAM_STATUSES.includes(b.status)) {
     return res.status(400).json({ error: `status must be one of: ${PROGRAM_STATUSES.join(", ")}` });
@@ -141,7 +139,7 @@ vendorProgramsRouter.put("/programs/:id", async (req, res) => {
 vendorProgramsRouter.delete("/programs/:id", async (req, res) => {
   const { owns, requiredRole } = await programOwnership(req.vendorIds!, req.params.id);
   if (!owns) return res.status(403).json({ error: "Not your program" });
-  if (!hasPlatformRole(req.user!, requiredRole!)) return res.status(403).json({ error: "Not authorized for this role" });
+  if (!assertPlatformRole(req, res, requiredRole!)) return;
   await db.prepare(`UPDATE programs SET status = 'archived' WHERE id = ?`).run(req.params.id);
   res.json({ ok: true });
 });
@@ -149,7 +147,7 @@ vendorProgramsRouter.delete("/programs/:id", async (req, res) => {
 vendorProgramsRouter.post("/programs/:id/sessions", async (req, res) => {
   const { owns, requiredRole } = await programOwnership(req.vendorIds!, req.params.id);
   if (!owns) return res.status(403).json({ error: "Not your program" });
-  if (!hasPlatformRole(req.user!, requiredRole!)) return res.status(403).json({ error: "Not authorized for this role" });
+  if (!assertPlatformRole(req, res, requiredRole!)) return;
   const { date, time, durationMinutes, capacity, instructorName, roomId } = req.body as {
     date?: string;
     time?: string;
@@ -179,7 +177,7 @@ vendorProgramsRouter.post("/programs/:id/sessions", async (req, res) => {
 vendorProgramsRouter.delete("/programs/:programId/sessions/:sessionId", async (req, res) => {
   const { owns, requiredRole } = await programOwnership(req.vendorIds!, req.params.programId);
   if (!owns) return res.status(403).json({ error: "Not your program" });
-  if (!hasPlatformRole(req.user!, requiredRole!)) return res.status(403).json({ error: "Not authorized for this role" });
+  if (!assertPlatformRole(req, res, requiredRole!)) return;
   await db.prepare(`UPDATE program_sessions SET status = 'cancelled' WHERE id = ? AND program_id = ?`).run(req.params.sessionId, req.params.programId);
   res.json({ ok: true });
 });
@@ -208,7 +206,7 @@ vendorProgramsRouter.post("/program-sessions/:sessionId/attendance/:enrollmentId
   if (!session) return res.status(403).json({ error: "Not your session" });
   const { owns, requiredRole } = await programOwnership(req.vendorIds!, session.programId);
   if (!owns) return res.status(403).json({ error: "Not your session" });
-  if (!hasPlatformRole(req.user!, requiredRole!)) return res.status(403).json({ error: "Not authorized for this role" });
+  if (!assertPlatformRole(req, res, requiredRole!)) return;
   const status = typeof req.body?.status === "string" ? req.body.status : "present";
   if (!ATTENDANCE_STATUSES.includes(status)) {
     return res.status(400).json({ error: `status must be one of: ${ATTENDANCE_STATUSES.join(", ")}` });

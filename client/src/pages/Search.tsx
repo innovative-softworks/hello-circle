@@ -5,6 +5,7 @@ import { CentreCard } from "../components/CentreCard";
 import { ClubCard } from "../components/ClubCard";
 import { DiscoverCard } from "../components/DiscoverRow";
 import { BellIcon, SearchIcon, TreeIconSmall } from "../components/icons";
+import { IntentCaptureForm } from "../components/IntentCaptureForm";
 import { Card, CardSkeleton, EmptyState } from "../components/ui";
 import { useGuest } from "../GuestContext";
 import { colors, fonts, maxWidth } from "../theme";
@@ -117,7 +118,7 @@ export function Search() {
 
   return (
     <div style={{ animation: "fadeUp .3s ease both" }}>
-      <section style={{ maxWidth, margin: "0 auto", padding: "26px 24px 80px" }}>
+      <section className="section-pad" style={{ maxWidth, margin: "0 auto", padding: "26px 24px 80px" }}>
         <div style={{ position: "relative", marginBottom: 28 }}>
           <SearchIcon size={18} style={{ position: "absolute", left: 16, top: "50%", transform: "translateY(-50%)", color: colors.faint }} />
           <input
@@ -192,7 +193,12 @@ export function Search() {
                 {Array.from({ length: 6 }, (_, i) => <CardSkeleton key={i} />)}
               </div>
             ) : result && result.centres.length === 0 && result.clubs.length === 0 && result.activities.length === 0 && result.experiences.length === 0 ? (
-              <EmptyState icon={<SearchIcon size={22} />} title="Nothing matched" subtitle="Try a different phrasing, or broaden it — e.g. drop the county." />
+              <EmptyState
+                icon={<SearchIcon size={22} />}
+                title="Nothing matched"
+                subtitle="Try a different phrasing, or broaden it — e.g. drop the county."
+                action={<IntentCaptureForm activityLabel={result.parsed?.keywords.join(" ") || query} county={result.parsed?.county ?? ""} />}
+              />
             ) : (
               <>
                 {result && result.activities.length > 0 && (

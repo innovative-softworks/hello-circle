@@ -31,6 +31,7 @@ const insertResidentNotification = db.prepare(
 // there's no preference field for a resident to have turned it off with.
 const PREF_KEY_BY_KIND: Partial<Record<NotifyResidentParams["kind"], string>> = {
   waitlist: "waitlistOffers",
+  intent_match: "intentMatches",
 };
 
 /** `residents.notification_prefs` was previously collected
@@ -51,10 +52,10 @@ export async function residentAllows(residentId: string, prefKey: string): Promi
 
 interface NotifyResidentParams {
   residentId: string;
-  kind: "booking" | "registration" | "waitlist" | "game";
+  kind: "booking" | "registration" | "waitlist" | "game" | "intent_match";
   title: string;
   body: string;
-  listingType: "centre" | "club" | "game";
+  listingType: "centre" | "club" | "game" | "intent";
   listingId: string;
   ref: string;
 }

@@ -30,7 +30,7 @@ export function ProviderProfilePage() {
   if (loading) return <PageSpinner />;
   if (notFound || !profile) {
     return (
-      <section style={{ maxWidth: 640, margin: "0 auto", padding: "60px 24px", textAlign: "center" }}>
+      <section className="section-pad" style={{ maxWidth: 640, margin: "0 auto", padding: "60px 24px", textAlign: "center" }}>
         <p style={{ color: colors.mutedLight }}>This provider doesn't exist, or isn't approved yet.</p>
       </section>
     );
@@ -38,7 +38,7 @@ export function ProviderProfilePage() {
 
   return (
     <div style={{ animation: "fadeUp .3s ease both" }}>
-      <section style={{ maxWidth: 780, margin: "0 auto", padding: "36px 24px 80px" }}>
+      <section className="section-pad" style={{ maxWidth: 780, margin: "0 auto", padding: "36px 24px 80px" }}>
         <Card style={{ marginBottom: 24 }}>
           <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
             <div>

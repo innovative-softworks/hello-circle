@@ -230,6 +230,18 @@ export async function initSchema() {
       expires_at DATETIME NOT NULL
     );
 
+    -- Resident "forgot password" recovery (My Life auth redesign) — same
+    -- shape as password_reset_tokens below, keyed by email like
+    -- guest_login_tokens instead of a user id, since a resident may not
+    -- have a password set yet when this is requested. One deletes it on
+    -- use (see routes/guestAuth.ts's reset-password), same as every other
+    -- single-use token table in this schema.
+    CREATE TABLE IF NOT EXISTS resident_password_reset_tokens (
+      token VARCHAR(191) PRIMARY KEY,
+      email VARCHAR(255) NOT NULL,
+      expires_at DATETIME NOT NULL
+    );
+
     CREATE TABLE IF NOT EXISTS reviews (
       id INT AUTO_INCREMENT PRIMARY KEY,
       listing_type VARCHAR(20) NOT NULL,
@@ -277,6 +289,26 @@ export async function initSchema() {
       ref VARCHAR(191) NOT NULL,
       \`read\` TINYINT NOT NULL DEFAULT 0,
       created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- Minimal first-party, aggregate-only event log (post-audit hardening
+    -- pass) — the app had zero analytics/event tracking anywhere, by
+    -- explicit privacy-first design (see CookieNotice.tsx/CookiePolicy.tsx's
+    -- "no analytics, no tracking" copy). This does NOT contradict that
+    -- commitment: no third-party tracker, no per-viewer fingerprinting
+    -- beyond the resident/client id the rest of the app already uses for
+    -- ownership — it exists so the funnel (search -> intent -> match ->
+    -- join -> attend -> repeat) can be measured at all before a pilot.
+    -- Both id columns nullable since a given event may only have one (e.g.
+    -- a server-side "attended" flip may have only a resident id).
+    CREATE TABLE IF NOT EXISTS analytics_events (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      event_type VARCHAR(50) NOT NULL,
+      resident_id VARCHAR(191),
+      client_id VARCHAR(191),
+      metadata TEXT,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      KEY idx_analytics_events_type (event_type, created_at)
     );
 
     CREATE TABLE IF NOT EXISTS room_blocks (
@@ -368,6 +400,69 @@ export async function initSchema() {
       created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
 
+    -- Explicit unmet-demand capture ("I want to do X, nothing matches yet")
+    -- — deliberately separate from search_misses (passive, anonymous
+    -- query-text logging with no resident linkage or matching). id is an
+    -- app-generated UUID (see routes/participationIntents.ts), not
+    -- AUTO_INCREMENT, since a resident needs to reference/cancel a specific
+    -- row by id. resident_id nullable + client_id NOT NULL mirrors
+    -- waitlist_entries' anonymous-capable shape, not favourites' resident-only
+    -- one, since most search traffic is pre-signup. notes has no DEFAULT —
+    -- MySQL rejects DEFAULT on TEXT (ER_BLOB_CANT_HAVE_DEFAULT). No expired
+    -- status sweep — every read filters expires_at > NOW() directly.
+    CREATE TABLE IF NOT EXISTS participation_intents (
+      id VARCHAR(191) PRIMARY KEY,
+      resident_id VARCHAR(191),
+      client_id VARCHAR(191) NOT NULL,
+      name VARCHAR(255) NOT NULL DEFAULT '',
+      email VARCHAR(255) NOT NULL DEFAULT '',
+      activity_label VARCHAR(255) NOT NULL,
+      county VARCHAR(255) NOT NULL DEFAULT '',
+      preferred_date VARCHAR(20) NOT NULL DEFAULT '',
+      preferred_time_window VARCHAR(50) NOT NULL DEFAULT '',
+      notes TEXT,
+      status VARCHAR(20) NOT NULL DEFAULT 'active',
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      expires_at DATETIME,
+      UNIQUE KEY uniq_intent (client_id, activity_label, county),
+      KEY idx_cluster (activity_label, county, status)
+    );
+
+    -- Idempotency guard so a burst of near-simultaneous intent submissions
+    -- can't fire the "enough people are interested" notification more than
+    -- once per activity+county (see participationIntents.ts). A row here
+    -- means that cluster has already been notified once — v1 never re-fires
+    -- even if the cluster later shrinks and regrows past the threshold.
+    CREATE TABLE IF NOT EXISTS intent_cluster_notifications (
+      activity_label VARCHAR(255) NOT NULL,
+      county VARCHAR(255) NOT NULL DEFAULT '',
+      notified_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (activity_label, county)
+    );
+
+    -- Referral attribution (participation-intent plan Phase 3) — deliberately
+    -- read-side only, no checkout code touched. 'share' rows log who created
+    -- a share link (InviteButton.tsx); 'land' rows log who arrived carrying
+    -- a ?ref= param, resolved from the same referrer_client_id column (on a
+    -- share row it's the sharer's own client_id; on a land row it's whatever
+    -- opaque ?ref= token the visitor arrived with — same "who initiated
+    -- this" column, populated by two different code paths). Admin's
+    -- estimated-attribution view (routes/admin.ts) joins land rows to real
+    -- transactions by matching visitor_client_id within a time window —
+    -- never a hard foreign key, since that's inherently a best-effort guess.
+    CREATE TABLE IF NOT EXISTS referrals (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      event VARCHAR(10) NOT NULL,
+      source VARCHAR(50) NOT NULL DEFAULT '',
+      referrer_resident_id VARCHAR(191),
+      referrer_client_id VARCHAR(191) NOT NULL DEFAULT '',
+      listing_type VARCHAR(20) NOT NULL DEFAULT '',
+      listing_id VARCHAR(191) NOT NULL DEFAULT '',
+      visitor_client_id VARCHAR(191) NOT NULL DEFAULT '',
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      KEY idx_visitor (visitor_client_id, created_at)
+    );
+
     -- "Join a Game" (MVP) — a lightweight joinable activity, deliberately
     -- independent of bookings/registrations and (in v1) of Stripe/pricing.ts.
     CREATE TABLE IF NOT EXISTS games (
@@ -402,6 +497,19 @@ export async function initSchema() {
       payment_status VARCHAR(20) NOT NULL DEFAULT 'paid',
       stripe_session_id VARCHAR(255),
       UNIQUE KEY uniq_participant (game_id, resident_id)
+    );
+
+    -- Host-posted announcements for a Game (Game Detail redesign — "Latest
+    -- update" module). Deliberately its own small log table rather than
+    -- reusing notifications (which is a per-recipient inbox row, not a
+    -- shared per-listing timeline) — every joined participant sees the same
+    -- ordered list of updates for a game, plus each post still fans out one
+    -- notifications row per participant the same way cancellation does.
+    CREATE TABLE IF NOT EXISTS game_updates (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      game_id VARCHAR(191) NOT NULL,
+      message TEXT NOT NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
 
     -- Recurring per-session schedule for a club (NEXT phase) — turns the
@@ -800,6 +908,19 @@ export async function initSchema() {
       PRIMARY KEY (org_id, flag_key)
     );
 
+    -- Market/category launch config (participation-intent plan Phase 4) —
+    -- same enabled-by-default/missing-row-means-on convention as
+    -- feature_flags above, scoped by county instead of org_id. category
+    -- values are INTEREST_OPTIONS (client/src/types.ts), reused rather than
+    -- inventing a new taxonomy — this app has no other category enum
+    -- anywhere (activity_label on games/circles/intents is free text).
+    CREATE TABLE IF NOT EXISTS market_categories (
+      county VARCHAR(255) NOT NULL,
+      category VARCHAR(100) NOT NULL,
+      enabled TINYINT NOT NULL DEFAULT 1,
+      PRIMARY KEY (county, category)
+    );
+
     -- Admin-editable notification templates (implementation backlog #2).
     -- Deliberately an override layer, not the source of truth: every real
     -- call site (notifications.ts) already has a hardcoded fallback
@@ -1070,6 +1191,13 @@ export async function initSchema() {
   await ensureColumn("residents", "accessibility_prefs", "accessibility_prefs TEXT");
   await ensureColumn("residents", "search_radius_km", "search_radius_km INT NOT NULL DEFAULT 10");
 
+  // Optional password login (My Life redesign) — resident accounts remain
+  // passwordless by default (magic-link only, same as always); this is an
+  // opt-in second way in, not a replacement. NULL means "no password set
+  // yet", not an unset/invalid state — every login path checks for that
+  // explicitly rather than treating null as an empty-string password.
+  await ensureColumn("residents", "password_hash", "password_hash VARCHAR(255) NULL");
+
   // "Host" trust tier (IA spec five-layer audit) — a resident who's applied
   // to be a verified community host, distinct from the vendor/admin roles
   // in auth.ts. Deliberately an attribute of the existing residents row,
@@ -1269,6 +1397,28 @@ export async function initSchema() {
   // scope for this pass — it's shown to participants, not acted on.
   await ensureColumn("games", "confirmation_deadline", "confirmation_deadline DATETIME");
 
+  // Game Detail redesign — richer plan content a host can optionally fill
+  // in at creation, matched to the Game Detail page's own new sections
+  // ("About this plan", "What to bring", "Good to know", location privacy).
+  // Every field is nullable/optional — an existing game (and the create-game
+  // form left blank) simply omits the section it feeds, never shows a fake
+  // value. TEXT columns deliberately carry no DEFAULT — see host_bio's own
+  // comment earlier in this file (ER_BLOB_CANT_HAVE_DEFAULT; MySQL rejects
+  // DEFAULT on TEXT/BLOB at ALTER TABLE time, not at typecheck).
+  await ensureColumn("games", "description", "description TEXT");
+  await ensureColumn("games", "duration_minutes", "duration_minutes INT");
+  await ensureColumn("games", "equipment_needed", "equipment_needed TEXT");
+  await ensureColumn("games", "min_age", "min_age INT");
+  await ensureColumn("games", "surface_type", "surface_type VARCHAR(50) NOT NULL DEFAULT ''");
+  await ensureColumn("games", "indoor_outdoor", "indoor_outdoor VARCHAR(20) NOT NULL DEFAULT ''");
+  // Exact meeting instructions ("meet by the north gate, past the car
+  // park") are only ever returned to the host or a joined participant (see
+  // routes/games.ts's GET /:id) — a browsing, not-yet-joined visitor sees
+  // the venue's public location only, matching the spec's own stated
+  // privacy expectation for this field.
+  await ensureColumn("games", "meeting_instructions", "meeting_instructions TEXT");
+  await ensureColumn("games", "cancellation_policy", "cancellation_policy TEXT");
+
   // Interest → Participation states (implementation plan Phase 6) — a
   // favourite is no longer just saved-or-not. 'interested' is the default
   // (what every existing row backfills to); 'planning' is a resident
@@ -1339,6 +1489,17 @@ export async function initSchema() {
   await ensureColumn("experiences", "slug", "slug VARCHAR(255)");
   await ensureColumn("circles", "slug", "slug VARCHAR(255)");
 
+  // Adventure trip metrics — optional, adventure-relevant fields (a pottery
+  // "experience" has no meaningful distance/elevation, so the client only
+  // renders these when set). Nullable, no DEFAULT on distance/elevation
+  // (plain numeric types, not TEXT, so a DEFAULT would be legal — just
+  // unnecessary, since "unset" should read as "not shown", not "0").
+  // terrain_type is VARCHAR so DEFAULT '' is fine there (see host_status's
+  // TEXT+DEFAULT note elsewhere in this file for why that distinction matters).
+  await ensureColumn("experiences", "distance_km", "distance_km DECIMAL(6,2)");
+  await ensureColumn("experiences", "elevation_gain_m", "elevation_gain_m INT");
+  await ensureColumn("experiences", "terrain_type", "terrain_type VARCHAR(100) NOT NULL DEFAULT ''");
+
   // Host & Activity reviews (master-prompt punch list #3) — reviews.
   // listing_type was already a flexible VARCHAR(20) (centre/club only in
   // practice); no schema change needed there. Nothing to add here besides
@@ -1383,6 +1544,34 @@ export async function initSchema() {
       created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
     )
   `);
+
+  // Circles had no photo at all — every other listing type (centres, clubs,
+  // experiences, games) has an image_url column; this brings Circles in
+  // line so Home's circle cards can be as image-forward as everything else.
+  await ensureColumn("circles", "image_url", "image_url VARCHAR(500) NOT NULL DEFAULT ''");
+
+  // Circle Detail redesign — structured "About our community" content
+  // (Mission/What we do/Who can join/Our values), each genuinely optional
+  // and organiser-provided rather than derived from `about` — a Circle
+  // that hasn't set these just omits that column on its detail page, same
+  // "only render what's configured" convention every other optional field
+  // in this file follows. TEXT columns carry no DEFAULT — see host_bio's
+  // own comment above (ER_BLOB_CANT_HAVE_DEFAULT).
+  await ensureColumn("circles", "what_we_do", "what_we_do TEXT");
+  await ensureColumn("circles", "who_can_join", "who_can_join TEXT");
+  // Named circle_values, not `values` — VALUES is a reserved SQL keyword
+  // and better avoided as a bare column name even though MySQL would
+  // technically accept it here.
+  await ensureColumn("circles", "circle_values", "circle_values TEXT");
+
+  // Referral attribution tightening (post-audit hardening pass) — captures
+  // the *visitor's* own resident id at landing time, when they happen to
+  // already be signed in. Deliberately distinct from referrer_resident_id
+  // (which identifies the sharer, not the visitor) — see
+  // getReferralAttribution()'s docstring for why the original client_id-only
+  // join under-counted signed-in visitors who convert from a different
+  // device/browser.
+  await ensureColumn("referrals", "visitor_resident_id", "visitor_resident_id VARCHAR(191)");
 }
 
 export const COUNTY_CENTROIDS: Record<string, { lat: number; lng: number }> = {

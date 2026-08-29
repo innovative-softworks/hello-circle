@@ -29,6 +29,9 @@ interface ExperienceInput {
   description?: string;
   difficulty?: string;
   durationMinutes?: number;
+  distanceKm?: number | null;
+  elevationGainM?: number | null;
+  terrainType?: string;
   fitnessRequirements?: string;
   itinerary?: string;
   equipmentProvided?: string;
@@ -83,11 +86,11 @@ vendorExperiencesRouter.post("/experiences", requirePlatformRole(...EXPERIENCE_R
     await tx
       .prepare(
         `INSERT INTO experiences (id, vendor_id, kind, title, area, county, lat, lng, meeting_point, blurb, description,
-          difficulty, duration_minutes, fitness_requirements, itinerary, equipment_provided, equipment_required,
+          difficulty, duration_minutes, distance_km, elevation_gain_m, terrain_type, fitness_requirements, itinerary, equipment_provided, equipment_required,
           transport_info, safety_info, weather_policy, eligibility, cancellation_terms, price_cents, capacity,
           payment_method, image_url, status, slug)
          VALUES (@id, @vendorId, @kind, @title, @area, @county, @lat, @lng, @meetingPoint, @blurb, @description,
-          @difficulty, @durationMinutes, @fitnessRequirements, @itinerary, @equipmentProvided, @equipmentRequired,
+          @difficulty, @durationMinutes, @distanceKm, @elevationGainM, @terrainType, @fitnessRequirements, @itinerary, @equipmentProvided, @equipmentRequired,
           @transportInfo, @safetyInfo, @weatherPolicy, @eligibility, @cancellationTerms, @priceCents, @capacity,
           @paymentMethod, @imageUrl, 'pending', @slug)`
       )
@@ -106,6 +109,9 @@ vendorExperiencesRouter.post("/experiences", requirePlatformRole(...EXPERIENCE_R
         description: b.description ?? "",
         difficulty: b.difficulty ?? "",
         durationMinutes: b.durationMinutes ?? 120,
+        distanceKm: b.distanceKm ?? null,
+        elevationGainM: b.elevationGainM ?? null,
+        terrainType: b.terrainType ?? "",
         fitnessRequirements: b.fitnessRequirements ?? "",
         itinerary: b.itinerary ?? "",
         equipmentProvided: b.equipmentProvided ?? "",
@@ -141,7 +147,9 @@ vendorExperiencesRouter.put("/experiences/:id", requirePlatformRole(...EXPERIENC
           kind = COALESCE(?, kind), title = COALESCE(?, title), area = COALESCE(?, area), county = COALESCE(?, county),
           lat = COALESCE(?, lat), lng = COALESCE(?, lng), meeting_point = COALESCE(?, meeting_point),
           blurb = COALESCE(?, blurb), description = COALESCE(?, description), difficulty = COALESCE(?, difficulty),
-          duration_minutes = COALESCE(?, duration_minutes), fitness_requirements = COALESCE(?, fitness_requirements),
+          duration_minutes = COALESCE(?, duration_minutes), distance_km = COALESCE(?, distance_km),
+          elevation_gain_m = COALESCE(?, elevation_gain_m), terrain_type = COALESCE(?, terrain_type),
+          fitness_requirements = COALESCE(?, fitness_requirements),
           itinerary = COALESCE(?, itinerary), equipment_provided = COALESCE(?, equipment_provided),
           equipment_required = COALESCE(?, equipment_required), transport_info = COALESCE(?, transport_info),
           safety_info = COALESCE(?, safety_info), weather_policy = COALESCE(?, weather_policy),
@@ -162,6 +170,9 @@ vendorExperiencesRouter.put("/experiences/:id", requirePlatformRole(...EXPERIENC
         b.description,
         b.difficulty,
         b.durationMinutes,
+        b.distanceKm,
+        b.elevationGainM,
+        b.terrainType,
         b.fitnessRequirements,
         b.itinerary,
         b.equipmentProvided,

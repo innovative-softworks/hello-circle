@@ -50,7 +50,7 @@ export function AcceptInvite() {
 
   return (
     <div style={{ animation: "fadeUp .3s ease both" }}>
-      <section style={{ maxWidth: 440, margin: "0 auto", padding: "64px 24px" }}>
+      <section className="section-pad" style={{ maxWidth: 440, margin: "0 auto", padding: "64px 24px" }}>
         {!invite ? (
           <p style={{ color: colors.danger }}>{error ?? "This invite is no longer valid."}</p>
         ) : (

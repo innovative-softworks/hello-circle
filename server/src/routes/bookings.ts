@@ -32,6 +32,14 @@ interface CreateBookingBody {
   /** Open-booking setup (IA spec §6) — display-only, passed through to the
    * resulting game by createGameFromOpenBooking(). */
   confirmationDeadline?: string;
+  /** Minimum Participation Booking (participation-intent plan Phase 5) —
+   * only meaningful alongside openSpots: the spun-off game stays
+   * 'pending_participants' (joinable, but not yet "confirmed as public")
+   * until this many players (not counting the original booker's own room
+   * spot) have joined. The column/pass-through already existed end-to-end
+   * (createBookingInternal, createGameFromOpenBooking) — this is what was
+   * actually missing, the public request body never read it. */
+  minParticipants?: number;
 }
 
 export function hireCost(rate: number, duration: number): number {
@@ -301,12 +309,19 @@ bookingsRouter.post("/checkout", async (req, res) => {
   // it (same requirement as creating any game directly), so this isn't
   // available to a pure guest checkout.
   let openSpots: number | null = null;
+  let minParticipants: number | null = null;
   if (body.openSpots) {
     if (!req.resident) return res.status(400).json({ error: "Sign in to open this booking to other players" });
     if (!Number.isInteger(body.openSpots) || body.openSpots < 1 || body.openSpots > MAX_OPEN_SPOTS) {
       return res.status(400).json({ error: `Open spots must be a whole number between 1 and ${MAX_OPEN_SPOTS}` });
     }
     openSpots = body.openSpots;
+    if (body.minParticipants !== undefined) {
+      if (!Number.isInteger(body.minParticipants) || body.minParticipants < 1 || body.minParticipants > openSpots) {
+        return res.status(400).json({ error: "Minimum players must be a whole number between 1 and the number of open spots" });
+      }
+      minParticipants = body.minParticipants;
+    }
   }
 
   const result = await createBookingInternal({
@@ -323,6 +338,7 @@ bookingsRouter.post("/checkout", async (req, res) => {
     notes: body.notes,
     couponCode: body.couponCode,
     openSpots,
+    minParticipants,
     confirmationDeadline: openSpots ? body.confirmationDeadline ?? null : null,
     residentId: req.resident?.id ?? null,
     clientId,

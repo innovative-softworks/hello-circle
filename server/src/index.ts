@@ -5,7 +5,7 @@ import express from "express";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { injectOgTags, resolveOgMeta } from "./ogMeta.js";
+import { buildSitemapXml, generateSitemapUrls, injectOgTags, resolveOgMeta } from "./ogMeta.js";
 import { attachUser } from "./auth.js";
 import { dataDir } from "./dataDir.js";
 import { initSchema } from "./db/index.js";
@@ -33,8 +33,10 @@ import { gamesRouter } from "./routes/games.js";
 import { guestAuthRouter } from "./routes/guestAuth.js";
 import { householdRouter } from "./routes/household.js";
 import { orgRouter, publicInviteRouter } from "./routes/org.js";
+import { participationIntentsRouter } from "./routes/participationIntents.js";
 import { passesRouter } from "./routes/passes.js";
 import { placeSuggestionsRouter } from "./routes/placeSuggestions.js";
+import { referralsRouter } from "./routes/referrals.js";
 import { programsRouter } from "./routes/programs.js";
 import { reportsRouter } from "./routes/reports.js";
 import { registrationsRouter } from "./routes/registrations.js";
@@ -91,6 +93,8 @@ app.use("/api/guest", guestAuthRouter);
 app.use("/api/residents", residentsRouter);
 app.use("/api/household", householdRouter);
 app.use("/api/favourites", favouritesRouter);
+app.use("/api/intents", participationIntentsRouter);
+app.use("/api/referrals", referralsRouter);
 app.use("/api/feedback", feedbackRouter);
 app.use("/api/discover", discoverRouter);
 app.use("/api/centres", centresRouter);
@@ -120,6 +124,26 @@ app.use("/api/vendor", vendorRouter);
 app.use("/api/admin", adminRouter);
 
 app.get("/api/health", (_req, res) => res.json({ ok: true }));
+
+// SEO basics (post-audit hardening pass) — registered before the static/
+// catch-all block below, or express.static would swallow them first (no
+// on-disk file at these paths) and the SPA fallback would serve index.html
+// instead. Same per-request DB-query pattern ogMeta.ts already uses.
+app.get("/robots.txt", (req, res) => {
+  const origin = `${req.protocol}://${req.get("host")}`;
+  res.type("text/plain").send(`User-agent: *\nAllow: /\nSitemap: ${origin}/sitemap.xml\n`);
+});
+
+app.get("/sitemap.xml", async (req, res) => {
+  try {
+    const origin = `${req.protocol}://${req.get("host")}`;
+    const urls = await generateSitemapUrls(origin);
+    res.type("application/xml").send(buildSitemapXml(urls));
+  } catch (e) {
+    console.error("[sitemap] generation failed:", e instanceof Error ? e.message : e);
+    res.type("application/xml").send(buildSitemapXml([]));
+  }
+});
 
 // Serve the built React client from the same origin/process as the API —
 // avoids cross-origin cookie/CORS complications for the session cookie.

@@ -142,7 +142,7 @@ export function FreeTimeMode() {
 
   return (
     <div style={{ animation: "fadeUp .35s ease both" }}>
-      <section style={{ maxWidth: 720, margin: "0 auto", padding: "36px 24px 80px" }}>
+      <section className="section-pad" style={{ maxWidth: 720, margin: "0 auto", padding: "36px 24px 80px" }}>
         {step !== "duration" && (
           <BackLink onClick={() => setStep(step === "distance" ? "duration" : step === "mood" ? "distance" : "duration")} marginBottom={16}>
             Back

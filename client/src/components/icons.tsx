@@ -523,3 +523,43 @@ export function CardIcon({ size = 18, style, className }: IconProps) {
     </svg>
   );
 }
+
+// Home's mood tiles (Get active / Meet people / Relax / Explore / Learn /
+// Surprise me) use lucide-react icons directly (Dumbbell/Users/Sunrise/
+// Compass/BookOpen/PartyPopper) rather than icons defined here — the
+// only place in the app that reaches for an external icon library instead
+// of this file's hand-rolled set, since these needed a more illustrative
+// style than the rest of the app's simple geometric icons, and hand-
+// drawing that blind (no SVG preview tool in this environment) didn't
+// hold up. See Home.tsx's INTENT_CHIPS.
+
+export function ShieldIcon({ size = 18, style, className }: IconProps) {
+  return (
+    <svg {...stroke(size)} style={style} className={className}>
+      <path d="M12 3.5 5 6v5.5c0 4.6 3 7.9 7 9 4-1.1 7-4.4 7-9V6l-7-2.5Z" />
+      <path d="M9 12l2 2 4-4.2" />
+    </svg>
+  );
+}
+
+// Brand marks (Google/Apple) — the only two icons in this file with fixed
+// brand colours rather than currentColor, since a single-tone Google "G"
+// or Apple logo isn't recognisable at this size.
+export function GoogleIcon({ size = 18, style, className }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" style={style} className={className}>
+      <path fill="#4285F4" d="M23.5 12.27c0-.85-.08-1.67-.22-2.45H12v4.64h6.47a5.53 5.53 0 0 1-2.4 3.63v3h3.87c2.27-2.09 3.56-5.17 3.56-8.82Z" />
+      <path fill="#34A853" d="M12 24c3.24 0 5.96-1.07 7.94-2.91l-3.87-3c-1.08.72-2.46 1.15-4.07 1.15-3.13 0-5.78-2.11-6.73-4.96H1.27v3.1A12 12 0 0 0 12 24Z" />
+      <path fill="#FBBC05" d="M5.27 14.28A7.2 7.2 0 0 1 4.89 12c0-.79.14-1.56.38-2.28v-3.1H1.27A12 12 0 0 0 0 12c0 1.94.46 3.77 1.27 5.38l4-3.1Z" />
+      <path fill="#EA4335" d="M12 4.76c1.77 0 3.35.61 4.6 1.8l3.44-3.44C17.95 1.19 15.24 0 12 0A12 12 0 0 0 1.27 6.62l4 3.1C6.22 6.87 8.87 4.76 12 4.76Z" />
+    </svg>
+  );
+}
+
+export function AppleIcon({ size = 18, style, className }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="#000" style={style} className={className}>
+      <path d="M16.4 1.5c.1 1.1-.33 2.16-1.02 2.94-.7.8-1.85 1.42-2.95 1.33-.13-1.06.4-2.17 1.05-2.9C14.2 2 15.42 1.4 16.4 1.5Zm3.63 16.3c-.42.98-.93 1.9-1.53 2.75-.83 1.16-1.5 1.96-2.02 2.4-.8.72-1.66 1.09-2.58 1.11-.66.01-1.46-.19-2.4-.6-.94-.4-1.8-.6-2.6-.6-.83 0-1.72.2-2.66.6-.94.41-1.7.62-2.28.64-.88.04-1.76-.34-2.63-1.15-.56-.5-1.26-1.34-2.12-2.53C.4 18.9-.12 17.24.03 15.6c.14-1.65.72-2.98 1.72-3.98.78-.79 1.72-1.19 2.83-1.21.6-.01 1.4.2 2.4.63 1 .43 1.65.65 1.95.65.22 0 .95-.25 2.17-.75 1.16-.46 2.14-.65 2.94-.58 2.17.18 3.8 1.03 4.9 2.56-1.94 1.18-2.9 2.83-2.88 4.96.02 1.66.62 3.04 1.8 4.13.53.5 1.12.89 1.77 1.17-.15.4-.3.78-.47 1.12Z" />
+    </svg>
+  );
+}

@@ -30,10 +30,15 @@ interface BookingForm {
   openSpots: string;
   /** Open-booking setup (IA spec §6) — datetime-local string, "" = none. */
   confirmationDeadline: string;
+  /** Minimum Participation Booking (participation-intent plan Phase 5) —
+   * "" means no minimum (default); a number string requires that many
+   * additional players (of the open spots) before the resulting game is
+   * treated as confirmed/public, mirroring Games.tsx's own minParticipants. */
+  minParticipants: string;
 }
 
 function blankForm(): BookingForm {
-  return { date: null, time: null, duration: 3, eventType: "", guests: "", name: "", email: "", phone: "", notes: "", openSpots: "", confirmationDeadline: "" };
+  return { date: null, time: null, duration: 3, eventType: "", guests: "", name: "", email: "", phone: "", notes: "", openSpots: "", confirmationDeadline: "", minParticipants: "" };
 }
 
 const MONTH_NAMES = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
@@ -207,6 +212,7 @@ export function BookingFlow() {
         couponCode: coupon?.code,
         openSpots: resident && form.openSpots ? Number(form.openSpots) : undefined,
         confirmationDeadline: resident && form.openSpots && form.confirmationDeadline ? new Date(form.confirmationDeadline).toISOString() : undefined,
+        minParticipants: resident && form.openSpots && form.minParticipants ? Number(form.minParticipants) : undefined,
       });
       if (res.url) {
         window.location.href = res.url;
@@ -512,7 +518,23 @@ export function BookingFlow() {
                           onChange={(e) => set("confirmationDeadline", e.target.value)}
                           style={{ ...inputStyle, maxWidth: 240 }}
                         />
-                        <p style={{ fontSize: 12, color: colors.faint, margin: "4px 0 0" }}>Shown on the listing as a target — not automatically enforced.</p>
+                        <p style={{ fontSize: 12, color: colors.faint, margin: "4px 0 0 0" }}>Shown on the listing as a target — not automatically enforced.</p>
+
+                        <label style={{ ...labelStyle, marginTop: 14 }}>Require at least this many players before it's confirmed as public (optional)</label>
+                        <input
+                          type="number"
+                          min={1}
+                          max={Number(form.openSpots) || 20}
+                          value={form.minParticipants}
+                          onChange={(e) => set("minParticipants", e.target.value)}
+                          style={{ ...inputStyle, width: 100 }}
+                        />
+                        {form.minParticipants && (
+                          <p style={{ fontSize: 12.5, color: colors.mutedLight, margin: "10px 0 0" }}>
+                            This game stays "pending" — but still joinable — until {form.minParticipants} more player{Number(form.minParticipants) === 1 ? "" : "s"} (beyond you) have joined. You still pay
+                            the full room price now regardless.
+                          </p>
+                        )}
                       </>
                     )}
                   </div>

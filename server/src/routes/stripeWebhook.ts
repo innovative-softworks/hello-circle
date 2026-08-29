@@ -2,6 +2,8 @@ import type { Request, Response } from "express";
 import { createGameFromOpenBooking } from "./bookings.js";
 import { upgradeFavouriteStatus } from "./favourites.js";
 import { checkMinParticipantsThreshold } from "./games.js";
+import { logEvent } from "../analytics.js";
+import { computeCapacity } from "../capacity.js";
 import { db } from "../db/index.js";
 import { notifyNewBookingOrRegistration, notifyResident } from "../notifications.js";
 import { recordCouponUse } from "../pricing.js";
@@ -40,7 +42,7 @@ interface RegistrationForNotify {
   total_cents: number;
 }
 
-async function confirmBooking(ref: string) {
+export async function confirmBooking(ref: string) {
   const info = await db.prepare(`UPDATE bookings SET payment_status = 'paid' WHERE ref = ? AND payment_status = 'pending'`).run(ref);
   if (info.changes === 0) return; // already processed (webhook retried) or unknown ref
 
@@ -71,7 +73,7 @@ async function confirmBooking(ref: string) {
   await createGameFromOpenBooking(row.ref);
 }
 
-async function confirmRegistration(ref: string) {
+export async function confirmRegistration(ref: string) {
   const info = await db.prepare(`UPDATE registrations SET payment_status = 'paid' WHERE ref = ? AND payment_status = 'pending'`).run(ref);
   if (info.changes === 0) return;
 
@@ -113,7 +115,7 @@ interface GameJoinForNotify {
 /** Paid Join-a-Game confirmation (NEXT). Same idempotent
  * only-flip-if-still-pending pattern as confirmBooking/confirmRegistration
  * above — a retried webhook delivery is a safe no-op. */
-async function confirmGameJoin(ref: string) {
+export async function confirmGameJoin(ref: string) {
   const info = await db.prepare(`UPDATE game_participants SET status = 'joined', payment_status = 'paid' WHERE ref = ? AND payment_status = 'pending'`).run(ref);
   if (info.changes === 0) return;
 
@@ -128,7 +130,7 @@ async function confirmGameJoin(ref: string) {
   const { n: joined } = (await db.prepare(`SELECT COUNT(*) as n FROM game_participants WHERE game_id = ? AND status = 'joined'`).get(row.game_id)) as {
     n: number;
   };
-  if (joined >= row.capacity) {
+  if (computeCapacity(row.capacity, joined).isFull) {
     await notifyResident({
       residentId: row.host_resident_id,
       kind: "game",
@@ -142,15 +144,17 @@ async function confirmGameJoin(ref: string) {
 
   await checkMinParticipantsThreshold(row.game_id);
   await upgradeFavouriteStatus(row.resident_id, "game", row.game_id);
+  void logEvent("game_joined", { residentId: row.resident_id, metadata: { gameId: row.game_id, activityLabel: row.activity_label, paid: true } });
 }
 
 /** Credit-pack pass confirmation (NEXT) — same idempotent pattern. */
-async function confirmPass(ref: string) {
-  await db.prepare(`UPDATE passes SET payment_status = 'paid' WHERE ref = ? AND payment_status = 'pending'`).run(ref);
+export async function confirmPass(ref: string) {
+  const info = await db.prepare(`UPDATE passes SET payment_status = 'paid' WHERE ref = ? AND payment_status = 'pending'`).run(ref);
+  if (info.changes === 0) return;
 }
 
 /** Program enrollment confirmation (Phase B) — same idempotent pattern. */
-async function confirmProgramEnrollment(ref: string) {
+export async function confirmProgramEnrollment(ref: string) {
   const info = await db.prepare(`UPDATE program_enrollments SET payment_status = 'paid' WHERE ref = ? AND payment_status = 'pending'`).run(ref);
   if (info.changes === 0) return;
   const row = (await db
@@ -175,7 +179,7 @@ async function confirmProgramEnrollment(ref: string) {
 
 /** Adventure/Experience session booking confirmation — same idempotent
  * pattern as confirmBooking/confirmRegistration above. */
-async function confirmExperienceBooking(ref: string) {
+export async function confirmExperienceBooking(ref: string) {
   const info = await db.prepare(`UPDATE experience_bookings SET payment_status = 'paid' WHERE ref = ? AND payment_status = 'pending'`).run(ref);
   if (info.changes === 0) return;
 

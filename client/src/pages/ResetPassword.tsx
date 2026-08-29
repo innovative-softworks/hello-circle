@@ -33,7 +33,7 @@ export function ResetPassword() {
 
   return (
     <div style={{ animation: "fadeUp .3s ease both" }}>
-      <section style={{ maxWidth: 420, margin: "0 auto", padding: "64px 24px" }}>
+      <section className="section-pad" style={{ maxWidth: 420, margin: "0 auto", padding: "64px 24px" }}>
         {done ? (
           <>
             <h1 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 26, margin: "0 0 10px" }}>Password updated</h1>

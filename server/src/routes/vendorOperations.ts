@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { hasPlatformRole, requirePlatformRole } from "../auth.js";
+import { assertPlatformRole, requirePlatformRole } from "../auth.js";
 import { db } from "../db/index.js";
 import { sendMail } from "../email.js";
 import { inClause, ownsCentre, ownsClub } from "./vendorHelpers.js";
@@ -203,9 +203,7 @@ vendorOperationsRouter.post("/checkin/:kind/:ref", async (req, res) => {
   if (kind !== "booking" && kind !== "registration") return res.status(400).json({ error: "kind must be booking or registration" });
   // A booking is centre-side, a registration is club-side — same role split
   // as everywhere else, and known directly from the URL, no lookup needed.
-  if (!hasPlatformRole(req.user!, kind === "booking" ? "centre_manager" : "facility_manager")) {
-    return res.status(403).json({ error: "Not authorized for this role" });
-  }
+  if (!assertPlatformRole(req, res, kind === "booking" ? "centre_manager" : "facility_manager")) return;
 
   const table = kind === "booking" ? "bookings" : "registrations";
   const listingCol = kind === "booking" ? "centre_id" : "club_id";
@@ -231,6 +229,10 @@ vendorOperationsRouter.get("/checkin/:kind/:ref", async (req, res) => {
   // org-scoping pass since it's the same "who can see this ref" question.
   const vendorId = await checkinListingVendorId(kind, ref);
   if (!vendorId || !req.vendorIds!.includes(vendorId)) return res.status(403).json({ error: "Not your listing" });
+  // Also had no role check at all (unlike its POST sibling) — an invited
+  // staff member with any platform_role, e.g. finance, could read another
+  // team's check-in status. Same role split as the POST handler above.
+  if (!assertPlatformRole(req, res, kind === "booking" ? "centre_manager" : "facility_manager")) return;
   const row = await db.prepare(`SELECT checked_in_at as checkedInAt FROM attendance WHERE kind = ? AND ref = ?`).get(kind, ref);
   res.json({ checkedIn: !!row, checkedInAt: (row as { checkedInAt: string } | undefined)?.checkedInAt ?? null });
 });
