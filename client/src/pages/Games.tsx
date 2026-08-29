@@ -332,6 +332,7 @@ function JoinGameCard({
         contentStyle={{ padding: 10, display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}
       >
         <span
+          className="card-photo-badge"
           style={{
             display: "inline-flex",
             alignItems: "center",
@@ -342,6 +343,7 @@ function JoinGameCard({
             padding: "5px 11px 5px 9px",
             fontSize: 12.5,
             fontWeight: 700,
+            transition: "background-color .2s ease, color .2s ease",
           }}
         >
           <ClockIcon size={12} /> {gameWhen12h(game)}

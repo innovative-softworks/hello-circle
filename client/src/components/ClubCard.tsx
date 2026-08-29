@@ -34,6 +34,7 @@ export function ClubCard({ club }: { club: Club }) {
         contentStyle={{ display: "flex", alignItems: "flex-end", padding: 12 }}
       >
         <span
+          className="card-photo-badge"
           style={{
             background: "rgba(255,255,255,.9)",
             borderRadius: 8,
@@ -41,6 +42,7 @@ export function ClubCard({ club }: { club: Club }) {
             fontSize: 12,
             fontWeight: 700,
             color: colors.orangeDark,
+            transition: "background-color .2s ease, color .2s ease",
           }}
         >
           {club.sport}

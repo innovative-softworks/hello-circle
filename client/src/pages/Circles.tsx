@@ -455,8 +455,8 @@ export function Circles() {
         </div>
 
         {loading ? (
-          <div className="grid-responsive-3" style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 20, marginBottom: 40 }}>
-            {Array.from({ length: 9 }, (_, i) => <CardSkeleton key={i} photoHeight={160} />)}
+          <div className="grid-responsive-4" style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 20, marginBottom: 40 }}>
+            {Array.from({ length: 8 }, (_, i) => <CardSkeleton key={i} photoHeight={160} />)}
           </div>
         ) : sorted.length === 0 ? (
           <EmptyState
@@ -478,7 +478,7 @@ export function Circles() {
           />
         ) : (
           <>
-            <div className="grid-responsive-3" style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 20, marginBottom: 32 }}>
+            <div className="grid-responsive-4" style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 20, marginBottom: 32 }}>
               {visible.map((c) => (
                 <CircleDiscoveryCard
                   key={c.id}

@@ -31,6 +31,7 @@ export function CentreCard({ centre }: { centre: Centre }) {
         contentStyle={{ display: "flex", alignItems: "flex-end", padding: 12 }}
       >
         <span
+          className="card-photo-badge"
           style={{
             background: "rgba(255,255,255,.9)",
             borderRadius: 8,
@@ -38,6 +39,7 @@ export function CentreCard({ centre }: { centre: Centre }) {
             fontSize: 12,
             fontWeight: 700,
             color: colors.green,
+            transition: "background-color .2s ease, color .2s ease",
           }}
         >
           from €{centre.from}/hr

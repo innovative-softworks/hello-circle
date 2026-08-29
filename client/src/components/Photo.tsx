@@ -15,10 +15,26 @@ interface PhotoProps {
 }
 
 /** A placeholder-gradient box with a real photo layered on top, and optional
- * overlay content (badges/labels) painted above both. */
+ * overlay content (badges/labels) painted above both.
+ *
+ * Every photo/placeholder gets the same low-opacity duotone wash (`tint`
+ * below) — a deliberate, uniform grade so photos shot in wildly different
+ * light/color still read as one consistent, "always HelloCircle" surface
+ * rather than a grab-bag of random photography. `multiply` blend keeps it
+ * feeling like a photographic grade rather than a flat color patch sitting
+ * on top; darker at the bottom doubles as legibility support for any
+ * overlay badge/label painted there. */
+const tintStyle: CSSProperties = {
+  position: "absolute",
+  inset: 0,
+  background: "linear-gradient(180deg, rgba(20,24,20,.05) 0%, rgba(20,24,20,.22) 100%)",
+  mixBlendMode: "multiply",
+  pointerEvents: "none",
+};
+
 export function Photo({ src, alt, ph, style, contentStyle, icon, iconColor, children }: PhotoProps) {
   return (
-    <div style={{ position: "relative", background: ph, ...style }}>
+    <div style={{ position: "relative", background: ph, overflow: "hidden", ...style }}>
       {icon && (
         <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
           <div
@@ -47,6 +63,7 @@ export function Photo({ src, alt, ph, style, contentStyle, icon, iconColor, chil
           }}
         />
       )}
+      <div className="card-photo-tint" style={tintStyle} />
       {children && (
         <div style={{ position: "relative", zIndex: 1, width: "100%", height: "100%", ...contentStyle }}>
           {children}

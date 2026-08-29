@@ -194,6 +194,7 @@ function ExperienceBrowseCard({ e }: { e: Experience }) {
       >
         {session ? (
           <span
+            className="card-photo-badge"
             style={{
               display: "inline-flex",
               alignItems: "center",
@@ -204,12 +205,14 @@ function ExperienceBrowseCard({ e }: { e: Experience }) {
               padding: "5px 11px 5px 9px",
               fontSize: 12.5,
               fontWeight: 700,
+              transition: "background-color .2s ease, color .2s ease",
             }}
           >
             <ClockIcon size={12} /> {sessionWhenLabel(session)}
           </span>
         ) : (
           <span
+            className="card-photo-badge"
             style={{
               display: "inline-flex",
               alignItems: "center",
@@ -219,6 +222,7 @@ function ExperienceBrowseCard({ e }: { e: Experience }) {
               padding: "5px 11px",
               fontSize: 12,
               fontWeight: 700,
+              transition: "background-color .2s ease, color .2s ease",
             }}
           >
             No dates yet

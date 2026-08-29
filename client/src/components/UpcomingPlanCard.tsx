@@ -30,6 +30,7 @@ export function UpcomingPlanCard({ game }: { game: Game }) {
       tabIndex={0}
       onClick={() => navigate(`/games/${game.id}`)}
       onKeyDown={(e) => e.key === "Enter" && navigate(`/games/${game.id}`)}
+      className="card-hover card-surface"
       style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 12, overflow: "hidden", cursor: "pointer", display: "flex", flexDirection: "column" }}
     >
       <Photo
@@ -41,7 +42,7 @@ export function UpcomingPlanCard({ game }: { game: Game }) {
         style={{ aspectRatio: cardImageRatio.discovery }}
         contentStyle={{ padding: 10, display: "flex", alignItems: "flex-start" }}
       >
-        <span style={{ display: "inline-flex", alignItems: "center", gap: 5, background: "rgba(255,255,255,.92)", color: colors.text, borderRadius: radius.pill, padding: "5px 10px", fontSize: 11.5, fontWeight: 800 }}>
+        <span className="card-photo-badge" style={{ display: "inline-flex", alignItems: "center", gap: 5, background: "rgba(255,255,255,.92)", color: colors.text, borderRadius: radius.pill, padding: "5px 10px", fontSize: 11.5, fontWeight: 800, transition: "background-color .2s ease, color .2s ease" }}>
           <CalendarIcon size={11} /> {formatDatePill(game.date)} · {game.time}
         </span>
       </Photo>

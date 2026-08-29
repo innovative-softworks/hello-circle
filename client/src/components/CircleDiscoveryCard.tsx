@@ -44,10 +44,12 @@ export function CircleDiscoveryCard({ circle, joined, onJoin, onLeave, busy }: {
         >
           {state ? (
             <span
+              className={state === "active-now" ? undefined : "card-photo-badge"}
               style={{
                 background: state === "active-now" ? photoOverlay.goldBg : photoOverlay.whiteBg,
                 color: state === "active-now" ? photoOverlay.goldText : colors.text,
                 borderRadius: radius.pill, padding: "4px 11px", fontSize: 11.5, fontWeight: 800, letterSpacing: ".03em", textTransform: "uppercase",
+                transition: "background-color .2s ease, color .2s ease",
               }}
             >
               {state === "active-now" ? "Active now" : "New"}

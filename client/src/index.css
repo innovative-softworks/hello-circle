@@ -343,12 +343,36 @@ textarea:focus {
 }
 
 .card-surface {
-  transition: box-shadow 0.2s ease, transform 0.2s ease, border-color 0.2s ease;
+  transition: box-shadow 0.2s ease, transform 0.2s ease, border-color 0.2s ease, background-color 0.2s ease;
 }
+/* Card hover (cards/listings consistency pass) — was a heavier lift+shadow
+   only, no background change at all. Now leads with a very light brand-
+   tinted background wash (the "highlight the row" pattern video/listing
+   sites like YouTube use — mostly a color shift, minimal movement) and
+   keeps the lift/shadow, just dialed back so color does most of the work.
+   `!important` is needed because every card sets its own background via
+   inline `style` (colors.surface/"#fff"), which otherwise always wins over
+   a class rule — same reason .btn-danger:hover below already needs it. */
 .card-hover:hover {
-  transform: translateY(-3px);
-  box-shadow: 0 12px 28px rgba(30, 40, 32, 0.09);
+  transform: translateY(-2px);
+  box-shadow: 0 8px 20px rgba(30, 40, 32, 0.07);
   border-color: var(--color-border-strong);
+  background: var(--color-green-bg) !important;
+}
+/* The photo's own tint (Photo.tsx) reads a touch stronger on hover too, so
+   the image feels like part of the same highlighted surface as the card
+   background around it, not a separate layer that ignores the hover. */
+.card-hover:hover .card-photo-tint {
+  background: linear-gradient(180deg, rgba(20, 122, 76, 0.08) 0%, rgba(20, 60, 40, 0.28) 100%) !important;
+}
+/* The primary overlay badge/pill on a card's photo (date/time, status,
+   difficulty) shifts from its neutral white-translucent look to a solid
+   brand-green pill on hover — ties the whole card's hover state (image +
+   background + badge) into one deliberate, cohesive highlight instead of
+   the background changing in isolation. */
+.card-hover:hover .card-photo-badge {
+  background: var(--color-green) !important;
+  color: #fff !important;
 }
 
 .tab-btn {
@@ -519,7 +543,8 @@ textarea:focus {
    (e.g. a horizontally-scrolling row) can blow the whole track, and page,
    wider than the viewport. min-width: 0 on the grid items removes that. */
 .grid-responsive > *,
-.grid-responsive-3 > * {
+.grid-responsive-3 > *,
+.grid-responsive-4 > * {
   min-width: 0;
 }
 
@@ -553,7 +578,8 @@ textarea:focus {
   .dash-illustration {
     display: none !important;
   }
-  .grid-responsive-3 {
+  .grid-responsive-3,
+  .grid-responsive-4 {
     grid-template-columns: repeat(2, 1fr) !important;
   }
   .sticky-aside {
@@ -630,7 +656,8 @@ textarea:focus {
 }
 
 @media (max-width: 640px) {
-  .grid-responsive-3 {
+  .grid-responsive-3,
+  .grid-responsive-4 {
     grid-template-columns: 1fr !important;
   }
   /* CircleMoments' asymmetric mosaic (varied grid-column/row spans per

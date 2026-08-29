@@ -158,6 +158,7 @@ export function DiscoverCard({ item, isToday }: { item: DiscoverItem; isToday: b
             </span>
           ) : isToday ? (
             <span
+              className="card-photo-badge"
               style={{
                 background: "rgba(255,255,255,.94)",
                 color: meta.fg,
@@ -166,17 +167,19 @@ export function DiscoverCard({ item, isToday }: { item: DiscoverItem; isToday: b
                 fontSize: 10.5,
                 fontWeight: 700,
                 letterSpacing: ".03em",
+                transition: "background-color .2s ease, color .2s ease",
               }}
             >
               TODAY
             </span>
           ) : (
-            <span style={{ background: "rgba(255,255,255,.94)", color: colors.text, borderRadius: radius.pill, padding: "4px 9px", fontSize: 10.5, fontWeight: 700, letterSpacing: ".02em" }}>
+            <span className="card-photo-badge" style={{ background: "rgba(255,255,255,.94)", color: colors.text, borderRadius: radius.pill, padding: "4px 9px", fontSize: 10.5, fontWeight: 700, letterSpacing: ".02em", transition: "background-color .2s ease, color .2s ease" }}>
               {dayPillLabel(item.date)}
             </span>
           )}
         </div>
         <span
+          className="card-photo-badge"
           style={{
             position: "absolute",
             top: 10,
@@ -187,6 +190,7 @@ export function DiscoverCard({ item, isToday }: { item: DiscoverItem; isToday: b
             background: "rgba(255,255,255,.94)",
             borderRadius: radius.pill,
             padding: "4px 10px",
+            transition: "background-color .2s ease, color .2s ease",
           }}
         >
           {formatPrice(item.priceCents)}
