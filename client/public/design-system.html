@@ -1,0 +1,878 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HelloCircle Design System</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400..800&family=Hanken+Grotesk:ital,wght@0,400;0,500;0,600;0,700;0,800;1,500&family=JetBrains+Mono:wght@400;500;600&display=swap">
+<style>
+  :root{
+    --canvas:#fbfaf7; --surface:#ffffff; --panel:#f0eee8; --footer:#f6f4ef;
+    --text:#1e2420; --text-soft:#3b423c; --muted:#5b635c; --muted-light:#5f675e; --faint:#656d64;
+    --border:#e7e4dc; --border-strong:#d8d4cb;
+    --green:#1e7a4c; --green-dark:#175f3b; --green-bg:#eaf4ee; --green-text:#175f3b;
+    --orange:#c74c1a; --orange-dark:#b0401a; --orange-bg:#fcede4;
+    --gold:#e8a33a; --gold-bg:#fbf0dc; --dark:#1e2420;
+    --danger:#b00020; --danger-bg:#fbeaea;
+    --purple-bg:#f1e9fc; --purple:#7b4fcc; --blue-bg:#e9f0fc; --blue:#3b5fcc;
+    --shadow: 0 1px 2px rgba(30,36,32,.04);
+    --shadow-lift: 0 12px 32px rgba(30,36,32,.10);
+    --r-control:10px; --r-card:16px; --r-pill:999px;
+    --display: 'Bricolage Grotesque', system-ui, sans-serif;
+    --body: 'Hanken Grotesk', system-ui, sans-serif;
+    --mono: 'JetBrains Mono', ui-monospace, monospace;
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --canvas:#15181a; --surface:#1d2220; --panel:#1d2220; --footer:#1a1e1c;
+      --text:#ecefe9; --text-soft:#c7cdc0; --muted:#b6bcb1; --muted-light:#a3a99d; --faint:#8b9289;
+      --border:#2b302d; --border-strong:#3b423d;
+      --green-bg:#1c3327; --green-text:#7fd3a5;
+      --orange-dark:#f0996a; --orange-bg:#3a2517;
+      --dark:#444d46; --danger:#e37272; --danger-bg:#3a1f1f;
+      --shadow: 0 1px 2px rgba(0,0,0,.3); --shadow-lift: 0 12px 32px rgba(0,0,0,.45);
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"]{
+    --canvas:#15181a; --surface:#1d2220; --panel:#1d2220; --footer:#1a1e1c;
+    --text:#ecefe9; --text-soft:#c7cdc0; --muted:#b6bcb1; --muted-light:#a3a99d; --faint:#8b9289;
+    --border:#2b302d; --border-strong:#3b423d;
+    --green-bg:#1c3327; --green-text:#7fd3a5;
+    --orange-dark:#f0996a; --orange-bg:#3a2517;
+    --dark:#444d46; --danger:#e37272; --danger-bg:#3a1f1f;
+    --shadow: 0 1px 2px rgba(0,0,0,.3); --shadow-lift: 0 12px 32px rgba(0,0,0,.45);
+    color-scheme: dark;
+  }
+
+  *{box-sizing:border-box;}
+  body{
+    background:var(--canvas); color:var(--text); font-family:var(--body);
+    -webkit-font-smoothing:antialiased; line-height:1.5;
+  }
+  h1,h2,h3,h4{font-family:var(--display); margin:0; text-wrap:balance; letter-spacing:-.02em;}
+  p{margin:0;}
+  a{color:inherit;}
+  code, .mono{font-family:var(--mono);}
+  ::selection{background:var(--green); color:#fff;}
+  @media (prefers-reduced-motion: reduce){ *{animation:none !important; transition:none !important;} }
+
+  /* ---- shell ---- */
+  .shell{display:grid; grid-template-columns:248px 1fr; max-width:1320px; margin:0 auto;}
+  .rail{
+    position:sticky; top:0; align-self:start; height:100vh; overflow-y:auto;
+    padding:28px 18px 40px 28px; border-right:1px solid var(--border);
+  }
+  .brand{display:flex; align-items:center; gap:9px; margin-bottom:26px;}
+  .brand-mark{width:22px; height:22px; border-radius:50%; background:var(--green); flex:none;
+    box-shadow:inset -3px -3px 0 rgba(0,0,0,.12);}
+  .brand-word{font-family:var(--display); font-weight:800; font-size:15.5px; letter-spacing:-.01em;}
+  .rail-group{margin-bottom:22px;}
+  .rail-label{font-size:10.5px; font-weight:700; letter-spacing:.09em; text-transform:uppercase; color:var(--faint); margin:0 0 8px 6px;}
+  .rail a{
+    display:block; font-size:13.5px; font-weight:600; color:var(--muted);
+    padding:6px 6px; border-radius:8px; text-decoration:none;
+    transition:background .15s ease, color .15s ease;
+  }
+  .rail a:hover{background:var(--panel); color:var(--text);}
+  .rail a.active{background:var(--green-bg); color:var(--green-text);}
+
+  main{padding:40px 56px 120px; max-width:920px;}
+  .kicker-row{display:flex; align-items:center; gap:10px; margin-bottom:10px;}
+  .pagehead{padding-bottom:36px; margin-bottom:8px; border-bottom:1px solid var(--border);}
+  .pagehead h1{font-size:clamp(32px,4vw,46px); font-weight:800;}
+  .pagehead .sub{font-size:17px; color:var(--muted-light); margin-top:12px; max-width:62ch;}
+  .meta-strip{display:flex; gap:22px; flex-wrap:wrap; margin-top:20px; font-size:13px; color:var(--muted);}
+  .meta-strip b{color:var(--text); font-weight:700;}
+
+  section.doc{padding:56px 0; border-bottom:1px solid var(--border); scroll-margin-top:24px;}
+  section.doc:last-of-type{border-bottom:none;}
+  .eyebrow{font-size:11.5px; font-weight:700; letter-spacing:.09em; text-transform:uppercase; color:var(--muted-light); margin-bottom:8px;}
+  .sec-title{font-size:clamp(22px,2.6vw,28px); font-weight:800; margin-bottom:10px;}
+  .sec-sub{font-size:15px; color:var(--muted-light); max-width:64ch; margin-bottom:24px;}
+  .sec-sub + *{margin-top:0;}
+  h3.h{font-size:16.5px; font-weight:700; margin:28px 0 12px;}
+  h3.h:first-child{margin-top:0;}
+  p.body, li.body{font-size:14.5px; color:var(--text-soft); line-height:1.65;}
+  ul.list{margin:0; padding-left:19px; display:flex; flex-direction:column; gap:7px;}
+
+  /* ---- tags/badges reused from the real system ---- */
+  .tag{display:inline-flex; align-items:center; gap:5px; font-size:11.5px; font-weight:700; letter-spacing:.01em;
+    border-radius:var(--r-pill); padding:3px 10px;}
+  .tag-keep{background:var(--green-bg); color:var(--green-text);}
+  .tag-fixed{background:var(--green-bg); color:var(--green-text);}
+  .tag-backlog{background:var(--orange-bg); color:var(--orange-dark);}
+  .tag-deprecate{background:var(--danger-bg); color:var(--danger);}
+  .tag-p0{background:var(--danger-bg); color:var(--danger);}
+  .tag-p1{background:var(--orange-bg); color:var(--orange-dark);}
+  .tag-p2{background:var(--panel); color:var(--muted);}
+
+  /* ---- cards / grids ---- */
+  .grid{display:grid; gap:14px;}
+  .grid-2{grid-template-columns:1fr 1fr;}
+  .grid-3{grid-template-columns:repeat(3,1fr);}
+  @media (max-width:700px){.grid-2,.grid-3{grid-template-columns:1fr;}}
+  .card{background:var(--surface); border:1px solid var(--border); border-radius:var(--r-card); padding:18px 20px; box-shadow:var(--shadow);}
+  .card h4{font-size:14.5px; font-weight:700; margin-bottom:6px;}
+  .card p{font-size:13.5px; color:var(--muted-light); line-height:1.55;}
+
+  /* ---- swatches ---- */
+  .swatch-row{display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); gap:12px; margin:18px 0 6px;}
+  .swatch{border-radius:var(--r-card); overflow:hidden; border:1px solid var(--border);}
+  .swatch-fill{height:64px;}
+  .swatch-label{padding:9px 11px; background:var(--surface);}
+  .swatch-label .name{font-size:12.5px; font-weight:700;}
+  .swatch-label .hex{font-family:var(--mono); font-size:11px; color:var(--muted-light); margin-top:1px;}
+
+  /* ---- type scale demo ---- */
+  .type-row{display:flex; align-items:baseline; gap:18px; padding:14px 0; border-top:1px solid var(--border);}
+  .type-row:first-of-type{border-top:none;}
+  .type-row .tok{width:110px; flex:none; font-family:var(--mono); font-size:11.5px; color:var(--muted-light);}
+  .type-row .sample{font-family:var(--display);}
+
+  /* ---- component demo strip ---- */
+  .demo{background:var(--panel); border-radius:var(--r-card); padding:22px; display:flex; flex-wrap:wrap; gap:12px; align-items:center; margin:16px 0;}
+
+  .btn{border-radius:var(--r-control); font-weight:700; font-size:14px; padding:10px 16px; display:inline-flex; align-items:center; gap:6px; border:none; cursor:default; font-family:var(--body);}
+  .btn-primary{background:var(--green); color:#fff;}
+  .btn-orange{background:var(--orange); color:#fff;}
+  .btn-dark{background:var(--dark); color:#fff;}
+  .btn-ghost{background:var(--surface); color:var(--text); border:1px solid var(--border-strong);}
+  .btn-danger{background:none; color:var(--danger); font-weight:600; font-size:13px; padding:6px;}
+
+  .badge{display:inline-flex; align-items:center; gap:4px; border-radius:var(--r-pill); padding:3px 11px; font-size:12.5px; font-weight:700;}
+  .badge-open{background:var(--green-bg); color:var(--green-text);}
+  .badge-urgent{background:var(--orange-bg); color:var(--orange-dark);}
+  .badge-full{background:var(--panel); color:var(--muted); border:1px solid var(--border);}
+  .badge-joined{background:var(--green-bg); color:var(--green-text);}
+
+  .chip{border-radius:20px; padding:8px 15px; font-size:14px; font-weight:600; border:1.5px solid var(--border-strong); background:var(--surface); color:var(--text-soft);}
+  .chip.active{border-color:var(--green); background:var(--green); color:#fff;}
+
+  .avatar-stack{display:flex; align-items:center;}
+  .avatar{width:34px; height:34px; border-radius:50%; display:flex; align-items:center; justify-content:center; color:#fff; font-weight:700; font-size:13px; border:2px solid var(--panel); font-family:var(--display);}
+  .avatar + .avatar{margin-left:-10px;}
+  .avatar.a1{background:var(--green);} .avatar.a2{background:var(--orange);} .avatar.a3{background:#4c6fe7;}
+  .avatar.plus{background:var(--surface); color:var(--muted); border:2px solid var(--panel);}
+
+  /* ---- tables ---- */
+  .twrap{overflow-x:auto; border:1px solid var(--border); border-radius:var(--r-card); margin:16px 0;}
+  table{width:100%; border-collapse:collapse; font-size:13px; min-width:560px;}
+  th{text-align:left; padding:10px 14px; background:var(--panel); color:var(--muted); font-weight:700; font-size:11.5px; text-transform:uppercase; letter-spacing:.04em; white-space:nowrap;}
+  td{padding:10px 14px; border-top:1px solid var(--border); vertical-align:top;}
+  tr:first-child td{border-top:none;}
+
+  /* ---- misc ---- */
+  .divider{height:1px; background:var(--border); margin:24px 0;}
+  .quote{border-left:3px solid var(--orange); padding:4px 0 4px 16px; font-size:14px; color:var(--text-soft); font-style:italic; margin:14px 0;}
+  .callout{background:var(--green-bg); border-radius:var(--r-card); padding:18px 20px; font-size:14px; color:var(--green-text); line-height:1.6;}
+  .callout.warn{background:var(--orange-bg); color:var(--orange-dark);}
+  .footprint{font-family:var(--mono); font-size:12.5px; color:var(--muted-light); background:var(--panel); border-radius:8px; padding:2px 7px;}
+  footer.doc{padding:40px 56px 60px; color:var(--faint); font-size:12.5px; max-width:920px;}
+
+  #mobile-toggle{display:none;}
+  @media (max-width:880px){
+    .shell{grid-template-columns:1fr;}
+    .rail{position:relative; height:auto; border-right:none; border-bottom:1px solid var(--border); padding:20px;}
+    main{padding:28px 20px 100px;}
+  }
+</style>
+
+</head>
+<body>
+<div class="shell">
+  <nav class="rail" aria-label="Section index">
+    <div class="brand"><span class="brand-mark"></span><span class="brand-word">HelloCircle</span></div>
+
+    <div class="rail-group">
+      <div class="rail-label">Overview</div>
+      <a href="#summary">Executive summary</a>
+      <a href="#audit">Visual audit</a>
+      <a href="#debt">Design debt</a>
+      <a href="#principles">Visual principles</a>
+    </div>
+    <div class="rail-group">
+      <div class="rail-label">Foundations</div>
+      <a href="#color">Color</a>
+      <a href="#type">Typography</a>
+      <a href="#grid">Grid &amp; layout</a>
+      <a href="#spacing">Spacing</a>
+      <a href="#radius">Radius, border, shadow</a>
+      <a href="#icons">Iconography &amp; photography</a>
+    </div>
+    <div class="rail-group">
+      <div class="rail-label">Components</div>
+      <a href="#buttons">Buttons</a>
+      <a href="#forms">Inputs &amp; forms</a>
+      <a href="#chips">Chips &amp; badges</a>
+      <a href="#status">Status language</a>
+      <a href="#cards">Card family</a>
+      <a href="#inventory">Component inventory</a>
+    </div>
+    <div class="rail-group">
+      <div class="rail-label">Patterns</div>
+      <a href="#nav">Navigation</a>
+      <a href="#detail">Detail page pattern</a>
+      <a href="#states">Empty, loading, error, success</a>
+      <a href="#mobile">Mobile pattern</a>
+      <a href="#admin">Admin &amp; vendor pattern</a>
+      <a href="#signatures">Signature patterns</a>
+    </div>
+    <div class="rail-group">
+      <div class="rail-label">Governance</div>
+      <a href="#tokens">Token specification</a>
+      <a href="#deprecation">Deprecation list</a>
+      <a href="#page-matrix">Page consistency matrix</a>
+      <a href="#component-matrix">Component matrix</a>
+      <a href="#roadmap">Migration roadmap</a>
+      <a href="#qa">QA checklist</a>
+    </div>
+    <div class="rail-group">
+      <div class="rail-label">Close</div>
+      <a href="#definition">Visual language definition</a>
+    </div>
+  </nav>
+
+  <main>
+    <header class="pagehead">
+      <div class="kicker-row"><span class="tag tag-fixed">v4-0 branch</span><span class="tag tag-backlog">Living document</span></div>
+      <h1>The HelloCircle Design System</h1>
+      <p class="sub">A single, recognizable visual and behavioral language for a local participation
+        product — audited from the real, running codebase, not designed from a blank page.
+        Swiss structure carrying warm, human, local content.</p>
+      <div class="meta-strip">
+        <span><b>167</b> files audited across consumer, booking, vendor, admin and auth surfaces</span>
+        <span><b>23</b> files unified this pass</span>
+        <span><b>194</b> raw-radius call sites remain in the tracked backlog</span>
+      </div>
+    </header>
+
+    <!-- 1–4 OVERVIEW ============================================== -->
+    <section class="doc" id="summary">
+      <div class="eyebrow">01 — Overview</div>
+      <h2 class="sec-title">Executive summary</h2>
+      <p class="sec-sub">What this document is, what it found, and what it changed.</p>
+
+      <p class="body">HelloCircle already had the bones of a real design system before this pass started —
+        a CSS-variable token layer with light/dark themes, a <code>space</code>/<code>type</code>/<code>radius</code> scale,
+        a shared <code>ui.tsx</code> primitive library, and even a token-regression linter
+        (<code>lint-tokens.mjs</code>). What it didn't have was full adoption: dozens of pages still hand-rolled
+        buttons, cards, and section headers instead of reaching for the shared ones, three different files
+        disagreed about what color "full" should be, and the same join action read as three different verbs
+        depending on which page you were standing on.</p>
+
+      <div class="divider"></div>
+
+      <h3 class="h">What this pass did</h3>
+      <ul class="list">
+        <li class="body"><span class="tag tag-fixed">Built</span> Five new shared primitives: <code>ParticipantStack</code>,
+          <code>AvailabilityBadge</code> + <code>availabilityFromSpots()</code>, a generalized <code>SectionHeader</code>,
+          a named <code>zIndex</code> scale, and a <code>gameCta.ts</code> module so the game-join verb can't diverge
+          between the results list and the game's own detail page again.</li>
+        <li class="body"><span class="tag tag-fixed">Named</span> Three real, repeated-but-unnamed color values as tokens:
+          <code>colors.textSoft</code> (a genuine third body-text tier, not a duplicate — see §Color),
+          <code>photoOverlay</code> (the gold/white hero-image badge treatment), and <code>statTile</code>
+          (the admin/vendor KPI icon palette).</li>
+        <li class="body"><span class="tag tag-fixed">Fixed</span> A real bug: <code>ExperienceDetail.tsx</code> rendered
+          the identical "Full" state in two different colors depending on which part of the page you looked at.</li>
+        <li class="body"><span class="tag tag-fixed">Unified</span> CTA language for Circle joining ("Join"/"Follow" →
+          "Join Circle"), game joining (list and detail page now share one rule), and password-reset ("Update
+          password" → "Set password").</li>
+        <li class="body"><span class="tag tag-fixed">Migrated</span> <code>CentreDetail</code>, <code>ClubDetail</code>,
+          <code>BookingFlow</code>, and <code>NotFound</code> onto the shared <code>Button</code>/<code>BackLink</code>
+          components, and added real map embeds where a listing has coordinates but the page only linked out to
+          Google Maps.</li>
+      </ul>
+
+      <div class="callout" style="margin-top:20px;">This is Phase 1–3 of the six-phase migration in §Roadmap
+        (foundations, primitives, first wave of product pages). The remaining consumer, booking, and
+        vendor/admin pages are a tracked, prioritized backlog — see §Page consistency matrix — not a gap this
+        document is pretending isn't there.</div>
+    </section>
+
+    <section class="doc" id="audit">
+      <div class="eyebrow">02 — Overview</div>
+      <h2 class="sec-title">Visual audit</h2>
+      <p class="sec-sub">What already works, read straight from the code — three independent passes across
+        consumer pages, booking/place pages, and nav/auth/vendor/admin/landing.</p>
+
+      <h3 class="h">Keep — patterns already doing their job</h3>
+      <ul class="list">
+        <li class="body">The CSS-variable token layer (<code>theme.ts</code> → <code>index.css</code>) already
+          carries full light/dark support to every one of its ~970 call sites with zero per-call-site changes —
+          the right architecture, just not yet fully adopted.</li>
+        <li class="body"><code>Button</code>, <code>Card</code>, <code>EmptyState</code>, <code>Avatar</code>,
+          and <code>Tabs</code> are near-universal outside Home.tsx — most pages already reach for them instead
+          of hand-rolling.</li>
+        <li class="body"><code>AuthShell</code> genuinely unifies Login, SignIn, SignUp, and EmailLinkSignIn —
+          same split-screen, same logo treatment, same heading scale.</li>
+        <li class="body"><code>NavSidebar</code> + <code>DashboardTopPanel</code> give the Vendor and Admin
+          dashboards real structural parity, not just a shared look.</li>
+        <li class="body">The base participation-status wording ("Full" / "N spots left") had already propagated
+          by habit to ~8 independently written call sites even before this pass named it as a real component.</li>
+      </ul>
+
+      <h3 class="h">Duplications found</h3>
+      <ul class="list">
+        <li class="body">Overlapping "who's going" avatars, hand-copied identically in two files
+          <span class="tag tag-fixed">merged</span> into <code>ParticipantStack</code>.</li>
+        <li class="body">The eyebrow + title + subtitle section header, hand-copied across Home.tsx and
+          Circles.tsx with drifting sizes <span class="tag tag-fixed">merged</span> into <code>SectionHeader</code>.</li>
+        <li class="body">A diagonal-stripe photo placeholder gradient, copy-pasted verbatim into 7+ card
+          components <span class="tag tag-backlog">open</span> — a real candidate for a shared
+          <code>PhotoPlaceholder</code> pattern.</li>
+        <li class="body">Game participation-state logic (needs/available/full), independently reimplemented in
+          the results list and the detail page's join card with two different rules
+          <span class="tag tag-fixed">merged</span> into <code>gameCta.ts</code>.</li>
+      </ul>
+
+      <h3 class="h">Inconsistencies found</h3>
+      <ul class="list">
+        <li class="body">Six different verbs in play for "commit to this listing" across Games, Circles,
+          Experiences, and Programs: <em>Check availability, Register, Book, Enroll, Confirm, Join</em> — no
+          documented mapping of which object type gets which verb (see §Signature patterns for the standard
+          this document sets going forward).</li>
+        <li class="body">Three unrelated implementations of "spots left / full" status coloring in one file
+          (<code>ExperienceDetail.tsx</code>) <span class="tag tag-fixed">fixed</span>.</li>
+        <li class="body">An ungoverned mini-palette of purple/blue/gold hexes sitting next to proper
+          <code>colors.*</code> tokens in the same admin stat row <span class="tag tag-fixed">named</span> as
+          <code>statTile</code>.</li>
+        <li class="body">The landing page (<code>client/src/landing/</code>) runs on an entirely separate token
+          file — different green, different font pairing, different accent names — with no shared foundation
+          at all <span class="tag tag-backlog">open, large</span>.</li>
+      </ul>
+    </section>
+
+    <section class="doc" id="debt">
+      <div class="eyebrow">03 — Overview</div>
+      <h2 class="sec-title">Current design debt</h2>
+      <p class="sec-sub">Classified so effort goes where it's actually load-bearing, not where it's loudest.</p>
+      <div class="twrap"><table>
+        <tr><th>Priority</th><th>Item</th><th>Why it's this tier</th></tr>
+        <tr><td><span class="tag tag-p0">P0</span></td><td>No sticky mobile CTA bar on <code>BookingFlow</code>/<code>RegistrationFlow</code>/<code>CentreDetail</code>/<code>ClubDetail</code></td><td>The decision action can scroll off-screen on the exact pages where money changes hands</td></tr>
+        <tr><td><span class="tag tag-p0">P0</span></td><td>Landing page's parallel token system</td><td>A visitor can land on a page that looks like a different product before ever reaching the app</td></tr>
+        <tr><td><span class="tag tag-p1">P1</span></td><td>Auth "orphan" pages not on <code>AuthShell</code> (ForgotPassword, ResetPassword, VendorSignup, AcceptInvite, Onboarding)</td><td>Six of eleven auth-adjacent pages read as a second, undeclared shell</td></tr>
+        <tr><td><span class="tag tag-p1">P1</span></td><td>Three distinct detail-page shapes (rail-based / single-column / no-rail)</td><td>Centre and Club match; Program, Host, and Provider profile pages don't share the main/rail decision pattern §Detail describes</td></tr>
+        <tr><td><span class="tag tag-p1">P1</span></td><td>194 raw radius literals matching an existing token</td><td>Tracked by <code>lint-tokens.mjs</code>; mechanical, low-risk, purely a matter of hours</td></tr>
+        <tr><td><span class="tag tag-p2">P2</span></td><td>Card image aspect ratios (120/130/132/140/150/160px across six components)</td><td>Visually minor drift; needs one deliberate ratio decision, not six independent guesses</td></tr>
+        <tr><td><span class="tag tag-p2">P2</span></td><td>Nav asymmetry — "Ask HelloCircle" absent from the mobile tab bar</td><td>Real but narrow; a content/IA call, not a token fix</td></tr>
+        <tr><td><span class="tag tag-p3">P3</span></td><td>Home.tsx's own local button/chip system</td><td>Deliberate, internally consistent, still token-correct underneath — polish only</td></tr>
+      </table></div>
+    </section>
+
+    <section class="doc" id="principles">
+      <div class="eyebrow">04 — Overview</div>
+      <h2 class="sec-title">Brand &amp; visual principles</h2>
+      <p class="sec-sub">Swiss editorial structure, carrying warm local-participation content.</p>
+      <div class="grid grid-3">
+        <div class="card"><h4>Human, not corporate</h4><p>Real activity photography, plain verbs, first names. Never "engagement," never "leverage."</p></div>
+        <div class="card"><h4>Structure over decoration</h4><p>Alignment, whitespace, and type hierarchy carry the design. Borders and dividers before shadows and gradients.</p></div>
+        <div class="card"><h4>Participation is the hero</h4><p>Who's going, what's needed, what's next — the product's own data is the visual interest, not illustration.</p></div>
+      </div>
+      <p class="body" style="margin-top:18px;">HelloCircle should never read as Eventbrite, Meetup, Airbnb, or a generic
+        Tailwind template — not through decoration (no gradients, no neon, no 3D illustration) but through
+        <em>product behavior</em>: the eyebrow-header rhythm, the participant stack, the "I'm in" / "Start
+        something" / "Add my interest" vocabulary, and the green-participation / orange-urgency color logic
+        that recur identically everywhere they apply.</p>
+    </section>
+
+    <!-- FOUNDATIONS ============================================== -->
+    <section class="doc" id="color">
+      <div class="eyebrow">05 — Foundations</div>
+      <h2 class="sec-title">Color system</h2>
+      <p class="sec-sub">Every value below is a CSS custom property with a light and dark definition — see
+        <code>index.css</code>. Nothing here is a fresh brand color; this section documents the existing
+        palette plus three tokens this pass added to close real, measured governance gaps.</p>
+
+      <h3 class="h">Canvas &amp; text</h3>
+      <div class="swatch-row">
+        <div class="swatch"><div class="swatch-fill" style="background:var(--canvas);border-bottom:1px solid var(--border);"></div><div class="swatch-label"><div class="name">canvas</div><div class="hex">#fbfaf7</div></div></div>
+        <div class="swatch"><div class="swatch-fill" style="background:var(--surface);border-bottom:1px solid var(--border);"></div><div class="swatch-label"><div class="name">surface</div><div class="hex">#ffffff</div></div></div>
+        <div class="swatch"><div class="swatch-fill" style="background:var(--text);"></div><div class="swatch-label"><div class="name">text</div><div class="hex">#1e2420 · 15.1:1</div></div></div>
+        <div class="swatch"><div class="swatch-fill" style="background:var(--text-soft);"></div><div class="swatch-label"><div class="name">textSoft <span class="tag tag-fixed" style="margin-left:3px;">new</span></div><div class="hex">#3b423c · 9.9:1</div></div></div>
+        <div class="swatch"><div class="swatch-fill" style="background:var(--muted);"></div><div class="swatch-label"><div class="name">muted</div><div class="hex">#5b635c · 5.9:1</div></div></div>
+        <div class="swatch"><div class="swatch-fill" style="background:var(--border);"></div><div class="swatch-label"><div class="name">border</div><div class="hex">#e7e4dc</div></div></div>
+      </div>
+      <p class="body"><code>textSoft</code> was a raw <code>#3B423C</code> literal hardcoded in 9+ files for
+        long-form paragraph copy — measurably distinct from both <code>text</code> (15.1:1 on canvas) and
+        <code>muted</code> (5.9:1) at 9.9:1, so it's a real third tier, not a duplicate collapsed into an
+        existing token. Reach for it for blurb/description copy; keep <code>muted</code> for metadata.</p>
+
+      <h3 class="h">Brand &amp; semantic</h3>
+      <div class="swatch-row">
+        <div class="swatch"><div class="swatch-fill" style="background:var(--green);"></div><div class="swatch-label"><div class="name">green</div><div class="hex">#1e7a4c</div></div></div>
+        <div class="swatch"><div class="swatch-fill" style="background:var(--green-bg);"></div><div class="swatch-label"><div class="name">greenBg</div><div class="hex">#eaf4ee</div></div></div>
+        <div class="swatch"><div class="swatch-fill" style="background:var(--orange);"></div><div class="swatch-label"><div class="name">orange</div><div class="hex">#c74c1a</div></div></div>
+        <div class="swatch"><div class="swatch-fill" style="background:var(--orange-bg);"></div><div class="swatch-label"><div class="name">orangeBg</div><div class="hex">#fcede4</div></div></div>
+        <div class="swatch"><div class="swatch-fill" style="background:var(--gold);"></div><div class="swatch-label"><div class="name">gold</div><div class="hex">#e8a33a</div></div></div>
+        <div class="swatch"><div class="swatch-fill" style="background:var(--danger);"></div><div class="swatch-label"><div class="name">danger</div><div class="hex">#b00020</div></div></div>
+      </div>
+      <p class="body"><b>Green</b> is the participation color: primary CTAs, "open" availability, active nav,
+        positive status. <b>Orange</b> is reserved for urgency and brand identity — people-needed states,
+        almost-full warnings, the logo mark — never a generic secondary button. This pass corrected two vendor
+        dashboard "Save changes" buttons that had drifted onto orange fill; a routine save isn't urgency.</p>
+
+      <h3 class="h">Utility tokens added this pass</h3>
+      <div class="grid grid-2">
+        <div class="card"><h4><code>photoOverlay</code></h4><p>The gold/white status-pill treatment that sits
+          on top of a hero photo (not the page background), so it deliberately doesn't participate in
+          light/dark theming — the same raw <code>rgba(232,163,58,.92)</code> / <code>#4A3400</code> pair was
+          copy-pasted across three files.</p></div>
+        <div class="card"><h4><code>statTile</code></h4><p>Purple/blue/gold categorical colors for admin and
+          vendor KPI icon tiles — distinguishes tiles by hue the way a chart's series colors would, separate
+          from the brand-semantic green/orange.</p></div>
+      </div>
+    </section>
+
+    <section class="doc" id="type">
+      <div class="eyebrow">06 — Foundations</div>
+      <h2 class="sec-title">Typography</h2>
+      <p class="sec-sub">One display face, one body face, everywhere. No mixing beyond these two — this
+        document's own token names use a monospace utility face, which is the one deliberate exception
+        (code/token legibility, not brand voice).</p>
+
+      <div class="grid grid-2" style="margin-bottom:22px;">
+        <div class="card"><h4 style="font-family:var(--display); font-size:20px; font-weight:800;">Bricolage Grotesque</h4><p>Display — headings, eyebrow labels, prices, stat values. Bold, slightly quirky, editorial.</p></div>
+        <div class="card"><h4 style="font-family:var(--body); font-size:20px; font-weight:700;">Hanken Grotesk</h4><p>Body — everything else. Clean, compact, highly legible at small UI sizes.</p></div>
+      </div>
+
+      <h3 class="h">Type scale</h3>
+      <div class="type-row"><span class="tok">hero / 38·800</span><span class="sample" style="font-size:38px; font-weight:800;">Find your people</span></div>
+      <div class="type-row"><span class="tok">section / 28·700</span><span class="sample" style="font-size:28px; font-weight:700;">What's happening next</span></div>
+      <div class="type-row"><span class="tok">card / 20·700</span><span class="sample" style="font-size:20px; font-weight:700;">Badminton — Tuesday 7:30pm</span></div>
+      <div class="type-row"><span class="tok">label / 15·600</span><span class="sample" style="font-size:15px; font-weight:600; font-family:var(--body);">Group size</span></div>
+      <div class="type-row"><span class="tok">eyebrow / 11.5·700</span><span class="sample" style="font-size:11.5px; font-weight:700; letter-spacing:.09em; text-transform:uppercase; color:var(--muted-light); font-family:var(--body);">Upcoming</span></div>
+      <p class="body" style="margin-top:16px;"><code>hero</code> is for a page's own <code>&lt;h1&gt;</code> only.
+        Everything one level below a page title uses <code>section</code> — this scale intentionally has four
+        steps, not eight; HelloCircle doesn't run long-form article content that would justify a denser one.</p>
+    </section>
+
+    <section class="doc" id="grid">
+      <div class="eyebrow">07 — Foundations</div>
+      <h2 class="sec-title">Grid &amp; layout</h2>
+      <p class="sec-sub">Disciplined, Swiss-influenced, with room for the landing page to run more expressive
+        photography inside the same container width.</p>
+      <ul class="list">
+        <li class="body">Max content width: <b>1440px</b>, centered, 24px page gutters below 900px.</li>
+        <li class="body">Detail pages: an 8-column-equivalent main content column against a 4-column-equivalent
+          decision rail (<code>1.6fr / 1fr</code> in practice) — see §Detail page pattern.</li>
+        <li class="body">Discovery grids: 3 or 4 cards per row on desktop, collapsing to a horizontal scroll or
+          single column under 860px.</li>
+        <li class="body">Breakpoints: <code class="mono">mobile 640 · tablet 860 · tabletWide 900 · desktop 1024</code>.
+          One stray value (<code>560px</code>) exists in <code>index.css</code> with no corresponding token —
+          tracked in §Deprecation.</li>
+      </ul>
+    </section>
+
+    <section class="doc" id="spacing">
+      <div class="eyebrow">08 — Foundations</div>
+      <h2 class="sec-title">Spacing</h2>
+      <p class="sec-sub">A 4px-based scale. Whitespace is the first tool for separating content — dividers
+        second, cards/surfaces only when a section genuinely needs elevation, per §Radius.</p>
+      <div class="twrap"><table>
+        <tr><th>Token</th><th>Value</th><th>Typical use</th></tr>
+        <tr><td class="mono">space.1</td><td class="mono">4px</td><td>Icon-to-label gaps</td></tr>
+        <tr><td class="mono">space.2</td><td class="mono">8px</td><td>Chip/badge internal gaps</td></tr>
+        <tr><td class="mono">space.3</td><td class="mono">12px</td><td>Form field gaps</td></tr>
+        <tr><td class="mono">space.4</td><td class="mono">16px</td><td>Card padding</td></tr>
+        <tr><td class="mono">space.5</td><td class="mono">24px</td><td>Card-to-card grid gaps</td></tr>
+        <tr><td class="mono">space.6</td><td class="mono">32px</td><td>Section-internal rhythm</td></tr>
+        <tr><td class="mono">space.7</td><td class="mono">48px</td><td>Section gap</td></tr>
+        <tr><td class="mono">space.8</td><td class="mono">64px</td><td>Major page section</td></tr>
+        <tr><td class="mono">space.9</td><td class="mono">96px</td><td>Hero / landing-scale rhythm</td></tr>
+      </table></div>
+    </section>
+
+    <section class="doc" id="radius">
+      <div class="eyebrow">09 — Foundations</div>
+      <h2 class="sec-title">Radius, border, shadow</h2>
+      <p class="sec-sub">A deliberately small radius system, plus a governance note: 194 call sites still use a
+        raw number that already has a token.</p>
+      <div class="grid grid-3" style="margin-bottom:8px;">
+        <div class="card"><div style="width:100%;height:44px;background:var(--green-bg);border-radius:10px;margin-bottom:10px;"></div><h4>control — 10px</h4><p>Inputs, buttons</p></div>
+        <div class="card"><div style="width:100%;height:44px;background:var(--green-bg);border-radius:16px;margin-bottom:10px;"></div><h4>card — 16px</h4><p>Cards, panels</p></div>
+        <div class="card"><div style="width:100%;height:44px;background:var(--green-bg);border-radius:999px;margin-bottom:10px;"></div><h4>pill — 999px</h4><p>Badges, chips, avatars</p></div>
+      </div>
+      <p class="body">Borders are the primary structuring tool: a subtle 1px <code>border</code> by default,
+        <code>borderStrong</code> for interactive/selected states. Elevation stays restrained — most cards are
+        border-only or border-plus-a-hairline-shadow; stronger elevation (<code>shadow-lift</code>) is reserved
+        for menus, dialogs, and floating actions, never a resting card.</p>
+      <div class="callout warn" style="margin-top:14px;"><b>Governance gap:</b> <code>lint-tokens.mjs</code>
+        currently reports <b>194</b> raw <code>borderRadius: 10 / 16 / 999</code> literals that already have a
+        token. This is mechanical, low-risk cleanup — see §Roadmap Phase 2.</div>
+    </section>
+
+    <section class="doc" id="icons">
+      <div class="eyebrow">10–11 — Foundations</div>
+      <h2 class="sec-title">Iconography &amp; photography</h2>
+      <div class="grid grid-2">
+        <div>
+          <h3 class="h" style="margin-top:0;">Iconography</h3>
+          <p class="body">One hand-authored icon set (<code>components/icons.tsx</code>), consistent stroke
+            weight throughout. Icons clarify, they don't decorate — location, calendar, people, duration, save,
+            share. No icon-per-line-of-text.</p>
+        </div>
+        <div>
+          <h3 class="h" style="margin-top:0;">Photography</h3>
+          <p class="body">Real activity and place photography is a primary brand asset — candid, Irish,
+            naturally lit. The diagonal-stripe placeholder gradient (<code>#E6EEE3</code>/<code>#DDE8DA</code>)
+            stands in when no photo exists yet, currently hand-copied into 7+ card components
+            <span class="tag tag-backlog">candidate for a shared pattern</span>.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- COMPONENTS ============================================== -->
+    <section class="doc" id="buttons">
+      <div class="eyebrow">12 — Components</div>
+      <h2 class="sec-title">Button system</h2>
+      <p class="sec-sub">Five variants, strict hierarchy. Never more than one dominant primary per decision
+        area.</p>
+      <div class="demo">
+        <button class="btn btn-primary">I'm in</button>
+        <button class="btn btn-orange">Join waitlist</button>
+        <button class="btn btn-dark">Continue</button>
+        <button class="btn btn-ghost">Invite friend</button>
+        <button class="btn btn-danger">Leave plan</button>
+      </div>
+      <div class="twrap"><table>
+        <tr><th>Variant</th><th>Fill</th><th>Use</th></tr>
+        <tr><td class="mono">primary</td><td>Green</td><td>The one dominant action — "I'm in", "Book", "Join Circle"</td></tr>
+        <tr><td class="mono">orange</td><td>Orange</td><td>Urgency-adjacent actions only — "Join waitlist"; never a routine save</td></tr>
+        <tr><td class="mono">dark</td><td>Near-black</td><td>Neutral strong action outside the green/orange semantic — wizard "Continue"</td></tr>
+        <tr><td class="mono">ghost</td><td>Outline</td><td>Secondary — "Invite friend", "Back", "Save"</td></tr>
+        <tr><td class="mono">danger</td><td>Text-only, red</td><td>Real destructive actions — "Leave plan", "Cancel booking"</td></tr>
+      </table></div>
+    </section>
+
+    <section class="doc" id="forms">
+      <div class="eyebrow">13 — Components</div>
+      <h2 class="sec-title">Input &amp; form system</h2>
+      <p class="sec-sub">One field shape everywhere — same height, border, focus, and error treatment. Search
+        gets a distinct larger variant; nothing else earns a one-off.</p>
+      <div style="max-width:340px;">
+        <label style="display:block; font-size:12px; font-weight:600; color:var(--muted); margin-bottom:6px;">What do you want to do?</label>
+        <input style="width:100%; padding:11px 13px; border:1px solid var(--border-strong); border-radius:11px; font-size:14px; background:var(--surface); color:var(--text);" placeholder="e.g. Play badminton tonight" readonly>
+      </div>
+      <p class="body" style="margin-top:14px;">Use a persistent label wherever the field could be ambiguous;
+        the placeholder gives an example, it never replaces the label.</p>
+    </section>
+
+    <section class="doc" id="chips">
+      <div class="eyebrow">14 — Components</div>
+      <h2 class="sec-title">Chip &amp; badge system</h2>
+      <p class="sec-sub">Four roles that should not look identical to each other.</p>
+      <div class="demo">
+        <span class="chip active">Badminton</span>
+        <span class="chip">Tennis</span>
+        <span class="chip">Football</span>
+      </div>
+      <p class="body">Shown: <b>filter chips</b> (the only variant currently built as a shared component —
+        active/inactive toggle). §Deprecation flags the missing attribute/status/quick-intent variants the
+        source brief calls for as an open primitive gap, not yet built.</p>
+    </section>
+
+    <section class="doc" id="status">
+      <div class="eyebrow">15 — Components</div>
+      <h2 class="sec-title">Status &amp; participation language</h2>
+      <p class="sec-sub">The single most important consistency surface in the product — this pass built
+        <code>AvailabilityBadge</code> specifically because three files disagreed on it.</p>
+      <div class="demo">
+        <span class="badge badge-open">4 spots available</span>
+        <span class="badge badge-urgent">1 spot left</span>
+        <span class="badge badge-full">Full</span>
+        <span class="badge badge-urgent">Waitlist</span>
+        <span class="badge badge-joined">You're in ✓</span>
+      </div>
+      <div class="twrap"><table>
+        <tr><th>State</th><th>Color</th><th>Copy pattern</th></tr>
+        <tr><td class="mono">open</td><td>Green</td><td>"N spots available"</td></tr>
+        <tr><td class="mono">urgent</td><td>Orange</td><td>"1 spot left" / "1 player needed" — ≤2 remaining by default</td></tr>
+        <tr><td class="mono">full</td><td>Muted, not red</td><td>"Full" — unavailable isn't an error</td></tr>
+        <tr><td class="mono">waitlist</td><td>Orange</td><td>"Waitlist"</td></tr>
+        <tr><td class="mono">joined</td><td>Green</td><td>"You're in ✓"</td></tr>
+      </table></div>
+      <p class="body" style="margin-top:14px;">Before this pass, "full" rendered in <code>colors.danger</code>
+        (red) in one file's session list and <code>colors.muted</code> (grey) in the same file's hero badge.
+        Unavailable is a neutral fact, not a failure — danger red is reserved for real errors.</p>
+    </section>
+
+    <section class="doc" id="cards">
+      <div class="eyebrow">16 — Components</div>
+      <h2 class="sec-title">Card family &amp; participant stack</h2>
+      <p class="sec-sub">Not one generic card reused everywhere — a family with shared structure, domain-specific emphasis.</p>
+      <div class="grid grid-2">
+        <div class="card">
+          <div style="font-size:11px; font-weight:700; color:var(--orange-dark); letter-spacing:.04em; text-transform:uppercase; margin-bottom:6px;">2 players needed</div>
+          <h4 style="margin-bottom:4px;">Five-a-side · Tonight 7:30pm</h4>
+          <p style="margin-bottom:10px;">Dublin 8 · 1.8 km</p>
+          <div class="avatar-stack">
+            <span class="avatar a1">JK</span><span class="avatar a2">MO</span><span class="avatar a3">SB</span>
+            <span class="avatar plus">+4</span>
+          </div>
+        </div>
+        <div class="card">
+          <div style="font-size:11px; font-weight:700; color:var(--green-text); letter-spacing:.04em; text-transform:uppercase; margin-bottom:6px;">Circle</div>
+          <h4 style="margin-bottom:4px;">Sunday Runners</h4>
+          <p style="margin-bottom:10px;">Next: Sat · 09:00 · Phoenix Park</p>
+          <div class="avatar-stack">
+            <span class="avatar a2">CN</span><span class="avatar a3">RL</span><span class="avatar a1">TF</span>
+            <span class="avatar plus">+12</span>
+          </div>
+        </div>
+      </div>
+      <p class="body" style="margin-top:16px;"><b>ParticipantStack</b> — overlapping avatars, a 2px surface-colored
+        ring, a "+N" overflow tile — is now one shared primitive instead of hand-duplicated code. It's the
+        product's own signature visual element: participation made visible, not decorative.</p>
+    </section>
+
+    <section class="doc" id="inventory">
+      <div class="eyebrow">— Components</div>
+      <h2 class="sec-title">Shared component inventory</h2>
+      <div class="twrap"><table>
+        <tr><th>Component</th><th>Lives in</th><th>Status</th></tr>
+        <tr><td class="mono">Button / LinkButton</td><td class="footprint">ui.tsx</td><td><span class="tag tag-keep">Keep</span></td></tr>
+        <tr><td class="mono">Card</td><td class="footprint">ui.tsx</td><td><span class="tag tag-keep">Keep</span></td></tr>
+        <tr><td class="mono">StatusBadge</td><td class="footprint">ui.tsx</td><td><span class="tag tag-keep">Keep — listing moderation status only</span></td></tr>
+        <tr><td class="mono">AvailabilityBadge</td><td class="footprint">ui.tsx</td><td><span class="tag tag-fixed">New this pass</span></td></tr>
+        <tr><td class="mono">ParticipantStack</td><td class="footprint">ui.tsx</td><td><span class="tag tag-fixed">New this pass</span></td></tr>
+        <tr><td class="mono">SectionHeader</td><td class="footprint">SectionHeader.tsx</td><td><span class="tag tag-fixed">Generalized this pass</span></td></tr>
+        <tr><td class="mono">BackLink</td><td class="footprint">BackLink.tsx</td><td><span class="tag tag-keep">Keep — adoption widened this pass</span></td></tr>
+        <tr><td class="mono">Chip</td><td class="footprint">Chip.tsx</td><td><span class="tag tag-backlog">Filter variant only — 3 more variants open</span></td></tr>
+        <tr><td class="mono">Drawer / ConfirmDialog / NavSidebar</td><td class="footprint">ui.tsx</td><td><span class="tag tag-keep">Keep</span></td></tr>
+        <tr><td class="mono">DashboardTopPanel / StatTile / Tabs</td><td class="footprint">ui.tsx</td><td><span class="tag tag-keep">Keep</span></td></tr>
+        <tr><td class="mono">SinglePinMap</td><td class="footprint">SinglePinMap.tsx</td><td><span class="tag tag-keep">Keep — adoption widened this pass</span></td></tr>
+      </table></div>
+    </section>
+
+    <!-- PATTERNS ============================================== -->
+    <section class="doc" id="nav">
+      <div class="eyebrow">17 — Patterns</div>
+      <h2 class="sec-title">Navigation</h2>
+      <p class="sec-sub">Desktop header and mobile tab bar mostly agree; two real gaps remain.</p>
+      <div class="twrap"><table>
+        <tr><th>Desktop header</th><th>Mobile tab bar</th><th>Status</th></tr>
+        <tr><td>Explore ▾ (centres, clubs, games, adventures, experiences)</td><td>Explore sheet — same 5 items</td><td><span class="tag tag-keep">Match</span></td></tr>
+        <tr><td>Circles</td><td>Circles</td><td><span class="tag tag-keep">Match</span></td></tr>
+        <tr><td>My Life</td><td>My Life</td><td><span class="tag tag-keep">Match</span></td></tr>
+        <tr><td>Logo → Home (icon click)</td><td>Home (labeled tab)</td><td><span class="tag tag-backlog">Asymmetric</span></td></tr>
+        <tr><td>Create (icon + dropdown)</td><td>Create (labeled tab, same sheet)</td><td><span class="tag tag-backlog">Asymmetric</span></td></tr>
+        <tr><td>Ask HelloCircle (hidden ≤1024px, buried in hamburger)</td><td>— absent —</td><td><span class="tag tag-p1">Gap</span></td></tr>
+      </table></div>
+    </section>
+
+    <section class="doc" id="detail">
+      <div class="eyebrow">18 — Patterns</div>
+      <h2 class="sec-title">Detail page pattern</h2>
+      <p class="sec-sub">Main column for understanding, right rail for the decision — the pattern is real on
+        two of five detail pages and should extend to the rest.</p>
+      <div class="grid grid-2">
+        <div class="card"><h4>Main — understanding</h4><p>About, facilities/what's included, accessibility, location map, related programs/games.</p></div>
+        <div class="card"><h4>Rail — decision</h4><p>Price, availability, the one primary CTA, trust bullets. Sticky on desktop.</p></div>
+      </div>
+      <p class="body" style="margin-top:16px;"><code>CentreDetail</code> and <code>ClubDetail</code> already
+        implement this split cleanly (and both gained a map embed and shared <code>Button</code> this pass).
+        <code>ProgramDetail</code> collapses to a single centered column — its decision (the enroll form) scrolls
+        away on a long schedule instead of staying reachable. <code>HostProfile</code> and <code>ProviderProfile</code>
+        are legitimately decision-less (they're profiles, not transactions) so a single column is correct there
+        — three shapes total, not one pattern with variations. <span class="tag tag-backlog">ProgramDetail rail
+        migration is open</span>.</p>
+    </section>
+
+    <section class="doc" id="states">
+      <div class="eyebrow">19 — Patterns</div>
+      <h2 class="sec-title">Empty, loading, error, success</h2>
+      <div class="grid grid-2">
+        <div class="card"><h4>Empty</h4><p>Headline, one-line explanation, a primary action ("Add my interest", "Start something"). <code>EmptyState</code> is shared but bypassed by hand-rolled dashed boxes in FreeTimeMode/MakeItHappen <span class="tag tag-backlog">open</span>.</p></div>
+        <div class="card"><h4>Loading</h4><p>Shape-matched skeletons (<code>CardSkeleton</code>, <code>ListingDetailSkeleton</code>, <code>RowSkeleton</code>) — never a generic spinner for page content.</p></div>
+        <div class="card"><h4>Error</h4><p>Inline for forms, a banner for page-level failures. Direct language: "Connection failed. Please try again," never "Oops!"</p></div>
+        <div class="card"><h4>Success</h4><p>A toast for a small action; a contextual success state ("You're in! · Sat 09:00 · View plan") for a major one. No confetti by default.</p></div>
+      </div>
+    </section>
+
+    <section class="doc" id="mobile">
+      <div class="eyebrow">20 — Patterns</div>
+      <h2 class="sec-title">Mobile pattern</h2>
+      <p class="sec-sub">Same typography, status language, cards, chips, and CTA vocabulary as desktop — the
+        layout adapts, the product doesn't change.</p>
+      <p class="body">The one real gap: none of the five detail pages have a sticky bottom action bar on
+        mobile — the price/CTA rail just becomes a normal block at the end of the content once the layout
+        collapses under 900px (<code>.sticky-aside</code> is explicitly <code>position: static</code> there).
+        <code>GameJoinCard.tsx</code>'s own <code>MobileJoinBar</code> is the one existing implementation of the
+        pattern this should generalize into. <span class="tag tag-p0">P0</span></p>
+    </section>
+
+    <section class="doc" id="admin">
+      <div class="eyebrow">21 — Patterns</div>
+      <h2 class="sec-title">Admin &amp; vendor pattern</h2>
+      <p class="sec-sub">Denser than consumer, same foundations underneath.</p>
+      <p class="body">Vendor and Admin dashboards already share real structure —
+        <code>DashboardTopPanel</code>, <code>NavSidebar</code>, <code>StatTile</code>,
+        <code>Tabs</code> — not just a similar look. This pass named the one drifting piece (KPI icon-tile
+        colors, now <code>statTile.*</code>) and fixed two "Save changes" buttons that had drifted onto orange
+        fill. Tables share one style throughout (<code>tableStyle</code>/<code>thStyle</code>/<code>tdStyle</code>
+        in <code>ui.tsx</code>) — no second table library, no per-page reinvention.</p>
+    </section>
+
+    <section class="doc" id="signatures">
+      <div class="eyebrow">22 — Patterns</div>
+      <h2 class="sec-title">Signature patterns</h2>
+      <p class="sec-sub">What should make a HelloCircle screen recognizable with the logo hidden.</p>
+      <div class="twrap"><table>
+        <tr><th>Pattern</th><th>Rule</th></tr>
+        <tr><td>Eyebrow + headline</td><td>Small uppercase label, then a bold display heading — <code>SectionHeader</code>, now shared beyond Home</td></tr>
+        <tr><td>Participant stack</td><td>Overlapping avatars + "N going" — always paired with real text, never decorative alone</td></tr>
+        <tr><td>Need-state language</td><td>"1 player needed" / "2 spots left" — orange, consistent placement, one urgency threshold (<code>availabilityFromSpots</code>)</td></tr>
+        <tr><td>"I'm in"</td><td>Casual plan participation only — never a formal booking, Circle membership, or payment</td></tr>
+        <tr><td>"Join Circle"</td><td>Circle membership specifically — not "Join", not "Follow"</td></tr>
+        <tr><td>"Add my interest"</td><td>Demand capture when no inventory exists yet</td></tr>
+        <tr><td>"Start something"</td><td>Lightweight creation — the alternative to a generic "Create Event"</td></tr>
+        <tr><td>Warm canvas + green action + orange urgency</td><td>The whole product's color logic in one sentence</td></tr>
+      </table></div>
+      <div class="quote">A user should be able to predict what "I'm in" does before ever tapping it — that
+        predictability is the actual product, not the pill shape it's drawn in.</div>
+    </section>
+
+    <!-- GOVERNANCE ============================================== -->
+    <section class="doc" id="tokens">
+      <div class="eyebrow">23 — Governance</div>
+      <h2 class="sec-title">Design token specification</h2>
+      <div class="twrap"><table>
+        <tr><th>Category</th><th>Source</th><th>Status</th></tr>
+        <tr><td>Color</td><td class="footprint">theme.ts colors + index.css</td><td><span class="tag tag-keep">Mature</span></td></tr>
+        <tr><td>Typography</td><td class="footprint">theme.ts fonts + type</td><td><span class="tag tag-keep">Mature</span></td></tr>
+        <tr><td>Spacing</td><td class="footprint">theme.ts space</td><td><span class="tag tag-backlog">Defined, not yet migrated to call sites</span></td></tr>
+        <tr><td>Radius</td><td class="footprint">theme.ts radius</td><td><span class="tag tag-backlog">194 raw literals remain — tracked</span></td></tr>
+        <tr><td>Breakpoints</td><td class="footprint">theme.ts breakpoints</td><td><span class="tag tag-backlog">One stray value (560px) undocumented</span></td></tr>
+        <tr><td>Z-index</td><td class="footprint">theme.ts zIndex</td><td><span class="tag tag-fixed">New this pass</span> — ui.tsx migrated, app-wide sweep open</td></tr>
+        <tr><td>photoOverlay / statTile</td><td class="footprint">theme.ts</td><td><span class="tag tag-fixed">New this pass</span></td></tr>
+      </table></div>
+    </section>
+
+    <section class="doc" id="deprecation">
+      <div class="eyebrow">24 — Governance</div>
+      <h2 class="sec-title">Deprecation list</h2>
+      <div class="twrap"><table>
+        <tr><th>Old pattern</th><th>Use instead</th></tr>
+        <tr><td>Hand-rolled <code>&lt;button&gt;</code> with inline primary/ghost styling</td><td><code>&lt;Button variant="primary"|"ghost"&gt;</code></td></tr>
+        <tr><td>Hand-rolled back-chevron link</td><td><code>&lt;BackLink&gt;</code></td></tr>
+        <tr><td>Ad hoc eyebrow + <code>&lt;h2&gt;</code> + <code>&lt;p&gt;</code> triple</td><td><code>&lt;SectionHeader&gt;</code></td></tr>
+        <tr><td>Duplicated overlapping-avatar markup</td><td><code>&lt;ParticipantStack&gt;</code></td></tr>
+        <tr><td>Raw <code>colors.danger</code> or ad hoc grey for "Full"</td><td><code>&lt;AvailabilityBadge state="full"&gt;</code></td></tr>
+        <tr><td>Raw <code>rgba(232,163,58,.92)</code> / <code>#4A3400</code></td><td><code>photoOverlay.goldBg</code> / <code>.goldText</code></td></tr>
+        <tr><td>Raw purple/blue/gold stat-tile hexes</td><td><code>statTile.purple</code> / <code>.blue</code> / <code>.gold</code></td></tr>
+        <tr><td>orange-fill <code>Button</code> for a routine save</td><td><code>variant="primary"</code> (green)</td></tr>
+        <tr><td><code>/compare</code> route</td><td>Folded into <code>/browse/centres</code> — already redirects</td></tr>
+      </table></div>
+    </section>
+
+    <section class="doc" id="page-matrix">
+      <div class="eyebrow">25 — Governance</div>
+      <h2 class="sec-title">Page consistency matrix</h2>
+      <div class="twrap"><table>
+        <tr><th>Page</th><th>Compliance</th><th>Status this pass</th></tr>
+        <tr><td>CentreDetail</td><td>High</td><td><span class="tag tag-fixed">Migrated</span></td></tr>
+        <tr><td>ClubDetail</td><td>High</td><td><span class="tag tag-fixed">Migrated</span></td></tr>
+        <tr><td>BookingFlow</td><td>Med</td><td><span class="tag tag-fixed">Button/BackLink adopted</span></td></tr>
+        <tr><td>ExperienceDetail</td><td>High</td><td><span class="tag tag-fixed">Bug fixed</span></td></tr>
+        <tr><td>Circles</td><td>High</td><td><span class="tag tag-fixed">Headers unified</span></td></tr>
+        <tr><td>NotFound</td><td>High</td><td><span class="tag tag-fixed">Migrated</span></td></tr>
+        <tr><td>GameDetail / GameJoinCard</td><td>High</td><td><span class="tag tag-fixed">CTA logic merged</span></td></tr>
+        <tr><td>AdminDashboard / VendorOverview</td><td>High</td><td><span class="tag tag-fixed">Palette named</span></td></tr>
+        <tr><td>Home</td><td>Low, by design</td><td><span class="tag tag-p2">Deliberate local system — polish only</span></td></tr>
+        <tr><td>RegistrationFlow</td><td>Med</td><td><span class="tag tag-backlog">Open — CTA verb, Button adoption</span></td></tr>
+        <tr><td>ProgramDetail</td><td>High components, Med layout</td><td><span class="tag tag-backlog">Open — rail migration</span></td></tr>
+        <tr><td>ForgotPassword / ResetPassword / VendorSignup / AcceptInvite / Onboarding</td><td>Low</td><td><span class="tag tag-backlog">Open — AuthShell adoption</span></td></tr>
+        <tr><td>Landing (client/src/landing/*)</td><td>N/A — separate system</td><td><span class="tag tag-backlog">Open, large</span></td></tr>
+      </table></div>
+    </section>
+
+    <section class="doc" id="component-matrix">
+      <div class="eyebrow">26 — Governance</div>
+      <h2 class="sec-title">Component consistency matrix</h2>
+      <div class="twrap"><table>
+        <tr><th>Component</th><th>Variants found</th><th>Standard</th></tr>
+        <tr><td>Button</td><td>5 shared + per-page hand-rolled copies</td><td>5 named variants — no new ones without a documented reason</td></tr>
+        <tr><td>Availability status</td><td>3 independent color schemes</td><td><code>AvailabilityBadge</code> — one scheme</td></tr>
+        <tr><td>Avatar stack</td><td>2 hand-duplicated copies</td><td><code>ParticipantStack</code></td></tr>
+        <tr><td>Section header</td><td>Home-only, then ad hoc per page</td><td><code>SectionHeader</code>, app-wide</td></tr>
+        <tr><td>Chip</td><td>1 built (filter), 3 called for and missing</td><td>Attribute/status/quick-intent variants — open</td></tr>
+        <tr><td>Game join verb</td><td>2 disagreeing rules (list vs detail)</td><td><code>gameCta.ts</code> — one rule</td></tr>
+      </table></div>
+    </section>
+
+    <section class="doc" id="roadmap">
+      <div class="eyebrow">27 — Governance</div>
+      <h2 class="sec-title">Migration roadmap</h2>
+      <p class="sec-sub">Never all at once — the project's own <code>lint-tokens.mjs</code> already says this
+        explicitly. Each phase below is independently shippable and independently verifiable.</p>
+      <div class="twrap"><table>
+        <tr><th>Phase</th><th>Scope</th><th>Status</th></tr>
+        <tr><td>1 — Foundations</td><td>Tokens, dark mode, spacing/type/radius/z-index scales</td><td><span class="tag tag-fixed">Done</span></td></tr>
+        <tr><td>2 — Core primitives</td><td>ParticipantStack, AvailabilityBadge, SectionHeader, gameCta</td><td><span class="tag tag-fixed">Done</span></td></tr>
+        <tr><td>3 — First wave of product pages</td><td>CentreDetail, ClubDetail, BookingFlow, NotFound, Circles, ExperienceDetail, admin/vendor stat tiles</td><td><span class="tag tag-fixed">Done</span></td></tr>
+        <tr><td>4 — Remaining core consumer pages</td><td>RegistrationFlow, ProgramDetail rail, Home.tsx polish, FreeTimeMode/MakeItHappen empty states</td><td><span class="tag tag-backlog">Open</span></td></tr>
+        <tr><td>5 — Auth &amp; places/booking</td><td>AuthShell adoption for 5 orphan pages, sticky mobile CTA bar, 194 raw-radius sweep</td><td><span class="tag tag-backlog">Open</span></td></tr>
+        <tr><td>6 — Landing, host/partner/admin polish</td><td>Landing token unification (large), nav asymmetry, chip variant expansion</td><td><span class="tag tag-backlog">Open</span></td></tr>
+      </table></div>
+    </section>
+
+    <section class="doc" id="qa">
+      <div class="eyebrow">28 — Governance</div>
+      <h2 class="sec-title">Design QA checklist</h2>
+      <ul class="list">
+        <li class="body">☐ Every button is <code>&lt;Button&gt;</code>/<code>&lt;LinkButton&gt;</code> or has a documented reason not to be</li>
+        <li class="body">☐ No new raw hex — reach for an existing <code>colors.*</code> token, or name a new one if the value is genuinely distinct and repeated</li>
+        <li class="body">☐ <code>npm run lint:tokens --workspace client</code> (via <code>node scripts/lint-tokens.mjs</code>) passes with no new failures</li>
+        <li class="body">☐ Availability/status copy goes through <code>AvailabilityBadge</code>, not a fresh color decision</li>
+        <li class="body">☐ CTA verb matches §Signature patterns — one verb per action type, checked against the page it links to/from</li>
+        <li class="body">☐ Section headers use <code>SectionHeader</code> unless the section is a distinct colored panel with its own eyebrow tint</li>
+        <li class="body">☐ Checked in both light and dark mode</li>
+        <li class="body">☐ Verified against the running dev server, not just <code>tsc --noEmit</code></li>
+      </ul>
+    </section>
+
+    <section class="doc" id="definition">
+      <div class="eyebrow">29–30 — Close</div>
+      <h2 class="sec-title">Final visual language definition</h2>
+      <p class="body" style="font-size:16px; line-height:1.75; color:var(--text);">HelloCircle uses a warm
+        Swiss-editorial design language built around real activity photography, structured typography,
+        disciplined grids, compact participation metadata, green action states, restrained orange urgency, and
+        people-centered language. Its interface prioritizes what people are doing next, who is joining, and how
+        to participate, using generous whitespace and minimal decoration rather than traditional dashboard UI.</p>
+      <div class="divider"></div>
+      <p class="body">The test that matters: open five random HelloCircle screens, hide the logo. Do the buttons
+        behave the same? Does "I'm in" mean what you'd guess? Are the status colors predictable? After this
+        pass, the foundations and a first wave of pages pass that test. The rest is a tracked, prioritized,
+        incremental migration — not a gap pretending to be finished.</p>
+    </section>
+  </main>
+</div>
+
+<footer class="doc">
+  Compiled from a live audit of the running codebase (branch <code>v4-0</code>) plus four unification commits
+  applied in this pass. Token names, component names, and file paths are exact — verify against
+  <code>client/src/theme.ts</code>, <code>client/src/components/ui.tsx</code>, and
+  <code>client/scripts/lint-tokens.mjs</code> before citing a number here as current.
+</footer>
+
+<script>
+  // Scroll-spy for the section rail — active state only, no page logic.
+  (function(){
+    var links = Array.prototype.slice.call(document.querySelectorAll('.rail a'));
+    var sections = links.map(function(a){ return document.querySelector(a.getAttribute('href')); }).filter(Boolean);
+    function onScroll(){
+      var y = window.scrollY + 120;
+      var current = sections[0];
+      sections.forEach(function(s){ if (s.offsetTop <= y) current = s; });
+      links.forEach(function(a){ a.classList.toggle('active', a.getAttribute('href') === '#' + current.id); });
+    }
+    document.addEventListener('scroll', onScroll, { passive: true });
+    onScroll();
+  })();
+</script>
+</body>
+</html>
