@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { ApiError, createRegistrationCheckout, fetchClub, fetchClubSessions, fetchHousehold, fetchMyPasses, joinClubWaitlist, validateCoupon, PLATFORM_FEE_RATE, VAT_RATE } from "../api";
+import { BackLink } from "../components/BackLink";
 import { Chip } from "../components/Chip";
 import { useGuest } from "../GuestContext";
 import type { ClubSession, HouseholdMember, Pass } from "../types";
@@ -10,7 +11,7 @@ import { Button, PageSpinner } from "../components/ui";
 import { AGE_GROUPS } from "../constants";
 import { useMyStuff } from "../MyStuffContext";
 import { priceLabel } from "../priceLabel";
-import { CheckIcon, ChevronLeftIcon, CloseIcon } from "../components/icons";
+import { CheckIcon, CloseIcon } from "../components/icons";
 import { colors, fonts } from "../theme";
 import { fallbackCopy } from "../copy";
 import type { Club } from "../types";
@@ -43,7 +44,7 @@ function blankForm(): RegForm {
 
 const inputStyle: React.CSSProperties = {
   width: "100%", padding: "12px 14px", border: `1px solid ${colors.inputBorder}`, borderRadius: 12,
-  fontSize: 15, background: "#fff", color: colors.text, outline: "none",
+  fontSize: 15, background: colors.surface, color: colors.text, outline: "none",
 };
 const labelStyle: React.CSSProperties = { display: "block", fontSize: 13, fontWeight: 600, color: colors.muted, margin: "0 0 6px" };
 
@@ -234,7 +235,7 @@ export function RegistrationFlow() {
                 ? `Covered by your pass — one credit used. We've emailed ${form.email || "you"} the details.`
                 : `Pay €${confirmedTotalEuro.toFixed(2)} in cash at the club — no online payment needed. We've emailed ${form.email || "you"} the details.`}
           </p>
-          <div style={{ background: "#fff", border: `1px solid ${colors.border}`, borderRadius: 18, padding: 24, textAlign: "left", marginBottom: 24 }}>
+          <div style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 18, padding: 24, textAlign: "left", marginBottom: 24 }}>
             <div style={{ fontWeight: 700, fontSize: 18, marginBottom: 2 }}>{club.name}</div>
             <div style={{ color: colors.mutedLight, fontSize: 14, marginBottom: 16 }}>{club.sport}</div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
@@ -257,12 +258,8 @@ export function RegistrationFlow() {
             </div>
           </div>
           <div style={{ display: "flex", gap: 12, justifyContent: "center", flexWrap: "wrap" }}>
-            <button onClick={() => navigate("/bookings")} style={{ background: colors.orange, color: "#fff", border: "none", borderRadius: 12, padding: "13px 22px", fontWeight: 700, fontSize: 15, cursor: "pointer" }}>
-              View my bookings
-            </button>
-            <button onClick={() => navigate("/")} style={{ background: "#fff", color: colors.text, border: `1px solid ${colors.borderStrong}`, borderRadius: 12, padding: "13px 22px", fontWeight: 600, fontSize: 15, cursor: "pointer" }}>
-              Back home
-            </button>
+            <Button variant="orange" onClick={() => navigate("/bookings")}>View my bookings</Button>
+            <Button variant="ghost" onClick={() => navigate("/")}>Back home</Button>
           </div>
         </section>
       </div>
@@ -272,13 +269,11 @@ export function RegistrationFlow() {
   return (
     <div style={{ animation: "fadeUp .3s ease both" }}>
       <section className="section-pad" style={{ maxWidth: 920, margin: "0 auto", padding: "26px 24px 80px" }}>
-        <button onClick={back} style={{ display: "inline-flex", alignItems: "center", background: "none", border: "none", color: colors.muted, fontWeight: 600, fontSize: 14, cursor: "pointer", padding: 0, marginBottom: 20 }}>
-          <ChevronLeftIcon size={14} style={{ marginRight: 4 }} /> {step > 1 ? "Back a step" : "Back to club"}
-        </button>
+        <BackLink onClick={back}>{step > 1 ? "Back a step" : "Back to club"}</BackLink>
         <Stepper labels={["Your child", "Contacts", "Medical", "Review & pay"]} current={step} accent="orange" />
 
         <div className="grid-responsive" style={{ display: "grid", gridTemplateColumns: "1.5fr 1fr", gap: 32, alignItems: "start" }}>
-          <div style={{ background: "#fff", border: `1px solid ${colors.border}`, borderRadius: 18, padding: 28 }}>
+          <div style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 18, padding: 28 }}>
             {step === 1 && (
               <>
                 <h2 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 23, margin: "0 0 18px", letterSpacing: "-.01em" }}>
@@ -391,7 +386,7 @@ export function RegistrationFlow() {
                 />
                 <label style={{ display: "flex", gap: 12, alignItems: "flex-start", cursor: "pointer", background: colors.bg, border: `1px solid ${colors.border}`, borderRadius: 12, padding: 14 }}>
                   <input type="checkbox" checked={form.consent} onChange={(e) => set("consent", e.target.checked)} style={{ width: 18, height: 18, marginTop: 2, accentColor: colors.orange, flex: "none" }} />
-                  <span style={{ fontSize: 14, color: "#3B423C", lineHeight: 1.45 }}>
+                  <span style={{ fontSize: 14, color: colors.textSoft, lineHeight: 1.45 }}>
                     I consent to my child taking part in club activities and confirm the information provided is
                     accurate. I understand photos may be taken at club events.
                   </span>
@@ -475,13 +470,9 @@ export function RegistrationFlow() {
                             placeholder="e.g. WELCOME10"
                             style={{ ...inputStyle, textTransform: "uppercase" }}
                           />
-                          <button
-                            onClick={applyCoupon}
-                            disabled={couponChecking || !couponInput.trim()}
-                            style={{ flex: "none", background: colors.dark, color: "#fff", border: "none", borderRadius: 12, padding: "0 20px", fontWeight: 700, fontSize: 14, cursor: "pointer", opacity: couponChecking ? 0.6 : 1 }}
-                          >
+                          <Button variant="dark" onClick={applyCoupon} disabled={couponChecking || !couponInput.trim()} style={{ flex: "none" }}>
                             {couponChecking ? "Checking…" : "Apply"}
-                          </button>
+                          </Button>
                         </div>
                         {couponError && <p style={{ color: colors.danger, fontSize: 13, margin: "8px 0 0" }}>{couponError}</p>}
                       </div>
@@ -525,17 +516,14 @@ export function RegistrationFlow() {
             {!clubFull && (
             <div style={{ display: "flex", gap: 12, marginTop: 26 }}>
               {step > 1 && (
-                <button onClick={prev} style={{ background: "#fff", color: colors.text, border: `1px solid ${colors.borderStrong}`, borderRadius: 12, padding: "13px 20px", fontWeight: 600, fontSize: 15, cursor: "pointer" }}>
-                  Back
-                </button>
+                <Button variant="ghost" onClick={prev}>Back</Button>
               )}
-              <button
+              <Button
+                variant="orange"
                 onClick={next}
-                disabled={submitting}
-                style={{
-                  flex: 1, background: colors.orange, color: "#fff", border: "none", borderRadius: 12, padding: "13px 20px",
-                  fontWeight: 700, fontSize: 15, cursor: "pointer", opacity: ready && !submitting ? 1 : 0.45, pointerEvents: ready && !submitting ? "auto" : "none",
-                }}
+                disabled={submitting || !ready}
+                full
+                style={{ flex: 1 }}
               >
                 {step === 4
                   ? submitting
@@ -543,17 +531,17 @@ export function RegistrationFlow() {
                     : usePass
                       ? "Redeem pass credit"
                       : form.trial
-                        ? "Book free trial"
+                        ? "Register for free trial"
                         : isCash
                           ? `Confirm registration — pay €${(totalCents / 100).toFixed(2)} on arrival`
                           : `Continue to pay €${(totalCents / 100).toFixed(2)}`
                   : "Continue"}
-              </button>
+              </Button>
             </div>
             )}
           </div>
 
-          <div className="sticky-aside" style={{ position: "sticky", top: 90, background: "#fff", border: `1px solid ${colors.border}`, borderRadius: 18, padding: 22 }}>
+          <div className="sticky-aside" style={{ position: "sticky", top: 90, background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 18, padding: 22 }}>
             <Photo
               src={club.image}
               alt={club.name}
