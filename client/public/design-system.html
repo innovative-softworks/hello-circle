@@ -222,6 +222,15 @@
       <a href="#signatures">Signature patterns</a>
     </div>
     <div class="rail-group">
+      <div class="rail-label">Cards &amp; Listings</div>
+      <a href="#card-inventory">Card inventory</a>
+      <a href="#metadata-matrix">Metadata matrix</a>
+      <a href="#cta-matrix-2">CTA matrix</a>
+      <a href="#card-status-matrix">Status matrix</a>
+      <a href="#save-button">Shared SaveButton</a>
+      <a href="#card-backlog">Card backlog</a>
+    </div>
+    <div class="rail-group">
       <div class="rail-label">Governance</div>
       <a href="#tokens">Token specification</a>
       <a href="#deprecation">Deprecation list</a>
@@ -245,8 +254,9 @@
         Swiss structure carrying warm, human, local content.</p>
       <div class="meta-strip">
         <span><b>167</b> files audited across consumer, booking, vendor, admin and auth surfaces</span>
-        <span><b>90+</b> files unified across 11 commits</span>
+        <span><b>100+</b> files unified across 16 commits</span>
         <span><b>0</b> raw-radius call sites remain — lint-tokens.mjs is clean</span>
+        <span><b>1</b> real cross-device save-sync bug found and fixed</span>
       </div>
     </header>
 
@@ -754,6 +764,106 @@
       </table></div>
       <div class="quote">A user should be able to predict what "I'm in" does before ever tapping it — that
         predictability is the actual product, not the pill shape it's drawn in.</div>
+    </section>
+
+    <!-- CARDS & LISTINGS ============================================== -->
+    <section class="doc" id="card-inventory">
+      <div class="eyebrow">Cards &amp; Listings</div>
+      <h2 class="sec-title">Card inventory</h2>
+      <p class="sec-sub">13 distinct discovery/listing card components audited. The goal was never one
+        universal card — it's shared structure (image → context/status → title → metadata → participation →
+        price → CTA → save) with domain-specific emphasis, and predictable formatter/behavior logic underneath
+        regardless of how a given card chooses to lay it out.</p>
+      <div class="twrap"><table>
+        <tr><th>Card</th><th>Entity</th><th>Emphasis</th><th>Click behavior</th></tr>
+        <tr><td>GameCard / JoinGameCard <span class="footprint">Games.tsx</span></td><td>Game/Plan</td><td>People + availability</td><td>Title + CTA only</td></tr>
+        <tr><td>CentreCard</td><td>Place</td><td>Facility + availability + price</td><td>Whole card</td></tr>
+        <tr><td>ClubCard</td><td>Club</td><td>Sport + location + next session</td><td>Whole card</td></tr>
+        <tr><td>CircleDiscoveryCard</td><td>Circle</td><td>Community + next activity</td><td>Title/meta only</td></tr>
+        <tr><td>CirclePlanCard</td><td>Circle plan</td><td>People + availability</td><td>Whole card</td></tr>
+        <tr><td>UpcomingPlanCard</td><td>Game (My Life)</td><td>People + availability</td><td>Whole card</td></tr>
+        <tr><td>ExperienceCard / ExperienceBrowseCard</td><td>Adventure/Experience</td><td>Experience + difficulty + duration</td><td>Mixed (see backlog)</td></tr>
+        <tr><td>DiscoverCard <span class="footprint">DiscoverRow.tsx</span></td><td>Mixed feed</td><td>Time + status + join</td><td>Whole card</td></tr>
+        <tr><td>RelatedCard <span class="footprint">GameRelated.tsx</span></td><td>Game (related rail)</td><td>People + availability</td><td>Whole card</td></tr>
+        <tr><td>DestinationCard <span class="footprint">Home.tsx</span></td><td>Mixed preview</td><td>Editorial/visual</td><td>Whole card</td></tr>
+      </table></div>
+      <p class="body" style="margin-top:14px;"><b>Kept as domain-specific components</b> rather than collapsed
+        into one — per §41's own warning against a single over-configured component. What changed underneath:
+        every card's date/price/availability/save logic now calls the same shared functions instead of
+        independently reimplementing them.</p>
+    </section>
+
+    <section class="doc" id="metadata-matrix">
+      <div class="eyebrow">Cards &amp; Listings</div>
+      <h2 class="sec-title">Metadata matrix</h2>
+      <div class="twrap"><table>
+        <tr><th>Entity</th><th>Required</th><th>Optional</th><th>Never on card</th></tr>
+        <tr><td>Game/Plan</td><td>date/time, location, participants</td><td>price, skill level</td><td>full description</td></tr>
+        <tr><td>Circle</td><td>name, area, next plan</td><td>member count, host verified</td><td>full member list</td></tr>
+        <tr><td>Adventure/Experience</td><td>date, location, difficulty · duration</td><td>elevation, equipment</td><td>full itinerary</td></tr>
+        <tr><td>Place</td><td>name, facility, area/distance, price</td><td>rating, capacity</td><td>full address</td></tr>
+        <tr><td>Club</td><td>name, sport, area, next session</td><td>age/level, trial availability</td><td>full session schedule</td></tr>
+      </table></div>
+    </section>
+
+    <section class="doc" id="cta-matrix-2">
+      <div class="eyebrow">Cards &amp; Listings</div>
+      <h2 class="sec-title">CTA matrix</h2>
+      <div class="twrap"><table>
+        <tr><th>Entity/state</th><th>Primary CTA</th><th>Status</th></tr>
+        <tr><td>Plan/Game available</td><td>I'm in</td><td><span class="tag tag-fixed">Unified — DiscoverRow's "Join now" fixed</span></td></tr>
+        <tr><td>Plan/Game joined</td><td>View plan</td><td><span class="tag tag-keep">Consistent</span></td></tr>
+        <tr><td>Plan/Game full</td><td>Join waitlist</td><td><span class="tag tag-keep">Consistent</span></td></tr>
+        <tr><td>Circle</td><td>Join Circle</td><td><span class="tag tag-fixed">Unified — was Join/Follow in one card</span></td></tr>
+        <tr><td>Adventure/Experience</td><td>View adventure / View experience</td><td><span class="tag tag-fixed">Fixed — was generic "View details"</span></td></tr>
+        <tr><td>Place</td><td>Check availability</td><td><span class="tag tag-keep">Consistent</span></td></tr>
+        <tr><td>Club</td><td>Register my child</td><td><span class="tag tag-keep">Consistent</span></td></tr>
+      </table></div>
+    </section>
+
+    <section class="doc" id="card-status-matrix">
+      <div class="eyebrow">Cards &amp; Listings</div>
+      <h2 class="sec-title">Status matrix</h2>
+      <p class="sec-sub">One source of truth now: <code>formatAvailability()</code> /
+        <code>formatCircleAvailability()</code> in <code>formatters.ts</code>, paired with
+        <code>AvailabilityBadge</code>/<code>availabilityFromSpots()</code> in <code>ui.tsx</code> for color.
+        Before this pass, 6+ card components independently reimplemented this with drifting thresholds (≤1/≤2/≤3)
+        and wording ("spots left" vs "spots available" vs "more welcome" used inconsistently within the same
+        entity type).</p>
+      <div class="twrap"><table>
+        <tr><th>State</th><th>Game/Plan wording</th><th>Circle wording</th><th>Color</th></tr>
+        <tr><td>Open</td><td>"N spots available"</td><td>"N more welcome"</td><td>Green</td></tr>
+        <tr><td>Urgent (≤2 Game / ≤3 Circle)</td><td>"N spots left"</td><td>"N spots left"</td><td>Orange</td></tr>
+        <tr><td>Full</td><td>"Full"</td><td>"Full"</td><td>Muted</td></tr>
+        <tr><td>Needs people (pending_participants)</td><td>"N more to confirm"</td><td>—</td><td>Orange</td></tr>
+        <tr><td>Joined</td><td>"You're in"</td><td>"You're in"</td><td>Green</td></tr>
+      </table></div>
+    </section>
+
+    <section class="doc" id="save-button">
+      <div class="eyebrow">Cards &amp; Listings</div>
+      <h2 class="sec-title">Shared SaveButton — a real bug fix, not just dedup</h2>
+      <p class="sec-sub">Six independently hand-rolled heart buttons collapsed into one
+        <code>components/SaveButton.tsx</code> — but the more important fix was behavioral, not visual.</p>
+      <div class="callout">Before this pass, <code>DiscoverRow.tsx</code>'s card was the only one that synced a
+        signed-in resident's save to the server. <code>CentreCard</code>, <code>ClubCard</code>,
+        <code>CirclePlanCard</code>, <code>Games.tsx</code>'s <code>JoinGameCard</code>, and
+        <code>ExperienceKindBrowse</code>'s browse card all wrote to <code>localStorage</code> only — a
+        resident favouriting a centre from a discovery grid silently never reached their account or synced
+        across devices, while the identical action from the homepage's "Happening today" row did. Every card
+        now shares <code>useSavedState()</code>, the one correct implementation.</div>
+    </section>
+
+    <section class="doc" id="card-backlog">
+      <div class="eyebrow">Cards &amp; Listings</div>
+      <h2 class="sec-title">Card backlog — flagged, not blindly executed</h2>
+      <p class="sec-sub">Two real findings deliberately left untouched this pass, since fixing them without
+        visual verification (no browser available this session) risks a regression I can't catch.</p>
+      <div class="twrap"><table>
+        <tr><th>Item</th><th>Why it's open</th></tr>
+        <tr><td>Card image heights: 120/130/132/140/150/160px across six components, no shared ratio token</td><td>Changing any of these shifts real card proportions across live grids — needs a deliberate ratio decision (§4's 16:10 recommendation) verified visually, not a mechanical sweep like the radius-token fix</td></tr>
+        <tr><td>Click-target inconsistency: GameCard/JoinGameCard/CircleDiscoveryCard/ExperienceBrowseCard only make the title text + CTA clickable (card body is dead space); most other cards are fully clickable</td><td>Making the whole card body clickable while a CTA button sits inside it needs each card's stopPropagation wiring checked by hand — real risk of double-navigation or a broken CTA click if rushed</td></tr>
+      </table></div>
     </section>
 
     <!-- GOVERNANCE ============================================== -->
