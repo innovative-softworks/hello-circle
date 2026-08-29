@@ -19,7 +19,7 @@ import { Button, Card, PageSpinner } from "../components/ui";
 import { isFavorite, toggleFavorite } from "../favorites";
 import { useGuest } from "../GuestContext";
 import { dateLabel } from "../euro";
-import { colors, fonts, maxWidth } from "../theme";
+import { colors, fonts, maxWidth, photoOverlay } from "../theme";
 import type { Game } from "../types";
 
 // Self-serve check-in only makes sense in a real window around the game's
@@ -226,8 +226,8 @@ export function GameDetail() {
                 <span
                   style={{
                     display: "inline-flex", alignItems: "center", gap: 6, borderRadius: 999, padding: "6px 12px", fontSize: 13, fontWeight: 700,
-                    background: full ? "rgba(255,255,255,.92)" : "rgba(232,163,58,.92)",
-                    color: full ? colors.muted : "#4A3400",
+                    background: full ? photoOverlay.whiteBg : photoOverlay.goldBg,
+                    color: full ? colors.muted : photoOverlay.goldText,
                   }}
                 >
                   {pending ? "Needs players" : full ? "Full" : `${game.spotsLeft} spot${game.spotsLeft === 1 ? "" : "s"} left`}

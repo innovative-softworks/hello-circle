@@ -71,6 +71,20 @@ export const fonts = {
 
 export const maxWidth = 1440;
 
+/** Photo-overlay badge treatment (urgency/status pills sitting on top of a
+ * hero image, e.g. "3 spots left" over a game/experience photo) —
+ * deliberately NOT a CSS-var token: it tints over arbitrary photography, not
+ * the page background, so it doesn't participate in light/dark theming the
+ * way `colors.*` does. Was a repeated raw `rgba(232,163,58,.92)`/`#4A3400`
+ * pair (goldBg/goldText) across Games.tsx, GameDetail.tsx,
+ * ExperienceDetail.tsx, CircleDiscoveryCard.tsx, ExperienceKindBrowse.tsx,
+ * DiscoverRow.tsx, plus a `rgba(255,255,255,.92)` neutral variant. */
+export const photoOverlay = {
+  goldBg: "rgba(232,163,58,.92)",
+  goldText: "#4A3400",
+  whiteBg: "rgba(255,255,255,.92)",
+} as const;
+
 // --- Design tokens (UI/UX plan phases 2 & 6) --------------------------------
 // Previously nothing governed spacing/type/radius choices beyond hand-picked
 // inline pixel values per call site — 309 borderRadius declarations across

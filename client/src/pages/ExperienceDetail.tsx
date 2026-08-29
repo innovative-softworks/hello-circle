@@ -13,7 +13,7 @@ import { Button, Card, Drawer, PageSpinner, inputStyle, labelStyle } from "../co
 import { isFavorite, toggleFavorite } from "../favorites";
 import { useGuest } from "../GuestContext";
 import { dateLabel } from "../euro";
-import { colors, fonts, maxWidth } from "../theme";
+import { colors, fonts, maxWidth, photoOverlay } from "../theme";
 import { isValidEmail } from "../validate";
 import type { Experience, ExperienceSessionSlot } from "../types";
 
@@ -305,6 +305,11 @@ export function ExperienceDetail() {
   const joinHeadlineColor = !session ? colors.muted : full ? colors.muted : session.spotsLeft <= 3 ? colors.orangeDark : colors.text;
   const anyAvailable = experience.sessions.some((s) => s.spotsLeft > 0);
   const registerLabel = experience.kind === "adventure" ? "Book this adventure" : "Register for this experience";
+  // The step-2 submit verb ("Book"/"Register") tracks the same per-kind
+  // choice as `registerLabel` above, so a free experience's flow doesn't
+  // open on "Register for this experience" and then submit as "Book for
+  // free" — same action, same verb, both steps.
+  const submitVerb = experience.kind === "adventure" ? "Book" : "Register";
 
   const bookingForm = (
     <>
@@ -319,7 +324,7 @@ export function ExperienceDetail() {
               disabled={sFull}
               style={{
                 textAlign: "left",
-                background: selected ? colors.greenBg : "#fff",
+                background: selected ? colors.greenBg : colors.surface,
                 border: `1.5px solid ${selected ? colors.green : colors.border}`,
                 borderRadius: 12,
                 padding: "12px 14px",
@@ -334,7 +339,7 @@ export function ExperienceDetail() {
                 <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><CalendarIcon size={13} /> {s.date}</span>
                 <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><ClockIcon size={13} /> {s.time}</span>
               </span>
-              <span style={{ fontSize: 12, fontWeight: 700, color: sFull ? colors.danger : colors.greenText }}>
+              <span style={{ fontSize: 12, fontWeight: 700, color: sFull ? colors.muted : colors.greenText }}>
                 {sFull ? "Full" : `${s.spotsLeft} left`}
               </span>
             </button>
@@ -376,7 +381,7 @@ export function ExperienceDetail() {
           {error && <p style={{ color: colors.danger, fontSize: 13, margin: "12px 0 0" }}>{error}</p>}
           <div style={{ marginTop: 16 }}>
             <Button onClick={submit} disabled={submitting} full>
-              {submitting ? "Please wait…" : experience.priceCents * form.partySize ? `Continue to pay €${((experience.priceCents * form.partySize) / 100).toFixed(2)}` : "Book for free"}
+              {submitting ? "Please wait…" : experience.priceCents * form.partySize ? `Continue to pay €${((experience.priceCents * form.partySize) / 100).toFixed(2)}` : `${submitVerb} for free`}
             </Button>
           </div>
           {!(experience.priceCents * form.partySize) && (
@@ -418,7 +423,7 @@ export function ExperienceDetail() {
               contentStyle={{ padding: 16, display: "flex", alignItems: "flex-start", justifyContent: "space-between" }}
             >
               {session ? (
-                <span style={{ display: "inline-flex", alignItems: "center", gap: 6, background: "rgba(255,255,255,.92)", color: colors.text, borderRadius: 999, padding: "6px 12px", fontSize: 13, fontWeight: 700 }}>
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 6, background: photoOverlay.whiteBg, color: colors.text, borderRadius: 999, padding: "6px 12px", fontSize: 13, fontWeight: 700 }}>
                   <CalendarIcon size={13} /> {dateLabel(session.date)} · {session.time}
                 </span>
               ) : <span />}
@@ -426,8 +431,8 @@ export function ExperienceDetail() {
                 <span
                   style={{
                     display: "inline-flex", alignItems: "center", gap: 6, borderRadius: 999, padding: "6px 12px", fontSize: 13, fontWeight: 700,
-                    background: full ? "rgba(255,255,255,.92)" : "rgba(232,163,58,.92)",
-                    color: full ? colors.muted : "#4A3400",
+                    background: full ? photoOverlay.whiteBg : photoOverlay.goldBg,
+                    color: full ? colors.muted : photoOverlay.goldText,
                   }}
                 >
                   {full ? "Full" : `${session.spotsLeft} spot${session.spotsLeft === 1 ? "" : "s"} left`}
@@ -497,7 +502,7 @@ export function ExperienceDetail() {
             {description && (
               <div style={{ marginBottom: 28 }}>
                 <SectionHeading title={`About this ${experience.kind}`} />
-                <p style={{ margin: 0, fontSize: 15, color: "#3B423C", lineHeight: 1.6, whiteSpace: "pre-wrap" }}>{visibleDescription}</p>
+                <p style={{ margin: 0, fontSize: 15, color: colors.textSoft, lineHeight: 1.6, whiteSpace: "pre-wrap" }}>{visibleDescription}</p>
                 {descriptionIsLong && (
                   <button
                     onClick={() => setDescriptionExpanded((v) => !v)}
@@ -572,13 +577,13 @@ export function ExperienceDetail() {
                   {experience.equipmentProvided && (
                     <div>
                       <div style={factLabelStyle}>We provide</div>
-                      <div style={{ fontSize: 14, fontWeight: 600, marginTop: 3, lineHeight: 1.4, color: "#3B423C" }}>{experience.equipmentProvided}</div>
+                      <div style={{ fontSize: 14, fontWeight: 600, marginTop: 3, lineHeight: 1.4, color: colors.textSoft }}>{experience.equipmentProvided}</div>
                     </div>
                   )}
                   {experience.equipmentRequired && (
                     <div>
                       <div style={factLabelStyle}>You bring</div>
-                      <div style={{ fontSize: 14, fontWeight: 600, marginTop: 3, lineHeight: 1.4, color: "#3B423C" }}>{experience.equipmentRequired}</div>
+                      <div style={{ fontSize: 14, fontWeight: 600, marginTop: 3, lineHeight: 1.4, color: colors.textSoft }}>{experience.equipmentRequired}</div>
                     </div>
                   )}
                 </div>
@@ -647,13 +652,13 @@ export function ExperienceDetail() {
                 {safetyLines.length > 1 ? (
                   <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                     {safetyLines.map((line, i) => (
-                      <div key={i} style={{ display: "flex", alignItems: "flex-start", gap: 9, fontSize: 14, color: "#3B423C", lineHeight: 1.5 }}>
+                      <div key={i} style={{ display: "flex", alignItems: "flex-start", gap: 9, fontSize: 14, color: colors.textSoft, lineHeight: 1.5 }}>
                         <CheckIcon size={14} style={{ color: colors.greenText, flex: "none", marginTop: 3 }} /> {line}
                       </div>
                     ))}
                   </div>
                 ) : (
-                  <p style={{ margin: 0, fontSize: 14, color: "#3B423C", lineHeight: 1.6 }}>{safetyLines[0]}</p>
+                  <p style={{ margin: 0, fontSize: 14, color: colors.textSoft, lineHeight: 1.6 }}>{safetyLines[0]}</p>
                 )}
               </div>
             )}

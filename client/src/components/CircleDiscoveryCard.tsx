@@ -3,7 +3,7 @@ import { AwardIcon, CalendarIcon, RepeatIcon, UsersIcon } from "./icons";
 import { Photo } from "./Photo";
 import { Button, Card } from "./ui";
 import { dateLabel } from "../euro";
-import { colors, fonts } from "../theme";
+import { colors, fonts, photoOverlay } from "../theme";
 import type { Circle } from "../types";
 
 const DAY_MS = 86400000;
@@ -51,8 +51,8 @@ export function CircleDiscoveryCard({ circle, joined, onJoin, onLeave, busy }: {
           {state ? (
             <span
               style={{
-                background: state === "active-now" ? "rgba(232,163,58,.92)" : "rgba(255,255,255,.92)",
-                color: state === "active-now" ? "#4A3400" : colors.text,
+                background: state === "active-now" ? photoOverlay.goldBg : photoOverlay.whiteBg,
+                color: state === "active-now" ? photoOverlay.goldText : colors.text,
                 borderRadius: 999, padding: "4px 11px", fontSize: 11.5, fontWeight: 800, letterSpacing: ".03em", textTransform: "uppercase",
               }}
             >
@@ -60,7 +60,7 @@ export function CircleDiscoveryCard({ circle, joined, onJoin, onLeave, busy }: {
             </span>
           ) : <span />}
           {urgent && (
-            <span style={{ background: "rgba(232,163,58,.92)", color: "#4A3400", borderRadius: 999, padding: "4px 11px", fontSize: 11.5, fontWeight: 800 }}>
+            <span style={{ background: photoOverlay.goldBg, color: photoOverlay.goldText, borderRadius: 999, padding: "4px 11px", fontSize: 11.5, fontWeight: 800 }}>
               {spotsLabel(circle.nextPlan!.spotsLeft)}
             </span>
           )}
