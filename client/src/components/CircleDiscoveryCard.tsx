@@ -31,7 +31,7 @@ export function CircleDiscoveryCard({ circle, joined, onJoin, onLeave, busy }: {
   const open = () => navigate(`/circles/${circle.slug ?? circle.id}`);
 
   return (
-    <Card hover style={{ padding: 0, overflow: "hidden", cursor: "pointer" }} onClick={open}>
+    <Card hover style={{ padding: 0, overflow: "hidden", cursor: "pointer", borderRadius: 18 }} onClick={open}>
       <div>
         <Photo
           src={circle.imageUrl ?? undefined}

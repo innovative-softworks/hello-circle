@@ -42,7 +42,7 @@ export function IntentCaptureForm({
 
   if (!activityLabel.trim()) return null;
 
-  const startUrl = startHref ?? `/games?activity=${encodeURIComponent(activityLabel)}`;
+  const startUrl = startHref ?? `/games/host?activity=${encodeURIComponent(activityLabel)}`;
 
   if (submitted) {
     return (

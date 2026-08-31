@@ -96,7 +96,7 @@ export async function confirmRegistration(ref: string) {
     guestName: `${row.g_first} ${row.g_last}`,
     guestEmail: row.email,
     ref: row.ref,
-    detailsText: `${row.child_first} ${row.child_last} (DOB ${row.dob}) · ${row.team}${row.trial ? " · Trial session" : ""} · €${(row.total_cents / 100).toFixed(2)} total`,
+    detailsText: `${row.dob ? `${row.child_first} ${row.child_last} (DOB ${row.dob}) · ${row.team}` : `${row.child_first} ${row.child_last}`}${row.trial ? " · Trial session" : ""} · €${(row.total_cents / 100).toFixed(2)} total`,
   }).catch((e) => console.error("[notifications] registration notify failed:", e));
 
   if (row.resident_id) await upgradeFavouriteStatus(row.resident_id, "club", row.club_id);

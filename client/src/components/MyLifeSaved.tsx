@@ -33,6 +33,12 @@ export function MyLifeSaved({ favourites }: { favourites: Favourite[] }) {
     <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
       {favourites.slice(0, 3).map((f) => {
         const href = detailHref(f);
+        // When the listing has no real name on file (removed/unresolved),
+        // both name and subtitle fall back to the same generic type label —
+        // showing it twice ("Community centre / Community centre") just
+        // reads as broken, so the second line is dropped instead.
+        const title = f.name ?? LABEL[f.listingType];
+        const subtitle = f.name ? (f.subtitle ?? LABEL[f.listingType]) : null;
         return (
           <button
             key={`${f.listingType}:${f.listingId}`}
@@ -42,16 +48,16 @@ export function MyLifeSaved({ favourites }: { favourites: Favourite[] }) {
           >
             <Photo
               src={f.imageUrl ?? undefined}
-              alt={f.name ?? LABEL[f.listingType]}
+              alt={title}
               ph={colors.panel}
               style={{ width: 44, height: 44, borderRadius: 8, overflow: "hidden", flex: "none" }}
               icon={!f.imageUrl ? <HeartIcon size={14} filled style={{ color: colors.orange }} /> : undefined}
             />
             <div style={{ minWidth: 0, flex: 1 }}>
               <div style={{ fontSize: 13.5, fontWeight: 700, color: colors.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                {f.name ?? LABEL[f.listingType]}
+                {title}
               </div>
-              <div style={{ fontSize: 11.5, color: colors.mutedLight }}>{f.subtitle ?? LABEL[f.listingType]}</div>
+              {subtitle && <div style={{ fontSize: 11.5, color: colors.mutedLight }}>{subtitle}</div>}
             </div>
           </button>
         );

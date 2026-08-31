@@ -4,6 +4,8 @@ import { assertPlatformRole } from "../auth.js";
 import { db } from "../db/index.js";
 import { orgFeatureFlags } from "../db/queries.js";
 import { inClause, ownsListing } from "./vendorHelpers.js";
+import { notifyCentreFollowers, notifyVendorFollowers } from "./follows.js";
+import { toProgramJson, type ProgramRow } from "./programs.js";
 
 // Programs, sessions, attendance (Phase B) — split out of the original
 // single vendor.ts (see CLAUDE.md). See server/src/db/index.ts's
@@ -98,6 +100,17 @@ async function programOwnership(vendorIds: string[], programId: string): Promise
   return { owns: vendorIds.includes(row.vendor_id), requiredRole: row.listingType === "centre" ? "centre_manager" : "facility_manager" };
 }
 
+// Vendor-scoped single-program fetch — unlike GET /programs/:id (public,
+// published-only), this returns a program in any status so a vendor can
+// open their own draft/paused/archived program's manage view right after
+// creating it, before they've published it.
+vendorProgramsRouter.get("/programs/:id", async (req, res) => {
+  const { owns } = await programOwnership(req.vendorIds!, req.params.id);
+  if (!owns) return res.status(403).json({ error: "Not your program" });
+  const row = (await db.prepare(`SELECT * FROM programs WHERE id = ?`).get(req.params.id)) as ProgramRow;
+  res.json(await toProgramJson(row));
+});
+
 vendorProgramsRouter.put("/programs/:id", async (req, res) => {
   const { owns, requiredRole } = await programOwnership(req.vendorIds!, req.params.id);
   if (!owns) return res.status(403).json({ error: "Not your program" });
@@ -171,6 +184,20 @@ vendorProgramsRouter.post("/programs/:id/sessions", async (req, res) => {
       `INSERT INTO program_sessions (id, program_id, date, time, duration_minutes, capacity, instructor_name, room_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .run(id, req.params.id, date, time, durationMinutes ?? 60, capacity ?? null, instructorName ?? "", roomId ?? null);
+
+  // Follow feature — same "everything"-only gating as experiences' own new-
+  // session notify (a new session on an existing listing, not a new listing
+  // going live).
+  const program = (await db.prepare(`SELECT vendor_id as vendorId, title, listing_type as listingType, listing_id as listingId FROM programs WHERE id = ?`).get(req.params.id)) as
+    | { vendorId: string | null; title: string; listingType: "centre" | "club"; listingId: string }
+    | undefined;
+  if (program?.vendorId) {
+    await notifyVendorFollowers(program.vendorId, { title: "New session added", body: `A new session was added for ${program.title} on ${date}.`, ref: id }, "everything");
+  }
+  if (program?.listingType === "centre") {
+    await notifyCentreFollowers(program.listingId, { title: "New session added", body: `A new session was added for ${program.title} on ${date}.`, ref: id });
+  }
+
   res.status(201).json({ id });
 });
 

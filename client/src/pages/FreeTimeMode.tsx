@@ -2,11 +2,10 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { fetchFreeTimeOptions } from "../api";
 import { DiscoverCard } from "../components/DiscoverRow";
-import { BallIcon, ClockIcon, LightbulbIcon, PinIcon } from "../components/icons";
+import { ChevronRightIcon, LightbulbIcon } from "../components/icons";
 import { Button, EmptyState, PageSpinner } from "../components/ui";
 import { BackLink } from "../components/BackLink";
-import { PageTitle } from "../components/PageTitle";
-import { colors, fonts, radius } from "../theme";
+import { colors, fonts } from "../theme";
 import { fallbackCopy } from "../copy";
 import type { DiscoverItem } from "../types";
 
@@ -16,6 +15,17 @@ import type { DiscoverItem } from "../types";
 // discover ranking (GET /discover/free-time reuses the exact same
 // rankScore() as the homepage feed) — no new ranking logic, just a
 // duration → distance → mood front door onto it.
+//
+// Redesign pass — same editorial visual language as /for-venues and the
+// Home.tsx redesign (poster-scale typography, a "/" accent eyebrow, one
+// numbered step tracker) rather than the small centered-card wizard this
+// page used to be. Deliberately overrides PageTitle's shared type.hero
+// scale for the per-step question (not "Free Time Mode" itself, which
+// stays a small persistent eyebrow) — the question is this page's real
+// headline moment, the same call ForVenues/Home already made for their
+// own poster headlines.
+
+const ACCENT = "#FF4A1F";
 
 const DURATIONS = [
   { label: "30 minutes", maxMinutes: 30 },
@@ -40,27 +50,83 @@ const MOODS = [
 
 type Step = "duration" | "distance" | "mood" | "results";
 
-function ChoiceGrid({ options, onPick }: { options: { label: string }[]; onPick: (i: number) => void }) {
+const STEPS: { key: Exclude<Step, "results">; n: string; label: string; question: string }[] = [
+  { key: "duration", n: "01", label: "Time", question: "How much time have you got?" },
+  { key: "distance", n: "02", label: "Distance", question: "How far are you willing to go?" },
+  { key: "mood", n: "03", label: "Mood", question: "What are you in the mood for?" },
+];
+
+// The numbered step tracker — echoes ForVenues' VendorHowItWorks numerals
+// and Home's "01/02" section badges, now doing real work as wizard
+// progress rather than pure decoration.
+function StepTracker({ step }: { step: Step }) {
+  const currentIndex = step === "results" ? STEPS.length : STEPS.findIndex((s) => s.key === step);
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 12 }}>
+    <div style={{ display: "flex", gap: 28, marginBottom: 36 }}>
+      {STEPS.map((s, i) => {
+        const state = i < currentIndex ? "done" : i === currentIndex ? "current" : "upcoming";
+        return (
+          <div key={s.key} style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
+            <span
+              style={{
+                fontFamily: fonts.display,
+                fontWeight: 800,
+                fontSize: 15,
+                color: state === "upcoming" ? colors.borderStrong : ACCENT,
+              }}
+            >
+              {s.n}
+            </span>
+            <span
+              style={{
+                fontSize: 13.5,
+                fontWeight: 700,
+                color: state === "current" ? colors.text : colors.mutedLight,
+                textDecoration: state === "current" ? "underline" : "none",
+                textDecorationColor: ACCENT,
+                textDecorationThickness: 2,
+                textUnderlineOffset: 4,
+              }}
+            >
+              {s.label}
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// Full-width editorial choice rows (ForVenues' ProviderTypeGrid list
+// treatment) rather than the previous grid of small bordered cards — one
+// big, confident tap target per option instead of a dense card grid.
+function ChoiceList({ options, onPick }: { options: { label: string }[]; onPick: (i: number) => void }) {
+  return (
+    <div style={{ borderTop: `1px solid ${colors.border}` }}>
       {options.map((o, i) => (
         <button
           key={o.label}
           onClick={() => onPick(i)}
-          className="btn-hover"
+          className="link-accent"
           style={{
-            background: colors.surface,
-            border: `1px solid ${colors.border}`,
-            borderRadius: radius.card,
-            padding: "22px 18px",
-            fontSize: 16,
-            fontWeight: 700,
-            color: colors.text,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            width: "100%",
+            background: "none",
+            border: "none",
+            borderBottom: `1px solid ${colors.border}`,
+            padding: "22px 4px",
             cursor: "pointer",
-            textAlign: "center",
+            textAlign: "left",
           }}
         >
-          {o.label}
+          <span style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(19px, 2.6vw, 26px)", letterSpacing: "-.01em", color: colors.text }}>
+            {o.label}
+          </span>
+          <span style={{ color: colors.faint, display: "flex", flex: "none" }}>
+            <ChevronRightIcon size={20} />
+          </span>
         </button>
       ))}
     </div>
@@ -140,56 +206,89 @@ export function FreeTimeMode() {
     setError(null);
   };
 
+  const currentMeta = step !== "results" ? STEPS.find((s) => s.key === step) : null;
+
   return (
     <div style={{ animation: "fadeUp .35s ease both" }}>
-      <section className="section-pad" style={{ maxWidth: 720, margin: "0 auto", padding: "36px 24px 80px" }}>
-        {step !== "duration" && (
-          <BackLink onClick={() => setStep(step === "distance" ? "duration" : step === "mood" ? "distance" : "duration")} marginBottom={16}>
+      {/* Utility strip — mirrors /for-venues' hero utility bar: a small
+          persistent page label + a live step readout, before the page's
+          own giant per-step question takes over. */}
+      <div className="section-pad" style={{ maxWidth: 820, margin: "0 auto", padding: "20px 24px 16px" }}>
+        <div
+          className="stack-mobile"
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: 12,
+            borderBottom: `1px solid ${colors.border}`,
+            paddingBottom: 16,
+          }}
+        >
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 8, fontSize: 11.5, fontWeight: 700, letterSpacing: ".09em", textTransform: "uppercase", color: colors.mutedLight }}>
+            <LightbulbIcon size={15} style={{ color: ACCENT }} /> Free Time Mode
+          </span>
+          {step === "results" ? (
+            <button onClick={restart} style={{ background: "none", border: "none", color: colors.text, fontWeight: 700, fontSize: 13.5, cursor: "pointer" }}>
+              Start over
+            </button>
+          ) : (
+            <span style={{ fontSize: 12.5, fontWeight: 700, color: colors.mutedLight }}>
+              Step {STEPS.findIndex((s) => s.key === step) + 1} of {STEPS.length}
+            </span>
+          )}
+        </div>
+      </div>
+
+      <section className="section-pad" style={{ maxWidth: 820, margin: "0 auto", padding: "8px 24px 80px" }}>
+        {step !== "duration" && step !== "results" && (
+          <BackLink onClick={() => setStep(step === "distance" ? "duration" : "distance")} marginBottom={4}>
             Back
           </BackLink>
         )}
 
-        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
-          <LightbulbIcon size={22} style={{ color: colors.orange }} />
-          <PageTitle style={{ margin: 0 }}>Free Time Mode</PageTitle>
-        </div>
-
-        {step === "duration" && (
+        {currentMeta && (
           <>
-            <p style={{ color: colors.mutedLight, fontSize: 15, margin: "0 0 24px", display: "flex", alignItems: "center", gap: 6 }}>
-              <ClockIcon size={15} /> How much time have you got?
-            </p>
-            <ChoiceGrid
-              options={DURATIONS}
-              onPick={(i) => {
-                setMaxMinutes(DURATIONS[i].maxMinutes);
-                setStep("distance");
+            <StepTracker step={step} />
+            <h1
+              style={{
+                fontFamily: fonts.display,
+                fontWeight: 800,
+                fontSize: "clamp(32px, 5vw, 52px)",
+                lineHeight: 1.02,
+                letterSpacing: "-.02em",
+                margin: "0 0 32px",
+                color: colors.text,
               }}
-            />
+            >
+              {currentMeta.question}
+            </h1>
           </>
         )}
+
+        {step === "duration" && <ChoiceList options={DURATIONS} onPick={(i) => { setMaxMinutes(DURATIONS[i].maxMinutes); setStep("distance"); }} />}
 
         {step === "distance" && (
           <>
-            <p style={{ color: colors.mutedLight, fontSize: 15, margin: "0 0 12px", display: "flex", alignItems: "center", gap: 6 }}>
-              <PinIcon size={15} /> How far are you willing to go?
-            </p>
-            {locationError && <p style={{ color: colors.orangeDark, fontSize: 13, margin: "0 0 12px" }}>{locationError}</p>}
-            {locating ? <PageSpinner /> : <ChoiceGrid options={DISTANCES} onPick={handlePickDistance} />}
+            {locationError && <p style={{ color: colors.orangeDark, fontSize: 13, margin: "0 0 16px" }}>{locationError}</p>}
+            {locating ? <PageSpinner /> : <ChoiceList options={DISTANCES} onPick={handlePickDistance} />}
           </>
         )}
 
-        {step === "mood" && (
-          <>
-            <p style={{ color: colors.mutedLight, fontSize: 15, margin: "0 0 24px", display: "flex", alignItems: "center", gap: 6 }}>
-              <BallIcon size={15} /> What are you in the mood for?
-            </p>
-            <ChoiceGrid options={MOODS} onPick={(i) => runSearch(MOODS[i].value)} />
-          </>
-        )}
+        {step === "mood" && <ChoiceList options={MOODS} onPick={(i) => runSearch(MOODS[i].value)} />}
 
         {step === "results" && (
           <>
+            <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: ".09em", textTransform: "uppercase", color: colors.mutedLight, marginBottom: 8 }}>
+              <span style={{ color: ACCENT }} aria-hidden="true">
+                /
+              </span>{" "}
+              Your options
+            </div>
+            <h1 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(28px, 4vw, 42px)", letterSpacing: "-.02em", margin: "0 0 32px", color: colors.text }}>
+              Here's what fits.
+            </h1>
+
             {loading ? (
               <PageSpinner />
             ) : error ? (
@@ -203,16 +302,15 @@ export function FreeTimeMode() {
               />
             ) : (
               <>
-                <p style={{ color: colors.mutedLight, fontSize: 15, margin: "0 0 20px" }}>Here's what fits:</p>
-                <div style={{ display: "flex", flexDirection: "column", gap: 16, alignItems: "center" }}>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))", gap: 16 }}>
                   {options.map((item) => (
-                    <div key={`${item.kind}-${item.id}`} style={{ width: "100%", maxWidth: 320 }}>
-                      <DiscoverCard item={item} isToday={item.date === new Date().toISOString().slice(0, 10)} />
-                    </div>
+                    <DiscoverCard key={`${item.kind}-${item.id}`} item={item} isToday={item.date === new Date().toISOString().slice(0, 10)} />
                   ))}
                 </div>
-                <div style={{ marginTop: 24, textAlign: "center" }}>
-                  <Button variant="ghost" onClick={restart}>Try different filters</Button>
+                <div style={{ marginTop: 32 }}>
+                  <Button variant="ghost" onClick={restart}>
+                    Try different filters
+                  </Button>
                 </div>
               </>
             )}

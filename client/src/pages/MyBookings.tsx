@@ -5,6 +5,7 @@ import {
   cancelRegistration,
   downloadBookingIcs,
   fetchFavourites,
+  fetchMyFollows,
   fetchMyBookings,
   fetchMyCircles,
   fetchMyExperienceBookings,
@@ -22,45 +23,51 @@ import {
   rescheduleBooking,
   verifyGuestLink,
 } from "../api";
+import type { FollowedEntity } from "../api";
 import { ChevronRightIcon, CloseIcon, LightbulbIcon } from "../components/icons";
 import { MonthCalendar } from "../components/MonthCalendar";
-import { MyLifeAchievements } from "../components/MyLifeAchievements";
 import { MyLifeCircles } from "../components/MyLifeCircles";
 import { MyLifeDiscoveryCTA } from "../components/MyLifeDiscoveryCTA";
 import { MyLifeEmptyState } from "../components/MyLifeEmptyState";
-import { MyLifeHero } from "../components/MyLifeHero";
+import { MyLifeHeader } from "../components/MyLifeHeader";
 import { MyLifeInterests } from "../components/MyLifeInterests";
+import { MyLifeNextUp, type NextUpData } from "../components/MyLifeNextUp";
 import { MyLifeRecentActivity } from "../components/MyLifeRecentActivity";
 import { MyLifeRepeatOpportunities } from "../components/MyLifeRepeatOpportunities";
 import { MyLifeRhythm } from "../components/MyLifeRhythm";
+import { MyLifeFollowing } from "../components/MyLifeFollowing";
 import { MyLifeSaved } from "../components/MyLifeSaved";
-import { MyLifeSummary } from "../components/MyLifeSummary";
 import { MyLifeThisMonth } from "../components/MyLifeThisMonth";
 import { MyLifeWaitingFor } from "../components/MyLifeWaitingFor";
+import { ParticipationTimeline, type TimelineRow } from "../components/ParticipationTimeline";
 import { Photo } from "../components/Photo";
 import { PostActivityFeedback } from "../components/PostActivityFeedback";
 import { Button, EmptyState, onActivateProps, RowSkeleton, inputStyle, labelStyle } from "../components/ui";
-import { UpcomingPlanCard } from "../components/UpcomingPlanCard";
 import { dateLabel, euro } from "../euro";
+import { formatDatePill } from "../formatters";
 import { useGuest } from "../GuestContext";
 import { colors, fonts, radius } from "../theme";
 import { AVAILABILITY_OPTIONS } from "../types";
 import type { Circle, Favourite, Game, MyBooking, MyExperienceBooking, MyIntent, MyProgramEnrollment, MyRegistration, ParticipationEntry, ResidentFull, RoutineSuggestion, WaitlistOfferStatus } from "../types";
 
-// My Life (redesign) — participation-first hub. Reused/kept unchanged from
-// the previous "My Bookings" page: the guest magic-link sign-in flow, the
-// find-by-reference recovery flow (both real, load-bearing — confirmation
-// emails link back to this exact route with ?ref=/?token=), and every
-// booking/registration mutation (cancel/reschedule/QR check-in/attendance
-// confirmation/reviews). Account settings (Household, Notifications,
-// Payments, Passes, Receipts, Safety, Help) moved to Profile.tsx — reached
-// via "Edit profile" — rather than sharing equal top billing with
-// participation, per the brief's own explicit instruction.
+// My Life — participation-first home (IA redesign). One purpose: "what am
+// I doing next, what else is coming, what's worth doing again, who/what am
+// I part of". Reused/kept unchanged from the previous "My Bookings" page:
+// the guest magic-link sign-in flow, the find-by-reference recovery flow
+// (both real, load-bearing — confirmation emails link back to this exact
+// route with ?ref=/?token=), and every booking/registration mutation
+// (cancel/reschedule/QR check-in/attendance confirmation/reviews) — all
+// still reachable via "View full activity" below the redesigned hub.
+// Account settings (Household, Notifications, Payments, Passes, Receipts,
+// Safety, Help) live in Profile.tsx, reached via "Edit profile".
+//
+// Explicitly NOT built here: a "people you keep showing up with" module.
+// The app only tracks familiarity as a *count* scoped to one game/Circle
+// (countFamiliarCoParticipants / familiarMembersFor) — there's no endpoint
+// that names a resident's most-frequent co-participants across their whole
+// history. Per the redesign brief's own instruction, an unsupported section
+// is omitted rather than faked.
 
-// Progressive profile completion — a resident who skipped onboarding
-// (interests never set) gets one gentle, dismissible nudge back to it,
-// rather than being asked for everything up front. Dismissal is
-// per-browser and permanent, not "ask again next visit" nagging.
 const INTERESTS_NUDGE_DISMISSED_KEY = "hc_interests_nudge_dismissed";
 
 const cancelledBadgeStyle: React.CSSProperties = { fontSize: 11, fontWeight: 700, color: colors.danger, background: colors.dangerBg, borderRadius: radius.pill, padding: "2px 8px" };
@@ -156,7 +163,7 @@ function BookingRow({
             <RescheduleForm booking={booking} onDone={() => window.location.reload()} />
             {isPast && (
               <div style={{ marginTop: 16 }}>
-                <PostActivityFeedback kind="booking" reference={booking.ref} />
+                <PostActivityFeedback kind="booking" reference={booking.ref} followTarget={{ type: "vendor", id: booking.vendorId }} />
               </div>
             )}
           </div>
@@ -233,7 +240,7 @@ function RegistrationRow({
       {!cancelled && <WaitlistOfferBanner clubId={registration.clubId} />}
       {!cancelled && enoughTimeSinceSignup && (
         <div style={{ marginTop: 12, paddingTop: 12, borderTop: `1px solid ${colors.border}` }}>
-          <PostActivityFeedback kind="registration" reference={registration.ref} />
+          <PostActivityFeedback kind="registration" reference={registration.ref} followTarget={{ type: "vendor", id: registration.vendorId }} />
         </div>
       )}
     </div>
@@ -267,11 +274,6 @@ function GameRow({ game }: { game: Game }) {
   );
 }
 
-// Adventures/Experiences in My Life (post-audit hardening pass) — this
-// booking type existed server-side (GET /experiences/bookings/mine) and had
-// a working fetch function (fetchMyExperienceBookings) but nothing on this
-// page ever called it, so a resident with only an Adventure booking saw the
-// empty state. Modeled on GameRow — a plain click-through card.
 function ExperienceBookingRow({ booking }: { booking: MyExperienceBooking }) {
   const navigate = useNavigate();
   const cancelled = booking.status === "cancelled";
@@ -360,6 +362,19 @@ function ProgramEnrollmentRow({ enrollment }: { enrollment: MyProgramEnrollment 
 
 type LookupResult = { kind: "booking"; data: MyBooking } | { kind: "registration"; data: MyRegistration };
 
+/** One section header used throughout the page's lower, full-width sections
+ * — small "/ EYEBROW" + a display h2, the same Swiss-editorial convention
+ * as the page header and Next Up/Coming Up above it. */
+function SectionHeader({ eyebrow, title, subtitle }: { eyebrow: string; title: string; subtitle?: string }) {
+  return (
+    <div style={{ marginBottom: 18 }}>
+      <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".06em", color: colors.mutedLight, marginBottom: 6 }}>/ {eyebrow}</div>
+      <h2 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(20px,2.4vw,26px)", letterSpacing: "-.01em", margin: subtitle ? "0 0 4px" : 0 }}>{title}</h2>
+      {subtitle && <p style={{ margin: 0, fontSize: 13.5, color: colors.mutedLight }}>{subtitle}</p>}
+    </div>
+  );
+}
+
 export function MyBookings() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -373,15 +388,13 @@ export function MyBookings() {
   const [experienceBookings, setExperienceBookings] = useState<MyExperienceBooking[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // My Life hub data — new fetches, all real, all gated to a signed-in
-  // resident where the endpoint requires one (falls back to empty, same
-  // pattern already used for games/circles above).
   const [residentFull, setResidentFull] = useState<ResidentFull | null>(null);
   const [interestsNudgeDismissed, setInterestsNudgeDismissed] = useState(() => localStorage.getItem(INTERESTS_NUDGE_DISMISSED_KEY) === "1");
   const [routineSuggestions, setRoutineSuggestions] = useState<RoutineSuggestion[]>([]);
   const [intents, setIntents] = useState<MyIntent[]>([]);
   const [participation, setParticipation] = useState<ParticipationEntry[]>([]);
   const [favourites, setFavourites] = useState<Favourite[]>([]);
+  const [follows, setFollows] = useState<FollowedEntity[]>([]);
 
   const [bookingsView, setBookingsView] = useState<"list" | "calendar">("list");
   const [showAllActivity, setShowAllActivity] = useState(false);
@@ -412,6 +425,7 @@ export function MyBookings() {
       fetchMyIntents().then(setIntents).catch(() => setIntents([])),
       fetchMyParticipation().then(setParticipation).catch(() => setParticipation([])),
       fetchFavourites().then(setFavourites).catch(() => setFavourites([])),
+      fetchMyFollows().then(setFollows).catch(() => setFollows([])),
     ]).then(() => setLoading(false));
   };
 
@@ -465,6 +479,7 @@ export function MyBookings() {
     experienceBookings.length === 0;
 
   const today = new Date().toISOString().slice(0, 10);
+  const tomorrow = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
   const timelineRows: { date: string; el: JSX.Element }[] = [
     ...bookings.map((b) => ({
       date: b.date,
@@ -532,50 +547,108 @@ export function MyBookings() {
     }
   };
 
-  // --- "Your next up" (§10-12): games + upcoming bookings combined by
-  // soonest date/time, the very next one elevated into "Tonight" if it's
-  // within 24h. Registrations/program enrollments have no single event
-  // date (ongoing membership, not a dated plan) so they're deliberately
-  // left out of this — they still show up in Recent Activity and the full
-  // activity list below.
-  const upcomingGames = games.filter((g) => g.date >= today && g.status !== "cancelled").sort((a, b) => `${a.date}${a.time}`.localeCompare(`${b.date}${b.time}`));
-  const upcomingBookingsList = bookings.filter((b) => b.date >= today && b.status !== "cancelled").sort((a, b) => `${a.date}${a.time}`.localeCompare(`${b.date}${b.time}`));
+  // --- Next Up / Coming Up: one merged, chronological set of dated plans —
+  // games, centre/room bookings and Adventure bookings. Registrations and
+  // program enrollments have no single dated "next occurrence" (ongoing
+  // membership, not a dated plan), so — same as the previous pass — they're
+  // deliberately left out of this and only appear in "View full activity"
+  // below. Each entity is normalized into one shape so Next Up/Coming Up
+  // don't have to know which table it came from.
+  type NextEntity =
+    | { date: string; time: string; kind: "game"; game: Game }
+    | { date: string; time: string; kind: "booking"; booking: MyBooking }
+    | { date: string; time: string; kind: "experience"; booking: MyExperienceBooking };
 
-  const soonestGame = upcomingGames[0];
-  const soonestBooking = upcomingBookingsList[0];
-  const soonestIsGame = soonestGame && (!soonestBooking || `${soonestGame.date}${soonestGame.time}` <= `${soonestBooking.date}${soonestBooking.time}`);
-  const soonest = soonestIsGame ? soonestGame : soonestBooking;
-  const soonestMs = soonest ? new Date(`${soonest.date}T${"time" in soonest ? soonest.time : "00:00"}:00`).getTime() - Date.now() : Infinity;
-  const tonight = soonest && soonestMs >= 0 && soonestMs <= 24 * 60 * 60 * 1000 ? soonest : null;
+  const upcomingGames = games.filter((g) => g.date >= today && g.status !== "cancelled");
+  const upcomingBookingsList = bookings.filter((b) => b.date >= today && b.status !== "cancelled");
+  const upcomingExperienceBookings = experienceBookings.filter((b) => b.date >= today && b.status !== "cancelled");
 
-  const nextUpGames = (tonight && soonestIsGame ? upcomingGames.slice(1) : upcomingGames).slice(0, 3);
-  const nextUpBookings = (tonight && !soonestIsGame ? upcomingBookingsList.slice(1) : upcomingBookingsList).slice(0, Math.max(0, 3 - nextUpGames.length));
+  const nextEntities: NextEntity[] = [
+    ...upcomingGames.map((game): NextEntity => ({ date: game.date, time: game.time, kind: "game", game })),
+    ...upcomingBookingsList.map((booking): NextEntity => ({ date: booking.date, time: booking.time, kind: "booking", booking })),
+    ...upcomingExperienceBookings.map((booking): NextEntity => ({ date: booking.date, time: booking.time, kind: "experience", booking })),
+  ].sort((a, b) => `${a.date}${a.time}`.localeCompare(`${b.date}${b.time}`));
 
-  // --- Honest personal insight (§22) — real comparison over real dates,
-  // never a competitive ranking. Only shown when both windows have signal.
+  const [nextEntity, ...restEntities] = nextEntities;
+
+  const dayEyebrow = (date: string, time: string): string => {
+    const label = date === today ? "TODAY" : date === tomorrow ? "TOMORROW" : formatDatePill(date);
+    return `${label} · ${time}`;
+  };
+
+  const nextUpData: NextUpData | null = !nextEntity ? null : nextEntity.kind === "game" ? {
+    eyebrow: dayEyebrow(nextEntity.date, nextEntity.time),
+    title: nextEntity.game.activityLabel,
+    subtitle: nextEntity.game.centreName ? `${nextEntity.game.centreName}${nextEntity.game.area ? ` · ${nextEntity.game.area}` : ""}` : (nextEntity.game.locationText || "Location to be confirmed"),
+    going: { joined: nextEntity.game.joined, capacity: nextEntity.game.capacity },
+    priceLabel: null,
+    ctaLabel: "View plan",
+    onCta: () => navigate(`/games/${nextEntity.game.id}`),
+  } : nextEntity.kind === "booking" ? {
+    eyebrow: dayEyebrow(nextEntity.date, nextEntity.time),
+    title: `${nextEntity.booking.centreName}${nextEntity.booking.roomName ? ` — ${nextEntity.booking.roomName}` : ""}`,
+    subtitle: `Ref ${nextEntity.booking.ref}`,
+    going: null,
+    priceLabel: euro(nextEntity.booking.totalCents / 100),
+    ctaLabel: "Manage booking",
+    onCta: () => setShowAllActivity(true),
+  } : {
+    eyebrow: dayEyebrow(nextEntity.date, nextEntity.time),
+    title: nextEntity.booking.title,
+    subtitle: `${nextEntity.booking.partySize} ${nextEntity.booking.partySize === 1 ? "person" : "people"}`,
+    going: null,
+    priceLabel: euro(nextEntity.booking.totalCents / 100),
+    ctaLabel: "View booking",
+    onCta: () => navigate(`/experiences/${nextEntity.booking.experienceId}`),
+  };
+
+  const comingUpRows: TimelineRow[] = restEntities.slice(0, 6).map((entity) => {
+    if (entity.kind === "game") {
+      const g = entity.game;
+      return {
+        key: `g-${g.id}`, date: g.date, kind: "PLAN", title: g.activityLabel,
+        subtitle: `${g.centreName ?? (g.locationText || "Location TBC")} · ${g.time}`,
+        meta: `${g.joined} of ${g.capacity} going`,
+        actionLabel: "View", onAction: () => navigate(`/games/${g.id}`),
+      };
+    }
+    if (entity.kind === "booking") {
+      const b = entity.booking;
+      return {
+        key: `b-${b.ref}`, date: b.date, kind: "BOOKING", title: `${b.centreName}${b.roomName ? ` — ${b.roomName}` : ""}`,
+        subtitle: `${b.time} · Ref ${b.ref}`,
+        meta: euro(b.totalCents / 100),
+        actionLabel: "Manage", onAction: () => setShowAllActivity(true),
+      };
+    }
+    const e = entity.booking;
+    return {
+      key: `eb-${e.ref}`, date: e.date, kind: "ADVENTURE", title: e.title,
+      subtitle: `${e.time} · ${e.partySize} ${e.partySize === 1 ? "person" : "people"}`,
+      meta: euro(e.totalCents / 100),
+      actionLabel: "View", onAction: () => navigate(`/experiences/${e.experienceId}`),
+    };
+  });
+
+  const comingUpTotal = nextEntities.length;
+  const activeIntents = intents.filter((i) => i.status === "active" || i.status === "matched");
+
+  // "Recently" — strictly past-dated participation only (date < today, not
+  // <=). fetchMyParticipation() includes future- *and* today-dated games
+  // too (its own doc comment); Next Up/Coming Up already own anything
+  // dated today-or-later, since a same-day plan is still something to
+  // attend, not something that's happened. Using <= today here would put a
+  // same-day entry in both sections at once — exactly the duplication the
+  // redesign's "one primary place per concept" rule rules out.
+  const recentEntries = participation.filter((e) => e.date < today);
+
   const daysAgo = (iso: string) => Math.round((Date.now() - new Date(`${iso}T00:00:00`).getTime()) / 86400000);
   const last30 = participation.filter((e) => { const d = daysAgo(e.date); return d >= 0 && d < 30; }).length;
   const prev30 = participation.filter((e) => { const d = daysAgo(e.date); return d >= 30 && d < 60; }).length;
 
-  const activeRoutinesCount = routineSuggestions.length;
-  const plansAttendedCount = participation.filter((e) => e.date <= today && e.status !== "cancelled").length;
-  const comingUpCount = upcomingGames.length + upcomingBookingsList.length;
-
-  // Dynamic hero subtitle (My Life redesign v2 §5) — never hardcoded.
-  // Prefers "N things this week" (matches the KPI strip's own "Coming up"
-  // count); falls back to naming the single next plan further out; falls
-  // back again to a plain greeting when nothing's upcoming at all.
-  const weekAheadIso = new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10);
-  const upcomingThisWeekCount = [...upcomingGames, ...upcomingBookingsList].filter((x) => x.date <= weekAheadIso).length;
-  const heroSubtitle = upcomingThisWeekCount > 0
-    ? `You have ${upcomingThisWeekCount} thing${upcomingThisWeekCount === 1 ? "" : "s"} coming up this week.`
-    : soonest
-    ? `Your next plan is ${dateLabel(soonest.date)} at ${soonest.time}.`
-    : "Here's what's happening in your world.";
-
   if (guestLoading || loading) {
     return (
-      <section className="section-pad" style={{ maxWidth: 1240, margin: "0 auto", padding: "36px 24px 80px" }}>
+      <section className="section-pad" style={{ maxWidth: 1440, margin: "0 auto", padding: "36px 24px 80px" }}>
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
           {Array.from({ length: 4 }, (_, i) => <RowSkeleton key={i} />)}
         </div>
@@ -585,240 +658,200 @@ export function MyBookings() {
 
   return (
     <div style={{ animation: "fadeUp .35s ease both" }}>
-      {resident && (
-        <div style={{ maxWidth: 1240, margin: "0 auto", padding: "26px 24px 0" }}>
-          <div style={{ marginBottom: !hasNone ? 16 : 24 }}><MyLifeHero name={resident.name} subtitle={heroSubtitle} /></div>
-          {!hasNone && (
-            <div style={{ marginBottom: 24 }}>
-              <MyLifeSummary plansAttended={plansAttendedCount} circlesCount={circles.length} activeRoutines={activeRoutinesCount} comingUpCount={comingUpCount} />
-            </div>
-          )}
+      {/* Header + account/utility actions share one row so "Edit profile" /
+          "Find a booking" / "Sign out" read as one top-right cluster instead
+          of two disconnected rows. "Find a booking" (guest reference
+          lookup) has to stay reachable even with no resident signed in —
+          confirmation emails link straight back here — so this row always
+          renders, not just alongside MyLifeHeader. */}
+      <div className="section-pad" style={{ maxWidth: 1440, margin: "0 auto", padding: "40px 24px 20px" }}>
+        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 24, flexWrap: "wrap" }}>
+          {resident ? (
+            <MyLifeHeader name={resident.name} comingUpCount={comingUpTotal} circlesActiveCount={circles.length} />
+          ) : <div />}
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+            <Button variant="ghost" onClick={() => setLookupOpen((o) => !o)}>Find a booking</Button>
+            {guestEmail && <Button variant="ghost" onClick={handleSignOut}>Sign out</Button>}
+            {resident && <Button variant="ghost" onClick={() => navigate("/profile")}>Edit profile</Button>}
+          </div>
         </div>
-      )}
-      <div className="grid-responsive" style={{ maxWidth: 1240, margin: "0 auto", padding: `${resident ? 0 : 26}px 24px 80px`, display: "grid", gridTemplateColumns: "minmax(0,2.4fr) minmax(0,1fr)", gap: 30, alignItems: "start" }}>
-        {/* MAIN COLUMN */}
-        <div>
-          {/* Only once MyLifeEmptyState (below) has stopped being the more
-              complete prompt — that component's own "Choose interests" card
-              already covers a fresh, zero-activity account, so showing both
-              at once would be a redundant double-ask for the same thing. */}
-          {!hasNone && resident && residentFull && residentFull.interests.length === 0 && !interestsNudgeDismissed && (
-            <div
-              className="pop-in"
-              style={{
-                background: colors.greenBg, borderRadius: 12, padding: "14px 18px", marginBottom: 24,
-                display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, flexWrap: "wrap",
-              }}
-            >
-              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                <div style={{ width: 34, height: 34, borderRadius: "50%", background: "#fff", color: colors.greenText, display: "flex", alignItems: "center", justifyContent: "center", flex: "none" }}>
-                  <LightbulbIcon size={16} />
-                </div>
-                <div>
-                  <div style={{ fontSize: 14, fontWeight: 700, color: colors.text }}>Tell us what you're into</div>
-                  <div style={{ fontSize: 12.5, color: colors.mutedLight }}>Takes under a minute — makes Explore actually useful.</div>
-                </div>
-              </div>
-              <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-                <Button onClick={() => navigate("/onboarding")}>Get started</Button>
-                <button
-                  onClick={() => {
-                    localStorage.setItem(INTERESTS_NUDGE_DISMISSED_KEY, "1");
-                    setInterestsNudgeDismissed(true);
-                  }}
-                  aria-label="Dismiss"
-                  style={{ background: "none", border: "none", padding: 4, color: colors.mutedLight, cursor: "pointer", display: "flex" }}
-                >
-                  <CloseIcon size={16} />
-                </button>
-              </div>
-            </div>
-          )}
+      </div>
 
-          {verifying && (
-            <div style={{ background: colors.greenBg, color: colors.greenText, borderRadius: 12, padding: "14px 20px", marginBottom: 20, fontSize: 14, fontWeight: 600 }}>
-              Signing you in…
-            </div>
-          )}
-          {verifyError && (
-            <div style={{ background: colors.dangerBg, color: colors.danger, borderRadius: 12, padding: "14px 20px", marginBottom: 20, fontSize: 14 }}>
-              {verifyError}
-            </div>
-          )}
-
-          {!guestEmail && (
-            <div style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 12, padding: "18px 20px", marginBottom: 24, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
+      <div className="section-pad" style={{ maxWidth: 1440, margin: "0 auto", padding: "0 24px 0" }}>
+        {!hasNone && resident && residentFull && residentFull.interests.length === 0 && !interestsNudgeDismissed && (
+          <div
+            className="pop-in"
+            style={{
+              background: colors.greenBg, borderRadius: 12, padding: "14px 18px", marginBottom: 24,
+              display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, flexWrap: "wrap",
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+              <div style={{ width: 34, height: 34, borderRadius: "50%", background: "#fff", color: colors.greenText, display: "flex", alignItems: "center", justifyContent: "center", flex: "none" }}>
+                <LightbulbIcon size={16} />
+              </div>
               <div>
-                <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 2 }}>Sign in to see your life</div>
-                <div style={{ fontSize: 13.5, color: colors.mutedLight }}>Your plans, Circles and history, all in one place.</div>
+                <div style={{ fontSize: 14, fontWeight: 700, color: colors.text }}>Tell us what you're into</div>
+                <div style={{ fontSize: 12.5, color: colors.mutedLight }}>Takes under a minute — makes Explore actually useful.</div>
               </div>
-              <Button onClick={() => navigate("/signin")}>Sign in</Button>
             </div>
-          )}
-          {/* Always reachable, regardless of hasNone — this is exactly the
-              scenario where it matters most: a confirmation email opened on
-              a device with no local client-id match and no signed-in
-              session. Redesign v2 §9/§35 — demoted from a prominent banner
-              between the hero and Your Next Up to a small utility action,
-              since participation (not account admin) should lead. */}
-          <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 18, marginBottom: lookupOpen ? 12 : 20, flexWrap: "wrap" }}>
-            <button
-              onClick={() => setLookupOpen((o) => !o)}
-              style={{ background: "none", border: "none", padding: 0, fontSize: 12.5, fontWeight: 600, color: colors.mutedLight, cursor: "pointer" }}
-            >
-              Find a booking
-            </button>
-            {guestEmail && (
-              <button onClick={handleSignOut} style={{ background: "none", border: "none", color: colors.mutedLight, fontWeight: 600, fontSize: 12.5, cursor: "pointer", padding: 0 }}>
-                Sign out
+            <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+              <Button onClick={() => navigate("/onboarding")}>Get started</Button>
+              <button
+                onClick={() => {
+                  localStorage.setItem(INTERESTS_NUDGE_DISMISSED_KEY, "1");
+                  setInterestsNudgeDismissed(true);
+                }}
+                aria-label="Dismiss"
+                style={{ background: "none", border: "none", padding: 4, color: colors.mutedLight, cursor: "pointer", display: "flex" }}
+              >
+                <CloseIcon size={16} />
               </button>
+            </div>
+          </div>
+        )}
+
+        {verifying && (
+          <div style={{ background: colors.greenBg, color: colors.greenText, borderRadius: 12, padding: "14px 20px", marginBottom: 20, fontSize: 14, fontWeight: 600 }}>
+            Signing you in…
+          </div>
+        )}
+        {verifyError && (
+          <div style={{ background: colors.dangerBg, color: colors.danger, borderRadius: 12, padding: "14px 20px", marginBottom: 20, fontSize: 14 }}>
+            {verifyError}
+          </div>
+        )}
+
+        {!guestEmail && (
+          <div style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 12, padding: "18px 20px", marginBottom: 24, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
+            <div>
+              <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 2 }}>Sign in to see your life</div>
+              <div style={{ fontSize: 13.5, color: colors.mutedLight }}>Your plans, Circles and history, all in one place.</div>
+            </div>
+            <Button onClick={() => navigate("/signin")}>Sign in</Button>
+          </div>
+        )}
+        {lookupOpen && (
+          <div style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 12, padding: "16px 20px", marginBottom: 24 }}>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 10, alignItems: "flex-end" }}>
+              <div style={{ flex: "1 1 160px" }}>
+                <label style={labelStyle}>Reference</label>
+                <input value={lookupRef} onChange={(e) => setLookupRef(e.target.value)} placeholder="HB-123456" style={inputStyle} />
+              </div>
+              <div style={{ flex: "1 1 200px" }}>
+                <label style={labelStyle}>Email</label>
+                <input value={lookupEmail} onChange={(e) => setLookupEmail(e.target.value)} placeholder="you@email.ie" style={inputStyle} />
+              </div>
+              <Button onClick={handleLookup} disabled={lookupLoading || !lookupRef.trim() || !lookupEmail.trim()}>
+                {lookupLoading ? "Searching…" : "Find"}
+              </Button>
+            </div>
+            {lookupError && <div style={{ color: colors.danger, fontSize: 13, marginTop: 10 }}>{lookupError}</div>}
+          </div>
+        )}
+
+        {lookupResult && (
+          <div style={{ marginBottom: 24 }}>
+            {lookupResult.kind === "booking" ? (
+              <BookingRow
+                booking={lookupResult.data}
+                onCancel={() => handleCancelBooking(lookupResult.data.ref, lookupEmail.trim())}
+                cancelling={cancellingRef === lookupResult.data.ref}
+                error={cancelErrors[lookupResult.data.ref]}
+                recovered
+              />
+            ) : (
+              <RegistrationRow
+                registration={lookupResult.data}
+                onCancel={() => handleCancelRegistration(lookupResult.data.ref, lookupEmail.trim())}
+                cancelling={cancellingRef === lookupResult.data.ref}
+                error={cancelErrors[lookupResult.data.ref]}
+                recovered
+              />
             )}
           </div>
-          {lookupOpen && (
-            <div style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 12, padding: "16px 20px", marginBottom: 24 }}>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 10, alignItems: "flex-end" }}>
-                <div style={{ flex: "1 1 160px" }}>
-                  <label style={labelStyle}>Reference</label>
-                  <input value={lookupRef} onChange={(e) => setLookupRef(e.target.value)} placeholder="HB-123456" style={inputStyle} />
-                </div>
-                <div style={{ flex: "1 1 200px" }}>
-                  <label style={labelStyle}>Email</label>
-                  <input value={lookupEmail} onChange={(e) => setLookupEmail(e.target.value)} placeholder="you@email.ie" style={inputStyle} />
-                </div>
-                <Button onClick={handleLookup} disabled={lookupLoading || !lookupRef.trim() || !lookupEmail.trim()}>
-                  {lookupLoading ? "Searching…" : "Find"}
-                </Button>
+        )}
+
+        {hasNone && resident ? (
+          <MyLifeEmptyState />
+        ) : hasNone && !resident ? (
+          <EmptyState icon={<ChevronRightIcon size={20} />} title="Nothing here yet" subtitle="Find a hall, club or plan to get started." action={<Button onClick={() => navigate("/")}>Explore HelloCircle</Button>} />
+        ) : (
+          <>
+            {/* One continuous grid from Next Up through Recently — the right
+                rail is a single item spanning every row (gridRow: "1 / -1"),
+                so it stays sticky across the whole span instead of just the
+                first row. Full-width sections (Do It Again/Interests/
+                Availability) span both columns (gridColumn: "1 / -1") so
+                they stay full width without breaking the grid into
+                separate containers, which would reset the sticky rail. My
+                Circles/Recently stay in column 1 only, lining up under Next
+                Up/Coming Up. Interests/Availability/the final CTA fall
+                outside this grid, unaffected. */}
+            <div className="grid-responsive" style={{ display: "grid", gridTemplateColumns: "minmax(0,2.4fr) minmax(0,1fr)", gap: 30, alignItems: "start", marginBottom: 44 }}>
+              <div style={{ gridColumn: 1 }}>
+                {nextUpData && <div style={{ marginBottom: 36 }}><MyLifeNextUp data={nextUpData} /></div>}
+                {comingUpRows.length > 0 && (
+                  <section>
+                    <SectionHeader eyebrow="COMING UP" title="Coming up" />
+                    <ParticipationTimeline rows={comingUpRows} />
+                  </section>
+                )}
               </div>
-              {lookupError && <div style={{ color: colors.danger, fontSize: 13, marginTop: 10 }}>{lookupError}</div>}
-            </div>
-          )}
 
-          {lookupResult && (
-            <div style={{ marginBottom: 24 }}>
-              {lookupResult.kind === "booking" ? (
-                <BookingRow
-                  booking={lookupResult.data}
-                  onCancel={() => handleCancelBooking(lookupResult.data.ref, lookupEmail.trim())}
-                  cancelling={cancellingRef === lookupResult.data.ref}
-                  error={cancelErrors[lookupResult.data.ref]}
-                  recovered
-                />
-              ) : (
-                <RegistrationRow
-                  registration={lookupResult.data}
-                  onCancel={() => handleCancelRegistration(lookupResult.data.ref, lookupEmail.trim())}
-                  cancelling={cancellingRef === lookupResult.data.ref}
-                  error={cancelErrors[lookupResult.data.ref]}
-                  recovered
-                />
-              )}
-            </div>
-          )}
-
-          {hasNone && resident ? (
-            <MyLifeEmptyState />
-          ) : hasNone && !resident ? (
-            <EmptyState icon={<ChevronRightIcon size={20} />} title="Nothing here yet" subtitle="Find a hall, club or plan to get started." action={<Button onClick={() => navigate("/")}>Explore HelloCircle</Button>} />
-          ) : (
-            <>
-              {tonight && (
-                <div style={{ background: colors.dark, borderRadius: 12, padding: "20px 24px", marginBottom: 24, color: "#fff" }}>
-                  <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: "rgba(255,255,255,.6)", marginBottom: 6 }}>
-                    {soonestMs <= 3 * 60 * 60 * 1000 ? "Starting soon" : "Today"}
+              <div className="sticky-aside" style={{ gridColumn: 2, gridRow: "1 / -1", position: "sticky", top: 90, display: "flex", flexDirection: "column", gap: 18 }}>
+                <MyLifeThisMonth entries={participation} />
+                <MyLifeRhythm entries={participation} />
+                {activeIntents.length > 0 && (
+                  <div style={{ border: `1px solid ${colors.border}`, borderRadius: 12, padding: "16px 18px", background: colors.surface }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".06em", color: colors.mutedLight, marginBottom: 12 }}>WAITING</div>
+                    <MyLifeWaitingFor intents={activeIntents.slice(0, 2)} onChange={loadMyStuff} />
                   </div>
-                  <h2 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 20, margin: "0 0 4px" }}>
-                    {soonestIsGame ? (soonest as Game).activityLabel : `${(soonest as MyBooking).centreName}${(soonest as MyBooking).roomName ? ` — ${(soonest as MyBooking).roomName}` : ""}`}
-                  </h2>
-                  <div style={{ fontSize: 13.5, color: "rgba(255,255,255,.75)", marginBottom: 14 }}>
-                    {soonest!.time}{soonestIsGame && (soonest as Game).centreName ? ` · ${(soonest as Game).centreName}` : ""}
+                )}
+                {favourites.length > 0 && (
+                  <div style={{ border: `1px solid ${colors.border}`, borderRadius: 12, padding: "16px 18px", background: colors.surface }}>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".06em", color: colors.mutedLight }}>FOR LATER</div>
+                      <button onClick={() => navigate("/profile")} style={{ background: "none", border: "none", padding: 0, fontSize: 12, fontWeight: 700, color: colors.text, cursor: "pointer" }}>View all</button>
+                    </div>
+                    <MyLifeSaved favourites={favourites} />
                   </div>
-                  <Button onClick={() => (soonestIsGame ? navigate(`/games/${(soonest as Game).id}`) : setLookupOpen(true))}>
-                    {soonestIsGame ? "View details" : "View booking"}
-                  </Button>
-                </div>
-              )}
-
-              {(nextUpGames.length > 0 || nextUpBookings.length > 0) && (
-                <section style={{ marginBottom: 36 }}>
-                  <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: colors.mutedLight, marginBottom: 6 }}>Next</div>
-                  <h2 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(20px,2.4vw,24px)", letterSpacing: "-.01em", margin: "0 0 16px" }}>Your next up</h2>
-                  {nextUpGames.length > 0 && (
-                    <div className="grid-responsive-3" style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 16, marginBottom: nextUpBookings.length > 0 ? 12 : 0 }}>
-                      {nextUpGames.map((g) => <UpcomingPlanCard key={g.id} game={g} />)}
+                )}
+                {follows.length > 0 && (
+                  <div style={{ border: `1px solid ${colors.border}`, borderRadius: 12, padding: "16px 18px", background: colors.surface }}>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".06em", color: colors.mutedLight }}>FOLLOWING</div>
+                      <button onClick={() => navigate("/profile")} style={{ background: "none", border: "none", padding: 0, fontSize: 12, fontWeight: 700, color: colors.text, cursor: "pointer" }}>View all</button>
                     </div>
-                  )}
-                  {nextUpBookings.length > 0 && (
-                    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                      {nextUpBookings.map((b) => (
-                        <BookingRow
-                          key={b.ref}
-                          booking={b}
-                          onCancel={() => handleCancelBooking(b.ref, guestEmail ?? undefined)}
-                          cancelling={cancellingRef === b.ref}
-                          error={cancelErrors[b.ref]}
-                        />
-                      ))}
-                    </div>
-                  )}
-                </section>
-              )}
+                    <MyLifeFollowing follows={follows} />
+                  </div>
+                )}
+              </div>
 
               {routineSuggestions.length > 0 && (
-                <section style={{ marginBottom: 36 }}>
-                  <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: colors.mutedLight, marginBottom: 6 }}>Again</div>
-                  <h2 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(20px,2.4vw,24px)", letterSpacing: "-.01em", margin: "0 0 4px" }}>Worth doing again</h2>
-                  <p style={{ margin: "0 0 16px", fontSize: 13.5, color: colors.mutedLight }}>Things you've enjoyed before, happening again.</p>
+                <section style={{ gridColumn: "1 / -1", borderTop: `1px solid ${colors.border}`, paddingTop: 36 }}>
+                  <SectionHeader eyebrow="DO IT AGAIN" title="Worth doing again" subtitle="Things you've enjoyed before, happening again." />
                   <MyLifeRepeatOpportunities suggestions={routineSuggestions} />
                 </section>
               )}
 
               {circles.length > 0 && (
-                <section style={{ borderTop: `1px solid ${colors.border}`, paddingTop: 32, marginBottom: 36 }}>
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
-                    <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: colors.mutedLight }}>Circles</div>
-                  </div>
-                  <h2 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(20px,2.4vw,24px)", letterSpacing: "-.01em", margin: "0 0 16px" }}>My Circles</h2>
+                <section style={{ gridColumn: 1, borderTop: `1px solid ${colors.border}`, paddingTop: 36 }}>
+                  <SectionHeader eyebrow="CIRCLES" title="My Circles" />
                   <MyLifeCircles circles={circles} />
                 </section>
               )}
 
-              {intents.some((i) => i.status === "active" || i.status === "matched") && (
-                <section style={{ borderTop: `1px solid ${colors.border}`, paddingTop: 32, marginBottom: 36 }}>
-                  <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: colors.mutedLight, marginBottom: 6 }}>Waiting</div>
-                  <h2 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(20px,2.4vw,24px)", letterSpacing: "-.01em", margin: "0 0 16px" }}>Things you're waiting for</h2>
-                  <MyLifeWaitingFor intents={intents} onChange={loadMyStuff} />
-                </section>
-              )}
-
-              {participation.length > 0 && (
-                <section style={{ borderTop: `1px solid ${colors.border}`, paddingTop: 32, marginBottom: 36 }}>
-                  <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: colors.mutedLight, marginBottom: 6 }}>Recently</div>
-                  <h2 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(20px,2.4vw,24px)", letterSpacing: "-.01em", margin: "0 0 4px" }}>Recent activity</h2>
-                  {last30 > 0 && prev30 > 0 && (
-                    <p style={{ margin: "0 0 16px", fontSize: 13.5, color: colors.mutedLight }}>
-                      {last30 > prev30
-                        ? `You've been getting out more — ${last30} in the last 30 days, compared with ${prev30} before that.`
-                        : last30 < prev30
-                        ? `${last30} plans in the last 30 days, compared with ${prev30} before that.`
-                        : `${last30} plans in the last 30 days, same as the 30 days before.`}
-                    </p>
-                  )}
-                  <MyLifeRecentActivity entries={participation} onViewFull={() => setShowAllActivity(true)} />
-                </section>
-              )}
-
               {residentFull && residentFull.interests.length > 0 && (
-                <section style={{ borderTop: `1px solid ${colors.border}`, paddingTop: 32, marginBottom: 36 }}>
-                  <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: colors.mutedLight, marginBottom: 6 }}>Interests</div>
-                  <h2 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(20px,2.4vw,24px)", letterSpacing: "-.01em", margin: "0 0 16px" }}>What you're into</h2>
+                <section style={{ gridColumn: "1 / -1", borderTop: `1px solid ${colors.border}`, paddingTop: 36 }}>
+                  <SectionHeader eyebrow="INTERESTS" title="What you're into" />
                   <MyLifeInterests interests={residentFull.interests} />
                 </section>
               )}
 
               {residentFull && residentFull.availability.length > 0 && (
-                <section style={{ borderTop: `1px solid ${colors.border}`, paddingTop: 32, marginBottom: 8 }}>
-                  <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: colors.mutedLight, marginBottom: 6 }}>Availability</div>
-                  <h2 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(20px,2.4vw,24px)", letterSpacing: "-.01em", margin: "0 0 16px" }}>When you're usually free</h2>
+                <section style={{ gridColumn: "1 / -1", borderTop: `1px solid ${colors.border}`, paddingTop: 36 }}>
+                  <SectionHeader eyebrow="AVAILABILITY" title="When you're usually free" />
                   <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
                     {residentFull.availability.map((a) => (
                       <span key={a} style={{ background: colors.panel, color: colors.text, borderRadius: radius.pill, padding: "7px 14px", fontSize: 13, fontWeight: 600 }}>{a}</span>
@@ -829,108 +862,109 @@ export function MyBookings() {
                   </div>
                 </section>
               )}
-            </>
-          )}
 
-          {/* Full history — kept for real functionality (cancel/reschedule/
-              QR check-in/attendance confirmation/reviews), collapsed by
-              default since the sections above already surface what matters
-              most (spec §17's "secondary full activity view"). */}
-          {!hasNone && (
-            <div style={{ borderTop: `1px solid ${colors.border}`, paddingTop: 24, marginTop: 8 }}>
-              <button
-                onClick={() => setShowAllActivity((s) => !s)}
-                style={{ display: "flex", alignItems: "center", gap: 6, background: "none", border: "none", padding: 0, fontSize: 13.5, fontWeight: 700, color: colors.text, cursor: "pointer" }}
-              >
-                <ChevronRightIcon size={14} style={{ transform: showAllActivity ? "rotate(90deg)" : "none", transition: "transform .15s ease" }} />
-                {showAllActivity ? "Hide" : "View"} full activity — bookings, references and history
-              </button>
-
-              {showAllActivity && (
-                <div style={{ marginTop: 20 }}>
-                  {(upcomingRows.length > 0 || pastRows.length > 0) && (
-                    <div style={{ display: "flex", gap: 6, marginBottom: 16 }}>
-                      {(["list", "calendar"] as const).map((v) => (
-                        <button
-                          key={v}
-                          onClick={() => setBookingsView(v)}
-                          style={{
-                            border: "none", borderRadius: radius.pill, padding: "6px 14px", fontSize: 12.5, fontWeight: 700, cursor: "pointer", textTransform: "capitalize",
-                            background: bookingsView === v ? colors.dark : colors.panel, color: bookingsView === v ? "#fff" : colors.muted,
-                          }}
-                        >
-                          {v}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                  {bookingsView === "calendar" && (
-                    <div style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: radius.card, padding: 18, marginBottom: 32, maxWidth: 420 }}>
-                      <MonthCalendar items={[...upcomingRows, ...pastRows]} />
-                    </div>
-                  )}
-                  {bookingsView === "list" && upcomingRows.length > 0 && (
-                    <>
-                      <h2 style={{ fontSize: 15, fontWeight: 700, color: colors.muted, margin: "0 0 12px", letterSpacing: ".02em" }}>UPCOMING</h2>
-                      <div style={{ display: "flex", flexDirection: "column", gap: 12, marginBottom: 32 }}>
-                        {upcomingRows.map((r) => r.el)}
-                      </div>
-                    </>
-                  )}
-                  {bookingsView === "list" && (regs.length > 0 || circles.length > 0 || programEnrollments.length > 0) && (
-                    <>
-                      <h2 style={{ fontSize: 15, fontWeight: 700, color: colors.muted, margin: "0 0 12px", letterSpacing: ".02em" }}>ONGOING</h2>
-                      <div style={{ display: "flex", flexDirection: "column", gap: 12, marginBottom: 32 }}>
-                        {regs.map((r) => (
-                          <RegistrationRow
-                            key={r.ref}
-                            registration={r}
-                            onCancel={() => handleCancelRegistration(r.ref, guestEmail ?? undefined)}
-                            cancelling={cancellingRef === r.ref}
-                            error={cancelErrors[r.ref]}
-                          />
-                        ))}
-                        {circles.map((c) => <CircleRow key={c.id} circle={c} />)}
-                        {programEnrollments.map((e) => <ProgramEnrollmentRow key={e.ref} enrollment={e} />)}
-                      </div>
-                    </>
-                  )}
-                  {bookingsView === "list" && pastRows.length > 0 && (
-                    <>
-                      <h2 style={{ fontSize: 15, fontWeight: 700, color: colors.muted, margin: "0 0 12px", letterSpacing: ".02em" }}>PAST</h2>
-                      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-                        {pastRows.map((r) => r.el)}
-                      </div>
-                    </>
-                  )}
-                </div>
+              {recentEntries.length > 0 && (
+                <section style={{ gridColumn: 1, borderTop: `1px solid ${colors.border}`, paddingTop: 36 }}>
+                  <SectionHeader
+                    eyebrow="RECENTLY"
+                    title="Recently"
+                    subtitle={
+                      last30 > 0 && prev30 > 0
+                        ? (last30 > prev30
+                            ? `You've been getting out more — ${last30} in the last 30 days, compared with ${prev30} before that.`
+                            : last30 < prev30
+                            ? `${last30} plans in the last 30 days, compared with ${prev30} before that.`
+                            : `${last30} plans in the last 30 days, same as the 30 days before.`)
+                        : undefined
+                    }
+                  />
+                  <MyLifeRecentActivity entries={recentEntries} onViewFull={() => setShowAllActivity(true)} />
+                </section>
               )}
-            </div>
-          )}
-        </div>
 
-        {/* RIGHT RAIL — simplified (My Life redesign v2 §36): This month,
-            Your rhythm, Saved, then Milestones last/lowest-priority. Never
-            competes visually with the main participation column. */}
-        <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
-          <MyLifeThisMonth entries={participation} />
-          <MyLifeRhythm entries={participation} />
-          {favourites.length > 0 && (
-            <div style={{ border: `1px solid ${colors.border}`, borderRadius: 12, padding: "16px 18px", background: colors.surface }}>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
-                <h3 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 15, margin: 0 }}>For later</h3>
-                <button onClick={() => navigate("/profile")} style={{ background: "none", border: "none", padding: 0, fontSize: 12, fontWeight: 700, color: colors.text, cursor: "pointer" }}>View all</button>
+              {/* Full history — kept for real functionality (cancel/
+                  reschedule/QR check-in/attendance confirmation/reviews),
+                  collapsed by default since the sections above already
+                  surface what matters most. Left-column width only (same
+                  as My Circles/Recently above), still inside the same grid
+                  so the sticky rail keeps following while this is open. */}
+              <div style={{ gridColumn: 1, borderTop: `1px solid ${colors.border}`, paddingTop: 24 }}>
+                <button
+                  onClick={() => setShowAllActivity((s) => !s)}
+                  style={{ display: "flex", alignItems: "center", gap: 6, background: "none", border: "none", padding: 0, fontSize: 13.5, fontWeight: 700, color: colors.text, cursor: "pointer" }}
+                >
+                  <ChevronRightIcon size={14} style={{ transform: showAllActivity ? "rotate(90deg)" : "none", transition: "transform .15s ease" }} />
+                  {showAllActivity ? "Hide" : "View"} full activity — bookings, references and history
+                </button>
+  
+                {showAllActivity && (
+                  <div style={{ marginTop: 20 }}>
+                    {(upcomingRows.length > 0 || pastRows.length > 0) && (
+                      <div style={{ display: "flex", gap: 6, marginBottom: 16 }}>
+                        {(["list", "calendar"] as const).map((v) => (
+                          <button
+                            key={v}
+                            onClick={() => setBookingsView(v)}
+                            style={{
+                              border: "none", borderRadius: radius.pill, padding: "6px 14px", fontSize: 12.5, fontWeight: 700, cursor: "pointer", textTransform: "capitalize",
+                              background: bookingsView === v ? colors.dark : colors.panel, color: bookingsView === v ? "#fff" : colors.muted,
+                            }}
+                          >
+                            {v}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                    {bookingsView === "calendar" && (
+                      <div style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: radius.card, padding: 18, marginBottom: 32, maxWidth: 420 }}>
+                        <MonthCalendar items={[...upcomingRows, ...pastRows]} />
+                      </div>
+                    )}
+                    {bookingsView === "list" && upcomingRows.length > 0 && (
+                      <>
+                        <h2 style={{ fontSize: 15, fontWeight: 700, color: colors.muted, margin: "0 0 12px", letterSpacing: ".02em" }}>UPCOMING</h2>
+                        <div style={{ display: "flex", flexDirection: "column", gap: 12, marginBottom: 32 }}>
+                          {upcomingRows.map((r) => r.el)}
+                        </div>
+                      </>
+                    )}
+                    {bookingsView === "list" && (regs.length > 0 || circles.length > 0 || programEnrollments.length > 0) && (
+                      <>
+                        <h2 style={{ fontSize: 15, fontWeight: 700, color: colors.muted, margin: "0 0 12px", letterSpacing: ".02em" }}>ONGOING</h2>
+                        <div style={{ display: "flex", flexDirection: "column", gap: 12, marginBottom: 32 }}>
+                          {regs.map((r) => (
+                            <RegistrationRow
+                              key={r.ref}
+                              registration={r}
+                              onCancel={() => handleCancelRegistration(r.ref, guestEmail ?? undefined)}
+                              cancelling={cancellingRef === r.ref}
+                              error={cancelErrors[r.ref]}
+                            />
+                          ))}
+                          {circles.map((c) => <CircleRow key={c.id} circle={c} />)}
+                          {programEnrollments.map((e) => <ProgramEnrollmentRow key={e.ref} enrollment={e} />)}
+                        </div>
+                      </>
+                    )}
+                    {bookingsView === "list" && pastRows.length > 0 && (
+                      <>
+                        <h2 style={{ fontSize: 15, fontWeight: 700, color: colors.muted, margin: "0 0 12px", letterSpacing: ".02em" }}>PAST</h2>
+                        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                          {pastRows.map((r) => r.el)}
+                        </div>
+                      </>
+                    )}
+                  </div>
+                )}
               </div>
-              <MyLifeSaved favourites={favourites} />
             </div>
-          )}
-          <MyLifeAchievements circles={circles} participation={participation} />
-        </div>
+          </>
+        )}
       </div>
 
       {!hasNone && (
-        <section style={{ background: colors.bg }}>
-          <div className="section-pad" style={{ maxWidth: 1240, margin: "0 auto", padding: "0 24px 60px" }}>
+        <section style={{ background: colors.bg, marginTop: 56 }}>
+          <div className="section-pad" style={{ maxWidth: 1440, margin: "0 auto", padding: "0 24px 60px" }}>
             <MyLifeDiscoveryCTA />
           </div>
         </section>

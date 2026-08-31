@@ -155,29 +155,42 @@ interface CentreInput {
   mapUrl?: string;
   phone?: string;
   accessibility?: string[];
+  /** From AddressSearch's geocoded pick (Form System Audit, Phase 4) — real
+   * coordinates take priority over approximateCoords()'s county-centroid
+   * jitter, which stays the fallback for any centre that never used address
+   * search (nothing here breaks the old flow). */
+  lat?: number;
+  lng?: number;
 }
 
 vendorListingsRouter.post("/centres", requirePlatformRole("centre_manager"), async (req, res) => {
   const b = req.body as CentreInput;
-  if (!b.name || !b.area || !b.county || !b.blurb) return res.status(400).json({ error: "Missing required fields" });
+  // Only the name is required at creation — the Guided Flow creation
+  // wizard's "Basics" step (Form System Audit, Phase 5) creates this row
+  // immediately so "leave and resume later" is real, then fills in
+  // area/county/blurb/etc. via the normal PUT below as each later step
+  // completes. Starts life as 'draft' (never shown to admin or the public)
+  // until POST /centres/:id/publish flips it to 'pending' once every
+  // required field is actually present.
+  if (!b.name) return res.status(400).json({ error: "A name is required" });
 
   const id = crypto.randomUUID();
-  const { lat, lng } = approximateCoords(b.county, id);
+  const { lat, lng } = b.lat !== undefined && b.lng !== undefined ? { lat: b.lat, lng: b.lng } : approximateCoords(b.county || "dublin", id);
   const slug = await generateSlug("centres", b.name);
   await db.transaction(async (tx) => {
     await tx.prepare(
       `INSERT INTO centres (id, name, area, county, rating, reviews, capacity, from_price, managed_by, ph, image_url, blurb, vendor_id, status, created_at, opens_at, closes_at, payment_method, map_url, lat, lng, phone, accessibility, slug)
-       VALUES (?, ?, ?, ?, 0, 0, ?, ?, ?, '', ?, ?, ?, 'pending', NOW(), ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+       VALUES (?, ?, ?, ?, 0, 0, ?, ?, ?, '', ?, ?, ?, 'draft', NOW(), ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
       id,
       b.name,
-      b.area,
-      b.county,
+      b.area ?? "",
+      b.county ?? "",
       b.capacity ?? 0,
       b.from ?? 0,
       b.managedBy ?? "",
       (b.images ?? [])[0] ?? b.image ?? "",
-      b.blurb,
+      b.blurb ?? "",
       req.user!.id,
       b.opensAt ?? "09:00",
       b.closesAt ?? "21:00",
@@ -212,7 +225,12 @@ vendorListingsRouter.put("/centres/:id", requirePlatformRole("centre_manager"), 
   const before = (await db.prepare(`SELECT name, capacity, from_price FROM centres WHERE id = ?`).get(req.params.id)) as Record<string, unknown> | undefined;
   // A county change moves the county-centroid the map pin approximates —
   // re-jitter from the new county; otherwise leave the existing pin alone.
-  const coords = b.county ? approximateCoords(b.county, req.params.id) : { lat: undefined, lng: undefined };
+  const coords =
+    b.lat !== undefined && b.lng !== undefined
+      ? { lat: b.lat, lng: b.lng }
+      : b.county
+        ? approximateCoords(b.county, req.params.id)
+        : { lat: undefined, lng: undefined };
 
   await db.transaction(async (tx) => {
     await tx.prepare(
@@ -254,6 +272,33 @@ vendorListingsRouter.put("/centres/:id", requirePlatformRole("centre_manager"), 
     }
   });
   writeAudit({ actorUserId: req.user!.id, action: "centre.updated", objectType: "centre", objectId: req.params.id, previousValue: before, newValue: b });
+  res.json(await getCentre(req.params.id));
+});
+
+// Guided Flow "Review & Publish" step (Form System Audit, Phase 5) — the
+// vendor-triggered transition out of 'draft', distinct from admin's own
+// approve/reject transition on an already-submitted (pending) listing.
+// Re-checks the same fields POST /centres required before this draft
+// system existed, since a vendor could in principle have blanked one back
+// out on an earlier wizard step.
+vendorListingsRouter.post("/centres/:id/publish", requirePlatformRole("centre_manager"), async (req, res) => {
+  if (!(await ownsCentre(req.vendorIds!, req.params.id))) return res.status(403).json({ error: "Not your listing" });
+  const row = (await db.prepare(`SELECT name, area, county, blurb, status FROM centres WHERE id = ?`).get(req.params.id)) as
+    | { name: string; area: string; county: string; blurb: string; status: string }
+    | undefined;
+  if (!row) return res.status(404).json({ error: "Centre not found" });
+  if (row.status !== "draft") return res.status(400).json({ error: "This centre has already been submitted" });
+  const missing = [
+    !row.name && "a name",
+    !row.area && "an area",
+    !row.county && "a county",
+    !row.blurb && "a short description",
+  ].filter(Boolean) as string[];
+  if (missing.length) {
+    return res.status(400).json({ error: `This venue is missing ${missing.join(", ")} — go back and fill that in before publishing.` });
+  }
+  await db.prepare(`UPDATE centres SET status = 'pending' WHERE id = ?`).run(req.params.id);
+  writeAudit({ actorUserId: req.user!.id, action: "centre.published", objectType: "centre", objectId: req.params.id, newValue: { name: row.name } });
   res.json(await getCentre(req.params.id));
 });
 
@@ -426,22 +471,29 @@ interface ClubInput {
   phone?: string;
   accessibility?: string[];
   category?: string;
+  audience?: "kids" | "adults" | "all";
+  /** See CentreInput's identical fields — same AddressSearch flow. */
+  lat?: number;
+  lng?: number;
 }
 
 vendorListingsRouter.post("/clubs", requirePlatformRole("facility_manager"), async (req, res) => {
-  const b = req.body as ClubInput;
-  if (!b.name || !b.sport || !b.area || !b.county || !b.blurb) {
-    return res.status(400).json({ error: "Missing required fields" });
-  }
+  const b = req.body as Partial<ClubInput> & { name: string };
+  // Relaxed to just a name (Form System Audit, Phase 5 fast-follow — same
+  // draft-row-first pattern as POST /centres above): a Guided Flow wizard
+  // creates this row after its first step, then fills in the rest across
+  // later steps' PUTs, until POST /clubs/:id/publish flips it to 'pending'
+  // once every required field is actually present.
+  if (!b.name) return res.status(400).json({ error: "A name is required" });
 
   const id = crypto.randomUUID();
-  const { lat, lng } = approximateCoords(b.county, id);
+  const { lat, lng } = b.lat !== undefined && b.lng !== undefined ? { lat: b.lat, lng: b.lng } : approximateCoords(b.county || "dublin", id);
   const slug = await generateSlug("clubs", b.name);
   await db.transaction(async (tx) => {
     await tx.prepare(
-      `INSERT INTO clubs (id, name, sport, area, county, ages, price, unit, trial, ph, image_url, blurb, vendor_id, status, created_at, payment_method, map_url, capacity, lat, lng, phone, accessibility, category, slug)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, '', ?, ?, ?, 'pending', NOW(), ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    ).run(id, b.name, b.sport, b.area, b.county, b.ages ?? "", b.price ?? 0, b.unit ?? "year", b.trial ? 1 : 0, (b.images ?? [])[0] ?? b.image ?? "", b.blurb, req.user!.id, b.paymentMethod ?? "online", b.mapUrl ?? "", b.capacity ?? null, lat, lng, b.phone ?? "", (b.accessibility ?? []).join(","), b.category ?? "", slug);
+      `INSERT INTO clubs (id, name, sport, area, county, ages, price, unit, trial, ph, image_url, blurb, vendor_id, status, created_at, payment_method, map_url, capacity, lat, lng, phone, accessibility, category, slug, audience)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, '', ?, ?, ?, 'draft', NOW(), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(id, b.name, b.sport ?? "", b.area ?? "", b.county ?? "", b.ages ?? "", b.price ?? 0, b.unit ?? "year", b.trial ? 1 : 0, (b.images ?? [])[0] ?? b.image ?? "", b.blurb ?? "", req.user!.id, b.paymentMethod ?? "online", b.mapUrl ?? "", b.capacity ?? null, lat, lng, b.phone ?? "", (b.accessibility ?? []).join(","), b.category ?? "", slug, b.audience ?? "kids");
     for (const [i, item] of (b.includes ?? []).entries()) {
       await tx.prepare(`INSERT INTO club_includes (club_id, item, sort_order) VALUES (?, ?, ?)`).run(id, item, i);
     }
@@ -457,7 +509,12 @@ vendorListingsRouter.put("/clubs/:id", requirePlatformRole("facility_manager"), 
   if (!(await ownsClub(req.vendorIds!, req.params.id))) return res.status(403).json({ error: "Not your listing" });
   const b = req.body as Partial<ClubInput>;
   const before = (await db.prepare(`SELECT name, price, capacity, payment_method FROM clubs WHERE id = ?`).get(req.params.id)) as Record<string, unknown> | undefined;
-  const coords = b.county ? approximateCoords(b.county, req.params.id) : { lat: undefined, lng: undefined };
+  const coords =
+    b.lat !== undefined && b.lng !== undefined
+      ? { lat: b.lat, lng: b.lng }
+      : b.county
+        ? approximateCoords(b.county, req.params.id)
+        : { lat: undefined, lng: undefined };
 
   await db.transaction(async (tx) => {
     await tx.prepare(
@@ -467,7 +524,8 @@ vendorListingsRouter.put("/clubs/:id", requirePlatformRole("facility_manager"), 
        payment_method = COALESCE(?, payment_method), map_url = COALESCE(?, map_url),
        capacity = CASE WHEN ? THEN capacity ELSE ? END,
        lat = COALESCE(?, lat), lng = COALESCE(?, lng),
-       phone = COALESCE(?, phone), accessibility = COALESCE(?, accessibility), category = COALESCE(?, category)
+       phone = COALESCE(?, phone), accessibility = COALESCE(?, accessibility), category = COALESCE(?, category),
+       audience = COALESCE(?, audience)
        WHERE id = ?`
     ).run(
       b.name,
@@ -489,6 +547,7 @@ vendorListingsRouter.put("/clubs/:id", requirePlatformRole("facility_manager"), 
       b.phone,
       b.accessibility ? b.accessibility.join(",") : undefined,
       b.category,
+      b.audience,
       req.params.id
     );
     if (b.includes) {
@@ -505,6 +564,28 @@ vendorListingsRouter.put("/clubs/:id", requirePlatformRole("facility_manager"), 
     }
   });
   writeAudit({ actorUserId: req.user!.id, action: "club.updated", objectType: "club", objectId: req.params.id, previousValue: before, newValue: b });
+  res.json(await getClub(req.params.id));
+});
+
+vendorListingsRouter.post("/clubs/:id/publish", requirePlatformRole("facility_manager"), async (req, res) => {
+  if (!(await ownsClub(req.vendorIds!, req.params.id))) return res.status(403).json({ error: "Not your listing" });
+  const row = (await db.prepare(`SELECT name, sport, area, county, blurb, status FROM clubs WHERE id = ?`).get(req.params.id)) as
+    | { name: string; sport: string; area: string; county: string; blurb: string; status: string }
+    | undefined;
+  if (!row) return res.status(404).json({ error: "Club not found" });
+  if (row.status !== "draft") return res.status(400).json({ error: "This club has already been submitted" });
+  const missing = [
+    !row.name && "a name",
+    !row.sport && "a sport",
+    !row.area && "an area",
+    !row.county && "a county",
+    !row.blurb && "a short description",
+  ].filter(Boolean) as string[];
+  if (missing.length) {
+    return res.status(400).json({ error: `This club is missing ${missing.join(", ")} — go back and fill that in before publishing.` });
+  }
+  await db.prepare(`UPDATE clubs SET status = 'pending' WHERE id = ?`).run(req.params.id);
+  writeAudit({ actorUserId: req.user!.id, action: "club.published", objectType: "club", objectId: req.params.id, newValue: { name: row.name } });
   res.json(await getClub(req.params.id));
 });
 

@@ -1,11 +1,11 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type SetStateAction } from "react";
 import {
   addProgramSession,
   createVendorProgram,
   deleteVendorProgram,
-  fetchProgram,
   fetchProgramEnrollments,
   fetchSessionAttendance,
+  fetchVendorProgram,
   fetchVendorPrograms,
   fetchVendorRooms,
   fetchVendorSchedule,
@@ -15,8 +15,9 @@ import {
   type ProgramEnrollment,
 } from "../api";
 import { CalendarIcon, PlusIcon, TrashIcon, UsersIcon } from "./icons";
+import { FormErrorSummary } from "./form";
 import { MonthCalendar } from "./MonthCalendar";
-import { Button, Card, ConfirmDialog, Drawer, EmptyState, inputStyle, labelStyle } from "./ui";
+import { Button, ManageCard as Card, ConfirmDialog, EmptyState, inputStyle, labelStyle } from "./ui";
 import { ACTIVITY_CATEGORIES, ATTENDANCE_STATUSES, ATTENDANCE_STATUS_LABELS, PROGRAM_STATUSES, SKILL_LEVELS } from "../constants";
 import { colors, fonts, radius } from "../theme";
 import type { AttendanceStatus, Program, ProgramStatus, Room, VendorProgramSummary } from "../types";
@@ -35,7 +36,7 @@ const ATTENDANCE_STATUS_COLORS: Record<AttendanceStatus, { fg: string; bg: strin
 // + inline session list rather than a multi-step wizard — the fields are
 // few enough that progressive disclosure isn't earning its complexity yet.
 
-function ProgramManager({ programId, onChanged }: { programId: string; onChanged: () => void }) {
+export function ProgramManager({ programId, onChanged }: { programId: string; onChanged: () => void }) {
   const [program, setProgram] = useState<Program | null>(null);
   const [enrollments, setEnrollments] = useState<ProgramEnrollment[]>([]);
   const [date, setDate] = useState("");
@@ -52,7 +53,7 @@ function ProgramManager({ programId, onChanged }: { programId: string; onChanged
   const [addOpen, setAddOpen] = useState(false);
 
   const load = () => {
-    fetchProgram(programId).then((p) => {
+    fetchVendorProgram(programId).then((p) => {
       setProgram(p);
       if (p.listingType === "centre") fetchVendorRooms(p.listingId).then(setRooms).catch(() => {});
     });
@@ -272,24 +273,24 @@ function ProgramManager({ programId, onChanged }: { programId: string; onChanged
   );
 }
 
-export function VendorProgramsTab({
+// --- create form — its own page (VendorProgramEditPage.tsx) when id is
+// "new"; a plain create form here rather than a Drawer since it's the
+// pre-cursor to the sessions/attendance/enrollments management view below,
+// which already needs the room a full page gives it. -----------------------
+
+export function ProgramCreateForm({
   listings,
-  creatingOpen,
-  onCreatingOpenChange,
+  onCreated,
+  onDirtyChange,
 }: {
   listings: { centres: { id: string; name: string }[]; clubs: { id: string; name: string }[] };
-  /** Drawer-open state lives in the parent so its trigger button can sit in
-   * the shared page-title row instead of a standalone row here — see
-   * VendorDashboard.tsx. */
-  creatingOpen: boolean;
-  onCreatingOpenChange: (open: boolean) => void;
+  onCreated: (id: string) => void;
+  onDirtyChange?: (dirty: boolean) => void;
 }) {
-  const [programs, setPrograms] = useState<VendorProgramSummary[]>([]);
-  const [managing, setManaging] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [confirmingProgramId, setConfirmingProgramId] = useState<string | null>(null);
-  const [form, setForm] = useState({
+  const [fieldErrors, setFieldErrors] = useState<{ field: string; message: string; fieldId: string }[]>([]);
+  const [form, setFormRaw] = useState({
     listingType: "centre" as "centre" | "club",
     listingId: "",
     title: "",
@@ -303,21 +304,34 @@ export function VendorProgramsTab({
     guardianRules: "",
     safeguardingInfo: "",
   });
-  const [equipmentText, setEquipmentText] = useState("");
-
-  const load = () => fetchVendorPrograms().then(setPrograms);
-  useEffect(() => {
-    load();
-  }, []);
+  // See HostGamePage.tsx's identical wrapper — clears a stale FormErrorSummary
+  // the moment the user edits anything, instead of it lingering until the
+  // next submit attempt re-validates.
+  const setForm = (updater: SetStateAction<typeof form>) => {
+    setFormRaw(updater);
+    setFieldErrors([]);
+    onDirtyChange?.(true);
+  };
+  const [equipmentText, setEquipmentTextRaw] = useState("");
+  const setEquipmentText = (v: string) => {
+    setEquipmentTextRaw(v);
+    onDirtyChange?.(true);
+  };
 
   const options = form.listingType === "centre" ? listings.centres : listings.clubs;
 
   const create = async () => {
-    if (!form.title || !form.listingId || !form.description) return;
+    const errors: { field: string; message: string; fieldId: string }[] = [];
+    if (!form.listingId) errors.push({ field: "listingId", message: "Choose which listing this program attaches to", fieldId: "program-listing" });
+    if (!form.title.trim()) errors.push({ field: "title", message: "Title is required", fieldId: "program-title" });
+    if (!form.description.trim()) errors.push({ field: "description", message: "Description is required", fieldId: "program-description" });
+    setFieldErrors(errors);
+    if (errors.length > 0) return;
+
     setCreating(true);
     setError(null);
     try {
-      await createVendorProgram({
+      const created = await createVendorProgram({
         listingType: form.listingType,
         listingId: form.listingId,
         title: form.title,
@@ -332,16 +346,110 @@ export function VendorProgramsTab({
         guardianRules: form.guardianRules,
         safeguardingInfo: form.safeguardingInfo,
       });
-      setForm({ listingType: "centre", listingId: "", title: "", description: "", ageRange: "", priceCents: "", capacity: "", category: "", skillLevel: "", instructorName: "", guardianRules: "", safeguardingInfo: "" });
-      setEquipmentText("");
-      onCreatingOpenChange(false);
-      load();
+      onDirtyChange?.(false);
+      onCreated(created.id);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Couldn't create that program");
     } finally {
       setCreating(false);
     }
   };
+
+  return (
+    <>
+      <p style={{ fontSize: 12.5, color: colors.mutedLight, margin: "0 0 14px" }}>
+        A multi-session activity (e.g. an 8-week course) — one sign-up covers every session you add below.
+      </p>
+      <div className="grid-responsive" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 12 }}>
+        <div>
+          <label style={labelStyle}>Attach to</label>
+          <select value={form.listingType} onChange={(e) => setForm((f) => ({ ...f, listingType: e.target.value as "centre" | "club", listingId: "" }))} style={inputStyle}>
+            <option value="centre">Community centre</option>
+            <option value="club">Sports club</option>
+          </select>
+        </div>
+        <div>
+          <label style={labelStyle}>Listing</label>
+          <select id="program-listing" value={form.listingId} onChange={(e) => setForm((f) => ({ ...f, listingId: e.target.value }))} style={inputStyle}>
+            <option value="">— choose —</option>
+            {options.map((o) => (
+              <option key={o.id} value={o.id}>{o.name}</option>
+            ))}
+          </select>
+        </div>
+        <div style={{ gridColumn: "1 / -1" }}>
+          <label style={labelStyle}>Title</label>
+          <input id="program-title" value={form.title} onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))} style={inputStyle} />
+        </div>
+        <div style={{ gridColumn: "1 / -1" }}>
+          <label style={labelStyle}>Description</label>
+          <textarea id="program-description" value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))} rows={2} style={{ ...inputStyle, resize: "vertical" }} />
+        </div>
+        <div>
+          <label style={labelStyle}>Age range</label>
+          <input value={form.ageRange} onChange={(e) => setForm((f) => ({ ...f, ageRange: e.target.value }))} placeholder="e.g. 8-12" style={inputStyle} />
+        </div>
+        <div>
+          <label style={labelStyle}>Price (€, total)</label>
+          <input value={form.priceCents} onChange={(e) => setForm((f) => ({ ...f, priceCents: e.target.value }))} placeholder="0 = free" style={{ ...inputStyle, maxWidth: 140 }} />
+        </div>
+        <div>
+          <label style={labelStyle}>Capacity</label>
+          <input value={form.capacity} onChange={(e) => setForm((f) => ({ ...f, capacity: e.target.value }))} placeholder="Unlimited" style={{ ...inputStyle, maxWidth: 140 }} />
+        </div>
+        <div>
+          <label style={labelStyle}>Category</label>
+          <select value={form.category} onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))} style={inputStyle}>
+            <option value="">— none —</option>
+            {ACTIVITY_CATEGORIES.map((c) => (
+              <option key={c} value={c}>{c}</option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label style={labelStyle}>Skill level</label>
+          <select value={form.skillLevel} onChange={(e) => setForm((f) => ({ ...f, skillLevel: e.target.value }))} style={inputStyle}>
+            <option value="">— none —</option>
+            {SKILL_LEVELS.map((s) => (
+              <option key={s} value={s}>{s}</option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label style={labelStyle}>Instructor (optional)</label>
+          <input value={form.instructorName} onChange={(e) => setForm((f) => ({ ...f, instructorName: e.target.value }))} style={inputStyle} />
+        </div>
+        <div style={{ gridColumn: "1 / -1" }}>
+          <label style={labelStyle}>Equipment needed (one per line, optional)</label>
+          <textarea value={equipmentText} onChange={(e) => setEquipmentText(e.target.value)} rows={2} style={{ ...inputStyle, resize: "vertical" }} />
+        </div>
+        <div style={{ gridColumn: "1 / -1" }}>
+          <label style={labelStyle}>Guardian rules (optional — for programs involving children/dependants)</label>
+          <textarea value={form.guardianRules} onChange={(e) => setForm((f) => ({ ...f, guardianRules: e.target.value }))} rows={2} style={{ ...inputStyle, resize: "vertical" }} />
+        </div>
+        <div style={{ gridColumn: "1 / -1" }}>
+          <label style={labelStyle}>Safeguarding info (optional)</label>
+          <textarea value={form.safeguardingInfo} onChange={(e) => setForm((f) => ({ ...f, safeguardingInfo: e.target.value }))} rows={2} style={{ ...inputStyle, resize: "vertical" }} />
+        </div>
+      </div>
+      <FormErrorSummary errors={fieldErrors} />
+      {error && <p style={{ fontSize: 12.5, color: colors.orangeDark, margin: "0 0 12px" }}>{error}</p>}
+      <Button onClick={create} disabled={creating}>
+        {creating ? "Creating…" : "Create program"}
+      </Button>
+    </>
+  );
+}
+
+export function VendorProgramsTab({ onOpenProgram }: { onOpenProgram: (id: string) => void }) {
+  const [programs, setPrograms] = useState<VendorProgramSummary[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [confirmingProgramId, setConfirmingProgramId] = useState<string | null>(null);
+
+  const load = () => fetchVendorPrograms().then(setPrograms);
+  useEffect(() => {
+    load();
+  }, []);
 
   const remove = async (id: string) => {
     setError(null);
@@ -357,100 +465,10 @@ export function VendorProgramsTab({
 
   return (
     <div className="fade-panel" style={{ display: "flex", flexDirection: "column", gap: 20 }}>
-      <Drawer open={creatingOpen} onClose={() => onCreatingOpenChange(false)} size="wide" title="New program">
-        <p style={{ fontSize: 12.5, color: colors.mutedLight, margin: "0 0 14px" }}>
-          A multi-session activity (e.g. an 8-week course) — one sign-up covers every session you add below.
-        </p>
-        <div className="grid-responsive" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 12 }}>
-          <div>
-            <label style={labelStyle}>Attach to</label>
-            <select value={form.listingType} onChange={(e) => setForm((f) => ({ ...f, listingType: e.target.value as "centre" | "club", listingId: "" }))} style={inputStyle}>
-              <option value="centre">Community centre</option>
-              <option value="club">Sports club</option>
-            </select>
-          </div>
-          <div>
-            <label style={labelStyle}>Listing</label>
-            <select value={form.listingId} onChange={(e) => setForm((f) => ({ ...f, listingId: e.target.value }))} style={inputStyle}>
-              <option value="">— choose —</option>
-              {options.map((o) => (
-                <option key={o.id} value={o.id}>{o.name}</option>
-              ))}
-            </select>
-          </div>
-          <div style={{ gridColumn: "1 / -1" }}>
-            <label style={labelStyle}>Title</label>
-            <input value={form.title} onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))} style={inputStyle} />
-          </div>
-          <div style={{ gridColumn: "1 / -1" }}>
-            <label style={labelStyle}>Description</label>
-            <textarea value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))} rows={2} style={{ ...inputStyle, resize: "vertical" }} />
-          </div>
-          <div>
-            <label style={labelStyle}>Age range</label>
-            <input value={form.ageRange} onChange={(e) => setForm((f) => ({ ...f, ageRange: e.target.value }))} placeholder="e.g. 8-12" style={inputStyle} />
-          </div>
-          <div>
-            <label style={labelStyle}>Price (€, total)</label>
-            <input value={form.priceCents} onChange={(e) => setForm((f) => ({ ...f, priceCents: e.target.value }))} placeholder="0 = free" style={inputStyle} />
-          </div>
-          <div>
-            <label style={labelStyle}>Capacity</label>
-            <input value={form.capacity} onChange={(e) => setForm((f) => ({ ...f, capacity: e.target.value }))} placeholder="Unlimited" style={inputStyle} />
-          </div>
-          <div>
-            <label style={labelStyle}>Category</label>
-            <select value={form.category} onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))} style={inputStyle}>
-              <option value="">— none —</option>
-              {ACTIVITY_CATEGORIES.map((c) => (
-                <option key={c} value={c}>{c}</option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label style={labelStyle}>Skill level</label>
-            <select value={form.skillLevel} onChange={(e) => setForm((f) => ({ ...f, skillLevel: e.target.value }))} style={inputStyle}>
-              <option value="">— none —</option>
-              {SKILL_LEVELS.map((s) => (
-                <option key={s} value={s}>{s}</option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label style={labelStyle}>Instructor (optional)</label>
-            <input value={form.instructorName} onChange={(e) => setForm((f) => ({ ...f, instructorName: e.target.value }))} style={inputStyle} />
-          </div>
-          <div style={{ gridColumn: "1 / -1" }}>
-            <label style={labelStyle}>Equipment needed (one per line, optional)</label>
-            <textarea value={equipmentText} onChange={(e) => setEquipmentText(e.target.value)} rows={2} style={{ ...inputStyle, resize: "vertical" }} />
-          </div>
-          <div style={{ gridColumn: "1 / -1" }}>
-            <label style={labelStyle}>Guardian rules (optional — for programs involving children/dependants)</label>
-            <textarea value={form.guardianRules} onChange={(e) => setForm((f) => ({ ...f, guardianRules: e.target.value }))} rows={2} style={{ ...inputStyle, resize: "vertical" }} />
-          </div>
-          <div style={{ gridColumn: "1 / -1" }}>
-            <label style={labelStyle}>Safeguarding info (optional)</label>
-            <textarea value={form.safeguardingInfo} onChange={(e) => setForm((f) => ({ ...f, safeguardingInfo: e.target.value }))} rows={2} style={{ ...inputStyle, resize: "vertical" }} />
-          </div>
-        </div>
-        {error && <p style={{ fontSize: 12.5, color: colors.orangeDark, margin: "0 0 12px" }}>{error}</p>}
-        <Button onClick={create} disabled={creating || !form.title || !form.listingId}>
-          {creating ? "Creating…" : "Create program"}
-        </Button>
-      </Drawer>
-
-      <Drawer
-        open={!!managing}
-        onClose={() => setManaging(null)}
-        size="wide"
-        title={programs.find((p) => p.id === managing)?.title ?? "Program"}
-      >
-        {managing && <ProgramManager programId={managing} onChanged={load} />}
-      </Drawer>
-
+      {error && <p style={{ fontSize: 12.5, color: colors.orangeDark, margin: 0 }}>{error}</p>}
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         {programs.map((p) => (
-          <Card key={p.id} hover style={{ padding: 15, display: "flex", justifyContent: "space-between", alignItems: "center" }} onClick={() => setManaging(p.id)}>
+          <Card key={p.id} hover style={{ padding: 15, display: "flex", justifyContent: "space-between", alignItems: "center" }} onClick={() => onOpenProgram(p.id)}>
             <div>
               <div style={{ fontWeight: 700, fontSize: 14 }}>{p.title}</div>
               <div style={{ fontSize: 12, color: colors.mutedLight, display: "flex", alignItems: "center", gap: 6, marginTop: 2 }}>

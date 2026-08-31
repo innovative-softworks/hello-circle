@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { fetchAdminPendingListings, fetchCentres, fetchResidentNotifications, fetchVendorListings, guestLogout, logout, markResidentNotificationRead } from "../api";
+import { fetchAdminPendingListings, fetchManageWorkspaces, fetchMyGames, fetchResidentNotifications, fetchVendorListings, guestLogout, logout, markResidentNotificationRead, switchWorkspace } from "../api";
+import type { ManageWorkspaces } from "../api/manage";
 import { useAuth } from "../AuthContext";
 import { useDashboardNav } from "../DashboardNavContext";
 import { useGuest } from "../GuestContext";
 import { useTheme } from "../ThemeContext";
-import { BellIcon, ChatIcon, ChevronDownIcon, CloseIcon, LightbulbIcon, MenuIcon, MoonIcon, PinIcon, PlusIcon, SearchIcon, SunIcon } from "./icons";
+import { BellIcon, BuildingIcon, ChatIcon, ChevronDownIcon, CloseIcon, LightbulbIcon, MenuIcon, MoonIcon, PlusIcon, SearchIcon, SunIcon } from "./icons";
 import { Avatar } from "./ui";
 import { colors, maxWidth, radius } from "../theme";
 import { useMyStuff } from "../MyStuffContext";
@@ -24,7 +25,6 @@ export function Header() {
   const { resolvedTheme, setTheme } = useTheme();
   const [menuOpen, setMenuOpen] = useState(false);
   const [alerts, setAlerts] = useState(0);
-  const [countyMenuOpen, setCountyMenuOpen] = useState(false);
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
   // Free Time Mode + nav restructure (Phase 9) — collapses the old flat
   // Community centres/Sports clubs/Join a game tabs into one "Explore"
@@ -36,8 +36,6 @@ export function Header() {
   // Make It Happen is exclusive to this menu — moved out of the Explore
   // dropdown below to avoid two entry points for the same destination.
   const [createMenuOpen, setCreateMenuOpen] = useState(false);
-  const [counties, setCounties] = useState<string[]>([]);
-  const countyMenuRef = useRef<HTMLDivElement>(null);
   const accountMenuRef = useRef<HTMLDivElement>(null);
   const exploreMenuRef = useRef<HTMLDivElement>(null);
   const createMenuRef = useRef<HTMLDivElement>(null);
@@ -53,20 +51,85 @@ export function Header() {
     if (resident) fetchResidentNotifications().then(setResidentNotifs).catch(() => {});
   };
 
+  // HelloCircle Manage (Phase 1) — a resident who has linked a vendor account
+  // or organises a Circle gets those as switchable workspaces in this same
+  // dropdown, instead of needing to sign in twice. Fetched for a pure
+  // resident session (no vendor/admin session active), OR when the active
+  // vendor/admin session's own linked resident IS this resident — i.e. this
+  // browser has switched into its own linked Personal side, where both
+  // cookies now legitimately coexist. Deliberately NOT fetched when `user`
+  // and `resident` are simply two unrelated sessions coexisting by
+  // coincidence (e.g. an admin who separately signed in as some resident) —
+  // `user.residentId` only ever matches when the two are actually linked.
+  // Bug found during manual testing: gating this on plain `!user` meant that
+  // once a linked vendor ever switched to Personal, `user` never goes back to
+  // null client-side (the vendor cookie is deliberately kept valid so you can
+  // switch back) — so these entries would silently vanish forever afterward,
+  // even across a hard reload, despite the resident session being genuinely
+  // active.
+  const samePerson = !user || user.residentId === resident?.id;
+  const [workspaces, setWorkspaces] = useState<ManageWorkspaces | null>(null);
+  useEffect(() => {
+    if (resident && samePerson) fetchManageWorkspaces().then(setWorkspaces).catch(() => setWorkspaces(null));
+    else setWorkspaces(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [resident, user]);
+
+  // Host MVP (Phase 3) — "any resident who's ever hosted" is cheap to derive
+  // client-side from the existing hosted-only games list, so this doesn't add
+  // a new field to GET /api/manage/workspaces's response.
+  const [hasHostedGames, setHasHostedGames] = useState(false);
+  useEffect(() => {
+    if (resident && samePerson)
+      fetchMyGames({ hostedOnly: true })
+        .then((games) => setHasHostedGames(games.length > 0))
+        .catch(() => setHasHostedGames(false));
+    else setHasHostedGames(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [resident, user]);
+
+  const switchToVendor = async () => {
+    setAccountMenuOpen(false);
+    try {
+      await switchWorkspace("vendor");
+      // AuthProvider only fetches /api/auth/me once, at initial app load —
+      // switching workspace mints a brand new vendor cookie without a page
+      // reload, so nothing else would ever tell AuthContext's `user` state
+      // about it. Without this, VendorDashboard.tsx mounts, sees the still-
+      // stale `user` (null, from before this session existed) and bounces
+      // straight back to /login.
+      await refresh();
+      navigate("/vendor");
+    } catch {
+      // Session mint failed (e.g. link was revoked) — fall back to a normal
+      // vendor login rather than leaving the click silently do nothing.
+      navigate("/login");
+    }
+  };
+
+  // Reverse direction — a vendor session whose account is linked to a
+  // resident switching to Personal. Always calls switchWorkspace first
+  // (idempotent) rather than assuming a resident cookie already exists on
+  // this browser/device — same "don't assume, verify" reasoning as
+  // switchToVendor above, just mirrored.
+  const switchToResident = async () => {
+    setAccountMenuOpen(false);
+    try {
+      await switchWorkspace("resident");
+      await refreshGuest();
+      navigate("/bookings");
+    } catch {
+      navigate("/signin");
+    }
+  };
+
   useEffect(() => {
     setMenuOpen(false);
-    setCountyMenuOpen(false);
     setAccountMenuOpen(false);
     setNotifOpen(false);
     setExploreMenuOpen(false);
     setCreateMenuOpen(false);
   }, [location.pathname]);
-
-  useEffect(() => {
-    fetchCentres().then((centres) => {
-      setCounties(Array.from(new Set(centres.map((c) => c.county).filter(Boolean))).sort((a, b) => a.localeCompare(b)));
-    });
-  }, []);
 
   useEffect(loadResidentNotifs, [resident]);
 
@@ -88,7 +151,6 @@ export function Header() {
   // own toggle button.
   useEffect(() => {
     function onDocClick(e: MouseEvent) {
-      if (countyMenuRef.current && !countyMenuRef.current.contains(e.target as Node)) setCountyMenuOpen(false);
       if (accountMenuRef.current && !accountMenuRef.current.contains(e.target as Node)) setAccountMenuOpen(false);
       if (exploreMenuRef.current && !exploreMenuRef.current.contains(e.target as Node)) setExploreMenuOpen(false);
       if (createMenuRef.current && !createMenuRef.current.contains(e.target as Node)) setCreateMenuOpen(false);
@@ -236,6 +298,12 @@ export function Header() {
           <button
             onClick={openNav}
             aria-label="Open dashboard menu"
+            // Phase 5 polish — hidden at the same <=860px breakpoint that
+            // swaps in .mobile-menu-btn below, so a ManageShell page never
+            // shows two hamburger-style buttons at once on mobile. The
+            // ManageShell sidebar stays reachable there via a "Dashboard
+            // menu" entry at the top of that mobile menu panel instead.
+            className="dashboard-nav-btn"
             style={{
               width: 38,
               height: 38,
@@ -312,6 +380,13 @@ export function Header() {
           >
             Ask HelloCircle
           </button>
+          <button
+            className="tab-btn hide-tablet"
+            style={isActive(["/for-venues"]) ? { ...navBtn, background: colors.greenBg, color: colors.greenText, fontWeight: 700 } : navBtn}
+            onClick={() => go("/for-venues")}
+          >
+            For venues
+          </button>
         </nav>
         <div className="desktop-actions" style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10 }}>
           <button
@@ -325,10 +400,10 @@ export function Header() {
           </button>
           <button
             className="btn btn-ghost"
-            onClick={() => go("/search")}
+            onClick={() => go("/explore?focus=1")}
             aria-label="Search"
             title="Search"
-            style={isActive(["/search"]) ? { ...circleBtnStyle, background: colors.greenBg, borderColor: colors.green } : circleBtnStyle}
+            style={isActive(["/explore"]) ? { ...circleBtnStyle, background: colors.greenBg, borderColor: colors.green } : circleBtnStyle}
           >
             <SearchIcon size={17} />
           </button>
@@ -369,46 +444,14 @@ export function Header() {
           >
             <LightbulbIcon size={17} style={{ color: colors.orange }} />
           </button>
-          <div ref={countyMenuRef} style={{ position: "relative" }}>
-            <button
-              className="btn btn-ghost"
-              onClick={() => setCountyMenuOpen((o) => !o)}
-              aria-label="Browse by county"
-              style={circleBtnStyle}
-            >
-              <PinIcon size={17} />
-            </button>
-            {countyMenuOpen && (
-              <div className="pop-in" style={{ ...dropdownStyle, maxHeight: 320, overflowY: "auto" }}>
-                <div style={dropdownLabelStyle}>Browse by county</div>
-                <button
-                  className="dropdown-item"
-                  style={dropdownItemStyle}
-                  onClick={() => {
-                    setCountyMenuOpen(false);
-                    navigate("/browse/centres");
-                  }}
-                >
-                  All counties
-                </button>
-                {counties.map((c) => (
-                  <button
-                    key={c}
-                    className="dropdown-item"
-                    style={dropdownItemStyle}
-                    onClick={() => {
-                      setCountyMenuOpen(false);
-                      navigate(`/browse/centres?county=${encodeURIComponent(c)}`);
-                    }}
-                  >
-                    {c}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
 
-          {user && (user.role === "admin" || user.role === "vendor") && (
+          {/* A resident session also gets its own bell just below — when both
+              exist (a vendor/admin linked to their own resident identity),
+              showing two identical, unlabeled bell icons read as a bug, not
+              two real notification streams. That bell's dropdown carries a
+              "Business notifications" link instead, so this one only ever
+              renders standalone. */}
+          {user && (user.role === "admin" || user.role === "vendor") && !resident && (
             <button
               className="btn btn-ghost"
               onClick={() => navigate(user.role === "admin" ? "/admin?tab=pending" : "/vendor?tab=messages")}
@@ -476,6 +519,19 @@ export function Header() {
               {notifOpen && (
                 <div className="pop-in" style={{ ...dropdownStyle, minWidth: 300, maxHeight: 360, overflowY: "auto" }}>
                   <div style={dropdownLabelStyle}>Notifications</div>
+                  {user && (user.role === "admin" || user.role === "vendor") && (
+                    <button
+                      className="dropdown-item"
+                      style={dropdownItemStyle}
+                      onClick={() => {
+                        setNotifOpen(false);
+                        navigate(user.role === "admin" ? "/admin?tab=pending" : "/vendor?tab=messages");
+                      }}
+                    >
+                      Business notifications
+                      {alerts > 0 && <span style={{ ...countBadgeStyle, background: colors.orange }}>{alerts}</span>}
+                    </button>
+                  )}
                   {residentNotifs.length === 0 ? (
                     <div style={{ padding: "16px 12px", fontSize: 13.5, color: colors.mutedLight }}>Nothing yet.</div>
                   ) : (
@@ -558,6 +614,47 @@ export function Header() {
                   </button>
                 )}
 
+                {/* HelloCircle Manage (Phase 1) workspace switcher — only
+                    ever shows capabilities this account actually has. The
+                    "My Life" button above already covers Personal for a
+                    resident session; this covers the reverse — a vendor
+                    session whose account is linked to a resident. */}
+                {user?.role === "vendor" && user.residentId && (
+                  <button className="dropdown-item" style={dropdownItemStyle} onClick={switchToResident}>
+                    Personal
+                  </button>
+                )}
+                {workspaces?.vendor && (
+                  <button className="dropdown-item" style={dropdownItemStyle} onClick={switchToVendor}>
+                    {workspaces.vendor.businessName || "Vendor dashboard"}
+                  </button>
+                )}
+                {hasHostedGames && (
+                  <button
+                    className="dropdown-item"
+                    style={dropdownItemStyle}
+                    onClick={() => {
+                      setAccountMenuOpen(false);
+                      go("/manage/activities");
+                    }}
+                  >
+                    Activities
+                  </button>
+                )}
+                {workspaces?.circlesOrganising.map((c) => (
+                  <button
+                    key={c.id}
+                    className="dropdown-item"
+                    style={dropdownItemStyle}
+                    onClick={() => {
+                      setAccountMenuOpen(false);
+                      go(`/manage/circles/${c.slug ?? c.id}`);
+                    }}
+                  >
+                    Manage {c.name}
+                  </button>
+                ))}
+
                 <div style={dropdownDividerStyle} />
 
                 {user ? (
@@ -588,7 +685,7 @@ export function Header() {
                       style={dropdownItemStyle}
                       onClick={() => {
                         setAccountMenuOpen(false);
-                        go("/vendor/signup");
+                        go("/for-venues");
                       }}
                     >
                       List your venue
@@ -621,7 +718,7 @@ export function Header() {
                       style={dropdownItemStyle}
                       onClick={() => {
                         setAccountMenuOpen(false);
-                        go("/vendor/signup");
+                        go("/for-venues");
                       }}
                     >
                       List your venue
@@ -662,6 +759,24 @@ export function Header() {
             padding: "10px 20px 20px",
           }}
         >
+          {/* HelloCircle Manage Phase 5 — the single mobile entry point for
+              the ManageShell sidebar (Bookings/Activities/Circle tabs etc.)
+              at <=860px, replacing the second hamburger .dashboard-nav-btn
+              would otherwise render alongside this menu's own toggle. */}
+          {openNav && (
+            <>
+              <div style={{ ...dropdownLabelStyle, padding: "2px 6px 2px" }}>Manage</div>
+              <button
+                style={{ ...mobileNavBtn, display: "flex", alignItems: "center", gap: 8 }}
+                onClick={() => {
+                  setMenuOpen(false);
+                  openNav();
+                }}
+              >
+                <MenuIcon size={16} /> Dashboard menu
+              </button>
+            </>
+          )}
           {/* Primary destinations (Community centres/Sports clubs/Join a
               game/Adventures/Experiences/Circles/My Life) moved to the
               persistent mobile bottom tab bar (see MobileTabBar.tsx) — this
@@ -669,7 +784,7 @@ export function Header() {
               secondary actions and account/auth. Grouped by intent (UI/UX
               plan phase 4). */}
           <div style={{ ...dropdownLabelStyle, padding: "2px 6px 2px" }}>Not sure yet?</div>
-          <button style={{ ...mobileNavBtn, display: "flex", alignItems: "center", gap: 8 }} onClick={() => go("/search")}>
+          <button style={{ ...mobileNavBtn, display: "flex", alignItems: "center", gap: 8 }} onClick={() => go("/explore?focus=1")}>
             <SearchIcon size={16} /> Search
           </button>
           <button style={{ ...mobileNavBtn, display: "flex", alignItems: "center", gap: 8 }} onClick={() => go("/free-time")}>
@@ -677,6 +792,9 @@ export function Header() {
           </button>
           <button style={{ ...mobileNavBtn, display: "flex", alignItems: "center", gap: 8 }} onClick={() => go("/ask")}>
             <ChatIcon size={16} /> Ask HelloCircle
+          </button>
+          <button style={{ ...mobileNavBtn, display: "flex", alignItems: "center", gap: 8 }} onClick={() => go("/for-venues")}>
+            <BuildingIcon size={16} /> For venues
           </button>
 
           <div style={{ ...dropdownLabelStyle, padding: "10px 6px 2px" }}>You</div>
@@ -715,7 +833,7 @@ export function Header() {
               <button style={mobileNavBtn} onClick={doGuestLogout}>
                 Sign out
               </button>
-              <button style={mobileNavBtn} onClick={() => go("/vendor/signup")}>
+              <button style={mobileNavBtn} onClick={() => go("/for-venues")}>
                 List your venue
               </button>
             </>
@@ -727,7 +845,7 @@ export function Header() {
               <button style={mobileNavBtn} onClick={() => go("/login")}>
                 Vendor / admin login
               </button>
-              <button style={mobileNavBtn} onClick={() => go("/vendor/signup")}>
+              <button style={mobileNavBtn} onClick={() => go("/for-venues")}>
                 List your venue
               </button>
             </>

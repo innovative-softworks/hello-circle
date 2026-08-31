@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { fetchVendorMessages, fetchVendorNotifications, markVendorNotificationRead, sendVendorMessage } from "../api";
 import { ChatIcon } from "./icons";
-import { Button, Card, EmptyState, inputStyle, labelStyle } from "./ui";
+import { Button, ManageCard as Card, EmptyState, inputStyle, labelStyle } from "./ui";
 import { formatDate } from "../vendorFormat";
 import { colors, fonts, radius } from "../theme";
 import type { VendorListingSummary, VendorNotification } from "../types";

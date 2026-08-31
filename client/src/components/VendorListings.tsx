@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { deleteVendorCentre, deleteVendorClub } from "../api";
 import { BallIcon, BuildingIcon, CheckCircleIcon, EditIcon, EyeIcon, PinIcon, PlusIcon, StarIcon, TrashIcon } from "./icons";
-import { Button, Card, ConfirmDialog, LinkButton, StatusBadge, tableStyle, tdStyle, thStyle } from "./ui";
+import { Button, ManageCard as Card, ConfirmDialog, LinkButton, StatusBadge, tableStyle, tdStyle, thStyle } from "./ui";
 import { colors, fonts } from "../theme";
 import type { VendorListingSummary, VendorType } from "../types";
 

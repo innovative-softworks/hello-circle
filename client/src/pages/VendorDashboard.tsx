@@ -2,7 +2,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { fetchOrgProfile, fetchVendorListings, fetchVendorNotifications, fetchVendorStats } from "../api";
 import { useAuth } from "../AuthContext";
-import { useDashboardNav } from "../DashboardNavContext";
+import { ManageShell } from "../components/ManageShell";
 import {
   BanIcon,
   CalendarIcon,
@@ -16,10 +16,8 @@ import {
   TrendUpIcon,
   UsersIcon,
 } from "../components/icons";
-import { Button, Card, DashboardTopPanel, Drawer, NavSidebar, PageSpinner } from "../components/ui";
+import { Button, LinkButton, ManageCard as Card, DashboardTopPanel, PageSpinner } from "../components/ui";
 import { BookingsTab, DemandTab } from "../components/VendorBookings";
-import { CentreEditor } from "../components/VendorCentreEditor";
-import { ClubEditor } from "../components/VendorClubEditor";
 import { VendorExperiencesTab } from "../components/VendorExperiences";
 import { ListingsTab } from "../components/VendorListings";
 import { MessagesTab } from "../components/VendorMessages";
@@ -27,7 +25,7 @@ import { VendorOrgTab } from "../components/VendorOrg";
 import { VendorOverviewTab } from "../components/VendorOverview";
 import { VendorProgramsTab, VendorScheduleTab } from "../components/VendorPrograms";
 import { formatMemberSince } from "../vendorFormat";
-import { colors, fonts, maxWidth } from "../theme";
+import { colors, fonts } from "../theme";
 import type { VendorListingSummary, VendorStats } from "../types";
 
 // The orchestrating page component only — every tab's actual content now
@@ -54,26 +52,14 @@ export function VendorDashboard() {
   const [searchParams] = useSearchParams();
   const initialTab = searchParams.get("tab");
   const [tab, setTab] = useState<VendorTab>(VENDOR_TABS.some((o) => o.key === initialTab) ? (initialTab as VendorTab) : "overview");
-  const [navOpen, setNavOpen] = useState(false);
   const [listings, setListings] = useState<{ centres: VendorListingSummary[]; clubs: VendorListingSummary[] }>({ centres: [], clubs: [] });
   const [stats, setStats] = useState<VendorStats | null>(null);
-  const [editingCentre, setEditingCentre] = useState<string | "new" | null>(null);
-  const [editingClub, setEditingClub] = useState<string | "new" | null>(null);
-  const [creatingProgram, setCreatingProgram] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
   // Feature flags (implementation backlog #5) — read-only here, admin
   // controls them (AdminDashboard.tsx's Organisations tab). Defaults to
   // enabled while loading so the button doesn't flash disabled-then-enabled
   // on every page load for the common case.
   const [programsEnabled, setProgramsEnabled] = useState(true);
-  const { setOpenNav } = useDashboardNav();
-
-  // Registers the Header.tsx burger's click handler while this page is
-  // mounted — see DashboardNavContext.
-  useEffect(() => {
-    setOpenNav(() => setNavOpen(true));
-    return () => setOpenNav(null);
-  }, [setOpenNav]);
 
   const loadUnreadCount = () => fetchVendorNotifications().then((rows) => setUnreadCount(rows.filter((r) => !r.read).length));
 
@@ -81,8 +67,6 @@ export function VendorDashboard() {
     fetchVendorListings().then(setListings);
     fetchVendorStats().then(setStats);
     loadUnreadCount();
-    setEditingCentre(null);
-    setEditingClub(null);
   };
 
   useEffect(() => {
@@ -118,8 +102,6 @@ export function VendorDashboard() {
     );
   }
 
-  const onAddListing = () => (user.vendorType === "sports" ? setEditingClub("new") : setEditingCentre("new"));
-
   // "Listings" reads like inventory management, which is misleading for the
   // overwhelmingly common case of a vendor with a single location — swap in
   // a singular, ownership-flavoured label ("My centre"/"My club") whenever
@@ -141,15 +123,33 @@ export function VendorDashboard() {
   const displayTabs = VENDOR_TABS.map((t) => (t.key === "listings" ? { ...t, label: listingsTabLabel } : t));
 
   return (
-    <div className="fade-panel">
-      <section className="section-pad" style={{ maxWidth, margin: "0 auto", padding: "40px 24px 90px" }}>
-        {tab === "overview" && (
-          <div style={{ background: colors.greenBg, borderRadius: 22, padding: "28px 28px 24px", marginBottom: 32 }}>
+    <ManageShell
+      navTitle="HelloCircle Manage"
+      navOptions={displayTabs}
+      activeKey={tab}
+      onNavChange={setTab}
+      pageTitle={displayTabs.find((t) => t.key === tab)?.label}
+      headerActions={
+        tab === "programs" ? (
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4 }}>
+            <Button onClick={() => navigate("/vendor/programs/new")} disabled={!programsEnabled}>
+              <PlusIcon size={14} /> Add program
+            </Button>
+            {!programsEnabled && (
+              <span style={{ fontSize: 11, color: colors.orangeDark }}>Not enabled for your organisation</span>
+            )}
+          </div>
+        ) : undefined
+      }
+      banner={
+        tab === "overview" ? (
+          <div style={{ borderBottom: `1px solid ${colors.border}`, paddingBottom: 24, marginBottom: 32 }}>
             <DashboardTopPanel
               title={user.name}
-              subtitle={`Vendor dashboard · ${user.email}`}
+              subtitle={`HelloCircle Manage · ${user.email}`}
               avatarName={user.name}
               accent="green"
+              eyebrow="/ Vendor"
               tabs={VENDOR_TABS}
               activeTab={tab}
               onTabChange={setTab}
@@ -158,76 +158,90 @@ export function VendorDashboard() {
               badge={
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
                   {user.providerTier !== "standard" && (
-                    <span style={{ display: "inline-flex", alignItems: "center", gap: 4, background: "#fff", color: colors.greenText, borderRadius: 20, padding: "3px 10px 3px 8px", fontSize: 12, fontWeight: 700 }}>
+                    <span style={{ display: "inline-flex", alignItems: "center", gap: 4, background: colors.greenBg, color: colors.greenText, borderRadius: 20, padding: "3px 10px 3px 8px", fontSize: 12, fontWeight: 700 }}>
                       <CheckCircleIcon size={13} /> Verified vendor
                     </span>
                   )}
-                  <span style={{ display: "inline-flex", alignItems: "center", background: "#fff", color: colors.muted, borderRadius: 20, padding: "3px 10px", fontSize: 12, fontWeight: 600 }}>
+                  <span style={{ display: "inline-flex", alignItems: "center", background: colors.panel, color: colors.muted, borderRadius: 20, padding: "3px 10px", fontSize: 12, fontWeight: 600 }}>
                     Member since {formatMemberSince(user.createdAt)}
                   </span>
                 </div>
               }
+              actions={
+                <>
+                  <LinkButton variant="orange" href={`/provider/${user.id}`} target="_blank" style={{ padding: "10px 18px", fontSize: 13.5 }}>
+                    View public profile ↗
+                  </LinkButton>
+                  <button
+                    onClick={() => setTab("messages")}
+                    aria-label={unreadCount > 0 ? `${unreadCount} unread messages` : "Messages"}
+                    style={{
+                      position: "relative",
+                      width: 40,
+                      height: 40,
+                      borderRadius: "50%",
+                      border: `1px solid ${colors.borderStrong}`,
+                      background: colors.surface,
+                      color: colors.text,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      cursor: "pointer",
+                      flex: "none",
+                    }}
+                  >
+                    <ChatIcon size={16} />
+                    {unreadCount > 0 && (
+                      <span
+                        style={{
+                          position: "absolute",
+                          top: -4,
+                          right: -4,
+                          minWidth: 16,
+                          height: 16,
+                          borderRadius: 8,
+                          background: colors.orange,
+                          color: "#fff",
+                          fontSize: 10,
+                          fontWeight: 700,
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          padding: "0 3px",
+                        }}
+                      >
+                        {unreadCount}
+                      </span>
+                    )}
+                  </button>
+                </>
+              }
             />
           </div>
-        )}
+        ) : undefined
+      }
+    >
+      {tab === "overview" && stats && <VendorOverviewTab stats={stats} unreadCount={unreadCount} />}
 
-        <NavSidebar open={navOpen} onClose={() => setNavOpen(false)} title="Vendor dashboard" options={displayTabs} value={tab} onChange={setTab} />
+      {tab === "listings" && (
+        <ListingsTab
+          vendorType={user.vendorType}
+          listings={listings}
+          onEditCentre={(id) => navigate(`/vendor/centres/${id}`)}
+          onEditClub={(id) => navigate(`/vendor/clubs/${id}`)}
+          onNewCentre={() => navigate("/vendor/centres/new")}
+          onNewClub={() => navigate("/vendor/clubs/new")}
+          reload={reload}
+        />
+      )}
 
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 16, marginBottom: 18 }}>
-          <h2 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 21, margin: 0, letterSpacing: "-.01em" }}>
-            {displayTabs.find((t) => t.key === tab)?.label}
-          </h2>
-          {tab === "programs" && (
-            <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4 }}>
-              <Button onClick={() => setCreatingProgram(true)} disabled={!programsEnabled}>
-                <PlusIcon size={14} /> Add program
-              </Button>
-              {!programsEnabled && (
-                <span style={{ fontSize: 11, color: colors.orangeDark }}>Not enabled for your organisation</span>
-              )}
-            </div>
-          )}
-        </div>
-
-        {tab === "overview" && stats && <VendorOverviewTab stats={stats} unreadCount={unreadCount} />}
-
-        {tab === "listings" && (
-          <ListingsTab
-            vendorType={user.vendorType}
-            listings={listings}
-            onEditCentre={setEditingCentre}
-            onEditClub={setEditingClub}
-            onNewCentre={() => setEditingCentre("new")}
-            onNewClub={() => setEditingClub("new")}
-            reload={reload}
-          />
-        )}
-
-        {tab === "messages" && <MessagesTab onRead={loadUnreadCount} listings={listings} />}
-        {tab === "bookings" && <BookingsTab />}
-        {tab === "demand" && <DemandTab />}
-        {tab === "programs" && <VendorProgramsTab listings={listings} creatingOpen={creatingProgram} onCreatingOpenChange={setCreatingProgram} />}
-        {tab === "experiences" && <VendorExperiencesTab />}
-        {tab === "schedule" && <VendorScheduleTab />}
-        {tab === "org" && <VendorOrgTab />}
-
-        <Drawer
-          open={!!editingCentre}
-          onClose={() => setEditingCentre(null)}
-          size="wide"
-          title={editingCentre === "new" ? "New community centre" : listings.centres.find((c) => c.id === editingCentre)?.name ?? "Edit community centre"}
-        >
-          {editingCentre && <CentreEditor centreId={editingCentre} onSaved={reload} />}
-        </Drawer>
-        <Drawer
-          open={!!editingClub}
-          onClose={() => setEditingClub(null)}
-          size="wide"
-          title={editingClub === "new" ? "New sports club" : listings.clubs.find((c) => c.id === editingClub)?.name ?? "Edit sports club"}
-        >
-          {editingClub && <ClubEditor clubId={editingClub} onSaved={reload} />}
-        </Drawer>
-      </section>
-    </div>
+      {tab === "messages" && <MessagesTab onRead={loadUnreadCount} listings={listings} />}
+      {tab === "bookings" && <BookingsTab />}
+      {tab === "demand" && <DemandTab />}
+      {tab === "programs" && <VendorProgramsTab onOpenProgram={(id) => navigate(`/vendor/programs/${id}`)} />}
+      {tab === "experiences" && <VendorExperiencesTab onOpenExperience={(id) => navigate(`/vendor/experiences/${id}`)} />}
+      {tab === "schedule" && <VendorScheduleTab />}
+      {tab === "org" && <VendorOrgTab />}
+    </ManageShell>
   );
 }

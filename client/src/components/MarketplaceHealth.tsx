@@ -1,7 +1,7 @@
 import type { AnalyticsFunnelRow, LiquidityLabel, LiquidityScore, MarketplaceHealth as MarketplaceHealthData, ReferralAttributionRow } from "../types";
 import { colors, fonts, radius } from "../theme";
 import { SearchIcon } from "./icons";
-import { Card, EmptyState } from "./ui";
+import { ManageCard as Card, EmptyState } from "./ui";
 
 // Marketplace health / liquidity (participation-intent plan Phase 2) — an
 // admin-only view combining Supply, Participation and per-activity+county

@@ -37,7 +37,7 @@ export function MyLifeThisMonth({ entries }: { entries: ParticipationEntry[] }) 
 
   return (
     <div style={{ border: `1px solid ${colors.border}`, borderRadius: 12, padding: "16px 18px", background: colors.surface }}>
-      <h3 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 15, margin: "0 0 12px" }}>This month</h3>
+      <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".06em", color: colors.mutedLight, marginBottom: 12 }}>YOUR MONTH</div>
       <div style={{ display: "flex", gap: 20, marginBottom: insight ? 12 : 0 }}>
         <div>
           <div style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 20, letterSpacing: "-.01em" }}>{attended}</div>

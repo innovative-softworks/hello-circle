@@ -410,7 +410,7 @@ bookingsRouter.get("/", async (req, res) => {
     ? await db
         .prepare(
           `SELECT b.ref, b.date, b.time, b.total_cents as totalCents, b.created_at as createdAt, b.status,
-                  c.name as centreName, c.ph as ph, c.image_url as image, r.name as roomName
+                  c.name as centreName, c.ph as ph, c.image_url as image, r.name as roomName, c.vendor_id as vendorId
            FROM bookings b
            JOIN centres c ON c.id = b.centre_id
            LEFT JOIN rooms r ON r.id = b.room_id AND r.centre_id = b.centre_id
@@ -421,7 +421,7 @@ bookingsRouter.get("/", async (req, res) => {
     : await db
         .prepare(
           `SELECT b.ref, b.date, b.time, b.total_cents as totalCents, b.created_at as createdAt, b.status,
-                  c.name as centreName, c.ph as ph, c.image_url as image, r.name as roomName
+                  c.name as centreName, c.ph as ph, c.image_url as image, r.name as roomName, c.vendor_id as vendorId
            FROM bookings b
            JOIN centres c ON c.id = b.centre_id
            LEFT JOIN rooms r ON r.id = b.room_id AND r.centre_id = b.centre_id
@@ -445,7 +445,7 @@ bookingsRouter.post("/lookup", lookupLimiter, async (req, res) => {
   const row = await db
     .prepare(
       `SELECT b.ref, b.date, b.time, b.total_cents as totalCents, b.created_at as createdAt, b.status,
-              c.name as centreName, c.ph as ph, c.image_url as image, r.name as roomName
+              c.name as centreName, c.ph as ph, c.image_url as image, r.name as roomName, c.vendor_id as vendorId
        FROM bookings b
        JOIN centres c ON c.id = b.centre_id
        LEFT JOIN rooms r ON r.id = b.room_id AND r.centre_id = b.centre_id

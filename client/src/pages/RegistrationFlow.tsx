@@ -76,8 +76,21 @@ export function RegistrationFlow() {
   const [couponError, setCouponError] = useState<string | null>(null);
   const [couponChecking, setCouponChecking] = useState(false);
 
+  // Which shape this registration takes — "child" (guardian registers a
+  // minor: DOB, age group, guardian-vs-registrant distinction, required
+  // emergency contact) or "adult" (registrant registers themselves: no DOB,
+  // no age group, emergency contact optional). Driven by the club's own
+  // `audience` setting; only an audience:"all" club exposes the toggle,
+  // since a kids-only or adults-only club has exactly one valid shape.
+  const [registrantType, setRegistrantType] = useState<"child" | "adult">("child");
+  const isAdult = registrantType === "adult";
+
   useEffect(() => {
-    if (clubId) fetchClub(clubId).then(setClub);
+    if (clubId) fetchClub(clubId).then((c) => {
+      setClub(c);
+      if (c.audience === "adults") setRegistrantType("adult");
+      else if (c.audience === "kids") setRegistrantType("child");
+    });
   }, [clubId]);
 
   // Household picker (MVP) — only useful when signed in; empty otherwise.
@@ -114,8 +127,12 @@ export function RegistrationFlow() {
   const feeCents = Math.round(taxableCents * PLATFORM_FEE_RATE);
   const totalCents = taxableCents + vatCents + feeCents;
 
-  const r1Ready = !!(form.childFirst && form.childLast && form.dob && form.team);
-  const r2Ready = !!(form.gFirst && form.gLast && form.email && isValidEmail(form.email) && form.phone && form.address && form.ecName && form.ecPhone);
+  const r1Ready = isAdult
+    ? !!(form.childFirst && form.childLast)
+    : !!(form.childFirst && form.childLast && form.dob && form.team);
+  const r2Ready = isAdult
+    ? !!(form.email && isValidEmail(form.email) && form.phone && form.address)
+    : !!(form.gFirst && form.gLast && form.email && isValidEmail(form.email) && form.phone && form.address && form.ecName && form.ecPhone);
   const r3Ready = form.consent;
   const r4Ready = true;
   const ready = step === 1 ? r1Ready : step === 2 ? r2Ready : step === 3 ? r3Ready : r4Ready;
@@ -148,9 +165,19 @@ export function RegistrationFlow() {
     setSubmitting(true);
     try {
       const res = await createRegistrationCheckout({
-        clubId, team: form.team, childFirst: form.childFirst, childLast: form.childLast, dob: form.dob,
-        gFirst: form.gFirst, gLast: form.gLast, email: form.email, phone: form.phone, address: form.address,
-        ecName: form.ecName, ecPhone: form.ecPhone, ecRel: form.ecRel, medical: form.medical,
+        clubId,
+        registrantType,
+        // Adult flow: the registrant is their own "guardian" — step 1
+        // already collected their name once, so it isn't asked again in
+        // step 2 (see the g_first/g_last reuse note there).
+        team: isAdult ? undefined : form.team,
+        childFirst: form.childFirst, childLast: form.childLast,
+        dob: isAdult ? undefined : form.dob,
+        gFirst: isAdult ? form.childFirst : form.gFirst,
+        gLast: isAdult ? form.childLast : form.gLast,
+        email: form.email, phone: form.phone, address: form.address,
+        ecName: form.ecName || undefined, ecPhone: form.ecPhone || undefined, ecRel: form.ecRel || undefined,
+        medical: form.medical,
         consent: form.consent, trial: usePass ? false : form.trial, couponCode: usePass || form.trial ? undefined : coupon?.code,
         sessionId: sessionId || undefined,
         passId: usePass && usablePass ? usablePass.id : undefined,
@@ -230,7 +257,7 @@ export function RegistrationFlow() {
           </h1>
           <p style={{ color: colors.muted, fontSize: 17, margin: "0 0 28px" }}>
             {form.trial
-              ? `We've emailed ${form.email || "you"} the details for ${form.childFirst || "your child"}'s free trial.`
+              ? `We've emailed ${form.email || "you"} the details for ${isAdult ? "your" : `${form.childFirst || "your child"}'s`} free trial.`
               : usePass
                 ? `Covered by your pass — one credit used. We've emailed ${form.email || "you"} the details.`
                 : `Pay €${confirmedTotalEuro.toFixed(2)} in cash at the club — no online payment needed. We've emailed ${form.email || "you"} the details.`}
@@ -240,13 +267,15 @@ export function RegistrationFlow() {
             <div style={{ color: colors.mutedLight, fontSize: 14, marginBottom: 16 }}>{club.sport}</div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
               <div>
-                <div style={{ fontSize: 12, color: colors.faint, fontWeight: 600 }}>CHILD</div>
+                <div style={{ fontSize: 12, color: colors.faint, fontWeight: 600 }}>{isAdult ? "MEMBER" : "CHILD"}</div>
                 <div style={{ fontWeight: 600 }}>{childName}</div>
               </div>
-              <div>
-                <div style={{ fontSize: 12, color: colors.faint, fontWeight: 600 }}>AGE GROUP</div>
-                <div style={{ fontWeight: 600 }}>{form.team}</div>
-              </div>
+              {!isAdult && (
+                <div>
+                  <div style={{ fontSize: 12, color: colors.faint, fontWeight: 600 }}>AGE GROUP</div>
+                  <div style={{ fontWeight: 600 }}>{form.team}</div>
+                </div>
+              )}
               <div>
                 <div style={{ fontSize: 12, color: colors.faint, fontWeight: 600 }}>REFERENCE</div>
                 <div style={{ fontWeight: 600 }}>{ref}</div>
@@ -270,26 +299,32 @@ export function RegistrationFlow() {
     <div style={{ animation: "fadeUp .3s ease both" }}>
       <section className="section-pad" style={{ maxWidth: 920, margin: "0 auto", padding: "26px 24px 80px" }}>
         <BackLink onClick={back}>{step > 1 ? "Back a step" : "Back to club"}</BackLink>
-        <Stepper labels={["Your child", "Contacts", "Medical", "Review & pay"]} current={step} accent="orange" />
+        <Stepper labels={isAdult ? ["Your details", "Contact info", "Medical", "Review & pay"] : ["Your child", "Contacts", "Medical", "Review & pay"]} current={step} accent="orange" />
 
         <div className="grid-responsive" style={{ display: "grid", gridTemplateColumns: "1.5fr 1fr", gap: 32, alignItems: "start" }}>
           <div style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 18, padding: 28 }}>
             {step === 1 && (
               <>
                 <h2 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 23, margin: "0 0 18px", letterSpacing: "-.01em" }}>
-                  Your child's details
+                  {isAdult ? "Your details" : "Your child's details"}
                 </h2>
+                {club.audience === "all" && (
+                  <div style={{ display: "flex", gap: 8, marginBottom: 18 }}>
+                    <Chip label="Registering my child" active={!isAdult} onClick={() => setRegistrantType("child")} accent="orange" radius={11} padding="9px 16px" />
+                    <Chip label="Registering myself" active={isAdult} onClick={() => setRegistrantType("adult")} accent="orange" radius={11} padding="9px 16px" />
+                  </div>
+                )}
                 <div className="grid-responsive" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
                   <div>
                     <label style={labelStyle}>First name</label>
-                    <input value={form.childFirst} onChange={(e) => set("childFirst", e.target.value)} placeholder="Child's first name" style={inputStyle} />
+                    <input value={form.childFirst} onChange={(e) => set("childFirst", e.target.value)} placeholder={isAdult ? "Your first name" : "Child's first name"} style={inputStyle} />
                   </div>
                   <div>
                     <label style={labelStyle}>Last name</label>
-                    <input value={form.childLast} onChange={(e) => set("childLast", e.target.value)} placeholder="Child's last name" style={inputStyle} />
+                    <input value={form.childLast} onChange={(e) => set("childLast", e.target.value)} placeholder={isAdult ? "Your last name" : "Child's last name"} style={inputStyle} />
                   </div>
                 </div>
-                {household.length > 0 && (
+                {!isAdult && household.length > 0 && (
                   <div style={{ margin: "14px 0 4px" }}>
                     <label style={labelStyle}>Or pick from your household</label>
                     <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
@@ -311,31 +346,39 @@ export function RegistrationFlow() {
                     </div>
                   </div>
                 )}
-                <label style={{ ...labelStyle, margin: "16px 0 6px" }}>Date of birth</label>
-                <input type="date" value={form.dob} onChange={(e) => set("dob", e.target.value)} style={inputStyle} />
-                <label style={{ ...labelStyle, margin: "18px 0 10px" }}>Age group</label>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-                  {AGE_GROUPS.map((t) => (
-                    <Chip key={t} label={t} active={form.team === t} onClick={() => set("team", t)} accent="orange" radius={11} padding="9px 16px" />
-                  ))}
-                </div>
+                {!isAdult && (
+                  <>
+                    <label style={{ ...labelStyle, margin: "16px 0 6px" }}>Date of birth</label>
+                    <input type="date" value={form.dob} onChange={(e) => set("dob", e.target.value)} style={inputStyle} />
+                    <label style={{ ...labelStyle, margin: "18px 0 10px" }}>Age group</label>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                      {AGE_GROUPS.map((t) => (
+                        <Chip key={t} label={t} active={form.team === t} onClick={() => set("team", t)} accent="orange" radius={11} padding="9px 16px" />
+                      ))}
+                    </div>
+                  </>
+                )}
               </>
             )}
 
             {step === 2 && (
               <>
                 <h2 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 23, margin: "0 0 18px", letterSpacing: "-.01em" }}>
-                  Parent / guardian & emergency contact
+                  {isAdult ? "Your contact details" : "Parent / guardian & emergency contact"}
                 </h2>
                 <div className="grid-responsive" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
-                  <div>
-                    <label style={labelStyle}>Your first name</label>
-                    <input value={form.gFirst} onChange={(e) => set("gFirst", e.target.value)} style={inputStyle} />
-                  </div>
-                  <div>
-                    <label style={labelStyle}>Your last name</label>
-                    <input value={form.gLast} onChange={(e) => set("gLast", e.target.value)} style={inputStyle} />
-                  </div>
+                  {!isAdult && (
+                    <>
+                      <div>
+                        <label style={labelStyle}>Your first name</label>
+                        <input value={form.gFirst} onChange={(e) => set("gFirst", e.target.value)} style={inputStyle} />
+                      </div>
+                      <div>
+                        <label style={labelStyle}>Your last name</label>
+                        <input value={form.gLast} onChange={(e) => set("gLast", e.target.value)} style={inputStyle} />
+                      </div>
+                    </>
+                  )}
                   <div>
                     <label style={labelStyle}>Email</label>
                     <input type="email" value={form.email} onChange={(e) => set("email", e.target.value)} placeholder="you@email.ie" style={inputStyle} />
@@ -350,7 +393,9 @@ export function RegistrationFlow() {
                 </div>
                 <label style={{ ...labelStyle, margin: "16px 0 6px" }}>Home address</label>
                 <input value={form.address} onChange={(e) => set("address", e.target.value)} placeholder="Street, town, county, Eircode" style={{ ...inputStyle, marginBottom: 16 }} />
-                <div style={{ fontSize: 13, fontWeight: 700, color: colors.muted, margin: "6px 0 10px", letterSpacing: ".02em" }}>EMERGENCY CONTACT</div>
+                <div style={{ fontSize: 13, fontWeight: 700, color: colors.muted, margin: "6px 0 10px", letterSpacing: ".02em" }}>
+                  EMERGENCY CONTACT{isAdult ? " (OPTIONAL)" : ""}
+                </div>
                 <div className="grid-responsive" style={{ display: "grid", gridTemplateColumns: "1.3fr 1fr 1fr", gap: 12 }}>
                   <div>
                     <label style={labelStyle}>Name</label>
@@ -362,7 +407,7 @@ export function RegistrationFlow() {
                   </div>
                   <div>
                     <label style={labelStyle}>Relationship</label>
-                    <input value={form.ecRel} onChange={(e) => set("ecRel", e.target.value)} placeholder="e.g. Aunt" style={inputStyle} />
+                    <input value={form.ecRel} onChange={(e) => set("ecRel", e.target.value)} placeholder="e.g. Friend" style={inputStyle} />
                   </div>
                 </div>
               </>
@@ -387,8 +432,9 @@ export function RegistrationFlow() {
                 <label style={{ display: "flex", gap: 12, alignItems: "flex-start", cursor: "pointer", background: colors.bg, border: `1px solid ${colors.border}`, borderRadius: 12, padding: 14 }}>
                   <input type="checkbox" checked={form.consent} onChange={(e) => set("consent", e.target.checked)} style={{ width: 18, height: 18, marginTop: 2, accentColor: colors.orange, flex: "none" }} />
                   <span style={{ fontSize: 14, color: colors.textSoft, lineHeight: 1.45 }}>
-                    I consent to my child taking part in club activities and confirm the information provided is
-                    accurate. I understand photos may be taken at club events.
+                    {isAdult
+                      ? "I consent to taking part in club activities and confirm the information provided is accurate. I understand photos may be taken at club events."
+                      : "I consent to my child taking part in club activities and confirm the information provided is accurate. I understand photos may be taken at club events."}
                   </span>
                 </label>
               </>
@@ -567,13 +613,15 @@ export function RegistrationFlow() {
             <div style={{ color: colors.mutedLight, fontSize: 14, marginBottom: 16 }}>{club.area}</div>
             <div style={{ display: "flex", flexDirection: "column", gap: 9, fontSize: 14 }}>
               <div style={{ display: "flex", justifyContent: "space-between" }}>
-                <span style={{ color: colors.mutedLight }}>Child</span>
+                <span style={{ color: colors.mutedLight }}>{isAdult ? "Member" : "Child"}</span>
                 <span style={{ fontWeight: 600 }}>{childName || "Not set"}</span>
               </div>
-              <div style={{ display: "flex", justifyContent: "space-between" }}>
-                <span style={{ color: colors.mutedLight }}>Age group</span>
-                <span style={{ fontWeight: 600 }}>{form.team || "Not set"}</span>
-              </div>
+              {!isAdult && (
+                <div style={{ display: "flex", justifyContent: "space-between" }}>
+                  <span style={{ color: colors.mutedLight }}>Age group</span>
+                  <span style={{ fontWeight: 600 }}>{form.team || "Not set"}</span>
+                </div>
+              )}
             </div>
             {!form.trial && !usePass && (
               <div style={{ borderTop: "1px solid #EEEBE3", margin: "16px 0", paddingTop: 14, display: "flex", flexDirection: "column", gap: 9, fontSize: 14 }}>

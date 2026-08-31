@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import {
   addExperienceSession,
-  createVendorExperience,
   deleteVendorExperience,
   fetchOrgProfile,
   fetchVendorExperience,
@@ -13,7 +12,8 @@ import {
   type ExperienceInput,
 } from "../api";
 import { CalendarIcon, PlusIcon, TreeIconSmall, TrashIcon, UsersIcon } from "./icons";
-import { Button, Card, ConfirmDialog, Drawer, EmptyState, inputStyle, labelStyle } from "./ui";
+import { FormErrorSummary, NumberStepper, SettingsSection } from "./form";
+import { Button, ManageCard as Card, ConfirmDialog, EmptyState, inputStyle, labelStyle } from "./ui";
 import { MultiImageUpload } from "./VendorImageUpload";
 import { colors, fonts, radius } from "../theme";
 import type { Experience, ExperienceSessionRow, VendorExperienceBooking, VendorExperienceSummary } from "../types";
@@ -95,25 +95,51 @@ const STATUS_COLORS: Record<string, { fg: string; bg: string }> = {
 };
 
 // --- editor (create or edit) -----------------------------------------------
+//
+// Only ever reached for an already-published listing — a new one is created
+// via ExperienceCreationWizard.tsx instead (Form System Audit, Phase 5
+// fast-follow), so this no longer needs a flat "new" layout of its own.
 
-function ExperienceEditor({ id, onSaved }: { id: string | "new"; onSaved: () => void }) {
+export function ExperienceEditor({
+  id,
+  onSaved,
+  onDirtyChange,
+}: {
+  id: string;
+  onSaved: (id: string) => void;
+  onDirtyChange?: (dirty: boolean) => void;
+}) {
   const [form, setForm] = useState<ExperienceInput>(blankExperienceInput());
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
+  const [fieldErrors, setFieldErrors] = useState<{ field: string; message: string; fieldId: string }[]>([]);
 
   useEffect(() => {
-    if (id !== "new") fetchVendorExperience(id).then((e) => setForm(experienceToInput(e)));
+    fetchVendorExperience(id).then((e) => setForm(experienceToInput(e)));
   }, [id]);
 
-  const set = <K extends keyof ExperienceInput>(k: K, v: ExperienceInput[K]) => setForm((f) => ({ ...f, [k]: v }));
+  const set = <K extends keyof ExperienceInput>(k: K, v: ExperienceInput[K]) => {
+    setForm((f) => ({ ...f, [k]: v }));
+    setFieldErrors([]);
+    onDirtyChange?.(true);
+  };
 
   const save = async () => {
+    const errors: { field: string; message: string; fieldId: string }[] = [];
+    if (!form.title.trim()) errors.push({ field: "title", message: "Title is required", fieldId: "experience-title" });
+    if (!form.blurb.trim()) errors.push({ field: "blurb", message: "A short blurb is required", fieldId: "experience-blurb" });
+    setFieldErrors(errors);
+    if (errors.length > 0) return;
+
     setSaving(true);
     setError(null);
+    setSaved(false);
     try {
-      if (id === "new") await createVendorExperience(form);
-      else await updateVendorExperience(id, form);
-      onSaved();
+      await updateVendorExperience(id, form);
+      setSaved(true);
+      onDirtyChange?.(false);
+      onSaved(id);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Couldn't save");
     } finally {
@@ -121,7 +147,9 @@ function ExperienceEditor({ id, onSaved }: { id: string | "new"; onSaved: () => 
     }
   };
 
-  return (
+  // --- field groups, composed differently depending on mode below ---------
+
+  const generalFields = (
     <>
       <div className="grid-responsive" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 14 }}>
         <div>
@@ -133,15 +161,7 @@ function ExperienceEditor({ id, onSaved }: { id: string | "new"; onSaved: () => 
         </div>
         <div>
           <label style={labelStyle}>Title</label>
-          <input value={form.title} onChange={(e) => set("title", e.target.value)} style={inputStyle} />
-        </div>
-        <div>
-          <label style={labelStyle}>Area</label>
-          <input value={form.area ?? ""} onChange={(e) => set("area", e.target.value)} style={inputStyle} />
-        </div>
-        <div>
-          <label style={labelStyle}>County</label>
-          <input value={form.county ?? ""} onChange={(e) => set("county", e.target.value)} style={inputStyle} />
+          <input id="experience-title" value={form.title} onChange={(e) => set("title", e.target.value)} style={inputStyle} />
         </div>
         <div>
           <label style={labelStyle}>Difficulty</label>
@@ -152,73 +172,76 @@ function ExperienceEditor({ id, onSaved }: { id: string | "new"; onSaved: () => 
             <option value="challenging">Challenging</option>
           </select>
         </div>
-        <div>
-          <label style={labelStyle}>Duration (minutes)</label>
-          <input type="number" value={form.durationMinutes ?? 120} onChange={(e) => set("durationMinutes", Number(e.target.value))} style={inputStyle} />
-        </div>
-        <div>
-          <label style={labelStyle}>Price per person (€)</label>
-          <input type="number" value={(form.priceCents ?? 0) / 100} onChange={(e) => set("priceCents", Math.round(Number(e.target.value) * 100))} style={inputStyle} />
-        </div>
-        <div>
-          <label style={labelStyle}>Capacity per departure</label>
-          <input type="number" min={1} value={form.capacity ?? 8} onChange={(e) => set("capacity", Number(e.target.value))} style={inputStyle} />
-        </div>
       </div>
-
-      {form.kind === "adventure" && (
-        <div className="grid-responsive" style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 14, marginBottom: 14 }}>
-          <div>
-            <label style={labelStyle}>Distance (km, optional)</label>
-            <input
-              type="number"
-              min={0}
-              step="0.1"
-              value={form.distanceKm ?? ""}
-              onChange={(e) => set("distanceKm", e.target.value ? Number(e.target.value) : null)}
-              style={inputStyle}
-            />
-          </div>
-          <div>
-            <label style={labelStyle}>Elevation gain (m, optional)</label>
-            <input
-              type="number"
-              min={0}
-              value={form.elevationGainM ?? ""}
-              onChange={(e) => set("elevationGainM", e.target.value ? Number(e.target.value) : null)}
-              style={inputStyle}
-            />
-          </div>
-          <div>
-            <label style={labelStyle}>Terrain (optional)</label>
-            <input
-              value={form.terrainType ?? ""}
-              onChange={(e) => set("terrainType", e.target.value)}
-              placeholder="e.g. Trail & mountain"
-              style={inputStyle}
-            />
-          </div>
-        </div>
-      )}
-
-      <label style={labelStyle}>Meeting point</label>
-      <input value={form.meetingPoint ?? ""} onChange={(e) => set("meetingPoint", e.target.value)} placeholder="Where participants gather" style={{ ...inputStyle, marginBottom: 14 }} />
-
-      <label style={labelStyle}>Payment</label>
-      <select value={form.paymentMethod ?? "online"} onChange={(e) => set("paymentMethod", e.target.value as "online" | "cash")} style={{ ...inputStyle, marginBottom: 14 }}>
-        <option value="online">Online payment</option>
-        <option value="cash">Cash on arrival</option>
-      </select>
-
       <label style={labelStyle}>Short blurb (shown on listing cards)</label>
-      <textarea value={form.blurb} onChange={(e) => set("blurb", e.target.value)} rows={2} style={{ ...inputStyle, resize: "vertical", marginBottom: 14 }} />
-
+      <p style={{ fontSize: 12, color: colors.mutedLight, margin: "-4px 0 8px" }}>
+        e.g. "A gentle guided coastal walk with sea views, finishing at a local café."
+      </p>
+      <textarea id="experience-blurb" value={form.blurb} onChange={(e) => set("blurb", e.target.value)} rows={2} style={{ ...inputStyle, resize: "vertical", marginBottom: 14 }} />
       <label style={labelStyle}>Full description</label>
-      <textarea value={form.description ?? ""} onChange={(e) => set("description", e.target.value)} rows={3} style={{ ...inputStyle, resize: "vertical", marginBottom: 14 }} />
+      <textarea value={form.description ?? ""} onChange={(e) => set("description", e.target.value)} rows={3} style={{ ...inputStyle, resize: "vertical" }} />
+    </>
+  );
 
+  const locationFields = (
+    <div className="grid-responsive" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+      <div>
+        <label style={labelStyle}>Area</label>
+        <input value={form.area ?? ""} onChange={(e) => set("area", e.target.value)} style={inputStyle} />
+      </div>
+      <div>
+        <label style={labelStyle}>County</label>
+        <input value={form.county ?? ""} onChange={(e) => set("county", e.target.value)} style={inputStyle} />
+      </div>
+      <div style={{ gridColumn: "1 / -1" }}>
+        <label style={labelStyle}>Meeting point</label>
+        <input value={form.meetingPoint ?? ""} onChange={(e) => set("meetingPoint", e.target.value)} placeholder="Where participants gather" style={inputStyle} />
+      </div>
+    </div>
+  );
+
+  const pricingFields = (
+    <div className="grid-responsive" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, alignItems: "end" }}>
+      <div>
+        <label style={labelStyle}>Duration (minutes)</label>
+        <input type="number" value={form.durationMinutes ?? 120} onChange={(e) => set("durationMinutes", Number(e.target.value))} style={{ ...inputStyle, maxWidth: 140 }} />
+      </div>
+      <div>
+        <label style={labelStyle}>Price per person (€)</label>
+        <input type="number" value={(form.priceCents ?? 0) / 100} onChange={(e) => set("priceCents", Math.round(Number(e.target.value) * 100))} style={{ ...inputStyle, maxWidth: 140 }} />
+      </div>
+      <NumberStepper label="Capacity per departure" value={form.capacity ?? 8} onChange={(n) => set("capacity", n)} min={1} />
+      <div>
+        <label style={labelStyle}>Payment</label>
+        <select value={form.paymentMethod ?? "online"} onChange={(e) => set("paymentMethod", e.target.value as "online" | "cash")} style={inputStyle}>
+          <option value="online">Online payment</option>
+          <option value="cash">Cash on arrival</option>
+        </select>
+      </div>
+    </div>
+  );
+
+  const adventureFields = (
+    <div className="grid-responsive" style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 14 }}>
+      <div>
+        <label style={labelStyle}>Distance (km, optional)</label>
+        <input type="number" min={0} step="0.1" value={form.distanceKm ?? ""} onChange={(e) => set("distanceKm", e.target.value ? Number(e.target.value) : null)} style={inputStyle} />
+      </div>
+      <div>
+        <label style={labelStyle}>Elevation gain (m, optional)</label>
+        <input type="number" min={0} value={form.elevationGainM ?? ""} onChange={(e) => set("elevationGainM", e.target.value ? Number(e.target.value) : null)} style={inputStyle} />
+      </div>
+      <div>
+        <label style={labelStyle}>Terrain (optional)</label>
+        <input value={form.terrainType ?? ""} onChange={(e) => set("terrainType", e.target.value)} placeholder="e.g. Trail & mountain" style={inputStyle} />
+      </div>
+    </div>
+  );
+
+  const prepFields = (
+    <>
       <label style={labelStyle}>Itinerary (optional)</label>
       <textarea value={form.itinerary ?? ""} onChange={(e) => set("itinerary", e.target.value)} rows={3} style={{ ...inputStyle, resize: "vertical", marginBottom: 14 }} />
-
       <div className="grid-responsive" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 14 }}>
         <div>
           <label style={labelStyle}>Equipment provided (optional)</label>
@@ -229,8 +252,7 @@ function ExperienceEditor({ id, onSaved }: { id: string | "new"; onSaved: () => 
           <textarea value={form.equipmentRequired ?? ""} onChange={(e) => set("equipmentRequired", e.target.value)} rows={2} style={{ ...inputStyle, resize: "vertical" }} />
         </div>
       </div>
-
-      <div className="grid-responsive" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 14 }}>
+      <div className="grid-responsive" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
         <div>
           <label style={labelStyle}>Fitness requirements (optional)</label>
           <textarea value={form.fitnessRequirements ?? ""} onChange={(e) => set("fitnessRequirements", e.target.value)} rows={2} style={{ ...inputStyle, resize: "vertical" }} />
@@ -240,7 +262,11 @@ function ExperienceEditor({ id, onSaved }: { id: string | "new"; onSaved: () => 
           <textarea value={form.eligibility ?? ""} onChange={(e) => set("eligibility", e.target.value)} rows={2} style={{ ...inputStyle, resize: "vertical" }} />
         </div>
       </div>
+    </>
+  );
 
+  const logisticsFields = (
+    <>
       <div className="grid-responsive" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 14 }}>
         <div>
           <label style={labelStyle}>Transport info (optional)</label>
@@ -251,8 +277,7 @@ function ExperienceEditor({ id, onSaved }: { id: string | "new"; onSaved: () => 
           <textarea value={form.weatherPolicy ?? ""} onChange={(e) => set("weatherPolicy", e.target.value)} rows={2} style={{ ...inputStyle, resize: "vertical" }} />
         </div>
       </div>
-
-      <div className="grid-responsive" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 14 }}>
+      <div className="grid-responsive" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
         <div>
           <label style={labelStyle}>Safety info (optional)</label>
           <textarea value={form.safetyInfo ?? ""} onChange={(e) => set("safetyInfo", e.target.value)} rows={2} style={{ ...inputStyle, resize: "vertical" }} />
@@ -262,29 +287,60 @@ function ExperienceEditor({ id, onSaved }: { id: string | "new"; onSaved: () => 
           <textarea value={form.cancellationTerms ?? ""} onChange={(e) => set("cancellationTerms", e.target.value)} rows={2} style={{ ...inputStyle, resize: "vertical" }} />
         </div>
       </div>
+    </>
+  );
 
-      <div style={{ marginBottom: 18 }}>
-        <MultiImageUpload images={form.images ?? []} onChange={(images) => set("images", images)} />
-      </div>
+  const photosField = <MultiImageUpload images={form.images ?? []} onChange={(images) => set("images", images)} />;
 
+  const footer = (
+    <>
+      <FormErrorSummary errors={fieldErrors} />
       {error && <p className="pop-in" style={{ color: colors.danger, fontSize: 13, margin: "0 0 12px", background: colors.dangerBg, padding: "9px 12px", borderRadius: radius.control }}>{error}</p>}
-      <Button variant="primary" disabled={saving || !form.title || !form.blurb} onClick={save}>
-        {id === "new" ? "Create (goes to admin for approval)" : "Save changes"}
-      </Button>
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 18 }}>
+        <Button variant="primary" disabled={saving} onClick={save}>
+          Save changes
+        </Button>
+        {saved && <span style={{ fontSize: 13, color: colors.greenText, fontWeight: 600 }}>Saved</span>}
+      </div>
+    </>
+  );
 
-      {id !== "new" && (
-        <>
-          <SessionsManager experienceId={id} />
-          <BookingsPanel experienceId={id} />
-        </>
+  const prepCount = [form.itinerary, form.equipmentProvided, form.equipmentRequired, form.fitnessRequirements, form.eligibility].filter(Boolean).length;
+  const logisticsCount = [form.transportInfo, form.weatherPolicy, form.safetyInfo, form.cancellationTerms].filter(Boolean).length;
+
+  return (
+    <>
+      <SettingsSection title="General" summary={<>{form.title || "Not set"}{form.blurb && <div style={{ color: colors.mutedLight, fontSize: 13, marginTop: 2 }}>{form.blurb}</div>}</>}>
+        {generalFields}
+      </SettingsSection>
+      <SettingsSection title="Location & meeting" summary={[form.area, form.county].filter(Boolean).join(", ") || "Not set"}>
+        {locationFields}
+      </SettingsSection>
+      <SettingsSection title="Pricing & capacity" summary={`€${((form.priceCents ?? 0) / 100).toFixed(2)}/person · cap ${form.capacity ?? 8} · ${form.durationMinutes ?? 120} min`}>
+        {pricingFields}
+      </SettingsSection>
+      {form.kind === "adventure" && (
+        <SettingsSection title="Adventure details" summary={[form.distanceKm ? `${form.distanceKm}km` : null, form.elevationGainM ? `${form.elevationGainM}m gain` : null, form.terrainType].filter(Boolean).join(" · ") || "Not added"}>
+          {adventureFields}
+        </SettingsSection>
       )}
+      <SettingsSection title="Itinerary & what to bring" summary={`${prepCount} of 5 details added`}>
+        {prepFields}
+      </SettingsSection>
+      <SettingsSection title="Logistics & safety" summary={`${logisticsCount} of 4 details added`}>
+        {logisticsFields}
+      </SettingsSection>
+      <SettingsSection title="Photos" summary={`${(form.images ?? []).length} photo${(form.images ?? []).length === 1 ? "" : "s"}`}>
+        {photosField}
+      </SettingsSection>
+      {footer}
     </>
   );
 }
 
 // --- departures (bookable sessions) -----------------------------------------
 
-function SessionsManager({ experienceId }: { experienceId: string }) {
+export function SessionsManager({ experienceId }: { experienceId: string }) {
   const [sessions, setSessions] = useState<ExperienceSessionRow[]>([]);
   const [date, setDate] = useState("");
   const [time, setTime] = useState("09:00");
@@ -369,7 +425,7 @@ function SessionsManager({ experienceId }: { experienceId: string }) {
   );
 }
 
-function BookingsPanel({ experienceId }: { experienceId: string }) {
+export function BookingsPanel({ experienceId }: { experienceId: string }) {
   const [bookings, setBookings] = useState<VendorExperienceBooking[] | null>(null);
 
   useEffect(() => {
@@ -397,11 +453,10 @@ function BookingsPanel({ experienceId }: { experienceId: string }) {
   );
 }
 
-// --- tab (list + create/edit drawer) ----------------------------------------
+// --- tab (list only — create/edit lives at VendorExperienceEditPage.tsx) ---
 
-export function VendorExperiencesTab() {
+export function VendorExperiencesTab({ onOpenExperience }: { onOpenExperience: (id: string) => void }) {
   const [experiences, setExperiences] = useState<VendorExperienceSummary[]>([]);
-  const [editing, setEditing] = useState<string | "new" | null>(null);
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
   // Feature flags (implementation backlog #5) — read-only here, admin
   // controls it. Only gates creating a new listing, not editing an
@@ -416,11 +471,6 @@ export function VendorExperiencesTab() {
     fetchOrgProfile().then((p) => setExperiencesEnabled(p.flags.experiences));
   }, []);
 
-  const onSaved = () => {
-    setEditing(null);
-    load();
-  };
-
   const remove = async (id: string) => {
     await deleteVendorExperience(id);
     setConfirmingId(null);
@@ -430,7 +480,7 @@ export function VendorExperiencesTab() {
   return (
     <div className="fade-panel" style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4 }}>
-        <Button onClick={() => setEditing("new")} disabled={!experiencesEnabled}>
+        <Button onClick={() => onOpenExperience("new")} disabled={!experiencesEnabled}>
           <PlusIcon size={14} /> Add adventure/experience
         </Button>
         {!experiencesEnabled && (
@@ -438,20 +488,11 @@ export function VendorExperiencesTab() {
         )}
       </div>
 
-      <Drawer
-        open={!!editing}
-        onClose={() => setEditing(null)}
-        size="wide"
-        title={editing === "new" ? "New adventure/experience" : experiences.find((e) => e.id === editing)?.title ?? "Edit listing"}
-      >
-        {editing && <ExperienceEditor id={editing} onSaved={onSaved} />}
-      </Drawer>
-
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         {experiences.map((e) => {
           const palette = STATUS_COLORS[e.status] ?? STATUS_COLORS.pending;
           return (
-            <Card key={e.id} hover style={{ padding: 15, display: "flex", justifyContent: "space-between", alignItems: "center" }} onClick={() => setEditing(e.id)}>
+            <Card key={e.id} hover style={{ padding: 15, display: "flex", justifyContent: "space-between", alignItems: "center" }} onClick={() => onOpenExperience(e.id)}>
               <div>
                 <div style={{ fontWeight: 700, fontSize: 14 }}>{e.title}</div>
                 <div style={{ fontSize: 12, color: colors.mutedLight, display: "flex", alignItems: "center", gap: 6, marginTop: 2 }}>

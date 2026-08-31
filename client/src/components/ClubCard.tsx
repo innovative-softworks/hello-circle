@@ -5,18 +5,20 @@ import { priceLabel } from "../priceLabel";
 import { BallIcon } from "./icons";
 import { Photo } from "./Photo";
 import { SaveButton, useSavedState } from "./SaveButton";
+import { Button } from "./ui";
 
 export function ClubCard({ club }: { club: Club }) {
   const navigate = useNavigate();
   const [fav, toggleFav] = useSavedState("club", club.id);
+  const open = () => navigate(`/clubs/${club.slug ?? club.id}`);
 
   return (
     <div
-      onClick={() => navigate(`/clubs/${club.slug ?? club.id}`)}
+      onClick={open}
       className="card-hover card-surface"
       style={{
         cursor: "pointer",
-        background: "#fff",
+        background: colors.surface,
         border: `1px solid ${colors.border}`,
         borderRadius: 18,
         overflow: "hidden",
@@ -54,12 +56,12 @@ export function ClubCard({ club }: { club: Club }) {
         <p style={{ margin: "0 0 12px", color: colors.mutedLight, fontSize: 14 }}>
           {club.area} · ages {club.ages}
         </p>
-        <div style={{ marginTop: "auto", display: "flex", alignItems: "center", gap: 8 }}>
-          <span style={{ fontWeight: 700, fontSize: 15, color: colors.text }}>{priceLabel(club)}</span>
+        <div style={{ marginTop: "auto" }}>
           {club.trial && (
             <span
               style={{
-                marginLeft: "auto",
+                display: "inline-block",
+                marginBottom: 10,
                 background: colors.greenBg,
                 color: colors.greenText,
                 borderRadius: 20,
@@ -71,6 +73,14 @@ export function ClubCard({ club }: { club: Club }) {
               Free trial
             </span>
           )}
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+            <span style={{ fontWeight: 700, fontSize: 15, color: colors.text }}>{priceLabel(club)}</span>
+            <div onClick={(e) => e.stopPropagation()}>
+              <Button variant="dark" style={{ padding: "8px 16px", fontSize: 13 }} onClick={open}>
+                {club.audience === "kids" ? "Register my child" : "Register"}
+              </Button>
+            </div>
+          </div>
         </div>
       </div>
     </div>

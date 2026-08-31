@@ -1,14 +1,14 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { createGame, fetchCentres, fetchGames, fetchMyGames, joinGame, joinGameWaitlist } from "../api";
+import { fetchGames, fetchMyGames, joinGame, joinGameWaitlist } from "../api";
 import { signInHref } from "../authRedirect";
 import { ArrowRightIcon, AwardIcon, BallIcon, CalendarIcon, ClockIcon, CloseIcon, LightbulbIcon, PinIcon, PlusIcon, SearchIcon, UsersIcon } from "../components/icons";
 import { Chip } from "../components/Chip";
 import { DropdownCheckbox, DropdownOption, FilterDropdown } from "../components/FilterDropdown";
 import { IntentCaptureForm } from "../components/IntentCaptureForm";
 import { Photo } from "../components/Photo";
-import { Button, Card, CardSkeleton, ConfirmDialog, Drawer, EmptyState, inputStyle, labelStyle } from "../components/ui";
+import { Button, Card, CardSkeleton, ConfirmDialog, Drawer, EmptyState, inputStyle } from "../components/ui";
 import { PageTitle } from "../components/PageTitle";
 import { AuthContextCard } from "../components/AuthShell";
 import { SignInPanel } from "../components/SignInPanel";
@@ -17,9 +17,9 @@ import { dateLabel } from "../euro";
 import { formatAvailability, formatDateTime, formatPrice } from "../formatters";
 import { gameState, primaryCtaLabel } from "../gameCta";
 import { useGuest } from "../GuestContext";
-import { cardImageRatio, colors, fonts, maxWidth, placeholderStripes, radius } from "../theme";
+import { cardImageRatio, colors, fonts, maxWidth, photoOverlay, placeholderStripes, radius } from "../theme";
 import { SKILL_LEVELS } from "../constants";
-import type { Centre, Game } from "../types";
+import type { Game } from "../types";
 
 // "Join a Game" (MVP) — the lightweight, participation-first counterpart to
 // booking a whole venue: see plan doc "Book vs Join". v1 is deliberately
@@ -35,10 +35,13 @@ import type { Centre, Game } from "../types";
 // full open-games list is small enough that a second endpoint isn't worth
 // it), a redesigned results card with a proper needs/available/full state
 // model, and a sign-in prompt that only appears once, at the moment someone
-// actually tries to join. `GameCard`/`needHeadline` immediately below are
-// UNCHANGED and still used by Home.tsx's "They just need a few more people"
-// module — this page's own results grid uses the new `JoinGameCard` further
-// down instead, so Home's look is untouched.
+// actually tries to join. This page's own results grid uses `JoinGameCard`
+// further down; `GameCard`/`needHeadline` immediately below are used by
+// Home.tsx's "They just need a few more people" module — brought onto the
+// same card shell (bordered surface, photo badge + SaveButton, plain h3
+// title) as CentreCard/ClubCard/CircleDiscoveryCard/JoinGameCard instead of
+// its own one-off layout (raw `Card`, headline as colored text above the
+// title, no save button) that had drifted from every other listing card.
 
 // The single most prominent line on a GameCard — "1 player needed" / "2
 // spots left" / "3 more welcome" — per the product's own signature framing
@@ -56,13 +59,31 @@ function needHeadline(game: Game): string | null {
   return `${game.spotsLeft} more welcome`;
 }
 
+/** Same "preserve user intent" context GameJoinCard's own sign-in CTA
+ * carries into /signin — a signed-out visitor lands back on the game with
+ * this recap shown, rather than a bare login form. */
+function gameSignInContext(game: Game) {
+  return {
+    kind: "game" as const,
+    title: game.activityLabel,
+    meta: `${game.date} · ${game.time} · ${game.centreName ?? game.locationText}`,
+    badge: game.spotsLeft === 0 ? "Full" : game.spotsLeft === 1 ? "1 spot left" : `${game.spotsLeft} spots left`,
+  };
+}
+
 export function GameCard({ game, onJoin, onLeave, joining }: { game: Game; onJoin: () => void; onLeave: () => void; joining: boolean }) {
   const navigate = useNavigate();
   const { resident } = useGuest();
+  const [saved, toggleSaved] = useSavedState("game", game.id);
   const full = game.spotsLeft === 0;
   const headline = needHeadline(game);
+  const open = () => navigate(`/games/${game.id}`);
   return (
-    <Card hover style={{ padding: 0, overflow: "hidden", cursor: "pointer" }} onClick={() => navigate(`/games/${game.id}`)}>
+    <div
+      onClick={open}
+      className="card-hover card-surface"
+      style={{ cursor: "pointer", background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 18, overflow: "hidden" }}
+    >
       <Photo
         src={game.imageUrl ?? undefined}
         alt={game.activityLabel}
@@ -70,72 +91,77 @@ export function GameCard({ game, onJoin, onLeave, joining }: { game: Game; onJoi
         icon={<BallIcon size={22} />}
         iconColor={colors.green}
         style={{ aspectRatio: cardImageRatio.discovery }}
-      />
-      <div style={{ padding: 16 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
-        <div>
-          {headline && (
-            <div style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 17, color: colors.orangeDark, marginBottom: 3, letterSpacing: "-.01em" }}>
-              {headline}
-            </div>
-          )}
-          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-            <span style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 15.5, color: colors.text }}>
-              {game.activityLabel}
-            </span>
-            {game.soloFriendly && (
-              <span style={{ fontSize: 11, fontWeight: 700, color: colors.greenText, background: colors.greenBg, borderRadius: radius.pill, padding: "2px 8px" }}>
-                Solo friendly
-              </span>
-            )}
-          </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 6, color: colors.mutedLight, fontSize: 14, marginTop: 4, flexWrap: "wrap" }}>
-            {game.centreName ?? game.locationText}
-            {game.hostVerified && (
-              <span style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 11, fontWeight: 700, color: colors.greenText, background: colors.greenBg, borderRadius: radius.pill, padding: "2px 8px" }}>
-                <AwardIcon size={11} /> Verified Host
-              </span>
-            )}
-          </div>
+        contentStyle={{ display: "flex", alignItems: "flex-end", padding: 12 }}
+      >
+        {(full || headline) && (
+          <span
+            className={full ? "card-photo-badge" : undefined}
+            style={{
+              background: full ? photoOverlay.whiteBg : photoOverlay.goldBg,
+              color: full ? colors.text : photoOverlay.goldText,
+              borderRadius: radius.pill,
+              padding: "4px 11px",
+              fontSize: 11.5,
+              fontWeight: 800,
+              transition: "background-color .2s ease, color .2s ease",
+            }}
+          >
+            {full ? "Full" : headline}
+          </span>
+        )}
+        <SaveButton saved={saved} onToggle={toggleSaved} />
+      </Photo>
+      <div style={{ padding: "16px 18px 18px" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
+          <h3 style={{ fontSize: 17, fontWeight: 700, margin: "0 0 3px", letterSpacing: "-.01em" }}>{game.activityLabel}</h3>
+          <span style={{ fontWeight: 700, fontSize: game.priceCents ? 15 : 13, color: colors.greenText, whiteSpace: "nowrap" }}>
+            {formatPrice(game.priceCents)}
+          </span>
         </div>
-        {game.priceCents ? (
-          <div style={{ fontWeight: 700, color: colors.greenText, flex: "none" }}>€{(game.priceCents / 100).toFixed(2)}</div>
+        <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", color: colors.mutedLight, fontSize: 14, margin: "0 0 12px" }}>
+          {game.centreName ?? game.locationText}
+          {game.soloFriendly && (
+            <span style={{ fontSize: 11, fontWeight: 700, color: colors.greenText, background: colors.greenBg, borderRadius: radius.pill, padding: "2px 8px" }}>
+              Solo friendly
+            </span>
+          )}
+          {game.hostVerified && (
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 11, fontWeight: 700, color: colors.greenText, background: colors.greenBg, borderRadius: radius.pill, padding: "2px 8px" }}>
+              <AwardIcon size={11} /> Verified Host
+            </span>
+          )}
+        </div>
+        <div style={{ display: "flex", gap: 16, margin: "0 0 14px", fontSize: 13.5, color: colors.muted }}>
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
+            <CalendarIcon size={14} /> {game.date}
+          </span>
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
+            <ClockIcon size={14} /> {game.time}
+          </span>
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
+            <UsersIcon size={14} /> {game.joined}/{game.capacity}
+          </span>
+        </div>
+        {full ? (
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }} onClick={(e) => e.stopPropagation()}>
+            <span style={{ fontSize: 13, fontWeight: 700, color: colors.muted }}>No spots left</span>
+            <Button
+              variant="ghost"
+              style={{ padding: "8px 16px", fontSize: 13 }}
+              onClick={() => (resident ? joinGameWaitlist(game.id) : navigate(signInHref(gameSignInContext(game))))}
+            >
+              {resident ? "Join waitlist" : "Sign in to join waitlist"}
+            </Button>
+          </div>
         ) : (
-          <div style={{ fontWeight: 700, color: colors.greenText, fontSize: 13, flex: "none" }}>Free</div>
+          <div onClick={(e) => e.stopPropagation()}>
+            <Button onClick={resident ? onJoin : () => navigate(signInHref(gameSignInContext(game)))} disabled={joining} full>
+              {joining ? "Joining…" : resident ? "I'm in" : "Sign in to join"}
+            </Button>
+          </div>
         )}
       </div>
-      <div style={{ display: "flex", gap: 16, margin: "12px 0", fontSize: 13.5, color: colors.muted }}>
-        <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
-          <CalendarIcon size={14} /> {game.date}
-        </span>
-        <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
-          <ClockIcon size={14} /> {game.time}
-        </span>
-        <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
-          <UsersIcon size={14} /> {game.joined}/{game.capacity}
-        </span>
-      </div>
-      {full ? (
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }} onClick={(e) => e.stopPropagation()}>
-          <span style={{ fontSize: 13, fontWeight: 700, color: colors.orangeDark }}>Full</span>
-          <Button
-            variant="ghost"
-            onClick={() => joinGameWaitlist(game.id)}
-            disabled={!resident}
-          >
-            Join waitlist
-          </Button>
-        </div>
-      ) : (
-        <div onClick={(e) => e.stopPropagation()}>
-          <Button onClick={onJoin} disabled={joining || !resident} full>
-            {joining ? "Joining…" : "I'm in"}
-          </Button>
-        </div>
-      )}
-      {!resident && <div style={{ fontSize: 12, color: colors.faint, marginTop: 8 }}>Sign in from My Life to join a game.</div>}
-      </div>
-    </Card>
+    </div>
   );
 }
 
@@ -475,13 +501,6 @@ export function Games() {
 
   const [searchParams, setSearchParams] = useSearchParams();
   const initialActivity = searchParams.get("activity") ?? "";
-  // "Do it again" (post-audit hardening pass, GameDetail.tsx) carries the
-  // just-completed game's venue forward too, so re-hosting the same
-  // activity at the same place is one less thing to re-enter — date/time/
-  // capacity are deliberately NOT pre-filled here, since those shouldn't be
-  // silently guessed for a new plan.
-  const initialCentreId = searchParams.get("centreId") ?? "";
-  const initialLocationText = searchParams.get("locationText") ?? "";
   const [query, setQuery] = useState(initialActivity);
   const [sort, setSort] = useState<SortKey>("recommended");
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
@@ -497,34 +516,7 @@ export function Games() {
     [searchParams]
   );
 
-  const [centres, setCentres] = useState<Centre[]>([]);
-  const [showCreateForm, setShowCreateForm] = useState(!!initialActivity);
-  const createFormRef = useRef<HTMLDivElement>(null);
   const resultsRef = useRef<HTMLDivElement>(null);
-  const [form, setForm] = useState({
-    activityLabel: initialActivity,
-    centreId: initialCentreId,
-    locationText: initialLocationText,
-    date: "",
-    time: "",
-    capacity: 4,
-    priceCents: "",
-    soloFriendly: false,
-    skillLevel: "",
-    minParticipants: "",
-    confirmationDeadline: "",
-    description: "",
-    durationMinutes: "",
-    equipmentNeeded: "",
-    minAge: "",
-    surfaceType: "",
-    indoorOutdoor: "" as "" | "indoor" | "outdoor" | "mixed",
-    meetingInstructions: "",
-    cancellationPolicy: "",
-  });
-  const [createError, setCreateError] = useState<string | null>(null);
-  const [creating, setCreating] = useState(false);
-  const [showMoreFields, setShowMoreFields] = useState(false);
 
   const load = () => {
     setLoading(true);
@@ -534,9 +526,6 @@ export function Games() {
   };
 
   useEffect(load, []);
-  useEffect(() => {
-    fetchCentres().then(setCentres);
-  }, []);
 
   const loadMyGames = () => {
     if (!resident) {
@@ -708,53 +697,7 @@ export function Games() {
     setQuickJoinGame(game);
   };
 
-  const openCreateForm = () => {
-    setShowCreateForm(true);
-    requestAnimationFrame(() => createFormRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }));
-  };
-
-  const handleCreate = async () => {
-    setCreateError(null);
-    if (!form.activityLabel || !form.date || !form.time || (!form.centreId && !form.locationText)) {
-      setCreateError("Fill in an activity, date, time and a venue or location");
-      return;
-    }
-    setCreating(true);
-    try {
-      await createGame({
-        activityLabel: form.activityLabel,
-        centreId: form.centreId || undefined,
-        locationText: form.centreId ? undefined : form.locationText,
-        date: form.date,
-        time: form.time,
-        capacity: form.capacity,
-        priceCents: form.priceCents ? Math.round(parseFloat(form.priceCents) * 100) : undefined,
-        soloFriendly: form.soloFriendly,
-        skillLevel: form.skillLevel || undefined,
-        minParticipants: form.minParticipants ? parseInt(form.minParticipants, 10) : undefined,
-        confirmationDeadline: form.minParticipants && form.confirmationDeadline ? new Date(form.confirmationDeadline).toISOString() : undefined,
-        description: form.description || undefined,
-        durationMinutes: form.durationMinutes ? parseInt(form.durationMinutes, 10) : undefined,
-        equipmentNeeded: form.equipmentNeeded || undefined,
-        minAge: form.minAge ? parseInt(form.minAge, 10) : undefined,
-        surfaceType: form.surfaceType || undefined,
-        indoorOutdoor: form.indoorOutdoor || undefined,
-        meetingInstructions: form.meetingInstructions || undefined,
-        cancellationPolicy: form.cancellationPolicy || undefined,
-      });
-      setForm({
-        activityLabel: "", centreId: "", locationText: "", date: "", time: "", capacity: 4, priceCents: "", soloFriendly: false, skillLevel: "",
-        minParticipants: "", confirmationDeadline: "", description: "", durationMinutes: "", equipmentNeeded: "", minAge: "", surfaceType: "",
-        indoorOutdoor: "", meetingInstructions: "", cancellationPolicy: "",
-      });
-      setShowMoreFields(false);
-      load();
-    } catch (e) {
-      setCreateError(e instanceof Error ? e.message : "Couldn't create this game");
-    } finally {
-      setCreating(false);
-    }
-  };
+  const openCreateForm = () => navigate(`/games/host${window.location.search}`);
 
   // Closing CTA band's "alive" stat — count of open games in the next 7
   // days, off the unfiltered fetch (not `sorted`/`filtered`), so it reads
@@ -1110,194 +1053,6 @@ export function Games() {
           <Button full onClick={() => setFiltersOpen(false)}>Show {sorted.length} result{sorted.length === 1 ? "" : "s"}</Button>
         </div>
       </Drawer>
-
-      <section className="section-pad" ref={createFormRef} style={{ maxWidth: 900, margin: "0 auto", padding: showCreateForm ? "24px 24px 80px" : 0 }}>
-        {showCreateForm ? (
-          resident ? (
-            <div style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: radius.card, padding: "18px 20px" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 15, fontWeight: 700, marginBottom: 14 }}>
-                <PlusIcon size={16} /> Start a game
-              </div>
-              <div className="grid-responsive" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
-                <div>
-                  <label style={labelStyle}>Activity</label>
-                  <input value={form.activityLabel} onChange={(e) => setForm((f) => ({ ...f, activityLabel: e.target.value }))} placeholder="e.g. Badminton" style={inputStyle} />
-                </div>
-                <div>
-                  <label style={labelStyle}>Venue (optional)</label>
-                  <select value={form.centreId} onChange={(e) => setForm((f) => ({ ...f, centreId: e.target.value }))} style={inputStyle}>
-                    <option value="">Pick a location instead</option>
-                    {centres.map((c) => (
-                      <option key={c.id} value={c.id}>{c.name}</option>
-                    ))}
-                  </select>
-                </div>
-                {!form.centreId && (
-                  <div style={{ gridColumn: "1 / -1" }}>
-                    <label style={labelStyle}>Location</label>
-                    <input value={form.locationText} onChange={(e) => setForm((f) => ({ ...f, locationText: e.target.value }))} placeholder="e.g. Phoenix Park, main gate" style={inputStyle} />
-                  </div>
-                )}
-                <div>
-                  <label style={labelStyle}>Date</label>
-                  <input type="date" value={form.date} onChange={(e) => setForm((f) => ({ ...f, date: e.target.value }))} style={inputStyle} />
-                </div>
-                <div>
-                  <label style={labelStyle}>Time</label>
-                  <input type="time" value={form.time} onChange={(e) => setForm((f) => ({ ...f, time: e.target.value }))} style={inputStyle} />
-                </div>
-                <div>
-                  <label style={labelStyle}>Players needed (incl. you)</label>
-                  <input type="number" min={2} value={form.capacity} onChange={(e) => setForm((f) => ({ ...f, capacity: parseInt(e.target.value, 10) || 2 }))} style={inputStyle} />
-                </div>
-                <div>
-                  <label style={labelStyle}>Price per player (optional)</label>
-                  <input value={form.priceCents} onChange={(e) => setForm((f) => ({ ...f, priceCents: e.target.value }))} placeholder="e.g. 5" style={inputStyle} />
-                </div>
-                <div>
-                  <label style={labelStyle}>Skill level (optional)</label>
-                  <select value={form.skillLevel} onChange={(e) => setForm((f) => ({ ...f, skillLevel: e.target.value }))} style={inputStyle}>
-                    <option value="">Any level</option>
-                    {SKILL_LEVELS.map((s) => (
-                      <option key={s} value={s}>{s}</option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label style={labelStyle}>Minimum to run (optional)</label>
-                  <input
-                    type="number"
-                    min={1}
-                    max={form.capacity}
-                    value={form.minParticipants}
-                    onChange={(e) => setForm((f) => ({ ...f, minParticipants: e.target.value }))}
-                    placeholder="e.g. 4"
-                    style={inputStyle}
-                  />
-                </div>
-              </div>
-              {form.minParticipants && (
-                <>
-                  <p style={{ fontSize: 12.5, color: colors.mutedLight, margin: "8px 0 0" }}>
-                    This game stays "pending", but still joinable, until {form.minParticipants} players (including you) have joined.
-                  </p>
-                  <div style={{ marginTop: 10 }}>
-                    <label style={labelStyle}>Confirm by (optional)</label>
-                    <input
-                      type="datetime-local"
-                      value={form.confirmationDeadline}
-                      onChange={(e) => setForm((f) => ({ ...f, confirmationDeadline: e.target.value }))}
-                      style={{ ...inputStyle, maxWidth: 240 }}
-                    />
-                    <p style={{ fontSize: 12, color: colors.faint, margin: "4px 0 0" }}>Shown to players as a target - not automatically enforced.</p>
-                  </div>
-                </>
-              )}
-              <label style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 12, fontSize: 13.5, color: colors.muted, cursor: "pointer" }}>
-                <input type="checkbox" checked={form.soloFriendly} onChange={(e) => setForm((f) => ({ ...f, soloFriendly: e.target.checked }))} />
-                Solo friendly - welcome someone who doesn't have a partner or group
-              </label>
-
-              {/* Game Detail redesign — everything below feeds the detail
-                  page's About/What to bring/Good to know/Location/
-                  Cancellation sections. All optional; left blank, those
-                  sections simply don't render rather than showing empty
-                  placeholders. Collapsed by default so the form doesn't grow
-                  from 8 fields to 16 for every host, most of whom just want
-                  to post a pickup game quickly. */}
-              {!showMoreFields ? (
-                <button
-                  onClick={() => setShowMoreFields(true)}
-                  style={{ background: "none", border: "none", padding: 0, marginTop: 14, color: colors.text, fontWeight: 700, fontSize: 13, cursor: "pointer", textDecoration: "underline" }}
-                >
-                  + Add more detail (optional)
-                </button>
-              ) : (
-                <div style={{ marginTop: 16, paddingTop: 14, borderTop: `1px solid ${colors.border}` }}>
-                  <div style={{ marginBottom: 12 }}>
-                    <label style={labelStyle}>About this plan (optional)</label>
-                    <textarea
-                      value={form.description}
-                      onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
-                      placeholder="What's the pace, format and vibe? e.g. A relaxed, social ride at an easy-to-moderate pace."
-                      rows={3}
-                      style={{ ...inputStyle, resize: "vertical" }}
-                    />
-                  </div>
-                  <div style={{ marginBottom: 12 }}>
-                    <label style={labelStyle}>What to bring (optional)</label>
-                    <textarea
-                      value={form.equipmentNeeded}
-                      onChange={(e) => setForm((f) => ({ ...f, equipmentNeeded: e.target.value }))}
-                      placeholder="e.g. Your bike, helmet, water bottle and lights if you have them."
-                      rows={2}
-                      style={{ ...inputStyle, resize: "vertical" }}
-                    />
-                  </div>
-                  <div className="grid-responsive" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 12 }}>
-                    <div>
-                      <label style={labelStyle}>Duration in minutes (optional)</label>
-                      <input type="number" min={1} value={form.durationMinutes} onChange={(e) => setForm((f) => ({ ...f, durationMinutes: e.target.value }))} placeholder="e.g. 60" style={inputStyle} />
-                    </div>
-                    <div>
-                      <label style={labelStyle}>Minimum age (optional)</label>
-                      <input type="number" min={0} value={form.minAge} onChange={(e) => setForm((f) => ({ ...f, minAge: e.target.value }))} placeholder="e.g. 18" style={inputStyle} />
-                    </div>
-                    <div>
-                      <label style={labelStyle}>Surface (optional)</label>
-                      <input value={form.surfaceType} onChange={(e) => setForm((f) => ({ ...f, surfaceType: e.target.value }))} placeholder="e.g. Road & trail" style={inputStyle} />
-                    </div>
-                    <div>
-                      <label style={labelStyle}>Indoor or outdoor (optional)</label>
-                      <select value={form.indoorOutdoor} onChange={(e) => setForm((f) => ({ ...f, indoorOutdoor: e.target.value as typeof form.indoorOutdoor }))} style={inputStyle}>
-                        <option value="">Not specified</option>
-                        <option value="outdoor">Outdoor</option>
-                        <option value="indoor">Indoor</option>
-                        <option value="mixed">Mixed</option>
-                      </select>
-                    </div>
-                  </div>
-                  <div style={{ marginBottom: 12 }}>
-                    <label style={labelStyle}>Meeting instructions (optional)</label>
-                    <textarea
-                      value={form.meetingInstructions}
-                      onChange={(e) => setForm((f) => ({ ...f, meetingInstructions: e.target.value }))}
-                      placeholder="Exact meeting point — only shown to the host and joined players, e.g. Meet by the north gate, past the car park."
-                      rows={2}
-                      style={{ ...inputStyle, resize: "vertical" }}
-                    />
-                  </div>
-                  <div>
-                    <label style={labelStyle}>Cancellation policy (optional)</label>
-                    <textarea
-                      value={form.cancellationPolicy}
-                      onChange={(e) => setForm((f) => ({ ...f, cancellationPolicy: e.target.value }))}
-                      placeholder="e.g. Free to cancel any time before the day of the plan."
-                      rows={2}
-                      style={{ ...inputStyle, resize: "vertical" }}
-                    />
-                  </div>
-                </div>
-              )}
-
-              {createError && <p style={{ color: colors.danger, fontSize: 13, margin: "12px 0 0" }}>{createError}</p>}
-              <div style={{ marginTop: 14, display: "flex", gap: 10 }}>
-                <Button onClick={handleCreate} disabled={creating}>
-                  {creating ? "Creating…" : "Create game"}
-                </Button>
-                <Button variant="ghost" onClick={() => setShowCreateForm(false)}>Cancel</Button>
-              </div>
-            </div>
-          ) : (
-            <div style={{ background: colors.greenBg, border: `1px solid ${colors.green}`, borderRadius: radius.card, padding: "16px 20px", fontSize: 14 }}>
-              <button onClick={() => navigate(signInHref())} style={{ background: "none", border: "none", padding: 0, color: colors.greenText, fontWeight: 700, cursor: "pointer" }}>
-                Sign in
-              </button>{" "}
-              to start a game of your own.
-            </div>
-          )
-        ) : null}
-      </section>
     </div>
   );
 }

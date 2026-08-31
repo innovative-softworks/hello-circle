@@ -3,6 +3,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import { addFavourite, fetchCentre, fetchFavourites, fetchGames, fetchPrograms, joinGame, removeFavourite } from "../api";
 import { BackLink } from "../components/BackLink";
 import { ClaimListingCTA } from "../components/ClaimListingCTA";
+import { FollowButton } from "../components/FollowButton";
 import { PhotoGallery } from "../components/PhotoGallery";
 import { Reviews } from "../components/Reviews";
 import { SinglePinMap } from "../components/SinglePinMap";
@@ -141,6 +142,17 @@ export function CentreDetail() {
               </a>
             )}
           </p>
+          {centre.isFollowing !== undefined && (
+            <div style={{ marginBottom: 18 }}>
+              <FollowButton
+                followedType="centre"
+                followedId={centre.id}
+                initialFollowing={centre.isFollowing}
+                initialLevel={centre.followNotificationLevel}
+                followerCount={centre.followerCount}
+              />
+            </div>
+          )}
           <p style={{ fontSize: 16, lineHeight: 1.6, color: colors.textSoft, margin: "0 0 28px" }}>{centre.blurb}</p>
 
           <h3 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 20, margin: "0 0 12px", letterSpacing: "-.01em" }}>

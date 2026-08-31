@@ -8,6 +8,7 @@ import {
   fetchBlockedResidents,
   fetchFavourites,
   fetchHousehold,
+  fetchMyFollows,
   fetchMyPasses,
   fetchMyReports,
   fetchMyRoutines,
@@ -20,17 +21,21 @@ import {
   saveAccessibilityPrefs,
   saveNotificationPrefs,
   saveOnboarding,
+  setFollowNotificationLevel,
   unblockResident,
+  unfollowEntity,
   updateFavouriteStatus,
   updateHouseholdMember,
   updatePrivacyPrefs,
   updateResidentMe,
   updateRoutine,
 } from "../api";
-import { ChevronRightIcon } from "../components/icons";
+import type { FollowedEntity, NotificationLevel } from "../api";
+import { BuildingIcon, ChevronRightIcon, PersonIcon } from "../components/icons";
 import { HostApplicationPanel } from "../components/HostApplicationPanel";
 import { HostDashboardPanel } from "../components/HostDashboardPanel";
 import { PaymentMethodsPanel } from "../components/PaymentMethodsPanel";
+import { Photo } from "../components/Photo";
 import { SearchAlertsPanel } from "../components/SearchAlertsPanel";
 import { Button, EmptyState, RowSkeleton, Tabs, inputStyle, labelStyle } from "../components/ui";
 import { PageTitle } from "../components/PageTitle";
@@ -266,6 +271,98 @@ function FavouritesPanel() {
           })}
         </div>
       )}
+    </div>
+  );
+}
+
+// --- Following (Follow feature) ----------------------------------------
+
+const LEVEL_LABELS: Record<NotificationLevel, string> = { highlights: "Highlights", everything: "Everything" };
+
+/** A resident's standing follow relationships in one place — there was
+ * previously no way to see or manage the full list (FollowButton only
+ * ever surfaced one follow/unfollow at a time, on the followed entity's
+ * own page). Mirrors FavouritesPanel's shape (remove action, per-row
+ * secondary control) rather than inventing a new layout. */
+function FollowingPanel() {
+  const navigate = useNavigate();
+  const [follows, setFollows] = useState<FollowedEntity[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [openLevelMenu, setOpenLevelMenu] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetchMyFollows()
+      .then(setFollows)
+      .finally(() => setLoading(false));
+  }, []);
+
+  const key = (f: FollowedEntity) => `${f.followedType}:${f.followedId}`;
+
+  const handleUnfollow = async (f: FollowedEntity) => {
+    await unfollowEntity(f.followedType, f.followedId);
+    setFollows((rows) => rows.filter((r) => key(r) !== key(f)));
+  };
+
+  const handleLevelChange = async (f: FollowedEntity, level: NotificationLevel) => {
+    setOpenLevelMenu(null);
+    await setFollowNotificationLevel(f.followedType, f.followedId, level);
+    setFollows((rows) => rows.map((r) => (key(r) === key(f) ? { ...r, notificationLevel: level } : r)));
+  };
+
+  if (loading) return <RowSkeleton />;
+  if (follows.length === 0) {
+    return <EmptyState icon={<PersonIcon size={20} />} title="Not following anyone yet" subtitle="Follow a host or provider from their profile to hear when they start something new." />;
+  }
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      {follows.map((f) => (
+        <div
+          key={key(f)}
+          style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 14, padding: "14px 18px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}
+        >
+          <button
+            onClick={() => navigate(f.href)}
+            style={{ display: "flex", alignItems: "center", gap: 10, background: "none", border: "none", padding: 0, cursor: "pointer", textAlign: "left" }}
+          >
+            <Photo
+              src={f.imageUrl ?? undefined}
+              alt={f.name ?? ""}
+              ph={colors.panel}
+              style={{ width: 38, height: 38, borderRadius: "50%", overflow: "hidden", flex: "none" }}
+              icon={!f.imageUrl ? f.followedType === "vendor" ? <BuildingIcon size={14} /> : <PersonIcon size={14} /> : undefined}
+            />
+            <div>
+              <div style={{ fontWeight: 700, fontSize: 14, color: colors.text }}>{f.name ?? "Removed account"}</div>
+              <div style={{ fontSize: 12, color: colors.mutedLight }}>{f.followedType === "vendor" ? "Provider" : "Host"}</div>
+            </div>
+          </button>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, position: "relative" }}>
+            <button
+              onClick={() => setOpenLevelMenu((k) => (k === key(f) ? null : key(f)))}
+              style={{ background: colors.panel, border: "none", borderRadius: radius.pill, padding: "5px 12px", fontSize: 12, fontWeight: 700, color: colors.muted, cursor: "pointer" }}
+            >
+              {LEVEL_LABELS[f.notificationLevel]}
+            </button>
+            {openLevelMenu === key(f) && (
+              <div
+                style={{ position: "absolute", top: "calc(100% + 6px)", right: 0, zIndex: 10, background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: radius.control, boxShadow: "0 8px 24px rgba(20,22,20,.12)", minWidth: 140, overflow: "hidden" }}
+              >
+                {(Object.keys(LEVEL_LABELS) as NotificationLevel[]).map((l) => (
+                  <button
+                    key={l}
+                    onClick={() => handleLevelChange(f, l)}
+                    style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 14px", fontSize: 13, fontWeight: l === f.notificationLevel ? 700 : 500, background: l === f.notificationLevel ? colors.panel : "none", border: "none", cursor: "pointer", color: colors.text }}
+                  >
+                    {LEVEL_LABELS[l]}
+                  </button>
+                ))}
+              </div>
+            )}
+            <Button variant="danger" onClick={() => handleUnfollow(f)}>Unfollow</Button>
+          </div>
+        </div>
+      ))}
     </div>
   );
 }
@@ -907,7 +1004,7 @@ function HelpSupportPanel() {
 
 // --- Page shell --------------------------------------------------------
 
-type ProfileTab = "profile" | "household" | "favourites" | "routines" | "notifications" | "passes" | "receipts" | "safety" | "help";
+type ProfileTab = "profile" | "household" | "favourites" | "following" | "routines" | "notifications" | "passes" | "receipts" | "safety" | "help";
 
 const PRIMARY_TABS: { key: ProfileTab; label: string }[] = [
   { key: "profile", label: "Profile" },
@@ -915,6 +1012,7 @@ const PRIMARY_TABS: { key: ProfileTab; label: string }[] = [
 ];
 const MORE_TABS: { key: ProfileTab; label: string }[] = [
   { key: "favourites", label: "Saved" },
+  { key: "following", label: "Following" },
   { key: "routines", label: "Routines" },
   { key: "notifications", label: "Notifications" },
   { key: "passes", label: "Passes" },
@@ -988,6 +1086,7 @@ export function Profile() {
         {tab === "profile" && <ProfileDetailsPanel />}
         {tab === "household" && <HouseholdPanel />}
         {tab === "favourites" && <FavouritesPanel />}
+        {tab === "following" && <FollowingPanel />}
         {tab === "routines" && <RoutinesPanel />}
         {tab === "notifications" && <NotificationsPanel />}
         {tab === "passes" && <PassesPanel />}

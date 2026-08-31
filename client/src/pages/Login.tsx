@@ -2,43 +2,21 @@ import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { login } from "../api";
 import { useAuth } from "../AuthContext";
+import { AuthEditorialHeader, AuthEditorialShell } from "../components/AuthEditorialShell";
 import { FieldIcon, OAuthDivider, OAuthNotice, useOAuthNotice } from "../components/AuthForms";
-import { AuthPhotoPanel, AuthShell } from "../components/AuthShell";
-import { ArrowRightIcon, EyeIcon, EyeOffIcon, LockIcon, MailIcon, PinIcon, ShieldIcon, UsersIcon } from "../components/icons";
+import { ArrowRightIcon, EyeIcon, EyeOffIcon, LockIcon, MailIcon } from "../components/icons";
 import { Button, inputStyle, labelStyle } from "../components/ui";
 import { colors, radius } from "../theme";
 
-// Vendor/admin sign-in — same split-screen AuthShell as the resident
-// /signin family (real HelloCircle logo, photography column, no header/
-// footer chrome) so the two separate identity systems (req.user here vs.
-// req.resident there) still feel like one product. Stays single-mode
-// (email + password, no magic link, no signup-in-place) since vendor
-// accounts are approved by an admin after the listing intake form on
-// /vendor/signup, not created here.
-
-const TRUST_ITEMS = [
-  { icon: ShieldIcon, title: "Verified listings", body: "Every venue is reviewed before it goes live." },
-  { icon: UsersIcon, title: "Built for teams", body: "Invite staff with the right level of access." },
-  { icon: PinIcon, title: "Reach your area", body: "Get discovered by residents nearby." },
-];
-
-function TrustRow() {
-  return (
-    <div style={{ display: "flex", flexWrap: "wrap", gap: 24, marginTop: 36, maxWidth: 400 }}>
-      {TRUST_ITEMS.map(({ icon: Icon, title, body }) => (
-        <div key={title} style={{ display: "flex", alignItems: "flex-start", gap: 10, flex: "1 1 150px" }}>
-          <div style={{ width: 30, height: 30, borderRadius: "50%", background: colors.greenBg, color: colors.greenText, display: "flex", alignItems: "center", justifyContent: "center", flex: "none" }}>
-            <Icon size={15} />
-          </div>
-          <div>
-            <div style={{ fontSize: 12.5, fontWeight: 700, color: colors.text }}>{title}</div>
-            <div style={{ fontSize: 11.5, color: colors.faint, lineHeight: 1.35 }}>{body}</div>
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
+// Vendor/admin sign-in — editorial shell (Form System Audit follow-up:
+// bring /login and /signin into the same visual language as My Life and
+// the For Venues landing page, replacing the older split-screen AuthShell).
+// The eyebrow text below deliberately echoes VendorHero.tsx's own "For
+// venues & hosts" eyebrow, since this is exactly where that page's CTA
+// lands for an already-registered vendor. Stays single-mode (email +
+// password, no magic link, no signup-in-place) since vendor accounts are
+// approved by an admin after the listing intake form on /vendor/signup,
+// not created here.
 
 export function Login() {
   const navigate = useNavigate();
@@ -66,22 +44,23 @@ export function Login() {
   };
 
   return (
-    <AuthShell
-      photo={
-        <AuthPhotoPanel
-          imageSeed="hellocircle-vendor-login"
-          heading={<>Fill your rooms.<br />Grow your community.<br />Run it your way.</>}
-          avatarCaption="Join hundreds of venues and clubs already listed."
-          avatarSeedPrefix="hc-vendor-avatar"
-        />
-      }
+    <AuthEditorialShell
+      heroImage={{
+        src: "https://images.unsplash.com/photo-1526232761682-d26e03ac148e?w=1920&q=75&auto=format&fit=crop",
+        alt: "A local five-a-side football match in progress on an outdoor pitch",
+      }}
+      caption={{
+        heading: <>Fill your rooms.<br />Grow your community.<br />Run it your way.</>,
+        avatarCaption: "Join hundreds of venues and clubs already listed.",
+        avatarSeedPrefix: "hc-vendor-avatar",
+      }}
     >
-      <h1 style={{ fontWeight: 800, fontSize: "clamp(26px,3vw,32px)", margin: "0 0 8px", letterSpacing: "-.02em" }}>
-        Welcome back
-      </h1>
-      <p style={{ color: colors.mutedLight, fontSize: 15, margin: "0 0 28px" }}>
-        For vendors and admins — visitors don't need an account.
-      </p>
+      <AuthEditorialHeader
+        eyebrow="For venues & hosts"
+        accent="orange"
+        headline={<>Welcome back.<br /><span style={{ color: colors.orange }}>Let's fill your calendar.</span></>}
+        subtitle="For vendors and admins — visitors don't need an account."
+      />
 
       <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
         <div>
@@ -124,12 +103,12 @@ export function Login() {
         </div>
 
         {error && (
-          <p className="pop-in" style={{ color: colors.danger, fontSize: 14, margin: 0, background: colors.dangerBg, padding: "9px 12px", borderRadius: radius.control }}>
+          <p role="alert" className="pop-in" style={{ color: colors.danger, fontSize: 14, margin: 0, background: colors.dangerBg, padding: "9px 12px", borderRadius: radius.control }}>
             {error}
           </p>
         )}
 
-        <Button variant="dark" full disabled={submitting || !email || !password} onClick={submit}>
+        <Button variant="orange" full disabled={submitting || !email || !password} onClick={submit}>
           {submitting ? "Logging in…" : "Log in →"}
         </Button>
       </div>
@@ -139,12 +118,10 @@ export function Login() {
 
       <p style={{ textAlign: "center", color: colors.muted, fontSize: 14, marginTop: 24 }}>
         Run a community centre or sports club?{" "}
-        <Link to="/vendor/signup" className="link-accent" style={{ textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 5, color: colors.green, fontWeight: 700 }}>
+        <Link to="/vendor/signup" className="link-accent" style={{ textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 5, color: colors.orange, fontWeight: 700 }}>
           List it on Hello Circle <ArrowRightIcon size={14} />
         </Link>
       </p>
-
-      <TrustRow />
-    </AuthShell>
+    </AuthEditorialShell>
   );
 }

@@ -2,6 +2,8 @@ import { useState } from "react";
 import type { CSSProperties, InputHTMLAttributes, ReactNode } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { signup } from "../api";
+import { AuthEditorialHeader, AuthEditorialShell } from "../components/AuthEditorialShell";
+import { GuidedFlow } from "../components/GuidedFlow";
 import {
   BallIcon,
   BuildingIcon,
@@ -13,14 +15,23 @@ import {
   PersonIcon,
   PhoneIcon,
   PinIcon,
-  StarIcon,
   UsersIcon,
 } from "../components/icons";
-import { Button, Card, inputStyle, labelStyle } from "../components/ui";
-import { colors, fonts, radius } from "../theme";
+import { Button, inputStyle, labelStyle } from "../components/ui";
+import { colors } from "../theme";
 import type { VendorType } from "../types";
 
+// Vendor account + listing intake — same AuthEditorialShell/orange accent
+// as Login.tsx and the rest of the vendor auth family. Two-step GuidedFlow
+// (Account -> About you) instead of one long scrolling form (Form System
+// Audit follow-up) — same Guided Flow pattern as CentreCreationWizard.tsx,
+// just without that wizard's draft-row-per-step persistence: signup is one
+// atomic POST /signup call (there's no "half-created account" to save), so
+// step 1's "Continue" is pure client-side validation before advancing, and
+// only step 2's final submit hits the server.
+
 const DESCRIPTION_MAX = 300;
+const STEP_LABELS = ["Account", "About you"];
 
 const IRISH_COUNTIES = [
   "Antrim", "Armagh", "Carlow", "Cavan", "Clare", "Cork", "Derry", "Donegal",
@@ -29,17 +40,6 @@ const IRISH_COUNTIES = [
   "Monaghan", "Offaly", "Roscommon", "Sligo", "Tipperary", "Tyrone",
   "Waterford", "Westmeath", "Wexford", "Wicklow",
 ];
-
-function SectionHeader({ icon, title }: { icon: ReactNode; title: string }) {
-  return (
-    <div style={{ display: "flex", alignItems: "center", gap: 8, margin: "0 0 14px" }}>
-      <div style={{ width: 22, height: 22, borderRadius: "50%", background: colors.greenBg, color: colors.green, display: "flex", alignItems: "center", justifyContent: "center", flex: "none" }}>
-        {icon}
-      </div>
-      <span style={{ fontWeight: 700, fontSize: 14, color: colors.green }}>{title}</span>
-    </div>
-  );
-}
 
 function Field({ label, span, children }: { label: string; span?: boolean; children: ReactNode }) {
   return (
@@ -69,10 +69,21 @@ function IconInput({ icon, style, ...rest }: { icon: ReactNode } & InputHTMLAttr
   );
 }
 
-const gridStyle: CSSProperties = { display: "grid", gridTemplateColumns: "1fr 1fr", columnGap: 16, rowGap: 14, marginBottom: 14 };
+const gridStyle: CSSProperties = { display: "grid", gridTemplateColumns: "1fr 1fr", columnGap: 16, rowGap: 14 };
+
+const HERO_IMAGE = {
+  src: "https://images.unsplash.com/photo-1526232761682-d26e03ac148e?w=1920&q=75&auto=format&fit=crop",
+  alt: "A local five-a-side football match in progress on an outdoor pitch",
+};
+const CAPTION = {
+  heading: <>Fill your rooms.<br />Grow your community.<br />Run it your way.</>,
+  avatarCaption: "Join hundreds of venues and clubs already listed.",
+  avatarSeedPrefix: "hc-vendor-avatar",
+};
 
 export function VendorSignup() {
   const navigate = useNavigate();
+  const [step, setStep] = useState(1);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -84,12 +95,24 @@ export function VendorSignup() {
   const [mobile, setMobile] = useState("");
   const [landline, setLandline] = useState("");
   const [description, setDescription] = useState("");
+  const [stepError, setStepError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [done, setDone] = useState(false);
 
-  const formComplete =
-    !!name && !!email && password.length >= 8 && !!vendorType && !!businessName && !!address && !!county && !!mobile && !!description;
+  const goNext = () => {
+    if (!name.trim()) return setStepError("Your name is required");
+    if (!email.trim() || !email.includes("@")) return setStepError("A valid email is required");
+    if (password.length < 8) return setStepError("Use at least 8 characters for your password");
+    setStepError(null);
+    setStep(2);
+  };
+  const goBack = () => {
+    setStepError(null);
+    setStep(1);
+  };
+
+  const formComplete = !!vendorType && !!businessName && !!address && !!county && !!mobile && !!description;
 
   const submit = async () => {
     if (!vendorType) return;
@@ -107,36 +130,27 @@ export function VendorSignup() {
 
   if (done) {
     return (
-      <div className="fade-panel">
-        <section className="section-pad" style={{ maxWidth: 480, margin: "0 auto", padding: "64px 24px 90px", textAlign: "center" }}>
-          <div
-            className="pop-in"
-            style={{
-              width: 78,
-              height: 78,
-              borderRadius: "50%",
-              background: colors.greenBg,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              margin: "0 auto 22px",
-              fontSize: 36,
-              color: colors.green,
-              boxShadow: "0 10px 26px rgba(30,122,76,.18)",
-            }}
-          >
-            <CheckIcon size={34} />
-          </div>
-          <h1 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 28, margin: "0 0 8px", letterSpacing: "-.02em" }}>
-            Account created
-          </h1>
-          <p style={{ color: colors.muted, fontSize: 15, margin: "0 0 26px", lineHeight: 1.55 }}>
-            Your full registration is awaiting admin approval. Once approved, log in to publish listings
-            for your {vendorType === "sports" ? "sports club" : "community centre"}.
-          </p>
-          <Button onClick={() => navigate("/login")}>Log in</Button>
-        </section>
-      </div>
+      <AuthEditorialShell heroImage={HERO_IMAGE} caption={CAPTION}>
+        <div
+          className="pop-in"
+          style={{
+            width: 56, height: 56, borderRadius: "50%", background: colors.orangeBg,
+            display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 20, color: colors.orangeDark,
+          }}
+        >
+          <CheckIcon size={26} />
+        </div>
+        <AuthEditorialHeader
+          eyebrow="For venues & hosts"
+          accent="orange"
+          headline="Account created."
+          subtitle={
+            <>Your full registration is awaiting admin approval. Once approved, log in to publish listings
+              for your {vendorType === "sports" ? "sports club" : "community centre"}.</>
+          }
+        />
+        <Button variant="orange" onClick={() => navigate("/login")}>Log in</Button>
+      </AuthEditorialShell>
     );
   }
 
@@ -149,36 +163,21 @@ export function VendorSignup() {
   const businessPlaceholder = vendorType === "sports" ? "Enter your sports club name" : "Enter your centre/hall name";
 
   return (
-    <div className="fade-panel">
-      <section className="section-pad" style={{ maxWidth: 720, margin: "0 auto", padding: "32px 24px 56px" }}>
-        <div
-          className="pop-in"
-          style={{
-            width: 44,
-            height: 44,
-            borderRadius: 13,
-            background: colors.green,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            color: "#fff",
-            margin: "0 auto 12px",
-            boxShadow: "0 10px 24px rgba(30,122,76,.28)",
-          }}
+    <AuthEditorialShell contentMaxWidth={640} heroImage={HERO_IMAGE} caption={CAPTION}>
+      {step === 1 ? (
+        <GuidedFlow
+          title="Create your account."
+          subtitle="You'll use this to log in and manage your listings."
+          stepLabels={STEP_LABELS}
+          currentStep={1}
+          accent="orange"
+          showBack={false}
+          onBack={() => {}}
+          onContinue={goNext}
+          continueLabel="Continue →"
+          error={stepError}
         >
-          <StarIcon size={20} style={{ color: "#fff" }} />
-        </div>
-        <h1 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 26, margin: "0 0 4px", letterSpacing: "-.02em", textAlign: "center" }}>
-          List your centre or club
-        </h1>
-        <p style={{ color: colors.muted, fontSize: 14, margin: "0 0 20px", textAlign: "center" }}>
-          Create a vendor account to add and manage your own listings on Hello Circle.
-        </p>
-
-        <Card style={{ padding: 26, boxShadow: "0 10px 30px rgba(30,40,32,.05)" }}>
-          <SectionHeader icon={<PersonIcon size={12} />} title="Account details" />
-
-          <div className="grid-responsive" style={gridStyle}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
             <Field label="Your name">
               <IconInput icon={<PersonIcon size={16} />} value={name} onChange={(e) => setName(e.target.value)} autoFocus placeholder="Enter your full name" />
             </Field>
@@ -207,113 +206,118 @@ export function VendorSignup() {
               <p style={{ fontSize: 12, color: colors.faint, margin: "6px 0 0" }}>At least 8 characters.</p>
             </Field>
           </div>
+        </GuidedFlow>
+      ) : (
+        <GuidedFlow
+          title="About your place."
+          subtitle="We'll use this to set up your first listing for admin review."
+          stepLabels={STEP_LABELS}
+          currentStep={2}
+          accent="orange"
+          onBack={goBack}
+          onContinue={submit}
+          continueLabel={submitting ? "Creating account…" : "Create vendor account"}
+          continueDisabled={!formComplete}
+          continueBusy={submitting}
+          error={error}
+        >
+          <div>
+            <label style={labelStyle}>What are you?</label>
+            <div style={{ display: "flex", gap: 10, marginBottom: 14 }}>
+              {typeOptions.map((opt) => (
+                <div
+                  key={opt.type}
+                  onClick={() => setVendorType(opt.type)}
+                  style={{
+                    position: "relative",
+                    flex: 1,
+                    cursor: "pointer",
+                    padding: "10px 12px",
+                    borderRadius: 12,
+                    border: `2px solid ${vendorType === opt.type ? colors.orange : colors.inputBorder}`,
+                    background: vendorType === opt.type ? colors.orangeBg : "#fff",
+                    textAlign: "center",
+                    transition: "border-color .15s ease, background .15s ease",
+                  }}
+                >
+                  {vendorType === opt.type && (
+                    <div
+                      style={{
+                        position: "absolute",
+                        top: -8,
+                        right: -8,
+                        width: 18,
+                        height: 18,
+                        borderRadius: "50%",
+                        background: colors.orange,
+                        color: "#fff",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        boxShadow: "0 2px 6px rgba(232,109,42,.35)",
+                      }}
+                    >
+                      <CheckIcon size={11} />
+                    </div>
+                  )}
+                  <div style={{ color: vendorType === opt.type ? colors.orange : colors.muted, marginBottom: 4, display: "flex", justifyContent: "center" }}>{opt.icon}</div>
+                  <div style={{ fontSize: 12.5, fontWeight: 700 }}>{opt.label}</div>
+                </div>
+              ))}
+            </div>
 
-          <div style={{ height: 1, background: colors.border, margin: "0 0 16px" }} />
-
-          <SectionHeader icon={<UsersIcon size={12} />} title="About you" />
-
-          <label style={labelStyle}>What are you?</label>
-          <div style={{ display: "flex", gap: 10, marginBottom: 14 }}>
-            {typeOptions.map((opt) => (
-              <div
-                key={opt.type}
-                onClick={() => setVendorType(opt.type)}
-                style={{
-                  position: "relative",
-                  flex: 1,
-                  cursor: "pointer",
-                  padding: "10px 12px",
-                  borderRadius: 12,
-                  border: `2px solid ${vendorType === opt.type ? colors.green : colors.inputBorder}`,
-                  background: vendorType === opt.type ? colors.greenBg : "#fff",
-                  textAlign: "center",
-                  transition: "border-color .15s ease, background .15s ease",
-                }}
-              >
-                {vendorType === opt.type && (
-                  <div
-                    style={{
-                      position: "absolute",
-                      top: -8,
-                      right: -8,
-                      width: 18,
-                      height: 18,
-                      borderRadius: "50%",
-                      background: colors.green,
-                      color: "#fff",
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      boxShadow: "0 2px 6px rgba(30,122,76,.35)",
-                    }}
-                  >
-                    <CheckIcon size={11} />
-                  </div>
-                )}
-                <div style={{ color: vendorType === opt.type ? colors.green : colors.muted, marginBottom: 4, display: "flex", justifyContent: "center" }}>{opt.icon}</div>
-                <div style={{ fontSize: 12.5, fontWeight: 700 }}>{opt.label}</div>
-              </div>
-            ))}
+            <div className="grid-responsive" style={gridStyle}>
+              <Field label={businessLabel}>
+                <IconInput icon={<BuildingIcon size={16} />} value={businessName} onChange={(e) => setBusinessName(e.target.value)} placeholder={businessPlaceholder} />
+              </Field>
+              <Field label="County">
+                <div style={{ position: "relative" }}>
+                  <span style={iconSlotStyle}><PinIcon size={16} /></span>
+                  <select value={county} onChange={(e) => setCounty(e.target.value)} style={{ ...inputStyle, paddingLeft: 36 }}>
+                    <option value="" disabled>Select county</option>
+                    {IRISH_COUNTIES.map((c) => (
+                      <option key={c} value={c}>{c}</option>
+                    ))}
+                  </select>
+                </div>
+              </Field>
+              <Field label="Address" span>
+                <IconInput icon={<PinIcon size={16} />} value={address} onChange={(e) => setAddress(e.target.value)} placeholder="Enter complete address" />
+              </Field>
+              <Field label="Mobile number">
+                <IconInput icon={<PhoneIcon size={16} />} type="tel" value={mobile} onChange={(e) => setMobile(e.target.value)} placeholder="Enter mobile number" />
+              </Field>
+              <Field label="Landline number (optional)">
+                <IconInput icon={<PhoneIcon size={16} />} type="tel" value={landline} onChange={(e) => setLandline(e.target.value)} placeholder="Enter landline number" />
+              </Field>
+              <Field label="Description" span>
+                <div style={{ position: "relative" }}>
+                  <textarea
+                    value={description}
+                    onChange={(e) => setDescription(e.target.value.slice(0, DESCRIPTION_MAX))}
+                    placeholder="Tell us about your centre or club"
+                    rows={2}
+                    maxLength={DESCRIPTION_MAX}
+                    style={{ ...inputStyle, resize: "vertical", fontFamily: "inherit", paddingBottom: 20 }}
+                  />
+                  <span style={{ position: "absolute", right: 10, bottom: 6, fontSize: 11, color: colors.faint }}>
+                    {description.length}/{DESCRIPTION_MAX}
+                  </span>
+                </div>
+              </Field>
+            </div>
           </div>
+        </GuidedFlow>
+      )}
 
-          <div className="grid-responsive" style={{ ...gridStyle, marginBottom: 0 }}>
-            <Field label={businessLabel}>
-              <IconInput icon={<BuildingIcon size={16} />} value={businessName} onChange={(e) => setBusinessName(e.target.value)} placeholder={businessPlaceholder} />
-            </Field>
-            <Field label="County">
-              <div style={{ position: "relative" }}>
-                <span style={iconSlotStyle}><PinIcon size={16} /></span>
-                <select value={county} onChange={(e) => setCounty(e.target.value)} style={{ ...inputStyle, paddingLeft: 36 }}>
-                  <option value="" disabled>Select county</option>
-                  {IRISH_COUNTIES.map((c) => (
-                    <option key={c} value={c}>{c}</option>
-                  ))}
-                </select>
-              </div>
-            </Field>
-            <Field label="Address" span>
-              <IconInput icon={<PinIcon size={16} />} value={address} onChange={(e) => setAddress(e.target.value)} placeholder="Enter complete address" />
-            </Field>
-            <Field label="Mobile number">
-              <IconInput icon={<PhoneIcon size={16} />} type="tel" value={mobile} onChange={(e) => setMobile(e.target.value)} placeholder="Enter mobile number" />
-            </Field>
-            <Field label="Landline number (optional)">
-              <IconInput icon={<PhoneIcon size={16} />} type="tel" value={landline} onChange={(e) => setLandline(e.target.value)} placeholder="Enter landline number" />
-            </Field>
-            <Field label="Description" span>
-              <div style={{ position: "relative" }}>
-                <textarea
-                  value={description}
-                  onChange={(e) => setDescription(e.target.value.slice(0, DESCRIPTION_MAX))}
-                  placeholder="Tell us about your centre or club"
-                  rows={2}
-                  maxLength={DESCRIPTION_MAX}
-                  style={{ ...inputStyle, resize: "vertical", fontFamily: "inherit", paddingBottom: 20 }}
-                />
-                <span style={{ position: "absolute", right: 10, bottom: 6, fontSize: 11, color: colors.faint }}>
-                  {description.length}/{DESCRIPTION_MAX}
-                </span>
-              </div>
-            </Field>
-          </div>
-
-          {error && (
-            <p className="pop-in" style={{ color: colors.danger, fontSize: 14, margin: "16px 0 0", background: colors.dangerBg, padding: "9px 12px", borderRadius: radius.control }}>
-              {error}
-            </p>
-          )}
-          <Button variant="primary" full disabled={submitting || !formComplete} onClick={submit} style={{ marginTop: 18 }}>
-            <PersonIcon size={14} /> {submitting ? "Creating account…" : "Create vendor account"}
-          </Button>
-        </Card>
-
+      {step === 1 && (
         <p style={{ textAlign: "center", color: colors.muted, fontSize: 14, marginTop: 18 }}>
           Already have an account?{" "}
-          <Link to="/login" className="link-accent" style={{ textDecoration: "none", color: colors.green, fontWeight: 700 }}>
+          <Link to="/login" className="link-accent" style={{ textDecoration: "none", color: colors.orange, fontWeight: 700 }}>
             Log in
           </Link>
         </p>
-      </section>
-    </div>
+      )}
+    </AuthEditorialShell>
   );
 }

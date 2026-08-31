@@ -451,17 +451,19 @@ textarea:focus {
 
 /* Mood tiles (Home.tsx's "What are you in the mood for?" grid) — icon
    cards, not photo tiles: on hover the tile's border darkens and the icon
-   circle inverts (dark fill, white icon) and scales up slightly, rather
+   circle inverts (accent fill, white icon) and scales up slightly, rather
    than the app's usual lift+shadow .card-hover (a drop shadow reads wrong
-   on a flat icon card). */
+   on a flat icon card). Accent hex matches Home.tsx's own ACCENT constant
+   (same value as /for-venues' FV_ACCENT) — hardcoded since CSS can't
+   reference a JS constant. */
 .mood-tile {
   transition: border-color 0.2s ease;
 }
 .mood-tile:hover {
-  border-color: var(--color-dark) !important;
+  border-color: #ff4a1f !important;
 }
 .mood-tile:hover .mood-tile-icon {
-  background: var(--color-dark);
+  background: #ff4a1f;
   color: #fff;
   transform: scale(1.08);
 }
@@ -527,6 +529,64 @@ textarea:focus {
   }
 }
 
+/* ManageShell (vendor/admin dashboard) persistent nav rail — dashboard
+   redesign pass. Below 1025px the rail stays hidden and NavSidebar's
+   existing slide-in drawer (opened via the header's .dashboard-nav-btn
+   burger) is the only way to switch tabs, same as before this pass; above
+   it the rail is always on screen and the burger is redundant, so it's
+   hidden instead of showing two ways to do the same thing. */
+.manage-rail {
+  display: none;
+}
+.manage-shell-grid {
+  display: block;
+}
+@media (min-width: 1025px) {
+  .dashboard-nav-btn {
+    display: none !important;
+  }
+  .manage-rail {
+    display: flex;
+    width: 220px;
+    flex: none;
+  }
+  .manage-shell-grid {
+    display: grid;
+    grid-template-columns: 220px 1fr;
+    gap: 40px;
+    align-items: start;
+  }
+}
+
+/* StatRow's hairline-divided KPI strip (see StatTile/StatRow in ui.tsx) —
+   a vertical rule between tiles instead of the old card-with-shadow
+   wrapper. A plain child selector, not a nth-child list, since StatRow's
+   children are supplied by the caller and can vary in count. */
+.manage-stat-row > * + * {
+  border-left: 1px solid var(--color-border);
+}
+
+/* KpiStrip's hero stat (see KpiHero/KpiStrip in ui.tsx) — a vertical rule
+   separating the large hero figure from the supporting StatRow on wide
+   screens; below 900px (the same cutover .grid-responsive already uses)
+   the hero sits in its own row above the supporting stats instead, with a
+   horizontal rule taking over from the vertical one. */
+.kpi-strip-hero {
+  border-right: 1px solid var(--color-border);
+  margin-right: 24px;
+}
+@media (max-width: 900px) {
+  .kpi-strip {
+    flex-direction: column;
+  }
+  .kpi-strip-hero {
+    border-right: none;
+    border-bottom: 1px solid var(--color-border);
+    margin-right: 0;
+    padding: 16px 0 !important;
+  }
+}
+
 @media (max-width: 860px) {
   .desktop-nav,
   .desktop-actions {
@@ -534,6 +594,12 @@ textarea:focus {
   }
   .mobile-menu-btn {
     display: inline-flex !important;
+  }
+  /* HelloCircle Manage Phase 5 — the ManageShell dashboard burger folds into
+     the mobile menu panel below (see its own "Dashboard menu" entry) instead
+     of showing alongside .mobile-menu-btn as a second hamburger. */
+  .dashboard-nav-btn {
+    display: none !important;
   }
   .mobile-tab-bar {
     display: flex !important;
@@ -562,15 +628,17 @@ textarea:focus {
   min-width: 0;
 }
 
-/* SignIn.tsx's split-screen auth layout — photography side stretches to
-   match the form column's own height (default grid stretch), so a taller
-   form (e.g. signup, with its Terms line) naturally gets a taller image
-   alongside it rather than a fixed viewport-height mismatch. Mobile removes
-   the image entirely per the brief's own instruction — a large photo above
-   the form would push it below the fold, not below "removed". */
+/* SignIn.tsx's split-screen auth layout — 40/60 photo/form split (the form
+   column needs the room; the photo is atmosphere, not the point). Photo
+   side stretches to match the form column's own height (default grid
+   stretch), so a taller form (e.g. signup, with its Terms line) naturally
+   gets a taller image alongside it rather than a fixed viewport-height
+   mismatch. Mobile removes the image entirely per the brief's own
+   instruction — a large photo above the form would push it below the
+   fold, not below "removed". */
 .signin-split {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 2fr 3fr;
   min-height: 100vh;
 }
 @media (max-width: 900px) {
@@ -719,5 +787,75 @@ textarea:focus {
   .stepper-line {
     min-width: 8px !important;
     margin: 0 6px !important;
+  }
+}
+
+/* /for-venues "Who it's for" list (ProviderTypeGrid.tsx) — an active row's
+   description sits inline beneath its title on mobile (no room for the
+   paired photo column at that width, so the row itself carries the detail). */
+@media (max-width: 900px) {
+  .for-venues-type-row-detail {
+    display: block !important;
+  }
+}
+
+/* /for-venues redesign (silence.-referenced brief) — this page runs its own
+   editorial/poster visual language (orange accent, giant condensed-feel
+   type, a horizontal ticker) distinct from the rest of the app, contained
+   entirely to these classes/components so nothing else is affected. */
+
+/* Hero's rotated edge tag, echoing a skate-poster's rotated logotype strip
+   running up a photo's edge — CSS-only, no image asset. */
+.for-venues-vertical-tag {
+  position: absolute;
+  top: 20px;
+  right: 20px;
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+  font-family: ui-monospace, "SF Mono", "Roboto Mono", Menlo, monospace;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #fff;
+  background: rgba(20, 22, 20, 0.34);
+  backdrop-filter: blur(6px);
+  padding: 14px 8px;
+  border-radius: 999px;
+  z-index: 2;
+}
+
+/* Continuous ticker strip (VendorBenefitStrip.tsx) — two copies of the
+   track sit side by side and shift left by exactly one copy's width, so
+   the loop point is invisible. `animation-play-state` pauses on hover so a
+   reader can actually read an item instead of chasing scrolling text. */
+@keyframes fv-marquee {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+.fv-marquee-track {
+  display: flex;
+  width: max-content;
+  animation: fv-marquee 26s linear infinite;
+}
+.fv-marquee-viewport:hover .fv-marquee-track {
+  animation-play-state: paused;
+}
+@media (prefers-reduced-motion: reduce) {
+  .fv-marquee-track {
+    animation: none;
+  }
+}
+
+/* Provider-type list (ProviderTypeGrid.tsx) — the paired photo column only
+   makes sense once there's room beside the list; below that it's dropped
+   (each row already carries its own description inline instead). */
+@media (max-width: 900px) {
+  .for-venues-type-photo-col {
+    display: none !important;
   }
 }

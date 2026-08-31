@@ -2,7 +2,7 @@ import { useState, type CSSProperties } from "react";
 import type { DemandRow, IntentCluster } from "../types";
 import { colors, fonts, radius } from "../theme";
 import { SearchIcon } from "./icons";
-import { Button, Card, EmptyState, PageSpinner } from "./ui";
+import { Button, ManageCard as Card, EmptyState, PageSpinner } from "./ui";
 
 // Shared by VendorDashboard's demand tab (scoped to the vendor's own
 // listing type/county, with a toggle to widen it) and AdminDashboard's

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { fetchCentres, fetchClubs } from "../api";
-import { BrowseIllustration } from "../components/BrowseIllustration";
+import { BrowseTicker } from "../components/BrowseTicker";
 import { CentreCard } from "../components/CentreCard";
 import { ClubCard } from "../components/ClubCard";
 import { DiscoveryMap } from "../components/DiscoveryMap";
@@ -210,32 +210,71 @@ export function Browse() {
           <span style={{ fontWeight: 600, color: colors.text }}>{isClubs ? "Sports clubs" : "Community centres"}</span>
         </div>
 
-        <div style={{ background: isClubs ? "#FBF0E9" : colors.greenBg, borderRadius: 22, padding: "0 28px", marginBottom: 22 }}>
-          <div className="grid-responsive" style={{ display: "grid", gridTemplateColumns: "1fr 1.3fr", gap: 24, alignItems: "center" }}>
+        {/* Warm Swiss editorial header — same typographic system as My
+            Life's MyLifeHeader: a small uppercase eyebrow, a large display
+            h1, a muted display-font subtitle, then a plain fact line. No
+            colored panel, no decorative illustration — profile/browse
+            identity here is carried by typography, not a graphic. The
+            List/Map toggle sits top-right, same position as My Life's
+            action-button cluster — moved up from the filter bar below
+            since it's a real, always-present control (unlike Compare,
+            which only appears once centres are selected), not filler. */}
+        <div style={{ marginBottom: 32 }}>
+          <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 24, flexWrap: "wrap" }}>
             <div>
-              <h1 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: "clamp(28px, 5vw, 34px)", margin: "0 0 6px", letterSpacing: "-.02em" }}>
+              <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: ".08em", color: colors.mutedLight, marginBottom: 14 }}>
+                / {isClubs ? "SPORTS CLUBS" : "COMMUNITY CENTRES"}
+              </div>
+              <h1
+                style={{
+                  fontFamily: fonts.display, fontWeight: 800, letterSpacing: "-.02em", lineHeight: 1.04,
+                  fontSize: "clamp(32px,5vw,52px)", margin: "0 0 10px", color: colors.text,
+                }}
+              >
                 {isClubs ? "Sports clubs" : "Community centres"}
               </h1>
-              <p style={{ color: colors.mutedLight, fontSize: 16, margin: "0 0 10px" }}>
-                {loading ? (
-                  "Loading…"
-                ) : (
+              <p style={{ fontFamily: fonts.display, fontWeight: 600, fontSize: "clamp(17px,2vw,21px)", color: colors.mutedLight, margin: "0 0 16px", maxWidth: 560, lineHeight: 1.3 }}>
+                {isClubs
+                  ? "Find GAA, soccer, swimming, rugby and more for every age. Many clubs offer a free trial session before you commit."
+                  : "Book a hall for birthdays, meetings, classes or family celebrations. Compare capacity and prices from verified centres near you."}
+              </p>
+              <div style={{ fontSize: 13.5, fontWeight: 600, color: colors.textSoft }}>
+                {loading ? "Loading…" : (
                   <>
                     {filtered.length} result{filtered.length === 1 ? "" : "s"}{county === "All" ? " across Ireland" : ` in ${county}`}
                     {query && ` matching "${query}"`}
                   </>
                 )}
-              </p>
-              <p style={{ color: colors.muted, fontSize: 14, lineHeight: 1.55, margin: 0, maxWidth: 340 }}>
-                {isClubs
-                  ? "Find GAA, soccer, swimming, rugby and more for every age. Many clubs offer a free trial session before you commit."
-                  : "Book a hall for birthdays, meetings, classes or family celebrations. Compare capacity and prices from verified centres near you."}
-              </p>
+              </div>
             </div>
-            <BrowseIllustration accent={accent} />
+            <div style={{ display: "flex", border: `1px solid ${colors.inputBorder}`, borderRadius: 11, overflow: "hidden", flex: "none" }}>
+              {(["list", "map"] as const).map((v) => (
+                <button
+                  key={v}
+                  onClick={() => setView(v)}
+                  className="btn"
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 6,
+                    padding: "9px 13px",
+                    border: "none",
+                    background: view === v ? colors[accent] : colors.bg,
+                    color: view === v ? "#fff" : colors.text,
+                    fontSize: 13.5,
+                    fontWeight: 600,
+                  }}
+                >
+                  {v === "list" ? <GridIcon size={13} /> : <PinIcon size={13} />}
+                  {v === "list" ? "List" : "Map"}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
+      </section>
 
+      <section className="section-pad" style={{ maxWidth, margin: "0 auto", padding: "20px 24px 12px" }}>
         {/* Filter bar (UX pass) — every filter is now a dropdown rather than
             every individual option rendered as its own inline chip. With 16
             counties + 25+ amenities, the old chip rows grew to 4 wrapped
@@ -330,29 +369,6 @@ export function Browse() {
                   </option>
                 ))}
               </select>
-              <div style={{ display: "flex", border: `1px solid ${colors.inputBorder}`, borderRadius: 11, overflow: "hidden" }}>
-                {(["list", "map"] as const).map((v) => (
-                  <button
-                    key={v}
-                    onClick={() => setView(v)}
-                    className="btn"
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 6,
-                      padding: "9px 13px",
-                      border: "none",
-                      background: view === v ? colors[accent] : colors.bg,
-                      color: view === v ? "#fff" : colors.text,
-                      fontSize: 13.5,
-                      fontWeight: 600,
-                    }}
-                  >
-                    {v === "list" ? <GridIcon size={13} /> : <PinIcon size={13} />}
-                    {v === "list" ? "List" : "Map"}
-                  </button>
-                ))}
-              </div>
             </div>
           </div>
         </div>
@@ -522,6 +538,11 @@ export function Browse() {
           </div>
         </div>
       )}
+
+      {/* Moved to the bottom of the page, at the user's request — reads as
+          a closing note rather than competing with the header/results for
+          attention. Same .fv-marquee mechanism as VendorBenefitStrip.tsx. */}
+      <BrowseTicker isClubs={isClubs} />
     </div>
   );
 }

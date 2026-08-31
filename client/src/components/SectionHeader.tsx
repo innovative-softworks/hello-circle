@@ -18,7 +18,10 @@ export function SectionHeader({
   titleSize,
   titleColor,
 }: {
-  eyebrow: string;
+  /** Usually a plain string; a page may pass a short ReactNode instead
+   * (e.g. Home.tsx's "/ Label" accent-slash treatment) without affecting
+   * every other plain-string call site elsewhere in the app. */
+  eyebrow: ReactNode;
   title: string;
   subtitle?: string;
   action?: ReactNode;

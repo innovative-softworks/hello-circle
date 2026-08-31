@@ -52,10 +52,10 @@ export async function residentAllows(residentId: string, prefKey: string): Promi
 
 interface NotifyResidentParams {
   residentId: string;
-  kind: "booking" | "registration" | "waitlist" | "game" | "intent_match";
+  kind: "booking" | "registration" | "waitlist" | "game" | "intent_match" | "circle" | "provider_update" | "host_update" | "centre_update";
   title: string;
   body: string;
-  listingType: "centre" | "club" | "game" | "intent";
+  listingType: "centre" | "club" | "game" | "intent" | "circle" | "vendor" | "host";
   listingId: string;
   ref: string;
 }

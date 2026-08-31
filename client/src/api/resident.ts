@@ -18,6 +18,8 @@ import type {
   Game,
   GameParticipantSummary,
   GameUpdate,
+  ManageCirclePlan,
+  ManageParticipant,
   HostProfile,
   HouseholdMember,
   Routine,
@@ -212,6 +214,54 @@ export function updateFavouriteStatus(listingType: Favourite["listingType"], lis
   return request(`/favourites/status`, { method: "PUT", body: JSON.stringify({ listingType, listingId, status }) });
 }
 
+// --- follows ---------------------------------------------------------------
+// "Keep me in the loop" on a vendor Provider or a resident Host — see
+// server/src/db/index.ts's `follows` table comment for why this is
+// deliberately separate from favourites above (a standing relationship
+// with an account, not a per-listing interest/status progression).
+
+export type FollowedType = "vendor" | "host" | "centre";
+export type NotificationLevel = "highlights" | "everything";
+
+export function followEntity(followedType: FollowedType, followedId: string): Promise<{ ok: boolean }> {
+  return request(`/follows`, { method: "POST", body: JSON.stringify({ followedType, followedId }) });
+}
+
+export function unfollowEntity(followedType: FollowedType, followedId: string): Promise<{ ok: boolean }> {
+  return request(`/follows`, { method: "DELETE", body: JSON.stringify({ followedType, followedId }) });
+}
+
+export function setFollowNotificationLevel(followedType: FollowedType, followedId: string, level: NotificationLevel): Promise<{ ok: boolean }> {
+  return request(`/follows/notification-level`, { method: "PUT", body: JSON.stringify({ followedType, followedId, level }) });
+}
+
+export interface FollowFeedItem {
+  kind: string;
+  id: string;
+  title: string;
+  date: string;
+  time: string;
+  href: string;
+  imageUrl: string | null;
+}
+
+export function fetchFollowFeed(): Promise<FollowFeedItem[]> {
+  return request(`/follows/feed`);
+}
+
+export interface FollowedEntity {
+  followedType: FollowedType;
+  followedId: string;
+  notificationLevel: NotificationLevel;
+  name: string | null;
+  imageUrl: string | null;
+  href: string;
+}
+
+export function fetchMyFollows(): Promise<FollowedEntity[]> {
+  return request(`/follows`);
+}
+
 // --- club waitlist (MVP) -------------------------------------------------
 
 export function fetchWaitlistPosition(clubId: string): Promise<WaitlistPosition> {
@@ -237,9 +287,10 @@ export function fetchGame(id: string): Promise<Game> {
 }
 
 /** Every game this resident is hosting or has joined — distinct from
- * fetchGames(), the public "what's open" list. */
-export function fetchMyGames(): Promise<Game[]> {
-  return request(`/games/mine`);
+ * fetchGames(), the public "what's open" list. Pass `hostedOnly` (HelloCircle
+ * Manage's /manage/activities) to narrow it to games this resident hosts. */
+export function fetchMyGames(opts?: { hostedOnly?: boolean }): Promise<Game[]> {
+  return request(`/games/mine${opts?.hostedOnly ? "?hostedOnly=1" : ""}`);
 }
 
 export interface CreateGameInput {
@@ -263,16 +314,35 @@ export interface CreateGameInput {
   indoorOutdoor?: "indoor" | "outdoor" | "mixed";
   meetingInstructions?: string;
   cancellationPolicy?: string;
+  /** Set when this game is created as a specific Circle's plan (HelloCircle
+   * Manage Phase 4's "Create plan" deep-link). */
+  circleId?: string;
 }
 
 export function createGame(input: CreateGameInput): Promise<Game> {
   return request(`/games`, { method: "POST", body: JSON.stringify(input) });
 }
 
+/** Host-only edit — same field set as createGame's input. Price is silently
+ * frozen server-side once anyone besides the host has joined. */
+export function updateGame(id: string, input: CreateGameInput): Promise<Game> {
+  return request(`/games/${id}`, { method: "PUT", body: JSON.stringify(input) });
+}
+
 /** "Who's going" preview — public, name-only (see GameParticipantSummary's
  * own comment in types.ts for the privacy reasoning). */
 export function fetchGameParticipants(id: string): Promise<GameParticipantSummary> {
   return request(`/games/${id}/participants`);
+}
+
+/** Host-only, uncapped participant view (HelloCircle Manage /manage/activities). */
+export function fetchGameParticipantsForManage(id: string): Promise<ManageParticipant[]> {
+  return request(`/games/${id}/participants/manage`);
+}
+
+/** Host removes one participant (e.g. a no-show) — frees their capacity slot. */
+export function removeGameParticipant(id: string, residentId: string): Promise<{ ok: boolean }> {
+  return request(`/games/${id}/participants/${residentId}/remove`, { method: "POST" });
 }
 
 /** Host-posted announcements — public read. */
@@ -295,8 +365,8 @@ export function leaveGame(id: string): Promise<{ ok: boolean }> {
   return request(`/games/${id}/join`, { method: "DELETE" });
 }
 
-export function cancelGame(id: string): Promise<{ ok: boolean }> {
-  return request(`/games/${id}/cancel`, { method: "POST" });
+export function cancelGame(id: string, reason?: string): Promise<{ ok: boolean }> {
+  return request(`/games/${id}/cancel`, { method: "POST", body: JSON.stringify({ reason }) });
 }
 
 export function joinGameWaitlist(id: string): Promise<{ ok: boolean }> {
@@ -362,7 +432,9 @@ export function fetchCircleSuggestions(): Promise<CircleSuggestion[]> {
   return request(`/circles/suggestions`);
 }
 
-export function createCircle(input: {
+export type CircleJoinMode = "open" | "approval" | "invite";
+
+interface CircleInput {
   name: string;
   activityLabel?: string;
   area?: string;
@@ -372,20 +444,63 @@ export function createCircle(input: {
   whatWeDo?: string;
   whoCanJoin?: string;
   values?: string;
-}): Promise<{ id: string; slug: string }> {
+  joinMode?: CircleJoinMode;
+}
+
+export function createCircle(input: CircleInput): Promise<{ id: string; slug: string }> {
   return request(`/circles`, { method: "POST", body: JSON.stringify(input) });
 }
 
-export function joinCircle(id: string): Promise<{ ok: boolean }> {
+/** Organiser-only edit of the circle's own fields (HelloCircle Manage Phase 4)
+ * — same field set as createCircle's input, plus imageUrl. */
+export function updateCircle(id: string, input: CircleInput & { imageUrl?: string }): Promise<Circle> {
+  return request(`/circles/${id}`, { method: "PUT", body: JSON.stringify(input) });
+}
+
+/** `requested: true` means an 'approval' Circle filed a pending join
+ * request instead of joining outright — see routes/circles.ts's own
+ * join-mode comment for the full state machine (an outstanding organiser
+ * invite always joins outright regardless of mode). */
+export function joinCircle(id: string): Promise<{ ok: boolean; requested?: boolean }> {
   return request(`/circles/${id}/join`, { method: "POST" });
 }
 
+/** Also withdraws a still-pending join request, not just membership. */
 export function leaveCircle(id: string): Promise<{ ok: boolean }> {
   return request(`/circles/${id}/join`, { method: "DELETE" });
 }
 
-export function fetchCircleMembership(id: string): Promise<{ member: boolean; role: string | null }> {
+export function fetchCircleMembership(id: string): Promise<{ member: boolean; role: string | null; requested: boolean }> {
   return request(`/circles/${id}/membership`);
+}
+
+export interface CircleJoinRequest {
+  id: string;
+  residentId: string;
+  name: string;
+  createdAt: string;
+}
+
+/** Organiser-only pending join-requests inbox for an 'approval' Circle. */
+export function fetchCircleJoinRequests(circleId: string): Promise<CircleJoinRequest[]> {
+  return request(`/circles/${circleId}/join-requests`);
+}
+
+export function respondToCircleJoinRequest(circleId: string, requestId: string, accept: boolean): Promise<{ ok: boolean }> {
+  return request(`/circles/${circleId}/join-requests/${requestId}/respond`, { method: "POST", body: JSON.stringify({ accept }) });
+}
+
+/** Organiser-only, real plans linked via games.circle_id (HelloCircle Manage
+ * Phase 4) — distinct from fetchCircleUpcoming's public activity-label match,
+ * which stays a "similar activity nearby" discovery preview, not an
+ * ownership claim. */
+export function fetchCirclePlansForManage(id: string): Promise<ManageCirclePlan[]> {
+  return request(`/circles/${id}/plans`);
+}
+
+/** Organiser removes a non-organiser member. */
+export function removeCircleMember(id: string, residentId: string): Promise<{ ok: boolean }> {
+  return request(`/circles/${id}/members/${residentId}/remove`, { method: "POST" });
 }
 
 // --- Circle settings, invitations & planning polls (IA spec §10) -----------

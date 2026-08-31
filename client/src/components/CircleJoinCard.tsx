@@ -9,16 +9,15 @@ import { colors, fonts, radius } from "../theme";
 import type { Circle } from "../types";
 
 // Right-rail Join card (reference §21-22) — the single strongest CTA on the
-// page, state-aware per the reference's own state table. This app's Circle
-// model only has active/closed status, no privacy/request-to-join concept
-// (see routes/circles.ts), so "Private"/"Request to join"/"Pending" states
-// from the reference are deliberately not implemented — faking them would
-// invent product behaviour that doesn't exist. Organiser management
-// (create plan / invite / close) previously lived in a full-bleed CTA band;
-// it's real functionality, just relocated here behind "Manage Circle" so it
-// isn't lost in the restructure.
+// page, state-aware per the reference's own state table. Circle join modes
+// (Follow/Notify/Stats gap audit §6) added real "invite-only"/"requested"
+// states on top of the original open/closed model — see routes/circles.ts's
+// join-mode comment for the full server-side state machine. Organiser
+// management (create plan / invite / close) previously lived in a
+// full-bleed CTA band; it's real functionality, just relocated here behind
+// "Manage Circle" so it isn't lost in the restructure.
 
-export type JoinState = "closed" | "organiser" | "signed-out" | "member" | "available";
+export type JoinState = "closed" | "organiser" | "signed-out" | "member" | "available" | "requested" | "invite-only";
 
 interface Props {
   circle: Circle;
@@ -40,13 +39,25 @@ export function CircleJoinCard({ circle, state, busy, onJoin, onLeave, onMessage
   return (
     <Card>
       <h3 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 18, margin: "0 0 6px", letterSpacing: "-.01em" }}>
-        {state === "member" ? "You're in" : state === "organiser" ? "Manage this Circle" : `Join ${circle.name}`}
+        {state === "member"
+          ? "You're in"
+          : state === "organiser"
+          ? "Manage this Circle"
+          : state === "requested"
+          ? "Request sent"
+          : state === "invite-only"
+          ? "Invite only"
+          : `Join ${circle.name}`}
       </h3>
       <p style={{ margin: "0 0 16px", fontSize: 13.5, color: colors.mutedLight, lineHeight: 1.5 }}>
         {state === "closed"
           ? "This Circle is closed to new activity."
           : state === "member"
           ? `Be part of ${circle.name} — you'll hear about every plan.`
+          : state === "requested"
+          ? "The organiser will let you know when they respond."
+          : state === "invite-only"
+          ? "The organiser adds members by invite."
           : `Be part of our active and friendly ${circle.activityLabel.toLowerCase()} community.`}
       </p>
 
@@ -75,7 +86,24 @@ export function CircleJoinCard({ circle, state, busy, onJoin, onLeave, onMessage
         )}
 
         {state === "available" && (
-          <Button full onClick={onJoin} disabled={busy}>{busy ? "Joining…" : "Join Circle"}</Button>
+          <Button full onClick={onJoin} disabled={busy}>
+            {busy ? "…" : circle.joinMode === "approval" ? "Request to join" : "Join Circle"}
+          </Button>
+        )}
+
+        {state === "requested" && (
+          <>
+            <div style={{ fontWeight: 700, fontSize: 13.5, color: colors.muted, background: colors.panel, borderRadius: radius.control, padding: "10px 14px", textAlign: "center" }}>
+              Waiting on the organiser
+            </div>
+            <Button variant="ghost" full onClick={onLeave} disabled={busy}>{busy ? "…" : "Withdraw request"}</Button>
+          </>
+        )}
+
+        {state === "invite-only" && (
+          <div style={{ fontWeight: 700, fontSize: 13.5, color: colors.muted, background: colors.panel, borderRadius: radius.control, padding: "10px 14px", textAlign: "center" }}>
+            Ask the organiser for an invite
+          </div>
         )}
 
         {state === "member" && (
@@ -98,6 +126,7 @@ export function CircleJoinCard({ circle, state, busy, onJoin, onLeave, onMessage
             ) : (
               <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                 <Button full onClick={onCreatePlan}><PlusIcon size={14} /> Create plan</Button>
+                <Button variant="ghost" full onClick={() => navigate(`/manage/circles/${circle.slug ?? circle.id}`)}>Manage circle</Button>
                 <Button variant="ghost" full onClick={onMessage}>Message Circle</Button>
                 <div>
                   <div style={{ fontSize: 11.5, fontWeight: 700, color: colors.mutedLight, textTransform: "uppercase", letterSpacing: ".03em", marginBottom: 8 }}>Invite someone</div>

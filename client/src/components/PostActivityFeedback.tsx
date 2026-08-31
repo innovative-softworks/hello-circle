@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { fetchFeedbackStatus, submitFeedback } from "../api";
+import { fetchFeedbackStatus, fetchMyFollows, submitFeedback } from "../api";
+import { FollowButton } from "./FollowButton";
 import { colors, radius } from "../theme";
-import type { FeedbackStatus } from "../api";
+import type { FeedbackStatus, FollowedType } from "../api";
 
 // Fuller post-activity feedback (IA spec §11) — the spec's 5-question set,
 // not just "would you do this again" (Phase A's original, narrower prompt —
@@ -39,11 +40,22 @@ const chipRow = (
   </div>
 );
 
-export function PostActivityFeedback({ kind, reference }: { kind: string; reference: string }) {
+/** Optional "keep up with them?" nudge — only shown once the resident says
+ * they'd do this again (doc: the relationship should form after a real
+ * interaction, never during onboarding or unconditionally). `id` must
+ * already be followable (a vendor account, or a resident with a verified
+ * host badge) — callers only pass this when that's already known true. */
+export interface FollowTarget {
+  type: FollowedType;
+  id: string;
+}
+
+export function PostActivityFeedback({ kind, reference, followTarget }: { kind: string; reference: string; followTarget?: FollowTarget }) {
   const navigate = useNavigate();
   const [status, setStatus] = useState<FeedbackStatus | "loading">("loading");
   const [expanded, setExpanded] = useState(false);
   const [draft, setDraft] = useState<Partial<Record<(typeof QUESTIONS)[number]["key"], "yes" | "maybe" | "no">>>({});
+  const [alreadyFollowing, setAlreadyFollowing] = useState<boolean | null>(null);
 
   useEffect(() => {
     fetchFeedbackStatus(kind, reference).then(setStatus);
@@ -55,6 +67,11 @@ export function PostActivityFeedback({ kind, reference }: { kind: string; refere
     await submitFeedback(kind, reference, response, draft);
     setStatus({ response, beginnerFriendly: draft.beginnerFriendly ?? null, soloFriendly: draft.soloFriendly ?? null, descriptionAccurate: draft.descriptionAccurate ?? null, welcoming: draft.welcoming ?? null });
     setExpanded(false);
+    if (response === "yes" && followTarget) {
+      fetchMyFollows()
+        .then((follows) => setAlreadyFollowing(follows.some((f) => f.followedType === followTarget.type && f.followedId === followTarget.id)))
+        .catch(() => setAlreadyFollowing(null));
+    }
   };
 
   if (status.response) {
@@ -62,10 +79,16 @@ export function PostActivityFeedback({ kind, reference }: { kind: string; refere
       <div>
         <span style={{ fontSize: 12, color: colors.greenText, fontWeight: 700 }}>Thanks for the feedback!</span>
         {status.response === "yes" && (
-          <div style={{ marginTop: 6 }}>
+          <div style={{ marginTop: 6, display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
             <button onClick={() => navigate("/explore")} style={{ background: "none", border: "none", padding: 0, color: colors.greenText, fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
               Looking for more? Explore similar activities →
             </button>
+            {followTarget && alreadyFollowing === false && (
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{ fontSize: 12, color: colors.muted }}>Want to know when they start something new?</span>
+                <FollowButton followedType={followTarget.type} followedId={followTarget.id} initialFollowing={false} />
+              </div>
+            )}
           </div>
         )}
       </div>

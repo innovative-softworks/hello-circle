@@ -10,7 +10,7 @@ import { PageTitle } from "../components/PageTitle";
 import { Spinner } from "../components/ui";
 import { colors, fonts, radius } from "../theme";
 import { fallbackCopy } from "../copy";
-import { ExperienceSearchCard } from "./Search";
+import { ExperienceSearchCard } from "../components/ExperienceSearchCard";
 
 // Ask HelloCircle (implementation plan Phase 12) — a chat-style front door
 // onto the exact same structured search the /search page already runs

@@ -54,14 +54,13 @@ import {
   type HostApplication,
 } from "../api";
 import { useAuth } from "../AuthContext";
-import { useDashboardNav } from "../DashboardNavContext";
-import { AdminIllustration } from "../components/illustrations";
+import { ManageShell } from "../components/ManageShell";
 import { AwardIcon, BallIcon, BuildingIcon, CalendarIcon, CheckIcon, ClipboardIcon, EyeIcon, GridIcon, IdCardIcon, MailIcon, PinIcon, SearchIcon, StarIcon, TagIcon, TrendUpIcon, UsersIcon } from "../components/icons";
-import { Avatar, BadgedIcon, Button, Card, ConfirmDialog, DashboardTopPanel, Drawer, EmptyState, NavSidebar, onActivateProps, PageSpinner, StarDisplay, StatRow, StatTile, StatusBadge, inputStyle, labelStyle, tableStyle, tdStyle, thStyle, type ListingStatus } from "../components/ui";
+import { Avatar, BadgedIcon, Button, ManageCard as Card, ConfirmDialog, DashboardTopPanel, Drawer, EmptyState, onActivateProps, PageSpinner, StarDisplay, KpiHero, KpiStrip, StatTile, StatusBadge, inputStyle, labelStyle, tableStyle, tdStyle, thStyle, type ListingStatus } from "../components/ui";
 import { DemandSignalsView, IntentClusterView } from "../components/DemandSignals";
 import { MarketplaceHealthView } from "../components/MarketplaceHealth";
 import { MarketConfig } from "../components/MarketConfig";
-import { colors, fonts, maxWidth, radius, statTile } from "../theme";
+import { colors, fonts, radius } from "../theme";
 import { FEATURE_FLAG_KEYS, FEATURE_FLAG_LABELS } from "../types";
 import type { AdminOrganisation, AdminStats, AnalyticsFunnelRow, AuditEntry, CircleActivity, DemandRow, FeatureFlagKey, FeatureFlags, IntentCluster, MarketplaceHealth, ModerationReport, NotificationTemplateInfo, OpenBookingActivity, PlaceSuggestion, ReferralAttributionRow, ReportCase, Review, SupportBooking, SupportCircle, SupportGame, SupportRegistration, SupportUser } from "../types";
 
@@ -721,18 +720,6 @@ function ListingsTab({
       {open && (
         <ListingDrawer item={openItem} type={open.type} organisations={organisations} onChanged={onChanged} onClose={closeDrawer} />
       )}
-    </div>
-  );
-}
-
-function AdminHeroPanel() {
-  return (
-    <div style={{ position: "relative", overflow: "hidden", height: "100%", display: "flex", alignItems: "center", justifyContent: "center" }}>
-      <div style={{ position: "absolute", top: -22, right: 8, width: 130, height: 130, borderRadius: "50%", background: "rgba(232,98,42,.14)" }} />
-      <div style={{ position: "absolute", bottom: -28, left: 10, width: 115, height: 115, borderRadius: "50%", background: "rgba(232,98,42,.14)" }} />
-      <div className="hide-mobile" style={{ position: "relative", width: 220, height: 130 }}>
-        <AdminIllustration />
-      </div>
     </div>
   );
 }
@@ -1654,16 +1641,20 @@ function AdminOverviewTab({ stats }: { stats: AdminStats }) {
 
   return (
     <div className="fade-panel" style={{ display: "flex", flexDirection: "column", gap: 24 }}>
-      <StatRow marginBottom={0}>
-        <StatTile icon={<BuildingIcon size={19} />} iconBg={colors.greenBg} iconColor={colors.green} value={stats.centresPending} label="Community centres" sublabel="Pending approval" sublabelColor={colors.greenText} />
-        <StatTile icon={<BallIcon size={19} />} iconBg={colors.orangeBg} iconColor={colors.orange} value={stats.clubsPending} label="Sports clubs" sublabel="Pending approval" sublabelColor={colors.orangeDark} />
-        <StatTile icon={<UsersIcon size={19} />} iconBg={statTile.purple.bg} iconColor={statTile.purple.fg} value={stats.vendorCount} label="Vendors" sublabel="Registered" sublabelColor={statTile.purple.fg} />
-        <StatTile icon={<CalendarIcon size={19} />} iconBg={statTile.blue.bg} iconColor={statTile.blue.fg} value={stats.totalListings} label="Total listings" sublabel="All time" sublabelColor={statTile.blue.fg} />
-        <StatTile icon={<StarIcon size={19} />} iconBg={statTile.gold.bg} iconColor={statTile.gold.fg} value={stats.reviewCount} label="Reviews" sublabel="Total" sublabelColor={statTile.gold.fg} />
-        <StatTile icon={<CheckIcon size={19} />} iconBg={statTile.blue.bg} iconColor={statTile.blue.fg} value={stats.bookingsToday} label="Bookings today" sublabel="All types" sublabelColor={statTile.blue.fg} />
-        <StatTile icon={<IdCardIcon size={19} />} iconBg={colors.dangerBg} iconColor={colors.danger} value={stats.paymentFailures} label="Payment failures" sublabel="All time" sublabelColor={colors.danger} />
-        <StatTile icon={<ClipboardIcon size={19} />} iconBg={colors.dangerBg} iconColor={colors.danger} value={stats.openReports} label="Open reports" sublabel="Awaiting action" sublabelColor={colors.danger} />
-      </StatRow>
+      <KpiStrip
+        marginBottom={0}
+        hero={
+          <KpiHero icon={<CalendarIcon size={19} />} value={stats.totalListings} label="Total listings" sublabel="All time" sublabelColor={colors.mutedLight} />
+        }
+      >
+        <StatTile icon={<BuildingIcon size={19} />} value={stats.centresPending} label="Community centres" sublabel="Pending approval" sublabelColor={colors.greenText} />
+        <StatTile icon={<BallIcon size={19} />} value={stats.clubsPending} label="Sports clubs" sublabel="Pending approval" sublabelColor={colors.orangeDark} />
+        <StatTile icon={<UsersIcon size={19} />} value={stats.vendorCount} label="Vendors" sublabel="Registered" sublabelColor={colors.mutedLight} />
+        <StatTile icon={<StarIcon size={19} />} value={stats.reviewCount} label="Reviews" sublabel="Total" sublabelColor={colors.mutedLight} />
+        <StatTile icon={<CheckIcon size={19} />} value={stats.bookingsToday} label="Bookings today" sublabel="All types" sublabelColor={colors.mutedLight} />
+        <StatTile icon={<IdCardIcon size={19} />} value={stats.paymentFailures} label="Payment failures" sublabel="All time" sublabelColor={colors.danger} />
+        <StatTile icon={<ClipboardIcon size={19} />} value={stats.openReports} label="Open reports" sublabel="Awaiting action" sublabelColor={colors.danger} />
+      </KpiStrip>
       <Card>
         <h4 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 15, margin: "0 0 12px" }}>Recent activity</h4>
         {recentError ? (
@@ -1689,24 +1680,15 @@ export function AdminDashboard() {
   const { user, loading } = useAuth();
   const navigate = useNavigate();
   const [tab, setTab] = useState<AdminTab>("overview");
-  const [navOpen, setNavOpen] = useState(false);
   const [stats, setStats] = useState<AdminStats | null>(null);
   // Lets VendorDrawer's listing links jump to the Listings tab with that
   // listing's own drawer already open, instead of just switching tabs.
   const [openListingRequest, setOpenListingRequest] = useState<{ type: "centre" | "club"; id: string } | null>(null);
   const [openVendorRequest, setOpenVendorRequest] = useState<string | null>(null);
-  const { setOpenNav } = useDashboardNav();
 
   useEffect(() => {
     if (user?.role === "admin") fetchAdminStats().then(setStats);
   }, [user, tab]);
-
-  // Registers the Header.tsx burger's click handler while this page is
-  // mounted — see DashboardNavContext.
-  useEffect(() => {
-    setOpenNav(() => setNavOpen(true));
-    return () => setOpenNav(null);
-  }, [setOpenNav]);
 
   if (loading) return <PageSpinner />;
   if (!user || user.role !== "admin") {
@@ -1715,63 +1697,66 @@ export function AdminDashboard() {
   }
 
   return (
-    <div className="fade-panel">
-      <section className="section-pad" style={{ maxWidth, margin: "0 auto", padding: "40px 24px 90px" }}>
-        {tab === "overview" && (
-          <div style={{ background: "#FBF0E9", borderRadius: 22, padding: "28px 28px 24px", marginBottom: 32 }}>
-            <div className="grid-responsive" style={{ display: "flex", flexWrap: "wrap", gap: 24, alignItems: "stretch" }}>
-              <div style={{ flex: "1 1 380px" }}>
-                <DashboardTopPanel
-                  title={user.name}
-                  subtitle={`Admin dashboard · ${user.email}`}
-                  avatarName={user.name}
-                  accent="orange"
-                  tabs={ADMIN_TABS}
-                  activeTab={tab}
-                  onTabChange={setTab}
-                  bottomSpacing={0}
-                  hideTabs
-                />
-              </div>
-              <div style={{ flex: "1 1 380px" }}>
-                <AdminHeroPanel />
-              </div>
-            </div>
+    <ManageShell
+      navTitle="Admin dashboard"
+      navOptions={ADMIN_TABS}
+      activeKey={tab}
+      onNavChange={setTab}
+      pageTitle={ADMIN_TABS.find((t) => t.key === tab)?.label}
+      banner={
+        tab === "overview" ? (
+          <div style={{ borderBottom: `1px solid ${colors.border}`, paddingBottom: 24, marginBottom: 32 }}>
+            <DashboardTopPanel
+              title={user.name}
+              subtitle={`Admin dashboard · ${user.email}`}
+              avatarName={user.name}
+              accent="orange"
+              eyebrow="/ Admin"
+              tabs={ADMIN_TABS}
+              activeTab={tab}
+              onTabChange={setTab}
+              bottomSpacing={0}
+              hideTabs
+              actions={
+                stats &&
+                (stats.centresPending + stats.clubsPending > 0 ? (
+                  <Button variant="orange" onClick={() => setTab("pending")} style={{ padding: "10px 18px", fontSize: 13.5 }}>
+                    Review {stats.centresPending + stats.clubsPending} pending approval{stats.centresPending + stats.clubsPending === 1 ? "" : "s"} →
+                  </Button>
+                ) : (
+                  <span style={{ fontSize: 13, color: colors.mutedLight, fontWeight: 600 }}>All caught up</span>
+                ))
+              }
+            />
           </div>
-        )}
-
-        <NavSidebar open={navOpen} onClose={() => setNavOpen(false)} title="Admin dashboard" options={ADMIN_TABS} value={tab} onChange={setTab} />
-
-        <h2 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 21, margin: "0 0 18px", letterSpacing: "-.01em" }}>
-          {ADMIN_TABS.find((t) => t.key === tab)?.label}
-        </h2>
-
-        {tab === "overview" && stats && <AdminOverviewTab stats={stats} />}
-        {tab === "pending" && <ListingsTab pendingOnly />}
-        {tab === "vendors" && (
-          <VendorsTab
-            onOpenListing={(type, id) => { setOpenListingRequest({ type, id }); setTab("listings"); }}
-            openRequest={openVendorRequest}
-            onOpenRequestHandled={() => setOpenVendorRequest(null)}
-          />
-        )}
-        {tab === "listings" && (
-          <ListingsTab pendingOnly={false} openRequest={openListingRequest} onOpenRequestHandled={() => setOpenListingRequest(null)} />
-        )}
-        {tab === "claims" && <ClaimsTab />}
-        {tab === "hostApplications" && <HostApplicationsTab />}
-        {tab === "placeSuggestions" && <PlaceSuggestionsTab />}
-        {tab === "reviews" && <ReviewsTab />}
-        {tab === "coupons" && <CouponsTab />}
-        {tab === "organisations" && (
-          <OrganisationsTab onOpenVendor={(vendorId) => { setOpenVendorRequest(vendorId); setTab("vendors"); }} />
-        )}
-        {tab === "demand" && <AdminDemandTab />}
-        {tab === "marketplaceHealth" && <AdminMarketplaceHealthTab />}
-        {tab === "audit" && <AuditTab />}
-        {tab === "support" && <SupportTab />}
-        {tab === "notificationTemplates" && <NotificationTemplatesTab />}
-      </section>
-    </div>
+        ) : undefined
+      }
+    >
+      {tab === "overview" && stats && <AdminOverviewTab stats={stats} />}
+      {tab === "pending" && <ListingsTab pendingOnly />}
+      {tab === "vendors" && (
+        <VendorsTab
+          onOpenListing={(type, id) => { setOpenListingRequest({ type, id }); setTab("listings"); }}
+          openRequest={openVendorRequest}
+          onOpenRequestHandled={() => setOpenVendorRequest(null)}
+        />
+      )}
+      {tab === "listings" && (
+        <ListingsTab pendingOnly={false} openRequest={openListingRequest} onOpenRequestHandled={() => setOpenListingRequest(null)} />
+      )}
+      {tab === "claims" && <ClaimsTab />}
+      {tab === "hostApplications" && <HostApplicationsTab />}
+      {tab === "placeSuggestions" && <PlaceSuggestionsTab />}
+      {tab === "reviews" && <ReviewsTab />}
+      {tab === "coupons" && <CouponsTab />}
+      {tab === "organisations" && (
+        <OrganisationsTab onOpenVendor={(vendorId) => { setOpenVendorRequest(vendorId); setTab("vendors"); }} />
+      )}
+      {tab === "demand" && <AdminDemandTab />}
+      {tab === "marketplaceHealth" && <AdminMarketplaceHealthTab />}
+      {tab === "audit" && <AuditTab />}
+      {tab === "support" && <SupportTab />}
+      {tab === "notificationTemplates" && <NotificationTemplatesTab />}
+    </ManageShell>
   );
 }

@@ -24,18 +24,26 @@ export const WAIVER_VERSION = "2026-08-v1";
 
 interface CreateRegistrationBody {
   clubId: string;
-  team: string;
+  /** Which shape this submission is — drives which fields below are
+   * actually required (see the /checkout validation). Defaults to "child"
+   * when omitted, matching every registration before this field existed. */
+  registrantType?: "child" | "adult";
+  /** Age-group team (kids flow only) — RegistrationFlow.tsx's adult path
+   * doesn't show a team picker, so this is optional there. */
+  team?: string;
   childFirst: string;
   childLast: string;
-  dob: string;
+  /** Kids flow only — RegistrationFlow.tsx's adult path collects no DOB. */
+  dob?: string;
   gFirst: string;
   gLast: string;
   email: string;
   phone: string;
   address: string;
-  ecName: string;
-  ecPhone: string;
-  ecRel: string;
+  /** Kids flow only — required for a minor, optional for a self-registering adult. */
+  ecName?: string;
+  ecPhone?: string;
+  ecRel?: string;
   medical?: string;
   consent: boolean;
   trial: boolean;
@@ -47,6 +55,14 @@ interface CreateRegistrationBody {
    * exclusive with couponCode/trial — validated + consumed atomically in
    * the checkout handler, not here. */
   passId?: number;
+}
+
+/** Shared "who + when" fragment for notification/receipt text — the kids
+ * flow always has a DOB + age-group team to show; the adult flow has
+ * neither (RegistrationFlow.tsx never collects them in that path). */
+function registrantSummary(body: CreateRegistrationBody): string {
+  if (body.registrantType === "adult") return `${body.childFirst} ${body.childLast}`;
+  return `${body.childFirst} ${body.childLast} (DOB ${body.dob}) · ${body.team}`;
 }
 
 async function insertRegistration(
@@ -64,9 +80,9 @@ async function insertRegistration(
   conn: Pick<typeof db, "prepare"> = db
 ) {
   await conn.prepare(
-    `INSERT INTO registrations (ref, client_id, resident_id, club_id, session_id, pass_id, team, child_first, child_last, dob, g_first, g_last, email, phone, address, ec_name, ec_phone, ec_rel, medical, consent, trial,
+    `INSERT INTO registrations (ref, client_id, resident_id, club_id, session_id, pass_id, registrant_type, team, child_first, child_last, dob, g_first, g_last, email, phone, address, ec_name, ec_phone, ec_rel, medical, consent, trial,
       subtotal_cents, discount_cents, vat_cents, platform_fee_cents, coupon_code, total_cents, payment_status, waiver_version)
-     VALUES (@ref, @clientId, @residentId, @clubId, @sessionId, @passId, @team, @childFirst, @childLast, @dob, @gFirst, @gLast, @email, @phone, @address, @ecName, @ecPhone, @ecRel, @medical, @consent, @trial,
+     VALUES (@ref, @clientId, @residentId, @clubId, @sessionId, @passId, @registrantType, @team, @childFirst, @childLast, @dob, @gFirst, @gLast, @email, @phone, @address, @ecName, @ecPhone, @ecRel, @medical, @consent, @trial,
       @subtotalCents, @discountCents, @vatCents, @platformFeeCents, @couponCode, @totalCents, @status, @waiverVersion)`
   ).run({
     ref,
@@ -75,18 +91,19 @@ async function insertRegistration(
     clubId: body.clubId,
     sessionId: body.sessionId ?? null,
     passId,
-    team: body.team,
+    registrantType: body.registrantType ?? "child",
+    team: body.team ?? "",
     childFirst: body.childFirst,
     childLast: body.childLast,
-    dob: body.dob,
+    dob: body.dob ?? "",
     gFirst: body.gFirst,
     gLast: body.gLast,
     email: body.email,
     phone: body.phone,
     address: body.address,
-    ecName: body.ecName,
-    ecPhone: body.ecPhone,
-    ecRel: body.ecRel,
+    ecName: body.ecName ?? "",
+    ecPhone: body.ecPhone ?? "",
+    ecRel: body.ecRel ?? "",
     medical: body.medical ?? "",
     consent: body.consent ? 1 : 0,
     trial: body.trial ? 1 : 0,
@@ -149,7 +166,15 @@ registrationsRouter.post("/checkout", async (req, res) => {
   }
 
   const body = req.body as CreateRegistrationBody;
-  if (!body.clubId || !body.childFirst || !body.childLast || !body.dob || !body.team || !body.consent) {
+  if (!body.clubId || !body.childFirst || !body.childLast || !body.consent) {
+    return res.status(400).json({ error: "Missing required registration fields" });
+  }
+  // DOB and an age-group team only make sense for a minor being registered
+  // by a guardian — an adult registering themselves (club.audience ===
+  // "adults"/"all") skips both. Every pre-existing caller omits
+  // registrantType entirely, which defaults to "child" here and keeps this
+  // check byte-for-byte the same as before this field existed.
+  if (body.registrantType !== "adult" && (!body.dob || !body.team)) {
     return res.status(400).json({ error: "Missing required registration fields" });
   }
   if (!isValidEmail(body.email)) {
@@ -227,7 +252,7 @@ registrationsRouter.post("/checkout", async (req, res) => {
       guestName: `${body.gFirst} ${body.gLast}`,
       guestEmail: body.email,
       ref,
-      detailsText: `${body.childFirst} ${body.childLast} (DOB ${body.dob}) · ${body.team} · redeemed via pass`,
+      detailsText: `${registrantSummary(body)} · redeemed via pass`,
     }).catch((e) => console.error("[notifications] registration notify failed:", e));
     await upgradeFavouriteStatus(req.resident!.id, "club", club.id);
     return res.status(201).json({ ref, totalEuro: 0, trial: false });
@@ -258,7 +283,7 @@ registrationsRouter.post("/checkout", async (req, res) => {
       guestName: `${body.gFirst} ${body.gLast}`,
       guestEmail: body.email,
       ref,
-      detailsText: `${body.childFirst} ${body.childLast} (DOB ${body.dob}) · ${body.team}${body.trial ? " · Trial session" : ""} · €${(pricing.totalCents / 100).toFixed(2)}${isCash ? " due in cash on arrival" : " total"}`,
+      detailsText: `${registrantSummary(body)}${body.trial ? " · Trial session" : ""} · €${(pricing.totalCents / 100).toFixed(2)}${isCash ? " due in cash on arrival" : " total"}`,
     }).catch((e) => console.error("[notifications] registration notify failed:", e));
   if (pricing.totalCents === 0 || isCash) {
     try {
@@ -288,7 +313,7 @@ registrationsRouter.post("/checkout", async (req, res) => {
     residentId: req.resident?.id ?? null,
     lineItems: pricingLineItems(pricing, {
       name: `${club.name} registration`,
-      description: `${body.childFirst} ${body.childLast} — ${body.team}${couponCode ? ` (coupon ${couponCode} applied)` : ""}`,
+      description: `${registrantSummary(body)}${couponCode ? ` (coupon ${couponCode} applied)` : ""}`,
     }),
   });
   if (!result.ok) {
@@ -333,7 +358,7 @@ registrationsRouter.get("/", async (req, res) => {
         .prepare(
           `SELECT r.ref, r.team, r.child_first as childFirst, r.child_last as childLast, r.trial, r.status,
                   r.total_cents as totalCents, r.created_at as createdAt,
-                  c.id as clubId, c.name as clubName, c.sport as sport
+                  c.id as clubId, c.name as clubName, c.sport as sport, c.vendor_id as vendorId
            FROM registrations r
            JOIN clubs c ON c.id = r.club_id
            WHERE (r.client_id = ? OR LOWER(r.email) = LOWER(?)) AND r.payment_status = 'paid'
@@ -344,7 +369,7 @@ registrationsRouter.get("/", async (req, res) => {
         .prepare(
           `SELECT r.ref, r.team, r.child_first as childFirst, r.child_last as childLast, r.trial, r.status,
                   r.total_cents as totalCents, r.created_at as createdAt,
-                  c.id as clubId, c.name as clubName, c.sport as sport
+                  c.id as clubId, c.name as clubName, c.sport as sport, c.vendor_id as vendorId
            FROM registrations r
            JOIN clubs c ON c.id = r.club_id
            WHERE r.client_id = ? AND r.payment_status = 'paid'
@@ -368,7 +393,7 @@ registrationsRouter.post("/lookup", lookupLimiter, async (req, res) => {
     .prepare(
       `SELECT r.ref, r.team, r.child_first as childFirst, r.child_last as childLast, r.trial, r.status,
               r.total_cents as totalCents, r.created_at as createdAt,
-              c.id as clubId, c.name as clubName, c.sport as sport
+              c.id as clubId, c.name as clubName, c.sport as sport, c.vendor_id as vendorId
        FROM registrations r
        JOIN clubs c ON c.id = r.club_id
        WHERE r.ref = ? AND LOWER(r.email) = LOWER(?)`
@@ -418,7 +443,7 @@ registrationsRouter.post("/:ref/cancel", lookupLimiter, async (req, res) => {
     guestName: `${row.gFirst} ${row.gLast}`,
     guestEmail: row.email,
     ref: row.ref,
-    detailsText: `${row.childFirst} ${row.childLast} · ${row.team}`,
+    detailsText: row.team ? `${row.childFirst} ${row.childLast} · ${row.team}` : `${row.childFirst} ${row.childLast}`,
   }).catch((e) => console.error("[notifications] registration cancellation notify failed:", e));
 
   // A cancelled paid registration frees a capacity spot (NEXT — waitlist

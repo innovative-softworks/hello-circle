@@ -6,7 +6,7 @@ import { colors, fonts, maxWidth, radius, zIndex } from "../theme";
 // Shared, reusable building blocks for the vendor/admin/reviews UI — kept in
 // one place so button/card/badge styling can't drift between dashboards.
 
-export type ListingStatus = "pending" | "approved" | "rejected" | "suspended" | "deleted";
+export type ListingStatus = "draft" | "pending" | "approved" | "rejected" | "suspended" | "deleted";
 
 // --- Keyboard-accessible non-navigation clickables (post-audit hardening
 // pass) --------------------------------------------------------------------
@@ -164,9 +164,25 @@ export function Card({
   );
 }
 
+/** Vendor/Admin-only `Card` variant — same primitive, `radius.swiss.card`'s
+ * sharper 2px corners (Home.tsx's already-shipped editorial language)
+ * instead of the general 16px scale, per the dashboard redesign pass.
+ * `Card` itself is left untouched: it's shared by ~40 other, non-dashboard
+ * files across the app, so changing its own radius would have restyled
+ * every listing/browse/circle page too, not just Vendor/Admin. Dashboard
+ * files import this aliased as `Card` so no call site needs to change. */
+export function ManageCard({ children, hover, style, onClick }: { children: ReactNode; hover?: boolean; style?: CSSProperties; onClick?: () => void }) {
+  return (
+    <Card hover={hover} onClick={onClick} style={{ borderRadius: radius.swiss.card, ...style }}>
+      {children}
+    </Card>
+  );
+}
+
 // --- StatusBadge -----------------------------------------------------------
 
 const statusStyles: Record<ListingStatus, { bg: string; fg: string; label: string }> = {
+  draft: { bg: colors.panel, fg: colors.muted, label: "Draft" },
   pending: { bg: "#FCEDE4", fg: colors.orangeDark, label: "Pending review" },
   approved: { bg: colors.greenBg, fg: colors.greenText, label: "Live" },
   rejected: { bg: colors.dangerBg, fg: colors.danger, label: "Rejected" },
@@ -587,6 +603,8 @@ export function DashboardTopPanel<T extends string>({
   bottomSpacing = 32,
   hideTabs = false,
   badge,
+  eyebrow,
+  actions,
 }: {
   title: string;
   subtitle: string;
@@ -604,31 +622,50 @@ export function DashboardTopPanel<T extends string>({
   /** Optional pill(s) rendered under the title/subtitle, e.g. a verified /
    * member-since badge. */
   badge?: ReactNode;
+  /** Small "/ Vendor" / "/ Admin" label above the title — the dashboards'
+   * one recurring eyebrow motif (see NavRail's own use of the same "/"
+   * mark), sized as a label, not a second headline. */
+  eyebrow?: string;
+  /** Right-aligned quick-action cluster, opposite the avatar/title block —
+   * e.g. a "View public profile" CTA. Mutually exclusive with `illustration`
+   * in practice (no current caller uses both together); a future caller
+   * needing both would need a real 3-column layout instead of this. */
+  actions?: ReactNode;
 }) {
   const isGreen = accent === "green";
   const blob = isGreen ? "rgba(30,122,76,.14)" : "rgba(232,98,42,.14)";
+  const rightSlot = illustration ? "illustration" : actions ? "actions" : null;
 
   return (
     <div style={{ marginBottom: bottomSpacing }}>
       <div
         className="grid-responsive"
-        style={{ display: "grid", gridTemplateColumns: illustration ? "1fr auto" : "1fr", gap: 24, alignItems: "center", marginBottom: 22 }}
+        style={{ display: "grid", gridTemplateColumns: rightSlot ? "1fr auto" : "1fr", gap: 24, alignItems: "center", marginBottom: 22 }}
       >
         <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
           <Avatar name={avatarName} size={44} />
           <div>
-            <h1 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 27, margin: 0, letterSpacing: "-.02em" }}>{title}</h1>
-            <p style={{ color: colors.muted, fontSize: 13, margin: badge ? "0 0 8px" : 0 }}>{subtitle}</p>
+            {eyebrow && (
+              <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: colors.orangeDark, marginBottom: 4 }}>
+                {eyebrow}
+              </div>
+            )}
+            <h1 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 32, margin: 0, letterSpacing: "-.03em", lineHeight: 1.05 }}>{title}</h1>
+            <p style={{ color: colors.muted, fontSize: 13, margin: badge ? "6px 0 8px" : "6px 0 0" }}>{subtitle}</p>
             {badge}
           </div>
         </div>
 
-        {illustration && (
+        {rightSlot === "illustration" && (
           <div className="dash-illustration" style={{ position: "relative", ...DASHBOARD_ILLUSTRATION_SIZE, flex: "none" }}>
             <div style={{ position: "absolute", top: -22, right: 8, width: 130, height: 130, borderRadius: "50%", background: blob }} />
             <div style={{ position: "absolute", bottom: -28, left: 10, width: 115, height: 115, borderRadius: "50%", background: blob }} />
             <div style={{ position: "relative", width: "100%", height: "100%" }}>{illustration}</div>
           </div>
+        )}
+
+        {rightSlot === "actions" && (
+          <div style={{ display: "flex", alignItems: "center", gap: 10, flex: "none", flexWrap: "wrap" }}>{actions}</div>
         )}
       </div>
 
@@ -639,64 +676,99 @@ export function DashboardTopPanel<T extends string>({
 
 // --- StatTile ----------------------------------------------------------
 
+// Dashboard redesign pass: dropped the old colored-icon-square chip (a
+// different hue per tile — the "more than one accent color" pattern the
+// redesign audit flagged) in favor of a plain, uniformly-muted icon and a
+// big display-weight number as the actual focal point. `sublabelColor`
+// stays a real prop (not decorative) — it's the one place a tile's color
+// carries genuine meaning (danger red for payment failures/open reports,
+// green for live, orange for pending), so it's semantic, not decorative.
 export function StatTile({
   icon,
-  iconBg,
-  iconColor,
   value,
   label,
   sublabel,
   sublabelColor,
 }: {
-  icon: ReactNode;
-  iconBg: string;
-  iconColor: string;
+  icon?: ReactNode;
   value: number | string;
   label: string;
   sublabel: string;
   sublabelColor: string;
 }) {
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "20px 20px", flex: 1, minWidth: 170 }}>
-      <div
-        style={{
-          width: 42,
-          height: 42,
-          borderRadius: 12,
-          background: iconBg,
-          color: iconColor,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          flex: "none",
-        }}
-      >
+    <div style={{ display: "flex", flexDirection: "column", gap: 6, padding: "18px 22px", flex: 1, minWidth: 170 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 7, color: colors.faint }}>
         {icon}
+        <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".04em", textTransform: "uppercase", color: colors.mutedLight }}>{label}</span>
       </div>
-      <div>
-        <div style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 22, lineHeight: 1.1 }}>{value}</div>
-        <div style={{ fontSize: 12, color: colors.mutedLight, fontWeight: 600 }}>{label}</div>
-        <div style={{ fontSize: 11, color: sublabelColor, fontWeight: 700 }}>{sublabel}</div>
-      </div>
+      <div style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 30, lineHeight: 1, letterSpacing: "-.01em", fontVariantNumeric: "tabular-nums" }}>{value}</div>
+      <div style={{ fontSize: 11.5, color: sublabelColor, fontWeight: 700 }}>{sublabel}</div>
     </div>
   );
 }
 
-export function StatRow({ children, marginBottom = 34 }: { children: ReactNode; marginBottom?: number }) {
+// --- KpiHero / KpiStrip --------------------------------------------------
+// Header + KPI redesign pass: rather than N identical StatTiles in a row,
+// one number is promoted to a large "hero" figure and the rest sit beside
+// it as a supporting StatRow — an asymmetric composition (one thing given
+// real weight, everything else in support) in place of the generic
+// same-size-tile grid, matching the dashboards' broader "confident type /
+// asymmetry over uniform grids" direction.
+
+export function KpiHero({
+  icon,
+  value,
+  label,
+  sublabel,
+  sublabelColor,
+}: {
+  icon?: ReactNode;
+  value: number | string;
+  label: string;
+  sublabel: string;
+  sublabelColor: string;
+}) {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 7, color: colors.faint }}>
+        {icon}
+        <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".04em", textTransform: "uppercase", color: colors.mutedLight }}>{label}</span>
+      </div>
+      <div style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 60, lineHeight: 0.9, letterSpacing: "-.03em", fontVariantNumeric: "tabular-nums" }}>{value}</div>
+      <div style={{ fontSize: 12.5, color: sublabelColor, fontWeight: 700 }}>{sublabel}</div>
+    </div>
+  );
+}
+
+/** Pairs one `KpiHero` with a supporting `StatRow` of `StatTile`s, sharing
+ * one hairline frame — `hero` renders large on the left (or on its own row
+ * above on narrow screens, via `.kpi-strip` in index.css), `children` are
+ * the ordinary-size `StatTile`s that make up the rest of the KPI row. */
+export function KpiStrip({ hero, children, marginBottom = 34 }: { hero: ReactNode; children: ReactNode; marginBottom?: number }) {
   return (
     <div
-      className="card-surface"
+      className="kpi-strip"
       style={{
         display: "flex",
-        flexWrap: "wrap",
-        background: colors.surface,
-        border: `1px solid ${colors.border}`,
-        borderRadius: radius.card,
+        alignItems: "stretch",
+        borderTop: `1px solid ${colors.border}`,
+        borderBottom: `1px solid ${colors.border}`,
         marginBottom,
-        overflow: "hidden",
       }}
     >
-      {children}
+      <div className="kpi-strip-hero" style={{ display: "flex", flexDirection: "column", justifyContent: "center", padding: "20px 32px 20px 0", flex: "none" }}>
+        {hero}
+      </div>
+      {/* nowrap + horizontal scroll, not flex-wrap — a wrapped flex row would
+          break the `.manage-stat-row` "divider between every sibling" rule
+          (the tile that wraps onto a new line still isn't a first-child, so
+          it'd get a stray, disconnected-looking left rule with nothing
+          above it). Scrolling only kicks in once there are enough supporting
+          tiles to overflow, which in practice is admin-only (7 tiles). */}
+      <div className="manage-stat-row" style={{ display: "flex", flexWrap: "nowrap", overflowX: "auto", flex: 1, minWidth: 0 }}>
+        {children}
+      </div>
     </div>
   );
 }
@@ -734,9 +806,11 @@ export const tableStyle: CSSProperties = { width: "100%", borderCollapse: "colla
 export const thStyle: CSSProperties = {
   textAlign: "left",
   padding: "8px 10px",
-  color: colors.muted,
+  color: colors.mutedLight,
   fontWeight: 700,
-  fontSize: 12,
+  fontSize: 11,
+  textTransform: "uppercase",
+  letterSpacing: ".04em",
   borderBottom: `2px solid ${colors.border}`,
   whiteSpace: "nowrap",
 };
@@ -847,6 +921,8 @@ export function ConfirmDialog({
   cancelLabel = "Cancel",
   tone = "danger",
   busy,
+  confirmDisabled,
+  children,
   onConfirm,
   onCancel,
 }: {
@@ -857,6 +933,10 @@ export function ConfirmDialog({
   cancelLabel?: string;
   tone?: "danger" | "neutral";
   busy?: boolean;
+  confirmDisabled?: boolean;
+  /** Extra content between the message and the action buttons — e.g. a
+   * reason select for a destructive action that needs one (spec §56). */
+  children?: ReactNode;
   onConfirm: () => void;
   onCancel: () => void;
 }) {
@@ -882,12 +962,13 @@ export function ConfirmDialog({
         onClick={(e) => e.stopPropagation()}
       >
         <h3 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 17, margin: "0 0 8px" }}>{title}</h3>
-        <div style={{ fontSize: 14, color: colors.muted, lineHeight: 1.5, marginBottom: 20 }}>{message}</div>
+        <div style={{ fontSize: 14, color: colors.muted, lineHeight: 1.5, marginBottom: children ? 16 : 20 }}>{message}</div>
+        {children && <div style={{ marginBottom: 20 }}>{children}</div>}
         <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
           <Button variant="ghost" onClick={onCancel} disabled={busy}>
             {cancelLabel}
           </Button>
-          <Button variant="dark" onClick={onConfirm} disabled={busy} style={tone === "danger" ? { background: colors.danger } : undefined}>
+          <Button variant="dark" onClick={onConfirm} disabled={busy || confirmDisabled} style={tone === "danger" ? { background: colors.danger } : undefined}>
             {busy ? "…" : confirmLabel}
           </Button>
         </div>
@@ -906,6 +987,110 @@ export function ConfirmDialog({
 // pattern Header.tsx already uses for its dropdowns — there's no backdrop
 // element here to catch that click). Half the width of a standard Drawer,
 // since a nav list doesn't need as much room as a detail form.
+
+// Shared button-list rendering for both the mobile drawer (NavSidebar) and
+// the persistent desktop rail (NavRail) below — a left accent bar on the
+// active item (the dashboards' one deliberate accent, per the redesign
+// pass) rather than NavSidebar's old solid-fill pill, so the two surfaces
+// read as the same nav language at any width.
+function NavOptionButtons<T extends string>({
+  options,
+  value,
+  onChange,
+  onSelect,
+}: {
+  options: { key: T; label: string; icon?: ReactNode }[];
+  value: T;
+  onChange: (v: T) => void;
+  /** Extra action to run after onChange — NavSidebar closes the drawer, NavRail has none. */
+  onSelect?: () => void;
+}) {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+      {options.map((o) => {
+        const active = o.key === value;
+        return (
+          <button
+            key={o.key}
+            onClick={() => {
+              onChange(o.key);
+              onSelect?.();
+            }}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 10,
+              width: "100%",
+              textAlign: "left",
+              background: active ? colors.panel : "none",
+              color: active ? colors.text : colors.muted,
+              border: "none",
+              borderLeft: `2px solid ${active ? colors.orange : "transparent"}`,
+              borderRadius: 0,
+              padding: "10px 12px",
+              fontSize: 13.5,
+              fontWeight: active ? 700 : 500,
+              cursor: "pointer",
+              lineHeight: 1.3,
+            }}
+          >
+            {o.icon}
+            {o.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/** Persistent left-rail navigation for ManageShell, visible above the
+ * `.manage-rail` CSS breakpoint (1025px, see index.css) — replaces "the
+ * hidden burger drawer is the only way to switch tabs" for desktop, the
+ * dashboard redesign audit's top usability finding. Below that breakpoint
+ * this renders `display: none` (CSS, not a JS media query, matching every
+ * other responsive utility class in this app) and NavSidebar's drawer takes
+ * over instead. */
+export function NavRail<T extends string>({
+  title,
+  options,
+  value,
+  onChange,
+}: {
+  title: string;
+  options: { key: T; label: string; icon?: ReactNode }[];
+  value: T;
+  onChange: (v: T) => void;
+}) {
+  return (
+    <aside className="manage-rail" style={{ flexDirection: "column", position: "sticky", top: 24 }}>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 9,
+          padding: "0 12px 14px",
+          borderBottom: `1px solid ${colors.border}`,
+          marginBottom: 10,
+        }}
+      >
+        <img src="/illustrations/Logo.svg" alt="" aria-hidden="true" style={{ height: 20, flex: "none" }} />
+        <span
+          style={{
+            fontFamily: 'ui-monospace, "SF Mono", "Roboto Mono", Menlo, monospace',
+            fontSize: 11,
+            fontWeight: 700,
+            letterSpacing: ".06em",
+            textTransform: "uppercase",
+            color: colors.mutedLight,
+          }}
+        >
+          {title}
+        </span>
+      </div>
+      <NavOptionButtons options={options} value={value} onChange={onChange} />
+    </aside>
+  );
+}
 
 export function NavSidebar<T extends string>({
   open,
@@ -994,38 +1179,7 @@ export function NavSidebar<T extends string>({
         </button>
       </div>
       <div style={{ flex: 1, overflowY: "auto", padding: "12px" }}>
-        <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-          {options.map((o) => {
-            const active = o.key === value;
-            return (
-              <button
-                key={o.key}
-                onClick={() => {
-                  onChange(o.key);
-                  onClose();
-                }}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 10,
-                  width: "100%",
-                  textAlign: "left",
-                  background: active ? colors.dark : "none",
-                  color: active ? "#fff" : colors.text,
-                  border: "none",
-                  borderRadius: radius.control,
-                  padding: "11px 12px",
-                  fontSize: 13.5,
-                  fontWeight: active ? 700 : 500,
-                  cursor: "pointer",
-                }}
-              >
-                {o.icon}
-                {o.label}
-              </button>
-            );
-          })}
-        </div>
+        <NavOptionButtons options={options} value={value} onChange={onChange} onSelect={onClose} />
       </div>
     </div>,
     document.body

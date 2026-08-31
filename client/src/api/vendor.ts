@@ -7,10 +7,10 @@ import type {
   Experience,
   ExperienceKind,
   ExperienceSessionRow,
-  MyBooking,
   MyRegistration,
   OrgProfile,
   Participant,
+  Program,
   Room,
   RoomBlock,
   ScheduleEntry,
@@ -22,6 +22,7 @@ import type {
   VendorNotification,
   VendorPayments,
   VendorProgramSummary,
+  VendorBookingRow,
   VendorStats,
   VendorToday,
   WaitlistEntry,
@@ -54,6 +55,11 @@ export interface CentreInput {
   mapUrl?: string;
   phone?: string;
   accessibility?: string[];
+  /** From AddressSearch (Form System Audit, Phase 4) — real geocoded
+   * coordinates, when set, take priority over the server's county-centroid
+   * approximation. */
+  lat?: number;
+  lng?: number;
 }
 
 export interface ClubInput {
@@ -76,6 +82,10 @@ export interface ClubInput {
   phone?: string;
   accessibility?: string[];
   category?: string;
+  audience?: "kids" | "adults" | "all";
+  /** See CentreInput's identical fields — same AddressSearch flow. */
+  lat?: number;
+  lng?: number;
 }
 
 export function fetchVendorListings(): Promise<{ centres: VendorListingSummary[]; clubs: VendorListingSummary[] }> {
@@ -100,12 +110,22 @@ export function fetchVendorClub(id: string): Promise<Club> {
   return request(`/vendor/clubs/${id}`);
 }
 
-export function createVendorCentre(input: CentreInput): Promise<Centre> {
+/** Only `name` is actually required server-side now — the Guided Flow
+ * creation wizard (Form System Audit, Phase 5) creates a 'draft' row after
+ * its first step with just that, then fills the rest in via
+ * updateVendorCentre as later steps complete. */
+export function createVendorCentre(input: Partial<CentreInput> & { name: string }): Promise<Centre> {
   return request(`/vendor/centres`, { method: "POST", body: JSON.stringify(input) });
 }
 
 export function updateVendorCentre(id: string, input: Partial<CentreInput>): Promise<Centre> {
   return request(`/vendor/centres/${id}`, { method: "PUT", body: JSON.stringify(input) });
+}
+
+/** Vendor-triggered 'draft' → 'pending' transition (Guided Flow's final
+ * "Review & Publish" step) — distinct from admin's own approve/reject. */
+export function publishVendorCentre(id: string): Promise<Centre> {
+  return request(`/vendor/centres/${id}/publish`, { method: "POST" });
 }
 
 export function deleteVendorCentre(id: string): Promise<{ ok: boolean }> {
@@ -160,12 +180,19 @@ export function saveCentreHours(centreId: string, days: CentreHoursRow[]): Promi
   return request(`/vendor/centres/${centreId}/hours`, { method: "PUT", body: JSON.stringify({ days }) });
 }
 
-export function createVendorClub(input: ClubInput): Promise<Club> {
+/** Only `name` is actually required server-side now — same Guided Flow
+ * creation-wizard pattern as createVendorCentre above. */
+export function createVendorClub(input: Partial<ClubInput> & { name: string }): Promise<Club> {
   return request(`/vendor/clubs`, { method: "POST", body: JSON.stringify(input) });
 }
 
 export function updateVendorClub(id: string, input: Partial<ClubInput>): Promise<Club> {
   return request(`/vendor/clubs/${id}`, { method: "PUT", body: JSON.stringify(input) });
+}
+
+/** Vendor-triggered 'draft' → 'pending' transition — see publishVendorCentre. */
+export function publishVendorClub(id: string): Promise<Club> {
+  return request(`/vendor/clubs/${id}/publish`, { method: "POST" });
 }
 
 export function deleteVendorClub(id: string): Promise<{ ok: boolean }> {
@@ -186,8 +213,12 @@ export function fetchVendorClubWaitlist(clubId: string): Promise<WaitlistEntry[]
   return request(`/vendor/clubs/${clubId}/waitlist`);
 }
 
-export function fetchVendorBookings(): Promise<(MyBooking & { name: string; email: string; phone: string })[]> {
+export function fetchVendorBookings(): Promise<VendorBookingRow[]> {
   return request(`/vendor/bookings`);
+}
+
+export function cancelVendorBooking(ref: string): Promise<{ ok: boolean }> {
+  return request(`/vendor/bookings/${encodeURIComponent(ref)}/cancel`, { method: "POST" });
 }
 
 export function fetchVendorRegistrations(): Promise<(MyRegistration & { email: string; phone: string })[]> {
@@ -228,6 +259,12 @@ export function fetchCheckInStatus(kind: "booking" | "registration", ref: string
 
 export function fetchVendorPrograms(): Promise<VendorProgramSummary[]> {
   return request(`/vendor/programs`);
+}
+
+/** Unlike fetchProgram (public.ts, published-only), returns a program in
+ * any status — needed to open a draft program's manage view. */
+export function fetchVendorProgram(id: string): Promise<Program> {
+  return request(`/vendor/programs/${id}`);
 }
 
 export interface ProgramInput {
@@ -346,12 +383,19 @@ export function fetchVendorExperience(id: string): Promise<Experience> {
   return request(`/vendor/experiences/${id}`);
 }
 
-export function createVendorExperience(input: ExperienceInput): Promise<{ id: string }> {
+/** Only `title` is actually required server-side now — same Guided Flow
+ * creation-wizard pattern as createVendorCentre/createVendorClub above. */
+export function createVendorExperience(input: Partial<ExperienceInput> & { title: string }): Promise<{ id: string }> {
   return request(`/vendor/experiences`, { method: "POST", body: JSON.stringify(input) });
 }
 
 export function updateVendorExperience(id: string, input: Partial<ExperienceInput>): Promise<{ ok: boolean }> {
   return request(`/vendor/experiences/${id}`, { method: "PUT", body: JSON.stringify(input) });
+}
+
+/** Vendor-triggered 'draft' → 'pending' transition — see publishVendorCentre. */
+export function publishVendorExperience(id: string): Promise<{ id: string }> {
+  return request(`/vendor/experiences/${id}/publish`, { method: "POST" });
 }
 
 export function deleteVendorExperience(id: string): Promise<{ ok: boolean }> {
@@ -382,6 +426,10 @@ export function fetchOrgProfile(): Promise<OrgProfile> {
 
 export function updateOrgProfile(input: { name?: string; kind?: string }): Promise<{ ok: boolean }> {
   return request(`/vendor/org`, { method: "PUT", body: JSON.stringify(input) });
+}
+
+export function updateVendorLogo(logo: string | null): Promise<{ ok: boolean }> {
+  return request(`/vendor/org/logo`, { method: "PUT", body: JSON.stringify({ logo }) });
 }
 
 export function updateOrgPolicies(input: { cancellationHours?: number; bookingWindowDays?: number }): Promise<{ ok: boolean }> {

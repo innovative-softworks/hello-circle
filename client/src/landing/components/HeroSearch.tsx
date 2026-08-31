@@ -40,7 +40,7 @@ export function HeroSearch() {
         <button
           className="lc-btn"
           style={{ background: lc.forest, color: lc.white, flex: "none" }}
-          onClick={() => navigate(query.trim() ? `/search?q=${encodeURIComponent(query.trim())}` : "/search")}
+          onClick={() => navigate(query.trim() ? `/explore?q=${encodeURIComponent(query.trim())}` : "/explore")}
         >
           Search
         </button>

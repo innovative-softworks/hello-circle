@@ -3,7 +3,7 @@ import { fetchAdminMarketCategories, setMarketCategory } from "../api/admin";
 import { colors, fonts } from "../theme";
 import { INTEREST_OPTIONS, type MarketCategoryFlags } from "../types";
 import { IRISH_COUNTY_COORDS } from "../irishCounties";
-import { Card, inputStyle } from "./ui";
+import { ManageCard as Card, inputStyle } from "./ui";
 
 // Market/category launch config (participation-intent plan Phase 4) — same
 // enabled-by-default/opt-out toggle-row visual language as OrgFlagsRow

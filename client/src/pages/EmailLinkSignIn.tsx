@@ -1,11 +1,13 @@
 import { Link, useSearchParams } from "react-router-dom";
 import { readAuthIntentContext } from "../authRedirect";
+import { AuthEditorialHeader, AuthEditorialShell } from "../components/AuthEditorialShell";
 import { EmailLinkForm } from "../components/AuthForms";
-import { AuthContextCard, AuthPhotoPanel, AuthShell } from "../components/AuthShell";
+import { AuthContextCard } from "../components/AuthShell";
 import { colors } from "../theme";
 
 // Dedicated passwordless sign-in screen — sibling of SignIn.tsx (/signin)
-// and SignUp.tsx (/signin/create). Deliberately minimal per the auth
+// and SignUp.tsx (/signin/create), same AuthEditorialShell/green accent as
+// both (Form System Audit follow-up). Deliberately minimal per the auth
 // redesign brief: no OAuth, no password field, nothing that competes with
 // "enter email → receive link." Magic-link verification already IS this
 // app's account confirmation step (there's no separate email-verification
@@ -18,20 +20,24 @@ export function EmailLinkSignIn() {
   const intentContext = readAuthIntentContext(searchParams);
 
   return (
-    <AuthShell
-      photo={
-        <AuthPhotoPanel
-          imageSeed="hellocircle-signin-emaillink"
-          heading={<>No password.<br />No hassle.<br />Just a link.</>}
-          avatarCaption="Join thousands of people finding their thing, together."
-          avatarSeedPrefix="hc-link-avatar"
-        />
-      }
+    <AuthEditorialShell
+      heroImage={{
+        src: "https://images.unsplash.com/photo-1543269865-cbf427effbad?w=1920&q=75&auto=format&fit=crop",
+        alt: "Friends meeting up over coffee",
+      }}
+      caption={{
+        heading: <>No password.<br />No hassle.<br />Just a link.</>,
+        avatarCaption: "Join thousands of people finding their thing, together.",
+        avatarSeedPrefix: "hc-link-avatar",
+      }}
     >
       {intentContext && <AuthContextCard context={intentContext} />}
-      <h1 style={{ fontWeight: 800, fontSize: "clamp(26px,3vw,32px)", margin: "0 0 28px", letterSpacing: "-.02em" }}>
-        Sign in without a password
-      </h1>
+      <AuthEditorialHeader
+        eyebrow="Sign in"
+        accent="green"
+        headline={<>No password.<br /><span style={{ color: colors.green }}>Just a link.</span></>}
+        subtitle="We'll email you a secure sign-in link — nothing to remember."
+      />
       <EmailLinkForm />
 
       <p style={{ margin: "24px 0 0", fontSize: 14 }}>
@@ -42,6 +48,6 @@ export function EmailLinkSignIn() {
         New to HelloCircle?{" "}
         <Link to={`/signin/create${siblingSearch}`} style={{ color: colors.green, fontWeight: 700, textDecoration: "none" }}>Create account →</Link>
       </p>
-    </AuthShell>
+    </AuthEditorialShell>
   );
 }

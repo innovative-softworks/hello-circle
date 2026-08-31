@@ -1,11 +1,10 @@
 import { useEffect, useState } from "react";
 import { fetchVendorToday } from "../api";
 import { BallIcon, BuildingIcon, CalendarIcon, ChatIcon, CheckIcon, EyeIcon, LightbulbIcon } from "./icons";
-import { Card, EmptyState, StatRow, StatTile } from "./ui";
+import { ManageCard as Card, EmptyState, KpiHero, KpiStrip, StatTile } from "./ui";
 import { CommunityIllustration } from "./illustrations";
 import { VendorScheduleTab } from "./VendorPrograms";
-import { useAuth } from "../AuthContext";
-import { colors, fonts, radius, statTile } from "../theme";
+import { colors, fonts, radius } from "../theme";
 import type { VendorStats, VendorToday } from "../types";
 
 // The Overview tab (KPI row, same-day summary, engagement tips) — split
@@ -56,7 +55,6 @@ function TipsPanel() {
 // the standalone Schedule tab's own Today/Upcoming (program sessions), and
 // a static engagement-tips panel.
 export function VendorOverviewTab({ stats, unreadCount }: { stats: VendorStats; unreadCount: number }) {
-  const { user } = useAuth();
   const [today, setToday] = useState<VendorToday | null>(null);
   const [todayError, setTodayError] = useState(false);
   useEffect(() => {
@@ -69,27 +67,17 @@ export function VendorOverviewTab({ stats, unreadCount }: { stats: VendorStats; 
 
   return (
     <div className="fade-panel" style={{ display: "flex", flexDirection: "column", gap: 24 }}>
-      {/* Public profile preview (IA spec §14) — links to the same page
-          built for the resident-facing side in §5 (routes/providers.ts,
-          ProviderProfile.tsx); only resolves once the vendor account is
-          approved, same gate as the route itself. */}
-      {user && (
-        <a
-          href={`/provider/${user.id}`}
-          target="_blank"
-          rel="noreferrer"
-          style={{ display: "inline-flex", alignItems: "center", gap: 6, alignSelf: "flex-start", fontSize: 13, fontWeight: 700, color: colors.greenText, textDecoration: "none" }}
-        >
-          <EyeIcon size={14} /> View your public profile
-        </a>
-      )}
-      <StatRow marginBottom={0}>
-        <StatTile icon={<BuildingIcon size={19} />} iconBg={colors.greenBg} iconColor={colors.green} value={stats.centresLive} label="Community centres" sublabel="Live listings" sublabelColor={colors.greenText} />
-        <StatTile icon={<BallIcon size={19} />} iconBg={colors.orangeBg} iconColor={colors.orange} value={stats.clubsLive} label="Sports clubs" sublabel="Live listings" sublabelColor={colors.orangeDark} />
-        <StatTile icon={<CalendarIcon size={19} />} iconBg={statTile.blue.bg} iconColor={statTile.blue.fg} value={stats.totalBookings} label="Total bookings" sublabel="All time" sublabelColor={statTile.blue.fg} />
-        <StatTile icon={<EyeIcon size={19} />} iconBg={statTile.purple.bg} iconColor={statTile.purple.fg} value={stats.totalViews} label="Total views" sublabel="All time" sublabelColor={statTile.purple.fg} />
-        <StatTile icon={<ChatIcon size={19} />} iconBg={colors.panel} iconColor={colors.muted} value={unreadCount} label="Unread messages" sublabel="From users" sublabelColor={colors.mutedLight} />
-      </StatRow>
+      <KpiStrip
+        marginBottom={0}
+        hero={
+          <KpiHero icon={<CalendarIcon size={19} />} value={stats.totalBookings} label="Total bookings" sublabel="All time" sublabelColor={colors.mutedLight} />
+        }
+      >
+        <StatTile icon={<BuildingIcon size={19} />} value={stats.centresLive} label="Community centres" sublabel="Live listings" sublabelColor={colors.greenText} />
+        <StatTile icon={<BallIcon size={19} />} value={stats.clubsLive} label="Sports clubs" sublabel="Live listings" sublabelColor={colors.orangeDark} />
+        <StatTile icon={<EyeIcon size={19} />} value={stats.totalViews} label="Total views" sublabel="All time" sublabelColor={colors.mutedLight} />
+        <StatTile icon={<ChatIcon size={19} />} value={unreadCount} label="Unread messages" sublabel="From users" sublabelColor={colors.mutedLight} />
+      </KpiStrip>
       <Card>
         <h4 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 16, margin: "0 0 14px" }}>Today — hall bookings &amp; club sessions</h4>
         {todayError ? (

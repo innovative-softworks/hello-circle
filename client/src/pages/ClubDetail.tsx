@@ -227,7 +227,7 @@ export function ClubDetail() {
             )}
           </div>
           <Button variant="orange" full onClick={() => navigate(`/register/${club.id}`)} style={{ padding: 14, fontSize: 15, marginBottom: 10 }}>
-            Register my child
+            {club.audience === "kids" ? "Register my child" : "Register"}
           </Button>
           {resident && club.paymentMethod !== "cash" && (
             <Button variant="ghost" full onClick={handleBuyPass} disabled={passLoading} style={{ padding: 12, fontSize: 14, marginBottom: 10 }}>
@@ -264,7 +264,7 @@ export function ClubDetail() {
         <div style={{ fontWeight: 800, fontSize: 15, fontFamily: fonts.display }}>{club.name}</div>
         <div style={{ fontSize: 12.5, color: colors.mutedLight }}>{priceLabel(club)}</div>
       </div>
-      <Button variant="orange" style={{ flex: "none" }} onClick={() => navigate(`/register/${club.id}`)}>Register my child</Button>
+      <Button variant="orange" style={{ flex: "none" }} onClick={() => navigate(`/register/${club.id}`)}>{club.audience === "kids" ? "Register my child" : "Register"}</Button>
     </div>
     </>
   );

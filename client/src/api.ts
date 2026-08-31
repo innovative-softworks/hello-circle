@@ -12,5 +12,6 @@ export * from "./api/resident";
 export * from "./api/vendorAuth";
 export * from "./api/vendor";
 export * from "./api/admin";
+export * from "./api/manage";
 
 export type { Role };

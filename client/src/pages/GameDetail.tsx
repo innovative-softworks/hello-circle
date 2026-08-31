@@ -339,7 +339,11 @@ export function GameDetail() {
                 </>
               ) : game.attended ? (
                 <>
-                  <PostActivityFeedback kind="game" reference={game.id} />
+                  <PostActivityFeedback
+                    kind="game"
+                    reference={game.id}
+                    followTarget={!isHost && game.hostVerified ? { type: "host", id: game.hostResidentId } : undefined}
+                  />
                   {/* "Do it again" (post-audit hardening pass) — reuses the
                       existing create-game flow via query params rather than a
                       new endpoint; date/time/capacity are left for the host
@@ -351,7 +355,7 @@ export function GameDetail() {
                         const params = new URLSearchParams({ activity: game.activityLabel });
                         if (game.centreId) params.set("centreId", game.centreId);
                         else if (game.locationText) params.set("locationText", game.locationText);
-                        navigate(`/games?${params.toString()}`);
+                        navigate(`/games/host?${params.toString()}`);
                       }}
                     >
                       Do it again — start a new {game.activityLabel}

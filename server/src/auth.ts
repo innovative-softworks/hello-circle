@@ -38,6 +38,10 @@ export interface AuthedUser {
   invitedStaff: boolean;
   providerTier: "standard" | "verified" | "featured";
   createdAt: string;
+  /** HelloCircle Manage (Phase 1) — set once this vendor links the resident
+   * (magic-link) account of the same person via routes/manage.ts. Null for
+   * every vendor until they deliberately do that. */
+  residentId: string | null;
 }
 
 interface UserRow {
@@ -59,6 +63,7 @@ interface UserRow {
   invited_staff: number;
   provider_tier: "standard" | "verified" | "featured";
   created_at: string;
+  resident_id: string | null;
 }
 
 declare global {
@@ -138,6 +143,7 @@ export async function createUser(
     invitedStaff: !!org?.invitedStaff,
     providerTier: "standard",
     createdAt: new Date().toISOString(),
+    residentId: null,
   };
 }
 
@@ -160,13 +166,14 @@ function rowToUser(row: UserRow): AuthedUser {
     invitedStaff: !!row.invited_staff,
     providerTier: row.provider_tier,
     createdAt: row.created_at,
+    residentId: row.resident_id,
   };
 }
 
 export async function findUserByEmail(email: string): Promise<(AuthedUser & { passwordHash: string }) | null> {
   const row = (await db
     .prepare(
-      `SELECT id, email, password_hash, role, status, name, vendor_type, business_name, address, county, mobile, landline, description, org_id, platform_role, invited_staff, provider_tier, created_at
+      `SELECT id, email, password_hash, role, status, name, vendor_type, business_name, address, county, mobile, landline, description, org_id, platform_role, invited_staff, provider_tier, created_at, resident_id
        FROM users WHERE email = ?`
     )
     .get(email.toLowerCase().trim())) as UserRow | undefined;
@@ -194,7 +201,7 @@ export async function destroySession(token: string) {
 async function userFromToken(token: string): Promise<AuthedUser | null> {
   const row = (await db
     .prepare(
-      `SELECT u.id, u.email, u.role, u.status, u.name, u.vendor_type, u.business_name, u.address, u.county, u.mobile, u.landline, u.description, u.org_id, u.platform_role, u.invited_staff, u.provider_tier, u.created_at
+      `SELECT u.id, u.email, u.role, u.status, u.name, u.vendor_type, u.business_name, u.address, u.county, u.mobile, u.landline, u.description, u.org_id, u.platform_role, u.invited_staff, u.provider_tier, u.created_at, u.resident_id
        FROM sessions s JOIN users u ON u.id = s.user_id
        WHERE s.token = ? AND s.expires_at > NOW()`
     )

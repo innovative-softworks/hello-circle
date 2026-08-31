@@ -7,11 +7,14 @@ interface PhotoGalleryProps {
   images: string[];
   alt: string;
   ph: string;
+  /** Defaults to 380 (every existing call site's height) — only
+   * ProviderProfile.tsx's asymmetric hero passes something taller. */
+  height?: number;
 }
 
 /** Airbnb-style hero: one big photo + a 2x2 thumbnail grid, with a "Show all
  * photos" button that opens a full-screen, keyboard-navigable lightbox. */
-export function PhotoGallery({ images, alt, ph }: PhotoGalleryProps) {
+export function PhotoGallery({ images, alt, ph, height = 380 }: PhotoGalleryProps) {
   const [openAt, setOpenAt] = useState<number | null>(null);
   const photos = images;
 
@@ -21,7 +24,7 @@ export function PhotoGallery({ images, alt, ph }: PhotoGalleryProps) {
         className="hero-photo"
         style={{
           position: "relative",
-          height: 380,
+          height,
           borderRadius: 20,
           overflow: "hidden",
           display: "grid",
@@ -77,7 +80,8 @@ export function PhotoGallery({ images, alt, ph }: PhotoGalleryProps) {
               display: "inline-flex",
               alignItems: "center",
               gap: 7,
-              background: "#fff",
+              background: colors.surface,
+              color: colors.text,
               border: `1.5px solid ${colors.text}`,
               borderRadius: radius.control,
               padding: "9px 14px",

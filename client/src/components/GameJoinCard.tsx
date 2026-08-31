@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { cancelGame, downloadGameIcs, fetchGameParticipants, joinGame, joinGameWaitlist, leaveGame, leaveGameWaitlist } from "../api";
 import { signInHref } from "../authRedirect";
 import { CalendarIcon, CheckIcon, PinIcon, UsersIcon } from "./icons";
+import { TextInput } from "./form";
 import { InviteButton } from "./InviteButton";
 import { Avatar, Button, Card, ConfirmDialog } from "./ui";
 import { dateLabel } from "../euro";
@@ -79,7 +80,11 @@ function JoinHeadline({ game, state }: { game: Game; state: JoinState }) {
     return <h2 style={{ ...h2Style, color: colors.danger }}>Cancelled</h2>;
   }
   if (state === "joined") {
-    return <h2 style={{ ...h2Style, color: colors.greenText }}>You're going ✓</h2>;
+    return (
+      <h2 style={{ ...h2Style, color: colors.greenText, display: "flex", alignItems: "center", gap: 6 }}>
+        You're going <CheckIcon size={16} />
+      </h2>
+    );
   }
   if (state === "waitlisted") {
     return <h2 style={h2Style}>On the waitlist</h2>;
@@ -121,6 +126,8 @@ export function GameJoinCard({ game, resident, isHost, onRefresh }: JoinCardProp
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [cancelConfirmOpen, setCancelConfirmOpen] = useState(false);
+  const [cancelReason, setCancelReason] = useState("");
   const [justJoined, setJustJoined] = useState(false);
   const [participants, setParticipants] = useState<{ residentId: string; name: string }[]>([]);
 
@@ -158,11 +165,17 @@ export function GameJoinCard({ game, resident, isHost, onRefresh }: JoinCardProp
     });
   };
 
+  const handleConfirmCancel = () => {
+    run(() => cancelGame(game.id, cancelReason || undefined), () => setCancelConfirmOpen(false));
+  };
+
   if (justJoined) {
     return (
       <Card>
         <div style={{ textAlign: "center", padding: "8px 0" }}>
-          <div style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 20, marginBottom: 6 }}>You're in! 🎉</div>
+          <div style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 20, marginBottom: 6, color: colors.greenText, display: "flex", alignItems: "center", justifyContent: "center", gap: 7 }}>
+            You're in <CheckIcon size={17} />
+          </div>
           <p style={{ margin: "0 0 16px", fontSize: 13.5, color: colors.mutedLight }}>{game.activityLabel} · {dateLabel(game.date)}</p>
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             <Button variant="ghost" onClick={() => downloadGameIcs(game.id)}>Add to calendar</Button>
@@ -224,7 +237,7 @@ export function GameJoinCard({ game, resident, isHost, onRefresh }: JoinCardProp
             </div>
           )}
           {state === "host" && (
-            <Button variant="danger" onClick={() => run(() => cancelGame(game.id))} disabled={busy}>
+            <Button variant="danger" onClick={() => setCancelConfirmOpen(true)} disabled={busy}>
               Cancel this game
             </Button>
           )}
@@ -266,6 +279,19 @@ export function GameJoinCard({ game, resident, isHost, onRefresh }: JoinCardProp
         onConfirm={handleConfirmJoin}
         onCancel={() => setConfirmOpen(false)}
       />
+
+      <ConfirmDialog
+        open={cancelConfirmOpen}
+        title={`Cancel ${game.activityLabel}?`}
+        message={game.joined > 0 ? `Everyone who joined (${game.joined}) will be notified — this can't be undone.` : "This can't be undone."}
+        confirmLabel="Cancel this game"
+        cancelLabel="Keep game"
+        busy={busy}
+        onConfirm={handleConfirmCancel}
+        onCancel={() => setCancelConfirmOpen(false)}
+      >
+        <TextInput label="Reason (optional)" placeholder="e.g. Not enough players, venue fell through" value={cancelReason} onChange={(e) => setCancelReason(e.target.value)} />
+      </ConfirmDialog>
     </>
   );
 }

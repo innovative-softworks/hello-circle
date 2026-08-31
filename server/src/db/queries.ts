@@ -54,6 +54,7 @@ interface ClubRow {
   category: string;
   featured: number;
   slug: string | null;
+  audience: "kids" | "adults" | "all";
 }
 
 const amenitiesStmt = db.prepare(
@@ -157,6 +158,7 @@ async function toCentre(row: CentreRow): Promise<Centre> {
     featured: !!row.featured,
     openBookingEnabled,
     slug: row.slug,
+    status: row.status,
   };
 }
 
@@ -195,6 +197,8 @@ async function toClub(row: ClubRow): Promise<Club> {
     category: row.category,
     featured: !!row.featured,
     slug: row.slug,
+    audience: row.audience,
+    status: row.status,
   };
 }
 
@@ -941,7 +945,7 @@ interface ClubSessionRow {
 }
 
 /** The next date (today or later) this weekday falls on, YYYY-MM-DD. */
-function nextOccurrence(dayOfWeek: number, today: Date): string {
+export function nextOccurrence(dayOfWeek: number, today: Date): string {
   const diff = (dayOfWeek - today.getUTCDay() + 7) % 7;
   const d = new Date(today);
   d.setUTCDate(today.getUTCDate() + diff);
@@ -1183,4 +1187,222 @@ export async function listResidentParticipation(clientId: string, guestEmail: st
 
   items.sort((a, b) => b.date.localeCompare(a.date));
   return items;
+}
+
+// --- Provider Profile (public) ---------------------------------------------
+// Three fresh, vendor-scoped rollups added for the Provider Profile rebuild.
+// Written as small, targeted per-source queries summed/merged in application
+// code — the same convention listResidentParticipation's own comment above
+// documents (each table's real ownership/payment predicates already live
+// correctly in its own route; re-deriving them as one giant hand-rolled UNION
+// risks silently drifting from that). None of these fabricate a stat: every
+// number here is a real count against real rows.
+
+export interface ProviderUpcomingItem {
+  kind: "experience" | "program_session" | "club_session";
+  id: string;
+  title: string;
+  /** YYYY-MM-DD — real for experience/program sessions; a computed next
+   * weekday occurrence for club sessions (same projection
+   * listScheduledActivities already uses), never a stored fake date. */
+  date: string;
+  time: string;
+  href: string;
+  imageUrl: string | null;
+  priceCents: number | null;
+  capacity: number | null;
+  /** Real only for experiences (single-session capacity tracking). null for
+   * program/club sessions, same convention as ScheduledActivity. */
+  spotsLeft: number | null;
+}
+
+/** Everything a resident can actually book/join with this vendor in the near
+ * future — centres are deliberately excluded (on-demand room booking has no
+ * "next session" concept; represented by a "Check availability" CTA
+ * instead, not a fake dated row here). Capped and ordered soonest-first. */
+export async function getProviderUpcoming(vendorId: string, limit = 6): Promise<ProviderUpcomingItem[]> {
+  const experienceSessions = (await db
+    .prepare(
+      `SELECT es.id, es.date, es.time, es.capacity as session_capacity, e.id as experience_id, e.title, e.image_url, e.price_cents, e.capacity as experience_capacity, e.slug,
+              (SELECT COALESCE(SUM(eb.party_size), 0) FROM experience_bookings eb WHERE eb.session_id = es.id AND eb.payment_status = 'paid' AND eb.status != 'cancelled') as booked
+       FROM experience_sessions es JOIN experiences e ON e.id = es.experience_id
+       WHERE e.vendor_id = ? AND e.status = 'approved' AND es.status = 'scheduled' AND es.date >= CURDATE()
+       ORDER BY es.date, es.time LIMIT ?`
+    )
+    .all(vendorId, limit)) as {
+    id: string; date: string; time: string; session_capacity: number | null; experience_id: string; title: string; image_url: string; price_cents: number; experience_capacity: number; slug: string | null; booked: number;
+  }[];
+
+  const programSessions = (await db
+    .prepare(
+      `SELECT ps.id, ps.date, ps.time, p.id as program_id, p.title, p.image_url, p.price_cents, p.capacity
+       FROM program_sessions ps JOIN programs p ON p.id = ps.program_id
+       WHERE p.vendor_id = ? AND p.status = 'published' AND ps.status != 'cancelled' AND ps.date >= CURDATE()
+       ORDER BY ps.date, ps.time LIMIT ?`
+    )
+    .all(vendorId, limit)) as { id: string; date: string; time: string; program_id: string; title: string; image_url: string; price_cents: number; capacity: number | null }[];
+
+  const clubSessionRows = (await db
+    .prepare(
+      `SELECT cs.id, cs.day_of_week, cs.time, cs.label, cs.capacity, cl.id as club_id, cl.name as club_name, cl.image_url, cl.price
+       FROM club_sessions cs JOIN clubs cl ON cl.id = cs.club_id
+       WHERE cl.vendor_id = ? AND cs.active = 1
+       LIMIT ?`
+    )
+    .all(vendorId, limit)) as { id: string; day_of_week: number; time: string; label: string; capacity: number | null; club_id: string; club_name: string; image_url: string; price: number }[];
+
+  const now = new Date();
+  const items: ProviderUpcomingItem[] = [
+    ...experienceSessions.map((s) => ({
+      kind: "experience" as const,
+      id: s.id,
+      title: s.title,
+      date: s.date,
+      time: s.time,
+      href: `/experiences/${s.slug ?? s.experience_id}`,
+      imageUrl: s.image_url || null,
+      priceCents: s.price_cents,
+      capacity: s.session_capacity ?? s.experience_capacity,
+      spotsLeft: Math.max(0, (s.session_capacity ?? s.experience_capacity) - Number(s.booked)),
+    })),
+    ...programSessions.map((p) => ({
+      kind: "program_session" as const,
+      id: p.id,
+      title: p.title,
+      date: p.date,
+      time: p.time,
+      href: `/programs/${p.program_id}`,
+      imageUrl: p.image_url || null,
+      priceCents: p.price_cents,
+      capacity: p.capacity,
+      spotsLeft: null,
+    })),
+    ...clubSessionRows.map((cs) => ({
+      kind: "club_session" as const,
+      id: cs.id,
+      title: cs.label || cs.club_name,
+      date: nextOccurrence(cs.day_of_week, now),
+      time: cs.time,
+      href: `/clubs/${cs.club_id}`,
+      imageUrl: cs.image_url || null,
+      priceCents: cs.price ? Math.round(cs.price * 100) : null,
+      capacity: cs.capacity,
+      spotsLeft: null,
+    })),
+  ];
+
+  items.sort((a, b) => (a.date === b.date ? a.time.localeCompare(b.time) : a.date.localeCompare(b.date)));
+  return items.slice(0, limit);
+}
+
+/** Real people who have paid to take part in something this vendor runs —
+ * summed across the four listing types a vendor can actually own (games and
+ * Circles belong to residents/Hosts, not vendor accounts, so are correctly
+ * excluded). "People," not "bookings": a booking/experience-booking's own
+ * party size is counted, not just 1 per row. */
+export async function getProviderParticipantCount(vendorId: string): Promise<number> {
+  const [bookings, registrations, enrollments, experienceBookings] = await Promise.all([
+    db
+      .prepare(
+        `SELECT COALESCE(SUM(b.guests), 0) as n FROM bookings b JOIN centres c ON c.id = b.centre_id
+         WHERE c.vendor_id = ? AND b.payment_status = 'paid'`
+      )
+      .get(vendorId) as Promise<{ n: number }>,
+    db
+      .prepare(
+        `SELECT COUNT(*) as n FROM registrations r JOIN clubs c ON c.id = r.club_id
+         WHERE c.vendor_id = ? AND r.payment_status = 'paid'`
+      )
+      .get(vendorId) as Promise<{ n: number }>,
+    db.prepare(`SELECT COUNT(*) as n FROM program_enrollments pe JOIN programs p ON p.id = pe.program_id WHERE p.vendor_id = ? AND pe.payment_status = 'paid'`).get(vendorId) as Promise<{ n: number }>,
+    db
+      .prepare(
+        `SELECT COALESCE(SUM(eb.party_size), 0) as n FROM experience_bookings eb JOIN experiences e ON e.id = eb.experience_id
+         WHERE e.vendor_id = ? AND eb.payment_status = 'paid' AND eb.status != 'cancelled'`
+      )
+      .get(vendorId) as Promise<{ n: number }>,
+  ]);
+  return Number(bookings.n) + Number(registrations.n) + Number(enrollments.n) + Number(experienceBookings.n);
+}
+
+/** Of everything paid for at this vendor, what share actually went ahead
+ * (wasn't cancelled) — an honest outcome stat, not a fault/blame one (see
+ * ProviderProfile v3's own plan comment: this is deliberately different
+ * from "went ahead as planned"/reliability framing, which would need a
+ * cancelled_by column this app doesn't have). null when there's no paid
+ * activity yet, so the caller can omit the stat rather than show a
+ * meaningless 100%/0%. */
+export async function getProviderWentAheadPercent(vendorId: string): Promise<number | null> {
+  const [bookings, registrations, enrollments, experienceBookings] = await Promise.all([
+    db
+      .prepare(`SELECT COUNT(*) as total, SUM(b.status != 'cancelled') as ok FROM bookings b JOIN centres c ON c.id = b.centre_id WHERE c.vendor_id = ? AND b.payment_status = 'paid'`)
+      .get(vendorId) as Promise<{ total: number; ok: number | null }>,
+    db
+      .prepare(`SELECT COUNT(*) as total, SUM(r.status != 'cancelled') as ok FROM registrations r JOIN clubs c ON c.id = r.club_id WHERE c.vendor_id = ? AND r.payment_status = 'paid'`)
+      .get(vendorId) as Promise<{ total: number; ok: number | null }>,
+    db
+      .prepare(`SELECT COUNT(*) as total, SUM(pe.status != 'cancelled') as ok FROM program_enrollments pe JOIN programs p ON p.id = pe.program_id WHERE p.vendor_id = ? AND pe.payment_status = 'paid'`)
+      .get(vendorId) as Promise<{ total: number; ok: number | null }>,
+    db
+      .prepare(`SELECT COUNT(*) as total, SUM(eb.status != 'cancelled') as ok FROM experience_bookings eb JOIN experiences e ON e.id = eb.experience_id WHERE e.vendor_id = ? AND eb.payment_status = 'paid'`)
+      .get(vendorId) as Promise<{ total: number; ok: number | null }>,
+  ]);
+  const total = Number(bookings.total) + Number(registrations.total) + Number(enrollments.total) + Number(experienceBookings.total);
+  if (total === 0) return null;
+  const ok = Number(bookings.ok ?? 0) + Number(registrations.ok ?? 0) + Number(enrollments.ok ?? 0) + Number(experienceBookings.ok ?? 0);
+  return Math.round((ok / total) * 100);
+}
+
+export interface ProviderAmenities {
+  items: string[];
+  accessibility: string | null;
+}
+
+/** Dedup amenities/accessibility text across every listing a vendor owns —
+ * centre_amenities and club_includes are the two real, already-populated
+ * sources (see db/index.ts); experiences have neither, so aren't queried
+ * here. Returns an empty items array (not fabricated placeholder text) when
+ * no listing has any recorded. */
+export async function getProviderAmenities(centreIds: string[], clubIds: string[]): Promise<ProviderAmenities> {
+  const [centreAmenities, clubItems, centreAccess, clubAccess] = await Promise.all([
+    centreIds.length ? ((await db.prepare(`SELECT DISTINCT amenity FROM centre_amenities WHERE centre_id IN (${centreIds.map(() => "?").join(",")})`).all(...centreIds)) as { amenity: string }[]) : [],
+    clubIds.length ? ((await db.prepare(`SELECT DISTINCT item FROM club_includes WHERE club_id IN (${clubIds.map(() => "?").join(",")})`).all(...clubIds)) as { item: string }[]) : [],
+    centreIds.length ? ((await db.prepare(`SELECT accessibility FROM centres WHERE id IN (${centreIds.map(() => "?").join(",")}) AND accessibility IS NOT NULL AND accessibility != ''`).all(...centreIds)) as { accessibility: string }[]) : [],
+    clubIds.length ? ((await db.prepare(`SELECT accessibility FROM clubs WHERE id IN (${clubIds.map(() => "?").join(",")}) AND accessibility IS NOT NULL AND accessibility != ''`).all(...clubIds)) as { accessibility: string }[]) : [],
+  ]);
+  const items = Array.from(new Set([...centreAmenities.map((a) => a.amenity), ...clubItems.map((c) => c.item)])).filter(Boolean);
+  const accessibilitySet = Array.from(new Set([...centreAccess, ...clubAccess].flatMap((r) => r.accessibility.split(",").map((s) => s.trim())).filter(Boolean)));
+  return { items, accessibility: accessibilitySet.length ? accessibilitySet.join(", ") : null };
+}
+
+export interface ProviderReviewsSummary {
+  average: number | null;
+  count: number;
+  recent: { name: string; rating: number; comment: string; listingType: string; listingId: string; createdAt: string }[];
+}
+
+/** Reviews are stored per-listing (listing_type/listing_id — see CLAUDE.md),
+ * never per-vendor, so this rolls up across every listing a vendor owns.
+ * Real data only — no cross-listing rating rollup existed before this.
+ * `listingId` is returned (not resolved to a name here) so the caller
+ * — providers.ts, which already has the vendor's full centres/clubs/
+ * experiences arrays loaded for this same request — can resolve the
+ * listing's name in memory rather than this needing a 4th round-trip. */
+export async function getProviderReviewsSummary(vendorId: string, centreIds: string[], clubIds: string[], experienceIds: string[]): Promise<ProviderReviewsSummary> {
+  const pairs: { type: string; id: string }[] = [
+    ...centreIds.map((id) => ({ type: "centre", id })),
+    ...clubIds.map((id) => ({ type: "club", id })),
+    ...experienceIds.map((id) => ({ type: "experience", id })),
+  ];
+  if (pairs.length === 0) return { average: null, count: 0, recent: [] };
+
+  const whereClause = pairs.map(() => `(listing_type = ? AND listing_id = ?)`).join(" OR ");
+  const params = pairs.flatMap((p) => [p.type, p.id]);
+
+  const { avg, n } = (await db.prepare(`SELECT AVG(rating) as avg, COUNT(*) as n FROM reviews WHERE hidden = 0 AND (${whereClause})`).get(...params)) as { avg: string | null; n: number };
+  const recent = (await db
+    .prepare(`SELECT name, rating, comment, listing_type as listingType, listing_id as listingId, created_at as createdAt FROM reviews WHERE hidden = 0 AND (${whereClause}) ORDER BY created_at DESC LIMIT 3`)
+    .all(...params)) as { name: string; rating: number; comment: string; listingType: string; listingId: string; createdAt: string }[];
+
+  return { average: avg !== null ? Number(avg) : null, count: Number(n), recent };
 }

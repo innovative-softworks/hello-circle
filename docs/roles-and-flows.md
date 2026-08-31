@@ -4,6 +4,11 @@
 > model. That model still exists underneath, but it's one of three parallel identity systems now — see §1.
 > This version reflects the codebase as of the `v4-0` branch: residents, households, organisations/RBAC,
 > Games, Circles, Programs, and Passes all exist and are live, not just planned.
+>
+> **Updated for HelloCircle Manage (§7)**: a vendor account can now be linked to a resident account so one
+> person can hold both identities and switch between them without signing out — this changes the "nobody is
+> ever both at once" claim in §1 and the "never sees vendor screens" claim in §2. See §7 for the full picture
+> and `docs/testing-guide.md` for step-by-step manual testing of every role, including this one.
 
 ---
 
@@ -28,7 +33,11 @@ booking made as a pure guest before ever signing in with the same email will not
 the resident account afterwards.
 
 **Vendor and Admin are unrelated to residents entirely** — a `users` row, not a `residents` row, with its own
-password and session cookie. Nobody is ever both at once through the same account.
+password and session cookie. A vendor and a resident identity are still never the *same* database row, but as
+of HelloCircle Manage (§7) they can be *linked*: an approved vendor can confirm (via an emailed token) that a
+specific resident account belongs to the same person, after which either session can mint the other one's
+cookie on demand (`POST /api/manage/switch`) without re-entering a password. Both cookies can be present in
+the same browser at once. Nothing here changes for an unlinked account — this is opt-in.
 
 ---
 
@@ -60,7 +69,11 @@ password and session cookie. Nobody is ever both at once through the same accoun
 - **Leave a rating + review** on a centre/club — no login needed, but only after actually booking that centre
   or registering for that club (checked server-side, either against the resident id if signed in or the
   `X-Client-Id` header if not). Anyone can still read reviews without having booked. See §6.
-- Never sees vendor or admin screens.
+- Doesn't see vendor or admin *listing-moderation* screens, but as of HelloCircle Manage (§7) a resident who
+  hosts a Game or organises a Circle gets a real operational surface of their own (`/manage/activities`,
+  `/manage/circles/:id`) — not the vendor/admin dashboards, but the same kind of thing for their own
+  activities. A resident whose account is linked to a vendor account can also switch into that vendor's
+  dashboard from the account menu, without a separate login.
 
 ---
 
@@ -190,7 +203,60 @@ stats/moderation/audit. It has been **removed** — that functionality was folde
 
 ---
 
-## 7. Open questions still unresolved
+## 7. HelloCircle Manage — the cross-identity operational layer
+
+A later initiative on top of everything above: instead of vendor tooling, host tooling, and Circle-organiser
+tooling being three disconnected experiences (one real dashboard, two bolted-on buttons on consumer pages),
+HelloCircle Manage gives all three a real operational surface under `/manage/*`, reachable from one account
+via a workspace switcher in the header's account menu. Built in five phases, all shipped:
+
+**Identity linking + switcher** (`server/src/routes/manage.ts`, `client/src/components/Header.tsx`)
+- An approved vendor requests a link to a resident account by email (`POST /api/manage/link/request`) — this
+  sends a confirmation token to that inbox rather than trusting "I know the email," since linking is a
+  privilege-widening action. Visiting the emailed link confirms it (`POST /api/manage/link/confirm`), setting
+  `users.resident_id`.
+- Once linked, either session can switch into the other's without a password (`POST /api/manage/switch`) —
+  the link step already did the real authentication; switching just mints the other side's session cookie.
+- `GET /api/manage/workspaces` reports what the current session(s) actually qualify for: `personal` (always,
+  if a resident session exists), `vendor` (if linked), `circlesOrganising` (every Circle this resident
+  organises). The header's account menu renders exactly these as switchable entries, plus an "Activities"
+  entry for any resident who's hosted at least one Game.
+
+**Venue Manager** (`/vendor`, unchanged route, `ManageShell`-based since this initiative)
+- The vendor dashboard's Bookings tab gained a List/Calendar toggle (reusing the same month-grid pattern
+  already used for program sessions) and a Booking Detail drawer — room, duration, event type, guest count,
+  notes, price, payment/status, and a vendor-side Cancel action (status-only, no Stripe refund, matching the
+  existing off-platform-refund convention everywhere else).
+
+**Host MVP** (`/manage/activities`, `client/src/pages/ManageActivities.tsx`)
+- A resident who hosts Games gets a real management list instead of the old "Cancel + post an update" bolted
+  onto the consumer Game Detail page: edit a game's own fields after creation (`PUT /games/:id` — date, time,
+  location, capacity, description, etc.; price locks once anyone besides the host has joined, to avoid a
+  billing mismatch for someone who already paid), a Participants drawer with a per-person Remove action, and
+  the existing post-update/cancel actions, all from one list. The consumer Game Detail page's own controls are
+  untouched — still useful when a host is already looking at their own game's public page.
+
+**Circle Organiser MVP** (`/manage/circles/:id`, `client/src/pages/ManageCircle.tsx`)
+- A Circle organiser gets Plans/Members/Settings tabs instead of the old two-click "Manage Circle" reveal on
+  the consumer Circle Detail page: real edit of the Circle's own fields (`PUT /circles/:id`, no
+  member-notification — a Circle's name/description isn't an attendance commitment the way a Game's date/time
+  is), a Members list with Remove (organiser-only, can't remove the organiser), and a Plans tab scoped to
+  Games actually linked to this Circle (`games.circle_id`, set via the "Create plan" flow) — kept separate
+  from the older, looser "any game with a matching activity label" discovery preview still used on the public
+  Circle page, since those are honestly different questions (this Circle's own plan vs. something similar
+  happening nearby). Circle lifecycle events (invite sent/accepted/declined, Circle closed, member removed)
+  now send real in-app notifications, which they didn't before this initiative.
+
+**What's deliberately out of scope** — a unified nav showing Activities and Circles as one combined sidebar
+(a resident can organise several Circles with no picker page yet, so today you switch between them from the
+header dropdown, not from inside `/manage`), Insights/demand-signal parity between vendor and resident
+surfaces (the underlying data models don't share a shape), and a single unified Messages system (there are
+still four separate mechanisms: shared in-app notifications, vendor-only email broadcasts, resident-to-resident
+Game/Circle chat, and host-posted Game/Plan updates). Each would need its own dedicated design pass.
+
+---
+
+## 8. Open questions still unresolved
 
 1. Do vendor **edits** to an already-approved listing need re-approval, or only brand-new listings? (Still
    unresolved — currently no re-approval step exists for edits.)

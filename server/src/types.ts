@@ -50,6 +50,10 @@ export interface Centre {
   openBookingEnabled: boolean;
   /** Slugs (master-prompt punch list #1) — null until backfilled/generated. */
   slug: string | null;
+  /** "draft" (Form System Audit, Phase 5) — the Guided Flow creation
+   * wizard hasn't been completed/published yet. Public getApprovedCentre()
+   * callers are always "approved" here in practice. */
+  status: string;
 }
 
 export interface Club {
@@ -88,6 +92,14 @@ export interface Club {
   featured: boolean;
   /** Slugs (master-prompt punch list #1) — null until backfilled/generated. */
   slug: string | null;
+  /** Who this club registers — 'kids' drives RegistrationFlow.tsx's
+   * guardian/DOB-centric form (the only shape that existed before this
+   * field), 'adults' drives the self-registration shape, 'all' shows both
+   * and lets the registrant pick. Defaults to 'kids' for every club that
+   * existed before this field, so nothing already listed changes behaviour. */
+  audience: "kids" | "adults" | "all";
+  /** See Centre's identical field. */
+  status: string;
 }
 
 export interface Review {

@@ -3,6 +3,7 @@ import { Router } from "express";
 import { requirePlatformRole } from "../auth.js";
 import { db } from "../db/index.js";
 import { orgFeatureFlags } from "../db/queries.js";
+import { notifyVendorFollowers } from "./follows.js";
 import { generateSlug } from "../slugify.js";
 
 // Adventures & Experiences — vendor-side CRUD, split out the same way
@@ -72,8 +73,13 @@ vendorExperiencesRouter.get("/experiences/:id", async (req, res) => {
 });
 
 vendorExperiencesRouter.post("/experiences", requirePlatformRole(...EXPERIENCE_ROLES), async (req, res) => {
-  const b = req.body as ExperienceInput;
-  if (!b.title || !b.blurb) return res.status(400).json({ error: "Title and blurb are required" });
+  const b = req.body as Partial<ExperienceInput> & { title: string };
+  // Relaxed to just a title (Form System Audit, Phase 5 fast-follow — same
+  // draft-row-first pattern as POST /centres/POST /clubs): a Guided Flow
+  // wizard creates this row after its first step, then fills in the rest
+  // across later steps' PUTs, until POST /experiences/:id/publish flips it
+  // to 'pending' once title+blurb are both actually present.
+  if (!b.title) return res.status(400).json({ error: "A title is required" });
   // Feature flags (implementation backlog #5) — admin can disable
   // Experiences for an org; server-enforced, not just a hidden button.
   if (!(await orgFeatureFlags(req.user!.id)).experiences) {
@@ -92,7 +98,7 @@ vendorExperiencesRouter.post("/experiences", requirePlatformRole(...EXPERIENCE_R
          VALUES (@id, @vendorId, @kind, @title, @area, @county, @lat, @lng, @meetingPoint, @blurb, @description,
           @difficulty, @durationMinutes, @distanceKm, @elevationGainM, @terrainType, @fitnessRequirements, @itinerary, @equipmentProvided, @equipmentRequired,
           @transportInfo, @safetyInfo, @weatherPolicy, @eligibility, @cancellationTerms, @priceCents, @capacity,
-          @paymentMethod, @imageUrl, 'pending', @slug)`
+          @paymentMethod, @imageUrl, 'draft', @slug)`
       )
       .run({
         id,
@@ -105,7 +111,7 @@ vendorExperiencesRouter.post("/experiences", requirePlatformRole(...EXPERIENCE_R
         lat: b.lat ?? null,
         lng: b.lng ?? null,
         meetingPoint: b.meetingPoint ?? "",
-        blurb: b.blurb,
+        blurb: b.blurb ?? "",
         description: b.description ?? "",
         difficulty: b.difficulty ?? "",
         durationMinutes: b.durationMinutes ?? 120,
@@ -198,6 +204,21 @@ vendorExperiencesRouter.put("/experiences/:id", requirePlatformRole(...EXPERIENC
   res.json({ ok: true });
 });
 
+vendorExperiencesRouter.post("/experiences/:id/publish", requirePlatformRole(...EXPERIENCE_ROLES), async (req, res) => {
+  if (!(await ownsExperience(req.vendorIds!, req.params.id))) return res.status(403).json({ error: "Not your listing" });
+  const row = (await db.prepare(`SELECT title, blurb, status FROM experiences WHERE id = ?`).get(req.params.id)) as
+    | { title: string; blurb: string; status: string }
+    | undefined;
+  if (!row) return res.status(404).json({ error: "Listing not found" });
+  if (row.status !== "draft") return res.status(400).json({ error: "This listing has already been submitted" });
+  const missing = [!row.title && "a title", !row.blurb && "a short blurb"].filter(Boolean) as string[];
+  if (missing.length) {
+    return res.status(400).json({ error: `This listing is missing ${missing.join(", ")} — go back and fill that in before publishing.` });
+  }
+  await db.prepare(`UPDATE experiences SET status = 'pending' WHERE id = ?`).run(req.params.id);
+  res.json(await db.prepare(`SELECT id FROM experiences WHERE id = ?`).get(req.params.id));
+});
+
 vendorExperiencesRouter.delete("/experiences/:id", requirePlatformRole(...EXPERIENCE_ROLES), async (req, res) => {
   if (!(await ownsExperience(req.vendorIds!, req.params.id))) return res.status(403).json({ error: "Not your listing" });
   await db.prepare(`UPDATE experiences SET status = 'deleted' WHERE id = ?`).run(req.params.id);
@@ -222,6 +243,16 @@ vendorExperiencesRouter.post("/experiences/:id/sessions", requirePlatformRole(..
   await db
     .prepare(`INSERT INTO experience_sessions (id, experience_id, date, time, capacity) VALUES (?, ?, ?, ?, ?)`)
     .run(id, req.params.id, date, time, capacity ?? null);
+
+  // Follow feature — a new session on an existing listing only reaches
+  // followers who opted into every update, not everyone following this
+  // vendor (unlike a brand-new listing going live, which is Highlights-
+  // worthy for everyone — see admin.ts's notifyFollowersOfNewListing).
+  const experience = (await db.prepare(`SELECT vendor_id as vendorId, title FROM experiences WHERE id = ?`).get(req.params.id)) as { vendorId: string | null; title: string } | undefined;
+  if (experience?.vendorId) {
+    await notifyVendorFollowers(experience.vendorId, { title: "New session added", body: `A new session was added for ${experience.title} on ${date}.`, ref: id }, "everything");
+  }
+
   res.status(201).json({ id });
 });
 

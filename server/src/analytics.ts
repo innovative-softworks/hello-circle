@@ -14,6 +14,7 @@ export type AnalyticsEventType =
   | "match_viewed"
   | "game_joined"
   | "circle_joined"
+  | "circle_join_requested"
   | "attended"
   | "repeat_joined";
 

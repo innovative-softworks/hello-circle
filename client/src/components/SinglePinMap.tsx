@@ -22,10 +22,10 @@ L.Icon.Default.mergeOptions({
  * this is deliberately its own small component rather than DiscoveryMap
  * with a one-item array, since it doesn't need county-wide zoom or a
  * navigate-to-listing popup action (you're already on that listing). */
-export function SinglePinMap({ lat, lng, label, height = 260 }: { lat: number; lng: number; label: string; height?: number }) {
+export function SinglePinMap({ lat, lng, label, height = 260, zoom = 12 }: { lat: number; lng: number; label: string; height?: number; zoom?: number }) {
   return (
     <div style={{ borderRadius: 14, overflow: "hidden", border: `1px solid ${colors.border}`, height }}>
-      <MapContainer center={[lat, lng]} zoom={12} style={{ height: "100%", width: "100%" }} scrollWheelZoom={false}>
+      <MapContainer center={[lat, lng]} zoom={zoom} style={{ height: "100%", width: "100%" }} scrollWheelZoom={false}>
         <TileLayer
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"

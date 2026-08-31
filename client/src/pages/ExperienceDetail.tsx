@@ -3,6 +3,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import { addFavourite, bookExperienceSession, downloadExperienceBookingIcs, fetchExperience, fetchExperiences, fetchFavourites, removeFavourite } from "../api";
 import { BackLink } from "../components/BackLink";
 import { ExperienceCard } from "../components/ExperienceCard";
+import { NumberStepper } from "../components/form";
 import { AwardIcon, CalendarIcon, CheckIcon, ClockIcon, HeartIcon, PinIcon, TreeIconSmall, TrendUpIcon, UsersIcon } from "../components/icons";
 import { InviteButton } from "../components/InviteButton";
 import { IntentCaptureForm } from "../components/IntentCaptureForm";
@@ -356,17 +357,13 @@ export function ExperienceDetail() {
               <label style={labelStyle}>Your name</label>
               <input value={form.participantName} onChange={(e) => setForm((f) => ({ ...f, participantName: e.target.value }))} style={inputStyle} />
             </div>
-            <div>
-              <label style={labelStyle}>Party size</label>
-              <input
-                type="number"
-                min={1}
-                max={selectedSession.spotsLeft}
-                value={form.partySize}
-                onChange={(e) => setForm((f) => ({ ...f, partySize: Math.max(1, Number(e.target.value)) }))}
-                style={inputStyle}
-              />
-            </div>
+            <NumberStepper
+              label="Party size"
+              value={form.partySize}
+              onChange={(n) => setForm((f) => ({ ...f, partySize: n }))}
+              min={1}
+              max={selectedSession.spotsLeft}
+            />
             <div>
               <label style={labelStyle}>Email</label>
               <input type="email" value={form.email} onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))} style={inputStyle} />

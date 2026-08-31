@@ -13,7 +13,7 @@ export const programsRouter = Router();
 // programs/program_sessions/program_enrollments comments for the full
 // rationale.
 
-interface ProgramRow {
+export interface ProgramRow {
   id: string;
   listing_type: "centre" | "club";
   listing_id: string;
@@ -34,7 +34,7 @@ interface ProgramRow {
   safeguarding_info: string | null;
 }
 
-async function toProgramJson(row: ProgramRow) {
+export async function toProgramJson(row: ProgramRow) {
   // rooms.id is only unique per-centre (PRIMARY KEY (centre_id, id)) — a
   // room_id-only join can match another centre's room that happens to
   // share the same id. A program session's room only ever belongs to its

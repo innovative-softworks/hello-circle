@@ -112,6 +112,7 @@ export function CircleDetail() {
   const [upcoming, setUpcoming] = useState<CirclePlanPreview[]>([]);
   const [isMember, setIsMember] = useState(false);
   const [role, setRole] = useState<string | null>(null);
+  const [requested, setRequested] = useState(false);
   const [polls, setPolls] = useState<CirclePoll[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
@@ -140,12 +141,13 @@ export function CircleDetail() {
         setCircle(c);
         const [up, membership, p] = await Promise.all([
           fetchCircleUpcoming(c.id),
-          resident ? fetchCircleMembership(c.id) : Promise.resolve({ member: false, role: null }),
+          resident ? fetchCircleMembership(c.id) : Promise.resolve({ member: false, role: null, requested: false }),
           fetchCirclePolls(c.id).catch(() => []),
         ]);
         setUpcoming(up);
         setIsMember(membership.member);
         setRole(membership.role);
+        setRequested(membership.requested);
         setPolls(p);
       })
       .catch(() => setLoadError(true))
@@ -255,8 +257,12 @@ export function CircleDetail() {
     }
     setOtherBusyId(other.id);
     try {
-      await joinCircle(other.id);
-      setOtherJoinedIds((s) => new Set(s).add(other.id));
+      // A pending request (approval-mode Circle) isn't membership yet —
+      // this preview row only has a binary joined/not-joined toggle, so a
+      // request in flight is left showing as "not joined" rather than
+      // claiming membership that hasn't been granted.
+      const result = await joinCircle(other.id);
+      if (!result.requested) setOtherJoinedIds((s) => new Set(s).add(other.id));
     } finally {
       setOtherBusyId(null);
     }
@@ -299,7 +305,19 @@ export function CircleDetail() {
   }
 
   const closed = circle.status === "closed";
-  const joinState: JoinState = closed ? "closed" : isOrganiser ? "organiser" : !resident ? "signed-out" : isMember ? "member" : "available";
+  const joinState: JoinState = closed
+    ? "closed"
+    : isOrganiser
+    ? "organiser"
+    : !resident
+    ? "signed-out"
+    : isMember
+    ? "member"
+    : requested
+    ? "requested"
+    : circle.joinMode === "invite"
+    ? "invite-only"
+    : "available";
   const activeThisWeek = !!circle.nextPlan && (() => {
     const days = (new Date(`${circle.nextPlan!.date}T00:00:00`).getTime() - Date.now()) / 86400000;
     return days >= 0 && days <= 7;
@@ -363,7 +381,7 @@ export function CircleDetail() {
                   icon={<CalendarIcon size={20} />}
                   title={isOrganiser ? "Your Circle is ready." : "Nothing planned yet."}
                   subtitle={isOrganiser ? "Create the first plan and give people something to join." : "Join the Circle and we'll let you know when the next activity is announced."}
-                  action={isOrganiser ? <Button onClick={() => navigate(`/games?activity=${encodeURIComponent(circle.activityLabel)}`)}><PlusIcon size={14} /> Create first plan</Button> : joinState === "available" ? <Button onClick={handleJoinCircle} disabled={joinBusy}>{joinBusy ? "…" : "Join Circle"}</Button> : undefined}
+                  action={isOrganiser ? <Button onClick={() => navigate(`/games/host?activity=${encodeURIComponent(circle.activityLabel)}&circleId=${circle.id}`)}><PlusIcon size={14} /> Create first plan</Button> : joinState === "available" ? <Button onClick={handleJoinCircle} disabled={joinBusy}>{joinBusy ? "…" : "Join Circle"}</Button> : undefined}
                 />
               )}
             </Section>
@@ -443,7 +461,7 @@ export function CircleDetail() {
               onJoin={handleJoinCircle}
               onLeave={handleLeaveCircle}
               onMessage={scrollToPlanning}
-              onCreatePlan={() => navigate(`/games?activity=${encodeURIComponent(circle.activityLabel)}`)}
+              onCreatePlan={() => navigate(`/games/host?activity=${encodeURIComponent(circle.activityLabel)}&circleId=${circle.id}`)}
               onInvite={handleInvite}
               inviteError={inviteError}
               onRequestClose={() => setConfirmingClose(true)}
@@ -501,7 +519,7 @@ export function CircleDetail() {
             </div>
             <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
               <Button variant="ghost" onClick={() => navigate("/circles")}>Explore Circles</Button>
-              <IntentCaptureForm activityLabel={circle.activityLabel || "this"} county={circle.county} startHref="/circles#start-circle" startLabel="Start a Circle →" />
+              <IntentCaptureForm activityLabel={circle.activityLabel || "this"} county={circle.county} startHref="/circles/start" startLabel="Start a Circle →" />
             </div>
           </div>
         </section>
@@ -513,7 +531,7 @@ export function CircleDetail() {
           this return. Mirrors the rail Join card's state machine so the two
           never disagree. Hidden for closed/organiser (the rail card already
           covers those, and "manage" doesn't fit a one-line bar). */}
-      {(joinState === "available" || joinState === "signed-out" || joinState === "member") && (
+      {(joinState === "available" || joinState === "signed-out" || joinState === "member" || joinState === "requested" || joinState === "invite-only") && (
         <div className="mobile-join-bar">
           {joinState === "member" ? (
             <>
@@ -538,11 +556,23 @@ export function CircleDetail() {
                         navigate(
                           signInHref({ kind: "circle", title: circle.name, meta: `${circle.members.toLocaleString()} member${circle.members === 1 ? "" : "s"} · ${circle.area}, ${circle.county}` })
                         )
+                    : joinState === "requested"
+                    ? handleLeaveCircle
                     : handleJoinCircle
                 }
-                disabled={joinBusy}
+                disabled={joinBusy || joinState === "invite-only"}
               >
-                {joinBusy ? "…" : joinState === "signed-out" ? "Sign in to join" : "Join Circle"}
+                {joinBusy
+                  ? "…"
+                  : joinState === "signed-out"
+                  ? "Sign in to join"
+                  : joinState === "requested"
+                  ? "Withdraw request"
+                  : joinState === "invite-only"
+                  ? "Invite only"
+                  : circle.joinMode === "approval"
+                  ? "Request to join"
+                  : "Join Circle"}
               </Button>
             </>
           )}

@@ -385,6 +385,24 @@ export async function initSchema() {
       UNIQUE KEY uniq_favourite (resident_id, listing_type, listing_id)
     );
 
+    -- Follow (Follow feature) — "keep me in the loop" on a vendor Provider
+    -- or a resident Host, deliberately separate from favourites above:
+    -- favourites are per-*listing* with an interested/planning/joined
+    -- lifecycle; a follow is a standing relationship with an account
+    -- (vendor or host) and its own per-relationship notification_level,
+    -- not a listing-status progression. Requires a real resident_id (no
+    -- guest/localStorage fallback, unlike favourites) since a follow with
+    -- no persistent identity to notify is meaningless.
+    CREATE TABLE IF NOT EXISTS follows (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      resident_id VARCHAR(191) NOT NULL,
+      followed_type VARCHAR(20) NOT NULL,
+      followed_id VARCHAR(191) NOT NULL,
+      notification_level VARCHAR(20) NOT NULL DEFAULT 'highlights',
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE KEY uniq_follow (resident_id, followed_type, followed_id)
+    );
+
     -- FIFO waitlist (MVP) for a full club (see clubs.capacity below) or a
     -- full game (see games below).
     CREATE TABLE IF NOT EXISTS waitlist_entries (
@@ -977,6 +995,19 @@ export async function initSchema() {
       previous_value TEXT,
       new_value TEXT,
       created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- HelloCircle Manage — links a vendor account to the resident (magic-link)
+    -- account of the same person, so one browser session can hold both a
+    -- vendor and a resident cookie and switch between them without signing
+    -- out (routes/manage.ts). Single-use, short-lived, keyed by the vendor
+    -- user id like resident_password_reset_tokens is keyed by email — same
+    -- "one deletes it on use" convention as every other token table here.
+    CREATE TABLE IF NOT EXISTS manage_link_tokens (
+      token VARCHAR(191) PRIMARY KEY,
+      user_id VARCHAR(191) NOT NULL,
+      resident_email VARCHAR(255) NOT NULL,
+      expires_at DATETIME NOT NULL
     )
   `);
 
@@ -1029,6 +1060,11 @@ export async function initSchema() {
   await ensureColumn("users", "landline", "landline VARCHAR(255) NOT NULL DEFAULT ''");
   await ensureColumn("users", "description", "description TEXT NULL");
   await db.exec(`UPDATE users SET description = '' WHERE description IS NULL`);
+  // Vendor's own business logo (public provider profile hero) — nullable,
+  // no DEFAULT: MySQL rejects a DEFAULT on TEXT/BLOB/JSON columns
+  // (ER_BLOB_CANT_HAVE_DEFAULT), same fix already applied to host_bio.
+  await ensureColumn("users", "logo", "logo TEXT NULL");
+  await db.exec(`UPDATE users SET logo = '' WHERE logo IS NULL`);
 
   // Backfill: vendors who signed up before draft-listing-at-signup existed
   // (or before vendor_type/county did) have a profile but no listing row.
@@ -1418,6 +1454,12 @@ export async function initSchema() {
   // privacy expectation for this field.
   await ensureColumn("games", "meeting_instructions", "meeting_instructions TEXT");
   await ensureColumn("games", "cancellation_policy", "cancellation_policy TEXT");
+  // HelloCircle Manage Phase 4 — set only when a game is created as a specific
+  // Circle's plan (via the "Create plan" deep-link), so a Circle's Manage >
+  // Plans tab can filter accurately instead of the pre-existing loose
+  // activity-label text match GET /circles/:id/upcoming still uses for its own,
+  // deliberately different, "similar activity nearby" discovery purpose.
+  await ensureColumn("games", "circle_id", "circle_id VARCHAR(191)");
 
   // Interest → Participation states (implementation plan Phase 6) — a
   // favourite is no longer just saved-or-not. 'interested' is the default
@@ -1572,6 +1614,41 @@ export async function initSchema() {
   // join under-counted signed-in visitors who convert from a different
   // device/browser.
   await ensureColumn("referrals", "visitor_resident_id", "visitor_resident_id VARCHAR(191)");
+
+  // Adult club registration — a club was previously always assumed to be a
+  // kids' sports club (RegistrationFlow.tsx's whole form is written around a
+  // minor: guardian, DOB, emergency contact). `audience` lets a vendor mark
+  // their club as adult-facing so the registration form drops the
+  // guardian/DOB framing; `registrant_type` records which shape a given
+  // registration was actually submitted under, independent of the club's
+  // current setting (a club can change `audience` later without meaning old
+  // registrations are misclassified). Defaults preserve exact prior
+  // behaviour for every existing club/registration — 'kids' and 'child'
+  // respectively, i.e. nothing already in the DB changes meaning.
+  await ensureColumn("clubs", "audience", "audience VARCHAR(10) NOT NULL DEFAULT 'kids'");
+  await ensureColumn("registrations", "registrant_type", "registrant_type VARCHAR(10) NOT NULL DEFAULT 'child'");
+
+  // HelloCircle Manage (Phase 1) — nullable link from a vendor account to the
+  // resident account of the same person. Null for every vendor until they
+  // deliberately link one via routes/manage.ts; no DB-level FK, same as every
+  // other cross-table reference in this schema.
+  await ensureColumn("users", "resident_id", "resident_id VARCHAR(191)");
+
+  // Circle join modes (Follow/Notify/Stats gap audit §6) — Circles were
+  // always instantly, publicly joinable (see routes/circles.ts's own
+  // "Circles stay publicly joinable" comment on circle_invites above);
+  // this adds the option for an organiser to require approval, or restrict
+  // to invite-only. Default 'open' preserves exact prior behaviour for
+  // every existing Circle.
+  await ensureColumn("circles", "join_mode", "join_mode VARCHAR(20) NOT NULL DEFAULT 'open'");
+  // circle_invites already models "a pending row an invitee accepts/
+  // declines" — reused for resident-initiated join *requests* too rather
+  // than adding a near-identical second table. `initiated_by` distinguishes
+  // which party the row is waiting on: an 'organiser'-initiated row waits
+  // on the invitee to accept/decline; a 'resident'-initiated one waits on
+  // the organiser to approve/decline. Every existing row is a real
+  // organiser invite, so the default backfills them correctly.
+  await ensureColumn("circle_invites", "initiated_by", "initiated_by VARCHAR(20) NOT NULL DEFAULT 'organiser'");
 }
 
 export const COUNTY_CENTROIDS: Record<string, { lat: number; lng: number }> = {

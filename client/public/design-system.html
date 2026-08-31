@@ -879,10 +879,10 @@
         <tr><th>Category</th><th>Source</th><th>Status</th></tr>
         <tr><td>Color</td><td class="footprint">theme.ts colors + index.css</td><td><span class="tag tag-keep">Mature</span></td></tr>
         <tr><td>Typography</td><td class="footprint">theme.ts fonts + type</td><td><span class="tag tag-keep">Mature</span></td></tr>
-        <tr><td>Spacing</td><td class="footprint">theme.ts space</td><td><span class="tag tag-backlog">Defined, not yet migrated to call sites</span></td></tr>
+        <tr><td>Spacing</td><td class="footprint">theme.ts space</td><td><span class="tag tag-p0">Measured, pass 3</span> — zero <code>space.*</code> call sites app-wide; ~656 raw <code>"Npx"</code> string values + ~716 raw numeric gap/padding/margin values remain. The single largest unstarted token gap — same shape as the radius sweep before it was done, just ~7x the footprint.</td></tr>
         <tr><td>Radius</td><td class="footprint">theme.ts radius</td><td><span class="tag tag-fixed">194 → 0, lint-tokens.mjs clean</span></td></tr>
-        <tr><td>Breakpoints</td><td class="footprint">theme.ts breakpoints</td><td><span class="tag tag-backlog">One stray value (560px) undocumented</span></td></tr>
-        <tr><td>Z-index</td><td class="footprint">theme.ts zIndex</td><td><span class="tag tag-fixed">New this pass</span> — ui.tsx migrated, app-wide sweep open</td></tr>
+        <tr><td>Breakpoints</td><td class="footprint">theme.ts breakpoints</td><td><span class="tag tag-fixed">560px named as narrowMobile</span></td></tr>
+        <tr><td>Z-index</td><td class="footprint">theme.ts zIndex</td><td><span class="tag tag-p1">Measured, pass 3</span> — only 3 usages, all inside ui.tsx itself. ~18 raw literals remain in Header.tsx, PhotoGallery.tsx, Explore.tsx, Games.tsx, Home.tsx, Browse.tsx, and others (Header.tsx's 50/60 happen to match <code>zIndex.sticky</code>/<code>.dropdown</code> without referencing them — right value, wrong governance).</td></tr>
         <tr><td>photoOverlay / statTile</td><td class="footprint">theme.ts</td><td><span class="tag tag-fixed">New this pass</span></td></tr>
       </table></div>
     </section>
@@ -953,8 +953,22 @@
         <tr><td>3 — First wave of product pages</td><td>CentreDetail, ClubDetail, BookingFlow, NotFound, Circles, ExperienceDetail, admin/vendor stat tiles</td><td><span class="tag tag-fixed">Done</span></td></tr>
         <tr><td>4 — Remaining core consumer pages</td><td>RegistrationFlow, ProgramDetail rail, FreeTimeMode/MakeItHappen empty states</td><td><span class="tag tag-fixed">Done</span> — Home.tsx polish deliberately deferred, see P3</td></tr>
         <tr><td>5 — Auth &amp; places/booking</td><td>AuthShell adoption, sticky mobile CTA bar, raw-radius sweep</td><td><span class="tag tag-fixed">Done</span> — VendorSignup/Onboarding excluded on purpose, see §Debt</td></tr>
-        <tr><td>6 — Landing, host/partner/admin polish</td><td>Landing token unification, chip variant expansion</td><td><span class="tag tag-fixed">Landing done</span> · <span class="tag tag-backlog">Chip variants + card ratios open</span></td></tr>
+        <tr><td>6 — Landing, host/partner/admin polish</td><td>Landing token unification, chip variant expansion</td><td><span class="tag tag-fixed">Landing done</span> · <span class="tag tag-p2">QuickIntentChip live on Explore; AttributeChip still unused</span></td></tr>
+        <tr><td>7 — Token governance completion <span class="tag tag-p0" style="margin-left:4px;">new, pass 3</span></td><td>Spacing + z-index sweeps — the two token categories that exist but were never adopted</td><td><span class="tag tag-backlog">Open — see §Token specification for measured scope</span></td></tr>
       </table></div>
+      <div class="callout" style="margin-top:14px;"><b>Pass 3 (external design-brief gap check):</b> a later brief asked
+        for an Explore "discovery vs. results mode" split and a "My Life as personal editorial hub" reframe —
+        both already exist. <code>Explore.tsx</code> already implements the exact split (<code>isResultsMode</code>,
+        literal copy "What do you feel like doing?", <code>QuickIntentChip</code>, active-filter chips, an
+        "N matches" count). <code>MyBookings.tsx</code> already has the "Your next up" / "My Circles" / "Waiting"
+        (<code>MyLifeWaitingFor</code>) / "Recently" / "Interests" section set. One deliberate divergence worth
+        keeping, not fixing: <code>MyLifeHero.tsx</code> uses a personalized photo greeting ("Good morning,
+        {name}") instead of the generic eyebrow+headline pattern used on Landing/Explore/Vendor — a better choice
+        for a personal hub than forcing the same editorial headline everywhere (see §51's own
+        "consistency ≠ identical composition" rule). Also confirmed: Plan/Adventure/Circle detail
+        (<code>GameDetail</code>/<code>ExperienceDetail</code>/<code>CircleDetail</code>) already share the
+        main+rail+mobile-sticky-bar family with Place/Program — rail parity across all five entity types is
+        real, not aspirational.</div>
     </section>
 
     <section class="doc" id="qa">

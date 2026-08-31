@@ -23,6 +23,22 @@ const KIND_META: Record<DiscoverItem["kind"], { icon: React.ReactNode; fg: strin
   club_session: { icon: <RepeatIcon size={22} />, fg: colors.orange, ph: placeholderStripes.orange },
 };
 
+/** DiscoverCard is fed by several different call sites (homepage feeds,
+ * search results, Explore's category previews) that all promise a
+ * DiscoverItem shape but aren't type-enforced end-to-end (search results
+ * come back as `any`-ish JSON, a stale async response can in theory land
+ * after its request is no longer current). A `kind` outside the three known
+ * values used to throw here (`meta.ph` on undefined) and take the whole
+ * surrounding panel down with it — this falls back to the "game" tile
+ * instead and logs what actually came through, so a real data bug surfaces
+ * as a console warning instead of a blank screen. */
+function kindMeta(kind: DiscoverItem["kind"]): { icon: React.ReactNode; fg: string; ph: string } {
+  const meta = KIND_META[kind];
+  if (meta) return meta;
+  console.warn(`[DiscoverCard] unexpected item.kind: ${JSON.stringify(kind)} — falling back to "game" styling`);
+  return KIND_META.game;
+}
+
 function dayPillLabel(dateIso: string): string {
   const d = new Date(`${dateIso}T12:00:00Z`);
   return d.toLocaleDateString("en-IE", { weekday: "short", day: "numeric", month: "short", timeZone: "Europe/Dublin" }).toUpperCase();
@@ -106,7 +122,7 @@ function JoinControl({ item }: { item: DiscoverItem }) {
 
 export function DiscoverCard({ item, isToday }: { item: DiscoverItem; isToday: boolean }) {
   const navigate = useNavigate();
-  const meta = KIND_META[item.kind];
+  const meta = kindMeta(item.kind);
   const place = item.centreName ?? item.clubName;
   const isJoinableGame = item.kind === "game" && item.spotsLeft !== null;
   const [saved, toggleSaved] = useSavedState(item.kind, item.id);
@@ -121,7 +137,7 @@ export function DiscoverCard({ item, isToday }: { item: DiscoverItem; isToday: b
         scrollSnapAlign: "start",
         background: "#fff",
         border: `1px solid ${colors.border}`,
-        borderRadius: radius.card,
+        borderRadius: 18,
         cursor: "pointer",
         overflow: "hidden",
         display: "flex",

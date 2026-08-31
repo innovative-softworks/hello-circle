@@ -1,9 +1,11 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { acceptInvite, fetchInviteDetails } from "../api";
-import { AuthPhotoPanel, AuthShell } from "../components/AuthShell";
+import { AuthEditorialHeader, AuthEditorialShell } from "../components/AuthEditorialShell";
+import { FieldIcon, PasswordField } from "../components/AuthForms";
+import { PersonIcon } from "../components/icons";
 import { Button, PageSpinner, inputStyle, labelStyle } from "../components/ui";
-import { colors } from "../theme";
+import { colors, radius } from "../theme";
 
 // Staff invite acceptance (Phase C) — reached via the link org.ts's
 // staff/invite route emails.
@@ -50,37 +52,50 @@ export function AcceptInvite() {
   if (loading) return <PageSpinner />;
 
   return (
-    <AuthShell
-      photo={
-        <AuthPhotoPanel
-          imageSeed="hellocircle-vendor-login"
-          heading={<>Fill your rooms.<br />Grow your community.<br />Run it your way.</>}
-          avatarCaption="Join hundreds of venues and clubs already listed."
-          avatarSeedPrefix="hc-vendor-avatar"
-        />
-      }
+    <AuthEditorialShell
+      heroImage={{
+        src: "https://images.unsplash.com/photo-1526232761682-d26e03ac148e?w=1920&q=75&auto=format&fit=crop",
+        alt: "A local five-a-side football match in progress on an outdoor pitch",
+      }}
+      caption={{
+        heading: <>Fill your rooms.<br />Grow your community.<br />Run it your way.</>,
+        avatarCaption: "Join hundreds of venues and clubs already listed.",
+        avatarSeedPrefix: "hc-vendor-avatar",
+      }}
     >
       {!invite ? (
-        <>
-          <h1 style={{ fontWeight: 800, fontSize: "clamp(26px,3vw,32px)", margin: "0 0 8px", letterSpacing: "-.02em" }}>Invite not found</h1>
-          <p style={{ color: colors.danger, fontSize: 15 }}>{error ?? "This invite is no longer valid."}</p>
-        </>
+        <AuthEditorialHeader
+          eyebrow="Team invite"
+          accent="orange"
+          headline="Invite not found."
+          subtitle={error ?? "This invite is no longer valid."}
+        />
       ) : (
         <>
-          <h1 style={{ fontWeight: 800, fontSize: "clamp(26px,3vw,32px)", margin: "0 0 8px", letterSpacing: "-.02em" }}>Join {invite.orgName}</h1>
-          <p style={{ color: colors.mutedLight, fontSize: 15, margin: "0 0 28px" }}>
-            You've been invited as <strong>{invite.platformRole.replace(/_/g, " ")}</strong> — signing in as {invite.email}.
-          </p>
-          <label style={labelStyle}>Your name</label>
-          <input value={name} onChange={(e) => setName(e.target.value)} style={{ ...inputStyle, marginBottom: 14 }} />
-          <label style={labelStyle}>Set a password</label>
-          <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} style={{ ...inputStyle, marginBottom: 8 }} />
-          {error && <p style={{ color: colors.danger, fontSize: 13, margin: "0 0 12px" }}>{error}</p>}
-          <Button full onClick={submit} disabled={submitting}>
+          <AuthEditorialHeader
+            eyebrow="Team invite"
+            accent="orange"
+            headline={<>Join<br /><span style={{ color: colors.orange }}>{invite.orgName}.</span></>}
+            subtitle={<>You've been invited as <strong>{invite.platformRole.replace(/_/g, " ")}</strong> — signing in as {invite.email}.</>}
+          />
+          <label htmlFor="invite-name" style={labelStyle}>Your name</label>
+          <div style={{ position: "relative", marginBottom: 14 }}>
+            <FieldIcon><PersonIcon size={16} /></FieldIcon>
+            <input id="invite-name" value={name} onChange={(e) => setName(e.target.value)} autoFocus autoComplete="name" placeholder="Your full name" style={{ ...inputStyle, paddingLeft: 38 }} />
+          </div>
+          <div style={{ marginBottom: 8 }}>
+            <PasswordField id="invite-password" label="Set a password" value={password} onChange={setPassword} autoComplete="new-password" placeholder="Create a password" />
+          </div>
+          {error && (
+            <p role="alert" className="pop-in" style={{ color: colors.danger, fontSize: 14, margin: "0 0 14px", background: colors.dangerBg, padding: "9px 12px", borderRadius: radius.control }}>
+              {error}
+            </p>
+          )}
+          <Button variant="orange" full onClick={submit} disabled={submitting}>
             {submitting ? "Joining…" : "Accept & join →"}
           </Button>
         </>
       )}
-    </AuthShell>
+    </AuthEditorialShell>
   );
 }

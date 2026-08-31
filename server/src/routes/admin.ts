@@ -7,6 +7,7 @@ import { FEATURE_FLAG_KEYS, getAnalyticsFunnel, getCentre, getClub, getDemandSig
 import { endOfIrelandDay } from "../irelandTime.js";
 import { NOTIFICATION_TEMPLATE_KEYS } from "../notificationTemplates.js";
 import { notifyResident } from "../notifications.js";
+import { notifyVendorFollowers } from "./follows.js";
 import { generateSlug } from "../slugify.js";
 
 export const adminRouter = Router();
@@ -19,12 +20,15 @@ adminRouter.get("/stats", async (_req, res) => {
   const clubsPending = (await db.prepare(`SELECT COUNT(*) as n FROM clubs WHERE status = 'pending'`).get()) as { n: number };
   const experiencesPending = (await db.prepare(`SELECT COUNT(*) as n FROM experiences WHERE status = 'pending'`).get()) as { n: number };
   const vendorCount = (await db.prepare(`SELECT COUNT(*) as n FROM users WHERE role = 'vendor'`).get()) as { n: number };
+  // "draft" (Form System Audit, Phase 5 — Guided Flow creation wizard)
+  // hasn't been submitted for review yet, same reasoning as excluding
+  // 'deleted' — an admin has nothing to act on for either.
   const totalListings = (await db
     .prepare(
       `SELECT
-        (SELECT COUNT(*) FROM centres WHERE status != 'deleted') +
-        (SELECT COUNT(*) FROM clubs WHERE status != 'deleted') +
-        (SELECT COUNT(*) FROM experiences WHERE status != 'deleted') as n`
+        (SELECT COUNT(*) FROM centres WHERE status NOT IN ('deleted', 'draft')) +
+        (SELECT COUNT(*) FROM clubs WHERE status NOT IN ('deleted', 'draft')) +
+        (SELECT COUNT(*) FROM experiences WHERE status NOT IN ('deleted', 'draft')) as n`
     )
     .get()) as { n: number };
   const reviewCount = (await db.prepare(`SELECT COUNT(*) as n FROM reviews`).get()) as { n: number };
@@ -191,6 +195,17 @@ async function vendorNotApprovedFor(table: "centres" | "clubs" | "experiences", 
   return !!row?.status && row.status !== "approved";
 }
 
+// Notifies a newly-approved listing's vendor's followers (Follow feature) —
+// fire-and-forget, never blocks the approval response. A no-op for a
+// listing with no vendor_id (grandfathered pre-vendor seed rows).
+async function notifyFollowersOfNewListing(table: "centres" | "clubs" | "experiences", id: string) {
+  const nameCol = table === "experiences" ? "title" : "name";
+  const row = (await db.prepare(`SELECT vendor_id as vendorId, ${nameCol} as name FROM ${table} WHERE id = ?`).get(id)) as { vendorId: string | null; name: string } | undefined;
+  if (row?.vendorId) {
+    await notifyVendorFollowers(row.vendorId, { title: "New listing", body: `${row.name} is now live on HelloCircle.`, ref: id });
+  }
+}
+
 adminRouter.put("/centres/:id/status", async (req, res) => {
   const { status } = req.body as { status?: string };
   if (!status || !["pending", "approved", "rejected", "deleted"].includes(status)) {
@@ -201,6 +216,7 @@ adminRouter.put("/centres/:id/status", async (req, res) => {
   }
   const info = await db.prepare(`UPDATE centres SET status = ? WHERE id = ?`).run(status, req.params.id);
   if (info.changes === 0) return res.status(404).json({ error: "Centre not found" });
+  if (status === "approved") await notifyFollowersOfNewListing("centres", req.params.id);
   res.json(await getCentre(req.params.id));
 });
 
@@ -214,6 +230,7 @@ adminRouter.put("/clubs/:id/status", async (req, res) => {
   }
   const info = await db.prepare(`UPDATE clubs SET status = ? WHERE id = ?`).run(status, req.params.id);
   if (info.changes === 0) return res.status(404).json({ error: "Club not found" });
+  if (status === "approved") await notifyFollowersOfNewListing("clubs", req.params.id);
   res.json(await getClub(req.params.id));
 });
 
@@ -227,6 +244,7 @@ adminRouter.put("/experiences/:id/status", async (req, res) => {
   }
   const info = await db.prepare(`UPDATE experiences SET status = ? WHERE id = ?`).run(status, req.params.id);
   if (info.changes === 0) return res.status(404).json({ error: "Experience not found" });
+  if (status === "approved") await notifyFollowersOfNewListing("experiences", req.params.id);
   res.json({ ok: true });
 });
 

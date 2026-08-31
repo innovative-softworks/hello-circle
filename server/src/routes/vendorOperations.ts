@@ -1,7 +1,9 @@
 import { Router } from "express";
 import { assertPlatformRole, requirePlatformRole } from "../auth.js";
+import { writeAudit } from "../audit.js";
 import { db } from "../db/index.js";
 import { sendMail } from "../email.js";
+import { notifyCancellation } from "../notifications.js";
 import { inClause, ownsCentre, ownsClub } from "./vendorHelpers.js";
 
 // Day-to-day operational surface: read-only bookings/registrations
@@ -19,15 +21,62 @@ vendorOperationsRouter.get("/bookings", async (req, res) => {
   const rows = await db
     .prepare(
       `SELECT b.ref, b.date, b.time, b.duration, b.event_type as eventType, b.guests, b.name, b.email, b.phone,
-              b.notes, b.total_cents as totalCents, b.created_at as createdAt, b.status,
-              c.name as centreName
+              b.notes, b.total_cents as totalCents, b.created_at as createdAt, b.status, b.payment_status as paymentStatus,
+              c.name as centreName, r.name as roomName
        FROM bookings b
        JOIN centres c ON c.id = b.centre_id
+       LEFT JOIN rooms r ON r.id = b.room_id AND r.centre_id = b.centre_id
        WHERE c.vendor_id IN (${inClause(ids)}) AND b.payment_status = 'paid'
        ORDER BY b.created_at DESC`
     )
     .all(...ids);
   res.json(rows);
+});
+
+/** Vendor-authorized cancel — status-only, same contract as the resident-facing
+ * cancel in bookings.ts: no Stripe refund call, refunds are handled off-platform.
+ * Unlike the resident-facing route, this is ownership-gated by req.vendorIds
+ * (the vendor's own org), not by client_id/email, and has no cancellation-cutoff
+ * check — a venue manager can cancel their own booking at any time. */
+vendorOperationsRouter.post("/bookings/:ref/cancel", async (req, res) => {
+  const ids = req.vendorIds!;
+  const row = (await db
+    .prepare(
+      `SELECT b.ref, b.date, b.time, b.duration, b.guests, b.status, b.name, b.email,
+              b.centre_id as centreId, c.name as centreName, c.vendor_id as vendorId
+       FROM bookings b JOIN centres c ON c.id = b.centre_id
+       WHERE b.ref = ? AND c.vendor_id IN (${inClause(ids)})`
+    )
+    .get(req.params.ref, ...ids)) as
+    | { ref: string; date: string; time: string; duration: number; guests: number; status: string; name: string; email: string; centreId: string; centreName: string; vendorId: string | null }
+    | undefined;
+  if (!row) return res.status(404).json({ error: "Booking not found" });
+  if (row.status === "cancelled") return res.status(409).json({ error: "This booking is already cancelled" });
+
+  await db.prepare(`UPDATE bookings SET status = 'cancelled' WHERE ref = ?`).run(row.ref);
+
+  await writeAudit({
+    actorUserId: req.user!.id,
+    action: "booking.cancelled_by_vendor",
+    objectType: "booking",
+    objectId: row.ref,
+    previousValue: { status: row.status },
+    newValue: { status: "cancelled" },
+  });
+
+  notifyCancellation({
+    kind: "booking",
+    listingType: "centre",
+    listingId: row.centreId,
+    listingName: row.centreName,
+    vendorId: row.vendorId,
+    guestName: row.name,
+    guestEmail: row.email,
+    ref: row.ref,
+    detailsText: `${row.date} at ${row.time} · ${row.duration}h · ${row.guests} guests`,
+  }).catch((e) => console.error("[notifications] vendor booking cancellation notify failed:", e));
+
+  res.json({ ok: true });
 });
 
 vendorOperationsRouter.get("/registrations", async (req, res) => {

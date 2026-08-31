@@ -121,6 +121,11 @@ residentsRouter.post("/me/host-application", requireResident, async (req, res) =
 // ever resolves for a verified host. Never exposes email/phone; only what
 // participation-relevant info the spec's own "Host public profile" screen
 // asks for (activities hosted, verification, hosting experience).
+//
+// Now also carries isFollowing/followerCount (Follow feature) — this
+// reverses this file's own prior comment ("no followers/likes/social
+// popularity"), a real earlier design decision from the original IA spec,
+// now superseded by explicit instruction to extend Follow to Hosts too.
 residentsRouter.get("/:id/host-profile", async (req, res) => {
   const host = (await db.prepare(`SELECT id, name, host_bio as bio, host_status as hostStatus FROM residents WHERE id = ?`).get(req.params.id)) as
     | { id: string; name: string; bio: string | null; hostStatus: string }
@@ -139,8 +144,26 @@ residentsRouter.get("/:id/host-profile", async (req, res) => {
   // reviewStats() aggregation centres/clubs already use, just for
   // listing_type='host'.
   const { rating, reviews } = await reviewStats("host", req.params.id);
+  const { n: followerCount } = (await db.prepare(`SELECT COUNT(*) as n FROM follows WHERE followed_type = 'host' AND followed_id = ?`).get(req.params.id)) as { n: number };
+  const followRow = req.resident
+    ? ((await db
+        .prepare(`SELECT notification_level as notificationLevel FROM follows WHERE resident_id = ? AND followed_type = 'host' AND followed_id = ?`)
+        .get(req.resident.id, req.params.id)) as { notificationLevel: "highlights" | "everything" } | undefined)
+    : undefined;
 
-  res.json({ id: host.id, name: host.name, bio: host.bio ?? "", upcomingGames: games, circles, gamesHostedTotal, rating, reviews });
+  res.json({
+    id: host.id,
+    name: host.name,
+    bio: host.bio ?? "",
+    upcomingGames: games,
+    circles,
+    gamesHostedTotal,
+    rating,
+    reviews,
+    followerCount: Number(followerCount),
+    isFollowing: !!followRow,
+    followNotificationLevel: followRow?.notificationLevel ?? "highlights",
+  });
 });
 
 // --- Routines-as-an-object (IA spec §9) ------------------------------------

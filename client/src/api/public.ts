@@ -160,6 +160,21 @@ export function downloadBookingIcs(ref: string): Promise<void> {
   return downloadIcs(`/bookings/${encodeURIComponent(ref)}/ics`, `booking-${ref}.ics`);
 }
 
+// --- Address search (Form System Audit, Phase 4) — proxies Nominatim
+// server-side (see server/src/routes/geocode.ts for why). ------------------
+
+export interface AddressSuggestion {
+  label: string;
+  lat: number;
+  lng: number;
+  area: string;
+  county: string;
+}
+
+export function searchAddress(query: string): Promise<AddressSuggestion[]> {
+  return request(`/geocode/search?q=${encodeURIComponent(query)}`);
+}
+
 // --- Participation Intent (demand capture) — works for guests via the
 // X-Client-Id header request() already sends on every call, no separate
 // auth needed. ---------------------------------------------------------
@@ -200,18 +215,20 @@ export function logReferralLand(ref: string, source?: string): Promise<{ ok: boo
 
 export interface CreateRegistrationInput {
   clubId: string;
-  team: string;
+  /** Defaults server-side to "child" when omitted. */
+  registrantType?: "child" | "adult";
+  team?: string;
   childFirst: string;
   childLast: string;
-  dob: string;
+  dob?: string;
   gFirst: string;
   gLast: string;
   email: string;
   phone: string;
   address: string;
-  ecName: string;
-  ecPhone: string;
-  ecRel: string;
+  ecName?: string;
+  ecPhone?: string;
+  ecRel?: string;
   medical?: string;
   consent: boolean;
   trial: boolean;

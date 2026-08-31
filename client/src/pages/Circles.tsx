@@ -12,7 +12,7 @@ import {
   leaveCircle,
   respondToCircleInvitation,
 } from "../api";
-import { AwardIcon, PlusIcon, RepeatIcon, SearchIcon, UsersIcon } from "../components/icons";
+import { AwardIcon, RepeatIcon, SearchIcon, UsersIcon } from "../components/icons";
 import { Chip } from "../components/Chip";
 import { CircleCountList } from "../components/CircleCountList";
 import { CircleDiscoveryCard } from "../components/CircleDiscoveryCard";
@@ -21,7 +21,7 @@ import { DropdownOption, FilterDropdown } from "../components/FilterDropdown";
 import { SectionHeader } from "../components/SectionHeader";
 import { IntentCaptureForm } from "../components/IntentCaptureForm";
 import { Photo } from "../components/Photo";
-import { Button, Card, CardSkeleton, EmptyState, inputStyle, labelStyle } from "../components/ui";
+import { Button, CardSkeleton, EmptyState } from "../components/ui";
 import { useGuest } from "../GuestContext";
 import { colors, fonts, maxWidth, placeholderStripes, radius } from "../theme";
 import type { Circle, CircleInvitation, CircleSuggestion, Game } from "../types";
@@ -42,6 +42,26 @@ import type { Circle, CircleInvitation, CircleSuggestion, Game } from "../types"
 
 const DAY_MS = 86400000;
 const PAGE_SIZE = 12;
+
+// Same poster-brand accent as /for-venues, Home.tsx and FreeTimeMode.tsx —
+// reused by literal value (not a colors.* token, see those pages' own
+// notes on why) so this page's editorial chrome (eyebrows, hero CTA)
+// matches the rest of the redesigned app. Circle cards/badges elsewhere
+// keep their own established green (CircleDiscoveryCard, CircleCountList,
+// CircleHappeningThisWeek — shared components used across other pages
+// too) untouched; only this page's own headers/hero get the accent.
+const ACCENT = "#FF4A1F";
+
+function accentEyebrow(label: string): React.ReactNode {
+  return (
+    <>
+      <span style={{ color: ACCENT }} aria-hidden="true">
+        /
+      </span>{" "}
+      {label}
+    </>
+  );
+}
 
 // Mirrors discover.ts's MOOD_KEYWORDS `active` (sport) and `social` buckets
 // — reused, not reinvented, for the "Sports"/"Social" quick filter chips.
@@ -133,12 +153,7 @@ export function Circles() {
   const [quickFilters, setQuickFilters] = useState<Set<string>>(new Set());
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
 
-  const [showStartForm, setShowStartForm] = useState(false);
-  const startFormRef = useRef<HTMLDivElement>(null);
   const resultsRef = useRef<HTMLDivElement>(null);
-  const [form, setForm] = useState({ name: "", activityLabel: "", area: "", county: "", about: "", whatWeDo: "", whoCanJoin: "", values: "" });
-  const [showMoreCircleFields, setShowMoreCircleFields] = useState(false);
-  const [creating, setCreating] = useState(false);
 
   const load = () => {
     setLoading(true);
@@ -163,15 +178,7 @@ export function Circles() {
     if (resident) fetchMyCircleInvitations().then(setInvitations).catch(() => setInvitations([]));
     else setInvitations([]);
   }, [resident]);
-  useEffect(() => {
-    if (window.location.hash === "#start-circle") openStartForm();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  const openStartForm = () => {
-    setShowStartForm(true);
-    requestAnimationFrame(() => startFormRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }));
-  };
+  const openStartForm = () => navigate("/circles/start");
   const scrollToResults = () => resultsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
 
   const handleRespond = async (invite: CircleInvitation, accept: boolean) => {
@@ -225,17 +232,6 @@ export function Circles() {
       load();
     } finally {
       setBusyId(null);
-    }
-  };
-
-  const handleCreate = async () => {
-    if (!form.name.trim()) return;
-    setCreating(true);
-    try {
-      const { id, slug } = await createCircle(form);
-      navigate(`/circles/${slug ?? id}`);
-    } finally {
-      setCreating(false);
     }
   };
 
@@ -310,19 +306,19 @@ export function Circles() {
       <section style={{ background: colors.surface, borderBottom: `1px solid ${colors.border}` }}>
         <div className="grid-responsive" style={{ maxWidth, margin: "0 auto", padding: "48px 24px 40px", display: "grid", gridTemplateColumns: "1.2fr 1fr", gap: 40, alignItems: "center" }}>
           <div>
-            <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: ".09em", textTransform: "uppercase", color: colors.mutedLight, marginBottom: 10 }}>Circles</div>
-            <h1 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(28px, 4vw, 42px)", letterSpacing: "-.02em", lineHeight: 1.08, margin: "0 0 14px" }}>
+            <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: ".09em", textTransform: "uppercase", color: colors.mutedLight, marginBottom: 10 }}>{accentEyebrow("Circles")}</div>
+            <h1 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(30px, 4.6vw, 50px)", letterSpacing: "-.02em", lineHeight: 1.03, margin: "0 0 14px" }}>
               Find people who keep showing up.
             </h1>
             <p style={{ fontSize: 16, color: colors.mutedLight, lineHeight: 1.5, margin: "0 0 22px", maxWidth: 440 }}>
               Join recurring groups near you and turn the things you enjoy into something you do regularly with other people.
             </p>
             <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 28 }}>
-              <Button onClick={scrollToResults}>Explore Circles</Button>
+              <Button variant="orange" onClick={scrollToResults} style={{ background: ACCENT }}>Explore Circles</Button>
               <Button variant="ghost" onClick={openStartForm}>Start a Circle</Button>
             </div>
             {!loading && (
-              <div style={{ display: "flex", gap: 28, flexWrap: "wrap", borderTop: `1px solid ${colors.border}`, paddingTop: 20 }}>
+              <div style={{ display: "flex", gap: 28, flexWrap: "wrap", borderTop: `2px solid ${colors.text}`, paddingTop: 20 }}>
                 <div>
                   <div style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 24 }}>{heroStats.activeCircles}</div>
                   <div style={{ fontSize: 12.5, color: colors.mutedLight }}>Active Circles</div>
@@ -451,7 +447,7 @@ export function Circles() {
 
         {/* DISCOVERY GRID */}
         <div ref={resultsRef} style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 12, flexWrap: "wrap", marginBottom: 20 }}>
-          <SectionHeader eyebrow="Discover Circles" title="Find your people" subtitle="Recurring groups around the things you actually want to do." />
+          <SectionHeader eyebrow={accentEyebrow("Discover Circles")} title="Find your people" subtitle="Recurring groups around the things you actually want to do." />
         </div>
 
         {loading ? (
@@ -465,7 +461,7 @@ export function Circles() {
             subtitle={circles.length === 0 ? "Be the first to start one." : "There may still be people nearby interested in the same thing."}
             action={
               <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 14 }}>
-                <IntentCaptureForm activityLabel={activity !== "All" ? activity : query} county={county === "All" ? "" : county} startHref="/circles#start-circle" startLabel="Or start a Circle yourself →" />
+                <IntentCaptureForm activityLabel={activity !== "All" ? activity : query} county={county === "All" ? "" : county} startHref="/circles/start" startLabel="Or start a Circle yourself →" />
                 {circles.length > 0 && (
                   <div style={{ display: "flex", flexWrap: "wrap", gap: 8, justifyContent: "center" }}>
                     {county !== "All" && <Chip label="Expand distance" active={false} onClick={() => setCounty("All")} />}
@@ -503,7 +499,7 @@ export function Circles() {
         {/* EDITORIAL BREAK — THIS WEEK */}
         {weekByCounty.length > 0 && (
           <div style={{ borderTop: `1px solid ${colors.border}`, padding: "40px 0" }}>
-            <SectionHeader eyebrow="This week" title="People are showing up." subtitle="See Circles with plans happening across Ireland this week." titleSize="clamp(22px, 2.8vw, 30px)" />
+            <SectionHeader eyebrow={accentEyebrow("This week")} title="People are showing up." subtitle="See Circles with plans happening across Ireland this week." titleSize="clamp(22px, 2.8vw, 30px)" />
             {weekByCounty.map((row) => (
               <div key={row.label} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, borderTop: `1px solid ${colors.border}`, padding: "14px 4px" }}>
                 <span style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 16 }}>{row.label}</span>
@@ -523,7 +519,7 @@ export function Circles() {
         {/* BY ACTIVITY */}
         {byActivity.length > 0 && (
           <div style={{ borderTop: `1px solid ${colors.border}`, padding: "40px 0" }}>
-            <SectionHeader eyebrow="By activity" title="What are you into?" titleSize="clamp(22px, 2.8vw, 30px)" />
+            <SectionHeader eyebrow={accentEyebrow("By activity")} title="What are you into?" titleSize="clamp(22px, 2.8vw, 30px)" />
             <div className="grid-responsive-3" style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 1, background: colors.border }}>
               {byActivity.map((row) => (
                 <button
@@ -542,7 +538,7 @@ export function Circles() {
         {/* AROUND IRELAND */}
         {byCounty.length > 0 && (
           <div style={{ borderTop: `1px solid ${colors.border}`, padding: "40px 0" }}>
-            <SectionHeader eyebrow="Around Ireland" title="Find a Circle near you" titleSize="clamp(22px, 2.8vw, 30px)" />
+            <SectionHeader eyebrow={accentEyebrow("Around Ireland")} title="Find a Circle near you" titleSize="clamp(22px, 2.8vw, 30px)" />
             <CircleCountList items={byCounty} unit="Circle" onSelect={(label) => { setCounty(label); scrollToResults(); }} />
           </div>
         )}
@@ -552,7 +548,7 @@ export function Circles() {
           <div className="grid-responsive" style={{ borderTop: `1px solid ${colors.border}`, padding: "40px 0", display: "grid", gridTemplateColumns: newCircles.length > 0 && needsPeople.length > 0 ? "1fr 1fr" : "1fr", gap: 40 }}>
             {newCircles.length > 0 && (
               <div>
-                <SectionHeader eyebrow="New around you" title="Just started" titleSize="22px" />
+                <SectionHeader eyebrow={accentEyebrow("New around you")} title="Just started" titleSize="22px" />
                 <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                   {newCircles.map((c) => (
                     <button key={c.id} onClick={() => navigate(`/circles/${c.slug ?? c.id}`)} style={{ textAlign: "left", background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 14, padding: "14px 16px", cursor: "pointer" }}>
@@ -568,7 +564,7 @@ export function Circles() {
             )}
             {needsPeople.length > 0 && (
               <div>
-                <SectionHeader eyebrow="Needs people" title="A few more would make it happen" titleSize="22px" />
+                <SectionHeader eyebrow={accentEyebrow("Needs people")} title="A few more would make it happen" titleSize="22px" />
                 <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                   {needsPeople.map((c) => (
                     <button key={c.id} onClick={() => navigate(`/circles/${c.slug ?? c.id}`)} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, textAlign: "left", background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 14, padding: "14px 16px", cursor: "pointer" }}>
@@ -592,7 +588,7 @@ export function Circles() {
       <section style={{ background: colors.greenBg, marginTop: 20 }}>
         <div className="section-pad" style={{ maxWidth, margin: "0 auto", padding: "48px 24px", display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: 32 }}>
           <div style={{ maxWidth: 460 }}>
-            <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: ".09em", textTransform: "uppercase", color: colors.greenText, marginBottom: 8 }}>Nothing quite right?</div>
+            <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: ".09em", textTransform: "uppercase", color: colors.greenText, marginBottom: 8 }}>{accentEyebrow("Nothing quite right?")}</div>
             <h2 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(22px, 2.8vw, 28px)", margin: "0 0 8px", letterSpacing: "-.01em", color: colors.greenText }}>
               The Circle you're looking for might not exist yet.
             </h2>
@@ -601,106 +597,10 @@ export function Circles() {
             </p>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 24, flexWrap: "wrap" }}>
-            <IntentCaptureForm activityLabel={activity !== "All" ? activity : query || "this"} county={county === "All" ? "" : county} startHref="/circles#start-circle" startLabel="Or start a Circle →" />
+            <IntentCaptureForm activityLabel={activity !== "All" ? activity : query || "this"} county={county === "All" ? "" : county} startHref="/circles/start" startLabel="Or start a Circle →" />
             <Button variant="ghost" onClick={openStartForm}>Start a Circle</Button>
           </div>
         </div>
-      </section>
-
-      {/* START A CIRCLE */}
-      <section className="section-pad" ref={startFormRef} style={{ maxWidth: 900, margin: "0 auto", padding: showStartForm ? "40px 24px 90px" : 0 }}>
-        {showStartForm && (
-          resident ? (
-            <div style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: radius.card, padding: "22px 24px" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 16, fontWeight: 700, marginBottom: 6 }}>
-                <PlusIcon size={16} /> Start a Circle
-              </div>
-              <p style={{ margin: "0 0 18px", fontSize: 13.5, color: colors.mutedLight, lineHeight: 1.5 }}>
-                Starting a Circle doesn't mean you need everything planned. Start with an idea and find people who are interested.
-              </p>
-              <div className="grid-responsive" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
-                <div>
-                  <label style={labelStyle}>Name</label>
-                  <input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} placeholder="e.g. Clontarf Badminton Circle" style={inputStyle} />
-                </div>
-                <div>
-                  <label style={labelStyle}>Activity</label>
-                  <input value={form.activityLabel} onChange={(e) => setForm((f) => ({ ...f, activityLabel: e.target.value }))} placeholder="e.g. Badminton" style={inputStyle} />
-                </div>
-                <div>
-                  <label style={labelStyle}>Area</label>
-                  <input value={form.area} onChange={(e) => setForm((f) => ({ ...f, area: e.target.value }))} style={inputStyle} />
-                </div>
-                <div>
-                  <label style={labelStyle}>County</label>
-                  <input value={form.county} onChange={(e) => setForm((f) => ({ ...f, county: e.target.value }))} style={inputStyle} />
-                </div>
-                <div style={{ gridColumn: "1 / -1" }}>
-                  <label style={labelStyle}>About (optional)</label>
-                  <textarea value={form.about} onChange={(e) => setForm((f) => ({ ...f, about: e.target.value }))} rows={2} style={{ ...inputStyle, resize: "vertical" }} />
-                </div>
-              </div>
-
-              {/* Structured "About our community" content (Circle Detail
-                  redesign) — collapsed by default, same reasoning as
-                  Games.tsx's own "Add more detail": most organisers just
-                  want to post a Circle quickly. */}
-              {!showMoreCircleFields ? (
-                <button
-                  onClick={() => setShowMoreCircleFields(true)}
-                  style={{ background: "none", border: "none", padding: 0, marginTop: 14, color: colors.text, fontWeight: 700, fontSize: 13, cursor: "pointer", textDecoration: "underline" }}
-                >
-                  + Add more detail (optional)
-                </button>
-              ) : (
-                <div style={{ marginTop: 16, paddingTop: 14, borderTop: `1px solid ${colors.border}` }}>
-                  <div style={{ marginBottom: 12 }}>
-                    <label style={labelStyle}>What we do (optional)</label>
-                    <textarea
-                      value={form.whatWeDo}
-                      onChange={(e) => setForm((f) => ({ ...f, whatWeDo: e.target.value }))}
-                      placeholder="e.g. Weekly sessions, occasional social meetups and the odd challenge."
-                      rows={2}
-                      style={{ ...inputStyle, resize: "vertical" }}
-                    />
-                  </div>
-                  <div style={{ marginBottom: 12 }}>
-                    <label style={labelStyle}>Who can join (optional)</label>
-                    <textarea
-                      value={form.whoCanJoin}
-                      onChange={(e) => setForm((f) => ({ ...f, whoCanJoin: e.target.value }))}
-                      placeholder="e.g. Anyone nearby who wants to give this a go — no experience needed."
-                      rows={2}
-                      style={{ ...inputStyle, resize: "vertical" }}
-                    />
-                  </div>
-                  <div>
-                    <label style={labelStyle}>Our values (optional)</label>
-                    <textarea
-                      value={form.values}
-                      onChange={(e) => setForm((f) => ({ ...f, values: e.target.value }))}
-                      placeholder="e.g. Respect, encouragement, and showing up for each other."
-                      rows={2}
-                      style={{ ...inputStyle, resize: "vertical" }}
-                    />
-                  </div>
-                </div>
-              )}
-
-              <div style={{ marginTop: 16, display: "flex", gap: 10 }}>
-                <Button onClick={handleCreate} disabled={creating || !form.name.trim()}>{creating ? "Creating…" : "Create Circle"}</Button>
-                <Button variant="ghost" onClick={() => setShowStartForm(false)}>Cancel</Button>
-              </div>
-            </div>
-          ) : (
-            <Card style={{ background: colors.greenBg, border: `1px solid ${colors.green}` }}>
-              <button onClick={() => navigate(signInHref())} style={{ background: "none", border: "none", padding: 0, color: colors.greenText, fontWeight: 700, cursor: "pointer" }}>
-                Sign in
-              </button>{" "}
-              to start a Circle of your own.
-            </Card>
-          )
-        )}
       </section>
     </div>
   );

@@ -4,6 +4,7 @@ import { logEvent } from "../analytics.js";
 import { computeCapacity } from "../capacity.js";
 import { db } from "../db/index.js";
 import { getCircleSuggestions } from "../db/queries.js";
+import { notifyResident } from "../notifications.js";
 import { requireResident } from "../residents.js";
 import { generateSlug } from "../slugify.js";
 
@@ -25,6 +26,7 @@ interface CircleRow {
   what_we_do: string | null;
   who_can_join: string | null;
   circle_values: string | null;
+  join_mode: "open" | "approval" | "invite";
 }
 
 /** Organiser-only actions (invite, close, close a poll) — the creator gets
@@ -111,6 +113,7 @@ async function toCircleJson(row: CircleRow) {
     imageUrl: row.image_url || null,
     nextPlan,
     plansThisMonth,
+    joinMode: row.join_mode,
     whatWeDo: row.what_we_do,
     whoCanJoin: row.who_can_join,
     values: row.circle_values,
@@ -317,6 +320,29 @@ circlesRouter.get("/:id/upcoming", async (req, res) => {
   res.json(rows.map((r) => ({ ...r, spotsLeft: computeCapacity(r.capacity, r.joined).spotsLeft ?? 0 })));
 });
 
+// HelloCircle Manage Phase 4 — organiser-only, real plans (games.circle_id)
+// instead of the loose activity-label match GET /:id/upcoming above uses.
+// Deliberately a separate endpoint rather than a param on /upcoming: the two
+// serve honestly different purposes (public "similar activity nearby"
+// discovery vs. an organiser's own management list) and would otherwise
+// silently start meaning two different things depending on who's asking.
+circlesRouter.get("/:id/plans", requireResident, async (req, res) => {
+  const circle = (await db.prepare(`SELECT id FROM circles WHERE slug = ? OR id = ?`).get(req.params.id, req.params.id)) as { id: string } | undefined;
+  if (!circle) return res.status(404).json({ error: "Circle not found" });
+  if (!(await isOrganiser(circle.id, req.resident!.id))) return res.status(403).json({ error: "Only the organiser can view this" });
+  const rows = (await db
+    .prepare(
+      `SELECT g.id, g.activity_label as activityLabel, g.date, g.time, g.status, g.capacity,
+              c.name as centreName,
+              (SELECT COUNT(*) FROM game_participants gp WHERE gp.game_id = g.id AND gp.status = 'joined') as joined
+       FROM games g LEFT JOIN centres c ON c.id = g.centre_id
+       WHERE g.circle_id = ?
+       ORDER BY g.date DESC, g.time DESC`
+    )
+    .all(circle.id)) as { id: string; activityLabel: string; date: string; time: string; status: string; capacity: number; centreName: string | null; joined: number }[];
+  res.json(rows);
+});
+
 const RECENT_ACTIVITY_LIMIT = 3;
 
 // "Recently in this Circle" (§20) — the last few completed games matching
@@ -411,6 +437,9 @@ circlesRouter.get("/:id/activity", async (req, res) => {
   res.json({ period, newMembers, plansCreated, participants });
 });
 
+const JOIN_MODES = ["open", "approval", "invite"] as const;
+type JoinMode = (typeof JOIN_MODES)[number];
+
 interface CreateCircleInput {
   name: string;
   activityLabel?: string;
@@ -421,18 +450,20 @@ interface CreateCircleInput {
   whatWeDo?: string;
   whoCanJoin?: string;
   values?: string;
+  joinMode?: JoinMode;
 }
 
 circlesRouter.post("/", requireResident, async (req, res) => {
   const b = req.body as CreateCircleInput;
   if (!b.name) return res.status(400).json({ error: "A name is required" });
+  if (b.joinMode && !JOIN_MODES.includes(b.joinMode)) return res.status(400).json({ error: "Invalid joinMode" });
   const id = crypto.randomUUID();
   const slug = await generateSlug("circles", b.name);
   await db.transaction(async (tx) => {
     await tx
       .prepare(
-        `INSERT INTO circles (id, name, activity_label, area, county, about, centre_id, created_by_resident_id, slug, what_we_do, who_can_join, circle_values)
-         VALUES (@id, @name, @activityLabel, @area, @county, @about, @centreId, @createdByResidentId, @slug, @whatWeDo, @whoCanJoin, @values)`
+        `INSERT INTO circles (id, name, activity_label, area, county, about, centre_id, created_by_resident_id, slug, what_we_do, who_can_join, circle_values, join_mode)
+         VALUES (@id, @name, @activityLabel, @area, @county, @about, @centreId, @createdByResidentId, @slug, @whatWeDo, @whoCanJoin, @values, @joinMode)`
       )
       .run({
         id,
@@ -447,13 +478,74 @@ circlesRouter.post("/", requireResident, async (req, res) => {
         whatWeDo: b.whatWeDo || null,
         whoCanJoin: b.whoCanJoin || null,
         values: b.values || null,
+        joinMode: b.joinMode ?? "open",
       });
     await tx.prepare(`INSERT INTO circle_members (circle_id, resident_id, role) VALUES (?, ?, 'organiser')`).run(id, req.resident!.id);
   });
   res.status(201).json({ id, slug });
 });
 
+// Join modes (Follow/Notify/Stats gap audit §6) — 'open' keeps the exact
+// prior instant-join behaviour. 'approval'/'invite' both route through
+// circle_invites: an outstanding *organiser*-sent invite for this resident
+// is always accepted outright regardless of joinMode (that's the whole
+// point of having been invited); otherwise 'approval' files a pending,
+// resident-initiated request for the organiser to decide on, and 'invite'
+// is refused outright since there's no self-serve path in.
 circlesRouter.post("/:id/join", requireResident, async (req, res) => {
+  const circle = (await db.prepare(`SELECT join_mode as joinMode FROM circles WHERE id = ?`).get(req.params.id)) as { joinMode: JoinMode } | undefined;
+  if (!circle) return res.status(404).json({ error: "Circle not found" });
+
+  const existingInvite = (await db
+    .prepare(`SELECT initiated_by as initiatedBy, status FROM circle_invites WHERE circle_id = ? AND resident_id = ?`)
+    .get(req.params.id, req.resident!.id)) as { initiatedBy: "organiser" | "resident"; status: string } | undefined;
+  const invitedByOrganiser = existingInvite?.status === "pending" && existingInvite.initiatedBy === "organiser";
+
+  if (invitedByOrganiser) {
+    await db.transaction(async (tx) => {
+      await tx.prepare(`UPDATE circle_invites SET status = 'accepted' WHERE circle_id = ? AND resident_id = ?`).run(req.params.id, req.resident!.id);
+      await tx.prepare(`INSERT IGNORE INTO circle_members (circle_id, resident_id) VALUES (?, ?)`).run(req.params.id, req.resident!.id);
+    });
+    void logEvent("circle_joined", { residentId: req.resident!.id, metadata: { circleId: req.params.id } });
+    return res.status(201).json({ ok: true });
+  }
+
+  if (circle.joinMode === "invite") {
+    return res.status(403).json({ error: "This Circle is invite-only" });
+  }
+
+  if (circle.joinMode === "approval") {
+    const alreadyMember = await db.prepare(`SELECT 1 FROM circle_members WHERE circle_id = ? AND resident_id = ?`).get(req.params.id, req.resident!.id);
+    if (alreadyMember) return res.status(409).json({ error: "Already a member" });
+    const requestId = crypto.randomUUID();
+    await db
+      .prepare(
+        `INSERT INTO circle_invites (id, circle_id, resident_id, invited_by_resident_id, initiated_by) VALUES (?, ?, ?, ?, 'resident')
+         ON DUPLICATE KEY UPDATE status = 'pending', initiated_by = 'resident', invited_by_resident_id = VALUES(invited_by_resident_id), created_at = NOW()`
+      )
+      .run(requestId, req.params.id, req.resident!.id, req.resident!.id);
+
+    const [organisers, circleName] = await Promise.all([
+      db.prepare(`SELECT resident_id as residentId FROM circle_members WHERE circle_id = ? AND role = 'organiser'`).all(req.params.id) as Promise<{ residentId: string }[]>,
+      db.prepare(`SELECT name FROM circles WHERE id = ?`).get(req.params.id) as Promise<{ name: string } | undefined>,
+    ]);
+    await Promise.all(
+      organisers.map((o) =>
+        notifyResident({
+          residentId: o.residentId,
+          kind: "circle",
+          title: `Join request: ${circleName?.name ?? "Circle"}`,
+          body: `${req.resident!.name} wants to join ${circleName?.name ?? "your Circle"}.`,
+          listingType: "circle",
+          listingId: req.params.id,
+          ref: req.params.id,
+        })
+      )
+    );
+    void logEvent("circle_join_requested", { residentId: req.resident!.id, metadata: { circleId: req.params.id } });
+    return res.status(202).json({ ok: true, requested: true });
+  }
+
   await db.prepare(`INSERT IGNORE INTO circle_members (circle_id, resident_id) VALUES (?, ?)`).run(req.params.id, req.resident!.id);
   void logEvent("circle_joined", { residentId: req.resident!.id, metadata: { circleId: req.params.id } });
   res.status(201).json({ ok: true });
@@ -461,12 +553,64 @@ circlesRouter.post("/:id/join", requireResident, async (req, res) => {
 
 circlesRouter.delete("/:id/join", requireResident, async (req, res) => {
   await db.prepare(`DELETE FROM circle_members WHERE circle_id = ? AND resident_id = ?`).run(req.params.id, req.resident!.id);
+  // Withdraws a still-pending request too, so re-requesting later starts
+  // fresh rather than tripping the uniq_circle_invite key on a stale row.
+  await db.prepare(`DELETE FROM circle_invites WHERE circle_id = ? AND resident_id = ? AND status = 'pending' AND initiated_by = 'resident'`).run(req.params.id, req.resident!.id);
   res.json({ ok: true });
 });
 
 circlesRouter.get("/:id/membership", requireResident, async (req, res) => {
-  const row = await db.prepare(`SELECT role FROM circle_members WHERE circle_id = ? AND resident_id = ?`).get(req.params.id, req.resident!.id);
-  res.json({ member: !!row, role: (row as { role: string } | undefined)?.role ?? null });
+  const [row, pendingRequest] = await Promise.all([
+    db.prepare(`SELECT role FROM circle_members WHERE circle_id = ? AND resident_id = ?`).get(req.params.id, req.resident!.id) as Promise<{ role: string } | undefined>,
+    db
+      .prepare(`SELECT 1 FROM circle_invites WHERE circle_id = ? AND resident_id = ? AND status = 'pending' AND initiated_by = 'resident'`)
+      .get(req.params.id, req.resident!.id),
+  ]);
+  res.json({ member: !!row, role: row?.role ?? null, requested: !!pendingRequest });
+});
+
+// Organiser's pending join-requests inbox — resident-initiated
+// circle_invites rows only (organiser-sent invites are a different list,
+// see GET /invitations/mine below, which is the invitee's own inbox).
+circlesRouter.get("/:id/join-requests", requireResident, async (req, res) => {
+  if (!(await isOrganiser(req.params.id, req.resident!.id))) return res.status(403).json({ error: "Only the organiser can view this" });
+  const rows = await db
+    .prepare(
+      `SELECT ci.id, ci.resident_id as residentId, r.name, ci.created_at as createdAt
+       FROM circle_invites ci JOIN residents r ON r.id = ci.resident_id
+       WHERE ci.circle_id = ? AND ci.status = 'pending' AND ci.initiated_by = 'resident'
+       ORDER BY ci.created_at DESC`
+    )
+    .all(req.params.id);
+  res.json(rows);
+});
+
+circlesRouter.post("/:id/join-requests/:requestId/respond", requireResident, async (req, res) => {
+  if (!(await isOrganiser(req.params.id, req.resident!.id))) return res.status(403).json({ error: "Only the organiser can respond to this" });
+  const { accept } = req.body as { accept?: boolean };
+  const request = (await db
+    .prepare(`SELECT resident_id as residentId, status, initiated_by as initiatedBy FROM circle_invites WHERE id = ? AND circle_id = ?`)
+    .get(req.params.requestId, req.params.id)) as { residentId: string; status: string; initiatedBy: string } | undefined;
+  if (!request || request.initiatedBy !== "resident") return res.status(404).json({ error: "Join request not found" });
+  if (request.status !== "pending") return res.status(409).json({ error: "This request has already been answered" });
+
+  await db.transaction(async (tx) => {
+    await tx.prepare(`UPDATE circle_invites SET status = ? WHERE id = ?`).run(accept ? "accepted" : "declined", req.params.requestId);
+    if (accept) await tx.prepare(`INSERT IGNORE INTO circle_members (circle_id, resident_id) VALUES (?, ?)`).run(req.params.id, request.residentId);
+  });
+
+  const circle = (await db.prepare(`SELECT name FROM circles WHERE id = ?`).get(req.params.id)) as { name: string } | undefined;
+  await notifyResident({
+    residentId: request.residentId,
+    kind: "circle",
+    title: accept ? `Approved: ${circle?.name ?? "Circle"}` : `Declined: ${circle?.name ?? "Circle"}`,
+    body: accept ? `Your request to join ${circle?.name ?? "the Circle"} was approved.` : `Your request to join ${circle?.name ?? "the Circle"} was declined.`,
+    listingType: "circle",
+    listingId: req.params.id,
+    ref: req.params.id,
+  });
+
+  res.json({ ok: true });
 });
 
 // --- Circle settings: Close Circle (IA spec §10) ---------------------------
@@ -476,6 +620,100 @@ circlesRouter.put("/:id/status", requireResident, async (req, res) => {
   if (status !== "closed" && status !== "active") return res.status(400).json({ error: "status must be active or closed" });
   if (!(await isOrganiser(req.params.id, req.resident!.id))) return res.status(403).json({ error: "Only the organiser can change this" });
   await db.prepare(`UPDATE circles SET status = ? WHERE id = ?`).run(status, req.params.id);
+
+  if (status === "closed") {
+    const circle = (await db.prepare(`SELECT name FROM circles WHERE id = ?`).get(req.params.id)) as { name: string } | undefined;
+    const members = (await db
+      .prepare(`SELECT resident_id FROM circle_members WHERE circle_id = ? AND resident_id != ?`)
+      .all(req.params.id, req.resident!.id)) as { resident_id: string }[];
+    for (const m of members) {
+      await notifyResident({
+        residentId: m.resident_id,
+        kind: "circle",
+        title: `Closed: ${circle?.name ?? "Circle"}`,
+        body: "The organiser has closed this Circle.",
+        listingType: "circle",
+        listingId: req.params.id,
+        ref: req.params.id,
+      });
+    }
+  }
+
+  res.json({ ok: true });
+});
+
+// HelloCircle Manage Phase 4 — organiser-only edit of the circle's own
+// fields, same shape as PUT /games/:id (Phase 3): no participant-notify on
+// save, unlike a game's date/time — a circle's name/description isn't
+// something members have made an attendance commitment against.
+interface UpdateCircleInput {
+  name: string;
+  activityLabel?: string;
+  area?: string;
+  county?: string;
+  about?: string;
+  centreId?: string;
+  imageUrl?: string;
+  whatWeDo?: string;
+  whoCanJoin?: string;
+  values?: string;
+  joinMode?: JoinMode;
+}
+
+circlesRouter.put("/:id", requireResident, async (req, res) => {
+  const b = req.body as UpdateCircleInput;
+  if (!b.name) return res.status(400).json({ error: "A name is required" });
+  if (b.joinMode && !JOIN_MODES.includes(b.joinMode)) return res.status(400).json({ error: "Invalid joinMode" });
+  if (!(await isOrganiser(req.params.id, req.resident!.id))) return res.status(403).json({ error: "Only the organiser can edit this Circle" });
+
+  await db
+    .prepare(
+      `UPDATE circles SET name = ?, activity_label = ?, area = ?, county = ?, about = ?, centre_id = ?, image_url = ?, what_we_do = ?, who_can_join = ?, circle_values = ?, join_mode = COALESCE(?, join_mode)
+       WHERE id = ?`
+    )
+    .run(
+      b.name,
+      b.activityLabel ?? "",
+      b.area ?? "",
+      b.county ?? "",
+      b.about ?? "",
+      b.centreId ?? null,
+      b.imageUrl ?? "",
+      b.whatWeDo || null,
+      b.whoCanJoin || null,
+      b.values || null,
+      b.joinMode ?? null,
+      req.params.id
+    );
+
+  const row = (await db.prepare(`SELECT * FROM circles WHERE id = ?`).get(req.params.id)) as CircleRow;
+  res.json(await toCircleJson(row));
+});
+
+// HelloCircle Manage Phase 4 — organiser removes a non-organiser member.
+// There is exactly one organiser per circle today (role is only ever set at
+// creation, never promoted/transferred elsewhere), so excluding
+// role = 'organiser' from the DELETE both blocks self-removal and rules out
+// ever removing a co-organiser, for free.
+circlesRouter.post("/:id/members/:residentId/remove", requireResident, async (req, res) => {
+  if (!(await isOrganiser(req.params.id, req.resident!.id))) return res.status(403).json({ error: "Only the organiser can remove a member" });
+
+  const info = await db
+    .prepare(`DELETE FROM circle_members WHERE circle_id = ? AND resident_id = ? AND role = 'member'`)
+    .run(req.params.id, req.params.residentId);
+  if (info.changes === 0) return res.status(404).json({ error: "That resident isn't a member of this Circle" });
+
+  const circle = (await db.prepare(`SELECT name FROM circles WHERE id = ?`).get(req.params.id)) as { name: string } | undefined;
+  await notifyResident({
+    residentId: req.params.residentId,
+    kind: "circle",
+    title: `Removed: ${circle?.name ?? "Circle"}`,
+    body: "The organiser has removed you from this Circle.",
+    listingType: "circle",
+    listingId: req.params.id,
+    ref: req.params.id,
+  });
+
   res.json({ ok: true });
 });
 
@@ -494,10 +732,22 @@ circlesRouter.post("/:id/invite", requireResident, async (req, res) => {
   const id = crypto.randomUUID();
   await db
     .prepare(
-      `INSERT INTO circle_invites (id, circle_id, resident_id, invited_by_resident_id) VALUES (?, ?, ?, ?)
-       ON DUPLICATE KEY UPDATE status = 'pending', invited_by_resident_id = VALUES(invited_by_resident_id), created_at = NOW()`
+      `INSERT INTO circle_invites (id, circle_id, resident_id, invited_by_resident_id, initiated_by) VALUES (?, ?, ?, ?, 'organiser')
+       ON DUPLICATE KEY UPDATE status = 'pending', invited_by_resident_id = VALUES(invited_by_resident_id), initiated_by = 'organiser', created_at = NOW()`
     )
     .run(id, req.params.id, residentId, req.resident!.id);
+
+  const circle = (await db.prepare(`SELECT name FROM circles WHERE id = ?`).get(req.params.id)) as { name: string } | undefined;
+  await notifyResident({
+    residentId,
+    kind: "circle",
+    title: `Invited: ${circle?.name ?? "Circle"}`,
+    body: `${req.resident!.name} has invited you to join ${circle?.name ?? "a Circle"}.`,
+    listingType: "circle",
+    listingId: req.params.id,
+    ref: req.params.id,
+  });
+
   res.status(201).json({ ok: true });
 });
 
@@ -508,7 +758,7 @@ circlesRouter.get("/invitations/mine", requireResident, async (req, res) => {
     .prepare(
       `SELECT ci.id, ci.circle_id as circleId, c.name as circleName, c.activity_label as activityLabel, u.name as invitedByName, ci.created_at as createdAt
        FROM circle_invites ci JOIN circles c ON c.id = ci.circle_id JOIN residents u ON u.id = ci.invited_by_resident_id
-       WHERE ci.resident_id = ? AND ci.status = 'pending' ORDER BY ci.created_at DESC`
+       WHERE ci.resident_id = ? AND ci.status = 'pending' AND ci.initiated_by = 'organiser' ORDER BY ci.created_at DESC`
     )
     .all(req.resident!.id);
   res.json(rows);
@@ -516,16 +766,28 @@ circlesRouter.get("/invitations/mine", requireResident, async (req, res) => {
 
 circlesRouter.post("/invitations/:id/respond", requireResident, async (req, res) => {
   const { accept } = req.body as { accept?: boolean };
-  const invite = (await db.prepare(`SELECT circle_id as circleId, resident_id as residentId, status FROM circle_invites WHERE id = ?`).get(req.params.id)) as
-    | { circleId: string; residentId: string; status: string }
-    | undefined;
-  if (!invite || invite.residentId !== req.resident!.id) return res.status(404).json({ error: "Invitation not found" });
+  const invite = (await db
+    .prepare(`SELECT circle_id as circleId, resident_id as residentId, status, invited_by_resident_id as invitedByResidentId, initiated_by as initiatedBy FROM circle_invites WHERE id = ?`)
+    .get(req.params.id)) as { circleId: string; residentId: string; status: string; invitedByResidentId: string; initiatedBy: string } | undefined;
+  if (!invite || invite.residentId !== req.resident!.id || invite.initiatedBy !== "organiser") return res.status(404).json({ error: "Invitation not found" });
   if (invite.status !== "pending") return res.status(409).json({ error: "This invitation has already been answered" });
 
   await db.transaction(async (tx) => {
     await tx.prepare(`UPDATE circle_invites SET status = ? WHERE id = ?`).run(accept ? "accepted" : "declined", req.params.id);
     if (accept) await tx.prepare(`INSERT IGNORE INTO circle_members (circle_id, resident_id) VALUES (?, ?)`).run(invite.circleId, req.resident!.id);
   });
+
+  const circle = (await db.prepare(`SELECT name FROM circles WHERE id = ?`).get(invite.circleId)) as { name: string } | undefined;
+  await notifyResident({
+    residentId: invite.invitedByResidentId,
+    kind: "circle",
+    title: `${accept ? "Accepted" : "Declined"}: ${circle?.name ?? "Circle"}`,
+    body: `${req.resident!.name} has ${accept ? "accepted" : "declined"} your invite to ${circle?.name ?? "your Circle"}.`,
+    listingType: "circle",
+    listingId: invite.circleId,
+    ref: invite.circleId,
+  });
+
   res.json({ ok: true });
 });
 

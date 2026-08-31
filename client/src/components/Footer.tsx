@@ -41,6 +41,17 @@ const COLUMNS: { heading: string; links: { label: string; to: string; external?:
       { label: "Contact us", to: "mailto:support@hellocircle.ie", external: true },
     ],
   },
+  {
+    // Deliberately only two links, not the four the original brief
+    // sketched ("Venue resources"/"Partner support") — no such pages
+    // exist yet, and this file's own established precedent (see header
+    // comment) is to drop a column entry rather than link somewhere fake.
+    heading: "For venues",
+    links: [
+      { label: "List your venue", to: "/for-venues" },
+      { label: "How it works", to: "/for-venues#how-it-works" },
+    ],
+  },
 ];
 
 export function Footer() {
@@ -49,7 +60,7 @@ export function Footer() {
   return (
     <footer style={{ borderTop: `1px solid ${colors.border}`, background: colors.footerBg }}>
       <div style={{ maxWidth, margin: "0 auto", padding: "40px 24px 24px" }}>
-        <div className="grid-responsive" style={{ display: "grid", gridTemplateColumns: "1.4fr repeat(3, 1fr)", gap: 32, marginBottom: 32 }}>
+        <div className="grid-responsive" style={{ display: "grid", gridTemplateColumns: "1.2fr repeat(4, 1fr)", gap: 32, marginBottom: 32 }}>
           <div>
             <div style={{ display: "flex", alignItems: "center", gap: 9, cursor: "pointer", marginBottom: 10 }} onClick={() => navigate("/")}>
               <img src="/illustrations/Logo.svg" alt="Hello Circle" style={{ height: 38 }} />

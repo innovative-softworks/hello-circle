@@ -51,6 +51,18 @@ export interface Centre {
   /** Slugs (master-prompt punch list #1) — null until backfilled/generated;
    * link-construction call sites use <code>slug ?? id</code>. */
   slug: string | null;
+  /** Only meaningful to a vendor/admin fetching their own listing — public
+   * fetches (getApprovedCentre) are always "approved" here in practice.
+   * "draft" (Form System Audit, Phase 5) means the Guided Flow creation
+   * wizard hasn't been completed/published yet. */
+  status: "draft" | "pending" | "approved" | "rejected" | "deleted";
+  /** Venue-level Follow (Follow feature) — only present on the resident-
+   * facing GET /:id response (centres.ts attaches it there, not inside the
+   * shared getApprovedCentre query other callers — browse lists, the vendor
+   * editor, admin — also use, so optional rather than assumed-present). */
+  followerCount?: number;
+  isFollowing?: boolean;
+  followNotificationLevel?: "highlights" | "everything";
 }
 
 export interface RoomBlock {
@@ -96,6 +108,13 @@ export interface Club {
   featured: boolean;
   /** Slugs (master-prompt punch list #1) — null until backfilled/generated. */
   slug: string | null;
+  /** Who this club registers — drives which shape RegistrationFlow.tsx
+   * renders (guardian/DOB for 'kids', self-registration for 'adults', a
+   * picker for 'all'). Defaults to 'kids' for every club that existed
+   * before this field. */
+  audience: "kids" | "adults" | "all";
+  /** See Centre's identical field. */
+  status: "draft" | "pending" | "approved" | "rejected" | "deleted";
 }
 
 export type BookingStatus = "confirmed" | "cancelled";
@@ -111,6 +130,21 @@ export interface MyBooking {
   ph: string;
   image: string;
   status: BookingStatus;
+  vendorId: string;
+}
+
+/** Vendor's own view of a hall booking (VendorBookings.tsx) — a superset of
+ * MyBooking's fields (guest identity + the operational detail a venue manager
+ * needs, not just what the guest who made it needs to see). */
+export interface VendorBookingRow extends MyBooking {
+  name: string;
+  email: string;
+  phone: string;
+  duration: number;
+  eventType: string;
+  guests: number;
+  notes: string | null;
+  paymentStatus: string;
 }
 
 export interface MyRegistration {
@@ -125,6 +159,7 @@ export interface MyRegistration {
   clubName: string;
   sport: string;
   status: BookingStatus;
+  vendorId: string;
 }
 
 export interface ParticipationEntry {
@@ -185,6 +220,10 @@ export interface AuthUser {
   invitedStaff: boolean;
   providerTier: "standard" | "verified" | "featured";
   createdAt: string;
+  /** HelloCircle Manage (Phase 1) — set once this vendor links the resident
+   * (magic-link) account of the same person. Null for every vendor until
+   * they deliberately do that (see api/manage.ts). */
+  residentId: string | null;
 }
 
 export interface Review {
@@ -202,7 +241,7 @@ export interface Review {
 export interface VendorListingSummary {
   id: string;
   name: string;
-  status: "pending" | "approved" | "rejected" | "deleted";
+  status: "draft" | "pending" | "approved" | "rejected" | "deleted";
   area: string;
   county: string;
   views: number;
@@ -277,10 +316,10 @@ export interface Favourite {
 
 export interface ResidentNotification {
   id: number;
-  kind: "booking" | "registration" | "waitlist" | "game" | "intent_match";
+  kind: "booking" | "registration" | "waitlist" | "game" | "intent_match" | "circle";
   title: string;
   body: string;
-  listingType: "centre" | "club" | "game" | "intent";
+  listingType: "centre" | "club" | "game" | "intent" | "circle";
   listingId: string;
   ref: string;
   read: number;
@@ -378,6 +417,14 @@ export interface Game {
   /** Only present on the single-game detail fetch, and only populated for
    * the host or a joined participant — see server routes/games.ts's GET /:id. */
   meetingInstructions?: string | null;
+  /** Set only when this game was created as a specific Circle's plan
+   * (HelloCircle Manage Phase 4's "Create plan" deep-link). */
+  circleId: string | null;
+  /** HelloCircle Manage Phase 5 — the circle's own name/slug, so
+   * /manage/activities can show which rows are a Circle's Plan and link
+   * back to it. Both null whenever circleId is null. */
+  circleName: string | null;
+  circleSlug: string | null;
 }
 
 /** "Who's going" preview (Game Detail redesign §13) — name only, never
@@ -386,6 +433,18 @@ export interface Game {
 export interface GameParticipantSummary {
   participants: { residentId: string; name: string }[];
   total: number;
+}
+
+/** Host-only, uncapped participant view (HelloCircle Manage /manage/activities)
+ * — distinct from GameParticipantSummary's public names-only preview. */
+export interface ManageParticipant {
+  residentId: string;
+  name: string;
+  status: string;
+  paymentStatus: string;
+  joinedAt: string;
+  checkedInAt: string | null;
+  attended: boolean | null;
 }
 
 /** Host-posted announcement for a game ("Latest update" module, §25). */
@@ -431,6 +490,9 @@ export interface Circle {
   /** Loose calendar-month count of open games matching this activity —
    * a participation-health signal, not a stored/cached counter. */
   plansThisMonth: number;
+  /** Join modes (Follow/Notify/Stats gap audit §6) — 'open' is the original
+   * instant-join behaviour every pre-existing Circle keeps by default. */
+  joinMode: "open" | "approval" | "invite";
   /** Only present on the single-circle detail fetch (see routes/circles.ts's
    * detailStatsFor) — too expensive to compute per row on the browse list. */
   participantsThisMonth?: number;
@@ -483,6 +545,28 @@ export interface CirclePlanPreview {
   joined: number;
   spotsLeft: number;
   priceCents: number | null;
+}
+
+/** Organiser-only, real plans linked via games.circle_id (HelloCircle Manage
+ * Phase 4) — distinct from CirclePlanPreview's public activity-label match. */
+export interface ManageCirclePlan {
+  id: string;
+  activityLabel: string;
+  date: string;
+  time: string;
+  status: string;
+  capacity: number;
+  centreName: string | null;
+  joined: number;
+}
+
+/** Organiser-only, uncapped member view (HelloCircle Manage Phase 4) —
+ * distinct from CircleMemberSummary's public names-only preview, same
+ * reasoning as ManageParticipant vs. GameParticipantSummary. */
+export interface ManageCircleMember {
+  residentId: string;
+  name: string;
+  role: string;
 }
 
 /** "Recently in this Circle" row (§20) — a completed game matching this
@@ -560,6 +644,39 @@ export interface ProviderProfileListing {
   slug: string | null;
 }
 
+export interface ProviderUpcomingItem {
+  kind: "experience" | "program_session" | "club_session";
+  id: string;
+  title: string;
+  date: string;
+  time: string;
+  href: string;
+  imageUrl: string | null;
+  priceCents: number | null;
+  capacity: number | null;
+  spotsLeft: number | null;
+}
+
+export interface ProviderReviewsSummary {
+  average: number | null;
+  count: number;
+  recent: { name: string; rating: number; comment: string; listingType: string; listingId: string; listingName: string | null; createdAt: string }[];
+}
+
+export interface SimilarProvider {
+  id: string;
+  name: string;
+  area: string | null;
+  image: string | null;
+  listingCount: number;
+  type: "place" | "experience" | "open-plan";
+}
+
+export interface ProviderAmenities {
+  items: string[];
+  accessibility: string | null;
+}
+
 export interface ProviderProfile {
   id: string;
   name: string;
@@ -567,10 +684,20 @@ export interface ProviderProfile {
   verified: boolean;
   providerTier: string;
   county: string;
+  logo: string | null;
   centres: ProviderProfileListing[];
   clubs: (ProviderProfileListing & { sport: string })[];
   experiences: (ProviderProfileListing & { kind: "adventure" | "experience"; title: string })[];
   policies: { cancellationHours: number; bookingWindowDays: number };
+  upcoming: ProviderUpcomingItem[];
+  trust: { totalListings: number; participantCount: number; wentAheadPercent: number | null };
+  amenities: ProviderAmenities;
+  mapLocation: { lat: number; lng: number; label: string } | null;
+  reviewsSummary: ProviderReviewsSummary;
+  similar: SimilarProvider[];
+  followerCount: number;
+  isFollowing: boolean;
+  followNotificationLevel: "highlights" | "everything";
 }
 
 // --- Routines-as-an-object (IA spec §9) -------------------------------------
@@ -606,6 +733,9 @@ export interface HostProfile {
   /** Host reviews (master-prompt punch list #3). */
   rating: number;
   reviews: number;
+  followerCount: number;
+  isFollowing: boolean;
+  followNotificationLevel: "highlights" | "everything";
 }
 
 // --- Participation Chat (implementation plan Phase 11) ----------------------
@@ -1120,6 +1250,10 @@ export interface Experience {
   vendorId: string;
   vendorName: string;
   vendorVerified: boolean;
+  /** See Centre's identical field. Only present on the vendor's own fetch
+   * (GET /vendor/experiences/:id) — the public fetch only ever returns
+   * 'approved' rows anyway, so this is never a meaningful discriminator there. */
+  status?: "draft" | "pending" | "approved" | "rejected" | "deleted";
 }
 
 export interface VendorExperienceSummary {
@@ -1207,6 +1341,9 @@ export interface OrgProfile {
   locations: { id: string; name: string; type: "centre" | "club" }[];
   isOwner: boolean;
   flags: FeatureFlags;
+  /** The org owner's own uploaded business logo — shown on the public
+   * provider profile hero. null until they upload one. */
+  logo: string | null;
 }
 
 /** Feature flags (implementation backlog #5) — real per-org capability

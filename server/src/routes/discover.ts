@@ -209,17 +209,64 @@ discoverRouter.get("/free-time", async (req, res) => {
 async function personalBoostSignals(residentId: string | null): Promise<{
   routines: { activityLabel: string; dayOfWeek: number }[];
   circleActivityLabels: Set<string>;
+  followedHostIds: Set<string>;
+  followedVendorIds: Set<string>;
 }> {
-  if (!residentId) return { routines: [], circleActivityLabels: new Set() };
-  const [routines, circles] = await Promise.all([
+  if (!residentId) return { routines: [], circleActivityLabels: new Set(), followedHostIds: new Set(), followedVendorIds: new Set() };
+  const [routines, circles, follows] = await Promise.all([
     db.prepare(`SELECT activity_label as activityLabel, day_of_week as dayOfWeek FROM routines WHERE resident_id = ? AND status = 'active'`).all(residentId) as Promise<
       { activityLabel: string; dayOfWeek: number }[]
     >,
     db
       .prepare(`SELECT c.activity_label as activityLabel FROM circle_members cm JOIN circles c ON c.id = cm.circle_id WHERE cm.resident_id = ? AND c.status = 'active'`)
       .all(residentId) as Promise<{ activityLabel: string }[]>,
+    db.prepare(`SELECT followed_type as followedType, followed_id as followedId FROM follows WHERE resident_id = ?`).all(residentId) as Promise<
+      { followedType: "vendor" | "host"; followedId: string }[]
+    >,
   ]);
-  return { routines, circleActivityLabels: new Set(circles.map((c) => c.activityLabel.toLowerCase()).filter(Boolean)) };
+  return {
+    routines,
+    circleActivityLabels: new Set(circles.map((c) => c.activityLabel.toLowerCase()).filter(Boolean)),
+    followedHostIds: new Set(follows.filter((f) => f.followedType === "host").map((f) => f.followedId)),
+    followedVendorIds: new Set(follows.filter((f) => f.followedType === "vendor").map((f) => f.followedId)),
+  };
+}
+
+/** Resolves the host resident (games) or owning vendor (program/club
+ * sessions) behind a batch of items — a single extra IN-query per kind
+ * rather than widening ScheduledActivity/DiscoverItem with fields every
+ * other consumer of that shared shape would have to ignore. */
+async function ownerIdsFor(items: { kind: DiscoverItem["kind"]; id: string }[]): Promise<{ hostByItemId: Map<string, string>; vendorByItemId: Map<string, string> }> {
+  const gameIds = items.filter((i) => i.kind === "game").map((i) => i.id);
+  const programSessionIds = items.filter((i) => i.kind === "program_session").map((i) => i.id);
+  const clubSessionIds = items.filter((i) => i.kind === "club_session").map((i) => i.id);
+
+  const hostByItemId = new Map<string, string>();
+  const vendorByItemId = new Map<string, string>();
+
+  await Promise.all([
+    gameIds.length
+      ? (db.prepare(`SELECT id, host_resident_id as hostResidentId FROM games WHERE id IN (${gameIds.map(() => "?").join(",")})`).all(...gameIds) as Promise<
+          { id: string; hostResidentId: string }[]
+        >).then((rows) => rows.forEach((r) => hostByItemId.set(r.id, r.hostResidentId)))
+      : Promise.resolve(),
+    programSessionIds.length
+      ? (db
+          .prepare(
+            `SELECT ps.id, p.vendor_id as vendorId FROM program_sessions ps JOIN programs p ON p.id = ps.program_id WHERE ps.id IN (${programSessionIds.map(() => "?").join(",")})`
+          )
+          .all(...programSessionIds) as Promise<{ id: string; vendorId: string }[]>
+        ).then((rows) => rows.forEach((r) => vendorByItemId.set(r.id, r.vendorId)))
+      : Promise.resolve(),
+    clubSessionIds.length
+      ? (db
+          .prepare(`SELECT cs.id, cl.vendor_id as vendorId FROM club_sessions cs JOIN clubs cl ON cl.id = cs.club_id WHERE cs.id IN (${clubSessionIds.map(() => "?").join(",")})`)
+          .all(...clubSessionIds) as Promise<{ id: string; vendorId: string }[]>
+        ).then((rows) => rows.forEach((r) => vendorByItemId.set(r.id, r.vendorId)))
+      : Promise.resolve(),
+  ]);
+
+  return { hostByItemId, vendorByItemId };
 }
 
 export async function getNextBestParticipation(residentId: string | null, homeCounty: string | null, limit: number): Promise<DiscoverItem[]> {
@@ -229,7 +276,8 @@ export async function getNextBestParticipation(residentId: string | null, homeCo
 
   const activities = await listScheduledActivities({ county: homeCounty ?? undefined, from: now, to: weekFromNow });
   const scored = await scoreActivities(activities, now, residentId, homeCounty);
-  const { routines, circleActivityLabels } = await personalBoostSignals(residentId);
+  const { routines, circleActivityLabels, followedHostIds, followedVendorIds } = await personalBoostSignals(residentId);
+  const { hostByItemId, vendorByItemId } = followedHostIds.size || followedVendorIds.size ? await ownerIdsFor(scored.map(({ item }) => item)) : { hostByItemId: new Map(), vendorByItemId: new Map() };
 
   const blended = scored.map(({ item, score }) => {
     let bonus = 0;
@@ -249,6 +297,15 @@ export async function getNextBestParticipation(residentId: string | null, homeCo
     if (circleActivityLabels.has(item.title.toLowerCase())) {
       bonus += 100;
       extraReasons.push("From a Circle you're in");
+    }
+    const hostId = hostByItemId.get(item.id);
+    const vendorId = vendorByItemId.get(item.id);
+    if (hostId && followedHostIds.has(hostId)) {
+      bonus += 120;
+      extraReasons.push("Hosted by someone you follow");
+    } else if (vendorId && followedVendorIds.has(vendorId)) {
+      bonus += 120;
+      extraReasons.push("From a provider you follow");
     }
     return { item: { ...item, matchReasons: [...item.matchReasons, ...extraReasons] }, score: score + bonus };
   });

@@ -122,6 +122,26 @@ const SWISS_CARD_RADIUS = radius.swiss.card;
 // used by several sharp-cornered banners/rows elsewhere on this page.
 const MOOD_TILE_RADIUS = radius.swiss.moodTile;
 
+// Same poster-brand accent as /for-venues (ForVenues/constants.ts's
+// FV_ACCENT) — reused by literal value rather than importing across page
+// boundaries, since this is a page-scoped editorial accent, not a themed
+// UI color that belongs in theme.ts's colors.* set (see that file's own
+// note on why it's a raw hex, not a CSS-var token).
+const ACCENT = "#FF4A1F";
+
+// The "/ Label" eyebrow motif, shared by every SectionHeader on this page
+// (SectionHeader's `eyebrow` prop now accepts a ReactNode for exactly this).
+function accentEyebrow(label: string): ReactNode {
+  return (
+    <>
+      <span style={{ color: ACCENT }} aria-hidden="true">
+        /
+      </span>{" "}
+      {label}
+    </>
+  );
+}
+
 function fullBleedStyle(background: string, borderTop = true): React.CSSProperties {
   return { background, borderTop: borderTop ? `1px solid ${colors.border}` : "none" };
 }
@@ -273,13 +293,13 @@ export function Home() {
   const [userCoords, setUserCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [radiusKm, setRadiusKm] = useState(10);
 
-  // Hero search input — just a query box that hands off to the existing
-  // dedicated /search page (Search.tsx) on submit, rather than
-  // reimplementing a second, smaller results experience inline. That page
-  // already does live debounced search plus recent/popular suggestions,
-  // grouped results (activities/adventures & experiences/centres/clubs),
-  // an empty-state with intent capture, and a "notify me" search alert —
-  // duplicating a slice of that in the hero was strictly worse.
+  // Hero search input — just a query box that hands off to /explore's
+  // Results Mode on submit (Explore.tsx — Search.tsx was merged into it),
+  // rather than reimplementing a second, smaller results experience inline.
+  // That page already does live debounced search plus recent/popular
+  // suggestions, grouped results (activities/adventures & experiences/
+  // centres/clubs), an empty-state with intent capture, and a "notify me"
+  // search alert — duplicating a slice of that in the hero was strictly worse.
   const [heroQuery, setHeroQuery] = useState("");
   // Backend-recognized time-of-day word (searchParser.ts's TIME_WORDS) —
   // folded into the query text on submit, not a separate API param, since
@@ -528,7 +548,7 @@ export function Home() {
       heroWhen && !base.toLowerCase().includes(heroWhen) ? heroWhen : null,
     ].filter(Boolean);
     const q = [base, ...extra].join(" ");
-    navigate(`/search?q=${encodeURIComponent(q)}`);
+    navigate(`/explore?q=${encodeURIComponent(q)}`);
   };
 
   // Permission is only ever requested here, on explicit click — never on page load.
@@ -574,48 +594,44 @@ export function Home() {
           system as the rest of the page — only the structure borrows from
           /landing, not its rounded/pill styling. */}
       <section style={fullBleedStyle(colors.bg, false)}>
-        <div className="section-pad" style={{ ...innerWrapStyle, padding: resident ? "48px 24px 32px" : "64px 24px 40px" }}>
+        <div className="section-pad" style={{ ...innerWrapStyle, padding: "64px 24px 40px" }}>
           <div className="stack-mobile" style={{ display: "flex", gap: 56, alignItems: "flex-start", flexWrap: "wrap" }}>
-            {/* Headline column */}
+            {/* Headline column — same marketing copy for every visitor,
+                signed in or not (the earlier signed-in-only "Good morning"
+                greeting variant was removed per request). */}
             <div style={{ flex: "1 1 0%", minWidth: 320 }}>
-              {resident ? (
-                // Personalized top (landing/homepage repositioning, phase 3) —
-                // signed-in residents get an operational greeting instead of
-                // marketing copy; the search column is unchanged either way.
-                <div>
-                  <h1 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(28px, 5vw, 40px)", letterSpacing: "-.02em", margin: "0 0 8px", lineHeight: 1.05 }}>
-                    {greeting}, {resident.name.split(" ")[0]}
-                  </h1>
-                  <p style={{ fontSize: 16, color: colors.muted, margin: 0 }}>What are you up for?</p>
-                </div>
-              ) : (
-                <>
-                  <h1
-                    style={{
-                      fontFamily: fonts.display,
-                      fontWeight: 800,
-                      fontSize: "clamp(38px, 5.5vw, 68px)",
-                      lineHeight: 0.98,
-                      letterSpacing: "-.03em",
-                      margin: "0 0 22px",
-                      color: colors.text,
-                    }}
-                  >
-                    Make things happen
-                    <br />
-                    near you.
-                  </h1>
-                  <div style={{ width: 64, height: 3, background: colors.text, margin: "0 0 22px" }} />
-                  <p style={{ fontSize: 18, lineHeight: 1.5, color: colors.muted, margin: 0, maxWidth: 440 }}>
-                    Find people nearby, join something already happening, or start a plan of your own — book a hall, join a
-                    local club, or find a game tonight.
-                  </p>
-                </>
-              )}
+              <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: ".09em", textTransform: "uppercase", color: ACCENT, marginBottom: 14 }}>
+                <span aria-hidden="true">/</span> Local activity, real people
+              </div>
+              <h1
+                style={{
+                  fontFamily: fonts.display,
+                  fontWeight: 800,
+                  fontSize: "clamp(38px, 5.5vw, 68px)",
+                  lineHeight: 0.98,
+                  letterSpacing: "-.03em",
+                  margin: "0 0 22px",
+                  color: colors.text,
+                }}
+              >
+                Make things happen
+                <br />
+                near you.
+              </h1>
+              <div style={{ width: 64, height: 3, background: ACCENT, margin: "0 0 22px" }} />
+              <p style={{ fontSize: 18, lineHeight: 1.5, color: colors.muted, margin: 0, maxWidth: 440 }}>
+                Find people nearby, join something already happening, or start a plan of your own — book a hall, join a
+                local club, or find a game tonight.
+              </p>
             </div>
 
             {/* Search column */}
-            <div style={{ flex: "1 1 0%", minWidth: 320, paddingTop: resident ? 0 : 8 }}>
+            <div style={{ flex: "1 1 0%", minWidth: 320, paddingTop: 8 }}>
+              {resident && (
+                <div style={{ fontSize: 13.5, fontWeight: 600, color: colors.mutedLight, marginBottom: 6 }}>
+                  {greeting}, {resident.name.split(" ")[0]}
+                </div>
+              )}
               <h2 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 21, letterSpacing: "-.01em", margin: "0 0 14px", color: colors.text }}>
                 Find something to do
               </h2>
@@ -694,14 +710,13 @@ export function Home() {
               <button
                 className="btn"
                 onClick={handleHeroSearch}
-                disabled={!heroQuery.trim()}
                 style={{
                   display: "inline-flex",
                   alignItems: "center",
                   justifyContent: "center",
                   gap: 10,
                   minWidth: 240,
-                  background: colors.dark,
+                  background: ACCENT,
                   color: "#fff",
                   border: "none",
                   borderRadius: SWISS_RADIUS,
@@ -709,7 +724,6 @@ export function Home() {
                   fontSize: 16,
                   fontWeight: 700,
                   cursor: "pointer",
-                  opacity: !heroQuery.trim() ? 0.5 : 1,
                   marginTop: 14,
                 }}
               >
@@ -723,7 +737,7 @@ export function Home() {
                 {["Badminton tonight", "Five-a-side", "Weekend hike", "Cycling", "Coffee & social"].map((label) => (
                   <button
                     key={label}
-                    onClick={() => navigate(`/search?q=${encodeURIComponent(label)}`)}
+                    onClick={() => navigate(`/explore?q=${encodeURIComponent(label)}`)}
                     style={{ background: "none", border: `1px solid ${colors.border}`, borderRadius: SWISS_RADIUS, color: colors.muted, fontWeight: 600, fontSize: 13, padding: "6px 12px", cursor: "pointer" }}
                   >
                     {label}
@@ -742,7 +756,7 @@ export function Home() {
       {/* §3 — Mood/intent selector. Immediately after the hero. */}
       <section style={fullBleedStyle(colors.bg)}>
         <div className="section-pad" style={innerWrapStyle}>
-          <SectionHeader eyebrow="Mood" title="What are you in the mood for?" titleSize="clamp(24px, 2.8vw, 30px)" />
+          <SectionHeader eyebrow={accentEyebrow("Mood")} title="What are you in the mood for?" titleSize="clamp(24px, 2.8vw, 30px)" />
           {/* Not .grid-responsive — that utility collapses to a single
               column under 900px, which would stack all 6 tiles into one
               tall column. auto-fit/minmax reflows naturally instead. */}
@@ -876,7 +890,7 @@ export function Home() {
         <section id="need-people" style={fullBleedStyle(colors.bg)}>
           <div className="section-pad" style={innerWrapStyle}>
             <SectionHeader
-              eyebrow="Needs people"
+              eyebrow={accentEyebrow("Needs people")}
               title="They just need a few more people"
               subtitle="Join local plans that are close to happening."
               action={
@@ -923,7 +937,7 @@ export function Home() {
       {resident && nextBest.length > 0 && (
         <section style={fullBleedStyle(colors.bg)}>
           <div className="section-pad" style={innerWrapStyle}>
-            <SectionHeader eyebrow="For you" title="Matches for you" subtitle="Ranked from what's on, your routines, and your Circles — no filters needed." />
+            <SectionHeader eyebrow={accentEyebrow("For you")} title="Matches for you" subtitle="Ranked from what's on, your routines, and your Circles — no filters needed." />
             <div style={{ display: "flex", gap: 14, overflowX: "auto", paddingBottom: 6 }}>
               {nextBest.map((item) => (
                 <DiscoverCard key={`${item.kind}-${item.id}`} item={item} isToday={item.date === new Date().toISOString().slice(0, 10)} />
@@ -958,7 +972,7 @@ export function Home() {
       {discoverFeed && discoverFeed.today.length > 0 && (
         <section style={fullBleedStyle(colors.bg)}>
           <div className="section-pad" style={innerWrapStyle}>
-            <DiscoverRow title="Happening today" items={discoverFeed.today} isToday limit={8} moreHref="/explore" />
+            <DiscoverRow title="Happening today" items={discoverFeed.today} isToday limit={12} moreHref="/explore?when=today" />
           </div>
         </section>
       )}
@@ -976,7 +990,7 @@ export function Home() {
       {!resident && (
         <section style={fullBleedStyle(colors.bg)}>
           <div className="section-pad" style={innerWrapStyle}>
-            <SectionHeader eyebrow="How HelloCircle works" title="One idea. Different ways to make it happen." subtitle={'Say "badminton tonight" and HelloCircle can mean any of these.'} />
+            <SectionHeader eyebrow={accentEyebrow("How HelloCircle works")} title="One idea. Different ways to make it happen." subtitle={'Say "badminton tonight" and HelloCircle can mean any of these.'} />
             <div className="grid-responsive" style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 1, background: colors.border }}>
               {[
                 { eyebrow: "Plan", title: "Join a plan", detail: "A few more players needed nearby.", cta: "See open plans", to: "/games" },
@@ -1014,8 +1028,8 @@ export function Home() {
       <section style={{ background: colors.dark, borderTop: `1px solid ${colors.dark}` }}>
         <div className="section-pad" style={{ ...innerWrapStyle, display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: 20 }}>
           <div>
-            <div style={{ fontSize: 11.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".09em", color: "rgba(255,255,255,.6)", marginBottom: 8 }}>
-              Can't find it?
+            <div style={{ fontSize: 11.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".09em", color: ACCENT, marginBottom: 8 }}>
+              <span aria-hidden="true">/</span> Can't find it?
             </div>
             <h3 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(22px, 3vw, 30px)", color: "#fff", margin: "0 0 6px" }}>Can't find what you want?</h3>
             <p style={{ margin: 0, color: "rgba(255,255,255,.72)", fontSize: 15, maxWidth: 480 }}>
@@ -1070,7 +1084,7 @@ export function Home() {
       {discoverFeed && discoverFeed.weekend.length > 0 && (
         <section style={fullBleedStyle(colors.bg)}>
           <div className="section-pad" style={innerWrapStyle}>
-            <DiscoverRow title="This weekend" items={discoverFeed.weekend} limit={8} moreHref="/explore" />
+            <DiscoverRow title="This weekend" items={discoverFeed.weekend} limit={12} moreHref="/explore?when=weekend" />
           </div>
         </section>
       )}
@@ -1114,7 +1128,7 @@ export function Home() {
         <section style={fullBleedStyle(colors.bg)}>
           <div className="section-pad" style={innerWrapStyle}>
             <SectionHeader
-              eyebrow="Circles"
+              eyebrow={accentEyebrow("Circles")}
               title="Your Circles"
               action={
                 <button onClick={() => navigate("/circles")} style={{ background: "none", border: "none", color: colors.text, fontWeight: 700, fontSize: 13.5, cursor: "pointer", textDecoration: "underline" }}>
@@ -1146,7 +1160,7 @@ export function Home() {
             {circlesNearby.length > 0 ? (
               <>
                 <SectionHeader
-                  eyebrow="Circles"
+                  eyebrow={accentEyebrow("Circles")}
                   title="Find your circle"
                   subtitle="Join people who keep showing up for the same things you enjoy."
                   action={
@@ -1177,7 +1191,7 @@ export function Home() {
             ) : (
               <div style={bannerStyle(colors.green)}>
                 <div>
-                  <div style={{ fontSize: 11.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".09em", color: colors.mutedLight, marginBottom: 6 }}>Circles</div>
+                  <div style={{ fontSize: 11.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".09em", color: colors.mutedLight, marginBottom: 6 }}>{accentEyebrow("Circles")}</div>
                   <h3 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 19, margin: "0 0 4px" }}>Find your circle</h3>
                   <p style={{ margin: 0, color: colors.muted, fontSize: 14 }}>Join people who keep showing up for the same things you enjoy.</p>
                 </div>
@@ -1231,7 +1245,7 @@ export function Home() {
       {momentum.length > 0 && (
         <section style={fullBleedStyle(colors.bg)}>
           <div className="section-pad" style={innerWrapStyle}>
-            <SectionHeader eyebrow="Trending" title="People are joining these now" />
+            <SectionHeader eyebrow={accentEyebrow("Trending")} title="People are joining these now" />
             <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
               {momentum.map((m) => (
                 <div
@@ -1270,7 +1284,7 @@ export function Home() {
           listed yet). */}
       <section style={fullBleedStyle(colors.bg)}>
         <div className="section-pad" style={innerWrapStyle}>
-          <SectionHeader eyebrow="More ways to go" title="Try something different" />
+          <SectionHeader eyebrow={accentEyebrow("More ways to go")} title="Try something different" />
           <div className="grid-responsive" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 28 }}>
             {[
               { kind: "adventure" as const, to: "/adventures", title: "Adventures", subtitle: "Guided hikes, kayaking and outdoor trips.", rows: previewAdventures },
@@ -1321,7 +1335,7 @@ export function Home() {
       {userCoords && (
         <section style={fullBleedStyle(colors.bg)}>
           <div className="section-pad" style={innerWrapStyle}>
-            <SectionHeader eyebrow="Nearby" title="Near you" />
+            <SectionHeader eyebrow={accentEyebrow("Nearby")} title="Near you" />
             <div style={{ display: "flex", gap: 8, marginBottom: 16, marginTop: -8 }}>
               {[2, 5, 10, 25].map((r) => (
                 <button key={r} onClick={() => setRadiusKm(r)} style={chipStyle(radiusKm === r)}>
@@ -1387,13 +1401,13 @@ export function Home() {
           participation, not the main product — kept in the lower half. */}
       <section style={fullBleedStyle(colors.bg)}>
         <div className="section-pad" style={innerWrapStyle}>
-          <SectionHeader eyebrow="Places" title="Need somewhere to do it?" subtitle="Find courts, studios, community halls and local spaces when your plan needs one." />
+          <SectionHeader eyebrow={accentEyebrow("Places")} title="Need somewhere to do it?" subtitle="Find courts, studios, community halls and local spaces when your plan needs one." />
           <div className="grid-responsive" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 1, background: colors.border }}>
             <button
               onClick={() => navigate("/browse/centres")}
               style={{ background: colors.surface, border: "none", padding: "28px 26px", cursor: "pointer", textAlign: "left", display: "flex", flexDirection: "column", gap: 10 }}
             >
-              <span style={{ fontSize: 12, fontWeight: 700, letterSpacing: ".08em", color: colors.mutedLight }}>01</span>
+              <span style={{ fontSize: 12, fontWeight: 700, letterSpacing: ".08em", color: ACCENT }}>01</span>
               <h3 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 22, margin: 0, letterSpacing: "-.01em" }}>Community centres</h3>
               <p style={{ margin: 0, color: colors.muted, fontSize: 14 }}>Halls and meeting spaces to hire by the hour.</p>
               <span style={{ display: "inline-flex", alignItems: "center", gap: 6, color: colors.text, fontWeight: 700, fontSize: 13.5, marginTop: 4 }}>
@@ -1404,7 +1418,7 @@ export function Home() {
               onClick={() => navigate("/browse/clubs")}
               style={{ background: colors.surface, border: "none", padding: "28px 26px", cursor: "pointer", textAlign: "left", display: "flex", flexDirection: "column", gap: 10 }}
             >
-              <span style={{ fontSize: 12, fontWeight: 700, letterSpacing: ".08em", color: colors.mutedLight }}>02</span>
+              <span style={{ fontSize: 12, fontWeight: 700, letterSpacing: ".08em", color: ACCENT }}>02</span>
               <h3 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 22, margin: 0, letterSpacing: "-.01em" }}>Sports clubs</h3>
               <p style={{ margin: 0, color: colors.muted, fontSize: 14 }}>GAA, soccer, swimming, rugby & more — from age 4 up.</p>
               <span style={{ display: "inline-flex", alignItems: "center", gap: 6, color: colors.text, fontWeight: 700, fontSize: 13.5, marginTop: 4 }}>
@@ -1418,10 +1432,15 @@ export function Home() {
       {/* §13 — Spaces near you (renamed from "Explore community centres"). */}
       <section style={fullBleedStyle(colors.bg)}>
         <div className="section-pad" style={innerWrapStyle}>
-          <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 18, flexWrap: "wrap", gap: 10 }}>
-            <h2 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 22, margin: 0, letterSpacing: "-.01em" }}>
-              {homeCounty === "All" ? "Spaces near you" : `Spaces in ${homeCounty}`}
-            </h2>
+          <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", marginBottom: 18, flexWrap: "wrap", gap: 10 }}>
+            <div>
+              <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: ".09em", textTransform: "uppercase", color: colors.mutedLight, marginBottom: 6 }}>
+                {accentEyebrow("Places")}
+              </div>
+              <h2 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 22, margin: 0, letterSpacing: "-.01em" }}>
+                {homeCounty === "All" ? "Spaces near you" : `Spaces in ${homeCounty}`}
+              </h2>
+            </div>
             <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
               <button
                 onClick={() => navigate(`/browse/centres?county=${encodeURIComponent(homeCounty)}`)}
@@ -1464,10 +1483,15 @@ export function Home() {
       {/* §14 — Local clubs (renamed from "Explore sports clubs"). */}
       <section style={fullBleedStyle(colors.bg)}>
         <div className="section-pad" style={innerWrapStyle}>
-          <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 18, flexWrap: "wrap", gap: 10 }}>
-            <h2 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 22, margin: 0, letterSpacing: "-.01em" }}>
-              {homeCounty === "All" ? "Local clubs" : `Clubs in ${homeCounty}`}
-            </h2>
+          <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", marginBottom: 18, flexWrap: "wrap", gap: 10 }}>
+            <div>
+              <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: ".09em", textTransform: "uppercase", color: colors.mutedLight, marginBottom: 6 }}>
+                {accentEyebrow("Clubs")}
+              </div>
+              <h2 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 22, margin: 0, letterSpacing: "-.01em" }}>
+                {homeCounty === "All" ? "Local clubs" : `Clubs in ${homeCounty}`}
+              </h2>
+            </div>
             <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
               <button
                 onClick={() => navigate(`/browse/clubs?county=${encodeURIComponent(homeCounty)}`)}
@@ -1514,7 +1538,7 @@ export function Home() {
       {!resident && (
         <section style={fullBleedStyle(colors.bg)}>
           <div className="section-pad" style={innerWrapStyle}>
-            <SectionHeader eyebrow="How it works" title={'From "maybe" to "I\'m in."'} />
+            <SectionHeader eyebrow={accentEyebrow("How it works")} title={'From "maybe" to "I\'m in."'} />
             <div className="grid-responsive" style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 1, background: colors.border }}>
               {[
                 { n: "01", title: "Say what you want to do", text: "Football tonight? Hiking Saturday? Coffee nearby?" },
@@ -1522,7 +1546,7 @@ export function Home() {
                 { n: "03", title: "Show up", text: "Meet, play, explore, learn — then do it again." },
               ].map((step) => (
                 <div key={step.n} style={{ background: colors.surface, padding: "26px 24px" }}>
-                  <span style={{ fontFamily: fonts.display, fontSize: 13, fontWeight: 800, color: colors.mutedLight }}>{step.n}</span>
+                  <span style={{ fontFamily: fonts.display, fontSize: 13, fontWeight: 800, color: ACCENT }}>{step.n}</span>
                   <h3 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 18, margin: "8px 0 6px" }}>{step.title}</h3>
                   <p style={{ margin: 0, color: colors.muted, fontSize: 14, lineHeight: 1.5 }}>{step.text}</p>
                 </div>
@@ -1539,7 +1563,10 @@ export function Home() {
         <div className="section-pad" style={{ ...innerWrapStyle, padding: "48px 24px 64px" }}>
           <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: 24 }}>
             <div>
-              <h2 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(24px, 3.4vw, 34px)", color: "#fff", margin: "0 0 8px", letterSpacing: "-.01em" }}>
+              <div style={{ fontSize: 11.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".09em", color: ACCENT, marginBottom: 10 }}>
+                <span aria-hidden="true">/</span> Ready when you are
+              </div>
+              <h2 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(28px, 4vw, 44px)", lineHeight: 1.02, color: "#fff", margin: "0 0 8px", letterSpacing: "-.02em" }}>
                 Fancy doing something?
               </h2>
               <p style={{ margin: 0, color: "rgba(255,255,255,.72)", fontSize: 16 }}>See what people near you are up for.</p>

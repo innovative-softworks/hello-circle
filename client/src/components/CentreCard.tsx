@@ -4,14 +4,16 @@ import { cardImageRatio, colors } from "../theme";
 import { BuildingIcon, StarIcon } from "./icons";
 import { Photo } from "./Photo";
 import { SaveButton, useSavedState } from "./SaveButton";
+import { Button } from "./ui";
 
 export function CentreCard({ centre }: { centre: Centre }) {
   const navigate = useNavigate();
   const [fav, toggleFav] = useSavedState("centre", centre.id);
+  const open = () => navigate(`/centres/${centre.slug ?? centre.id}`);
 
   return (
     <div
-      onClick={() => navigate(`/centres/${centre.slug ?? centre.id}`)}
+      onClick={open}
       className="card-hover card-surface"
       style={{
         cursor: "pointer",
@@ -19,6 +21,8 @@ export function CentreCard({ centre }: { centre: Centre }) {
         border: `1px solid ${colors.border}`,
         borderRadius: 18,
         overflow: "hidden",
+        display: "flex",
+        flexDirection: "column",
       }}
     >
       <Photo
@@ -46,7 +50,7 @@ export function CentreCard({ centre }: { centre: Centre }) {
         </span>
         <SaveButton saved={fav} onToggle={toggleFav} />
       </Photo>
-      <div style={{ padding: "16px 18px 18px" }}>
+      <div style={{ padding: "16px 18px 18px", flex: 1, display: "flex", flexDirection: "column" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
           {centre.reviews > 0 && (
             <>
@@ -58,7 +62,20 @@ export function CentreCard({ centre }: { centre: Centre }) {
           <span style={{ marginLeft: "auto", color: colors.faint, fontSize: 13 }}>up to {centre.capacity}</span>
         </div>
         <h3 style={{ fontSize: 17, fontWeight: 700, margin: "0 0 3px", letterSpacing: "-.01em" }}>{centre.name}</h3>
-        <p style={{ margin: 0, color: colors.mutedLight, fontSize: 14 }}>{centre.area}</p>
+        <p style={{ margin: "0 0 12px", color: colors.mutedLight, fontSize: 14 }}>{centre.area}</p>
+        <div style={{ marginTop: "auto", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+          <span style={{ fontWeight: 700, fontSize: 15, color: colors.text }}>from €{centre.from}/hr</span>
+          <div onClick={(e) => e.stopPropagation()}>
+            <Button
+              variant={centre.isOpen === false ? "ghost" : "dark"}
+              disabled={centre.isOpen === false}
+              style={{ padding: "8px 16px", fontSize: 13 }}
+              onClick={open}
+            >
+              {centre.isOpen === false ? "Not taking bookings" : "Check availability"}
+            </Button>
+          </div>
+        </div>
       </div>
     </div>
   );

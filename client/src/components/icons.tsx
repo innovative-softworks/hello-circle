@@ -390,6 +390,14 @@ export function PlusIcon({ size = 18, style, className }: IconProps) {
   );
 }
 
+export function MinusIcon({ size = 18, style, className }: IconProps) {
+  return (
+    <svg {...stroke(size)} style={style} className={className}>
+      <path d="M5 12h14" />
+    </svg>
+  );
+}
+
 export function DoctorIcon({ size = 18, style, className }: IconProps) {
   return (
     <svg {...stroke(size)} style={style} className={className}>

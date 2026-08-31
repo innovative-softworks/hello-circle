@@ -9,11 +9,13 @@ import {
   revokeInvite,
   updateOrgPolicies,
   updateOrgProfile,
+  updateVendorLogo,
+  uploadImage,
 } from "../api";
 import { PLATFORM_ROLES } from "../types";
 import type { OrgProfile, Participant, VendorInsights, VendorPayments } from "../types";
-import { SearchIcon, TrashIcon, TrendUpIcon, UsersIcon } from "./icons";
-import { Button, Card, ConfirmDialog, EmptyState, PageSpinner, Tabs, inputStyle, labelStyle, tableStyle, tdStyle, thStyle } from "./ui";
+import { CameraIcon, CloseIcon, PlusIcon, SearchIcon, TrashIcon, TrendUpIcon, UsersIcon } from "./icons";
+import { Button, ManageCard as Card, ConfirmDialog, EmptyState, PageSpinner, Tabs, inputStyle, labelStyle, tableStyle, tdStyle, thStyle } from "./ui";
 import { colors, fonts, radius } from "../theme";
 
 // Organisation entity + Staff + RBAC (Phase C — Gate 2 from the plan doc).
@@ -23,17 +25,118 @@ import { colors, fonts, radius } from "../theme";
 
 const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
+// Public profile logo — shown on the provider's public profile page hero
+// (ProviderProfile.tsx). Its own small Card + own save flow (upload happens
+// immediately on file select, same as MultiImageUpload's pattern) rather
+// than folding into SettingsPanel's name/cancellation-hours save button,
+// since there's nothing to "save" here beyond the upload itself.
+function LogoPanel({ profile, reload }: { profile: OrgProfile; reload: () => void }) {
+  const [uploading, setUploading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const onFile = async (files: FileList | null) => {
+    const file = files?.[0];
+    if (!file) return;
+    setUploading(true);
+    setError(null);
+    try {
+      const { url } = await uploadImage(file);
+      await updateVendorLogo(url);
+      reload();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Upload failed");
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const remove = async () => {
+    setError(null);
+    await updateVendorLogo(null);
+    reload();
+  };
+
+  if (!profile.isOwner) return null;
+
+  return (
+    <Card>
+      <h4 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 15, margin: "0 0 4px" }}>Public profile logo</h4>
+      <p style={{ fontSize: 12.5, color: colors.mutedLight, margin: "0 0 14px" }}>
+        Shown on your public provider profile page. JPEG, PNG, WebP or GIF, up to 8MB.
+      </p>
+      <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+        {profile.logo ? (
+          <div style={{ position: "relative", width: 72, height: 72, flex: "none" }}>
+            <div style={{ width: "100%", height: "100%", borderRadius: radius.control, border: `1px solid ${colors.border}`, background: colors.bg, overflow: "hidden", display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <img src={profile.logo} alt="" style={{ width: "100%", height: "100%", objectFit: "contain" }} />
+            </div>
+            <button
+              onClick={remove}
+              aria-label="Remove logo"
+              style={{ position: "absolute", top: -6, right: -6, width: 22, height: 22, borderRadius: "50%", border: "none", background: "rgba(20,22,20,.7)", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}
+            >
+              <CloseIcon size={12} />
+            </button>
+          </div>
+        ) : (
+          <label
+            className="image-drop"
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 4,
+              width: 72,
+              height: 72,
+              flex: "none",
+              border: `1.5px dashed ${colors.borderStrong}`,
+              borderRadius: radius.control,
+              background: colors.bg,
+              color: colors.mutedLight,
+              fontSize: 11,
+              cursor: uploading ? "default" : "pointer",
+              textAlign: "center",
+            }}
+          >
+            {uploading ? <CameraIcon size={16} /> : <PlusIcon size={16} />}
+            {uploading ? "Uploading…" : "Add logo"}
+            <input type="file" accept="image/*" onChange={(e) => onFile(e.target.files)} disabled={uploading} style={{ display: "none" }} />
+          </label>
+        )}
+      </div>
+      {error && <p style={{ color: colors.danger, fontSize: 12, margin: "10px 0 0" }}>{error}</p>}
+    </Card>
+  );
+}
+
 function SettingsPanel({ profile, reload }: { profile: OrgProfile; reload: () => void }) {
   const [name, setName] = useState(profile.org?.name ?? "");
   const [cancellationHours, setCancellationHours] = useState(profile.policies.cancellationHours);
   const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const clearFeedback = () => {
+    setSaved(false);
+    setError(null);
+  };
 
   const save = async () => {
+    if (!name.trim()) {
+      setError("Organisation name is required");
+      return;
+    }
     setSaving(true);
+    setError(null);
+    setSaved(false);
     try {
       await updateOrgProfile({ name });
       await updateOrgPolicies({ cancellationHours });
+      setSaved(true);
       reload();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Couldn't save");
     } finally {
       setSaving(false);
     }
@@ -44,17 +147,22 @@ function SettingsPanel({ profile, reload }: { profile: OrgProfile; reload: () =>
       <Card>
         <h4 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 15, margin: "0 0 14px" }}>Organisation profile</h4>
         {!profile.isOwner && <p style={{ fontSize: 12.5, color: colors.orangeDark, marginBottom: 12 }}>Only the organisation owner can edit these settings.</p>}
-        <label style={labelStyle}>Name</label>
-        <input value={name} onChange={(e) => setName(e.target.value)} disabled={!profile.isOwner} style={{ ...inputStyle, marginBottom: 14 }} />
-        <label style={labelStyle}>Cancellation window (hours before start)</label>
-        <input type="number" value={cancellationHours} onChange={(e) => setCancellationHours(Number(e.target.value))} disabled={!profile.isOwner} style={{ ...inputStyle, marginBottom: 6, width: 120 }} />
-        <p style={{ fontSize: 12, color: colors.faint, margin: "0 0 14px" }}>Enforced on every hall booking cancellation/reschedule across your organisation's centres.</p>
+        <label htmlFor="org-settings-name" style={labelStyle}>Name</label>
+        <input id="org-settings-name" value={name} onChange={(e) => { setName(e.target.value); clearFeedback(); }} disabled={!profile.isOwner} style={{ ...inputStyle, marginBottom: 14 }} />
+        <label htmlFor="org-settings-cancellation-hours" style={labelStyle}>Cancellation window (hours before start)</label>
+        <input id="org-settings-cancellation-hours" type="number" value={cancellationHours} onChange={(e) => { setCancellationHours(Number(e.target.value)); clearFeedback(); }} disabled={!profile.isOwner} aria-describedby="org-settings-cancellation-hint" style={{ ...inputStyle, marginBottom: 6, width: 120 }} />
+        <p id="org-settings-cancellation-hint" style={{ fontSize: 12, color: colors.faint, margin: "0 0 14px" }}>Enforced on every hall booking cancellation/reschedule across your organisation's centres.</p>
+        {error && <p role="alert" className="pop-in" style={{ color: colors.danger, fontSize: 13, margin: "0 0 12px", background: colors.dangerBg, padding: "9px 12px", borderRadius: radius.control }}>{error}</p>}
         {profile.isOwner && (
-          <Button onClick={save} disabled={saving}>
-            {saving ? "Saving…" : "Save"}
-          </Button>
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            <Button onClick={save} disabled={saving}>
+              {saving ? "Saving…" : "Save"}
+            </Button>
+            {saved && <span style={{ fontSize: 13, color: colors.greenText, fontWeight: 600 }}>Saved</span>}
+          </div>
         )}
       </Card>
+      <LogoPanel profile={profile} reload={reload} />
       <Card>
         <h4 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 15, margin: "0 0 14px" }}>Locations</h4>
         <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
@@ -74,15 +182,22 @@ function StaffPanel({ profile, reload }: { profile: OrgProfile; reload: () => vo
   const [email, setEmail] = useState("");
   const [role, setRole] = useState<string>(PLATFORM_ROLES[0]);
   const [inviting, setInviting] = useState(false);
+  const [inviteError, setInviteError] = useState<string | null>(null);
+  const [invited, setInvited] = useState(false);
   const [confirmingToken, setConfirmingToken] = useState<string | null>(null);
 
   const invite = async () => {
     if (!email.trim()) return;
     setInviting(true);
+    setInviteError(null);
+    setInvited(false);
     try {
       await inviteStaff(email.trim(), role);
       setEmail("");
+      setInvited(true);
       reload();
+    } catch (e) {
+      setInviteError(e instanceof Error ? e.message : "Couldn't send that invite");
     } finally {
       setInviting(false);
     }
@@ -95,12 +210,12 @@ function StaffPanel({ profile, reload }: { profile: OrgProfile; reload: () => vo
           <h4 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 15, margin: "0 0 14px" }}>Invite staff</h4>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "flex-end" }}>
             <div style={{ flex: "1 1 220px" }}>
-              <label style={labelStyle}>Email</label>
-              <input value={email} onChange={(e) => setEmail(e.target.value)} style={inputStyle} />
+              <label htmlFor="org-staff-invite-email" style={labelStyle}>Email</label>
+              <input id="org-staff-invite-email" value={email} onChange={(e) => { setEmail(e.target.value); setInviteError(null); setInvited(false); }} style={inputStyle} />
             </div>
             <div>
-              <label style={labelStyle}>Role</label>
-              <select value={role} onChange={(e) => setRole(e.target.value)} style={inputStyle}>
+              <label htmlFor="org-staff-invite-role" style={labelStyle}>Role</label>
+              <select id="org-staff-invite-role" value={role} onChange={(e) => { setRole(e.target.value); setInviteError(null); setInvited(false); }} style={inputStyle}>
                 {PLATFORM_ROLES.map((r) => (
                   <option key={r} value={r}>{r.replace(/_/g, " ")}</option>
                 ))}
@@ -109,7 +224,9 @@ function StaffPanel({ profile, reload }: { profile: OrgProfile; reload: () => vo
             <Button onClick={invite} disabled={inviting || !email.trim()}>
               {inviting ? "Sending…" : "Send invite"}
             </Button>
+            {invited && <span style={{ fontSize: 13, color: colors.greenText, fontWeight: 600 }}>Invite sent</span>}
           </div>
+          {inviteError && <p role="alert" className="pop-in" style={{ color: colors.danger, fontSize: 13, margin: "10px 0 0", background: colors.dangerBg, padding: "9px 12px", borderRadius: radius.control }}>{inviteError}</p>}
           <p style={{ fontSize: 12, color: colors.faint, margin: "10px 0 0" }}>
             RBAC is enforced on: editing/deleting centres and programs on centres (centre manager), editing/deleting clubs, club sessions and programs on clubs (facility manager), check-in (whichever manager matches booking vs. registration), Payments and reports (finance), demand insights (finance/read-only analyst), and sending messages (communications). The org owner always has full access regardless of role.
           </p>

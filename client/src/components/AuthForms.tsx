@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useState, type KeyboardEvent, type ReactNode } from "react";
 import { loginWithPassword, requestGuestLink, signupWithPassword } from "../api";
 import { AppleIcon, EyeIcon, EyeOffIcon, GoogleIcon, LockIcon, MailIcon, PersonIcon } from "./icons";
 import { Button, inputStyle, labelStyle } from "./ui";
@@ -12,6 +12,18 @@ import { colors, radius } from "../theme";
 // wired up server-side); clicking shows an inline notice instead of doing
 // nothing silently.
 
+// Shared error box — same dangerBg/role="alert" treatment as every other
+// auth screen (Login.tsx, ForgotPassword.tsx, ResetPassword.tsx,
+// AcceptInvite.tsx, GuidedFlow.tsx) — these three forms were the one place
+// still showing a bare colored line instead (consistency pass).
+function AuthFormError({ message }: { message: string }) {
+  return (
+    <p role="alert" className="pop-in" style={{ color: colors.danger, fontSize: 14, margin: 0, background: colors.dangerBg, padding: "9px 12px", borderRadius: radius.control }}>
+      {message}
+    </p>
+  );
+}
+
 export function FieldIcon({ children }: { children: ReactNode }) {
   return (
     <div style={{ position: "absolute", left: 13, top: "50%", transform: "translateY(-50%)", color: colors.mutedLight, display: "flex", pointerEvents: "none" }}>
@@ -20,7 +32,7 @@ export function FieldIcon({ children }: { children: ReactNode }) {
   );
 }
 
-export function PasswordField({ id, label, value, onChange, autoComplete, placeholder }: { id: string; label: string; value: string; onChange: (v: string) => void; autoComplete: string; placeholder?: string }) {
+export function PasswordField({ id, label, value, onChange, autoComplete, placeholder, onKeyDown, autoFocus }: { id: string; label: string; value: string; onChange: (v: string) => void; autoComplete: string; placeholder?: string; onKeyDown?: (e: KeyboardEvent<HTMLInputElement>) => void; autoFocus?: boolean }) {
   const [visible, setVisible] = useState(false);
   return (
     <div>
@@ -32,8 +44,10 @@ export function PasswordField({ id, label, value, onChange, autoComplete, placeh
           type={visible ? "text" : "password"}
           value={value}
           onChange={(e) => onChange(e.target.value)}
+          onKeyDown={onKeyDown}
           autoComplete={autoComplete}
           placeholder={placeholder}
+          autoFocus={autoFocus}
           style={{ ...inputStyle, paddingLeft: 38, paddingRight: 40 }}
         />
         <button
@@ -52,12 +66,12 @@ export function PasswordField({ id, label, value, onChange, autoComplete, placeh
 export function OAuthDivider({ onClickProvider }: { onClickProvider: (provider: "Google" | "Apple") => void }) {
   return (
     <div style={{ marginTop: 18 }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 12, margin: "0 0 14px", maxWidth: 340 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 12, margin: "0 0 14px" }}>
         <div style={{ flex: 1, height: 1, background: colors.border }} />
         <span style={{ fontSize: 12, fontWeight: 600, color: colors.faint }}>or continue with</span>
         <div style={{ flex: 1, height: 1, background: colors.border }} />
       </div>
-      <div style={{ display: "flex", gap: 10, maxWidth: 340 }}>
+      <div style={{ display: "flex", gap: 10 }}>
         <button
           type="button"
           onClick={() => onClickProvider("Google")}
@@ -80,7 +94,7 @@ export function OAuthDivider({ onClickProvider }: { onClickProvider: (provider: 
 export function OAuthNotice({ notice }: { notice: string | null }) {
   if (!notice) return null;
   return (
-    <div className="pop-in" style={{ marginTop: 14, maxWidth: 340, fontSize: 12.5, color: colors.mutedLight, background: colors.panel, borderRadius: radius.control, padding: "9px 12px" }}>
+    <div className="pop-in" style={{ marginTop: 14, fontSize: 12.5, color: colors.mutedLight, background: colors.panel, borderRadius: radius.control, padding: "9px 12px" }}>
       {notice}
     </div>
   );
@@ -117,7 +131,7 @@ export function LoginForm({ onSuccess, onForgotPassword }: { onSuccess: () => vo
 
   return (
     <div>
-      <div style={{ display: "flex", flexDirection: "column", gap: 14, maxWidth: 340 }}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
         <div>
           <label htmlFor="login-email" style={labelStyle}>Email address</label>
           <div style={{ position: "relative" }}>
@@ -132,7 +146,7 @@ export function LoginForm({ onSuccess, onForgotPassword }: { onSuccess: () => vo
           </button>
         </div>
         <div style={{ clear: "both" }} />
-        {error && <div style={{ color: colors.danger, fontSize: 13 }}>{error}</div>}
+        {error && <AuthFormError message={error} />}
         <Button onClick={submit} disabled={busy || !email.trim() || !password} full>
           {busy ? "Logging in…" : "Log in →"}
         </Button>
@@ -173,7 +187,7 @@ export function SignupForm({ onSuccess }: { onSuccess: () => void | Promise<void
 
   return (
     <div>
-      <div style={{ display: "flex", flexDirection: "column", gap: 14, maxWidth: 340 }}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
         <div>
           <label htmlFor="signup-name" style={labelStyle}>Full name</label>
           <div style={{ position: "relative" }}>
@@ -192,14 +206,14 @@ export function SignupForm({ onSuccess }: { onSuccess: () => void | Promise<void
           <PasswordField id="signup-password" label="Password" value={password} onChange={setPassword} autoComplete="new-password" placeholder="Create a password" />
           <p style={{ margin: "6px 0 0", fontSize: 12.5, color: colors.faint }}>Use at least 8 characters.</p>
         </div>
-        {error && <div style={{ color: colors.danger, fontSize: 13 }}>{error}</div>}
+        {error && <AuthFormError message={error} />}
         <Button onClick={submit} disabled={busy || !email.trim() || !password} full>
           {busy ? "Creating account…" : "Create account →"}
         </Button>
       </div>
       <OAuthDivider onClickProvider={trigger} />
       <OAuthNotice notice={notice} />
-      <p style={{ margin: "16px 0 0", fontSize: 12, color: colors.faint, maxWidth: 340 }}>
+      <p style={{ margin: "16px 0 0", fontSize: 12, color: colors.faint }}>
         By creating an account, you agree to HelloCircle's{" "}
         <a href="/privacy" style={{ color: colors.faint, textDecoration: "underline" }}>Privacy Policy</a>.
       </p>
@@ -254,7 +268,7 @@ export function EmailLinkForm() {
 
   return (
     <div>
-      <div style={{ display: "flex", gap: 12, alignItems: "flex-start", marginBottom: 20, maxWidth: 340 }}>
+      <div style={{ display: "flex", gap: 12, alignItems: "flex-start", marginBottom: 20 }}>
         <div style={{ width: 36, height: 36, borderRadius: "50%", background: colors.greenBg, color: colors.greenText, display: "flex", alignItems: "center", justifyContent: "center", flex: "none" }}>
           <MailIcon size={17} />
         </div>
@@ -262,14 +276,14 @@ export function EmailLinkForm() {
           We'll send a secure sign-in link straight to your email — no password needed.
         </div>
       </div>
-      <div style={{ maxWidth: 340 }}>
+      <div>
         <label htmlFor="link-email" style={labelStyle}>Email address</label>
         <div style={{ position: "relative" }}>
           <FieldIcon><MailIcon size={16} /></FieldIcon>
           <input id="link-email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@email.ie" autoFocus autoComplete="email" onKeyDown={(e) => e.key === "Enter" && submit()} style={{ ...inputStyle, paddingLeft: 38, marginBottom: 12 }} />
         </div>
         <Button onClick={submit} disabled={busy || !email.trim()} full>{busy ? "Sending…" : "Email me a sign-in link →"}</Button>
-        {error && <div style={{ color: colors.danger, fontSize: 13, marginTop: 10 }}>{error}</div>}
+        {error && <div style={{ marginTop: 10 }}><AuthFormError message={error} /></div>}
       </div>
     </div>
   );

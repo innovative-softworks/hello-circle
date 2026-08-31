@@ -23,6 +23,11 @@ orgRouter.get("/", async (req, res) => {
   if (!orgId) return res.status(404).json({ error: "No organisation linked to this account" });
 
   const org = (await db.prepare(`SELECT id, name, kind FROM organisations WHERE id = ?`).get(orgId)) as { id: string; name: string; kind: string } | undefined;
+  // The logo belongs to the org owner's own account row (same place
+  // business_name/description already live), not `organisations` — a
+  // staff member viewing this can see it but only the owner can change it
+  // (see PUT /logo below).
+  const owner = (await db.prepare(`SELECT logo FROM users WHERE org_id = ? AND invited_staff = 0 LIMIT 1`).get(orgId)) as { logo: string | null } | undefined;
   const policies = (await db.prepare(`SELECT cancellation_hours as cancellationHours, booking_window_days as bookingWindowDays FROM org_policies WHERE org_id = ?`).get(orgId)) as
     | { cancellationHours: number; bookingWindowDays: number }
     | undefined;
@@ -47,7 +52,16 @@ orgRouter.get("/", async (req, res) => {
     locations,
     isOwner: !req.user!.invitedStaff,
     flags,
+    logo: owner?.logo || null,
   });
+});
+
+orgRouter.put("/logo", async (req, res) => {
+  if (req.user!.invitedStaff) return res.status(403).json({ error: "Only the organisation owner can edit this" });
+  const { logo } = req.body as { logo?: string | null };
+  await db.prepare(`UPDATE users SET logo = ? WHERE id = ?`).run(logo || null, req.user!.id);
+  writeAudit({ actorUserId: req.user!.id, action: "org.logo_updated", objectType: "organisation", objectId: req.user!.orgId! });
+  res.json({ ok: true });
 });
 
 orgRouter.put("/", async (req, res) => {
