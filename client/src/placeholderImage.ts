@@ -17,5 +17,8 @@ function hashSeed(seed: string): number {
 
 export function placeholderImage(seed: string, width: number, height: number): string {
   const bg = PLACEHOLDER_PALETTE[hashSeed(seed) % PLACEHOLDER_PALETTE.length];
-  return `https://placehold.co/${width}x${height}/${bg}/44544a.png?text=${encodeURIComponent(seed)}`;
+  // No `?text=` overlay — the internal seed string baked onto the image
+  // reads as a debug label, not a photo. A plain color block is a more
+  // honest placeholder.
+  return `https://placehold.co/${width}x${height}/${bg}/44544a.png`;
 }
