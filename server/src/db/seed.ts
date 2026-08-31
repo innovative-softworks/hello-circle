@@ -40,16 +40,37 @@ interface SeedClub {
   includes: string[];
 }
 
-// Placeholder listing photos. Previously backed by Lorem Picsum
-// (picsum.photos/seed/...) — deterministic per seed, but a real third-party
-// service whose own outages break every listing photo across the whole
-// dev/demo dataset at once (observed 2026-08-31: picsum.photos returning
-// 503/unreachable while every other tested host was fine). placehold.co
-// generates a solid color block on the fly with no backing photo library to
-// go down — color chosen deterministically per seed from this file's own
-// existing pastel `ph` gradient palette, so every listing still gets a
-// stable, visually distinct "photo" instead of a flat gray box.
-const PLACEHOLDER_PALETTE = ["DDE8DA", "DEE6E9", "DBE7E6", "E4E3DA", "E1EBD9", "EAE9E1", "D9E6EC", "F5E1D3", "EDE0EC", "E1E6DE", "E4EDF1", "FAEBE0"];
+// Demo listing photos. Previously backed by Lorem Picsum (picsum.photos/
+// seed/...) — deterministic per seed, but a real third-party service whose
+// own outages break every listing photo across the whole dev/demo dataset
+// at once (observed 2026-08-31: picsum.photos returning 503/unreachable
+// while every other tested host was fine). A brief attempt at solid-color
+// placehold.co blocks instead was worse: even loading correctly, a color
+// block reads as "no photo" rather than a real image. These are real,
+// individually verified `images.unsplash.com` photo ids — sport/activity/
+// community themed, the same already-vetted-Unsplash-photo convention
+// Home.tsx/VendorHero.tsx use — cycled deterministically per seed so every
+// listing still gets a stable photo rather than a random one on every load.
+// Real photography, but still a small fixed pool doing duty across every
+// centre/club in the demo set — swap in per-listing photography before
+// shipping, same as Home.tsx's own "curated activity photography before
+// shipping" note.
+const DEMO_PHOTO_IDS = [
+  "1517649763962-0c623066013b", // group cycling
+  "1571019613914-85f342c6a11e", // gym weight training
+  "1543269865-cbf427effbad", // friends meeting over coffee
+  "1500534623283-312aade485b7", // mountain sunrise
+  "1551632811-561732d1e306", // group hiking a trail
+  "1526232761682-d26e03ac148e", // kids' local football club
+  "1554068865-24cecd4e34b8", // tennis match on a clay court
+  "1544367567-0f2fcb009e0b", // evening yoga by the sea
+  "1600965962102-9d260a71890d", // swimming laps
+  "1743601587751-01dc32b707d2", // indoor badminton court
+  "1635321101901-7ac6eec3d371", // community meeting room
+  "1680239551293-1b1407fe1e0a", // aerial view of a playground
+  "1763561553595-a60112a2977e", // colorful children's playground
+  "1735216228027-fe31c23474ce", // group road cycling
+];
 
 function hashSeed(seed: string): number {
   let hash = 0;
@@ -58,11 +79,8 @@ function hashSeed(seed: string): number {
 }
 
 export function placeholderImage(seed: string, width: number, height: number): string {
-  const bg = PLACEHOLDER_PALETTE[hashSeed(seed) % PLACEHOLDER_PALETTE.length];
-  // No `?text=` overlay — the internal seed string (e.g. "halla-c4") baked
-  // onto the image reads as a debug label, not a photo, to anyone actually
-  // looking at the card. A plain color block is a more honest placeholder.
-  return `https://placehold.co/${width}x${height}/${bg}/44544a.png`;
+  const id = DEMO_PHOTO_IDS[hashSeed(seed) % DEMO_PHOTO_IDS.length];
+  return `https://images.unsplash.com/photo-${id}?w=${width}&h=${height}&q=75&auto=format&fit=crop`;
 }
 
 const img = (seed: string) => placeholderImage(`halla-${seed}`, 800, 500);
