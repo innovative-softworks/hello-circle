@@ -16,8 +16,15 @@ export function Header() {
   const navigate = useNavigate();
   const location = useLocation();
   const { count } = useMyStuff();
-  const { user, refresh } = useAuth();
-  const { email: guestEmail, resident, refresh: refreshGuest } = useGuest();
+  const { user, loading: authLoading, refresh } = useAuth();
+  const { email: guestEmail, resident, loading: guestLoading, refresh: refreshGuest } = useGuest();
+  // Both contexts start with user/email/resident all null and only resolve
+  // asynchronously (fetchMe()/fetchGuestSession()) — without checking their
+  // loading flags, every full page load briefly rendered the signed-out nav
+  // (hamburger icon instead of the avatar) for an already-authenticated
+  // vendor/admin/resident, before flashing to the correct state once both
+  // fetches resolved.
+  const authResolved = !authLoading && !guestLoading;
   // Set only while an Admin/Vendor dashboard is mounted (see
   // DashboardNavContext) — that's what makes this burger admin/vendor-only
   // without Header needing to know about routes or tab lists itself.
@@ -576,7 +583,12 @@ export function Header() {
                   : circleBtnStyle
               }
             >
-              {user ? (
+              {!authResolved ? (
+                // Neutral placeholder, same footprint as the hamburger icon
+                // below — avoids asserting "signed out" before the session
+                // fetch has actually resolved.
+                <div style={{ width: 17, height: 17 }} />
+              ) : user ? (
                 <>
                   <Avatar name={user.name} size={36} />
                   <ChevronDownIcon size={15} style={{ color: colors.muted }} />

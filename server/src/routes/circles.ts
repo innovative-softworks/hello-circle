@@ -4,6 +4,7 @@ import { logEvent } from "../analytics.js";
 import { computeCapacity } from "../capacity.js";
 import { db } from "../db/index.js";
 import { getCircleSuggestions } from "../db/queries.js";
+import { irelandTodayIso } from "../irelandTime.js";
 import { notifyResident } from "../notifications.js";
 import { requireResident } from "../residents.js";
 import { generateSlug } from "../slugify.js";
@@ -56,7 +57,7 @@ interface NextPlan {
 // use the same spots-left urgency language as Games.tsx.
 async function nextPlanFor(activityLabel: string): Promise<NextPlan | null> {
   if (!activityLabel) return null;
-  const today = new Date().toISOString().slice(0, 10);
+  const today = irelandTodayIso();
   const row = (await db
     .prepare(
       `SELECT g.id, g.date, g.time, g.capacity,
@@ -306,7 +307,7 @@ circlesRouter.get("/:id/members", async (req, res) => {
 circlesRouter.get("/:id/upcoming", async (req, res) => {
   const circle = (await db.prepare(`SELECT * FROM circles WHERE id = ?`).get(req.params.id)) as CircleRow | undefined;
   if (!circle) return res.status(404).json({ error: "Circle not found" });
-  const today = new Date().toISOString().slice(0, 10);
+  const today = irelandTodayIso();
   const rows = (await db
     .prepare(
       `SELECT g.id, g.activity_label as activityLabel, g.date, g.time, g.location_text as locationText, g.capacity, g.price_cents as priceCents,
@@ -358,7 +359,7 @@ circlesRouter.get("/:id/recent-activity", async (req, res) => {
     | undefined;
   if (!circle) return res.status(404).json({ error: "Circle not found" });
   if (!circle.activity_label) return res.json([]);
-  const today = new Date().toISOString().slice(0, 10);
+  const today = irelandTodayIso();
   const rows = (await db
     .prepare(
       `SELECT g.id, g.activity_label as activityLabel, g.date,
@@ -413,7 +414,7 @@ circlesRouter.get("/:id/activity", async (req, res) => {
   else start.setUTCMonth(now.getUTCMonth() - 1);
   const startStr = start.toISOString().slice(0, 19).replace("T", " ");
   const startDate = start.toISOString().slice(0, 10);
-  const today = now.toISOString().slice(0, 10);
+  const today = irelandTodayIso();
 
   if (!circle.activity_label) {
     const { n: newMembers } = (await db.prepare(`SELECT COUNT(*) as n FROM circle_members WHERE circle_id = ? AND joined_at >= ?`).get(circle.id, startStr)) as { n: number };

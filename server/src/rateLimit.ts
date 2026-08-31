@@ -12,16 +12,28 @@ interface Bucket {
  * and cancel-by-email).
  *
  * Keyed by req.ip, which collapses to a single bucket behind a reverse
- * proxy unless `app.set('trust proxy', ...)` is configured — acceptable for
- * this app's current deployment. */
+ * proxy unless `app.set('trust proxy', ...)` is configured — index.ts does
+ * this when the TRUST_PROXY_HOPS env var is set to the real hop count. */
 export function simpleRateLimit({ windowMs, max }: { windowMs: number; max: number }) {
   const buckets = new Map<string, Bucket>();
+  // Entries were previously only ever overwritten on a visiting IP's next
+  // request, never deleted — an IP that hits a limited route once and never
+  // returns left a permanent entry, so the Map grew without bound over the
+  // life of the process. A lazy sweep (piggybacked on normal traffic,
+  // amortized, no extra timer) evicts anything whose window has expired.
+  let lastSweep = Date.now();
+  const SWEEP_INTERVAL_MS = 10 * 60 * 1000;
 
   return (req: Request, res: Response, next: NextFunction) => {
     const key = req.ip ?? "unknown";
     const now = Date.now();
-    const bucket = buckets.get(key);
 
+    if (now - lastSweep > SWEEP_INTERVAL_MS) {
+      lastSweep = now;
+      for (const [k, b] of buckets) if (b.resetAt < now) buckets.delete(k);
+    }
+
+    const bucket = buckets.get(key);
     if (!bucket || bucket.resetAt < now) {
       buckets.set(key, { count: 1, resetAt: now + windowMs });
       return next();

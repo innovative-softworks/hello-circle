@@ -361,6 +361,12 @@ export function joinGame(id: string): Promise<{ ok?: boolean; ref?: string; url?
   return request(`/games/${id}/join`, { method: "POST" });
 }
 
+/** Polled by PaymentSuccess.tsx after a paid game join's Stripe redirect —
+ * mirrors fetchBookingStatus/fetchRegistrationStatus. */
+export function fetchGameJoinStatus(ref: string): Promise<{ ref: string; paymentStatus: string; totalCents: number }> {
+  return request(`/games/status/${encodeURIComponent(ref)}`);
+}
+
 export function leaveGame(id: string): Promise<{ ok: boolean }> {
   return request(`/games/${id}/join`, { method: "DELETE" });
 }
@@ -564,6 +570,12 @@ export function fetchMyPasses(): Promise<Pass[]> {
 
 export function createPassCheckout(input: { listingId: string; creditsTotal: number }): Promise<{ ref: string; url?: string; totalEuro: number }> {
   return request(`/passes/checkout`, { method: "POST", body: JSON.stringify({ listingType: "club", ...input }) });
+}
+
+/** Polled by PaymentSuccess.tsx after a pass purchase's Stripe redirect —
+ * mirrors fetchBookingStatus/fetchRegistrationStatus. */
+export function fetchPassStatus(ref: string): Promise<{ ref: string; paymentStatus: string; totalCents: number }> {
+  return request(`/passes/status/${encodeURIComponent(ref)}`);
 }
 
 // --- Phase A: onboarding, preferences, receipts, feedback -----------------

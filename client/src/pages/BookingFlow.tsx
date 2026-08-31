@@ -91,6 +91,7 @@ export function BookingFlow() {
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [confirmedRef, setConfirmedRef] = useState<string | null>(null);
+  const [confirmedTotalEuro, setConfirmedTotalEuro] = useState(0);
 
   const [couponInput, setCouponInput] = useState("");
   const [coupon, setCoupon] = useState<{ code: string; discountCents: number } | null>(null);
@@ -218,8 +219,12 @@ export function BookingFlow() {
       if (res.url) {
         window.location.href = res.url;
       } else {
-        // Cash room — confirmed immediately, no Stripe redirect.
+        // Cash room — confirmed immediately, no Stripe redirect. Use the
+        // server's authoritative total (matching RegistrationFlow.tsx's
+        // pattern) rather than the client's own locally-computed totalCents,
+        // which can drift from what the server actually recorded.
         setConfirmedRef(res.ref);
+        setConfirmedTotalEuro(res.totalEuro);
         setSubmitting(false);
         top();
       }
@@ -268,7 +273,7 @@ export function BookingFlow() {
           </div>
           <PageTitle>Booking confirmed!</PageTitle>
           <p style={{ color: colors.muted, fontSize: 17, margin: "0 0 28px" }}>
-            Pay {euro(totalCents / 100)} in cash at the venue — no online payment needed. We've emailed {form.email || "you"} the details.
+            Pay €{confirmedTotalEuro.toFixed(2)} in cash at the venue — no online payment needed. We've emailed {form.email || "you"} the details.
           </p>
           <div style={{ background: "#fff", border: `1px solid ${colors.border}`, borderRadius: 18, padding: 24, textAlign: "left", marginBottom: 24 }}>
             <div style={{ fontWeight: 700, fontSize: 18, marginBottom: 2 }}>{centre.name}{room ? ` — ${room.name}` : ""}</div>

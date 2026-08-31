@@ -51,11 +51,14 @@ export function VendorExperienceEditPage() {
     else fetchVendorExperience(experienceId).then(setExperience);
   };
 
+  // See VendorDashboard.tsx's identical comment — navigate() belongs in an
+  // effect, not called directly during render.
+  useEffect(() => {
+    if (!authLoading && (!user || user.role !== "vendor" || user.status !== "approved")) navigate("/login");
+  }, [authLoading, user, navigate]);
+
   if (authLoading || loading) return <PageSpinner />;
-  if (!user || user.role !== "vendor" || user.status !== "approved") {
-    navigate("/login");
-    return null;
-  }
+  if (!user || user.role !== "vendor" || user.status !== "approved") return null;
 
   const title = experienceId === "new" ? "New adventure/experience" : (experience?.title ?? "Edit listing");
 

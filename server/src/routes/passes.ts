@@ -64,3 +64,14 @@ passesRouter.post("/checkout", requireResident, async (req, res) => {
   await db.prepare(`UPDATE passes SET stripe_session_id = ? WHERE ref = ?`).run(result.session.id, ref);
   res.status(201).json({ ref, url: result.session.url, totalEuro: pricing.totalCents / 100 });
 });
+
+/** Mirrors bookings.ts's/registrations.ts's GET /status/:ref — PaymentSuccess.tsx
+ * polls this for a "PS-" ref after the Stripe redirect. Passes are always
+ * resident-owned (no guest-client-id path), so ownership is by resident_id. */
+passesRouter.get("/status/:ref", requireResident, async (req, res) => {
+  const row = await db
+    .prepare(`SELECT ref, payment_status as paymentStatus, purchased_cents as totalCents FROM passes WHERE ref = ? AND resident_id = ?`)
+    .get(req.params.ref, req.resident!.id);
+  if (!row) return res.status(404).json({ error: "Pass not found" });
+  res.json(row);
+});

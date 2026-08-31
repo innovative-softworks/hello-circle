@@ -3,6 +3,7 @@ import { Router } from "express";
 import { createCheckoutSession, pricingLineItems } from "../checkoutService.js";
 import { db } from "../db/index.js";
 import { getCentre, orgFeatureFlags, orgPoliciesForVendor } from "../db/queries.js";
+import { TIME_SLOTS } from "./availability.js";
 import { upgradeFavouriteStatus } from "./favourites.js";
 import { buildIcsEvent } from "../ics.js";
 import { irelandWallTimeToUtc } from "../irelandTime.js";
@@ -138,6 +139,16 @@ export async function createBookingInternal(input: CreateBookingInternalInput): 
   const room = centre?.rooms.find((r) => r.id === input.roomId);
   if (!centre || !room) return { ok: false, status: 404, error: "Centre or room not found" };
   if (!centre.isOpen) return { ok: false, status: 409, error: "This venue isn't currently taking bookings" };
+
+  // Every overlap/opening-hours check below (and in availability.ts) only
+  // ever compares whole hours (bookingEndHour/hoursOverlap take integer
+  // hours) — an unvalidated time like "14:30" was silently truncated to
+  // "14:00" for clash-checking purposes while still being stored/displayed
+  // as "14:30", so a second booking at "15:00" (real overlap 14:30–15:30 vs
+  // 15:00–16:00) was wrongly accepted as non-overlapping. Reject anything
+  // not on the fixed slot grid the client itself offers, rather than
+  // silently truncating it.
+  if (!TIME_SLOTS.includes(input.time)) return { ok: false, status: 400, error: "Invalid time slot" };
 
   const startHour = parseInt(input.time.slice(0, 2), 10);
   const reqEnd = bookingEndHour(startHour, input.duration);
@@ -522,6 +533,10 @@ bookingsRouter.post("/:ref/reschedule", lookupLimiter, async (req, res) => {
   const headerClientId = req.header("X-Client-Id");
   if (!headerClientId && !email) return res.status(400).json({ error: "X-Client-Id header or email is required" });
   if (!date || !time) return res.status(400).json({ error: "A new date and time are required" });
+  // Same fixed-slot-grid validation as createBookingInternal — the overlap
+  // check below only compares whole hours, so an off-grid time like "14:30"
+  // would clash-check as "14:00" while displaying/storing as "14:30".
+  if (!TIME_SLOTS.includes(time)) return res.status(400).json({ error: "Invalid time slot" });
 
   const row = (await db
     .prepare(

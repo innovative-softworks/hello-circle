@@ -268,5 +268,5 @@ const ADMIN_PASSWORD = process.env.HELLO_CIRCLE_ADMIN_PASSWORD || "changeme123";
 export async function seedAdminIfMissing() {
   if (await findUserByEmail(ADMIN_EMAIL)) return;
   await createUser(ADMIN_EMAIL, ADMIN_PASSWORD, "Hello Circle Admin", "admin", "approved");
-  console.log(`Seeded admin account: ${ADMIN_EMAIL} / ${ADMIN_PASSWORD} (set HELLO_CIRCLE_ADMIN_EMAIL/HELLO_CIRCLE_ADMIN_PASSWORD to change)`);
+  console.log(`Seeded admin account: ${ADMIN_EMAIL} (set HELLO_CIRCLE_ADMIN_EMAIL/HELLO_CIRCLE_ADMIN_PASSWORD env vars to set credentials; password not logged)`);
 }

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { addFavourite, createPassCheckout, fetchClub, fetchFavourites, fetchPrograms, removeFavourite } from "../api";
+import { addFavourite, createPassCheckout, fetchClub, fetchFavourites, fetchPrograms, PLATFORM_FEE_RATE, removeFavourite, VAT_RATE } from "../api";
 import { BackLink } from "../components/BackLink";
 import { ClaimListingCTA } from "../components/ClaimListingCTA";
 import { PhotoGallery } from "../components/PhotoGallery";
@@ -231,7 +231,12 @@ export function ClubDetail() {
           </Button>
           {resident && club.paymentMethod !== "cash" && (
             <Button variant="ghost" full onClick={handleBuyPass} disabled={passLoading} style={{ padding: 12, fontSize: 14, marginBottom: 10 }}>
-              {passLoading ? "Please wait…" : `Buy a 10-session pass — €${(club.price * 10).toFixed(0)}`}
+              {passLoading
+                ? "Please wait…"
+                : /* Inclusive of VAT + platform fee, matching what checkoutService.ts actually
+                   * charges (server/src/pricing.ts's computePricing) — showing the bare subtotal
+                   * here understated the real Stripe total by ~28%. */
+                  `Buy a 10-session pass — €${Math.round(club.price * 10 * (1 + VAT_RATE + PLATFORM_FEE_RATE))} (incl. VAT & fee)`}
             </Button>
           )}
           <div style={{ display: "flex", flexDirection: "column", gap: 9, marginTop: 16, fontSize: 14, color: colors.muted }}>

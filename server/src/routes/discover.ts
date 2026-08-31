@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { db } from "../db/index.js";
 import { haversineKm, resolveRadiusFilter } from "../geo.js";
-import { irelandWallTimeToUtc } from "../irelandTime.js";
+import { irelandTodayIso, irelandWallTimeToUtc } from "../irelandTime.js";
 import { getLocalMomentum, getMarketCategories, listScheduledActivities, type ScheduledActivity } from "../db/queries.js";
 import { personalizeActivity } from "../personalization.js";
 
@@ -88,7 +88,7 @@ discoverRouter.get("/", async (req, res) => {
   const county = typeof req.query.county === "string" && req.query.county !== "All" ? req.query.county : undefined;
   const radius = resolveRadiusFilter(req.query, req.resident?.homeCounty ?? null);
   const now = new Date();
-  const todayIso = now.toISOString().slice(0, 10);
+  const todayIso = irelandTodayIso();
   const weekFromNow = new Date(now);
   weekFromNow.setUTCDate(now.getUTCDate() + 7);
   const weekFromNowIso = weekFromNow.toISOString().slice(0, 10);

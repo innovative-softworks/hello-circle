@@ -1,12 +1,38 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { fetchBookingStatus, fetchRegistrationStatus } from "../api";
+import {
+  fetchBookingStatus,
+  fetchExperienceBookingStatus,
+  fetchGameJoinStatus,
+  fetchPassStatus,
+  fetchProgramEnrollmentStatus,
+  fetchRegistrationStatus,
+} from "../api";
 import { useMyStuff } from "../MyStuffContext";
 import { CheckIcon, ClockIcon } from "../components/icons";
 import { colors, fonts } from "../theme";
 
 const POLL_MS = 1500;
 const MAX_ATTEMPTS = 12;
+
+/** checkoutService.ts's five payment types each mint a ref via a distinct
+ * generateRef() prefix (util.ts) and all redirect to this same
+ * /payment/success URL — only "CR-" (registration) used to be special-cased
+ * here, so a game/experience/pass/program payment 404'd against the bookings
+ * table and showed "we couldn't confirm that" despite a successful charge. */
+const STATUS_FETCHERS: Record<string, (ref: string) => Promise<{ paymentStatus: string }>> = {
+  "CR-": fetchRegistrationStatus,
+  "GJ-": fetchGameJoinStatus,
+  "EX-": fetchExperienceBookingStatus,
+  "PS-": fetchPassStatus,
+  "PR-": fetchProgramEnrollmentStatus,
+  "HB-": fetchBookingStatus,
+};
+
+function statusFetcherFor(ref: string): (ref: string) => Promise<{ paymentStatus: string }> {
+  const prefix = Object.keys(STATUS_FETCHERS).find((p) => ref.startsWith(p));
+  return prefix ? STATUS_FETCHERS[prefix] : fetchBookingStatus;
+}
 
 export function PaymentSuccess() {
   const [searchParams] = useSearchParams();
@@ -21,7 +47,7 @@ export function PaymentSuccess() {
       setStatus("notfound");
       return;
     }
-    const fetchStatus = ref.startsWith("CR-") ? fetchRegistrationStatus : fetchBookingStatus;
+    const fetchStatus = statusFetcherFor(ref);
     let cancelled = false;
 
     const poll = () => {

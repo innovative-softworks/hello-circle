@@ -85,8 +85,11 @@ async function toExperienceJson(row: ExperienceRow) {
     title: row.title,
     area: row.area,
     county: row.county,
-    lat: row.lat,
-    lng: row.lng,
+    // DECIMAL(9,6) columns, same mysql2-returns-strings caveat as
+    // distance_km below — every sibling listing type (queries.ts's centres/
+    // clubs) already coerces these; this one was missed.
+    lat: row.lat === null ? null : Number(row.lat),
+    lng: row.lng === null ? null : Number(row.lng),
     meetingPoint: row.meeting_point,
     blurb: row.blurb,
     description: row.description,

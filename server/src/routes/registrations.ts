@@ -9,7 +9,7 @@ import { computePricing, evaluateCoupon } from "../pricing.js";
 import { lookupLimiter } from "../rateLimit.js";
 import { stripe } from "../stripe.js";
 import { BadRequestError, ConflictError, clientIdFrom, generateRef, isValidEmail } from "../util.js";
-import { promoteNextWaitlistEntry } from "../waitlist.js";
+import { activeOfferedCount, claimWaitlistOffer, hasActiveOffer, promoteNextWaitlistEntry } from "../waitlist.js";
 
 export const registrationsRouter = Router();
 
@@ -198,7 +198,14 @@ registrationsRouter.post("/checkout", async (req, res) => {
     const { n: paidCount } = (await db
       .prepare(`SELECT COUNT(*) as n FROM registrations WHERE club_id = ? AND payment_status = 'paid' AND status != 'cancelled'`)
       .get(club.id)) as { n: number };
-    if (computeCapacity(club.capacity, paidCount).isFull) {
+    // An active (unexpired) waitlist offer holds its spot — without this, a
+    // fresh registration could grab a freed slot out from under the person
+    // it was actually offered to, during their 48h claim window. Exclude
+    // this registrant's own offer (if any) from the reserved count — it's
+    // their spot to claim, not competing demand against itself.
+    const offeredCount = await activeOfferedCount("club", club.id);
+    const ownsOffer = await hasActiveOffer("club", club.id, clientId, req.resident?.id ?? null);
+    if (computeCapacity(club.capacity, paidCount + offeredCount - (ownsOffer ? 1 : 0)).isFull) {
       return res.status(409).json({ error: "This club is currently full", full: true });
     }
   }
@@ -241,6 +248,7 @@ registrationsRouter.post("/checkout", async (req, res) => {
       if (e instanceof ConflictError) return res.status(409).json({ error: e.message });
       throw e;
     }
+    await claimWaitlistOffer("club", body.clubId, clientId, req.resident!.id);
 
     const clubVendorForPass = (await db.prepare(`SELECT vendor_id FROM clubs WHERE id = ?`).get(body.clubId)) as { vendor_id: string | null } | undefined;
     notifyNewBookingOrRegistration({
@@ -292,6 +300,7 @@ registrationsRouter.post("/checkout", async (req, res) => {
       if (e instanceof ConflictError) return res.status(409).json({ error: e.message, full: true });
       throw e;
     }
+    await claimWaitlistOffer("club", club.id, clientId, req.resident?.id ?? null);
     notify("paid");
     if (req.resident) await upgradeFavouriteStatus(req.resident.id, "club", club.id);
     return res.status(201).json({ ref, totalEuro: pricing.totalCents / 100, trial: body.trial });

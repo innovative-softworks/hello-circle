@@ -76,11 +76,16 @@ export function VendorDashboard() {
     }
   }, [user]);
 
+  // Calling navigate() during render (rather than in an effect) updates the
+  // Router while this component is still rendering — a React anti-pattern
+  // that's undefined-behavior-adjacent under concurrent rendering/Strict
+  // Mode's double-render, even though the redirect visually still worked.
+  useEffect(() => {
+    if (!loading && (!user || user.role !== "vendor")) navigate("/login");
+  }, [loading, user, navigate]);
+
   if (loading) return <PageSpinner />;
-  if (!user || user.role !== "vendor") {
-    navigate("/login");
-    return null;
-  }
+  if (!user || user.role !== "vendor") return null;
 
   if (user.status !== "approved") {
     return (

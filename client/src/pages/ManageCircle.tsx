@@ -534,11 +534,15 @@ export function ManageCircle() {
       .finally(() => setCircleLoading(false));
   }, [id, resident?.id]);
 
+  // See VendorDashboard.tsx's identical comment — navigate() belongs in an
+  // effect, not called directly during render.
+  useEffect(() => {
+    if (!loading && !resident) navigate(signInHref());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, resident]);
+
   if (loading) return <PageSpinner />;
-  if (!resident) {
-    navigate(signInHref());
-    return null;
-  }
+  if (!resident) return null;
 
   return (
     <ManageShell

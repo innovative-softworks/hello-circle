@@ -1,4 +1,5 @@
 import { db } from "./db/index.js";
+import { irelandTodayIso } from "./irelandTime.js";
 
 // Shareable link previews (master-prompt punch list #1) — this app has no
 // SSR framework, so a full per-route render isn't an option. This is the
@@ -167,9 +168,13 @@ async function resolveLocalLandingOgMeta(pathName: string, origin: string): Prom
   // (the actual data the landing page renders) — without this, the meta
   // description could cite a count that includes already-past games and
   // disagree with what a visitor actually sees on the page.
+  // CURDATE() is the DB server's own UTC date (the pool is configured
+  // timezone: "Z") — wrong for the ~1hr window after Irish midnight during
+  // BST, same bug irelandTodayIso() exists to fix; bind it explicitly
+  // instead of trusting the DB's own clock for this calendar-date compare.
   const { n: count } = (await db
-    .prepare(`SELECT COUNT(*) as n FROM games g LEFT JOIN centres c ON c.id = g.centre_id WHERE g.status = 'open' AND g.date >= CURDATE() AND c.county = ? AND LOWER(g.activity_label) LIKE LOWER(?)`)
-    .get(centre.county, `%${activityQuery}%`)) as { n: number };
+    .prepare(`SELECT COUNT(*) as n FROM games g LEFT JOIN centres c ON c.id = g.centre_id WHERE g.status = 'open' AND g.date >= ? AND c.county = ? AND LOWER(g.activity_label) LIKE LOWER(?)`)
+    .get(irelandTodayIso(), centre.county, `%${activityQuery}%`)) as { n: number };
 
   const title = `${activityQuery} in ${centre.county} — HelloCircle`;
   const description =
@@ -197,7 +202,12 @@ export function injectOgTags(html: string, meta: OgMeta): string {
     `<meta name="twitter:card" content="${meta.image ? "summary_large_image" : "summary"}" />`,
     `<meta name="twitter:title" content="${escapeHtml(meta.title)}" />`,
     `<meta name="twitter:description" content="${escapeHtml(meta.description)}" />`,
-    meta.jsonLd ? `<script type="application/ld+json">${JSON.stringify(meta.jsonLd)}</script>` : "",
+    // JSON.stringify does not escape "<" — a vendor blurb or a resident-set
+    // Game activity_label containing "</script><script>..." would otherwise
+    // close this tag early and execute as real markup for anyone hitting the
+    // page on a fresh (non-client-routed) load. Escaping "<" as a unicode
+    // escape is valid inside a JSON string and inert as HTML.
+    meta.jsonLd ? `<script type="application/ld+json">${JSON.stringify(meta.jsonLd).replace(/</g, "\\u003c")}</script>` : "",
   ]
     .filter(Boolean)
     .join("\n    ");
@@ -221,19 +231,20 @@ function slugifyActivity(label: string): string {
 export async function generateSitemapUrls(origin: string): Promise<string[]> {
   const urls = STATIC_SITEMAP_PATHS.map((p) => `${origin}${p}`);
 
+  const todayIso = irelandTodayIso();
   const [centres, clubs, circles, experiences, games, localPages] = await Promise.all([
     db.prepare(`SELECT COALESCE(slug, id) as slug FROM centres WHERE status = 'approved'`).all() as Promise<{ slug: string }[]>,
     db.prepare(`SELECT COALESCE(slug, id) as slug FROM clubs WHERE status = 'approved'`).all() as Promise<{ slug: string }[]>,
     db.prepare(`SELECT COALESCE(slug, id) as slug FROM circles WHERE status = 'active'`).all() as Promise<{ slug: string }[]>,
     db.prepare(`SELECT COALESCE(slug, id) as slug FROM experiences WHERE status = 'approved'`).all() as Promise<{ slug: string }[]>,
-    db.prepare(`SELECT id FROM games WHERE status IN ('open', 'pending_participants') AND date >= CURDATE()`).all() as Promise<{ id: string }[]>,
+    db.prepare(`SELECT id FROM games WHERE status IN ('open', 'pending_participants') AND date >= ?`).all(todayIso) as Promise<{ id: string }[]>,
     db
       .prepare(
         `SELECT DISTINCT c.county as county, g.activity_label as activityLabel
          FROM games g JOIN centres c ON c.id = g.centre_id
-         WHERE g.status = 'open' AND g.date >= CURDATE() AND c.status = 'approved'`
+         WHERE g.status = 'open' AND g.date >= ? AND c.status = 'approved'`
       )
-      .all() as Promise<{ county: string; activityLabel: string }[]>,
+      .all(todayIso) as Promise<{ county: string; activityLabel: string }[]>,
   ]);
 
   for (const c of centres) urls.push(`${origin}/centres/${c.slug}`);

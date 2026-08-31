@@ -11,6 +11,13 @@ const pool = mysql.createPool({
   waitForConnections: true,
   connectionLimit: 10,
   namedPlaceholders: true,
+  // CLIENT_FOUND_ROWS: without this, MySQL's affectedRows on an UPDATE counts
+  // only rows whose VALUE actually changed, not rows matched by the WHERE
+  // clause — the opposite of better-sqlite3's `.changes`, which this shim is
+  // built to mimic (see RunResult below). Without this flag, a no-op update
+  // (e.g. re-approving an already-approved vendor) reports changes: 0 and
+  // every `if (info.changes === 0) return 404` call site wrongly 404s.
+  flags: ["FOUND_ROWS"],
   // DATETIME columns (created_at, expires_at, ...) are stored in UTC — the DB
   // server's own system time zone is UTC, so NOW()/CURRENT_TIMESTAMP already
   // produce UTC. Without this, mysql2 falls back to whatever local time zone
@@ -26,6 +33,17 @@ const pool = mysql.createPool({
  * routes relies on being able to pass `undefined` for untouched fields. */
 function normalizeParams(params: unknown[]): unknown[] {
   return params.map((p) => (p === undefined ? null : p));
+}
+
+/** Same undefined->null guarantee as normalizeParams, for the named-`@field`
+ * object-argument form — every current named-param call site already guards
+ * each field with `?? null`, so this was latent rather than triggered, but
+ * without it the shim's documented "undefined is always normalized" contract
+ * only actually held for positional params. */
+function normalizeNamedParams(params: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(params)) out[k] = v === undefined ? null : v;
+  return out;
 }
 
 interface RunResult {
@@ -58,7 +76,7 @@ function statement(conn: Queryable, sql: string) {
       // form of execute() (they only type ExecuteValues as array/Buffer),
       // even though it's supported and documented at runtime — cast through.
       const [result] = isNamed
-        ? await conn.execute(sql.replace(/@(\w+)/g, ":$1"), params[0] as any)
+        ? await conn.execute(sql.replace(/@(\w+)/g, ":$1"), normalizeNamedParams(params[0] as Record<string, unknown>) as any)
         : await conn.query(sql, normalizeParams(params));
       const r = result as mysql.ResultSetHeader;
       return { changes: r.affectedRows, lastInsertRowid: r.insertId };
@@ -1016,7 +1034,16 @@ export async function initSchema() {
       .prepare(`SELECT COLUMN_NAME as name FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?`)
       .all(table)) as { name: string }[];
     if (!cols.some((c) => c.name === column)) {
-      await db.exec(`ALTER TABLE ${table} ADD COLUMN ${ddl}`);
+      try {
+        await db.exec(`ALTER TABLE ${table} ADD COLUMN ${ddl}`);
+      } catch (e) {
+        // ER_DUP_FIELDNAME (1060): a rolling/multi-instance deploy can start
+        // two processes against the same not-yet-migrated schema — both read
+        // "column missing" before either's ALTER TABLE commits. Losing this
+        // race isn't a real failure, another instance already added the
+        // column — crashing this instance's boot over it would be wrong.
+        if ((e as { code?: string }).code !== "ER_DUP_FIELDNAME") throw e;
+      }
     }
   }
 

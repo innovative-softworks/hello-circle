@@ -8,14 +8,14 @@ import { countFamiliarCoParticipants } from "../db/queries.js";
 import { upgradeFavouriteStatus } from "./favourites.js";
 import { notifyCentreFollowers, notifyHostFollowers } from "./follows.js";
 import { buildIcsEvent } from "../ics.js";
-import { irelandWallTimeToUtc } from "../irelandTime.js";
+import { irelandTodayIso, irelandWallTimeToUtc } from "../irelandTime.js";
 import { notifyResident } from "../notifications.js";
 import { matchParticipationIntentsForGame } from "../participationIntents.js";
 import { computePricing } from "../pricing.js";
 import { requireResident } from "../residents.js";
 import { matchSearchAlertsForGame } from "../searchAlerts.js";
 import { ConflictError, generateRef } from "../util.js";
-import { promoteNextWaitlistEntry } from "../waitlist.js";
+import { activeOfferedCount, claimWaitlistOffer, hasActiveOffer, promoteNextWaitlistEntry } from "../waitlist.js";
 
 export const gamesRouter = Router();
 
@@ -125,7 +125,7 @@ async function toGameJson(row: GameRow) {
 // first; a past-dated game is simply never returned (no cleanup job needed
 // since nothing depends on stale rows being deleted).
 gamesRouter.get("/", async (req, res) => {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = irelandTodayIso();
   const county = typeof req.query.county === "string" ? req.query.county : undefined;
   const rows = (
     county
@@ -679,6 +679,14 @@ gamesRouter.post("/:id/join", requireResident, async (req, res) => {
   let insertedRef: string | null = null;
   let checkoutRow: GameRow | null = null;
   let joinedRow: GameRow | null = null;
+  // An active (unexpired) waitlist offer holds its spot — without this, a
+  // fresh join could grab a freed slot out from under the person it was
+  // actually offered to, during their 48h claim window. Exclude this
+  // joiner's own offer (if any) — it's their spot to claim, not competing
+  // demand against itself.
+  const offeredCount = await activeOfferedCount("game", req.params.id);
+  const ownsOffer = await hasActiveOffer("game", req.params.id, null, req.resident!.id);
+  const reservedCount = offeredCount - (ownsOffer ? 1 : 0);
   try {
     await db.transaction(async (tx) => {
       const row = (await tx.prepare(`SELECT * FROM games WHERE id = ? FOR UPDATE`).get(req.params.id)) as GameRow | undefined;
@@ -694,7 +702,7 @@ gamesRouter.post("/:id/join", requireResident, async (req, res) => {
       const { n: joined } = (await tx
         .prepare(`SELECT COUNT(*) as n FROM game_participants WHERE game_id = ? AND status IN ('joined', 'pending_payment')`)
         .get(req.params.id)) as { n: number };
-      if (computeCapacity(row.capacity, joined).isFull) throw new ConflictError("This game is full");
+      if (computeCapacity(row.capacity, joined + reservedCount).isFull) throw new ConflictError("This game is full");
 
       const isPaid = !!row.price_cents && row.price_cents > 0;
       if (isPaid) {
@@ -730,6 +738,7 @@ gamesRouter.post("/:id/join", requireResident, async (req, res) => {
   // commits — check the threshold now. A paid join isn't 'joined' until
   // stripeWebhook.ts's confirmGameJoin runs, which checks it there instead.
   if (!insertedRef) {
+    await claimWaitlistOffer("game", req.params.id, null, req.resident!.id);
     await checkMinParticipantsThreshold(req.params.id);
     await upgradeFavouriteStatus(req.resident!.id, "game", req.params.id);
     const joinedActivityLabel: string | undefined = joinedRow ? (joinedRow as GameRow).activity_label : undefined;
@@ -768,6 +777,23 @@ gamesRouter.post("/:id/join", requireResident, async (req, res) => {
 
   await db.prepare(`UPDATE game_participants SET stripe_session_id = ? WHERE ref = ?`).run(result.session.id, insertedRef);
   res.status(201).json({ ref: insertedRef, url: result.session.url, totalEuro: pricing.totalCents / 100 });
+});
+
+/** Mirrors bookings.ts's/registrations.ts's GET /status/:ref — PaymentSuccess.tsx
+ * polls this for a "GJ-" ref after the Stripe redirect. A paid game join is
+ * always resident-owned (join requires requireResident), so ownership is by
+ * resident_id, not client_id. total_cents lives on the parent game, not the
+ * participant row. */
+gamesRouter.get("/status/:ref", requireResident, async (req, res) => {
+  const row = await db
+    .prepare(
+      `SELECT gp.ref, gp.payment_status as paymentStatus, g.price_cents as totalCents
+       FROM game_participants gp JOIN games g ON g.id = gp.game_id
+       WHERE gp.ref = ? AND gp.resident_id = ?`
+    )
+    .get(req.params.ref, req.resident!.id);
+  if (!row) return res.status(404).json({ error: "Game join not found" });
+  res.json(row);
 });
 
 // --- waitlist (NEXT) — mirrors routes/clubs.ts's club waitlist ------------

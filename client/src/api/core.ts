@@ -36,7 +36,10 @@ export async function downloadIcs(path: string, filename: string): Promise<void>
     credentials: "include",
     headers: { "X-Client-Id": getClientId() },
   });
-  if (!res.ok) throw new ApiError(`Request failed: ${res.status}`, {});
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({ error: res.statusText }));
+    throw new ApiError(body.error || `Request failed: ${res.status}`, body);
+  }
   const blob = await res.blob();
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");

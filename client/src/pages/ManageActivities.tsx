@@ -223,11 +223,15 @@ export function ManageActivities() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [resident?.id]);
 
+  // See VendorDashboard.tsx's identical comment — navigate() belongs in an
+  // effect, not called directly during render.
+  useEffect(() => {
+    if (!loading && !resident) navigate(signInHref());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, resident]);
+
   if (loading) return <PageSpinner />;
-  if (!resident) {
-    navigate(signInHref());
-    return null;
-  }
+  if (!resident) return null;
 
   const today = new Date().toISOString().slice(0, 10);
   const upcoming = games.filter((g) => g.status !== "cancelled" && g.date >= today).sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time));

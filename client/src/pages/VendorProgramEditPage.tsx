@@ -30,11 +30,14 @@ export function VendorProgramEditPage() {
     else fetchVendorProgram(programId).then((p) => setTitle(p.title));
   }, [programId]);
 
+  // See VendorDashboard.tsx's identical comment — navigate() belongs in an
+  // effect, not called directly during render.
+  useEffect(() => {
+    if (!authLoading && (!user || user.role !== "vendor" || user.status !== "approved")) navigate("/login");
+  }, [authLoading, user, navigate]);
+
   if (authLoading) return <PageSpinner />;
-  if (!user || user.role !== "vendor" || user.status !== "approved") {
-    navigate("/login");
-    return null;
-  }
+  if (!user || user.role !== "vendor" || user.status !== "approved") return null;
 
   return (
     <div className="fade-panel">

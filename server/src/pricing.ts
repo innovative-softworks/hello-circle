@@ -73,6 +73,21 @@ export async function evaluateCoupon(rawCode: string, subtotalCents: number): Pr
   return { valid: true, discountCents, code: row.code };
 }
 
+/** Called from stripeWebhook.ts's confirm* functions, after payment has
+ * already succeeded — so this can no longer reject the booking/registration
+ * itself if the coupon turns out to be exhausted. The conditional WHERE
+ * (rather than a plain increment) closes the TOCTOU race where two
+ * concurrent checkouts both pass evaluateCoupon's read while used_count is
+ * one below max_uses and both then increment — at most one of them can win
+ * this update. If it doesn't apply, the charge already happened; that's
+ * logged for manual/admin follow-up (refund or honor it) rather than
+ * silently over-redeeming a single-use code. */
 export async function recordCouponUse(code: string) {
-  await db.prepare(`UPDATE coupons SET used_count = used_count + 1 WHERE code = ?`).run(code.trim().toUpperCase());
+  const normalized = code.trim().toUpperCase();
+  const info = await db
+    .prepare(`UPDATE coupons SET used_count = used_count + 1 WHERE code = ? AND (max_uses IS NULL OR used_count < max_uses)`)
+    .run(normalized);
+  if (info.changes === 0) {
+    console.error(`[coupons] recordCouponUse: "${normalized}" was already at max_uses when this paid order tried to record its use — needs manual review`);
+  }
 }

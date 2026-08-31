@@ -49,7 +49,12 @@ npm run reset-demo --workspace server  # tsx src/scripts/resetDemo.ts — wipes 
 npm run preview --workspace client   # serve the built client bundle locally
 ```
 
-There is no test suite and no lint script in this repo currently.
+There is no lint script in this repo currently. There is a small Vitest suite on each workspace (`npm run
+test --workspace server` / `--workspace client`, or `npm test` from the root to run both) — server covers
+capacity/games/registrations/the Stripe webhook (`server/src/**/*.test.ts`), client covers a handful of pure
+utility functions (`client/src/**/*.test.ts`); neither is close to comprehensive (no route/component/
+integration coverage), so still verify payment-adjacent changes by hand against `hello_circle_dev` per the
+"Known gaps" section below.
 
 **Requires a running MySQL/MariaDB server reachable from the machine running the API** — there's no bundled
 database on this branch. There is no `server/.env.example` on this branch (it was removed); every env var
@@ -267,7 +272,8 @@ into fixing (or worse, half-fixing) one as a side effect of an unrelated task:
   migration, not a quick refactor.
 - **RBAC's scope is still being actively extended**, not finished — check current `requirePlatformRole(...)`
   usage in `server/src/routes/*.ts` before assuming any given vendor-scoped route is or isn't gated.
-- **No test suite, no CI** — there is no automated safety net for checkout/cancellation paths. Verify
-  payment-adjacent changes by hand against `hello_circle_dev`, never `hello_circle`.
+- **No CI, and the Vitest suites are thin** (see above) — no automated safety net for checkout/cancellation
+  paths beyond what the server's handful of `*.test.ts` files cover. Verify payment-adjacent changes by hand
+  against `hello_circle_dev`, never `hello_circle`.
 - **Resident preferences (`interests`/`availability`) are stored as CSV text**, not a structured/queryable
   shape — fine for display, not yet a foundation for real personalization/recommendations.

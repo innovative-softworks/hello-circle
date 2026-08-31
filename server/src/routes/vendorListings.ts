@@ -346,21 +346,32 @@ vendorListingsRouter.put("/centres/:id/rooms/:roomId", requirePlatformRole("cent
   if (!(await ownsCentre(req.vendorIds!, req.params.id))) return res.status(403).json({ error: "Not your listing" });
   const b = req.body as Partial<RoomInput>;
 
-  if (b.active === false) {
-    const otherActive = (await db
-      .prepare(`SELECT COUNT(*) as n FROM rooms WHERE centre_id = ? AND active = 1 AND id != ?`)
-      .get(req.params.id, req.params.roomId)) as { n: number };
-    if (otherActive.n === 0) return res.status(409).json({ error: "A centre must have at least one bookable room" });
-  }
+  const result = await db.transaction(async (tx) => {
+    // Lock every room row for this centre before checking "at least one
+    // other active room" — a plain check-then-update let two concurrent
+    // deactivate requests (on a centre's last two active rooms) both pass
+    // the check and both succeed, leaving zero bookable rooms. Locking here
+    // serializes the second request behind the first's commit.
+    await tx.prepare(`SELECT id FROM rooms WHERE centre_id = ? FOR UPDATE`).all(req.params.id);
 
-  const info = await db
-    .prepare(
-      `UPDATE rooms SET name = COALESCE(?, name), cap = COALESCE(?, cap), rate = COALESCE(?, rate),
-       \`desc\` = COALESCE(?, \`desc\`), payment_method = COALESCE(?, payment_method), active = COALESCE(?, active)
-       WHERE id = ? AND centre_id = ?`
-    )
-    .run(b.name, b.cap, b.rate, b.desc, b.paymentMethod, b.active === undefined ? undefined : b.active ? 1 : 0, req.params.roomId, req.params.id);
-  if (info.changes === 0) return res.status(404).json({ error: "Room not found" });
+    if (b.active === false) {
+      const otherActive = (await tx
+        .prepare(`SELECT COUNT(*) as n FROM rooms WHERE centre_id = ? AND active = 1 AND id != ?`)
+        .get(req.params.id, req.params.roomId)) as { n: number };
+      if (otherActive.n === 0) return { ok: false as const, status: 409, error: "A centre must have at least one bookable room" };
+    }
+
+    const info = await tx
+      .prepare(
+        `UPDATE rooms SET name = COALESCE(?, name), cap = COALESCE(?, cap), rate = COALESCE(?, rate),
+         \`desc\` = COALESCE(?, \`desc\`), payment_method = COALESCE(?, payment_method), active = COALESCE(?, active)
+         WHERE id = ? AND centre_id = ?`
+      )
+      .run(b.name, b.cap, b.rate, b.desc, b.paymentMethod, b.active === undefined ? undefined : b.active ? 1 : 0, req.params.roomId, req.params.id);
+    if (info.changes === 0) return { ok: false as const, status: 404, error: "Room not found" };
+    return { ok: true as const };
+  });
+  if (!result.ok) return res.status(result.status).json({ error: result.error });
 
   await recomputeCentreRollup(req.params.id);
   writeAudit({ actorUserId: req.user!.id, action: "room.updated", objectType: "room", objectId: req.params.roomId, newValue: b });

@@ -50,11 +50,14 @@ export function VendorClubEditPage() {
     if (clubId === "new") navigate(`/vendor/clubs/${saved.id}`, { replace: true });
   };
 
+  // See VendorDashboard.tsx's identical comment — navigate() belongs in an
+  // effect, not called directly during render.
+  useEffect(() => {
+    if (!authLoading && (!user || user.role !== "vendor" || user.status !== "approved")) navigate("/login");
+  }, [authLoading, user, navigate]);
+
   if (authLoading || loading) return <PageSpinner />;
-  if (!user || user.role !== "vendor" || user.status !== "approved") {
-    navigate("/login");
-    return null;
-  }
+  if (!user || user.role !== "vendor" || user.status !== "approved") return null;
 
   const title = clubId === "new" ? "New sports club" : (club?.name ?? "Edit sports club");
 

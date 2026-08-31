@@ -1690,11 +1690,14 @@ export function AdminDashboard() {
     if (user?.role === "admin") fetchAdminStats().then(setStats);
   }, [user, tab]);
 
+  // See VendorDashboard.tsx's identical comment — navigate() belongs in an
+  // effect, not called directly during render.
+  useEffect(() => {
+    if (!loading && (!user || user.role !== "admin")) navigate("/login");
+  }, [loading, user, navigate]);
+
   if (loading) return <PageSpinner />;
-  if (!user || user.role !== "admin") {
-    navigate("/login");
-    return null;
-  }
+  if (!user || user.role !== "admin") return null;
 
   return (
     <ManageShell

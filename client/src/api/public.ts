@@ -434,6 +434,12 @@ export function fetchMyProgramEnrollments(): Promise<MyProgramEnrollment[]> {
   return request(`/programs/enrollments/mine`);
 }
 
+/** Polled by PaymentSuccess.tsx after a program enrollment's Stripe redirect —
+ * mirrors fetchBookingStatus/fetchRegistrationStatus. */
+export function fetchProgramEnrollmentStatus(ref: string): Promise<{ ref: string; paymentStatus: string; totalCents: number }> {
+  return request(`/programs/enrollments/status/${encodeURIComponent(ref)}`);
+}
+
 // --- Adventures & Experiences (guest-facing browsing + booking) -----------
 
 export function fetchExperiences(kind?: "adventure" | "experience", county?: string): Promise<Experience[]> {

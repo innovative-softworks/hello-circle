@@ -29,13 +29,21 @@ export async function createLoginToken(email: string): Promise<{ token: string }
 /** Validates + consumes a login token — deleting it doubles as marking it
  * "used", so a link can't be replayed. Returns the verified email, or null
  * if the token doesn't exist, already got used, or expired. */
+/** SELECT...FOR UPDATE + DELETE inside one transaction, rather than a plain
+ * check-then-delete — two near-simultaneous replays of the same token could
+ * otherwise both pass the SELECT before either DELETE committed, both
+ * creating a session, violating the single-use guarantee the "magic" in
+ * magic-link depends on. The row lock serializes the second replay behind
+ * the first, so it finds nothing left to select. */
 export async function consumeLoginToken(token: string): Promise<string | null> {
-  const row = (await db.prepare(`SELECT email FROM guest_login_tokens WHERE token = ? AND expires_at > NOW()`).get(token)) as
-    | { email: string }
-    | undefined;
-  if (!row) return null;
-  await db.prepare(`DELETE FROM guest_login_tokens WHERE token = ?`).run(token);
-  return row.email;
+  return db.transaction(async (tx) => {
+    const row = (await tx.prepare(`SELECT email FROM guest_login_tokens WHERE token = ? AND expires_at > NOW() FOR UPDATE`).get(token)) as
+      | { email: string }
+      | undefined;
+    if (!row) return null;
+    await tx.prepare(`DELETE FROM guest_login_tokens WHERE token = ?`).run(token);
+    return row.email;
+  });
 }
 
 export async function createGuestSession(email: string): Promise<{ token: string }> {

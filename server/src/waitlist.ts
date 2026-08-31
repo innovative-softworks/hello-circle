@@ -61,6 +61,48 @@ export async function promoteNextWaitlistEntry(listingType: "club" | "game", lis
   }
 }
 
+/** Active 'offered' entries (not yet expired) hold their spot against
+ * capacity — without this, the docstring's "held spot" promise wasn't real:
+ * neither games.ts's join capacity check nor registrations.ts's club
+ * capacity check consulted waitlist_entries at all, so anyone else could
+ * grab a freed spot during the 48h offer window before the waitlisted
+ * person claimed it. Call sites should add this to their existing
+ * paid/joined count before comparing against capacity. */
+export async function activeOfferedCount(listingType: "club" | "game", listingId: string): Promise<number> {
+  const row = (await db
+    .prepare(`SELECT COUNT(*) as n FROM waitlist_entries WHERE listing_type = ? AND listing_id = ? AND status = 'offered' AND offer_expires_at > NOW()`)
+    .get(listingType, listingId)) as { n: number };
+  return row.n;
+}
+
+/** Whether this specific client/resident currently holds the listing's
+ * active offer — used to exclude their own reserved spot from
+ * activeOfferedCount when checking *their own* registration/join attempt
+ * against capacity (otherwise their own held spot would count against
+ * itself and reject the very claim it was reserved for). */
+export async function hasActiveOffer(listingType: "club" | "game", listingId: string, clientId: string | null, residentId: string | null): Promise<boolean> {
+  const row = await db
+    .prepare(
+      `SELECT id FROM waitlist_entries WHERE listing_type = ? AND listing_id = ? AND status = 'offered' AND offer_expires_at > NOW()
+       AND ((client_id IS NOT NULL AND client_id != '' AND client_id = ?) OR (resident_id IS NOT NULL AND resident_id = ?)) LIMIT 1`
+    )
+    .get(listingType, listingId, clientId ?? "", residentId ?? "");
+  return !!row;
+}
+
+/** Called right after a registration/join succeeds, so a claimed offer stops
+ * permanently holding a spot once the person has actually taken it (a plain
+ * 48h expiry-only clear would otherwise keep counting it against capacity
+ * until the sweep, even after they'd claimed it via a real registration). */
+export async function claimWaitlistOffer(listingType: "club" | "game", listingId: string, clientId: string | null, residentId: string | null) {
+  await db
+    .prepare(
+      `UPDATE waitlist_entries SET status = 'claimed' WHERE listing_type = ? AND listing_id = ? AND status = 'offered'
+       AND ((client_id IS NOT NULL AND client_id != '' AND client_id = ?) OR (resident_id IS NOT NULL AND resident_id = ?))`
+    )
+    .run(listingType, listingId, clientId ?? "", residentId ?? "");
+}
+
 interface ExpiredOfferRow {
   id: number;
   listing_type: "club" | "game";

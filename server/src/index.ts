@@ -2,6 +2,11 @@ import "dotenv/config";
 import cookieParser from "cookie-parser";
 import cors from "cors";
 import express from "express";
+// Express 4 does not auto-catch a rejection thrown inside an async route
+// handler — this patches route/middleware registration so it does, letting
+// the global error handler below actually see those errors instead of the
+// request hanging forever with no response. Must load before any router.
+import "express-async-errors";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -79,7 +84,31 @@ setInterval(sweepExpiredWaitlistOffers, 15 * 60 * 1000);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const app = express();
-app.use(cors({ origin: true, credentials: true }));
+// rateLimit.ts keys every bucket by req.ip — behind a reverse proxy/load
+// balancer (the typical production deploy), that resolves to the proxy's
+// own address for every request unless Express is told to trust the
+// X-Forwarded-For header, collapsing every client into one shared bucket.
+// Off (req.ip = the real socket address) unless ops explicitly sets
+// TRUST_PROXY_HOPS to the number of trusted proxy hops in front of this
+// process — trusting X-Forwarded-For by default would let any client spoof
+// its own rate-limit key via that header on a deploy with no proxy at all.
+if (process.env.TRUST_PROXY_HOPS) app.set("trust proxy", Number(process.env.TRUST_PROXY_HOPS));
+// Deployment is single-origin (see CLAUDE.md), so CORS only needs to allow
+// same-origin browser requests plus whatever explicit origins ops configures
+// (e.g. a staging domain hitting a shared API). Reflecting any origin is a
+// broader credentialed surface than a production deploy needs; when
+// PUBLIC_ORIGIN(S) isn't set (local dev, where the Vite dev server on :5173
+// talks to the API on :3001), fall back to reflecting the request origin.
+const allowedOrigins = (process.env.PUBLIC_ORIGINS || process.env.PUBLIC_ORIGIN || "")
+  .split(",")
+  .map((o) => o.trim())
+  .filter(Boolean);
+app.use(
+  cors({
+    origin: allowedOrigins.length > 0 ? allowedOrigins : true,
+    credentials: true,
+  })
+);
 // Stripe's signature check needs the exact raw body bytes, so this must be
 // registered before express.json() parses (and thereby mangles) the body —
 // and only for this one path, everything else still wants JSON.
@@ -180,6 +209,15 @@ app.get("*", async (req, res, next) => {
     console.error("[og-meta] lookup failed, falling back to plain index.html:", e instanceof Error ? e.message : e);
   }
   res.sendFile(indexHtmlPath);
+});
+
+// Final error handler — catches anything thrown/rejected in a route handler
+// (forwarded here by express-async-errors) that wasn't already turned into a
+// specific response. Never leaks a stack trace or raw DB error to the client.
+app.use((err: unknown, req: express.Request, res: express.Response, _next: express.NextFunction) => {
+  console.error(`[unhandled route error] ${req.method} ${req.path}:`, err);
+  if (res.headersSent) return;
+  res.status(500).json({ error: "Internal server error" });
 });
 
 const port = Number(process.env.PORT) || 3001;

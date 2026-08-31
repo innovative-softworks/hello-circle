@@ -3,6 +3,7 @@ import { Router } from "express";
 import { hashPassword, verifyPassword } from "../auth.js";
 import { db } from "../db/index.js";
 import { getRoutineSuggestions, listResidentParticipation, reviewStats } from "../db/queries.js";
+import { irelandTodayIso } from "../irelandTime.js";
 import { MOOD_KEYWORDS } from "./discover.js";
 import { getResidentPasswordHash, requireResident, setResidentPassword, updateResident } from "../residents.js";
 import { passwordLoginLimiter } from "../rateLimit.js";
@@ -132,7 +133,7 @@ residentsRouter.get("/:id/host-profile", async (req, res) => {
     | undefined;
   if (!host || host.hostStatus !== "verified") return res.status(404).json({ error: "Host not found" });
 
-  const today = new Date().toISOString().slice(0, 10);
+  const today = irelandTodayIso();
   const games = await db
     .prepare(`SELECT id, activity_label as activityLabel, date, time FROM games WHERE host_resident_id = ? AND status = 'open' AND date >= ? ORDER BY date, time`)
     .all(req.params.id, today);
@@ -261,6 +262,23 @@ residentsRouter.delete("/me/search-alerts/:id", requireResident, async (req, res
 // plan doc). Skippable at every step on the client — nothing here is ever
 // required to keep using the app.
 
+// Mirrors client/src/types.ts's INTEREST_OPTIONS/AVAILABILITY_OPTIONS/
+// GOAL_OPTIONS (no shared types package between client/server — see
+// CLAUDE.md). interests/availability/goals are stored as comma-joined text
+// (not a structured/queryable shape — a known, accepted gap), so a value
+// containing a literal comma would silently split into malformed entries on
+// the next read; the official client only ever sends values from these
+// fixed lists, but nothing server-side enforced that. Filtering (rather than
+// rejecting the whole request) matches the rest of onboarding's "never gates
+// anything" behaviour — an unrecognized value is just dropped.
+const INTEREST_OPTIONS = new Set(["Badminton", "Football", "Swimming", "Fitness", "Yoga", "Walking", "Kids activities", "Arts", "Learning", "Community events", "Outdoor", "Wellbeing"]);
+const AVAILABILITY_OPTIONS = new Set(["Weekday mornings", "Weekday afternoons", "Weekday evenings", "Saturday", "Sunday"]);
+const GOAL_OPTIONS = new Set(["Become more active", "Meet new people", "Find a hobby", "Get outdoors", "Try something new", "Do more with family", "Build a routine", "Explore my area"]);
+
+function sanitizeOptions(values: string[] | undefined, allowed: Set<string>): string[] | undefined {
+  return values ? values.filter((v) => allowed.has(v)) : undefined;
+}
+
 interface OnboardingBody {
   homeCounty?: string;
   searchRadiusKm?: number;
@@ -281,6 +299,9 @@ interface OnboardingBody {
 
 residentsRouter.put("/me/onboarding", requireResident, async (req, res) => {
   const b = req.body as OnboardingBody;
+  const interests = sanitizeOptions(b.interests, INTEREST_OPTIONS);
+  const availability = sanitizeOptions(b.availability, AVAILABILITY_OPTIONS);
+  const goals = sanitizeOptions(b.goals, GOAL_OPTIONS);
   await db
     .prepare(
       `UPDATE residents SET
@@ -299,9 +320,9 @@ residentsRouter.put("/me/onboarding", requireResident, async (req, res) => {
     .run(
       b.homeCounty,
       b.searchRadiusKm,
-      b.interests ? b.interests.join(",") : undefined,
-      b.availability ? b.availability.join(",") : undefined,
-      b.goals ? b.goals.join(",") : undefined,
+      interests ? interests.join(",") : undefined,
+      availability ? availability.join(",") : undefined,
+      goals ? goals.join(",") : undefined,
       b.prefGroupSize,
       b.prefBeginnerFriendly === undefined ? undefined : b.prefBeginnerFriendly ? 1 : 0,
       b.prefSoloFriendly === undefined ? undefined : b.prefSoloFriendly ? 1 : 0,

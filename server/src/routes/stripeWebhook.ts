@@ -7,6 +7,7 @@ import { computeCapacity } from "../capacity.js";
 import { db } from "../db/index.js";
 import { notifyNewBookingOrRegistration, notifyResident } from "../notifications.js";
 import { recordCouponUse } from "../pricing.js";
+import { claimWaitlistOffer } from "../waitlist.js";
 import { STRIPE_WEBHOOK_SECRET, stripe } from "../stripe.js";
 import type Stripe from "stripe";
 
@@ -80,13 +81,14 @@ export async function confirmRegistration(ref: string) {
   const row = (await db
     .prepare(
       `SELECT r.ref, r.club_id, c.name as club_name, c.vendor_id, r.g_first, r.g_last, r.email,
-              r.child_first, r.child_last, r.dob, r.team, r.trial, r.coupon_code, r.total_cents, r.resident_id
+              r.child_first, r.child_last, r.dob, r.team, r.trial, r.coupon_code, r.total_cents, r.resident_id, r.client_id
        FROM registrations r JOIN clubs c ON c.id = r.club_id WHERE r.ref = ?`
     )
-    .get(ref)) as (RegistrationForNotify & { resident_id: string | null }) | undefined;
+    .get(ref)) as (RegistrationForNotify & { resident_id: string | null; client_id: string }) | undefined;
   if (!row) return;
 
   if (row.coupon_code) await recordCouponUse(row.coupon_code);
+  await claimWaitlistOffer("club", row.club_id, row.client_id, row.resident_id);
   notifyNewBookingOrRegistration({
     kind: "registration",
     listingType: "club",
@@ -126,6 +128,8 @@ export async function confirmGameJoin(ref: string) {
     )
     .get(ref)) as GameJoinForNotify | undefined;
   if (!row) return;
+
+  await claimWaitlistOffer("game", row.game_id, null, row.resident_id);
 
   const { n: joined } = (await db.prepare(`SELECT COUNT(*) as n FROM game_participants WHERE game_id = ? AND status = 'joined'`).get(row.game_id)) as {
     n: number;
@@ -249,19 +253,41 @@ export async function stripeWebhookHandler(req: Request, res: Response) {
     event = JSON.parse(req.body.toString("utf8"));
   }
 
-  if (event.type === "checkout.session.completed") {
+  if (
+    event.type === "checkout.session.completed" ||
+    event.type === "checkout.session.async_payment_succeeded" ||
+    event.type === "checkout.session.async_payment_failed"
+  ) {
     const session = event.data.object as Stripe.Checkout.Session;
-    const { type, ref } = session.metadata ?? {};
-    if (type === "booking" && ref) await confirmBooking(ref);
-    else if (type === "registration" && ref) await confirmRegistration(ref);
-    else if (type === "game" && ref) await confirmGameJoin(ref);
-    else if (type === "pass" && ref) await confirmPass(ref);
-    else if (type === "program" && ref) await confirmProgramEnrollment(ref);
-    else if (type === "experience" && ref) await confirmExperienceBooking(ref);
+    // A delayed payment method (SEPA/Bacs Direct Debit — never explicitly
+    // restricted in checkoutService.ts's createCheckoutSession, so available
+    // whenever "automatic payment methods" is on in the Stripe Dashboard)
+    // fires `completed` immediately with payment_status "unpaid", before the
+    // debit has actually settled — confirming here would mark the booking
+    // paid before money has moved, with no later event to revert it if the
+    // debit then fails. Only `async_payment_succeeded` (and a `completed`
+    // whose payment_status is already "paid", the common synchronous-method
+    // case) should confirm; `async_payment_failed` mirrors `expired`.
+    if (event.type === "checkout.session.async_payment_failed") {
+      await markFailed(session.metadata);
+    } else if (session.payment_status === "paid") {
+      await confirmByType(session.metadata);
+    }
   } else if (event.type === "checkout.session.expired") {
     const session = event.data.object as Stripe.Checkout.Session;
     await markFailed(session.metadata);
   }
 
   res.json({ received: true });
+}
+
+async function confirmByType(metadata: Stripe.Metadata | null | undefined) {
+  const { type, ref } = metadata ?? {};
+  if (!ref) return;
+  if (type === "booking") await confirmBooking(ref);
+  else if (type === "registration") await confirmRegistration(ref);
+  else if (type === "game") await confirmGameJoin(ref);
+  else if (type === "pass") await confirmPass(ref);
+  else if (type === "program") await confirmProgramEnrollment(ref);
+  else if (type === "experience") await confirmExperienceBooking(ref);
 }

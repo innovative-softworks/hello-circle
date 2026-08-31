@@ -53,14 +53,23 @@ export type CheckoutResult = { ok: true; session: Stripe.Checkout.Session } | { 
  * saved cards are additive, not a checkout requirement. */
 async function resolveStripeCustomer(residentId: string | null, email: string): Promise<string | null> {
   if (!stripe || !residentId) return null;
-  const row = (await db.prepare(`SELECT stripe_customer_id as stripeCustomerId FROM residents WHERE id = ?`).get(residentId)) as
-    | { stripeCustomerId: string | null }
-    | undefined;
-  if (row?.stripeCustomerId) return row.stripeCustomerId;
   try {
-    const customer = await stripe.customers.create({ email });
-    await db.prepare(`UPDATE residents SET stripe_customer_id = ? WHERE id = ?`).run(customer.id, residentId);
-    return customer.id;
+    // FOR UPDATE (same row-locking pattern bookings.ts uses) so two
+    // concurrent first-time checkouts by the same resident can't both read
+    // "no customer yet," both create one, and both write — the loser's
+    // customer would otherwise be silently orphaned (never referenced again).
+    // Held across the Stripe API call deliberately: this only serializes
+    // concurrent requests for the same resident's very first checkout, a
+    // rare, one-time code path.
+    return await db.transaction(async (tx) => {
+      const row = (await tx.prepare(`SELECT stripe_customer_id as stripeCustomerId FROM residents WHERE id = ? FOR UPDATE`).get(residentId)) as
+        | { stripeCustomerId: string | null }
+        | undefined;
+      if (row?.stripeCustomerId) return row.stripeCustomerId;
+      const customer = await stripe!.customers.create({ email });
+      await tx.prepare(`UPDATE residents SET stripe_customer_id = ? WHERE id = ?`).run(customer.id, residentId);
+      return customer.id;
+    });
   } catch (e) {
     console.error("[stripe] customer creation failed:", e instanceof Error ? e.message : e);
     return null;

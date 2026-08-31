@@ -5,6 +5,7 @@ import { db } from "../db/index.js";
 import { sendMail } from "../email.js";
 import { notifyCancellation } from "../notifications.js";
 import { inClause, ownsCentre, ownsClub } from "./vendorHelpers.js";
+import { irelandTodayIso } from "../irelandTime.js";
 
 // Day-to-day operational surface: read-only bookings/registrations
 // visibility, notifications, schedule/today, club waitlist, targeted
@@ -38,7 +39,7 @@ vendorOperationsRouter.get("/bookings", async (req, res) => {
  * Unlike the resident-facing route, this is ownership-gated by req.vendorIds
  * (the vendor's own org), not by client_id/email, and has no cancellation-cutoff
  * check — a venue manager can cancel their own booking at any time. */
-vendorOperationsRouter.post("/bookings/:ref/cancel", async (req, res) => {
+vendorOperationsRouter.post("/bookings/:ref/cancel", requirePlatformRole("centre_manager"), async (req, res) => {
   const ids = req.vendorIds!;
   const row = (await db
     .prepare(
@@ -125,7 +126,7 @@ vendorOperationsRouter.post("/notifications/:id/read", async (req, res) => {
 
 vendorOperationsRouter.get("/schedule", async (req, res) => {
   const ids = req.vendorIds!;
-  const from = typeof req.query.from === "string" ? req.query.from : new Date().toISOString().slice(0, 10);
+  const from = typeof req.query.from === "string" ? req.query.from : irelandTodayIso();
   const days = Math.min(Number(req.query.days) || 30, 90);
   const rows = await db
     .prepare(
@@ -149,8 +150,12 @@ vendorOperationsRouter.get("/schedule", async (req, res) => {
 // recurring session.
 vendorOperationsRouter.get("/today", async (req, res) => {
   const ids = req.vendorIds!;
-  const today = new Date().toISOString().slice(0, 10);
-  const dayOfWeek = new Date().getDay();
+  const today = irelandTodayIso();
+  // Derived from the Ireland-correct `today` string (noon UTC to stay clear
+  // of any date-shift), not a raw `new Date().getDay()` — the latter is the
+  // server process's own local/UTC day, wrong for the same BST midnight-hour
+  // window irelandTodayIso() exists to fix.
+  const dayOfWeek = new Date(`${today}T12:00:00Z`).getUTCDay();
   const bookings = await db
     .prepare(
       `SELECT b.ref, b.time, b.duration, b.guests, b.name, c.name as centreName

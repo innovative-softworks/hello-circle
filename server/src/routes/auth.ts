@@ -3,7 +3,7 @@ import { Router } from "express";
 import { SESSION_COOKIE, createSession, createUser, destroySession, findUserByEmail, hashPassword, verifyPassword } from "../auth.js";
 import { db } from "../db/index.js";
 import { sendMail } from "../email.js";
-import { magicLinkLimiter } from "../rateLimit.js";
+import { magicLinkLimiter, passwordLoginLimiter } from "../rateLimit.js";
 import { CLIENT_URL } from "../stripe.js";
 
 export const authRouter = Router();
@@ -96,7 +96,7 @@ authRouter.post("/signup", async (req, res) => {
   res.status(201).json({ user });
 });
 
-authRouter.post("/login", async (req, res) => {
+authRouter.post("/login", passwordLoginLimiter, async (req, res) => {
   const { email, password } = req.body as { email?: string; password?: string };
   if (!email || !password) return res.status(400).json({ error: "Email and password are required" });
 
@@ -149,7 +149,7 @@ authRouter.post("/request-reset", magicLinkLimiter, async (req, res) => {
 
 // --- staff invite acceptance (Phase C) ------------------------------------
 
-authRouter.post("/accept-invite", async (req, res) => {
+authRouter.post("/accept-invite", passwordLoginLimiter, async (req, res) => {
   const { token, name, password } = req.body as { token?: string; name?: string; password?: string };
   if (!token || !name || !password) return res.status(400).json({ error: "Name and password are required" });
   if (password.length < 8) return res.status(400).json({ error: "Password must be at least 8 characters" });
@@ -178,7 +178,7 @@ authRouter.post("/accept-invite", async (req, res) => {
   res.status(201).json({ user });
 });
 
-authRouter.post("/reset-password", async (req, res) => {
+authRouter.post("/reset-password", passwordLoginLimiter, async (req, res) => {
   const { token, password } = req.body as { token?: string; password?: string };
   if (!token || !password) return res.status(400).json({ error: "Token and new password are required" });
   if (password.length < 8) return res.status(400).json({ error: "Password must be at least 8 characters" });
