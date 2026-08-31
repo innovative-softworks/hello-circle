@@ -22,7 +22,10 @@ export DB_NAME=hello_circle_dev   # or just make sure server/.env points at it
 npm run reset-demo --workspace server   # wipes + reseeds the 2 demo centres / 2 demo clubs + gallery images
 ```
 `resetDemoListings()`/`seedIfEmpty()` (`server/src/db/seed.ts`) are what generate the Ireland-themed sample
-data (Dublin/Cork centres and clubs) and their picsum.photos-backed gallery images.
+data (Dublin/Cork centres and clubs) and their gallery images — deterministic placehold.co color-block
+placeholders (`placeholderImage()` in that file), not real photography; swap in curated photos before
+shipping. (Previously picsum.photos — moved off it after an outage there broke every seeded listing photo
+at once; see the comment above `placeholderImage()`.)
 
 ## What this is
 

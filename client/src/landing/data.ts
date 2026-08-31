@@ -1,12 +1,11 @@
 // Structured mock content for the standalone marketing landing page
 // (LandingPage.tsx) — kept out of components so swapping this for a real
 // API later is a data-layer change only, not a rewrite of the page.
-// Images are deterministic picsum.photos seeds (same approach seed.ts
-// already uses for gallery images) rather than a hotlinked third-party
-// photo service that can't be verified from this environment — swap in
+// Images are placeholderImage() placeholders (see that module) — swap in
 // curated activity photography before shipping.
 
-const img = (seed: string, w = 900, h = 700) => `https://picsum.photos/seed/${seed}/${w}/${h}`;
+import { placeholderImage } from "../placeholderImage";
+const img = (seed: string, w = 900, h = 700) => placeholderImage(seed, w, h);
 
 export interface LandingActivity {
   id: string;

@@ -40,12 +40,32 @@ interface SeedClub {
   includes: string[];
 }
 
-// Sample photos from Lorem Picsum, seeded per id so each place gets a stable,
-// distinct placeholder photo instead of the flat gradient block.
-const img = (seed: string) => `https://picsum.photos/seed/halla-${seed}/800/500`;
+// Placeholder listing photos. Previously backed by Lorem Picsum
+// (picsum.photos/seed/...) — deterministic per seed, but a real third-party
+// service whose own outages break every listing photo across the whole
+// dev/demo dataset at once (observed 2026-08-31: picsum.photos returning
+// 503/unreachable while every other tested host was fine). placehold.co
+// generates a solid color block on the fly with no backing photo library to
+// go down — color chosen deterministically per seed from this file's own
+// existing pastel `ph` gradient palette, so every listing still gets a
+// stable, visually distinct "photo" instead of a flat gray box.
+const PLACEHOLDER_PALETTE = ["DDE8DA", "DEE6E9", "DBE7E6", "E4E3DA", "E1EBD9", "EAE9E1", "D9E6EC", "F5E1D3", "EDE0EC", "E1E6DE", "E4EDF1", "FAEBE0"];
+
+function hashSeed(seed: string): number {
+  let hash = 0;
+  for (let i = 0; i < seed.length; i++) hash = (hash * 31 + seed.charCodeAt(i)) >>> 0;
+  return hash;
+}
+
+export function placeholderImage(seed: string, width: number, height: number): string {
+  const bg = PLACEHOLDER_PALETTE[hashSeed(seed) % PLACEHOLDER_PALETTE.length];
+  return `https://placehold.co/${width}x${height}/${bg}/44544a.png?text=${encodeURIComponent(seed)}`;
+}
+
+const img = (seed: string) => placeholderImage(`halla-${seed}`, 800, 500);
 // A handful of extra angles per listing so the detail-page gallery has more
 // than one photo to show — same approach, just more seeds per id.
-const imgs = (seed: string) => [1, 2, 3, 4, 5].map((n) => `https://picsum.photos/seed/halla-${seed}-${n}/800/500`);
+const imgs = (seed: string) => [1, 2, 3, 4, 5].map((n) => placeholderImage(`halla-${seed}-${n}`, 800, 500));
 
 // Ported from CENTRES/CLUBS in reference/Halla.dc.html. c1/c2 and s1/s2 were
 // the original trimmed 2-and-2 demo set; c3-c6/s3-s8 restore the rest of the

@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { AuthBrand } from "./AuthShell";
+import { placeholderImage } from "../placeholderImage";
 import { colors, fonts } from "../theme";
 
 // Editorial auth shell — brings /login and /signin into the same visual
@@ -57,7 +58,7 @@ export function AuthEditorialShell({
     heading: ReactNode;
     avatarCaption?: string;
     /** Seeds 4 placeholder avatar photos for the social-proof row below
-     * avatarCaption — same picsum.photos convention AuthPhotoPanel used. */
+     * avatarCaption — see placeholderImage.ts. */
     avatarSeedPrefix?: string;
   };
   /** Every login/reset/invite screen is a couple of fields — 440 fits.
@@ -91,7 +92,7 @@ export function AuthEditorialShell({
                   {avatarSeeds.map((seed, i) => (
                     <img
                       key={seed}
-                      src={`https://picsum.photos/seed/${seed}/64/64`}
+                      src={placeholderImage(seed, 64, 64)}
                       alt=""
                       style={{ width: 30, height: 30, borderRadius: "50%", objectFit: "cover", border: "2px solid rgba(6,8,6,.82)", marginLeft: i === 0 ? 0 : -10 }}
                       onError={(e) => { e.currentTarget.style.visibility = "hidden"; }}

@@ -34,9 +34,10 @@ import {
 } from "./data";
 import { ArrowUpRightIcon, SparkleIcon } from "./icons";
 import { lc, lcFonts, lcMaxWidth, lcRadius } from "./theme";
+import { placeholderImage } from "../placeholderImage";
 import "./landing.css";
 
-const img = (seed: string, w = 900, h = 700) => `https://picsum.photos/seed/${seed}/${w}/${h}`;
+const img = (seed: string, w = 900, h = 700) => placeholderImage(seed, w, h);
 
 export function LandingPage() {
   const navigate = useNavigate();

@@ -1,6 +1,6 @@
 import { approximateCoords, db } from "./index.js";
 import { createUser, findUserByEmail } from "../auth.js";
-import { CLUBS } from "./seed.js";
+import { CLUBS, placeholderImage } from "./seed.js";
 
 // "Huge data" demo seed — a much larger, cross-cutting pass on top of
 // resetDemoListings()'s narrower centres/clubs-only scope. Deliberately its
@@ -18,18 +18,19 @@ import { CLUBS } from "./seed.js";
 // truncating whole tables (so it never touches a real resident's own
 // circles/games created by hand while testing).
 
+// See seed.ts's placeholderImage() for why this is placehold.co rather than
+// picsum.photos.
 function img(seed: string) {
-  return `https://picsum.photos/seed/halla-${seed}/900/600`;
+  return placeholderImage(`halla-${seed}`, 900, 600);
 }
 function imgs(seed: string, n: number) {
-  return Array.from({ length: n }, (_, i) => `https://picsum.photos/seed/halla-${seed}-${i + 1}/900/600`);
+  return Array.from({ length: n }, (_, i) => placeholderImage(`halla-${seed}-${i + 1}`, 900, 600));
 }
 
-/** Same picsum seed for every game/session of a given activity label — not
- * a real per-activity photo (picsum has no keyword search), but at least
- * visually *consistent*: every "Five-a-side Football" card looks the same
- * as every other one, rather than each game rolling an unrelated random
- * placeholder. */
+/** Same placeholder seed for every game/session of a given activity label —
+ * not a real per-activity photo, but at least visually *consistent*: every
+ * "Five-a-side Football" card looks the same as every other one, rather
+ * than each game rolling an unrelated random placeholder. */
 function activityImg(label: string): string {
   return img(`activity-${label.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`);
 }
