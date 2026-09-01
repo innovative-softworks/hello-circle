@@ -350,6 +350,31 @@ residentsRouter.put("/me/accessibility-prefs", requireResident, async (req, res)
   res.json({ ok: true });
 });
 
+// --- native push (Capacitor migration Phase 5) --------------------------
+// device_push_tokens is keyed by token, not resident_id, since the same
+// device can sign out and back in as a different resident — the upsert
+// repoints an existing device's row rather than accumulating stale ones.
+residentsRouter.post("/me/push-token", requireResident, async (req, res) => {
+  const { token, platform } = req.body as { token?: string; platform?: string };
+  if (!token || !platform) return res.status(400).json({ error: "token and platform are required" });
+  await db
+    .prepare(
+      `INSERT INTO device_push_tokens (resident_id, token, platform) VALUES (?, ?, ?)
+       ON DUPLICATE KEY UPDATE resident_id = VALUES(resident_id), platform = VALUES(platform)`
+    )
+    .run(req.resident!.id, token, platform);
+  res.json({ ok: true });
+});
+
+// Called on sign-out so a shared/reused device stops receiving push for an
+// account that's no longer signed in on it.
+residentsRouter.delete("/me/push-token", requireResident, async (req, res) => {
+  const { token } = req.body as { token?: string };
+  if (!token) return res.status(400).json({ error: "token is required" });
+  await db.prepare(`DELETE FROM device_push_tokens WHERE resident_id = ? AND token = ?`).run(req.resident!.id, token);
+  res.json({ ok: true });
+});
+
 // --- receipts / payment history (Phase A) -----------------------------
 // Aggregates every paid line item across the four independent payment
 // paths that exist in this codebase (bookings, registrations, games,

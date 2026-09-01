@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { cancelGame, downloadGameIcs, fetchGameParticipants, joinGame, joinGameWaitlist, leaveGame, leaveGameWaitlist } from "../api";
 import { signInHref } from "../authRedirect";
+import { openCheckout } from "../native";
 import { CalendarIcon, CheckIcon, PinIcon, UsersIcon } from "./icons";
 import { TextInput } from "./form";
 import { InviteButton } from "./InviteButton";
@@ -146,7 +147,7 @@ export function GameJoinCard({ game, resident, isHost, onRefresh }: JoinCardProp
     try {
       const res = (await fn()) as { url?: string } | undefined;
       if (res?.url) {
-        window.location.href = res.url;
+        openCheckout(res.url);
         return;
       }
       onRefresh();
@@ -344,7 +345,7 @@ export function MobileJoinBar({ game, resident, isHost, onRefresh }: JoinCardPro
           joinGame(game.id)
             .then((res) => {
               if (res.url) {
-                window.location.href = res.url;
+                openCheckout(res.url);
                 return;
               }
               setConfirmOpen(false);

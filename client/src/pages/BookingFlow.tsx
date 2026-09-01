@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { createBookingCheckout, fetchAvailability, fetchAvailabilityRange, fetchCentre, fetchCentres, validateCoupon, PLATFORM_FEE_RATE, VAT_RATE } from "../api";
+import { openCheckout } from "../native";
 import { BackLink } from "../components/BackLink";
 import { Chip } from "../components/Chip";
 import { PageTitle } from "../components/PageTitle";
@@ -217,7 +218,7 @@ export function BookingFlow() {
         minParticipants: resident && form.openSpots && form.minParticipants ? Number(form.minParticipants) : undefined,
       });
       if (res.url) {
-        window.location.href = res.url;
+        openCheckout(res.url);
       } else {
         // Cash room — confirmed immediately, no Stripe redirect. Use the
         // server's authoritative total (matching RegistrationFlow.tsx's

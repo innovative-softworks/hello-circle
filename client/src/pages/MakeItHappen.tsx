@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { confirmMakeItHappen, fetchCentres, searchMakeItHappen } from "../api";
 import type { MakeItHappenCandidate } from "../api";
+import { openCheckout } from "../native";
 import { CalendarIcon, ClockIcon, HandshakeIcon, PinIcon, UsersIcon } from "../components/icons";
 import { Button, Card, EmptyState, PageSpinner, inputStyle, labelStyle } from "../components/ui";
 import { BackLink } from "../components/BackLink";
@@ -96,7 +97,7 @@ export function MakeItHappen() {
         phone: phone.trim(),
       });
       if (res.url) {
-        window.location.href = res.url;
+        openCheckout(res.url);
         return;
       }
       setBookedRef(res.ref);

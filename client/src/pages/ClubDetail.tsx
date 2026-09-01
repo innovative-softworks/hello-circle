@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { addFavourite, createPassCheckout, fetchClub, fetchFavourites, fetchPrograms, PLATFORM_FEE_RATE, removeFavourite, VAT_RATE } from "../api";
+import { openCheckout } from "../native";
 import { BackLink } from "../components/BackLink";
 import { ClaimListingCTA } from "../components/ClaimListingCTA";
 import { PhotoGallery } from "../components/PhotoGallery";
@@ -59,7 +60,7 @@ export function ClubDetail() {
     setPassLoading(true);
     try {
       const res = await createPassCheckout({ listingId: club.id, creditsTotal: 10 });
-      if (res.url) window.location.href = res.url;
+      if (res.url) openCheckout(res.url);
     } catch (e) {
       alert(e instanceof Error ? e.message : "Couldn't start checkout");
     } finally {

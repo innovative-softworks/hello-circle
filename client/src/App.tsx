@@ -1,5 +1,5 @@
-import { useEffect } from "react";
-import { Navigate, Route, Routes, useLocation } from "react-router-dom";
+import { useEffect, useRef } from "react";
+import { Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { AuthProvider } from "./AuthContext";
 import { logReferralLand } from "./api/public";
 import { CookieNotice } from "./components/CookieNotice";
@@ -8,6 +8,9 @@ import { Footer } from "./components/Footer";
 import { GuestProvider } from "./GuestContext";
 import { Header } from "./components/Header";
 import { MobileTabBar } from "./components/MobileTabBar";
+import { NativePushSync } from "./components/NativePushSync";
+import { NativeShellSync } from "./components/NativeShellSync";
+import { hideSplashScreen, setupAppUrlListener, setupBackButton } from "./native";
 import { MyStuffProvider } from "./MyStuffContext";
 import { AcceptInvite } from "./pages/AcceptInvite";
 import { AdminDashboard } from "./pages/AdminDashboard";
@@ -64,6 +67,35 @@ import { StartCirclePage } from "./pages/StartCirclePage";
 
 export function App() {
   const location = useLocation();
+  const navigate = useNavigate();
+
+  // Hides the native splash screen (Capacitor's SplashScreen.hide(), no-op
+  // on web) once the app shell has mounted, instead of relying on the
+  // plugin's own auto-hide timer racing the app's real boot time.
+  useEffect(() => {
+    hideSplashScreen();
+  }, []);
+
+  // Android hardware back button (no-op on iOS/web) — pops the router
+  // history first, only exits the app once there's nowhere left to go back
+  // to. Registered once (a ref tracks the current pathname so the listener
+  // itself doesn't need to be re-subscribed on every navigation).
+  const pathnameRef = useRef(location.pathname);
+  pathnameRef.current = location.pathname;
+  useEffect(() => {
+    return setupBackButton(
+      () => navigate(-1),
+      () => pathnameRef.current === "/"
+    );
+  }, [navigate]);
+
+  // Universal/App Links (no-op on web) — a magic-link email, password-reset
+  // link, or Stripe checkout redirect opened outside the app re-enters this
+  // same router instead of a fresh page load. See native.ts for why only
+  // the path/search/hash is passed through.
+  useEffect(() => {
+    return setupAppUrlListener((path) => navigate(path));
+  }, [navigate]);
 
   // Referral attribution (participation-intent plan Phase 3) — captured once
   // on initial load only (empty deps), not on every in-app route change, so
@@ -114,7 +146,9 @@ export function App() {
 
   return (
     <ThemeProvider><AuthProvider>
+      <NativeShellSync />
       <GuestProvider>
+        <NativePushSync />
         <MyStuffProvider>
           <DashboardNavProvider>
             {!hideHeader && <Header />}

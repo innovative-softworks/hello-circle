@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { addFavourite, bookExperienceSession, downloadExperienceBookingIcs, fetchExperience, fetchExperiences, fetchFavourites, removeFavourite } from "../api";
+import { openCheckout } from "../native";
 import { BackLink } from "../components/BackLink";
 import { ExperienceCard } from "../components/ExperienceCard";
 import { NumberStepper } from "../components/form";
@@ -219,7 +220,7 @@ export function ExperienceDetail() {
     try {
       const res = await bookExperienceSession(experience.id, selectedSession.id, form);
       if (res.url) {
-        window.location.href = res.url;
+        openCheckout(res.url);
         return;
       }
       setBookingOpen(false);

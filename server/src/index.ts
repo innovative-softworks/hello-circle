@@ -10,7 +10,7 @@ import "express-async-errors";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { buildSitemapXml, generateSitemapUrls, injectOgTags, resolveOgMeta } from "./ogMeta.js";
+import { buildSitemapXml, defaultOgMeta, generateSitemapUrls, injectOgTags, resolveOgMeta } from "./ogMeta.js";
 import { attachUser } from "./auth.js";
 import { dataDir } from "./dataDir.js";
 import { initSchema } from "./db/index.js";
@@ -192,19 +192,56 @@ function readIndexHtmlTemplate(): string {
   return indexHtmlTemplate;
 }
 
+// Universal Links (iOS) / App Links (Android) — Phase 3 of the Capacitor
+// migration. Lets links this server already emails out (guestAuth.ts's
+// magic-link `${CLIENT_URL}/bookings?token=...`, its password-reset
+// `${CLIENT_URL}/signin?resetToken=...`, and checkoutService.ts's Stripe
+// success/cancel redirects) open directly inside the installed native app
+// instead of the phone's default browser. Must be served ahead of the SPA
+// catch-all/static middleware below (and as real `application/json`, not
+// swallowed by either) — the OS fetches these unauthenticated, so they carry
+// no session/cookie concerns. Whole-domain association (`paths: ["*"]` /
+// `.` no `path_prefix`) rather than an allowlist of specific paths, since
+// arbitrary listing/detail links (not just auth flows) should also open in
+// the app once installed — the standard Universal/App Links pattern.
+// TODO before this actually works: replace TEAMID with the real Apple
+// Developer Team ID (Phase 3 was scaffolded before an account existed) and
+// the empty `sha256_cert_fingerprints` with the real Android signing
+// keystore's SHA-256 fingerprint (`keytool -list -v -keystore ...`).
+app.get("/.well-known/apple-app-site-association", (_req, res) => {
+  res.type("application/json").json({
+    applinks: {
+      apps: [],
+      details: [{ appID: "TEAMID.ie.hellocircle.app", paths: ["*"] }],
+    },
+  });
+});
+app.get("/.well-known/assetlinks.json", (_req, res) => {
+  res.type("application/json").json([
+    {
+      relation: ["delegate_permission/common.handle_all_urls"],
+      target: {
+        namespace: "android_app",
+        package_name: "ie.hellocircle.app",
+        sha256_cert_fingerprints: [],
+      },
+    },
+  ]);
+});
+
 app.use(express.static(clientDist));
 app.get("*", async (req, res, next) => {
   if (req.path.startsWith("/api/") || req.path.startsWith("/uploads/")) return next();
 
-  // Shareable link previews (master-prompt punch list #1) — only the
-  // handful of public detail routes get their <head> customized; every
-  // other route serves the exact same static file as before.
+  // Shareable link previews (master-prompt punch list #1) — the handful of
+  // public detail routes (and local landing pages) get real per-listing
+  // meta; every other route falls back to defaultOgMeta (SEO #1) so it still
+  // gets a real description/canonical/OG/Twitter set instead of nothing.
+  const origin = `${req.protocol}://${req.get("host")}`;
   try {
-    const meta = await resolveOgMeta(req.path, `${req.protocol}://${req.get("host")}`);
-    if (meta) {
-      res.setHeader("Content-Type", "text/html");
-      return res.send(injectOgTags(readIndexHtmlTemplate(), meta));
-    }
+    const meta = (await resolveOgMeta(req.path, origin)) ?? defaultOgMeta(req.path, origin);
+    res.setHeader("Content-Type", "text/html");
+    return res.send(injectOgTags(readIndexHtmlTemplate(), meta));
   } catch (e) {
     console.error("[og-meta] lookup failed, falling back to plain index.html:", e instanceof Error ? e.message : e);
   }

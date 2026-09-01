@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { addFavourite, fetchCentre, fetchFavourites, fetchGames, fetchPrograms, joinGame, removeFavourite } from "../api";
+import { openCheckout } from "../native";
 import { BackLink } from "../components/BackLink";
 import { ClaimListingCTA } from "../components/ClaimListingCTA";
 import { FollowButton } from "../components/FollowButton";
@@ -69,7 +70,7 @@ export function CentreDetail() {
     try {
       const res = await joinGame(gameId);
       if (res.url) {
-        window.location.href = res.url;
+        openCheckout(res.url);
         return;
       }
       setGames((rows) => rows.map((g) => (g.id === gameId ? { ...g, joined: g.joined + 1, spotsLeft: g.spotsLeft - 1 } : g)));

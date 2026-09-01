@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { ApiError, createRegistrationCheckout, fetchClub, fetchClubSessions, fetchHousehold, fetchMyPasses, joinClubWaitlist, validateCoupon, PLATFORM_FEE_RATE, VAT_RATE } from "../api";
+import { openCheckout } from "../native";
 import { BackLink } from "../components/BackLink";
 import { Chip } from "../components/Chip";
 import { useGuest } from "../GuestContext";
@@ -183,7 +184,7 @@ export function RegistrationFlow() {
         passId: usePass && usablePass ? usablePass.id : undefined,
       });
       if (res.url) {
-        window.location.href = res.url;
+        openCheckout(res.url);
         return;
       }
       // Free trial or cash-mode club — confirmed immediately, no payment redirect.

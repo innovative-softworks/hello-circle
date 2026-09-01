@@ -16,6 +16,7 @@ import {
   joinGame,
   leaveGame,
 } from "../api";
+import { openCheckout } from "../native";
 import { CentreCard } from "../components/CentreCard";
 import { ClubCard } from "../components/ClubCard";
 import { DiscoverCard, DiscoverRow } from "../components/DiscoverRow";
@@ -477,7 +478,7 @@ export function Home() {
     try {
       const res = await joinGame(id);
       if (res.url) {
-        window.location.href = res.url;
+        openCheckout(res.url);
         return;
       }
       loadOpenGames();

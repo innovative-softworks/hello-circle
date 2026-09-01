@@ -1,6 +1,7 @@
 import { db } from "./db/index.js";
 import { sendMail } from "./email.js";
 import { renderTemplate } from "./notificationTemplates.js";
+import { sendPush } from "./push.js";
 import { CLIENT_URL } from "./stripe.js";
 
 interface NotifyParams {
@@ -60,6 +61,26 @@ interface NotifyResidentParams {
   ref: string;
 }
 
+// Deep-link path a tapped push notification opens (native.ts's
+// setupAppUrlListener/notification-tap handling on the client) — mirrors
+// App.tsx's actual route table, so only listing types with a real detail
+// route get one; "intent" has no detail page, so notifyResident's push
+// falls back to opening the app with no specific path for that kind.
+const DETAIL_PATH_BY_LISTING_TYPE: Partial<Record<NotifyResidentParams["listingType"], string>> = {
+  centre: "/centres/",
+  club: "/clubs/",
+  game: "/games/",
+  circle: "/circles/",
+  vendor: "/provider/",
+  host: "/host/",
+};
+
+function pushPathFor(params: NotifyResidentParams): string | undefined {
+  if (params.kind === "booking" || params.kind === "registration") return `/bookings?ref=${params.ref}`;
+  const base = DETAIL_PATH_BY_LISTING_TYPE[params.listingType];
+  return base ? `${base}${params.listingId}` : undefined;
+}
+
 /** Resident-facing in-app notification (MVP) — used for waitlist/game
  * activity, not the vendor/admin booking-confirmation feed above. Never
  * throws, same contract as the vendor/admin notifiers: a failed insert must
@@ -87,6 +108,17 @@ export async function notifyResident(params: NotifyResidentParams) {
     });
   } catch (e) {
     console.error("[notifications] resident notify failed:", e);
+  }
+  // Native push (Capacitor migration Phase 5) — same gating as the in-app
+  // notification above, but never allowed to affect it: a push failure
+  // (including an entirely unconfigured Firebase project) must not stop the
+  // in-app notification from having already been written.
+  try {
+    const prefKey = PREF_KEY_BY_KIND[params.kind];
+    if (prefKey && !(await residentAllows(params.residentId, prefKey))) return;
+    await sendPush(params.residentId, { title: params.title, body: params.body, path: pushPathFor(params) });
+  } catch (e) {
+    console.error("[notifications] resident push failed:", e);
   }
 }
 

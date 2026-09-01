@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { enrollInProgram, fetchProgram } from "../api";
+import { openCheckout } from "../native";
 import { BackLink } from "../components/BackLink";
 import { CalendarIcon, ClockIcon, UsersIcon } from "../components/icons";
 import { AvailabilityBadge, availabilityFromSpots, Button, Card, PageSpinner, inputStyle, labelStyle } from "../components/ui";
@@ -44,7 +45,7 @@ export function ProgramDetail() {
     try {
       const res = await enrollInProgram(id, form);
       if (res.url) {
-        window.location.href = res.url;
+        openCheckout(res.url);
         return;
       }
       setConfirmed({ ref: res.ref });

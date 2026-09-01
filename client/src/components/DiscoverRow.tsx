@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { joinGame, joinGameWaitlist } from "../api";
 import { useGuest } from "../GuestContext";
+import { openCheckout } from "../native";
 import { ArrowRightIcon, AwardIcon, BallIcon, CheckIcon, ChevronLeftIcon, ChevronRightIcon, RepeatIcon, UsersIcon } from "./icons";
 import { Button } from "./ui";
 import { Photo } from "./Photo";
@@ -98,7 +99,7 @@ function JoinControl({ item }: { item: DiscoverItem }) {
       }
       const res = await joinGame(item.id);
       if (res.url) {
-        window.location.href = res.url;
+        openCheckout(res.url);
         return;
       }
       setJoined(true);

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react"
 import { createPortal } from "react-dom";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { fetchGames, fetchMyGames, joinGame, joinGameWaitlist } from "../api";
+import { openCheckout } from "../native";
 import { signInHref } from "../authRedirect";
 import { ArrowRightIcon, AwardIcon, BallIcon, CalendarIcon, ClockIcon, CloseIcon, LightbulbIcon, PinIcon, PlusIcon, SearchIcon, UsersIcon } from "../components/icons";
 import { Chip } from "../components/Chip";
@@ -648,7 +649,7 @@ export function Games() {
       const res = await joinGame(id);
       setQuickJoinGame(null);
       if (res.url) {
-        window.location.href = res.url;
+        openCheckout(res.url);
         return;
       }
       setMyGameIds((prev) => new Set(prev).add(id));

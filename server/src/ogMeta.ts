@@ -41,6 +41,20 @@ function truncate(text: string, max: number): string {
   return clean.length > max ? `${clean.slice(0, max - 1)}…` : clean;
 }
 
+// Same copy as client/index.html's static <title>/description — kept in
+// sync by hand since there's no shared config between the two. Used for
+// every route that isn't one of the 6 detail-page kinds or a real local
+// landing page, so a shared link/crawl of e.g. the homepage or /browse
+// still gets a real description and canonical/OG/Twitter tags instead of
+// the previous plain fallback (title only, no description, no canonical).
+const DEFAULT_TITLE = "Hello Circle — community centres & sports clubs in Ireland";
+const DEFAULT_DESCRIPTION =
+  "Browse and book community centres, sports clubs, and local activities across Ireland — halls, classes, kids' clubs, pickup games, and more, all in one place.";
+
+export function defaultOgMeta(pathName: string, origin: string): OgMeta {
+  return { title: DEFAULT_TITLE, description: DEFAULT_DESCRIPTION, url: `${origin}${pathName}` };
+}
+
 export async function resolveOgMeta(pathName: string, origin: string): Promise<OgMeta | null> {
   const match = pathName.match(ROUTE_PATTERN);
   if (!match) return resolveLocalLandingOgMeta(pathName, origin);

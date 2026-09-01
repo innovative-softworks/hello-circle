@@ -289,6 +289,10 @@ export function Header() {
         background: colors.headerBg,
         backdropFilter: "blur(12px)",
         borderBottom: `1px solid ${colors.border}`,
+        // Notch/status-bar clearance — resolves to 0 on web/non-notched
+        // devices, same env(safe-area-inset-*) pattern index.css already
+        // uses for the mobile bottom tab bar's bottom inset.
+        paddingTop: "env(safe-area-inset-top)",
       }}
     >
       <div

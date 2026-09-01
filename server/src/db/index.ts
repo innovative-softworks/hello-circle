@@ -309,6 +309,22 @@ export async function initSchema() {
       created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
 
+    -- Native push (Capacitor migration Phase 5) — one row per installed
+    -- device, keyed by the FCM registration token itself (not resident_id)
+    -- since the same device can sign out and back in as a different
+    -- resident; UNIQUE on token plus INSERT..ON DUPLICATE KEY UPDATE in
+    -- routes/residents.ts's POST /me/push-token repoints an existing
+    -- device's row at whoever's currently signed in, rather than
+    -- accumulating stale rows for one device. See push.ts for the actual
+    -- send step, hooked into notifyResident() in notifications.ts.
+    CREATE TABLE IF NOT EXISTS device_push_tokens (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      resident_id VARCHAR(191) NOT NULL,
+      token VARCHAR(255) NOT NULL UNIQUE,
+      platform VARCHAR(16) NOT NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
     -- Minimal first-party, aggregate-only event log (post-audit hardening
     -- pass) — the app had zero analytics/event tracking anywhere, by
     -- explicit privacy-first design (see CookieNotice.tsx/CookiePolicy.tsx's
