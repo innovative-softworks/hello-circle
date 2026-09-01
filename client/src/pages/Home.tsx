@@ -83,6 +83,15 @@ const INTENT_CHIPS: { key: string; label: string; mood?: string; description: st
 // dead, so these are specific photo IDs) — avoided anything with a visible
 // brand/logo (shoe/ball close-ups, gym equipment brands).
 const HERO_IMAGES: HeroScrollImage[] = [
+  // Genuinely wide/vista shots (added per request for "panoramic" imagery in
+  // the hero) rather than this band's earlier all-social/activity-close-up
+  // mix — checked the same way as every entry below (downloaded and viewed
+  // at the actual w=1200&h=320&crop=entropy hero ratio before adding, not
+  // just the source thumbnail). A third candidate (an aerial soccer
+  // stadium) was rejected: visible team/sponsor branding, and a US stadium
+  // isn't Ireland-relevant for this app.
+  { src: "https://images.unsplash.com/photo-1637548076898-f896229b2f3b?w=1600&q=75&auto=format&fit=crop", alt: "Cliffs along the Irish coast" },
+  { src: "https://images.unsplash.com/photo-1633894812833-3961145496a3?w=1600&q=75&auto=format&fit=crop", alt: "An aerial view of people gathered in a park" },
   { src: "https://images.unsplash.com/photo-1517649763962-0c623066013b?w=1600&q=75&auto=format&fit=crop", alt: "A group cycling together" },
   { src: "https://images.unsplash.com/photo-1571019613914-85f342c6a11e?w=1600&q=75&auto=format&fit=crop", alt: "Weight training at the gym" },
   { src: "https://images.unsplash.com/photo-1543269865-cbf427effbad?w=1600&q=75&auto=format&fit=crop", alt: "Friends meeting up over coffee" },
