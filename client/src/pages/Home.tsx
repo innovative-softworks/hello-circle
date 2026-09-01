@@ -72,40 +72,23 @@ const INTENT_CHIPS: { key: string; label: string; mood?: string; description: st
 // Each image fills the full-width hero band on its own (see
 // HeroScrollSplit.tsx), so the band's own aspect ratio (very wide, short —
 // clamp(220px,32vw,420px) tall at full viewport width) is what actually
-// matters for picking one, not the photo's original crop: every candidate
-// here was re-checked by fetching it at that same wide aspect
-// (w=1200&h=320&fit=crop&crop=entropy) and looking at the result, not just
-// the original square/portrait thumbnail — several earlier picks (a
-// football match, a hiking-trail shot) looked fine as thumbnails but
-// cropped straight through everyone's faces/heads at this ratio and were
-// swapped out. Real photos from Unsplash (free to use, no API key needed
-// for direct CDN URLs; Unsplash's old keyword-search "Source" endpoint is
-// dead, so these are specific photo IDs) — avoided anything with a visible
-// brand/logo (shoe/ball close-ups, gym equipment brands).
+// matters for picking one, not the photo's original crop. Every entry here
+// was downloaded and visually inspected at that actual crop ratio
+// (w=1200&h=320&fit=crop&crop=entropy) before being added, not just judged
+// from the source thumbnail or a square/portrait preview. Real photos from
+// Unsplash (free to use, no API key needed for direct CDN URLs; Unsplash's
+// old keyword-search "Source" endpoint is dead, so these are specific photo
+// IDs) — avoided anything with a visible brand/logo (an aerial soccer
+// stadium and a Croke Park shot were both rejected for sponsor branding on
+// hoarding boards). Deliberately a small, wide/vista-only set (genuinely
+// panoramic landscape/aerial shots, not the close-up activity photos this
+// rotation used to mix in) — better 4 strong wide shots than a padded
+// dozen of mixed framing.
 const HERO_IMAGES: HeroScrollImage[] = [
-  // Genuinely wide/vista shots (added per request for "panoramic" imagery in
-  // the hero) rather than this band's earlier all-social/activity-close-up
-  // mix — checked the same way as every entry below (downloaded and viewed
-  // at the actual w=1200&h=320&crop=entropy hero ratio before adding, not
-  // just the source thumbnail). A third candidate (an aerial soccer
-  // stadium) was rejected: visible team/sponsor branding, and a US stadium
-  // isn't Ireland-relevant for this app.
   { src: "https://images.unsplash.com/photo-1637548076898-f896229b2f3b?w=1600&q=75&auto=format&fit=crop", alt: "Cliffs along the Irish coast" },
+  { src: "https://images.unsplash.com/photo-1758014451345-c7ee048dadd7?w=1600&q=75&auto=format&fit=crop", alt: "Misty green hills in the Irish countryside" },
   { src: "https://images.unsplash.com/photo-1633894812833-3961145496a3?w=1600&q=75&auto=format&fit=crop", alt: "An aerial view of people gathered in a park" },
-  { src: "https://images.unsplash.com/photo-1517649763962-0c623066013b?w=1600&q=75&auto=format&fit=crop", alt: "A group cycling together" },
-  { src: "https://images.unsplash.com/photo-1571019613914-85f342c6a11e?w=1600&q=75&auto=format&fit=crop", alt: "Weight training at the gym" },
-  { src: "https://images.unsplash.com/photo-1543269865-cbf427effbad?w=1600&q=75&auto=format&fit=crop", alt: "Friends meeting up over coffee" },
-  { src: "https://images.unsplash.com/photo-1500534623283-312aade485b7?w=1600&q=75&auto=format&fit=crop", alt: "A mountain sunrise" },
-  // Restored per request — the plain center-crop cut the hikers down to
-  // just legs and lost the mountains; `focus` biases the browser's own
-  // object-fit:cover crop toward the point that keeps both the hikers'
-  // full figures and the peak in frame (checked directly against Unsplash's
-  // own focalpoint crop preview before picking this value).
-  { src: "https://images.unsplash.com/photo-1551632811-561732d1e306?w=1600&q=75&auto=format&fit=crop", alt: "A group hiking a mountain trail", focus: "50% 40%" },
-  { src: "https://images.unsplash.com/photo-1526232761682-d26e03ac148e?w=1600&q=75&auto=format&fit=crop", alt: "A kids' local football club" },
-  { src: "https://images.unsplash.com/photo-1554068865-24cecd4e34b8?w=1600&q=75&auto=format&fit=crop", alt: "A tennis match on a clay court" },
-  { src: "https://images.unsplash.com/photo-1544367567-0f2fcb009e0b?w=1600&q=75&auto=format&fit=crop", alt: "Evening yoga by the sea" },
-  { src: "https://images.unsplash.com/photo-1600965962102-9d260a71890d?w=1600&q=75&auto=format&fit=crop", alt: "Swimming laps" },
+  { src: "https://images.unsplash.com/photo-1770064319432-9c5f134afca7?w=1600&q=75&auto=format&fit=crop", alt: "An aerial view of a basketball court mid-game" },
 ];
 
 // --- Swiss/minimal redesign shell -------------------------------------------
