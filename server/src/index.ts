@@ -223,7 +223,12 @@ app.get("/.well-known/assetlinks.json", (_req, res) => {
       target: {
         namespace: "android_app",
         package_name: "ie.hellocircle.app",
-        sha256_cert_fingerprints: [],
+        // hello-circle-release.keystore, alias "hello-circle" — generated
+        // 2026-09-02 (see MOBILE_SETUP.md §5). NOTE: this is the *upload*
+        // key's fingerprint; if Play App Signing is enabled later, swap in
+        // the App Signing Key Certificate's SHA-256 from Play Console →
+        // Setup → App integrity instead (see MOBILE_SETUP.md §6).
+        sha256_cert_fingerprints: ["C7:7F:B4:E1:A5:29:CE:7D:73:15:2E:7D:8B:BB:A7:3B:E3:16:72:3C:A9:45:BC:C2:09:52:2E:D4:3F:05:4A:99"],
       },
     },
   ]);

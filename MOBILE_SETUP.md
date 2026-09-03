@@ -10,12 +10,10 @@ to replace it with once the real value exists.
 Nothing here blocks local development or the existing web app — every placeholder fails
 closed (App/Universal Links don't verify, push silently no-ops) rather than breaking anything.
 
-## 1. Decide the real bundle ID / package name
+## 1. Bundle ID / package name — ✅ confirmed (2026-09-02)
 
-Every native project currently uses the placeholder `ie.hellocircle.app`, chosen to match the
-`admin@hellocircle.ie` convention already in the codebase (see README.md, `server/.env.production`).
-**If this isn't the real identifier you want to ship under, decide it now** — changing it later
-means regenerating both native projects (`npx cap add ios`/`android` again), not just a find-replace.
+`ie.hellocircle.app` confirmed as final. No file changes needed — every native project already
+uses it.
 
 Current placeholder appears in:
 - `client/capacitor.config.ts` — `appId`
@@ -73,7 +71,16 @@ target → **Signing & Capabilities**:
 4. Build once (`Cmd+B`) to confirm it compiles — this is also the first real iOS build
    verification for Phases 1–4, which couldn't be done without Xcode installed.
 
-## 5. Android signing keystore
+## 5. Android signing keystore — ✅ done (2026-09-02)
+
+`hello-circle-release.keystore` generated (alias `hello-circle`), stored one level above the repo
+(`~/Documents/Isoftworks/HelloCircle/hello-circle-release.keystore`) — **not** committed, per the
+`*.keystore`/`*.jks` `.gitignore` rule added alongside it. Its SHA-256 fingerprint is already
+wired into `server/src/index.ts`'s `assetlinks.json` handler. Back up the keystore file + its
+passwords somewhere durable outside this machine (password manager + a second copy) — losing it
+means the app can never be updated under `ie.hellocircle.app` again. If the bundle ID in §1
+changes, this keystore is still valid (a keystore isn't tied to a package name), only the
+`assetlinks.json` `package_name` field needs updating.
 
 Needed for: a real (non-debug) Android build, and for **App Links verification**
 (`assetlinks.json` must list the signing certificate's SHA-256 fingerprint).
@@ -110,24 +117,39 @@ Needed for: Play Store distribution (not required merely to build/sign the APK).
 
 Needed for: Phase 5's push notifications end to end (FCM for Android, APNs-via-FCM for iOS).
 
-1. Create a project at [console.firebase.google.com](https://console.firebase.google.com/).
-2. **Add an Android app** — package name = your bundle ID from §1. Download
-   `google-services.json`, place it at `client/android/app/google-services.json`. This alone is
-   enough for Android push once the Google Services Gradle plugin is applied (Capacitor's
-   template doesn't auto-apply it — add `id 'com.google.gms.google-services'` to
-   `client/android/app/build.gradle`'s plugins block and the classpath to the top-level
-   `client/android/build.gradle`, per Firebase's own Android setup docs).
-3. **Add an iOS app** — bundle ID = your bundle ID from §1. Download
-   `GoogleService-Info.plist`, add it to the Xcode project (drag into `App/App/` in Xcode, ensure
-   "Copy items if needed" + the App target is checked).
-4. **Upload an APNs key** — Firebase Console → Project Settings → Cloud Messaging → Apple app
-   configuration → upload an APNs Authentication Key (`.p8`, generated at
-   developer.apple.com → Certificates, Identifiers & Profiles → Keys). Required for iOS push to
-   work at all through FCM.
-5. **Generate a service account** for the server side — Firebase Console → Project Settings →
-   Service Accounts → Generate new private key. Downloads a JSON file with `project_id`,
-   `client_email`, and `private_key`.
-6. Set these in `server/.env` (and `server/.env.production` for real deploys):
+1. ✅ Project created — **`FIREBASE_PROJECT_ID = hello-circle-e5e05`**. (An earlier project,
+   `hello-circle-76b7b`, was created first under a work/Google-Workspace account but hit a hard
+   org policy — `iam.disableServiceAccountKeyCreation` — blocking service-account key downloads
+   with no project-level override available. Recreated fresh under a personal Google account
+   instead, where key creation just works. `hello-circle-76b7b` is abandoned/unused — don't
+   confuse the two if you still have old downloads lying around referencing it.)
+2. ✅ **Android app registered** (2026-09-02) — `google-services.json` is in place at
+   `client/android/app/google-services.json` (for `hello-circle-e5e05`) and verified wired:
+   `./gradlew assembleDebug` runs a real `:app:processDebugGoogleServices` task. Turned out
+   Capacitor's own Android template already had the Google Services Gradle plugin classpath + a
+   conditional `apply plugin` block in `app/build.gradle` (auto-applies once `google-services.json`
+   exists) — no manual Gradle edit was actually needed, unlike this doc originally assumed.
+3. ✅ **iOS app registered** (2026-09-02) — `GoogleService-Info.plist` (for `hello-circle-e5e05`)
+   is saved at
+   `client/ios/App/App/GoogleService-Info.plist`, but **still needs a real Xcode step**: open the
+   project, drag the file into `App/App/` in the Xcode file navigator (not Finder), ensure "Copy
+   items if needed" + the App target's checkbox are both checked. Just having the file sit in
+   that folder on disk (done) is not enough — it must be added as a project file reference or the
+   build won't bundle it. Same "needs Xcode GUI" gap as §4's Associated Domains capability.
+4. **Upload an APNs key** — blocked on Apple Developer enrollment (§3, on hold). Firebase Console
+   → Project Settings → Cloud Messaging → Apple app configuration → upload an APNs Authentication
+   Key (`.p8`, generated at developer.apple.com → Certificates, Identifiers & Profiles → Keys).
+   Required for iOS push to work at all through FCM — Android push doesn't need this step.
+5. ✅ **Service account generated** (2026-09-02) — hit `iam.disableServiceAccountKeyCreation`, an
+   org policy on the original work-account project (`hello-circle-76b7b`) with no project-level
+   override available; recreated the whole Firebase project under a personal account instead
+   (see item 1 above) where key creation isn't restricted, and generated the key there.
+6. ✅ **Set in `server/.env`** (2026-09-02) — `FIREBASE_PROJECT_ID`, `FIREBASE_CLIENT_EMAIL`,
+   `FIREBASE_PRIVATE_KEY` all present. Verified live: booting the server no longer logs "Firebase
+   not configured", and a direct `sendPush()` call reached FCM's real API (got back "invalid
+   registration token" for a fake test token — proves auth succeeded, not just that init didn't
+   throw). **Still needs setting in `server/.env.production`** for the real deploy, once that
+   exists — `.env`/`.env.production` are separate gitignored files, this only touched `.env`.
 
    | Var | Value |
    |---|---|
