@@ -22,13 +22,12 @@ Current placeholder appears in:
 - `server/src/index.ts` — the `apple-app-site-association` response's `appID`
 - `server/src/index.ts` — the `assetlinks.json` response's `package_name`
 
-## 2. Decide the real production domain
+## 2. Production domain — ✅ confirmed (2026-09-03)
 
-Every Universal/App Link and the AASA/assetlinks routes use the placeholder `hellocircle.ie`
-(same reasoning as above — matched to the existing admin-email convention, not confirmed as
-the real deploy domain). Also update `CLIENT_URL` in `server/.env.production` — it's currently
-still `http://localhost:5173`, a separate pre-existing gap this migration didn't create but
-that blocks Universal/App Links from ever verifying against a real domain.
+`hellocircle.ie` confirmed as final. No placeholder file changes needed — every native project
+and server route already uses it. `CLIENT_URL` in `server/.env.production` updated from
+`http://localhost:5173` to `https://hellocircle.ie` (was blocking Universal/App Links from ever
+verifying against a real domain).
 
 Placeholder appears in:
 - `client/ios/App/App/App.entitlements` — `applinks:hellocircle.ie`

@@ -324,6 +324,7 @@ registrationsRouter.post("/checkout", async (req, res) => {
       name: `${club.name} registration`,
       description: `${registrantSummary(body)}${couponCode ? ` (coupon ${couponCode} applied)` : ""}`,
     }),
+    isNative: req.header("X-Client-Platform") === "mobile",
   });
   if (!result.ok) {
     await db.prepare(`DELETE FROM registrations WHERE ref = ?`).run(ref);

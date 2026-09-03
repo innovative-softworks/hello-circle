@@ -769,6 +769,7 @@ gamesRouter.post("/:id/join", requireResident, async (req, res) => {
     customerEmail: req.resident!.email,
     residentId: req.resident!.id,
     lineItems: pricingLineItems(pricing, { name: `${row.activity_label} — ${row.date} ${row.time}` }),
+    isNative: req.header("X-Client-Platform") === "mobile",
   });
   if (!result.ok) {
     await db.prepare(`DELETE FROM game_participants WHERE ref = ?`).run(insertedRef);

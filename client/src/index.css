@@ -22,7 +22,11 @@
    adjusted per theme (42% light / 65% dark) until both passed 4.5:1+ with
    real margin — used for badge text that specifically wants the logo's
    brand-orange character (not a substitute for `--color-orange-dark`
-   generally). */
+   generally).
+   These literal hex values are ALSO hand-mirrored (no build step, kept in
+   sync by hand) in packages/design-tokens/src/colors.ts's lightColors —
+   apps/mobile (React Native, no CSS engine) reads that copy instead of these
+   custom properties. Update both when changing a color here. */
 :root {
   --color-bg: #fbfaf7;
   --color-surface: #ffffff;

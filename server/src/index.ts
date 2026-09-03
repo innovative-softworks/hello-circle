@@ -234,6 +234,53 @@ app.get("/.well-known/assetlinks.json", (_req, res) => {
   ]);
 });
 
+// Hand-off for the resident magic-link flow when opened on the Expo mobile
+// app (see /api/guest/request-link's X-Client-Platform branch): the app has
+// no cookie jar to receive Set-Cookie from a real browser navigation, so
+// this relays the token into the app via a custom URL scheme instead —
+// mirrors client/src/native.ts's setupAppUrlListener "hand a token to the
+// app, let its own router act on it" pattern used by the Capacitor build.
+// Works with zero external accounts (no Apple Team ID / Play signing
+// fingerprint needed, unlike a real Universal/App Link) — upgradeable later
+// without changing the emailed URL itself.
+app.get("/mobile-verify", (req, res) => {
+  const token = typeof req.query.token === "string" ? req.query.token : "";
+  if (!/^[a-f0-9]{64}$/i.test(token)) {
+    return res.status(400).type("html").send("<p>This link is invalid or has expired.</p>");
+  }
+  const deepLink = `hellocircle://verify?token=${encodeURIComponent(token)}`;
+  res.type("html").send(`<!doctype html><html><head>
+    <meta http-equiv="refresh" content="0;url=${deepLink}">
+  </head><body>
+    <script>location.replace(${JSON.stringify(deepLink)});</script>
+    <p>Opening HelloCircle… <a href="${deepLink}">Tap here if nothing happens</a>.</p>
+  </body></html>`);
+});
+
+// Hand-off for Stripe Checkout when started from the Expo app (see
+// checkoutService.ts's isNative branch) — mirrors /mobile-verify above
+// exactly. Stripe redirects the in-app browser here after payment; this
+// relays status/ref/type into the app via the custom URL scheme so
+// expo-web-browser's openAuthSessionAsync can resolve on it. Unlike
+// /mobile-verify, `ref` isn't a secret and nothing here touches the
+// database — this is a pure redirect relay, so no hex-token validation is
+// needed, just presence checks.
+app.get("/mobile-checkout-return", (req, res) => {
+  const status = req.query.status === "success" ? "success" : req.query.status === "cancel" ? "cancel" : "";
+  const ref = typeof req.query.ref === "string" ? req.query.ref : "";
+  const type = typeof req.query.type === "string" ? req.query.type : "";
+  if (!status || !ref) {
+    return res.status(400).type("html").send("<p>This link is invalid or has expired.</p>");
+  }
+  const deepLink = `hellocircle://checkout-return?status=${encodeURIComponent(status)}&ref=${encodeURIComponent(ref)}&type=${encodeURIComponent(type)}`;
+  res.type("html").send(`<!doctype html><html><head>
+    <meta http-equiv="refresh" content="0;url=${deepLink}">
+  </head><body>
+    <script>location.replace(${JSON.stringify(deepLink)});</script>
+    <p>Returning to HelloCircle… <a href="${deepLink}">Tap here if nothing happens</a>.</p>
+  </body></html>`);
+});
+
 app.use(express.static(clientDist));
 app.get("*", async (req, res, next) => {
   if (req.path.startsWith("/api/") || req.path.startsWith("/uploads/")) return next();

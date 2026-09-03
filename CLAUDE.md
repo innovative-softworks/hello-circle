@@ -241,7 +241,10 @@ public import path stable; add a new wrapper to whichever domain module it belon
 stays untouched). `VendorDashboard.tsx` similarly split into `components/Vendor*.tsx` files (one per tab) plus
 `vendorFormat.ts` for shared formatters, the same pattern already used for `VendorOrg.tsx`/`VendorPrograms.tsx`.
 `types.ts` mirrors server response shapes by hand (no shared/generated types package
-between client and server — keep both in sync manually when changing an API shape). No CSS framework;
+between client and server — keep both in sync manually when changing an API shape; `client/src/types.ts` and
+`client/src/theme.ts` *are* now re-exports of `packages/types`/`packages/design-tokens`, shared with
+`apps/mobile` — that sharing is client↔mobile only, `server/src/types.ts` stays a separate hand-synced
+mirror). No CSS framework;
 styling is hand-rolled via `theme.ts` (design tokens, no formal spacing/type scale yet — inline pixel values
 are common) and `index.css` (also the home of the app's `@media` responsive escape-hatch utility classes,
 since inline styles can't express breakpoints). `ui.tsx` is the closest thing to a component library

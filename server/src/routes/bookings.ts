@@ -121,6 +121,10 @@ export interface CreateBookingInternalInput {
   confirmationDeadline?: string | null;
   residentId: string | null;
   clientId: string;
+  /** Mobile checkout hand-off (Phase 3) — see checkoutService.ts's isNative
+   * param. Optional: makeItHappen.ts's other call site omits it, keeping
+   * web/default behavior unchanged. */
+  isNative?: boolean;
 }
 
 export type CreateBookingResult =
@@ -290,6 +294,7 @@ export async function createBookingInternal(input: CreateBookingInternalInput): 
       name: room.name ? `${centre.name} — ${room.name}` : centre.name,
       description: `${input.date} at ${input.time}, ${input.duration}h${couponCode ? ` (coupon ${couponCode} applied)` : ""}`,
     }),
+    isNative: input.isNative,
   });
   if (!result.ok) {
     await db.prepare(`DELETE FROM bookings WHERE ref = ?`).run(ref);
@@ -353,6 +358,7 @@ bookingsRouter.post("/checkout", async (req, res) => {
     confirmationDeadline: openSpots ? body.confirmationDeadline ?? null : null,
     residentId: req.resident?.id ?? null,
     clientId,
+    isNative: req.header("X-Client-Platform") === "mobile",
   });
   if (!result.ok) return res.status(result.status).json({ error: result.error });
   res.status(201).json({ ref: result.ref, url: result.url, totalEuro: result.totalEuro });

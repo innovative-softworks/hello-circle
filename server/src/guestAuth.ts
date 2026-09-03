@@ -65,10 +65,19 @@ async function emailFromGuestSession(token: string): Promise<string | null> {
   return row?.email ?? null;
 }
 
-/** Reads the guest-session cookie (if any) and attaches req.guestEmail.
- * Never rejects — mirrors attachUser in auth.ts. */
+/** Reads a bearer token from the Authorization header — the mobile app's
+ * substitute for a cookie jar it doesn't have. Additive only: web callers
+ * never send this header, so their cookie-based flow is unaffected. */
+export function bearerTokenFrom(req: Request): string | undefined {
+  const header = req.header("Authorization");
+  if (!header?.startsWith("Bearer ")) return undefined;
+  return header.slice(7).trim() || undefined;
+}
+
+/** Reads the guest-session cookie or bearer token (if any) and attaches
+ * req.guestEmail. Never rejects — mirrors attachUser in auth.ts. */
 export async function attachGuestEmail(req: Request, _res: Response, next: NextFunction) {
-  const token = req.cookies?.[GUEST_SESSION_COOKIE];
+  const token = req.cookies?.[GUEST_SESSION_COOKIE] || bearerTokenFrom(req);
   if (token) {
     const email = await emailFromGuestSession(token);
     if (email) req.guestEmail = email;

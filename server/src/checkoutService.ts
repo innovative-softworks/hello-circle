@@ -98,6 +98,13 @@ export async function createCheckoutSession(params: {
    * checkbox. Never required — every existing guest-checkout call site
    * keeps working unchanged without passing this. */
   residentId?: string | null;
+  /** Mobile checkout hand-off (Phase 3) — set when the request originated
+   * from the Expo app (X-Client-Platform: mobile). Routes Stripe's redirect
+   * through /mobile-checkout-return (server/src/index.ts) instead of the
+   * web's /payment/success or /payment/cancel pages, which a native app has
+   * no way to render/receive — same isNative pattern already used in
+   * guestAuth.ts for the resident magic-link flow. */
+  isNative?: boolean;
 }): Promise<CheckoutResult> {
   if (!stripe) return { ok: false, status: 503, error: "Payments aren't configured yet" };
 
@@ -123,8 +130,12 @@ export async function createCheckoutSession(params: {
       // card as a one-click option automatically, no separate SetupIntent
       // flow needed.
       ...(customerId ? { saved_payment_method_options: { payment_method_save: "enabled" as const } } : {}),
-      success_url: `${CLIENT_URL}/payment/success?ref=${params.ref}`,
-      cancel_url: `${CLIENT_URL}/payment/cancel?ref=${params.ref}`,
+      success_url: params.isNative
+        ? `${CLIENT_URL}/mobile-checkout-return?status=success&ref=${params.ref}&type=${params.type}`
+        : `${CLIENT_URL}/payment/success?ref=${params.ref}`,
+      cancel_url: params.isNative
+        ? `${CLIENT_URL}/mobile-checkout-return?status=cancel&ref=${params.ref}&type=${params.type}`
+        : `${CLIENT_URL}/payment/cancel?ref=${params.ref}`,
       metadata: { type: params.type, ref: params.ref },
     });
     return { ok: true, session };

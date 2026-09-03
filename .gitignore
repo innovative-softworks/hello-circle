@@ -7,6 +7,7 @@ build/
 *.sqlite-wal
 .env
 .env.*
+!apps/mobile/.env.example
 *.keystore
 *.jks
 server/uploads/

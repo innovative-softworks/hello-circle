@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "387658258590",
+    "project_id": "hello-circle-e5e05",
+    "storage_bucket": "hello-circle-e5e05.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:387658258590:android:415db2c2031712e543838f",
+        "android_client_info": {
+          "package_name": "ie.hellocircle.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAXCf4mxWiTpOA2bGE6CD9fCjr1Dzbs3PM"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

@@ -1,0 +1,35 @@
+import type { Circle, CirclePlanPreview } from '@hello-circle/types';
+
+import { request } from './client';
+
+export function fetchCircles(county?: string): Promise<Circle[]> {
+  return request(`/circles${county ? `?county=${encodeURIComponent(county)}` : ''}`);
+}
+
+export function fetchCircle(id: string): Promise<Circle> {
+  return request(`/circles/${id}`);
+}
+
+// Every circle this resident belongs to — distinct from fetchCircles(), the
+// public browse list. Signed-in only.
+export function fetchMyCircles(): Promise<Circle[]> {
+  return request('/circles/mine');
+}
+
+export function fetchCircleUpcoming(id: string): Promise<CirclePlanPreview[]> {
+  return request(`/circles/${id}/upcoming`);
+}
+
+export function fetchCircleMembership(id: string): Promise<{ member: boolean; role: string | null; requested: boolean }> {
+  return request(`/circles/${id}/membership`);
+}
+
+// requested: true means an 'approval' Circle filed a pending join request
+// instead of joining outright.
+export function joinCircle(id: string): Promise<{ ok: boolean; requested?: boolean }> {
+  return request(`/circles/${id}/join`, { method: 'POST' });
+}
+
+export function leaveCircle(id: string): Promise<{ ok: boolean }> {
+  return request(`/circles/${id}/join`, { method: 'DELETE' });
+}

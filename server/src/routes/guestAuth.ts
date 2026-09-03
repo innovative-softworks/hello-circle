@@ -3,7 +3,7 @@ import { Router } from "express";
 import { hashPassword, verifyPassword } from "../auth.js";
 import { db } from "../db/index.js";
 import { sendMail } from "../email.js";
-import { GUEST_SESSION_COOKIE, consumeLoginToken, createGuestSession, createLoginToken, destroyGuestSession } from "../guestAuth.js";
+import { GUEST_SESSION_COOKIE, bearerTokenFrom, consumeLoginToken, createGuestSession, createLoginToken, destroyGuestSession } from "../guestAuth.js";
 import { magicLinkLimiter, passwordLoginLimiter } from "../rateLimit.js";
 import { createResidentWithPassword, findOrCreateResident, getResidentPasswordHash, setResidentPassword } from "../residents.js";
 import { CLIENT_URL } from "../stripe.js";
@@ -29,10 +29,15 @@ guestAuthRouter.post("/request-link", magicLinkLimiter, async (req, res) => {
   if (!email || !isValidEmail(email)) return res.status(400).json({ error: "A valid email address is required" });
 
   const { token } = await createLoginToken(email);
+  // Mobile app (no cookie jar) needs the link to hand off into the native
+  // app instead of the web's /bookings page — see /mobile-verify in
+  // server/src/index.ts. Web callers never send this header.
+  const isNative = req.header("X-Client-Platform") === "mobile";
+  const link = isNative ? `${CLIENT_URL}/mobile-verify?token=${token}` : `${CLIENT_URL}/bookings?token=${token}`;
   await sendMail({
     to: email.trim(),
     subject: "Sign in to Hello Circle",
-    text: `Hi,\n\nClick the link below to see all your bookings and club registrations:\n\n${CLIENT_URL}/bookings?token=${token}\n\nThis link expires in 15 minutes and can only be used once. If you didn't request this, you can safely ignore it.\n\nThanks for using Hello Circle.`,
+    text: `Hi,\n\nClick the link below to see all your bookings and club registrations:\n\n${link}\n\nThis link expires in 15 minutes and can only be used once. If you didn't request this, you can safely ignore it.\n\nThanks for using Hello Circle.`,
   });
   res.json({ ok: true });
 });
@@ -45,13 +50,18 @@ guestAuthRouter.post("/verify", async (req, res) => {
   if (!email) return res.status(400).json({ error: "This link has expired or has already been used — request a new one" });
 
   const { token: sessionToken } = await createGuestSession(email);
+  // Cookie is set unconditionally — a harmless no-op for a native fetch
+  // caller with no cookie jar. Promotes the verified email into a
+  // persistent resident profile the first time it's seen — idempotent on
+  // every later sign-in. See residents.ts; this is what makes
+  // household/favourites/notifications possible without requiring a
+  // password or a separate signup step.
   res.cookie(GUEST_SESSION_COOKIE, sessionToken, cookieOpts);
-  // Promotes the verified email into a persistent resident profile the
-  // first time it's seen — idempotent on every later sign-in. See
-  // residents.ts; this is what makes household/favourites/notifications
-  // possible without requiring a password or a separate signup step.
   await findOrCreateResident(email);
-  res.json({ email });
+  // Mobile has no cookie jar, so it needs the raw session token back in the
+  // response body instead — additive only, web's response shape is unchanged.
+  const isNative = req.header("X-Client-Platform") === "mobile";
+  res.json(isNative ? { email, token: sessionToken } : { email });
 });
 
 // Optional password login (My Life redesign) — a second, opt-in way into
@@ -138,7 +148,7 @@ guestAuthRouter.post("/reset-password", passwordLoginLimiter, async (req, res) =
 });
 
 guestAuthRouter.post("/logout", async (req, res) => {
-  const token = req.cookies?.[GUEST_SESSION_COOKIE];
+  const token = req.cookies?.[GUEST_SESSION_COOKIE] || bearerTokenFrom(req);
   if (token) await destroyGuestSession(token);
   res.clearCookie(GUEST_SESSION_COOKIE, cookieOpts);
   res.json({ ok: true });
