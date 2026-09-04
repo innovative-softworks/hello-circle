@@ -1,30 +1,32 @@
 import { create } from 'zustand';
 
 import * as residentAuth from '@/api/residentAuth';
-import { clearSession, getStoredEmail, getToken, setSession } from '@/auth/secureStore';
+import { clearSession, getStoredEmail, getStoredResidentId, getToken, setSession } from '@/auth/secureStore';
 
 type Status = 'loading' | 'signedOut' | 'signedIn';
 
 type AuthState = {
   email: string | null;
+  residentId: string | null;
   status: Status;
   hydrate: () => Promise<void>;
-  setSession: (token: string, email: string) => Promise<void>;
+  setSession: (token: string, email: string, residentId: string | null) => Promise<void>;
   signOut: () => Promise<void>;
 };
 
 export const useAuthStore = create<AuthState>((set) => ({
   email: null,
+  residentId: null,
   status: 'loading',
 
   hydrate: async () => {
-    const [token, email] = await Promise.all([getToken(), getStoredEmail()]);
-    set(token && email ? { email, status: 'signedIn' } : { email: null, status: 'signedOut' });
+    const [token, email, residentId] = await Promise.all([getToken(), getStoredEmail(), getStoredResidentId()]);
+    set(token && email ? { email, residentId, status: 'signedIn' } : { email: null, residentId: null, status: 'signedOut' });
   },
 
-  setSession: async (token, email) => {
-    await setSession(token, email);
-    set({ email, status: 'signedIn' });
+  setSession: async (token, email, residentId) => {
+    await setSession(token, email, residentId);
+    set({ email, residentId, status: 'signedIn' });
   },
 
   signOut: async () => {
@@ -32,6 +34,6 @@ export const useAuthStore = create<AuthState>((set) => ({
     // still clears the local session so the app doesn't get stuck signed in.
     await residentAuth.logout().catch(() => undefined);
     await clearSession();
-    set({ email: null, status: 'signedOut' });
+    set({ email: null, residentId: null, status: 'signedOut' });
   },
 }));

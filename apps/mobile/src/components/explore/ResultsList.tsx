@@ -13,6 +13,7 @@ import type { Category } from '@/components/explore/CategoryTabs';
 import type { ExploreFilters } from '@/components/explore/FilterSheet';
 import { ThemedText } from '@/components/themed-text';
 import { EmptyState } from '@/components/EmptyState';
+import { IntentCapture } from '@/components/explore/IntentCapture';
 import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { filterByWhen, filterNeedsPeople, sortActivities } from '@/lib/exploreFilters';
@@ -42,9 +43,18 @@ export function ResultsList({
   const gamesQuery = useQuery({ queryKey: ['games', county], queryFn: () => fetchGames(county ?? undefined), enabled: !searching && category === 'games' });
   const circlesQuery = useQuery({ queryKey: ['circles', county], queryFn: () => fetchCircles(county ?? undefined), enabled: category === 'circles' });
 
+  function noResults(title: string) {
+    return (
+      <View style={{ gap: Spacing.three }}>
+        <EmptyState title={title} />
+        {searching && county && <IntentCapture query={q} county={county} />}
+      </View>
+    );
+  }
+
   if (category === 'circles') {
     const circles = (circlesQuery.data ?? []).filter((circle) => !searching || circle.name.toLowerCase().includes(q.toLowerCase()));
-    if (!circles.length) return <EmptyState title="No Circles found" />;
+    if (!circles.length) return noResults('No Circles found');
     return (
       <View style={styles.list}>
         {circles.map((circle) => (
@@ -64,7 +74,7 @@ export function ResultsList({
 
   if (category === 'centres') {
     const centres = searching ? (searchQuery.data?.centres ?? []) : (centresQuery.data ?? []);
-    if (!centres.length) return <EmptyState title="No centres found" />;
+    if (!centres.length) return noResults('No centres found');
     return (
       <View style={styles.grid}>
         {centres.map((centre) => (
@@ -76,7 +86,7 @@ export function ResultsList({
 
   if (category === 'clubs') {
     const clubs = searching ? (searchQuery.data?.clubs ?? []) : (clubsQuery.data ?? []);
-    if (!clubs.length) return <EmptyState title="No clubs found" />;
+    if (!clubs.length) return noResults('No clubs found');
     return (
       <View style={styles.grid}>
         {clubs.map((club) => (
@@ -89,7 +99,7 @@ export function ResultsList({
   if (category === 'games') {
     const rawGames = searching ? (searchQuery.data?.activities ?? []) : dedupeGamesAsDiscoverItems(gamesQuery.data);
     const games = sortActivities(filterNeedsPeople(filterByWhen(rawGames, filters.when), filters.needsPeopleOnly), filters.sort);
-    if (!games.length) return <EmptyState title="No games found" />;
+    if (!games.length) return noResults('No games found');
     return (
       <View style={styles.grid}>
         {games.map((item) => (
@@ -114,7 +124,10 @@ export function ResultsList({
     );
   }
 
-  return <EmptyState title="Coming soon" description="Browsing this category directly is on the way — try searching instead." />;
+  if (!searching) {
+    return <EmptyState title="Coming soon" description="Browsing this category directly is on the way — try searching instead." />;
+  }
+  return noResults('No results');
 }
 
 // fetchGames() has no Game->DiscoverItem shape; this phase's ActivityCard

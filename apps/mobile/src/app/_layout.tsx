@@ -8,10 +8,13 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
 import { queryClient } from '@/api/queryClient';
 import { useAuthStore } from '@/auth/store';
+import { PushSync } from '@/components/PushSync';
 import { useOnboardingStore } from '@/onboarding/store';
 import { initSentry } from '@/lib/sentry';
 import { logEvent } from '@/lib/analytics';
 import { addLinkListener, getInitialDeepLink } from '@/lib/linking';
+import { mapNotificationPath } from '@/lib/notificationPath';
+import { getInitialNotificationPath } from '@/lib/push';
 
 SplashScreen.preventAutoHideAsync();
 initSentry();
@@ -34,19 +37,25 @@ export default function RootLayout() {
     if (booted.current) return;
     booted.current = true;
 
-    // Single boot sequence — hydrate auth + onboarding and check the
-    // cold-start URL together, then make exactly one navigation decision.
-    // Checking the initial URL here (rather than only inside the 'url'
-    // listener below) avoids a race where onboarding's redirect could fire
-    // before a magic-link cold start is recognized, hijacking it.
-    Promise.all([hydrateAuth(), hydrateOnboarding(), getInitialDeepLink()]).then(([, , deepLink]) => {
-      SplashScreen.hideAsync();
-      logEvent('app_opened');
-      const handledDeepLink = deepLink ? navigateForDeepLink(deepLink.path, deepLink.params) : false;
-      if (!handledDeepLink && !useOnboardingStore.getState().hasSeenOnboarding) {
-        router.replace('/onboarding/welcome');
+    // Single boot sequence — hydrate auth + onboarding and check both the
+    // cold-start deep link and a cold-start notification tap together, then
+    // make exactly one navigation decision. Checking these here (rather
+    // than only inside the ongoing listeners below) avoids a race where
+    // onboarding's redirect could fire before either cold start is
+    // recognized, hijacking it.
+    Promise.all([hydrateAuth(), hydrateOnboarding(), getInitialDeepLink(), getInitialNotificationPath()]).then(
+      ([, , deepLink, notificationPath]) => {
+        SplashScreen.hideAsync();
+        logEvent('app_opened');
+        const handledDeepLink = deepLink ? navigateForDeepLink(deepLink.path, deepLink.params) : false;
+        const mappedNotificationRoute = !handledDeepLink ? mapNotificationPath(notificationPath) : null;
+        if (mappedNotificationRoute) {
+          router.push(mappedNotificationRoute as never);
+        } else if (!handledDeepLink && !useOnboardingStore.getState().hasSeenOnboarding) {
+          router.replace('/onboarding/welcome');
+        }
       }
-    });
+    );
   }, [hydrateAuth, hydrateOnboarding]);
 
   useEffect(() => {
@@ -60,12 +69,16 @@ export default function RootLayout() {
       <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
         <QueryClientProvider client={queryClient}>
           <BottomSheetModalProvider>
+            <PushSync />
             <Stack>
               <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
               <Stack.Screen name="(modals)" options={{ headerShown: false, presentation: 'modal' }} />
               <Stack.Screen name="(details)" options={{ headerShown: false }} />
               <Stack.Screen name="auth" options={{ headerShown: false, presentation: 'modal' }} />
               <Stack.Screen name="onboarding" options={{ headerShown: false }} />
+              <Stack.Screen name="booking" options={{ headerShown: false }} />
+              <Stack.Screen name="registration" options={{ headerShown: false }} />
+              <Stack.Screen name="make-it-happen" options={{ headerShown: false }} />
             </Stack>
           </BottomSheetModalProvider>
         </QueryClientProvider>

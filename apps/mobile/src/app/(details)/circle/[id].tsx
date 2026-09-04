@@ -8,6 +8,8 @@ import { fetchCircle, fetchCircleMembership, fetchCircleUpcoming, joinCircle, le
 import { useAuthStore } from '@/auth/store';
 import { Button } from '@/components/Button';
 import { Image } from 'expo-image';
+import { ChatPanel } from '@/components/chat/ChatPanel';
+import { InviteResident } from '@/components/circle/InviteResident';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Spacing } from '@/constants/theme';
@@ -116,6 +118,9 @@ export default function CircleDetailScreen() {
           )}
 
           <Button label={joinLabel} onPress={handleJoinLeave} loading={pending} disabled={isRequested} />
+
+          {membership?.role === 'organiser' && <InviteResident circleId={circle.id} />}
+          {isMember && <ChatPanel scopeType="circle" scopeId={circle.id} />}
         </View>
       </ScrollView>
     </ThemedView>

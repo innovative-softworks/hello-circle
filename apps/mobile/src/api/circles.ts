@@ -1,4 +1,4 @@
-import type { Circle, CirclePlanPreview } from '@hello-circle/types';
+import type { Circle, CircleInvitation, CirclePlanPreview } from '@hello-circle/types';
 
 import { request } from './client';
 
@@ -32,4 +32,16 @@ export function joinCircle(id: string): Promise<{ ok: boolean; requested?: boole
 
 export function leaveCircle(id: string): Promise<{ ok: boolean }> {
   return request(`/circles/${id}/join`, { method: 'DELETE' });
+}
+
+export function inviteToCircle(circleId: string, residentId: string): Promise<{ ok: boolean }> {
+  return request(`/circles/${circleId}/invite`, { method: 'POST', body: JSON.stringify({ residentId }) });
+}
+
+export function fetchMyCircleInvitations(): Promise<CircleInvitation[]> {
+  return request('/circles/invitations/mine');
+}
+
+export function respondToCircleInvitation(id: string, accept: boolean): Promise<{ ok: boolean }> {
+  return request(`/circles/invitations/${id}/respond`, { method: 'POST', body: JSON.stringify({ accept }) });
 }

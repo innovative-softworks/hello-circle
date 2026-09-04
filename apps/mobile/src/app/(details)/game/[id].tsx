@@ -5,7 +5,9 @@ import { ScrollView, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { fetchGame, fetchGameJoinStatus, joinGame, joinGameWaitlist, leaveGame, leaveGameWaitlist } from '@/api/games';
+import { useAuthStore } from '@/auth/store';
 import { Button } from '@/components/Button';
+import { ChatPanel } from '@/components/chat/ChatPanel';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Spacing } from '@/constants/theme';
@@ -15,6 +17,7 @@ import { formatPriceCents } from '@/lib/format';
 export default function GameDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const queryClient = useQueryClient();
+  const { status: authStatus, residentId } = useAuthStore();
   const [pending, setPending] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
 
@@ -88,6 +91,7 @@ export default function GameDetailScreen() {
   }
 
   const isFull = game.spotsLeft <= 0;
+  const isHost = authStatus === 'signedIn' && residentId === game.hostResidentId;
 
   return (
     <ThemedView style={{ flex: 1 }}>
@@ -126,6 +130,8 @@ export default function GameDetailScreen() {
         ) : (
           <Button label="Join" onPress={handleJoin} loading={pending} />
         )}
+
+        {(game.joinedByMe || isHost) && <ChatPanel scopeType="game" scopeId={game.id} />}
       </ScrollView>
     </ThemedView>
   );

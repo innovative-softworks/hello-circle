@@ -5,6 +5,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { addFavourite } from '@/api/favourites';
 import { followEntity } from '@/api/follow';
 import { verifyMagicLink } from '@/api/residentAuth';
+import { fetchMyResidentProfile } from '@/api/residents';
 import { useAuthStore } from '@/auth/store';
 import { clearPendingAction, getPendingAction } from '@/auth/pendingAction';
 import { Button } from '@/components/Button';
@@ -38,7 +39,12 @@ export default function VerifyScreen() {
     if (!token) return;
     verifyMagicLink(token)
       .then(async (result) => {
-        await setSession(result.token, result.email);
+        // Store the session first — fetchMyResidentProfile() reads the
+        // bearer token from SecureStore via the shared API client, so it
+        // needs the token already persisted before it can authenticate.
+        await setSession(result.token, result.email, null);
+        const { resident } = await fetchMyResidentProfile().catch(() => ({ resident: null }));
+        if (resident?.id) await setSession(result.token, result.email, resident.id);
         const pendingScreenPath = await replayPendingAction();
         router.replace((pendingScreenPath ?? '/(tabs)/my-life') as never);
       })
