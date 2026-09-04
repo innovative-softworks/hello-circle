@@ -3,9 +3,11 @@ import { router } from 'expo-router';
 import { ScrollView } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { fetchMyGames } from '@/api/games';
 import { fetchMyParticipation } from '@/api/participation';
 import { useAuthStore } from '@/auth/store';
 import { Button } from '@/components/Button';
+import { HostingSection } from '@/components/my-life/HostingSection';
 import { ParticipationSection } from '@/components/my-life/ParticipationSection';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
@@ -17,6 +19,7 @@ export default function MyLifeScreen() {
   const signedIn = status === 'signedIn';
 
   const { data } = useQuery({ queryKey: ['my-participation'], queryFn: fetchMyParticipation, enabled: signedIn });
+  const { data: hostedGames } = useQuery({ queryKey: ['my-games-hosted'], queryFn: () => fetchMyGames({ hostedOnly: true }), enabled: signedIn });
 
   if (!signedIn) {
     return (
@@ -42,8 +45,9 @@ export default function MyLifeScreen() {
 
           <ParticipationSection title="Upcoming" entries={upcoming} />
           <ParticipationSection title="History" entries={history} />
+          <HostingSection games={hostedGames ?? []} />
 
-          {!upcoming.length && !history.length && (
+          {!upcoming.length && !history.length && !hostedGames?.length && (
             <ThemedText themeColor="textSecondary">Nothing here yet — join or book something to see it show up.</ThemedText>
           )}
 

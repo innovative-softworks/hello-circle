@@ -1,4 +1,4 @@
-import type { Circle, CircleInvitation, CirclePlanPreview } from '@hello-circle/types';
+import type { Circle, CircleInvitation, CircleMemberSummary, CirclePlanPreview } from '@hello-circle/types';
 
 import { request } from './client';
 
@@ -44,4 +44,53 @@ export function fetchMyCircleInvitations(): Promise<CircleInvitation[]> {
 
 export function respondToCircleInvitation(id: string, accept: boolean): Promise<{ ok: boolean }> {
   return request(`/circles/invitations/${id}/respond`, { method: 'POST', body: JSON.stringify({ accept }) });
+}
+
+// HelloCircle Manage (Phase 5, resident-host tools) — organiser-only.
+export type CircleJoinMode = 'open' | 'approval' | 'invite';
+
+interface CircleInput {
+  name: string;
+  activityLabel?: string;
+  area?: string;
+  county?: string;
+  about?: string;
+  centreId?: string;
+  whatWeDo?: string;
+  whoCanJoin?: string;
+  values?: string;
+  joinMode?: CircleJoinMode;
+}
+
+export function updateCircle(id: string, input: CircleInput & { imageUrl?: string }): Promise<Circle> {
+  return request(`/circles/${id}`, { method: 'PUT', body: JSON.stringify(input) });
+}
+
+export function removeCircleMember(id: string, residentId: string): Promise<{ ok: boolean }> {
+  return request(`/circles/${id}/members/${residentId}/remove`, { method: 'POST' });
+}
+
+// Not in @hello-circle/types — mirrors web's own convention of keeping this
+// shape local rather than shared.
+export interface CircleJoinRequest {
+  id: string;
+  residentId: string;
+  name: string;
+  createdAt: string;
+}
+
+export function fetchCircleJoinRequests(circleId: string): Promise<CircleJoinRequest[]> {
+  return request(`/circles/${circleId}/join-requests`);
+}
+
+export function respondToCircleJoinRequest(circleId: string, requestId: string, accept: boolean): Promise<{ ok: boolean }> {
+  return request(`/circles/${circleId}/join-requests/${requestId}/respond`, { method: 'POST', body: JSON.stringify({ accept }) });
+}
+
+export function setCircleStatus(id: string, status: 'active' | 'closed'): Promise<{ ok: boolean }> {
+  return request(`/circles/${id}/status`, { method: 'PUT', body: JSON.stringify({ status }) });
+}
+
+export function fetchCircleMembers(id: string, full?: boolean): Promise<CircleMemberSummary> {
+  return request(`/circles/${id}/members${full ? '?full=1' : ''}`);
 }

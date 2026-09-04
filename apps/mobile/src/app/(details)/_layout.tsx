@@ -6,6 +6,7 @@ export default function DetailsLayout() {
       <Stack.Screen name="centre/[id]" options={{ title: '' }} />
       <Stack.Screen name="club/[id]" options={{ title: '' }} />
       <Stack.Screen name="circle/[id]" options={{ title: '' }} />
+      <Stack.Screen name="circle/[id]/edit" options={{ title: '' }} />
       <Stack.Screen name="game/[id]" options={{ title: '' }} />
       <Stack.Screen name="receipt/[ref]" options={{ title: '' }} />
     </Stack>

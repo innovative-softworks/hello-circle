@@ -79,6 +79,7 @@ export default function RootLayout() {
               <Stack.Screen name="booking" options={{ headerShown: false }} />
               <Stack.Screen name="registration" options={{ headerShown: false }} />
               <Stack.Screen name="make-it-happen" options={{ headerShown: false }} />
+              <Stack.Screen name="host" options={{ headerShown: false }} />
             </Stack>
           </BottomSheetModalProvider>
         </QueryClientProvider>

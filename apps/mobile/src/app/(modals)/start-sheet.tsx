@@ -7,15 +7,15 @@ import { ThemedView } from '@/components/themed-view';
 import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 
-// "Create a plan" is real as of Phase 4 (Make It Happen). The rest remain
-// placeholder rows — each is real future-phase work (joining a game exists
-// elsewhere in the app already; starting a Circle, hosting, and listing a
-// place are Phase 5 host/vendor territory).
+// "Create a plan" (Phase 4, Make It Happen) and "Host an activity" (Phase 5,
+// resident-host tools) are real. The rest remain placeholder rows — starting
+// a new Circle is a small, separately-scoped follow-up; listing a place is
+// vendor/venue territory, explicitly out of Phase 5's resident-host scope.
 const ROWS: { label: string; onPress?: () => void }[] = [
   { label: 'Find something to do' },
   { label: 'Create a plan', onPress: () => router.push('/make-it-happen') },
   { label: 'Start a Circle' },
-  { label: 'Host an activity' },
+  { label: 'Host an activity', onPress: () => router.push('/host/games/new') },
   { label: 'List a place' },
   { label: 'Invite people' },
 ];
