@@ -151,7 +151,7 @@ cp server/.env.example server/.env
 | `CLIENT_URL` | no (default `http://localhost:5173`) | Public origin used for Stripe Checkout success/cancel redirect URLs — must be the real deployed domain in production |
 | `PUBLIC_ORIGINS` (or `PUBLIC_ORIGIN`) | no (falls back to reflecting the request origin) | Comma-separated list of allowed CORS origins — **set this to the real deployed domain(s) in production**, since the fallback (reflecting any origin) is broader than a production deploy needs |
 | `TRUST_PROXY_HOPS` | no (default off) | Number of trusted reverse-proxy hops in front of the process — set this behind a load balancer/CDN so the rate limiter keys on the real client IP (`X-Forwarded-For`) instead of the proxy's |
-| `FIREBASE_PROJECT_ID` | no | Firebase project id, for native push notifications (mobile app). Without this + `FIREBASE_CLIENT_EMAIL`/`FIREBASE_PRIVATE_KEY`, push is **logged to the console** instead of sent — see `MOBILE_SETUP.md` §7 |
+| `FIREBASE_PROJECT_ID` | no | Firebase project id, for native push notifications (mobile app). Without this + `FIREBASE_CLIENT_EMAIL`/`FIREBASE_PRIVATE_KEY`, push is **logged to the console** instead of sent — see `MOBILE_SETUP.md` §7 in the `hello-circle-mobile` repo |
 | `FIREBASE_CLIENT_EMAIL` | no | Firebase service account client email |
 | `FIREBASE_PRIVATE_KEY` | no | Firebase service account private key (paste as-is; literal `\n` escapes are un-escaped automatically) |
 
