@@ -8,7 +8,7 @@ export function ScreenPlaceholder({ title, phase = 2 }: { title: string; phase?:
   return (
     <ThemedView style={{ flex: 1 }}>
       <SafeAreaView style={{ flex: 1, alignItems: 'center', justifyContent: 'center', gap: Spacing.two, padding: Spacing.four }}>
-        <ThemedText type="subtitle">{title}</ThemedText>
+        <ThemedText type="sectionHeading">{title}</ThemedText>
         <ThemedText themeColor="textSecondary">Coming in Phase {phase}</ThemedText>
       </SafeAreaView>
     </ThemedView>

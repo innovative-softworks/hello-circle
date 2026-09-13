@@ -7,6 +7,8 @@ export interface Resident {
   email: string;
   name: string;
   homeCounty: string;
+  homeLat: number | null;
+  homeLng: number | null;
   createdAt: string;
 }
 
@@ -15,11 +17,21 @@ interface ResidentRow {
   email: string;
   name: string;
   home_county: string;
+  home_lat: number | null;
+  home_lng: number | null;
   created_at: string;
 }
 
 function rowToResident(row: ResidentRow): Resident {
-  return { id: row.id, email: row.email, name: row.name, homeCounty: row.home_county, createdAt: row.created_at };
+  return {
+    id: row.id,
+    email: row.email,
+    name: row.name,
+    homeCounty: row.home_county,
+    homeLat: row.home_lat,
+    homeLng: row.home_lng,
+    createdAt: row.created_at,
+  };
 }
 
 declare global {
@@ -47,13 +59,19 @@ export async function findOrCreateResident(email: string): Promise<Resident> {
   if (existing) return existing;
   const id = crypto.randomUUID();
   await db.prepare(`INSERT INTO residents (id, email) VALUES (?, ?)`).run(id, normalized);
-  return { id, email: normalized, name: "", homeCounty: "", createdAt: new Date().toISOString() };
+  return { id, email: normalized, name: "", homeCounty: "", homeLat: null, homeLng: null, createdAt: new Date().toISOString() };
 }
 
-export async function updateResident(id: string, fields: { name?: string; homeCounty?: string }): Promise<void> {
+export async function updateResident(
+  id: string,
+  fields: { name?: string; homeCounty?: string; homeLat?: number | null; homeLng?: number | null }
+): Promise<void> {
   await db
-    .prepare(`UPDATE residents SET name = COALESCE(?, name), home_county = COALESCE(?, home_county) WHERE id = ?`)
-    .run(fields.name, fields.homeCounty, id);
+    .prepare(
+      `UPDATE residents SET name = COALESCE(?, name), home_county = COALESCE(?, home_county),
+       home_lat = COALESCE(?, home_lat), home_lng = COALESCE(?, home_lng) WHERE id = ?`
+    )
+    .run(fields.name, fields.homeCounty, fields.homeLat, fields.homeLng, id);
 }
 
 // --- Optional password login (My Life redesign) -----------------------------
@@ -96,7 +114,7 @@ export async function createResidentWithPassword(email: string, passwordHash: st
   }
   const id = crypto.randomUUID();
   await db.prepare(`INSERT INTO residents (id, email, name, password_hash) VALUES (?, ?, ?, ?)`).run(id, normalized, name.trim(), passwordHash);
-  return { id, email: normalized, name: name.trim(), homeCounty: "", createdAt: new Date().toISOString() };
+  return { id, email: normalized, name: name.trim(), homeCounty: "", homeLat: null, homeLng: null, createdAt: new Date().toISOString() };
 }
 
 /** Resolves req.resident from req.guestEmail (set by attachGuestEmail) —

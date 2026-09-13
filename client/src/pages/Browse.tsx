@@ -203,7 +203,7 @@ export function Browse() {
     <div className="fade-panel">
       <section className="section-pad" style={{ maxWidth, margin: "0 auto", padding: "26px 24px 12px" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, color: colors.mutedLight, marginBottom: 16 }}>
-          <Link to="/" className="link-accent" style={{ textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 4, color: colors.mutedLight }}>
+          <Link to="/home" className="link-accent" style={{ textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 4, color: colors.mutedLight }}>
             <HomeIcon size={14} /> Home
           </Link>
           <ChevronRightIcon size={12} style={{ color: colors.faint }} />

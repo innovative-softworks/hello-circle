@@ -4,7 +4,7 @@
 // radiusKm/lat/lng/mood/q, handled by src/api/discovery.ts instead).
 import type { DiscoverItem } from '@hello-circle/types';
 
-export type When = '' | 'today' | 'tonight' | 'weekend';
+export type When = '' | 'today' | 'tonight' | 'weekend' | 'next-week';
 export type SortKey = 'recommended' | 'soonest' | 'needs-people' | 'price-asc';
 
 /** A game close to happening ("1 player needed" / "2 spots left") — same
@@ -37,11 +37,25 @@ export function filterByWhen(items: DiscoverItem[], when: When): DiscoverItem[] 
     return items.filter((item) => item.date === todayIso);
   }
   if (when === 'weekend') return items.filter((item) => isWeekendDate(item.date));
+  if (when === 'next-week') {
+    const today = new Date();
+    const todayIso = today.toISOString().slice(0, 10);
+    const weekFromNow = new Date(today.getTime() + 7 * 86_400_000).toISOString().slice(0, 10);
+    return items.filter((item) => item.date > todayIso && item.date <= weekFromNow);
+  }
   return items;
 }
 
 export function filterNeedsPeople(items: DiscoverItem[], needsPeopleOnly: boolean): DiscoverItem[] {
   return needsPeopleOnly ? items.filter(needsPeopleGame) : items;
+}
+
+/** `maxCents === null` means no cap (the "Any" option) — a free item
+ * (priceCents === null, per DiscoverItem's own convention) always passes,
+ * same as it always would with no price filter applied. */
+export function filterByPriceCap(items: DiscoverItem[], maxCents: number | null): DiscoverItem[] {
+  if (maxCents === null) return items;
+  return items.filter((item) => item.priceCents === null || item.priceCents <= maxCents);
 }
 
 export function sortActivities(items: DiscoverItem[], sort: SortKey): DiscoverItem[] {

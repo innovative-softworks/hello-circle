@@ -1,7 +1,7 @@
 import { Stack } from 'expo-router';
 import { useEffect } from 'react';
 
-import { useBookingDraftStore } from './_store';
+import { useBookingDraftStore } from '@/booking/store';
 
 export default function BookingLayout() {
   const reset = useBookingDraftStore((state) => state.reset);

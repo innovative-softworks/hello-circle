@@ -1,5 +1,6 @@
 import { Pressable, StyleSheet, Text } from 'react-native';
 
+import { Radius } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 
 export function Chip({ label, selected, onPress }: { label: string; selected: boolean; onPress: () => void }) {
@@ -22,7 +23,7 @@ export function Chip({ label, selected, onPress }: { label: string; selected: bo
 const styles = StyleSheet.create({
   chip: {
     borderWidth: 1,
-    borderRadius: 999,
+    borderRadius: Radius.pill,
     paddingVertical: 10,
     paddingHorizontal: 16,
   },

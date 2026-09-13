@@ -480,3 +480,9 @@ export function downloadExperienceBookingIcs(ref: string): Promise<void> {
 export function fetchProviderProfile(vendorId: string): Promise<ProviderProfile> {
   return request(`/providers/${vendorId}`);
 }
+
+// --- Pre-launch "coming soon" email capture (pages/ComingSoon.tsx) --------
+
+export function joinLaunchWaitlist(input: { email: string; name?: string; county?: string }): Promise<{ ok: true }> {
+  return request(`/launch-signups`, { method: "POST", body: JSON.stringify(input) });
+}

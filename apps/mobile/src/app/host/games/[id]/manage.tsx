@@ -86,7 +86,7 @@ export default function ManageGameScreen() {
     <ThemedView style={{ flex: 1 }}>
       <Stack.Screen options={{ title: game.activityLabel }} />
       <ScrollView contentContainerStyle={{ padding: Spacing.four, gap: Spacing.three }}>
-        <ThemedText type="title">{game.activityLabel}</ThemedText>
+        <ThemedText type="pageHeading">{game.activityLabel}</ThemedText>
         <ThemedText themeColor="textSecondary">
           {game.date} at {game.time} · {game.joined}/{game.capacity} joined
         </ThemedText>
@@ -100,7 +100,7 @@ export default function ManageGameScreen() {
         )}
 
         <View style={{ gap: Spacing.two }}>
-          <ThemedText type="subtitle">Participants</ThemedText>
+          <ThemedText type="sectionHeading">Participants</ThemedText>
           {participants.map((participant) => (
             <ManageParticipantRow key={participant.residentId} participant={participant} onRemove={() => handleRemove(participant.residentId, participant.name)} />
           ))}

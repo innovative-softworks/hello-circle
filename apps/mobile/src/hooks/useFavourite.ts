@@ -1,3 +1,4 @@
+import type { Favourite } from '@hello-circle/types';
 import { router } from 'expo-router';
 import { useState } from 'react';
 
@@ -5,7 +6,7 @@ import { addFavourite, removeFavourite } from '@/api/favourites';
 import { useAuthStore } from '@/auth/store';
 import { setPendingAction } from '@/auth/pendingAction';
 
-export function useFavourite(listingType: 'centre' | 'club', listingId: string, initialSaved: boolean, screenPath: string) {
+export function useFavourite(listingType: Favourite['listingType'], listingId: string, initialSaved: boolean, screenPath: string) {
   const [saved, setSaved] = useState(initialSaved);
   const [pending, setPending] = useState(false);
 

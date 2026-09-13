@@ -564,7 +564,13 @@ function PassesPanel() {
 
 // --- Receipts / payment history (relocated unchanged) -----------------------
 
-const RECEIPT_LABELS: Record<Receipt["kind"], string> = { booking: "Hall booking", registration: "Club registration", game: "Game", pass: "Pass" };
+const RECEIPT_LABELS: Record<Receipt["kind"], string> = {
+  booking: "Hall booking",
+  registration: "Club registration",
+  game: "Game",
+  pass: "Pass",
+  program_enrollment: "Program enrollment",
+};
 
 function ReceiptsPanel() {
   const [receipts, setReceipts] = useState<Receipt[]>([]);

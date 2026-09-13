@@ -24,7 +24,7 @@
       "predictiveBackGestureEnabled": false
     },
     "web": {
-      "output": "static",
+      "output": "single",
       "favicon": "./assets/images/favicon.png"
     },
     "plugins": [
@@ -32,6 +32,7 @@
       "expo-secure-store",
       "expo-notifications",
       "@react-native-firebase/app",
+      "./plugins/withRNFirebasePodfileFixes",
       [
         "expo-location",
         {
@@ -56,11 +57,6 @@
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
-    },
-    "extra": {
-      "eas": {
-        "projectId": ""
-      }
     }
   }
 }

@@ -6,7 +6,7 @@ import { checkReviewEligibility, fetchReviews, submitReview, type ReviewListingT
 import { Button } from '@/components/Button';
 import { ReviewCard } from '@/components/detail/ReviewCard';
 import { ThemedText } from '@/components/themed-text';
-import { Spacing } from '@/constants/theme';
+import { Radius, Spacing } from '@/constants/theme';
 import { useAuthStore } from '@/auth/store';
 import { useTheme } from '@/hooks/use-theme';
 
@@ -44,7 +44,7 @@ export function Reviews({ listingType, listingId }: { listingType: ReviewListing
 
   return (
     <View style={{ gap: Spacing.two }}>
-      <ThemedText type="subtitle">Reviews {reviews.length > 0 ? `(${reviews.length})` : ''}</ThemedText>
+      <ThemedText type="sectionHeading">Reviews {reviews.length > 0 ? `(${reviews.length})` : ''}</ThemedText>
 
       {reviews.length === 0 && <ThemedText themeColor="textSecondary">No reviews yet.</ThemedText>}
       {reviews.map((review) => (
@@ -105,7 +105,7 @@ const styles = StyleSheet.create({
   },
   input: {
     borderWidth: 1,
-    borderRadius: 10,
+    borderRadius: Radius.control,
     padding: Spacing.two,
     minHeight: 60,
     textAlignVertical: 'top',

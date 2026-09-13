@@ -13,7 +13,7 @@ import { Spacing } from '@/constants/theme';
 import { openCheckoutAndAwaitReturn, pollUntilPaid } from '@/lib/checkout';
 import { formatPrice } from '@/lib/format';
 
-import { useBookingDraftStore } from './_store';
+import { useBookingDraftStore } from '@/booking/store';
 
 export default function ReviewStep() {
   const { centreId } = useLocalSearchParams<{ centreId: string }>();
@@ -64,7 +64,7 @@ export default function ReviewStep() {
     <ThemedView style={{ flex: 1 }}>
       <SafeAreaView style={{ flex: 1 }} edges={['bottom']}>
         <ScrollView contentContainerStyle={{ padding: Spacing.four, gap: Spacing.two }}>
-          <ThemedText type="subtitle">Review</ThemedText>
+          <ThemedText type="sectionHeading">Review</ThemedText>
           <ThemedText>{centre?.name}{room ? ` — ${room.name}` : ''}</ThemedText>
           <ThemedText themeColor="textSecondary">
             {draft.date} at {draft.time} · {draft.duration}h · {draft.guests} guests

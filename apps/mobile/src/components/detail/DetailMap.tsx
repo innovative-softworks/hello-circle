@@ -1,6 +1,8 @@
 import { StyleSheet } from 'react-native';
 import MapView, { Marker } from 'react-native-maps';
 
+import { Radius } from '@/constants/theme';
+
 // Single-pin equivalent of client/src/components/SinglePinMap.tsx.
 export function DetailMap({ lat, lng, title }: { lat: number; lng: number; title: string }) {
   return (
@@ -18,6 +20,6 @@ const styles = StyleSheet.create({
   map: {
     width: '100%',
     height: 160,
-    borderRadius: 12,
+    borderRadius: Radius.card,
   },
 });

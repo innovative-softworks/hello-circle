@@ -24,7 +24,7 @@ export function NotFound() {
           <Button variant="primary" onClick={() => navigate("/explore")}>
             Explore what's on
           </Button>
-          <Button variant="ghost" onClick={() => navigate("/")}>
+          <Button variant="ghost" onClick={() => navigate("/home")}>
             Back home
           </Button>
         </div>

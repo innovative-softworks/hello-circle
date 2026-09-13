@@ -3,7 +3,7 @@ import { Pressable, StyleSheet, View } from 'react-native';
 
 import { fetchCircleJoinRequests, respondToCircleJoinRequest } from '@/api/circles';
 import { ThemedText } from '@/components/themed-text';
-import { Spacing } from '@/constants/theme';
+import { Radius, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 
 export function JoinRequestsList({ circleId }: { circleId: string }) {
@@ -23,7 +23,7 @@ export function JoinRequestsList({ circleId }: { circleId: string }) {
 
   return (
     <View style={{ gap: Spacing.two }}>
-      <ThemedText type="subtitle">Join requests</ThemedText>
+      <ThemedText type="sectionHeading">Join requests</ThemedText>
       {requests.map((req) => (
         <View key={req.id} style={[styles.row, { borderColor: theme.border }]}>
           <ThemedText style={{ flex: 1 }}>{req.name}</ThemedText>
@@ -47,7 +47,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: Spacing.two,
     borderWidth: 1,
-    borderRadius: 12,
+    borderRadius: Radius.card,
     padding: Spacing.three,
   },
   actions: {

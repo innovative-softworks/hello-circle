@@ -7,6 +7,10 @@
     name="description"
     content="Browse and book community centres, sports clubs, and local activities across Ireland — halls, classes, kids' clubs, pickup games, and more, all in one place."
   />
+  <!-- Pre-launch: no real vendor/resident data yet, app is gated behind
+       /coming-soon (see client/src/App.tsx's LAUNCH_GATE_ENABLED and
+       client/public/robots.txt). Remove this tag for the real launch. -->
+  <meta name="robots" content="noindex, nofollow" />
   <link rel="icon" type="image/svg+xml" href="/illustrations/Fav.svg" />
   <!-- Applies a saved light/dark choice before first paint, so there's no
        flash of the wrong theme while main.tsx's module script (deferred by

@@ -14,6 +14,11 @@ describe('pendingAction', () => {
     expect(await getPendingAction()).toEqual({ kind: 'favourite', listingType: 'centre', listingId: 'c1', screenPath: '/(details)/centre/c1' });
   });
 
+  it('round-trips a returnTo action', async () => {
+    await setPendingAction({ kind: 'returnTo', screenPath: '/(details)/game/g1' });
+    expect(await getPendingAction()).toEqual({ kind: 'returnTo', screenPath: '/(details)/game/g1' });
+  });
+
   it('clears the pending action', async () => {
     await setPendingAction({ kind: 'follow', followedType: 'centre', followedId: 'c1', screenPath: '/(details)/centre/c1' });
     await clearPendingAction();

@@ -3,7 +3,7 @@ import { router } from 'expo-router';
 import { Pressable, StyleSheet, View } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
-import { Spacing } from '@/constants/theme';
+import { Radius, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 
 // A receipt/ticket view only makes sense for a paid/ticketed entry — game
@@ -18,6 +18,8 @@ export function ParticipationRow({ entry }: { entry: ParticipationEntry }) {
       router.push(`/(details)/game/${entry.ref}`);
     } else if (entry.kind === 'circle') {
       router.push(`/(details)/circle/${entry.ref}`);
+    } else if (entry.kind === 'booking') {
+      router.push({ pathname: '/(details)/booking/[ref]', params: { ref: entry.ref } });
     } else {
       router.push({ pathname: '/(details)/receipt/[ref]', params: { ref: entry.ref, kind: entry.kind } });
     }
@@ -26,7 +28,7 @@ export function ParticipationRow({ entry }: { entry: ParticipationEntry }) {
   return (
     <Pressable onPress={handlePress} style={[styles.row, { borderColor: theme.border }]}>
       <View style={{ flex: 1 }}>
-        <ThemedText style={styles.title} numberOfLines={1}>
+        <ThemedText type="cardHeading" numberOfLines={1}>
           {entry.title}
         </ThemedText>
         <ThemedText themeColor="textSecondary" numberOfLines={1}>
@@ -46,11 +48,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: Spacing.two,
     borderWidth: 1,
-    borderRadius: 12,
+    borderRadius: Radius.card,
     padding: Spacing.three,
-  },
-  title: {
-    fontWeight: '700',
   },
   status: {
     fontSize: 12,

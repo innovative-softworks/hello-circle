@@ -9,11 +9,11 @@ import { Button } from '@/components/Button';
 import { Chip } from '@/components/Chip';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
-import { Spacing } from '@/constants/theme';
+import { Radius, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { AGE_GROUPS } from '@/lib/bookingConstants';
 
-import { useRegistrationDraftStore } from './_store';
+import { useRegistrationDraftStore } from '@/registration/store';
 
 export default function RegistrationDetailsStep() {
   const { clubId } = useLocalSearchParams<{ clubId: string }>();
@@ -41,6 +41,8 @@ export default function RegistrationDetailsStep() {
     <ThemedView style={{ flex: 1 }}>
       <SafeAreaView style={{ flex: 1 }} edges={['bottom']}>
         <ScrollView contentContainerStyle={{ padding: Spacing.four, gap: Spacing.three }}>
+          <ThemedText type="pageHeading">Your details</ThemedText>
+
           {club?.audience === 'all' && (
             <View style={{ flexDirection: 'row', gap: Spacing.two }}>
               <Chip label="Registering my child" selected={!isAdult} onPress={() => draft.setField('registrantType', 'child')} />
@@ -69,7 +71,7 @@ export default function RegistrationDetailsStep() {
           <LabeledInput label="Phone" value={draft.phone} onChangeText={(text) => draft.setField('phone', text)} keyboardType="phone-pad" />
           <LabeledInput label="Address" value={draft.address} onChangeText={(text) => draft.setField('address', text)} />
 
-          <ThemedText type="subtitle">Emergency contact{isAdult ? ' (optional)' : ''}</ThemedText>
+          <ThemedText type="sectionHeading">Emergency contact{isAdult ? ' (optional)' : ''}</ThemedText>
           <LabeledInput label="Name" value={draft.ecName} onChangeText={(text) => draft.setField('ecName', text)} />
           <LabeledInput label="Phone" value={draft.ecPhone} onChangeText={(text) => draft.setField('ecPhone', text)} keyboardType="phone-pad" />
           <LabeledInput label="Relationship" value={draft.ecRel} onChangeText={(text) => draft.setField('ecRel', text)} />
@@ -97,7 +99,7 @@ function LabeledInput(props: {
         onChangeText={props.onChangeText}
         keyboardType={props.keyboardType}
         autoCapitalize={props.autoCapitalize}
-        style={{ borderWidth: 1, borderColor: theme.border, borderRadius: 10, padding: Spacing.two, color: theme.text }}
+        style={{ borderWidth: 1, borderColor: theme.border, borderRadius: Radius.control, padding: Spacing.two, color: theme.text }}
       />
     </View>
   );

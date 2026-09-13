@@ -21,7 +21,7 @@ export function PaymentCancel() {
           <button onClick={() => navigate(-1)} style={{ background: colors.green, color: "#fff", border: "none", borderRadius: 12, padding: "13px 22px", fontWeight: 700, fontSize: 15, cursor: "pointer" }}>
             Try again
           </button>
-          <button onClick={() => navigate("/")} style={{ background: "#fff", color: colors.text, border: `1px solid ${colors.borderStrong}`, borderRadius: 12, padding: "13px 22px", fontWeight: 600, fontSize: 15, cursor: "pointer" }}>
+          <button onClick={() => navigate("/home")} style={{ background: "#fff", color: colors.text, border: `1px solid ${colors.borderStrong}`, borderRadius: 12, padding: "13px 22px", fontWeight: 600, fontSize: 15, cursor: "pointer" }}>
             Back home
           </button>
         </div>

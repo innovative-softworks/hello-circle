@@ -84,7 +84,7 @@ export function SuggestPlacePage() {
               Our team will take a look. If it checks out, it'll be published as a real listing.
             </p>
             <div style={{ display: "flex", gap: 10, justifyContent: "center" }}>
-              <Button onClick={() => navigate("/")}>Back to home</Button>
+              <Button onClick={() => navigate("/home")}>Back to home</Button>
               <Button variant="ghost" onClick={loadMine}>See my suggestions</Button>
             </div>
           </div>

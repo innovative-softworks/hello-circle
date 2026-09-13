@@ -775,7 +775,7 @@ export function MyBookings() {
         {hasNone && resident ? (
           <MyLifeEmptyState />
         ) : hasNone && !resident ? (
-          <EmptyState icon={<ChevronRightIcon size={20} />} title="Nothing here yet" subtitle="Find a hall, club or plan to get started." action={<Button onClick={() => navigate("/")}>Explore HelloCircle</Button>} />
+          <EmptyState icon={<ChevronRightIcon size={20} />} title="Nothing here yet" subtitle="Find a hall, club or plan to get started." action={<Button onClick={() => navigate("/home")}>Explore HelloCircle</Button>} />
         ) : (
           <>
             {/* One continuous grid from Next Up through Recently — the right

@@ -1,6 +1,14 @@
+import { BricolageGrotesque_600SemiBold, BricolageGrotesque_700Bold, BricolageGrotesque_800ExtraBold } from '@expo-google-fonts/bricolage-grotesque';
+import {
+  HankenGrotesk_400Regular,
+  HankenGrotesk_500Medium,
+  HankenGrotesk_600SemiBold,
+  HankenGrotesk_700Bold,
+} from '@expo-google-fonts/hanken-grotesk';
 import { BottomSheetModalProvider } from '@gorhom/bottom-sheet';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { DarkTheme, DefaultTheme, router, Stack, ThemeProvider } from 'expo-router';
+import { useFonts } from 'expo-font';
 import * as SplashScreen from 'expo-splash-screen';
 import { useEffect, useRef } from 'react';
 import { useColorScheme } from 'react-native';
@@ -33,8 +41,22 @@ export default function RootLayout() {
   const hydrateOnboarding = useOnboardingStore((state) => state.hydrate);
   const booted = useRef(false);
 
+  // Real HelloCircle typefaces (Bricolage Grotesque display, Hanken Grotesk
+  // body/UI) — see theme.ts's `Fonts`. Gated into the same boot sequence
+  // below so the splash screen never hides onto a system-font flash.
+  const [fontsLoaded, fontError] = useFonts({
+    BricolageGrotesque_600SemiBold,
+    BricolageGrotesque_700Bold,
+    BricolageGrotesque_800ExtraBold,
+    HankenGrotesk_400Regular,
+    HankenGrotesk_500Medium,
+    HankenGrotesk_600SemiBold,
+    HankenGrotesk_700Bold,
+  });
+
   useEffect(() => {
     if (booted.current) return;
+    if (!fontsLoaded && !fontError) return;
     booted.current = true;
 
     // Single boot sequence — hydrate auth + onboarding and check both the
@@ -52,11 +74,11 @@ export default function RootLayout() {
         if (mappedNotificationRoute) {
           router.push(mappedNotificationRoute as never);
         } else if (!handledDeepLink && !useOnboardingStore.getState().hasSeenOnboarding) {
-          router.replace('/onboarding/welcome');
+          router.replace('/onboarding/splash');
         }
       }
     );
-  }, [hydrateAuth, hydrateOnboarding]);
+  }, [hydrateAuth, hydrateOnboarding, fontsLoaded, fontError]);
 
   useEffect(() => {
     // Ongoing deep links while the app is already running (not the
@@ -74,12 +96,29 @@ export default function RootLayout() {
               <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
               <Stack.Screen name="(modals)" options={{ headerShown: false, presentation: 'modal' }} />
               <Stack.Screen name="(details)" options={{ headerShown: false }} />
+              <Stack.Screen name="notifications" options={{ headerShown: false }} />
+              <Stack.Screen name="profile" options={{ headerShown: false }} />
+              <Stack.Screen name="edit-profile" options={{ headerShown: false }} />
+              <Stack.Screen name="settings" options={{ headerShown: false }} />
+              <Stack.Screen name="saved" options={{ headerShown: false }} />
+              <Stack.Screen name="suggest-place" options={{ headerShown: false }} />
+              <Stack.Screen name="ask" options={{ headerShown: false }} />
+              <Stack.Screen name="following" options={{ headerShown: false }} />
+              <Stack.Screen name="search" options={{ headerShown: false, presentation: 'modal' }} />
               <Stack.Screen name="auth" options={{ headerShown: false, presentation: 'modal' }} />
               <Stack.Screen name="onboarding" options={{ headerShown: false }} />
-              <Stack.Screen name="booking" options={{ headerShown: false }} />
-              <Stack.Screen name="registration" options={{ headerShown: false }} />
+              {/* "booking"/"registration" each have only one dynamic child
+                  subfolder and no sibling route files, so expo-router
+                  flattens them into a single combined segment name instead
+                  of a nested group — the name here has to match that
+                  flattened form exactly, not the folder name alone. */}
+              <Stack.Screen name="booking/[centreId]" options={{ headerShown: false }} />
+              <Stack.Screen name="registration/[clubId]" options={{ headerShown: false }} />
+              <Stack.Screen name="program-enrollment/[programId]" options={{ headerShown: false }} />
+              <Stack.Screen name="experience-booking/[experienceId]" options={{ headerShown: false }} />
               <Stack.Screen name="make-it-happen" options={{ headerShown: false }} />
               <Stack.Screen name="host" options={{ headerShown: false }} />
+              <Stack.Screen name="circles" options={{ headerShown: false }} />
             </Stack>
           </BottomSheetModalProvider>
         </QueryClientProvider>

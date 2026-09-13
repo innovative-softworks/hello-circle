@@ -3,7 +3,7 @@ import { router } from 'expo-router';
 import { Pressable, StyleSheet, View } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
-import { Spacing } from '@/constants/theme';
+import { Radius, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 
 const PREVIEW_LIMIT = 3;
@@ -16,13 +16,13 @@ export function HostingSection({ games }: { games: Game[] }) {
 
   return (
     <View style={styles.section}>
-      <ThemedText type="subtitle">Hosting</ThemedText>
+      <ThemedText type="sectionHeading">Hosting</ThemedText>
       {preview.map((game) => (
         <Pressable
           key={game.id}
           onPress={() => router.push({ pathname: '/host/games/[id]/manage', params: { id: game.id } })}
           style={[styles.row, { borderColor: theme.border }]}>
-          <ThemedText style={styles.title} numberOfLines={1}>
+          <ThemedText type="cardHeading" numberOfLines={1}>
             {game.activityLabel}
           </ThemedText>
           <ThemedText themeColor="textSecondary" numberOfLines={1}>
@@ -45,11 +45,8 @@ const styles = StyleSheet.create({
   },
   row: {
     borderWidth: 1,
-    borderRadius: 12,
+    borderRadius: Radius.card,
     padding: Spacing.three,
     gap: 2,
-  },
-  title: {
-    fontWeight: '700',
   },
 });

@@ -53,7 +53,7 @@ export default function ReceiptDetailScreen() {
     <ThemedView style={{ flex: 1 }}>
       <Stack.Screen options={{ title: receipt.label }} />
       <ScrollView contentContainerStyle={{ padding: Spacing.four, gap: Spacing.three, alignItems: 'center' }}>
-        <ThemedText type="title" style={{ textAlign: 'center' }}>
+        <ThemedText type="pageHeading" style={{ textAlign: 'center' }}>
           {receipt.label}
         </ThemedText>
         <ThemedText themeColor={receipt.paymentStatus === 'paid' ? 'primary' : 'textSecondary'} style={{ textTransform: 'capitalize' }}>

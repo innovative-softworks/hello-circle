@@ -4,11 +4,16 @@ import { useState } from 'react';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { createGame } from '@/api/games';
+import { useAuthStore } from '@/auth/store';
+import { Button } from '@/components/Button';
 import { EMPTY_GAME_FORM, GameForm, gameFormValuesToInput, type GameFormValues } from '@/components/host/GameForm';
+import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
+import { Spacing } from '@/constants/theme';
 
 export default function NewGameScreen() {
   const queryClient = useQueryClient();
+  const signedIn = useAuthStore((state) => state.status === 'signedIn');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -24,6 +29,18 @@ export default function NewGameScreen() {
     } finally {
       setSubmitting(false);
     }
+  }
+
+  if (!signedIn) {
+    return (
+      <ThemedView style={{ flex: 1 }}>
+        <SafeAreaView style={{ flex: 1, alignItems: 'center', justifyContent: 'center', gap: Spacing.three, padding: Spacing.four }}>
+          <ThemedText type="pageHeading">Organize a Game</ThemedText>
+          <ThemedText themeColor="textSecondary">Sign in to organize a game.</ThemedText>
+          <Button label="Sign in" onPress={() => router.push('/auth/sign-in')} />
+        </SafeAreaView>
+      </ThemedView>
+    );
   }
 
   return (

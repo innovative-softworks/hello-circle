@@ -10,7 +10,12 @@ const KEY = 'hello_circle_pending_action';
 
 export type PendingAction =
   | { kind: 'favourite'; listingType: string; listingId: string; screenPath: string }
-  | { kind: 'follow'; followedType: string; followedId: string; screenPath: string };
+  | { kind: 'follow'; followedType: string; followedId: string; screenPath: string }
+  // A resident-only action this app can't safely auto-replay (game join can
+  // open a Stripe checkout — firing that automatically right after the
+  // magic-link round trip would be a jarring surprise) — just returns the
+  // user to where they were so they can tap the action again themselves.
+  | { kind: 'returnTo'; screenPath: string };
 
 export async function setPendingAction(action: PendingAction): Promise<void> {
   await SecureStore.setItemAsync(KEY, JSON.stringify(action));

@@ -1,21 +1,20 @@
 import { useQuery } from '@tanstack/react-query';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect } from 'react';
-import { Pressable, ScrollView, StyleSheet } from 'react-native';
+import { ScrollView } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { fetchCentre } from '@/api/centres';
+import { Card } from '@/components/Card';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Spacing } from '@/constants/theme';
-import { useTheme } from '@/hooks/use-theme';
 import { formatPrice } from '@/lib/format';
 
-import { useBookingDraftStore } from './_store';
+import { useBookingDraftStore } from '@/booking/store';
 
 export default function RoomStep() {
   const { centreId } = useLocalSearchParams<{ centreId: string }>();
-  const theme = useTheme();
   const setField = useBookingDraftStore((state) => state.setField);
   const { data: centre } = useQuery({ queryKey: ['centre', centreId], queryFn: () => fetchCentre(centreId) });
 
@@ -48,30 +47,23 @@ export default function RoomStep() {
   return (
     <ThemedView style={{ flex: 1 }}>
       <SafeAreaView style={{ flex: 1 }} edges={['bottom']}>
-        <ScrollView contentContainerStyle={{ padding: Spacing.four, gap: Spacing.two }}>
+        <ScrollView contentContainerStyle={{ padding: Spacing.four, gap: Spacing.three }}>
+          <ThemedText type="pageHeading">Choose a space</ThemedText>
           {activeRooms.map((room) => (
-            <Pressable key={room.id} onPress={() => handleSelect(room.id)} style={[styles.row, { borderColor: theme.border }]}>
-              <ThemedText style={styles.title}>{room.name}</ThemedText>
+            <Card key={room.id} imageUrl={null} imageHeight={90} placeholderIcon="business-outline" onPress={() => handleSelect(room.id)}>
+              <ThemedText style={{ fontWeight: '700', fontSize: 16 }}>{room.name}</ThemedText>
               <ThemedText themeColor="textSecondary">
                 Up to {room.cap} guests · {formatPrice(room.rate)}/hr
               </ThemedText>
-              {room.desc.length > 0 && <ThemedText themeColor="textSecondary">{room.desc}</ThemedText>}
-            </Pressable>
+              {room.desc.length > 0 && (
+                <ThemedText themeColor="textSecondary" style={{ fontSize: 13 }}>
+                  {room.desc}
+                </ThemedText>
+              )}
+            </Card>
           ))}
         </ScrollView>
       </SafeAreaView>
     </ThemedView>
   );
 }
-
-const styles = StyleSheet.create({
-  row: {
-    borderWidth: 1,
-    borderRadius: 12,
-    padding: Spacing.three,
-    gap: 2,
-  },
-  title: {
-    fontWeight: '700',
-  },
-});

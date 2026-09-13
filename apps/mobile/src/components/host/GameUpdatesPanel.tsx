@@ -34,7 +34,7 @@ export function GameUpdatesPanel({ gameId }: { gameId: string }) {
 
   return (
     <View style={{ gap: Spacing.two }}>
-      <ThemedText type="subtitle">Updates</ThemedText>
+      <ThemedText type="sectionHeading">Updates</ThemedText>
       {updates.map((update) => (
         <View key={update.id}>
           <ThemedText>{update.message}</ThemedText>

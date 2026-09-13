@@ -149,12 +149,19 @@ cp server/.env.example server/.env
 | `STRIPE_SECRET_KEY` | no (checkout returns 503 without it) | Stripe secret key — `sk_test_...` for test mode, `sk_live_...` for real charges |
 | `STRIPE_WEBHOOK_SECRET` | no in dev, **required in production** (`NODE_ENV=production`) | Signing secret from the Stripe webhook endpoint (`whsec_...`) — without it in production, the webhook is refused rather than accepting unverified events |
 | `CLIENT_URL` | no (default `http://localhost:5173`) | Public origin used for Stripe Checkout success/cancel redirect URLs — must be the real deployed domain in production |
+| `PUBLIC_ORIGINS` (or `PUBLIC_ORIGIN`) | no (falls back to reflecting the request origin) | Comma-separated list of allowed CORS origins — **set this to the real deployed domain(s) in production**, since the fallback (reflecting any origin) is broader than a production deploy needs |
+| `TRUST_PROXY_HOPS` | no (default off) | Number of trusted reverse-proxy hops in front of the process — set this behind a load balancer/CDN so the rate limiter keys on the real client IP (`X-Forwarded-For`) instead of the proxy's |
 | `FIREBASE_PROJECT_ID` | no | Firebase project id, for native push notifications (mobile app). Without this + `FIREBASE_CLIENT_EMAIL`/`FIREBASE_PRIVATE_KEY`, push is **logged to the console** instead of sent — see `MOBILE_SETUP.md` §7 |
 | `FIREBASE_CLIENT_EMAIL` | no | Firebase service account client email |
 | `FIREBASE_PRIVATE_KEY` | no | Firebase service account private key (paste as-is; literal `\n` escapes are un-escaped automatically) |
 
-The client has no build-time env vars — it talks to `/api` and `/uploads` as relative paths, proxied to the
-API in dev (`client/vite.config.ts`) and expected to be reverse-proxied the same way in production.
+Other than talking to `/api` and `/uploads` as relative paths (proxied to the API in dev via
+`client/vite.config.ts`, expected to be reverse-proxied the same way in production), the client has one
+build-time env var:
+
+| Variable | Required? | Purpose |
+|---|---|---|
+| `VITE_LAUNCH_MODE` | no (default gated) | Pre-launch lockdown switch (`client/src/App.tsx`). Any value other than `public` — including unset — redirects every route except the vendor-recruitment pages (`/`, `/for-venues`), `/coming-soon`, everything under `/vendor`/`/admin`, auth pages, and the legal pages to `/coming-soon`. Set to `public` (and remove the `noindex` tag in `client/index.html` + the `Disallow: /` in `client/public/robots.txt`) for the real public launch. |
 
 ---
 
@@ -204,9 +211,10 @@ cookie/CORS complexity. Currently deployed as:
 ### Things to change before a real deployment
 
 - **Admin password**: set `HELLO_CIRCLE_ADMIN_PASSWORD` (and ideally `HELLO_CIRCLE_ADMIN_EMAIL`) — don't ship the
-  seeded default, especially if the database is reachable from any IP.
-- **CORS**: lock `cors({ origin: true, ... })` in `server/src/index.ts` down to your real origin, since same-origin
-  deployment no longer needs it permissive.
+  seeded default, especially if the database is reachable from any IP. `seedAdminIfMissing()` now logs a
+  `console.error` at boot if `NODE_ENV=production` and this is still unset, but it does not block startup.
+- **CORS**: set `PUBLIC_ORIGINS` to your real deployed domain(s) — without it, `server/src/index.ts` falls back
+  to reflecting any request origin, which is broader than a same-origin production deploy needs.
 - **Uploads persistence**: `server/uploads/` (path configurable via `DATA_DIR`) needs to live on a
   persistent volume — most container/PaaS hosts wipe local disk on redeploy/restart. Mount a volume, or
   swap `multer`'s disk storage for an object store (S3, R2, etc.) if you need durability across redeploys.

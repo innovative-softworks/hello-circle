@@ -100,7 +100,7 @@ export function PaymentSuccess() {
               <button onClick={() => navigate("/bookings")} style={{ background: colors.green, color: "#fff", border: "none", borderRadius: 12, padding: "13px 22px", fontWeight: 700, fontSize: 15, cursor: "pointer" }}>
                 View my bookings
               </button>
-              <button onClick={() => navigate("/")} style={{ background: "#fff", color: colors.text, border: `1px solid ${colors.borderStrong}`, borderRadius: 12, padding: "13px 22px", fontWeight: 600, fontSize: 15, cursor: "pointer" }}>
+              <button onClick={() => navigate("/home")} style={{ background: "#fff", color: colors.text, border: `1px solid ${colors.borderStrong}`, borderRadius: 12, padding: "13px 22px", fontWeight: 600, fontSize: 15, cursor: "pointer" }}>
                 Back home
               </button>
             </div>
@@ -128,7 +128,7 @@ export function PaymentSuccess() {
             <p style={{ color: colors.muted, fontSize: 16, lineHeight: 1.5, marginBottom: 28 }}>
               {status === "failed" ? "That payment didn't go through — no charge was made." : "We couldn't find that booking reference."}
             </p>
-            <button onClick={() => navigate("/")} style={{ background: colors.green, color: "#fff", border: "none", borderRadius: 12, padding: "13px 22px", fontWeight: 700, fontSize: 15, cursor: "pointer" }}>
+            <button onClick={() => navigate("/home")} style={{ background: colors.green, color: "#fff", border: "none", borderRadius: 12, padding: "13px 22px", fontWeight: 700, fontSize: 15, cursor: "pointer" }}>
               Back home
             </button>
           </>

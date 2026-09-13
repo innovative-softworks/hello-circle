@@ -12,7 +12,7 @@ import { ThemedView } from '@/components/themed-view';
 import { Spacing } from '@/constants/theme';
 import { DURATION_OPTIONS, TIME_SLOTS } from '@/lib/bookingConstants';
 
-import { useBookingDraftStore } from './_store';
+import { useBookingDraftStore } from '@/booking/store';
 
 function nextNDays(n: number): string[] {
   const days: string[] = [];
@@ -56,14 +56,14 @@ export default function DateTimeStep() {
     <ThemedView style={{ flex: 1 }}>
       <SafeAreaView style={{ flex: 1 }} edges={['bottom']}>
         <ScrollView contentContainerStyle={{ padding: Spacing.four, gap: Spacing.three }}>
-          <ThemedText type="subtitle">Duration</ThemedText>
+          <ThemedText type="sectionHeading">Duration</ThemedText>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: Spacing.two }}>
             {DURATION_OPTIONS.map((option) => (
               <Chip key={option.hours} label={option.label} selected={duration === option.hours} onPress={() => setField('duration', option.hours)} />
             ))}
           </ScrollView>
 
-          <ThemedText type="subtitle">Date</ThemedText>
+          <ThemedText type="sectionHeading">Date</ThemedText>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: Spacing.two }}>
             {candidateDays
               .filter((day) => !closedDates.has(day))
@@ -72,7 +72,7 @@ export default function DateTimeStep() {
               ))}
           </ScrollView>
 
-          <ThemedText type="subtitle">Time</ThemedText>
+          <ThemedText type="sectionHeading">Time</ThemedText>
           {dayClosed ? (
             <ThemedText themeColor="textSecondary">Closed on this date.</ThemedText>
           ) : (

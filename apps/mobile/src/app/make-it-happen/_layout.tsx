@@ -1,7 +1,7 @@
 import { Stack } from 'expo-router';
 import { useEffect } from 'react';
 
-import { useMakeItHappenStore } from './_store';
+import { useMakeItHappenStore } from '@/makeItHappen/store';
 
 export default function MakeItHappenLayout() {
   const reset = useMakeItHappenStore((state) => state.reset);

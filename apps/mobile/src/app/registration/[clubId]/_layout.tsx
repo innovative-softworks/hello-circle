@@ -1,7 +1,7 @@
 import { Stack } from 'expo-router';
 import { useEffect } from 'react';
 
-import { useRegistrationDraftStore } from './_store';
+import { useRegistrationDraftStore } from '@/registration/store';
 
 export default function RegistrationLayout() {
   const reset = useRegistrationDraftStore((state) => state.reset);

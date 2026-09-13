@@ -125,7 +125,7 @@ export function Onboarding() {
   const skipAll = async () => {
     await skipOnboarding();
     await refresh();
-    navigate("/");
+    navigate("/home");
   };
 
   // Permission is only ever requested here, on explicit click — never on
@@ -451,7 +451,7 @@ export function Onboarding() {
                 Skip for now
               </button>
             )}
-            <Button onClick={step === "done" ? () => navigate("/") : next} disabled={saving}>
+            <Button onClick={step === "done" ? () => navigate("/home") : next} disabled={saving}>
               {step === "done" ? "Start exploring" : step === "comfort" ? (saving ? "Saving…" : "Finish") : "Continue"}
             </Button>
           </div>

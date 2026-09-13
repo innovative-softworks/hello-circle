@@ -6,11 +6,11 @@ import { Button } from '@/components/Button';
 import { Chip } from '@/components/Chip';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
-import { Spacing } from '@/constants/theme';
+import { Radius, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { EVENT_TYPES } from '@/lib/bookingConstants';
 
-import { useBookingDraftStore } from './_store';
+import { useBookingDraftStore } from '@/booking/store';
 
 export default function DetailsStep() {
   const { centreId } = useLocalSearchParams<{ centreId: string }>();
@@ -27,7 +27,7 @@ export default function DetailsStep() {
     <ThemedView style={{ flex: 1 }}>
       <SafeAreaView style={{ flex: 1 }} edges={['bottom']}>
         <ScrollView contentContainerStyle={{ padding: Spacing.four, gap: Spacing.three }}>
-          <ThemedText type="subtitle">Event type</ThemedText>
+          <ThemedText type="sectionHeading">Event type</ThemedText>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: Spacing.two }}>
             {EVENT_TYPES.map((type) => (
               <Chip key={type} label={type} selected={eventType === type} onPress={() => setField('eventType', type)} />
@@ -40,7 +40,7 @@ export default function DetailsStep() {
               value={String(guests)}
               onChangeText={(text) => setField('guests', Math.max(1, parseInt(text, 10) || 1))}
               keyboardType="number-pad"
-              style={{ borderWidth: 1, borderColor: theme.border, borderRadius: 10, padding: Spacing.two, color: theme.text }}
+              style={{ borderWidth: 1, borderColor: theme.border, borderRadius: Radius.control, padding: Spacing.two, color: theme.text }}
             />
           </View>
 
@@ -75,7 +75,7 @@ function LabeledInput(props: {
         autoCapitalize={props.autoCapitalize}
         multiline={props.multiline}
         placeholderTextColor={theme.textSecondary}
-        style={{ borderWidth: 1, borderColor: theme.border, borderRadius: 10, padding: Spacing.two, color: theme.text, minHeight: props.multiline ? 60 : undefined }}
+        style={{ borderWidth: 1, borderColor: theme.border, borderRadius: Radius.control, padding: Spacing.two, color: theme.text, minHeight: props.multiline ? 60 : undefined }}
       />
     </View>
   );

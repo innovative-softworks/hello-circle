@@ -8,12 +8,12 @@ import { Button } from '@/components/Button';
 import { Chip } from '@/components/Chip';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
-import { Spacing } from '@/constants/theme';
+import { Radius, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { DURATION_OPTIONS } from '@/lib/bookingConstants';
 import { IRISH_COUNTY_COORDS } from '@/lib/irishCounties';
 
-import { useMakeItHappenStore } from './_store';
+import { useMakeItHappenStore } from '@/makeItHappen/store';
 
 const COUNTIES = Object.keys(IRISH_COUNTY_COORDS).sort((a, b) => a.localeCompare(b));
 
@@ -54,6 +54,7 @@ export default function MakeItHappenSearchScreen() {
     <ThemedView style={{ flex: 1 }}>
       <SafeAreaView style={{ flex: 1 }} edges={['bottom']}>
         <ScrollView contentContainerStyle={{ padding: Spacing.four, gap: Spacing.three }}>
+          <ThemedText type="editorial">Make it happen.</ThemedText>
           <ThemedText themeColor="textSecondary">
             Tell us what you want to do and we&apos;ll find a real place with space for it.
           </ThemedText>
@@ -65,7 +66,7 @@ export default function MakeItHappenSearchScreen() {
               onChangeText={(text) => draft.setField('activityLabel', text)}
               placeholder="e.g. Five-a-side football"
               placeholderTextColor={theme.textSecondary}
-              style={{ borderWidth: 1, borderColor: theme.border, borderRadius: 10, padding: Spacing.two, color: theme.text }}
+              style={{ borderWidth: 1, borderColor: theme.border, borderRadius: Radius.control, padding: Spacing.two, color: theme.text }}
             />
           </View>
 
@@ -92,7 +93,7 @@ export default function MakeItHappenSearchScreen() {
               value={String(draft.partySize)}
               onChangeText={(text) => draft.setField('partySize', Math.max(1, parseInt(text, 10) || 1))}
               keyboardType="number-pad"
-              style={{ borderWidth: 1, borderColor: theme.border, borderRadius: 10, padding: Spacing.two, color: theme.text }}
+              style={{ borderWidth: 1, borderColor: theme.border, borderRadius: Radius.control, padding: Spacing.two, color: theme.text }}
             />
           </View>
 
@@ -114,7 +115,7 @@ function LabeledInput(props: { label: string; value: string; onChangeText: (text
         value={props.value}
         onChangeText={props.onChangeText}
         placeholderTextColor={theme.textSecondary}
-        style={{ borderWidth: 1, borderColor: theme.border, borderRadius: 10, padding: Spacing.two, color: theme.text }}
+        style={{ borderWidth: 1, borderColor: theme.border, borderRadius: Radius.control, padding: Spacing.two, color: theme.text }}
       />
     </View>
   );

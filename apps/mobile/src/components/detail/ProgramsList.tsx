@@ -1,8 +1,9 @@
 import type { Program } from '@hello-circle/types';
-import { StyleSheet, View } from 'react-native';
+import { router } from 'expo-router';
+import { Pressable, StyleSheet, View } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
-import { Spacing } from '@/constants/theme';
+import { Radius, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { formatPriceCents } from '@/lib/format';
 
@@ -10,7 +11,7 @@ export function ProgramsList({ programs }: { programs: Program[] }) {
   if (!programs.length) return null;
   return (
     <View style={{ gap: Spacing.two }}>
-      <ThemedText type="subtitle">Programs</ThemedText>
+      <ThemedText type="sectionHeading">Programs</ThemedText>
       {programs.map((program) => (
         <ProgramRow key={program.id} program={program} />
       ))}
@@ -21,21 +22,21 @@ export function ProgramsList({ programs }: { programs: Program[] }) {
 function ProgramRow({ program }: { program: Program }) {
   const theme = useTheme();
   return (
-    <View style={[styles.row, { borderColor: theme.border }]}>
+    <Pressable onPress={() => router.push(`/(details)/program/${program.id}`)} style={[styles.row, { borderColor: theme.border }]}>
       <ThemedText style={styles.title}>{program.title}</ThemedText>
       <ThemedText themeColor="textSecondary">{program.ageRange}</ThemedText>
       <ThemedText themeColor="primary">
         {formatPriceCents(program.priceCents)}
         {program.spotsLeft !== null ? ` · ${program.spotsLeft} spots left` : ''}
       </ThemedText>
-    </View>
+    </Pressable>
   );
 }
 
 const styles = StyleSheet.create({
   row: {
     borderWidth: 1,
-    borderRadius: 12,
+    borderRadius: Radius.card,
     padding: Spacing.three,
     gap: 2,
   },

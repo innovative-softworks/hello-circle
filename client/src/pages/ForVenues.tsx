@@ -1,6 +1,8 @@
 import { useEffect } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../AuthContext";
+import { ComingSoonBanner } from "../components/forVenues/ComingSoonBanner";
+import { ComingSoonSection } from "../components/forVenues/ComingSoonSection";
 import { FoundingVenueSection } from "../components/forVenues/FoundingVenueSection";
 import { ProviderTypeGrid } from "../components/forVenues/ProviderTypeGrid";
 import { VendorBenefitStrip } from "../components/forVenues/VendorBenefitStrip";
@@ -51,7 +53,9 @@ export function ForVenues() {
 
   return (
     <div className="fade-panel">
+      <ComingSoonBanner />
       <VendorHero onPrimaryCta={() => goToCta("hero")} onSecondaryCta={scrollToHowItWorks} />
+      <ComingSoonSection />
       <VendorBenefitStrip />
       <ProviderTypeGrid onLearnMore={scrollToHowItWorks} />
       <VendorHowItWorks id={HOW_IT_WORKS_ID} />

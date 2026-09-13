@@ -8,13 +8,15 @@ import { ApiError } from '@/api/client';
 import { fetchClub } from '@/api/clubs';
 import { createRegistrationCheckout, fetchRegistrationStatus, joinClubWaitlist } from '@/api/registrations';
 import { Button } from '@/components/Button';
+import { Card } from '@/components/Card';
+import { StickyPriceRail } from '@/components/detail/StickyPriceRail';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Spacing } from '@/constants/theme';
 import { openCheckoutAndAwaitReturn, pollUntilPaid } from '@/lib/checkout';
 import { formatPrice } from '@/lib/format';
 
-import { useRegistrationDraftStore } from './_store';
+import { useRegistrationDraftStore } from '@/registration/store';
 
 export default function RegistrationReviewStep() {
   const { clubId } = useLocalSearchParams<{ clubId: string }>();
@@ -84,7 +86,7 @@ export default function RegistrationReviewStep() {
     return (
       <ThemedView style={{ flex: 1 }}>
         <SafeAreaView style={{ flex: 1, alignItems: 'center', justifyContent: 'center', gap: Spacing.three, padding: Spacing.four }}>
-          <ThemedText type="subtitle">This club is full</ThemedText>
+          <ThemedText type="sectionHeading">This club is full</ThemedText>
           {waitlisted ? (
             <ThemedText themeColor="primary">You&apos;re on the waitlist — we&apos;ll email you if a spot opens up.</ThemedText>
           ) : (
@@ -95,25 +97,31 @@ export default function RegistrationReviewStep() {
     );
   }
 
+  const isCash = club?.paymentMethod === 'cash' || draft.trial;
+  const priceLabel = draft.trial ? 'Free trial' : club ? `${formatPrice(club.price)}/${club.unit}` : '';
+
   return (
     <ThemedView style={{ flex: 1 }}>
       <SafeAreaView style={{ flex: 1 }} edges={['bottom']}>
-        <ScrollView contentContainerStyle={{ padding: Spacing.four, gap: Spacing.two }}>
-          <ThemedText type="subtitle">Review</ThemedText>
-          <ThemedText>{club?.name}</ThemedText>
-          <ThemedText themeColor="textSecondary">
-            {isAdult ? draft.childFirst : `${draft.childFirst} ${draft.childLast}`} · {draft.email}
-          </ThemedText>
+        <ScrollView contentContainerStyle={{ padding: Spacing.four, gap: Spacing.three }}>
+          <ThemedText type="pageHeading">Review</ThemedText>
 
-          {club && club.paymentMethod !== 'cash' && !draft.trial && (
-            <ThemedText themeColor="primary">Estimated {formatPrice(club.price)}/{club.unit} + VAT and platform fee, calculated at checkout</ThemedText>
-          )}
-          {(club?.paymentMethod === 'cash' || draft.trial) && <ThemedText themeColor="primary">{draft.trial ? 'Free trial' : 'Cash on arrival'}</ThemedText>}
+          <Card imageUrl={club?.image} placeholderIcon="people-outline">
+            <ThemedText type="cardHeading">{club?.name}</ThemedText>
+            <ThemedText themeColor="textSecondary">
+              {draft.childFirst} {draft.childLast} · {draft.email}
+            </ThemedText>
+            {!isAdult && draft.team && <ThemedText themeColor="textSecondary">{draft.team}</ThemedText>}
+            {isCash ? (
+              <ThemedText themeColor="primary">{priceLabel}</ThemedText>
+            ) : (
+              <ThemedText themeColor="primary">Estimated {priceLabel} + VAT and platform fee, calculated at checkout</ThemedText>
+            )}
+          </Card>
 
           {error && <ThemedText themeColor="danger">{error}</ThemedText>}
-
-          <Button label="Register" onPress={handleConfirm} loading={pending} />
         </ScrollView>
+        <StickyPriceRail priceLabel={priceLabel} ctaLabel="Register" onPress={handleConfirm} loading={pending} />
       </SafeAreaView>
     </ThemedView>
   );

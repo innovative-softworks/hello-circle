@@ -3,10 +3,12 @@ import { useEffect, useRef, useState } from 'react';
 import { FlatList, StyleSheet, TextInput, View } from 'react-native';
 
 import { fetchChatMessages, postChatMessage } from '@/api/chat';
+import { Avatar } from '@/components/Avatar';
 import { Button } from '@/components/Button';
 import { ThemedText } from '@/components/themed-text';
-import { Spacing } from '@/constants/theme';
+import { Radius, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
+import { hapticLight } from '@/lib/haptics';
 
 const POLL_MS = 4000;
 
@@ -65,6 +67,7 @@ export function ChatPanel({ scopeType, scopeId }: { scopeType: ChatScopeType; sc
       setMessages((prev) => [...prev, message]);
       lastIdRef.current = message.id;
       setDraft('');
+      hapticLight();
     } finally {
       setSending(false);
     }
@@ -74,15 +77,18 @@ export function ChatPanel({ scopeType, scopeId }: { scopeType: ChatScopeType; sc
 
   return (
     <View style={{ gap: Spacing.two }}>
-      <ThemedText type="subtitle">Chat</ThemedText>
+      <ThemedText type="sectionHeading">Chat</ThemedText>
       <FlatList
         data={messages}
         keyExtractor={(item) => String(item.id)}
         style={styles.list}
         renderItem={({ item }) => (
           <View style={styles.message}>
-            <ThemedText style={styles.sender}>{item.residentName}</ThemedText>
-            <ThemedText>{item.body}</ThemedText>
+            <Avatar name={item.residentName} size={28} />
+            <View style={{ flex: 1, gap: 2 }}>
+              <ThemedText type="smallBold">{item.residentName}</ThemedText>
+              <ThemedText>{item.body}</ThemedText>
+            </View>
           </View>
         )}
         ListEmptyComponent={<ThemedText themeColor="textSecondary">No messages yet.</ThemedText>}
@@ -110,12 +116,9 @@ const styles = StyleSheet.create({
     maxHeight: 240,
   },
   message: {
+    flexDirection: 'row',
     paddingVertical: Spacing.one,
-    gap: 2,
-  },
-  sender: {
-    fontWeight: '700',
-    fontSize: 12,
+    gap: Spacing.two,
   },
   composer: {
     flexDirection: 'row',
@@ -125,7 +128,7 @@ const styles = StyleSheet.create({
   input: {
     flex: 1,
     borderWidth: 1,
-    borderRadius: 10,
+    borderRadius: Radius.control,
     padding: Spacing.two,
   },
 });

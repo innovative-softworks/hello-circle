@@ -1,27 +1,34 @@
-import { useQuery } from '@tanstack/react-query';
-import { ScrollView } from 'react-native';
+import type { DiscoverItem } from '@hello-circle/types';
+import { router } from 'expo-router';
 
-import { fetchDiscover } from '@/api/discovery';
-import { ActivityCard } from '@/components/home/ActivityCard';
+import { EditorialHero } from '@/components/EditorialHero';
 import { SectionHeader } from '@/components/home/SectionHeader';
-import { Spacing } from '@/constants/theme';
+import { SkeletonRail } from '@/components/SkeletonLoader';
 
-export function ThisWeekend({ county }: { county: string | null }) {
-  const { data } = useQuery({
-    queryKey: ['discover', county],
-    queryFn: () => fetchDiscover(county ?? undefined),
-  });
+// A single dominant feature, not a carousel — the spec's own worked example
+// ("Go somewhere you haven't been.") is one story, not a rail of six. Only
+// the soonest weekend item is shown; if the resident wants more they can
+// tap through to Explore's "This Weekend" mood context (Phase 2b).
+export function ThisWeekend({ item, isLoading }: { item: DiscoverItem | null; isLoading: boolean }) {
+  if (isLoading) {
+    return (
+      <>
+        <SectionHeader title="This weekend" />
+        <SkeletonRail />
+      </>
+    );
+  }
 
-  if (!data?.weekend.length) return null;
+  if (!item) return null;
 
   return (
-    <>
-      <SectionHeader title="This weekend" />
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: Spacing.two, paddingHorizontal: Spacing.four }}>
-        {data.weekend.map((item) => (
-          <ActivityCard key={item.id} item={item} />
-        ))}
-      </ScrollView>
-    </>
+    <EditorialHero
+      imageUrl={item.imageUrl}
+      eyebrow="This weekend"
+      title={"Go somewhere\nyou haven't been."}
+      metadata={[item.title, item.time, item.centreName ?? item.clubName].filter(Boolean).join(' · ')}
+      ctaLabel="Explore"
+      onPress={item.kind === 'game' ? () => router.push(`/(details)/game/${item.id}`) : () => router.push('/explore')}
+    />
   );
 }

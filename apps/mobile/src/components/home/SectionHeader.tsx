@@ -6,7 +6,7 @@ import { Spacing } from '@/constants/theme';
 export function SectionHeader({ title }: { title: string }) {
   return (
     <View style={styles.row}>
-      <ThemedText type="subtitle">{title}</ThemedText>
+      <ThemedText type="sectionHeading">{title}</ThemedText>
     </View>
   );
 }

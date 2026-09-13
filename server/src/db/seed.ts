@@ -308,6 +308,15 @@ const ADMIN_PASSWORD = process.env.HELLO_CIRCLE_ADMIN_PASSWORD || "changeme123";
  * source — swap for a real provisioning step before this ever goes live. */
 export async function seedAdminIfMissing() {
   if (await findUserByEmail(ADMIN_EMAIL)) return;
+  // Same "warn loudly, don't block boot" pattern as stripeWebhook.ts's
+  // STRIPE_WEBHOOK_SECRET check — a launch checklist item that's easy to
+  // forget silently otherwise, since the app works fine either way.
+  if (process.env.NODE_ENV === "production" && ADMIN_PASSWORD === "changeme123") {
+    console.error(
+      "[seed] HELLO_CIRCLE_ADMIN_PASSWORD is not set — seeding the admin account with the default " +
+        "'changeme123' password in production. Set HELLO_CIRCLE_ADMIN_PASSWORD before this first boot."
+    );
+  }
   await createUser(ADMIN_EMAIL, ADMIN_PASSWORD, "Hello Circle Admin", "admin", "approved");
   console.log(`Seeded admin account: ${ADMIN_EMAIL} (set HELLO_CIRCLE_ADMIN_EMAIL/HELLO_CIRCLE_ADMIN_PASSWORD env vars to set credentials; password not logged)`);
 }

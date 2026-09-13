@@ -1,0 +1,6 @@
+# Pre-launch: the app has no real vendor/resident data yet (see CLAUDE.md's
+# "Dev vs. prod database" section) and is gated behind /coming-soon (see
+# client/src/App.tsx's LAUNCH_GATE_ENABLED). Remove this Disallow once
+# VITE_LAUNCH_MODE=public is set for a real launch.
+User-agent: *
+Disallow: /

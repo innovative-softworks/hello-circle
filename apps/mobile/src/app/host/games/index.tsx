@@ -19,7 +19,7 @@ export default function HostedGamesScreen() {
     <ThemedView style={{ flex: 1 }}>
       <SafeAreaView style={{ flex: 1 }} edges={['bottom']}>
         <ScrollView contentContainerStyle={{ padding: Spacing.four, gap: Spacing.two }}>
-          {games.length === 0 && <EmptyState title="No hosted games yet" description="Games you create will show up here." />}
+          {games.length === 0 && <EmptyState icon="football-outline" title="No hosted games yet" description="Games you create will show up here." />}
           {games.map((game) => (
             <Pressable
               key={game.id}

@@ -89,8 +89,8 @@ residentsRouter.get("/me", async (req, res) => {
 });
 
 residentsRouter.put("/me", requireResident, async (req, res) => {
-  const { name, homeCounty } = req.body as { name?: string; homeCounty?: string };
-  await updateResident(req.resident!.id, { name, homeCounty });
+  const { name, homeCounty, homeLat, homeLng } = req.body as { name?: string; homeCounty?: string; homeLat?: number; homeLng?: number };
+  await updateResident(req.resident!.id, { name, homeCounty, homeLat, homeLng });
   res.json({ ok: true });
 });
 
@@ -382,33 +382,48 @@ residentsRouter.delete("/me/push-token", requireResident, async (req, res) => {
 
 residentsRouter.get("/me/receipts", requireResident, async (req, res) => {
   const id = req.resident!.id;
-  const [bookings, registrations, games, passes] = await Promise.all([
+  const [bookings, registrations, games, passes, programEnrollments] = await Promise.all([
     db
       .prepare(
-        `SELECT b.ref, 'booking' as kind, c.name as label, b.total_cents as totalCents, b.created_at as createdAt, b.payment_status as paymentStatus
+        `SELECT b.ref, 'booking' as kind, c.name as label, b.total_cents as totalCents, b.created_at as createdAt, b.payment_status as paymentStatus,
+                b.date as date, b.time as time, b.centre_id as centreId
          FROM bookings b JOIN centres c ON c.id = b.centre_id WHERE b.resident_id = ? ORDER BY b.created_at DESC`
       )
       .all(id),
     db
       .prepare(
-        `SELECT r.ref, 'registration' as kind, c.name as label, r.total_cents as totalCents, r.created_at as createdAt, r.payment_status as paymentStatus
+        `SELECT r.ref, 'registration' as kind, c.name as label, r.total_cents as totalCents, r.created_at as createdAt, r.payment_status as paymentStatus,
+                NULL as date, NULL as time, NULL as centreId
          FROM registrations r JOIN clubs c ON c.id = r.club_id WHERE r.resident_id = ? ORDER BY r.created_at DESC`
       )
       .all(id),
     db
       .prepare(
-        `SELECT gp.ref, 'game' as kind, g.activity_label as label, COALESCE(g.price_cents, 0) as totalCents, gp.joined_at as createdAt, gp.payment_status as paymentStatus
+        `SELECT gp.ref, 'game' as kind, g.activity_label as label, COALESCE(g.price_cents, 0) as totalCents, gp.joined_at as createdAt, gp.payment_status as paymentStatus,
+                NULL as date, NULL as time, NULL as centreId
          FROM game_participants gp JOIN games g ON g.id = gp.game_id WHERE gp.resident_id = ? AND gp.ref IS NOT NULL ORDER BY gp.joined_at DESC`
       )
       .all(id),
     db
       .prepare(
-        `SELECT p.ref, 'pass' as kind, c.name as label, p.purchased_cents as totalCents, p.created_at as createdAt, p.payment_status as paymentStatus
+        `SELECT p.ref, 'pass' as kind, c.name as label, p.purchased_cents as totalCents, p.created_at as createdAt, p.payment_status as paymentStatus,
+                NULL as date, NULL as time, NULL as centreId
          FROM passes p LEFT JOIN clubs c ON c.id = p.listing_id WHERE p.resident_id = ? ORDER BY p.created_at DESC`
       )
       .all(id),
+    // Previously missing here — a resident tapping their own program
+    // enrollment from My Life fell through to this same receipt lookup
+    // (ParticipationRow's generic fallback) and found nothing, showing a
+    // permanent "Loading…" instead of the QR/calendar receipt view.
+    db
+      .prepare(
+        `SELECT pe.ref, 'program_enrollment' as kind, pr.title as label, pe.total_cents as totalCents, pe.created_at as createdAt, pe.payment_status as paymentStatus,
+                NULL as date, NULL as time, NULL as centreId
+         FROM program_enrollments pe JOIN programs pr ON pr.id = pe.program_id WHERE pe.resident_id = ? ORDER BY pe.created_at DESC`
+      )
+      .all(id),
   ]);
-  const all = [...bookings, ...registrations, ...games, ...passes].sort(
+  const all = [...bookings, ...registrations, ...games, ...passes, ...programEnrollments].sort(
     (a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
   );
   res.json(all);

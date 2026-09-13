@@ -49,7 +49,7 @@ export function VendorHero({ onPrimaryCta, onSecondaryCta }: { onPrimaryCta: () 
           — the full-bleed image below is the visual payoff after the pitch,
           rather than a banner the copy has to compete with for attention. */}
       <div className="section-pad" style={{ maxWidth: FV_MAX_WIDTH, margin: "0 auto", padding: "8px 24px 40px" }}>
-        <div className="grid-responsive" style={{ display: "grid", gridTemplateColumns: "1.1fr 0.8fr", gap: 48, alignItems: "end" }}>
+        <div className="grid-responsive" style={{ display: "grid", gridTemplateColumns: "1.1fr 0.8fr", gap: 48, alignItems: "center" }}>
           <div>
             <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: ".09em", textTransform: "uppercase", color: FV_ACCENT, marginBottom: 14 }}>
               <span aria-hidden="true">/</span> For venues & hosts

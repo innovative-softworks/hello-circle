@@ -21,6 +21,7 @@ import { CircleDetail } from "./pages/CircleDetail";
 import { Circles } from "./pages/Circles";
 import { ClubDetail } from "./pages/ClubDetail";
 import { BookingFlow } from "./pages/BookingFlow";
+import { ComingSoon } from "./pages/ComingSoon";
 import { CookiePolicy } from "./pages/CookiePolicy";
 import { Adventures } from "./pages/Adventures";
 import { ExperienceDetail } from "./pages/ExperienceDetail";
@@ -64,6 +65,27 @@ import { HostGamePage } from "./pages/HostGamePage";
 import { ManageActivities } from "./pages/ManageActivities";
 import { ManageCircle } from "./pages/ManageCircle";
 import { StartCirclePage } from "./pages/StartCirclePage";
+
+// Pre-launch lockdown (no real vendor/resident data yet — see CLAUDE.md's
+// "Dev vs. prod database" section). Defaults ON (gated) until a deploy
+// explicitly sets VITE_LAUNCH_MODE=public, so a forgotten env var fails
+// closed rather than open. Flip to "public" once real Dublin/Cork vendors
+// are onboarded and Phase 0-3 of the launch plan are done.
+const LAUNCH_GATE_ENABLED = import.meta.env.VITE_LAUNCH_MODE !== "public";
+
+// Routes that must stay reachable by direct URL while gated: the vendor-
+// recruitment landing page (root + /for-venues), the waitlist splash itself,
+// vendor onboarding/auth (signup, dashboard, listing edit pages all live
+// under /vendor), the admin dashboard, and the legal pages. Everything
+// consumer-facing (Browse, Games, Circles, booking flows, etc.) is not
+// exempt, since there's no real data to show there yet.
+function isExemptFromLaunchGate(pathname: string): boolean {
+  if (pathname === "/" || pathname === "/for-venues" || pathname === "/coming-soon") return true;
+  if (pathname === "/login" || pathname === "/forgot-password" || pathname === "/reset-password" || pathname === "/accept-invite") return true;
+  if (pathname === "/privacy" || pathname === "/cookies") return true;
+  if (pathname.startsWith("/vendor") || pathname.startsWith("/admin")) return true;
+  return false;
+}
 
 export function App() {
   const location = useLocation();
@@ -121,6 +143,10 @@ export function App() {
   // footer (client/src/landing/) — it must never get the product app's own
   // chrome layered on top, same reasoning as hiding it for /login.
   const isStandaloneLanding = location.pathname === "/landing";
+  // Pre-launch splash — same "no app chrome layered on top" treatment as
+  // /landing, for the same reason: it's meant to stand alone, not read as
+  // a page inside the product it's advertising.
+  const isComingSoon = location.pathname === "/coming-soon";
   // Every full-page authentication surface (vendor/admin login + the
   // resident sign-in/forgot/reset trio, staff invite acceptance, and vendor
   // signup — same AuthEditorialShell split-screen treatment, design-system
@@ -137,12 +163,13 @@ export function App() {
     location.pathname === "/reset-password" ||
     location.pathname === "/accept-invite" ||
     location.pathname === "/vendor/signup";
-  const hideHeader = isAuthPage || location.pathname === "/onboarding" || isStandaloneLanding;
+  const hideHeader = isAuthPage || location.pathname === "/onboarding" || isStandaloneLanding || isComingSoon;
   // The bottom tab bar is participant-facing primary nav (IA spec's
   // Home/Explore/Create/Circles/My Life) — the vendor/admin dashboards
   // already have their own nav model (NavSidebar, see CLAUDE.md), so it
   // would either duplicate or conflict with that, not complement it.
   const hideTabBar = hideHeader || location.pathname.startsWith("/vendor") || location.pathname.startsWith("/admin") || location.pathname.startsWith("/manage");
+  const gated = LAUNCH_GATE_ENABLED && !isExemptFromLaunchGate(location.pathname);
 
   return (
     <ThemeProvider><AuthProvider>
@@ -152,10 +179,24 @@ export function App() {
         <MyStuffProvider>
           <DashboardNavProvider>
             {!hideHeader && <Header />}
-            <main className={hideTabBar ? undefined : "mobile-tab-bar-space"} style={isStandaloneLanding ? undefined : { minHeight: "70vh" }}>
+            <main className={hideTabBar ? undefined : "mobile-tab-bar-space"} style={isStandaloneLanding || isComingSoon ? undefined : { minHeight: "70vh" }}>
+              {gated ? (
+                <Routes>
+                  <Route path="/coming-soon" element={<ComingSoon />} />
+                  <Route path="*" element={<Navigate to="/coming-soon" replace />} />
+                </Routes>
+              ) : (
               <Routes>
-                <Route path="/" element={<Home />} />
+                {/* /for-venues is now doing double duty as the pre-launch
+                    root landing page (per explicit request) — Home moves to
+                    /home so every existing "back home"/logo-click call site
+                    that still means "the browse experience" keeps working
+                    once it's repointed there, rather than silently landing
+                    users back on the vendor pitch mid-flow. */}
+                <Route path="/" element={<ForVenues />} />
+                <Route path="/home" element={<Home />} />
                 <Route path="/landing" element={<LandingPage />} />
+                <Route path="/coming-soon" element={<ComingSoon />} />
                 <Route path="/browse/:category" element={<Browse />} />
                 <Route path="/centres/:id" element={<CentreDetail />} />
                 <Route path="/clubs/:id" element={<ClubDetail />} />
@@ -222,8 +263,9 @@ export function App() {
                 <Route path="/:county/:activity" element={<LocalActivity />} />
                 <Route path="*" element={<NotFound />} />
               </Routes>
+              )}
             </main>
-            {!isStandaloneLanding && !isAuthPage && <Footer />}
+            {!isStandaloneLanding && !isAuthPage && !isComingSoon && <Footer />}
             <CookieNotice />
             {!hideTabBar && <MobileTabBar />}
           </DashboardNavProvider>

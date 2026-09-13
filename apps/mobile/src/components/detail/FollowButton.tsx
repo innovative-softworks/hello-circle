@@ -1,12 +1,23 @@
 import { Pressable, StyleSheet } from 'react-native';
 
+import type { FollowedType } from '@/api/follow';
 import { ThemedText } from '@/components/themed-text';
 import { useFollow } from '@/hooks/useFollow';
 import { useTheme } from '@/hooks/use-theme';
 
-export function FollowButton({ centreId, initialFollowing, screenPath }: { centreId: string; initialFollowing: boolean; screenPath: string }) {
+export function FollowButton({
+  followedType = 'centre',
+  followedId,
+  initialFollowing,
+  screenPath,
+}: {
+  followedType?: FollowedType;
+  followedId: string;
+  initialFollowing: boolean;
+  screenPath: string;
+}) {
   const theme = useTheme();
-  const { following, pending, toggle } = useFollow('centre', centreId, initialFollowing, screenPath);
+  const { following, pending, toggle } = useFollow(followedType, followedId, initialFollowing, screenPath);
 
   return (
     <Pressable

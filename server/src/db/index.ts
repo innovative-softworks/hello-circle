@@ -1269,6 +1269,14 @@ export async function initSchema() {
   await ensureColumn("residents", "notification_prefs", "notification_prefs TEXT");
   await ensureColumn("residents", "accessibility_prefs", "accessibility_prefs TEXT");
   await ensureColumn("residents", "search_radius_km", "search_radius_km INT NOT NULL DEFAULT 10");
+  // Mobile onboarding redesign — an optional precise point (from geocoding a
+  // searched address, or a GPS reading) alongside the existing home_county
+  // string. Nullable: a resident who only ever picked a county from the
+  // chip list (the original flow, still supported) has no coordinate at
+  // all, and nothing downstream requires one — home_county remains the
+  // single source of truth for county-scoped queries.
+  await ensureColumn("residents", "home_lat", "home_lat DOUBLE NULL");
+  await ensureColumn("residents", "home_lng", "home_lng DOUBLE NULL");
 
   // Optional password login (My Life redesign) — resident accounts remain
   // passwordless by default (magic-link only, same as always); this is an
@@ -1626,6 +1634,24 @@ export async function initSchema() {
       keywords VARCHAR(500),
       mood VARCHAR(20),
       active TINYINT NOT NULL DEFAULT 1,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+
+  // Pre-launch "coming soon" email capture (routes/launchSignups.ts) — named
+  // launch_signups, deliberately distinct from waitlist_entries (a capacity
+  // queue for a specific centre/club that's already live) even though both
+  // are colloquially "a waitlist": this one exists before the product has
+  // any bookable listings for the signer to queue against. email is the
+  // natural key (re-submitting the same email updates name/county rather
+  // than erroring or duplicating — see the route's ON DUPLICATE KEY UPDATE).
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS launch_signups (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      email VARCHAR(255) NOT NULL UNIQUE,
+      name VARCHAR(255) NOT NULL DEFAULT '',
+      county VARCHAR(255) NOT NULL DEFAULT '',
+      client_id VARCHAR(191),
       created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
     )
   `);

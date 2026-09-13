@@ -289,7 +289,7 @@ export function RegistrationFlow() {
           </div>
           <div style={{ display: "flex", gap: 12, justifyContent: "center", flexWrap: "wrap" }}>
             <Button variant="orange" onClick={() => navigate("/bookings")}>View my bookings</Button>
-            <Button variant="ghost" onClick={() => navigate("/")}>Back home</Button>
+            <Button variant="ghost" onClick={() => navigate("/home")}>Back home</Button>
           </div>
         </section>
       </div>

@@ -1,4 +1,4 @@
-import type { Game, GameUpdate, ManageParticipant } from '@hello-circle/types';
+import type { Game, GameParticipantSummary, GameUpdate, ManageParticipant } from '@hello-circle/types';
 
 import { request } from './client';
 
@@ -8,6 +8,14 @@ export function fetchGames(county?: string): Promise<Game[]> {
 
 export function fetchGame(id: string): Promise<Game> {
   return request(`/games/${id}`);
+}
+
+// "Who's going" preview (Experience Detail redesign) — name-only, capped
+// preview + a real total for AvatarGroup's "+N" overflow. Public, no auth
+// required (mirrors the mutual-block filtering server/src/routes/games.ts's
+// GET /:id/participants already does).
+export function fetchGameParticipants(id: string): Promise<GameParticipantSummary> {
+  return request(`/games/${id}/participants`);
 }
 
 export function joinGame(id: string): Promise<{ ok?: boolean; ref?: string; url?: string; totalEuro?: number }> {

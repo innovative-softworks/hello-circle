@@ -4,7 +4,7 @@ import { Pressable, TextInput, View } from 'react-native';
 import { inviteToCircle } from '@/api/circles';
 import { searchResidents } from '@/api/residents';
 import { ThemedText } from '@/components/themed-text';
-import { Spacing } from '@/constants/theme';
+import { Radius, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 
 // Mobile equivalent of client/src/components/ResidentPicker.tsx — a
@@ -38,13 +38,13 @@ export function InviteResident({ circleId }: { circleId: string }) {
 
   return (
     <View style={{ gap: Spacing.two }}>
-      <ThemedText type="subtitle">Invite someone</ThemedText>
+      <ThemedText type="sectionHeading">Invite someone</ThemedText>
       <TextInput
         value={query}
         onChangeText={setQuery}
         placeholder="Search by name…"
         placeholderTextColor={theme.textSecondary}
-        style={{ borderWidth: 1, borderColor: theme.border, borderRadius: 10, padding: Spacing.two, color: theme.text }}
+        style={{ borderWidth: 1, borderColor: theme.border, borderRadius: Radius.control, padding: Spacing.two, color: theme.text }}
       />
       {visibleResults.map((resident) => (
         <Pressable

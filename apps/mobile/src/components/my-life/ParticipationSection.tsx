@@ -9,7 +9,7 @@ export function ParticipationSection({ title, entries }: { title: string; entrie
   if (!entries.length) return null;
   return (
     <View style={styles.section}>
-      <ThemedText type="subtitle">{title}</ThemedText>
+      <ThemedText type="sectionHeading">{title}</ThemedText>
       {entries.map((entry) => (
         <ParticipationRow key={`${entry.kind}-${entry.ref}`} entry={entry} />
       ))}

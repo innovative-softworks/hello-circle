@@ -6,7 +6,7 @@ import type { CircleJoinMode } from '@/api/circles';
 import { Button } from '@/components/Button';
 import { Chip } from '@/components/Chip';
 import { ThemedText } from '@/components/themed-text';
-import { Spacing } from '@/constants/theme';
+import { Radius, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 
 export interface CircleEditValues {
@@ -17,7 +17,9 @@ export interface CircleEditValues {
   joinMode: CircleJoinMode;
 }
 
-const JOIN_MODES: { value: CircleJoinMode; label: string }[] = [
+// Exported so circles/new.tsx's lighter-weight "Start a Circle" flow can
+// reuse the same picker rather than duplicating the label copy.
+export const JOIN_MODES: { value: CircleJoinMode; label: string }[] = [
   { value: 'open', label: 'Open — anyone can join' },
   { value: 'approval', label: 'Approval — organiser reviews requests' },
   { value: 'invite', label: 'Invite only' },
@@ -89,7 +91,7 @@ function LabeledInput(props: { label: string; value: string; onChangeText: (text
         style={{
           borderWidth: 1,
           borderColor: theme.border,
-          borderRadius: 10,
+          borderRadius: Radius.control,
           padding: Spacing.two,
           color: theme.text,
           minHeight: props.multiline ? 60 : undefined,

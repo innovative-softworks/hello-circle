@@ -288,6 +288,12 @@ export interface Resident {
   email: string;
   name: string;
   homeCounty: string;
+  /** Optional precise point (mobile onboarding redesign) — set when the
+   * resident searched/geocoded an address or used GPS, rather than just
+   * picking a county from the chip list. Null for residents who never did
+   * either; home_county remains authoritative for county-scoped queries. */
+  homeLat: number | null;
+  homeLng: number | null;
   createdAt: string;
 }
 
@@ -1117,11 +1123,17 @@ export const BUDGET_OPTIONS = [
 
 export interface Receipt {
   ref: string;
-  kind: "booking" | "registration" | "game" | "pass";
+  kind: "booking" | "registration" | "game" | "pass" | "program_enrollment";
   label: string;
   totalCents: number;
   createdAt: string;
   paymentStatus: string;
+  /** Only populated for kind "booking" — the booked slot + venue, for a
+   * richer Booking Detail screen (directions/cancel). Null for every other
+   * kind, which has its own live detail screen instead. */
+  date: string | null;
+  time: string | null;
+  centreId: string | null;
 }
 
 export interface WaitlistOfferStatus {

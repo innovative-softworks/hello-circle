@@ -1,4 +1,4 @@
-import type { Circle, CircleInvitation, CircleMemberSummary, CirclePlanPreview } from '@hello-circle/types';
+import type { Circle, CircleInvitation, CircleMemberSummary, CirclePlanPreview, CirclePoll } from '@hello-circle/types';
 
 import { request } from './client';
 
@@ -66,6 +66,13 @@ export function updateCircle(id: string, input: CircleInput & { imageUrl?: strin
   return request(`/circles/${id}`, { method: 'PUT', body: JSON.stringify(input) });
 }
 
+// Only `name` is required server-side (routes/circles.ts's POST /) — every
+// other field defaults sensibly, which is what makes a lightweight "Start a
+// Circle" flow (spec §19/§34) possible without a long form.
+export function createCircle(input: CircleInput): Promise<{ id: string; slug: string }> {
+  return request('/circles', { method: 'POST', body: JSON.stringify(input) });
+}
+
 export function removeCircleMember(id: string, residentId: string): Promise<{ ok: boolean }> {
   return request(`/circles/${id}/members/${residentId}/remove`, { method: 'POST' });
 }
@@ -93,4 +100,24 @@ export function setCircleStatus(id: string, status: 'active' | 'closed'): Promis
 
 export function fetchCircleMembers(id: string, full?: boolean): Promise<CircleMemberSummary> {
   return request(`/circles/${id}/members${full ? '?full=1' : ''}`);
+}
+
+// Availability polls (IA spec §10 on the server, spec §18 "Planning" on
+// mobile) — fully built server-side (server/src/routes/circles.ts) and
+// already surfaced on web (client/src/pages/CircleDetail.tsx's PollCard);
+// this was simply never wired up on mobile until now.
+export function fetchCirclePolls(circleId: string): Promise<CirclePoll[]> {
+  return request(`/circles/${circleId}/polls`);
+}
+
+export function createCirclePoll(circleId: string, input: { question: string; options: { date: string; time?: string }[] }): Promise<{ id: string }> {
+  return request(`/circles/${circleId}/polls`, { method: 'POST', body: JSON.stringify(input) });
+}
+
+export function voteOnCirclePollOption(circleId: string, pollId: string, optionId: number): Promise<{ ok: boolean }> {
+  return request(`/circles/${circleId}/polls/${pollId}/options/${optionId}/vote`, { method: 'POST' });
+}
+
+export function closeCirclePoll(circleId: string, pollId: string): Promise<{ ok: boolean }> {
+  return request(`/circles/${circleId}/polls/${pollId}/close`, { method: 'POST' });
 }

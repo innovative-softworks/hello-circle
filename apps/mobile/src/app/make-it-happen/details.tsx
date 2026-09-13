@@ -5,16 +5,19 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { confirmMakeItHappen } from '@/api/makeItHappen';
 import { useAuthStore } from '@/auth/store';
+import { setPendingAction } from '@/auth/pendingAction';
 import { Button } from '@/components/Button';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
-import { Spacing } from '@/constants/theme';
+import { Radius, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { openCheckoutAndAwaitReturn } from '@/lib/checkout';
+import { formatPriceCents } from '@/lib/format';
 
-import { useMakeItHappenStore } from './_store';
+import { useMakeItHappenStore } from '@/makeItHappen/store';
 
 export default function MakeItHappenDetailsScreen() {
+  const theme = useTheme();
   const draft = useMakeItHappenStore();
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -23,6 +26,12 @@ export default function MakeItHappenDetailsScreen() {
 
   async function handleConfirm() {
     if (useAuthStore.getState().status !== 'signedIn') {
+      // The draft (activity/date/county/chosen space/contact details) lives
+      // in an in-memory store only, so this can't survive the app being
+      // killed during the magic-link round trip — but it does survive the
+      // common case (backgrounded, not killed), so it's still worth
+      // returning here rather than dropping the user on My Life instead.
+      await setPendingAction({ kind: 'returnTo', screenPath: '/make-it-happen/details' });
       router.push('/auth/sign-in');
       return;
     }
@@ -64,6 +73,24 @@ export default function MakeItHappenDetailsScreen() {
     <ThemedView style={{ flex: 1 }}>
       <SafeAreaView style={{ flex: 1 }} edges={['bottom']}>
         <ScrollView contentContainerStyle={{ padding: Spacing.four, gap: Spacing.three }}>
+          <ThemedText type="pageHeading">Your details</ThemedText>
+
+          {draft.chosenCandidate && (
+            <View style={{ borderWidth: 1, borderColor: theme.border, borderRadius: Radius.card, padding: Spacing.three, gap: 2 }}>
+              <ThemedText type="cardHeading">{draft.chosenCandidate.centreName}</ThemedText>
+              <ThemedText themeColor="textSecondary">
+                {draft.chosenCandidate.roomName} · {draft.chosenCandidate.area}, {draft.chosenCandidate.county}
+              </ThemedText>
+              <ThemedText themeColor="textSecondary">
+                {draft.date} at {draft.time} · {draft.duration}h · {draft.partySize} people
+              </ThemedText>
+              <ThemedText themeColor="primary">
+                {formatPriceCents(draft.chosenCandidate.totalCents)}
+                {draft.chosenCandidate.paymentMethod === 'cash' ? ' · cash on arrival' : ''}
+              </ThemedText>
+            </View>
+          )}
+
           <LabeledInput label="Your name" value={draft.name} onChangeText={(text) => draft.setField('name', text)} />
           <LabeledInput label="Email" value={draft.email} onChangeText={(text) => draft.setField('email', text)} keyboardType="email-address" autoCapitalize="none" />
           <LabeledInput label="Phone" value={draft.phone} onChangeText={(text) => draft.setField('phone', text)} keyboardType="phone-pad" />
@@ -94,7 +121,7 @@ function LabeledInput(props: {
         onChangeText={props.onChangeText}
         keyboardType={props.keyboardType}
         autoCapitalize={props.autoCapitalize}
-        style={{ borderWidth: 1, borderColor: theme.border, borderRadius: 10, padding: Spacing.two, color: theme.text }}
+        style={{ borderWidth: 1, borderColor: theme.border, borderRadius: Radius.control, padding: Spacing.two, color: theme.text }}
       />
     </View>
   );

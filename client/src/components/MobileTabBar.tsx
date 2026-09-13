@@ -114,7 +114,7 @@ export function MobileTabBar() {
   return (
     <>
       <nav className="mobile-tab-bar" aria-label="Primary">
-        <TabButton icon={<HomeIcon size={20} />} label="Home" active={location.pathname === "/"} onClick={() => go("/")} />
+        <TabButton icon={<HomeIcon size={20} />} label="Home" active={location.pathname === "/home"} onClick={() => go("/home")} />
         <TabButton icon={<GridIcon size={20} />} label="Explore" active={exploreActive} onClick={() => setExploreOpen(true)} />
         <TabButton icon={<PlusIcon size={20} />} label="Create" active={false} onClick={() => setCreateOpen(true)} />
         <TabButton icon={<RepeatIcon size={20} />} label="Circles" active={isActive(["/circles"])} onClick={() => go("/circles")} />
