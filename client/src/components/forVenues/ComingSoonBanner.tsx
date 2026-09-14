@@ -52,7 +52,7 @@ export function ComingSoonBanner() {
         }}
       >
         <div style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 14.5, lineHeight: 1.4 }}>
-          Hello Circle launches soon in Dublin &amp; Cork.
+          Hello Circle launches soon in Ireland, and everywhere.
         </div>
 
         {status === "success" ? (

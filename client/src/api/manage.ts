@@ -5,8 +5,26 @@ import { request } from "./core";
 
 export interface ManageWorkspaces {
   personal: boolean;
-  vendor: { businessName: string; orgId: string | null } | null;
+  vendor: { businessName: string; orgId: string | null; status: string } | null;
   circlesOrganising: { id: string; slug: string | null; name: string }[];
+}
+
+export interface BecomeProviderInput {
+  password: string;
+  vendorType: "community" | "sports";
+  businessName: string;
+  address: string;
+  county: string;
+  mobile: string;
+  landline?: string;
+  description: string;
+}
+
+/** Verified Hosts only — opens the provider account this resident doesn't have
+ * yet, linked to the resident they already are. Starts pending admin approval,
+ * exactly like a /auth/signup vendor. */
+export function becomeProvider(input: BecomeProviderInput): Promise<{ user: { id: string; businessName: string } }> {
+  return request(`/manage/become-provider`, { method: "POST", body: JSON.stringify(input) });
 }
 
 export function fetchManageWorkspaces(): Promise<ManageWorkspaces> {

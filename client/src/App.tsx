@@ -79,11 +79,34 @@ const LAUNCH_GATE_ENABLED = import.meta.env.VITE_LAUNCH_MODE !== "public";
 // under /vendor), the admin dashboard, and the legal pages. Everything
 // consumer-facing (Browse, Games, Circles, booking flows, etc.) is not
 // exempt, since there's no real data to show there yet.
+//
+// The resident *hosting* flow is exempt too, so supply can be built up before
+// launch the same way vendor supply already is: a resident signs in, applies
+// for Host verification, hosts a Game or Circle, and (once verified) opens a
+// provider account from /profile. Without this the whole path is unreachable
+// while gated — /profile bounced to /coming-soon, so the Host panels there
+// could never be seen.
+//
+// The "/games/" and "/circles/" prefixes deliberately carry a trailing slash:
+// they match /games/host and /circles/start, plus the detail page a host lands
+// on right after creating one, while leaving the bare /games and /circles
+// browse listings gated — those are the "no real data to show" discovery
+// surfaces this gate exists for, and neither detail page is reachable without
+// already holding an id.
 function isExemptFromLaunchGate(pathname: string): boolean {
   if (pathname === "/" || pathname === "/for-venues" || pathname === "/coming-soon") return true;
   if (pathname === "/login" || pathname === "/forgot-password" || pathname === "/reset-password" || pathname === "/accept-invite") return true;
   if (pathname === "/privacy" || pathname === "/cookies") return true;
   if (pathname.startsWith("/vendor") || pathname.startsWith("/admin")) return true;
+  if (pathname === "/signin" || pathname.startsWith("/signin/") || pathname === "/onboarding") return true;
+  // /bookings is "My Life", the resident's own account home — not a discovery
+  // surface, so the gate's "no real data yet" rationale doesn't apply. It also
+  // has to be exempt for sign-in to work at all: safeReturnTo() defaults there
+  // after a successful magic-link sign-in, so leaving it gated dead-ends every
+  // resident on /coming-soon the moment they log in.
+  if (pathname === "/profile" || pathname === "/bookings" || pathname.startsWith("/manage")) return true;
+  if (pathname.startsWith("/games/") || pathname.startsWith("/circles/")) return true;
+  if (pathname.startsWith("/host/")) return true;
   return false;
 }
 

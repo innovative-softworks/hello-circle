@@ -13,3 +13,4 @@ build/
 server/uploads/
 .agents/
 .claude/
+DEPLOYMENT.md

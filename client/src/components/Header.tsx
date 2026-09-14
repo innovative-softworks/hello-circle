@@ -640,11 +640,20 @@ export function Header() {
                     Personal
                   </button>
                 )}
-                {workspaces?.vendor && (
-                  <button className="dropdown-item" style={dropdownItemStyle} onClick={switchToVendor}>
-                    {workspaces.vendor.businessName || "Vendor dashboard"}
-                  </button>
-                )}
+                {/* A Host who opened a provider account via /become-provider
+                    sits at status 'pending' until admin approves — requireVendor
+                    403s every /vendor/* route until then, so show the state
+                    rather than a switch that lands on an empty dashboard. */}
+                {workspaces?.vendor &&
+                  (workspaces.vendor.status === "approved" ? (
+                    <button className="dropdown-item" style={dropdownItemStyle} onClick={switchToVendor}>
+                      {workspaces.vendor.businessName || "Vendor dashboard"}
+                    </button>
+                  ) : (
+                    <div style={{ ...dropdownItemStyle, color: colors.mutedLight, cursor: "default", fontSize: 12.5 }}>
+                      {workspaces.vendor.businessName || "Provider account"} — awaiting approval
+                    </div>
+                  ))}
                 {hasHostedGames && (
                   <button
                     className="dropdown-item"

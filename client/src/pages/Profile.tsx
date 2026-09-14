@@ -34,6 +34,7 @@ import type { FollowedEntity, NotificationLevel } from "../api";
 import { BuildingIcon, ChevronRightIcon, PersonIcon } from "../components/icons";
 import { HostApplicationPanel } from "../components/HostApplicationPanel";
 import { HostDashboardPanel } from "../components/HostDashboardPanel";
+import { BecomeProviderPanel } from "../components/BecomeProviderPanel";
 import { PaymentMethodsPanel } from "../components/PaymentMethodsPanel";
 import { Photo } from "../components/Photo";
 import { SearchAlertsPanel } from "../components/SearchAlertsPanel";
@@ -909,6 +910,7 @@ function ProfileDetailsPanel() {
       <PaymentMethodsPanel />
       {resident && <HostDashboardPanel residentId={resident.id} />}
       <HostApplicationPanel hostStatus={hostStatus} hostBio={hostBio} hostPhone={hostPhone} onApplied={loadProfile} />
+      <BecomeProviderPanel hostStatus={hostStatus} />
       <SearchAlertsPanel />
     </div>
   );

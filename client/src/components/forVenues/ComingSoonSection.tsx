@@ -50,8 +50,8 @@ export function ComingSoonSection() {
               HelloCircle is almost ready.
             </h2>
             <p style={{ margin: 0, color: "rgba(255,255,255,.72)", fontSize: 15.5, maxWidth: 440, lineHeight: 1.6 }}>
-              We&rsquo;re putting the finishing touches on it. Dublin and Cork go live first, with more counties to
-              follow soon after — leave your email and we&rsquo;ll let you know the moment we open.
+              We&rsquo;re putting the finishing touches on it. Launching soon in Ireland, and everywhere — leave
+              your email and we&rsquo;ll let you know the moment we open.
             </p>
           </div>
 
@@ -124,7 +124,7 @@ export function ComingSoonSection() {
             }}
           >
             <span>HELLOCIRCLE.IE · IRELAND</span>
-            <span>DUBLIN &amp; CORK FIRST</span>
+            <span>IRELAND, AND EVERYWHERE</span>
           </div>
           <h3
             style={{

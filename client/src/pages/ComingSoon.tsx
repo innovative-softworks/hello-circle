@@ -38,12 +38,13 @@ const ACCENT_TINT = "rgba(255, 74, 31, 0.12)";
 const img = (seed: string, w = 900, h = 700) => placeholderImage(seed, w, h);
 const COUNTIES = Object.keys(IRISH_COUNTY_COORDS);
 
-// Real rollout order (Dublin/Cork are the two seeded launch markets — see
-// server/src/db/seed.ts — everything else here is a genuine "next" claim,
-// not filler), which is why this renders as a numbered sequence.
+// Rollout order: Dublin is the one seeded launch market (see
+// server/src/db/seed.ts) — Kildare, Galway, Limerick, and Waterford are
+// genuine "next" claims, not filler, which is why this renders as a
+// numbered sequence.
 const ROLLOUT = [
   { city: "Dublin", status: "live" as const },
-  { city: "Cork", status: "live" as const },
+  { city: "Kildare", status: "soon" as const },
   { city: "Galway", status: "soon" as const },
   { city: "Limerick", status: "soon" as const },
   { city: "Waterford", status: "soon" as const },
@@ -307,7 +308,7 @@ export function ComingSoon() {
               We&rsquo;re opening county by county.
             </h2>
             <p style={{ marginTop: 14, fontSize: 16, lineHeight: 1.55, color: lc.inkSoft, maxWidth: 480, marginLeft: "auto", marginRight: "auto" }}>
-              Dublin and Cork go live first. Everywhere else follows soon after.
+              Dublin goes live first. Everywhere else follows soon after.
             </p>
           </div>
           <div
@@ -391,7 +392,7 @@ export function ComingSoon() {
             <img src="/illustrations/Fav.svg" alt="" aria-hidden="true" style={{ height: 14, flex: "none" }} />
             © {new Date().getFullYear()} HelloCircle. Made for real-world participation.
           </span>
-          <span style={{ fontSize: 12.5, color: lc.inkSoft }}>Dublin & Cork, Ireland</span>
+          <span style={{ fontSize: 12.5, color: lc.inkSoft }}>Ireland, and everywhere</span>
         </div>
       </footer>
     </div>

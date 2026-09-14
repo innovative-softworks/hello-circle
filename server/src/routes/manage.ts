@@ -1,11 +1,11 @@
 import crypto from "node:crypto";
 import { Router } from "express";
 import { GUEST_SESSION_COOKIE, createGuestSession } from "../guestAuth.js";
-import { SESSION_COOKIE, createSession, requireVendor } from "../auth.js";
+import { SESSION_COOKIE, createSession, createUser, findUserByEmail, requireVendor } from "../auth.js";
 import { db } from "../db/index.js";
 import { sendMail } from "../email.js";
 import { magicLinkLimiter } from "../rateLimit.js";
-import { getResidentByEmail } from "../residents.js";
+import { getResidentByEmail, requireResident } from "../residents.js";
 import { CLIENT_URL } from "../stripe.js";
 import { isValidEmail } from "../util.js";
 import { writeAudit } from "../audit.js";
@@ -85,24 +85,142 @@ manageRouter.post("/link/confirm", async (req, res) => {
   res.json({ ok: true });
 });
 
+// --- Becoming a provider (resident session only) ----------------------------
+
+/** The inverse of the link flow above: a *verified Host* creates the vendor
+ * account they don't have yet, linked to the resident they already are. Until
+ * this existed, host_status was effectively badge-only — a verified Host could
+ * be followed and reviewed, but had no route into /vendor/* at all, and the
+ * only bridge (link/request, above) ran vendor -> resident, so there was no
+ * way in from this side.
+ *
+ * No emailed confirmation step here, unlike link/request: that step exists
+ * because a vendor asserting "I know this resident's email" hasn't proven they
+ * own that inbox. Here the caller *is* the resident session, which a magic
+ * link already proved. Re-mailing them would confirm nothing new.
+ *
+ * Everything after this route is already built — /manage/workspaces reports
+ * the linked vendor from a resident session, and /manage/switch mints the
+ * vendor cookie — so creating the row is the whole of the missing piece. */
+manageRouter.post("/become-provider", requireResident, async (req, res) => {
+  const { password, vendorType, businessName, address, county, mobile, landline, description } = req.body as {
+    password?: string;
+    vendorType?: string;
+    businessName?: string;
+    address?: string;
+    county?: string;
+    mobile?: string;
+    landline?: string;
+    description?: string;
+  };
+
+  const resident = (await db.prepare(`SELECT id, email, name, host_status as hostStatus FROM residents WHERE id = ?`).get(req.resident!.id)) as
+    | { id: string; email: string; name: string; hostStatus: string }
+    | undefined;
+  if (!resident) return res.status(404).json({ error: "Account not found" });
+  if (resident.hostStatus !== "verified") {
+    return res.status(403).json({ error: "Only verified Hosts can open a provider account — apply for Host verification first." });
+  }
+
+  if (!password || password.length < 8) return res.status(400).json({ error: "Password must be at least 8 characters" });
+  if (!vendorType || !["community", "sports"].includes(vendorType)) {
+    return res.status(400).json({ error: "Please choose whether you run a community centre or a sports club" });
+  }
+  if (!businessName || !address || !county || !mobile || !description) {
+    return res.status(400).json({ error: "Business name, address, county, mobile number and description are required" });
+  }
+
+  const existingLink = (await db.prepare(`SELECT id FROM users WHERE resident_id = ?`).get(resident.id)) as { id: string } | undefined;
+  if (existingLink) return res.status(409).json({ error: "This account already has a provider login — switch into it instead." });
+  // The vendor side logs in by email/password (/auth/login), so the resident's
+  // own email has to be free on `users` for that login to be reachable.
+  if (await findUserByEmail(resident.email)) {
+    return res.status(409).json({ error: "A provider account with your email already exists — sign in to it and link this account from there." });
+  }
+
+  // Mirrors /auth/signup's transaction exactly (org + user + draft listing),
+  // with the resident link set in the same commit. Status stays 'pending':
+  // host verification vets a *person* to run community activity, while vendor
+  // approval vets a *business* that will take payments — passing the first
+  // shouldn't silently skip the second.
+  const user = await db.transaction(async (tx) => {
+    const orgId = crypto.randomUUID();
+    await tx.prepare(`INSERT INTO organisations (id, name, kind) VALUES (?, ?, 'vendor')`).run(orgId, businessName);
+
+    const user = await createUser(
+      resident.email,
+      password,
+      resident.name,
+      "vendor",
+      "pending",
+      {
+        vendorType: vendorType as "community" | "sports",
+        businessName,
+        address,
+        county,
+        mobile,
+        landline: landline ?? "",
+        description,
+      },
+      tx,
+      { orgId }
+    );
+    // createUser() builds its return value before this UPDATE, so the link has
+    // to be reflected back onto it or the response reports residentId: null.
+    await tx.prepare(`UPDATE users SET resident_id = ? WHERE id = ?`).run(resident.id, user.id);
+    user.residentId = resident.id;
+
+    const listingId = crypto.randomUUID();
+    if (vendorType === "community") {
+      await tx.prepare(
+        `INSERT INTO centres (id, name, area, county, rating, reviews, capacity, from_price, managed_by, ph, image_url, blurb, vendor_id, status, created_at)
+         VALUES (?, ?, ?, ?, 0, 0, 0, 0, ?, ?, '', ?, ?, 'pending', NOW())`
+      ).run(listingId, businessName, address, county, businessName, mobile, description, user.id);
+      await tx.prepare(
+        `INSERT INTO rooms (id, centre_id, name, cap, rate, \`desc\`, sort_order) VALUES (?, ?, 'Main Room', 0, 0, '', 0)`
+      ).run(crypto.randomUUID(), listingId);
+    } else {
+      await tx.prepare(
+        `INSERT INTO clubs (id, name, sport, area, county, ages, price, unit, trial, ph, image_url, blurb, vendor_id, status, created_at)
+         VALUES (?, ?, '', ?, ?, '', 0, 'year', 0, ?, '', ?, ?, 'pending', NOW())`
+      ).run(listingId, businessName, address, county, mobile, description, user.id);
+    }
+    return user;
+  });
+
+  await writeAudit({
+    actorUserId: user.id,
+    action: "manage.host_became_provider",
+    objectType: "user",
+    objectId: user.id,
+    newValue: { residentId: resident.id, vendorType, businessName },
+  });
+
+  res.status(201).json({ user });
+});
+
 // --- Workspaces + switching (either session) --------------------------------
 
 manageRouter.get("/workspaces", async (req, res) => {
   const workspaces: {
     personal: boolean;
-    vendor: { businessName: string; orgId: string | null } | null;
+    // `status` is here because a Host who just opened a provider account via
+    // /become-provider is 'pending' until admin approves — switching into it
+    // works, but every requireVendor route 403s, so the client needs to show
+    // "awaiting approval" rather than offer a dashboard that can't load.
+    vendor: { businessName: string; orgId: string | null; status: string } | null;
     circlesOrganising: { id: string; slug: string | null; name: string }[];
   } = { personal: !!req.resident, vendor: null, circlesOrganising: [] };
 
   // Vendor capability: either this request already IS the vendor session, or
   // the signed-in resident has a linked vendor account.
   if (req.user && req.user.role === "vendor") {
-    workspaces.vendor = { businessName: req.user.businessName, orgId: req.user.orgId };
+    workspaces.vendor = { businessName: req.user.businessName, orgId: req.user.orgId, status: req.user.status };
   } else if (req.resident) {
-    const linked = (await db.prepare(`SELECT business_name, org_id FROM users WHERE resident_id = ? AND role = 'vendor'`).get(req.resident.id)) as
-      | { business_name: string; org_id: string | null }
-      | undefined;
-    if (linked) workspaces.vendor = { businessName: linked.business_name, orgId: linked.org_id };
+    const linked = (await db
+      .prepare(`SELECT business_name, org_id, status FROM users WHERE resident_id = ? AND role = 'vendor'`)
+      .get(req.resident.id)) as { business_name: string; org_id: string | null; status: string } | undefined;
+    if (linked) workspaces.vendor = { businessName: linked.business_name, orgId: linked.org_id, status: linked.status };
   }
 
   if (req.resident) {
