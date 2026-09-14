@@ -5,10 +5,13 @@ import { FV_ACCENT, FV_MAX_WIDTH } from "./constants";
 
 const REASSURANCE = ["Completely free", "No venue or business needed", "Live in minutes"];
 
-// User-supplied photo, uploaded directly to server/uploads (served statically
-// at /uploads/* — see server/src/index.ts) rather than an external stock URL.
+// User-supplied photo. Lives in client/public/illustrations (tracked in git,
+// ships with every client build) rather than server/uploads — that
+// directory is gitignored runtime storage for user-uploaded listing photos,
+// so a static design asset placed there 404s on any fresh deploy that only
+// pulls from git (as this one briefly did).
 const HERO_IMAGE = {
-  src: "/uploads/2147807229.avif",
+  src: "/illustrations/host-hero.avif",
   alt: "A group of volunteers gathered together outdoors",
 };
 
