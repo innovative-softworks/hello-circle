@@ -7,9 +7,15 @@
     name="description"
     content="Browse and book community centres, sports clubs, and local activities across Ireland — halls, classes, kids' clubs, pickup games, and more, all in one place."
   />
-  <!-- Pre-launch: no real vendor/resident data yet, app is gated behind
-       /coming-soon (see client/src/App.tsx's LAUNCH_GATE_ENABLED and
-       client/public/robots.txt). Remove this tag for the real launch. -->
+  <!-- Safe-default fallback only: server/src/index.ts's catch-all handler
+       rewrites this tag (and <title> above) per-route via
+       server/src/ogMeta.ts's injectOgTags() before serving this file — the
+       marketing pages (see MARKETING_PAGES there) get "index, follow",
+       everything else stays "noindex, nofollow". This static value is what
+       ships only if that rewrite ever fails/is bypassed, so it must stay
+       the closed default, not be "fixed" to index at real launch — flip
+       PUBLIC_LAUNCH in server/src/index.ts (VITE_LAUNCH_MODE=public)
+       instead. -->
   <meta name="robots" content="noindex, nofollow" />
   <link rel="icon" type="image/svg+xml" href="/illustrations/Fav.svg" />
   <!-- Applies a saved light/dark choice before first paint, so there's no

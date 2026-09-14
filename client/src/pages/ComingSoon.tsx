@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import { joinLaunchWaitlist } from "../api/public";
 import { ApiError } from "../api/core";
 import { AppleIcon, BallIcon, BuildingIcon, CheckCircleIcon, ChevronDownIcon, GoogleIcon, MailIcon, MoonIcon, PinIcon, RepeatIcon, SunIcon, TreeIconSmall } from "../components/icons";
@@ -96,11 +97,14 @@ export function ComingSoon() {
 
   return (
     <div className="lc-page" style={{ background: lc.paper, color: lc.ink }}>
-      {/* Header — real brand mark, no live nav (nothing to send people to yet) */}
+      {/* Header — real brand mark, linked home; otherwise no live nav
+          (nothing else to send people to yet). */}
       <header className="lc-header" style={{ background: colors.headerBg, backdropFilter: "blur(12px)", borderBottom: `1px solid ${lc.line}` }}>
         <div style={{ maxWidth: lcMaxWidth, margin: "0 auto", padding: "16px 24px 0" }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16 }}>
-            <img src="/illustrations/Logo.svg" alt="Hello Circle" style={{ height: 44, flex: "none" }} />
+            <Link to="/" aria-label="HelloCircle home" style={{ display: "flex", flex: "none" }}>
+              <img src="/illustrations/Logo.svg" alt="Hello Circle" style={{ height: 44 }} />
+            </Link>
             <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
               <span className="lc-chip" style={{ background: ACCENT_TINT, color: FV_ACCENT_DARK, fontWeight: 800, fontSize: 15, padding: "9px 18px" }}>
                 Coming soon

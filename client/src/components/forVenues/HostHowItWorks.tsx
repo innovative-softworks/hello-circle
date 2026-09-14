@@ -2,18 +2,12 @@ import { colors, fonts } from "../../theme";
 import { FV_ACCENT, FV_MAX_WIDTH } from "./constants";
 
 const STEPS: { n: string; title: string; detail: string }[] = [
-  { n: "01", title: "Create your listing", detail: "Add your place, facilities, photos and useful details." },
-  { n: "02", title: "Set availability", detail: "Choose when your spaces or activities are available." },
-  { n: "03", title: "Get discovered", detail: "People nearby find you while searching for things to do." },
-  { n: "04", title: "Receive interest", detail: "Manage enquiries, participation or bookings from one place." },
+  { n: "01", title: "Sign in", detail: "No venue, no business — just your email, via a magic link." },
+  { n: "02", title: "Host a Game or start a Circle", detail: "Pick a time, a spot, a headcount — live in minutes, no approval needed." },
+  { n: "03", title: "Apply for Verified Host (optional)", detail: "A short bio gets you a badge people see when they join." },
 ];
 
-// The one section on this page where Swiss numbering earns its keep — it's
-// a real 4-step ordered process, not decoration, unlike the boxed-card
-// treatment the rest of the page moved away from. Venue-only: the
-// no-venue hosting path has its own separate section (BecomeHostSection),
-// not a second track squeezed in here.
-export function VendorHowItWorks({ id }: { id?: string }) {
+export function HostHowItWorks({ id }: { id?: string }) {
   return (
     <section id={id} className="section-pad" style={{ maxWidth: FV_MAX_WIDTH, margin: "0 auto", padding: "64px 24px", borderTop: `1px solid ${colors.border}` }}>
       <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: ".09em", textTransform: "uppercase", color: colors.mutedLight, marginBottom: 8 }}>

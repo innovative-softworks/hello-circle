@@ -863,3 +863,13 @@ textarea:focus {
     display: none !important;
   }
 }
+
+/* HostExampleBand's left-to-right arrow connectors only make sense in the
+   horizontal row (.stack-mobile's desktop layout) — once that collapses to
+   a stacked column below 900px, a rightward arrow between two stacked
+   blocks reads as a mistake, not a flow. */
+@media (max-width: 900px) {
+  .for-venues-flow-arrow {
+    display: none !important;
+  }
+}

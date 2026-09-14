@@ -29,6 +29,7 @@ import { Experiences } from "./pages/Experiences";
 import { Explore } from "./pages/Explore";
 import { ForgotPassword } from "./pages/ForgotPassword";
 import { ForVenues } from "./pages/ForVenues";
+import { BecomeAHost } from "./pages/BecomeAHost";
 import { FreeTimeMode } from "./pages/FreeTimeMode";
 import { GameDetail } from "./pages/GameDetail";
 import { Games } from "./pages/Games";
@@ -94,7 +95,7 @@ const LAUNCH_GATE_ENABLED = import.meta.env.VITE_LAUNCH_MODE !== "public";
 // surfaces this gate exists for, and neither detail page is reachable without
 // already holding an id.
 function isExemptFromLaunchGate(pathname: string): boolean {
-  if (pathname === "/" || pathname === "/for-venues" || pathname === "/coming-soon") return true;
+  if (pathname === "/" || pathname === "/for-venues" || pathname === "/become-a-host" || pathname === "/coming-soon") return true;
   if (pathname === "/login" || pathname === "/forgot-password" || pathname === "/reset-password" || pathname === "/accept-invite") return true;
   if (pathname === "/privacy" || pathname === "/cookies") return true;
   if (pathname.startsWith("/vendor") || pathname.startsWith("/admin")) return true;
@@ -263,6 +264,7 @@ export function App() {
                 <Route path="/reset-password" element={<ResetPassword />} />
                 <Route path="/accept-invite" element={<AcceptInvite />} />
                 <Route path="/for-venues" element={<ForVenues />} />
+                <Route path="/become-a-host" element={<BecomeAHost />} />
                 <Route path="/vendor/signup" element={<VendorSignup />} />
                 <Route path="/vendor/centres/:id" element={<VendorCentreEditPage />} />
                 <Route path="/vendor/clubs/:id" element={<VendorClubEditPage />} />

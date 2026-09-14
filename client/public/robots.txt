@@ -1,6 +1,23 @@
+# NOTE: this static file is normally shadowed at runtime by the dynamic
+# GET /robots.txt route in server/src/index.ts (registered ahead of the
+# static-file middleware that would otherwise serve this one) — that route
+# is the real, live behavior; this file only takes effect if that route is
+# ever removed. Kept in sync by hand for that fallback case and as
+# documentation of the intended pre-launch policy.
+#
 # Pre-launch: the app has no real vendor/resident data yet (see CLAUDE.md's
 # "Dev vs. prod database" section) and is gated behind /coming-soon (see
-# client/src/App.tsx's LAUNCH_GATE_ENABLED). Remove this Disallow once
-# VITE_LAUNCH_MODE=public is set for a real launch.
+# client/src/App.tsx's LAUNCH_GATE_ENABLED). The marketing/waitlist pages are
+# allowed since their whole purpose right now is recruiting vendors/hosts via
+# search; everything else stays disallowed until VITE_LAUNCH_MODE=public is
+# set for the real launch, at which point this should become just
+# "Allow: /" (matching the dynamic route's own PUBLIC_LAUNCH branch).
 User-agent: *
 Disallow: /
+Allow: /$
+Allow: /for-venues
+Allow: /become-a-host
+Allow: /coming-soon
+Allow: /privacy
+Allow: /cookies
+Sitemap: https://www.hellocircle.ie/sitemap.xml

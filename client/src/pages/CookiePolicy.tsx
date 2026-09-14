@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ChevronLeftIcon } from "../components/icons";
+import { CONSENT_KEY, getStoredConsent } from "../components/CookieNotice";
 import { colors, fonts } from "../theme";
 
 const LAST_UPDATED = "11 August 2026";
@@ -31,6 +32,18 @@ const ITEMS: StorageItem[] = [
     purpose: "Remembers which halls/clubs you've saved, so they're still there next time you visit.",
     duration: "Until you clear your browser's site data",
   },
+  {
+    name: "hello_circle_cookie_consent",
+    type: "Local storage",
+    purpose: "Remembers whether you accepted or declined analytics cookies, so we don't ask again every visit.",
+    duration: "Until you clear your browser's site data",
+  },
+  {
+    name: "_ga, _ga_*",
+    type: "Cookie",
+    purpose: "Google Analytics — anonymized statistics on how the site is used (pages visited, rough traffic sources). Only set if you accept analytics below.",
+    duration: "Up to 2 years",
+  },
 ];
 
 const h2Style: React.CSSProperties = { fontFamily: fonts.display, fontWeight: 700, fontSize: 19, margin: "0 0 10px", letterSpacing: "-.01em" };
@@ -40,6 +53,11 @@ export function CookiePolicy() {
   const navigate = useNavigate();
   const tableWrapRef = useRef<HTMLDivElement>(null);
   const [tableScrollable, setTableScrollable] = useState(false);
+  const [consent, setConsent] = useState<ReturnType<typeof getStoredConsent>>(null);
+
+  useEffect(() => {
+    setConsent(getStoredConsent());
+  }, []);
 
   // The table's nowrap columns (name/type/duration) keep it wider than a
   // phone screen — overflowX:auto below makes it swipeable, but that's not
@@ -71,8 +89,8 @@ export function CookiePolicy() {
         <p style={{ color: colors.faint, fontSize: 13, margin: "0 0 24px" }}>Last updated {LAST_UPDATED}</p>
 
         <div style={{ background: colors.greenBg, border: `1px solid ${colors.border}`, borderRadius: 14, padding: "14px 18px", marginBottom: 30, fontSize: 14, color: colors.greenText, lineHeight: 1.6, fontWeight: 600 }}>
-          We only use storage that's strictly necessary to run the site. No analytics, no advertising, no tracking
-          cookies of any kind — so there's nothing here that needs your consent to switch on.
+          Most of what we store is strictly necessary to run the site. The one exception is Google Analytics, which
+          only runs if you accept it in the cookie banner — no advertising cookies, no tracking beyond that.
         </div>
 
         <div style={{ marginBottom: 30 }}>
@@ -112,15 +130,41 @@ export function CookiePolicy() {
             When you pay for a booking or registration, you're taken to Stripe's own checkout page — Stripe may set its
             own cookies there, governed by <a href="https://stripe.com/ie/privacy" target="_blank" rel="noopener noreferrer" style={{ color: colors.greenText }}>Stripe's privacy policy</a>, not this one.
           </p>
+          <p style={pStyle}>
+            If you accept analytics cookies, we use <a href="https://policies.google.com/privacy" target="_blank" rel="noopener noreferrer" style={{ color: colors.greenText }}>Google Analytics</a> to
+            understand overall site usage — it never loads if you decline.
+          </p>
         </div>
 
         <div>
           <h2 style={h2Style}>Managing storage</h2>
           <p style={pStyle}>
-            Since everything above is strictly necessary for booking/login features to work, we don't show a
-            cookie-consent toggle — there's nothing optional to switch off. You can still clear cookies and local
-            storage for this site at any time via your browser settings; doing so will sign you out and forget your
-            saved favourites.
+            Everything except analytics is strictly necessary for booking/login features to work. Your analytics
+            choice is currently:{" "}
+            <strong>{consent === "accepted" ? "accepted" : consent === "rejected" ? "declined" : "not yet set"}</strong>.
+          </p>
+          <button
+            onClick={() => {
+              localStorage.removeItem(CONSENT_KEY);
+              window.location.reload();
+            }}
+            style={{
+              background: "none",
+              border: `1px solid ${colors.border}`,
+              borderRadius: 10,
+              padding: "9px 16px",
+              fontSize: 13.5,
+              fontWeight: 700,
+              color: colors.text,
+              cursor: "pointer",
+              marginBottom: 14,
+            }}
+          >
+            Change my cookie choice
+          </button>
+          <p style={pStyle}>
+            You can also clear cookies and local storage for this site at any time via your browser settings; doing
+            so will sign you out, forget your saved favourites, and reset your cookie choice.
           </p>
         </div>
       </section>

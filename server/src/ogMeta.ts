@@ -21,6 +21,12 @@ export interface OgMeta {
    * we already fetch don't map cleanly onto a real schema.org type (see
    * resolveOgMeta's per-kind branches). */
   jsonLd?: Record<string, unknown>;
+  /** Defaults to `noindex, nofollow` in injectOgTags when omitted — same
+   * "fail closed" posture as client/src/App.tsx's LAUNCH_GATE_ENABLED, so a
+   * route nobody explicitly marked indexable stays out of search results by
+   * default instead of silently becoming crawlable. Only resolveMarketingOgMeta
+   * currently sets this to "index, follow". */
+  robots?: "index, follow" | "noindex, nofollow";
 }
 
 const ROUTE_PATTERN = /^\/(centres|clubs|circles|experiences|adventures|games)\/([^/]+)\/?$/;
@@ -52,7 +58,52 @@ const DEFAULT_DESCRIPTION =
   "Browse and book community centres, sports clubs, and local activities across Ireland — halls, classes, kids' clubs, pickup games, and more, all in one place.";
 
 export function defaultOgMeta(pathName: string, origin: string): OgMeta {
-  return { title: DEFAULT_TITLE, description: DEFAULT_DESCRIPTION, url: `${origin}${pathName}` };
+  return { title: DEFAULT_TITLE, description: DEFAULT_DESCRIPTION, url: `${origin}${pathName}`, robots: "noindex, nofollow" };
+}
+
+// The pre-launch marketing/recruitment pages (see client/src/App.tsx's
+// isExemptFromLaunchGate — same set of routes, same rationale: these are
+// meant to recruit vendors/hosts via search and shared links *now*, unlike
+// every other route which has no real data yet and stays noindexed). Kept
+// here as hand-copied strings (same "no shared config between client and
+// server" tradeoff DEFAULT_TITLE/DESCRIPTION above already accepts) rather
+// than importing from a client file the server can't reach.
+const MARKETING_PAGES: Record<string, { title: string; description: string; image?: string; jsonLd?: Record<string, unknown> }> = {
+  "/": {
+    title: DEFAULT_TITLE,
+    description: DEFAULT_DESCRIPTION,
+    // Site-identity markup, not a listing — the only JSON-LD type here that
+    // isn't per-row data from resolveOgMeta's kind branches above.
+    jsonLd: {
+      "@context": "https://schema.org",
+      "@type": "Organization",
+      name: "HelloCircle",
+      url: "https://www.hellocircle.ie",
+      logo: "https://www.hellocircle.ie/illustrations/Logo.svg",
+      description: DEFAULT_DESCRIPTION,
+    },
+  },
+  "/for-venues": {
+    title: "List your venue or become a Host — HelloCircle",
+    description: "Get discovered, get booked, and grow your community. List a community centre or sports club, or become a Host and run a Game or Circle with no venue needed.",
+  },
+  "/become-a-host": {
+    title: "Become a Host, free — no venue needed — HelloCircle",
+    description: "Host a one-off Game or start a standing Circle in minutes. No venue, no business, no approval to start — completely free.",
+    image: "https://images.unsplash.com/photo-1633894812833-3961145496a3?w=1200&h=630&q=75&auto=format&fit=crop",
+  },
+  "/coming-soon": {
+    title: "HelloCircle — launching soon in Ireland, and everywhere",
+    description: "One place to book a hall, join a club, catch a pickup game, or start a recurring Circle across Ireland. Join the waitlist to be the first to know.",
+  },
+  "/privacy": { title: "Privacy Policy — HelloCircle", description: "How HelloCircle collects, uses, and protects your personal data." },
+  "/cookies": { title: "Cookie Policy — HelloCircle", description: "How HelloCircle uses cookies and similar technologies." },
+};
+
+export function resolveMarketingOgMeta(pathName: string, origin: string): OgMeta | null {
+  const page = MARKETING_PAGES[pathName];
+  if (!page) return null;
+  return { title: page.title, description: page.description, image: page.image, jsonLd: page.jsonLd, url: `${origin}${pathName}`, robots: "index, follow" };
 }
 
 export async function resolveOgMeta(pathName: string, origin: string): Promise<OgMeta | null> {
@@ -202,9 +253,14 @@ function escapeHtml(text: string): string {
   return text.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
-/** Injects the og/twitter meta tags, a canonical link, and (when available)
- * a JSON-LD block right after the existing static <title> — never touches
- * or duplicates the <title> tag itself. */
+/** Replaces the static <title> content and the static <meta robots> tag,
+ * and injects the og/twitter meta tags, a canonical link, and (when
+ * available) a JSON-LD block right after the title. Title/robots used to be
+ * left untouched (every route showed the same generic homepage title and
+ * the same hardcoded `noindex, nofollow`) — real per-route titles are core
+ * to on-page SEO, and a route can now legitimately want `index, follow`
+ * (see resolveMarketingOgMeta), so both need to vary per request instead of
+ * only the OG/Twitter copy. */
 export function injectOgTags(html: string, meta: OgMeta): string {
   const tags = [
     `<link rel="canonical" href="${escapeHtml(meta.url)}" />`,
@@ -225,7 +281,10 @@ export function injectOgTags(html: string, meta: OgMeta): string {
   ]
     .filter(Boolean)
     .join("\n    ");
-  return html.replace("</title>", `</title>\n    ${tags}`);
+  return html
+    .replace(/<title>.*<\/title>/, `<title>${escapeHtml(meta.title)}</title>`)
+    .replace(/<meta name="robots" content="[^"]*" \/>/, `<meta name="robots" content="${meta.robots ?? "noindex, nofollow"}" />`)
+    .replace("</title>", `</title>\n    ${tags}`);
 }
 
 // --- Sitemap (post-audit hardening pass) ----------------------------------

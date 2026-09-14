@@ -10,7 +10,7 @@ import "express-async-errors";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { buildSitemapXml, defaultOgMeta, generateSitemapUrls, injectOgTags, resolveOgMeta } from "./ogMeta.js";
+import { buildSitemapXml, defaultOgMeta, generateSitemapUrls, injectOgTags, resolveMarketingOgMeta, resolveOgMeta } from "./ogMeta.js";
 import { attachUser } from "./auth.js";
 import { dataDir } from "./dataDir.js";
 import { initSchema } from "./db/index.js";
@@ -166,14 +166,38 @@ app.get("/api/health", (_req, res) => res.json({ ok: true }));
 // catch-all block below, or express.static would swallow them first (no
 // on-disk file at these paths) and the SPA fallback would serve index.html
 // instead. Same per-request DB-query pattern ogMeta.ts already uses.
+//
+// PUBLIC_LAUNCH gates all of it on the same real/no-real-data-yet question
+// client/src/App.tsx's LAUNCH_GATE_ENABLED already answers for the client
+// bundle (VITE_LAUNCH_MODE=public) — this is the server-side read of the
+// same env var name, defaulting closed for the same reason: a forgotten env
+// var should fail toward "not indexed" on this pre-launch site, not the
+// other way round. Before this existed, this route sent a blanket
+// `Allow: /` regardless of that flag — a real bug: it shadowed (registered
+// before, and Express matches in registration order) the static
+// client/public/robots.txt's `Disallow: /`, which was consequently never
+// actually served at all despite reading like the live pre-launch policy.
+const PUBLIC_LAUNCH = process.env.VITE_LAUNCH_MODE === "public";
+const PRELAUNCH_SITEMAP_PATHS = ["/", "/for-venues", "/become-a-host", "/coming-soon", "/privacy", "/cookies"];
+
 app.get("/robots.txt", (req, res) => {
   const origin = `${req.protocol}://${req.get("host")}`;
-  res.type("text/plain").send(`User-agent: *\nAllow: /\nSitemap: ${origin}/sitemap.xml\n`);
+  const body = PUBLIC_LAUNCH
+    ? `User-agent: *\nAllow: /\nSitemap: ${origin}/sitemap.xml\n`
+    : `User-agent: *\nDisallow: /\n${PRELAUNCH_SITEMAP_PATHS.map((p) => `Allow: ${p === "/" ? "/$" : p}\n`).join("")}Sitemap: ${origin}/sitemap.xml\n`;
+  res.type("text/plain").send(body);
 });
 
 app.get("/sitemap.xml", async (req, res) => {
+  const origin = `${req.protocol}://${req.get("host")}`;
+  if (!PUBLIC_LAUNCH) {
+    // Only the marketing/waitlist pages — not the real (seeded demo)
+    // listings generateSitemapUrls() below pulls from the database, which
+    // would otherwise hand Google a sitemap full of placeholder Dublin/Cork
+    // demo data before there's anything real to show searchers.
+    return res.type("application/xml").send(buildSitemapXml(PRELAUNCH_SITEMAP_PATHS.map((p) => `${origin}${p}`)));
+  }
   try {
-    const origin = `${req.protocol}://${req.get("host")}`;
     const urls = await generateSitemapUrls(origin);
     res.type("application/xml").send(buildSitemapXml(urls));
   } catch (e) {
@@ -284,17 +308,29 @@ app.get("/mobile-checkout-return", (req, res) => {
   </body></html>`);
 });
 
-app.use(express.static(clientDist));
+// `index: false` — express.static's default index-file behavior would
+// otherwise serve client/dist/index.html directly for GET "/" itself,
+// bypassing the catch-all handler below (and therefore injectOgTags())
+// entirely for the single most important route to get right. Found while
+// wiring resolveMarketingOgMeta in below: "/" was silently falling through
+// to the plain unmodified static file — generic title, hardcoded
+// `noindex, nofollow`, no canonical/OG/JSON-LD — the whole time, regardless
+// of anything resolveOgMeta/defaultOgMeta ever did. Every other static
+// asset (JS/CSS/images under client/dist) is unaffected; only the implicit
+// "serve index.html for a directory request" behavior is turned off.
+app.use(express.static(clientDist, { index: false }));
 app.get("*", async (req, res, next) => {
   if (req.path.startsWith("/api/") || req.path.startsWith("/uploads/")) return next();
 
   // Shareable link previews (master-prompt punch list #1) — the handful of
   // public detail routes (and local landing pages) get real per-listing
-  // meta; every other route falls back to defaultOgMeta (SEO #1) so it still
-  // gets a real description/canonical/OG/Twitter set instead of nothing.
+  // meta; the pre-launch marketing pages get their own tailored, indexable
+  // meta (resolveMarketingOgMeta); every other route falls back to
+  // defaultOgMeta (SEO #1) so it still gets a real description/canonical/
+  // OG/Twitter set instead of nothing, explicitly marked noindex.
   const origin = `${req.protocol}://${req.get("host")}`;
   try {
-    const meta = (await resolveOgMeta(req.path, origin)) ?? defaultOgMeta(req.path, origin);
+    const meta = (await resolveOgMeta(req.path, origin)) ?? resolveMarketingOgMeta(req.path, origin) ?? defaultOgMeta(req.path, origin);
     res.setHeader("Content-Type", "text/html");
     return res.send(injectOgTags(readIndexHtmlTemplate(), meta));
   } catch (e) {

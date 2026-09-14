@@ -3,7 +3,7 @@ import { ChevronDownIcon } from "../icons";
 import { colors, fonts } from "../../theme";
 import { FV_ACCENT, FV_MAX_WIDTH } from "./constants";
 
-const FAQS: { q: string; a: string }[] = [
+const VENUE_FAQS: { q: string; a: string }[] = [
   { q: "Who can list on HelloCircle?", a: "Community centres, sports clubs, and other local venues and activity providers looking to reach people nearby." },
   { q: "What types of spaces can I add?", a: "Courts, pitches, halls, rooms, studios and other bookable facilities — whatever your venue actually offers." },
   { q: "Can I list multiple facilities?", a: "Yes — a venue can have any number of named rooms or spaces, each with its own capacity and availability." },
@@ -14,19 +14,29 @@ const FAQS: { q: string; a: string }[] = [
   { q: "What does it cost?", a: "Pricing and booking options may vary as HelloCircle develops its venue partner programme." },
 ];
 
-export function VendorFAQ({ onOpen }: { onOpen?: (question: string) => void }) {
+export function VendorFAQ({
+  onOpen,
+  eyebrow = "Questions",
+  title = "Frequently asked questions",
+  faqs = VENUE_FAQS,
+}: {
+  onOpen?: (question: string) => void;
+  eyebrow?: string;
+  title?: string;
+  faqs?: { q: string; a: string }[];
+}) {
   const [openIndex, setOpenIndex] = useState<number | null>(null);
 
   return (
     <section className="section-pad" style={{ maxWidth: FV_MAX_WIDTH, margin: "0 auto", padding: "64px 24px" }}>
       <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: ".09em", textTransform: "uppercase", color: colors.mutedLight, marginBottom: 8 }}>
-        <span style={{ color: FV_ACCENT }}>/</span> Questions
+        <span style={{ color: FV_ACCENT }}>/</span> {eyebrow}
       </div>
       <h2 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(24px, 3vw, 32px)", letterSpacing: "-.02em", margin: "0 0 8px" }}>
-        Frequently asked questions
+        {title}
       </h2>
       <div style={{ borderTop: `1px solid ${colors.border}`, marginTop: 24 }}>
-        {FAQS.map((f, i) => {
+        {faqs.map((f, i) => {
           const open = openIndex === i;
           return (
             <div key={f.q} style={{ borderBottom: `1px solid ${colors.border}` }}>

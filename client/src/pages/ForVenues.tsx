@@ -1,12 +1,12 @@
 import { useEffect } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../AuthContext";
+import { ChooseYourPathSection } from "../components/forVenues/ChooseYourPathSection";
 import { ComingSoonBanner } from "../components/forVenues/ComingSoonBanner";
 import { ComingSoonSection } from "../components/forVenues/ComingSoonSection";
 import { FoundingVenueSection } from "../components/forVenues/FoundingVenueSection";
 import { ProviderTypeGrid } from "../components/forVenues/ProviderTypeGrid";
 import { VendorBenefitStrip } from "../components/forVenues/VendorBenefitStrip";
-import { VendorDifference } from "../components/forVenues/VendorDifference";
 import { VendorFAQ } from "../components/forVenues/VendorFAQ";
 import { VendorFinalCTA } from "../components/forVenues/VendorFinalCTA";
 import { VendorHero } from "../components/forVenues/VendorHero";
@@ -51,17 +51,26 @@ export function ForVenues() {
     document.getElementById(HOW_IT_WORKS_ID)?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
 
+  // Rather than jumping straight to /signin (barely any explanation of what
+  // hosting actually involves behind it), this now goes to /become-a-host —
+  // its own dedicated page with a hero/examples/FAQ, same depth the venue
+  // path already gets from this page itself, before the real sign-in CTA.
+  const goToBecomeHost = (placement: string) => {
+    trackVendorEvent("vendor_become_host_clicked", { placement });
+    navigate("/become-a-host");
+  };
+
   return (
     <div className="fade-panel">
       <ComingSoonBanner />
-      <VendorHero onPrimaryCta={() => goToCta("hero")} onSecondaryCta={scrollToHowItWorks} />
+      <VendorHero onPrimaryCta={() => goToCta("hero")} onBecomeHostCta={() => goToBecomeHost("hero")} />
       <ComingSoonSection />
       <VendorBenefitStrip />
       <ProviderTypeGrid onLearnMore={scrollToHowItWorks} />
-      <VendorHowItWorks id={HOW_IT_WORKS_ID} />
-      <VendorDifference />
+      <ChooseYourPathSection onListVenueCta={() => goToCta("choose_your_path")} onBecomeHostCta={() => goToBecomeHost("choose_your_path")} />
       <VendorProductPreview />
       <FoundingVenueSection onCta={() => goToCta("founding_venues")} />
+      <VendorHowItWorks id={HOW_IT_WORKS_ID} />
       <VendorFAQ onOpen={(question) => trackVendorEvent("vendor_faq_opened", { question })} />
       <VendorFinalCTA onPrimaryCta={() => goToCta("final_cta")} />
     </div>

@@ -14,7 +14,13 @@ const HERO_IMAGE = {
   alt: "A local five-a-side football match in progress on an outdoor pitch",
 };
 
-export function VendorHero({ onPrimaryCta, onSecondaryCta }: { onPrimaryCta: () => void; onSecondaryCta: () => void }) {
+export function VendorHero({
+  onPrimaryCta,
+  onBecomeHostCta,
+}: {
+  onPrimaryCta: () => void;
+  onBecomeHostCta: () => void;
+}) {
   const today = new Date().toLocaleDateString("en-IE", { weekday: "short", day: "numeric", month: "short" });
 
   return (
@@ -49,7 +55,7 @@ export function VendorHero({ onPrimaryCta, onSecondaryCta }: { onPrimaryCta: () 
           — the full-bleed image below is the visual payoff after the pitch,
           rather than a banner the copy has to compete with for attention. */}
       <div className="section-pad" style={{ maxWidth: FV_MAX_WIDTH, margin: "0 auto", padding: "8px 24px 40px" }}>
-        <div className="grid-responsive" style={{ display: "grid", gridTemplateColumns: "1.1fr 0.8fr", gap: 48, alignItems: "center" }}>
+        <div className="grid-responsive" style={{ display: "grid", gridTemplateColumns: "7fr 3fr", gap: 48, alignItems: "center" }}>
           <div>
             <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: ".09em", textTransform: "uppercase", color: FV_ACCENT, marginBottom: 14 }}>
               <span aria-hidden="true">/</span> For venues & hosts
@@ -70,9 +76,10 @@ export function VendorHero({ onPrimaryCta, onSecondaryCta }: { onPrimaryCta: () 
               <br />
               <span style={{ color: FV_ACCENT }}>Grow your community.</span>
             </h1>
-            <p style={{ fontSize: 16.5, color: colors.textSoft, lineHeight: 1.6, margin: 0, maxWidth: 440 }}>
+            <p style={{ fontSize: 16.5, color: colors.textSoft, lineHeight: 1.6, margin: 0, maxWidth: 560 }}>
               Join HelloCircle to showcase your space, fill more available slots and connect with local people
-              looking for things to do.
+              looking for things to do. Don&rsquo;t run a venue? You can host a Game or Circle yourself — no
+              listing required.
             </p>
           </div>
 
@@ -81,8 +88,8 @@ export function VendorHero({ onPrimaryCta, onSecondaryCta }: { onPrimaryCta: () 
               <Button variant="orange" onClick={onPrimaryCta} style={{ padding: "13px 22px", fontSize: 15, background: FV_ACCENT }}>
                 List your venue
               </Button>
-              <Button variant="ghost" onClick={onSecondaryCta} style={{ padding: "13px 22px", fontSize: 15 }}>
-                See how it works
+              <Button variant="ghost" onClick={onBecomeHostCta} style={{ padding: "13px 22px", fontSize: 15 }}>
+                Become a Host
               </Button>
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
@@ -101,7 +108,7 @@ export function VendorHero({ onPrimaryCta, onSecondaryCta }: { onPrimaryCta: () 
 
       {/* Full-bleed hero photo — deliberately breaks out of the page's
           FV_MAX_WIDTH container (this <div> sits at <main>'s own full
-          width, same as VendorDifference's dark band below) to match the
+          width, same as ChooseYourPathSection's dark band below) to match the
           brief's reference: an edge-to-edge banner photo, not a boxed
           image beside the headline. `cardImageRatio.hero` (16/6) is the
           app's own existing "wide banner" ratio token. */}
