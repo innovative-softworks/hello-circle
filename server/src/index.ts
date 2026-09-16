@@ -11,6 +11,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { buildSitemapXml, defaultOgMeta, generateSitemapUrls, injectOgTags, resolveMarketingOgMeta, resolveOgMeta } from "./ogMeta.js";
+import { CLIENT_URL } from "./stripe.js";
 import { attachUser } from "./auth.js";
 import { dataDir } from "./dataDir.js";
 import { initSchema } from "./db/index.js";
@@ -180,31 +181,34 @@ app.get("/api/health", (_req, res) => res.json({ ok: true }));
 const PUBLIC_LAUNCH = process.env.VITE_LAUNCH_MODE === "public";
 const PRELAUNCH_SITEMAP_PATHS = ["/", "/for-venues", "/become-a-host", "/coming-soon", "/privacy", "/cookies"];
 
-app.get("/robots.txt", (req, res) => {
-  const origin = `${req.protocol}://${req.get("host")}`;
+app.get("/robots.txt", (_req, res) => {
   // /sitemap.xml itself needs an explicit Allow in the pre-launch branch —
   // without it, the file falls under the blanket `Disallow: /` just like
   // every other non-marketing path, which is exactly what made Search
   // Console report "Couldn't fetch" on the submitted sitemap: the sitemap
   // was accessible by direct URL the whole time, but our own robots.txt was
   // telling Googlebot's sitemap fetcher not to request it.
+  //
+  // Uses the fixed CLIENT_URL, not the requesting host — hellocircle.ie and
+  // www.hellocircle.ie both resolve with no redirect between them, so a
+  // per-request Sitemap: line would point Google at whichever host it
+  // happened to fetch robots.txt from instead of one consistent URL.
   const body = PUBLIC_LAUNCH
-    ? `User-agent: *\nAllow: /\nSitemap: ${origin}/sitemap.xml\n`
-    : `User-agent: *\nDisallow: /\n${PRELAUNCH_SITEMAP_PATHS.map((p) => `Allow: ${p === "/" ? "/$" : p}\n`).join("")}Allow: /sitemap.xml\nSitemap: ${origin}/sitemap.xml\n`;
+    ? `User-agent: *\nAllow: /\nSitemap: ${CLIENT_URL}/sitemap.xml\n`
+    : `User-agent: *\nDisallow: /\n${PRELAUNCH_SITEMAP_PATHS.map((p) => `Allow: ${p === "/" ? "/$" : p}\n`).join("")}Allow: /sitemap.xml\nSitemap: ${CLIENT_URL}/sitemap.xml\n`;
   res.type("text/plain").send(body);
 });
 
-app.get("/sitemap.xml", async (req, res) => {
-  const origin = `${req.protocol}://${req.get("host")}`;
+app.get("/sitemap.xml", async (_req, res) => {
   if (!PUBLIC_LAUNCH) {
     // Only the marketing/waitlist pages — not the real (seeded demo)
     // listings generateSitemapUrls() below pulls from the database, which
     // would otherwise hand Google a sitemap full of placeholder Dublin/Cork
     // demo data before there's anything real to show searchers.
-    return res.type("application/xml").send(buildSitemapXml(PRELAUNCH_SITEMAP_PATHS.map((p) => `${origin}${p}`)));
+    return res.type("application/xml").send(buildSitemapXml(PRELAUNCH_SITEMAP_PATHS.map((p) => `${CLIENT_URL}${p}`)));
   }
   try {
-    const urls = await generateSitemapUrls(origin);
+    const urls = await generateSitemapUrls();
     res.type("application/xml").send(buildSitemapXml(urls));
   } catch (e) {
     console.error("[sitemap] generation failed:", e instanceof Error ? e.message : e);
@@ -334,9 +338,8 @@ app.get("*", async (req, res, next) => {
   // meta (resolveMarketingOgMeta); every other route falls back to
   // defaultOgMeta (SEO #1) so it still gets a real description/canonical/
   // OG/Twitter set instead of nothing, explicitly marked noindex.
-  const origin = `${req.protocol}://${req.get("host")}`;
   try {
-    const meta = (await resolveOgMeta(req.path, origin)) ?? resolveMarketingOgMeta(req.path, origin) ?? defaultOgMeta(req.path, origin);
+    const meta = (await resolveOgMeta(req.path)) ?? resolveMarketingOgMeta(req.path) ?? defaultOgMeta(req.path);
     res.setHeader("Content-Type", "text/html");
     return res.send(injectOgTags(readIndexHtmlTemplate(), meta));
   } catch (e) {

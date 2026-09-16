@@ -1,5 +1,6 @@
 import { db } from "./db/index.js";
 import { irelandTodayIso } from "./irelandTime.js";
+import { CLIENT_URL } from "./stripe.js";
 
 // Shareable link previews (master-prompt punch list #1) — this app has no
 // SSR framework, so a full per-route render isn't an option. This is the
@@ -10,6 +11,15 @@ import { irelandTodayIso } from "./irelandTime.js";
 // itself ever loads. Every other route (anything not matching one of these
 // 6 patterns) falls through to the plain, unmodified index.html exactly as
 // before this existed.
+//
+// Every URL built in this file (canonical/og:url/sitemap entries) uses the
+// fixed CLIENT_URL constant, not the requesting host — this used to be
+// built per-request from `${req.protocol}://${req.get("host")}`, which
+// meant hellocircle.ie and www.hellocircle.ie (both resolve, nginx has no
+// redirect between them) each produced their own "canonical" URL for the
+// same page, defeating canonicalization entirely and creating duplicate
+// content in Google's eyes. CLIENT_URL is the same env var the Stripe
+// checkout redirect already treats as the one true public origin.
 
 export interface OgMeta {
   title: string;
@@ -57,8 +67,8 @@ const DEFAULT_TITLE = "Hello Circle — community centres & sports clubs in Irel
 const DEFAULT_DESCRIPTION =
   "Browse and book community centres, sports clubs, and local activities across Ireland — halls, classes, kids' clubs, pickup games, and more, all in one place.";
 
-export function defaultOgMeta(pathName: string, origin: string): OgMeta {
-  return { title: DEFAULT_TITLE, description: DEFAULT_DESCRIPTION, url: `${origin}${pathName}`, robots: "noindex, nofollow" };
+export function defaultOgMeta(pathName: string): OgMeta {
+  return { title: DEFAULT_TITLE, description: DEFAULT_DESCRIPTION, url: `${CLIENT_URL}${pathName}`, robots: "noindex, nofollow" };
 }
 
 // The pre-launch marketing/recruitment pages (see client/src/App.tsx's
@@ -100,17 +110,17 @@ const MARKETING_PAGES: Record<string, { title: string; description: string; imag
   "/cookies": { title: "Cookie Policy — HelloCircle", description: "How HelloCircle uses cookies and similar technologies." },
 };
 
-export function resolveMarketingOgMeta(pathName: string, origin: string): OgMeta | null {
+export function resolveMarketingOgMeta(pathName: string): OgMeta | null {
   const page = MARKETING_PAGES[pathName];
   if (!page) return null;
-  return { title: page.title, description: page.description, image: page.image, jsonLd: page.jsonLd, url: `${origin}${pathName}`, robots: "index, follow" };
+  return { title: page.title, description: page.description, image: page.image, jsonLd: page.jsonLd, url: `${CLIENT_URL}${pathName}`, robots: "index, follow" };
 }
 
-export async function resolveOgMeta(pathName: string, origin: string): Promise<OgMeta | null> {
+export async function resolveOgMeta(pathName: string): Promise<OgMeta | null> {
   const match = pathName.match(ROUTE_PATTERN);
-  if (!match) return resolveLocalLandingOgMeta(pathName, origin);
+  if (!match) return resolveLocalLandingOgMeta(pathName);
   const [, kind, idOrSlug] = match;
-  const url = `${origin}${pathName}`;
+  const url = `${CLIENT_URL}${pathName}`;
 
   if (kind === "centres") {
     const row = (await db.prepare(`SELECT name, blurb, image_url, area, county FROM centres WHERE (slug = ? OR id = ?) AND status = 'approved'`).get(idOrSlug, idOrSlug)) as
@@ -214,7 +224,7 @@ export async function resolveOgMeta(pathName: string, origin: string): Promise<O
   return null;
 }
 
-async function resolveLocalLandingOgMeta(pathName: string, origin: string): Promise<OgMeta | null> {
+async function resolveLocalLandingOgMeta(pathName: string): Promise<OgMeta | null> {
   const match = pathName.match(LOCAL_ROUTE_PATTERN);
   if (!match) return null;
   const [, countySeg, activitySeg] = match;
@@ -246,7 +256,7 @@ async function resolveLocalLandingOgMeta(pathName: string, origin: string): Prom
     count > 0
       ? `${count} ${activityQuery} ${count === 1 ? "activity" : "activities"} in ${centre.county} — join one or start your own on HelloCircle.`
       : `Nothing scheduled for ${activityQuery} in ${centre.county} yet — be the first to start one on HelloCircle.`;
-  return { title, description: truncate(description, 200), url: `${origin}${pathName}` };
+  return { title, description: truncate(description, 200), url: `${CLIENT_URL}${pathName}` };
 }
 
 function escapeHtml(text: string): string {
@@ -301,8 +311,8 @@ function slugifyActivity(label: string): string {
   return label.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
 }
 
-export async function generateSitemapUrls(origin: string): Promise<string[]> {
-  const urls = STATIC_SITEMAP_PATHS.map((p) => `${origin}${p}`);
+export async function generateSitemapUrls(): Promise<string[]> {
+  const urls = STATIC_SITEMAP_PATHS.map((p) => `${CLIENT_URL}${p}`);
 
   const todayIso = irelandTodayIso();
   const [centres, clubs, circles, experiences, games, localPages] = await Promise.all([
@@ -320,14 +330,14 @@ export async function generateSitemapUrls(origin: string): Promise<string[]> {
       .all(todayIso) as Promise<{ county: string; activityLabel: string }[]>,
   ]);
 
-  for (const c of centres) urls.push(`${origin}/centres/${c.slug}`);
-  for (const c of clubs) urls.push(`${origin}/clubs/${c.slug}`);
-  for (const c of circles) urls.push(`${origin}/circles/${c.slug}`);
-  for (const e of experiences) urls.push(`${origin}/experiences/${e.slug}`);
-  for (const g of games) urls.push(`${origin}/games/${g.id}`);
+  for (const c of centres) urls.push(`${CLIENT_URL}/centres/${c.slug}`);
+  for (const c of clubs) urls.push(`${CLIENT_URL}/clubs/${c.slug}`);
+  for (const c of circles) urls.push(`${CLIENT_URL}/circles/${c.slug}`);
+  for (const e of experiences) urls.push(`${CLIENT_URL}/experiences/${e.slug}`);
+  for (const g of games) urls.push(`${CLIENT_URL}/games/${g.id}`);
   for (const p of localPages) {
     const activitySlug = slugifyActivity(p.activityLabel);
-    if (activitySlug) urls.push(`${origin}/${encodeURIComponent(p.county)}/${activitySlug}`);
+    if (activitySlug) urls.push(`${CLIENT_URL}/${encodeURIComponent(p.county)}/${activitySlug}`);
   }
 
   return urls;
