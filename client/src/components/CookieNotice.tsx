@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { loadGoogleAnalytics } from "../analytics";
+import { loadGoogleAnalytics, loadGoogleTagManager } from "../analytics";
 import { colors, fonts, radius } from "../theme";
 
 export const CONSENT_KEY = "hello_circle_cookie_consent";
@@ -27,7 +27,10 @@ export function CookieNotice() {
   useEffect(() => {
     const stored = getStoredConsent();
     setConsent(stored);
-    if (stored === "accepted") loadGoogleAnalytics();
+    if (stored === "accepted") {
+      loadGoogleAnalytics();
+      loadGoogleTagManager();
+    }
   }, []);
 
   if (consent !== null) return null;
@@ -35,7 +38,10 @@ export function CookieNotice() {
   const decide = (value: Consent) => {
     localStorage.setItem(CONSENT_KEY, value);
     setConsent(value);
-    if (value === "accepted") loadGoogleAnalytics();
+    if (value === "accepted") {
+      loadGoogleAnalytics();
+      loadGoogleTagManager();
+    }
   };
 
   return (

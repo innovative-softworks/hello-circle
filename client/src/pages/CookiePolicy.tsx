@@ -131,8 +131,9 @@ export function CookiePolicy() {
             own cookies there, governed by <a href="https://stripe.com/ie/privacy" target="_blank" rel="noopener noreferrer" style={{ color: colors.greenText }}>Stripe's privacy policy</a>, not this one.
           </p>
           <p style={pStyle}>
-            If you accept analytics cookies, we use <a href="https://policies.google.com/privacy" target="_blank" rel="noopener noreferrer" style={{ color: colors.greenText }}>Google Analytics</a> to
-            understand overall site usage — it never loads if you decline.
+            If you accept analytics cookies, we use <a href="https://policies.google.com/privacy" target="_blank" rel="noopener noreferrer" style={{ color: colors.greenText }}>Google Analytics</a> and{" "}
+            <a href="https://policies.google.com/privacy" target="_blank" rel="noopener noreferrer" style={{ color: colors.greenText }}>Google Tag Manager</a> to
+            understand overall site usage — neither loads if you decline.
           </p>
         </div>
 
