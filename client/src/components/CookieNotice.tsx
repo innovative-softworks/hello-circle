@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { loadGoogleAnalytics, loadGoogleTagManager } from "../analytics";
+import { loadGoogleTagManager } from "../analytics";
 import { colors, fonts, radius } from "../theme";
 
 export const CONSENT_KEY = "hello_circle_cookie_consent";
@@ -16,10 +16,11 @@ export function getStoredConsent(): Consent | null {
 }
 
 // Everything else this app stores is strictly necessary (session cookie,
-// guest booking ID, favourites — see CookiePolicy.tsx); Google Analytics is
-// the one non-essential/optional cookie, so this is now a real Accept/
-// Reject choice, not a one-button acknowledgement — GA never loads until
-// "Accept analytics" is actually clicked (or was on a previous visit).
+// guest booking ID, favourites — see CookiePolicy.tsx); Google Tag Manager
+// (which loads GA4 itself via its own "GA4 - Config" tag, not a direct
+// install here) is the one non-essential/optional cookie source, so this is
+// a real Accept/Reject choice, not a one-button acknowledgement — GTM never
+// loads until "Accept" is actually clicked (or was on a previous visit).
 export function CookieNotice() {
   const navigate = useNavigate();
   const [consent, setConsent] = useState<Consent | null>("accepted");
@@ -27,10 +28,7 @@ export function CookieNotice() {
   useEffect(() => {
     const stored = getStoredConsent();
     setConsent(stored);
-    if (stored === "accepted") {
-      loadGoogleAnalytics();
-      loadGoogleTagManager();
-    }
+    if (stored === "accepted") loadGoogleTagManager();
   }, []);
 
   if (consent !== null) return null;
@@ -38,10 +36,7 @@ export function CookieNotice() {
   const decide = (value: Consent) => {
     localStorage.setItem(CONSENT_KEY, value);
     setConsent(value);
-    if (value === "accepted") {
-      loadGoogleAnalytics();
-      loadGoogleTagManager();
-    }
+    if (value === "accepted") loadGoogleTagManager();
   };
 
   return (
@@ -68,7 +63,7 @@ export function CookieNotice() {
     >
       <p style={{ margin: 0, fontSize: 13.5, lineHeight: 1.5, flex: "1 1 320px" }}>
         We use strictly necessary cookies/local storage to run this site, and — only if you accept — Google
-        Analytics to understand how it's used.{" "}
+        Analytics (via Google Tag Manager) to understand how it's used.{" "}
         <span
           onClick={() => navigate("/cookies")}
           style={{ textDecoration: "underline", cursor: "pointer", fontWeight: 600, color: "#fff" }}

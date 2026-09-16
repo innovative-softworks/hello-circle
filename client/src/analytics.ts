@@ -1,43 +1,22 @@
-// Google Analytics (GA4) + Google Tag Manager — only ever loaded after real
-// opt-in consent (see CookieNotice.tsx's Accept/Reject choice), never
-// unconditionally, since this is an Ireland/EU-facing site and analytics
-// cookies are non-essential under GDPR/ePrivacy — they require genuine
-// prior consent, not just a dismissible notice. Never import or call either
-// load function from anywhere except CookieNotice's own consent-gated call
-// sites.
+// Google Tag Manager — only ever loaded after real opt-in consent (see
+// CookieNotice.tsx's Accept/Reject choice), never unconditionally, since
+// this is an Ireland/EU-facing site and analytics cookies are non-essential
+// under GDPR/ePrivacy — they require genuine prior consent, not just a
+// dismissible notice. Never import or call loadGoogleTagManager() from
+// anywhere except CookieNotice's own consent-gated call sites.
 //
-// Both are currently installed side by side: GA4 (G-7R0EXK4RB5) direct, and
-// GTM (GTM-WWNNDL99) as a separate container — deliberately not consolidated
-// into "GTM loads GA4" (the usual setup) because it's unknown whether the
-// GTM container has a GA4 tag configured for the same property yet. If one
-// gets added there later, remove loadGoogleAnalytics()'s call site in
-// CookieNotice.tsx so pageviews/events aren't double-counted.
-const GA_MEASUREMENT_ID = "G-7R0EXK4RB5";
+// GA4 (G-7R0EXK4RB5) used to be installed directly here too, alongside GTM
+// — removed once a "GA4 - Config" tag was added inside the GTM-WWNNDL99
+// container (confirmed firing via Tag Assistant), which made the direct
+// install redundant and was double-counting every pageview/event. GTM is
+// now the single source for all tracking; add any future tag (ads pixels,
+// etc.) inside the GTM dashboard, not as a new function in this file.
 const GTM_CONTAINER_ID = "GTM-WWNNDL99";
 
 declare global {
   interface Window {
     dataLayer?: unknown[];
   }
-}
-
-let gaLoaded = false;
-
-export function loadGoogleAnalytics(): void {
-  if (gaLoaded || typeof window === "undefined") return;
-  gaLoaded = true;
-
-  const script = document.createElement("script");
-  script.async = true;
-  script.src = `https://www.googletagmanager.com/gtag/js?id=${GA_MEASUREMENT_ID}`;
-  document.head.appendChild(script);
-
-  window.dataLayer = window.dataLayer || [];
-  function gtag(...args: unknown[]) {
-    window.dataLayer!.push(args);
-  }
-  gtag("js", new Date());
-  gtag("config", GA_MEASUREMENT_ID);
 }
 
 let gtmLoaded = false;
