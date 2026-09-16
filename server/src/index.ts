@@ -182,9 +182,15 @@ const PRELAUNCH_SITEMAP_PATHS = ["/", "/for-venues", "/become-a-host", "/coming-
 
 app.get("/robots.txt", (req, res) => {
   const origin = `${req.protocol}://${req.get("host")}`;
+  // /sitemap.xml itself needs an explicit Allow in the pre-launch branch —
+  // without it, the file falls under the blanket `Disallow: /` just like
+  // every other non-marketing path, which is exactly what made Search
+  // Console report "Couldn't fetch" on the submitted sitemap: the sitemap
+  // was accessible by direct URL the whole time, but our own robots.txt was
+  // telling Googlebot's sitemap fetcher not to request it.
   const body = PUBLIC_LAUNCH
     ? `User-agent: *\nAllow: /\nSitemap: ${origin}/sitemap.xml\n`
-    : `User-agent: *\nDisallow: /\n${PRELAUNCH_SITEMAP_PATHS.map((p) => `Allow: ${p === "/" ? "/$" : p}\n`).join("")}Sitemap: ${origin}/sitemap.xml\n`;
+    : `User-agent: *\nDisallow: /\n${PRELAUNCH_SITEMAP_PATHS.map((p) => `Allow: ${p === "/" ? "/$" : p}\n`).join("")}Allow: /sitemap.xml\nSitemap: ${origin}/sitemap.xml\n`;
   res.type("text/plain").send(body);
 });
 

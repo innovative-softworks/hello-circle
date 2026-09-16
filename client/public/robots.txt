@@ -20,4 +20,5 @@ Allow: /become-a-host
 Allow: /coming-soon
 Allow: /privacy
 Allow: /cookies
+Allow: /sitemap.xml
 Sitemap: https://www.hellocircle.ie/sitemap.xml
