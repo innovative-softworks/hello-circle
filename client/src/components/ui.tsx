@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
+import { Fragment, useEffect, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { CheckIcon, CloseIcon, StarIcon } from "./icons";
 import { colors, fonts, maxWidth, radius, zIndex } from "../theme";
@@ -278,9 +278,18 @@ function hashString(s: string): number {
   return h;
 }
 
-export function Avatar({ name, size = 32 }: { name: string; size?: number }) {
+export function Avatar({ name, size = 32, src }: { name: string; size?: number; src?: string | null }) {
   const initials = name.trim().split(/\s+/).slice(0, 2).map((w) => w[0]?.toUpperCase()).join("") || "?";
   const bg = AVATAR_PALETTE[hashString(name) % AVATAR_PALETTE.length];
+  if (src) {
+    return (
+      <img
+        src={src}
+        alt={name}
+        style={{ width: size, height: size, borderRadius: "50%", objectFit: "cover", flex: "none" }}
+      />
+    );
+  }
   return (
     <div
       style={{
@@ -773,6 +782,61 @@ export function KpiStrip({ hero, children, marginBottom = 34 }: { hero: ReactNod
   );
 }
 
+// --- Switch (toggle) --------------------------------------------------------
+// A binary on/off control with the same click target and keyboard behavior as
+// a checkbox (it *is* one, visually hidden) — introduced for Profile's
+// notification/privacy preference rows, which previously used raw
+// `<input type="checkbox">` with `accentColor: colors.green`. Not a retrofit
+// of every existing checkbox in the app — those keep working unchanged.
+export function Switch({
+  checked,
+  onChange,
+  label,
+}: {
+  checked: boolean;
+  onChange: () => void;
+  /** Accessible name — required when no visible text sits next to the switch. */
+  label?: string;
+}) {
+  return (
+    <label style={{ position: "relative", display: "inline-flex", width: 38, height: 22, flex: "none", cursor: "pointer" }}>
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={onChange}
+        aria-label={label}
+        style={{ position: "absolute", inset: 0, opacity: 0, margin: 0, cursor: "pointer" }}
+      />
+      <span
+        aria-hidden="true"
+        style={{
+          position: "absolute",
+          inset: 0,
+          borderRadius: radius.pill,
+          background: checked ? colors.green : colors.borderStrong,
+          transition: "background .15s ease",
+          pointerEvents: "none",
+        }}
+      />
+      <span
+        aria-hidden="true"
+        style={{
+          position: "absolute",
+          top: 2,
+          left: checked ? 18 : 2,
+          width: 18,
+          height: 18,
+          borderRadius: "50%",
+          background: "#fff",
+          boxShadow: "0 1px 3px rgba(0,0,0,.25)",
+          transition: "left .15s ease",
+          pointerEvents: "none",
+        }}
+      />
+    </label>
+  );
+}
+
 // --- shared form field styles (still inline — no interactive state needed) -
 
 export const inputStyle: CSSProperties = {
@@ -999,44 +1063,65 @@ function NavOptionButtons<T extends string>({
   onChange,
   onSelect,
 }: {
-  options: { key: T; label: string; icon?: ReactNode }[];
+  /** `group`, when given, renders a small uppercase heading above the first
+   * option in each run that shares one — options with no `group` (every
+   * existing call site) render as a flat list, unchanged. */
+  options: { key: T; label: string; icon?: ReactNode; group?: string }[];
   value: T;
   onChange: (v: T) => void;
   /** Extra action to run after onChange — NavSidebar closes the drawer, NavRail has none. */
   onSelect?: () => void;
 }) {
+  let lastGroup: string | undefined;
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
       {options.map((o) => {
         const active = o.key === value;
+        const showGroupHeading = o.group !== undefined && o.group !== lastGroup;
+        lastGroup = o.group;
         return (
-          <button
-            key={o.key}
-            onClick={() => {
-              onChange(o.key);
-              onSelect?.();
-            }}
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 10,
-              width: "100%",
-              textAlign: "left",
-              background: active ? colors.panel : "none",
-              color: active ? colors.text : colors.muted,
-              border: "none",
-              borderLeft: `2px solid ${active ? colors.orange : "transparent"}`,
-              borderRadius: 0,
-              padding: "10px 12px",
-              fontSize: 13.5,
-              fontWeight: active ? 700 : 500,
-              cursor: "pointer",
-              lineHeight: 1.3,
-            }}
-          >
-            {o.icon}
-            {o.label}
-          </button>
+          <Fragment key={o.key}>
+            {showGroupHeading && (
+              <div
+                style={{
+                  fontSize: 11,
+                  fontWeight: 700,
+                  letterSpacing: ".06em",
+                  textTransform: "uppercase",
+                  color: colors.faint,
+                  padding: "16px 12px 6px",
+                }}
+              >
+                {o.group}
+              </div>
+            )}
+            <button
+              onClick={() => {
+                onChange(o.key);
+                onSelect?.();
+              }}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 10,
+                width: "100%",
+                textAlign: "left",
+                background: active ? colors.panel : "none",
+                color: active ? colors.text : colors.muted,
+                border: "none",
+                borderLeft: `2px solid ${active ? colors.orange : "transparent"}`,
+                borderRadius: 0,
+                padding: "10px 12px",
+                fontSize: 13.5,
+                fontWeight: active ? 700 : 500,
+                cursor: "pointer",
+                lineHeight: 1.3,
+              }}
+            >
+              {o.icon}
+              {o.label}
+            </button>
+          </Fragment>
         );
       })}
     </div>
@@ -1055,11 +1140,16 @@ export function NavRail<T extends string>({
   options,
   value,
   onChange,
+  showLogo = true,
 }: {
   title: string;
-  options: { key: T; label: string; icon?: ReactNode }[];
+  options: { key: T; label: string; icon?: ReactNode; group?: string }[];
   value: T;
   onChange: (v: T) => void;
+  /** Vendor/Admin dashboards keep the logo lockup (default); Profile's own
+   * rail already sits under the app's own header, so a second logo directly
+   * below it just repeats the brand mark with nothing new to say. */
+  showLogo?: boolean;
 }) {
   return (
     <aside className="manage-rail" style={{ flexDirection: "column", position: "sticky", top: 24 }}>
@@ -1073,7 +1163,7 @@ export function NavRail<T extends string>({
           marginBottom: 10,
         }}
       >
-        <img src="/illustrations/Logo.svg" alt="" aria-hidden="true" style={{ height: 20, flex: "none" }} />
+        {showLogo && <img src="/illustrations/Logo.svg" alt="" aria-hidden="true" style={{ height: 20, flex: "none" }} />}
         <span
           style={{
             fontFamily: 'ui-monospace, "SF Mono", "Roboto Mono", Menlo, monospace',
@@ -1103,7 +1193,7 @@ export function NavSidebar<T extends string>({
   open: boolean;
   onClose: () => void;
   title: string;
-  options: { key: T; label: string; icon?: ReactNode }[];
+  options: { key: T; label: string; icon?: ReactNode; group?: string }[];
   value: T;
   onChange: (v: T) => void;
 }) {

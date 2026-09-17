@@ -1569,6 +1569,35 @@ export async function initSchema() {
   // eagerly at signup. Nullable, no DEFAULT needed (plain VARCHAR).
   await ensureColumn("residents", "stripe_customer_id", "stripe_customer_id VARCHAR(255)");
 
+  // Profile photo (Profile redesign follow-up) — an /uploads/<uuid>.<ext>
+  // path from the same multer pipeline uploads.ts already uses for listing
+  // images, just posted through a resident-scoped route instead of that
+  // file's requireVendorOrAdmin one (see routes/residents.ts's own
+  // "/me/avatar"). Nullable; Avatar (ui.tsx) falls back to initials when unset.
+  await ensureColumn("residents", "avatar_url", "avatar_url VARCHAR(500) NULL");
+
+  // Email-verified tracking (Profile redesign follow-up) — every magic-link
+  // verify (guestAuth.ts's POST /verify) proves the resident controls this
+  // inbox, so it stamps this the first time it succeeds for a given email;
+  // password-only signup (POST /guest/signup) never does, since it never
+  // requires opening an email at all. Nullable timestamp, not a boolean —
+  // doubles as "when", not just "whether".
+  await ensureColumn("residents", "email_verified_at", "email_verified_at DATETIME NULL");
+
+  // Account deactivation (Profile redesign follow-up) — deliberately a soft
+  // flag, not a DELETE. This app has no DB-level foreign keys anywhere (see
+  // CLAUDE.md) and five separate, unreconciled participant tables plus real
+  // Stripe payment/receipt records reference a resident's id — a hard
+  // delete would either orphan rows across all of them or require an
+  // audited cross-table cleanup this pass doesn't attempt. While set, the
+  // resident is hidden from familiar-faces/discoverable-by-name (same
+  // enforcement points as those two existing privacy flags) and excluded
+  // from search — but nothing else changes, and there's deliberately no
+  // separate "reactivate" flow to build: any successful sign-in (magic
+  // link or password, see guestAuth.ts's createGuestSession()) clears it,
+  // the same self-service pattern as Instagram/X's own "deactivate".
+  await ensureColumn("residents", "deactivated_at", "deactivated_at DATETIME NULL");
+
   // Slugs (master-prompt punch list #1) — human-readable, shareable URLs
   // for the 4 listing types worth indexing (centres/clubs/experiences/
   // circles; Games are ephemeral one-offs and deliberately excluded).

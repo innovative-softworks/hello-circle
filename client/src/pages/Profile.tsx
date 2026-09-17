@@ -1,10 +1,12 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState, type ChangeEvent, type CSSProperties, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   addHouseholdMember,
   changeResidentPassword,
   createRoutine,
+  deactivateAccount,
   deleteHouseholdMember,
+  exportMyData,
   fetchBlockedResidents,
   fetchFavourites,
   fetchHousehold,
@@ -17,6 +19,7 @@ import {
   fetchResidentNotifications,
   fetchRoutineSuggestions,
   markResidentNotificationRead,
+  removeAvatar,
   removeFavourite,
   saveAccessibilityPrefs,
   saveNotificationPrefs,
@@ -29,30 +32,155 @@ import {
   updatePrivacyPrefs,
   updateResidentMe,
   updateRoutine,
+  uploadAvatar,
 } from "../api";
 import type { FollowedEntity, NotificationLevel } from "../api";
-import { BuildingIcon, ChevronRightIcon, PersonIcon } from "../components/icons";
+import {
+  AwardIcon,
+  BellIcon,
+  BuildingIcon,
+  CameraIcon,
+  CardIcon,
+  ChatIcon,
+  CheckCircleIcon,
+  ChevronRightIcon,
+  ClipboardIcon,
+  EditIcon,
+  EyeOffIcon,
+  HeartIcon,
+  IdCardIcon,
+  LightbulbIcon,
+  LockIcon,
+  MailIcon,
+  PersonIcon,
+  PinIcon,
+  RepeatIcon,
+  ShieldIcon,
+  TagIcon,
+  UsersIcon,
+} from "../components/icons";
 import { HostApplicationPanel } from "../components/HostApplicationPanel";
 import { HostDashboardPanel } from "../components/HostDashboardPanel";
 import { BecomeProviderPanel } from "../components/BecomeProviderPanel";
+import { ManageShell } from "../components/ManageShell";
 import { PaymentMethodsPanel } from "../components/PaymentMethodsPanel";
 import { Photo } from "../components/Photo";
 import { SearchAlertsPanel } from "../components/SearchAlertsPanel";
-import { Button, EmptyState, RowSkeleton, Tabs, inputStyle, labelStyle } from "../components/ui";
-import { PageTitle } from "../components/PageTitle";
+import { Avatar, Button, ConfirmDialog, EmptyState, RowSkeleton, Switch, inputStyle, labelStyle } from "../components/ui";
 import { signInHref } from "../authRedirect";
 import { euro } from "../euro";
 import { useGuest } from "../GuestContext";
 import { colors, fonts, radius } from "../theme";
-import { ACCESSIBILITY_OPTIONS, BUDGET_OPTIONS, GOAL_OPTIONS, GROUP_SIZE_OPTIONS } from "../types";
+import { ACCESSIBILITY_OPTIONS, AVAILABILITY_OPTIONS, BUDGET_OPTIONS, GOAL_OPTIONS, GROUP_SIZE_OPTIONS, INTEREST_OPTIONS } from "../types";
 import type { BlockedResident, Favourite, HostStatus, HouseholdMember, NotificationPrefs, Pass, Receipt, ReportRecord, ResidentNotification, Routine, RoutineSuggestion } from "../types";
 
-// Profile & settings (My Life redesign §46) — split out of what used to be
-// MyBookings.tsx's "More" tab menu. My Life itself (still served at
-// /bookings — real magic-link emails point there, not renamed) is now a
-// participation-first hub; account administration lives here instead,
-// reached via its own "Edit profile" action rather than sitting alongside
-// Next Up / My Circles / Do It Again as an equal-weight tab.
+// Profile & settings (My Life redesign §46, restructured again in the
+// dashboard-nav pass below) — split out of what used to be MyBookings.tsx's
+// "More" tab menu. My Life itself (still served at /bookings — real
+// magic-link emails point there, not renamed) is now a participation-first
+// hub; account administration lives here instead.
+//
+// This page previously drove itself with a bespoke `Tabs` row plus a "More"
+// dropdown hiding 8 of 10 sections, and dumped every account-settings
+// concern (identity, password, 10 notification checkboxes, accessibility,
+// participation comfort, privacy, payment methods, host application, become-
+// a-provider, search alerts) into one `ProfileDetailsPanel` mega-component
+// under a single "Profile" tab. It now reuses `ManageShell` — the same
+// sticky-sidebar/mobile-drawer nav shell VendorDashboard.tsx/
+// AdminDashboard.tsx already use — instead of reinventing a weaker nav
+// pattern, and the old mega-component is split into one panel per concern so
+// each gets its own place in that nav instead of one undifferentiated scroll.
+
+// --- Identity banner ---------------------------------------------------
+
+function ProfileIdentityBanner({ onEdit }: { onEdit: () => void }) {
+  const { resident } = useGuest();
+  if (!resident) return null;
+  const memberSince = resident.createdAt
+    ? new Date(resident.createdAt).toLocaleDateString("en-IE", { month: "long", year: "numeric" })
+    : null;
+
+  return (
+    <div
+      style={{
+        display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap",
+        background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 20,
+        padding: "20px 22px", marginBottom: 28,
+      }}
+    >
+      <Avatar name={resident.name || "?"} src={resident.avatarUrl} size={56} />
+      <div>
+        <div style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 21 }}>{resident.name}</div>
+        <div style={{ fontSize: 13.5, color: colors.mutedLight, marginTop: 3 }}>
+          {resident.email}
+          {resident.homeCounty ? ` · ${resident.homeCounty}` : ""}
+          {memberSince ? ` · Member since ${memberSince}` : ""}
+        </div>
+      </div>
+      <div style={{ marginLeft: "auto" }}>
+        <Button variant="ghost" onClick={onEdit}>Edit details</Button>
+      </div>
+    </div>
+  );
+}
+
+/** Thumbnail + upload/change/remove controls for the profile photo —
+ * lives in Profile details (Account, below) as an ordinary row, same
+ * pattern as Name/Home county/Email, rather than as the banner's only
+ * editing surface. The banner (above) just displays whatever this sets. */
+function ProfilePhotoRow() {
+  const { resident, refresh } = useGuest();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [uploading, setUploading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleFileChosen = async (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    setError(null);
+    setUploading(true);
+    try {
+      await uploadAvatar(file);
+      await refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Couldn't upload that photo");
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const handleRemove = async () => {
+    setError(null);
+    setUploading(true);
+    try {
+      await removeAvatar();
+      await refresh();
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  return (
+    <SettingsRow
+      icon={<CameraIcon size={15} />}
+      label="Profile photo"
+      description={error ?? "JPEG, PNG or WebP, up to 4MB"}
+      control={
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <Avatar name={resident?.name || "?"} src={resident?.avatarUrl} size={40} />
+          <Button variant="ghost" onClick={() => fileInputRef.current?.click()} disabled={uploading}>
+            {uploading ? "Uploading…" : resident?.avatarUrl ? "Change" : "Upload"}
+          </Button>
+          {resident?.avatarUrl && (
+            <Button variant="danger" onClick={handleRemove} disabled={uploading}>Remove</Button>
+          )}
+          <input ref={fileInputRef} type="file" accept="image/jpeg,image/png,image/webp" onChange={handleFileChosen} style={{ display: "none" }} />
+        </div>
+      }
+    />
+  );
+}
 
 // --- Household (MVP, relocated unchanged) -----------------------------------
 
@@ -368,9 +496,10 @@ function FollowingPanel() {
   );
 }
 
-// --- Resident notifications (MVP, relocated unchanged) ----------------------
+// --- Notification inbox (MVP, relocated unchanged; distinct from the
+// notification-preference toggles in NotificationPrefsPanel below) ----------
 
-function NotificationsPanel() {
+function NotificationInboxPanel() {
   const [notifications, setNotifications] = useState<ResidentNotification[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -606,130 +735,548 @@ function ReceiptsPanel() {
   );
 }
 
-// --- Profile (name / home county / notifications / accessibility / comfort / privacy, relocated unchanged) --
+// --- Flat settings row/section primitives ------------------------------
+// A ChatGPT/Claude-style settings look: plain rows separated by a hairline,
+// label (+ optional description) on the left and the control on the right —
+// no per-group white card/border box. Local to this file rather than
+// ui.tsx since no other page uses this exact layout yet.
 
-const NOTIFICATION_CATEGORIES: { key: keyof NotificationPrefs; label: string }[] = [
-  { key: "bookingConfirmations", label: "Booking confirmations" },
-  { key: "bookingReminders", label: "Booking reminders" },
-  { key: "activityReminders", label: "Activity reminders" },
-  { key: "waitlistOffers", label: "Waitlist offers" },
-  { key: "openSpots", label: "Open spots nearby" },
-  { key: "recommendations", label: "Recommendations" },
-  { key: "circleAnnouncements", label: "Circle announcements" },
-  { key: "intentMatches", label: "Matches for things you're interested in" },
-  { key: "routineReminders", label: "Routine reminders" },
-  { key: "marketing", label: "News and offers" },
-];
+function SettingsSection({ title, children, last }: { title?: string; children: ReactNode; last?: boolean }) {
+  return (
+    <div style={{ marginBottom: last ? 0 : 44 }}>
+      {title && (
+        <h3 style={{ fontSize: 12, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".05em", color: colors.faint, margin: "0 0 4px" }}>
+          {title}
+        </h3>
+      )}
+      {children}
+    </div>
+  );
+}
 
-function ProfileDetailsPanel() {
-  const navigate = useNavigate();
+function SettingsRow({
+  icon,
+  label,
+  description,
+  control,
+  last,
+}: {
+  icon?: ReactNode;
+  label: ReactNode;
+  description?: ReactNode;
+  control: ReactNode;
+  last?: boolean;
+}) {
+  return (
+    <div
+      style={{
+        display: "flex", alignItems: "center", justifyContent: "space-between", gap: 20,
+        padding: "16px 0", borderBottom: last ? "none" : `1px solid ${colors.border}`,
+      }}
+    >
+      <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
+        {icon && <span style={{ color: colors.faint, marginTop: 2, flex: "none" }}>{icon}</span>}
+        <div>
+          <div style={{ fontSize: 14.5 }}>{label}</div>
+          {description && <div style={{ fontSize: 12.5, color: colors.mutedLight, marginTop: 3 }}>{description}</div>}
+        </div>
+      </div>
+      <div style={{ flex: "none" }}>{control}</div>
+    </div>
+  );
+}
+
+/** A row's read-only value plus a small pencil-icon button to start editing
+ * it in place — replaces a separate text "Edit"/"Change password" button
+ * sitting off to the side. */
+function EditableValue({ value, empty, onEdit, editLabel }: { value: ReactNode; empty?: boolean; onEdit: () => void; editLabel: string }) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+      <span style={{ fontSize: 14.5, color: empty ? colors.faint : colors.text, fontStyle: empty ? "italic" : "normal" }}>{value}</span>
+      <button
+        onClick={onEdit}
+        aria-label={editLabel}
+        title={editLabel}
+        style={{ background: "none", border: "none", cursor: "pointer", color: colors.muted, padding: 5, borderRadius: 6, display: "flex" }}
+      >
+        <EditIcon size={14} />
+      </button>
+    </div>
+  );
+}
+
+// --- Account details (name / home county / password) -----------------------
+// Split out of the old ProfileDetailsPanel mega-component so it can be its
+// own nav item instead of the top of one long scroll.
+
+function AccountDetailsPanel() {
   const { resident, refresh } = useGuest();
-  const [name, setName] = useState(resident?.name ?? "");
-  const [homeCounty, setHomeCounty] = useState(resident?.homeCounty ?? "");
+  const [savedName, setSavedName] = useState("");
+  const [savedCounty, setSavedCounty] = useState("");
+  const [draftName, setDraftName] = useState("");
+  const [draftCounty, setDraftCounty] = useState("");
+  const [editingProfile, setEditingProfile] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
-  const [notifPrefs, setNotifPrefs] = useState<NotificationPrefs>({
-    bookingConfirmations: true,
-    bookingReminders: true,
-    activityReminders: true,
-    waitlistOffers: true,
-    openSpots: true,
-    recommendations: true,
-    circleAnnouncements: true,
-    routineReminders: true,
-    marketing: false,
-    intentMatches: true,
-  });
-  const [accessibility, setAccessibility] = useState<string[]>([]);
-  const [hostStatus, setHostStatus] = useState<HostStatus>("none");
-  const [hostBio, setHostBio] = useState("");
-  const [hostPhone, setHostPhone] = useState("");
-  const [goals, setGoals] = useState<string[]>([]);
-  const [prefGroupSize, setPrefGroupSize] = useState("");
-  const [prefBeginnerFriendly, setPrefBeginnerFriendly] = useState(false);
-  const [prefSoloFriendly, setPrefSoloFriendly] = useState(false);
-  const [prefBudget, setPrefBudget] = useState("");
-  const [comfortSaving, setComfortSaving] = useState(false);
-  const [hideFromFamiliarCount, setHideFromFamiliarCount] = useState(false);
-  const [discoverableByName, setDiscoverableByName] = useState(false);
+
   const [hasPassword, setHasPassword] = useState(false);
+  const [emailVerified, setEmailVerified] = useState(false);
+  const [editingPassword, setEditingPassword] = useState(false);
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [pwSaving, setPwSaving] = useState(false);
-  const [pwSaved, setPwSaved] = useState(false);
   const [pwError, setPwError] = useState<string | null>(null);
 
-  const loadProfile = () => {
+  const [exporting, setExporting] = useState(false);
+  const [deactivating, setDeactivating] = useState(false);
+  const [confirmDeactivate, setConfirmDeactivate] = useState(false);
+
+  useEffect(() => {
     fetchResidentFull().then(({ resident: r }) => {
       if (!r) return;
-      setName(r.name);
-      setHomeCounty(r.homeCounty);
-      setAccessibility(r.accessibilityPrefs);
-      setHostStatus(r.hostStatus);
-      setHostBio(r.hostBio);
-      setHostPhone(r.hostPhone);
-      setGoals(r.goals);
-      setPrefGroupSize(r.prefGroupSize);
-      setPrefBeginnerFriendly(r.prefBeginnerFriendly);
-      setPrefSoloFriendly(r.prefSoloFriendly);
-      setPrefBudget(r.prefBudget);
-      setHideFromFamiliarCount(r.hideFromFamiliarCount);
-      setDiscoverableByName(r.discoverableByName);
+      setSavedName(r.name);
+      setSavedCounty(r.homeCounty);
       setHasPassword(r.hasPassword);
-      setNotifPrefs(
-        r.notificationPrefs ?? {
-          bookingConfirmations: true,
-          bookingReminders: true,
-          activityReminders: true,
-          waitlistOffers: true,
-          openSpots: true,
-          recommendations: true,
-          circleAnnouncements: true,
-          routineReminders: true,
-          marketing: false,
-          intentMatches: true,
-        }
-      );
+      setEmailVerified(r.emailVerified);
     });
+  }, []);
+
+  const handleExport = async () => {
+    setExporting(true);
+    try {
+      await exportMyData();
+    } finally {
+      setExporting(false);
+    }
   };
 
-  useEffect(loadProfile, []);
+  const handleDeactivate = async () => {
+    setDeactivating(true);
+    try {
+      await deactivateAccount();
+      window.location.href = "/";
+    } finally {
+      setDeactivating(false);
+    }
+  };
+
+  const startEditingProfile = () => {
+    setDraftName(savedName);
+    setDraftCounty(savedCounty);
+    setEditingProfile(true);
+  };
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      await updateResidentMe({ name: draftName, homeCounty: draftCounty });
+      await refresh();
+      setSavedName(draftName);
+      setSavedCounty(draftCounty);
+      setEditingProfile(false);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const startEditingPassword = () => {
+    setCurrentPassword("");
+    setNewPassword("");
+    setPwError(null);
+    setEditingPassword(true);
+  };
+
+  const handleSavePassword = async () => {
+    setPwError(null);
+    if (newPassword.length < 8) {
+      setPwError("Password must be at least 8 characters");
+      return;
+    }
+    setPwSaving(true);
+    try {
+      await changeResidentPassword({ currentPassword: hasPassword ? currentPassword : undefined, newPassword });
+      setHasPassword(true);
+      setCurrentPassword("");
+      setNewPassword("");
+      setEditingPassword(false);
+    } catch (e) {
+      setPwError(e instanceof Error ? e.message : "Couldn't update your password");
+    } finally {
+      setPwSaving(false);
+    }
+  };
+
+  const rowInputStyle: CSSProperties = { ...inputStyle, width: 260 };
+
+  return (
+    <div>
+      <SettingsSection title="Profile">
+        <ProfilePhotoRow />
+        {editingProfile ? (
+          <>
+            <SettingsRow
+              icon={<PersonIcon size={15} />}
+              label="Name"
+              control={<input value={draftName} onChange={(e) => setDraftName(e.target.value)} style={rowInputStyle} autoFocus />}
+            />
+            <SettingsRow
+              icon={<PinIcon size={15} />}
+              label="Home county"
+              control={<input value={draftCounty} onChange={(e) => setDraftCounty(e.target.value)} style={rowInputStyle} />}
+              last
+            />
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 16 }}>
+              <Button onClick={handleSave} disabled={saving}>{saving ? "Saving…" : "Save"}</Button>
+              <Button variant="ghost" onClick={() => setEditingProfile(false)} disabled={saving}>Cancel</Button>
+            </div>
+          </>
+        ) : (
+          <>
+            <SettingsRow
+              icon={<PersonIcon size={15} />}
+              label="Name"
+              description="Your full display name"
+              control={<EditableValue value={savedName || "Not set"} empty={!savedName} onEdit={startEditingProfile} editLabel="Edit name" />}
+            />
+            <SettingsRow
+              icon={<PinIcon size={15} />}
+              label="Home county"
+              description="Used to show you what's nearby"
+              control={<EditableValue value={savedCounty || "Not set"} empty={!savedCounty} onEdit={startEditingProfile} editLabel="Edit home county" />}
+            />
+            <SettingsRow
+              icon={<MailIcon size={15} />}
+              label="Email"
+              description="Used to sign in — can't be changed here"
+              control={
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={{ fontSize: 14.5, color: colors.text }}>{resident?.email}</span>
+                  {emailVerified && (
+                    <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11, fontWeight: 700, color: colors.greenText, background: colors.greenBg, borderRadius: radius.pill, padding: "2px 8px" }}>
+                      <CheckCircleIcon size={11} /> Verified
+                    </span>
+                  )}
+                </div>
+              }
+              last
+            />
+          </>
+        )}
+      </SettingsSection>
+
+      <SettingsSection title="Password">
+        {editingPassword ? (
+          <>
+            <p style={{ fontSize: 12.5, color: colors.mutedLight, margin: "0 0 4px" }}>
+              {hasPassword ? "Enter your current password, then choose a new one." : "Set a password so you don't have to wait on an email link next time."}
+            </p>
+            {hasPassword && (
+              <SettingsRow
+                label="Current password"
+                control={<input type="password" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} style={rowInputStyle} autoFocus />}
+              />
+            )}
+            <SettingsRow
+              label={hasPassword ? "New password" : "Password"}
+              control={<input type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} style={rowInputStyle} autoFocus={!hasPassword} />}
+              last
+            />
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 16 }}>
+              <Button onClick={handleSavePassword} disabled={pwSaving || !newPassword || (hasPassword && !currentPassword)}>
+                {pwSaving ? "Saving…" : hasPassword ? "Change password" : "Set password"}
+              </Button>
+              <Button variant="ghost" onClick={() => setEditingPassword(false)} disabled={pwSaving}>Cancel</Button>
+            </div>
+            {pwError && <div style={{ color: colors.danger, fontSize: 12.5, marginTop: 8 }}>{pwError}</div>}
+          </>
+        ) : (
+          <SettingsRow
+            icon={<LockIcon size={15} />}
+            label="Password"
+            description={hasPassword ? "Sign in with either your password or an email link — either always works." : "Not set — you sign in with an email link instead."}
+            control={
+              <EditableValue
+                value={hasPassword ? "••••••••" : "Not set"}
+                empty={!hasPassword}
+                onEdit={startEditingPassword}
+                editLabel={hasPassword ? "Change password" : "Set password"}
+              />
+            }
+            last
+          />
+        )}
+      </SettingsSection>
+
+      <SettingsSection title="Your data" last>
+        <SettingsRow
+          label="Download my data"
+          description="A copy of your profile, household, favourites, notifications and safety-centre history as a JSON file"
+          control={<Button variant="ghost" onClick={handleExport} disabled={exporting}>{exporting ? "Preparing…" : "Download"}</Button>}
+        />
+        <SettingsRow
+          label="Deactivate account"
+          description="Hides you from familiar-faces counts and Circle invites. Signing back in with your email reactivates it — nothing is deleted."
+          control={<Button variant="danger" onClick={() => setConfirmDeactivate(true)}>Deactivate</Button>}
+          last
+        />
+      </SettingsSection>
+
+      <ConfirmDialog
+        open={confirmDeactivate}
+        title="Deactivate your account?"
+        message="You'll be signed out, and hidden from familiar-faces counts and Circle invites. Nothing is deleted — signing back in with this email reactivates your account exactly as it was."
+        confirmLabel={deactivating ? "Deactivating…" : "Deactivate"}
+        tone="danger"
+        busy={deactivating}
+        onConfirm={handleDeactivate}
+        onCancel={() => setConfirmDeactivate(false)}
+      />
+    </div>
+  );
+}
+
+// --- Notification preferences (split out of ProfileDetailsPanel) -----------
+// Distinct from NotificationInboxPanel above — this is what triggers each
+// email, not the received messages themselves.
+
+const DEFAULT_NOTIFICATION_PREFS: NotificationPrefs = {
+  bookingConfirmations: true,
+  bookingReminders: true,
+  activityReminders: true,
+  waitlistOffers: true,
+  openSpots: true,
+  recommendations: true,
+  circleAnnouncements: true,
+  routineReminders: true,
+  marketing: false,
+  intentMatches: true,
+};
+
+const NOTIFICATION_GROUPS: { label: string; items: { key: keyof NotificationPrefs; label: string; description: string }[] }[] = [
+  {
+    label: "Bookings & activity",
+    items: [
+      { key: "bookingConfirmations", label: "Booking confirmations", description: "Email when a booking or registration is confirmed" },
+      { key: "bookingReminders", label: "Booking reminders", description: "A reminder before an upcoming booking" },
+      { key: "activityReminders", label: "Activity reminders", description: "A reminder before a Circle, Game or Program session you've joined" },
+      { key: "routineReminders", label: "Routine reminders", description: "A nudge when it's time for one of your routines" },
+    ],
+  },
+  {
+    label: "Discovery",
+    items: [
+      { key: "waitlistOffers", label: "Waitlist offers", description: "When a spot opens up on a waitlist you're on" },
+      { key: "openSpots", label: "Open spots nearby", description: "New availability at centres and clubs near you" },
+      { key: "recommendations", label: "Recommendations", description: "Occasional suggestions based on what you've done before" },
+      { key: "intentMatches", label: "Matches for things you're interested in", description: "When something matching your interests appears nearby" },
+    ],
+  },
+  { label: "Community", items: [{ key: "circleAnnouncements", label: "Circle announcements", description: "Updates posted by a Circle you're a member of" }] },
+  { label: "Marketing", items: [{ key: "marketing", label: "News and offers", description: "Product updates and promotions from HelloCircle" }] },
+];
+
+function NotificationPrefsPanel() {
+  const [prefs, setPrefs] = useState<NotificationPrefs>(DEFAULT_NOTIFICATION_PREFS);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetchResidentFull()
+      .then(({ resident: r }) => {
+        if (r?.notificationPrefs) setPrefs(r.notificationPrefs);
+      })
+      .finally(() => setLoading(false));
+  }, []);
+
+  const toggle = async (key: keyof NotificationPrefs) => {
+    const next = { ...prefs, [key]: !prefs[key] };
+    setPrefs(next);
+    await saveNotificationPrefs(next);
+  };
+
+  if (loading) return <RowSkeleton />;
+
+  return (
+    <div>
+      {NOTIFICATION_GROUPS.map((group, i) => (
+        <SettingsSection key={group.label} title={group.label} last={i === NOTIFICATION_GROUPS.length - 1}>
+          {group.items.map((it, j) => (
+            <SettingsRow
+              key={it.key}
+              label={it.label}
+              description={it.description}
+              control={<Switch checked={prefs[it.key] !== false} onChange={() => toggle(it.key)} label={it.label} />}
+              last={j === group.items.length - 1}
+            />
+          ))}
+        </SettingsSection>
+      ))}
+    </div>
+  );
+}
+
+// --- Participation preferences (split out of ProfileDetailsPanel) ----------
+// The "Participation comfort" set from onboarding — goals, group size,
+// budget, beginner/solo-friendliness. Distinct from PrivacyAccessibilityPanel
+// below (that one is about who can see/find you, not what you like doing).
+
+const RADIUS_OPTIONS_KM = [2, 5, 10, 20];
+
+function ParticipationPreferencesPanel() {
+  const [interests, setInterests] = useState<string[]>([]);
+  const [availability, setAvailability] = useState<string[]>([]);
+  const [searchRadiusKm, setSearchRadiusKm] = useState(5);
+  const [goals, setGoals] = useState<string[]>([]);
+  const [prefGroupSize, setPrefGroupSize] = useState("");
+  const [prefBudget, setPrefBudget] = useState("");
+  const [prefBeginnerFriendly, setPrefBeginnerFriendly] = useState(false);
+  const [prefSoloFriendly, setPrefSoloFriendly] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  useEffect(() => {
+    fetchResidentFull()
+      .then(({ resident: r }) => {
+        if (!r) return;
+        setInterests(r.interests);
+        setAvailability(r.availability);
+        setSearchRadiusKm(r.searchRadiusKm || 5);
+        setGoals(r.goals);
+        setPrefGroupSize(r.prefGroupSize);
+        setPrefBudget(r.prefBudget);
+        setPrefBeginnerFriendly(r.prefBeginnerFriendly);
+        setPrefSoloFriendly(r.prefSoloFriendly);
+      })
+      .finally(() => setLoading(false));
+  }, []);
+
+  const toggleIn = (list: string[], setList: (v: string[]) => void, opt: string) => {
+    setList(list.includes(opt) ? list.filter((v) => v !== opt) : [...list, opt]);
+  };
 
   const handleSave = async () => {
     setSaving(true);
     setSaved(false);
     try {
-      await updateResidentMe({ name, homeCounty });
-      await refresh();
+      await saveOnboarding({ interests, availability, searchRadiusKm, goals, prefGroupSize, prefBeginnerFriendly, prefSoloFriendly, prefBudget });
       setSaved(true);
     } finally {
       setSaving(false);
     }
   };
 
-  const toggleNotifPref = async (key: keyof NotificationPrefs) => {
-    const next = { ...notifPrefs, [key]: !notifPrefs[key] };
-    setNotifPrefs(next);
-    await saveNotificationPrefs(next);
-  };
+  if (loading) return <RowSkeleton />;
+
+  const rowSelectStyle: CSSProperties = { ...inputStyle, width: 200 };
+  const tagStyle = (active: boolean): CSSProperties => ({
+    border: `1px solid ${active ? colors.green : colors.border}`,
+    background: active ? colors.greenBg : colors.surface,
+    color: active ? colors.greenText : colors.text,
+    borderRadius: radius.pill, padding: "6px 12px", fontSize: 12.5, fontWeight: 600, cursor: "pointer",
+  });
+
+  return (
+    <div>
+      <SettingsSection title="What you're into">
+        <p style={{ fontSize: 12.5, color: colors.mutedLight, margin: "0 0 12px" }}>Drives what shows up on Explore and in recommendations.</p>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+          {INTEREST_OPTIONS.map((opt) => (
+            <button key={opt} onClick={() => toggleIn(interests, setInterests, opt)} style={tagStyle(interests.includes(opt))}>{opt}</button>
+          ))}
+        </div>
+      </SettingsSection>
+
+      <SettingsSection title="When you're usually free">
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+          {AVAILABILITY_OPTIONS.map((opt) => (
+            <button key={opt} onClick={() => toggleIn(availability, setAvailability, opt)} style={tagStyle(availability.includes(opt))}>{opt}</button>
+          ))}
+        </div>
+      </SettingsSection>
+
+      <SettingsSection title="Discover things within">
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+          {RADIUS_OPTIONS_KM.map((km) => (
+            <button key={km} onClick={() => setSearchRadiusKm(km)} style={tagStyle(searchRadiusKm === km)}>{km} km</button>
+          ))}
+        </div>
+      </SettingsSection>
+
+      <SettingsSection title="Goals">
+        <p style={{ fontSize: 12.5, color: colors.mutedLight, margin: "0 0 12px" }}>What you'd like HelloCircle to help with right now.</p>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+          {GOAL_OPTIONS.map((opt) => (
+            <button key={opt} onClick={() => toggleIn(goals, setGoals, opt)} style={tagStyle(goals.includes(opt))}>{opt}</button>
+          ))}
+        </div>
+      </SettingsSection>
+
+      <SettingsSection title="How you like to take part" last>
+        <SettingsRow
+          label="Preferred group size"
+          description="Weight search results and recommendations toward this group size"
+          control={
+            <select value={prefGroupSize} onChange={(e) => setPrefGroupSize(e.target.value)} style={rowSelectStyle}>
+              <option value="">No preference</option>
+              {GROUP_SIZE_OPTIONS.map((o) => (
+                <option key={o.key} value={o.key}>{o.label}</option>
+              ))}
+            </select>
+          }
+        />
+        <SettingsRow
+          label="Budget"
+          description="Weight results toward activities in this price range"
+          control={
+            <select value={prefBudget} onChange={(e) => setPrefBudget(e.target.value)} style={rowSelectStyle}>
+              <option value="">No preference</option>
+              {BUDGET_OPTIONS.map((o) => (
+                <option key={o.key} value={o.key}>{o.label}</option>
+              ))}
+            </select>
+          }
+        />
+        <SettingsRow
+          label="Prefer beginner-friendly activities"
+          description="Favour activities that welcome people trying something for the first time"
+          control={<Switch checked={prefBeginnerFriendly} onChange={() => setPrefBeginnerFriendly((v) => !v)} label="Prefer beginner-friendly activities" />}
+        />
+        <SettingsRow
+          label="Prefer solo-friendly activities"
+          description="Favour activities that work well on your own, not just in a group"
+          control={<Switch checked={prefSoloFriendly} onChange={() => setPrefSoloFriendly((v) => !v)} label="Prefer solo-friendly activities" />}
+          last
+        />
+        <div style={{ marginTop: 16 }}>
+          <Button onClick={handleSave} disabled={saving}>{saving ? "Saving…" : saved ? "Saved" : "Save"}</Button>
+        </div>
+      </SettingsSection>
+    </div>
+  );
+}
+
+// --- Privacy & accessibility (split out of ProfileDetailsPanel) ------------
+
+function PrivacyAccessibilityPanel() {
+  const [accessibility, setAccessibility] = useState<string[]>([]);
+  const [hideFromFamiliarCount, setHideFromFamiliarCount] = useState(false);
+  const [discoverableByName, setDiscoverableByName] = useState(false);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetchResidentFull()
+      .then(({ resident: r }) => {
+        if (!r) return;
+        setAccessibility(r.accessibilityPrefs);
+        setHideFromFamiliarCount(r.hideFromFamiliarCount);
+        setDiscoverableByName(r.discoverableByName);
+      })
+      .finally(() => setLoading(false));
+  }, []);
 
   const toggleAccessibility = async (opt: string) => {
     const next = accessibility.includes(opt) ? accessibility.filter((a) => a !== opt) : [...accessibility, opt];
     setAccessibility(next);
     await saveAccessibilityPrefs(next);
-  };
-
-  const toggleGoal = (opt: string) => {
-    setGoals((gs) => (gs.includes(opt) ? gs.filter((g) => g !== opt) : [...gs, opt]));
-  };
-
-  const handleSaveComfort = async () => {
-    setComfortSaving(true);
-    try {
-      await saveOnboarding({ goals, prefGroupSize, prefBeginnerFriendly, prefSoloFriendly, prefBudget });
-    } finally {
-      setComfortSaving(false);
-    }
   };
 
   const toggleHideFromFamiliarCount = async () => {
@@ -744,87 +1291,11 @@ function ProfileDetailsPanel() {
     await updatePrivacyPrefs({ discoverableByName: next });
   };
 
-  const handleSavePassword = async () => {
-    setPwError(null);
-    setPwSaved(false);
-    if (newPassword.length < 8) {
-      setPwError("Password must be at least 8 characters");
-      return;
-    }
-    setPwSaving(true);
-    try {
-      await changeResidentPassword({ currentPassword: hasPassword ? currentPassword : undefined, newPassword });
-      setHasPassword(true);
-      setCurrentPassword("");
-      setNewPassword("");
-      setPwSaved(true);
-    } catch (e) {
-      setPwError(e instanceof Error ? e.message : "Couldn't update your password");
-    } finally {
-      setPwSaving(false);
-    }
-  };
+  if (loading) return <RowSkeleton />;
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 20, maxWidth: 480 }}>
-      <div style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: radius.card, padding: "18px 20px" }}>
-        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-          <div>
-            <label style={labelStyle}>Name</label>
-            <input value={name} onChange={(e) => setName(e.target.value)} style={inputStyle} />
-          </div>
-          <div>
-            <label style={labelStyle}>Home county</label>
-            <input value={homeCounty} onChange={(e) => setHomeCounty(e.target.value)} style={inputStyle} />
-          </div>
-          <Button onClick={handleSave} disabled={saving}>
-            {saving ? "Saving…" : saved ? "Saved" : "Save"}
-          </Button>
-          <button onClick={() => navigate("/onboarding")} style={{ background: "none", border: "none", padding: 0, color: colors.greenText, fontWeight: 700, fontSize: 13, cursor: "pointer", textAlign: "left" }}>
-            Revisit interests & availability
-          </button>
-        </div>
-      </div>
-
-      <div style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: radius.card, padding: "18px 20px" }}>
-        <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>Password</div>
-        <p style={{ fontSize: 12.5, color: colors.mutedLight, margin: "0 0 12px" }}>
-          {hasPassword
-            ? "Change your password below, or keep using email sign-in links instead — either always works."
-            : "Optional — set a password so you don't have to wait on an email link next time. Sign-in links keep working either way."}
-        </p>
-        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          {hasPassword && (
-            <div>
-              <label style={labelStyle}>Current password</label>
-              <input type="password" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} style={inputStyle} />
-            </div>
-          )}
-          <div>
-            <label style={labelStyle}>{hasPassword ? "New password" : "Password"}</label>
-            <input type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} style={inputStyle} />
-          </div>
-          <Button onClick={handleSavePassword} disabled={pwSaving || !newPassword || (hasPassword && !currentPassword)}>
-            {pwSaving ? "Saving…" : pwSaved ? "Saved" : hasPassword ? "Change password" : "Set password"}
-          </Button>
-          {pwError && <div style={{ color: colors.danger, fontSize: 12.5 }}>{pwError}</div>}
-        </div>
-      </div>
-
-      <div style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: radius.card, padding: "18px 20px" }}>
-        <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 12 }}>Notifications</div>
-        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          {NOTIFICATION_CATEGORIES.map((c) => (
-            <label key={c.key} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 14 }}>
-              {c.label}
-              <input type="checkbox" checked={notifPrefs[c.key] !== false} onChange={() => toggleNotifPref(c.key)} style={{ accentColor: colors.green }} />
-            </label>
-          ))}
-        </div>
-      </div>
-
-      <div style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: radius.card, padding: "18px 20px" }}>
-        <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>Accessibility</div>
+    <div>
+      <SettingsSection title="Accessibility">
         <p style={{ fontSize: 12.5, color: colors.mutedLight, margin: "0 0 12px" }}>Used to improve filtering — never shown to other participants.</p>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
           {ACCESSIBILITY_OPTIONS.map((opt) => (
@@ -842,74 +1313,51 @@ function ProfileDetailsPanel() {
             </button>
           ))}
         </div>
-      </div>
+      </SettingsSection>
 
-      <div style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: radius.card, padding: "18px 20px" }}>
-        <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>Participation comfort</div>
-        <p style={{ fontSize: 12.5, color: colors.mutedLight, margin: "0 0 12px" }}>Set once during onboarding — edit any time here.</p>
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 14 }}>
-          {GOAL_OPTIONS.map((opt) => (
-            <button
-              key={opt}
-              onClick={() => toggleGoal(opt)}
-              style={{
-                border: `1px solid ${goals.includes(opt) ? colors.green : colors.border}`,
-                background: goals.includes(opt) ? colors.greenBg : colors.surface,
-                color: goals.includes(opt) ? colors.greenText : colors.text,
-                borderRadius: radius.pill, padding: "6px 12px", fontSize: 12.5, fontWeight: 600, cursor: "pointer",
-              }}
-            >
-              {opt}
-            </button>
-          ))}
-        </div>
-        <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 14 }}>
-          <div>
-            <label style={labelStyle}>Preferred group size</label>
-            <select value={prefGroupSize} onChange={(e) => setPrefGroupSize(e.target.value)} style={inputStyle}>
-              <option value="">No preference</option>
-              {GROUP_SIZE_OPTIONS.map((o) => (
-                <option key={o.key} value={o.key}>{o.label}</option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label style={labelStyle}>Budget</label>
-            <select value={prefBudget} onChange={(e) => setPrefBudget(e.target.value)} style={inputStyle}>
-              <option value="">No preference</option>
-              {BUDGET_OPTIONS.map((o) => (
-                <option key={o.key} value={o.key}>{o.label}</option>
-              ))}
-            </select>
-          </div>
-          <label style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 14 }}>
-            Prefer beginner-friendly activities
-            <input type="checkbox" checked={prefBeginnerFriendly} onChange={(e) => setPrefBeginnerFriendly(e.target.checked)} style={{ accentColor: colors.green }} />
-          </label>
-          <label style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 14 }}>
-            Prefer solo-friendly activities
-            <input type="checkbox" checked={prefSoloFriendly} onChange={(e) => setPrefSoloFriendly(e.target.checked)} style={{ accentColor: colors.green }} />
-          </label>
-        </div>
-        <Button onClick={handleSaveComfort} disabled={comfortSaving}>{comfortSaving ? "Saving…" : "Save"}</Button>
-      </div>
+      <SettingsSection title="Who can find you" last>
+        <SettingsRow
+          label="Hide from familiar faces"
+          description="Other residents won't see you counted among the people they've been to things with"
+          control={<Switch checked={hideFromFamiliarCount} onChange={toggleHideFromFamiliarCount} label="Hide me from other people's familiar faces counts" />}
+        />
+        <SettingsRow
+          label="Discoverable by name"
+          description="Lets someone searching by name find and invite you to a Circle"
+          control={<Switch checked={discoverableByName} onChange={toggleDiscoverableByName} label="Let other residents find me by name when inviting to a Circle" />}
+          last
+        />
+        <p style={{ fontSize: 12, color: colors.faint, margin: "12px 0 0" }}>Off by default. Only your name is ever shown — never your email or phone.</p>
+      </SettingsSection>
+    </div>
+  );
+}
 
-      <div style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: radius.card, padding: "18px 20px" }}>
-        <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>Privacy</div>
-        <label style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 14, marginTop: 10 }}>
-          <span>Hide me from other people's "familiar faces" counts</span>
-          <input type="checkbox" checked={hideFromFamiliarCount} onChange={toggleHideFromFamiliarCount} style={{ accentColor: colors.green }} />
-        </label>
-        <label style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 14, marginTop: 12 }}>
-          <span>Let other residents find me by name when inviting to a Circle</span>
-          <input type="checkbox" checked={discoverableByName} onChange={toggleDiscoverableByName} style={{ accentColor: colors.green }} />
-        </label>
-        <p style={{ fontSize: 12, color: colors.faint, margin: "8px 0 0" }}>Off by default. Only your name is ever shown — never your email or phone.</p>
-      </div>
+// --- Hosting (host application + host dashboard + become-a-provider +
+// search alerts — relocated unchanged from the bottom of the old
+// ProfileDetailsPanel scroll into their own nav item) ------------------------
 
-      <PaymentMethodsPanel />
+function HostingPanel() {
+  const { resident } = useGuest();
+  const [hostStatus, setHostStatus] = useState<HostStatus>("none");
+  const [hostBio, setHostBio] = useState("");
+  const [hostPhone, setHostPhone] = useState("");
+
+  const load = () => {
+    fetchResidentFull().then(({ resident: r }) => {
+      if (!r) return;
+      setHostStatus(r.hostStatus);
+      setHostBio(r.hostBio);
+      setHostPhone(r.hostPhone);
+    });
+  };
+
+  useEffect(load, []);
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       {resident && <HostDashboardPanel residentId={resident.id} />}
-      <HostApplicationPanel hostStatus={hostStatus} hostBio={hostBio} hostPhone={hostPhone} onApplied={loadProfile} />
+      <HostApplicationPanel hostStatus={hostStatus} hostBio={hostBio} hostPhone={hostPhone} onApplied={load} />
       <BecomeProviderPanel hostStatus={hostStatus} />
       <SearchAlertsPanel />
     </div>
@@ -943,42 +1391,42 @@ function SafetyCentrePanel() {
   if (loading) return <RowSkeleton />;
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 20, maxWidth: 520 }}>
-      <div style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: radius.card, padding: "18px 20px" }}>
-        <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>Blocked people</div>
-        <p style={{ fontSize: 12.5, color: colors.mutedLight, margin: "0 0 12px" }}>
+    <div>
+      <SettingsSection title="Blocked people">
+        <p style={{ fontSize: 12.5, color: colors.mutedLight, margin: "0 0 4px" }}>
           People you've blocked won't be suggested as familiar faces. Block someone from a Circle or Game's chat.
         </p>
         {blocked.length === 0 ? (
-          <p style={{ fontSize: 13.5, color: colors.mutedLight, margin: 0 }}>You haven't blocked anyone.</p>
+          <p style={{ fontSize: 13.5, color: colors.mutedLight, margin: "12px 0 0" }}>You haven't blocked anyone.</p>
         ) : (
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {blocked.map((b) => (
-              <div key={b.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 14 }}>
-                <span>{b.name}</span>
-                <Button variant="ghost" onClick={() => handleUnblock(b.id)}>Unblock</Button>
-              </div>
-            ))}
-          </div>
+          blocked.map((b, i) => (
+            <SettingsRow
+              key={b.id}
+              label={b.name}
+              control={<Button variant="ghost" onClick={() => handleUnblock(b.id)}>Unblock</Button>}
+              last={i === blocked.length - 1}
+            />
+          ))
         )}
-      </div>
+      </SettingsSection>
 
-      <div style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: radius.card, padding: "18px 20px" }}>
-        <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>Your reports</div>
-        <p style={{ fontSize: 12.5, color: colors.mutedLight, margin: "0 0 12px" }}>Content or people you've reported, and their review status.</p>
+      <SettingsSection title="Your reports" last>
+        <p style={{ fontSize: 12.5, color: colors.mutedLight, margin: "0 0 4px" }}>Content or people you've reported, and their review status.</p>
         {reports.length === 0 ? (
-          <p style={{ fontSize: 13.5, color: colors.mutedLight, margin: 0 }}>You haven't reported anything.</p>
+          <p style={{ fontSize: 13.5, color: colors.mutedLight, margin: "12px 0 0" }}>You haven't reported anything.</p>
         ) : (
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {reports.map((r) => (
-              <div key={r.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 13.5 }}>
-                <span>{r.targetType} · {r.reason}</span>
+          reports.map((r, i) => (
+            <SettingsRow
+              key={r.id}
+              label={`${r.targetType} · ${r.reason}`}
+              control={
                 <span style={{ fontSize: 12, fontWeight: 700, color: r.status === "pending" ? colors.orangeDark : colors.greenText }}>{r.status}</span>
-              </div>
-            ))}
-          </div>
+              }
+              last={i === reports.length - 1}
+            />
+          ))
         )}
-      </div>
+      </SettingsSection>
     </div>
   );
 }
@@ -1012,28 +1460,37 @@ function HelpSupportPanel() {
 
 // --- Page shell --------------------------------------------------------
 
-type ProfileTab = "profile" | "household" | "favourites" | "following" | "routines" | "notifications" | "passes" | "receipts" | "safety" | "help";
+type ProfileSection =
+  | "account" | "notificationPrefs" | "preferences" | "privacy" | "payment"
+  | "household" | "favourites" | "following" | "routines" | "passes" | "receipts" | "inbox"
+  | "hosting"
+  | "safety" | "help";
 
-const PRIMARY_TABS: { key: ProfileTab; label: string }[] = [
-  { key: "profile", label: "Profile" },
-  { key: "household", label: "Household" },
-];
-const MORE_TABS: { key: ProfileTab; label: string }[] = [
-  { key: "favourites", label: "Saved" },
-  { key: "following", label: "Following" },
-  { key: "routines", label: "Routines" },
-  { key: "notifications", label: "Notifications" },
-  { key: "passes", label: "Passes" },
-  { key: "receipts", label: "Receipts" },
-  { key: "safety", label: "Safety Centre" },
-  { key: "help", label: "Help & Support" },
+const NAV_OPTIONS: { key: ProfileSection; label: string; icon: ReactNode; group: string }[] = [
+  { key: "account", label: "Profile details", icon: <IdCardIcon size={15} />, group: "Account" },
+  { key: "notificationPrefs", label: "Notification settings", icon: <MailIcon size={15} />, group: "Account" },
+  { key: "preferences", label: "Interests & Discovery", icon: <LightbulbIcon size={15} />, group: "Account" },
+  { key: "privacy", label: "Privacy & accessibility", icon: <EyeOffIcon size={15} />, group: "Account" },
+  { key: "payment", label: "Payment methods", icon: <CardIcon size={15} />, group: "Account" },
+
+  { key: "household", label: "Household", icon: <UsersIcon size={15} />, group: "Household & plans" },
+  { key: "favourites", label: "Saved", icon: <HeartIcon size={15} />, group: "Household & plans" },
+  { key: "following", label: "Following", icon: <PersonIcon size={15} />, group: "Household & plans" },
+  { key: "routines", label: "Routines", icon: <RepeatIcon size={15} />, group: "Household & plans" },
+  { key: "passes", label: "Passes", icon: <TagIcon size={15} />, group: "Household & plans" },
+  { key: "receipts", label: "Receipts", icon: <ClipboardIcon size={15} />, group: "Household & plans" },
+  { key: "inbox", label: "Notifications", icon: <BellIcon size={15} />, group: "Household & plans" },
+
+  { key: "hosting", label: "Become a host", icon: <AwardIcon size={15} />, group: "Hosting" },
+
+  { key: "safety", label: "Safety Centre", icon: <ShieldIcon size={15} />, group: "Support" },
+  { key: "help", label: "Help & Support", icon: <ChatIcon size={15} />, group: "Support" },
 ];
 
 export function Profile() {
   const navigate = useNavigate();
   const { resident, loading: guestLoading } = useGuest();
-  const [tab, setTab] = useState<ProfileTab>("profile");
-  const [moreMenuOpen, setMoreMenuOpen] = useState(false);
+  const [section, setSection] = useState<ProfileSection>("account");
 
   if (!guestLoading && !resident) {
     return (
@@ -1046,62 +1503,30 @@ export function Profile() {
   }
 
   return (
-    <div style={{ animation: "fadeUp .3s ease both" }}>
-      <section className="section-pad" style={{ maxWidth: 900, margin: "0 auto", padding: "36px 24px 80px" }}>
-        <PageTitle style={{ margin: "0 0 20px" }}>Profile & settings</PageTitle>
-
-        <div style={{ marginBottom: 24, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-start" }}>
-          <Tabs value={tab} onChange={setTab} options={PRIMARY_TABS} />
-          <div style={{ position: "relative" }}>
-            <button
-              className={`tab-btn ${MORE_TABS.some((t) => t.key === tab) ? "tab-btn-active" : ""}`}
-              onClick={() => setMoreMenuOpen((o) => !o)}
-              style={{
-                display: "inline-flex", alignItems: "center", gap: 4, borderRadius: radius.control, fontWeight: 700, fontSize: 14, padding: "9px 16px",
-                background: MORE_TABS.some((t) => t.key === tab) ? colors.dark : colors.surface,
-                color: MORE_TABS.some((t) => t.key === tab) ? "#fff" : colors.text,
-                border: MORE_TABS.some((t) => t.key === tab) ? "none" : `1px solid ${colors.borderStrong}`,
-              }}
-            >
-              More <ChevronRightIcon size={13} style={{ transform: moreMenuOpen ? "rotate(90deg)" : "none", transition: "transform .15s ease" }} />
-            </button>
-            {moreMenuOpen && (
-              <div
-                className="pop-in"
-                style={{ position: "absolute", top: "calc(100% + 8px)", left: 0, zIndex: 30, minWidth: 180, background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 14, boxShadow: "0 16px 36px rgba(30,40,32,.14)", padding: 8 }}
-              >
-                {MORE_TABS.map((t) => (
-                  <button
-                    key={t.key}
-                    className="dropdown-item"
-                    onClick={() => {
-                      setTab(t.key);
-                      setMoreMenuOpen(false);
-                    }}
-                    style={{
-                      display: "block", width: "100%", background: t.key === tab ? colors.panel : "none", border: "none", borderRadius: radius.control,
-                      padding: "10px 12px", fontSize: 14.5, fontWeight: t.key === tab ? 700 : 600, color: colors.text, textAlign: "left", cursor: "pointer",
-                    }}
-                  >
-                    {t.label}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-
-        {tab === "profile" && <ProfileDetailsPanel />}
-        {tab === "household" && <HouseholdPanel />}
-        {tab === "favourites" && <FavouritesPanel />}
-        {tab === "following" && <FollowingPanel />}
-        {tab === "routines" && <RoutinesPanel />}
-        {tab === "notifications" && <NotificationsPanel />}
-        {tab === "passes" && <PassesPanel />}
-        {tab === "receipts" && <ReceiptsPanel />}
-        {tab === "safety" && <SafetyCentrePanel />}
-        {tab === "help" && <HelpSupportPanel />}
-      </section>
-    </div>
+    <ManageShell
+      navTitle="Profile & settings"
+      navOptions={NAV_OPTIONS}
+      activeKey={section}
+      onNavChange={setSection}
+      pageTitle={NAV_OPTIONS.find((o) => o.key === section)?.label}
+      banner={<ProfileIdentityBanner onEdit={() => setSection("account")} />}
+      showNavLogo={false}
+    >
+      {section === "account" && <AccountDetailsPanel />}
+      {section === "notificationPrefs" && <NotificationPrefsPanel />}
+      {section === "preferences" && <ParticipationPreferencesPanel />}
+      {section === "privacy" && <PrivacyAccessibilityPanel />}
+      {section === "payment" && <PaymentMethodsPanel />}
+      {section === "household" && <HouseholdPanel />}
+      {section === "favourites" && <FavouritesPanel />}
+      {section === "following" && <FollowingPanel />}
+      {section === "routines" && <RoutinesPanel />}
+      {section === "passes" && <PassesPanel />}
+      {section === "receipts" && <ReceiptsPanel />}
+      {section === "inbox" && <NotificationInboxPanel />}
+      {section === "hosting" && <HostingPanel />}
+      {section === "safety" && <SafetyCentrePanel />}
+      {section === "help" && <HelpSupportPanel />}
+    </ManageShell>
   );
 }

@@ -58,6 +58,10 @@ guestAuthRouter.post("/verify", async (req, res) => {
   // password or a separate signup step.
   res.cookie(GUEST_SESSION_COOKIE, sessionToken, cookieOpts);
   await findOrCreateResident(email);
+  // Proof of inbox access — set once, on the first magic-link verify ever
+  // (COALESCE keeps the original timestamp on every later one). Password-
+  // only signup below never reaches this route, so never sets it.
+  await db.prepare(`UPDATE residents SET email_verified_at = COALESCE(email_verified_at, NOW()) WHERE email = ?`).run(email);
   // Mobile has no cookie jar, so it needs the raw session token back in the
   // response body instead — additive only, web's response shape is unchanged.
   const isNative = req.header("X-Client-Platform") === "mobile";

@@ -295,6 +295,9 @@ export interface Resident {
   homeLat: number | null;
   homeLng: number | null;
   createdAt: string;
+  /** An /uploads/<uuid>.<ext> path (same multer pipeline listing photos use),
+   * or null — Avatar (client/src/components/ui.tsx) falls back to initials. */
+  avatarUrl: string | null;
 }
 
 export interface HouseholdMember {
@@ -1009,6 +1012,10 @@ export interface ResidentFull extends Resident {
    * whether or not their account also has magic-link history. Never the
    * password/hash itself, just whether one exists. */
   hasPassword: boolean;
+  /** Set once, on the first magic-link verify ever (routes/guestAuth.ts's
+   * POST /verify) — proof this email's inbox was actually opened. Password-
+   * only signup never sets it, since it never requires that. */
+  emailVerified: boolean;
 }
 
 /** Circle invite picker (implementation backlog #3) — deliberately name-

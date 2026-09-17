@@ -230,7 +230,7 @@ async function familiarMembersFor(circleId: string, residentId: string): Promise
     .prepare(
       `SELECT COUNT(DISTINCT cm.resident_id) as n FROM circle_members cm
        JOIN residents r ON r.id = cm.resident_id
-       WHERE cm.circle_id = ? AND cm.resident_id != ? AND r.hide_from_familiar_count = 0
+       WHERE cm.circle_id = ? AND cm.resident_id != ? AND r.hide_from_familiar_count = 0 AND r.deactivated_at IS NULL
          AND NOT EXISTS (
            SELECT 1 FROM blocked_residents br
            WHERE (br.blocker_resident_id = ? AND br.blocked_resident_id = cm.resident_id)

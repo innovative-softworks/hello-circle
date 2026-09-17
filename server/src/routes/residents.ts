@@ -1,16 +1,46 @@
 import crypto from "node:crypto";
+import fs from "node:fs";
+import path from "node:path";
 import { Router } from "express";
+import multer from "multer";
 import { hashPassword, verifyPassword } from "../auth.js";
+import { dataDir } from "../dataDir.js";
 import { db } from "../db/index.js";
 import { getRoutineSuggestions, listResidentParticipation, reviewStats } from "../db/queries.js";
 import { irelandTodayIso } from "../irelandTime.js";
 import { MOOD_KEYWORDS } from "./discover.js";
 import { getResidentPasswordHash, requireResident, setResidentPassword, updateResident } from "../residents.js";
+import { GUEST_SESSION_COOKIE, destroyGuestSession } from "../guestAuth.js";
 import { passwordLoginLimiter } from "../rateLimit.js";
 import { stripe } from "../stripe.js";
 import { BadRequestError, clientIdFrom } from "../util.js";
 
 export const residentsRouter = Router();
+
+// Profile photo — same multer pipeline/mimetype allowlist as
+// routes/uploads.ts, duplicated rather than reused because that router is
+// deliberately requireVendorOrAdmin-gated and shouldn't grow a resident
+// carve-out; this one is requireResident-gated instead and writes into the
+// same shared uploads/ dir either way, so both are served identically by
+// index.ts's existing /uploads static mount.
+const AVATAR_MIME_EXT: Record<string, string> = {
+  "image/jpeg": ".jpg",
+  "image/png": ".png",
+  "image/webp": ".webp",
+};
+const avatarUploadDir = path.join(dataDir, "uploads");
+fs.mkdirSync(avatarUploadDir, { recursive: true });
+const avatarUpload = multer({
+  storage: multer.diskStorage({
+    destination: avatarUploadDir,
+    filename: (_req, file, cb) => cb(null, `${crypto.randomUUID()}${AVATAR_MIME_EXT[file.mimetype] ?? ""}`),
+  }),
+  limits: { fileSize: 4 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    if (!(file.mimetype in AVATAR_MIME_EXT)) return cb(new Error("Only JPEG, PNG or WebP images are allowed"));
+    cb(null, true);
+  },
+});
 
 // Everything this person has done or is doing, across all 5 participation
 // tables — the shared foundation Phase 0's per-type "mine" endpoints
@@ -42,7 +72,7 @@ residentsRouter.get("/me", async (req, res) => {
               goals, pref_group_size as prefGroupSize, pref_beginner_friendly as prefBeginnerFriendly,
               pref_solo_friendly as prefSoloFriendly, pref_budget as prefBudget,
               hide_from_familiar_count as hideFromFamiliarCount, discoverable_by_name as discoverableByName,
-              (password_hash IS NOT NULL) as hasPassword
+              (password_hash IS NOT NULL) as hasPassword, (email_verified_at IS NOT NULL) as emailVerified
        FROM residents WHERE id = ?`
     )
     .get(req.resident.id)) as {
@@ -63,6 +93,7 @@ residentsRouter.get("/me", async (req, res) => {
     hideFromFamiliarCount: number;
     discoverableByName: number;
     hasPassword: number;
+    emailVerified: number;
   };
   res.json({
     resident: {
@@ -84,6 +115,7 @@ residentsRouter.get("/me", async (req, res) => {
       hideFromFamiliarCount: !!row.hideFromFamiliarCount,
       discoverableByName: !!row.discoverableByName,
       hasPassword: !!row.hasPassword,
+      emailVerified: !!row.emailVerified,
     },
   });
 });
@@ -92,6 +124,85 @@ residentsRouter.put("/me", requireResident, async (req, res) => {
   const { name, homeCounty, homeLat, homeLng } = req.body as { name?: string; homeCounty?: string; homeLat?: number; homeLng?: number };
   await updateResident(req.resident!.id, { name, homeCounty, homeLat, homeLng });
   res.json({ ok: true });
+});
+
+residentsRouter.post("/me/avatar", requireResident, avatarUpload.single("file"), async (req, res) => {
+  if (!req.file) return res.status(400).json({ error: "No file uploaded" });
+  const url = `/uploads/${req.file.filename}`;
+  const previous = req.resident!.avatarUrl;
+  await db.prepare(`UPDATE residents SET avatar_url = ? WHERE id = ?`).run(url, req.resident!.id);
+  // Best-effort cleanup of the file it's replacing — never blocks the
+  // response on it, matching this app's general "an upload failure never
+  // blocks the thing it's attached to" convention (see notifications.ts).
+  if (previous) {
+    fs.unlink(path.join(dataDir, previous), () => {});
+  }
+  res.status(201).json({ avatarUrl: url });
+});
+
+residentsRouter.delete("/me/avatar", requireResident, async (req, res) => {
+  const previous = req.resident!.avatarUrl;
+  await db.prepare(`UPDATE residents SET avatar_url = NULL WHERE id = ?`).run(req.resident!.id);
+  if (previous) {
+    fs.unlink(path.join(dataDir, previous), () => {});
+  }
+  res.json({ ok: true });
+});
+
+residentsRouter.use((err: Error, _req: unknown, res: import("express").Response, next: (err?: unknown) => void) => {
+  if (err instanceof multer.MulterError || err.message.includes("images are allowed")) {
+    return res.status(400).json({ error: err.message });
+  }
+  next(err);
+});
+
+// Account deactivation (Profile redesign follow-up) — soft, self-reversing
+// (see db/index.ts's `deactivated_at` schema comment for why this isn't a
+// real delete, and guestAuth.ts's createGuestSession() for the reactivate-
+// on-next-sign-in side). Ends the current session immediately, same as a
+// manual sign-out, since staying "logged in" while deactivated makes no
+// sense — every page here reads req.resident, which a redeactivated row
+// would still populate.
+residentsRouter.post("/me/deactivate", requireResident, async (req, res) => {
+  await db.prepare(`UPDATE residents SET deactivated_at = NOW() WHERE id = ?`).run(req.resident!.id);
+  const token = req.cookies?.[GUEST_SESSION_COOKIE] as string | undefined;
+  if (token) await destroyGuestSession(token);
+  res.clearCookie(GUEST_SESSION_COOKIE);
+  res.json({ ok: true });
+});
+
+// Data export ("download my data") — a single JSON snapshot of everything
+// this resident's own settings pages already show them piecemeal (profile,
+// household, favourites, notifications, blocked people, reports). Bookings/
+// registrations/receipts already have their own full history under My Life/
+// Receipts and aren't re-aggregated here — this is the account/profile side
+// of "my data", not a GDPR-certified full export of every payment record.
+residentsRouter.get("/me/export", requireResident, async (req, res) => {
+  const residentId = req.resident!.id;
+  // Reports are keyed by X-Client-Id, not resident id — reporting itself
+  // never required being signed in (see routes/reports.ts) — so this only
+  // finds reports filed from the same browser/device requesting the export,
+  // same scoping GET /reports/mine already uses.
+  let clientId: string | null = null;
+  try {
+    clientId = clientIdFrom(req);
+  } catch {
+    // No/invalid X-Client-Id — export everything else, just skip reports.
+  }
+  const [profileRow, household, favourites, notifications, blocked, reports] = await Promise.all([
+    db.prepare(`SELECT * FROM residents WHERE id = ?`).get(residentId),
+    db.prepare(`SELECT first_name, last_name, dob, guardian_consent_given FROM household_members WHERE resident_id = ?`).all(residentId),
+    db.prepare(`SELECT listing_type, listing_id, status FROM favourites WHERE resident_id = ?`).all(residentId),
+    db.prepare(`SELECT title, body, created_at, \`read\` FROM notifications WHERE resident_id = ?`).all(residentId),
+    db.prepare(`SELECT blocked_resident_id, created_at FROM blocked_residents WHERE blocker_resident_id = ?`).all(residentId),
+    clientId
+      ? db.prepare(`SELECT target_type, reason, status, created_at FROM reports WHERE reporter_client_id = ?`).all(clientId)
+      : [],
+  ]);
+  const profile = profileRow as Record<string, unknown> | undefined;
+  if (profile) delete profile.password_hash;
+  res.setHeader("Content-Disposition", `attachment; filename="hellocircle-data-${residentId}.json"`);
+  res.json({ exportedAt: new Date().toISOString(), profile, household, favourites, notifications, blocked, reports });
 });
 
 // --- Host tier (IA spec five-layer audit) ---------------------------------
@@ -520,7 +631,7 @@ residentsRouter.get("/search", requireResident, async (req, res) => {
   if (q.length < 2) return res.json([]);
   const rows = await db
     .prepare(
-      `SELECT id, name FROM residents WHERE discoverable_by_name = 1 AND id != ? AND name LIKE ? ORDER BY name LIMIT 10`
+      `SELECT id, name FROM residents WHERE discoverable_by_name = 1 AND deactivated_at IS NULL AND id != ? AND name LIKE ? ORDER BY name LIMIT 10`
     )
     .all(req.resident!.id, `%${q}%`);
   res.json(rows);

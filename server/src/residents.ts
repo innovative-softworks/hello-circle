@@ -10,6 +10,7 @@ export interface Resident {
   homeLat: number | null;
   homeLng: number | null;
   createdAt: string;
+  avatarUrl: string | null;
 }
 
 interface ResidentRow {
@@ -20,6 +21,7 @@ interface ResidentRow {
   home_lat: number | null;
   home_lng: number | null;
   created_at: string;
+  avatar_url: string | null;
 }
 
 function rowToResident(row: ResidentRow): Resident {
@@ -31,6 +33,7 @@ function rowToResident(row: ResidentRow): Resident {
     homeLat: row.home_lat,
     homeLng: row.home_lng,
     createdAt: row.created_at,
+    avatarUrl: row.avatar_url,
   };
 }
 
@@ -59,7 +62,7 @@ export async function findOrCreateResident(email: string): Promise<Resident> {
   if (existing) return existing;
   const id = crypto.randomUUID();
   await db.prepare(`INSERT INTO residents (id, email) VALUES (?, ?)`).run(id, normalized);
-  return { id, email: normalized, name: "", homeCounty: "", homeLat: null, homeLng: null, createdAt: new Date().toISOString() };
+  return { id, email: normalized, name: "", homeCounty: "", homeLat: null, homeLng: null, createdAt: new Date().toISOString(), avatarUrl: null };
 }
 
 export async function updateResident(
@@ -114,7 +117,7 @@ export async function createResidentWithPassword(email: string, passwordHash: st
   }
   const id = crypto.randomUUID();
   await db.prepare(`INSERT INTO residents (id, email, name, password_hash) VALUES (?, ?, ?, ?)`).run(id, normalized, name.trim(), passwordHash);
-  return { id, email: normalized, name: name.trim(), homeCounty: "", homeLat: null, homeLng: null, createdAt: new Date().toISOString() };
+  return { id, email: normalized, name: name.trim(), homeCounty: "", homeLat: null, homeLng: null, createdAt: new Date().toISOString(), avatarUrl: null };
 }
 
 /** Resolves req.resident from req.guestEmail (set by attachGuestEmail) —

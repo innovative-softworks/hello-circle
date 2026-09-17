@@ -765,7 +765,7 @@ export async function countFamiliarCoParticipants(residentId: string, gameId: st
       `SELECT COUNT(DISTINCT gp_now.resident_id) as n
        FROM game_participants gp_now
        JOIN residents r ON r.id = gp_now.resident_id
-       WHERE gp_now.game_id = ? AND gp_now.status = 'joined' AND gp_now.resident_id != ? AND r.hide_from_familiar_count = 0
+       WHERE gp_now.game_id = ? AND gp_now.status = 'joined' AND gp_now.resident_id != ? AND r.hide_from_familiar_count = 0 AND r.deactivated_at IS NULL
          AND NOT EXISTS (
            SELECT 1 FROM blocked_residents br
            WHERE (br.blocker_resident_id = ? AND br.blocked_resident_id = gp_now.resident_id)

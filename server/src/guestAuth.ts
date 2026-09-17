@@ -46,8 +46,14 @@ export async function consumeLoginToken(token: string): Promise<string | null> {
   });
 }
 
+/** Any successful sign-in — magic link, password login, signup, or password
+ * reset — reactivates a deactivated resident, the same self-service pattern
+ * as Instagram/X's own "deactivate" (see db/index.ts's `deactivated_at`
+ * comment for why this is a soft flag rather than a real delete). A no-op
+ * UPDATE for every resident who was never deactivated. */
 export async function createGuestSession(email: string): Promise<{ token: string }> {
   const token = crypto.randomBytes(32).toString("hex");
+  await db.prepare(`UPDATE residents SET deactivated_at = NULL WHERE email = ?`).run(email);
   await db
     .prepare(`INSERT INTO guest_sessions (token, email, expires_at) VALUES (?, ?, DATE_ADD(NOW(), INTERVAL ${GUEST_SESSION_DAYS} DAY))`)
     .run(token, email);

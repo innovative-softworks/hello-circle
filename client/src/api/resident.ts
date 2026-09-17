@@ -38,7 +38,8 @@ import type {
   WaitlistOfferStatus,
   WaitlistPosition,
 } from "../types";
-import { downloadIcs, request } from "./core";
+import { getClientId } from "../clientId";
+import { downloadIcs, downloadJson, request } from "./core";
 
 // Resident/guest-facing account features — magic-link session, identity,
 // household, favourites, club waitlist, games, circles, club-session
@@ -104,6 +105,37 @@ export function fetchResidentMe(): Promise<{ resident: Resident | null }> {
 
 export function updateResidentMe(input: { name?: string; homeCounty?: string }): Promise<{ ok: boolean }> {
   return request(`/residents/me`, { method: "PUT", body: JSON.stringify(input) });
+}
+
+export async function uploadAvatar(file: File): Promise<{ avatarUrl: string }> {
+  const form = new FormData();
+  form.append("file", file);
+  const res = await fetch(`/api/residents/me/avatar`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "X-Client-Id": getClientId() },
+    body: form,
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({ error: res.statusText }));
+    throw new Error(body.error || `Upload failed: ${res.status}`);
+  }
+  return res.json();
+}
+
+export function removeAvatar(): Promise<{ ok: boolean }> {
+  return request(`/residents/me/avatar`, { method: "DELETE" });
+}
+
+/** Ends the current session immediately — see server/src/routes/
+ * residents.ts's own comment on why (staying "logged in" while deactivated
+ * doesn't make sense). Self-reverses on the next successful sign-in. */
+export function deactivateAccount(): Promise<{ ok: boolean }> {
+  return request(`/residents/me/deactivate`, { method: "POST" });
+}
+
+export function exportMyData(): Promise<void> {
+  return downloadJson(`/residents/me/export`, "hellocircle-data.json");
 }
 
 export function fetchResidentNotifications(): Promise<ResidentNotification[]> {

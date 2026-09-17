@@ -25,11 +25,12 @@ export function ManageShell<T extends string>({
   banner,
   pageTitle,
   headerActions,
+  showNavLogo = true,
   children,
 }: {
   /** NavSidebar's own header text, e.g. "Vendor dashboard". */
   navTitle: string;
-  navOptions: { key: T; label: string; icon?: ReactNode }[];
+  navOptions: { key: T; label: string; icon?: ReactNode; group?: string }[];
   activeKey: T;
   onNavChange: (v: T) => void;
   /** Rendered above the sidebar/title row — typically the colored
@@ -38,6 +39,10 @@ export function ManageShell<T extends string>({
   pageTitle: ReactNode;
   /** Right-aligned actions next to pageTitle, e.g. an "Add program" button. */
   headerActions?: ReactNode;
+  /** Passed through to NavRail — false for pages (like Profile) that already
+   * sit under the app's own header, where a second logo repeats the brand
+   * mark with nothing new to say. */
+  showNavLogo?: boolean;
   children: ReactNode;
 }) {
   const [navOpen, setNavOpen] = useState(false);
@@ -58,7 +63,7 @@ export function ManageShell<T extends string>({
         <NavSidebar open={navOpen} onClose={() => setNavOpen(false)} title={navTitle} options={navOptions} value={activeKey} onChange={onNavChange} />
 
         <div className="manage-shell-grid">
-          <NavRail title={navTitle} options={navOptions} value={activeKey} onChange={onNavChange} />
+          <NavRail title={navTitle} options={navOptions} value={activeKey} onChange={onNavChange} showLogo={showNavLogo} />
 
           <div style={{ minWidth: 0 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 16, marginBottom: 18 }}>
