@@ -1,4 +1,5 @@
 import nodemailer from "nodemailer";
+import { CLIENT_URL } from "./stripe.js";
 
 const SMTP_HOST = process.env.SMTP_HOST;
 const SMTP_PORT = Number(process.env.SMTP_PORT) || 587;
@@ -93,8 +94,8 @@ function wrapEmailHtml(subject: string, bodyHtml: string): string {
         <td align="center" style="padding:32px 16px;">
           <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:480px;background-color:#ffffff;border:1px solid #e7e4dc;border-radius:16px;">
             <tr>
-              <td style="padding:22px 32px;border-bottom:1px solid #e7e4dc;">
-                <span style="font-family:${EMAIL_FONT};font-size:17px;font-weight:800;color:#1e2420;"><span style="color:#c74c1a;">●</span> Hello Circle</span>
+              <td style="padding:20px 32px;border-bottom:1px solid #e7e4dc;">
+                <img src="${CLIENT_URL}/illustrations/logo-email.png" width="114" height="26" alt="Hello Circle" style="display:block;width:114px;height:26px;border:0;">
               </td>
             </tr>
             <tr>
