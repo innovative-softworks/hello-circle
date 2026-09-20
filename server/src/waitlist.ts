@@ -54,6 +54,7 @@ export async function promoteNextWaitlistEntry(listingType: "club" | "game", lis
         to: next.email,
         subject: `A spot opened up — ${listingName}`,
         text: `Hi${next.name ? ` ${next.name}` : ""},\n\nA spot just opened up for ${listingName}. You have ${OFFER_WINDOW_HOURS} hours to claim it before it's offered to the next person on the waitlist.\n\n${CLIENT_URL}\n\nThanks for using Hello Circle.`,
+        cta: { label: "Claim your spot", url: CLIENT_URL },
       });
     }
   } catch (e) {

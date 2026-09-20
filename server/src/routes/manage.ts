@@ -56,10 +56,12 @@ manageRouter.post("/link/request", requireVendor, magicLinkLimiter, async (req, 
   await db
     .prepare(`INSERT INTO manage_link_tokens (token, user_id, resident_email, expires_at) VALUES (?, ?, ?, DATE_ADD(NOW(), INTERVAL ${LINK_TOKEN_MINUTES} MINUTE))`)
     .run(token, req.user!.id, normalized);
+  const confirmUrl = `${CLIENT_URL}/manage/link-confirm?token=${token}`;
   await sendMail({
     to: normalized,
     subject: "Link your HelloCircle accounts",
-    text: `Hi,\n\n${req.user!.businessName || "A HelloCircle vendor account"} wants to link this HelloCircle account so you can switch between them without signing in twice.\n\nConfirm the link:\n${CLIENT_URL}/manage/link-confirm?token=${token}\n\nThis link expires in 15 minutes. If you didn't request this, you can safely ignore it — nothing is linked until you click the link above.\n\nThanks for using HelloCircle.`,
+    text: `Hi,\n\n${req.user!.businessName || "A HelloCircle vendor account"} wants to link this HelloCircle account so you can switch between them without signing in twice.\n\nConfirm the link:\n${confirmUrl}\n\nThis link expires in 15 minutes. If you didn't request this, you can safely ignore it — nothing is linked until you click the link above.\n\nThanks for using HelloCircle.`,
+    cta: { label: "Confirm the link", url: confirmUrl },
   });
   res.json({ ok: true });
 });

@@ -111,10 +111,12 @@ orgRouter.post("/staff/invite", async (req, res) => {
     objectId: token,
     newValue: { email: email.toLowerCase().trim(), platformRole },
   });
+  const acceptUrl = `${CLIENT_URL}/accept-invite?token=${token}`;
   await sendMail({
     to: email,
     subject: "You've been invited to join a Hello Circle organisation",
-    text: `Hi,\n\nYou've been invited to join ${req.user!.businessName || "an organisation"} on Hello Circle as ${platformRole.replace(/_/g, " ")}.\n\nAccept the invite and set your password:\n${CLIENT_URL}/accept-invite?token=${token}\n\nThis link expires in 7 days.\n\nThanks for using Hello Circle.`,
+    text: `Hi,\n\nYou've been invited to join ${req.user!.businessName || "an organisation"} on Hello Circle as ${platformRole.replace(/_/g, " ")}.\n\nAccept the invite and set your password:\n${acceptUrl}\n\nThis link expires in 7 days.\n\nThanks for using Hello Circle.`,
+    cta: { label: "Accept invite", url: acceptUrl },
   });
   res.status(201).json({ ok: true });
 });

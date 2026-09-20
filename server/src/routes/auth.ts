@@ -137,10 +137,12 @@ authRouter.post("/request-reset", magicLinkLimiter, async (req, res) => {
     if (user) {
       const token = crypto.randomBytes(32).toString("hex");
       await db.prepare(`INSERT INTO password_reset_tokens (token, user_id, expires_at) VALUES (?, ?, DATE_ADD(NOW(), INTERVAL 30 MINUTE))`).run(token, user.id);
+      const resetUrl = `${CLIENT_URL}/reset-password?token=${token}`;
       await sendMail({
         to: user.email,
         subject: "Reset your Hello Circle password",
-        text: `Hi,\n\nClick the link below to set a new password:\n\n${CLIENT_URL}/reset-password?token=${token}\n\nThis link expires in 30 minutes and can only be used once. If you didn't request this, you can safely ignore it.\n\nThanks for using Hello Circle.`,
+        text: `Hi,\n\nClick the link below to set a new password:\n\n${resetUrl}\n\nThis link expires in 30 minutes and can only be used once. If you didn't request this, you can safely ignore it.\n\nThanks for using Hello Circle.`,
+        cta: { label: "Reset password", url: resetUrl },
       });
     }
   }

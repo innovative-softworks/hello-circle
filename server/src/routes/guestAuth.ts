@@ -38,6 +38,7 @@ guestAuthRouter.post("/request-link", magicLinkLimiter, async (req, res) => {
     to: email.trim(),
     subject: "Sign in to Hello Circle",
     text: `Hi,\n\nClick the link below to see all your bookings and club registrations:\n\n${link}\n\nThis link expires in 15 minutes and can only be used once. If you didn't request this, you can safely ignore it.\n\nThanks for using Hello Circle.`,
+    cta: { label: "Sign in to Hello Circle", url: link },
   });
   res.json({ ok: true });
 });
@@ -118,10 +119,12 @@ guestAuthRouter.post("/request-password-reset", magicLinkLimiter, async (req, re
       await db
         .prepare(`INSERT INTO resident_password_reset_tokens (token, email, expires_at) VALUES (?, ?, DATE_ADD(NOW(), INTERVAL 30 MINUTE))`)
         .run(token, email.toLowerCase().trim());
+      const resetUrl = `${CLIENT_URL}/signin?resetToken=${token}`;
       await sendMail({
         to: email.trim(),
         subject: "Reset your HelloCircle password",
-        text: `Hi,\n\nClick the link below to set a new password:\n\n${CLIENT_URL}/signin?resetToken=${token}\n\nThis link expires in 30 minutes and can only be used once. If you didn't request this, you can safely ignore it.\n\nThanks for using Hello Circle.`,
+        text: `Hi,\n\nClick the link below to set a new password:\n\n${resetUrl}\n\nThis link expires in 30 minutes and can only be used once. If you didn't request this, you can safely ignore it.\n\nThanks for using Hello Circle.`,
+        cta: { label: "Reset password", url: resetUrl },
       });
     }
   }
