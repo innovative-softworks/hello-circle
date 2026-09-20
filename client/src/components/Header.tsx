@@ -6,7 +6,7 @@ import { useAuth } from "../AuthContext";
 import { useDashboardNav } from "../DashboardNavContext";
 import { useGuest } from "../GuestContext";
 import { useTheme } from "../ThemeContext";
-import { BellIcon, BuildingIcon, ChatIcon, ChevronDownIcon, CloseIcon, LightbulbIcon, MenuIcon, MoonIcon, PlusIcon, SearchIcon, SunIcon } from "./icons";
+import { BellIcon, BuildingIcon, ChevronDownIcon, CloseIcon, LightbulbIcon, MenuIcon, MoonIcon, PlusIcon, SearchIcon, SunIcon } from "./icons";
 import { Avatar } from "./ui";
 import { colors, maxWidth, radius } from "../theme";
 import { useMyStuff } from "../MyStuffContext";
@@ -383,13 +383,6 @@ export function Header() {
             onClick={() => go("/bookings")}
           >
             My Life
-          </button>
-          <button
-            className="tab-btn hide-tablet"
-            style={isActive(["/ask"]) ? { ...navBtn, background: colors.greenBg, color: colors.greenText, fontWeight: 700 } : navBtn}
-            onClick={() => go("/ask")}
-          >
-            Ask HelloCircle
           </button>
           <button
             className="tab-btn hide-tablet"
@@ -814,9 +807,6 @@ export function Header() {
           </button>
           <button style={{ ...mobileNavBtn, display: "flex", alignItems: "center", gap: 8 }} onClick={() => go("/free-time")}>
             <LightbulbIcon size={16} /> Free Time Mode
-          </button>
-          <button style={{ ...mobileNavBtn, display: "flex", alignItems: "center", gap: 8 }} onClick={() => go("/ask")}>
-            <ChatIcon size={16} /> Ask HelloCircle
           </button>
           <button style={{ ...mobileNavBtn, display: "flex", alignItems: "center", gap: 8 }} onClick={() => go("/for-venues")}>
             <BuildingIcon size={16} /> For venues
