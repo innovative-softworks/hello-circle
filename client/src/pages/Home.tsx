@@ -21,9 +21,10 @@ import { CentreCard } from "../components/CentreCard";
 import { ClubCard } from "../components/ClubCard";
 import { DiscoverCard, DiscoverRow } from "../components/DiscoverRow";
 import { GameCard } from "./Games";
+import { formatDateTime, formatPrice } from "../formatters";
 import { HeroScrollSplit, type HeroScrollImage } from "../components/HeroScrollSplit";
 import { SectionHeader } from "../components/SectionHeader";
-import { CardSkeleton } from "../components/ui";
+import { CardSkeleton, ConfirmDialog } from "../components/ui";
 import {
   ArrowRightIcon,
   BuildingIcon,
@@ -251,6 +252,11 @@ export function Home() {
   // activity, rather than fetching that separately.
   const [openGames, setOpenGames] = useState<Game[]>([]);
   const [joiningGameId, setJoiningGameId] = useState<string | null>(null);
+  // Confirmation-audit follow-up — this card used to call handleJoinGame
+  // directly with zero warning, unlike every other join-a-game entry point
+  // (GameJoinCard.tsx's detail page, Games.tsx's own QuickJoin dialog),
+  // which all confirm first. Same pattern as Games.tsx's quickJoinGame.
+  const [quickJoinGame, setQuickJoinGame] = useState<Game | null>(null);
 
   // Local Momentum (Phase 7) — "picking up near you," the positive-growth
   // counterpart to Trending. Empty in a fresh/quiet county, not an error —
@@ -477,13 +483,14 @@ export function Home() {
     setJoiningGameId(id);
     try {
       const res = await joinGame(id);
+      setQuickJoinGame(null);
       if (res.url) {
         openCheckout(res.url);
         return;
       }
       loadOpenGames();
     } catch (e) {
-      alert(e instanceof Error ? e.message : "Couldn't join this game");
+      alert(e instanceof Error ? e.message : "Couldn't join this session");
     } finally {
       setJoiningGameId(null);
     }
@@ -914,7 +921,7 @@ export function Home() {
                       Because you play this
                     </span>
                   )}
-                  <GameCard game={g} joining={joiningGameId === g.id} onJoin={() => handleJoinGame(g.id)} onLeave={() => handleLeaveGame(g.id)} />
+                  <GameCard game={g} joining={joiningGameId === g.id} onJoin={() => setQuickJoinGame(g)} onLeave={() => handleLeaveGame(g.id)} />
                 </div>
               ))}
             </div>
@@ -1603,6 +1610,30 @@ export function Home() {
           </div>
         </div>
       </section>
+
+      <ConfirmDialog
+        open={!!quickJoinGame}
+        title="Confirm your spot"
+        message={
+          quickJoinGame && (
+            <div>
+              <div style={{ fontWeight: 700, color: colors.text, marginBottom: 4 }}>{quickJoinGame.activityLabel}</div>
+              <div>{quickJoinGame.centreName ?? quickJoinGame.locationText}</div>
+              <div style={{ margin: "4px 0" }}>{formatDateTime(quickJoinGame.date, quickJoinGame.time)}</div>
+              <div>{quickJoinGame.joined}/{quickJoinGame.capacity} joined</div>
+              <div style={{ fontWeight: 700, color: quickJoinGame.priceCents ? colors.text : colors.greenText }}>
+                {formatPrice(quickJoinGame.priceCents, { each: true })}
+              </div>
+            </div>
+          )
+        }
+        confirmLabel={quickJoinGame?.priceCents ? "Continue to payment" : "Confirm I'm in"}
+        cancelLabel="Not now"
+        tone="neutral"
+        busy={joiningGameId === quickJoinGame?.id}
+        onConfirm={() => quickJoinGame && handleJoinGame(quickJoinGame.id)}
+        onCancel={() => setQuickJoinGame(null)}
+      />
     </div>
   );
 }

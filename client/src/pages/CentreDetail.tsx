@@ -8,7 +8,8 @@ import { FollowButton } from "../components/FollowButton";
 import { PhotoGallery } from "../components/PhotoGallery";
 import { Reviews } from "../components/Reviews";
 import { SinglePinMap } from "../components/SinglePinMap";
-import { CalendarIcon, CheckIcon, ClockIcon, HeartIcon, PinIcon, RepeatIcon, StarIcon, UsersIcon, WheelchairIcon } from "../components/icons";
+import { CalendarIcon, CheckIcon, ClockIcon, HeartIcon, PinIcon, RepeatIcon, ShareIcon, StarIcon, UsersIcon, WheelchairIcon } from "../components/icons";
+import { ShareButton } from "../components/ShareButton";
 import { AvailabilityBadge, availabilityFromSpots, Button, ListingDetailSkeleton } from "../components/ui";
 import { isFavorite, toggleFavorite } from "../favorites";
 import { useGuest } from "../GuestContext";
@@ -75,7 +76,7 @@ export function CentreDetail() {
       }
       setGames((rows) => rows.map((g) => (g.id === gameId ? { ...g, joined: g.joined + 1, spotsLeft: g.spotsLeft - 1 } : g)));
     } catch (e) {
-      alert(e instanceof Error ? e.message : "Couldn't join this game");
+      alert(e instanceof Error ? e.message : "Couldn't join this session");
     } finally {
       setJoiningId(null);
     }
@@ -125,6 +126,15 @@ export function CentreDetail() {
             >
               <HeartIcon size={22} style={favourited ? { fill: colors.orange } : undefined} />
             </button>
+            <ShareButton
+              entityType="centre"
+              entityId={centre.id}
+              render={(onClick) => (
+                <button onClick={onClick} aria-label="Share" style={{ background: "none", border: "none", cursor: "pointer", padding: 0, display: "inline-flex", color: colors.faint }}>
+                  <ShareIcon size={20} />
+                </button>
+              )}
+            />
           </h1>
           <p style={{ color: colors.mutedLight, fontSize: 16, margin: "0 0 22px", display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
             <span>
@@ -220,7 +230,7 @@ export function CentreDetail() {
           {games.length > 0 && (
             <>
               <h3 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 20, margin: "0 0 4px", letterSpacing: "-.01em" }}>
-                Open games here
+                Open sessions here
               </h3>
               <p style={{ color: colors.mutedLight, fontSize: 14, margin: "0 0 14px" }}>
                 Don't need the whole venue? Join people who are already playing.

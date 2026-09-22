@@ -14,7 +14,7 @@ import type { Circle, Game } from "../types";
 // server route, since both already include activities this resident hosts
 // (the host is auto-joined as a participant/member on create).
 
-export function HostDashboardPanel({ residentId }: { residentId: string }) {
+export function HostDashboardPanel({ residentId, manageLinks }: { residentId: string; manageLinks?: boolean }) {
   const navigate = useNavigate();
   const [games, setGames] = useState<Game[] | null>(null);
   const [circles, setCircles] = useState<Circle[] | null>(null);
@@ -44,7 +44,7 @@ export function HostDashboardPanel({ residentId }: { residentId: string }) {
           {hostedGames.map((g) => (
             <button
               key={g.id}
-              onClick={() => navigate(`/games/${g.id}`)}
+              onClick={() => navigate(manageLinks ? "/manage?tab=activities" : `/games/${g.id}`)}
               style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: colors.bg, border: "none", borderRadius: radius.control, padding: "10px 14px", fontSize: 13.5, cursor: "pointer", textAlign: "left" }}
             >
               <span>{g.activityLabel} — {g.date}</span>
@@ -54,7 +54,7 @@ export function HostDashboardPanel({ residentId }: { residentId: string }) {
           {hostedCircles.map((c) => (
             <button
               key={c.id}
-              onClick={() => navigate(`/circles/${c.slug ?? c.id}`)}
+              onClick={() => navigate(manageLinks ? `/manage/circles/${c.slug ?? c.id}` : `/circles/${c.slug ?? c.id}`)}
               style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: colors.bg, border: "none", borderRadius: radius.control, padding: "10px 14px", fontSize: 13.5, cursor: "pointer", textAlign: "left" }}
             >
               <span>{c.name}</span>

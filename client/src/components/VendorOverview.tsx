@@ -3,9 +3,10 @@ import { fetchVendorToday } from "../api";
 import { BallIcon, BuildingIcon, CalendarIcon, ChatIcon, CheckIcon, EyeIcon, LightbulbIcon } from "./icons";
 import { ManageCard as Card, EmptyState, KpiHero, KpiStrip, StatTile } from "./ui";
 import { CommunityIllustration } from "./illustrations";
+import { VendorAttentionPanel, type AttentionTargetTab } from "./VendorAttention";
 import { VendorScheduleTab } from "./VendorPrograms";
 import { colors, fonts, radius } from "../theme";
-import type { VendorStats, VendorToday } from "../types";
+import type { VendorListingSummary, VendorStats, VendorToday } from "../types";
 
 // The Overview tab (KPI row, same-day summary, engagement tips) — split
 // out of the original single VendorDashboard.tsx (see CLAUDE.md).
@@ -54,7 +55,17 @@ function TipsPanel() {
 // same-day summary of hall bookings + club sessions (GET /vendor/today),
 // the standalone Schedule tab's own Today/Upcoming (program sessions), and
 // a static engagement-tips panel.
-export function VendorOverviewTab({ stats, unreadCount }: { stats: VendorStats; unreadCount: number }) {
+export function VendorOverviewTab({
+  stats,
+  unreadCount,
+  listings,
+  onNavigateTab,
+}: {
+  stats: VendorStats;
+  unreadCount: number;
+  listings: { centres: VendorListingSummary[]; clubs: VendorListingSummary[] };
+  onNavigateTab: (tab: AttentionTargetTab) => void;
+}) {
   const [today, setToday] = useState<VendorToday | null>(null);
   const [todayError, setTodayError] = useState(false);
   useEffect(() => {
@@ -67,6 +78,7 @@ export function VendorOverviewTab({ stats, unreadCount }: { stats: VendorStats; 
 
   return (
     <div className="fade-panel" style={{ display: "flex", flexDirection: "column", gap: 24 }}>
+      <VendorAttentionPanel listings={listings} unreadCount={unreadCount} onNavigateTab={onNavigateTab} />
       <KpiStrip
         marginBottom={0}
         hero={

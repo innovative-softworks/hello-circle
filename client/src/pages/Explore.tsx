@@ -82,7 +82,7 @@ type CategoryKey = "centres" | "clubs" | "games" | "adventures" | "experiences" 
 const CATEGORIES: { key: CategoryKey; label: string; desc: string; icon: ReactNode; to: string }[] = [
   { key: "centres", label: "Community centres", desc: "Halls, pitches and rooms you can hire.", icon: <BuildingIcon size={20} />, to: "/browse/centres" },
   { key: "clubs", label: "Sports clubs", desc: "Join a club, register for a season.", icon: <BallIcon size={20} />, to: "/browse/clubs" },
-  { key: "games", label: "Open games", desc: "Join people who are already playing.", icon: <RepeatIcon size={20} />, to: "/games" },
+  { key: "games", label: "Open sessions", desc: "Join people who are already playing.", icon: <RepeatIcon size={20} />, to: "/games" },
   { key: "adventures", label: "Adventures", desc: "Guided hikes, kayaking and outdoor trips.", icon: <TreeIconSmall size={20} />, to: "/adventures" },
   { key: "experiences", label: "Experiences", desc: "Workshops, classes and one-off outings.", icon: <TreeIconSmall size={20} />, to: "/experiences" },
   { key: "circles", label: "Circles", desc: "Recurring groups built around shared activity.", icon: <CalendarIcon size={20} />, to: "/circles" },
@@ -684,7 +684,7 @@ export function Explore() {
                     }}
                   >
                     <BellIcon size={13} />
-                    {alertState === "saved" ? "We'll notify you" : alertState === "saving" ? "Saving…" : "Notify me about new games like this"}
+                    {alertState === "saved" ? "We'll notify you" : alertState === "saving" ? "Saving…" : "Notify me about new sessions like this"}
                   </button>
                 )}
               </div>

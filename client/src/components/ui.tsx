@@ -6,7 +6,7 @@ import { colors, fonts, maxWidth, radius, zIndex } from "../theme";
 // Shared, reusable building blocks for the vendor/admin/reviews UI — kept in
 // one place so button/card/badge styling can't drift between dashboards.
 
-export type ListingStatus = "draft" | "pending" | "approved" | "rejected" | "suspended" | "deleted";
+export type ListingStatus = "draft" | "pending" | "approved" | "rejected" | "suspended" | "paused" | "deleted";
 
 // --- Keyboard-accessible non-navigation clickables (post-audit hardening
 // pass) --------------------------------------------------------------------
@@ -187,6 +187,7 @@ const statusStyles: Record<ListingStatus, { bg: string; fg: string; label: strin
   approved: { bg: colors.greenBg, fg: colors.greenText, label: "Live" },
   rejected: { bg: colors.dangerBg, fg: colors.danger, label: "Rejected" },
   suspended: { bg: colors.dangerBg, fg: colors.danger, label: "Suspended" },
+  paused: { bg: colors.panel, fg: colors.orangeDark, label: "Paused" },
   deleted: { bg: colors.panel, fg: colors.muted, label: "Deleted" },
 };
 
@@ -265,6 +266,30 @@ export function AvailabilityBadge({ state, children, style }: { state: Availabil
     >
       {children}
     </span>
+  );
+}
+
+// --- ProgressBar (Host Experience Polish) -----------------------------------
+// A simple horizontal fill for "N of capacity booked" — no such component
+// existed before this (capacity was always rendered as plain text/a badge
+// elsewhere, see GameJoinCard.tsx etc.). Reuses availabilityFromSpots()'s
+// existing urgency thresholds for fill color rather than picking new ones.
+
+export function ProgressBar({ occupied, capacity, style }: { occupied: number; capacity: number; style?: CSSProperties }) {
+  const spotsLeft = Math.max(0, capacity - occupied);
+  const pct = capacity > 0 ? Math.min(100, Math.round((occupied / capacity) * 100)) : 0;
+  const state = availabilityFromSpots(spotsLeft);
+  const fill = state === "full" ? colors.muted : state === "urgent" ? colors.logoMarkText : colors.green;
+  return (
+    <div
+      role="progressbar"
+      aria-valuenow={pct}
+      aria-valuemin={0}
+      aria-valuemax={100}
+      style={{ height: 6, borderRadius: radius.pill, background: colors.panel, overflow: "hidden", ...style }}
+    >
+      <div style={{ height: "100%", width: `${pct}%`, background: fill, borderRadius: radius.pill, transition: "width .2s ease" }} />
+    </div>
   );
 }
 

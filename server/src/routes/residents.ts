@@ -62,6 +62,278 @@ residentsRouter.get("/me/participation", async (req, res) => {
   res.json(items);
 });
 
+// My Life V2's "Needs You" (Phase 1 "Connect") — a computed, cross-system
+// aggregation of pending-action items, matching the ActionItem contract
+// from the V2 plan (§13/§33). No new table: every query here reuses an
+// existing table exactly as its own per-entity route already does (circle
+// invitations mirrors GET /circles/invitations/mine, join-requests mirrors
+// GET /circles/:id/join-requests but across every circle the resident
+// organises, etc.) — this endpoint just merges and prioritizes them.
+// Deliberately NOT behind requireResident: the payment-incomplete signal is
+// guest-friendly (client_id-or-email, same ownership convention as GET
+// /bookings and GET /registrations), so a signed-out guest still gets a
+// partial (payments-only) list rather than a 401; every resident-only
+// signal (circles, waitlist-by-resident) is simply empty for them, same
+// convention listResidentParticipation above already uses.
+export interface NeedsAttentionItem {
+  id: string;
+  actionType: "payment_incomplete" | "waitlist_offered" | "join_request" | "circle_invitation" | "plan_activity_creation" | "plan_confirmation" | "open_poll";
+  sourceType: "booking" | "registration" | "waitlist_entry" | "circle_invite" | "circle_plan" | "circle_poll";
+  sourceId: string;
+  title: string;
+  description: string;
+  dueAt: string | null;
+  actionLabel: string;
+  actionUrl: string;
+  createdAt: string;
+}
+
+// Deterministic, not a fake relevance score — see V2 plan §34 ("avoid fake
+// AI scoring"). Time-sensitive items first (money, then a claimable spot
+// that expires), then things only this resident can unblock for others
+// (an organiser sitting on someone else's join request or a confirmed plan
+// waiting to become a real activity), then lower-stakes personal
+// invites/reviews/votes.
+const ACTION_TYPE_PRIORITY: Record<NeedsAttentionItem["actionType"], number> = {
+  payment_incomplete: 0,
+  waitlist_offered: 1,
+  join_request: 2,
+  plan_activity_creation: 3,
+  circle_invitation: 4,
+  plan_confirmation: 5,
+  open_poll: 6,
+};
+
+residentsRouter.get("/me/needs-attention", async (req, res) => {
+  let clientId: string;
+  try {
+    clientId = clientIdFrom(req);
+  } catch (e) {
+    if (e instanceof BadRequestError) return res.status(400).json({ error: e.message });
+    throw e;
+  }
+  const guestEmail = req.guestEmail ?? "";
+  const residentId = req.resident?.id ?? null;
+  const items: NeedsAttentionItem[] = [];
+
+  const pendingBookings = (await db
+    .prepare(
+      `SELECT b.ref, c.name as centreName, b.created_at as createdAt
+       FROM bookings b JOIN centres c ON c.id = b.centre_id
+       WHERE (b.client_id = ? OR LOWER(b.email) = LOWER(?)) AND b.payment_status = 'pending'`
+    )
+    .all(clientId, guestEmail)) as { ref: string; centreName: string; createdAt: string }[];
+  for (const b of pendingBookings) {
+    items.push({
+      id: `payment-booking-${b.ref}`,
+      actionType: "payment_incomplete",
+      sourceType: "booking",
+      sourceId: b.ref,
+      title: `Finish paying for ${b.centreName}`,
+      description: "This booking hasn't been paid for yet — it won't be confirmed until you do.",
+      dueAt: null,
+      actionLabel: "Complete payment",
+      actionUrl: `/bookings?ref=${b.ref}`,
+      createdAt: b.createdAt,
+    });
+  }
+
+  const pendingRegistrations = (await db
+    .prepare(
+      `SELECT r.ref, c.name as clubName, r.created_at as createdAt
+       FROM registrations r JOIN clubs c ON c.id = r.club_id
+       WHERE (r.client_id = ? OR LOWER(r.email) = LOWER(?)) AND r.payment_status = 'pending'`
+    )
+    .all(clientId, guestEmail)) as { ref: string; clubName: string; createdAt: string }[];
+  for (const r of pendingRegistrations) {
+    items.push({
+      id: `payment-registration-${r.ref}`,
+      actionType: "payment_incomplete",
+      sourceType: "registration",
+      sourceId: r.ref,
+      title: `Finish paying for ${r.clubName}`,
+      description: "This registration hasn't been paid for yet — it won't be confirmed until you do.",
+      dueAt: null,
+      actionLabel: "Complete payment",
+      actionUrl: `/bookings?ref=${r.ref}`,
+      createdAt: r.createdAt,
+    });
+  }
+
+  if (residentId) {
+    const waitlistOffers = (await db
+      .prepare(
+        `SELECT w.id, w.listing_type as listingType, w.listing_id as listingId, w.offer_expires_at as offerExpiresAt, w.created_at as createdAt,
+                COALESCE(c.name, cl.name) as listingName
+         FROM waitlist_entries w
+         LEFT JOIN centres c ON w.listing_type = 'game' AND c.id = (SELECT centre_id FROM games WHERE id = w.listing_id)
+         LEFT JOIN clubs cl ON w.listing_type = 'club' AND cl.id = w.listing_id
+         WHERE (w.client_id = ? OR w.resident_id = ?) AND w.status = 'offered'`
+      )
+      .all(clientId, residentId)) as { id: number; listingType: string; listingId: string; offerExpiresAt: string | null; createdAt: string; listingName: string | null }[];
+    for (const w of waitlistOffers) {
+      const href = w.listingType === "game" ? `/games/${w.listingId}` : `/clubs/${w.listingId}`;
+      items.push({
+        id: `waitlist-${w.id}`,
+        actionType: "waitlist_offered",
+        sourceType: "waitlist_entry",
+        sourceId: String(w.id),
+        title: `A spot opened up: ${w.listingName ?? "your waitlist"}`,
+        description: w.offerExpiresAt ? `Claim it before the offer expires.` : "Claim your spot before it's offered to the next person.",
+        dueAt: w.offerExpiresAt,
+        actionLabel: "Claim spot",
+        actionUrl: href,
+        createdAt: w.createdAt,
+      });
+    }
+
+    const joinRequests = (await db
+      .prepare(
+        `SELECT ci.id, ci.circle_id as circleId, c.name as circleName, r.name as requesterName, ci.created_at as createdAt
+         FROM circle_members cm
+         JOIN circle_invites ci ON ci.circle_id = cm.circle_id AND ci.status = 'pending' AND ci.initiated_by = 'resident'
+         JOIN circles c ON c.id = cm.circle_id
+         JOIN residents r ON r.id = ci.resident_id
+         WHERE cm.resident_id = ? AND cm.role = 'organiser'
+         ORDER BY ci.created_at DESC`
+      )
+      .all(residentId)) as { id: string; circleId: string; circleName: string; requesterName: string; createdAt: string }[];
+    for (const jr of joinRequests) {
+      items.push({
+        id: `join-request-${jr.id}`,
+        actionType: "join_request",
+        sourceType: "circle_invite",
+        sourceId: jr.id,
+        title: `${jr.requesterName} wants to join ${jr.circleName}`,
+        description: "As organiser, you can accept or decline this request.",
+        dueAt: null,
+        actionLabel: "Respond",
+        actionUrl: `/circles/${jr.circleId}`,
+        createdAt: jr.createdAt,
+      });
+    }
+
+    const invitations = (await db
+      .prepare(
+        `SELECT ci.id, ci.circle_id as circleId, c.name as circleName, u.name as invitedByName, ci.created_at as createdAt
+         FROM circle_invites ci JOIN circles c ON c.id = ci.circle_id JOIN residents u ON u.id = ci.invited_by_resident_id
+         WHERE ci.resident_id = ? AND ci.status = 'pending' AND ci.initiated_by = 'organiser'
+         ORDER BY ci.created_at DESC`
+      )
+      .all(residentId)) as { id: string; circleId: string; circleName: string; invitedByName: string; createdAt: string }[];
+    for (const inv of invitations) {
+      items.push({
+        id: `circle-invite-${inv.id}`,
+        actionType: "circle_invitation",
+        sourceType: "circle_invite",
+        sourceId: inv.id,
+        title: `${inv.invitedByName} invited you to ${inv.circleName}`,
+        description: "Accept to join, or decline if it's not for you.",
+        dueAt: null,
+        actionLabel: "Respond",
+        actionUrl: `/circles/${inv.circleId}`,
+        createdAt: inv.createdAt,
+      });
+    }
+
+    // Phase 2 "Circles V2" — organiser-only: a confirmed plan-idea waiting
+    // to become a real activity, and an idea awaiting the organiser's
+    // review/confirmation. Both scoped to circles this resident organises,
+    // same cross-circle "circle_members role='organiser'" join the
+    // join-requests query above already uses.
+    const plansNeedingActivity = (await db
+      .prepare(
+        `SELECT cpl.id, cpl.circle_id as circleId, cpl.title, c.name as circleName, cpl.confirmed_at as confirmedAt
+         FROM circle_members cm
+         JOIN circle_plans cpl ON cpl.circle_id = cm.circle_id AND cpl.status = 'confirmed'
+         JOIN circles c ON c.id = cpl.circle_id
+         WHERE cm.resident_id = ? AND cm.role = 'organiser'
+         ORDER BY cpl.confirmed_at DESC`
+      )
+      .all(residentId)) as { id: string; circleId: string; title: string; circleName: string; confirmedAt: string }[];
+    for (const p of plansNeedingActivity) {
+      items.push({
+        id: `plan-activity-${p.id}`,
+        actionType: "plan_activity_creation",
+        sourceType: "circle_plan",
+        sourceId: p.id,
+        title: `${p.title} is ready`,
+        description: `${p.circleName} confirmed this — create the activity so people can join.`,
+        dueAt: null,
+        actionLabel: "Create activity",
+        actionUrl: `/circles/${p.circleId}`,
+        createdAt: p.confirmedAt,
+      });
+    }
+
+    const plansNeedingConfirmation = (await db
+      .prepare(
+        `SELECT cpl.id, cpl.circle_id as circleId, cpl.title, c.name as circleName, cpl.created_at as createdAt
+         FROM circle_members cm
+         JOIN circle_plans cpl ON cpl.circle_id = cm.circle_id AND cpl.status = 'idea'
+         JOIN circles c ON c.id = cpl.circle_id
+         WHERE cm.resident_id = ? AND cm.role = 'organiser'
+         ORDER BY cpl.created_at DESC`
+      )
+      .all(residentId)) as { id: string; circleId: string; title: string; circleName: string; createdAt: string }[];
+    for (const p of plansNeedingConfirmation) {
+      items.push({
+        id: `plan-confirm-${p.id}`,
+        actionType: "plan_confirmation",
+        sourceType: "circle_plan",
+        sourceId: p.id,
+        title: `Review & confirm: ${p.title}`,
+        description: `Someone in ${p.circleName} suggested this.`,
+        dueAt: null,
+        actionLabel: "Review plan",
+        actionUrl: `/circles/${p.circleId}`,
+        createdAt: p.createdAt,
+      });
+    }
+
+    const openPolls = (await db
+      .prepare(
+        `SELECT cp.id, cp.circle_id as circleId, cp.question, c.name as circleName, cp.created_at as createdAt,
+                cpl.title as planTitle
+         FROM circle_members cm
+         JOIN circle_polls cp ON cp.circle_id = cm.circle_id AND cp.status = 'open'
+         JOIN circles c ON c.id = cp.circle_id
+         LEFT JOIN circle_plans cpl ON cpl.id = cp.plan_id
+         WHERE cm.resident_id = ? AND NOT EXISTS (SELECT 1 FROM circle_poll_votes v WHERE v.poll_id = cp.id AND v.resident_id = cm.resident_id)
+         ORDER BY cp.created_at DESC`
+      )
+      .all(residentId)) as { id: string; circleId: string; question: string; circleName: string; createdAt: string; planTitle: string | null }[];
+    for (const poll of openPolls) {
+      items.push({
+        id: `poll-${poll.id}`,
+        actionType: "open_poll",
+        sourceType: "circle_poll",
+        sourceId: poll.id,
+        // Phase 2 — a plan-linked poll gets more specific copy ("choosing a
+        // time for Coastal Walk") than a standalone one, same question text
+        // otherwise. No new query/actionType needed: it's still an ordinary
+        // circle_polls row, just with plan_id set.
+        title: poll.planTitle ? `${poll.circleName}: choosing details for ${poll.planTitle}` : `${poll.circleName}: ${poll.question}`,
+        description: "This poll is still open — cast your vote.",
+        dueAt: null,
+        actionLabel: "Vote",
+        actionUrl: `/circles/${poll.circleId}`,
+        createdAt: poll.createdAt,
+      });
+    }
+  }
+
+  items.sort((a, b) => {
+    const byPriority = ACTION_TYPE_PRIORITY[a.actionType] - ACTION_TYPE_PRIORITY[b.actionType];
+    if (byPriority !== 0) return byPriority;
+    // Within the same actionType, an earlier expiry/creation surfaces first.
+    if (a.dueAt && b.dueAt) return a.dueAt.localeCompare(b.dueAt);
+    return a.createdAt.localeCompare(b.createdAt);
+  });
+
+  res.json(items);
+});
+
 residentsRouter.get("/me", async (req, res) => {
   if (!req.resident) return res.json({ resident: null });
   const row = (await db
@@ -229,6 +501,26 @@ residentsRouter.post("/me/host-application", requireResident, async (req, res) =
   res.json({ ok: true });
 });
 
+// Vendor-parity pass, Phase 27 — real bug fix: a verified host's bio
+// textarea was `disabled` in HostApplicationPanel.tsx once host_status
+// reached 'verified', because the only existing write path (POST above)
+// 409s for an already-verified resident and, if it didn't, would wrongly
+// reset host_status back to 'pending' and re-trigger admin review for a
+// plain bio edit. This route only ever touches host_bio/host_phone, never
+// host_status — no re-approval, ever.
+residentsRouter.put("/me/host-profile", requireResident, async (req, res) => {
+  const { bio, phone } = req.body as { bio?: string; phone?: string };
+  if (!bio || !bio.trim()) return res.status(400).json({ error: "A short bio is required" });
+
+  const current = (await db.prepare(`SELECT host_status as hostStatus FROM residents WHERE id = ?`).get(req.resident!.id)) as
+    | { hostStatus: string }
+    | undefined;
+  if (current?.hostStatus !== "verified") return res.status(403).json({ error: "Only a Verified Host can edit their bio this way" });
+
+  await db.prepare(`UPDATE residents SET host_bio = ?, host_phone = ? WHERE id = ?`).run(bio.trim(), phone ?? "", req.resident!.id);
+  res.json({ ok: true });
+});
+
 // Host public profile (IA spec §5) — public, no auth required, and only
 // ever resolves for a verified host. Never exposes email/phone; only what
 // participation-relevant info the spec's own "Host public profile" screen
@@ -276,6 +568,34 @@ residentsRouter.get("/:id/host-profile", async (req, res) => {
     isFollowing: !!followRow,
     followNotificationLevel: followRow?.notificationLevel ?? "highlights",
   });
+});
+
+// --- Host reviews reply (Host Manage spec §22 parity pass) -----------------
+// Vendor got GET /vendor/reviews + POST /vendor/reviews/:id/reply
+// (vendorOperations.ts) that explicitly excludes listing_type='host' — a
+// resident isn't a vendor, so this needs its own ownership check
+// (listing_id = req.resident.id) rather than a vendorIds join. Reuses the
+// same vendor_reply/vendor_reply_at columns/update statement verbatim, no
+// schema change.
+
+residentsRouter.get("/me/host-reviews", requireResident, async (req, res) => {
+  const rows = await db
+    .prepare(
+      `SELECT id, name, rating, comment, created_at as createdAt, vendor_reply as hostReply, vendor_reply_at as hostRepliedAt
+       FROM reviews WHERE listing_type = 'host' AND listing_id = ? AND hidden = 0 ORDER BY created_at DESC`
+    )
+    .all(req.resident!.id);
+  res.json(rows);
+});
+
+residentsRouter.post("/host-reviews/:id/reply", requireResident, async (req, res) => {
+  const { reply } = req.body as { reply?: string };
+  if (!reply || !reply.trim()) return res.status(400).json({ error: "Reply text is required" });
+  const info = await db
+    .prepare(`UPDATE reviews SET vendor_reply = ?, vendor_reply_at = NOW() WHERE id = ? AND listing_type = 'host' AND listing_id = ?`)
+    .run(reply.trim(), req.params.id, req.resident!.id);
+  if (info.changes === 0) return res.status(404).json({ error: "Review not found" });
+  res.json({ ok: true });
 });
 
 // --- Routines-as-an-object (IA spec §9) ------------------------------------

@@ -183,7 +183,7 @@ export async function createBookingInternal(input: CreateBookingInternalInput): 
   let discountCents = 0;
   let couponCode: string | null = null;
   if (input.couponCode) {
-    const result = await evaluateCoupon(input.couponCode, subtotalCents);
+    const result = await evaluateCoupon(input.couponCode, subtotalCents, { listingType: "centre", listingId: input.centreId });
     if (!result.valid) return { ok: false, status: 400, error: result.error! };
     discountCents = result.discountCents!;
     couponCode = result.code!;

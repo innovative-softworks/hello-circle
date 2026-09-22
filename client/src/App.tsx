@@ -13,6 +13,7 @@ import { NativeShellSync } from "./components/NativeShellSync";
 import { hideSplashScreen, setupAppUrlListener, setupBackButton } from "./native";
 import { MyStuffProvider } from "./MyStuffContext";
 import { AcceptInvite } from "./pages/AcceptInvite";
+import { InvitationLanding } from "./pages/InvitationLanding";
 import { AdminDashboard } from "./pages/AdminDashboard";
 import { AskHelloCircle } from "./pages/AskHelloCircle";
 import { Browse } from "./pages/Browse";
@@ -35,6 +36,11 @@ import { GameDetail } from "./pages/GameDetail";
 import { Games } from "./pages/Games";
 import { Home } from "./pages/Home";
 import { HostProfilePage } from "./pages/HostProfile";
+import { HelpGuideIndex } from "./pages/helpGuide/HelpGuideIndex";
+import { HelpGuideExplore } from "./pages/helpGuide/HelpGuideExplore";
+import { HelpGuideCircles } from "./pages/helpGuide/HelpGuideCircles";
+import { HelpGuideMyLife } from "./pages/helpGuide/HelpGuideMyLife";
+import { HelpGuideStart } from "./pages/helpGuide/HelpGuideStart";
 import { Login } from "./pages/Login";
 import { MakeItHappen } from "./pages/MakeItHappen";
 import { MyBookings } from "./pages/MyBookings";
@@ -63,8 +69,8 @@ import { VendorClubEditPage } from "./pages/VendorClubEditPage";
 import { VendorProgramEditPage } from "./pages/VendorProgramEditPage";
 import { VendorExperienceEditPage } from "./pages/VendorExperienceEditPage";
 import { HostGamePage } from "./pages/HostGamePage";
-import { ManageActivities } from "./pages/ManageActivities";
 import { ManageCircle } from "./pages/ManageCircle";
+import { ManageHome } from "./pages/ManageHome";
 import { StartCirclePage } from "./pages/StartCirclePage";
 
 // Pre-launch lockdown (no real vendor/resident data yet — see CLAUDE.md's
@@ -105,10 +111,35 @@ function isExemptFromLaunchGate(pathname: string): boolean {
   // has to be exempt for sign-in to work at all: safeReturnTo() defaults there
   // after a successful magic-link sign-in, so leaving it gated dead-ends every
   // resident on /coming-soon the moment they log in.
-  if (pathname === "/profile" || pathname === "/bookings" || pathname.startsWith("/manage")) return true;
+  // /my-life is the same page as /bookings under a second route (Phase 1
+  // "Connect" — see the route table below), so it needs the same exemption.
+  if (pathname === "/profile" || pathname === "/bookings" || pathname === "/my-life" || pathname.startsWith("/manage")) return true;
   if (pathname.startsWith("/games/") || pathname.startsWith("/circles/")) return true;
   if (pathname.startsWith("/host/")) return true;
+  // A personal invitation link (Universal Sharing system §12) is real
+  // content for one specific person, not a "no real data yet" discovery
+  // surface — same rationale as /games/ and /circles/ above, regardless of
+  // which entity type it points to.
+  if (pathname.startsWith("/i/")) return true;
   return false;
+}
+
+// Partial-launch carve-out: Community centres/Sports clubs stay behind the
+// coming-soon gate even once VITE_LAUNCH_MODE=public lifts the main gate
+// everywhere else — their vendor supply isn't onboarded yet, unlike the
+// resident-hosted/peer surfaces (Games, Circles, Adventures, Experiences,
+// My Life, Start) which don't depend on any vendor being signed up first.
+// Only checked when the main gate is already open (see `gated ||
+// venueGated` below) — while it's closed this is redundant with it.
+function isVenueGatedPath(pathname: string): boolean {
+  return (
+    pathname === "/browse/centres" ||
+    pathname === "/browse/clubs" ||
+    pathname.startsWith("/centres/") ||
+    pathname.startsWith("/clubs/") ||
+    pathname.startsWith("/book/") ||
+    pathname.startsWith("/register/")
+  );
 }
 
 export function App() {
@@ -194,6 +225,7 @@ export function App() {
   // would either duplicate or conflict with that, not complement it.
   const hideTabBar = hideHeader || location.pathname.startsWith("/vendor") || location.pathname.startsWith("/admin") || location.pathname.startsWith("/manage");
   const gated = LAUNCH_GATE_ENABLED && !isExemptFromLaunchGate(location.pathname);
+  const venueGated = !gated && isVenueGatedPath(location.pathname);
 
   return (
     <ThemeProvider><AuthProvider>
@@ -204,7 +236,7 @@ export function App() {
           <DashboardNavProvider>
             {!hideHeader && <Header />}
             <main className={hideTabBar ? undefined : "mobile-tab-bar-space"} style={isStandaloneLanding || isComingSoon ? undefined : { minHeight: "70vh" }}>
-              {gated ? (
+              {gated || venueGated ? (
                 <Routes>
                   <Route path="/coming-soon" element={<ComingSoon />} />
                   <Route path="*" element={<Navigate to="/coming-soon" replace />} />
@@ -238,6 +270,12 @@ export function App() {
                 <Route path="/circles/start" element={<StartCirclePage />} />
                 <Route path="/circles/:id" element={<CircleDetail />} />
                 <Route path="/bookings" element={<MyBookings />} />
+                {/* Phase 1 "Connect" — a second route to the same page, not a
+                    redirect: /bookings stays canonical (confirmation/magic-link
+                    emails already point there with ?ref=/?token= that a redirect
+                    would have to remember to forward), while /my-life gives the
+                    "My Life" nav label a URL that actually matches it. */}
+                <Route path="/my-life" element={<MyBookings />} />
                 <Route path="/profile" element={<Profile />} />
                 <Route path="/signin" element={<SignIn />} />
                 <Route path="/signin/create" element={<SignUp />} />
@@ -263,6 +301,7 @@ export function App() {
                 <Route path="/forgot-password" element={<ForgotPassword />} />
                 <Route path="/reset-password" element={<ResetPassword />} />
                 <Route path="/accept-invite" element={<AcceptInvite />} />
+                <Route path="/i/:token" element={<InvitationLanding />} />
                 <Route path="/for-venues" element={<ForVenues />} />
                 <Route path="/become-a-host" element={<BecomeAHost />} />
                 <Route path="/vendor/signup" element={<VendorSignup />} />
@@ -270,17 +309,29 @@ export function App() {
                 <Route path="/vendor/clubs/:id" element={<VendorClubEditPage />} />
                 <Route path="/vendor/programs/:id" element={<VendorProgramEditPage />} />
                 <Route path="/vendor/experiences/:id" element={<VendorExperienceEditPage />} />
-                {/* HelloCircle Manage — vendor is still the bare /manage
-                    redirect target (Phase 1); /manage/activities (Phase 3)
-                    and /manage/circles/:id (Phase 4) are the resident-
-                    authenticated Manage surfaces. */}
-                <Route path="/manage" element={<Navigate to="/vendor" replace />} />
-                <Route path="/manage/activities" element={<ManageActivities />} />
+                {/* HelloCircle Manage — /manage is the resident (Host)
+                    dashboard (Overview/Activities/Circles tabs, one page,
+                    same shape as VendorDashboard.tsx; ManageHome.tsx
+                    redirects a vendor/admin session on to /vendor itself,
+                    preserving the old bare-/manage behavior for those
+                    accounts). /manage/activities used to be its own page
+                    (Phase 3) — kept as a redirect for old links/bookmarks.
+                    /manage/circles/:id (Phase 4) is still its own route: a
+                    specific Circle's own Plans/Members/Settings is
+                    per-entity, the same way a vendor's centre/club editor
+                    is its own route rather than a Listings sub-tab. */}
+                <Route path="/manage" element={<ManageHome />} />
+                <Route path="/manage/activities" element={<Navigate to="/manage?tab=activities" replace />} />
                 <Route path="/manage/circles/:id" element={<ManageCircle />} />
                 <Route path="/vendor" element={<VendorDashboard />} />
                 <Route path="/admin" element={<AdminDashboard />} />
                 <Route path="/privacy" element={<PrivacyPolicy />} />
                 <Route path="/cookies" element={<CookiePolicy />} />
+                <Route path="/help-guide" element={<HelpGuideIndex />} />
+                <Route path="/help-guide/explore" element={<HelpGuideExplore />} />
+                <Route path="/help-guide/circles" element={<HelpGuideCircles />} />
+                <Route path="/help-guide/my-life" element={<HelpGuideMyLife />} />
+                <Route path="/help-guide/start" element={<HelpGuideStart />} />
                 {/* Local SEO landing pages (participation-intent plan Phase 3) — kept
                     last among real routes; react-router v6 ranks static path segments
                     over dynamic ones regardless of declaration order, so this never

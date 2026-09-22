@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { blockResident, fetchChatMessages, postChatMessage } from "../api";
 import { ChatIcon } from "./icons";
+import { ConfirmDialog } from "./ui";
 import { colors, fonts, radius } from "../theme";
 import type { ChatMessage, ChatScopeType } from "../types";
 
@@ -28,6 +29,7 @@ export function ChatPanel({ scopeType, scopeId, residentId }: { scopeType: ChatS
   const [sending, setSending] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [blockedIds, setBlockedIds] = useState<Set<string>>(new Set());
+  const [blockTarget, setBlockTarget] = useState<{ id: string; name: string } | null>(null);
   const lastIdRef = useRef(0);
   const listRef = useRef<HTMLDivElement>(null);
 
@@ -114,7 +116,7 @@ export function ChatPanel({ scopeType, scopeId, residentId }: { scopeType: ChatS
               <span style={{ color: colors.faint, fontSize: 11 }}>{timeLabel(m.createdAt)}</span>
               {m.residentId !== residentId && (
                 <button
-                  onClick={() => handleBlock(m.residentId)}
+                  onClick={() => setBlockTarget({ id: m.residentId, name: m.residentName || "this resident" })}
                   disabled={blockedIds.has(m.residentId)}
                   style={{ background: "none", border: "none", padding: 0, marginLeft: 6, fontSize: 11, color: colors.faint, textDecoration: "underline", cursor: blockedIds.has(m.residentId) ? "default" : "pointer" }}
                 >
@@ -148,6 +150,17 @@ export function ChatPanel({ scopeType, scopeId, residentId }: { scopeType: ChatS
           loaded && <div style={{ color: colors.faint, fontSize: 12.5, textAlign: "center" }}>{blockedReason || "Chat isn't open right now."}</div>
         )}
       </div>
+      <ConfirmDialog
+        open={!!blockTarget}
+        title={`Block ${blockTarget?.name ?? "this resident"}?`}
+        message="You won't see each other's messages going forward. You can review who you've blocked from My Life → Safety Centre."
+        confirmLabel="Block"
+        onConfirm={() => {
+          if (blockTarget) handleBlock(blockTarget.id);
+          setBlockTarget(null);
+        }}
+        onCancel={() => setBlockTarget(null)}
+      />
     </div>
   );
 }

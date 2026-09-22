@@ -20,8 +20,10 @@ export const providersRouter = Router();
 providersRouter.get("/:id", async (req, res) => {
   const vendorId = req.params.id;
   const vendor = (await db
-    .prepare(`SELECT id, name, business_name as businessName, description, provider_tier as providerTier, county, status, logo FROM users WHERE id = ? AND role = 'vendor'`)
-    .get(vendorId)) as { id: string; name: string; businessName: string; description: string; providerTier: string; county: string; status: string; logo: string | null } | undefined;
+    .prepare(`SELECT id, name, business_name as businessName, description, provider_tier as providerTier, county, status, logo, website, socials FROM users WHERE id = ? AND role = 'vendor'`)
+    .get(vendorId)) as
+    | { id: string; name: string; businessName: string; description: string; providerTier: string; county: string; status: string; logo: string | null; website: string | null; socials: string | null }
+    | undefined;
   if (!vendor || vendor.status !== "approved") return res.status(404).json({ error: "Provider not found" });
 
   const centres = (await db
@@ -122,6 +124,8 @@ providersRouter.get("/:id", async (req, res) => {
     providerTier: vendor.providerTier,
     county: vendor.county,
     logo: vendor.logo || null,
+    website: vendor.website || null,
+    socials: vendor.socials ? JSON.parse(vendor.socials) : null,
     centres,
     clubs,
     experiences,

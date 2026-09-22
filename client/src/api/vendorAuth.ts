@@ -40,6 +40,16 @@ export function resetPassword(token: string, password: string): Promise<{ ok: bo
   return request(`/auth/reset-password`, { method: "POST", body: JSON.stringify({ token, password }) });
 }
 
+/** Host Manage spec §28 — authenticated change-password, distinct from the
+ * unauthenticated forgot-password flow above. */
+export function changePassword(currentPassword: string, newPassword: string): Promise<{ ok: boolean }> {
+  return request(`/auth/password`, { method: "PUT", body: JSON.stringify({ currentPassword, newPassword }) });
+}
+
+export function deactivateVendorAccount(): Promise<{ ok: boolean }> {
+  return request(`/auth/deactivate`, { method: "POST" });
+}
+
 export function fetchInviteDetails(token: string): Promise<{ email: string; platformRole: string; orgName: string }> {
   return request(`/invites/${token}`);
 }

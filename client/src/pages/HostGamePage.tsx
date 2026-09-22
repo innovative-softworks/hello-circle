@@ -5,7 +5,9 @@ import { signInHref } from "../authRedirect";
 import { BackLink } from "../components/BackLink";
 import { GuidedFlow } from "../components/GuidedFlow";
 import { NumberStepper, useUnsavedChangesGuard } from "../components/form";
-import { Button, inputStyle, labelStyle } from "../components/ui";
+import { ShareButton } from "../components/ShareButton";
+import { CheckCircleIcon } from "../components/icons";
+import { Button, Card, inputStyle, labelStyle } from "../components/ui";
 import { useGuest } from "../GuestContext";
 import { colors, radius } from "../theme";
 import { SKILL_LEVELS } from "../constants";
@@ -35,51 +37,71 @@ export function HostGamePage() {
   const navigate = useNavigate();
   const { resident } = useGuest();
   const [searchParams] = useSearchParams();
-  // Edit mode (HelloCircle Manage /manage/activities) — same two-step wizard,
+  // Edit mode (HelloCircle Manage's /manage Activities tab) — same two-step wizard,
   // reused for an existing game instead of a new one. `/games/host` (no id)
   // stays create-only, untouched.
   const { gameId } = useParams<{ gameId: string }>();
 
   // "Do it again" (GameDetail.tsx) and IntentCaptureForm's "start it
-  // yourself" link both carry activity/venue forward via query params —
-  // date/time/capacity are deliberately left for the host to re-enter.
-  // Not applicable in edit mode, where the form is instead populated from
-  // the existing game below.
-  const initialActivity = gameId ? "" : searchParams.get("activity") ?? "";
-  const initialCentreId = gameId ? "" : searchParams.get("centreId") ?? "";
-  const initialLocationText = gameId ? "" : searchParams.get("locationText") ?? "";
+  // yourself" link both carry activity/venue forward via query params.
+  // HelloCircle Manage Phase 23 extended "Do it again" to also carry every
+  // other "what this activity is" field (price/capacity/skill/description/
+  // etc.) — date/time are still always deliberately left blank for the host
+  // to re-enter (a re-host always needs a new date), same as
+  // soloFriendly/minParticipants/confirmationDeadline/circleId, which stay
+  // situational rather than carried over. Not applicable in edit mode, where
+  // the form is instead populated from the existing game below.
+  const qp = (key: string) => (gameId ? "" : searchParams.get(key) ?? "");
+  const initialActivity = qp("activity");
+  const initialCentreId = qp("centreId");
+  const initialLocationText = qp("locationText");
   // HelloCircle Manage Phase 4 — a Circle organiser's "Create plan" deep-link
   // carries the circle id through so the new game gets tagged games.circle_id.
   // Not part of the editable `form` state — it's contextual, not a field the
   // host chooses, and isn't relevant to edit mode (a game's circle isn't
   // reassignable from this wizard).
   const circleId = gameId ? undefined : searchParams.get("circleId") ?? undefined;
+  // Phase 2 "Circles V2" — a plan-idea's "Create Activity" deep-link carries
+  // planId through so the server can atomically convert it (see
+  // games.ts's createGameRow). Unlike the "do it again" query params above,
+  // date/time genuinely SHOULD prefill here — the whole point of a
+  // confirmed plan is that the circle already agreed on them (brief §20).
+  const planId = gameId ? undefined : searchParams.get("planId") ?? undefined;
+  const initialDate = planId ? searchParams.get("date") ?? "" : "";
+  const initialTime = planId ? searchParams.get("time") ?? "" : "";
 
   const [step, setStep] = useState(1);
   const [centres, setCentres] = useState<Centre[]>([]);
   const [loadingGame, setLoadingGame] = useState(!!gameId);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [priceLocked, setPriceLocked] = useState(false);
+  // Same client-side bulk-create pattern as VendorPrograms.tsx's Repeat
+  // selector — no recurrence schema anywhere on `games`, just N individually
+  // created rows with computed dates. Create-only; doesn't apply in edit mode.
+  const [repeat, setRepeat] = useState<"none" | "weekly" | "biweekly" | "monthly">("none");
+  const [occurrences, setOccurrences] = useState(4);
+  const initialPriceCents = qp("priceCents");
+  const initialIndoorOutdoor = qp("indoorOutdoor");
   const [form, setFormRaw] = useState({
     activityLabel: initialActivity,
     centreId: initialCentreId,
     locationText: initialLocationText,
-    date: "",
-    time: "",
-    capacity: 4,
-    priceCents: "",
+    date: initialDate,
+    time: initialTime,
+    capacity: qp("capacity") ? Number(qp("capacity")) : 4,
+    priceCents: initialPriceCents ? String(Number(initialPriceCents) / 100) : "",
     soloFriendly: false,
-    skillLevel: "",
+    skillLevel: qp("skillLevel"),
     minParticipants: "",
     confirmationDeadline: "",
-    description: "",
-    durationMinutes: "",
-    equipmentNeeded: "",
-    minAge: "",
-    surfaceType: "",
-    indoorOutdoor: "" as "" | "indoor" | "outdoor" | "mixed",
-    meetingInstructions: "",
-    cancellationPolicy: "",
+    description: qp("description"),
+    durationMinutes: qp("durationMinutes"),
+    equipmentNeeded: qp("equipmentNeeded"),
+    minAge: qp("minAge"),
+    surfaceType: qp("surfaceType"),
+    indoorOutdoor: (initialIndoorOutdoor === "indoor" || initialIndoorOutdoor === "outdoor" || initialIndoorOutdoor === "mixed" ? initialIndoorOutdoor : "") as "" | "indoor" | "outdoor" | "mixed",
+    meetingInstructions: qp("meetingInstructions"),
+    cancellationPolicy: qp("cancellationPolicy"),
   });
   const [createError, setCreateError] = useState<string | null>(null);
   const [stepError, setStepError] = useState<string | null>(null);
@@ -91,6 +113,13 @@ export function HostGamePage() {
   };
   const { requestNavigation, dialog: unsavedDialog } = useUnsavedChangesGuard(dirty);
   const [creating, setCreating] = useState(false);
+  // Host Experience Polish — a brief "You're live." confirmation instead of
+  // silently navigating away after a plain create. Only for the plain path:
+  // a plan-idea conversion returns to the Circle (see the comment at its
+  // navigate() call below) and a circleId-only create returns to Manage's
+  // Circles tab — both already land somewhere with their own confirmation
+  // context, so this state stays null on those paths.
+  const [justCreated, setJustCreated] = useState<{ id: string } | null>(null);
 
   useEffect(() => {
     fetchCentres().then(setCentres);
@@ -102,7 +131,7 @@ export function HostGamePage() {
     Promise.all([fetchGame(gameId), fetchGameParticipantsForManage(gameId)])
       .then(([game, participants]) => {
         if (game.hostResidentId !== resident.id) {
-          setLoadError("Only the host can edit this game");
+          setLoadError("Only the host can edit this session");
           return;
         }
         setFormRaw({
@@ -128,7 +157,7 @@ export function HostGamePage() {
         });
         setPriceLocked(participants.some((p) => p.residentId !== resident.id && (p.status === "joined" || p.status === "pending_payment")));
       })
-      .catch((e) => setLoadError(e instanceof Error ? e.message : "Couldn't load this game"))
+      .catch((e) => setLoadError(e instanceof Error ? e.message : "Couldn't load this session"))
       .finally(() => setLoadingGame(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gameId, resident?.id]);
@@ -150,11 +179,10 @@ export function HostGamePage() {
     setCreateError(null);
     setCreating(true);
     try {
-      const input = {
+      const baseInput = {
         activityLabel: form.activityLabel,
         centreId: form.centreId || undefined,
         locationText: form.centreId ? undefined : form.locationText,
-        date: form.date,
         time: form.time,
         capacity: form.capacity,
         priceCents: form.priceCents ? Math.round(parseFloat(form.priceCents) * 100) : undefined,
@@ -171,12 +199,37 @@ export function HostGamePage() {
         meetingInstructions: form.meetingInstructions || undefined,
         cancellationPolicy: form.cancellationPolicy || undefined,
         circleId,
+        planId,
       };
-      const game = gameId ? await updateGame(gameId, input) : await createGame(input);
+      if (gameId) {
+        await updateGame(gameId, { ...baseInput, date: form.date });
+        setDirty(false);
+        navigate("/manage?tab=activities");
+        return;
+      }
+      const count = repeat === "none" ? 1 : Math.max(1, Math.min(52, occurrences));
+      let firstGame: { id: string } | null = null;
+      for (let i = 0; i < count; i++) {
+        const d = new Date(`${form.date}T00:00:00`);
+        if (repeat === "weekly") d.setDate(d.getDate() + 7 * i);
+        else if (repeat === "biweekly") d.setDate(d.getDate() + 14 * i);
+        else if (repeat === "monthly") d.setMonth(d.getMonth() + i);
+        const occurrenceDate = d.toISOString().slice(0, 10);
+        const game = await createGame({ ...baseInput, date: occurrenceDate });
+        if (i === 0) firstGame = game;
+      }
       setDirty(false);
-      navigate(gameId ? "/manage/activities" : circleId ? `/manage/circles/${circleId}` : `/games/${game.id}`);
+      // Converting a plan-idea returns to the public Circle page (where the
+      // plan now shows "Activity ready"), not the organiser's Manage tool —
+      // this is the community-facing flow, distinct from circleId-only
+      // creation via Manage's own "Create a plan" button. Only the plain
+      // create path (no circleId/planId) gets the "You're live." confirmation
+      // — the other two paths already land somewhere with their own context.
+      if (planId) navigate(`/circles/${circleId}`);
+      else if (circleId) navigate(`/manage/circles/${circleId}`);
+      else setJustCreated(firstGame);
     } catch (e) {
-      setCreateError(e instanceof Error ? e.message : `Couldn't ${gameId ? "update" : "create"} this game`);
+      setCreateError(e instanceof Error ? e.message : `Couldn't ${gameId ? "update" : "create"} this game — any earlier occurrences in this batch were still created`);
     } finally {
       setCreating(false);
     }
@@ -192,9 +245,32 @@ export function HostGamePage() {
             {loadError}
           </div>
         ) : resident ? (
-          step === 1 ? (
+          justCreated ? (
+            <Card style={{ maxWidth: 480, margin: "40px auto 0", textAlign: "center", padding: "36px 28px" }}>
+              <CheckCircleIcon size={36} style={{ color: colors.greenText }} />
+              <h2 style={{ margin: "14px 0 4px" }}>You're live.</h2>
+              <p style={{ fontSize: 14, color: colors.muted, margin: "0 0 22px" }}>
+                {form.activityLabel} is posted — share it to help fill it up.
+              </p>
+              <div style={{ display: "flex", flexDirection: "column", gap: 10, alignItems: "stretch" }}>
+                <ShareButton entityType="game" entityId={justCreated.id} label="Share" variant="primary" />
+                <Button
+                  variant="ghost"
+                  onClick={() => {
+                    setJustCreated(null);
+                    setStepError(null);
+                    setFormRaw((f) => ({ ...f, date: "", time: "" }));
+                    setStep(1);
+                  }}
+                >
+                  Add another date
+                </Button>
+                <Button variant="ghost" onClick={() => navigate(`/games/${justCreated.id}`)}>Manage activity</Button>
+              </div>
+            </Card>
+          ) : step === 1 ? (
             <GuidedFlow
-              title={gameId ? "Edit your game." : "Host a game."}
+              title={gameId ? "Edit your session." : "Host a session."}
               subtitle="The basics — what, where, and when."
               stepLabels={STEP_LABELS}
               currentStep={1}
@@ -233,6 +309,35 @@ export function HostGamePage() {
                   <label style={labelStyle}>Time</label>
                   <input id="game-time" type="time" value={form.time} onChange={(e) => setForm((f) => ({ ...f, time: e.target.value }))} style={inputStyle} />
                 </div>
+                {!gameId && !planId && (
+                  <div>
+                    <label style={labelStyle}>Repeat (optional)</label>
+                    <div style={{ display: "flex", gap: 8 }}>
+                      <select value={repeat} onChange={(e) => setRepeat(e.target.value as typeof repeat)} style={inputStyle}>
+                        <option value="none">Doesn't repeat</option>
+                        <option value="weekly">Every week</option>
+                        <option value="biweekly">Every 2 weeks</option>
+                        <option value="monthly">Monthly</option>
+                      </select>
+                      {repeat !== "none" && (
+                        <input
+                          type="number"
+                          min={1}
+                          max={52}
+                          value={occurrences}
+                          onChange={(e) => setOccurrences(Number(e.target.value))}
+                          placeholder="Times"
+                          style={{ ...inputStyle, maxWidth: 90 }}
+                        />
+                      )}
+                    </div>
+                    {repeat !== "none" && (
+                      <p style={{ fontSize: 11.5, color: colors.mutedLight, margin: "4px 0 0" }}>
+                        Creates {Math.max(1, Math.min(52, occurrences))} separate sessions, starting {form.date || "on the date above"} — each is editable/cancellable on its own.
+                      </p>
+                    )}
+                  </div>
+                )}
                 <NumberStepper
                   label="How many players can join?"
                   helper="Including you."
@@ -299,7 +404,7 @@ export function HostGamePage() {
               accent="green"
               onBack={goBack}
               onContinue={handleSubmit}
-              continueLabel={gameId ? "Save changes" : "Create game"}
+              continueLabel={gameId ? "Save changes" : repeat === "none" ? "Create session" : `Create ${Math.max(1, Math.min(52, occurrences))} sessions`}
               continueBusy={creating}
               error={createError}
             >

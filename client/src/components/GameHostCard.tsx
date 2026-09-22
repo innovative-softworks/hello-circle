@@ -44,7 +44,7 @@ export function GameHostCard({ game }: { game: Game }) {
           </div>
           {profile && (
             <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 4, fontSize: 13, color: colors.mutedLight }}>
-              <span>Hosted {profile.gamesHostedTotal} game{profile.gamesHostedTotal === 1 ? "" : "s"}</span>
+              <span>Hosted {profile.gamesHostedTotal} session{profile.gamesHostedTotal === 1 ? "" : "s"}</span>
               {profile.reviews > 0 && (
                 <span style={{ display: "inline-flex", alignItems: "center", gap: 3 }}>
                   <StarIcon size={12} style={{ color: colors.gold }} /> {profile.rating} ({profile.reviews})

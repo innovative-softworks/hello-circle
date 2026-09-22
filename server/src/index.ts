@@ -40,6 +40,7 @@ import { geocodeRouter } from "./routes/geocode.js";
 import { gamesRouter } from "./routes/games.js";
 import { guestAuthRouter } from "./routes/guestAuth.js";
 import { householdRouter } from "./routes/household.js";
+import { invitationsRouter } from "./routes/invitations.js";
 import { launchSignupsRouter } from "./routes/launchSignups.js";
 import { manageRouter } from "./routes/manage.js";
 import { orgRouter, publicInviteRouter } from "./routes/org.js";
@@ -53,6 +54,7 @@ import { registrationsRouter } from "./routes/registrations.js";
 import { residentsRouter } from "./routes/residents.js";
 import { reviewsRouter } from "./routes/reviews.js";
 import { searchRouter } from "./routes/search.js";
+import { sharingRouter } from "./routes/sharing.js";
 import { askRouter } from "./routes/ask.js";
 import { stripeWebhookHandler } from "./routes/stripeWebhook.js";
 import { uploadsRouter } from "./routes/uploads.js";
@@ -133,6 +135,8 @@ app.use("/api/follows", followsRouter);
 app.use("/api/geocode", geocodeRouter);
 app.use("/api/intents", participationIntentsRouter);
 app.use("/api/referrals", referralsRouter);
+app.use("/api/share", sharingRouter);
+app.use("/api/invitations", invitationsRouter);
 app.use("/api/feedback", feedbackRouter);
 app.use("/api/discover", discoverRouter);
 app.use("/api/centres", centresRouter);
@@ -339,7 +343,7 @@ app.get("*", async (req, res, next) => {
   // defaultOgMeta (SEO #1) so it still gets a real description/canonical/
   // OG/Twitter set instead of nothing, explicitly marked noindex.
   try {
-    const meta = (await resolveOgMeta(req.path)) ?? resolveMarketingOgMeta(req.path) ?? defaultOgMeta(req.path);
+    const meta = (await resolveOgMeta(req.path, req.resident?.id ?? null)) ?? resolveMarketingOgMeta(req.path) ?? defaultOgMeta(req.path);
     res.setHeader("Content-Type", "text/html");
     return res.send(injectOgTags(readIndexHtmlTemplate(), meta));
   } catch (e) {

@@ -26,7 +26,7 @@ const PATHS = [
     icon: AwardIcon,
     eyebrow: "Just hosting?",
     title: "Start something yourself.",
-    detail: "A one-off Game or a standing Circle — free, live in minutes, no venue or business required.",
+    detail: "A one-off Session or a standing Circle — free, live in minutes, no venue or business required.",
     cta: "Become a Host",
     variant: "ghost" as const,
   },

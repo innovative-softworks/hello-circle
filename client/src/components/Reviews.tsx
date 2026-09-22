@@ -86,6 +86,14 @@ export function Reviews({ listingType, listingId, accent, onReviewPosted }: Prop
               </div>
               <StarDisplay rating={r.rating} />
               {r.comment && <p style={{ fontSize: 14, color: "#3B423C", margin: "6px 0 0", lineHeight: 1.5 }}>{r.comment}</p>}
+              {r.vendorReply && (
+                <div style={{ marginTop: 10, background: colors.bg, borderRadius: 10, padding: "10px 12px" }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: colors.mutedLight, marginBottom: 3 }}>
+                    {listingType === "host" ? "RESPONSE FROM THE HOST" : `RESPONSE FROM THE ${listingType === "centre" ? "VENUE" : "CLUB"}`}
+                  </div>
+                  <div style={{ fontSize: 13.5, color: "#3B423C" }}>{r.vendorReply}</div>
+                </div>
+              )}
             </div>
           </Card>
         ))}
@@ -96,8 +104,8 @@ export function Reviews({ listingType, listingId, accent, onReviewPosted }: Prop
           <p style={{ fontSize: 13, color: colors.mutedLight, margin: 0 }}>
             {listingType === "centre" && "Only guests who've booked here can leave a review — book a room first, then come back to share how it went."}
             {listingType === "club" && "Only guests who've registered here can leave a review — register your child first, then come back to share how it went."}
-            {listingType === "game" && "Only residents who attended a past game can review it."}
-            {listingType === "host" && "Only residents who've played in one of this host's past games can review them."}
+            {listingType === "game" && "Only residents who attended a past session can review it."}
+            {listingType === "host" && "Only residents who've played in one of this host's past sessions can review them."}
             {listingType === "experience" && "Only guests with a past booking can leave a review — book a session first, then come back once it's happened."}
           </p>
         </Card>

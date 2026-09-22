@@ -1,14 +1,19 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { fetchVendorClub } from "../api";
+import { fetchVendorClub, fetchVendorListings } from "../api";
 import { useAuth } from "../AuthContext";
 import { BackLink } from "../components/BackLink";
+import { BookingsTab } from "../components/VendorBookings";
+import { ClubParticipantsTab } from "../components/ClubParticipantsTab";
 import { ClubEditor, ClubSessionsManager, ClubWaitlistPanel } from "../components/VendorClubEditor";
 import { ClubCreationWizard } from "../components/ClubCreationWizard";
 import { useUnsavedChangesGuard } from "../components/form";
+import { MessageComposer } from "../components/VendorMessages";
+import { PublishedScreen } from "../components/PublishedScreen";
+import { VendorListingPerformance } from "../components/VendorListingPerformance";
 import { PageSpinner, Tabs } from "../components/ui";
 import { fonts } from "../theme";
-import type { Club } from "../types";
+import type { Club, VendorListingSummary } from "../types";
 
 // Dedicated page for the sports club create/edit form — same reasoning as
 // VendorCentreEditPage.tsx: fields + two independent sub-resource managers
@@ -20,7 +25,7 @@ import type { Club } from "../types";
 // wizardMode pattern and its comment on why this is sticky state, not a
 // derived expression.
 
-type ClubTab = "details" | "sessions" | "waitlist";
+type ClubTab = "details" | "sessions" | "waitlist" | "registrations" | "participants" | "messages" | "performance";
 
 export function VendorClubEditPage() {
   const { id } = useParams<{ id: string }>();
@@ -31,7 +36,9 @@ export function VendorClubEditPage() {
   const [club, setClub] = useState<Club | null>(null);
   const [loading, setLoading] = useState(clubId !== "new");
   const [wizardMode, setWizardMode] = useState(clubId === "new");
+  const [justPublished, setJustPublished] = useState(false);
   const [dirty, setDirty] = useState(false);
+  const [listingSummary, setListingSummary] = useState<VendorListingSummary | undefined>(undefined);
   const { requestNavigation, dialog: unsavedDialog } = useUnsavedChangesGuard(dirty);
 
   useEffect(() => {
@@ -41,6 +48,7 @@ export function VendorClubEditPage() {
         setWizardMode(c.status === "draft");
         setLoading(false);
       });
+      fetchVendorListings().then((l) => setListingSummary(l.clubs.find((c) => c.id === clubId)));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [clubId]);
@@ -73,8 +81,11 @@ export function VendorClubEditPage() {
             onPublished={(published) => {
               setClub(published);
               setWizardMode(false);
+              setJustPublished(true);
             }}
           />
+        ) : justPublished ? (
+          <PublishedScreen name={club?.name ?? "Your club"} publicHref={`/clubs/${club?.slug ?? clubId}`} onDismiss={() => setJustPublished(false)} />
         ) : (
           <>
             <h2 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 24, margin: "0 0 18px", letterSpacing: "-.01em" }}>{title}</h2>
@@ -86,6 +97,10 @@ export function VendorClubEditPage() {
                   { key: "details", label: "Details" },
                   { key: "sessions", label: "Recurring sessions" },
                   { key: "waitlist", label: "Waitlist" },
+                  { key: "registrations", label: "Registrations" },
+                  { key: "participants", label: "Participants" },
+                  { key: "messages", label: "Messages" },
+                  { key: "performance", label: "Performance" },
                 ]}
               />
             </div>
@@ -93,6 +108,12 @@ export function VendorClubEditPage() {
             {tab === "details" && <ClubEditor clubId={clubId} onSaved={onSaved} onDirtyChange={setDirty} />}
             {tab === "sessions" && <ClubSessionsManager clubId={clubId} />}
             {tab === "waitlist" && <ClubWaitlistPanel clubId={clubId} />}
+            {tab === "registrations" && <BookingsTab clubId={clubId} />}
+            {tab === "participants" && <ClubParticipantsTab clubId={clubId} />}
+            {tab === "messages" && club && (
+              <MessageComposer listings={{ centres: [], clubs: [] }} lockTo={{ listingType: "club", listingId: clubId, name: club.name }} />
+            )}
+            {tab === "performance" && <VendorListingPerformance summary={listingSummary} />}
           </>
         )}
       </section>

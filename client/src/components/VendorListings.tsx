@@ -1,9 +1,31 @@
 import { useState } from "react";
-import { deleteVendorCentre, deleteVendorClub } from "../api";
-import { BallIcon, BuildingIcon, CheckCircleIcon, EditIcon, EyeIcon, PinIcon, PlusIcon, StarIcon, TrashIcon } from "./icons";
+import {
+  deleteVendorCentre,
+  deleteVendorClub,
+  duplicateVendorCentre,
+  duplicateVendorClub,
+  pauseVendorCentre,
+  pauseVendorClub,
+  resumeVendorCentre,
+  resumeVendorClub,
+} from "../api";
+import { BallIcon, BuildingIcon, CheckCircleIcon, CopyIcon, EditIcon, EyeIcon, PauseIcon, PinIcon, PlayIcon, PlusIcon, ShareIcon, StarIcon, TrashIcon } from "./icons";
 import { Button, ManageCard as Card, ConfirmDialog, LinkButton, StatusBadge, tableStyle, tdStyle, thStyle } from "./ui";
 import { colors, fonts } from "../theme";
 import type { VendorListingSummary, VendorType } from "../types";
+
+// Host Manage spec §7's Listings actions (Duplicate/Pause/Share) — didn't
+// exist before (only Edit/Delete did). Share just copies the public link
+// (no share-sheet infra needed here, same "copy to clipboard" pattern used
+// elsewhere, e.g. GameDetail.tsx's handleShare); Pause/Resume flips the new
+// 'paused' status (see vendorListings.ts's routes — every public read
+// already filters to status = 'approved', so this needs no other wiring);
+// Duplicate clones core fields into a new draft, landing in the wizard.
+async function copyPublicLink(kind: "centre" | "club", id: string) {
+  const url = `${window.location.origin}/${kind === "centre" ? "centres" : "clubs"}/${id}`;
+  await navigator.clipboard.writeText(url);
+  alert("Link copied to clipboard");
+}
 
 // The Listings tab (deliberately NOT a uniform CRUD list: for the common
 // case — one listing of a given type — this renders a rich profile view of
@@ -81,11 +103,15 @@ function ListingProfileCard({
   listing,
   onEdit,
   onDelete,
+  onPauseResume,
+  onDuplicate,
 }: {
   kind: "centre" | "club";
   listing: VendorListingSummary;
   onEdit: () => void;
   onDelete: () => void;
+  onPauseResume: () => void;
+  onDuplicate: () => void;
 }) {
   const publicHref = kind === "centre" ? `/centres/${listing.id}` : `/clubs/${listing.id}`;
   return (
@@ -136,13 +162,32 @@ function ListingProfileCard({
             <Button onClick={onEdit}>
               <EditIcon size={14} /> {listing.status === "approved" ? "Edit details" : "Finish setup"}
             </Button>
-            {listing.status === "approved" ? (
-              <LinkButton variant="ghost" href={publicHref} target="_blank">
-                <EyeIcon size={14} /> View live listing
-              </LinkButton>
+            {listing.status === "approved" || listing.status === "paused" ? (
+              <>
+                <LinkButton variant="ghost" href={publicHref} target="_blank">
+                  <EyeIcon size={14} /> View live listing
+                </LinkButton>
+                <Button variant="ghost" onClick={() => copyPublicLink(kind, listing.id)}>
+                  <ShareIcon size={14} /> Share
+                </Button>
+                <Button variant="ghost" onClick={onPauseResume}>
+                  {listing.status === "paused" ? (
+                    <>
+                      <PlayIcon size={14} /> Resume
+                    </>
+                  ) : (
+                    <>
+                      <PauseIcon size={14} /> Pause
+                    </>
+                  )}
+                </Button>
+              </>
             ) : (
               <span style={{ fontSize: 12.5, color: colors.faint }}>Preview available once approved</span>
             )}
+            <Button variant="ghost" onClick={onDuplicate}>
+              <CopyIcon size={14} /> Duplicate
+            </Button>
             <Button variant="danger" onClick={onDelete} style={{ marginLeft: "auto" }}>
               <TrashIcon size={14} /> Delete
             </Button>
@@ -158,11 +203,15 @@ function ListingsTable({
   rows,
   onEdit,
   onDelete,
+  onPauseResume,
+  onDuplicate,
 }: {
   kind: "centre" | "club";
   rows: VendorListingSummary[];
   onEdit: (id: string) => void;
   onDelete: (id: string, name: string) => void;
+  onPauseResume: (id: string) => void;
+  onDuplicate: (id: string) => void;
 }) {
   return (
     <div style={{ overflowX: "auto" }}>
@@ -203,6 +252,19 @@ function ListingsTable({
                   <Button variant="ghost" onClick={() => onEdit(r.id)}>
                     <EditIcon size={13} />
                   </Button>
+                  {(r.status === "approved" || r.status === "paused") && (
+                    <>
+                      <Button variant="ghost" onClick={() => copyPublicLink(kind, r.id)}>
+                        <ShareIcon size={13} />
+                      </Button>
+                      <Button variant="ghost" onClick={() => onPauseResume(r.id)}>
+                        {r.status === "paused" ? <PlayIcon size={13} /> : <PauseIcon size={13} />}
+                      </Button>
+                    </>
+                  )}
+                  <Button variant="ghost" onClick={() => onDuplicate(r.id)}>
+                    <CopyIcon size={13} />
+                  </Button>
                   <Button variant="danger" onClick={() => onDelete(r.id, r.name)}>
                     <TrashIcon size={13} />
                   </Button>
@@ -228,6 +290,8 @@ function ListingSection({
   onEdit,
   onNew,
   onDelete,
+  onPauseResume,
+  onDuplicate,
 }: {
   kind: "centre" | "club";
   title: string;
@@ -237,12 +301,21 @@ function ListingSection({
   onEdit: (id: string) => void;
   onNew: () => void;
   onDelete: (id: string, name: string) => void;
+  onPauseResume: (id: string) => void;
+  onDuplicate: (id: string) => void;
 }) {
   if (rows.length === 1) {
     return (
       <div>
         <h3 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 18, margin: "0 0 14px", letterSpacing: "-.01em" }}>{title}</h3>
-        <ListingProfileCard kind={kind} listing={rows[0]} onEdit={() => onEdit(rows[0].id)} onDelete={() => onDelete(rows[0].id, rows[0].name)} />
+        <ListingProfileCard
+          kind={kind}
+          listing={rows[0]}
+          onEdit={() => onEdit(rows[0].id)}
+          onDelete={() => onDelete(rows[0].id, rows[0].name)}
+          onPauseResume={() => onPauseResume(rows[0].id)}
+          onDuplicate={() => onDuplicate(rows[0].id)}
+        />
       </div>
     );
   }
@@ -255,7 +328,7 @@ function ListingSection({
           {addLabel}
         </Button>
       </div>
-      <ListingsTable kind={kind} rows={rows} onEdit={onEdit} onDelete={onDelete} />
+      <ListingsTable kind={kind} rows={rows} onEdit={onEdit} onDelete={onDelete} onPauseResume={onPauseResume} onDuplicate={onDuplicate} />
     </div>
   );
 }
@@ -295,6 +368,28 @@ export function ListingsTab({
     }
   };
 
+  const togglePause = async (type: "centre" | "club", id: string) => {
+    const rows = type === "centre" ? listings.centres : listings.clubs;
+    const listing = rows.find((r) => r.id === id);
+    if (!listing) return;
+    const paused = listing.status === "paused";
+    if (type === "centre") await (paused ? resumeVendorCentre(id) : pauseVendorCentre(id));
+    else await (paused ? resumeVendorClub(id) : pauseVendorClub(id));
+    reload();
+  };
+
+  const duplicate = async (type: "centre" | "club", id: string) => {
+    if (type === "centre") {
+      const clone = await duplicateVendorCentre(id);
+      reload();
+      onEditCentre(clone.id);
+    } else {
+      const clone = await duplicateVendorClub(id);
+      reload();
+      onEditClub(clone.id);
+    }
+  };
+
   return (
     <div className="fade-panel" style={{ display: "flex", flexDirection: "column", gap: 30 }}>
       {vendorType && <SetupChecklist vendorType={vendorType} listings={listings} />}
@@ -307,6 +402,8 @@ export function ListingsTab({
           onEdit={onEditCentre}
           onNew={onNewCentre}
           onDelete={(id, name) => setConfirming({ type: "centre", id, name })}
+          onPauseResume={(id) => togglePause("centre", id)}
+          onDuplicate={(id) => duplicate("centre", id)}
         />
       )}
 
@@ -320,6 +417,8 @@ export function ListingsTab({
           onEdit={onEditClub}
           onNew={onNewClub}
           onDelete={(id, name) => setConfirming({ type: "club", id, name })}
+          onPauseResume={(id) => togglePause("club", id)}
+          onDuplicate={(id) => duplicate("club", id)}
         />
       )}
 

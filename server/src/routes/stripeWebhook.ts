@@ -112,6 +112,7 @@ interface GameJoinForNotify {
   time: string;
   capacity: number;
   resident_id: string;
+  coupon_code: string | null;
 }
 
 /** Paid Join-a-Game confirmation (NEXT). Same idempotent
@@ -123,12 +124,13 @@ export async function confirmGameJoin(ref: string) {
 
   const row = (await db
     .prepare(
-      `SELECT gp.game_id, gp.resident_id, g.host_resident_id, g.activity_label, g.date, g.time, g.capacity
+      `SELECT gp.game_id, gp.resident_id, gp.coupon_code, g.host_resident_id, g.activity_label, g.date, g.time, g.capacity
        FROM game_participants gp JOIN games g ON g.id = gp.game_id WHERE gp.ref = ?`
     )
     .get(ref)) as GameJoinForNotify | undefined;
   if (!row) return;
 
+  if (row.coupon_code) await recordCouponUse(row.coupon_code);
   await claimWaitlistOffer("game", row.game_id, null, row.resident_id);
 
   const { n: joined } = (await db.prepare(`SELECT COUNT(*) as n FROM game_participants WHERE game_id = ? AND status = 'joined'`).get(row.game_id)) as {

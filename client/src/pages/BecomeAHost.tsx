@@ -10,12 +10,12 @@ import { VendorFAQ } from "../components/forVenues/VendorFAQ";
 import { trackVendorEvent } from "../forVenuesAnalytics";
 
 const HOST_FAQS: { q: string; a: string }[] = [
-  { q: "Do I need a venue or business?", a: "No — a Game or a Circle needs a time and a place to meet, not a listing. Use a park, a court, your own back garden, or an existing venue someone else already listed." },
-  { q: "Is it really free?", a: "Yes. Hosting a Game or starting a Circle has no cost and no approval step — it's live as soon as you submit it." },
+  { q: "Do I need a venue or business?", a: "No — a Session or a Circle needs a time and a place to meet, not a listing. Use a park, a court, your own back garden, or an existing venue someone else already listed." },
+  { q: "Is it really free?", a: "Yes. Hosting a Session or starting a Circle has no cost and no approval step — it's live as soon as you submit it." },
   { q: "What if no one shows up?", a: "You can set a minimum headcount to run, and cancel with notice if it doesn't come together — same as any real-world plan." },
-  { q: "Can I charge people?", a: "Games and Circles are free to run. If you want to take payments, a Verified Host can open a provider account and list Programs or Experiences instead." },
+  { q: "Can I charge people?", a: "Sessions and Circles are free to run. If you want to take payments, a Verified Host can open a provider account and list Programs or Experiences instead." },
   { q: "What's Verified Host?", a: "An optional badge, not a requirement — apply from your profile once you're hosting, and approved hosts get a badge shown next to their name." },
-  { q: "Can I edit or cancel after I post it?", a: "Yes — you can update details or cancel a Game or Circle any time from your profile." },
+  { q: "Can I edit or cancel after I post it?", a: "Yes — you can update details or cancel a Session or Circle any time from your profile." },
 ];
 
 // Split out of /for-venues (see ForVenues.tsx's own "Choose your path" fork)

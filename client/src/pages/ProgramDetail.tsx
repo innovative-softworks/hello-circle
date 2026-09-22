@@ -4,6 +4,8 @@ import { enrollInProgram, fetchProgram } from "../api";
 import { openCheckout } from "../native";
 import { BackLink } from "../components/BackLink";
 import { CalendarIcon, ClockIcon, UsersIcon } from "../components/icons";
+import { InviteSheetButton } from "../components/InviteSheetButton";
+import { ShareButton } from "../components/ShareButton";
 import { AvailabilityBadge, availabilityFromSpots, Button, Card, PageSpinner, inputStyle, labelStyle } from "../components/ui";
 import { useGuest } from "../GuestContext";
 import { colors, fonts, maxWidth, radius } from "../theme";
@@ -114,7 +116,13 @@ export function ProgramDetail() {
 
         <div className="grid-responsive" style={{ display: "grid", gridTemplateColumns: "1.6fr 1fr", gap: 40, alignItems: "start" }}>
           <div>
-            <h1 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: "clamp(24px,3vw,30px)", margin: "0 0 4px", letterSpacing: "-.01em" }}>{program.title}</h1>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+              <h1 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: "clamp(24px,3vw,30px)", margin: "0 0 4px", letterSpacing: "-.01em" }}>{program.title}</h1>
+              <div style={{ display: "flex", gap: 8 }}>
+                <ShareButton entityType="program" entityId={program.id} />
+                <InviteSheetButton entityType="program" entityId={program.id} title={program.title} />
+              </div>
+            </div>
             <div style={{ color: colors.mutedLight, fontSize: 14.5, marginBottom: 10 }}>{program.listingName}{program.ageRange ? ` · ${program.ageRange}` : ""}</div>
             <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 18 }}>
               {program.category && (

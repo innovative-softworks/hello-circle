@@ -7,7 +7,7 @@ import type { Favourite } from "../types";
 const LABEL: Record<Favourite["listingType"], string> = {
   centre: "Community centre",
   club: "Sports club",
-  game: "Game",
+  game: "Session",
   program_session: "Program session",
   club_session: "Club session",
   experience: "Adventure / Experience",

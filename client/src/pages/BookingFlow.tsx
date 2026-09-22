@@ -510,7 +510,7 @@ export function BookingFlow() {
                           style={{ ...inputStyle, width: 100 }}
                         />
                         <p style={{ fontSize: 12.5, color: colors.mutedLight, margin: "10px 0 14px" }}>
-                          Other residents will be able to find and join this booking, each paying their own share of the cost. This creates a public listing under "Games" once your booking is confirmed.
+                          Other residents will be able to find and join this booking, each paying their own share of the cost. This creates a public listing under "Sessions" once your booking is confirmed.
                         </p>
                         <label style={labelStyle}>Confirm by (optional)</label>
                         <input

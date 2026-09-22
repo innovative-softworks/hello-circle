@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 import { Router } from "express";
-import { SESSION_COOKIE, createSession, createUser, destroySession, findUserByEmail, hashPassword, verifyPassword } from "../auth.js";
+import { SESSION_COOKIE, createSession, createUser, destroySession, findUserByEmail, hashPassword, requireVendorOrAdmin, verifyPassword } from "../auth.js";
 import { db } from "../db/index.js";
 import { sendMail } from "../email.js";
 import { magicLinkLimiter, passwordLoginLimiter } from "../rateLimit.js";
@@ -106,6 +106,10 @@ authRouter.post("/login", passwordLoginLimiter, async (req, res) => {
   }
   if (found.status === "suspended") return res.status(403).json({ error: "This account has been suspended" });
 
+  // Same "soft, self-reversing" deactivation as residents (guestAuth.ts) —
+  // signing back in is itself the reactivation, no separate flow needed.
+  await db.prepare(`UPDATE users SET deactivated_at = NULL WHERE id = ?`).run(found.id);
+
   const { token } = await createSession(found.id);
   res.cookie(SESSION_COOKIE, token, cookieOpts);
   const { passwordHash: _passwordHash, ...user } = found;
@@ -192,5 +196,36 @@ authRouter.post("/reset-password", passwordLoginLimiter, async (req, res) => {
 
   await db.prepare(`UPDATE users SET password_hash = ? WHERE id = ?`).run(hashPassword(password), row.userId);
   await db.prepare(`DELETE FROM password_reset_tokens WHERE token = ?`).run(token);
+  res.json({ ok: true });
+});
+
+/** Host Manage spec §28 — an authenticated "change my password" while
+ * logged in. Only the unauthenticated forgot-password email flow above
+ * existed before this; that flow stays as the recovery path when a vendor
+ * doesn't remember their current password at all. */
+authRouter.put("/password", requireVendorOrAdmin, async (req, res) => {
+  const { currentPassword, newPassword } = req.body as { currentPassword?: string; newPassword?: string };
+  if (!currentPassword || !newPassword) return res.status(400).json({ error: "Current and new password are required" });
+  if (newPassword.length < 8) return res.status(400).json({ error: "New password must be at least 8 characters" });
+
+  const row = (await db.prepare(`SELECT password_hash as passwordHash FROM users WHERE id = ?`).get(req.user!.id)) as { passwordHash: string } | undefined;
+  if (!row || !verifyPassword(currentPassword, row.passwordHash)) {
+    return res.status(401).json({ error: "Current password is incorrect" });
+  }
+  await db.prepare(`UPDATE users SET password_hash = ? WHERE id = ?`).run(hashPassword(newPassword), req.user!.id);
+  res.json({ ok: true });
+});
+
+/** Host Manage spec §28 — vendor/admin account deactivation, same "soft,
+ * self-reversing" pattern as residents.ts's own POST /me/deactivate: not a
+ * hard lock, just a status toggle a subsequent login itself clears (see
+ * POST /login above). Ends the current session immediately, same as a
+ * manual sign-out and for the same reason residents.ts's identical route
+ * does — staying logged in while deactivated makes no sense. */
+authRouter.post("/deactivate", requireVendorOrAdmin, async (req, res) => {
+  await db.prepare(`UPDATE users SET deactivated_at = NOW() WHERE id = ?`).run(req.user!.id);
+  const token = req.cookies?.[SESSION_COOKIE] as string | undefined;
+  if (token) await destroySession(token);
+  res.clearCookie(SESSION_COOKIE, cookieOpts);
   res.json({ ok: true });
 });

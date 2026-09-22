@@ -1,12 +1,13 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { cancelGame, downloadGameIcs, fetchGameParticipants, joinGame, joinGameWaitlist, leaveGame, leaveGameWaitlist } from "../api";
+import { cancelGame, downloadGameIcs, fetchGameParticipants, joinGame, joinGameWaitlist, leaveGame, leaveGameWaitlist, validateCoupon } from "../api";
 import { signInHref } from "../authRedirect";
 import { openCheckout } from "../native";
 import { CalendarIcon, CheckIcon, PinIcon, UsersIcon } from "./icons";
+import { InviteSheetButton } from "./InviteSheetButton";
+import { ShareButton } from "./ShareButton";
 import { TextInput } from "./form";
-import { InviteButton } from "./InviteButton";
-import { Avatar, Button, Card, ConfirmDialog } from "./ui";
+import { Avatar, Button, Card, ConfirmDialog, inputStyle, labelStyle } from "./ui";
 import { dateLabel } from "../euro";
 import { primaryCtaLabel as gamePrimaryCtaLabel } from "../gameCta";
 import { colors, fonts, radius } from "../theme";
@@ -62,6 +63,63 @@ function PlanRecap({ game }: { game: Game }) {
       <div style={{ fontWeight: 700, color: game.priceCents ? colors.text : colors.greenText }}>
         {formatPrice(game.priceCents, { each: true })}
       </div>
+    </div>
+  );
+}
+
+// Vendor-parity pass, Phase 25 — a host can scope a coupon to one priced
+// session (games.ts's POST /coupons). This preview uses the generic
+// /coupons/validate endpoint, which has no listing context (see pricing.ts's
+// own documented limit on that endpoint) — real enforcement/rejection for a
+// code that doesn't apply to this specific game happens at the actual join
+// call below, same never-trust-the-preview contract BookingFlow.tsx uses.
+function GameCouponField({ subtotalCents, onApplied }: { subtotalCents: number; onApplied: (code: string | null) => void }) {
+  const [input, setInput] = useState("");
+  const [applied, setApplied] = useState<{ code: string; discountCents: number } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [checking, setChecking] = useState(false);
+
+  const apply = async () => {
+    if (!input.trim()) return;
+    setChecking(true);
+    setError(null);
+    try {
+      const res = await validateCoupon(input.trim(), subtotalCents);
+      setApplied({ code: res.code, discountCents: res.discountCents });
+      onApplied(res.code);
+    } catch (e) {
+      setApplied(null);
+      onApplied(null);
+      setError(e instanceof Error ? e.message : "Couldn't apply that code");
+    } finally {
+      setChecking(false);
+    }
+  };
+
+  const remove = () => {
+    setApplied(null);
+    setInput("");
+    setError(null);
+    onApplied(null);
+  };
+
+  return (
+    <div style={{ marginTop: 12, textAlign: "left" }}>
+      <label style={labelStyle}>Coupon code (optional)</label>
+      {applied ? (
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 12.5, color: colors.greenText }}>
+          <span style={{ display: "flex", alignItems: "center", gap: 5 }}>
+            <CheckIcon size={13} /> {applied.code} applied — €{(applied.discountCents / 100).toFixed(2)} off
+          </span>
+          <button onClick={remove} aria-label="Remove code" style={{ background: "none", border: "none", cursor: "pointer", color: colors.greenText, fontSize: 16, lineHeight: 1 }}>×</button>
+        </div>
+      ) : (
+        <div style={{ display: "flex", gap: 8 }}>
+          <input value={input} onChange={(e) => setInput(e.target.value.toUpperCase())} onKeyDown={(e) => e.key === "Enter" && apply()} placeholder="e.g. SUMMER10" style={{ ...inputStyle, flex: 1 }} />
+          <Button variant="ghost" onClick={apply} disabled={checking || !input.trim()} style={{ flex: "none" }}>{checking ? "Checking…" : "Apply"}</Button>
+        </div>
+      )}
+      {error && <p style={{ color: colors.danger, fontSize: 12, margin: "6px 0 0" }}>{error}</p>}
     </div>
   );
 }
@@ -131,6 +189,8 @@ export function GameJoinCard({ game, resident, isHost, onRefresh }: JoinCardProp
   const [cancelReason, setCancelReason] = useState("");
   const [justJoined, setJustJoined] = useState(false);
   const [participants, setParticipants] = useState<{ residentId: string; name: string }[]>([]);
+  const [couponCode, setCouponCode] = useState<string | null>(null);
+  const [leaveConfirmOpen, setLeaveConfirmOpen] = useState(false);
 
   const state = computeState(game, resident, isHost);
   const isPast = new Date(`${game.date}T${game.time}:00`).getTime() < Date.now();
@@ -160,8 +220,9 @@ export function GameJoinCard({ game, resident, isHost, onRefresh }: JoinCardProp
   };
 
   const handleConfirmJoin = () => {
-    run(() => joinGame(game.id), () => {
+    run(() => joinGame(game.id, couponCode ?? undefined), () => {
       setConfirmOpen(false);
+      setCouponCode(null);
       if (!game.priceCents) setJustJoined(true);
     });
   };
@@ -180,7 +241,10 @@ export function GameJoinCard({ game, resident, isHost, onRefresh }: JoinCardProp
           <p style={{ margin: "0 0 16px", fontSize: 13.5, color: colors.mutedLight }}>{game.activityLabel} · {dateLabel(game.date)}</p>
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             <Button variant="ghost" onClick={() => downloadGameIcs(game.id)}>Add to calendar</Button>
-            <InviteButton title={game.activityLabel} text={`Join me for ${game.activityLabel} on ${game.date}`} listingType="game" listingId={game.id} />
+            <div style={{ display: "flex", gap: 8, justifyContent: "center" }}>
+              <ShareButton entityType="game" entityId={game.id} />
+              <InviteSheetButton entityType="game" entityId={game.id} title={game.activityLabel} />
+            </div>
             <Button variant="ghost" onClick={() => setJustJoined(false)}>View plan</Button>
           </div>
         </div>
@@ -246,7 +310,7 @@ export function GameJoinCard({ game, resident, isHost, onRefresh }: JoinCardProp
             <Button full onClick={() => navigate(signInHref(gameSignInContext(game)))}>{game.spotsLeft === 0 ? "Sign in to join the waitlist" : "Sign in to join"}</Button>
           )}
           {state === "joined" && (
-            <Button variant="ghost" full onClick={() => run(() => leaveGame(game.id))} disabled={busy}>Leave game</Button>
+            <Button variant="ghost" full onClick={() => setLeaveConfirmOpen(true)} disabled={busy}>Leave game</Button>
           )}
           {state === "waitlisted" && (
             <Button variant="ghost" full onClick={() => run(() => leaveGameWaitlist(game.id))} disabled={busy}>Leave waitlist</Button>
@@ -261,8 +325,9 @@ export function GameJoinCard({ game, resident, isHost, onRefresh }: JoinCardProp
             <div style={{ textAlign: "center", fontSize: 12, color: colors.faint }}>No payment required</div>
           )}
           {(state === "joined" || state === "available" || state === "full") && !isPast && (
-            <div style={{ display: "flex", gap: 10 }}>
-              <InviteButton title={game.activityLabel} text={`Join me for ${game.activityLabel} on ${game.date}`} listingType="game" listingId={game.id} />
+            <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+              <ShareButton entityType="game" entityId={game.id} />
+              <InviteSheetButton entityType="game" entityId={game.id} title={game.activityLabel} />
               <Button variant="ghost" onClick={() => downloadGameIcs(game.id)}>Add to calendar</Button>
             </div>
           )}
@@ -272,27 +337,49 @@ export function GameJoinCard({ game, resident, isHost, onRefresh }: JoinCardProp
       <ConfirmDialog
         open={confirmOpen}
         title={`Join ${game.activityLabel}?`}
-        message={<PlanRecap game={game} />}
+        message={
+          <>
+            <PlanRecap game={game} />
+            {!!game.priceCents && <GameCouponField subtotalCents={game.priceCents} onApplied={setCouponCode} />}
+          </>
+        }
         confirmLabel={game.priceCents ? "Continue to payment" : "Confirm I'm in"}
         cancelLabel="Cancel"
         tone="neutral"
         busy={busy}
         onConfirm={handleConfirmJoin}
-        onCancel={() => setConfirmOpen(false)}
+        onCancel={() => {
+          setConfirmOpen(false);
+          setCouponCode(null);
+        }}
       />
 
       <ConfirmDialog
         open={cancelConfirmOpen}
         title={`Cancel ${game.activityLabel}?`}
         message={game.joined > 0 ? `Everyone who joined (${game.joined}) will be notified — this can't be undone.` : "This can't be undone."}
-        confirmLabel="Cancel this game"
-        cancelLabel="Keep game"
+        confirmLabel="Cancel this session"
+        cancelLabel="Keep session"
         busy={busy}
         onConfirm={handleConfirmCancel}
         onCancel={() => setCancelConfirmOpen(false)}
       >
         <TextInput label="Reason (optional)" placeholder="e.g. Not enough players, venue fell through" value={cancelReason} onChange={(e) => setCancelReason(e.target.value)} />
       </ConfirmDialog>
+
+      <ConfirmDialog
+        open={leaveConfirmOpen}
+        title={`Leave ${game.activityLabel}?`}
+        message={game.priceCents ? "You'll lose your spot and this platform doesn't automatically refund it — contact the host if you paid." : "You'll lose your spot — someone else may take it."}
+        confirmLabel="Leave game"
+        cancelLabel="Stay in"
+        busy={busy}
+        onConfirm={() => {
+          run(() => leaveGame(game.id));
+          setLeaveConfirmOpen(false);
+        }}
+        onCancel={() => setLeaveConfirmOpen(false)}
+      />
     </>
   );
 }
@@ -306,6 +393,7 @@ export function MobileJoinBar({ game, resident, isHost, onRefresh }: JoinCardPro
   const navigate = useNavigate();
   const [busy, setBusy] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [couponCode, setCouponCode] = useState<string | null>(null);
 
   const state = computeState(game, resident, isHost);
   if (state === "cancelled" || state === "host" || state === "joined") return null;
@@ -335,25 +423,34 @@ export function MobileJoinBar({ game, resident, isHost, onRefresh }: JoinCardPro
       <ConfirmDialog
         open={confirmOpen}
         title={`Join ${game.activityLabel}?`}
-        message={<PlanRecap game={game} />}
+        message={
+          <>
+            <PlanRecap game={game} />
+            {!!game.priceCents && <GameCouponField subtotalCents={game.priceCents} onApplied={setCouponCode} />}
+          </>
+        }
         confirmLabel={game.priceCents ? "Continue to payment" : "Confirm I'm in"}
         cancelLabel="Cancel"
         tone="neutral"
         busy={busy}
         onConfirm={() => {
           setBusy(true);
-          joinGame(game.id)
+          joinGame(game.id, couponCode ?? undefined)
             .then((res) => {
               if (res.url) {
                 openCheckout(res.url);
                 return;
               }
               setConfirmOpen(false);
+              setCouponCode(null);
               onRefresh();
             })
             .finally(() => setBusy(false));
         }}
-        onCancel={() => setConfirmOpen(false)}
+        onCancel={() => {
+          setConfirmOpen(false);
+          setCouponCode(null);
+        }}
       />
     </>
   );

@@ -1,11 +1,15 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import {
+  cancelCirclePlanIdea,
   closeCirclePoll,
+  confirmCirclePlanIdea,
+  createCirclePlanIdea,
   createCirclePoll,
   fetchCircle,
   fetchCircleActivity,
   fetchCircleMembership,
+  fetchCirclePlanIdeas,
   fetchCirclePolls,
   fetchCircleUpcoming,
   fetchCircles,
@@ -18,6 +22,7 @@ import {
 } from "../api";
 import { signInHref } from "../authRedirect";
 import { CalendarIcon, HeartIcon, PlusIcon, UsersIcon } from "../components/icons";
+import { ShareButton } from "../components/ShareButton";
 import { Button, Card, ConfirmDialog, EmptyState, inputStyle, labelStyle, PageSpinner } from "../components/ui";
 import { BackLink } from "../components/BackLink";
 import { ChatPanel } from "../components/ChatPanel";
@@ -32,6 +37,7 @@ import { CircleJoinCard, type JoinState } from "../components/CircleJoinCard";
 import { CircleMembersCard } from "../components/CircleMembersCard";
 import { CircleMoments } from "../components/CircleMoments";
 import { CirclePlanCard } from "../components/CirclePlanCard";
+import { CirclePlanIdeaCard } from "../components/CirclePlanIdeaCard";
 import { CircleStatsBar } from "../components/CircleStatsBar";
 import { CircleUpcomingSummary } from "../components/CircleUpcomingSummary";
 import { IntentCaptureForm } from "../components/IntentCaptureForm";
@@ -39,7 +45,7 @@ import { isFavorite, toggleFavorite } from "../favorites";
 import { useGuest } from "../GuestContext";
 import { dateLabel } from "../euro";
 import { colors, fonts, radius } from "../theme";
-import type { Circle, CircleActivityStats, CirclePlanPreview, CirclePoll } from "../types";
+import type { Circle, CircleActivityStats, CirclePlanIdea, CirclePlanPreview, CirclePoll } from "../types";
 
 const hairline = `1px solid ${colors.border}`;
 
@@ -122,7 +128,21 @@ export function CircleDetail() {
   const [pollOpen, setPollOpen] = useState(false);
   const [pollQuestion, setPollQuestion] = useState("");
   const [pollDates, setPollDates] = useState(["", "", ""]);
+  const [pollPlanId, setPollPlanId] = useState("");
   const planningRef = useRef<HTMLDivElement>(null);
+
+  // Phase 2 "Circles V2" — plan-ideas, the new explicit "what should this
+  // Circle do next" object. Kept separate from the polls state above; the
+  // two are related (a poll can optionally attach to a plan-idea) but not
+  // the same list.
+  const [planIdeas, setPlanIdeas] = useState<CirclePlanIdea[]>([]);
+  const [planIdeaFormOpen, setPlanIdeaFormOpen] = useState(false);
+  const [newPlanTitle, setNewPlanTitle] = useState("");
+  const [newPlanNote, setNewPlanNote] = useState("");
+  const [newPlanDate, setNewPlanDate] = useState("");
+  const [newPlanTime, setNewPlanTime] = useState("");
+  const [newPlanLocation, setNewPlanLocation] = useState("");
+  const [planBusyId, setPlanBusyId] = useState<string | null>(null);
 
   const [joinBusy, setJoinBusy] = useState(false);
   const [activityPeriod, setActivityPeriod] = useState<"week" | "month">("week");
@@ -139,16 +159,18 @@ export function CircleDetail() {
     fetchCircle(idOrSlug)
       .then(async (c) => {
         setCircle(c);
-        const [up, membership, p] = await Promise.all([
+        const [up, membership, p, pi] = await Promise.all([
           fetchCircleUpcoming(c.id),
           resident ? fetchCircleMembership(c.id) : Promise.resolve({ member: false, role: null, requested: false }),
           fetchCirclePolls(c.id).catch(() => []),
+          fetchCirclePlanIdeas(c.id).catch(() => []),
         ]);
         setUpcoming(up);
         setIsMember(membership.member);
         setRole(membership.role);
         setRequested(membership.requested);
         setPolls(p);
+        setPlanIdeas(pi);
       })
       .catch(() => setLoadError(true))
       .finally(() => setLoading(false));
@@ -204,25 +226,49 @@ export function CircleDetail() {
     if (!circle || !pollQuestion.trim()) return;
     const options = pollDates.filter(Boolean).map((date) => ({ date }));
     if (options.length === 0) return;
-    await createCirclePoll(circle.id, { question: pollQuestion.trim(), options });
+    await createCirclePoll(circle.id, { question: pollQuestion.trim(), options, planId: pollPlanId || undefined });
     setPollQuestion("");
     setPollDates(["", "", ""]);
+    setPollPlanId("");
     setPollOpen(false);
     load();
   };
-  const handleShare = async () => {
+  const handleCreatePlanIdea = async () => {
+    if (!circle || !newPlanTitle.trim()) return;
+    await createCirclePlanIdea(circle.id, {
+      title: newPlanTitle.trim(),
+      note: newPlanNote.trim() || undefined,
+      proposedDate: newPlanDate || undefined,
+      proposedTime: newPlanTime || undefined,
+      locationText: newPlanLocation.trim() || undefined,
+    });
+    setNewPlanTitle("");
+    setNewPlanNote("");
+    setNewPlanDate("");
+    setNewPlanTime("");
+    setNewPlanLocation("");
+    setPlanIdeaFormOpen(false);
+    load();
+  };
+  const handleConfirmPlanIdea = async (planId: string) => {
     if (!circle) return;
-    const url = window.location.href;
-    if (navigator.share) {
-      try {
-        await navigator.share({ title: circle.name, url });
-        return;
-      } catch {
-        // cancelled — fall through to clipboard
-      }
+    setPlanBusyId(planId);
+    try {
+      await confirmCirclePlanIdea(circle.id, planId);
+      load();
+    } finally {
+      setPlanBusyId(null);
     }
-    await navigator.clipboard.writeText(url);
-    alert("Link copied to clipboard");
+  };
+  const handleCancelPlanIdea = async (planId: string) => {
+    if (!circle) return;
+    setPlanBusyId(planId);
+    try {
+      await cancelCirclePlanIdea(circle.id, planId);
+      load();
+    } finally {
+      setPlanBusyId(null);
+    }
   };
   const handleJoinCircle = async () => {
     if (!circle) return;
@@ -341,7 +387,7 @@ export function CircleDetail() {
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "22px 0 20px", flexWrap: "wrap", gap: 12 }}>
           <BackLink onClick={() => navigate("/circles")} marginBottom={0}>Back to Circles</BackLink>
           <div style={{ display: "flex", gap: 18 }}>
-            <button onClick={handleShare} style={{ background: "none", border: "none", padding: 0, fontSize: 13, fontWeight: 700, color: colors.text, cursor: "pointer" }}>Share</button>
+            <ShareButton entityType="circle" entityId={circle.id} render={(onClick) => <button onClick={onClick} style={{ background: "none", border: "none", padding: 0, fontSize: 13, fontWeight: 700, color: colors.text, cursor: "pointer" }}>Share</button>} />
             <button onClick={() => setSaved(toggleFavorite("circle", circle.id))} style={{ display: "inline-flex", alignItems: "center", gap: 5, background: "none", border: "none", padding: 0, fontSize: 13, fontWeight: 700, color: saved ? colors.orange : colors.text, cursor: "pointer" }}>
               <HeartIcon size={14} filled={saved} /> {saved ? "Saved" : "Save"}
             </button>
@@ -405,6 +451,70 @@ export function CircleDetail() {
                 <div ref={planningRef}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
                     <h2 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 19, margin: 0, letterSpacing: "-.01em" }}>Planning</h2>
+                    {!planIdeaFormOpen && (
+                      <Button variant="ghost" onClick={() => setPlanIdeaFormOpen(true)}>
+                        <PlusIcon size={14} /> Suggest a plan
+                      </Button>
+                    )}
+                  </div>
+                  {planIdeaFormOpen && (
+                    <Card style={{ marginBottom: 14 }}>
+                      <label style={labelStyle}>What should we do?</label>
+                      <input
+                        value={newPlanTitle}
+                        onChange={(e) => setNewPlanTitle(e.target.value)}
+                        placeholder="e.g. Coastal walk"
+                        style={{ ...inputStyle, marginBottom: 10 }}
+                        autoFocus
+                      />
+                      <label style={labelStyle}>Tell the circle more (optional)</label>
+                      <textarea
+                        value={newPlanNote}
+                        onChange={(e) => setNewPlanNote(e.target.value)}
+                        placeholder="We could meet at the station and walk to the harbour."
+                        style={{ ...inputStyle, minHeight: 60, marginBottom: 10, resize: "vertical" }}
+                      />
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
+                        <div>
+                          <label style={labelStyle}>When? (optional)</label>
+                          <input type="date" value={newPlanDate} onChange={(e) => setNewPlanDate(e.target.value)} style={inputStyle} />
+                        </div>
+                        <div>
+                          <label style={labelStyle}>Time (optional)</label>
+                          <input type="time" value={newPlanTime} onChange={(e) => setNewPlanTime(e.target.value)} style={inputStyle} />
+                        </div>
+                      </div>
+                      <label style={labelStyle}>Where? (optional)</label>
+                      <input
+                        value={newPlanLocation}
+                        onChange={(e) => setNewPlanLocation(e.target.value)}
+                        placeholder="e.g. Bray Station"
+                        style={{ ...inputStyle, marginBottom: 10 }}
+                      />
+                      <div style={{ display: "flex", gap: 8 }}>
+                        <Button onClick={handleCreatePlanIdea} disabled={!newPlanTitle.trim()}>Suggest to Circle</Button>
+                        <Button variant="ghost" onClick={() => setPlanIdeaFormOpen(false)}>Cancel</Button>
+                      </div>
+                    </Card>
+                  )}
+                  {planIdeas.length === 0 && !planIdeaFormOpen ? (
+                    <EmptyState icon={<CalendarIcon size={18} />} title="Nothing being planned yet" subtitle="Suggest something and see what the Circle thinks." />
+                  ) : (
+                    planIdeas.map((p) => (
+                      <CirclePlanIdeaCard
+                        key={p.id}
+                        plan={p}
+                        isOrganiser={isOrganiser}
+                        isCreator={p.createdByResidentId === resident.id}
+                        onConfirm={() => handleConfirmPlanIdea(p.id)}
+                        onCancel={() => handleCancelPlanIdea(p.id)}
+                        busy={planBusyId === p.id}
+                      />
+                    ))
+                  )}
+
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", margin: "24px 0 12px" }}>
+                    <h2 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 17, margin: 0, letterSpacing: "-.01em" }}>Polls</h2>
                     {!pollOpen && (
                       <Button variant="ghost" onClick={() => setPollOpen(true)}>
                         <PlusIcon size={14} /> Propose a time
@@ -415,6 +525,21 @@ export function CircleDetail() {
                     <Card style={{ marginBottom: 14 }}>
                       <label style={labelStyle}>What are you planning?</label>
                       <input value={pollQuestion} onChange={(e) => setPollQuestion(e.target.value)} placeholder="e.g. Next badminton session" style={{ ...inputStyle, marginBottom: 10 }} />
+                      {planIdeas.length > 0 && (
+                        <>
+                          <label style={labelStyle}>Attach to a plan (optional)</label>
+                          <select value={pollPlanId} onChange={(e) => setPollPlanId(e.target.value)} style={{ ...inputStyle, marginBottom: 10 }}>
+                            <option value="">Not attached to a specific plan</option>
+                            {planIdeas
+                              .filter((p) => p.status === "idea" || p.status === "confirmed")
+                              .map((p) => (
+                                <option key={p.id} value={p.id}>
+                                  {p.title}
+                                </option>
+                              ))}
+                          </select>
+                        </>
+                      )}
                       <label style={labelStyle}>Date options</label>
                       {pollDates.map((d, i) => (
                         <input
@@ -432,7 +557,7 @@ export function CircleDetail() {
                     </Card>
                   )}
                   {polls.length === 0 && !pollOpen ? (
-                    <EmptyState icon={<CalendarIcon size={18} />} title="Nothing being planned yet" subtitle="Propose a few dates and let the circle vote on what works." />
+                    <EmptyState icon={<CalendarIcon size={18} />} title="No polls yet" subtitle="Propose a few dates and let the circle vote on what works." />
                   ) : (
                     polls.map((p) => (
                       <PollCard
@@ -461,7 +586,17 @@ export function CircleDetail() {
               onJoin={handleJoinCircle}
               onLeave={handleLeaveCircle}
               onMessage={scrollToPlanning}
-              onCreatePlan={() => navigate(`/games/host?activity=${encodeURIComponent(circle.activityLabel)}&circleId=${circle.id}`)}
+              // Phase 2 "Circles V2" — this is now the community-facing
+              // "propose a plan" flow (scrolls to Planning and opens the
+              // lightweight suggest-a-plan form) rather than jumping
+              // straight to full Game creation. ManageCircle.tsx's own
+              // "Create a plan" button is intentionally left pointing
+              // directly at /games/host — that's the organiser's separate
+              // operational tool (brief §56).
+              onCreatePlan={() => {
+                scrollToPlanning();
+                setPlanIdeaFormOpen(true);
+              }}
               onInvite={handleInvite}
               inviteError={inviteError}
               onRequestClose={() => setConfirmingClose(true)}

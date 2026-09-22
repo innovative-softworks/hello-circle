@@ -5,7 +5,7 @@
  * Aug · 2 spots left"). Carried as plain query params rather than a single
  * JSON blob so the URL stays readable/debuggable. */
 export interface AuthIntentContext {
-  kind: "circle" | "game";
+  kind: "circle" | "game" | "activity";
   title: string;
   meta: string;
   badge?: string;
@@ -44,6 +44,6 @@ export function safeReturnTo(raw: string | null): string {
 export function readAuthIntentContext(searchParams: URLSearchParams): AuthIntentContext | null {
   const kind = searchParams.get("ctxKind");
   const title = searchParams.get("ctxTitle");
-  if (!kind || !title || (kind !== "circle" && kind !== "game")) return null;
+  if (!kind || !title || (kind !== "circle" && kind !== "game" && kind !== "activity")) return null;
   return { kind, title, meta: searchParams.get("ctxMeta") ?? "", badge: searchParams.get("ctxBadge") ?? undefined };
 }

@@ -8,8 +8,9 @@ import { PhotoGallery } from "../components/PhotoGallery";
 import { Reviews } from "../components/Reviews";
 import { SinglePinMap } from "../components/SinglePinMap";
 import { priceLabel } from "../priceLabel";
-import { CheckIcon, ClockIcon, HeartIcon, PinIcon, StarIcon, WheelchairIcon } from "../components/icons";
-import { Button, ListingDetailSkeleton } from "../components/ui";
+import { CheckIcon, ClockIcon, HeartIcon, PinIcon, ShareIcon, StarIcon, WheelchairIcon } from "../components/icons";
+import { ShareButton } from "../components/ShareButton";
+import { Button, ConfirmDialog, ListingDetailSkeleton } from "../components/ui";
 import { isFavorite, toggleFavorite } from "../favorites";
 import { useGuest } from "../GuestContext";
 import { colors, fonts, maxWidth, radius } from "../theme";
@@ -26,6 +27,7 @@ export function ClubDetail() {
   const [club, setClub] = useState<Club | null>(null);
   const [favourited, setFavourited] = useState(false);
   const [passLoading, setPassLoading] = useState(false);
+  const [passConfirmOpen, setPassConfirmOpen] = useState(false);
   const [programs, setPrograms] = useState<Program[]>([]);
 
   useEffect(() => {
@@ -122,6 +124,15 @@ export function ClubDetail() {
             >
               <HeartIcon size={22} style={favourited ? { fill: colors.orange } : undefined} />
             </button>
+            <ShareButton
+              entityType="club"
+              entityId={club.id}
+              render={(onClick) => (
+                <button onClick={onClick} aria-label="Share" style={{ background: "none", border: "none", cursor: "pointer", padding: 0, display: "inline-flex", color: colors.faint }}>
+                  <ShareIcon size={20} />
+                </button>
+              )}
+            />
           </h1>
           {club.capacity !== null && (
             <span style={{ display: "inline-block", background: colors.panel, color: colors.muted, borderRadius: 20, padding: "3px 11px", fontSize: 12, fontWeight: 700, marginBottom: 8 }}>
@@ -231,7 +242,7 @@ export function ClubDetail() {
             {club.audience === "kids" ? "Register my child" : "Register"}
           </Button>
           {resident && club.paymentMethod !== "cash" && (
-            <Button variant="ghost" full onClick={handleBuyPass} disabled={passLoading} style={{ padding: 12, fontSize: 14, marginBottom: 10 }}>
+            <Button variant="ghost" full onClick={() => setPassConfirmOpen(true)} disabled={passLoading} style={{ padding: 12, fontSize: 14, marginBottom: 10 }}>
               {passLoading
                 ? "Please wait…"
                 : /* Inclusive of VAT + platform fee, matching what checkoutService.ts actually
@@ -272,6 +283,21 @@ export function ClubDetail() {
       </div>
       <Button variant="orange" style={{ flex: "none" }} onClick={() => navigate(`/register/${club.id}`)}>{club.audience === "kids" ? "Register my child" : "Register"}</Button>
     </div>
+
+    <ConfirmDialog
+      open={passConfirmOpen}
+      title="Buy this pass?"
+      message={`10 sessions at ${club.name} for €${Math.round(club.price * 10 * (1 + VAT_RATE + PLATFORM_FEE_RATE))} (incl. VAT & fee) — you'll be taken to secure checkout.`}
+      confirmLabel="Continue to payment"
+      cancelLabel="Not now"
+      tone="neutral"
+      busy={passLoading}
+      onConfirm={() => {
+        setPassConfirmOpen(false);
+        handleBuyPass();
+      }}
+      onCancel={() => setPassConfirmOpen(false)}
+    />
     </>
   );
 }

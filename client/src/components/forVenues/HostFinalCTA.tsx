@@ -15,7 +15,7 @@ export function HostFinalCTA({ onPrimaryCta }: { onPrimaryCta: () => void }) {
               <span aria-hidden="true">/</span> Ready when you are
             </div>
             <h2 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(24px, 3vw, 32px)", color: "#fff", margin: "0 0 8px", letterSpacing: "-.01em" }}>
-              Get your first Game or Circle live.
+              Get your first Session or Circle live.
             </h2>
             <p style={{ margin: 0, color: "rgba(255,255,255,.72)", fontSize: 15.5, maxWidth: 440, lineHeight: 1.6 }}>
               Free, no venue, live in minutes — sign in and you're ready to go.

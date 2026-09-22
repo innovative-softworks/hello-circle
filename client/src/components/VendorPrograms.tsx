@@ -5,6 +5,7 @@ import {
   deleteVendorProgram,
   fetchProgramEnrollments,
   fetchSessionAttendance,
+  fetchVendorBookings,
   fetchVendorProgram,
   fetchVendorPrograms,
   fetchVendorRooms,
@@ -15,12 +16,13 @@ import {
   type ProgramEnrollment,
 } from "../api";
 import { CalendarIcon, PlusIcon, TrashIcon, UsersIcon } from "./icons";
+import { VendorCheckInScreen } from "./VendorCheckInScreen";
 import { FormErrorSummary } from "./form";
 import { MonthCalendar } from "./MonthCalendar";
 import { Button, ManageCard as Card, ConfirmDialog, EmptyState, inputStyle, labelStyle } from "./ui";
 import { ACTIVITY_CATEGORIES, ATTENDANCE_STATUSES, ATTENDANCE_STATUS_LABELS, PROGRAM_STATUSES, SKILL_LEVELS } from "../constants";
 import { colors, fonts, radius } from "../theme";
-import type { AttendanceStatus, Program, ProgramStatus, Room, VendorProgramSummary } from "../types";
+import type { AttendanceStatus, Program, ProgramStatus, Room, VendorBookingRow, VendorProgramSummary } from "../types";
 import { formatPrice } from "../formatters";
 
 const ATTENDANCE_STATUS_COLORS: Record<AttendanceStatus, { fg: string; bg: string }> = {
@@ -45,11 +47,21 @@ export function ProgramManager({ programId, onChanged }: { programId: string; on
   const [capacity, setCapacity] = useState("");
   const [sessionInstructor, setSessionInstructor] = useState("");
   const [sessionRoomId, setSessionRoomId] = useState("");
+  // Host Manage spec §17's recurring activities — no RRULE/interval column
+  // exists on program_sessions (each is a plain, individually-created row,
+  // see db/index.ts), and program_enrollments enrolls per-*program* not
+  // per-session, so there's no per-session booking scope to split "this vs
+  // future vs series" by. This is a client-side convenience only: bulk-call
+  // the existing single-session endpoint N times with computed dates —
+  // real individual rows, no new schema.
+  const [repeat, setRepeat] = useState<"none" | "weekly" | "biweekly" | "monthly">("none");
+  const [occurrences, setOccurrences] = useState(4);
   const [rooms, setRooms] = useState<Room[]>([]);
   const [attendance, setAttendance] = useState<Record<string, Record<string, AttendanceStatus>>>({});
   const [error, setError] = useState<string | null>(null);
   const [statusSaving, setStatusSaving] = useState(false);
   const [confirmingSessionId, setConfirmingSessionId] = useState<string | null>(null);
+  const [checkingInSession, setCheckingInSession] = useState<{ id: string; date: string; time: string } | null>(null);
   const [addOpen, setAddOpen] = useState(false);
 
   const load = () => {
@@ -76,22 +88,32 @@ export function ProgramManager({ programId, onChanged }: { programId: string; on
     if (!date) return;
     setError(null);
     try {
-      await addProgramSession(programId, {
-        date,
-        time,
-        durationMinutes: duration,
-        capacity: capacity ? Number(capacity) : undefined,
-        instructorName: sessionInstructor || undefined,
-        roomId: sessionRoomId || undefined,
-      });
+      const count = repeat === "none" ? 1 : Math.max(1, Math.min(52, occurrences));
+      for (let i = 0; i < count; i++) {
+        const d = new Date(`${date}T00:00:00`);
+        if (repeat === "weekly") d.setDate(d.getDate() + 7 * i);
+        else if (repeat === "biweekly") d.setDate(d.getDate() + 14 * i);
+        else if (repeat === "monthly") d.setMonth(d.getMonth() + i);
+        const occurrenceDate = d.toISOString().slice(0, 10);
+        await addProgramSession(programId, {
+          date: occurrenceDate,
+          time,
+          durationMinutes: duration,
+          capacity: capacity ? Number(capacity) : undefined,
+          instructorName: sessionInstructor || undefined,
+          roomId: sessionRoomId || undefined,
+        });
+      }
       setDate("");
       setSessionInstructor("");
       setSessionRoomId("");
+      setRepeat("none");
+      setOccurrences(4);
       setAddOpen(false);
       load();
       onChanged();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Couldn't add that session");
+      setError(e instanceof Error ? e.message : "Couldn't add that session — any earlier occurrences in this batch were still created");
     }
   };
 
@@ -171,6 +193,9 @@ export function ProgramManager({ programId, onChanged }: { programId: string; on
                 {s.roomName && <span style={{ fontWeight: 400, color: colors.mutedLight }}> · {s.roomName}</span>}
               </span>
               <div style={{ display: "flex", gap: 8 }}>
+                <button onClick={() => setCheckingInSession({ id: s.id, date: s.date, time: s.time })} style={{ background: "none", border: "none", cursor: "pointer", color: colors.green, fontSize: 12.5, fontWeight: 700 }}>
+                  Check-in
+                </button>
                 <button onClick={() => loadAttendance(s.id)} style={{ background: "none", border: "none", cursor: "pointer", color: colors.green, fontSize: 12.5, fontWeight: 700 }}>
                   Attendance
                 </button>
@@ -236,7 +261,26 @@ export function ProgramManager({ programId, onChanged }: { programId: string; on
               ))}
             </select>
           )}
-          <Button variant="ghost" onClick={addSession}><PlusIcon size={14} /> Add session</Button>
+          <select value={repeat} onChange={(e) => setRepeat(e.target.value as typeof repeat)} style={{ ...inputStyle, width: 130 }}>
+            <option value="none">Doesn't repeat</option>
+            <option value="weekly">Every week</option>
+            <option value="biweekly">Every 2 weeks</option>
+            <option value="monthly">Monthly</option>
+          </select>
+          {repeat !== "none" && (
+            <input
+              type="number"
+              min={1}
+              max={52}
+              value={occurrences}
+              onChange={(e) => setOccurrences(Number(e.target.value))}
+              placeholder="Times"
+              style={{ ...inputStyle, width: 80 }}
+            />
+          )}
+          <Button variant="ghost" onClick={addSession}>
+            <PlusIcon size={14} /> {repeat === "none" ? "Add session" : `Add ${Math.max(1, Math.min(52, occurrences))} sessions`}
+          </Button>
           <Button variant="ghost" onClick={() => setAddOpen(false)}>Cancel</Button>
         </div>
       ) : (
@@ -269,6 +313,7 @@ export function ProgramManager({ programId, onChanged }: { programId: string; on
         onConfirm={() => confirmingSessionId && removeSession(confirmingSessionId)}
         onCancel={() => setConfirmingSessionId(null)}
       />
+      <VendorCheckInScreen programId={programId} session={checkingInSession} onClose={() => setCheckingInSession(null)} />
     </>
   );
 }
@@ -509,6 +554,7 @@ export function VendorProgramsTab({ onOpenProgram }: { onOpenProgram: (id: strin
 
 export function VendorScheduleTab() {
   const [entries, setEntries] = useState<{ id: string; date: string; time: string; durationMinutes: number; capacity: number | null; title: string; programId: string; enrolled: number }[]>([]);
+  const [bookings, setBookings] = useState<VendorBookingRow[]>([]);
   const [loading, setLoading] = useState(true);
   // Calendar grid view (IA spec §14) — same List/Calendar toggle convention
   // as My Life's booking view (MyBookings.tsx), reusing MonthCalendar as-is.
@@ -518,6 +564,14 @@ export function VendorScheduleTab() {
     fetchVendorSchedule()
       .then(setEntries)
       .finally(() => setLoading(false));
+    // Host Manage spec §12 — the calendar previously only plotted program
+    // sessions; a vendor's real room usage includes paid hall bookings too.
+    // Kept out of the Today/Upcoming list below, which stays program-only
+    // (BookingsTab is already the full-detail place for bookings) — only
+    // the calendar grid gains them.
+    fetchVendorBookings()
+      .then((rows) => setBookings(rows.filter((b) => b.status !== "cancelled")))
+      .catch(() => setBookings([]));
   }, []);
 
   const today = new Date().toISOString().slice(0, 10);
@@ -532,6 +586,15 @@ export function VendorScheduleTab() {
       <span>{e.enrolled}{e.capacity ? `/${e.capacity}` : ""} enrolled</span>
     </div>
   );
+
+  const bookingRow = (b: VendorBookingRow) => (
+    <div style={{ display: "flex", justifyContent: "space-between", background: colors.greenBg, borderRadius: radius.control, padding: "10px 14px", fontSize: 13.5 }}>
+      <span>{b.time} · {b.roomName ?? b.centreName} — {b.name}</span>
+      <span style={{ color: colors.greenText, fontWeight: 700 }}>Booking</span>
+    </div>
+  );
+
+  const calendarItems = [...entries.map((e) => ({ date: e.date, el: entryRow(e) })), ...bookings.map((b) => ({ date: b.date, el: bookingRow(b) }))];
 
   return (
     <div className="fade-panel" style={{ display: "flex", flexDirection: "column", gap: 24 }}>
@@ -552,7 +615,7 @@ export function VendorScheduleTab() {
 
       {view === "calendar" ? (
         <Card>
-          <MonthCalendar items={entries.map((e) => ({ date: e.date, el: entryRow(e) }))} />
+          <MonthCalendar items={calendarItems} />
         </Card>
       ) : (
         <>

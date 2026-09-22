@@ -18,6 +18,7 @@ import { Reviews } from "../components/Reviews";
 import { Button, Card, PageSpinner } from "../components/ui";
 import { isFavorite, toggleFavorite } from "../favorites";
 import { useGuest } from "../GuestContext";
+import { rehostHref } from "../rehost";
 import { dateLabel } from "../euro";
 import { colors, fonts, maxWidth, photoOverlay, placeholderStripes, radius } from "../theme";
 import type { Game } from "../types";
@@ -191,7 +192,7 @@ export function GameDetail() {
     <div className="game-detail-mobile-pad" style={{ animation: "fadeUp .3s ease both" }}>
       <section className="section-pad" style={{ maxWidth: 1440, margin: "0 auto", padding: "26px 24px 90px" }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 18, flexWrap: "wrap", gap: 12 }}>
-          <BackLink onClick={() => navigate("/games")} marginBottom={0}>All games</BackLink>
+          <BackLink onClick={() => navigate("/games")} marginBottom={0}>All sessions</BackLink>
           <div style={{ display: "flex", gap: 10 }}>
             <button onClick={handleShare} style={outlineButtonStyle}>Share</button>
             <button onClick={() => setSaved(toggleFavorite("game", game.id))} style={{ ...outlineButtonStyle, color: saved ? colors.orange : colors.text }}>
@@ -344,20 +345,16 @@ export function GameDetail() {
                     reference={game.id}
                     followTarget={!isHost && game.hostVerified ? { type: "host", id: game.hostResidentId } : undefined}
                   />
-                  {/* "Do it again" (post-audit hardening pass) — reuses the
-                      existing create-game flow via query params rather than a
-                      new endpoint; date/time/capacity are left for the host
-                      to re-enter, only activity + venue carry over. */}
+                  {/* "Do it again" (post-audit hardening pass, extended in
+                      HelloCircle Manage Phase 23, Host Experience Polish) —
+                      reuses the existing create-game flow via query params
+                      rather than a new endpoint. Param-building itself now
+                      lives in rehost.ts, shared with HostActivitiesTab.tsx's
+                      Duplicate/Host-again actions — this call site is
+                      unchanged behavior, just no longer duplicating the
+                      field list inline. */}
                   <div style={{ marginTop: 20 }}>
-                    <Button
-                      variant="ghost"
-                      onClick={() => {
-                        const params = new URLSearchParams({ activity: game.activityLabel });
-                        if (game.centreId) params.set("centreId", game.centreId);
-                        else if (game.locationText) params.set("locationText", game.locationText);
-                        navigate(`/games/host?${params.toString()}`);
-                      }}
-                    >
+                    <Button variant="ghost" onClick={() => navigate(rehostHref(game))}>
                       Do it again — start a new {game.activityLabel}
                     </Button>
                   </div>

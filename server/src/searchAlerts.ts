@@ -46,7 +46,7 @@ export async function matchSearchAlertsForGame(game: AlertMatchGame) {
       await notifyResident({
         residentId: alert.residentId,
         kind: "game",
-        title: "New game matching your saved search",
+        title: "New session matching your saved search",
         body: `${game.activityLabel} — ${game.date} at ${game.time}`,
         listingType: "game",
         listingId: game.id,

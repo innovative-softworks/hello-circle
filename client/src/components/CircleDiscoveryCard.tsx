@@ -1,7 +1,8 @@
+import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { AwardIcon, CalendarIcon, RepeatIcon, UsersIcon } from "./icons";
 import { Photo } from "./Photo";
-import { Button, Card } from "./ui";
+import { Button, Card, ConfirmDialog } from "./ui";
 import { dateLabel } from "../euro";
 import { formatCircleAvailability } from "../formatters";
 import { cardImageRatio, colors, fonts, photoOverlay, placeholderStripes, radius } from "../theme";
@@ -26,6 +27,8 @@ function activityState(circle: Circle): "active-now" | "new" | null {
 
 export function CircleDiscoveryCard({ circle, joined, onJoin, onLeave, busy }: { circle: Circle; joined: boolean; onJoin: () => void; onLeave: () => void; busy: boolean }) {
   const navigate = useNavigate();
+  const [leaveConfirmOpen, setLeaveConfirmOpen] = useState(false);
+  const [joinConfirmOpen, setJoinConfirmOpen] = useState(false);
   const state = activityState(circle);
   const urgent = !!circle.nextPlan && circle.nextPlan.spotsLeft <= 3;
   const open = () => navigate(`/circles/${circle.slug ?? circle.id}`);
@@ -96,10 +99,43 @@ export function CircleDiscoveryCard({ circle, joined, onJoin, onLeave, busy }: {
           <UsersIcon size={12} /> {circle.members} member{circle.members === 1 ? "" : "s"}
         </span>
         {joined ? (
-          <Button variant="ghost" style={{ padding: "8px 16px", fontSize: 13 }} onClick={onLeave} disabled={busy}>You're in</Button>
+          <Button variant="ghost" style={{ padding: "8px 16px", fontSize: 13 }} onClick={() => setLeaveConfirmOpen(true)} disabled={busy}>You're in</Button>
         ) : (
-          <Button style={{ padding: "8px 16px", fontSize: 13 }} onClick={onJoin} disabled={busy}>Join Circle</Button>
+          <Button style={{ padding: "8px 16px", fontSize: 13 }} onClick={() => setJoinConfirmOpen(true)} disabled={busy}>
+            {circle.joinMode === "approval" ? "Request to join" : "Join Circle"}
+          </Button>
         )}
+        <ConfirmDialog
+          open={leaveConfirmOpen}
+          title={`Leave ${circle.name}?`}
+          message="You'll stop seeing this Circle's plans and lose your spot in any you've joined."
+          confirmLabel="Leave Circle"
+          cancelLabel="Stay in"
+          busy={busy}
+          onConfirm={() => {
+            onLeave();
+            setLeaveConfirmOpen(false);
+          }}
+          onCancel={() => setLeaveConfirmOpen(false)}
+        />
+        <ConfirmDialog
+          open={joinConfirmOpen}
+          title={circle.joinMode === "approval" ? `Request to join ${circle.name}?` : `Join ${circle.name}?`}
+          message={
+            circle.joinMode === "approval"
+              ? "The organiser will need to approve your request before you're a member."
+              : `You'll be part of ${circle.name} and hear about every plan.`
+          }
+          confirmLabel={circle.joinMode === "approval" ? "Send request" : "Join Circle"}
+          cancelLabel="Not now"
+          tone="neutral"
+          busy={busy}
+          onConfirm={() => {
+            onJoin();
+            setJoinConfirmOpen(false);
+          }}
+          onCancel={() => setJoinConfirmOpen(false)}
+        />
       </div>
     </Card>
   );

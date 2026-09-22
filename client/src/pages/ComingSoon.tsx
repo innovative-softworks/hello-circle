@@ -61,7 +61,7 @@ const LISTING_TYPES = [
 
 const FEATURES = [
   { icon: BuildingIcon, title: "Book a hall or room", text: "Real-time availability at your local community centre, no phone calls needed." },
-  { icon: BallIcon, title: "Join a club or game", text: "Register for a class, or find a pickup game happening near you tonight." },
+  { icon: BallIcon, title: "Join a club or session", text: "Register for a class, or find a pickup session happening near you tonight." },
   { icon: RepeatIcon, title: "Start a Circle", text: "Turn a one-off activity into a standing group that meets on its own schedule." },
 ];
 

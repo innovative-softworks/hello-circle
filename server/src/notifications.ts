@@ -4,8 +4,8 @@ import { renderTemplate } from "./notificationTemplates.js";
 import { sendPush } from "./push.js";
 import { CLIENT_URL } from "./stripe.js";
 
-interface NotifyParams {
-  kind: "booking" | "registration";
+export interface NotifyParams {
+  kind: "booking" | "registration" | "program" | "experience";
   listingType: "centre" | "club" | "experience";
   listingId: string;
   listingName: string;
@@ -14,6 +14,23 @@ interface NotifyParams {
   guestEmail: string;
   ref: string;
   detailsText: string;
+}
+
+// Copy noun per `kind` — was a bare `kind === "booking" ? "booking" :
+// "registration"` ternary in each function below, which silently said
+// "registration" for any other kind. Widened alongside NotifyParams.kind to
+// add Program/Experience cancel+refund support (Phase 0 protect).
+function nounFor(kind: NotifyParams["kind"]): string {
+  switch (kind) {
+    case "booking":
+      return "booking";
+    case "registration":
+      return "registration";
+    case "program":
+      return "program enrollment";
+    case "experience":
+      return "experience booking";
+  }
 }
 
 const insertNotification = db.prepare(
@@ -53,10 +70,10 @@ export async function residentAllows(residentId: string, prefKey: string): Promi
 
 interface NotifyResidentParams {
   residentId: string;
-  kind: "booking" | "registration" | "waitlist" | "game" | "intent_match" | "circle" | "provider_update" | "host_update" | "centre_update";
+  kind: "booking" | "registration" | "waitlist" | "game" | "intent_match" | "circle" | "provider_update" | "host_update" | "centre_update" | "invite" | "share";
   title: string;
   body: string;
-  listingType: "centre" | "club" | "game" | "intent" | "circle" | "vendor" | "host";
+  listingType: "centre" | "club" | "game" | "intent" | "circle" | "vendor" | "host" | "experience" | "program";
   listingId: string;
   ref: string;
 }
@@ -73,6 +90,8 @@ const DETAIL_PATH_BY_LISTING_TYPE: Partial<Record<NotifyResidentParams["listingT
   circle: "/circles/",
   vendor: "/provider/",
   host: "/host/",
+  experience: "/experiences/",
+  program: "/programs/",
 };
 
 function pushPathFor(params: NotifyResidentParams): string | undefined {
@@ -136,7 +155,7 @@ async function recipients(vendorId: string | null) {
  * the booking/registration itself. */
 export async function notifyNewBookingOrRegistration(params: NotifyParams) {
   const { kind, listingType, listingId, listingName, vendorId, guestName, guestEmail, ref, detailsText } = params;
-  const noun = kind === "booking" ? "booking" : "registration";
+  const noun = nounFor(kind);
 
   const { admins, vendorEmail } = await recipients(vendorId);
 
@@ -182,13 +201,32 @@ export async function notifyNewBookingOrRegistration(params: NotifyParams) {
   }
 }
 
+/** Vendor-triggered "Resend confirmation" — re-sends just the guest-facing
+ * confirmation email, reusing the same booking_new_guest_email template
+ * notifyNewBookingOrRegistration sends at creation. Deliberately guest-only:
+ * doesn't re-notify vendor/admin or write a new in-app notification, since
+ * this is reassurance for one guest, not a new event. Caller is expected to
+ * .catch() this, same "never blocks the action that triggered it" contract
+ * as every other notification helper here. */
+export async function resendConfirmationEmail(params: NotifyParams) {
+  const { kind, guestName, guestEmail, ref, detailsText, listingName } = params;
+  const noun = nounFor(kind);
+  const manageUrl = `${CLIENT_URL}/bookings?ref=${ref}`;
+  const guestVars = { guestName, noun, listingName, ref, detailsText, manageUrl };
+  const guestMsg = await renderTemplate("booking_new_guest_email", guestVars, {
+    subject: `Your ${noun} is confirmed — ${listingName} (${ref})`,
+    body: `Hi ${guestName},\n\nYour ${noun} for ${listingName} is confirmed.\nReference: ${ref}\n\n${detailsText}\n\nView or manage this ${noun} any time: ${manageUrl}\n\nThanks for using Hello Circle.`,
+  });
+  await sendMail({ to: guestEmail, subject: guestMsg.subject!, text: guestMsg.body! });
+}
+
 /** Same recipients/shape as notifyNewBookingOrRegistration, but for a guest
  * cancelling their own booking/registration — the vendor/admin need to know
  * a slot/place has freed up (refunds, if any, are handled off-platform).
  * Never throws, same as the new-booking path. */
 export async function notifyCancellation(params: NotifyParams) {
   const { kind, listingType, listingId, listingName, vendorId, guestName, guestEmail, ref, detailsText } = params;
-  const noun = kind === "booking" ? "booking" : "registration";
+  const noun = nounFor(kind);
   const nounCap = `${noun[0].toUpperCase()}${noun.slice(1)}`;
 
   const { admins, vendorEmail } = await recipients(vendorId);
@@ -231,5 +269,48 @@ export async function notifyCancellation(params: NotifyParams) {
       body: `A ${noun} was cancelled on the platform.\nListing: ${listingName}\nReference: ${ref}\n\n${detailsText}\n\nGuest: ${guestName} (${guestEmail})`,
     });
     await sendMail({ to: admin.email, subject: adminMsg.subject!, text: adminMsg.body! });
+  }
+}
+
+/** Vendor-issued refund (Host Manage spec §10/§14) — same recipients/shape
+ * as notifyCancellation, but a distinct event worth its own record (a
+ * refund can happen without a cancellation, or well after one). Hardcoded
+ * copy, not run through renderTemplate()'s admin-editable layer — that
+ * system is deliberately scoped to just notifyNewBookingOrRegistration()/
+ * notifyCancellation() (see notificationTemplates.ts's own comment); this
+ * follows the same "not migrated" precedent as the waitlist/game/circle
+ * notifications elsewhere. Never throws, same contract as the others. */
+export async function notifyRefund(params: NotifyParams & { refundedCents: number }) {
+  const { kind, listingType, listingId, listingName, vendorId, guestName, guestEmail, ref, detailsText, refundedCents } = params;
+  const noun = nounFor(kind);
+  const amount = `€${(refundedCents / 100).toFixed(2)}`;
+
+  const { admins, vendorEmail } = await recipients(vendorId);
+  const recipientIds = new Set<string>(admins.map((a) => a.id));
+  if (vendorId) recipientIds.add(vendorId);
+  for (const recipientId of recipientIds) {
+    await insertNotification.run({
+      recipientId,
+      kind,
+      title: `Refund issued: ${listingName}`,
+      body: `${amount} refunded — ${detailsText}`,
+      listingType,
+      listingId,
+      ref,
+    });
+  }
+
+  await sendMail({
+    to: guestEmail,
+    subject: `You've been refunded ${amount} — ${listingName} (${ref})`,
+    text: `Hi ${guestName},\n\nYou've been refunded ${amount} for your ${noun} at ${listingName} (ref ${ref}).\n\n${detailsText}\n\nThis can take a few business days to show up, depending on your bank.\n\nThanks for using Hello Circle.`,
+  });
+
+  if (vendorEmail) {
+    await sendMail({
+      to: vendorEmail,
+      subject: `Refund issued — ${listingName} (${ref})`,
+      text: `A refund of ${amount} was issued for the ${noun} at ${listingName}.\nReference: ${ref}\n\n${detailsText}\n\nGuest: ${guestName} (${guestEmail})`,
+    });
   }
 }

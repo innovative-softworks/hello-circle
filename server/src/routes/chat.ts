@@ -47,8 +47,8 @@ async function checkGameMembership(gameId: string, residentId: string): Promise<
   const archivesAt = new Date(start.getTime() + ASSUMED_DURATION_MINUTES.game * 60000 + CHAT_ARCHIVES_AFTER_MS);
   const now = Date.now();
 
-  if (row.status === "cancelled") return { allowed: true, canPost: false, postBlockedReason: "This game was cancelled." };
-  if (now < opensAt.getTime()) return { allowed: true, canPost: false, postBlockedReason: "Chat opens 24 hours before the game.", opensAt: opensAt.toISOString(), archivesAt: archivesAt.toISOString() };
+  if (row.status === "cancelled") return { allowed: true, canPost: false, postBlockedReason: "This session was cancelled." };
+  if (now < opensAt.getTime()) return { allowed: true, canPost: false, postBlockedReason: "Chat opens 24 hours before the session.", opensAt: opensAt.toISOString(), archivesAt: archivesAt.toISOString() };
   if (now > archivesAt.getTime()) return { allowed: true, canPost: false, postBlockedReason: "This chat has been archived.", opensAt: opensAt.toISOString(), archivesAt: archivesAt.toISOString() };
   return { allowed: true, canPost: true, opensAt: opensAt.toISOString(), archivesAt: archivesAt.toISOString() };
 }

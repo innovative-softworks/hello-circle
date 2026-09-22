@@ -3,6 +3,7 @@ import type {
   Centre,
   CentreHoursRow,
   Club,
+  ClubParticipant,
   DemandRow,
   Experience,
   ExperienceKind,
@@ -132,6 +133,18 @@ export function deleteVendorCentre(id: string): Promise<{ ok: boolean }> {
   return request(`/vendor/centres/${id}`, { method: "DELETE" });
 }
 
+export function pauseVendorCentre(id: string): Promise<Centre> {
+  return request(`/vendor/centres/${id}/pause`, { method: "POST" });
+}
+
+export function resumeVendorCentre(id: string): Promise<Centre> {
+  return request(`/vendor/centres/${id}/resume`, { method: "POST" });
+}
+
+export function duplicateVendorCentre(id: string): Promise<Centre> {
+  return request(`/vendor/centres/${id}/duplicate`, { method: "POST" });
+}
+
 export interface BlockInput {
   date: string;
   reason?: string;
@@ -199,6 +212,18 @@ export function deleteVendorClub(id: string): Promise<{ ok: boolean }> {
   return request(`/vendor/clubs/${id}`, { method: "DELETE" });
 }
 
+export function pauseVendorClub(id: string): Promise<Club> {
+  return request(`/vendor/clubs/${id}/pause`, { method: "POST" });
+}
+
+export function resumeVendorClub(id: string): Promise<Club> {
+  return request(`/vendor/clubs/${id}/resume`, { method: "POST" });
+}
+
+export function duplicateVendorClub(id: string): Promise<Club> {
+  return request(`/vendor/clubs/${id}/duplicate`, { method: "POST" });
+}
+
 export function createClubSession(
   input: { clubId: string; dayOfWeek: number; time: string; capacity?: number; label?: string; instructorName?: string }
 ): Promise<{ id: string }> {
@@ -213,16 +238,44 @@ export function fetchVendorClubWaitlist(clubId: string): Promise<WaitlistEntry[]
   return request(`/vendor/clubs/${clubId}/waitlist`);
 }
 
-export function fetchVendorBookings(): Promise<VendorBookingRow[]> {
-  return request(`/vendor/bookings`);
+export function offerVendorClubWaitlistEntry(clubId: string, entryId: number): Promise<{ ok: boolean }> {
+  return request(`/vendor/clubs/${clubId}/waitlist/${entryId}/offer`, { method: "POST" });
+}
+
+export function fetchVendorBookings(centreId?: string): Promise<VendorBookingRow[]> {
+  return request(`/vendor/bookings${centreId ? `?centreId=${encodeURIComponent(centreId)}` : ""}`);
 }
 
 export function cancelVendorBooking(ref: string): Promise<{ ok: boolean }> {
   return request(`/vendor/bookings/${encodeURIComponent(ref)}/cancel`, { method: "POST" });
 }
 
-export function fetchVendorRegistrations(): Promise<(MyRegistration & { email: string; phone: string })[]> {
-  return request(`/vendor/registrations`);
+export function resendBookingConfirmation(ref: string): Promise<{ ok: boolean }> {
+  return request(`/vendor/bookings/${encodeURIComponent(ref)}/resend-confirmation`, { method: "POST" });
+}
+
+export function refundVendorBooking(ref: string): Promise<{ ok: boolean }> {
+  return request(`/vendor/bookings/${encodeURIComponent(ref)}/refund`, { method: "POST" });
+}
+
+export function fetchVendorRegistrations(clubId?: string): Promise<(MyRegistration & { email: string; phone: string })[]> {
+  return request(`/vendor/registrations${clubId ? `?clubId=${encodeURIComponent(clubId)}` : ""}`);
+}
+
+export function cancelVendorRegistration(ref: string): Promise<{ ok: boolean }> {
+  return request(`/vendor/registrations/${encodeURIComponent(ref)}/cancel`, { method: "POST" });
+}
+
+export function refundVendorRegistration(ref: string): Promise<{ ok: boolean }> {
+  return request(`/vendor/registrations/${encodeURIComponent(ref)}/refund`, { method: "POST" });
+}
+
+export function fetchClubParticipants(clubId: string): Promise<ClubParticipant[]> {
+  return request(`/vendor/clubs/${clubId}/participants`);
+}
+
+export function resendRegistrationConfirmation(ref: string): Promise<{ ok: boolean }> {
+  return request(`/vendor/registrations/${encodeURIComponent(ref)}/resend-confirmation`, { method: "POST" });
 }
 
 export function fetchVendorNotifications(): Promise<VendorNotification[]> {
@@ -243,6 +296,62 @@ export function fetchVendorMessages(): Promise<{ id: number; listingType: string
   return request(`/vendor/messages`);
 }
 
+export interface VendorReview {
+  id: number;
+  listingType: "centre" | "club";
+  listingId: string;
+  listingName: string;
+  name: string;
+  rating: number;
+  comment: string;
+  createdAt: string;
+  vendorReply: string | null;
+  vendorRepliedAt: string | null;
+}
+
+export function fetchVendorReviews(): Promise<VendorReview[]> {
+  return request(`/vendor/reviews`);
+}
+
+export function replyToVendorReview(id: number, reply: string): Promise<{ ok: boolean }> {
+  return request(`/vendor/reviews/${id}/reply`, { method: "POST", body: JSON.stringify({ reply }) });
+}
+
+export interface VendorCoupon {
+  id: number;
+  code: string;
+  kind: "percent" | "fixed";
+  amount: number;
+  maxUses: number | null;
+  usedCount: number;
+  expiresAt: string | null;
+  active: number;
+  eligibleListingType: "centre" | "club" | null;
+  eligibleListingId: string | null;
+}
+
+export interface VendorCouponInput {
+  code: string;
+  kind: "percent" | "fixed";
+  amount: number;
+  maxUses?: number;
+  expiresAt?: string;
+  eligibleListingType?: "centre" | "club";
+  eligibleListingId?: string;
+}
+
+export function fetchVendorCoupons(): Promise<VendorCoupon[]> {
+  return request(`/vendor/coupons`);
+}
+
+export function createVendorCoupon(input: VendorCouponInput): Promise<{ ok: boolean }> {
+  return request(`/vendor/coupons`, { method: "POST", body: JSON.stringify(input) });
+}
+
+export function setVendorCouponActive(id: number, active: boolean): Promise<{ ok: boolean }> {
+  return request(`/vendor/coupons/${id}/active`, { method: "PUT", body: JSON.stringify({ active }) });
+}
+
 export function fetchVendorDemand(scope: "own" | "all" = "own"): Promise<DemandRow[]> {
   return request(`/vendor/demand${scope === "all" ? "?scope=all" : ""}`);
 }
@@ -251,7 +360,7 @@ export function checkInBooking(kind: "booking" | "registration", ref: string): P
   return request(`/vendor/checkin/${kind}/${encodeURIComponent(ref)}`, { method: "POST" });
 }
 
-export function fetchCheckInStatus(kind: "booking" | "registration", ref: string): Promise<{ checkedIn: boolean; checkedInAt: string | null }> {
+export function fetchCheckInStatus(kind: "booking" | "registration", ref: string): Promise<{ checkedIn: boolean; checkedInAt: string | null; cancelledAt: string | null }> {
   return request(`/vendor/checkin/${kind}/${encodeURIComponent(ref)}`);
 }
 
@@ -424,7 +533,13 @@ export function fetchOrgProfile(): Promise<OrgProfile> {
   return request(`/vendor/org`);
 }
 
-export function updateOrgProfile(input: { name?: string; kind?: string }): Promise<{ ok: boolean }> {
+export function updateOrgProfile(input: {
+  name?: string;
+  kind?: string;
+  description?: string;
+  website?: string;
+  socials?: { instagram?: string; facebook?: string; x?: string };
+}): Promise<{ ok: boolean }> {
   return request(`/vendor/org`, { method: "PUT", body: JSON.stringify(input) });
 }
 
@@ -432,7 +547,13 @@ export function updateVendorLogo(logo: string | null): Promise<{ ok: boolean }> 
   return request(`/vendor/org/logo`, { method: "PUT", body: JSON.stringify({ logo }) });
 }
 
-export function updateOrgPolicies(input: { cancellationHours?: number; bookingWindowDays?: number }): Promise<{ ok: boolean }> {
+export function updateOrgPolicies(input: {
+  cancellationHours?: number;
+  bookingWindowDays?: number;
+  refundPolicyText?: string;
+  taxNumber?: string;
+  businessRegistrationNumber?: string;
+}): Promise<{ ok: boolean }> {
   return request(`/vendor/org/policies`, { method: "PUT", body: JSON.stringify(input) });
 }
 

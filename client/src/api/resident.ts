@@ -8,6 +8,7 @@ import type {
   CircleInvitation,
   CircleMemberSummary,
   CircleMoment,
+  CirclePlanIdea,
   CirclePlanPreview,
   CirclePoll,
   CircleRecentActivity,
@@ -20,8 +21,10 @@ import type {
   GameUpdate,
   ManageCirclePlan,
   ManageParticipant,
+  HostInsights,
   HostProfile,
   HouseholdMember,
+  NeedsAttentionItem,
   Routine,
   RoutineSuggestion,
   ParticipationEntry,
@@ -35,6 +38,7 @@ import type {
   ResidentFull,
   ResidentNotification,
   SearchAlert,
+  WaitlistEntry,
   WaitlistOfferStatus,
   WaitlistPosition,
 } from "../types";
@@ -162,6 +166,12 @@ export function unregisterPushToken(token: string): Promise<{ ok: boolean }> {
  * come back empty when signed out). */
 export function fetchMyParticipation(): Promise<ParticipationEntry[]> {
   return request(`/residents/me/participation`);
+}
+
+/** My Life V2's "Needs You" — guest-friendly like fetchMyParticipation
+ * (a signed-out guest just gets the payment-incomplete subset). */
+export function fetchNeedsAttention(): Promise<NeedsAttentionItem[]> {
+  return request(`/residents/me/needs-attention`);
 }
 
 // --- household (MVP) ---------------------------------------------------
@@ -330,7 +340,7 @@ export function fetchGame(id: string): Promise<Game> {
 
 /** Every game this resident is hosting or has joined — distinct from
  * fetchGames(), the public "what's open" list. Pass `hostedOnly` (HelloCircle
- * Manage's /manage/activities) to narrow it to games this resident hosts. */
+ * Manage's /manage Activities tab) to narrow it to games this resident hosts. */
 export function fetchMyGames(opts?: { hostedOnly?: boolean }): Promise<Game[]> {
   return request(`/games/mine${opts?.hostedOnly ? "?hostedOnly=1" : ""}`);
 }
@@ -359,6 +369,10 @@ export interface CreateGameInput {
   /** Set when this game is created as a specific Circle's plan (HelloCircle
    * Manage Phase 4's "Create plan" deep-link). */
   circleId?: string;
+  /** Phase 2 "Circles V2" — set when converting a confirmed plan-idea into
+   * this activity; server-validated (organiser + confirmed status) and
+   * idempotency-guarded, unlike circleId above. */
+  planId?: string;
 }
 
 export function createGame(input: CreateGameInput): Promise<Game> {
@@ -377,7 +391,7 @@ export function fetchGameParticipants(id: string): Promise<GameParticipantSummar
   return request(`/games/${id}/participants`);
 }
 
-/** Host-only, uncapped participant view (HelloCircle Manage /manage/activities). */
+/** Host-only, uncapped participant view (HelloCircle Manage's /manage Activities tab). */
 export function fetchGameParticipantsForManage(id: string): Promise<ManageParticipant[]> {
   return request(`/games/${id}/participants/manage`);
 }
@@ -385,6 +399,13 @@ export function fetchGameParticipantsForManage(id: string): Promise<ManagePartic
 /** Host removes one participant (e.g. a no-show) — frees their capacity slot. */
 export function removeGameParticipant(id: string, residentId: string): Promise<{ ok: boolean }> {
   return request(`/games/${id}/participants/${residentId}/remove`, { method: "POST" });
+}
+
+/** Host-run check-in (Host Manage spec §11) — distinct from a resident's own
+ * self-serve check-in (checkInGame above): lets the host check someone else
+ * in from a kiosk-style screen at the door. */
+export function checkInGameParticipant(id: string, residentId: string): Promise<{ ok: boolean }> {
+  return request(`/games/${id}/participants/${residentId}/check-in`, { method: "POST" });
 }
 
 /** Host-posted announcements — public read. */
@@ -399,8 +420,8 @@ export function postGameUpdate(id: string, message: string): Promise<GameUpdate>
 
 /** Free/cash games resolve `{ ok: true }` immediately; a priced game
  * (NEXT) instead returns a Stripe `url` to redirect to. */
-export function joinGame(id: string): Promise<{ ok?: boolean; ref?: string; url?: string; totalEuro?: number }> {
-  return request(`/games/${id}/join`, { method: "POST" });
+export function joinGame(id: string, couponCode?: string): Promise<{ ok?: boolean; ref?: string; url?: string; totalEuro?: number }> {
+  return request(`/games/${id}/join`, { method: "POST", body: JSON.stringify({ couponCode }) });
 }
 
 /** Polled by PaymentSuccess.tsx after a paid game join's Stripe redirect —
@@ -423,6 +444,77 @@ export function joinGameWaitlist(id: string): Promise<{ ok: boolean }> {
 
 export function leaveGameWaitlist(id: string): Promise<{ ok: boolean }> {
   return request(`/games/${id}/waitlist`, { method: "DELETE" });
+}
+
+/** Host-only visibility + targeted invite (Vendor-parity pass) — mirrors
+ * fetchVendorClubWaitlist/offerVendorClubWaitlistEntry. */
+export function fetchGameWaitlist(id: string): Promise<WaitlistEntry[]> {
+  return request(`/games/${id}/waitlist`);
+}
+
+export function offerGameWaitlistEntry(id: string, entryId: number): Promise<{ ok: boolean }> {
+  return request(`/games/${id}/waitlist/${entryId}/offer`, { method: "POST" });
+}
+
+/** Vendor-parity pass, Phase 24 — flat "who paid me for what" list across
+ * every paid game this resident hosts. `amountCents` is `games.price_cents`
+ * at the time each participant joined (frozen server-side once anyone but
+ * the host has joined — see games.ts's updateGame), not a per-participant
+ * column, since none exists. */
+export interface HostGameEarning {
+  gameId: string;
+  activityLabel: string;
+  date: string;
+  amountCents: number | null;
+  participantName: string;
+  joinedAt: string;
+}
+
+export function fetchHostGameEarnings(): Promise<HostGameEarning[]> {
+  return request("/games/host/earnings");
+}
+
+/** Host Experience Polish — mirrors fetchVendorInsights, see HostInsights's
+ * own comment in types.ts. */
+export function fetchHostInsights(): Promise<HostInsights> {
+  return request("/games/host/insights");
+}
+
+/** Vendor-parity pass, Phase 25 — coupons for a host's own paid games.
+ * Unlike a vendor coupon, `eligibleListingId` is always required (a
+ * specific game, never "any of my games") — see games.ts's `/coupons`
+ * routes for why. */
+export interface HostGameCoupon {
+  id: number;
+  code: string;
+  kind: "percent" | "fixed";
+  amount: number;
+  maxUses: number | null;
+  usedCount: number;
+  expiresAt: string | null;
+  active: boolean;
+  eligibleListingId: string;
+}
+
+export interface CreateHostGameCouponInput {
+  code: string;
+  kind: "percent" | "fixed";
+  amount: number;
+  maxUses?: number;
+  expiresAt?: string;
+  gameId: string;
+}
+
+export function fetchHostGameCoupons(): Promise<HostGameCoupon[]> {
+  return request("/games/coupons");
+}
+
+export function createHostGameCoupon(input: CreateHostGameCouponInput): Promise<{ ok: boolean }> {
+  return request("/games/coupons", { method: "POST", body: JSON.stringify(input) });
+}
+
+export function setHostGameCouponActive(id: number, active: boolean): Promise<{ ok: boolean }> {
+  return request(`/games/coupons/${id}/active`, { method: "PUT", body: JSON.stringify({ active }) });
 }
 
 // --- Self-serve check-in + attendance confirmation (IA spec §11) -----------
@@ -551,6 +643,17 @@ export function removeCircleMember(id: string, residentId: string): Promise<{ ok
   return request(`/circles/${id}/members/${residentId}/remove`, { method: "POST" });
 }
 
+/** Co-organisers (Vendor-parity pass, Phase 26) — no schema change, `role`
+ * already supported more than one organiser; only the write path was
+ * missing. Demote 409s if the target is the Circle's last organiser. */
+export function promoteCircleMember(id: string, residentId: string): Promise<{ ok: boolean }> {
+  return request(`/circles/${id}/members/${residentId}/promote`, { method: "POST" });
+}
+
+export function demoteCircleMember(id: string, residentId: string): Promise<{ ok: boolean }> {
+  return request(`/circles/${id}/members/${residentId}/demote`, { method: "POST" });
+}
+
 // --- Circle settings, invitations & planning polls (IA spec §10) -----------
 
 export function setCircleStatus(id: string, status: "active" | "closed"): Promise<{ ok: boolean }> {
@@ -569,11 +672,13 @@ export function respondToCircleInvitation(id: string, accept: boolean): Promise<
   return request(`/circles/invitations/${id}/respond`, { method: "POST", body: JSON.stringify({ accept }) });
 }
 
-export function fetchCirclePolls(circleId: string): Promise<CirclePoll[]> {
-  return request(`/circles/${circleId}/polls`);
+/** `planId` scopes to polls attached to one plan-idea (Phase 2 "Circles
+ * V2"); omitted, this is the unchanged full-circle list. */
+export function fetchCirclePolls(circleId: string, planId?: string): Promise<CirclePoll[]> {
+  return request(`/circles/${circleId}/polls${planId ? `?planId=${planId}` : ""}`);
 }
 
-export function createCirclePoll(circleId: string, input: { question: string; options: { date: string; time?: string }[] }): Promise<{ id: string }> {
+export function createCirclePoll(circleId: string, input: { question: string; options: { date: string; time?: string }[]; planId?: string }): Promise<{ id: string }> {
   return request(`/circles/${circleId}/polls`, { method: "POST", body: JSON.stringify(input) });
 }
 
@@ -583,6 +688,42 @@ export function voteOnCirclePollOption(circleId: string, pollId: string, optionI
 
 export function closeCirclePoll(circleId: string, pollId: string): Promise<{ ok: boolean }> {
   return request(`/circles/${circleId}/polls/${pollId}/close`, { method: "POST" });
+}
+
+// --- Circle plan-ideas (Phase 2 "Circles V2") -------------------------------
+// See CirclePlanIdea's own comment in types.ts for why this is named
+// "plan-ideas" and not "plans" (fetchCirclePlansForManage above already
+// owns that name for a different, pre-existing concept).
+
+export function fetchCirclePlanIdeas(circleId: string): Promise<CirclePlanIdea[]> {
+  return request(`/circles/${circleId}/plan-ideas`);
+}
+
+export function fetchCirclePlanIdea(circleId: string, planId: string): Promise<CirclePlanIdea> {
+  return request(`/circles/${circleId}/plan-ideas/${planId}`);
+}
+
+export function createCirclePlanIdea(
+  circleId: string,
+  input: { title: string; note?: string; proposedDate?: string; proposedTime?: string; locationText?: string }
+): Promise<CirclePlanIdea> {
+  return request(`/circles/${circleId}/plan-ideas`, { method: "POST", body: JSON.stringify(input) });
+}
+
+export function updateCirclePlanIdea(
+  circleId: string,
+  planId: string,
+  input: Partial<{ title: string; note: string; proposedDate: string; proposedTime: string; locationText: string }>
+): Promise<CirclePlanIdea> {
+  return request(`/circles/${circleId}/plan-ideas/${planId}`, { method: "PATCH", body: JSON.stringify(input) });
+}
+
+export function confirmCirclePlanIdea(circleId: string, planId: string): Promise<CirclePlanIdea> {
+  return request(`/circles/${circleId}/plan-ideas/${planId}/confirm`, { method: "POST" });
+}
+
+export function cancelCirclePlanIdea(circleId: string, planId: string): Promise<{ ok: boolean }> {
+  return request(`/circles/${circleId}/plan-ideas/${planId}/cancel`, { method: "POST" });
 }
 
 // --- Participation Chat (implementation plan Phase 11) ----------------------
@@ -667,9 +808,34 @@ export function applyToBecomeHost(input: { bio: string; phone?: string }): Promi
   return request(`/residents/me/host-application`, { method: "POST", body: JSON.stringify(input) });
 }
 
+/** Vendor-parity pass, Phase 27 — lets an already-verified host edit their
+ * bio/phone without re-triggering admin review (the POST above 409s once
+ * verified, and would reset host_status if it didn't). */
+export function updateHostProfile(input: { bio: string; phone?: string }): Promise<{ ok: boolean }> {
+  return request(`/residents/me/host-profile`, { method: "PUT", body: JSON.stringify(input) });
+}
+
 /** Public — no auth required, resolves only for a verified host. */
 export function fetchHostProfile(residentId: string): Promise<HostProfile> {
   return request(`/residents/${residentId}/host-profile`);
+}
+
+export interface HostReview {
+  id: number;
+  name: string;
+  rating: number;
+  comment: string;
+  createdAt: string;
+  hostReply: string | null;
+  hostRepliedAt: string | null;
+}
+
+export function fetchMyHostReviews(): Promise<HostReview[]> {
+  return request(`/residents/me/host-reviews`);
+}
+
+export function replyToHostReview(id: number, reply: string): Promise<{ ok: boolean }> {
+  return request(`/residents/host-reviews/${id}/reply`, { method: "POST", body: JSON.stringify({ reply }) });
 }
 
 // --- Routines-as-an-object (IA spec §9) -------------------------------------

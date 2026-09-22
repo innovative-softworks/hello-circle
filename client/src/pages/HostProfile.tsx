@@ -5,6 +5,7 @@ import { AwardIcon, CalendarIcon, RepeatIcon, StarIcon } from "../components/ico
 import { FollowButton } from "../components/FollowButton";
 import { PageTitle } from "../components/PageTitle";
 import { Reviews } from "../components/Reviews";
+import { ShareButton } from "../components/ShareButton";
 import { Avatar, Card, EmptyState, PageSpinner } from "../components/ui";
 import { colors, fonts, radius } from "../theme";
 import type { HostProfile } from "../types";
@@ -57,7 +58,7 @@ export function HostProfilePage() {
                   </span>
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 4 }}>
-                  <span style={{ color: colors.mutedLight, fontSize: 13.5 }}>Has hosted {profile.gamesHostedTotal} game{profile.gamesHostedTotal === 1 ? "" : "s"}</span>
+                  <span style={{ color: colors.mutedLight, fontSize: 13.5 }}>Has hosted {profile.gamesHostedTotal} session{profile.gamesHostedTotal === 1 ? "" : "s"}</span>
                   {profile.reviews > 0 && (
                     <span style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 13, color: colors.muted }}>
                       <StarIcon size={13} style={{ color: colors.gold }} /> {profile.rating} ({profile.reviews})
@@ -66,13 +67,16 @@ export function HostProfilePage() {
                 </div>
               </div>
             </div>
-            <FollowButton followedType="host" followedId={profile.id} initialFollowing={profile.isFollowing} initialLevel={profile.followNotificationLevel} followerCount={profile.followerCount} />
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <ShareButton entityType="host" entityId={profile.id} />
+              <FollowButton followedType="host" followedId={profile.id} initialFollowing={profile.isFollowing} initialLevel={profile.followNotificationLevel} followerCount={profile.followerCount} />
+            </div>
           </div>
           {profile.bio && <p style={{ margin: "16px 0 0", color: "#3B423C", fontSize: 15, lineHeight: 1.55 }}>{profile.bio}</p>}
         </Card>
 
         <h4 style={{ display: "flex", alignItems: "center", gap: 6, fontFamily: fonts.display, fontWeight: 700, fontSize: 15, margin: "0 0 12px" }}>
-          <CalendarIcon size={14} /> Upcoming games
+          <CalendarIcon size={14} /> Upcoming sessions
         </h4>
         {profile.upcomingGames.length === 0 ? (
           <EmptyState icon={<CalendarIcon size={20} />} title="Nothing scheduled right now" />

@@ -1,14 +1,18 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { fetchVendorCentre, fetchVendorRooms } from "../api";
+import { fetchVendorCentre, fetchVendorListings, fetchVendorRooms } from "../api";
 import { useAuth } from "../AuthContext";
 import { BackLink } from "../components/BackLink";
+import { BookingsTab } from "../components/VendorBookings";
 import { AvailabilityBlocksManager, CentreEditor, FacilityHoursEditor, RoomsManager } from "../components/VendorCentreEditor";
 import { CentreCreationWizard } from "../components/CentreCreationWizard";
 import { useUnsavedChangesGuard } from "../components/form";
+import { MessageComposer } from "../components/VendorMessages";
+import { PublishedScreen } from "../components/PublishedScreen";
+import { VendorListingPerformance } from "../components/VendorListingPerformance";
 import { PageSpinner, Tabs } from "../components/ui";
 import { fonts } from "../theme";
-import type { Centre, Room } from "../types";
+import type { Centre, Room, VendorListingSummary } from "../types";
 
 // Dedicated page for the community centre create/edit form — was a wide
 // Drawer (see VendorDashboard.tsx history); this form's own fields plus
@@ -23,7 +27,7 @@ import type { Centre, Room } from "../types";
 // meaningful to summarize into SettingsSections. Once publish flips it to
 // 'pending'/'approved', this same route switches to the normal tabbed view.
 
-type CentreTab = "details" | "rooms" | "availability" | "hours";
+type CentreTab = "details" | "rooms" | "availability" | "hours" | "bookings" | "messages" | "performance";
 
 export function VendorCentreEditPage() {
   const { id } = useParams<{ id: string }>();
@@ -33,6 +37,7 @@ export function VendorCentreEditPage() {
   const [tab, setTab] = useState<CentreTab>("details");
   const [centre, setCentre] = useState<Centre | null>(null);
   const [rooms, setRooms] = useState<Room[]>([]);
+  const [listingSummary, setListingSummary] = useState<VendorListingSummary | undefined>(undefined);
   // Only blocks the very first load of a real (non-"new") id — deliberately
   // NOT re-armed on later id changes (see the effect below), so the wizard
   // completing its "Basics" step and calling navigate(..., {replace:true})
@@ -46,6 +51,7 @@ export function VendorCentreEditPage() {
   // draft," swap to the tabs branch, and unmount (and reset) the wizard
   // mid-flow. Sticky state only changes when we actually know the answer.
   const [wizardMode, setWizardMode] = useState(centreId === "new");
+  const [justPublished, setJustPublished] = useState(false);
   const [dirty, setDirty] = useState(false);
   const { requestNavigation, dialog: unsavedDialog } = useUnsavedChangesGuard(dirty);
 
@@ -61,6 +67,7 @@ export function VendorCentreEditPage() {
         setLoading(false);
       });
       reloadRooms();
+      fetchVendorListings().then((l) => setListingSummary(l.centres.find((c) => c.id === centreId)));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [centreId]);
@@ -90,9 +97,12 @@ export function VendorCentreEditPage() {
             onPublished={(published) => {
               setCentre(published);
               setWizardMode(false);
+              setJustPublished(true);
               reloadRooms();
             }}
           />
+        ) : justPublished ? (
+          <PublishedScreen name={centre?.name ?? "Your venue"} publicHref={`/centres/${centre?.slug ?? centreId}`} onDismiss={() => setJustPublished(false)} />
         ) : (
           <>
             <h2 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 24, margin: "0 0 18px", letterSpacing: "-.01em" }}>{title}</h2>
@@ -105,6 +115,9 @@ export function VendorCentreEditPage() {
                   { key: "rooms", label: "Rooms" },
                   { key: "availability", label: "Availability" },
                   { key: "hours", label: "Hours" },
+                  { key: "bookings", label: "Bookings" },
+                  { key: "messages", label: "Messages" },
+                  { key: "performance", label: "Performance" },
                 ]}
               />
             </div>
@@ -113,6 +126,11 @@ export function VendorCentreEditPage() {
             {tab === "rooms" && <RoomsManager centreId={centreId} rooms={rooms} onChanged={reloadRooms} />}
             {tab === "availability" && <AvailabilityBlocksManager centreId={centreId} rooms={rooms} />}
             {tab === "hours" && <FacilityHoursEditor centreId={centreId} />}
+            {tab === "bookings" && <BookingsTab centreId={centreId} />}
+            {tab === "messages" && centre && (
+              <MessageComposer listings={{ centres: [], clubs: [] }} lockTo={{ listingType: "centre", listingId: centreId, name: centre.name }} />
+            )}
+            {tab === "performance" && <VendorListingPerformance summary={listingSummary} />}
           </>
         )}
       </section>

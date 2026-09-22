@@ -49,6 +49,8 @@ interface CouponRow {
   used_count: number;
   expires_at: string | null;
   active: number;
+  eligible_listing_type: string | null;
+  eligible_listing_id: string | null;
 }
 
 export interface CouponResult {
@@ -58,9 +60,24 @@ export interface CouponResult {
   code?: string;
 }
 
+/** Host Manage spec §17 — a vendor-created coupon may be scoped to one
+ * listing (eligible_listing_type/id both set); every existing admin/
+ * platform-wide coupon has both NULL and keeps applying everywhere,
+ * unchanged. Only checked when the caller actually knows which listing
+ * the code is being used against (bookings.ts/registrations.ts/
+ * experiences.ts all do); the standalone /coupons/validate preview
+ * endpoint has no listing context to check against, so it validates
+ * everything else about the code but can't preview a listing mismatch —
+ * the real enforcement still happens at checkout, where this is called
+ * again with real context. */
+export interface CouponListingContext {
+  listingType: string;
+  listingId: string;
+}
+
 /** Validates a coupon against a subtotal and returns the discount it grants
  * — never trusts a client-supplied discount amount. */
-export async function evaluateCoupon(rawCode: string, subtotalCents: number): Promise<CouponResult> {
+export async function evaluateCoupon(rawCode: string, subtotalCents: number, listingContext?: CouponListingContext): Promise<CouponResult> {
   const code = rawCode.trim().toUpperCase();
   if (!code) return { valid: false, error: "Enter a code" };
 
@@ -68,6 +85,10 @@ export async function evaluateCoupon(rawCode: string, subtotalCents: number): Pr
   if (!row || !row.active) return { valid: false, error: "That code isn't valid" };
   if (row.expires_at && new Date(row.expires_at) < new Date()) return { valid: false, error: "That code has expired" };
   if (row.max_uses !== null && row.used_count >= row.max_uses) return { valid: false, error: "That code has been fully redeemed" };
+  if (row.eligible_listing_id) {
+    const matches = listingContext && row.eligible_listing_type === listingContext.listingType && row.eligible_listing_id === listingContext.listingId;
+    if (!matches) return { valid: false, error: "That code isn't valid for this listing" };
+  }
 
   const discountCents = row.kind === "percent" ? Math.round((subtotalCents * row.amount) / 100) : Math.min(row.amount, subtotalCents);
   return { valid: true, discountCents, code: row.code };

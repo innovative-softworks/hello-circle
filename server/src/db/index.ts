@@ -647,6 +647,38 @@ export async function initSchema() {
       PRIMARY KEY (poll_id, option_id, resident_id)
     );
 
+    -- Circle Plans / "plan-ideas" (Phase 2 "Circles V2") — a lightweight,
+    -- explicit "what should this Circle do next" object a member proposes
+    -- and an organiser can turn into a real Game, closing the Circle->Plan->
+    -- Activity->Participate->Return loop. Deliberately NOT the same concept
+    -- as the existing games.circle_id relationship (a plan-idea has no
+    -- Activity yet) or the existing fuzzy activity-label match in
+    -- nextPlanFor()/GET /:id/upcoming (this is a real, owned relationship) —
+    -- see routes/circles.ts's own comments for how those two stay
+    -- untouched. status: idea | confirmed | activity_created | cancelled
+    -- ('completed' is a derived display value computed from the linked
+    -- Game's date, never stored — no background job to flip it).
+    -- activity_source_type/activity_source_id are deliberately polymorphic
+    -- (matching ActivitySummary's sourceType/sourceId, Phase 1) even though
+    -- only 'game' is ever written today, so a future non-Game conversion
+    -- target doesn't need another schema change.
+    CREATE TABLE IF NOT EXISTS circle_plans (
+      id VARCHAR(191) PRIMARY KEY,
+      circle_id VARCHAR(191) NOT NULL,
+      created_by_resident_id VARCHAR(191) NOT NULL,
+      title VARCHAR(255) NOT NULL,
+      note TEXT NOT NULL,
+      status VARCHAR(20) NOT NULL DEFAULT 'idea',
+      proposed_date VARCHAR(20) NOT NULL DEFAULT '',
+      proposed_time VARCHAR(20) NOT NULL DEFAULT '',
+      location_text VARCHAR(500) NOT NULL DEFAULT '',
+      activity_source_type VARCHAR(20),
+      activity_source_id VARCHAR(191),
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      confirmed_at DATETIME,
+      cancelled_at DATETIME
+    );
+
     -- Routines-as-an-object (IA spec §9) — the single most-named gap across
     -- every audit this project has run. Circles-from-repetition
     -- (getCircleSuggestions above) already detects "you keep showing up
@@ -1042,7 +1074,48 @@ export async function initSchema() {
       user_id VARCHAR(191) NOT NULL,
       resident_email VARCHAR(255) NOT NULL,
       expires_at DATETIME NOT NULL
-    )
+    );
+
+    -- Universal Sharing & Invitation system (Phase 2) — a polymorphic,
+    -- person-to-person invite, distinct from circle_invites (which is
+    -- specifically circle *membership*, has its own accept-inserts-a-member
+    -- transaction, and stays untouched). This is for "I want you specifically
+    -- to come to this Game/Experience/Program" — accepting here never
+    -- auto-joins the entity (a priced Game/Experience/Program needs its own
+    -- capacity/payment flow), it only flips status and notifies the inviter;
+    -- the invitee still hits the entity's own Join button same as anyone
+    -- else. invitee_resident_id is set for an invite to a known resident;
+    -- invitee_email + token are set for an invite to someone with no
+    -- account yet (emailed a /i/:token link) — exactly one of the two is
+    -- populated per row. A token is also generated for known-resident
+    -- invites (uniformly, so the same /i/:token landing page + "not
+    -- signed in yet" path both work regardless of which case it is).
+    CREATE TABLE IF NOT EXISTS invitations (
+      id VARCHAR(191) PRIMARY KEY,
+      token VARCHAR(191) NOT NULL,
+      entity_type VARCHAR(20) NOT NULL,
+      entity_id VARCHAR(191) NOT NULL,
+      inviter_resident_id VARCHAR(191) NOT NULL,
+      invitee_resident_id VARCHAR(191),
+      invitee_email VARCHAR(255),
+      status VARCHAR(20) NOT NULL DEFAULT 'pending',
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      responded_at DATETIME,
+      expires_at DATETIME NOT NULL,
+      UNIQUE KEY uniq_invitation_token (token),
+      UNIQUE KEY uniq_invitation_invitee (entity_type, entity_id, invitee_resident_id),
+      UNIQUE KEY uniq_invitation_invitee_email (entity_type, entity_id, invitee_email),
+      KEY idx_invitee_resident (invitee_resident_id, status)
+    );
+
+    -- Referral/share/invite funnel (Universal Sharing system) — one row per
+    -- meaningful share/invite lifecycle event, read by the admin funnel
+    -- rollup (routes/admin.ts) via analytics_events.event_type. No new
+    -- table needed: analytics_events (see analytics.ts) already stores an
+    -- arbitrary event_type + resident_id/client_id + JSON metadata, which is
+    -- exactly the shape share_opened/share_channel_selected/invite_accepted/
+    -- etc. need — see AnalyticsEventType in analytics.ts for the actual
+    -- event vocabulary.
   `);
 
   async function ensureColumn(table: string, column: string, ddl: string) {
@@ -1511,6 +1584,17 @@ export async function initSchema() {
   // activity-label text match GET /circles/:id/upcoming still uses for its own,
   // deliberately different, "similar activity nearby" discovery purpose.
   await ensureColumn("games", "circle_id", "circle_id VARCHAR(191)");
+  // Phase 2 "Circles V2" — set atomically (alongside circle_id, in the same
+  // transaction as the game insert) when this game was created by
+  // converting a confirmed circle_plans row, guarded by an idempotency
+  // check on that row's status so two concurrent conversions can never
+  // produce two games — see routes/games.ts's createGameRow().
+  await ensureColumn("games", "plan_id", "plan_id VARCHAR(191)");
+  // Phase 2 "Circles V2" — optionally links an existing circle_polls row to
+  // a circle_plans row ("which day works?" attached to a specific plan-
+  // idea). Nullable/optional: every pre-existing standalone poll
+  // (plan_id IS NULL) keeps working completely unchanged.
+  await ensureColumn("circle_polls", "plan_id", "plan_id VARCHAR(191)");
 
   // Interest → Participation states (implementation plan Phase 6) — a
   // favourite is no longer just saved-or-not. 'interested' is the default
@@ -1747,6 +1831,55 @@ export async function initSchema() {
   // the organiser to approve/decline. Every existing row is a real
   // organiser invite, so the default backfills them correctly.
   await ensureColumn("circle_invites", "initiated_by", "initiated_by VARCHAR(20) NOT NULL DEFAULT 'organiser'");
+
+  // Vendor reply on a review (Host Manage spec §16) — only ever set for
+  // centre/club reviews (a vendor replies), never game/host reviews (no
+  // vendor on those). Both nullable: every existing review is simply
+  // unreplied-to.
+  await ensureColumn("reviews", "vendor_reply", "vendor_reply TEXT");
+  await ensureColumn("reviews", "vendor_reply_at", "vendor_reply_at DATETIME");
+
+  // Vendor-scoped Offers (Host Manage spec §17) — every existing coupon is
+  // admin/platform-wide and keeps working unchanged: NULL here means "any
+  // vendor may not have created it" / "applies to any listing", exactly
+  // today's behaviour. Only a vendor-created coupon ever sets these.
+  await ensureColumn("coupons", "created_by_vendor_id", "created_by_vendor_id VARCHAR(191)");
+  await ensureColumn("coupons", "eligible_listing_type", "eligible_listing_type VARCHAR(20)");
+  await ensureColumn("coupons", "eligible_listing_id", "eligible_listing_id VARCHAR(191)");
+
+  // Settings expansion (Host Manage spec §20) — refund policy copy + tax/
+  // business registration details, alongside the existing
+  // cancellation_hours/booking_window_days. All nullable/optional; no
+  // existing org_policies row needs backfilling.
+  await ensureColumn("org_policies", "refund_policy_text", "refund_policy_text TEXT");
+  await ensureColumn("org_policies", "tax_number", "tax_number VARCHAR(100)");
+  await ensureColumn("org_policies", "business_registration_number", "business_registration_number VARCHAR(100)");
+
+  // Host Manage spec §26 — real bug fix: `users.description` (the public
+  // bio shown on ProviderProfile.tsx) previously had NO edit route at all,
+  // only ever set once at signup. `website`/`socials` are new fields
+  // alongside it — `socials` stores a small fixed JSON object
+  // ({instagram,facebook,x}), not a generic list, to avoid a whole
+  // structured-links editor for what's a "nice to have" field. Both
+  // nullable — no backfill needed.
+  await ensureColumn("users", "website", "website VARCHAR(255)");
+  await ensureColumn("users", "socials", "socials TEXT");
+
+  // Vendor/admin account deactivation (Host Manage spec §28) — same "soft,
+  // self-reversing" pattern already used for residents (see
+  // residents.ts's own deactivate route and guestAuth.ts's sign-in-clears-it
+  // logic): not a hard account lock, just a visibility/status toggle that
+  // clears itself the next time this user logs in.
+  await ensureColumn("users", "deactivated_at", "deactivated_at DATETIME");
+
+  // Host-created coupons for paid Games (Vendor-parity pass, Phase 25) — a
+  // resident host isn't a vendor `users` row, so this needs its own creator
+  // column alongside the existing `created_by_vendor_id`; redemption itself
+  // only ever checks `eligible_listing_type`/`eligible_listing_id`, not
+  // creator, so evaluateCoupon() needs no change. `game_participants.coupon_code`
+  // mirrors the same column already on `bookings`/`registrations`.
+  await ensureColumn("coupons", "created_by_resident_id", "created_by_resident_id VARCHAR(191)");
+  await ensureColumn("game_participants", "coupon_code", "coupon_code VARCHAR(50)");
 }
 
 export const COUNTY_CENTROIDS: Record<string, { lat: number; lng: number }> = {

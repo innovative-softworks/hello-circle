@@ -6,12 +6,15 @@ import { ManageShell } from "../components/ManageShell";
 import {
   BanIcon,
   CalendarIcon,
+  CardIcon,
   ChatIcon,
   CheckCircleIcon,
   ClipboardIcon,
   ClockIcon,
   EyeIcon,
   PlusIcon,
+  StarIcon,
+  TagIcon,
   TreeIconSmall,
   TrendUpIcon,
   UsersIcon,
@@ -21,9 +24,11 @@ import { BookingsTab, DemandTab } from "../components/VendorBookings";
 import { VendorExperiencesTab } from "../components/VendorExperiences";
 import { ListingsTab } from "../components/VendorListings";
 import { MessagesTab } from "../components/VendorMessages";
-import { VendorOrgTab } from "../components/VendorOrg";
+import { VendorOffersTab } from "../components/VendorOffers";
+import { VendorOrgTab, PaymentsPanel } from "../components/VendorOrg";
 import { VendorOverviewTab } from "../components/VendorOverview";
 import { VendorProgramsTab, VendorScheduleTab } from "../components/VendorPrograms";
+import { VendorReviewsTab } from "../components/VendorReviews";
 import { formatMemberSince } from "../vendorFormat";
 import { colors, fonts } from "../theme";
 import type { VendorListingSummary, VendorStats } from "../types";
@@ -32,18 +37,27 @@ import type { VendorListingSummary, VendorStats } from "../types";
 // lives in its own file under components/Vendor*.tsx (split out of what
 // used to be a single 1826-line file; see CLAUDE.md).
 
-type VendorTab = "overview" | "listings" | "messages" | "bookings" | "demand" | "programs" | "experiences" | "schedule" | "org";
+type VendorTab = "overview" | "listings" | "messages" | "bookings" | "earnings" | "programs" | "experiences" | "schedule" | "reviews" | "offers" | "demand" | "org";
 
-const VENDOR_TABS: { key: VendorTab; label: string; icon: ReactNode }[] = [
+// Host Manage spec §2's minimal primary nav ("Overview/Activities/Bookings/
+// Calendar/Messages/Earnings/More") — reorganized using ManageShell's own
+// `group` field (already supported, just unused by Vendor until now, same
+// mechanism Profile.tsx's nav already groups by) rather than building a new
+// flyout/submenu: everything through "earnings" below stays a primary tab,
+// everything after gets grouped under "More".
+const VENDOR_TABS: { key: VendorTab; label: string; icon: ReactNode; group?: string }[] = [
   { key: "overview", label: "Overview", icon: <EyeIcon size={15} /> },
   { key: "listings", label: "Listings", icon: <ClipboardIcon size={15} /> },
   { key: "programs", label: "Programs", icon: <CalendarIcon size={15} /> },
   { key: "experiences", label: "Adventures & Experiences", icon: <TreeIconSmall size={15} /> },
-  { key: "schedule", label: "Schedule", icon: <CalendarIcon size={15} /> },
+  { key: "schedule", label: "Calendar", icon: <CalendarIcon size={15} /> },
   { key: "messages", label: "Messages", icon: <ChatIcon size={15} /> },
-  { key: "bookings", label: "Bookings & registrations", icon: <CalendarIcon size={15} /> },
-  { key: "demand", label: "Demand", icon: <TrendUpIcon size={15} /> },
-  { key: "org", label: "Organisation", icon: <UsersIcon size={15} /> },
+  { key: "bookings", label: "Bookings", icon: <CalendarIcon size={15} /> },
+  { key: "earnings", label: "Earnings", icon: <CardIcon size={15} /> },
+  { key: "reviews", label: "Reviews", icon: <StarIcon size={15} />, group: "More" },
+  { key: "offers", label: "Offers", icon: <TagIcon size={15} />, group: "More" },
+  { key: "demand", label: "Demand", icon: <TrendUpIcon size={15} />, group: "More" },
+  { key: "org", label: "Organisation", icon: <UsersIcon size={15} />, group: "More" },
 ];
 
 export function VendorDashboard() {
@@ -226,7 +240,7 @@ export function VendorDashboard() {
         ) : undefined
       }
     >
-      {tab === "overview" && stats && <VendorOverviewTab stats={stats} unreadCount={unreadCount} />}
+      {tab === "overview" && stats && <VendorOverviewTab stats={stats} unreadCount={unreadCount} listings={listings} onNavigateTab={setTab} />}
 
       {tab === "listings" && (
         <ListingsTab
@@ -242,6 +256,9 @@ export function VendorDashboard() {
 
       {tab === "messages" && <MessagesTab onRead={loadUnreadCount} listings={listings} />}
       {tab === "bookings" && <BookingsTab />}
+      {tab === "earnings" && <PaymentsPanel />}
+      {tab === "reviews" && <VendorReviewsTab />}
+      {tab === "offers" && <VendorOffersTab />}
       {tab === "demand" && <DemandTab />}
       {tab === "programs" && <VendorProgramsTab onOpenProgram={(id) => navigate(`/vendor/programs/${id}`)} />}
       {tab === "experiences" && <VendorExperiencesTab onOpenExperience={(id) => navigate(`/vendor/experiences/${id}`)} />}

@@ -2,9 +2,9 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { signInHref } from "../authRedirect";
 import { CheckIcon, PlusIcon } from "./icons";
-import { InviteButton } from "./InviteButton";
 import { ResidentPicker } from "./ResidentPicker";
-import { Button, Card } from "./ui";
+import { ShareButton } from "./ShareButton";
+import { Button, Card, ConfirmDialog } from "./ui";
 import { colors, fonts, radius } from "../theme";
 import type { Circle } from "../types";
 
@@ -35,6 +35,8 @@ interface Props {
 export function CircleJoinCard({ circle, state, busy, onJoin, onLeave, onMessage, onCreatePlan, onInvite, inviteError, onRequestClose }: Props) {
   const navigate = useNavigate();
   const [managing, setManaging] = useState(false);
+  const [leaveConfirmOpen, setLeaveConfirmOpen] = useState(false);
+  const [joinConfirmOpen, setJoinConfirmOpen] = useState(false);
 
   return (
     <Card>
@@ -86,7 +88,7 @@ export function CircleJoinCard({ circle, state, busy, onJoin, onLeave, onMessage
         )}
 
         {state === "available" && (
-          <Button full onClick={onJoin} disabled={busy}>
+          <Button full onClick={() => setJoinConfirmOpen(true)} disabled={busy}>
             {busy ? "…" : circle.joinMode === "approval" ? "Request to join" : "Join Circle"}
           </Button>
         )}
@@ -115,7 +117,7 @@ export function CircleJoinCard({ circle, state, busy, onJoin, onLeave, onMessage
               <Button full onClick={() => navigate(`/games/${circle.nextPlan!.id}`)}>View next plan</Button>
             )}
             <Button variant="ghost" full onClick={onMessage}>Message Circle</Button>
-            <Button variant="ghost" full onClick={onLeave} disabled={busy}>{busy ? "…" : "Leave Circle"}</Button>
+            <Button variant="ghost" full onClick={() => setLeaveConfirmOpen(true)} disabled={busy}>{busy ? "…" : "Leave Circle"}</Button>
           </>
         )}
 
@@ -146,7 +148,7 @@ export function CircleJoinCard({ circle, state, busy, onJoin, onLeave, onMessage
 
       {(state === "available" || state === "signed-out") && (
         <div style={{ marginTop: 10 }}>
-          <InviteButton title={circle.name} text={`Join the "${circle.name}" circle on HelloCircle`} listingType="circle" listingId={circle.id} />
+          <ShareButton entityType="circle" entityId={circle.id} />
         </div>
       )}
 
@@ -157,6 +159,39 @@ export function CircleJoinCard({ circle, state, busy, onJoin, onLeave, onMessage
             : `${circle.members.toLocaleString()} member${circle.members === 1 ? "" : "s"}.`}
         </div>
       )}
+
+      <ConfirmDialog
+        open={leaveConfirmOpen}
+        title={`Leave ${circle.name}?`}
+        message="You'll stop seeing this Circle's plans and lose your spot in any you've joined."
+        confirmLabel="Leave Circle"
+        cancelLabel="Stay in"
+        busy={busy}
+        onConfirm={() => {
+          onLeave();
+          setLeaveConfirmOpen(false);
+        }}
+        onCancel={() => setLeaveConfirmOpen(false)}
+      />
+
+      <ConfirmDialog
+        open={joinConfirmOpen}
+        title={circle.joinMode === "approval" ? `Request to join ${circle.name}?` : `Join ${circle.name}?`}
+        message={
+          circle.joinMode === "approval"
+            ? "The organiser will need to approve your request before you're a member."
+            : `You'll be part of ${circle.name} and hear about every plan.`
+        }
+        confirmLabel={circle.joinMode === "approval" ? "Send request" : "Join Circle"}
+        cancelLabel="Not now"
+        tone="neutral"
+        busy={busy}
+        onConfirm={() => {
+          onJoin();
+          setJoinConfirmOpen(false);
+        }}
+        onCancel={() => setJoinConfirmOpen(false)}
+      />
     </Card>
   );
 }

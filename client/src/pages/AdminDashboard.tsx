@@ -61,7 +61,7 @@ import { DemandSignalsView, IntentClusterView } from "../components/DemandSignal
 import { MarketplaceHealthView } from "../components/MarketplaceHealth";
 import { MarketConfig } from "../components/MarketConfig";
 import { colors, fonts, radius } from "../theme";
-import { FEATURE_FLAG_KEYS, FEATURE_FLAG_LABELS } from "../types";
+import { FEATURE_FLAG_KEYS, FEATURE_FLAG_LABELS, PLATFORM_ROLE_LABELS } from "../types";
 import type { AdminOrganisation, AdminStats, AnalyticsFunnelRow, AuditEntry, CircleActivity, DemandRow, FeatureFlagKey, FeatureFlags, IntentCluster, MarketplaceHealth, ModerationReport, NotificationTemplateInfo, OpenBookingActivity, PlaceSuggestion, ReferralAttributionRow, ReportCase, Review, SupportBooking, SupportCircle, SupportGame, SupportRegistration, SupportUser } from "../types";
 
 const PLATFORM_ROLES = ["centre_manager", "facility_manager", "finance", "communications", "read_only_analyst"];
@@ -184,7 +184,7 @@ function VendorDrawer({
         >
           <option value="none">— no role —</option>
           {PLATFORM_ROLES.map((r) => (
-            <option key={r} value={r}>{r.replace(/_/g, " ")}</option>
+            <option key={r} value={r}>{PLATFORM_ROLE_LABELS[r as keyof typeof PLATFORM_ROLE_LABELS]}</option>
           ))}
         </select>
         <select
@@ -508,6 +508,7 @@ function ListingRow({
   // Grandfathered listings with no vendor (vendorStatus null) are exempt.
   const vendorNotApproved = !!item.vendorStatus && item.vendorStatus !== "approved";
   const facts = listingFacts(item, type);
+  const [confirmingReject, setConfirmingReject] = useState(false);
 
   return (
     <Card hover onClick={onOpen} style={{ padding: 15, display: "flex", flexWrap: "wrap", gap: 14, justifyContent: "space-between", alignItems: "center" }}>
@@ -555,13 +556,31 @@ function ListingRow({
             <Button variant="dark" disabled={vendorNotApproved} onClick={() => setStatus(item.id, "approved").then(onChanged)}>
               Approve
             </Button>
-            <Button variant="ghost" onClick={() => setStatus(item.id, "rejected").then(onChanged)}>Reject</Button>
+            <Button variant="ghost" onClick={() => setConfirmingReject(true)}>Reject</Button>
           </div>
         )}
         {vendorNotApproved && item.status === "pending" && (
           <span style={{ fontSize: 11, color: colors.orangeDark }}>Approve the vendor account first</span>
         )}
         <Button variant="ghost" onClick={onOpen}>View</Button>
+      </div>
+      {/* Wrapper stops the click from bubbling to the Card's onClick={onOpen}
+          — a React portal's events still bubble through the React tree
+          (not the DOM tree), so without this, confirming here would also
+          open the drawer. Same pattern the sibling Approve/Reject div uses. */}
+      <div onClick={(e) => e.stopPropagation()}>
+        <ConfirmDialog
+          open={confirmingReject}
+          title={`Reject ${item.name}?`}
+          message="The vendor will need to fix and resubmit this listing before it can go live."
+          confirmLabel="Reject"
+          tone="neutral"
+          onConfirm={() => {
+            setConfirmingReject(false);
+            setStatus(item.id, "rejected").then(onChanged);
+          }}
+          onCancel={() => setConfirmingReject(false)}
+        />
       </div>
     </Card>
   );
@@ -581,6 +600,7 @@ function ListingDrawer({
   onClose: () => void;
 }) {
   const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [confirmingReject, setConfirmingReject] = useState(false);
 
   if (!item) return null;
   const setStatus = type === "centre" ? setCentreStatus : setClubStatus;
@@ -614,7 +634,7 @@ function ListingDrawer({
             Approve
           </Button>
         )}
-        {item.status !== "rejected" && <Button variant="ghost" onClick={() => setStatus(item.id, "rejected").then(onChanged)}>Reject</Button>}
+        {item.status !== "rejected" && <Button variant="ghost" onClick={() => setConfirmingReject(true)}>Reject</Button>}
         <Button variant="danger" onClick={() => setConfirmingDelete(true)}>Delete</Button>
       </div>
       {vendorNotApproved && (
@@ -650,6 +670,15 @@ function ListingDrawer({
         confirmLabel="Delete"
         onConfirm={() => { setConfirmingDelete(false); del(item.id).then(onChanged); }}
         onCancel={() => setConfirmingDelete(false)}
+      />
+      <ConfirmDialog
+        open={confirmingReject}
+        title={`Reject ${item.name}?`}
+        message="The vendor will need to fix and resubmit this listing before it can go live."
+        confirmLabel="Reject"
+        tone="neutral"
+        onConfirm={() => { setConfirmingReject(false); setStatus(item.id, "rejected").then(onChanged); }}
+        onCancel={() => setConfirmingReject(false)}
       />
     </Drawer>
   );
@@ -726,6 +755,7 @@ function ListingsTab({
 
 function ReviewsTab() {
   const [reviews, setReviews] = useState<(Review & { hidden: number })[]>([]);
+  const [confirmHideId, setConfirmHideId] = useState<number | null>(null);
   const load = () => fetchAdminReviews().then(setReviews);
   useEffect(() => { load(); }, []);
 
@@ -751,7 +781,7 @@ function ReviewsTab() {
               {r.hidden ? (
                 <Button variant="ghost" onClick={() => unhideReview(r.id).then(load)}>Unhide</Button>
               ) : (
-                <Button variant="danger" onClick={() => hideReview(r.id).then(load)}>Hide</Button>
+                <Button variant="danger" onClick={() => setConfirmHideId(r.id)}>Hide</Button>
               )}
             </Card>
           ))}
@@ -759,6 +789,14 @@ function ReviewsTab() {
         </div>
       </div>
       <ReportsSection />
+      <ConfirmDialog
+        open={confirmHideId !== null}
+        title="Hide this review?"
+        message="It disappears from the public listing page immediately. You can unhide it again later from this tab."
+        confirmLabel="Hide"
+        onConfirm={() => { if (confirmHideId !== null) hideReview(confirmHideId).then(load); setConfirmHideId(null); }}
+        onCancel={() => setConfirmHideId(null)}
+      />
     </div>
   );
 }
@@ -1088,7 +1126,7 @@ function SupportTab() {
   return (
     <div className="fade-panel">
       <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
-        <input value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => e.key === "Enter" && run()} placeholder="Booking/registration/game/circle ref or name, or an email address" style={inputStyle} />
+        <input value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => e.key === "Enter" && run()} placeholder="Booking/registration/session/circle ref or name, or an email address" style={inputStyle} />
         <Button onClick={run}><SearchIcon size={14} /> Search</Button>
       </div>
 
@@ -1103,7 +1141,7 @@ function SupportTab() {
                 <table style={tableStyle}>
                   <thead>
                     <tr>
-                      <th style={thStyle}>Game</th>
+                      <th style={thStyle}>Session</th>
                       <th style={thStyle}>Booking</th>
                       <th style={thStyle}>Centre</th>
                       <th style={thStyle}>Status</th>
@@ -1243,7 +1281,7 @@ function SupportTab() {
             )}
           </div>
           <div>
-            <h4 style={{ fontSize: 12, fontWeight: 700, color: colors.muted, margin: "0 0 8px", textTransform: "uppercase" }}>Games</h4>
+            <h4 style={{ fontSize: 12, fontWeight: 700, color: colors.muted, margin: "0 0 8px", textTransform: "uppercase" }}>Sessions</h4>
             {results.games.length === 0 ? (
               <span style={{ fontSize: 13, color: colors.faint }}>No matches.</span>
             ) : (

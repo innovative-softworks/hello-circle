@@ -55,7 +55,7 @@ export interface Centre {
    * fetches (getApprovedCentre) are always "approved" here in practice.
    * "draft" (Form System Audit, Phase 5) means the Guided Flow creation
    * wizard hasn't been completed/published yet. */
-  status: "draft" | "pending" | "approved" | "rejected" | "deleted";
+  status: "draft" | "pending" | "approved" | "rejected" | "paused" | "deleted";
   /** Venue-level Follow (Follow feature) — only present on the resident-
    * facing GET /:id response (centres.ts attaches it there, not inside the
    * shared getApprovedCentre query other callers — browse lists, the vendor
@@ -114,7 +114,7 @@ export interface Club {
    * before this field. */
   audience: "kids" | "adults" | "all";
   /** See Centre's identical field. */
-  status: "draft" | "pending" | "approved" | "rejected" | "deleted";
+  status: "draft" | "pending" | "approved" | "rejected" | "paused" | "deleted";
 }
 
 export type BookingStatus = "confirmed" | "cancelled";
@@ -145,6 +145,19 @@ export interface VendorBookingRow extends MyBooking {
   guests: number;
   notes: string | null;
   paymentStatus: string;
+  centreId: string;
+  /** Whether this booking has a real Stripe charge to refund — false for a
+   * cash booking, which was never charged online. */
+  hasStripePayment: boolean;
+}
+
+export interface ClubParticipant {
+  childFirst: string;
+  childLast: string;
+  teams: string[];
+  registrations: number;
+  active: boolean;
+  lastRegisteredAt: string;
 }
 
 export interface MyRegistration {
@@ -160,6 +173,11 @@ export interface MyRegistration {
   sport: string;
   status: BookingStatus;
   vendorId: string;
+  /** Only ever present on the vendor's own view (vendorOperations.ts's
+   * GET /registrations) — not selected on the resident-facing MyRegistration
+   * fetch. */
+  paymentStatus?: string;
+  hasStripePayment?: boolean;
 }
 
 export interface ParticipationEntry {
@@ -170,6 +188,24 @@ export interface ParticipationEntry {
   date: string;
   status: string;
   href: string;
+}
+
+// My Life V2's "Needs You" (Phase 1 "Connect", extended Phase 2 "Circles
+// V2" with the two plan_* action types) — matches
+// server/src/routes/residents.ts's NeedsAttentionItem. Computed, not
+// stored; ordered by the server into a deterministic priority already — the
+// client renders in the order it arrives rather than re-sorting.
+export interface NeedsAttentionItem {
+  id: string;
+  actionType: "payment_incomplete" | "waitlist_offered" | "join_request" | "circle_invitation" | "plan_activity_creation" | "plan_confirmation" | "open_poll";
+  sourceType: "booking" | "registration" | "waitlist_entry" | "circle_invite" | "circle_plan" | "circle_poll";
+  sourceId: string;
+  title: string;
+  description: string;
+  dueAt: string | null;
+  actionLabel: string;
+  actionUrl: string;
+  createdAt: string;
 }
 
 export interface MyProgramEnrollment {
@@ -188,7 +224,7 @@ export interface MyProgramEnrollment {
 
 export interface VendorNotification {
   id: number;
-  kind: "booking" | "registration";
+  kind: "booking" | "registration" | "program" | "experience";
   title: string;
   body: string;
   listingType: "centre" | "club";
@@ -236,12 +272,15 @@ export interface Review {
   rating: number;
   comment: string;
   createdAt: string;
+  /** Host Manage spec §16 — only ever set for centre/club reviews. */
+  vendorReply: string | null;
+  vendorRepliedAt: string | null;
 }
 
 export interface VendorListingSummary {
   id: string;
   name: string;
-  status: "draft" | "pending" | "approved" | "rejected" | "deleted";
+  status: "draft" | "pending" | "approved" | "rejected" | "paused" | "deleted";
   area: string;
   county: string;
   views: number;
@@ -499,6 +538,11 @@ export interface Circle {
   /** Loose calendar-month count of open games matching this activity —
    * a participation-health signal, not a stored/cached counter. */
   plansThisMonth: number;
+  /** Phase 2 "Circles V2" — this Circle's own most-recent not-yet-converted
+   * plan-idea, found via an explicit circle_plans.circle_id relationship
+   * (never the fuzzy activity-label match nextPlan above uses). Null when
+   * nothing's currently being planned. */
+  activePlan: { id: string; title: string; status: "idea" | "confirmed"; proposedDate: string | null; proposedTime: string | null } | null;
   /** Join modes (Follow/Notify/Stats gap audit §6) — 'open' is the original
    * instant-join behaviour every pre-existing Circle keeps by default. */
   joinMode: "open" | "approval" | "invite";
@@ -621,8 +665,43 @@ export interface CirclePoll {
   question: string;
   createdByResidentId: string;
   status: "open" | "closed";
+  /** Phase 2 "Circles V2" — set when this poll was created attached to a
+   * plan-idea ("which day works for {planTitle}?"); null for a standalone
+   * poll, which keeps working exactly as before. */
+  planId: string | null;
   createdAt: string;
   options: CirclePollOption[];
+}
+
+// --- Circle plan-ideas (Phase 2 "Circles V2") -------------------------------
+// Named "plan-ideas" (not "plans") to avoid colliding with the pre-existing
+// ManageCirclePlan concept above (real games.circle_id rows) — see the
+// Phase 2 plan doc's naming-collision note. A CirclePlanIdea is the new,
+// explicit "what should this Circle do next" object: a member proposes one,
+// an organiser can confirm it and then convert it into a real Game (at
+// which point `activity` below becomes the source of truth for date/time/
+// status — this object never re-syncs a stale copy after that).
+export interface CirclePlanIdea {
+  id: string;
+  circleId: string;
+  createdByResidentId: string;
+  createdByName: string;
+  title: string;
+  note: string;
+  /** 'completed' is derived (the linked activity's date has passed), never
+   * a stored transition. */
+  status: "idea" | "confirmed" | "activity_created" | "completed" | "cancelled";
+  proposedDate: string | null;
+  proposedTime: string | null;
+  locationText: string | null;
+  activitySourceType: "game" | null;
+  activitySourceId: string | null;
+  /** Populated once activitySourceId is set — the live Game's own state,
+   * always read fresh, never cached on this object. */
+  activity: { id: string; date: string; time: string; status: string; spotsLeft: number | null; joined: number | null } | null;
+  createdAt: string;
+  confirmedAt: string | null;
+  cancelledAt: string | null;
 }
 
 export type HostStatus = "none" | "pending" | "verified" | "rejected";
@@ -694,6 +773,10 @@ export interface ProviderProfile {
   providerTier: string;
   county: string;
   logo: string | null;
+  /** Host Manage spec §25/§26 — previously no field/editor existed for
+   * either. */
+  website: string | null;
+  socials: { instagram?: string; facebook?: string; x?: string } | null;
   centres: ProviderProfileListing[];
   clubs: (ProviderProfileListing & { sport: string })[];
   experiences: (ProviderProfileListing & { kind: "adventure" | "experience"; title: string })[];
@@ -863,6 +946,37 @@ export interface DiscoverItem {
    * out visitor, or when nothing about this item matched the resident's
    * own signals (interests/home county/familiar co-players). */
   matchReasons: string[];
+}
+
+// Phase 1 "Connect" — a normalized presentation contract spanning Games,
+// Program sessions, Club sessions, and Experience sessions, matching
+// server/src/activitySummary.ts's ActivitySummary shape. Hand-synced with
+// the server's own definition, same convention as every other type in this
+// file (see CLAUDE.md: "no shared/generated types package between client
+// and server"). Not a database table, not a replacement for Game/Centre/
+// Club/Experience — every transactional action still routes through its
+// own source page/flow; this only unifies what a shared card can render.
+// The 5 new fields are optional, not just nullable, so an existing
+// DiscoverItem (today/weekend feeds, search results) already satisfies
+// this type without every call site needing to start setting them.
+export interface ActivitySummary extends Omit<DiscoverItem, "kind" | "matchReasons"> {
+  kind: DiscoverItem["kind"] | "experience_session";
+  matchReasons?: string[];
+  /** Same value as href today — exposed under a name a future sharing
+   * feature can use without callers needing to know that. */
+  canonicalUrl?: string;
+  /** The resident host's display name — Games only; null for every
+   * vendor-run source. */
+  host?: string | null;
+  /** Whichever organiser applies (Resident host or Vendor) is trust-
+   * verified. Null where the source doesn't cheaply carry this yet. */
+  hostVerified?: boolean | null;
+  /** The vendor's own display name, where resolved — null otherwise. */
+  vendorName?: string | null;
+  /** A linked Circle's id, where one exists — always null today (Circle
+   * Plans is a later phase); field exists now so that phase doesn't need
+   * another type change to add it. */
+  circleId?: string | null;
 }
 
 export interface DiscoverFeed {
@@ -1354,7 +1468,7 @@ export interface CentreHoursRow {
 
 export interface OrgProfile {
   org: { id: string; name: string; kind: string } | null;
-  policies: { cancellationHours: number; bookingWindowDays: number };
+  policies: { cancellationHours: number; bookingWindowDays: number; refundPolicyText: string | null; taxNumber: string | null; businessRegistrationNumber: string | null };
   staff: { id: string; name: string; email: string; platformRole: string | null; status: string }[];
   pendingInvites: { token: string; email: string; platformRole: string; createdAt: string }[];
   locations: { id: string; name: string; type: "centre" | "club" }[];
@@ -1363,6 +1477,11 @@ export interface OrgProfile {
   /** The org owner's own uploaded business logo — shown on the public
    * provider profile hero. null until they upload one. */
   logo: string | null;
+  /** Host Manage spec §26 — previously had no edit route anywhere despite
+   * being shown publicly. */
+  description: string | null;
+  website: string | null;
+  socials: { instagram?: string; facebook?: string; x?: string };
 }
 
 /** Feature flags (implementation backlog #5) — real per-org capability
@@ -1378,6 +1497,19 @@ export const FEATURE_FLAG_LABELS: Record<FeatureFlagKey, string> = {
 };
 
 export const PLATFORM_ROLES = ["centre_manager", "facility_manager", "finance", "communications", "read_only_analyst"] as const;
+
+/** Host Manage spec §27/§28 — display labels only, keeping the 5 real
+ * `platform_role` values (and every requirePlatformRole/assertPlatformRole
+ * check across the app) completely unchanged. Remapping the values
+ * themselves would be a real RBAC/authorization change, not a copy fix —
+ * see the plan doc's own note on why that's out of scope here. */
+export const PLATFORM_ROLE_LABELS: Record<(typeof PLATFORM_ROLES)[number], string> = {
+  centre_manager: "Bookings & Venue",
+  facility_manager: "Clubs & Registrations",
+  finance: "Finance",
+  communications: "Communications",
+  read_only_analyst: "Read-only Analyst",
+};
 
 export interface Participant {
   name: string;
@@ -1397,11 +1529,29 @@ export interface VendorInsights {
     uniqueBookers: number;
   };
   utilisation: { dayOfWeek: number; hour: string; n: number }[];
+  /** Host Manage spec §15 — a real sentence computed from `utilisation`
+   * above, null when there isn't enough data yet for a meaningful one. */
+  narrative: string | null;
+  trend: { thisMonth: number; lastMonth: number; deltaPercent: number | null };
 }
 
 export interface VendorPayments {
   transactions: { ref: string; kind: "booking" | "registration"; listingName: string; totalCents: number; createdAt: string; paymentStatus: string }[];
   totalPaidCents: number;
+}
+
+/** Host Experience Polish — the Host-side mirror of VendorInsights above,
+ * same "decisions, not decorative charts" convention. `repeatParticipantPercent`/
+ * `attendanceRatePercent` are Host-specific (Games carry attendance/repeat-
+ * join data Bookings don't) — both null when there isn't enough confirmed
+ * data yet, never a guessed/fabricated number. */
+export interface HostInsights {
+  totals: { totalSessions: number; cancelledSessions: number; uniqueParticipants: number };
+  utilisation: { dayOfWeek: number; hour: string; n: number }[];
+  narrative: string | null;
+  trend: { thisMonth: number; lastMonth: number; deltaPercent: number | null };
+  repeatParticipantPercent: number | null;
+  attendanceRatePercent: number | null;
 }
 
 // --- Admin: moderation reports, audit log, support search (folded into

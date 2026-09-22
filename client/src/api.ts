@@ -13,5 +13,7 @@ export * from "./api/vendorAuth";
 export * from "./api/vendor";
 export * from "./api/admin";
 export * from "./api/manage";
+export * from "./api/sharing";
+export * from "./api/invitations";
 
 export type { Role };

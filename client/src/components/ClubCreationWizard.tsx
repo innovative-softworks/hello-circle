@@ -7,6 +7,7 @@ import {
   updateVendorClub,
 } from "../api";
 import { AddressSearch, MapConfirm } from "./AddressSearch";
+import { ClubCard } from "./ClubCard";
 import { GuidedFlow } from "./GuidedFlow";
 import { MultiImageUpload } from "./VendorImageUpload";
 import { Card, labelStyle, inputStyle } from "./ui";
@@ -87,6 +88,9 @@ export function ClubCreationWizard({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(initialClubId === "new");
+  // See CentreCreationWizard.tsx's identical comment — fetches the real,
+  // already-saved draft for a live ClubCard preview on the Review step.
+  const [previewClub, setPreviewClub] = useState<Club | null>(null);
 
   const setForm = (patch: Partial<WizardForm>) => {
     setFormRaw((f) => ({ ...f, ...patch }));
@@ -122,6 +126,10 @@ export function ClubCreationWizard({
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    if (step === STEP_LABELS.length && id !== "new") fetchVendorClub(id).then(setPreviewClub).catch(() => setPreviewClub(null));
+  }, [step, id]);
 
   if (!loaded) return null;
 
@@ -464,6 +472,16 @@ export function ClubCreationWizard({
       continueBusy={saving}
       error={error}
     >
+      {previewClub && (
+        <div style={{ maxWidth: 320, marginBottom: 18 }}>
+          <p style={{ fontSize: 12, color: colors.mutedLight, margin: "0 0 8px", fontWeight: 700, textTransform: "uppercase", letterSpacing: ".03em" }}>
+            How it'll look
+          </p>
+          <div style={{ pointerEvents: "none" }}>
+            <ClubCard club={previewClub} />
+          </div>
+        </div>
+      )}
       <Card style={{ padding: 20, maxWidth: 520, display: "flex", flexDirection: "column", gap: 14 }}>
         <div>
           <div style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 18 }}>{form.name || "Untitled club"}</div>

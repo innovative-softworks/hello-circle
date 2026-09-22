@@ -23,13 +23,23 @@ orgRouter.get("/", async (req, res) => {
   if (!orgId) return res.status(404).json({ error: "No organisation linked to this account" });
 
   const org = (await db.prepare(`SELECT id, name, kind FROM organisations WHERE id = ?`).get(orgId)) as { id: string; name: string; kind: string } | undefined;
-  // The logo belongs to the org owner's own account row (same place
-  // business_name/description already live), not `organisations` — a
-  // staff member viewing this can see it but only the owner can change it
-  // (see PUT /logo below).
-  const owner = (await db.prepare(`SELECT logo FROM users WHERE org_id = ? AND invited_staff = 0 LIMIT 1`).get(orgId)) as { logo: string | null } | undefined;
-  const policies = (await db.prepare(`SELECT cancellation_hours as cancellationHours, booking_window_days as bookingWindowDays FROM org_policies WHERE org_id = ?`).get(orgId)) as
-    | { cancellationHours: number; bookingWindowDays: number }
+  // The logo/description/website/socials belong to the org owner's own
+  // account row, not `organisations` — a staff member viewing this can see
+  // them but only the owner can change them (see PUT / below). `description`
+  // previously had no edit route anywhere despite being shown publicly on
+  // ProviderProfile.tsx — this GET is also the first place it's ever read
+  // back for editing.
+  const owner = (await db.prepare(`SELECT logo, description, website, socials FROM users WHERE org_id = ? AND invited_staff = 0 LIMIT 1`).get(orgId)) as
+    | { logo: string | null; description: string | null; website: string | null; socials: string | null }
+    | undefined;
+  const policies = (await db
+    .prepare(
+      `SELECT cancellation_hours as cancellationHours, booking_window_days as bookingWindowDays,
+              refund_policy_text as refundPolicyText, tax_number as taxNumber, business_registration_number as businessRegistrationNumber
+       FROM org_policies WHERE org_id = ?`
+    )
+    .get(orgId)) as
+    | { cancellationHours: number; bookingWindowDays: number; refundPolicyText: string | null; taxNumber: string | null; businessRegistrationNumber: string | null }
     | undefined;
   const staff = await db
     .prepare(`SELECT id, name, email, platform_role as platformRole, status FROM users WHERE org_id = ? ORDER BY invited_staff, created_at`)
@@ -46,13 +56,16 @@ orgRouter.get("/", async (req, res) => {
 
   res.json({
     org,
-    policies: policies ?? { cancellationHours: 48, bookingWindowDays: 90 },
+    policies: policies ?? { cancellationHours: 48, bookingWindowDays: 90, refundPolicyText: null, taxNumber: null, businessRegistrationNumber: null },
     staff,
     pendingInvites,
     locations,
     isOwner: !req.user!.invitedStaff,
     flags,
     logo: owner?.logo || null,
+    description: owner?.description || null,
+    website: owner?.website || null,
+    socials: owner?.socials ? JSON.parse(owner.socials) : { instagram: "", facebook: "", x: "" },
   });
 });
 
@@ -66,30 +79,59 @@ orgRouter.put("/logo", async (req, res) => {
 
 orgRouter.put("/", async (req, res) => {
   if (req.user!.invitedStaff) return res.status(403).json({ error: "Only the organisation owner can edit this" });
-  const { name, kind } = req.body as { name?: string; kind?: string };
+  const { name, kind, description, website, socials } = req.body as {
+    name?: string;
+    kind?: string;
+    description?: string;
+    website?: string;
+    socials?: { instagram?: string; facebook?: string; x?: string };
+  };
   const before = (await db.prepare(`SELECT name, kind FROM organisations WHERE id = ?`).get(req.user!.orgId)) as { name: string; kind: string } | undefined;
   await db.prepare(`UPDATE organisations SET name = COALESCE(?, name), kind = COALESCE(?, kind) WHERE id = ?`).run(name, kind, req.user!.orgId);
+  // description/website/socials live on the owner's own users row (same
+  // place logo does) — COALESCE-partial-update, same reasoning as
+  // PUT /policies above.
+  await db
+    .prepare(`UPDATE users SET description = COALESCE(?, description), website = COALESCE(?, website), socials = COALESCE(?, socials) WHERE id = ?`)
+    .run(description, website, socials ? JSON.stringify(socials) : undefined, req.user!.id);
   writeAudit({ actorUserId: req.user!.id, action: "org.profile_updated", objectType: "organisation", objectId: req.user!.orgId!, previousValue: before, newValue: { name, kind } });
   res.json({ ok: true });
 });
 
 orgRouter.put("/policies", async (req, res) => {
   if (req.user!.invitedStaff) return res.status(403).json({ error: "Only the organisation owner can edit this" });
-  const { cancellationHours, bookingWindowDays } = req.body as { cancellationHours?: number; bookingWindowDays?: number };
-  const before = await db.prepare(`SELECT cancellation_hours as cancellationHours, booking_window_days as bookingWindowDays FROM org_policies WHERE org_id = ?`).get(req.user!.orgId);
+  const { cancellationHours, bookingWindowDays, refundPolicyText, taxNumber, businessRegistrationNumber } = req.body as {
+    cancellationHours?: number;
+    bookingWindowDays?: number;
+    refundPolicyText?: string;
+    taxNumber?: string;
+    businessRegistrationNumber?: string;
+  };
+  const before = await db.prepare(`SELECT * FROM org_policies WHERE org_id = ?`).get(req.user!.orgId);
+  // COALESCE-on-both-sides (CLAUDE.md's partial-update pattern) — a caller
+  // that only sends one field (e.g. SettingsPanel today only ever sends
+  // cancellationHours) must not silently reset every other policy field to
+  // its hardcoded default on each save. Pre-existing bug fixed as a side
+  // effect of adding 3 more fields to this same partial-update route.
   await db
     .prepare(
-      `INSERT INTO org_policies (org_id, cancellation_hours, booking_window_days) VALUES (?, ?, ?)
-       ON DUPLICATE KEY UPDATE cancellation_hours = VALUES(cancellation_hours), booking_window_days = VALUES(booking_window_days)`
+      `INSERT INTO org_policies (org_id, cancellation_hours, booking_window_days, refund_policy_text, tax_number, business_registration_number)
+       VALUES (?, COALESCE(?, 48), COALESCE(?, 90), ?, ?, ?)
+       ON DUPLICATE KEY UPDATE
+         cancellation_hours = COALESCE(VALUES(cancellation_hours), cancellation_hours),
+         booking_window_days = COALESCE(VALUES(booking_window_days), booking_window_days),
+         refund_policy_text = COALESCE(VALUES(refund_policy_text), refund_policy_text),
+         tax_number = COALESCE(VALUES(tax_number), tax_number),
+         business_registration_number = COALESCE(VALUES(business_registration_number), business_registration_number)`
     )
-    .run(req.user!.orgId, cancellationHours ?? 48, bookingWindowDays ?? 90);
+    .run(req.user!.orgId, cancellationHours ?? null, bookingWindowDays ?? null, refundPolicyText ?? null, taxNumber ?? null, businessRegistrationNumber ?? null);
   writeAudit({
     actorUserId: req.user!.id,
     action: "org.policies_updated",
     objectType: "organisation",
     objectId: req.user!.orgId!,
     previousValue: before,
-    newValue: { cancellationHours, bookingWindowDays },
+    newValue: { cancellationHours, bookingWindowDays, refundPolicyText, taxNumber, businessRegistrationNumber },
   });
   res.json({ ok: true });
 });

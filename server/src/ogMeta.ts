@@ -1,5 +1,6 @@
 import { db } from "./db/index.js";
 import { irelandTodayIso } from "./irelandTime.js";
+import { getShareData } from "./routes/sharing.js";
 import { CLIENT_URL } from "./stripe.js";
 
 // Shareable link previews (master-prompt punch list #1) — this app has no
@@ -39,7 +40,7 @@ export interface OgMeta {
   robots?: "index, follow" | "noindex, nofollow";
 }
 
-const ROUTE_PATTERN = /^\/(centres|clubs|circles|experiences|adventures|games)\/([^/]+)\/?$/;
+const ROUTE_PATTERN = /^\/(centres|clubs|circles|experiences|adventures|games|programs|host|provider)\/([^/]+)\/?$/;
 
 // Local SEO landing pages (participation-intent plan Phase 3) — the county
 // segment is checked against a real county with actual approved listings
@@ -65,7 +66,7 @@ function truncate(text: string, max: number): string {
 // the previous plain fallback (title only, no description, no canonical).
 const DEFAULT_TITLE = "Hello Circle — community centres & sports clubs in Ireland";
 const DEFAULT_DESCRIPTION =
-  "Browse and book community centres, sports clubs, and local activities across Ireland — halls, classes, kids' clubs, pickup games, and more, all in one place.";
+  "Browse and book community centres, sports clubs, and local activities across Ireland — halls, classes, kids' clubs, pickup sessions, and more, all in one place.";
 
 export function defaultOgMeta(pathName: string): OgMeta {
   return { title: DEFAULT_TITLE, description: DEFAULT_DESCRIPTION, url: `${CLIENT_URL}${pathName}`, robots: "noindex, nofollow" };
@@ -95,16 +96,16 @@ const MARKETING_PAGES: Record<string, { title: string; description: string; imag
   },
   "/for-venues": {
     title: "List your venue or become a Host — HelloCircle",
-    description: "Get discovered, get booked, and grow your community. List a community centre or sports club, or become a Host and run a Game or Circle with no venue needed.",
+    description: "Get discovered, get booked, and grow your community. List a community centre or sports club, or become a Host and run a Session or Circle with no venue needed.",
   },
   "/become-a-host": {
     title: "Become a Host, free — no venue needed — HelloCircle",
-    description: "Host a one-off Game or start a standing Circle in minutes. No venue, no business, no approval to start — completely free.",
+    description: "Host a one-off Session or start a standing Circle in minutes. No venue, no business, no approval to start — completely free.",
     image: "https://images.unsplash.com/photo-1633894812833-3961145496a3?w=1200&h=630&q=75&auto=format&fit=crop",
   },
   "/coming-soon": {
     title: "HelloCircle — launching soon in Ireland, and everywhere",
-    description: "One place to book a hall, join a club, catch a pickup game, or start a recurring Circle across Ireland. Join the waitlist to be the first to know.",
+    description: "One place to book a hall, join a club, catch a pickup session, or start a recurring Circle across Ireland. Join the waitlist to be the first to know.",
   },
   "/privacy": { title: "Privacy Policy — HelloCircle", description: "How HelloCircle collects, uses, and protects your personal data." },
   "/cookies": { title: "Cookie Policy — HelloCircle", description: "How HelloCircle uses cookies and similar technologies." },
@@ -116,11 +117,37 @@ export function resolveMarketingOgMeta(pathName: string): OgMeta | null {
   return { title: page.title, description: page.description, image: page.image, jsonLd: page.jsonLd, url: `${CLIENT_URL}${pathName}`, robots: "index, follow" };
 }
 
-export async function resolveOgMeta(pathName: string): Promise<OgMeta | null> {
+// Plural ogMeta route kind -> singular getShareData/ShareEntityType kind —
+// both name the same 9 entities, just spelled differently (this file's
+// ROUTE_PATTERN segments read as URL path plurals; sharing.ts's
+// ShareEntityType reads as a type discriminant). Every og:image below routes
+// through the branded card endpoint (§14) rather than the raw listing
+// photo directly — see shareCard.ts for why, and card.png's own route
+// comment in routes/sharing.ts for why this is safe for a privacy-gated
+// game (getShareData already returns the generic private stub, never the
+// real photo, before the card is ever rendered from it).
+const SHARE_KIND: Record<string, string> = {
+  centres: "centre",
+  clubs: "club",
+  circles: "circle",
+  experiences: "experience",
+  adventures: "adventure",
+  games: "game",
+  programs: "program",
+  host: "host",
+  provider: "provider",
+};
+
+function cardImageUrl(kind: string, idOrSlug: string): string {
+  return `${CLIENT_URL}/api/share/${SHARE_KIND[kind] ?? kind}/${encodeURIComponent(idOrSlug)}/card.png`;
+}
+
+export async function resolveOgMeta(pathName: string, viewerResidentId: string | null = null): Promise<OgMeta | null> {
   const match = pathName.match(ROUTE_PATTERN);
   if (!match) return resolveLocalLandingOgMeta(pathName);
   const [, kind, idOrSlug] = match;
   const url = `${CLIENT_URL}${pathName}`;
+  const cardImage = cardImageUrl(kind, idOrSlug);
 
   if (kind === "centres") {
     const row = (await db.prepare(`SELECT name, blurb, image_url, area, county FROM centres WHERE (slug = ? OR id = ?) AND status = 'approved'`).get(idOrSlug, idOrSlug)) as
@@ -130,7 +157,7 @@ export async function resolveOgMeta(pathName: string): Promise<OgMeta | null> {
     return {
       title: `${row.name} — HelloCircle`,
       description: truncate(row.blurb, 200),
-      image: row.image_url || undefined,
+      image: cardImage,
       url,
       jsonLd: {
         "@context": "https://schema.org",
@@ -152,7 +179,7 @@ export async function resolveOgMeta(pathName: string): Promise<OgMeta | null> {
     return {
       title: `${row.name} — HelloCircle`,
       description: truncate(row.blurb, 200),
-      image: row.image_url || undefined,
+      image: cardImage,
       url,
       jsonLd: {
         "@context": "https://schema.org",
@@ -175,6 +202,7 @@ export async function resolveOgMeta(pathName: string): Promise<OgMeta | null> {
     return {
       title: `${row.name} — HelloCircle`,
       description: truncate(description, 200),
+      image: cardImage,
       url,
       // Organization, not Event — a Circle is a persistent group, not a
       // single dated occurrence (its next session is a Game, which gets its
@@ -191,31 +219,64 @@ export async function resolveOgMeta(pathName: string): Promise<OgMeta | null> {
     // No JSON-LD here — the fields resolveOgMeta already fetches for
     // experiences/adventures (title/blurb/image only) don't include a date,
     // and Event/Product markup without one would be worse than none.
-    return { title: `${row.title} — HelloCircle`, description: truncate(row.blurb, 200), image: row.image_url || undefined, url };
+    return { title: `${row.title} — HelloCircle`, description: truncate(row.blurb, 200), image: cardImage, url };
+  }
+
+  if (kind === "programs") {
+    const row = (await db.prepare(`SELECT title, description, image_url FROM programs WHERE id = ? AND status = 'published'`).get(idOrSlug)) as
+      | { title: string; description: string; image_url: string }
+      | undefined;
+    if (!row) return null;
+    return { title: `${row.title} — HelloCircle`, description: truncate(row.description, 200), image: cardImage, url };
+  }
+
+  if (kind === "host") {
+    const row = (await db.prepare(`SELECT name, host_bio as bio FROM residents WHERE id = ? AND host_status = 'verified'`).get(idOrSlug)) as { name: string; bio: string | null } | undefined;
+    if (!row) return null;
+    return {
+      title: `${row.name} on HelloCircle`,
+      description: truncate(row.bio || `See what ${row.name} is hosting on HelloCircle.`, 200),
+      image: cardImage,
+      url,
+      jsonLd: { "@context": "https://schema.org", "@type": "Person", name: row.name, description: truncate(row.bio || "", 300), url },
+    };
+  }
+
+  if (kind === "provider") {
+    const row = (await db.prepare(`SELECT name, business_name as businessName, description, logo FROM users WHERE id = ? AND role = 'vendor' AND status = 'approved'`).get(idOrSlug)) as
+      | { name: string; businessName: string; description: string; logo: string | null }
+      | undefined;
+    if (!row) return null;
+    const displayName = row.businessName || row.name;
+    return { title: `${displayName} — HelloCircle`, description: truncate(row.description || `See what's on with ${displayName} on HelloCircle.`, 200), image: cardImage, url };
   }
 
   if (kind === "games") {
-    const row = (await db
-      .prepare(
-        `SELECT g.activity_label as activityLabel, g.date, g.time, g.location_text as locationText, c.name as centreName
-         FROM games g LEFT JOIN centres c ON c.id = g.centre_id
-         WHERE g.id = ? AND g.status != 'cancelled'`
-      )
-      .get(idOrSlug)) as { activityLabel: string; date: string; time: string; locationText: string; centreName: string | null } | undefined;
-    if (!row) return null;
-    const where = row.centreName ?? row.locationText;
+    // Delegates to getShareData rather than its own query (this branch used
+    // to run one) specifically so a circle-only/invite-only game's real
+    // date/time/location never lands in the page's own <title>/meta
+    // description/JSON-LD either — card.png was already privacy-safe (it
+    // always called getShareData), but this branch previously wasn't,
+    // which would have undermined it: the generic stub image next to a
+    // fully-detailed page title/description defeats the point.
+    const data = await getShareData("game", idOrSlug, viewerResidentId);
+    if (!data) return null;
+    if (data.privacy !== "public") {
+      return { title: `${data.title} — HelloCircle`, description: data.description, image: cardImage, url };
+    }
     return {
-      title: `${row.activityLabel} — HelloCircle`,
-      description: truncate(`${row.date} at ${row.time}${where ? ` · ${where}` : ""}`, 200),
+      title: `${data.title} — HelloCircle`,
+      description: truncate(data.description, 200),
+      image: cardImage,
       url,
       jsonLd: {
         "@context": "https://schema.org",
         "@type": "Event",
-        name: row.activityLabel,
-        startDate: `${row.date}T${row.time}`,
+        name: data.title,
+        startDate: `${data.date}T${data.time}`,
         eventAttendanceMode: "https://schema.org/OfflineEventAttendanceMode",
         eventStatus: "https://schema.org/EventScheduled",
-        location: { "@type": "Place", name: where || "Location to be confirmed" },
+        location: { "@type": "Place", name: data.location || "Location to be confirmed" },
         url,
       },
     };
@@ -315,17 +376,23 @@ export async function generateSitemapUrls(): Promise<string[]> {
   const urls = STATIC_SITEMAP_PATHS.map((p) => `${CLIENT_URL}${p}`);
 
   const todayIso = irelandTodayIso();
-  const [centres, clubs, circles, experiences, games, localPages] = await Promise.all([
+  const [centres, clubs, circles, experiences, programs, hosts, providers, games, localPages] = await Promise.all([
     db.prepare(`SELECT COALESCE(slug, id) as slug FROM centres WHERE status = 'approved'`).all() as Promise<{ slug: string }[]>,
     db.prepare(`SELECT COALESCE(slug, id) as slug FROM clubs WHERE status = 'approved'`).all() as Promise<{ slug: string }[]>,
     db.prepare(`SELECT COALESCE(slug, id) as slug FROM circles WHERE status = 'active'`).all() as Promise<{ slug: string }[]>,
     db.prepare(`SELECT COALESCE(slug, id) as slug FROM experiences WHERE status = 'approved'`).all() as Promise<{ slug: string }[]>,
-    db.prepare(`SELECT id FROM games WHERE status IN ('open', 'pending_participants') AND date >= ?`).all(todayIso) as Promise<{ id: string }[]>,
+    db.prepare(`SELECT id FROM programs WHERE status = 'published'`).all() as Promise<{ id: string }[]>,
+    db.prepare(`SELECT id FROM residents WHERE host_status = 'verified'`).all() as Promise<{ id: string }[]>,
+    db.prepare(`SELECT id FROM users WHERE role = 'vendor' AND status = 'approved'`).all() as Promise<{ id: string }[]>,
+    // 'public'-only — a circle-only/invite-only game must never end up in a
+    // crawlable public sitemap (Universal Sharing system §21/§22: privacy
+    // can't leak just because a link exists somewhere).
+    db.prepare(`SELECT id FROM games WHERE status IN ('open', 'pending_participants') AND date >= ? AND visibility = 'public'`).all(todayIso) as Promise<{ id: string }[]>,
     db
       .prepare(
         `SELECT DISTINCT c.county as county, g.activity_label as activityLabel
          FROM games g JOIN centres c ON c.id = g.centre_id
-         WHERE g.status = 'open' AND g.date >= ? AND c.status = 'approved'`
+         WHERE g.status = 'open' AND g.date >= ? AND c.status = 'approved' AND g.visibility = 'public'`
       )
       .all(todayIso) as Promise<{ county: string; activityLabel: string }[]>,
   ]);
@@ -334,6 +401,9 @@ export async function generateSitemapUrls(): Promise<string[]> {
   for (const c of clubs) urls.push(`${CLIENT_URL}/clubs/${c.slug}`);
   for (const c of circles) urls.push(`${CLIENT_URL}/circles/${c.slug}`);
   for (const e of experiences) urls.push(`${CLIENT_URL}/experiences/${e.slug}`);
+  for (const p of programs) urls.push(`${CLIENT_URL}/programs/${p.id}`);
+  for (const h of hosts) urls.push(`${CLIENT_URL}/host/${h.id}`);
+  for (const p of providers) urls.push(`${CLIENT_URL}/provider/${p.id}`);
   for (const g of games) urls.push(`${CLIENT_URL}/games/${g.id}`);
   for (const p of localPages) {
     const activitySlug = slugifyActivity(p.activityLabel);

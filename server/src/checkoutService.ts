@@ -144,3 +144,17 @@ export async function createCheckoutSession(params: {
     return { ok: false, status: 400, error: "Couldn't start checkout — please try again" };
   }
 }
+
+/** Shared by every vendor-issued refund route (bookings/registrations in
+ * vendorOperations.ts, programs/experiences in vendorPrograms.ts/
+ * vendorExperiences.ts — Phase 0 protect) — previously duplicated only in
+ * vendorOperations.ts as an unexported local function; factored out here
+ * alongside createCheckoutSession rather than duplicated again per resource. */
+export async function issueStripeRefund(stripeSessionId: string): Promise<{ ok: true; amountCents: number } | { ok: false; error: string }> {
+  if (!stripe) return { ok: false, error: "Payments aren't configured on this server" };
+  const session = await stripe.checkout.sessions.retrieve(stripeSessionId);
+  if (!session.payment_intent) return { ok: false, error: "No payment found for this booking" };
+  const paymentIntentId = typeof session.payment_intent === "string" ? session.payment_intent : session.payment_intent.id;
+  const refund = await stripe.refunds.create({ payment_intent: paymentIntentId });
+  return { ok: true, amountCents: refund.amount ?? session.amount_total ?? 0 };
+}

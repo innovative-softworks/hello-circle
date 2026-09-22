@@ -6,9 +6,9 @@ import { useAuth } from "../AuthContext";
 import { useDashboardNav } from "../DashboardNavContext";
 import { useGuest } from "../GuestContext";
 import { useTheme } from "../ThemeContext";
-import { BellIcon, BuildingIcon, ChevronDownIcon, CloseIcon, LightbulbIcon, MenuIcon, MoonIcon, PlusIcon, SearchIcon, SunIcon } from "./icons";
+import { BallIcon, BellIcon, BuildingIcon, ChevronDownIcon, CloseIcon, LightbulbIcon, MenuIcon, MoonIcon, PinIcon, RepeatIcon, SearchIcon, SunIcon, TreeIconSmall } from "./icons";
 import { Avatar } from "./ui";
-import { colors, maxWidth, radius } from "../theme";
+import { colors, fonts, maxWidth, radius } from "../theme";
 import { useMyStuff } from "../MyStuffContext";
 import type { ResidentNotification } from "../types";
 
@@ -35,7 +35,8 @@ export function Header() {
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
   // Free Time Mode + nav restructure (Phase 9) — collapses the old flat
   // Community centres/Sports clubs/Join a game tabs into one "Explore"
-  // dropdown, matching the target nav's intent-based grouping.
+  // trigger. Nav megamenu pass: this now opens one wide multi-column panel
+  // (Activities/Venues/Featured) instead of two separate skinny dropdowns.
   const [exploreMenuOpen, setExploreMenuOpen] = useState(false);
   // Global Create hub (IA spec §1 audit) — desktop-only counterpart to
   // MobileTabBar.tsx's Create sheet, same three destinations. Book a
@@ -221,6 +222,22 @@ export function Header() {
     fontSize: 16,
     width: "100%",
   };
+  // "Start" nav trigger — big, bold text rather than an outline button, so
+  // it reads as the one nav item that opens things up (not just another
+  // browse category) through weight/scale alone, no border/fill needed.
+  const startBtnStyle: React.CSSProperties = {
+    background: "none",
+    border: "none",
+    padding: "8px 13px",
+    borderRadius: radius.control,
+    fontSize: 17,
+    fontWeight: 800,
+    color: colors.text,
+    cursor: "pointer",
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 5,
+  };
 
   const circleBtnStyle: React.CSSProperties = {
     width: 40,
@@ -270,6 +287,81 @@ export function Header() {
     cursor: "pointer",
   };
   const dropdownDividerStyle: React.CSSProperties = { borderTop: `1px solid ${colors.border}`, margin: "6px 4px" };
+  // Explore megamenu (nav audit) — one wide multi-column panel, left-aligned
+  // under the trigger unlike dropdownStyle's right-aligned narrow popovers.
+  // Editorial language (premium pass): borrows the site's own "/ EYEBROW"
+  // label and hairline-rule vocabulary already used on /for-venues
+  // (HostHowItWorks/ChooseYourPathSection) instead of a boxed-icon/colored-
+  // tile treatment. Shared by both Explore's and Create's panels so the two
+  // megamenus read as one system.
+  const megaMenuStyle: React.CSSProperties = {
+    position: "absolute",
+    top: "calc(100% + 14px)",
+    left: 0,
+    zIndex: 60,
+    width: 1180,
+    background: colors.surface,
+    border: `1px solid ${colors.border}`,
+    borderRadius: 8,
+    boxShadow: "0 32px 64px rgba(30,40,32,.16)",
+    padding: "44px 48px",
+    display: "grid",
+    gridTemplateColumns: "1fr 1fr 230px 260px",
+    gap: 44,
+  };
+  // Create hub as a megamenu too (nav audit) — same panel language as
+  // Explore's, but single-column and anchored directly under its own
+  // trigger (left: 0 on its own position:relative wrapper) rather than
+  // right-aligned across the row.
+  const createMegaMenuStyle: React.CSSProperties = {
+    ...megaMenuStyle,
+    width: 320,
+    gridTemplateColumns: "1fr",
+    gap: 8,
+  };
+  const megaColStyle: React.CSSProperties = { display: "flex", flexDirection: "column", gap: 0 };
+  const megaColLabelStyle: React.CSSProperties = {
+    fontSize: 12.5,
+    fontWeight: 700,
+    color: colors.orange,
+    letterSpacing: ".09em",
+    marginBottom: 22,
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
+  };
+  const megaItemStyle: React.CSSProperties = {
+    display: "flex",
+    alignItems: "center",
+    gap: 14,
+    width: "100%",
+    background: "none",
+    border: "none",
+    borderTop: `1px solid ${colors.border}`,
+    borderRadius: 0,
+    padding: "15px 0",
+    textAlign: "left",
+    cursor: "pointer",
+  };
+  const megaIconWrapStyle: React.CSSProperties = {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    flex: "none",
+    color: colors.text,
+  };
+  const megaItemTitleStyle: React.CSSProperties = { display: "block", fontFamily: fonts.display, fontSize: 16, fontWeight: 700, color: colors.text, letterSpacing: "-.01em" };
+  const megaItemDescStyle: React.CSSProperties = { display: "block", fontSize: 13, color: colors.muted, marginTop: 3, lineHeight: 1.45 };
+  const megaFeaturedTileStyle = (bg: string): React.CSSProperties => ({
+    display: "block",
+    width: "100%",
+    background: bg,
+    border: "none",
+    borderRadius: 4,
+    padding: "18px 20px",
+    textAlign: "left",
+    cursor: "pointer",
+  });
   const countBadgeStyle: React.CSSProperties = {
     background: colors.green,
     color: "#fff",
@@ -342,7 +434,7 @@ export function Header() {
             <button
               className="tab-btn"
               style={
-                isActive(["/browse/centres", "/centres/", "/browse/clubs", "/clubs/", "/games", "/adventures", "/experiences"])
+                isActive(["/games", "/adventures", "/experiences", "/browse/centres", "/centres/", "/browse/clubs", "/clubs/"])
                   ? { ...navBtn, background: colors.greenBg, color: colors.greenText, fontWeight: 700, display: "inline-flex", alignItems: "center", gap: 4 }
                   : { ...navBtn, display: "inline-flex", alignItems: "center", gap: 4 }
               }
@@ -351,21 +443,76 @@ export function Header() {
               Explore <ChevronDownIcon size={13} style={{ transform: exploreMenuOpen ? "rotate(180deg)" : "none", transition: "transform .15s ease" }} />
             </button>
             {exploreMenuOpen && (
-              <div className="pop-in" style={dropdownStyle}>
-                <button className="dropdown-item" style={dropdownItemStyle} onClick={() => go("/browse/centres")}>
-                  Community centres
-                </button>
-                <button className="dropdown-item" style={dropdownItemStyle} onClick={() => go("/browse/clubs")}>
-                  Sports clubs
-                </button>
-                <button className="dropdown-item" style={dropdownItemStyle} onClick={() => go("/games")}>
-                  Join a game
-                </button>
-                <button className="dropdown-item" style={dropdownItemStyle} onClick={() => go("/adventures")}>
-                  Adventures
-                </button>
-                <button className="dropdown-item" style={dropdownItemStyle} onClick={() => go("/experiences")}>
-                  Experiences
+              <div className="pop-in" style={megaMenuStyle}>
+                <div style={megaColStyle}>
+                  <div style={megaColLabelStyle}><span style={{ opacity: .6 }}>/</span> ACTIVITIES</div>
+                  <button style={megaItemStyle} onClick={() => go("/games")}>
+                    <span style={megaIconWrapStyle}><RepeatIcon size={19} style={{ color: colors.text }} /></span>
+                    <span>
+                      <span style={megaItemTitleStyle}>Join a session</span>
+                      <span style={megaItemDescStyle}>Ad-hoc pickup sessions &amp; one-off classes</span>
+                    </span>
+                  </button>
+                  <button style={megaItemStyle} onClick={() => go("/adventures")}>
+                    <span style={megaIconWrapStyle}><TreeIconSmall size={19} style={{ color: colors.text }} /></span>
+                    <span>
+                      <span style={megaItemTitleStyle}>Adventures</span>
+                      <span style={megaItemDescStyle}>Guided hikes, kayaking &amp; outdoor trips</span>
+                    </span>
+                  </button>
+                  <button style={{ ...megaItemStyle, borderBottom: `1px solid ${colors.border}` }} onClick={() => go("/experiences")}>
+                    <span style={megaIconWrapStyle}><TreeIconSmall size={19} style={{ color: colors.text }} /></span>
+                    <span>
+                      <span style={megaItemTitleStyle}>Experiences</span>
+                      <span style={megaItemDescStyle}>Workshops, classes &amp; one-off outings</span>
+                    </span>
+                  </button>
+                </div>
+                <div style={megaColStyle}>
+                  <div style={megaColLabelStyle}><span style={{ opacity: .6 }}>/</span> VENUES</div>
+                  <button style={megaItemStyle} onClick={() => go("/browse/centres")}>
+                    <span style={megaIconWrapStyle}><BuildingIcon size={19} style={{ color: colors.text }} /></span>
+                    <span>
+                      <span style={megaItemTitleStyle}>Community centres</span>
+                      <span style={megaItemDescStyle}>Book a hall or room, real-time</span>
+                    </span>
+                  </button>
+                  <button style={{ ...megaItemStyle, borderBottom: `1px solid ${colors.border}` }} onClick={() => go("/browse/clubs")}>
+                    <span style={megaIconWrapStyle}><BallIcon size={19} style={{ color: colors.text }} /></span>
+                    <span>
+                      <span style={megaItemTitleStyle}>Sports clubs</span>
+                      <span style={megaItemDescStyle}>Register a child, join a season</span>
+                    </span>
+                  </button>
+                </div>
+                <div style={{ ...megaColStyle, gap: 14 }}>
+                  <div style={megaColLabelStyle}><span style={{ opacity: .6 }}>/</span> FEATURED</div>
+                  <button style={megaFeaturedTileStyle(colors.greenBg)} onClick={() => go("/games?when=weekend")}>
+                    <div style={megaItemTitleStyle}>This weekend</div>
+                    <div style={megaItemDescStyle}>See what's on nearby.</div>
+                    <div style={{ fontSize: 11.5, fontWeight: 700, color: colors.greenText, letterSpacing: ".06em", marginTop: 12 }}>SEE WHAT'S ON &rarr;</div>
+                  </button>
+                  <button style={megaFeaturedTileStyle(colors.orangeBg)} onClick={() => go("/become-a-host")}>
+                    <div style={megaItemTitleStyle}>Become a Host</div>
+                    <div style={megaItemDescStyle}>Run a session or Circle, free.</div>
+                    <div style={{ fontSize: 11.5, fontWeight: 700, color: colors.orangeDark, letterSpacing: ".06em", marginTop: 12 }}>GET STARTED &rarr;</div>
+                  </button>
+                </div>
+                <button
+                  onClick={() => go("/explore")}
+                  style={{ position: "relative", display: "block", width: "100%", height: "100%", minHeight: 260, overflow: "hidden", background: colors.greenBg, border: "none", padding: 0, cursor: "pointer" }}
+                >
+                  <img
+                    src="https://images.unsplash.com/photo-1633894812833-3961145496a3?w=600&q=75&auto=format&fit=crop"
+                    alt=""
+                    style={{ width: "100%", height: "100%", objectFit: "cover", display: "block", filter: "grayscale(.15) saturate(1.05)" }}
+                  />
+                  <div style={{ position: "absolute", inset: 0, background: "linear-gradient(180deg, rgba(30,36,32,0) 45%, rgba(30,36,32,.88) 100%)" }} />
+                  <div style={{ position: "absolute", left: 20, right: 20, bottom: 20, textAlign: "left" }}>
+                    <div style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 20, color: "#fff", lineHeight: 1.2 }}>Discover<br />what's on.</div>
+                    <div style={{ width: 26, height: 1, background: colors.gold, margin: "14px 0" }} />
+                    <div style={{ fontSize: 12, fontWeight: 700, color: colors.gold, letterSpacing: ".04em" }}>START EXPLORING &rarr;</div>
+                  </div>
                 </button>
               </div>
             )}
@@ -384,13 +531,52 @@ export function Header() {
           >
             My Life
           </button>
-          <button
-            className="tab-btn hide-tablet"
-            style={isActive(["/for-venues"]) ? { ...navBtn, background: colors.greenBg, color: colors.greenText, fontWeight: 700 } : navBtn}
-            onClick={() => go("/for-venues")}
-          >
-            For venues
-          </button>
+          <div ref={createMenuRef} style={{ position: "relative" }}>
+            <button
+              style={
+                isActive(["/make-it-happen", "/suggest-place"])
+                  ? { ...startBtnStyle, color: colors.greenText }
+                  : startBtnStyle
+              }
+              onClick={() => setCreateMenuOpen((o) => !o)}
+            >
+              Start <ChevronDownIcon size={13} style={{ transform: createMenuOpen ? "rotate(180deg)" : "none", transition: "transform .15s ease" }} />
+            </button>
+            {createMenuOpen && (
+              <div className="pop-in" style={createMegaMenuStyle}>
+                <div style={megaColStyle}>
+                  <button style={{ ...megaItemStyle, borderTop: "none" }} onClick={() => go("/browse/centres")}>
+                    <span style={megaIconWrapStyle}><BuildingIcon size={19} style={{ color: colors.text }} /></span>
+                    <span>
+                      <span style={megaItemTitleStyle}>Book a place</span>
+                      <span style={megaItemDescStyle}>List a hall or room to hire out</span>
+                    </span>
+                  </button>
+                  <button style={megaItemStyle} onClick={() => go("/games")}>
+                    <span style={megaIconWrapStyle}><RepeatIcon size={19} style={{ color: colors.text }} /></span>
+                    <span>
+                      <span style={megaItemTitleStyle}>Start a session</span>
+                      <span style={megaItemDescStyle}>Post a pickup session or class</span>
+                    </span>
+                  </button>
+                  <button style={megaItemStyle} onClick={() => go("/make-it-happen")}>
+                    <span style={megaIconWrapStyle}><LightbulbIcon size={19} style={{ color: colors.text }} /></span>
+                    <span>
+                      <span style={megaItemTitleStyle}>Make It Happen</span>
+                      <span style={megaItemDescStyle}>Pitch an idea, rally people to it</span>
+                    </span>
+                  </button>
+                  <button style={megaItemStyle} onClick={() => go("/suggest-place")}>
+                    <span style={megaIconWrapStyle}><PinIcon size={19} style={{ color: colors.text }} /></span>
+                    <span>
+                      <span style={megaItemTitleStyle}>Suggest a place</span>
+                      <span style={megaItemDescStyle}>Tell us about a venue we're missing</span>
+                    </span>
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
         </nav>
         <div className="desktop-actions" style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10 }}>
           <button
@@ -411,34 +597,6 @@ export function Header() {
           >
             <SearchIcon size={17} />
           </button>
-          <div ref={createMenuRef} style={{ position: "relative" }}>
-            <button
-              className="btn btn-ghost"
-              onClick={() => setCreateMenuOpen((o) => !o)}
-              aria-label="Create"
-              title="Create"
-              style={isActive(["/make-it-happen"]) ? { ...circleBtnStyle, background: colors.greenBg, borderColor: colors.green } : circleBtnStyle}
-            >
-              <PlusIcon size={18} />
-            </button>
-            {createMenuOpen && (
-              <div className="pop-in" style={dropdownStyle}>
-                <div style={dropdownLabelStyle}>Create</div>
-                <button className="dropdown-item" style={dropdownItemStyle} onClick={() => go("/browse/centres")}>
-                  Book a place
-                </button>
-                <button className="dropdown-item" style={dropdownItemStyle} onClick={() => go("/games")}>
-                  Start a game
-                </button>
-                <button className="dropdown-item" style={dropdownItemStyle} onClick={() => go("/make-it-happen")}>
-                  Make It Happen
-                </button>
-                <button className="dropdown-item" style={dropdownItemStyle} onClick={() => go("/suggest-place")}>
-                  Suggest a place
-                </button>
-              </div>
-            )}
-          </div>
           <button
             className="btn btn-ghost hide-tablet"
             onClick={() => go("/free-time")}
@@ -647,16 +805,16 @@ export function Header() {
                       {workspaces.vendor.businessName || "Provider account"} — awaiting approval
                     </div>
                   ))}
-                {hasHostedGames && (
+                {(hasHostedGames || !!workspaces?.circlesOrganising.length) && (
                   <button
                     className="dropdown-item"
                     style={dropdownItemStyle}
                     onClick={() => {
                       setAccountMenuOpen(false);
-                      go("/manage/activities");
+                      go("/manage");
                     }}
                   >
-                    Activities
+                    Manage hosting
                   </button>
                 )}
                 {workspaces?.circlesOrganising.map((c) => (
@@ -807,9 +965,6 @@ export function Header() {
           </button>
           <button style={{ ...mobileNavBtn, display: "flex", alignItems: "center", gap: 8 }} onClick={() => go("/free-time")}>
             <LightbulbIcon size={16} /> Free Time Mode
-          </button>
-          <button style={{ ...mobileNavBtn, display: "flex", alignItems: "center", gap: 8 }} onClick={() => go("/for-venues")}>
-            <BuildingIcon size={16} /> For venues
           </button>
 
           <div style={{ ...dropdownLabelStyle, padding: "10px 6px 2px" }}>You</div>

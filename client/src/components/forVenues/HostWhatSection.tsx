@@ -6,7 +6,7 @@ import { FV_ACCENT, FV_MAX_WIDTH } from "./constants";
 // real things a resident can host (see server's five participant-tracking
 // tables) — not an invented third category.
 const TYPES: { n: string; title: string; detail: string }[] = [
-  { n: "01", title: "A Game", detail: "A one-off — a kickabout, a class, a pickup match. Pick a time and a headcount, live immediately." },
+  { n: "01", title: "A Session", detail: "A one-off — a kickabout, a class, a pickup match. Pick a time and a headcount, live immediately." },
   { n: "02", title: "A Circle", detail: "A standing group that meets on its own schedule — open, approval, or invite-only, your call." },
 ];
 

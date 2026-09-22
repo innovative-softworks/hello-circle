@@ -3,37 +3,48 @@ import { useNavigate } from "react-router-dom";
 import { joinGame, joinGameWaitlist } from "../api";
 import { useGuest } from "../GuestContext";
 import { openCheckout } from "../native";
-import { ArrowRightIcon, AwardIcon, BallIcon, CheckIcon, ChevronLeftIcon, ChevronRightIcon, RepeatIcon, UsersIcon } from "./icons";
+import { ArrowRightIcon, AwardIcon, BallIcon, CheckIcon, ChevronLeftIcon, ChevronRightIcon, RepeatIcon, TreeIconSmall, UsersIcon } from "./icons";
 import { Button } from "./ui";
 import { Photo } from "./Photo";
 import { SaveButton, useSavedState } from "./SaveButton";
 import { cardImageRatio, colors, fonts, placeholderStripes, radius, statTile } from "../theme";
-import type { DiscoverItem } from "../types";
+import type { ActivitySummary } from "../types";
 import { formatPrice } from "../formatters";
 
 // Photo-driven cards for the homepage "Happening today" / "This weekend"
-// feeds (Phase 5) — matches the rest of the app's photography-forward
-// style (CentreCard/ClubCard) rather than a plain info box. Games get real
-// inline interaction (join, live "going" count); program/club sessions
-// don't fabricate data they don't have (see DiscoverItem's comments in
-// types.ts) and stay click-through-to-detail only.
+// feeds (Phase 5), extended in Phase 1 "Connect" to also render Experience/
+// Adventure sessions (ActivitySummary's 4th kind) — matches the rest of the
+// app's photography-forward style (CentreCard/ClubCard) rather than a plain
+// info box. Games get real inline interaction (join, live "going" count);
+// every other kind doesn't fabricate data it doesn't have (see
+// ActivitySummary's own comments in types.ts) and stays click-through-to-
+// detail only. This is the app's one shared card across all four
+// ActivitySummary kinds — see server/src/activitySummary.ts's file header
+// for the full "why one card" rationale.
 
-const KIND_META: Record<DiscoverItem["kind"], { icon: React.ReactNode; fg: string; ph: string }> = {
+const KIND_META: Record<ActivitySummary["kind"], { icon: React.ReactNode; fg: string; ph: string }> = {
   game: { icon: <BallIcon size={22} />, fg: colors.green, ph: placeholderStripes.green },
   program_session: { icon: <AwardIcon size={22} />, fg: statTile.blue.fg, ph: placeholderStripes.blue },
   club_session: { icon: <RepeatIcon size={22} />, fg: colors.orange, ph: placeholderStripes.orange },
+  experience_session: { icon: <TreeIconSmall size={22} />, fg: colors.greenText, ph: placeholderStripes.green },
+};
+
+const KIND_CTA_LABEL: Record<Exclude<ActivitySummary["kind"], "game">, string> = {
+  program_session: "View session",
+  club_session: "View club",
+  experience_session: "View experience",
 };
 
 /** DiscoverCard is fed by several different call sites (homepage feeds,
- * search results, Explore's category previews) that all promise a
- * DiscoverItem shape but aren't type-enforced end-to-end (search results
+ * search results, Explore's category previews) that all promise an
+ * ActivitySummary shape but aren't type-enforced end-to-end (search results
  * come back as `any`-ish JSON, a stale async response can in theory land
- * after its request is no longer current). A `kind` outside the three known
+ * after its request is no longer current). A `kind` outside the known
  * values used to throw here (`meta.ph` on undefined) and take the whole
  * surrounding panel down with it — this falls back to the "game" tile
  * instead and logs what actually came through, so a real data bug surfaces
  * as a console warning instead of a blank screen. */
-function kindMeta(kind: DiscoverItem["kind"]): { icon: React.ReactNode; fg: string; ph: string } {
+function kindMeta(kind: ActivitySummary["kind"]): { icon: React.ReactNode; fg: string; ph: string } {
   const meta = KIND_META[kind];
   if (meta) return meta;
   console.warn(`[DiscoverCard] unexpected item.kind: ${JSON.stringify(kind)} — falling back to "game" styling`);
@@ -45,7 +56,7 @@ function dayPillLabel(dateIso: string): string {
   return d.toLocaleDateString("en-IE", { weekday: "short", day: "numeric", month: "short", timeZone: "Europe/Dublin" }).toUpperCase();
 }
 
-function JoinControl({ item }: { item: DiscoverItem }) {
+function JoinControl({ item }: { item: ActivitySummary }) {
   const navigate = useNavigate();
   const { resident } = useGuest();
   const [spotsLeft, setSpotsLeft] = useState(item.spotsLeft ?? 0);
@@ -121,16 +132,45 @@ function JoinControl({ item }: { item: DiscoverItem }) {
   );
 }
 
-export function DiscoverCard({ item, isToday }: { item: DiscoverItem; isToday: boolean }) {
+export function DiscoverCard({ item, isToday }: { item: ActivitySummary; isToday: boolean }) {
   const navigate = useNavigate();
   const meta = kindMeta(item.kind);
   const place = item.centreName ?? item.clubName;
   const isJoinableGame = item.kind === "game" && item.spotsLeft !== null;
-  const [saved, toggleSaved] = useSavedState(item.kind, item.id);
+  // "Full" is meaningful for anything that reports a real spotsLeft figure
+  // (today: games only — program/club/experience sessions don't track a
+  // per-session attendee count yet) and isn't already mid-interaction via
+  // JoinControl's own "Join waitlist" state, which only shows once the
+  // visitor has actually clicked in. A static badge on the photo itself
+  // means "this is full" is visible while scrolling past, not just after
+  // tapping the card.
+  const isFull = item.spotsLeft !== null && item.spotsLeft !== undefined && item.spotsLeft <= 0;
+  const matchReasons = item.matchReasons ?? [];
+  // Favourite/save is keyed by listing (Favourite.listingType has no
+  // "experience_session" — an Experience is saved by its parent listing id,
+  // unlike a game/program/club session, which are saved by their own id).
+  // ActivitySummary.id on an experience_session is the *session's* id, not
+  // the parent experience's — there's no correct (kind, id) pair to pass
+  // here yet, so the save button is hidden for this one kind below rather
+  // than silently saving against the wrong id. Still called unconditionally
+  // (hooks can't be conditional) with a harmless placeholder kind.
+  const canSave = item.kind !== "experience_session";
+  const [saved, toggleSaved] = useSavedState(item.kind === "experience_session" ? "experience" : item.kind, item.id);
+
+  const open = () => navigate(item.canonicalUrl ?? item.href);
 
   return (
     <div
-      onClick={() => navigate(item.href)}
+      onClick={open}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          open();
+        }
+      }}
+      role="button"
+      tabIndex={0}
+      aria-label={`${item.title}${place ? `, ${place}` : ""}`}
       className="card-hover card-surface"
       style={{
         flex: "none",
@@ -195,37 +235,61 @@ export function DiscoverCard({ item, isToday }: { item: DiscoverItem; isToday: b
             </span>
           )}
         </div>
-        <span
-          className="card-photo-badge"
-          style={{
-            position: "absolute",
-            top: 10,
-            right: 10,
-            fontSize: 11.5,
-            fontWeight: 700,
-            color: item.priceCents ? colors.text : colors.greenText,
-            background: "rgba(255,255,255,.94)",
-            borderRadius: radius.pill,
-            padding: "4px 10px",
-            transition: "background-color .2s ease, color .2s ease",
-          }}
-        >
-          {formatPrice(item.priceCents)}
-        </span>
-        <SaveButton saved={saved} onToggle={toggleSaved} position="bottom" />
+        <div style={{ position: "absolute", top: 10, right: 10, display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 5 }}>
+          <span
+            className="card-photo-badge"
+            style={{
+              fontSize: 11.5,
+              fontWeight: 700,
+              color: item.priceCents ? colors.text : colors.greenText,
+              background: "rgba(255,255,255,.94)",
+              borderRadius: radius.pill,
+              padding: "4px 10px",
+              transition: "background-color .2s ease, color .2s ease",
+            }}
+          >
+            {formatPrice(item.priceCents)}
+          </span>
+          {isFull && (
+            <span
+              className="card-photo-badge"
+              style={{
+                fontSize: 10.5,
+                fontWeight: 700,
+                letterSpacing: ".02em",
+                color: colors.orangeDark,
+                background: "rgba(255,255,255,.94)",
+                borderRadius: radius.pill,
+                padding: "4px 9px",
+              }}
+            >
+              FULL
+            </span>
+          )}
+        </div>
+        {canSave && <SaveButton saved={saved} onToggle={toggleSaved} position="bottom" />}
       </Photo>
       <div style={{ padding: "12px 16px 16px", display: "flex", flexDirection: "column", gap: 4, flex: 1 }}>
         <div style={{ fontSize: 12.5, fontWeight: 700, color: colors.muted }}>{item.time}</div>
         <div style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 16, lineHeight: 1.3 }}>{item.title}</div>
-        {place && (
-          <div style={{ fontSize: 12.5, color: colors.mutedLight, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-            {place}
-            {item.area ? `, ${item.area}` : ""}
+        {(place || item.hostVerified) && (
+          <div style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12.5, color: colors.mutedLight, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {place && (
+              <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>
+                {place}
+                {item.area ? `, ${item.area}` : ""}
+              </span>
+            )}
+            {item.hostVerified && (
+              <span title="Verified" style={{ display: "inline-flex", alignItems: "center", gap: 2, color: colors.green, fontWeight: 700, fontSize: 11, flexShrink: 0 }}>
+                <AwardIcon size={11} /> Verified
+              </span>
+            )}
           </div>
         )}
-        {item.matchReasons.length > 0 && (
+        {matchReasons.length > 0 && (
           <div style={{ fontSize: 11.5, fontWeight: 700, color: colors.greenText, background: colors.greenBg, borderRadius: 8, padding: "3px 8px", marginTop: 2, display: "inline-block", width: "fit-content" }}>
-            {item.matchReasons[0]}
+            {matchReasons[0]}
           </div>
         )}
         <div style={{ marginTop: "auto", paddingTop: 8, display: "flex", flexDirection: "column", gap: 8 }}>
@@ -239,15 +303,15 @@ export function DiscoverCard({ item, isToday }: { item: DiscoverItem; isToday: b
               <JoinControl item={item} />
             </>
           ) : (
-            // Program/club sessions don't have inline join/capacity data
-            // (see DiscoverItem's own comments) — the whole card already
-            // navigates to item.href on click, but without a visible
+            // Program/club/experience sessions don't have inline join/
+            // capacity data (see ActivitySummary's own comments) — the
+            // whole card already navigates on click, but without a visible
             // button here there was no on-card affordance telling the
-            // visitor what happens next (landing/'s ActivityCard always
-            // pairs a price with an explicit CTA button, never price-only).
+            // visitor what happens next (an ActivityCard always pairs a
+            // price with an explicit CTA button, never price-only).
             <div onClick={(e) => e.stopPropagation()}>
-              <Button variant="dark" style={{ width: "100%", fontSize: 13 }} onClick={() => navigate(item.href)}>
-                {item.kind === "program_session" ? "View session" : "View club"}
+              <Button variant="dark" style={{ width: "100%", fontSize: 13 }} onClick={open}>
+                {item.kind === "game" ? "View session" : KIND_CTA_LABEL[item.kind]}
               </Button>
             </div>
           )}
@@ -279,7 +343,7 @@ export function DiscoverRow({
   moreHref,
 }: {
   title: string;
-  items: DiscoverItem[];
+  items: ActivitySummary[];
   isToday?: boolean;
   limit?: number;
   moreHref?: string;

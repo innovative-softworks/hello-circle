@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import {
   cancelGame,
+  demoteCircleMember,
   fetchCentres,
   fetchCircle,
   fetchCircleJoinRequests,
@@ -10,6 +11,7 @@ import {
   fetchGameParticipantsForManage,
   inviteToCircle,
   postGameUpdate,
+  promoteCircleMember,
   removeCircleMember,
   removeGameParticipant,
   respondToCircleJoinRequest,
@@ -26,16 +28,19 @@ import { useGuest } from "../GuestContext";
 import { colors, fonts, radius } from "../theme";
 import type { Centre, Circle, ManageCircleMember, ManageCirclePlan, ManageParticipant } from "../types";
 
-// HelloCircle Manage (Phase 4, Circle Organiser MVP) — the second
-// resident-authenticated surface on ManageShell (after Phase 3's
-// /manage/activities). Unlike Activities, an organiser's real management
-// unit is a single circle's own Plans/Members/Settings, not a flat list of
-// circles — see the plan's own "no circle-picker" decision: switching
-// between organised circles stays a Header-dropdown action, exactly as
-// today; this page's ManageShell nav is scoped to tabs within one circle.
+// HelloCircle Manage (Phase 4, Circle Organiser MVP) — a resident-
+// authenticated surface on ManageShell, separate from the combined
+// /manage dashboard (ManageHome.tsx)'s Overview/Activities/Circles tabs.
+// An organiser's real management unit is a single circle's own
+// Plans/Members/Settings, not a flat list of circles — the Circles tab on
+// /manage (and the Header dropdown's per-circle "Manage {name}" entries)
+// both link into this page for one specific circle; this page's own
+// ManageShell nav is scoped to tabs within that one circle.
 
 type CircleTab = "plans" | "members" | "settings";
-const NAV_OPTIONS: { key: CircleTab; label: string; icon?: undefined }[] = [
+type CircleNavKey = CircleTab | "overview";
+const NAV_OPTIONS: { key: CircleNavKey; label: string; icon?: undefined }[] = [
+  { key: "overview", label: "Overview" },
   { key: "plans", label: "Plans" },
   { key: "members", label: "Members" },
   { key: "settings", label: "Settings" },
@@ -298,6 +303,9 @@ function MembersTab({ circle }: { circle: Circle }) {
   const [removeTarget, setRemoveTarget] = useState<ManageCircleMember | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [roleActionId, setRoleActionId] = useState<string | null>(null);
+  const [roleError, setRoleError] = useState<string | null>(null);
+  const organiserCount = members.filter((m) => m.role === "organiser").length;
 
   const reload = () => {
     setLoading(true);
@@ -323,6 +331,35 @@ function MembersTab({ circle }: { circle: Circle }) {
     }
   };
 
+  // Vendor-parity pass, Phase 26 — co-organisers. Direct actions (no confirm
+  // dialog, mirroring the low-stakes waitlist "Invite" button pattern),
+  // since either direction is reversible, unlike Remove.
+  const promote = async (m: ManageCircleMember) => {
+    setRoleActionId(m.residentId);
+    setRoleError(null);
+    try {
+      await promoteCircleMember(circle.id, m.residentId);
+      setMembers((prev) => prev.map((x) => (x.residentId === m.residentId ? { ...x, role: "organiser" } : x)));
+    } catch (e) {
+      setRoleError(e instanceof Error ? e.message : "Couldn't make this member an organiser");
+    } finally {
+      setRoleActionId(null);
+    }
+  };
+
+  const demote = async (m: ManageCircleMember) => {
+    setRoleActionId(m.residentId);
+    setRoleError(null);
+    try {
+      await demoteCircleMember(circle.id, m.residentId);
+      setMembers((prev) => prev.map((x) => (x.residentId === m.residentId ? { ...x, role: "member" } : x)));
+    } catch (e) {
+      setRoleError(e instanceof Error ? e.message : "Couldn't remove this organiser");
+    } finally {
+      setRoleActionId(null);
+    }
+  };
+
   if (loading) return <PageSpinner />;
 
   return (
@@ -334,6 +371,7 @@ function MembersTab({ circle }: { circle: Circle }) {
       </Card>
       <Card>
         <h4 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 16, margin: "0 0 14px" }}>Members</h4>
+        {roleError && <p style={{ color: colors.danger, fontSize: 12.5, margin: "0 0 10px" }}>{roleError}</p>}
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
           {members.map((m) => (
             <div key={m.residentId} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: colors.bg, borderRadius: radius.control, padding: "10px 14px" }}>
@@ -344,11 +382,24 @@ function MembersTab({ circle }: { circle: Circle }) {
                   {m.role === "organiser" && <div style={{ fontSize: 11.5, color: colors.mutedLight }}>Organiser</div>}
                 </div>
               </div>
-              {m.role !== "organiser" && (
-                <button onClick={() => setRemoveTarget(m)} style={{ background: "none", border: "none", color: colors.danger, fontWeight: 700, fontSize: 12.5, cursor: "pointer" }}>
-                  Remove
-                </button>
-              )}
+              <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+                {m.role === "organiser" ? (
+                  organiserCount > 1 && (
+                    <button onClick={() => demote(m)} disabled={roleActionId === m.residentId} style={{ background: "none", border: "none", color: colors.muted, fontWeight: 700, fontSize: 12.5, cursor: "pointer" }}>
+                      {roleActionId === m.residentId ? "Removing…" : "Remove as organiser"}
+                    </button>
+                  )
+                ) : (
+                  <button onClick={() => promote(m)} disabled={roleActionId === m.residentId} style={{ background: "none", border: "none", color: colors.greenText, fontWeight: 700, fontSize: 12.5, cursor: "pointer" }}>
+                    {roleActionId === m.residentId ? "Making organiser…" : "Make organiser"}
+                  </button>
+                )}
+                {m.role !== "organiser" && (
+                  <button onClick={() => setRemoveTarget(m)} style={{ background: "none", border: "none", color: colors.danger, fontWeight: 700, fontSize: 12.5, cursor: "pointer" }}>
+                    Remove
+                  </button>
+                )}
+              </div>
             </div>
           ))}
         </div>
@@ -549,7 +600,10 @@ export function ManageCircle() {
       navTitle="HelloCircle Manage"
       navOptions={NAV_OPTIONS}
       activeKey={tab}
-      onNavChange={setTab}
+      onNavChange={(key) => {
+        if (key === "overview") navigate("/manage");
+        else setTab(key);
+      }}
       pageTitle={circle?.name ?? "Circle"}
     >
       {circleLoading ? (

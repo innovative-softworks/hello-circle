@@ -39,6 +39,7 @@ guestAuthRouter.post("/request-link", magicLinkLimiter, async (req, res) => {
     subject: "Sign in to Hello Circle",
     text: `Hi,\n\nClick the link below to see all your bookings and club registrations:\n\n${link}\n\nThis link expires in 15 minutes and can only be used once. If you didn't request this, you can safely ignore it.\n\nThanks for using Hello Circle.`,
     cta: { label: "Sign in to Hello Circle", url: link },
+    replyTo: "support@hellocircle.ie",
   });
   res.json({ ok: true });
 });

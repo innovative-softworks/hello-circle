@@ -571,3 +571,40 @@ export function AppleIcon({ size = 18, style, className }: IconProps) {
     </svg>
   );
 }
+
+export function PauseIcon({ size = 18, style, className }: IconProps) {
+  return (
+    <svg {...stroke(size)} style={style} className={className}>
+      <rect x={6} y={5} width={4} height={14} rx={1} />
+      <rect x={14} y={5} width={4} height={14} rx={1} />
+    </svg>
+  );
+}
+
+export function PlayIcon({ size = 18, style, className }: IconProps) {
+  return (
+    <svg {...stroke(size)} style={style} className={className}>
+      <path d="M7 4.5v15l13-7.5-13-7.5Z" />
+    </svg>
+  );
+}
+
+export function CopyIcon({ size = 18, style, className }: IconProps) {
+  return (
+    <svg {...stroke(size)} style={style} className={className}>
+      <rect x={9} y={9} width={12} height={12} rx={2} />
+      <path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1" />
+    </svg>
+  );
+}
+
+export function ShareIcon({ size = 18, style, className }: IconProps) {
+  return (
+    <svg {...stroke(size)} style={style} className={className}>
+      <circle cx={18} cy={5} r={3} />
+      <circle cx={6} cy={12} r={3} />
+      <circle cx={18} cy={19} r={3} />
+      <path d="M8.6 10.5 15.4 6.5M8.6 13.5l6.8 4" />
+    </svg>
+  );
+}

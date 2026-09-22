@@ -12,7 +12,7 @@ import type { SearchAlert } from "../types";
 
 function describe(a: SearchAlert): string {
   const parts = [a.county, a.keywords, a.mood ? `mood: ${a.mood}` : null].filter(Boolean);
-  return parts.length > 0 ? parts.join(" · ") : "Any new game";
+  return parts.length > 0 ? parts.join(" · ") : "Any new session";
 }
 
 export function SearchAlertsPanel() {

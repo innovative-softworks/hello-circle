@@ -5,6 +5,7 @@ import {
   fetchClubSessions,
   fetchVendorClub,
   fetchVendorClubWaitlist,
+  offerVendorClubWaitlistEntry,
   updateVendorClub,
   type ClubInput,
 } from "../api";
@@ -382,10 +383,30 @@ export function ClubSessionsManager({ clubId }: { clubId: string }) {
 
 export function ClubWaitlistPanel({ clubId }: { clubId: string }) {
   const [entries, setEntries] = useState<WaitlistEntry[] | null>(null);
+  const [invitingId, setInvitingId] = useState<number | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
+  const load = () => fetchVendorClubWaitlist(clubId).then(setEntries).catch(() => setEntries([]));
   useEffect(() => {
-    fetchVendorClubWaitlist(clubId).then(setEntries).catch(() => setEntries([]));
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [clubId]);
+
+  // Host Manage spec §15 — invite a *specific* person instead of only ever
+  // waiting for the automatic earliest-first promotion (still fires on its
+  // own whenever a spot frees up; this is an additional, manual option).
+  const invite = async (entryId: number) => {
+    setInvitingId(entryId);
+    setError(null);
+    try {
+      await offerVendorClubWaitlistEntry(clubId, entryId);
+      load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Couldn't send that offer");
+    } finally {
+      setInvitingId(null);
+    }
+  };
 
   if (entries === null) return null;
 
@@ -393,27 +414,30 @@ export function ClubWaitlistPanel({ clubId }: { clubId: string }) {
     <div style={{ marginTop: 26, paddingTop: 22, borderTop: `1px solid ${colors.border}` }}>
       <h4 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 15, margin: "0 0 4px" }}>Waitlist</h4>
       <p style={{ fontSize: 12.5, color: colors.mutedLight, margin: "0 0 14px" }}>
-        Only fills once this club has a membership cap set above and is full.
+        Only fills once this club has a membership cap set above and is full. Inviting someone
+        gives them 48 hours to claim the place before it's offered on.
       </p>
+      {error && <p style={{ fontSize: 12.5, color: colors.danger, margin: "0 0 10px" }}>{error}</p>}
       {entries.length === 0 ? (
         <EmptyState icon={<UsersIcon size={20} />} title="Nobody waiting" />
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
           {entries.map((e) => (
-            <div key={e.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: colors.bg, borderRadius: radius.control, padding: "8px 12px", fontSize: 13.5 }}>
+            <div key={e.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, background: colors.bg, borderRadius: radius.control, padding: "8px 12px", fontSize: 13.5 }}>
               <span>{e.name || e.email || "Anonymous"} {e.email && <span style={{ color: colors.mutedLight }}>· {e.email}</span>}</span>
-              <span
-                style={{
-                  fontSize: 11,
-                  fontWeight: 700,
-                  borderRadius: radius.pill,
-                  padding: "3px 10px",
-                  background: e.status === "offered" ? colors.orangeBg : colors.panel,
-                  color: e.status === "offered" ? colors.orangeDark : colors.muted,
-                }}
-              >
-                {e.status === "offered" ? "Offered a spot" : "Waiting"}
-              </span>
+              {e.status === "offered" ? (
+                <span style={{ fontSize: 11, fontWeight: 700, borderRadius: radius.pill, padding: "3px 10px", background: colors.orangeBg, color: colors.orangeDark, flex: "none" }}>
+                  Offered a spot
+                </span>
+              ) : (
+                <button
+                  onClick={() => invite(e.id)}
+                  disabled={invitingId === e.id}
+                  style={{ fontSize: 11.5, fontWeight: 700, color: colors.muted, background: colors.panel, border: "none", borderRadius: radius.pill, padding: "4px 10px", cursor: "pointer", flex: "none" }}
+                >
+                  {invitingId === e.id ? "…" : "Invite"}
+                </button>
+              )}
             </div>
           ))}
         </div>

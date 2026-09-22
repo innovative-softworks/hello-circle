@@ -54,7 +54,7 @@ export async function matchParticipationIntentsForGame(game: MatchGame) {
         await notifyResident({
           residentId: intent.residentId,
           kind: "intent_match",
-          title: "A game matching your interest was just created",
+          title: "A session matching your interest was just created",
           body: `${game.activityLabel} — ${game.date}`,
           listingType: "game",
           listingId: game.id,

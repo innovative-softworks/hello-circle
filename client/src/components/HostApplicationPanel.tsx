@@ -1,6 +1,6 @@
 import { useState } from "react";
-import { applyToBecomeHost } from "../api";
-import { AwardIcon } from "./icons";
+import { applyToBecomeHost, updateHostProfile } from "../api";
+import { AwardIcon, CheckCircleIcon } from "./icons";
 import { Button, inputStyle, labelStyle } from "./ui";
 import { colors, fonts, radius } from "../theme";
 import type { HostStatus } from "../types";
@@ -42,6 +42,7 @@ export function HostApplicationPanel({
   const [agreed, setAgreed] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
 
   const submit = async () => {
     if (!bio.trim()) {
@@ -64,6 +65,26 @@ export function HostApplicationPanel({
     }
   };
 
+  // Vendor-parity pass, Phase 27 — real bug fix: this used to be a
+  // read-only textarea once verified, with no way to ever change it again.
+  const saveVerifiedBio = async () => {
+    if (!bio.trim()) {
+      setError("A short bio is required");
+      return;
+    }
+    setError(null);
+    setSaved(false);
+    setSubmitting(true);
+    try {
+      await updateHostProfile({ bio, phone });
+      setSaved(true);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Couldn't save your changes");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   return (
     <div style={{ background: "#fff", border: `1px solid ${colors.border}`, borderRadius: radius.card, padding: "18px 20px" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
@@ -74,10 +95,38 @@ export function HostApplicationPanel({
       {hostStatus === "verified" && (
         <>
           <p style={{ fontSize: 13, color: colors.greenText, fontWeight: 600, margin: "8px 0 12px" }}>
-            You're a Verified Host — this shows next to your name on any Game or Circle you create.
+            You're a Verified Host — this shows next to your name on any Session or Circle you create.
           </p>
           <label style={labelStyle}>Bio</label>
-          <textarea value={bio} onChange={(e) => setBio(e.target.value)} rows={2} style={{ ...inputStyle, resize: "vertical" }} disabled />
+          <textarea
+            value={bio}
+            onChange={(e) => {
+              setBio(e.target.value);
+              setSaved(false);
+            }}
+            rows={3}
+            style={{ ...inputStyle, resize: "vertical", marginBottom: 10 }}
+          />
+          <label style={labelStyle}>Phone (optional)</label>
+          <input
+            value={phone}
+            onChange={(e) => {
+              setPhone(e.target.value);
+              setSaved(false);
+            }}
+            style={{ ...inputStyle, marginBottom: 12 }}
+          />
+          {error && <p style={{ color: colors.danger, fontSize: 13, margin: "0 0 10px" }}>{error}</p>}
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <Button onClick={saveVerifiedBio} disabled={submitting || (bio === hostBio && phone === hostPhone)}>
+              {submitting ? "Saving…" : "Save changes"}
+            </Button>
+            {saved && (
+              <span style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12.5, color: colors.greenText, fontWeight: 600 }}>
+                <CheckCircleIcon size={14} /> Saved
+              </span>
+            )}
+          </div>
         </>
       )}
 
@@ -90,7 +139,7 @@ export function HostApplicationPanel({
       {(hostStatus === "none" || hostStatus === "rejected") && (
         <>
           <p style={{ fontSize: 12.5, color: colors.mutedLight, margin: "8px 0 12px" }}>
-            A short review by an admin, then a "Verified Host" badge appears next to your name on any Game or
+            A short review by an admin, then a "Verified Host" badge appears next to your name on any Session or
             Circle you create — you can host either way, this just adds a trust signal for other participants.
           </p>
           {hostStatus === "rejected" && (

@@ -14,6 +14,7 @@ import {
   fetchMyIntents,
   fetchMyProgramEnrollments,
   fetchMyRegistrations,
+  fetchNeedsAttention,
   fetchResidentFull,
   fetchRoutineSuggestions,
   fetchWaitlistOfferStatus,
@@ -31,24 +32,26 @@ import { MyLifeDiscoveryCTA } from "../components/MyLifeDiscoveryCTA";
 import { MyLifeEmptyState } from "../components/MyLifeEmptyState";
 import { MyLifeHeader } from "../components/MyLifeHeader";
 import { MyLifeInterests } from "../components/MyLifeInterests";
+import { MyLifeNeedsYou } from "../components/MyLifeNeedsYou";
 import { MyLifeNextUp, type NextUpData } from "../components/MyLifeNextUp";
 import { MyLifeRecentActivity } from "../components/MyLifeRecentActivity";
 import { MyLifeRepeatOpportunities } from "../components/MyLifeRepeatOpportunities";
 import { MyLifeRhythm } from "../components/MyLifeRhythm";
 import { MyLifeFollowing } from "../components/MyLifeFollowing";
+import { MyInvitationsPanel } from "../components/MyInvitationsPanel";
 import { MyLifeSaved } from "../components/MyLifeSaved";
 import { MyLifeThisMonth } from "../components/MyLifeThisMonth";
 import { MyLifeWaitingFor } from "../components/MyLifeWaitingFor";
 import { ParticipationTimeline, type TimelineRow } from "../components/ParticipationTimeline";
 import { Photo } from "../components/Photo";
 import { PostActivityFeedback } from "../components/PostActivityFeedback";
-import { Button, EmptyState, onActivateProps, RowSkeleton, inputStyle, labelStyle } from "../components/ui";
+import { Button, ConfirmDialog, EmptyState, onActivateProps, RowSkeleton, inputStyle, labelStyle } from "../components/ui";
 import { dateLabel, euro } from "../euro";
 import { formatDatePill } from "../formatters";
 import { useGuest } from "../GuestContext";
 import { colors, fonts, radius } from "../theme";
 import { AVAILABILITY_OPTIONS } from "../types";
-import type { Circle, Favourite, Game, MyBooking, MyExperienceBooking, MyIntent, MyProgramEnrollment, MyRegistration, ParticipationEntry, ResidentFull, RoutineSuggestion, WaitlistOfferStatus } from "../types";
+import type { Circle, Favourite, Game, MyBooking, MyExperienceBooking, MyIntent, MyProgramEnrollment, MyRegistration, NeedsAttentionItem, ParticipationEntry, ResidentFull, RoutineSuggestion, WaitlistOfferStatus } from "../types";
 
 // My Life — participation-first home (IA redesign). One purpose: "what am
 // I doing next, what else is coming, what's worth doing again, who/what am
@@ -117,6 +120,7 @@ function BookingRow({
   booking: MyBooking; onCancel: () => void; cancelling: boolean; error?: string; recovered?: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
   const cancelled = booking.status === "cancelled";
   const isPast = new Date(`${booking.date}T00:00:00`) < new Date(new Date().toDateString());
   return (
@@ -138,12 +142,25 @@ function BookingRow({
           <div style={{ fontWeight: 700 }}>{euro(booking.totalCents / 100)}</div>
           <div style={{ fontSize: 12, color: colors.faint, marginBottom: cancelled ? 0 : 8 }}>{booking.ref}</div>
           {!cancelled && (
-            <Button variant="danger" onClick={onCancel} disabled={cancelling}>
+            <Button variant="danger" onClick={() => setConfirmOpen(true)} disabled={cancelling}>
               {cancelling ? "Cancelling…" : "Cancel"}
             </Button>
           )}
         </div>
       </div>
+      <ConfirmDialog
+        open={confirmOpen}
+        title="Cancel this booking?"
+        message={`${booking.centreName}${booking.roomName ? ` — ${booking.roomName}` : ""}, ${dateLabel(booking.date)} at ${booking.time}. This can't be undone.`}
+        confirmLabel={cancelling ? "Cancelling…" : "Cancel booking"}
+        cancelLabel="Keep booking"
+        busy={cancelling}
+        onConfirm={() => {
+          onCancel();
+          setConfirmOpen(false);
+        }}
+        onCancel={() => setConfirmOpen(false)}
+      />
       {expanded && !cancelled && (
         <div style={{ marginTop: 16, paddingTop: 16, borderTop: `1px solid ${colors.border}`, display: "flex", flexWrap: "wrap", gap: 24 }}>
           <div>
@@ -208,6 +225,7 @@ function RegistrationRow({
 }: {
   registration: MyRegistration; onCancel: () => void; cancelling: boolean; error?: string; recovered?: boolean;
 }) {
+  const [confirmOpen, setConfirmOpen] = useState(false);
   const cancelled = registration.status === "cancelled";
   const enoughTimeSinceSignup = Date.now() - new Date(registration.createdAt).getTime() > 14 * 24 * 60 * 60 * 1000;
   return (
@@ -231,12 +249,25 @@ function RegistrationRow({
           <div style={{ fontWeight: 700 }}>{registration.trial ? "Free trial" : euro(registration.totalCents / 100)}</div>
           <div style={{ fontSize: 12, color: colors.faint, marginBottom: cancelled ? 0 : 8 }}>{registration.ref}</div>
           {!cancelled && (
-            <Button variant="danger" onClick={onCancel} disabled={cancelling}>
+            <Button variant="danger" onClick={() => setConfirmOpen(true)} disabled={cancelling}>
               {cancelling ? "Cancelling…" : "Cancel"}
             </Button>
           )}
         </div>
       </div>
+      <ConfirmDialog
+        open={confirmOpen}
+        title="Cancel this registration?"
+        message={`${registration.childFirst} ${registration.childLast} — ${registration.clubName}, ${registration.team}. This can't be undone.`}
+        confirmLabel={cancelling ? "Cancelling…" : "Cancel registration"}
+        cancelLabel="Keep registration"
+        busy={cancelling}
+        onConfirm={() => {
+          onCancel();
+          setConfirmOpen(false);
+        }}
+        onCancel={() => setConfirmOpen(false)}
+      />
       {!cancelled && <WaitlistOfferBanner clubId={registration.clubId} />}
       {!cancelled && enoughTimeSinceSignup && (
         <div style={{ marginTop: 12, paddingTop: 12, borderTop: `1px solid ${colors.border}` }}>
@@ -395,6 +426,7 @@ export function MyBookings() {
   const [participation, setParticipation] = useState<ParticipationEntry[]>([]);
   const [favourites, setFavourites] = useState<Favourite[]>([]);
   const [follows, setFollows] = useState<FollowedEntity[]>([]);
+  const [needsAttention, setNeedsAttention] = useState<NeedsAttentionItem[]>([]);
 
   const [bookingsView, setBookingsView] = useState<"list" | "calendar">("list");
   const [showAllActivity, setShowAllActivity] = useState(false);
@@ -426,6 +458,7 @@ export function MyBookings() {
       fetchMyParticipation().then(setParticipation).catch(() => setParticipation([])),
       fetchFavourites().then(setFavourites).catch(() => setFavourites([])),
       fetchMyFollows().then(setFollows).catch(() => setFollows([])),
+      fetchNeedsAttention().then(setNeedsAttention).catch(() => setNeedsAttention([])),
     ]).then(() => setLoading(false));
   };
 
@@ -772,6 +805,8 @@ export function MyBookings() {
           </div>
         )}
 
+        {resident && <MyInvitationsPanel />}
+
         {hasNone && resident ? (
           <MyLifeEmptyState />
         ) : hasNone && !resident ? (
@@ -800,6 +835,19 @@ export function MyBookings() {
               </div>
 
               <div className="sticky-aside" style={{ gridColumn: 2, gridRow: "1 / -1", position: "sticky", top: 90, display: "flex", flexDirection: "column", gap: 18 }}>
+                {needsAttention.length > 0 && (
+                  <div style={{ border: `1px solid ${colors.border}`, borderRadius: 12, padding: "16px 18px", background: colors.surface }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".06em", color: colors.mutedLight, marginBottom: 12 }}>NEEDS YOU</div>
+                    <MyLifeNeedsYou items={needsAttention} />
+                  </div>
+                )}
+                {(games.some((g) => g.hostResidentId === resident?.id) || circles.some((c) => c.myRole === "organiser")) && (
+                  <div style={{ border: `1px solid ${colors.border}`, borderRadius: 12, padding: "16px 18px", background: colors.surface }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".06em", color: colors.mutedLight, marginBottom: 10 }}>HOSTING</div>
+                    <p style={{ margin: "0 0 12px", fontSize: 13, color: colors.muted }}>Manage the sessions and Circles you run — edit, post updates, or check who's joined.</p>
+                    <Button variant="ghost" onClick={() => navigate("/manage")}>Manage your hosting →</Button>
+                  </div>
+                )}
                 <MyLifeThisMonth entries={participation} />
                 <MyLifeRhythm entries={participation} />
                 {activeIntents.length > 0 && (

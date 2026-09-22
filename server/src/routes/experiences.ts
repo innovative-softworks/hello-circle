@@ -1,10 +1,11 @@
 import { Router } from "express";
 import { createCheckoutSession, pricingLineItems } from "../checkoutService.js";
 import { db } from "../db/index.js";
+import { orgPoliciesForVendor } from "../db/queries.js";
 import { upgradeFavouriteStatus } from "./favourites.js";
 import { buildIcsEvent } from "../ics.js";
 import { irelandWallTimeToUtc } from "../irelandTime.js";
-import { notifyNewBookingOrRegistration } from "../notifications.js";
+import { notifyCancellation, notifyNewBookingOrRegistration } from "../notifications.js";
 import { computePricing, evaluateCoupon } from "../pricing.js";
 import { BadRequestError, ConflictError, clientIdFrom, generateRef, isValidEmail } from "../util.js";
 
@@ -216,7 +217,7 @@ experiencesRouter.post("/:id/sessions/:sessionId/checkout", async (req, res) => 
   let discountCents = 0;
   let couponCode: string | null = null;
   if (body.couponCode) {
-    const result = await evaluateCoupon(body.couponCode, subtotalCents);
+    const result = await evaluateCoupon(body.couponCode, subtotalCents, { listingType: "experience", listingId: experience.id });
     if (!result.valid) return res.status(400).json({ error: result.error! });
     discountCents = result.discountCents!;
     couponCode = result.code!;
@@ -328,6 +329,66 @@ experiencesRouter.get("/bookings/mine", async (req, res) => {
     )
     .all(clientId, req.resident?.id ?? "");
   res.json(rows);
+});
+
+/** Resident/guest self-cancel — Phase 0 protect. Experience bookings
+ * previously had no cancel route at all, even though experience_bookings.
+ * status already supports 'cancelled' (only ever unused). Same
+ * client_id-or-resident-id ownership convention as GET /bookings/mine
+ * above. Unlike Programs (which have no single dated occurrence), an
+ * Experience booking is tied to one specific session, so this applies the
+ * same org cancellationHours cutoff check bookings.ts uses. No refund here
+ * (off-platform convention) — see vendorExperiences.ts for the vendor-
+ * issued Stripe refund. No waitlist/capacity restoration call — Experiences
+ * have no waitlist concept. */
+experiencesRouter.post("/bookings/:ref/cancel", async (req, res) => {
+  let clientId: string;
+  try {
+    clientId = clientIdFrom(req);
+  } catch (e) {
+    if (e instanceof BadRequestError) return res.status(400).json({ error: e.message });
+    throw e;
+  }
+
+  const row = (await db
+    .prepare(
+      `SELECT eb.ref, eb.status, eb.payment_status as paymentStatus, eb.participant_name as participantName, eb.email,
+              es.date, es.time,
+              e.id as experienceId, e.title, e.vendor_id as vendorId
+       FROM experience_bookings eb
+       JOIN experience_sessions es ON es.id = eb.session_id
+       JOIN experiences e ON e.id = eb.experience_id
+       WHERE eb.ref = ? AND (eb.client_id = ? OR (eb.resident_id IS NOT NULL AND eb.resident_id = ?))`
+    )
+    .get(req.params.ref, clientId, req.resident?.id ?? "")) as
+    | { ref: string; status: string; paymentStatus: string; participantName: string; email: string; date: string; time: string; experienceId: string; title: string; vendorId: string }
+    | undefined;
+  if (!row) return res.status(404).json({ error: "Booking not found" });
+  if (row.status === "cancelled") return res.status(409).json({ error: "This booking is already cancelled" });
+  if (row.paymentStatus !== "paid") return res.status(409).json({ error: "This booking can't be cancelled" });
+
+  const { cancellationHours } = await orgPoliciesForVendor(row.vendorId);
+  const startHour = parseInt(row.time.slice(0, 2), 10);
+  const sessionStart = irelandWallTimeToUtc(row.date, startHour);
+  if (sessionStart.getTime() - Date.now() < cancellationHours * 60 * 60 * 1000) {
+    return res.status(409).json({ error: `This booking is within ${cancellationHours} hours and can no longer be cancelled online — please contact the host directly` });
+  }
+
+  await db.prepare(`UPDATE experience_bookings SET status = 'cancelled' WHERE ref = ?`).run(row.ref);
+
+  notifyCancellation({
+    kind: "experience",
+    listingType: "experience",
+    listingId: row.experienceId,
+    listingName: row.title,
+    vendorId: row.vendorId,
+    guestName: row.participantName,
+    guestEmail: row.email,
+    ref: row.ref,
+    detailsText: `${row.date} at ${row.time} · ${row.title}`,
+  }).catch((e) => console.error("[notifications] experience booking cancellation notify failed:", e));
+
+  res.json({ ok: true });
 });
 
 experiencesRouter.get("/bookings/status/:ref", async (req, res) => {

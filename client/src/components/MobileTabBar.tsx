@@ -64,6 +64,15 @@ const sheetItemStyle: React.CSSProperties = {
   marginBottom: 8,
 };
 
+const sheetGroupLabelStyle: React.CSSProperties = {
+  fontSize: 12,
+  fontWeight: 700,
+  color: colors.muted,
+  textTransform: "uppercase",
+  letterSpacing: ".04em",
+  padding: "4px 2px 8px",
+};
+
 function TabButton({ icon, label, active, badge, onClick }: { icon: ReactNode; label: string; active: boolean; badge?: number; onClick: () => void }) {
   return (
     <button onClick={onClick} style={{ ...itemButtonStyle, color: active ? colors.greenText : colors.mutedLight, position: "relative" }}>
@@ -116,20 +125,15 @@ export function MobileTabBar() {
       <nav className="mobile-tab-bar" aria-label="Primary">
         <TabButton icon={<HomeIcon size={20} />} label="Home" active={location.pathname === "/home"} onClick={() => go("/home")} />
         <TabButton icon={<GridIcon size={20} />} label="Explore" active={exploreActive} onClick={() => setExploreOpen(true)} />
-        <TabButton icon={<PlusIcon size={20} />} label="Create" active={false} onClick={() => setCreateOpen(true)} />
+        <TabButton icon={<PlusIcon size={20} />} label="Start" active={false} onClick={() => setCreateOpen(true)} />
         <TabButton icon={<RepeatIcon size={20} />} label="Circles" active={isActive(["/circles"])} onClick={() => go("/circles")} />
         <TabButton icon={<PersonIcon size={20} />} label="My Life" active={isActive(["/bookings"])} badge={count} onClick={() => go("/bookings")} />
       </nav>
 
       <Drawer open={exploreOpen} onClose={() => setExploreOpen(false)} title="Explore">
-        <button style={sheetItemStyle} onClick={() => go("/browse/centres")}>
-          <BuildingIcon size={18} style={{ color: colors.greenText, flex: "none" }} /> Community centres
-        </button>
-        <button style={sheetItemStyle} onClick={() => go("/browse/clubs")}>
-          <BallIcon size={18} style={{ color: colors.greenText, flex: "none" }} /> Sports clubs
-        </button>
+        <div style={sheetGroupLabelStyle}>Explore</div>
         <button style={sheetItemStyle} onClick={() => go("/games")}>
-          <RepeatIcon size={18} style={{ color: colors.greenText, flex: "none" }} /> Join a game
+          <RepeatIcon size={18} style={{ color: colors.greenText, flex: "none" }} /> Join a session
         </button>
         <button style={sheetItemStyle} onClick={() => go("/adventures")}>
           <TreeIconSmall size={18} style={{ color: colors.greenText, flex: "none" }} /> Adventures
@@ -137,15 +141,22 @@ export function MobileTabBar() {
         <button style={sheetItemStyle} onClick={() => go("/experiences")}>
           <TreeIconSmall size={18} style={{ color: colors.orangeDark, flex: "none" }} /> Experiences
         </button>
+        <div style={sheetGroupLabelStyle}>Venues</div>
+        <button style={sheetItemStyle} onClick={() => go("/browse/centres")}>
+          <BuildingIcon size={18} style={{ color: colors.greenText, flex: "none" }} /> Community centres
+        </button>
+        <button style={sheetItemStyle} onClick={() => go("/browse/clubs")}>
+          <BallIcon size={18} style={{ color: colors.greenText, flex: "none" }} /> Sports clubs
+        </button>
       </Drawer>
 
-      <Drawer open={createOpen} onClose={() => setCreateOpen(false)} title="Create">
+      <Drawer open={createOpen} onClose={() => setCreateOpen(false)} title="Start">
         <p style={{ fontSize: 13, color: colors.mutedLight, margin: "0 0 16px" }}>Start something new.</p>
         <button style={sheetItemStyle} onClick={() => go("/browse/centres")}>
           <BuildingIcon size={18} style={{ color: colors.greenText, flex: "none" }} /> Book a place
         </button>
         <button style={sheetItemStyle} onClick={() => go("/games")}>
-          <PlusIcon size={18} style={{ color: colors.greenText, flex: "none" }} /> Start a game
+          <PlusIcon size={18} style={{ color: colors.greenText, flex: "none" }} /> Start a session
         </button>
         <button style={sheetItemStyle} onClick={() => go("/make-it-happen")}>
           <HandshakeIcon size={18} style={{ color: colors.orangeDark, flex: "none" }} /> Make It Happen

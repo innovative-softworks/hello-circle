@@ -3,6 +3,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import { fetchProviderProfile } from "../api";
 import { AwardIcon, ChevronRightIcon, PinIcon } from "../components/icons";
 import { FollowButton } from "../components/FollowButton";
+import { ShareButton } from "../components/ShareButton";
 import { Photo } from "../components/Photo";
 import { PhotoGallery } from "../components/PhotoGallery";
 import { ProviderCard } from "../components/ProviderCard";
@@ -220,6 +221,7 @@ export function ProviderProfilePage() {
             <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
               {primaryCta && <Button onClick={primaryCta.action} style={{ padding: "12px 20px", fontSize: 14.5 }}>{primaryCta.label}</Button>}
               <FollowButton followedType="vendor" followedId={profile.id} initialFollowing={profile.isFollowing} initialLevel={profile.followNotificationLevel} followerCount={profile.followerCount} />
+              <ShareButton entityType="provider" entityId={profile.id} />
             </div>
           </div>
 
@@ -309,6 +311,30 @@ export function ProviderProfilePage() {
                   <div>
                     <SectionHeading>About {profile.name}</SectionHeading>
                     <p style={{ margin: 0, fontSize: 14.5, color: colors.textSoft, lineHeight: 1.6 }}>{profile.description}</p>
+                    {(profile.website || profile.socials?.instagram || profile.socials?.facebook || profile.socials?.x) && (
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 14, marginTop: 12 }}>
+                        {profile.website && (
+                          <a href={profile.website} target="_blank" rel="noreferrer" style={{ fontSize: 13.5, fontWeight: 700, color: colors.greenText }}>
+                            Website ↗
+                          </a>
+                        )}
+                        {profile.socials?.instagram && (
+                          <a href={profile.socials.instagram} target="_blank" rel="noreferrer" style={{ fontSize: 13.5, fontWeight: 700, color: colors.greenText }}>
+                            Instagram ↗
+                          </a>
+                        )}
+                        {profile.socials?.facebook && (
+                          <a href={profile.socials.facebook} target="_blank" rel="noreferrer" style={{ fontSize: 13.5, fontWeight: 700, color: colors.greenText }}>
+                            Facebook ↗
+                          </a>
+                        )}
+                        {profile.socials?.x && (
+                          <a href={profile.socials.x} target="_blank" rel="noreferrer" style={{ fontSize: 13.5, fontWeight: 700, color: colors.greenText }}>
+                            X ↗
+                          </a>
+                        )}
+                      </div>
+                    )}
                   </div>
                 )}
                 {profile.amenities.items.length > 0 && (

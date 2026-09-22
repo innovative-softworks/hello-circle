@@ -302,6 +302,89 @@ vendorListingsRouter.post("/centres/:id/publish", requirePlatformRole("centre_ma
   res.json(await getCentre(req.params.id));
 });
 
+/** Pause/resume (Host Manage spec §7) — a real 5th status alongside
+ * draft/pending/approved/rejected/deleted, mirroring the pattern
+ * `programs.status` already uses ('draft'|'published'|'paused'|'archived').
+ * No new "stops taking bookings" logic needed: every public read
+ * (getCentre/listCentres in db/queries.ts) and the booking-creation path
+ * itself already filter to `status = 'approved'`, so a paused centre is
+ * automatically invisible/unbookable the moment it's not 'approved' —
+ * same mechanism that already protects a 'draft'/'pending' listing. */
+vendorListingsRouter.post("/centres/:id/pause", requirePlatformRole("centre_manager"), async (req, res) => {
+  if (!(await ownsCentre(req.vendorIds!, req.params.id))) return res.status(403).json({ error: "Not your listing" });
+  const row = (await db.prepare(`SELECT status FROM centres WHERE id = ?`).get(req.params.id)) as { status: string } | undefined;
+  if (!row) return res.status(404).json({ error: "Centre not found" });
+  if (row.status !== "approved") return res.status(400).json({ error: "Only a live listing can be paused" });
+  await db.prepare(`UPDATE centres SET status = 'paused' WHERE id = ?`).run(req.params.id);
+  writeAudit({ actorUserId: req.user!.id, action: "centre.paused", objectType: "centre", objectId: req.params.id, previousValue: { status: row.status }, newValue: { status: "paused" } });
+  res.json(await getCentre(req.params.id));
+});
+
+vendorListingsRouter.post("/centres/:id/resume", requirePlatformRole("centre_manager"), async (req, res) => {
+  if (!(await ownsCentre(req.vendorIds!, req.params.id))) return res.status(403).json({ error: "Not your listing" });
+  const row = (await db.prepare(`SELECT status FROM centres WHERE id = ?`).get(req.params.id)) as { status: string } | undefined;
+  if (!row) return res.status(404).json({ error: "Centre not found" });
+  if (row.status !== "paused") return res.status(400).json({ error: "This centre isn't paused" });
+  await db.prepare(`UPDATE centres SET status = 'approved' WHERE id = ?`).run(req.params.id);
+  writeAudit({ actorUserId: req.user!.id, action: "centre.resumed", objectType: "centre", objectId: req.params.id, previousValue: { status: "paused" }, newValue: { status: "approved" } });
+  res.json(await getCentre(req.params.id));
+});
+
+/** Duplicate (Host Manage spec §7) — clones the core editable fields (not
+ * rooms/blocks/hours — a fresh draft already gets the standard default
+ * "Main Room" the same way any brand-new centre does) into a new 'draft'
+ * row, landing the vendor back in the creation wizard to adjust before
+ * publishing. Amenities/images are copied; rooms/availability/hours are
+ * deliberately not, to keep this a real "start from a similar base," not a
+ * byte-for-byte clone a vendor then has to untangle from the original. */
+vendorListingsRouter.post("/centres/:id/duplicate", requirePlatformRole("centre_manager"), async (req, res) => {
+  if (!(await ownsCentre(req.vendorIds!, req.params.id))) return res.status(403).json({ error: "Not your listing" });
+  const source = await getCentre(req.params.id);
+  if (!source) return res.status(404).json({ error: "Centre not found" });
+
+  const id = crypto.randomUUID();
+  const slug = await generateSlug("centres", `${source.name} (copy)`);
+  await db.transaction(async (tx) => {
+    await tx
+      .prepare(
+        `INSERT INTO centres (id, name, area, county, rating, reviews, capacity, from_price, managed_by, ph, image_url, blurb, vendor_id, status, created_at, opens_at, closes_at, payment_method, map_url, lat, lng, phone, accessibility, slug)
+         VALUES (?, ?, ?, ?, 0, 0, ?, ?, ?, '', ?, ?, ?, 'draft', NOW(), ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      )
+      .run(
+        id,
+        `${source.name} (copy)`,
+        source.area,
+        source.county,
+        source.capacity,
+        source.from,
+        source.managedBy,
+        source.image,
+        source.blurb,
+        req.user!.id,
+        source.opensAt,
+        source.closesAt,
+        source.paymentMethod,
+        source.mapUrl,
+        source.lat,
+        source.lng,
+        source.phone,
+        source.accessibility.join(","),
+        slug
+      );
+    for (const [i, a] of source.amenities.entries()) {
+      await tx.prepare(`INSERT INTO centre_amenities (centre_id, amenity, sort_order) VALUES (?, ?, ?)`).run(id, a, i);
+    }
+    for (const [i, url] of source.images.entries()) {
+      await tx.prepare(`INSERT INTO centre_images (centre_id, url, sort_order) VALUES (?, ?, ?)`).run(id, url, i);
+    }
+    await tx
+      .prepare(`INSERT INTO rooms (id, centre_id, name, cap, rate, \`desc\`, sort_order, payment_method, active) VALUES (?, ?, 'Main Room', ?, ?, '', 0, ?, 1)`)
+      .run(crypto.randomUUID(), id, source.capacity, source.from, source.paymentMethod);
+  });
+  writeAudit({ actorUserId: req.user!.id, action: "centre.duplicated", objectType: "centre", objectId: id, previousValue: { sourceId: req.params.id } });
+  res.status(201).json(await getCentre(id));
+});
+
 // --- rooms (independently bookable spaces within a centre) -----------------
 
 interface RoomInput {
@@ -598,6 +681,76 @@ vendorListingsRouter.post("/clubs/:id/publish", requirePlatformRole("facility_ma
   await db.prepare(`UPDATE clubs SET status = 'pending' WHERE id = ?`).run(req.params.id);
   writeAudit({ actorUserId: req.user!.id, action: "club.published", objectType: "club", objectId: req.params.id, newValue: { name: row.name } });
   res.json(await getClub(req.params.id));
+});
+
+// Pause/resume/duplicate — see the identical centre routes above for the
+// full reasoning (same pattern, mirrored for clubs).
+vendorListingsRouter.post("/clubs/:id/pause", requirePlatformRole("facility_manager"), async (req, res) => {
+  if (!(await ownsClub(req.vendorIds!, req.params.id))) return res.status(403).json({ error: "Not your listing" });
+  const row = (await db.prepare(`SELECT status FROM clubs WHERE id = ?`).get(req.params.id)) as { status: string } | undefined;
+  if (!row) return res.status(404).json({ error: "Club not found" });
+  if (row.status !== "approved") return res.status(400).json({ error: "Only a live listing can be paused" });
+  await db.prepare(`UPDATE clubs SET status = 'paused' WHERE id = ?`).run(req.params.id);
+  writeAudit({ actorUserId: req.user!.id, action: "club.paused", objectType: "club", objectId: req.params.id, previousValue: { status: row.status }, newValue: { status: "paused" } });
+  res.json(await getClub(req.params.id));
+});
+
+vendorListingsRouter.post("/clubs/:id/resume", requirePlatformRole("facility_manager"), async (req, res) => {
+  if (!(await ownsClub(req.vendorIds!, req.params.id))) return res.status(403).json({ error: "Not your listing" });
+  const row = (await db.prepare(`SELECT status FROM clubs WHERE id = ?`).get(req.params.id)) as { status: string } | undefined;
+  if (!row) return res.status(404).json({ error: "Club not found" });
+  if (row.status !== "paused") return res.status(400).json({ error: "This club isn't paused" });
+  await db.prepare(`UPDATE clubs SET status = 'approved' WHERE id = ?`).run(req.params.id);
+  writeAudit({ actorUserId: req.user!.id, action: "club.resumed", objectType: "club", objectId: req.params.id, previousValue: { status: "paused" }, newValue: { status: "approved" } });
+  res.json(await getClub(req.params.id));
+});
+
+vendorListingsRouter.post("/clubs/:id/duplicate", requirePlatformRole("facility_manager"), async (req, res) => {
+  if (!(await ownsClub(req.vendorIds!, req.params.id))) return res.status(403).json({ error: "Not your listing" });
+  const source = await getClub(req.params.id);
+  if (!source) return res.status(404).json({ error: "Club not found" });
+
+  const id = crypto.randomUUID();
+  const slug = await generateSlug("clubs", `${source.name} (copy)`);
+  await db.transaction(async (tx) => {
+    await tx
+      .prepare(
+        `INSERT INTO clubs (id, name, sport, area, county, ages, price, unit, trial, ph, image_url, blurb, vendor_id, status, created_at, payment_method, map_url, capacity, lat, lng, phone, accessibility, category, slug, audience)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, '', ?, ?, ?, 'draft', NOW(), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      )
+      .run(
+        id,
+        `${source.name} (copy)`,
+        source.sport,
+        source.area,
+        source.county,
+        source.ages,
+        source.price,
+        source.unit,
+        source.trial ? 1 : 0,
+        source.image,
+        source.blurb,
+        req.user!.id,
+        source.paymentMethod,
+        source.mapUrl,
+        source.capacity,
+        source.lat,
+        source.lng,
+        source.phone,
+        source.accessibility.join(","),
+        source.category,
+        slug,
+        source.audience
+      );
+    for (const [i, item] of source.includes.entries()) {
+      await tx.prepare(`INSERT INTO club_includes (club_id, item, sort_order) VALUES (?, ?, ?)`).run(id, item, i);
+    }
+    for (const [i, url] of source.images.entries()) {
+      await tx.prepare(`INSERT INTO club_images (club_id, url, sort_order) VALUES (?, ?, ?)`).run(id, url, i);
+    }
+  });
+  writeAudit({ actorUserId: req.user!.id, action: "club.duplicated", objectType: "club", objectId: id, previousValue: { sourceId: req.params.id } });
+  res.status(201).json(await getClub(id));
 });
 
 vendorListingsRouter.delete("/clubs/:id", requirePlatformRole("facility_manager"), async (req, res) => {

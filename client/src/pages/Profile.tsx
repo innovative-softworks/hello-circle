@@ -60,7 +60,6 @@ import {
   UsersIcon,
 } from "../components/icons";
 import { HostApplicationPanel } from "../components/HostApplicationPanel";
-import { HostDashboardPanel } from "../components/HostDashboardPanel";
 import { BecomeProviderPanel } from "../components/BecomeProviderPanel";
 import { ManageShell } from "../components/ManageShell";
 import { PaymentMethodsPanel } from "../components/PaymentMethodsPanel";
@@ -217,6 +216,8 @@ function HouseholdPanel() {
     }
   };
 
+  const [removeTarget, setRemoveTarget] = useState<HouseholdMember | null>(null);
+
   const handleRemove = async (id: number) => {
     await deleteHouseholdMember(id);
     setMembers((rows) => rows.filter((m) => m.id !== id));
@@ -273,11 +274,22 @@ function HouseholdPanel() {
                   Guardian consent on file
                 </label>
               </div>
-              <Button variant="danger" onClick={() => handleRemove(m.id)}>Remove</Button>
+              <Button variant="danger" onClick={() => setRemoveTarget(m)}>Remove</Button>
             </div>
           ))}
         </div>
       )}
+      <ConfirmDialog
+        open={!!removeTarget}
+        title={`Remove ${removeTarget?.firstName ?? "this member"}?`}
+        message="You'll need to add them again to register for a club on their behalf."
+        confirmLabel="Remove"
+        onConfirm={() => {
+          if (removeTarget) handleRemove(removeTarget.id);
+          setRemoveTarget(null);
+        }}
+        onCancel={() => setRemoveTarget(null)}
+      />
     </div>
   );
 }
@@ -287,7 +299,7 @@ function HouseholdPanel() {
 const FAVOURITE_LISTING_LABEL: Record<Favourite["listingType"], string> = {
   centre: "Community centre",
   club: "Sports club",
-  game: "Game",
+  game: "Session",
   program_session: "Program session",
   club_session: "Club session",
   experience: "Adventure / Experience",
@@ -519,7 +531,7 @@ function NotificationInboxPanel() {
 
   if (loading) return <RowSkeleton />;
   if (notifications.length === 0) {
-    return <EmptyState icon={<ChevronRightIcon size={20} />} title="Nothing yet" subtitle="Waitlist offers and game updates will show up here." />;
+    return <EmptyState icon={<ChevronRightIcon size={20} />} title="Nothing yet" subtitle="Waitlist offers and session updates will show up here." />;
   }
 
   return (
@@ -697,7 +709,7 @@ function PassesPanel() {
 const RECEIPT_LABELS: Record<Receipt["kind"], string> = {
   booking: "Hall booking",
   registration: "Club registration",
-  game: "Game",
+  game: "Session",
   pass: "Pass",
   program_enrollment: "Program enrollment",
 };
@@ -1057,7 +1069,7 @@ const NOTIFICATION_GROUPS: { label: string; items: { key: keyof NotificationPref
     items: [
       { key: "bookingConfirmations", label: "Booking confirmations", description: "Email when a booking or registration is confirmed" },
       { key: "bookingReminders", label: "Booking reminders", description: "A reminder before an upcoming booking" },
-      { key: "activityReminders", label: "Activity reminders", description: "A reminder before a Circle, Game or Program session you've joined" },
+      { key: "activityReminders", label: "Activity reminders", description: "A reminder before a Circle, Session or Program session you've joined" },
       { key: "routineReminders", label: "Routine reminders", description: "A nudge when it's time for one of your routines" },
     ],
   },
@@ -1338,7 +1350,7 @@ function PrivacyAccessibilityPanel() {
 // ProfileDetailsPanel scroll into their own nav item) ------------------------
 
 function HostingPanel() {
-  const { resident } = useGuest();
+  const navigate = useNavigate();
   const [hostStatus, setHostStatus] = useState<HostStatus>("none");
   const [hostBio, setHostBio] = useState("");
   const [hostPhone, setHostPhone] = useState("");
@@ -1356,7 +1368,15 @@ function HostingPanel() {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-      {resident && <HostDashboardPanel residentId={resident.id} />}
+      {/* The full "my hosted activities" list now lives on the Manage
+          dashboard (ManageHome.tsx, /manage) alongside the rest of a host's
+          management surface — this just links out instead of keeping a
+          second copy of that list here. Shown regardless of hostStatus:
+          hosting a Game/Circle never required applying for the Verified
+          Host badge, so someone who's hosted but never applied still needs
+          a way in — /manage's own empty states cover a resident who's
+          hosted nothing yet. */}
+      <Button variant="ghost" onClick={() => navigate("/manage")}>Go to your Hosting dashboard →</Button>
       <HostApplicationPanel hostStatus={hostStatus} hostBio={hostBio} hostPhone={hostPhone} onApplied={load} />
       <BecomeProviderPanel hostStatus={hostStatus} />
       <SearchAlertsPanel />
@@ -1436,8 +1456,8 @@ function SafetyCentrePanel() {
 const HELP_FAQS: { q: string; a: string }[] = [
   { q: "How do I cancel a booking?", a: "Open Bookings in My Life, expand the booking, and use Cancel. Refund policy depends on the venue's own terms, shown at checkout." },
   { q: "How do I get my money back?", a: "Refunds are processed by the venue or club, not automatically. Contact them via the booking confirmation email, or reach out to us if you don't hear back." },
-  { q: "What's a Circle?", a: "A Circle is an ongoing group around a shared activity — think a standing weekly game or class, organised by one of its own members, not a vendor." },
-  { q: "How does Verified Host work?", a: "Any resident can host a Game or Circle. Applying for Verified Host — under Profile — gets your application reviewed by our team; approved hosts get a badge next to their name." },
+  { q: "What's a Circle?", a: "A Circle is an ongoing group around a shared activity — think a standing weekly session or class, organised by one of its own members, not a vendor." },
+  { q: "How does Verified Host work?", a: "Any resident can host a Session or Circle. Applying for Verified Host — under Profile — gets your application reviewed by our team; approved hosts get a badge next to their name." },
   { q: "How do I report a problem?", a: "Use the report option wherever you see it — on a Circle, a review, or a chat. You can track the outcome in Safety Centre → Your reports." },
 ];
 

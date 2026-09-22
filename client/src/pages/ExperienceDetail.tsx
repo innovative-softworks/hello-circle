@@ -6,10 +6,11 @@ import { BackLink } from "../components/BackLink";
 import { ExperienceCard } from "../components/ExperienceCard";
 import { NumberStepper } from "../components/form";
 import { AwardIcon, CalendarIcon, CheckIcon, ClockIcon, HeartIcon, PinIcon, TreeIconSmall, TrendUpIcon, UsersIcon } from "../components/icons";
-import { InviteButton } from "../components/InviteButton";
 import { IntentCaptureForm } from "../components/IntentCaptureForm";
+import { InviteSheetButton } from "../components/InviteSheetButton";
 import { Photo } from "../components/Photo";
 import { Reviews } from "../components/Reviews";
+import { ShareButton } from "../components/ShareButton";
 import { SinglePinMap } from "../components/SinglePinMap";
 import { Button, Card, Drawer, PageSpinner, inputStyle, labelStyle } from "../components/ui";
 import { isFavorite, toggleFavorite } from "../favorites";
@@ -193,21 +194,6 @@ export function ExperienceDetail() {
     }
   };
 
-  const handleShare = async () => {
-    if (!experience) return;
-    const url = window.location.href;
-    if (navigator.share) {
-      try {
-        await navigator.share({ title: experience.title, url });
-        return;
-      } catch {
-        // user cancelled the native share sheet — fall through to clipboard
-      }
-    }
-    await navigator.clipboard.writeText(url);
-    alert("Link copied to clipboard");
-  };
-
   const photos = useMemo(() => (experience ? [experience.imageUrl, ...experience.images].filter(Boolean) : []), [experience]);
 
   const submit = async () => {
@@ -266,7 +252,7 @@ export function ExperienceDetail() {
         <p style={{ color: colors.mutedLight, marginBottom: 20 }}>{experience.title} · Reference {confirmed.ref}</p>
         <div style={{ display: "flex", gap: 10, justifyContent: "center", flexWrap: "wrap" }}>
           <Button variant="ghost" onClick={() => downloadExperienceBookingIcs(confirmed.ref)}>Add to calendar</Button>
-          <InviteButton title={experience.title} text={`Join me for ${experience.title}`} listingType="experience" listingId={experience.id} />
+          <InviteSheetButton entityType={experience.kind === "adventure" ? "adventure" : "experience"} entityId={experience.id} title={experience.title} />
           <Button onClick={() => navigate("/bookings")}>View my bookings</Button>
         </div>
       </section>
@@ -397,7 +383,7 @@ export function ExperienceDetail() {
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 18, flexWrap: "wrap", gap: 12 }}>
           <BackLink onClick={() => navigate(browsePath)} marginBottom={0}>{browseLabel}</BackLink>
           <div style={{ display: "flex", gap: 10 }}>
-            <button onClick={handleShare} style={outlineButtonStyle}>Share</button>
+            <ShareButton entityType={experience.kind === "adventure" ? "adventure" : "experience"} entityId={experience.id} render={(onClick) => <button onClick={onClick} style={outlineButtonStyle}>Share</button>} />
             <button onClick={handleToggleSave} style={{ ...outlineButtonStyle, color: saved ? colors.orange : colors.text }}>
               <HeartIcon size={14} filled={saved} /> {saved ? "Saved" : "Save"}
             </button>

@@ -8,6 +8,7 @@ import {
   updateVendorCentre,
 } from "../api";
 import { AddressSearch, MapConfirm } from "./AddressSearch";
+import { CentreCard } from "./CentreCard";
 import { GuidedFlow } from "./GuidedFlow";
 import { RoomsManager } from "./VendorCentreEditor";
 import { MultiImageUpload } from "./VendorImageUpload";
@@ -69,6 +70,13 @@ export function CentreCreationWizard({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(initialCentreId === "new");
+  // Host Manage spec §29's live preview step — fetches the real, already-
+  // saved draft (every earlier step already persisted via its own PUT) so
+  // CentreCard renders exactly what the published listing will look like,
+  // rather than reconstructing a Centre object from local wizard state
+  // (which is missing rollup fields like capacity/from that only the
+  // server computes from real room rows).
+  const [previewCentre, setPreviewCentre] = useState<Centre | null>(null);
 
   const setForm = (patch: Partial<WizardForm>) => {
     setFormRaw((f) => ({ ...f, ...patch }));
@@ -100,6 +108,10 @@ export function CentreCreationWizard({
     fetchVendorRooms(initialCentreId).then(setRooms);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    if (step === 7 && id !== "new") fetchVendorCentre(id).then(setPreviewCentre).catch(() => setPreviewCentre(null));
+  }, [step, id]);
 
   if (!loaded) return null;
 
@@ -402,6 +414,16 @@ export function CentreCreationWizard({
       continueBusy={saving}
       error={error}
     >
+      {previewCentre && (
+        <div style={{ maxWidth: 320, marginBottom: 18 }}>
+          <p style={{ fontSize: 12, color: colors.mutedLight, margin: "0 0 8px", fontWeight: 700, textTransform: "uppercase", letterSpacing: ".03em" }}>
+            How it'll look
+          </p>
+          <div style={{ pointerEvents: "none" }}>
+            <CentreCard centre={previewCentre} />
+          </div>
+        </div>
+      )}
       <Card style={{ padding: 20, maxWidth: 520, display: "flex", flexDirection: "column", gap: 14 }}>
         <div>
           <div style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 18 }}>{form.name || "Untitled venue"}</div>

@@ -12,6 +12,41 @@ interface WaitlistRow {
   email: string;
 }
 
+/** Shared by the automatic promotion below and the manual, targeted offer
+ * (Host Manage spec §15's "invite this person") — flips one entry to a
+ * time-limited 'offered' state and notifies them. Never throws itself;
+ * callers decide whether a failure should be swallowed or surfaced. */
+async function makeOffer(entry: WaitlistRow, listingType: "club" | "game", listingId: string, listingName: string) {
+  await db
+    .prepare(`UPDATE waitlist_entries SET status = 'offered', offer_expires_at = DATE_ADD(NOW(), INTERVAL ${OFFER_WINDOW_HOURS} HOUR) WHERE id = ?`)
+    .run(entry.id);
+
+  if (entry.resident_id) {
+    await notifyResident({
+      residentId: entry.resident_id,
+      kind: "waitlist",
+      title: `A spot opened up: ${listingName}`,
+      body: `You have ${OFFER_WINDOW_HOURS}h to claim it before it's offered to the next person on the list.`,
+      listingType,
+      listingId,
+      ref: String(entry.id),
+    });
+  }
+  // A pure guest (no resident_id) has no other way to hear about this, so
+  // always email them. A signed-in resident's own waitlistOffers
+  // preference gates the email the same way it gates the in-app copy
+  // above — respecting an explicit opt-out even for a time-sensitive
+  // notice, since the pref exists specifically for this category.
+  if (entry.email && (!entry.resident_id || (await residentAllows(entry.resident_id, "waitlistOffers")))) {
+    await sendMail({
+      to: entry.email,
+      subject: `A spot opened up — ${listingName}`,
+      text: `Hi${entry.name ? ` ${entry.name}` : ""},\n\nA spot just opened up for ${listingName}. You have ${OFFER_WINDOW_HOURS} hours to claim it before it's offered to the next person on the waitlist.\n\n${CLIENT_URL}\n\nThanks for using Hello Circle.`,
+      cta: { label: "Claim your spot", url: CLIENT_URL },
+    });
+  }
+}
+
 /** Promotes the earliest still-waiting entry to a time-limited 'offered'
  * state and lets them know — called whenever a paid slot frees up (a club
  * registration cancellation, a game participant leaving). Deliberately
@@ -28,38 +63,30 @@ export async function promoteNextWaitlistEntry(listingType: "club" | "game", lis
       )
       .get(listingType, listingId)) as WaitlistRow | undefined;
     if (!next) return;
-
-    await db
-      .prepare(`UPDATE waitlist_entries SET status = 'offered', offer_expires_at = DATE_ADD(NOW(), INTERVAL ${OFFER_WINDOW_HOURS} HOUR) WHERE id = ?`)
-      .run(next.id);
-
-    if (next.resident_id) {
-      await notifyResident({
-        residentId: next.resident_id,
-        kind: "waitlist",
-        title: `A spot opened up: ${listingName}`,
-        body: `You have ${OFFER_WINDOW_HOURS}h to claim it before it's offered to the next person on the list.`,
-        listingType,
-        listingId,
-        ref: String(next.id),
-      });
-    }
-    // A pure guest (no resident_id) has no other way to hear about this, so
-    // always email them. A signed-in resident's own waitlistOffers
-    // preference gates the email the same way it gates the in-app copy
-    // above — respecting an explicit opt-out even for a time-sensitive
-    // notice, since the pref exists specifically for this category.
-    if (next.email && (!next.resident_id || (await residentAllows(next.resident_id, "waitlistOffers")))) {
-      await sendMail({
-        to: next.email,
-        subject: `A spot opened up — ${listingName}`,
-        text: `Hi${next.name ? ` ${next.name}` : ""},\n\nA spot just opened up for ${listingName}. You have ${OFFER_WINDOW_HOURS} hours to claim it before it's offered to the next person on the waitlist.\n\n${CLIENT_URL}\n\nThanks for using Hello Circle.`,
-        cta: { label: "Claim your spot", url: CLIENT_URL },
-      });
-    }
+    await makeOffer(next, listingType, listingId, listingName);
   } catch (e) {
     console.error("[waitlist] promotion failed:", e);
   }
+}
+
+/** Host Manage spec §15 — "invite this person" from the waitlist, instead
+ * of only ever auto-promoting whoever's been waiting longest. Same offer
+ * shape/expiry as the automatic path (this app's fixed 48h window, shared
+ * with Games' own waitlist — see the plan doc's own trim note on why this
+ * isn't made configurable). Returns an error rather than throwing, since a
+ * vendor route calls this synchronously and needs to show the result. */
+export async function offerToWaitlistEntry(
+  entryId: number,
+  listingType: "club" | "game",
+  listingId: string,
+  listingName: string
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const entry = (await db
+    .prepare(`SELECT id, resident_id, name, email FROM waitlist_entries WHERE id = ? AND listing_type = ? AND listing_id = ? AND status = 'waiting'`)
+    .get(entryId, listingType, listingId)) as WaitlistRow | undefined;
+  if (!entry) return { ok: false, error: "This person isn't currently waiting" };
+  await makeOffer(entry, listingType, listingId, listingName);
+  return { ok: true };
 }
 
 /** Active 'offered' entries (not yet expired) hold their spot against

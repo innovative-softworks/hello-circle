@@ -78,7 +78,7 @@ export function VendorHero({
             </h1>
             <p style={{ fontSize: 16.5, color: colors.textSoft, lineHeight: 1.6, margin: 0, maxWidth: 560 }}>
               Join HelloCircle to showcase your space, fill more available slots and connect with local people
-              looking for things to do. Don&rsquo;t run a venue? You can host a Game or Circle yourself — no
+              looking for things to do. Don&rsquo;t run a venue? You can host a Session or Circle yourself — no
               listing required.
             </p>
           </div>

@@ -1,8 +1,11 @@
 import crypto from "node:crypto";
 import { Router } from "express";
 import { requirePlatformRole } from "../auth.js";
+import { writeAudit } from "../audit.js";
+import { issueStripeRefund } from "../checkoutService.js";
 import { db } from "../db/index.js";
 import { orgFeatureFlags } from "../db/queries.js";
+import { notifyCancellation, notifyRefund } from "../notifications.js";
 import { notifyVendorFollowers } from "./follows.js";
 import { generateSlug } from "../slugify.js";
 
@@ -259,6 +262,108 @@ vendorExperiencesRouter.post("/experiences/:id/sessions", requirePlatformRole(..
 vendorExperiencesRouter.delete("/experiences/:id/sessions/:sessionId", requirePlatformRole(...EXPERIENCE_ROLES), async (req, res) => {
   if (!(await ownsExperience(req.vendorIds!, req.params.id))) return res.status(403).json({ error: "Not your listing" });
   await db.prepare(`UPDATE experience_sessions SET status = 'cancelled' WHERE id = ? AND experience_id = ?`).run(req.params.sessionId, req.params.id);
+  res.json({ ok: true });
+});
+
+// --- booking cancel + refund (Phase 0 protect) -------------------------
+// Experience bookings previously had no vendor-facing cancel/refund route
+// at all. Same shape as vendorOperations.ts's booking/registration
+// cancel+refund and vendorPrograms.ts's enrollment cancel+refund above —
+// status-only cancel, finance-gated Stripe refund with the
+// payment_status='paid' idempotency guard built in from day one.
+
+vendorExperiencesRouter.post("/experiences/:id/bookings/:bookingId/cancel", requirePlatformRole(...EXPERIENCE_ROLES), async (req, res) => {
+  if (!(await ownsExperience(req.vendorIds!, req.params.id))) return res.status(403).json({ error: "Not your listing" });
+
+  const row = (await db
+    .prepare(
+      `SELECT eb.ref, eb.status, eb.participant_name as participantName, eb.email, es.date, es.time,
+              e.title, e.vendor_id as vendorId
+       FROM experience_bookings eb
+       JOIN experience_sessions es ON es.id = eb.session_id
+       JOIN experiences e ON e.id = eb.experience_id
+       WHERE eb.id = ? AND eb.experience_id = ?`
+    )
+    .get(req.params.bookingId, req.params.id)) as
+    | { ref: string; status: string; participantName: string; email: string; date: string; time: string; title: string; vendorId: string }
+    | undefined;
+  if (!row) return res.status(404).json({ error: "Booking not found" });
+  if (row.status === "cancelled") return res.status(409).json({ error: "This booking is already cancelled" });
+
+  await db.prepare(`UPDATE experience_bookings SET status = 'cancelled' WHERE ref = ?`).run(row.ref);
+
+  await writeAudit({
+    actorUserId: req.user!.id,
+    action: "experience_booking.cancelled_by_vendor",
+    objectType: "experience_booking",
+    objectId: row.ref,
+    previousValue: { status: row.status },
+    newValue: { status: "cancelled" },
+  });
+
+  notifyCancellation({
+    kind: "experience",
+    listingType: "experience",
+    listingId: req.params.id,
+    listingName: row.title,
+    vendorId: row.vendorId,
+    guestName: row.participantName,
+    guestEmail: row.email,
+    ref: row.ref,
+    detailsText: `${row.date} at ${row.time} · ${row.title}`,
+  }).catch((e) => console.error("[notifications] vendor experience booking cancellation notify failed:", e));
+
+  res.json({ ok: true });
+});
+
+vendorExperiencesRouter.post("/experiences/:id/bookings/:bookingId/refund", requirePlatformRole("finance"), async (req, res) => {
+  if (!(await ownsExperience(req.vendorIds!, req.params.id))) return res.status(403).json({ error: "Not your listing" });
+
+  const row = (await db
+    .prepare(
+      `SELECT eb.ref, eb.payment_status as paymentStatus, eb.stripe_session_id as stripeSessionId, eb.participant_name as participantName, eb.email,
+              es.date, es.time, e.title, e.vendor_id as vendorId
+       FROM experience_bookings eb
+       JOIN experience_sessions es ON es.id = eb.session_id
+       JOIN experiences e ON e.id = eb.experience_id
+       WHERE eb.id = ? AND eb.experience_id = ?`
+    )
+    .get(req.params.bookingId, req.params.id)) as
+    | { ref: string; paymentStatus: string; stripeSessionId: string | null; participantName: string; email: string; date: string; time: string; title: string; vendorId: string }
+    | undefined;
+  if (!row) return res.status(404).json({ error: "Booking not found" });
+  if (row.paymentStatus === "refunded") return res.status(409).json({ error: "This booking has already been refunded" });
+  if (row.paymentStatus !== "paid") return res.status(400).json({ error: "Only a paid booking can be refunded" });
+  if (!row.stripeSessionId) return res.status(400).json({ error: "This was a cash booking — refund the participant directly, not through Stripe" });
+
+  const result = await issueStripeRefund(row.stripeSessionId);
+  if (!result.ok) return res.status(502).json({ error: result.error });
+
+  const updateResult = await db.prepare(`UPDATE experience_bookings SET payment_status = 'refunded' WHERE ref = ? AND payment_status = 'paid'`).run(row.ref);
+  if (updateResult.changes === 0) return res.status(409).json({ error: "This booking has already been refunded" });
+
+  await writeAudit({
+    actorUserId: req.user!.id,
+    action: "experience_booking.refunded_by_vendor",
+    objectType: "experience_booking",
+    objectId: row.ref,
+    previousValue: { paymentStatus: row.paymentStatus },
+    newValue: { paymentStatus: "refunded", amountCents: result.amountCents },
+  });
+
+  notifyRefund({
+    kind: "experience",
+    listingType: "experience",
+    listingId: req.params.id,
+    listingName: row.title,
+    vendorId: row.vendorId,
+    guestName: row.participantName,
+    guestEmail: row.email,
+    ref: row.ref,
+    detailsText: `${row.date} at ${row.time} · ${row.title}`,
+    refundedCents: result.amountCents,
+  }).catch((e) => console.error("[notifications] experience booking refund notify failed:", e));
+
   res.json({ ok: true });
 });
 

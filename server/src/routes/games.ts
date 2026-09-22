@@ -5,17 +5,18 @@ import { computeCapacity } from "../capacity.js";
 import { createCheckoutSession, pricingLineItems } from "../checkoutService.js";
 import { db } from "../db/index.js";
 import { countFamiliarCoParticipants } from "../db/queries.js";
+import { isOrganiser as isCircleOrganiser } from "./circleHelpers.js";
 import { upgradeFavouriteStatus } from "./favourites.js";
 import { notifyCentreFollowers, notifyHostFollowers } from "./follows.js";
 import { buildIcsEvent } from "../ics.js";
 import { irelandTodayIso, irelandWallTimeToUtc } from "../irelandTime.js";
 import { notifyResident } from "../notifications.js";
 import { matchParticipationIntentsForGame } from "../participationIntents.js";
-import { computePricing } from "../pricing.js";
+import { computePricing, evaluateCoupon } from "../pricing.js";
 import { requireResident } from "../residents.js";
 import { matchSearchAlertsForGame } from "../searchAlerts.js";
 import { ConflictError, generateRef } from "../util.js";
-import { activeOfferedCount, claimWaitlistOffer, hasActiveOffer, promoteNextWaitlistEntry } from "../waitlist.js";
+import { activeOfferedCount, claimWaitlistOffer, hasActiveOffer, offerToWaitlistEntry, promoteNextWaitlistEntry } from "../waitlist.js";
 
 export const gamesRouter = Router();
 
@@ -163,9 +164,159 @@ gamesRouter.get("/mine", requireResident, async (req, res) => {
   res.json(await Promise.all(rows.map(toGameJson)));
 });
 
+// HelloCircle Manage Phase 24 — a flat "who paid me for what" transaction
+// list for a host's paid games. `game_participants` has no per-participant
+// amount column, but `updateGame` (PUT /:id below) freezes `price_cents`
+// the moment anyone besides the host has joined, so `games.price_cents` is
+// safe to show as "amount paid" per row here — no new column needed.
+gamesRouter.get("/host/earnings", requireResident, async (req, res) => {
+  const rows = await db
+    .prepare(
+      `SELECT g.id as gameId, g.activity_label as activityLabel, g.date, g.price_cents as amountCents,
+              r.name as participantName, gp.joined_at as joinedAt
+       FROM game_participants gp
+       JOIN games g ON g.id = gp.game_id
+       JOIN residents r ON r.id = gp.resident_id
+       WHERE g.host_resident_id = ? AND gp.resident_id != g.host_resident_id AND gp.payment_status = 'paid'
+       ORDER BY gp.joined_at DESC`
+    )
+    .all(req.resident!.id);
+  res.json(rows);
+});
+
+// Host Experience Polish — mirrors vendorInsights.ts's GET /vendor/insights
+// exactly: decision-focused aggregates and one honest narrative sentence,
+// never decorative charts (same "Host Manage spec §15" convention that
+// route's own comment cites). Two stats beyond the Vendor version, since
+// Games carry data Bookings don't: a repeat-participant rate and an
+// attendance rate (from game_participants.attended, only counting rows
+// where attendance was actually confirmed one way or the other).
+gamesRouter.get("/host/insights", requireResident, async (req, res) => {
+  const hostId = req.resident!.id;
+
+  const totals = (await db
+    .prepare(
+      `SELECT
+        (SELECT COUNT(*) FROM games WHERE host_resident_id = ?) as totalSessions,
+        (SELECT COUNT(*) FROM games WHERE host_resident_id = ? AND status = 'cancelled') as cancelledSessions,
+        (SELECT COUNT(DISTINCT gp.resident_id) FROM game_participants gp JOIN games g ON g.id = gp.game_id
+         WHERE g.host_resident_id = ? AND gp.status = 'joined' AND gp.resident_id != g.host_resident_id) as uniqueParticipants`
+    )
+    .get(hostId, hostId, hostId)) as { totalSessions: number; cancelledSessions: number; uniqueParticipants: number };
+
+  const utilisation = (await db
+    .prepare(
+      `SELECT DAYOFWEEK(g.date) as dayOfWeek, SUBSTRING(g.time, 1, 2) as hour, COUNT(*) as n
+       FROM games g WHERE g.host_resident_id = ? AND g.status != 'cancelled'
+       GROUP BY dayOfWeek, hour`
+    )
+    .all(hostId)) as { dayOfWeek: number; hour: string; n: number }[];
+
+  const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+  const byDay = new Map<number, number>();
+  for (const row of utilisation) byDay.set(row.dayOfWeek, (byDay.get(row.dayOfWeek) ?? 0) + row.n);
+  let narrative: string | null = null;
+  if (byDay.size > 1) {
+    const totalSeen = [...byDay.values()].reduce((a, b) => a + b, 0);
+    const [busiestDay, busiestCount] = [...byDay.entries()].sort((a, b) => b[1] - a[1])[0];
+    const avgOtherDays = (totalSeen - busiestCount) / (byDay.size - 1);
+    if (avgOtherDays > 0 && busiestCount > avgOtherDays) {
+      const pct = Math.round(((busiestCount - avgOtherDays) / avgOtherDays) * 100);
+      if (pct >= 10) narrative = `${DAY_NAMES[busiestDay - 1]} is your busiest day — ${pct}% more sessions than your other days average.`;
+    }
+  }
+
+  const trendRow = (await db
+    .prepare(
+      `SELECT
+        (SELECT COUNT(*) FROM games WHERE host_resident_id = ? AND created_at >= DATE_FORMAT(NOW(), '%Y-%m-01')) as thisMonth,
+        (SELECT COUNT(*) FROM games WHERE host_resident_id = ? AND created_at >= DATE_SUB(DATE_FORMAT(NOW(), '%Y-%m-01'), INTERVAL 1 MONTH) AND created_at < DATE_FORMAT(NOW(), '%Y-%m-01')) as lastMonth`
+    )
+    .get(hostId, hostId)) as { thisMonth: number; lastMonth: number };
+  const trend = {
+    thisMonth: trendRow.thisMonth,
+    lastMonth: trendRow.lastMonth,
+    deltaPercent: trendRow.lastMonth > 0 ? Math.round(((trendRow.thisMonth - trendRow.lastMonth) / trendRow.lastMonth) * 100) : null,
+  };
+
+  // Repeat participants — distinct residents who've joined 2+ of this
+  // host's games (across any activity, not scoped to one label — a
+  // different, real-time aggregate query, not the per-join activity-label-
+  // scoped analytics heuristic in POST /:id/join above).
+  const { n: repeatParticipants } = (await db
+    .prepare(
+      `SELECT COUNT(*) as n FROM (
+         SELECT gp.resident_id FROM game_participants gp JOIN games g ON g.id = gp.game_id
+         WHERE g.host_resident_id = ? AND gp.status = 'joined' AND gp.resident_id != g.host_resident_id
+         GROUP BY gp.resident_id HAVING COUNT(*) >= 2
+       ) t`
+    )
+    .get(hostId)) as { n: number };
+  const repeatParticipantPercent = totals.uniqueParticipants > 0 ? Math.round((repeatParticipants / totals.uniqueParticipants) * 100) : null;
+
+  // Attendance rate — only among rows where attendance was actually
+  // confirmed (attended IS NOT NULL), never guessed for an unconfirmed one.
+  const attendanceRow = (await db
+    .prepare(
+      `SELECT COUNT(*) as confirmed, SUM(gp.attended = 1) as attended
+       FROM game_participants gp JOIN games g ON g.id = gp.game_id
+       WHERE g.host_resident_id = ? AND gp.status = 'joined' AND gp.attended IS NOT NULL AND gp.resident_id != g.host_resident_id`
+    )
+    .get(hostId)) as { confirmed: number; attended: number | null };
+  const attendanceRatePercent = attendanceRow.confirmed > 0 ? Math.round((Number(attendanceRow.attended ?? 0) / attendanceRow.confirmed) * 100) : null;
+
+  res.json({ totals, utilisation, narrative, trend, repeatParticipantPercent, attendanceRatePercent });
+});
+
+// HelloCircle Manage Phase 25 — coupons for a host's own paid games. Unlike
+// Vendor's coupons (scoped by created_by_vendor_id, optionally listing-wide
+// via a null eligible_listing_id), a host-created coupon MUST name a
+// specific game: evaluateCoupon() only checks eligible_listing_type/id when
+// eligible_listing_id is actually set — leaving it null on a
+// type='game' coupon would make it redeemable against *any* game
+// system-wide, not just this host's own, since evaluateCoupon has no
+// concept of "creator". Requiring a specific, ownership-checked game id is
+// the only safe shape given that existing shared function's behaviour.
+gamesRouter.get("/coupons", requireResident, async (req, res) => {
+  const rows = await db
+    .prepare(
+      `SELECT id, code, kind, amount, max_uses as maxUses, used_count as usedCount, expires_at as expiresAt, active, eligible_listing_id as eligibleListingId
+       FROM coupons WHERE created_by_resident_id = ? ORDER BY created_at DESC`
+    )
+    .all(req.resident!.id);
+  res.json(rows);
+});
+
+gamesRouter.post("/coupons", requireResident, async (req, res) => {
+  const b = req.body as { code?: string; kind?: "percent" | "fixed"; amount?: number; maxUses?: number; expiresAt?: string; gameId?: string };
+  if (!b.code?.trim() || !b.kind || !b.amount || !b.gameId) return res.status(400).json({ error: "code, kind, amount and gameId are required" });
+  const game = (await db.prepare(`SELECT host_resident_id FROM games WHERE id = ?`).get(b.gameId)) as { host_resident_id: string } | undefined;
+  if (!game || game.host_resident_id !== req.resident!.id) return res.status(403).json({ error: "Not your session" });
+  try {
+    await db
+      .prepare(
+        `INSERT INTO coupons (code, kind, amount, max_uses, expires_at, created_by_resident_id, eligible_listing_type, eligible_listing_id)
+         VALUES (?, ?, ?, ?, ?, ?, 'game', ?)`
+      )
+      .run(b.code.trim().toUpperCase(), b.kind, b.amount, b.maxUses ?? null, b.expiresAt ?? null, req.resident!.id, b.gameId);
+    res.status(201).json({ ok: true });
+  } catch (e) {
+    res.status(409).json({ error: e instanceof Error && e.message.includes("Duplicate") ? "That code is already in use" : "Couldn't create the coupon" });
+  }
+});
+
+gamesRouter.put("/coupons/:id/active", requireResident, async (req, res) => {
+  const { active } = req.body as { active?: boolean };
+  const info = await db
+    .prepare(`UPDATE coupons SET active = ? WHERE id = ? AND created_by_resident_id = ?`)
+    .run(active ? 1 : 0, req.params.id, req.resident!.id);
+  if (info.changes === 0) return res.status(404).json({ error: "Coupon not found" });
+  res.json({ ok: true });
+});
+
 gamesRouter.get("/:id", async (req, res) => {
   const row = (await db.prepare(`SELECT * FROM games WHERE id = ?`).get(req.params.id)) as GameRow | undefined;
-  if (!row) return res.status(404).json({ error: "Game not found" });
+  if (!row) return res.status(404).json({ error: "Session not found" });
   const json = await toGameJson(row);
   // Lets the detail page render "Join" vs "Leave" vs host-only controls
   // without a second round trip — only computed here, not on the list.
@@ -212,7 +363,7 @@ const GAME_ICS_DEFAULT_DURATION_MS = 2 * 60 * 60 * 1000;
 
 gamesRouter.get("/:id/ics", async (req, res) => {
   const row = (await db.prepare(`SELECT * FROM games WHERE id = ?`).get(req.params.id)) as GameRow | undefined;
-  if (!row) return res.status(404).json({ error: "Game not found" });
+  if (!row) return res.status(404).json({ error: "Session not found" });
   const json = await toGameJson(row);
   const [h, m] = json.time.split(":").map(Number);
   const start = irelandWallTimeToUtc(json.date, h, m);
@@ -273,7 +424,7 @@ gamesRouter.get("/:id/participants", async (req, res) => {
 // their own game: join/payment status, when they joined, check-in/attendance.
 gamesRouter.get("/:id/participants/manage", requireResident, async (req, res) => {
   const row = (await db.prepare(`SELECT host_resident_id FROM games WHERE id = ?`).get(req.params.id)) as { host_resident_id: string } | undefined;
-  if (!row) return res.status(404).json({ error: "Game not found" });
+  if (!row) return res.status(404).json({ error: "Session not found" });
   if (row.host_resident_id !== req.resident!.id) return res.status(403).json({ error: "Only the host can view this" });
 
   const rows = (await db
@@ -297,14 +448,14 @@ gamesRouter.post("/:id/participants/:residentId/remove", requireResident, async 
   const row = (await db.prepare(`SELECT host_resident_id, activity_label FROM games WHERE id = ?`).get(req.params.id)) as
     | { host_resident_id: string; activity_label: string }
     | undefined;
-  if (!row) return res.status(404).json({ error: "Game not found" });
+  if (!row) return res.status(404).json({ error: "Session not found" });
   if (row.host_resident_id !== req.resident!.id) return res.status(403).json({ error: "Only the host can remove a participant" });
-  if (req.params.residentId === req.resident!.id) return res.status(400).json({ error: "You can't remove yourself as the host — cancel the game instead" });
+  if (req.params.residentId === req.resident!.id) return res.status(400).json({ error: "You can't remove yourself as the host — cancel the session instead" });
 
   const info = await db
     .prepare(`DELETE FROM game_participants WHERE game_id = ? AND resident_id = ? AND status = 'joined'`)
     .run(req.params.id, req.params.residentId);
-  if (info.changes === 0) return res.status(404).json({ error: "That participant isn't joined to this game" });
+  if (info.changes === 0) return res.status(404).json({ error: "That participant isn't joined to this session" });
 
   promoteNextWaitlistEntry("game", req.params.id, row.activity_label);
 
@@ -312,11 +463,29 @@ gamesRouter.post("/:id/participants/:residentId/remove", requireResident, async 
     residentId: req.params.residentId,
     kind: "game",
     title: `Removed: ${row.activity_label}`,
-    body: "The host has removed you from this game.",
+    body: "The host has removed you from this session.",
     listingType: "game",
     listingId: req.params.id,
     ref: req.params.id,
   });
+
+  res.json({ ok: true });
+});
+
+/** Host-run check-in (Host Manage spec §11's kiosk screen) — Games only had
+ * *self-serve* check-in before (GET /:id/check-in below, resident-initiated).
+ * Nothing let a host check someone else in (e.g. a participant without a
+ * phone, or checking a whole group in from one screen at the door). Same
+ * ownership pattern as the remove route above. */
+gamesRouter.post("/:id/participants/:residentId/check-in", requireResident, async (req, res) => {
+  const row = (await db.prepare(`SELECT host_resident_id FROM games WHERE id = ?`).get(req.params.id)) as { host_resident_id: string } | undefined;
+  if (!row) return res.status(404).json({ error: "Session not found" });
+  if (row.host_resident_id !== req.resident!.id) return res.status(403).json({ error: "Only the host can check in a participant" });
+
+  const info = await db
+    .prepare(`UPDATE game_participants SET checked_in_at = NOW() WHERE game_id = ? AND resident_id = ? AND status = 'joined'`)
+    .run(req.params.id, req.params.residentId);
+  if (info.changes === 0) return res.status(404).json({ error: "That participant isn't joined to this session" });
 
   res.json({ ok: true });
 });
@@ -339,7 +508,7 @@ gamesRouter.post("/:id/updates", requireResident, async (req, res) => {
   const row = (await db.prepare(`SELECT host_resident_id, activity_label FROM games WHERE id = ?`).get(req.params.id)) as
     | { host_resident_id: string; activity_label: string }
     | undefined;
-  if (!row) return res.status(404).json({ error: "Game not found" });
+  if (!row) return res.status(404).json({ error: "Session not found" });
   if (row.host_resident_id !== req.resident!.id) return res.status(403).json({ error: "Only the host can post an update" });
 
   const info = await db.prepare(`INSERT INTO game_updates (game_id, message) VALUES (?, ?)`).run(req.params.id, message.trim());
@@ -372,7 +541,7 @@ gamesRouter.post("/:id/check-in", requireResident, async (req, res) => {
   const info = await db
     .prepare(`UPDATE game_participants SET checked_in_at = NOW() WHERE game_id = ? AND resident_id = ? AND status = 'joined'`)
     .run(req.params.id, req.resident!.id);
-  if (info.changes === 0) return res.status(404).json({ error: "You're not joined to this game" });
+  if (info.changes === 0) return res.status(404).json({ error: "You're not joined to this session" });
   res.json({ ok: true });
 });
 
@@ -387,7 +556,7 @@ gamesRouter.post("/:id/confirm-attendance", requireResident, async (req, res) =>
   const info = await db
     .prepare(`UPDATE game_participants SET attended = ? WHERE game_id = ? AND resident_id = ? AND status = 'joined'`)
     .run(attended ? 1 : 0, req.params.id, req.resident!.id);
-  if (info.changes === 0) return res.status(404).json({ error: "You're not joined to this game" });
+  if (info.changes === 0) return res.status(404).json({ error: "You're not joined to this session" });
   if (attended) void logEvent("attended", { residentId: req.resident!.id, metadata: { gameId: req.params.id } });
   res.json({ ok: true });
 });
@@ -401,8 +570,8 @@ gamesRouter.post("/:id/cancel", requireResident, async (req, res) => {
   const row = (await db.prepare(`SELECT host_resident_id, activity_label FROM games WHERE id = ?`).get(req.params.id)) as
     | { host_resident_id: string; activity_label: string }
     | undefined;
-  if (!row) return res.status(404).json({ error: "Game not found" });
-  if (row.host_resident_id !== req.resident!.id) return res.status(403).json({ error: "Only the host can cancel this game" });
+  if (!row) return res.status(404).json({ error: "Session not found" });
+  if (row.host_resident_id !== req.resident!.id) return res.status(403).json({ error: "Only the host can cancel this session" });
 
   await db.prepare(`UPDATE games SET status = 'cancelled' WHERE id = ?`).run(req.params.id);
 
@@ -414,7 +583,7 @@ gamesRouter.post("/:id/cancel", requireResident, async (req, res) => {
       residentId: p.resident_id,
       kind: "game",
       title: `Cancelled: ${row.activity_label}`,
-      body: reason ? `The host has cancelled this game: ${reason}` : "The host has cancelled this game.",
+      body: reason ? `The host has cancelled this session: ${reason}` : "The host has cancelled this session.",
       listingType: "game",
       listingId: req.params.id,
       ref: req.params.id,
@@ -442,13 +611,13 @@ gamesRouter.put("/:id", requireResident, async (req, res) => {
     return res.status(400).json({ error: "A venue or a location is required" });
   }
   if (b.minParticipants !== undefined && (!Number.isInteger(b.minParticipants) || b.minParticipants < 1 || b.minParticipants > b.capacity)) {
-    return res.status(400).json({ error: "Minimum players must be a whole number between 1 and the game's capacity" });
+    return res.status(400).json({ error: "Minimum players must be a whole number between 1 and the session's capacity" });
   }
 
   const row = (await db.prepare(`SELECT * FROM games WHERE id = ?`).get(req.params.id)) as GameRow | undefined;
-  if (!row) return res.status(404).json({ error: "Game not found" });
-  if (row.host_resident_id !== req.resident!.id) return res.status(403).json({ error: "Only the host can edit this game" });
-  if (row.status === "cancelled") return res.status(409).json({ error: "This game has been cancelled and can no longer be edited" });
+  if (!row) return res.status(404).json({ error: "Session not found" });
+  if (row.host_resident_id !== req.resident!.id) return res.status(403).json({ error: "Only the host can edit this session" });
+  if (row.status === "cancelled") return res.status(409).json({ error: "This session has been cancelled and can no longer be edited" });
 
   const { n: joined } = (await db
     .prepare(`SELECT COUNT(*) as n FROM game_participants WHERE game_id = ? AND status IN ('joined', 'pending_payment')`)
@@ -545,59 +714,80 @@ interface CreateGameInput {
    * whoever's running this wizard is, by definition, the one creating the
    * game, regardless of which circle they're creating it for. */
   circleId?: string;
+  /** Phase 2 "Circles V2" — set when this game is being created by
+   * converting a confirmed circle_plans row (the "Create Activity" action).
+   * Unlike circleId above, this IS ownership/state-checked (see the route
+   * below) — converting someone else's plan, or a plan that isn't
+   * `confirmed`, is a real state-mutating action, not just "create a game
+   * tagged with a circle". */
+  planId?: string;
 }
 
-gamesRouter.post("/", requireResident, async (req, res) => {
-  const b = req.body as CreateGameInput;
-  if (!b.activityLabel || !b.date || !b.time || !b.capacity) {
-    return res.status(400).json({ error: "Activity, date, time and capacity are required" });
-  }
-  if (!b.centreId && !b.locationText) {
-    return res.status(400).json({ error: "A venue or a location is required" });
-  }
-  if (b.minParticipants !== undefined && (!Number.isInteger(b.minParticipants) || b.minParticipants < 1 || b.minParticipants > b.capacity)) {
-    return res.status(400).json({ error: "Minimum players must be a whole number between 1 and the game's capacity" });
-  }
+/** Shared by POST / below and Phase 2's Plan→Activity conversion
+ * (routes/circles.ts) — extracted verbatim from what used to be this
+ * route's own body (zero behavior change for the existing route). Owns:
+ * the insert transaction, the host auto-join, the plan-idea link/idempotency
+ * guard when planId is set, and every post-creation side effect (search
+ * alert matching, participation intent matching, follower notifications) —
+ * a game created by converting a Plan gets exactly the same downstream
+ * behaviour as one created directly. Validation (required fields, HTTP
+ * status codes) stays the caller's responsibility. */
+export async function createGameRow(input: CreateGameInput & { hostResidentId: string }): Promise<GameRow> {
   // The host is auto-joined below, so a threshold of 1 (or unset) is
   // already met at creation — only start pending if more than the host
   // is genuinely required.
-  const startsPending = !!b.minParticipants && b.minParticipants > 1;
-
+  const startsPending = !!input.minParticipants && input.minParticipants > 1;
   const id = crypto.randomUUID();
+
   await db.transaction(async (tx) => {
     await tx
       .prepare(
-        `INSERT INTO games (id, host_resident_id, activity_label, centre_id, location_text, date, time, skill_level, capacity, price_cents, visibility, solo_friendly, min_participants, confirmation_deadline, status, description, duration_minutes, equipment_needed, min_age, surface_type, indoor_outdoor, meeting_instructions, cancellation_policy, circle_id)
-         VALUES (@id, @hostResidentId, @activityLabel, @centreId, @locationText, @date, @time, @skillLevel, @capacity, @priceCents, @visibility, @soloFriendly, @minParticipants, @confirmationDeadline, @status, @description, @durationMinutes, @equipmentNeeded, @minAge, @surfaceType, @indoorOutdoor, @meetingInstructions, @cancellationPolicy, @circleId)`
+        `INSERT INTO games (id, host_resident_id, activity_label, centre_id, location_text, date, time, skill_level, capacity, price_cents, visibility, solo_friendly, min_participants, confirmation_deadline, status, description, duration_minutes, equipment_needed, min_age, surface_type, indoor_outdoor, meeting_instructions, cancellation_policy, circle_id, plan_id)
+         VALUES (@id, @hostResidentId, @activityLabel, @centreId, @locationText, @date, @time, @skillLevel, @capacity, @priceCents, @visibility, @soloFriendly, @minParticipants, @confirmationDeadline, @status, @description, @durationMinutes, @equipmentNeeded, @minAge, @surfaceType, @indoorOutdoor, @meetingInstructions, @cancellationPolicy, @circleId, @planId)`
       )
       .run({
         id,
-        hostResidentId: req.resident!.id,
-        activityLabel: b.activityLabel,
-        centreId: b.centreId ?? null,
-        locationText: b.locationText ?? "",
-        date: b.date,
-        time: b.time,
-        skillLevel: b.skillLevel ?? "",
-        capacity: b.capacity,
-        priceCents: b.priceCents ?? null,
-        visibility: b.visibility ?? "public",
-        soloFriendly: b.soloFriendly ? 1 : 0,
-        minParticipants: b.minParticipants ?? null,
-        confirmationDeadline: b.confirmationDeadline ?? null,
+        hostResidentId: input.hostResidentId,
+        activityLabel: input.activityLabel,
+        centreId: input.centreId ?? null,
+        locationText: input.locationText ?? "",
+        date: input.date,
+        time: input.time,
+        skillLevel: input.skillLevel ?? "",
+        capacity: input.capacity,
+        priceCents: input.priceCents ?? null,
+        visibility: input.visibility ?? "public",
+        soloFriendly: input.soloFriendly ? 1 : 0,
+        minParticipants: input.minParticipants ?? null,
+        confirmationDeadline: input.confirmationDeadline ?? null,
         status: startsPending ? "pending_participants" : "open",
-        description: b.description ?? null,
-        durationMinutes: b.durationMinutes ?? null,
-        equipmentNeeded: b.equipmentNeeded ?? null,
-        minAge: b.minAge ?? null,
-        surfaceType: b.surfaceType ?? "",
-        indoorOutdoor: b.indoorOutdoor ?? "",
-        meetingInstructions: b.meetingInstructions ?? null,
-        cancellationPolicy: b.cancellationPolicy ?? null,
-        circleId: b.circleId ?? null,
+        description: input.description ?? null,
+        durationMinutes: input.durationMinutes ?? null,
+        equipmentNeeded: input.equipmentNeeded ?? null,
+        minAge: input.minAge ?? null,
+        surfaceType: input.surfaceType ?? "",
+        indoorOutdoor: input.indoorOutdoor ?? "",
+        meetingInstructions: input.meetingInstructions ?? null,
+        cancellationPolicy: input.cancellationPolicy ?? null,
+        circleId: input.circleId ?? null,
+        planId: input.planId ?? null,
       });
     // The host is automatically a participant — they take one of the capacity spots.
-    await tx.prepare(`INSERT INTO game_participants (game_id, resident_id) VALUES (?, ?)`).run(id, req.resident!.id);
+    await tx.prepare(`INSERT INTO game_participants (game_id, resident_id) VALUES (?, ?)`).run(id, input.hostResidentId);
+
+    // Phase 2 "Circles V2" — atomically flip the plan-idea to
+    // activity_created and link it to this new game, guarded so two
+    // concurrent conversions of the same plan can never both succeed: the
+    // loser sees changes===0, throws, and its Game insert rolls back with
+    // it in the same transaction. Same idempotency idiom as the Stripe
+    // webhook's confirm* functions / the Phase 0 refund-race fix in
+    // vendorOperations.ts.
+    if (input.planId) {
+      const linkResult = await tx
+        .prepare(`UPDATE circle_plans SET status = 'activity_created', activity_source_type = 'game', activity_source_id = ? WHERE id = ? AND status = 'confirmed'`)
+        .run(id, input.planId);
+      if (linkResult.changes === 0) throw new ConflictError("This plan has already been converted into an activity");
+    }
   });
 
   const row = (await db.prepare(`SELECT * FROM games WHERE id = ?`).get(id)) as GameRow;
@@ -619,12 +809,48 @@ gamesRouter.post("/", requireResident, async (req, res) => {
   // Follow feature — only a verified Host's followers get notified (an
   // unverified resident hosting a one-off game isn't the "keep me in the
   // loop on this host" relationship Follow represents).
-  const hostRow = (await db.prepare(`SELECT host_status as hostStatus FROM residents WHERE id = ?`).get(req.resident!.id)) as { hostStatus: string } | undefined;
+  const hostRow = (await db.prepare(`SELECT host_status as hostStatus FROM residents WHERE id = ?`).get(input.hostResidentId)) as { hostStatus: string } | undefined;
   if (hostRow?.hostStatus === "verified") {
-    await notifyHostFollowers(req.resident!.id, { title: "New activity", body: `${row.activity_label} — ${row.date} at ${row.time}.`, ref: id });
+    await notifyHostFollowers(input.hostResidentId, { title: "New activity", body: `${row.activity_label} — ${row.date} at ${row.time}.`, ref: id });
   }
   if (row.centre_id) {
     await notifyCentreFollowers(row.centre_id, { title: "New activity at this venue", body: `${row.activity_label} — ${row.date} at ${row.time}.`, ref: id });
+  }
+
+  return row;
+}
+
+gamesRouter.post("/", requireResident, async (req, res) => {
+  const b = req.body as CreateGameInput;
+  if (!b.activityLabel || !b.date || !b.time || !b.capacity) {
+    return res.status(400).json({ error: "Activity, date, time and capacity are required" });
+  }
+  if (!b.centreId && !b.locationText) {
+    return res.status(400).json({ error: "A venue or a location is required" });
+  }
+  if (b.minParticipants !== undefined && (!Number.isInteger(b.minParticipants) || b.minParticipants < 1 || b.minParticipants > b.capacity)) {
+    return res.status(400).json({ error: "Minimum players must be a whole number between 1 and the session's capacity" });
+  }
+
+  // Phase 2 "Circles V2" — converting a confirmed plan-idea into a real
+  // activity is a state-mutating action gated to that circle's organiser,
+  // unlike the bare circleId tag above (which stays intentionally
+  // unvalidated — see CreateGameInput's own comment).
+  if (b.planId) {
+    const plan = (await db.prepare(`SELECT circle_id as circleId, status FROM circle_plans WHERE id = ?`).get(b.planId)) as { circleId: string; status: string } | undefined;
+    if (!plan || plan.circleId !== b.circleId) return res.status(404).json({ error: "Plan not found" });
+    if (plan.status !== "confirmed") return res.status(409).json({ error: "This plan isn't confirmed yet" });
+    if (!(await isCircleOrganiser(plan.circleId, req.resident!.id))) {
+      return res.status(403).json({ error: "Only the organiser can create the activity for this plan" });
+    }
+  }
+
+  let row: GameRow;
+  try {
+    row = await createGameRow({ ...b, hostResidentId: req.resident!.id });
+  } catch (e) {
+    if (e instanceof ConflictError) return res.status(409).json({ error: e.message });
+    throw e;
   }
 
   res.status(201).json(await toGameJson(row));
@@ -676,9 +902,26 @@ export async function checkMinParticipantsThreshold(gameId: string) {
 // stripeWebhook.ts confirms it — same never-trust-the-client contract as
 // bookings/registrations.
 gamesRouter.post("/:id/join", requireResident, async (req, res) => {
+  const { couponCode: rawCouponCode } = req.body as { couponCode?: string };
   let insertedRef: string | null = null;
   let checkoutRow: GameRow | null = null;
   let joinedRow: GameRow | null = null;
+  // Evaluated before the row-locked transaction below — coupon validity
+  // depends only on the game's price, not on the capacity race that
+  // transaction guards against — same order bookings.ts/registrations.ts
+  // already use. Skipped (not a 404) if the game doesn't exist; the
+  // transaction's own "Session not found" check handles that.
+  let discountCents = 0;
+  let appliedCouponCode: string | null = null;
+  if (rawCouponCode) {
+    const priceRow = (await db.prepare(`SELECT price_cents FROM games WHERE id = ?`).get(req.params.id)) as { price_cents: number | null } | undefined;
+    if (priceRow?.price_cents) {
+      const result = await evaluateCoupon(rawCouponCode, priceRow.price_cents, { listingType: "game", listingId: req.params.id });
+      if (!result.valid) return res.status(400).json({ error: result.error });
+      discountCents = result.discountCents!;
+      appliedCouponCode = result.code!;
+    }
+  }
   // An active (unexpired) waitlist offer holds its spot — without this, a
   // fresh join could grab a freed slot out from under the person it was
   // actually offered to, during their 48h claim window. Exclude this
@@ -690,26 +933,26 @@ gamesRouter.post("/:id/join", requireResident, async (req, res) => {
   try {
     await db.transaction(async (tx) => {
       const row = (await tx.prepare(`SELECT * FROM games WHERE id = ? FOR UPDATE`).get(req.params.id)) as GameRow | undefined;
-      if (!row) throw new ConflictError("Game not found");
+      if (!row) throw new ConflictError("Session not found");
       joinedRow = row;
       // A 'pending_participants' game (Phase 4) is still joinable — that's
       // exactly how it reaches its threshold — only 'cancelled' blocks it.
-      if (row.status !== "open" && row.status !== "pending_participants") throw new ConflictError("This game is no longer open");
+      if (row.status !== "open" && row.status !== "pending_participants") throw new ConflictError("This session is no longer open");
 
       const already = await tx.prepare(`SELECT id FROM game_participants WHERE game_id = ? AND resident_id = ?`).get(req.params.id, req.resident!.id);
-      if (already) throw new ConflictError("You've already joined this game");
+      if (already) throw new ConflictError("You've already joined this session");
 
       const { n: joined } = (await tx
         .prepare(`SELECT COUNT(*) as n FROM game_participants WHERE game_id = ? AND status IN ('joined', 'pending_payment')`)
         .get(req.params.id)) as { n: number };
-      if (computeCapacity(row.capacity, joined + reservedCount).isFull) throw new ConflictError("This game is full");
+      if (computeCapacity(row.capacity, joined + reservedCount).isFull) throw new ConflictError("This session is full");
 
       const isPaid = !!row.price_cents && row.price_cents > 0;
       if (isPaid) {
         const ref = generateRef("GJ");
         await tx
-          .prepare(`INSERT INTO game_participants (game_id, resident_id, ref, status, payment_status) VALUES (?, ?, ?, 'pending_payment', 'pending')`)
-          .run(req.params.id, req.resident!.id, ref);
+          .prepare(`INSERT INTO game_participants (game_id, resident_id, ref, status, payment_status, coupon_code) VALUES (?, ?, ?, 'pending_payment', 'pending', ?)`)
+          .run(req.params.id, req.resident!.id, ref, appliedCouponCode);
         insertedRef = ref;
         checkoutRow = row;
         return;
@@ -721,7 +964,7 @@ gamesRouter.post("/:id/join", requireResident, async (req, res) => {
         await notifyResident({
           residentId: row.host_resident_id,
           kind: "game",
-          title: `Your game is full: ${row.activity_label}`,
+          title: `Your session is full: ${row.activity_label}`,
           body: `${row.date} at ${row.time} — all ${row.capacity} spots are taken.`,
           listingType: "game",
           listingId: row.id,
@@ -762,13 +1005,16 @@ gamesRouter.post("/:id/join", requireResident, async (req, res) => {
   if (!insertedRef || !checkoutRow) return res.json({ ok: true });
 
   const row = checkoutRow as GameRow;
-  const pricing = computePricing(row.price_cents!, 0, 0, null);
+  const pricing = computePricing(row.price_cents!, 0, discountCents, appliedCouponCode);
   const result = await createCheckoutSession({
     ref: insertedRef,
     type: "game",
     customerEmail: req.resident!.email,
     residentId: req.resident!.id,
-    lineItems: pricingLineItems(pricing, { name: `${row.activity_label} — ${row.date} ${row.time}` }),
+    lineItems: pricingLineItems(pricing, {
+      name: `${row.activity_label} — ${row.date} ${row.time}`,
+      description: appliedCouponCode ? `(coupon ${appliedCouponCode} applied)` : undefined,
+    }),
     isNative: req.header("X-Client-Platform") === "mobile",
   });
   if (!result.ok) {
@@ -793,7 +1039,7 @@ gamesRouter.get("/status/:ref", requireResident, async (req, res) => {
        WHERE gp.ref = ? AND gp.resident_id = ?`
     )
     .get(req.params.ref, req.resident!.id);
-  if (!row) return res.status(404).json({ error: "Game join not found" });
+  if (!row) return res.status(404).json({ error: "Session join not found" });
   res.json(row);
 });
 
@@ -801,11 +1047,11 @@ gamesRouter.get("/status/:ref", requireResident, async (req, res) => {
 
 gamesRouter.post("/:id/waitlist", requireResident, async (req, res) => {
   const row = (await db.prepare(`SELECT activity_label FROM games WHERE id = ?`).get(req.params.id)) as { activity_label: string } | undefined;
-  if (!row) return res.status(404).json({ error: "Game not found" });
+  if (!row) return res.status(404).json({ error: "Session not found" });
   const existing = await db
     .prepare(`SELECT id FROM waitlist_entries WHERE listing_type = 'game' AND listing_id = ? AND resident_id = ? AND status = 'waiting'`)
     .get(req.params.id, req.resident!.id);
-  if (existing) return res.status(409).json({ error: "You're already on the waitlist for this game" });
+  if (existing) return res.status(409).json({ error: "You're already on the waitlist for this session" });
   await db
     .prepare(`INSERT INTO waitlist_entries (listing_type, listing_id, resident_id, client_id, name, email) VALUES ('game', ?, ?, '', ?, ?)`)
     .run(req.params.id, req.resident!.id, req.resident!.name, req.resident!.email);
@@ -819,9 +1065,68 @@ gamesRouter.delete("/:id/waitlist", requireResident, async (req, res) => {
   res.json({ ok: true });
 });
 
+/** Host-visible waitlist (Vendor-parity pass) — mirrors
+ * GET /vendor/clubs/:id/waitlist, ownership via host_resident_id instead of
+ * vendorIds. No host-facing waitlist visibility existed at all before this
+ * — only the resident's own self-service join/leave above. */
+gamesRouter.get("/:id/waitlist", requireResident, async (req, res) => {
+  const row = (await db.prepare(`SELECT host_resident_id FROM games WHERE id = ?`).get(req.params.id)) as { host_resident_id: string } | undefined;
+  if (!row) return res.status(404).json({ error: "Session not found" });
+  if (row.host_resident_id !== req.resident!.id) return res.status(403).json({ error: "Only the host can see this session's waitlist" });
+  const rows = await db
+    .prepare(
+      `SELECT id, name, email, status, created_at as createdAt, offer_expires_at as offerExpiresAt
+       FROM waitlist_entries WHERE listing_type = 'game' AND listing_id = ? AND status IN ('waiting', 'offered') ORDER BY id`
+    )
+    .all(req.params.id);
+  res.json(rows);
+});
+
+/** Host-side "invite this person" (Vendor-parity pass) — reuses the
+ * already-generic offerToWaitlistEntry() built for Vendor's club waitlist
+ * (waitlist.ts already accepts "game" as a listing type; no waitlist.ts
+ * changes needed here, just this route). */
+gamesRouter.post("/:id/waitlist/:entryId/offer", requireResident, async (req, res) => {
+  const row = (await db.prepare(`SELECT host_resident_id, activity_label FROM games WHERE id = ?`).get(req.params.id)) as
+    | { host_resident_id: string; activity_label: string }
+    | undefined;
+  if (!row) return res.status(404).json({ error: "Session not found" });
+  if (row.host_resident_id !== req.resident!.id) return res.status(403).json({ error: "Only the host can invite from the waitlist" });
+  const result = await offerToWaitlistEntry(Number(req.params.entryId), "game", req.params.id, row.activity_label);
+  if (!result.ok) return res.status(409).json({ error: result.error });
+  res.json({ ok: true });
+});
+
+// Self-leave. Hard-deletes the participant row (no 'cancelled' status exists
+// on game_participants — see the host-remove route above for the same
+// convention) — but a *paid* join leaving needs a signal somewhere, since
+// nothing else in this flow tells the host money may be owed back. No
+// refund automation here (same off-platform-refund convention as
+// POST /:id/cancel above) — this only closes the information gap, not the
+// money gap.
 gamesRouter.delete("/:id/join", requireResident, async (req, res) => {
+  const participant = (await db
+    .prepare(`SELECT payment_status as paymentStatus FROM game_participants WHERE game_id = ? AND resident_id = ? AND status = 'joined'`)
+    .get(req.params.id, req.resident!.id)) as { paymentStatus: string | null } | undefined;
+
   await db.prepare(`DELETE FROM game_participants WHERE game_id = ? AND resident_id = ? AND status = 'joined'`).run(req.params.id, req.resident!.id);
-  const row = (await db.prepare(`SELECT activity_label FROM games WHERE id = ?`).get(req.params.id)) as { activity_label: string } | undefined;
+
+  const row = (await db.prepare(`SELECT activity_label, host_resident_id as hostResidentId FROM games WHERE id = ?`).get(req.params.id)) as
+    | { activity_label: string; hostResidentId: string }
+    | undefined;
   if (row) promoteNextWaitlistEntry("game", req.params.id, row.activity_label);
+
+  if (row && participant?.paymentStatus === "paid" && row.hostResidentId !== req.resident!.id) {
+    await notifyResident({
+      residentId: row.hostResidentId,
+      kind: "game",
+      title: `${req.resident!.name} left ${row.activity_label}`,
+      body: `They'd paid to join — you may want to refund them directly.`,
+      listingType: "game",
+      listingId: req.params.id,
+      ref: req.params.id,
+    });
+  }
+
   res.json({ ok: true });
 });

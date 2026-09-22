@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { createCheckoutSession, pricingLineItems } from "../checkoutService.js";
 import { db } from "../db/index.js";
-import { notifyNewBookingOrRegistration } from "../notifications.js";
+import { notifyCancellation, notifyNewBookingOrRegistration } from "../notifications.js";
 import { computePricing } from "../pricing.js";
 import { BadRequestError, clientIdFrom, generateRef, isValidEmail } from "../util.js";
 
@@ -214,6 +214,70 @@ programsRouter.get("/enrollments/mine", async (req, res) => {
     )
     .all(clientId, req.resident?.id ?? "");
   res.json(rows);
+});
+
+/** Resident/guest self-cancel — Phase 0 protect. Programs previously had no
+ * cancel route at all, even though program_enrollments.status already
+ * supports 'cancelled' (only ever unused). Ownership matches this
+ * resource's own existing convention — client_id or a signed-in resident's
+ * id, the same OR-match GET /enrollments/mine already uses — rather than
+ * the booking/registration email-match pattern, since programs never had a
+ * separate email-based /lookup recovery flow to begin with.
+ *
+ * No cancellation-cutoff check, matching registrations.ts's precedent: one
+ * enrollment covers every session of a program, so it isn't tied to a
+ * single dated occurrence the way a booking is. No waitlist/capacity
+ * restoration call — programs have no waitlist concept. No refund here
+ * (same off-platform convention as bookings/registrations' guest-facing
+ * cancel) — see vendorPrograms.ts for the vendor-issued Stripe refund. */
+programsRouter.post("/enrollments/:ref/cancel", async (req, res) => {
+  let clientId: string;
+  try {
+    clientId = clientIdFrom(req);
+  } catch (e) {
+    if (e instanceof BadRequestError) return res.status(400).json({ error: e.message });
+    throw e;
+  }
+
+  const row = (await db
+    .prepare(
+      `SELECT pe.ref, pe.status, pe.payment_status as paymentStatus, pe.participant_name as participantName, pe.email,
+              p.title, p.listing_type as listingType, p.listing_id as listingId, p.vendor_id as vendorId
+       FROM program_enrollments pe JOIN programs p ON p.id = pe.program_id
+       WHERE pe.ref = ? AND (pe.client_id = ? OR (pe.resident_id IS NOT NULL AND pe.resident_id = ?))`
+    )
+    .get(req.params.ref, clientId, req.resident?.id ?? "")) as
+    | {
+        ref: string;
+        status: string;
+        paymentStatus: string;
+        participantName: string;
+        email: string;
+        title: string;
+        listingType: "centre" | "club";
+        listingId: string;
+        vendorId: string;
+      }
+    | undefined;
+  if (!row) return res.status(404).json({ error: "Enrollment not found" });
+  if (row.status === "cancelled") return res.status(409).json({ error: "This enrollment is already cancelled" });
+  if (row.paymentStatus !== "paid") return res.status(409).json({ error: "This enrollment can't be cancelled" });
+
+  await db.prepare(`UPDATE program_enrollments SET status = 'cancelled' WHERE ref = ?`).run(row.ref);
+
+  notifyCancellation({
+    kind: "program",
+    listingType: row.listingType,
+    listingId: row.listingId,
+    listingName: row.title,
+    vendorId: row.vendorId,
+    guestName: row.participantName,
+    guestEmail: row.email,
+    ref: row.ref,
+    detailsText: row.title,
+  }).catch((e) => console.error("[notifications] program enrollment cancellation notify failed:", e));
+
+  res.json({ ok: true });
 });
 
 programsRouter.get("/enrollments/status/:ref", async (req, res) => {

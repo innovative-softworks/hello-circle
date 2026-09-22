@@ -640,7 +640,7 @@ export function ExperienceKindBrowse({ kind, title, subtitle }: { kind: Experien
                 Didn't find the right one?
               </h2>
               <p style={{ margin: 0, color: "rgba(255,255,255,.72)", fontSize: 16 }}>
-                {kind === "adventure" ? "Browse workshops and classes, or just join a game happening nearby." : "Browse guided outdoor trips, or just join a game happening nearby."}
+                {kind === "adventure" ? "Browse workshops and classes, or just join a session happening nearby." : "Browse guided outdoor trips, or just join a session happening nearby."}
               </p>
             </div>
             <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>

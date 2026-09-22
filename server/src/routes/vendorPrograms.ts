@@ -1,8 +1,11 @@
 import crypto from "node:crypto";
 import { Router } from "express";
 import { assertPlatformRole } from "../auth.js";
+import { writeAudit } from "../audit.js";
+import { issueStripeRefund } from "../checkoutService.js";
 import { db } from "../db/index.js";
 import { orgFeatureFlags } from "../db/queries.js";
+import { notifyCancellation, notifyRefund } from "../notifications.js";
 import { inClause, ownsListing } from "./vendorHelpers.js";
 import { notifyCentreFollowers, notifyVendorFollowers } from "./follows.js";
 import { toProgramJson, type ProgramRow } from "./programs.js";
@@ -245,6 +248,112 @@ vendorProgramsRouter.post("/program-sessions/:sessionId/attendance/:enrollmentId
        ON DUPLICATE KEY UPDATE checked_in_at = NOW(), checked_in_by = VALUES(checked_in_by), status = VALUES(status)`
     )
     .run(ref, req.user!.id, status);
+  res.json({ ok: true });
+});
+
+// --- enrollment cancel + refund (Phase 0 protect) ---------------------
+// Programs previously had no vendor-facing cancel/refund route at all.
+// Same shape as vendorOperations.ts's booking/registration cancel+refund —
+// status-only cancel (no Stripe call), finance-gated Stripe refund — but
+// role-gated by this program's own listing_type via programOwnership()
+// (centre_manager or facility_manager) for cancel, same as every other
+// program mutation in this file, and the refund route is built with the
+// payment_status='paid' idempotency guard from day one (vendorOperations.ts's
+// booking/registration refund routes originally shipped without it — see
+// that file's Phase 0 fix).
+
+vendorProgramsRouter.post("/programs/:programId/enrollments/:enrollmentId/cancel", async (req, res) => {
+  const { owns, requiredRole } = await programOwnership(req.vendorIds!, req.params.programId);
+  if (!owns) return res.status(403).json({ error: "Not your program" });
+  if (!assertPlatformRole(req, res, requiredRole!)) return;
+
+  const row = (await db
+    .prepare(
+      `SELECT pe.ref, pe.status, pe.participant_name as participantName, pe.email,
+              p.title, p.listing_type as listingType, p.listing_id as listingId, p.vendor_id as vendorId
+       FROM program_enrollments pe JOIN programs p ON p.id = pe.program_id
+       WHERE pe.id = ? AND pe.program_id = ?`
+    )
+    .get(req.params.enrollmentId, req.params.programId)) as
+    | { ref: string; status: string; participantName: string; email: string; title: string; listingType: "centre" | "club"; listingId: string; vendorId: string }
+    | undefined;
+  if (!row) return res.status(404).json({ error: "Enrollment not found" });
+  if (row.status === "cancelled") return res.status(409).json({ error: "This enrollment is already cancelled" });
+
+  await db.prepare(`UPDATE program_enrollments SET status = 'cancelled' WHERE ref = ?`).run(row.ref);
+
+  await writeAudit({
+    actorUserId: req.user!.id,
+    action: "program_enrollment.cancelled_by_vendor",
+    objectType: "program_enrollment",
+    objectId: row.ref,
+    previousValue: { status: row.status },
+    newValue: { status: "cancelled" },
+  });
+
+  notifyCancellation({
+    kind: "program",
+    listingType: row.listingType,
+    listingId: row.listingId,
+    listingName: row.title,
+    vendorId: row.vendorId,
+    guestName: row.participantName,
+    guestEmail: row.email,
+    ref: row.ref,
+    detailsText: row.title,
+  }).catch((e) => console.error("[notifications] vendor program enrollment cancellation notify failed:", e));
+
+  res.json({ ok: true });
+});
+
+vendorProgramsRouter.post("/programs/:programId/enrollments/:enrollmentId/refund", async (req, res) => {
+  const { owns } = await programOwnership(req.vendorIds!, req.params.programId);
+  if (!owns) return res.status(403).json({ error: "Not your program" });
+  if (!assertPlatformRole(req, res, "finance")) return;
+
+  const row = (await db
+    .prepare(
+      `SELECT pe.ref, pe.payment_status as paymentStatus, pe.stripe_session_id as stripeSessionId, pe.participant_name as participantName, pe.email,
+              p.title, p.listing_type as listingType, p.listing_id as listingId, p.vendor_id as vendorId
+       FROM program_enrollments pe JOIN programs p ON p.id = pe.program_id
+       WHERE pe.id = ? AND pe.program_id = ?`
+    )
+    .get(req.params.enrollmentId, req.params.programId)) as
+    | { ref: string; paymentStatus: string; stripeSessionId: string | null; participantName: string; email: string; title: string; listingType: "centre" | "club"; listingId: string; vendorId: string }
+    | undefined;
+  if (!row) return res.status(404).json({ error: "Enrollment not found" });
+  if (row.paymentStatus === "refunded") return res.status(409).json({ error: "This enrollment has already been refunded" });
+  if (row.paymentStatus !== "paid") return res.status(400).json({ error: "Only a paid enrollment can be refunded" });
+  if (!row.stripeSessionId) return res.status(400).json({ error: "This was a cash enrollment — refund the participant directly, not through Stripe" });
+
+  const result = await issueStripeRefund(row.stripeSessionId);
+  if (!result.ok) return res.status(502).json({ error: result.error });
+
+  const updateResult = await db.prepare(`UPDATE program_enrollments SET payment_status = 'refunded' WHERE ref = ? AND payment_status = 'paid'`).run(row.ref);
+  if (updateResult.changes === 0) return res.status(409).json({ error: "This enrollment has already been refunded" });
+
+  await writeAudit({
+    actorUserId: req.user!.id,
+    action: "program_enrollment.refunded_by_vendor",
+    objectType: "program_enrollment",
+    objectId: row.ref,
+    previousValue: { paymentStatus: row.paymentStatus },
+    newValue: { paymentStatus: "refunded", amountCents: result.amountCents },
+  });
+
+  notifyRefund({
+    kind: "program",
+    listingType: row.listingType,
+    listingId: row.listingId,
+    listingName: row.title,
+    vendorId: row.vendorId,
+    guestName: row.participantName,
+    guestEmail: row.email,
+    ref: row.ref,
+    detailsText: row.title,
+    refundedCents: result.amountCents,
+  }).catch((e) => console.error("[notifications] program enrollment refund notify failed:", e));
+
   res.json({ ok: true });
 });
 

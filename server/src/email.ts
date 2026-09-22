@@ -34,6 +34,11 @@ export interface MailMessage {
    * strips that raw URL from its own paragraph flow so it isn't shown both
    * as a plain link and as a button. */
   cta?: { label: string; url: string };
+  /** Overrides the Reply-To header — `from` is MAIL_FROM (a noreply
+   * address in production), so any call site where a real reply is
+   * plausible (e.g. the magic-link sign-in email) should set this to a
+   * real, monitored inbox instead of leaving replies to land on noreply. */
+  replyTo?: string;
 }
 
 const EMAIL_FONT = "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif";
@@ -128,7 +133,7 @@ export async function sendMail(msg: MailMessage): Promise<void> {
     // by spam filters); html is generated from it here so no call site has
     // to maintain two copies of the same copy.
     const html = wrapEmailHtml(msg.subject, textToHtmlBody(msg.text, msg.cta));
-    await transporter.sendMail({ from: MAIL_FROM, to: msg.to, subject: msg.subject, text: msg.text, html });
+    await transporter.sendMail({ from: MAIL_FROM, to: msg.to, subject: msg.subject, text: msg.text, html, replyTo: msg.replyTo });
   } catch (e) {
     console.error(`[email] failed to send to ${msg.to}:`, e instanceof Error ? e.message : e);
   }

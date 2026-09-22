@@ -11,6 +11,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@resvg/resvg-js": "^2.6.2",
     "bcryptjs": "^3.0.3",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",
@@ -21,6 +22,7 @@
     "multer": "^2.2.0",
     "mysql2": "^3.11.5",
     "nodemailer": "^9.0.3",
+    "satori": "^0.33.4",
     "stripe": "^22.3.2"
   },
   "devDependencies": {

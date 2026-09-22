@@ -897,7 +897,7 @@ export interface ScheduledActivity {
   lng: number | null;
 }
 
-interface GameRow {
+export interface GameRow {
   id: string;
   activity_label: string;
   date: string;
@@ -913,7 +913,7 @@ interface GameRow {
   lng: number | string | null;
 }
 
-interface ProgramSessionRow {
+export interface ProgramSessionRow {
   id: string;
   date: string;
   time: string;
@@ -929,7 +929,7 @@ interface ProgramSessionRow {
   lng: number | string | null;
 }
 
-interface ClubSessionRow {
+export interface ClubSessionRow {
   id: string;
   day_of_week: number;
   time: string;
@@ -962,7 +962,7 @@ export const ASSUMED_DURATION_MINUTES: Record<ScheduledActivity["kind"], number>
   program_session: 0, // unused — program sessions always pass their own real duration
 };
 
-function computeIsLive(kind: ScheduledActivity["kind"], date: string, time: string, durationMinutes: number, now: Date): boolean {
+export function computeIsLive(kind: ScheduledActivity["kind"], date: string, time: string, durationMinutes: number, now: Date): boolean {
   const [hour, minute] = time.split(":").map(Number);
   const start = irelandWallTimeToUtc(date, hour, minute);
   const end = new Date(start.getTime() + (kind === "program_session" ? durationMinutes : ASSUMED_DURATION_MINUTES[kind]) * 60000);

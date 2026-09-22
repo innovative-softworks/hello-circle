@@ -50,8 +50,16 @@ export function MyLifeCircles({ circles }: { circles: Circle[] }) {
               )}
             </div>
           </div>
-          <div style={{ flex: "none", textAlign: "right" }}>
-            {c.nextPlan ? (
+          <div style={{ flex: "none", textAlign: "right", maxWidth: 140 }}>
+            {c.activePlan ? (
+              // Phase 2 "Circles V2" — an explicit plan-idea (real
+              // circle_id relationship) takes priority over the fuzzy
+              // nextPlan match below when both exist.
+              <>
+                <div style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: ".04em", color: colors.mutedLight, marginBottom: 2 }}>PLANNING</div>
+                <div style={{ fontSize: 13.5, fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{c.activePlan.title}</div>
+              </>
+            ) : c.nextPlan ? (
               <>
                 <div style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: ".04em", color: colors.mutedLight, marginBottom: 2 }}>NEXT</div>
                 <div style={{ fontSize: 13.5, fontWeight: 700 }}>{dateLabel(c.nextPlan.date)} · {c.nextPlan.time}</div>

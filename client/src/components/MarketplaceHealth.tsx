@@ -39,7 +39,7 @@ const FUNNEL_LABELS: Record<string, string> = {
   intent_created: "Intent created",
   match_notified: "Matched (notified)",
   match_viewed: "Match viewed",
-  game_joined: "Joined a game",
+  game_joined: "Joined a session",
   circle_joined: "Joined a Circle",
   attended: "Attended",
   repeat_joined: "Repeat join",
@@ -61,9 +61,9 @@ export function MarketplaceHealthView({
     <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
       <Card>
         <h4 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 16, margin: "0 0 4px" }}>Supply</h4>
-        <p style={{ fontSize: 12.5, color: colors.mutedLight, margin: "0 0 8px" }}>Upcoming games/circles and who's hosting them, platform-wide.</p>
+        <p style={{ fontSize: 12.5, color: colors.mutedLight, margin: "0 0 8px" }}>Upcoming sessions/circles and who's hosting them, platform-wide.</p>
         <div style={{ display: "flex", flexWrap: "wrap" }}>
-          {statBlock(supply.upcomingGames, "Upcoming games")}
+          {statBlock(supply.upcomingGames, "Upcoming sessions")}
           {statBlock(supply.openSpots, "Open spots")}
           {statBlock(supply.activeCircles, "Active Circles")}
           {statBlock(supply.activeHosts, "Hosts (last 30 days)")}
@@ -87,7 +87,7 @@ export function MarketplaceHealthView({
           Demand (active interest) vs. supply (open spots + upcoming plans), ranked by combined signal.
         </p>
         {liquidity.length === 0 ? (
-          <EmptyState icon={<SearchIcon size={22} />} title="Nothing to score yet" subtitle="Once intents or games start landing for an activity+county pair, it'll show up here." />
+          <EmptyState icon={<SearchIcon size={22} />} title="Nothing to score yet" subtitle="Once intents or sessions start landing for an activity+county pair, it'll show up here." />
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
             {liquidity.map((row: LiquidityScore) => (

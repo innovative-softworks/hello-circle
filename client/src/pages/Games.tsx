@@ -470,7 +470,7 @@ function JoinAuthModal({ open, game, onClose, onSignedIn }: { open: boolean; gam
           />
         ) : (
           <>
-            <h3 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 17, margin: "0 0 4px" }}>Join this game</h3>
+            <h3 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 17, margin: "0 0 4px" }}>Join this session</h3>
             <p style={{ fontSize: 13.5, color: colors.muted, lineHeight: 1.5, margin: "0 0 16px" }}>
               Sign in or create an account to confirm your place.
             </p>
@@ -655,7 +655,7 @@ export function Games() {
       setMyGameIds((prev) => new Set(prev).add(id));
       load();
     } catch (e) {
-      alert(e instanceof Error ? e.message : "Couldn't join this game");
+      alert(e instanceof Error ? e.message : "Couldn't join this session");
     } finally {
       setJoiningId(null);
     }
@@ -798,12 +798,12 @@ export function Games() {
       <section className="section-pad" style={{ maxWidth, margin: "0 auto", padding: "36px 24px 24px" }}>
         <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
           <div>
-            <PageTitle>Join a game</PageTitle>
+            <PageTitle>Join a session</PageTitle>
             <p style={{ color: colors.mutedLight, fontSize: 15, margin: 0 }}>Find something nearby and jump in.</p>
           </div>
           {resident && (
             <button onClick={openCreateForm} style={{ background: "none", border: "none", padding: "6px 0", cursor: "pointer", fontSize: 13.5, fontWeight: 700, color: colors.muted }}>
-              Host a game instead →
+              Host a session instead →
             </button>
           )}
         </div>
@@ -919,8 +919,8 @@ export function Games() {
               <div style={{ display: "flex", alignItems: "flex-start", gap: 10, background: "rgba(232,163,58,.12)", border: "1px solid rgba(232,163,58,.3)", borderRadius: 12, padding: "12px 16px", marginBottom: 20 }}>
                 <LightbulbIcon size={16} style={{ color: colors.gold, flex: "none", marginTop: 1 }} />
                 <div>
-                  <div style={{ fontSize: 13.5, fontWeight: 700, color: colors.text }}>Showing the best games you can join right now</div>
-                  <div style={{ fontSize: 12.5, color: colors.mutedLight, marginTop: 1 }}>Prioritising games that need more players and starting soon.</div>
+                  <div style={{ fontSize: 13.5, fontWeight: 700, color: colors.text }}>Showing the best sessions you can join right now</div>
+                  <div style={{ fontSize: 12.5, color: colors.mutedLight, marginTop: 1 }}>Prioritising sessions that need more players and starting soon.</div>
                 </div>
               </div>
             )}
@@ -948,7 +948,7 @@ export function Games() {
             ) : sorted.length === 0 ? (
               <EmptyState
                 icon={<UsersIcon size={22} />}
-                title={games.length === 0 ? "No open games yet" : "Nothing matching that yet."}
+                title={games.length === 0 ? "No open sessions yet" : "Nothing matching that yet."}
                 subtitle={
                   games.length === 0
                     ? "Be the first to start one."

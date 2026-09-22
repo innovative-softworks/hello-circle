@@ -4,10 +4,13 @@ import { logEvent } from "../analytics.js";
 import { computeCapacity } from "../capacity.js";
 import { db } from "../db/index.js";
 import { getCircleSuggestions } from "../db/queries.js";
+import { createGameRow } from "./games.js";
 import { irelandTodayIso } from "../irelandTime.js";
 import { notifyResident } from "../notifications.js";
 import { requireResident } from "../residents.js";
 import { generateSlug } from "../slugify.js";
+import { getShareData, type ShareEntityType } from "./sharing.js";
+import { isMember, isOrganiser } from "./circleHelpers.js";
 
 export const circlesRouter = Router();
 
@@ -28,15 +31,6 @@ interface CircleRow {
   who_can_join: string | null;
   circle_values: string | null;
   join_mode: "open" | "approval" | "invite";
-}
-
-/** Organiser-only actions (invite, close, close a poll) — the creator gets
- * role='organiser' at creation (see POST / below); anyone else is 'member'. */
-async function isOrganiser(circleId: string, residentId: string): Promise<boolean> {
-  const row = (await db.prepare(`SELECT role FROM circle_members WHERE circle_id = ? AND resident_id = ?`).get(circleId, residentId)) as
-    | { role: string }
-    | undefined;
-  return row?.role === "organiser";
 }
 
 interface NextPlan {
@@ -87,6 +81,33 @@ async function plansThisMonthFor(activityLabel: string): Promise<number> {
   return n;
 }
 
+interface ActivePlan {
+  id: string;
+  title: string;
+  status: "idea" | "confirmed";
+  proposedDate: string | null;
+  proposedTime: string | null;
+}
+
+// Phase 2 "Circles V2" — the *explicit* counterpart to nextPlanFor() above:
+// this Circle's own most-recent not-yet-converted plan-idea, found via
+// circle_plans.circle_id, never a fuzzy activity-label match. Deliberately
+// separate from nextPlanFor/plansThisMonthFor, which stay untouched (see
+// their own comments) — "what is this Circle actively considering" and
+// "what game happens to share this Circle's activity label" are honestly
+// different questions.
+async function activePlanFor(circleId: string): Promise<ActivePlan | null> {
+  const row = (await db
+    .prepare(
+      `SELECT id, title, status, proposed_date as proposedDate, proposed_time as proposedTime
+       FROM circle_plans WHERE circle_id = ? AND status IN ('idea', 'confirmed')
+       ORDER BY created_at DESC LIMIT 1`
+    )
+    .get(circleId)) as { id: string; title: string; status: "idea" | "confirmed"; proposedDate: string; proposedTime: string } | undefined;
+  if (!row) return null;
+  return { id: row.id, title: row.title, status: row.status, proposedDate: row.proposedDate || null, proposedTime: row.proposedTime || null };
+}
+
 async function toCircleJson(row: CircleRow) {
   const { n: members } = (await db.prepare(`SELECT COUNT(*) as n FROM circle_members WHERE circle_id = ?`).get(row.id)) as { n: number };
   // "Host" trust tier (IA spec five-layer audit) — badge-only, same
@@ -95,7 +116,7 @@ async function toCircleJson(row: CircleRow) {
   const creator = (await db.prepare(`SELECT name, host_status as hostStatus FROM residents WHERE id = ?`).get(row.created_by_resident_id)) as
     | { name: string; hostStatus: string }
     | undefined;
-  const [nextPlan, plansThisMonth] = await Promise.all([nextPlanFor(row.activity_label), plansThisMonthFor(row.activity_label)]);
+  const [nextPlan, plansThisMonth, activePlan] = await Promise.all([nextPlanFor(row.activity_label), plansThisMonthFor(row.activity_label), activePlanFor(row.id)]);
   return {
     id: row.id,
     name: row.name,
@@ -114,6 +135,7 @@ async function toCircleJson(row: CircleRow) {
     imageUrl: row.image_url || null,
     nextPlan,
     plansThisMonth,
+    activePlan,
     joinMode: row.join_mode,
     whatWeDo: row.what_we_do,
     whoCanJoin: row.who_can_join,
@@ -342,6 +364,226 @@ circlesRouter.get("/:id/plans", requireResident, async (req, res) => {
     )
     .all(circle.id)) as { id: string; activityLabel: string; date: string; time: string; status: string; capacity: number; centreName: string | null; joined: number }[];
   res.json(rows);
+});
+
+// Phase 2 "Circles V2" — "plan-ideas": the new, explicit "what should this
+// Circle do next" object. Named "plan-ideas" (not "plans") specifically to
+// avoid colliding with the existing GET /:id/plans above (real
+// games.circle_id rows, organiser-only) — see the Phase 2 plan doc's
+// naming-collision note. A plan-idea is never itself a transaction system:
+// no payment/capacity/attendance lives here, only the state machine that
+// leads to a real Game (see POST /api/games's planId handling).
+
+interface CirclePlanRow {
+  id: string;
+  circle_id: string;
+  created_by_resident_id: string;
+  title: string;
+  note: string;
+  status: string;
+  proposed_date: string;
+  proposed_time: string;
+  location_text: string;
+  activity_source_type: string | null;
+  activity_source_id: string | null;
+  created_at: string;
+  confirmed_at: string | null;
+  cancelled_at: string | null;
+}
+
+/** Once a plan-idea is converted (activity_source_* set), the linked Game is
+ * the source of truth for date/time/status — this never trusts a possibly-
+ * stale copy on the plan row itself (Phase 2 plan's Owner Decision #3).
+ * `completed` is a derived display value (the linked game's date has
+ * passed), never a stored transition — no background job flips it. */
+async function toCirclePlanJson(row: CirclePlanRow) {
+  const creator = (await db.prepare(`SELECT name FROM residents WHERE id = ?`).get(row.created_by_resident_id)) as { name: string } | undefined;
+
+  let activity: { id: string; date: string; time: string; status: string; spotsLeft: number | null; joined: number | null } | null = null;
+  let displayStatus = row.status;
+  if (row.activity_source_type === "game" && row.activity_source_id) {
+    const game = (await db
+      .prepare(
+        `SELECT g.id, g.date, g.time, g.status, g.capacity,
+                (SELECT COUNT(*) FROM game_participants gp WHERE gp.game_id = g.id AND gp.status = 'joined') as joined
+         FROM games g WHERE g.id = ?`
+      )
+      .get(row.activity_source_id)) as { id: string; date: string; time: string; status: string; capacity: number; joined: number } | undefined;
+    if (game) {
+      activity = { id: game.id, date: game.date, time: game.time, status: game.status, spotsLeft: computeCapacity(game.capacity, game.joined).spotsLeft ?? null, joined: game.joined };
+      // Owner Decision #2 — a cancelled linked Activity doesn't revert the
+      // plan to 'idea'; the plan stays displayed as activity_created and the
+      // client reads activity.status==='cancelled' for "Activity cancelled" copy.
+      if (game.status !== "cancelled" && game.date < irelandTodayIso()) displayStatus = "completed";
+    }
+  }
+
+  return {
+    id: row.id,
+    circleId: row.circle_id,
+    createdByResidentId: row.created_by_resident_id,
+    createdByName: creator?.name ?? "",
+    title: row.title,
+    note: row.note,
+    status: displayStatus,
+    proposedDate: row.proposed_date || null,
+    proposedTime: row.proposed_time || null,
+    locationText: row.location_text || null,
+    activitySourceType: row.activity_source_type,
+    activitySourceId: row.activity_source_id,
+    activity,
+    createdAt: row.created_at,
+    confirmedAt: row.confirmed_at,
+    cancelledAt: row.cancelled_at,
+  };
+}
+
+circlesRouter.get("/:id/plan-ideas", async (req, res) => {
+  const circle = (await db.prepare(`SELECT id FROM circles WHERE slug = ? OR id = ?`).get(req.params.id, req.params.id)) as { id: string } | undefined;
+  if (!circle) return res.status(404).json({ error: "Circle not found" });
+  const rows = (await db.prepare(`SELECT * FROM circle_plans WHERE circle_id = ? ORDER BY created_at DESC`).all(circle.id)) as CirclePlanRow[];
+  res.json(await Promise.all(rows.map(toCirclePlanJson)));
+});
+
+circlesRouter.post("/:id/plan-ideas", requireResident, async (req, res) => {
+  const circle = (await db.prepare(`SELECT id, name FROM circles WHERE slug = ? OR id = ?`).get(req.params.id, req.params.id)) as { id: string; name: string } | undefined;
+  if (!circle) return res.status(404).json({ error: "Circle not found" });
+  if (!(await isMember(circle.id, req.resident!.id))) return res.status(403).json({ error: "Only circle members can propose a plan" });
+
+  const { title, note, proposedDate, proposedTime, locationText } = req.body as {
+    title?: string;
+    note?: string;
+    proposedDate?: string;
+    proposedTime?: string;
+    locationText?: string;
+  };
+  if (!title || !title.trim()) return res.status(400).json({ error: "What should the Circle do? is required" });
+
+  const id = crypto.randomUUID();
+  await db
+    .prepare(
+      `INSERT INTO circle_plans (id, circle_id, created_by_resident_id, title, note, proposed_date, proposed_time, location_text)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+    )
+    .run(id, circle.id, req.resident!.id, title.trim(), note ?? "", proposedDate ?? "", proposedTime ?? "", locationText ?? "");
+
+  const proposer = (await db.prepare(`SELECT name FROM residents WHERE id = ?`).get(req.resident!.id)) as { name: string } | undefined;
+  const members = (await db.prepare(`SELECT resident_id FROM circle_members WHERE circle_id = ? AND resident_id != ?`).all(circle.id, req.resident!.id)) as { resident_id: string }[];
+  for (const m of members) {
+    await notifyResident({
+      residentId: m.resident_id,
+      kind: "circle",
+      title: `${proposer?.name ?? "Someone"} suggested ${title.trim()}`,
+      body: `In ${circle.name}${note ? ` — ${note}` : ""}`,
+      listingType: "circle",
+      listingId: circle.id,
+      ref: id,
+    });
+  }
+
+  const row = (await db.prepare(`SELECT * FROM circle_plans WHERE id = ?`).get(id)) as CirclePlanRow;
+  res.status(201).json(await toCirclePlanJson(row));
+});
+
+circlesRouter.get("/:id/plan-ideas/:planId", async (req, res) => {
+  const circle = (await db.prepare(`SELECT id FROM circles WHERE slug = ? OR id = ?`).get(req.params.id, req.params.id)) as { id: string } | undefined;
+  if (!circle) return res.status(404).json({ error: "Circle not found" });
+  const row = (await db.prepare(`SELECT * FROM circle_plans WHERE id = ? AND circle_id = ?`).get(req.params.planId, circle.id)) as CirclePlanRow | undefined;
+  if (!row) return res.status(404).json({ error: "Plan not found" });
+  res.json(await toCirclePlanJson(row));
+});
+
+circlesRouter.patch("/:id/plan-ideas/:planId", requireResident, async (req, res) => {
+  const circle = (await db.prepare(`SELECT id FROM circles WHERE slug = ? OR id = ?`).get(req.params.id, req.params.id)) as { id: string } | undefined;
+  if (!circle) return res.status(404).json({ error: "Circle not found" });
+  const plan = (await db.prepare(`SELECT * FROM circle_plans WHERE id = ? AND circle_id = ?`).get(req.params.planId, circle.id)) as CirclePlanRow | undefined;
+  if (!plan) return res.status(404).json({ error: "Plan not found" });
+  if (plan.status === "activity_created" || plan.status === "cancelled") {
+    return res.status(409).json({ error: "This plan can no longer be edited" });
+  }
+  const organiser = await isOrganiser(circle.id, req.resident!.id);
+  const isCreator = plan.created_by_resident_id === req.resident!.id;
+  if (!organiser && !(isCreator && plan.status === "idea")) {
+    return res.status(403).json({ error: "You can't edit this plan" });
+  }
+
+  const { title, note, proposedDate, proposedTime, locationText } = req.body as {
+    title?: string;
+    note?: string;
+    proposedDate?: string;
+    proposedTime?: string;
+    locationText?: string;
+  };
+  await db
+    .prepare(
+      `UPDATE circle_plans SET title = COALESCE(?, title), note = COALESCE(?, note), proposed_date = COALESCE(?, proposed_date),
+       proposed_time = COALESCE(?, proposed_time), location_text = COALESCE(?, location_text) WHERE id = ?`
+    )
+    .run(title?.trim(), note, proposedDate, proposedTime, locationText, plan.id);
+
+  const updated = (await db.prepare(`SELECT * FROM circle_plans WHERE id = ?`).get(plan.id)) as CirclePlanRow;
+  res.json(await toCirclePlanJson(updated));
+});
+
+circlesRouter.post("/:id/plan-ideas/:planId/confirm", requireResident, async (req, res) => {
+  const circle = (await db.prepare(`SELECT id, name FROM circles WHERE slug = ? OR id = ?`).get(req.params.id, req.params.id)) as { id: string; name: string } | undefined;
+  if (!circle) return res.status(404).json({ error: "Circle not found" });
+  if (!(await isOrganiser(circle.id, req.resident!.id))) return res.status(403).json({ error: "Only the organiser can confirm a plan" });
+  const plan = (await db.prepare(`SELECT status, title FROM circle_plans WHERE id = ? AND circle_id = ?`).get(req.params.planId, circle.id)) as { status: string; title: string } | undefined;
+  if (!plan) return res.status(404).json({ error: "Plan not found" });
+  if (plan.status !== "idea") return res.status(409).json({ error: "Only an idea can be confirmed" });
+
+  await db.prepare(`UPDATE circle_plans SET status = 'confirmed', confirmed_at = NOW() WHERE id = ?`).run(req.params.planId);
+
+  const members = (await db.prepare(`SELECT resident_id FROM circle_members WHERE circle_id = ?`).all(circle.id)) as { resident_id: string }[];
+  for (const m of members) {
+    await notifyResident({
+      residentId: m.resident_id,
+      kind: "circle",
+      title: `${plan.title} is confirmed`,
+      body: `${circle.name} has agreed to make this happen.`,
+      listingType: "circle",
+      listingId: circle.id,
+      ref: req.params.planId,
+    });
+  }
+
+  const updated = (await db.prepare(`SELECT * FROM circle_plans WHERE id = ?`).get(req.params.planId)) as CirclePlanRow;
+  res.json(await toCirclePlanJson(updated));
+});
+
+circlesRouter.post("/:id/plan-ideas/:planId/cancel", requireResident, async (req, res) => {
+  const circle = (await db.prepare(`SELECT id, name FROM circles WHERE slug = ? OR id = ?`).get(req.params.id, req.params.id)) as { id: string; name: string } | undefined;
+  if (!circle) return res.status(404).json({ error: "Circle not found" });
+  const plan = (await db
+    .prepare(`SELECT status, title, created_by_resident_id as createdByResidentId FROM circle_plans WHERE id = ? AND circle_id = ?`)
+    .get(req.params.planId, circle.id)) as { status: string; title: string; createdByResidentId: string } | undefined;
+  if (!plan) return res.status(404).json({ error: "Plan not found" });
+  if (plan.status !== "idea" && plan.status !== "confirmed") {
+    return res.status(409).json({ error: "This plan can no longer be cancelled here — cancel the activity instead" });
+  }
+  const organiser = await isOrganiser(circle.id, req.resident!.id);
+  const isCreator = plan.createdByResidentId === req.resident!.id;
+  if (!organiser && !(isCreator && plan.status === "idea")) {
+    return res.status(403).json({ error: "You can't cancel this plan" });
+  }
+
+  await db.prepare(`UPDATE circle_plans SET status = 'cancelled', cancelled_at = NOW() WHERE id = ?`).run(req.params.planId);
+
+  const members = (await db.prepare(`SELECT resident_id FROM circle_members WHERE circle_id = ? AND resident_id != ?`).all(circle.id, req.resident!.id)) as { resident_id: string }[];
+  for (const m of members) {
+    await notifyResident({
+      residentId: m.resident_id,
+      kind: "circle",
+      title: `${plan.title} was cancelled`,
+      body: `This plan won't be happening.`,
+      listingType: "circle",
+      listingId: circle.id,
+      ref: req.params.planId,
+    });
+  }
+
+  res.json({ ok: true });
 });
 
 const RECENT_ACTIVITY_LIMIT = 3;
@@ -718,6 +960,58 @@ circlesRouter.post("/:id/members/:residentId/remove", requireResident, async (re
   res.json({ ok: true });
 });
 
+// Vendor-parity pass, Phase 26 — co-organisers. `role` already supports more
+// than one 'organiser' per circle_members row (isOrganiser() above is
+// already organiser-count-agnostic — it just checks this one member's own
+// row) but no write path ever set it past creation. Promote is organiser-only;
+// demote is blocked from removing the last organiser, so a circle can never
+// end up with zero.
+circlesRouter.post("/:id/members/:residentId/promote", requireResident, async (req, res) => {
+  if (!(await isOrganiser(req.params.id, req.resident!.id))) return res.status(403).json({ error: "Only an organiser can promote a member" });
+  const info = await db
+    .prepare(`UPDATE circle_members SET role = 'organiser' WHERE circle_id = ? AND resident_id = ? AND role != 'organiser'`)
+    .run(req.params.id, req.params.residentId);
+  if (info.changes === 0) return res.status(404).json({ error: "That resident isn't a member of this Circle" });
+
+  const circle = (await db.prepare(`SELECT name FROM circles WHERE id = ?`).get(req.params.id)) as { name: string } | undefined;
+  await notifyResident({
+    residentId: req.params.residentId,
+    kind: "circle",
+    title: `You're now an organiser: ${circle?.name ?? "Circle"}`,
+    body: "You can now manage members, plans and settings for this Circle.",
+    listingType: "circle",
+    listingId: req.params.id,
+    ref: req.params.id,
+  });
+
+  res.json({ ok: true });
+});
+
+circlesRouter.post("/:id/members/:residentId/demote", requireResident, async (req, res) => {
+  if (!(await isOrganiser(req.params.id, req.resident!.id))) return res.status(403).json({ error: "Only an organiser can demote a member" });
+
+  const { n: organiserCount } = (await db.prepare(`SELECT COUNT(*) as n FROM circle_members WHERE circle_id = ? AND role = 'organiser'`).get(req.params.id)) as { n: number };
+  const target = (await db.prepare(`SELECT role FROM circle_members WHERE circle_id = ? AND resident_id = ?`).get(req.params.id, req.params.residentId)) as { role: string } | undefined;
+  if (!target) return res.status(404).json({ error: "That resident isn't a member of this Circle" });
+  if (target.role !== "organiser") return res.status(409).json({ error: "That member isn't an organiser" });
+  if (organiserCount <= 1) return res.status(409).json({ error: "A Circle needs at least one organiser" });
+
+  await db.prepare(`UPDATE circle_members SET role = 'member' WHERE circle_id = ? AND resident_id = ?`).run(req.params.id, req.params.residentId);
+
+  const circle = (await db.prepare(`SELECT name FROM circles WHERE id = ?`).get(req.params.id)) as { name: string } | undefined;
+  await notifyResident({
+    residentId: req.params.residentId,
+    kind: "circle",
+    title: `Organiser role removed: ${circle?.name ?? "Circle"}`,
+    body: "You're still a member of this Circle, just not an organiser anymore.",
+    listingType: "circle",
+    listingId: req.params.id,
+    ref: req.params.id,
+  });
+
+  res.json({ ok: true });
+});
+
 // --- Circle Invitations (IA spec §10) ---------------------------------------
 // A distinct invite-then-accept path alongside the existing instant
 // self-serve POST /:id/join, which stays unchanged — Circles remain
@@ -792,17 +1086,74 @@ circlesRouter.post("/invitations/:id/respond", requireResident, async (req, res)
   res.json({ ok: true });
 });
 
+// --- Share to a Circle (Universal Sharing system §5) ------------------------
+// Deliberately not a persistent Circle Feed/wall (Circles are explicitly "no
+// posts/likes/followers" per this file's own comment above) — this is a
+// lightweight, notification-only version: every other member gets a single
+// in-app notification carrying the shared entity's own share data, the same
+// way any other circle-kind notification works. A real Circle Posts feed is
+// a separate, larger follow-up if that's ever wanted.
+interface ShareToCircleBody {
+  entityType?: string;
+  entityId?: string;
+  message?: string;
+}
+
+circlesRouter.post("/:id/share", requireResident, async (req, res) => {
+  const b = req.body as ShareToCircleBody;
+  const entityType = b.entityType as ShareEntityType;
+  if (!entityType || !b.entityId) return res.status(400).json({ error: "entityType and entityId are required" });
+  const member = await db.prepare(`SELECT 1 FROM circle_members WHERE circle_id = ? AND resident_id = ?`).get(req.params.id, req.resident!.id);
+  if (!member) return res.status(403).json({ error: "Only members can share into this Circle" });
+
+  const data = await getShareData(entityType, b.entityId, req.resident!.id);
+  if (!data) return res.status(404).json({ error: "That isn't available to share" });
+
+  const [circle, members] = await Promise.all([
+    db.prepare(`SELECT name FROM circles WHERE id = ?`).get(req.params.id) as Promise<{ name: string } | undefined>,
+    db.prepare(`SELECT resident_id as residentId FROM circle_members WHERE circle_id = ? AND resident_id != ?`).all(req.params.id, req.resident!.id) as Promise<{ residentId: string }[]>,
+  ]);
+
+  const notifyListingType = entityType === "adventure" ? "experience" : entityType === "provider" ? "vendor" : (entityType as "centre" | "club" | "game" | "circle" | "experience" | "program" | "host");
+  await Promise.all(
+    members.map((m) =>
+      notifyResident({
+        residentId: m.residentId,
+        kind: "share",
+        title: `${req.resident!.name} shared with ${circle?.name ?? "your Circle"}`,
+        body: b.message ? `"${b.message}" — ${data.title}` : data.title,
+        listingType: notifyListingType,
+        listingId: b.entityId!,
+        ref: b.entityId!,
+      })
+    )
+  );
+
+  void logEvent("share_to_circle", { residentId: req.resident!.id, metadata: { circleId: req.params.id, entityType, entityId: b.entityId } });
+  res.status(201).json({ ok: true, notified: members.length });
+});
+
 // --- Circle planning / availability poll (IA spec §10) ---------------------
 // Members propose date/time options; others vote for every option they're
 // available for (multi-select, not single-choice). The spec's "recommended
 // option" is derived from vote counts on the client, not stored.
 
 circlesRouter.get("/:id/polls", async (req, res) => {
-  const polls = (await db.prepare(`SELECT id, question, created_by_resident_id as createdByResidentId, status, created_at as createdAt FROM circle_polls WHERE circle_id = ? ORDER BY created_at DESC`).all(req.params.id)) as {
+  // Phase 2 "Circles V2" — optional ?planId= scopes to polls attached to one
+  // plan-idea (e.g. "which day works?"); omitted, this is the unchanged
+  // full-circle list every existing caller already gets.
+  const planId = typeof req.query.planId === "string" ? req.query.planId : undefined;
+  const polls = (await db
+    .prepare(
+      `SELECT id, question, created_by_resident_id as createdByResidentId, status, plan_id as planId, created_at as createdAt
+       FROM circle_polls WHERE circle_id = ? ${planId ? "AND plan_id = ?" : ""} ORDER BY created_at DESC`
+    )
+    .all(...(planId ? [req.params.id, planId] : [req.params.id]))) as {
     id: string;
     question: string;
     createdByResidentId: string;
     status: string;
+    planId: string | null;
     createdAt: string;
   }[];
   const result = await Promise.all(
@@ -821,11 +1172,22 @@ circlesRouter.get("/:id/polls", async (req, res) => {
 });
 
 circlesRouter.post("/:id/polls", requireResident, async (req, res) => {
-  const { question, options } = req.body as { question?: string; options?: { date: string; time?: string }[] };
+  const { question, options, planId } = req.body as { question?: string; options?: { date: string; time?: string }[]; planId?: string };
   if (!question || !options || options.length === 0) return res.status(400).json({ error: "A question and at least one date option are required" });
+  // Optional plan-idea link (Phase 2 "Circles V2") — validated the same
+  // ownership way as everything else here: must exist, must belong to this
+  // circle. Not status-restricted (a poll can attach to a plan at any
+  // pre-activity_created stage), matching brief §30 (a poll result never
+  // auto-confirms anything — a human still explicitly confirms afterward).
+  if (planId) {
+    const plan = await db.prepare(`SELECT 1 FROM circle_plans WHERE id = ? AND circle_id = ?`).get(planId, req.params.id);
+    if (!plan) return res.status(404).json({ error: "Plan not found" });
+  }
   const id = crypto.randomUUID();
   await db.transaction(async (tx) => {
-    await tx.prepare(`INSERT INTO circle_polls (id, circle_id, question, created_by_resident_id) VALUES (?, ?, ?, ?)`).run(id, req.params.id, question, req.resident!.id);
+    await tx
+      .prepare(`INSERT INTO circle_polls (id, circle_id, question, created_by_resident_id, plan_id) VALUES (?, ?, ?, ?, ?)`)
+      .run(id, req.params.id, question, req.resident!.id, planId ?? null);
     for (const [i, o] of options.entries()) {
       await tx.prepare(`INSERT INTO circle_poll_options (poll_id, date, time, sort_order) VALUES (?, ?, ?, ?)`).run(id, o.date, o.time ?? "", i);
     }

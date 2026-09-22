@@ -16,7 +16,23 @@ export type AnalyticsEventType =
   | "circle_joined"
   | "circle_join_requested"
   | "attended"
-  | "repeat_joined";
+  | "repeat_joined"
+  // Universal Sharing & Invitation system — client-only events (no natural
+  // server mutation to hang them off) come through POST /api/share/event's
+  // small allowlist (see routes/sharing.ts); the rest are logged directly
+  // at the point they actually happen (invite created/responded-to in
+  // routes/invitations.ts, a shared link's landing in referrals.ts's
+  // existing /land, which already covers shared_link_opened's job).
+  | "share_opened"
+  | "share_channel_selected"
+  | "share_completed"
+  | "share_link_copied"
+  | "share_to_circle"
+  | "invite_created"
+  | "invite_opened"
+  | "invite_accepted"
+  | "invite_maybe"
+  | "invite_declined";
 
 const insertEvent = db.prepare(
   `INSERT INTO analytics_events (event_type, resident_id, client_id, metadata) VALUES (@eventType, @residentId, @clientId, @metadata)`

@@ -24,6 +24,8 @@ interface ReviewRow {
   rating: number;
   comment: string;
   created_at: string;
+  vendor_reply: string | null;
+  vendor_reply_at: string | null;
 }
 
 function toReview(row: ReviewRow): Review {
@@ -35,6 +37,8 @@ function toReview(row: ReviewRow): Review {
     rating: row.rating,
     comment: row.comment,
     createdAt: row.created_at,
+    vendorReply: row.vendor_reply,
+    vendorRepliedAt: row.vendor_reply_at,
   };
 }
 
@@ -146,8 +150,8 @@ reviewsRouter.post("/", async (req, res) => {
     const messages: Record<ReviewListingType, string> = {
       centre: "You can only review a centre after booking it.",
       club: "You can only review a club after registering with it.",
-      game: "You can only review a game after actually attending a past one.",
-      host: "You can only review a host after playing in one of their past games.",
+      game: "You can only review a session after actually attending a past one.",
+      host: "You can only review a host after playing in one of their past sessions.",
       experience: "You can only review this after a past booking on it.",
     };
     return res.status(403).json({ error: messages[listingType] });

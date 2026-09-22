@@ -54,16 +54,55 @@ vendorInsightsRouter.get("/insights", async (req, res) => {
     )
     .get(...ids, ...ids, ...ids, ...ids, ...ids)) as Record<string, number>;
 
-  const utilisation = await db
+  const utilisation = (await db
     .prepare(
       `SELECT DAYOFWEEK(b.date) as dayOfWeek, SUBSTRING(b.time, 1, 2) as hour, COUNT(*) as n
        FROM bookings b JOIN centres c ON c.id = b.centre_id
        WHERE c.vendor_id IN (${in1}) AND b.payment_status = 'paid'
        GROUP BY dayOfWeek, hour`
     )
-    .all(...ids);
+    .all(...ids)) as { dayOfWeek: number; hour: string; n: number }[];
 
-  res.json({ totals, utilisation });
+  // Host Manage spec §15's "decisions, not decorative charts" — a real
+  // narrative sentence computed from the same utilisation grid above
+  // (booking-count by day-of-week is the only time dimension this app
+  // actually has for hall bookings), not a fabricated "fills X% faster"
+  // velocity metric — there's no data on how long a slot takes to fill, so
+  // that framing isn't honest to build. This compares real booking volume
+  // by day-of-week instead.
+  const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+  const byDay = new Map<number, number>();
+  for (const row of utilisation) byDay.set(row.dayOfWeek, (byDay.get(row.dayOfWeek) ?? 0) + row.n);
+  let narrative: string | null = null;
+  if (byDay.size > 1) {
+    const totalBookingsSeen = [...byDay.values()].reduce((a, b) => a + b, 0);
+    const [busiestDay, busiestCount] = [...byDay.entries()].sort((a, b) => b[1] - a[1])[0];
+    const avgOtherDays = (totalBookingsSeen - busiestCount) / (byDay.size - 1);
+    if (avgOtherDays > 0 && busiestCount > avgOtherDays) {
+      const pct = Math.round(((busiestCount - avgOtherDays) / avgOtherDays) * 100);
+      if (pct >= 10) narrative = `${DAY_NAMES[busiestDay - 1]} is your busiest day — ${pct}% more bookings than your other days average.`;
+    }
+  }
+
+  // Booking-count delta vs. the prior calendar month, across bookings +
+  // registrations combined — a simple real number, not a chart, per the
+  // same "avoid decorative charts" instruction.
+  const trendRow = (await db
+    .prepare(
+      `SELECT
+        (SELECT COUNT(*) FROM bookings b JOIN centres c ON c.id = b.centre_id WHERE c.vendor_id IN (${in1}) AND b.payment_status = 'paid' AND b.created_at >= DATE_FORMAT(NOW(), '%Y-%m-01')) +
+        (SELECT COUNT(*) FROM registrations r JOIN clubs c ON c.id = r.club_id WHERE c.vendor_id IN (${in1}) AND r.payment_status = 'paid' AND r.created_at >= DATE_FORMAT(NOW(), '%Y-%m-01')) as thisMonth,
+        (SELECT COUNT(*) FROM bookings b JOIN centres c ON c.id = b.centre_id WHERE c.vendor_id IN (${in1}) AND b.payment_status = 'paid' AND b.created_at >= DATE_SUB(DATE_FORMAT(NOW(), '%Y-%m-01'), INTERVAL 1 MONTH) AND b.created_at < DATE_FORMAT(NOW(), '%Y-%m-01')) +
+        (SELECT COUNT(*) FROM registrations r JOIN clubs c ON c.id = r.club_id WHERE c.vendor_id IN (${in1}) AND r.payment_status = 'paid' AND r.created_at >= DATE_SUB(DATE_FORMAT(NOW(), '%Y-%m-01'), INTERVAL 1 MONTH) AND r.created_at < DATE_FORMAT(NOW(), '%Y-%m-01')) as lastMonth`
+    )
+    .get(...ids, ...ids, ...ids, ...ids)) as { thisMonth: number; lastMonth: number };
+  const trend = {
+    thisMonth: trendRow.thisMonth,
+    lastMonth: trendRow.lastMonth,
+    deltaPercent: trendRow.lastMonth > 0 ? Math.round(((trendRow.thisMonth - trendRow.lastMonth) / trendRow.lastMonth) * 100) : null,
+  };
+
+  res.json({ totals, utilisation, narrative, trend });
 });
 
 vendorInsightsRouter.get("/reports/bookings.csv", requirePlatformRole("finance", "read_only_analyst"), async (req, res) => {

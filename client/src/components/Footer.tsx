@@ -21,7 +21,8 @@ const COLUMNS: { heading: string; links: { label: string; to: string; external?:
     links: [
       { label: "Find activities", to: "/games" },
       { label: "Browse Circles", to: "/circles" },
-      { label: "Places & venues", to: "/browse/centres" },
+      { label: "Community centres", to: "/browse/centres" },
+      { label: "Sports clubs", to: "/browse/clubs" },
       { label: "This weekend", to: "/games?when=weekend" },
     ],
   },
@@ -36,6 +37,7 @@ const COLUMNS: { heading: string; links: { label: string; to: string; external?:
   {
     heading: "Support",
     links: [
+      { label: "Full help guide", to: "/help-guide" },
       { label: "Help & Support", to: "/bookings?tab=help" },
       { label: "Safety Centre", to: "/bookings?tab=safety" },
       { label: "Contact us", to: "mailto:support@hellocircle.ie", external: true },

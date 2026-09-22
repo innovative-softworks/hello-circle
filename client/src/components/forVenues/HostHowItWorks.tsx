@@ -3,7 +3,7 @@ import { FV_ACCENT, FV_MAX_WIDTH } from "./constants";
 
 const STEPS: { n: string; title: string; detail: string }[] = [
   { n: "01", title: "Sign in", detail: "No venue, no business — just your email, via a magic link." },
-  { n: "02", title: "Host a Game or start a Circle", detail: "Pick a time, a spot, a headcount — live in minutes, no approval needed." },
+  { n: "02", title: "Host a Session or start a Circle", detail: "Pick a time, a spot, a headcount — live in minutes, no approval needed." },
   { n: "03", title: "Apply for Verified Host (optional)", detail: "A short bio gets you a badge people see when they join." },
 ];
 

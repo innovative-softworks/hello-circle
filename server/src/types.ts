@@ -112,6 +112,9 @@ export interface Review {
   rating: number;
   comment: string;
   createdAt: string;
+  /** Host Manage spec §16 — only ever set for centre/club reviews. */
+  vendorReply: string | null;
+  vendorRepliedAt: string | null;
 }
 
 export interface Registration {

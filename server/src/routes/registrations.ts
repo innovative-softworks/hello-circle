@@ -270,7 +270,7 @@ registrationsRouter.post("/checkout", async (req, res) => {
   let discountCents = 0;
   let couponCode: string | null = null;
   if (!body.trial && body.couponCode) {
-    const result = await evaluateCoupon(body.couponCode, subtotalCents);
+    const result = await evaluateCoupon(body.couponCode, subtotalCents, { listingType: "club", listingId: club.id });
     if (!result.valid) return res.status(400).json({ error: result.error });
     discountCents = result.discountCents!;
     couponCode = result.code!;

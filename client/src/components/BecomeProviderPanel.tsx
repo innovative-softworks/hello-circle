@@ -25,7 +25,7 @@ const IRISH_COUNTIES = [
 
 const WHAT_YOU_GET = [
   "List a community centre or sports club that people can book and pay for",
-  "Run multi-session Programs and ticketed Experiences, not just one-off Games",
+  "Run multi-session Programs and ticketed Experiences, not just one-off Sessions",
   "Take payments through Stripe, with bookings and attendance in one dashboard",
 ];
 

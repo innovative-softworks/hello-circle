@@ -39,7 +39,7 @@ export function HostHero({ onCta }: { onCta: () => void }) {
               <span style={{ color: FV_ACCENT }}>No venue needed.</span>
             </h1>
             <p style={{ fontSize: 16.5, color: colors.textSoft, lineHeight: 1.6, margin: 0, maxWidth: 560 }}>
-              A one-off Game or a standing Circle — a kickabout, a class, a standing group. Pick a time and a
+              A one-off Session or a standing Circle — a kickabout, a class, a standing group. Pick a time and a
               spot, and it&rsquo;s live. No listing, no business, no approval to start.
             </p>
           </div>
