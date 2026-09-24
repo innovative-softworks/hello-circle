@@ -498,6 +498,92 @@ export function BookingsTab({ centreId, clubId }: { centreId?: string; clubId?: 
     </div>
   );
 
+  // Vendor Experience Polish — mobile card fallback for the bookings table
+  // below (`.hide-mobile`/`.mobile-cards`, see index.css). Tapping a card
+  // opens the same detail Drawer the desktop row does — that's the "primary
+  // contextual action" plus every secondary action (resend/refund/cancel/
+  // check-in) in one place, so this doesn't need its own "•••" menu.
+  // Bulk multi-select isn't carried into the card view (harder to hit
+  // targets reliably on a phone, and every action is one tap away in the
+  // drawer regardless) — desktop/tablet keep it via the table.
+  const bookingCard = (b: VendorBookingRow) => (
+    <Card key={b.ref} onClick={() => setOpenRef(b.ref)} style={{ cursor: "pointer", opacity: b.status === "cancelled" ? 0.55 : 1 }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 8 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <Avatar name={b.name} size={28} />
+          <div>
+            <div style={{ fontWeight: 700, fontSize: 13.5 }}>{b.name}</div>
+            <div style={{ fontSize: 11.5, color: colors.mutedLight }}>{b.roomName ? `${b.centreName} — ${b.roomName}` : b.centreName}</div>
+          </div>
+        </div>
+        {b.status === "cancelled" ? (
+          <span style={{ fontSize: 11, fontWeight: 700, color: colors.danger, background: colors.dangerBg, borderRadius: radius.pill, padding: "2px 8px", flex: "none" }}>Cancelled</span>
+        ) : (
+          <span style={{ fontSize: 11, fontWeight: 700, color: colors.greenText, background: colors.greenBg, borderRadius: radius.pill, padding: "2px 8px", flex: "none" }}>Confirmed</span>
+        )}
+      </div>
+      <div style={{ fontSize: 12.5, color: colors.muted, marginBottom: 8 }}>{b.date} · {b.time}</div>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+        <span style={{ fontWeight: 700, fontSize: 14 }}>€{(b.totalCents / 100).toFixed(2)}</span>
+        {b.paymentStatus === "refunded" && (
+          <span style={{ fontSize: 11, fontWeight: 700, color: colors.muted, background: colors.panel, borderRadius: radius.pill, padding: "2px 8px" }}>Refunded</span>
+        )}
+      </div>
+    </Card>
+  );
+
+  // Vendor Experience Polish — mobile card fallback for the registrations
+  // table below. Registrations have no detail Drawer (unlike bookings), so
+  // every action stays visible on the card itself rather than being tucked
+  // behind a "•••" that would hide the only way to reach it.
+  const registrationCard = (r: MyRegistration & { email: string; phone: string }) => (
+    <Card key={r.ref} style={{ opacity: r.status === "cancelled" ? 0.55 : 1 }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 8 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <Avatar name={`${r.childFirst} ${r.childLast}`} size={28} />
+          <div>
+            <div style={{ fontWeight: 700, fontSize: 13.5 }}>{r.childFirst} {r.childLast}</div>
+            <div style={{ fontSize: 11.5, color: colors.mutedLight }}>{r.clubName}</div>
+          </div>
+        </div>
+        {r.status === "cancelled" ? (
+          <span style={{ fontSize: 11, fontWeight: 700, color: colors.danger, background: colors.dangerBg, borderRadius: radius.pill, padding: "2px 8px", flex: "none" }}>Cancelled</span>
+        ) : (
+          <span style={{ fontSize: 11, fontWeight: 700, color: colors.greenText, background: colors.greenBg, borderRadius: radius.pill, padding: "2px 8px", flex: "none" }}>Confirmed</span>
+        )}
+      </div>
+      <div style={{ fontSize: 12, color: colors.mutedLight, marginBottom: 8 }}>{r.email}, {r.phone}</div>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
+        <span style={{ fontWeight: 700, fontSize: 14 }}>€{(r.totalCents / 100).toFixed(2)}</span>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          {r.paymentStatus === "refunded" && (
+            <span style={{ fontSize: 11, fontWeight: 700, color: colors.muted, background: colors.panel, borderRadius: radius.pill, padding: "2px 8px" }}>Refunded</span>
+          )}
+          {r.status !== "cancelled" && (
+            <>
+              <CheckInButton kind="registration" reference={r.ref} checkedIn={checkedInRefs.has(`registration:${r.ref}`)} onChecked={(ref) => markCheckedIn("registration", ref)} />
+              <ResendConfirmationButton onResend={() => resendRegistrationConfirmation(r.ref).then(() => {})} />
+              {r.paymentStatus === "paid" && r.hasStripePayment && (
+                <button
+                  onClick={() => setRefundRegistrationRef(r.ref)}
+                  style={{ fontSize: 11, fontWeight: 700, color: colors.muted, background: colors.panel, border: "none", borderRadius: radius.pill, padding: "3px 10px", cursor: "pointer" }}
+                >
+                  Refund
+                </button>
+              )}
+              <button
+                onClick={() => setBulkCancelTarget({ kind: "registration", refs: [r.ref] })}
+                style={{ fontSize: 11, fontWeight: 700, color: colors.danger, background: "none", border: "none", cursor: "pointer" }}
+              >
+                Cancel
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+    </Card>
+  );
+
   return (
     <div className="fade-panel" style={{ display: "flex", flexDirection: "column", gap: 24 }}>
       <BookingsFilterBar status={statusFilter} onStatus={setStatusFilter} when={whenFilter} onWhen={setWhenFilter} search={search} onSearch={setSearch} />
@@ -534,7 +620,8 @@ export function BookingsTab({ centreId, clubId }: { centreId?: string; clubId?: 
               onCheckIn={() => handleBulkCheckIn("booking", [...selectedBookings])}
               onCancel={() => setBulkCancelTarget({ kind: "booking", refs: [...selectedBookings] })}
             />
-            <div style={{ overflowX: "auto" }}>
+            <div className="mobile-cards">{filteredBookings.map(bookingCard)}</div>
+            <div className="hide-mobile" style={{ overflowX: "auto" }}>
               <table style={tableStyle}>
                 <thead>
                   <tr>
@@ -598,7 +685,8 @@ export function BookingsTab({ centreId, clubId }: { centreId?: string; clubId?: 
               onCheckIn={() => handleBulkCheckIn("registration", [...selectedRegistrations])}
               onCancel={() => setBulkCancelTarget({ kind: "registration", refs: [...selectedRegistrations] })}
             />
-            <div style={{ overflowX: "auto" }}>
+            <div className="mobile-cards">{filteredRegistrations.map(registrationCard)}</div>
+            <div className="hide-mobile" style={{ overflowX: "auto" }}>
               <table style={tableStyle}>
                 <thead>
                   <tr>

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { cancelGame, fetchGameParticipantsForManage, fetchGameWaitlist, fetchMyGames, offerGameWaitlistEntry, postGameUpdate, removeGameParticipant } from "../api";
+import { cancelGame, fetchGameParticipantsForManage, fetchGameWaitlist, fetchMyGames, offerGameWaitlistEntry, postGameUpdate, refundGameParticipant, removeGameParticipant } from "../api";
 import { deriveActivityStatus } from "../activityStatus";
 import { rehostHref } from "../rehost";
 import { CalendarIcon, SearchIcon } from "./icons";
@@ -102,7 +102,7 @@ function ActivitiesFilterBar({
 // this badge is date/capacity-aware (Completed, Almost full) the same way
 // the new Overview "Next Up" hero and upcoming cards are — one status
 // language across every Host surface, not a bespoke one per component.
-function statusBadge(game: Pick<Game, "status" | "date" | "spotsLeft" | "capacity">) {
+function statusBadge(game: Pick<Game, "status" | "date" | "spotsLeft" | "capacity" | "effectiveLifecycle">) {
   const s = deriveActivityStatus(game);
   return <span style={{ fontSize: 11, fontWeight: 700, color: s.fg, background: s.bg, borderRadius: radius.pill, padding: "2px 8px" }}>{s.label}</span>;
 }
@@ -113,6 +113,10 @@ function ParticipantsDrawer({ game, onClose }: { game: Game | null; onClose: () 
   const [removeTarget, setRemoveTarget] = useState<ManageParticipant | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Platform Pre-Launch Polish — Changeset 4D.
+  const [refundTarget, setRefundTarget] = useState<ManageParticipant | null>(null);
+  const [refundBusy, setRefundBusy] = useState(false);
+  const [refundError, setRefundError] = useState<string | null>(null);
   // Host-visible waitlist + targeted invite (Vendor-parity pass) — mirrors
   // ClubWaitlistPanel; only relevant once the game is actually full, but
   // cheap to fetch alongside participants either way.
@@ -145,12 +149,28 @@ function ParticipantsDrawer({ game, onClose }: { game: Game | null; onClose: () 
     setError(null);
     try {
       await removeGameParticipant(game.id, removeTarget.residentId);
-      setParticipants((prev) => prev.filter((p) => p.residentId !== removeTarget.residentId));
+      setParticipants((prev) => prev.map((p) => (p.residentId === removeTarget.residentId ? { ...p, status: "cancelled" } : p)));
       setRemoveTarget(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Couldn't remove this participant");
     } finally {
       setBusy(false);
+    }
+  };
+
+  // Platform Pre-Launch Polish — Changeset 4C/4D.
+  const handleRefund = async () => {
+    if (!game || !refundTarget) return;
+    setRefundBusy(true);
+    setRefundError(null);
+    try {
+      await refundGameParticipant(game.id, refundTarget.residentId);
+      setParticipants((prev) => prev.map((p) => (p.residentId === refundTarget.residentId ? { ...p, paymentStatus: "refunded" } : p)));
+      setRefundTarget(null);
+    } catch (e) {
+      setRefundError(e instanceof Error ? e.message : "Couldn't issue this refund");
+    } finally {
+      setRefundBusy(false);
     }
   };
 
@@ -162,29 +182,56 @@ function ParticipantsDrawer({ game, onClose }: { game: Game | null; onClose: () 
         <EmptyState icon={<CalendarIcon size={26} />} title="No one's joined yet" />
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          {participants.map((p) => (
-            <div key={p.residentId} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: colors.bg, borderRadius: radius.control, padding: "10px 14px" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                <Avatar name={p.name} size={30} />
-                <div>
-                  <div style={{ fontWeight: 700, fontSize: 13.5 }}>{p.name}</div>
-                  <div style={{ fontSize: 11.5, color: colors.mutedLight }}>
-                    {p.status === "pending_payment" ? "Payment pending" : "Joined"}
-                    {p.checkedInAt ? " · Checked in" : ""}
-                    {game && p.residentId === game.hostResidentId ? " · Host" : ""}
+          {participants.map((p) => {
+            // Platform Pre-Launch Polish — Changeset 4D/4E. Cancelled/removed
+            // participants now stay in this list (soft-cancel, not a hard
+            // delete) instead of just vanishing — their real status/payment
+            // state is shown honestly rather than implying an active,
+            // unpaid-for spot.
+            const canRefund = p.paymentStatus === "paid";
+            const statusLabel =
+              p.status === "cancelled"
+                ? "Cancelled"
+                : p.status === "pending_payment"
+                ? "Payment pending"
+                : "Joined";
+            return (
+              <div key={p.residentId} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10, background: colors.bg, borderRadius: radius.control, padding: "10px 14px" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <Avatar name={p.name} size={30} />
+                  <div>
+                    <div style={{ fontWeight: 700, fontSize: 13.5 }}>{p.name}</div>
+                    <div style={{ fontSize: 11.5, color: colors.mutedLight }}>
+                      {statusLabel}
+                      {p.paymentStatus === "refunded" ? " · Refunded" : ""}
+                      {p.checkedInAt ? " · Checked in" : ""}
+                      {game && p.residentId === game.hostResidentId ? " · Host" : ""}
+                    </div>
                   </div>
                 </div>
+                {game && p.residentId !== game.hostResidentId && (
+                  <div style={{ display: "flex", gap: 14, alignItems: "center" }}>
+                    {canRefund && (
+                      <button
+                        onClick={() => setRefundTarget(p)}
+                        style={{ background: "none", border: "none", color: colors.text, fontWeight: 700, fontSize: 12.5, cursor: "pointer" }}
+                      >
+                        Refund
+                      </button>
+                    )}
+                    {p.status !== "cancelled" && (
+                      <button
+                        onClick={() => setRemoveTarget(p)}
+                        style={{ background: "none", border: "none", color: colors.danger, fontWeight: 700, fontSize: 12.5, cursor: "pointer" }}
+                      >
+                        Remove
+                      </button>
+                    )}
+                  </div>
+                )}
               </div>
-              {game && p.residentId !== game.hostResidentId && (
-                <button
-                  onClick={() => setRemoveTarget(p)}
-                  style={{ background: "none", border: "none", color: colors.danger, fontWeight: 700, fontSize: 12.5, cursor: "pointer" }}
-                >
-                  Remove
-                </button>
-              )}
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
       {waitlist.length > 0 && (
@@ -222,6 +269,21 @@ function ParticipantsDrawer({ game, onClose }: { game: Game | null; onClose: () 
         onCancel={() => setRemoveTarget(null)}
       >
         {error && <p style={{ color: colors.danger, fontSize: 13 }}>{error}</p>}
+      </ConfirmDialog>
+      {/* Platform Pre-Launch Polish — Changeset 4D. Full refund only, no
+          partial amounts this phase — a Game's price is the same for every
+          participant, so game.priceCents is the whole, correct figure. */}
+      <ConfirmDialog
+        open={!!refundTarget}
+        title={`Refund €${((game?.priceCents ?? 0) / 100).toFixed(2)}?`}
+        message="This will return the full payment to the participant."
+        confirmLabel={refundBusy ? "Refunding…" : "Refund"}
+        tone="neutral"
+        busy={refundBusy}
+        onConfirm={handleRefund}
+        onCancel={() => setRefundTarget(null)}
+      >
+        {refundError && <p style={{ color: colors.danger, fontSize: 13 }}>{refundError}</p>}
       </ConfirmDialog>
     </Drawer>
   );

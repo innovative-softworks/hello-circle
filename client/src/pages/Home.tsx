@@ -23,6 +23,7 @@ import { DiscoverCard, DiscoverRow } from "../components/DiscoverRow";
 import { GameCard } from "./Games";
 import { formatDateTime, formatPrice } from "../formatters";
 import { HeroScrollSplit, type HeroScrollImage } from "../components/HeroScrollSplit";
+import { Photo } from "../components/Photo";
 import { SectionHeader } from "../components/SectionHeader";
 import { CardSkeleton, ConfirmDialog } from "../components/ui";
 import {
@@ -189,14 +190,7 @@ const ctaButtonStyle = (bg: string): React.CSSProperties => ({
 function DestinationCard({ image, title, caption, onClick }: { image: string | null; title: string; caption: string; onClick: () => void }) {
   return (
     <button onClick={onClick} style={{ textAlign: "left", background: "none", border: "none", cursor: "pointer", padding: 0, display: "flex", flexDirection: "column", gap: 10 }}>
-      <div
-        style={{
-          height: 170,
-          borderRadius: 14,
-          overflow: "hidden",
-          background: image ? `url(${image}) center/cover` : colors.panel,
-        }}
-      />
+      <Photo src={image ?? undefined} alt={title} ph={colors.panel} style={{ height: 170, borderRadius: 14 }} />
       <div>
         <div style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 15.5, color: colors.text }}>{title}</div>
         <div style={{ fontSize: 13, color: colors.mutedLight, marginTop: 2 }}>{caption}</div>
@@ -530,7 +524,12 @@ export function Home() {
       ...allClubs.map((listing) => ({ kind: "club" as const, listing })),
     ];
     return tagged
-      .filter((t) => t.listing.lat !== null && t.listing.lng !== null)
+      // A displayed "2.3 km away" is a precise distance claim — only a
+      // vendor-confirmed coordinate can honestly support that (an
+      // approximate/unknown one could be off by several km; see
+      // queries.ts's applyRadiusFilter for the server-side counterpart of
+      // this same rule).
+      .filter((t) => t.listing.lat !== null && t.listing.lng !== null && t.listing.locationSource === "confirmed")
       .map((t) => ({ ...t, km: haversineDistanceKm(userCoords.lat, userCoords.lng, t.listing.lat!, t.listing.lng!) }))
       .filter((t) => t.km <= radiusKm)
       .sort((a, b) => a.km - b.km)
@@ -1398,10 +1397,18 @@ export function Home() {
       )}
 
       {/* §12 — Need somewhere to do it? Places framed as a resource for
-          participation, not the main product — kept in the lower half. */}
+          participation, not the main product — kept in the lower half.
+          Product Language & IA Polish — Changeset 1D: the eyebrow used to
+          say bare "Places" over both tiles, which — since a Club has no
+          structured venue relationship at all (it's a membership you
+          register for, not a bookable space) — implied Sports clubs are
+          themselves a physical venue the same way Community centres are.
+          "Places & Clubs" is the exact wording Explore's own Results Mode
+          already uses for this identical grouping, reused here rather than
+          inventing new copy. */}
       <section style={fullBleedStyle(colors.bg)}>
         <div className="section-pad" style={innerWrapStyle}>
-          <SectionHeader eyebrow={accentEyebrow("Places")} title="Need somewhere to do it?" subtitle="Find courts, studios, community halls and local spaces when your plan needs one." />
+          <SectionHeader eyebrow={accentEyebrow("Places & Clubs")} title="Need somewhere to do it?" subtitle="Find a hall or room to hire, or a club to join." />
           <div className="grid-responsive" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 1, background: colors.border }}>
             <button
               onClick={() => navigate("/browse/centres")}

@@ -11,6 +11,7 @@ import { irelandTodayIso } from "../irelandTime.js";
 import { MOOD_KEYWORDS } from "./discover.js";
 import { getResidentPasswordHash, requireResident, setResidentPassword, updateResident } from "../residents.js";
 import { GUEST_SESSION_COOKIE, destroyGuestSession } from "../guestAuth.js";
+import { deleteObject, objectKeyFromUrl } from "../media/mediaService.js";
 import { passwordLoginLimiter } from "../rateLimit.js";
 import { stripe } from "../stripe.js";
 import { BadRequestError, clientIdFrom } from "../util.js";
@@ -398,26 +399,56 @@ residentsRouter.put("/me", requireResident, async (req, res) => {
   res.json({ ok: true });
 });
 
+// Best-effort cleanup of a superseded avatar file — handles both the
+// legacy local `/uploads/...` path (fs.unlink) and an R2-backed canonical
+// URL (deleteObject), since a resident's avatar_url can be either
+// depending on which era it was uploaded in (media plan §15 backward
+// compatibility). Never blocks the response on it, matching this app's
+// general "an upload failure never blocks the thing it's attached to"
+// convention (see notifications.ts).
+function releasePreviousAvatarBestEffort(previous: string | null) {
+  if (!previous) return;
+  const objectKey = objectKeyFromUrl(previous);
+  if (objectKey) {
+    void deleteObject(objectKey);
+  } else if (previous.startsWith("/uploads/")) {
+    fs.unlink(path.join(dataDir, previous), () => {});
+  }
+}
+
 residentsRouter.post("/me/avatar", requireResident, avatarUpload.single("file"), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: "No file uploaded" });
   const url = `/uploads/${req.file.filename}`;
   const previous = req.resident!.avatarUrl;
   await db.prepare(`UPDATE residents SET avatar_url = ? WHERE id = ?`).run(url, req.resident!.id);
-  // Best-effort cleanup of the file it's replacing — never blocks the
-  // response on it, matching this app's general "an upload failure never
-  // blocks the thing it's attached to" convention (see notifications.ts).
-  if (previous) {
-    fs.unlink(path.join(dataDir, previous), () => {});
-  }
+  releasePreviousAvatarBestEffort(previous);
   res.status(201).json({ avatarUrl: url });
+});
+
+// R2 counterpart to the multipart route above — the client already
+// uploaded+finalized the file straight to R2 via /api/media (see
+// client/src/api/media.ts's uploadMedia()), so this just attaches the
+// already-verified URL, same as any other entity's own update endpoint
+// does after a media/finalize call. Only accepts a URL this resident's own
+// finalize call could plausibly have produced (must be R2-hosted, under
+// this resident's own key prefix) — never an arbitrary client-supplied URL.
+residentsRouter.put("/me/avatar-url", requireResident, async (req, res) => {
+  const { url } = req.body as { url?: string };
+  if (!url) return res.status(400).json({ error: "url is required" });
+  const objectKey = objectKeyFromUrl(url);
+  if (!objectKey || !objectKey.startsWith(`residents/${req.resident!.id}/avatar/`)) {
+    return res.status(400).json({ error: "Invalid avatar URL" });
+  }
+  const previous = req.resident!.avatarUrl;
+  await db.prepare(`UPDATE residents SET avatar_url = ? WHERE id = ?`).run(url, req.resident!.id);
+  releasePreviousAvatarBestEffort(previous);
+  res.json({ avatarUrl: url });
 });
 
 residentsRouter.delete("/me/avatar", requireResident, async (req, res) => {
   const previous = req.resident!.avatarUrl;
   await db.prepare(`UPDATE residents SET avatar_url = NULL WHERE id = ?`).run(req.resident!.id);
-  if (previous) {
-    fs.unlink(path.join(dataDir, previous), () => {});
-  }
+  releasePreviousAvatarBestEffort(previous);
   res.json({ ok: true });
 });
 
@@ -531,17 +562,25 @@ residentsRouter.put("/me/host-profile", requireResident, async (req, res) => {
 // popularity"), a real earlier design decision from the original IA spec,
 // now superseded by explicit instruction to extend Follow to Hosts too.
 residentsRouter.get("/:id/host-profile", async (req, res) => {
-  const host = (await db.prepare(`SELECT id, name, host_bio as bio, host_status as hostStatus FROM residents WHERE id = ?`).get(req.params.id)) as
-    | { id: string; name: string; bio: string | null; hostStatus: string }
+  const host = (await db.prepare(`SELECT id, name, host_bio as bio, host_status as hostStatus, avatar_url as avatarUrl FROM residents WHERE id = ?`).get(req.params.id)) as
+    | { id: string; name: string; bio: string | null; hostStatus: string; avatarUrl: string | null }
     | undefined;
   if (!host || host.hostStatus !== "verified") return res.status(404).json({ error: "Host not found" });
 
   const today = irelandTodayIso();
+  // SEO/Privacy audit P0 — this route is public, zero-auth (no
+  // requireResident above), so both queries below must apply the same
+  // visibility rules the rest of the app already enforces for these
+  // entities: a circle-only/invite-only game must never appear on a
+  // public profile (same `visibility` column games.ts's own privacy
+  // checks use), and only this host's genuinely open, active Circles
+  // should be listed (same join_mode semantics circles.ts's
+  // canViewCircleFull() uses) — previously neither filter existed here.
   const games = await db
-    .prepare(`SELECT id, activity_label as activityLabel, date, time FROM games WHERE host_resident_id = ? AND status = 'open' AND date >= ? ORDER BY date, time`)
+    .prepare(`SELECT id, activity_label as activityLabel, date, time FROM games WHERE host_resident_id = ? AND status = 'open' AND visibility = 'public' AND date >= ? ORDER BY date, time`)
     .all(req.params.id, today);
   const circles = await db
-    .prepare(`SELECT id, name, activity_label as activityLabel, slug FROM circles WHERE created_by_resident_id = ? ORDER BY name`)
+    .prepare(`SELECT id, name, activity_label as activityLabel, slug FROM circles WHERE created_by_resident_id = ? AND status = 'active' AND join_mode = 'open' ORDER BY name`)
     .all(req.params.id);
   const { n: gamesHostedTotal } = (await db.prepare(`SELECT COUNT(*) as n FROM games WHERE host_resident_id = ?`).get(req.params.id)) as { n: number };
   // Host reviews (master-prompt punch list #3) — reuses the same
@@ -559,6 +598,7 @@ residentsRouter.get("/:id/host-profile", async (req, res) => {
     id: host.id,
     name: host.name,
     bio: host.bio ?? "",
+    avatarUrl: host.avatarUrl,
     upcomingGames: games,
     circles,
     gamesHostedTotal,

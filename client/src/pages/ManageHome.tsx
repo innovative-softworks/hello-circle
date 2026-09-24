@@ -16,6 +16,7 @@ import { HostOffersTab } from "../components/HostOffersTab";
 import { HostReviewsTab } from "../components/HostReviewsTab";
 import { ManageShell } from "../components/ManageShell";
 import { Button, ManageCard as Card, DashboardTopPanel, PageSpinner } from "../components/ui";
+import { greeting } from "../greeting";
 import { colors, fonts } from "../theme";
 import type { Game, HostStatus } from "../types";
 
@@ -57,17 +58,6 @@ function hostStatusCopy(status: HostStatus): { text: string; tone: "green" | "mu
   if (status === "verified") return { text: "You're a Verified Host — this badge shows on every Session or Circle you create.", tone: "green" };
   if (status === "pending") return { text: "Your Host application is under review — we'll let you know once an admin has taken a look.", tone: "muted" };
   return { text: "Apply to become a Verified Host from your profile — a trust signal for other participants, never a requirement to host.", tone: "orange" };
-}
-
-// Host Experience Polish — a real local-time-of-day greeting (not a fixed
-// "Welcome back") per the brief's own Overview spec, computed client-side
-// off the visitor's own clock since the server has no reliable notion of
-// "their afternoon".
-function greeting(): string {
-  const hour = new Date().getHours();
-  if (hour < 12) return "Good morning";
-  if (hour < 18) return "Good afternoon";
-  return "Good evening";
 }
 
 export function ManageHome() {
@@ -131,6 +121,7 @@ export function ManageHome() {
       navOptions={NAV_OPTIONS}
       activeKey={tab}
       onNavChange={setTab}
+      contextLabel="Managing as Host"
       pageTitle={NAV_OPTIONS.find((o) => o.key === tab)?.label}
       banner={
         tab === "overview" ? (

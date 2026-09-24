@@ -6,6 +6,7 @@ import {
   publishVendorExperience,
   updateVendorExperience,
 } from "../api";
+import { AddressSearch, MapConfirm } from "./AddressSearch";
 import { GuidedFlow } from "./GuidedFlow";
 import { NumberStepper } from "./form";
 import { Card, inputStyle, labelStyle } from "./ui";
@@ -32,6 +33,10 @@ interface WizardForm {
   description: string;
   area: string;
   county: string;
+  lat?: number;
+  lng?: number;
+  /** See CentreCreationWizard.tsx's identical field/comment. */
+  locationConfirmed: boolean;
   meetingPoint: string;
   durationMinutes: number;
   priceCents: number;
@@ -61,6 +66,7 @@ function blankForm(): WizardForm {
     description: "",
     area: "",
     county: "",
+    locationConfirmed: false,
     meetingPoint: "",
     durationMinutes: 120,
     priceCents: 0,
@@ -115,6 +121,9 @@ export function ExperienceCreationWizard({
         description: e.description,
         area: e.area,
         county: e.county,
+        locationConfirmed: false,
+        lat: e.lat ?? undefined,
+        lng: e.lng ?? undefined,
         meetingPoint: e.meetingPoint,
         durationMinutes: e.durationMinutes,
         priceCents: e.priceCents,
@@ -177,7 +186,12 @@ export function ExperienceCreationWizard({
     setSaving(true);
     setError(null);
     try {
-      await updateVendorExperience(id, { area: form.area, county: form.county, meetingPoint: form.meetingPoint });
+      await updateVendorExperience(id, {
+        area: form.area,
+        county: form.county,
+        ...(form.locationConfirmed ? { lat: form.lat ?? null, lng: form.lng ?? null } : {}),
+        meetingPoint: form.meetingPoint,
+      });
       onDirtyChange?.(false);
       goNext();
     } catch (e) {
@@ -343,6 +357,20 @@ export function ExperienceCreationWizard({
             <label htmlFor="experience-wizard-meeting-point" style={labelStyle}>Meeting point</label>
             <input id="experience-wizard-meeting-point" value={form.meetingPoint} onChange={(e) => setForm({ meetingPoint: e.target.value })} placeholder="Where participants gather" style={inputStyle} />
           </div>
+          <div style={{ gridColumn: "1 / -1" }}>
+            <AddressSearch
+              label="Map location (optional — for the Explore map)"
+              onSelect={(r) => setForm({ area: r.area || form.area, county: r.county || form.county, lat: r.lat, lng: r.lng, locationConfirmed: true })}
+            />
+            <p style={{ fontSize: 12, color: colors.faint, margin: "6px 0 0" }}>
+              This pins the meeting point on the map — leave it unset if the meeting point genuinely varies or isn't a fixed spot.
+            </p>
+          </div>
+          {form.lat !== undefined && form.lng !== undefined && (
+            <div style={{ gridColumn: "1 / -1" }}>
+              <MapConfirm lat={form.lat} lng={form.lng} label={form.meetingPoint || form.title || "Meeting point"} />
+            </div>
+          )}
         </div>
       </GuidedFlow>
     );
@@ -469,7 +497,9 @@ export function ExperienceCreationWizard({
         continueBusy={saving}
         error={error}
       >
-        <MultiImageUpload images={form.images} onChange={(images) => setForm({ images })} />
+        {/* id is guaranteed real (not "new") here — same reasoning as
+            CentreCreationWizard.tsx's identical comment. */}
+        <MultiImageUpload images={form.images} onChange={(images) => setForm({ images })} mediaEntityType="experience-gallery" mediaEntityId={id as string} />
       </GuidedFlow>
     );
   }

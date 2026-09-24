@@ -1,5 +1,5 @@
 import { getClientId } from "../clientId";
-import type { Centre, Club, DiscoverFeed, DiscoverItem, Experience, ExperienceSearchResult, IntentCount, LocalMomentumSignal, MyBooking, MyExperienceBooking, MyIntent, MyProgramEnrollment, MyRegistration, Program, ProviderProfile, Review, SearchParsed, SearchResult } from "../types";
+import type { BookingConfirmation, Centre, Club, DiscoverFeed, DiscoverItem, Experience, ExperienceBookingConfirmation, ExperienceSearchResult, IntentCount, LocalMomentumSignal, MapMarker, MapMarkerType, MyBooking, MyExperienceBooking, MyIntent, MyProgramEnrollment, MyRegistration, Program, ProgramEnrollmentConfirmation, ProviderProfile, RegistrationConfirmation, Review, SearchParsed, SearchResult } from "../types";
 import { downloadIcs, request } from "./core";
 
 // Guest-facing browsing + transactions — no account needed. Centres/clubs,
@@ -77,7 +77,7 @@ export function createBookingCheckout(input: CreateBookingInput): Promise<{ ref:
   return request(`/bookings/checkout`, { method: "POST", body: JSON.stringify(input) });
 }
 
-export function fetchBookingStatus(ref: string): Promise<{ ref: string; paymentStatus: string; totalCents: number }> {
+export function fetchBookingStatus(ref: string): Promise<BookingConfirmation> {
   return request(`/bookings/status/${encodeURIComponent(ref)}`);
 }
 
@@ -245,7 +245,7 @@ export function createRegistrationCheckout(
   return request(`/registrations/checkout`, { method: "POST", body: JSON.stringify(input) });
 }
 
-export function fetchRegistrationStatus(ref: string): Promise<{ ref: string; paymentStatus: string; totalCents: number }> {
+export function fetchRegistrationStatus(ref: string): Promise<RegistrationConfirmation> {
   return request(`/registrations/status/${encodeURIComponent(ref)}`);
 }
 
@@ -319,6 +319,34 @@ export function fetchDiscover(county?: string, radiusKm?: number): Promise<Disco
   return request(`/discover${qs ? `?${qs}` : ""}`);
 }
 
+/** Bounds-scoped map discovery (Maps & Geographic Discovery, Phase E) — not
+ * yet wired to a page (DiscoveryMap.tsx today still renders whatever
+ * already-filtered array its caller passes in); this is the new
+ * infrastructure a future "Search this area" pass wires up. */
+export interface MapMarkerFilters {
+  q?: string;
+  minPriceCents?: number;
+  maxPriceCents?: number;
+}
+
+export function fetchMapMarkers(
+  bounds: { north: number; south: number; east: number; west: number },
+  types?: MapMarkerType[],
+  filters?: MapMarkerFilters
+): Promise<{ markers: MapMarker[] }> {
+  const params = new URLSearchParams({
+    north: String(bounds.north),
+    south: String(bounds.south),
+    east: String(bounds.east),
+    west: String(bounds.west),
+  });
+  if (types && types.length) params.set("types", types.join(","));
+  if (filters?.q) params.set("q", filters.q);
+  if (filters?.minPriceCents !== undefined) params.set("minPriceCents", String(filters.minPriceCents));
+  if (filters?.maxPriceCents !== undefined) params.set("maxPriceCents", String(filters.maxPriceCents));
+  return request(`/discover/map?${params.toString()}`);
+}
+
 /** "Picking up near you" (Phase 7) — the resident-facing counterpart to
  * getDemandSignals(), which is vendor/admin-only. */
 export function fetchLocalMomentum(county?: string): Promise<LocalMomentumSignal[]> {
@@ -368,7 +396,7 @@ export function fetchNextBestParticipation(): Promise<DiscoverItem[]> {
 // system, 2 more listing types. "game" needs having actually attended a
 // past game; "host" needs having played in one of that resident's past
 // games (see reviews.ts's isEligibleToReview()).
-export type ReviewListingType = "centre" | "club" | "game" | "host" | "experience";
+export type ReviewListingType = "centre" | "club" | "game" | "host" | "experience" | "program";
 
 export function fetchReviews(listingType: ReviewListingType, listingId: string): Promise<Review[]> {
   return request(`/reviews?listingType=${listingType}&listingId=${encodeURIComponent(listingId)}`);
@@ -436,7 +464,7 @@ export function fetchMyProgramEnrollments(): Promise<MyProgramEnrollment[]> {
 
 /** Polled by PaymentSuccess.tsx after a program enrollment's Stripe redirect —
  * mirrors fetchBookingStatus/fetchRegistrationStatus. */
-export function fetchProgramEnrollmentStatus(ref: string): Promise<{ ref: string; paymentStatus: string; totalCents: number }> {
+export function fetchProgramEnrollmentStatus(ref: string): Promise<ProgramEnrollmentConfirmation> {
   return request(`/programs/enrollments/status/${encodeURIComponent(ref)}`);
 }
 
@@ -467,7 +495,7 @@ export function fetchMyExperienceBookings(): Promise<MyExperienceBooking[]> {
   return request(`/experiences/bookings/mine`);
 }
 
-export function fetchExperienceBookingStatus(ref: string): Promise<{ ref: string; paymentStatus: string; totalCents: number }> {
+export function fetchExperienceBookingStatus(ref: string): Promise<ExperienceBookingConfirmation> {
   return request(`/experiences/bookings/status/${encodeURIComponent(ref)}`);
 }
 

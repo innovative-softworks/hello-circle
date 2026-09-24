@@ -5,9 +5,11 @@ import { writeAudit } from "../audit.js";
 import { issueStripeRefund } from "../checkoutService.js";
 import { db } from "../db/index.js";
 import { orgFeatureFlags } from "../db/queries.js";
+import { exceedsGalleryLimit, GALLERY_LIMITS } from "../media/quotas.js";
 import { notifyCancellation, notifyRefund } from "../notifications.js";
 import { notifyVendorFollowers } from "./follows.js";
 import { generateSlug } from "../slugify.js";
+import { invalidCoordinateReason } from "../util.js";
 
 // Adventures & Experiences — vendor-side CRUD, split out the same way
 // vendorListings.ts/vendorPrograms.ts are (see CLAUDE.md). Mounted under
@@ -83,6 +85,11 @@ vendorExperiencesRouter.post("/experiences", requirePlatformRole(...EXPERIENCE_R
   // across later steps' PUTs, until POST /experiences/:id/publish flips it
   // to 'pending' once title+blurb are both actually present.
   if (!b.title) return res.status(400).json({ error: "A title is required" });
+  const coordError = invalidCoordinateReason(b.lat, b.lng);
+  if (coordError) return res.status(400).json({ error: coordError });
+  if (exceedsGalleryLimit("experience", (b.images ?? []).length)) {
+    return res.status(400).json({ error: `An experience can have at most ${GALLERY_LIMITS.experience} photos (cover + gallery)` });
+  }
   // Feature flags (implementation backlog #5) — admin can disable
   // Experiences for an org; server-enforced, not just a hidden button.
   if (!(await orgFeatureFlags(req.user!.id)).experiences) {
@@ -91,14 +98,20 @@ vendorExperiencesRouter.post("/experiences", requirePlatformRole(...EXPERIENCE_R
 
   const id = crypto.randomUUID();
   const slug = await generateSlug("experiences", b.title);
+  // Unlike centres/clubs, an Experience has no approximateCoords()
+  // fallback — a meeting point with no supplied address just stays
+  // uncoordinated (spec: "do not fabricate a pin"), so the only two
+  // real states here are 'confirmed' (vendor picked one via AddressSearch)
+  // or the column's own 'unknown' default (nothing supplied yet).
+  const locationSource = b.lat !== undefined && b.lng !== undefined && b.lat !== null && b.lng !== null ? "confirmed" : undefined;
   await db.transaction(async (tx) => {
     await tx
       .prepare(
-        `INSERT INTO experiences (id, vendor_id, kind, title, area, county, lat, lng, meeting_point, blurb, description,
+        `INSERT INTO experiences (id, vendor_id, kind, title, area, county, lat, lng, location_source, meeting_point, blurb, description,
           difficulty, duration_minutes, distance_km, elevation_gain_m, terrain_type, fitness_requirements, itinerary, equipment_provided, equipment_required,
           transport_info, safety_info, weather_policy, eligibility, cancellation_terms, price_cents, capacity,
           payment_method, image_url, status, slug)
-         VALUES (@id, @vendorId, @kind, @title, @area, @county, @lat, @lng, @meetingPoint, @blurb, @description,
+         VALUES (@id, @vendorId, @kind, @title, @area, @county, @lat, @lng, COALESCE(@locationSource, 'unknown'), @meetingPoint, @blurb, @description,
           @difficulty, @durationMinutes, @distanceKm, @elevationGainM, @terrainType, @fitnessRequirements, @itinerary, @equipmentProvided, @equipmentRequired,
           @transportInfo, @safetyInfo, @weatherPolicy, @eligibility, @cancellationTerms, @priceCents, @capacity,
           @paymentMethod, @imageUrl, 'draft', @slug)`
@@ -113,6 +126,7 @@ vendorExperiencesRouter.post("/experiences", requirePlatformRole(...EXPERIENCE_R
         county: b.county ?? "",
         lat: b.lat ?? null,
         lng: b.lng ?? null,
+        locationSource,
         meetingPoint: b.meetingPoint ?? "",
         blurb: b.blurb ?? "",
         description: b.description ?? "",
@@ -149,12 +163,21 @@ vendorExperiencesRouter.put("/experiences/:id", requirePlatformRole(...EXPERIENC
   // endpoint), and a vendor's own "remove" path is the DELETE below (soft-
   // delete to 'deleted'), not this general-purpose edit endpoint.
   const b = req.body as Partial<ExperienceInput>;
+  const coordError = invalidCoordinateReason(b.lat, b.lng);
+  if (coordError) return res.status(400).json({ error: coordError });
+  if (b.images && exceedsGalleryLimit("experience", b.images.length)) {
+    return res.status(400).json({ error: `An experience can have at most ${GALLERY_LIMITS.experience} photos (cover + gallery)` });
+  }
+  // 'confirmed' only when a real (non-null) pair is supplied — leaves the
+  // column untouched (COALESCE) for any other save, same discipline as
+  // centres/clubs' PUT handlers.
+  const locationSource = b.lat !== undefined && b.lng !== undefined && b.lat !== null && b.lng !== null ? "confirmed" : undefined;
   await db.transaction(async (tx) => {
     await tx
       .prepare(
         `UPDATE experiences SET
           kind = COALESCE(?, kind), title = COALESCE(?, title), area = COALESCE(?, area), county = COALESCE(?, county),
-          lat = COALESCE(?, lat), lng = COALESCE(?, lng), meeting_point = COALESCE(?, meeting_point),
+          lat = COALESCE(?, lat), lng = COALESCE(?, lng), location_source = COALESCE(?, location_source), meeting_point = COALESCE(?, meeting_point),
           blurb = COALESCE(?, blurb), description = COALESCE(?, description), difficulty = COALESCE(?, difficulty),
           duration_minutes = COALESCE(?, duration_minutes), distance_km = COALESCE(?, distance_km),
           elevation_gain_m = COALESCE(?, elevation_gain_m), terrain_type = COALESCE(?, terrain_type),
@@ -174,6 +197,7 @@ vendorExperiencesRouter.put("/experiences/:id", requirePlatformRole(...EXPERIENC
         b.county,
         b.lat,
         b.lng,
+        locationSource,
         b.meetingPoint,
         b.blurb,
         b.description,
@@ -277,7 +301,7 @@ vendorExperiencesRouter.post("/experiences/:id/bookings/:bookingId/cancel", requ
 
   const row = (await db
     .prepare(
-      `SELECT eb.ref, eb.status, eb.participant_name as participantName, eb.email, es.date, es.time,
+      `SELECT eb.ref, eb.status, eb.participant_name as participantName, eb.email, eb.resident_id as residentId, es.date, es.time,
               e.title, e.vendor_id as vendorId
        FROM experience_bookings eb
        JOIN experience_sessions es ON es.id = eb.session_id
@@ -285,7 +309,7 @@ vendorExperiencesRouter.post("/experiences/:id/bookings/:bookingId/cancel", requ
        WHERE eb.id = ? AND eb.experience_id = ?`
     )
     .get(req.params.bookingId, req.params.id)) as
-    | { ref: string; status: string; participantName: string; email: string; date: string; time: string; title: string; vendorId: string }
+    | { ref: string; status: string; participantName: string; email: string; residentId: string | null; date: string; time: string; title: string; vendorId: string }
     | undefined;
   if (!row) return res.status(404).json({ error: "Booking not found" });
   if (row.status === "cancelled") return res.status(409).json({ error: "This booking is already cancelled" });
@@ -311,6 +335,7 @@ vendorExperiencesRouter.post("/experiences/:id/bookings/:bookingId/cancel", requ
     guestEmail: row.email,
     ref: row.ref,
     detailsText: `${row.date} at ${row.time} · ${row.title}`,
+    residentId: row.residentId,
   }).catch((e) => console.error("[notifications] vendor experience booking cancellation notify failed:", e));
 
   res.json({ ok: true });
@@ -321,7 +346,7 @@ vendorExperiencesRouter.post("/experiences/:id/bookings/:bookingId/refund", requ
 
   const row = (await db
     .prepare(
-      `SELECT eb.ref, eb.payment_status as paymentStatus, eb.stripe_session_id as stripeSessionId, eb.participant_name as participantName, eb.email,
+      `SELECT eb.ref, eb.payment_status as paymentStatus, eb.stripe_session_id as stripeSessionId, eb.participant_name as participantName, eb.email, eb.resident_id as residentId,
               es.date, es.time, e.title, e.vendor_id as vendorId
        FROM experience_bookings eb
        JOIN experience_sessions es ON es.id = eb.session_id
@@ -329,7 +354,7 @@ vendorExperiencesRouter.post("/experiences/:id/bookings/:bookingId/refund", requ
        WHERE eb.id = ? AND eb.experience_id = ?`
     )
     .get(req.params.bookingId, req.params.id)) as
-    | { ref: string; paymentStatus: string; stripeSessionId: string | null; participantName: string; email: string; date: string; time: string; title: string; vendorId: string }
+    | { ref: string; paymentStatus: string; stripeSessionId: string | null; participantName: string; email: string; residentId: string | null; date: string; time: string; title: string; vendorId: string }
     | undefined;
   if (!row) return res.status(404).json({ error: "Booking not found" });
   if (row.paymentStatus === "refunded") return res.status(409).json({ error: "This booking has already been refunded" });
@@ -362,6 +387,7 @@ vendorExperiencesRouter.post("/experiences/:id/bookings/:bookingId/refund", requ
     ref: row.ref,
     detailsText: `${row.date} at ${row.time} · ${row.title}`,
     refundedCents: result.amountCents,
+    residentId: row.residentId,
   }).catch((e) => console.error("[notifications] experience booking refund notify failed:", e));
 
   res.json({ ok: true });

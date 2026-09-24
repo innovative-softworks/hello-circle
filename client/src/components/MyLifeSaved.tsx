@@ -1,6 +1,8 @@
 import { useNavigate } from "react-router-dom";
 import { Photo } from "./Photo";
+import { Button, EmptyState } from "./ui";
 import { HeartIcon } from "./icons";
+import { favouriteDetailHref } from "../favouriteLink";
 import { colors, fonts, radius } from "../theme";
 import type { Favourite } from "../types";
 
@@ -11,6 +13,7 @@ const LABEL: Record<Favourite["listingType"], string> = {
   program_session: "Program session",
   club_session: "Club session",
   experience: "Adventure / Experience",
+  circle: "Circle",
 };
 
 // "Saved" (My Life redesign §27) — compact preview, three items, no large
@@ -20,19 +23,25 @@ const LABEL: Record<Favourite["listingType"], string> = {
 
 export function MyLifeSaved({ favourites }: { favourites: Favourite[] }) {
   const navigate = useNavigate();
-  if (favourites.length === 0) return null;
-
-  const detailHref = (f: Favourite): string | null =>
-    f.listingType === "centre" ? `/centres/${f.listingId}`
-    : f.listingType === "club" ? `/clubs/${f.listingId}`
-    : f.listingType === "game" ? `/games/${f.listingId}`
-    : f.listingType === "experience" ? `/experiences/${f.listingId}`
-    : null;
+  if (favourites.length === 0) {
+    return (
+      <EmptyState
+        icon={<HeartIcon size={20} />}
+        title="Nothing saved yet"
+        subtitle="Save activities, places and experiences you want to come back to."
+        action={
+          <Button variant="ghost" onClick={() => navigate("/explore")}>
+            Explore HelloCircle →
+          </Button>
+        }
+      />
+    );
+  }
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
       {favourites.slice(0, 3).map((f) => {
-        const href = detailHref(f);
+        const href = favouriteDetailHref(f);
         // When the listing has no real name on file (removed/unresolved),
         // both name and subtitle fall back to the same generic type label —
         // showing it twice ("Community centre / Community centre") just

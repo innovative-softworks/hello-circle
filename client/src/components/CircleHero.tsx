@@ -1,7 +1,8 @@
 import { CalendarIcon, PinIcon, RepeatIcon } from "./icons";
 import { Photo } from "./Photo";
 import { Avatar } from "./ui";
-import { colors, fonts, placeholderStripes } from "../theme";
+import { getCircleCoverUrl } from "../media";
+import { cardImageRatio, colors, fonts, placeholderStripes } from "../theme";
 import type { Circle } from "../types";
 
 // Circle Detail redesign — landscape hero (~16:6.5) with identity overlaid
@@ -35,15 +36,18 @@ function foundedLabel(iso: string): string {
 
 export function CircleHero({ circle, activeThisWeek }: { circle: Circle; activeThisWeek: boolean }) {
   const closed = circle.status === "closed";
+  const coverSrc = getCircleCoverUrl(circle);
 
   return (
     <Photo
-      src={circle.imageUrl ?? undefined}
+      src={coverSrc ?? undefined}
       alt={circle.name}
       ph={placeholderStripes.green}
-      icon={!circle.imageUrl ? <RepeatIcon size={32} /> : undefined}
+      icon={!coverSrc ? <RepeatIcon size={32} /> : undefined}
       iconColor={colors.green}
-      style={{ height: "clamp(260px,36vw,420px)", borderRadius: 2, overflow: "hidden" }}
+      variant="hero"
+      eager
+      style={{ aspectRatio: cardImageRatio.hero, borderRadius: 2, overflow: "hidden" }}
       contentStyle={{
         display: "flex",
         flexDirection: "column",

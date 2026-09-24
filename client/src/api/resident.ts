@@ -17,6 +17,7 @@ import type {
   Favourite,
   FavouriteStatus,
   Game,
+  GameJoinConfirmation,
   GameParticipantSummary,
   GameUpdate,
   ManageCirclePlan,
@@ -29,6 +30,7 @@ import type {
   RoutineSuggestion,
   ParticipationEntry,
   Pass,
+  PassConfirmation,
   PlaceSuggestion,
   Receipt,
   ReportRecord,
@@ -44,6 +46,7 @@ import type {
 } from "../types";
 import { getClientId } from "../clientId";
 import { downloadIcs, downloadJson, request } from "./core";
+import { authorizeAndFinalize } from "./media";
 
 // Resident/guest-facing account features — magic-link session, identity,
 // household, favourites, club waitlist, games, circles, club-session
@@ -111,7 +114,15 @@ export function updateResidentMe(input: { name?: string; homeCounty?: string }):
   return request(`/residents/me`, { method: "PUT", body: JSON.stringify(input) });
 }
 
-export async function uploadAvatar(file: File): Promise<{ avatarUrl: string }> {
+/** Tries the R2 flow first (entityId must be the caller's own resident id —
+ * enforced server-side too); falls back to the legacy dedicated multipart
+ * avatar route (POST /api/residents/me/avatar, its own multer pipeline —
+ * NOT the generic /api/uploads uploadImage() other media call sites fall
+ * back to, since that one is vendor/admin-only and would 401 a resident). */
+export async function uploadAvatar(file: File, residentId: string): Promise<{ avatarUrl: string }> {
+  const result = await authorizeAndFinalize(file, "resident-avatar", residentId);
+  if (result) return request(`/residents/me/avatar-url`, { method: "PUT", body: JSON.stringify({ url: result.url }) });
+
   const form = new FormData();
   form.append("file", file);
   const res = await fetch(`/api/residents/me/avatar`, {
@@ -373,6 +384,14 @@ export interface CreateGameInput {
    * this activity; server-validated (organiser + confirmed status) and
    * idempotency-guarded, unlike circleId above. */
   planId?: string;
+  /** Cover image — only meaningful on updateGame() (needs a real game id
+   * first). Omitting it on an unrelated edit leaves the existing cover
+   * untouched (COALESCE'd server-side, see games.ts's PUT /:id). */
+  imageUrl?: string;
+  /** Universal Publishing, Lifecycle & Availability System — §21's create-
+   * time publishing choice. Omitted (or 'active') keeps every existing
+   * caller's behavior (publish immediately) unchanged. */
+  lifecycle?: "draft" | "coming_soon" | "active";
 }
 
 export function createGame(input: CreateGameInput): Promise<Game> {
@@ -401,6 +420,14 @@ export function removeGameParticipant(id: string, residentId: string): Promise<{
   return request(`/games/${id}/participants/${residentId}/remove`, { method: "POST" });
 }
 
+/** Platform Pre-Launch Polish — Changeset 4C. Host-only, full refund of a
+ * paid participant's payment via Stripe — reuses the same issueStripeRefund
+ * plumbing bookings/registrations/programs/experiences already refund
+ * through server-side. */
+export function refundGameParticipant(id: string, residentId: string): Promise<{ ok: boolean; amountCents: number }> {
+  return request(`/games/${id}/participants/${residentId}/refund`, { method: "POST" });
+}
+
 /** Host-run check-in (Host Manage spec §11) — distinct from a resident's own
  * self-serve check-in (checkInGame above): lets the host check someone else
  * in from a kiosk-style screen at the door. */
@@ -426,7 +453,7 @@ export function joinGame(id: string, couponCode?: string): Promise<{ ok?: boolea
 
 /** Polled by PaymentSuccess.tsx after a paid game join's Stripe redirect —
  * mirrors fetchBookingStatus/fetchRegistrationStatus. */
-export function fetchGameJoinStatus(ref: string): Promise<{ ref: string; paymentStatus: string; totalCents: number }> {
+export function fetchGameJoinStatus(ref: string): Promise<GameJoinConfirmation> {
   return request(`/games/status/${encodeURIComponent(ref)}`);
 }
 
@@ -444,6 +471,25 @@ export function joinGameWaitlist(id: string): Promise<{ ok: boolean }> {
 
 export function leaveGameWaitlist(id: string): Promise<{ ok: boolean }> {
   return request(`/games/${id}/waitlist`, { method: "DELETE" });
+}
+
+/** Universal Publishing, Lifecycle & Availability System — the host's
+ * manual override (open now / pause / resume / cancel / archive). Returns
+ * the updated Game so the caller can re-render off its fresh
+ * effectiveLifecycle without a second round trip. */
+export function setGameLifecycle(id: string, lifecycle: "draft" | "coming_soon" | "active" | "paused" | "cancelled" | "archived"): Promise<Game> {
+  return request(`/games/${id}/lifecycle`, { method: "POST", body: JSON.stringify({ lifecycle }) });
+}
+
+/** "Notify me" on a Coming Soon activity. `alreadySubscribed` lets the
+ * caller show the same confirmed state whether this was a new subscribe or
+ * a harmless repeat click. */
+export function subscribeGameNotifyMe(id: string): Promise<{ ok: boolean; alreadySubscribed: boolean }> {
+  return request(`/games/${id}/notify-me`, { method: "POST" });
+}
+
+export function unsubscribeGameNotifyMe(id: string): Promise<{ ok: boolean }> {
+  return request(`/games/${id}/notify-me`, { method: "DELETE" });
 }
 
 /** Host-only visibility + targeted invite (Vendor-parity pass) — mirrors
@@ -757,7 +803,7 @@ export function createPassCheckout(input: { listingId: string; creditsTotal: num
 
 /** Polled by PaymentSuccess.tsx after a pass purchase's Stripe redirect —
  * mirrors fetchBookingStatus/fetchRegistrationStatus. */
-export function fetchPassStatus(ref: string): Promise<{ ref: string; paymentStatus: string; totalCents: number }> {
+export function fetchPassStatus(ref: string): Promise<PassConfirmation> {
   return request(`/passes/status/${encodeURIComponent(ref)}`);
 }
 

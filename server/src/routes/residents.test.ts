@@ -120,3 +120,128 @@ describe("GET /me/needs-attention", () => {
     expect(Array.isArray(await res.json())).toBe(true);
   });
 });
+
+// Cloudflare R2 Media System — Changeset 3. PUT /me/avatar-url is the R2
+// counterpart to the legacy multipart POST /me/avatar (see api/resident.ts's
+// uploadAvatar(), which tries the R2 flow first and falls back to that
+// multipart route). It must only ever accept a URL that could plausibly be
+// this resident's own finalized avatar upload — never an arbitrary
+// client-supplied URL (that would let one resident overwrite their avatar
+// with another entity's, or any external URL at all).
+describe("PUT /me/avatar-url", () => {
+  it("401s when signed out", async () => {
+    const res = await fetch(`${baseUrl}/me/avatar-url`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url: "x" }) });
+    expect(res.status).toBe(401);
+  });
+
+  it("400s a missing url", async () => {
+    const res = await fetch(`${baseUrl}/me/avatar-url`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", "X-Test-Resident-Id": testResidentId },
+      body: JSON.stringify({}),
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it("400s a URL not under this resident's own avatar key prefix", async () => {
+    const res = await fetch(`${baseUrl}/me/avatar-url`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", "X-Test-Resident-Id": testResidentId },
+      body: JSON.stringify({ url: "https://media.hellocircle.ie/residents/someone-else/avatar/x.jpg" }),
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it("400s a non-R2 external URL", async () => {
+    const res = await fetch(`${baseUrl}/me/avatar-url`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", "X-Test-Resident-Id": testResidentId },
+      body: JSON.stringify({ url: "https://evil.example/x.jpg" }),
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it("accepts and attaches a URL under this resident's own avatar key prefix", async () => {
+    const url = `https://media.hellocircle.ie/residents/${testResidentId}/avatar/test.jpg`;
+    const res = await fetch(`${baseUrl}/me/avatar-url`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", "X-Test-Resident-Id": testResidentId },
+      body: JSON.stringify({ url }),
+    });
+    expect(res.status).toBe(200);
+    expect((await res.json()).avatarUrl).toBe(url);
+    const row = (await db.prepare(`SELECT avatar_url FROM residents WHERE id = ?`).get(testResidentId)) as { avatar_url: string };
+    expect(row.avatar_url).toBe(url);
+    await db.prepare(`UPDATE residents SET avatar_url = NULL WHERE id = ?`).run(testResidentId);
+  });
+});
+
+// SEO/Privacy audit — Phase 1, P0 fix #2. GET /:id/host-profile (public,
+// zero-auth) previously listed a host's upcoming games with no
+// `visibility` filter and their organised Circles with no `status`/
+// `join_mode` filter — a circle-only/invite-only game's real activity
+// label/date/time, and a restricted Circle's real name, both leaked onto
+// the public profile regardless. This is the regression suite for the
+// fix.
+describe("GET /:id/host-profile — private Activity/Circle data never leaks", () => {
+  const hostId = `test-hostprofile-host-${crypto.randomUUID()}`;
+  const publicGameId = `test-hostprofile-pub-game-${crypto.randomUUID()}`;
+  const circleOnlyGameId = `test-hostprofile-circ-game-${crypto.randomUUID()}`;
+  const inviteGameId = `test-hostprofile-inv-game-${crypto.randomUUID()}`;
+  const openCircleId = `test-hostprofile-open-circle-${crypto.randomUUID()}`;
+  const restrictedCircleId = `test-hostprofile-restricted-circle-${crypto.randomUUID()}`;
+  const future = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+
+  beforeAll(async () => {
+    await db
+      .prepare(`INSERT INTO residents (id, email, name, host_status) VALUES (?, ?, 'Test Host', 'verified')`)
+      .run(hostId, `${hostId}@example.test`);
+
+    await db
+      .prepare(`INSERT INTO games (id, host_resident_id, activity_label, location_text, date, time, capacity, status, visibility) VALUES (?, ?, 'Public Test Session', 'Test Location', ?, '18:00', 10, 'open', 'public')`)
+      .run(publicGameId, hostId, future);
+    await db
+      .prepare(`INSERT INTO games (id, host_resident_id, activity_label, location_text, date, time, capacity, status, visibility) VALUES (?, ?, 'Secret Circle-Only Session', 'Test Location', ?, '18:00', 10, 'open', 'circle')`)
+      .run(circleOnlyGameId, hostId, future);
+    await db
+      .prepare(`INSERT INTO games (id, host_resident_id, activity_label, location_text, date, time, capacity, status, visibility) VALUES (?, ?, 'Secret Invite-Only Session', 'Test Location', ?, '18:00', 10, 'open', 'invite')`)
+      .run(inviteGameId, hostId, future);
+
+    await db
+      .prepare(`INSERT INTO circles (id, name, activity_label, area, county, about, created_by_resident_id, join_mode, status) VALUES (?, 'Public Host Circle', 'Testball', 'Area', 'Dublin', '', ?, 'open', 'active')`)
+      .run(openCircleId, hostId);
+    await db.prepare(`INSERT INTO circle_members (circle_id, resident_id, role) VALUES (?, ?, 'organiser')`).run(openCircleId, hostId);
+
+    await db
+      .prepare(`INSERT INTO circles (id, name, activity_label, area, county, about, created_by_resident_id, join_mode, status) VALUES (?, 'Secret Host Circle', 'Testball', 'Area', 'Dublin', '', ?, 'invite', 'active')`)
+      .run(restrictedCircleId, hostId);
+    await db.prepare(`INSERT INTO circle_members (circle_id, resident_id, role) VALUES (?, ?, 'organiser')`).run(restrictedCircleId, hostId);
+  });
+
+  afterAll(async () => {
+    await db.prepare(`DELETE FROM games WHERE id IN (?, ?, ?)`).run(publicGameId, circleOnlyGameId, inviteGameId);
+    await db.prepare(`DELETE FROM circle_members WHERE circle_id IN (?, ?)`).run(openCircleId, restrictedCircleId);
+    await db.prepare(`DELETE FROM circles WHERE id IN (?, ?)`).run(openCircleId, restrictedCircleId);
+    await db.prepare(`DELETE FROM residents WHERE id = ?`).run(hostId);
+  });
+
+  it("includes the public game but excludes circle-only and invite-only games, unauthenticated", async () => {
+    const res = await fetch(`${baseUrl}/${hostId}/host-profile`);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { upcomingGames: { id: string; activityLabel: string }[] };
+    const ids = body.upcomingGames.map((g) => g.id);
+    expect(ids).toContain(publicGameId);
+    expect(ids).not.toContain(circleOnlyGameId);
+    expect(ids).not.toContain(inviteGameId);
+    expect(body.upcomingGames.some((g) => g.activityLabel.includes("Secret"))).toBe(false);
+  });
+
+  it("includes the open Circle but excludes the restricted Circle, unauthenticated", async () => {
+    const res = await fetch(`${baseUrl}/${hostId}/host-profile`);
+    const body = (await res.json()) as { circles: { id: string; name: string }[] };
+    const ids = body.circles.map((c) => c.id);
+    expect(ids).toContain(openCircleId);
+    expect(ids).not.toContain(restrictedCircleId);
+    expect(body.circles.some((c) => c.name.includes("Secret"))).toBe(false);
+  });
+});

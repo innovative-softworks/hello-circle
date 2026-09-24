@@ -5,10 +5,11 @@ import { checkMinParticipantsThreshold } from "./games.js";
 import { logEvent } from "../analytics.js";
 import { computeCapacity } from "../capacity.js";
 import { db } from "../db/index.js";
+import { sendMail } from "../email.js";
 import { notifyNewBookingOrRegistration, notifyResident } from "../notifications.js";
 import { recordCouponUse } from "../pricing.js";
 import { claimWaitlistOffer } from "../waitlist.js";
-import { STRIPE_WEBHOOK_SECRET, stripe } from "../stripe.js";
+import { CLIENT_URL, STRIPE_WEBHOOK_SECRET, stripe } from "../stripe.js";
 import type Stripe from "stripe";
 
 interface BookingForNotify {
@@ -68,6 +69,7 @@ export async function confirmBooking(ref: string) {
     guestEmail: row.email,
     ref: row.ref,
     detailsText: `${row.date} at ${row.time} · ${row.duration}h · ${row.guests} guests · €${(row.total_cents / 100).toFixed(2)} total`,
+    residentId: row.resident_id,
   }).catch((e) => console.error("[notifications] booking notify failed:", e));
 
   if (row.resident_id) await upgradeFavouriteStatus(row.resident_id, "centre", row.centre_id);
@@ -99,6 +101,7 @@ export async function confirmRegistration(ref: string) {
     guestEmail: row.email,
     ref: row.ref,
     detailsText: `${row.dob ? `${row.child_first} ${row.child_last} (DOB ${row.dob}) · ${row.team}` : `${row.child_first} ${row.child_last}`}${row.trial ? " · Trial session" : ""} · €${(row.total_cents / 100).toFixed(2)} total`,
+    residentId: row.resident_id,
   }).catch((e) => console.error("[notifications] registration notify failed:", e));
 
   if (row.resident_id) await upgradeFavouriteStatus(row.resident_id, "club", row.club_id);
@@ -111,7 +114,12 @@ interface GameJoinForNotify {
   date: string;
   time: string;
   capacity: number;
+  price_cents: number | null;
+  location_text: string;
+  centre_name: string | null;
   resident_id: string;
+  resident_name: string;
+  resident_email: string;
   coupon_code: string | null;
 }
 
@@ -124,14 +132,42 @@ export async function confirmGameJoin(ref: string) {
 
   const row = (await db
     .prepare(
-      `SELECT gp.game_id, gp.resident_id, gp.coupon_code, g.host_resident_id, g.activity_label, g.date, g.time, g.capacity
-       FROM game_participants gp JOIN games g ON g.id = gp.game_id WHERE gp.ref = ?`
+      `SELECT gp.game_id, gp.resident_id, gp.coupon_code, g.host_resident_id, g.activity_label, g.date, g.time, g.capacity, g.price_cents, g.location_text, c.name as centre_name,
+              r.name as resident_name, r.email as resident_email
+       FROM game_participants gp
+       JOIN games g ON g.id = gp.game_id
+       JOIN residents r ON r.id = gp.resident_id
+       LEFT JOIN centres c ON c.id = g.centre_id
+       WHERE gp.ref = ?`
     )
     .get(ref)) as GameJoinForNotify | undefined;
   if (!row) return;
 
   if (row.coupon_code) await recordCouponUse(row.coupon_code);
   await claimWaitlistOffer("game", row.game_id, null, row.resident_id);
+
+  // Platform Pre-Launch Polish — Changeset 3. Paid Game joins previously had
+  // zero payer-facing confirmation — this function's only notify call was
+  // the host-full one below. Fires exactly once per successful payment: the
+  // idempotency guard above (info.changes === 0) already returns early on a
+  // replayed webhook, so this can never double-send.
+  const venue = row.centre_name ?? (row.location_text || "the venue");
+  const amount = row.price_cents ? `€${(row.price_cents / 100).toFixed(2)} paid` : "Free";
+  const manageUrl = `${CLIENT_URL}/games/${row.game_id}`;
+  await notifyResident({
+    residentId: row.resident_id,
+    kind: "game",
+    title: `You're in: ${row.activity_label}`,
+    body: `${row.date} at ${row.time} · ${venue} · ${amount}`,
+    listingType: "game",
+    listingId: row.game_id,
+    ref: row.game_id,
+  }).catch((e) => console.error("[notifications] game join resident notify failed:", e));
+  await sendMail({
+    to: row.resident_email,
+    subject: `You're confirmed — ${row.activity_label} (${ref})`,
+    text: `Hi ${row.resident_name},\n\nYou're confirmed for ${row.activity_label}.\nReference: ${ref}\n\n${row.date} at ${row.time}\n${venue}\n${amount}\n\nView your session any time: ${manageUrl}\n\nThanks for using Hello Circle.`,
+  }).catch((e) => console.error("[email] game join confirmation failed:", e));
 
   const { n: joined } = (await db.prepare(`SELECT COUNT(*) as n FROM game_participants WHERE game_id = ? AND status = 'joined'`).get(row.game_id)) as {
     n: number;
@@ -157,6 +193,43 @@ export async function confirmGameJoin(ref: string) {
 export async function confirmPass(ref: string) {
   const info = await db.prepare(`UPDATE passes SET payment_status = 'paid' WHERE ref = ? AND payment_status = 'pending'`).run(ref);
   if (info.changes === 0) return;
+
+  // Platform Pre-Launch Polish — Changeset 3. This function previously had
+  // zero notification code at all — a Pass purchase confirmed with no
+  // payer-facing signal of any kind. Passes are always listing_type='club'
+  // today (the only pass-purchase flow that exists, per passes.ts's own
+  // GET /status/:ref precedent) — same LEFT JOIN pattern reused here.
+  const row = (await db
+    .prepare(
+      `SELECT p.resident_id as residentId, p.listing_id as clubId, c.name as clubName, p.credits_total as creditsTotal, p.purchased_cents as purchasedCents,
+              r.name as residentName, r.email as residentEmail
+       FROM passes p
+       LEFT JOIN clubs c ON p.listing_type = 'club' AND c.id = p.listing_id
+       JOIN residents r ON r.id = p.resident_id
+       WHERE p.ref = ?`
+    )
+    .get(ref)) as
+    | { residentId: string; clubId: string; clubName: string | null; creditsTotal: number; purchasedCents: number; residentName: string; residentEmail: string }
+    | undefined;
+  if (!row) return;
+
+  const clubName = row.clubName ?? "your club";
+  const amount = `€${(row.purchasedCents / 100).toFixed(2)}`;
+  const manageUrl = `${CLIENT_URL}/clubs/${row.clubId}`;
+  await notifyResident({
+    residentId: row.residentId,
+    kind: "registration",
+    title: `Pass purchased: ${clubName}`,
+    body: `${row.creditsTotal} sessions · ${amount} paid`,
+    listingType: "club",
+    listingId: row.clubId,
+    ref,
+  }).catch((e) => console.error("[notifications] pass resident notify failed:", e));
+  await sendMail({
+    to: row.residentEmail,
+    subject: `Your pass is confirmed — ${clubName} (${ref})`,
+    text: `Hi ${row.residentName},\n\nYour pass for ${clubName} is confirmed.\nReference: ${ref}\n\n${row.creditsTotal} sessions · ${amount} paid\n\nView it any time: ${manageUrl}\n\nThanks for using Hello Circle.`,
+  }).catch((e) => console.error("[email] pass confirmation failed:", e));
 }
 
 /** Program enrollment confirmation (Phase B) — same idempotent pattern. */
@@ -165,11 +238,14 @@ export async function confirmProgramEnrollment(ref: string) {
   if (info.changes === 0) return;
   const row = (await db
     .prepare(
-      `SELECT pe.participant_name as participantName, pe.email, p.title, p.vendor_id as vendorId, p.listing_type as listingType, p.listing_id as listingId, pe.total_cents as totalCents
+      `SELECT pe.participant_name as participantName, pe.email, p.title, p.vendor_id as vendorId, p.listing_type as listingType, p.listing_id as listingId, pe.total_cents as totalCents, pe.resident_id as residentId, pe.coupon_code as couponCode
        FROM program_enrollments pe JOIN programs p ON p.id = pe.program_id WHERE pe.ref = ?`
     )
-    .get(ref)) as { participantName: string; email: string; title: string; vendorId: string; listingType: "centre" | "club"; listingId: string; totalCents: number } | undefined;
+    .get(ref)) as
+    | { participantName: string; email: string; title: string; vendorId: string; listingType: "centre" | "club"; listingId: string; totalCents: number; residentId: string | null; couponCode: string | null }
+    | undefined;
   if (!row) return;
+  if (row.couponCode) await recordCouponUse(row.couponCode);
   notifyNewBookingOrRegistration({
     kind: "registration",
     listingType: row.listingType,
@@ -180,6 +256,7 @@ export async function confirmProgramEnrollment(ref: string) {
     guestEmail: row.email,
     ref,
     detailsText: `${row.participantName} enrolled in ${row.title} · €${(row.totalCents / 100).toFixed(2)} total`,
+    residentId: row.residentId,
   }).catch((e) => console.error("[notifications] program enrollment notify failed:", e));
 }
 
@@ -213,6 +290,7 @@ export async function confirmExperienceBooking(ref: string) {
     guestEmail: row.email,
     ref: row.ref,
     detailsText: `${row.date} at ${row.time} · party of ${row.partySize} · €${(row.totalCents / 100).toFixed(2)} total`,
+    residentId: row.residentId,
   }).catch((e) => console.error("[notifications] experience booking notify failed:", e));
 
   if (row.residentId) await upgradeFavouriteStatus(row.residentId, "experience", row.experienceId);

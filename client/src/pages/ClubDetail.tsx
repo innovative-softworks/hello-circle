@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { addFavourite, createPassCheckout, fetchClub, fetchFavourites, fetchPrograms, PLATFORM_FEE_RATE, removeFavourite, VAT_RATE } from "../api";
 import { openCheckout } from "../native";
 import { BackLink } from "../components/BackLink";
@@ -8,7 +8,7 @@ import { PhotoGallery } from "../components/PhotoGallery";
 import { Reviews } from "../components/Reviews";
 import { SinglePinMap } from "../components/SinglePinMap";
 import { priceLabel } from "../priceLabel";
-import { CheckIcon, ClockIcon, HeartIcon, PinIcon, ShareIcon, StarIcon, WheelchairIcon } from "../components/icons";
+import { CheckIcon, HeartIcon, PinIcon, ShareIcon, StarIcon, WheelchairIcon } from "../components/icons";
 import { ShareButton } from "../components/ShareButton";
 import { Button, ConfirmDialog, ListingDetailSkeleton } from "../components/ui";
 import { isFavorite, toggleFavorite } from "../favorites";
@@ -197,6 +197,34 @@ export function ClubDetail() {
               <h3 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 20, margin: "0 0 12px", letterSpacing: "-.01em" }}>
                 Location
               </h3>
+              <div style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 14, padding: "16px 18px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap", marginBottom: 12 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <PinIcon size={16} style={{ color: colors.mutedLight, flex: "none" }} />
+                  <div>
+                    <div style={{ fontWeight: 700, fontSize: 14.5 }}>{club.name}</div>
+                    {(club.area || club.county) && (
+                      <div style={{ fontSize: 12.5, color: colors.mutedLight, marginTop: 2 }}>
+                        {club.area}
+                        {club.area && club.county ? ", " : ""}
+                        {club.county}
+                      </div>
+                    )}
+                    {club.locationSource !== "confirmed" && (
+                      <div style={{ fontSize: 11.5, fontWeight: 700, color: "#9a7b1f", marginTop: 3 }}>Approximate area — not an exact address</div>
+                    )}
+                  </div>
+                </div>
+                {club.locationSource === "confirmed" && (
+                  <a
+                    href={`https://www.google.com/maps/search/?api=1&query=${club.lat},${club.lng}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    style={{ fontSize: 13, fontWeight: 700, color: colors.text, textDecoration: "underline", flex: "none" }}
+                  >
+                    Get directions
+                  </a>
+                )}
+              </div>
               <SinglePinMap lat={club.lat} lng={club.lng} label={club.name} height={220} />
               <div style={{ marginBottom: 20 }} />
             </>
@@ -209,17 +237,17 @@ export function ClubDetail() {
               </h3>
               <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                 {programs.map((p) => (
-                  <button
+                  <Link
                     key={p.id}
-                    onClick={() => navigate(`/programs/${p.id}`)}
-                    style={{ textAlign: "left", border: `1px solid ${colors.border}`, borderRadius: 14, padding: "14px 16px", cursor: "pointer", background: colors.surface, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, width: "100%" }}
+                    to={`/programs/${p.id}`}
+                    style={{ textAlign: "left", textDecoration: "none", color: "inherit", border: `1px solid ${colors.border}`, borderRadius: 14, padding: "14px 16px", cursor: "pointer", background: colors.surface, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, width: "100%" }}
                   >
                     <div>
                       <div style={{ fontWeight: 700 }}>{p.title}</div>
                       <div style={{ fontSize: 13, color: colors.mutedLight }}>{p.sessions.length} session{p.sessions.length === 1 ? "" : "s"}{p.ageRange ? ` · ${p.ageRange}` : ""}</div>
                     </div>
                     <div style={{ fontWeight: 700 }}>{formatPrice(p.priceCents)}</div>
-                  </button>
+                  </Link>
                 ))}
               </div>
             </>
@@ -251,13 +279,15 @@ export function ClubDetail() {
                   `Buy a 10-session pass — €${Math.round(club.price * 10 * (1 + VAT_RATE + PLATFORM_FEE_RATE))} (incl. VAT & fee)`}
             </Button>
           )}
+          {/* Resident Experience Polish — this used to also claim "Training
+              year-round" and "Garda-vetted, qualified coaches" unconditionally
+              for every club, regardless of whether either was actually true —
+              a specific safety/trust credential with no backing data field.
+              Removed rather than replaced: every other real fact this club
+              has (ages, trial availability, capacity, would-repeat rating)
+              is already shown higher on this page — trust claims here must
+              stay data-backed, not filled with a repeat of the same facts. */}
           <div style={{ display: "flex", flexDirection: "column", gap: 9, marginTop: 16, fontSize: 14, color: colors.muted }}>
-            <div style={{ display: "flex", gap: 10 }}>
-              <ClockIcon size={16} style={{ color: colors.orange }} /> Training year-round
-            </div>
-            <div style={{ display: "flex", gap: 10 }}>
-              <CheckIcon size={16} style={{ color: colors.orange }} /> Garda-vetted, qualified coaches
-            </div>
             {club.phone && (
               <div style={{ display: "flex", gap: 10 }}>
                 <a href={`tel:${club.phone}`} className="link-accent" style={{ color: colors.muted }}>

@@ -10,7 +10,7 @@ import { ExperienceSearchCard } from "../components/ExperienceSearchCard";
 import { DropdownOption, FilterDropdown } from "../components/FilterDropdown";
 import { QuickIntentChip } from "../components/Chip";
 import { IntentCaptureForm } from "../components/IntentCaptureForm";
-import { ArrowRightIcon, BallIcon, BellIcon, BuildingIcon, CalendarIcon, CheckIcon, CloseIcon, PinIcon, RepeatIcon, SearchIcon, TreeIconSmall } from "../components/icons";
+import { ArrowRightIcon, BallIcon, BellIcon, BuildingIcon, CalendarIcon, CheckIcon, CloseIcon, GridIcon, PinIcon, RepeatIcon, SearchIcon, TreeIconSmall } from "../components/icons";
 import { PageTitle } from "../components/PageTitle";
 import { Photo } from "../components/Photo";
 import { EntityTypeLabel } from "../components/symbols";
@@ -77,14 +77,23 @@ const MOOD_LABELS: Record<string, string> = {
 
 const RADIUS_OPTIONS = [0, 5, 10, 25, 50];
 
-type CategoryKey = "centres" | "clubs" | "games" | "adventures" | "experiences" | "circles";
+type CategoryKey = "centres" | "clubs" | "games" | "adventures" | "experiences" | "circles" | "programs";
 
-const CATEGORIES: { key: CategoryKey; label: string; desc: string; icon: ReactNode; to: string }[] = [
+const CATEGORIES: { key: CategoryKey; label: string; desc: string; icon: ReactNode; to: string; direct?: boolean }[] = [
   { key: "centres", label: "Community centres", desc: "Halls, pitches and rooms you can hire.", icon: <BuildingIcon size={20} />, to: "/browse/centres" },
   { key: "clubs", label: "Sports clubs", desc: "Join a club, register for a season.", icon: <BallIcon size={20} />, to: "/browse/clubs" },
   { key: "games", label: "Open sessions", desc: "Join people who are already playing.", icon: <RepeatIcon size={20} />, to: "/games" },
   { key: "adventures", label: "Adventures", desc: "Guided hikes, kayaking and outdoor trips.", icon: <TreeIconSmall size={20} />, to: "/adventures" },
   { key: "experiences", label: "Experiences", desc: "Workshops, classes and one-off outings.", icon: <TreeIconSmall size={20} />, to: "/experiences" },
+  // Product Language & IA Polish — Changeset 1B. Programs previously had no
+  // direct discovery entry point in Explore at all (folded invisibly into
+  // the mixed "Things to do" result group). Reuses the exact same
+  // /explore?rtype=activities destination the desktop mega-menu and mobile
+  // Explore sheet already route Programs to (no new browsing architecture)
+  // — `direct: true` skips the other tiles' cat= preview-card mechanism
+  // (which has its own per-category fetch/render wiring Programs doesn't
+  // have) and just navigates straight there on click.
+  { key: "programs", label: "Programs", desc: "Multi-week courses and series.", icon: <GridIcon size={20} />, to: "/explore?rtype=activities", direct: true },
   { key: "circles", label: "Circles", desc: "Recurring groups built around shared activity.", icon: <CalendarIcon size={20} />, to: "/circles" },
 ];
 
@@ -806,7 +815,7 @@ export function Explore() {
                 return (
                   <button
                     key={c.key}
-                    onClick={() => patchParams((p) => (active ? p.delete("cat") : p.set("cat", c.key)))}
+                    onClick={() => (c.direct ? navigate(c.to) : patchParams((p) => (active ? p.delete("cat") : p.set("cat", c.key))))}
                     style={{
                       display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 10, textAlign: "left",
                       background: active ? colors.greenBg : "#fff",

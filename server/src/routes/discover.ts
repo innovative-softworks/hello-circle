@@ -2,7 +2,7 @@ import { Router } from "express";
 import { db } from "../db/index.js";
 import { haversineKm, resolveRadiusFilter } from "../geo.js";
 import { irelandTodayIso, irelandWallTimeToUtc } from "../irelandTime.js";
-import { getLocalMomentum, getMarketCategories, listScheduledActivities, type ScheduledActivity } from "../db/queries.js";
+import { getLocalMomentum, getMarketCategories, listMapMarkers, listScheduledActivities, type MapMarkerType, type ScheduledActivity } from "../db/queries.js";
 import { personalizeActivity } from "../personalization.js";
 
 export const discoverRouter = Router();
@@ -80,6 +80,53 @@ export async function scoreActivities(
     })
   );
 }
+
+const VALID_MARKER_TYPES: ReadonlySet<MapMarkerType> = new Set(["centre", "club", "experience"]);
+const DEFAULT_MARKER_TYPES: MapMarkerType[] = ["centre", "club", "experience"];
+
+/** Bounds-scoped map discovery (Maps & Geographic Discovery spec, Phase E).
+ * Deliberately separate from "/" above — that feed is a ranked today/
+ * weekend list with no geographic viewport concept; this is a flat,
+ * unranked marker list for a specific lat/lng box, matching what
+ * DiscoveryMap.tsx's client-side clustering needs. Server enforces the
+ * exact same "approved only" gate every other public centre/club/experience
+ * route already uses (listMapMarkers) — the client never receives a
+ * restricted listing's coordinates merely because it knows not to draw it. */
+discoverRouter.get("/map", async (req, res) => {
+  const north = Number(req.query.north);
+  const south = Number(req.query.south);
+  const east = Number(req.query.east);
+  const west = Number(req.query.west);
+  if ([north, south, east, west].some((n) => Number.isNaN(n))) {
+    return res.status(400).json({ error: "north, south, east, and west are required numeric bounds" });
+  }
+  if (north < -90 || north > 90 || south < -90 || south > 90 || east < -180 || east > 180 || west < -180 || west > 180) {
+    return res.status(400).json({ error: "coordinates out of range" });
+  }
+  if (south > north || west > east) {
+    return res.status(400).json({ error: "invalid bounds: south must be <= north and west must be <= east" });
+  }
+
+  const requestedTypes = typeof req.query.types === "string" ? req.query.types.split(",").map((t) => t.trim()) : undefined;
+  const types = new Set(
+    (requestedTypes && requestedTypes.length ? requestedTypes : DEFAULT_MARKER_TYPES).filter((t): t is MapMarkerType => VALID_MARKER_TYPES.has(t as MapMarkerType))
+  );
+  if (types.size === 0) return res.json({ markers: [] });
+
+  // Filter consistency (Maps cost-control follow-up pass, review point #2)
+  // — "Search this area" must respect the same text/price filters the
+  // list panel already applies, not just entity type, so e.g. a "free
+  // activities" filter can't suddenly show paid results just because the
+  // map was panned. See listMapMarkers' own comment for what's NOT covered
+  // (amenities/accessibility — the minimal marker payload has no room for
+  // those fields).
+  const q = typeof req.query.q === "string" && req.query.q.trim() ? req.query.q.trim() : undefined;
+  const minPriceCents = typeof req.query.minPriceCents === "string" && !Number.isNaN(Number(req.query.minPriceCents)) ? Number(req.query.minPriceCents) : undefined;
+  const maxPriceCents = typeof req.query.maxPriceCents === "string" && !Number.isNaN(Number(req.query.maxPriceCents)) ? Number(req.query.maxPriceCents) : undefined;
+
+  const markers = await listMapMarkers({ north, south, east, west }, types, { q, minPriceCents, maxPriceCents });
+  res.json({ markers });
+});
 
 // Discovery-radius filtering (master-prompt punch list #2) — see
 // resolveRadiusFilter's own comment; strictly opt-in via ?radiusKm=, zero
@@ -187,7 +234,10 @@ discoverRouter.get("/free-time", async (req, res) => {
     activities = activities.filter((a) => keywords.some((k) => a.title.toLowerCase().includes(k)));
   }
   if (lat !== undefined && lng !== undefined && radiusKm !== undefined && !Number.isNaN(lat) && !Number.isNaN(lng) && !Number.isNaN(radiusKm)) {
-    activities = activities.filter((a) => a.lat !== null && a.lng !== null && haversineKm(lat, lng, a.lat, a.lng) <= radiusKm);
+    // Only a 'confirmed' coordinate can honestly support a "within Xkm"
+    // distance claim — see queries.ts's applyRadiusFilter for the full
+    // rationale (Maps cost-control follow-up pass, review point #4).
+    activities = activities.filter((a) => a.lat !== null && a.lng !== null && a.locationSource === "confirmed" && haversineKm(lat, lng, a.lat, a.lng) <= radiusKm);
   }
 
   const scored = await scoreActivities(activities, now, req.resident?.id ?? null, req.resident?.homeCounty ?? null);

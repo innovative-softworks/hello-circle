@@ -4,11 +4,13 @@ import type { Game } from "./types";
 
 // Host Experience Polish — a consistent human-language status label across
 // every Host surface (Activities list, Overview's Next Up/upcoming cards),
-// derived purely from fields every Game response already has (status,
-// date, spotsLeft). Deliberately does NOT introduce 'draft'/'paused' as
-// real stored statuses — those aren't real states this codebase supports;
-// inventing them would mean deciding how they interact with the join
-// route's guard, capacity counting, etc. with no product need driving it.
+// derived purely from fields every Game response already has. Originally
+// deliberately did NOT introduce 'draft'/'paused' as real states ("no
+// product need driving it") — the Universal Publishing, Lifecycle &
+// Availability System is exactly that product need, so this now checks
+// `effectiveLifecycle` first (server/src/lifecycle.ts's policy, already
+// computed server-side — never re-derived here) before falling back to the
+// original capacity/date-driven labels for a plain 'active' activity.
 // Reuses ui.tsx's existing availabilityFromSpots() for the capacity-driven
 // states rather than picking new thresholds by feel.
 
@@ -18,8 +20,12 @@ export interface DerivedActivityStatus {
   fg: string;
 }
 
-export function deriveActivityStatus(game: Pick<Game, "status" | "date" | "spotsLeft" | "capacity">): DerivedActivityStatus {
+export function deriveActivityStatus(game: Pick<Game, "status" | "date" | "spotsLeft" | "capacity" | "effectiveLifecycle">): DerivedActivityStatus {
   if (game.status === "cancelled") return { label: "Cancelled", bg: colors.panel, fg: colors.muted };
+  if (game.effectiveLifecycle === "draft") return { label: "Draft", bg: colors.panel, fg: colors.muted };
+  if (game.effectiveLifecycle === "coming_soon") return { label: "Coming soon", bg: colors.orangeBg, fg: colors.logoMarkText };
+  if (game.effectiveLifecycle === "paused") return { label: "Paused", bg: colors.panel, fg: colors.orangeDark };
+  if (game.effectiveLifecycle === "archived") return { label: "Archived", bg: colors.panel, fg: colors.muted };
 
   const todayIso = new Date().toISOString().slice(0, 10);
   if (game.date < todayIso) return { label: "Completed", bg: colors.panel, fg: colors.mutedLight };

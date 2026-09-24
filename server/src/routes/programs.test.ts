@@ -100,3 +100,128 @@ describe("POST /enrollments/:ref/cancel", () => {
     expect(res.status).toBe(404);
   });
 });
+
+describe("GET /enrollments/mine — real next-session date", () => {
+  // Resident Experience Polish — Changeset 1A. Previously the client had no
+  // way to know when a program enrollment's next session actually is; the
+  // only date available was pe.created_at (when the resident enrolled).
+  // These fixtures use their own program/client, isolated from the cancel
+  // tests above.
+  const programWithSessionsId = `test-program-sessions-${crypto.randomUUID()}`;
+  const programNoFutureId = `test-program-nofuture-${crypto.randomUUID()}`;
+  const clientId2 = `test-client2-${crypto.randomUUID()}`;
+  let enrollmentWithSessionsRef: string;
+  let enrollmentNoFutureRef: string;
+  const pastSessionId = `test-sess-past-${crypto.randomUUID()}`;
+  const nearFutureSessionId = `test-sess-near-${crypto.randomUUID()}`;
+  const farFutureSessionId = `test-sess-far-${crypto.randomUUID()}`;
+  const cancelledFutureSessionId = `test-sess-cancelled-${crypto.randomUUID()}`;
+  const onlyPastSessionId = `test-sess-onlypast-${crypto.randomUUID()}`;
+
+  beforeAll(async () => {
+    await db
+      .prepare(`INSERT INTO programs (id, listing_type, listing_id, vendor_id, title, description, status) VALUES (?, 'centre', ?, ?, 'Sessions Program', '', 'published')`)
+      .run(programWithSessionsId, testCentreId, testVendorId);
+    await db
+      .prepare(`INSERT INTO programs (id, listing_type, listing_id, vendor_id, title, description, status) VALUES (?, 'centre', ?, ?, 'No Future Sessions Program', '', 'published')`)
+      .run(programNoFutureId, testCentreId, testVendorId);
+
+    // programWithSessionsId: one past, one cancelled-future (must be
+    // skipped), one near future, one far future — nearest real, non-
+    // cancelled future session must win.
+    await db.prepare(`INSERT INTO program_sessions (id, program_id, date, time, status) VALUES (?, ?, '2020-01-01', '10:00', 'scheduled')`).run(pastSessionId, programWithSessionsId);
+    await db.prepare(`INSERT INTO program_sessions (id, program_id, date, time, status) VALUES (?, ?, '2099-01-05', '09:00', 'cancelled')`).run(cancelledFutureSessionId, programWithSessionsId);
+    await db.prepare(`INSERT INTO program_sessions (id, program_id, date, time, status) VALUES (?, ?, '2099-02-01', '18:00', 'scheduled')`).run(farFutureSessionId, programWithSessionsId);
+    await db.prepare(`INSERT INTO program_sessions (id, program_id, date, time, status) VALUES (?, ?, '2099-01-10', '19:00', 'scheduled')`).run(nearFutureSessionId, programWithSessionsId);
+
+    // programNoFutureId: only a past session — nextSessionDate must be null.
+    await db.prepare(`INSERT INTO program_sessions (id, program_id, date, time, status) VALUES (?, ?, '2020-06-01', '10:00', 'scheduled')`).run(onlyPastSessionId, programNoFutureId);
+
+    enrollmentWithSessionsRef = `test-pr-sessions-${crypto.randomUUID()}`;
+    enrollmentNoFutureRef = `test-pr-nofuture-${crypto.randomUUID()}`;
+    await db
+      .prepare(`INSERT INTO program_enrollments (ref, program_id, client_id, participant_name, email, payment_status) VALUES (?, ?, ?, 'Test Child', 'guardian@example.test', 'paid')`)
+      .run(enrollmentWithSessionsRef, programWithSessionsId, clientId2);
+    await db
+      .prepare(`INSERT INTO program_enrollments (ref, program_id, client_id, participant_name, email, payment_status) VALUES (?, ?, ?, 'Test Child', 'guardian@example.test', 'paid')`)
+      .run(enrollmentNoFutureRef, programNoFutureId, clientId2);
+  });
+
+  afterAll(async () => {
+    await db.prepare(`DELETE FROM program_enrollments WHERE client_id = ?`).run(clientId2);
+    await db.prepare(`DELETE FROM program_sessions WHERE program_id IN (?, ?)`).run(programWithSessionsId, programNoFutureId);
+    await db.prepare(`DELETE FROM programs WHERE id IN (?, ?)`).run(programWithSessionsId, programNoFutureId);
+  });
+
+  it("selects the nearest real, non-cancelled future session — never the past or a cancelled one", async () => {
+    const res = await fetch(`${baseUrl}/enrollments/mine`, { headers: { "X-Client-Id": clientId2 } });
+    expect(res.status).toBe(200);
+    const rows = (await res.json()) as { ref: string; nextSessionDate: string | null; nextSessionTime: string | null }[];
+    const row = rows.find((r) => r.ref === enrollmentWithSessionsRef);
+    expect(row?.nextSessionDate).toBe("2099-01-10");
+    expect(row?.nextSessionTime).toBe("19:00");
+  });
+
+  it("returns null, not a fabricated date, when only a past session exists", async () => {
+    const res = await fetch(`${baseUrl}/enrollments/mine`, { headers: { "X-Client-Id": clientId2 } });
+    const rows = (await res.json()) as { ref: string; nextSessionDate: string | null; nextSessionTime: string | null }[];
+    const row = rows.find((r) => r.ref === enrollmentNoFutureRef);
+    expect(row?.nextSessionDate).toBeNull();
+    expect(row?.nextSessionTime).toBeNull();
+  });
+});
+
+describe("POST /:id/enroll — coupon application", () => {
+  // Resident Experience Polish — Changeset 3. couponCode was previously
+  // accepted by EnrollBody and silently ignored (computePricing always
+  // called with discount=0/code=null). Proves it now genuinely applies and
+  // is recorded on the enrollment row.
+  const paidProgramId = `test-program-coupon-${crypto.randomUUID()}`;
+  const couponCode = `TESTCOUPON${crypto.randomUUID().slice(0, 8).toUpperCase()}`;
+
+  beforeAll(async () => {
+    await db
+      .prepare(`INSERT INTO programs (id, listing_type, listing_id, vendor_id, title, description, status, price_cents) VALUES (?, 'centre', ?, ?, 'Coupon Program', 'A test program', 'published', 10000)`)
+      .run(paidProgramId, testCentreId, testVendorId);
+    // 100%-off so the enrollment resolves through the free path (no Stripe
+    // call) — this test environment has no STRIPE_SECRET_KEY configured, so
+    // any coupon that leaves a nonzero total would 503 on checkout before
+    // ever reaching the assertions below.
+    await db.prepare(`INSERT INTO coupons (code, kind, amount, active) VALUES (?, 'percent', 100, 1)`).run(couponCode);
+  });
+
+  afterAll(async () => {
+    await db.prepare(`DELETE FROM program_enrollments WHERE program_id = ?`).run(paidProgramId);
+    await db.prepare(`DELETE FROM programs WHERE id = ?`).run(paidProgramId);
+    await db.prepare(`DELETE FROM coupons WHERE code = ?`).run(couponCode);
+  });
+
+  it("applies a valid coupon's discount and records the code on the enrollment", async () => {
+    const res = await fetch(`${baseUrl}/${paidProgramId}/enroll`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Client-Id": `test-client-${crypto.randomUUID()}` },
+      body: JSON.stringify({ participantName: "Test Child", email: "guardian@example.test", couponCode }),
+    });
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as { ref: string; totalEuro: number };
+    expect(body.totalEuro).toBe(0);
+
+    const row = (await db.prepare(`SELECT coupon_code as couponCode, total_cents as totalCents, payment_status as paymentStatus FROM program_enrollments WHERE ref = ?`).get(body.ref)) as {
+      couponCode: string | null;
+      totalCents: number;
+      paymentStatus: string;
+    };
+    expect(row.couponCode).toBe(couponCode);
+    expect(row.totalCents).toBe(0);
+    expect(row.paymentStatus).toBe("paid");
+  });
+
+  it("rejects an invalid coupon code rather than silently ignoring it", async () => {
+    const res = await fetch(`${baseUrl}/${paidProgramId}/enroll`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Client-Id": `test-client-${crypto.randomUUID()}` },
+      body: JSON.stringify({ participantName: "Test Child", email: "guardian@example.test", couponCode: "NOT-A-REAL-CODE" }),
+    });
+    expect(res.status).toBe(400);
+  });
+});

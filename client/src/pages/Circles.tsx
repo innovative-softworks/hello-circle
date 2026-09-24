@@ -23,7 +23,7 @@ import { IntentCaptureForm } from "../components/IntentCaptureForm";
 import { Photo } from "../components/Photo";
 import { Button, CardSkeleton, EmptyState } from "../components/ui";
 import { useGuest } from "../GuestContext";
-import { colors, fonts, maxWidth, placeholderStripes, radius } from "../theme";
+import { cardImageRatio, colors, fonts, maxWidth, placeholderStripes, radius } from "../theme";
 import type { Circle, CircleInvitation, CircleSuggestion, Game } from "../types";
 
 // Circles discovery redesign — was a plain database-style list (name, "X
@@ -340,7 +340,9 @@ export function Circles() {
             ph={placeholderStripes.green}
             icon={<RepeatIcon size={40} />}
             iconColor={colors.green}
-            style={{ height: 320, borderRadius: radius.card }}
+            variant="hero"
+            eager
+            style={{ aspectRatio: cardImageRatio.hero, borderRadius: radius.card }}
           />
         </div>
       </section>

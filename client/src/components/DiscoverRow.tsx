@@ -4,7 +4,7 @@ import { joinGame, joinGameWaitlist } from "../api";
 import { useGuest } from "../GuestContext";
 import { openCheckout } from "../native";
 import { ArrowRightIcon, AwardIcon, BallIcon, CheckIcon, ChevronLeftIcon, ChevronRightIcon, RepeatIcon, TreeIconSmall, UsersIcon } from "./icons";
-import { Button } from "./ui";
+import { Button, CardLink } from "./ui";
 import { Photo } from "./Photo";
 import { SaveButton, useSavedState } from "./SaveButton";
 import { cardImageRatio, colors, fonts, placeholderStripes, radius, statTile } from "../theme";
@@ -65,15 +65,9 @@ function JoinControl({ item }: { item: ActivitySummary }) {
   const [joining, setJoining] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Wraps every branch below — stops a click on the join control from also
-  // bubbling up to the card's own onClick (which navigates to item.href).
-  // Button's onClick prop takes no event arg, so this has to happen on a
-  // wrapping element rather than inside the individual handlers.
-  const stopBubble = (e: React.MouseEvent) => e.stopPropagation();
-
   if (!resident) {
     return (
-      <div onClick={stopBubble}>
+      <div className="stretched-link-above">
         <Button variant="ghost" style={{ width: "100%", fontSize: 13 }} onClick={() => navigate(item.href)}>
           Sign in to join
         </Button>
@@ -123,7 +117,7 @@ function JoinControl({ item }: { item: ActivitySummary }) {
   };
 
   return (
-    <div onClick={stopBubble}>
+    <div className="stretched-link-above">
       {error && <div style={{ fontSize: 11.5, color: colors.danger, marginBottom: 6 }}>{error}</div>}
       <Button style={{ width: "100%", fontSize: 13 }} disabled={joining || full} onClick={handleJoin}>
         {joining ? "Joining…" : full ? "Join waitlist" : "I'm in"}
@@ -157,34 +151,26 @@ export function DiscoverCard({ item, isToday }: { item: ActivitySummary; isToday
   const canSave = item.kind !== "experience_session";
   const [saved, toggleSaved] = useSavedState(item.kind === "experience_session" ? "experience" : item.kind, item.id);
 
-  const open = () => navigate(item.canonicalUrl ?? item.href);
+  const href = item.canonicalUrl ?? item.href;
+  const open = () => navigate(href);
 
   return (
     <div
-      onClick={open}
-      onKeyDown={(e) => {
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          open();
-        }
-      }}
-      role="button"
-      tabIndex={0}
-      aria-label={`${item.title}${place ? `, ${place}` : ""}`}
       className="card-hover card-surface"
       style={{
+        position: "relative",
         flex: "none",
         width: 260,
         scrollSnapAlign: "start",
         background: "#fff",
         border: `1px solid ${colors.border}`,
         borderRadius: 18,
-        cursor: "pointer",
         overflow: "hidden",
         display: "flex",
         flexDirection: "column",
       }}
     >
+      <CardLink to={href} label={`${item.title}${place ? `, ${place}` : ""}`} />
       <Photo
         src={item.imageUrl ?? undefined}
         alt={item.title}
@@ -309,7 +295,7 @@ export function DiscoverCard({ item, isToday }: { item: ActivitySummary; isToday
             // button here there was no on-card affordance telling the
             // visitor what happens next (an ActivityCard always pairs a
             // price with an explicit CTA button, never price-only).
-            <div onClick={(e) => e.stopPropagation()}>
+            <div className="stretched-link-above">
               <Button variant="dark" style={{ width: "100%", fontSize: 13 }} onClick={open}>
                 {item.kind === "game" ? "View session" : KIND_CTA_LABEL[item.kind]}
               </Button>

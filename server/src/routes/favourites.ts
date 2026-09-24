@@ -13,9 +13,12 @@ const STATUSES = ["interested", "planning", "joined"] as const;
 type FavouriteStatus = (typeof STATUSES)[number];
 
 // Matches client/src/favorites.ts's FavoriteKind — the client-local
-// (signed-out) favourites already covered all 5 kinds; the server only
-// covered centre/club until this phase.
-const LISTING_TYPES = ["centre", "club", "game", "program_session", "club_session", "experience"] as const;
+// (signed-out) favourites already covered all 7 kinds, "circle" included;
+// the server didn't until Resident Experience Polish added it — CircleDetail.tsx
+// previously called the raw localStorage helpers directly, so a signed-in
+// resident's saved Circle never synced to their account or crossed devices,
+// the one entity type left out of this otherwise-unified save system.
+const LISTING_TYPES = ["centre", "club", "game", "program_session", "club_session", "experience", "circle"] as const;
 type ListingType = (typeof LISTING_TYPES)[number];
 
 type FavouriteRow = { listingType: ListingType; listingId: string; status: FavouriteStatus };
@@ -32,7 +35,12 @@ async function attachListingDetails(rows: FavouriteRow[]) {
   const byType = new Map<ListingType, string[]>();
   for (const r of rows) byType.set(r.listingType, [...(byType.get(r.listingType) ?? []), r.listingId]);
 
-  const details = new Map<string, { name: string; imageUrl: string | null; subtitle: string | null }>();
+  // Resident Experience Polish — Changeset 4. parentId lets the client build
+  // a real detail link for program_session/club_session (neither has its own
+  // detail page — the session's own id was never enough to route anywhere).
+  // slug does the same for circle (CircleRow's own convention is
+  // slug-preferred, id-fallback — matched here rather than always using id).
+  const details = new Map<string, { name: string; imageUrl: string | null; subtitle: string | null; parentId?: string; slug?: string }>();
   const key = (t: ListingType, id: string) => `${t}:${id}`;
 
   await Promise.all(
@@ -54,26 +62,31 @@ async function attachListingDetails(rows: FavouriteRow[]) {
           id: string; name: string; imageUrl: string | null;
         }[];
         for (const l of listingRows) details.set(key(type, l.id), { name: l.name, imageUrl: l.imageUrl, subtitle: null });
+      } else if (type === "circle") {
+        const listingRows = (await db
+          .prepare(`SELECT id, name, image_url as imageUrl, area, slug FROM circles WHERE id IN (${placeholders})`)
+          .all(...ids)) as { id: string; name: string; imageUrl: string | null; area: string; slug: string | null }[];
+        for (const l of listingRows) details.set(key(type, l.id), { name: l.name, imageUrl: l.imageUrl || null, subtitle: l.area || null, slug: l.slug ?? undefined });
       } else if (type === "program_session") {
         const listingRows = (await db
           .prepare(
-            `SELECT ps.id, p.title as name, p.image_url as imageUrl, ps.date, ps.time
+            `SELECT ps.id, p.id as programId, p.title as name, p.image_url as imageUrl, ps.date, ps.time
              FROM program_sessions ps JOIN programs p ON p.id = ps.program_id
              WHERE ps.id IN (${placeholders})`
           )
-          .all(...ids)) as { id: string; name: string; imageUrl: string | null; date: string; time: string }[];
-        for (const l of listingRows) details.set(key(type, l.id), { name: l.name, imageUrl: l.imageUrl, subtitle: `${l.date} · ${l.time}` });
+          .all(...ids)) as { id: string; programId: string; name: string; imageUrl: string | null; date: string; time: string }[];
+        for (const l of listingRows) details.set(key(type, l.id), { name: l.name, imageUrl: l.imageUrl, subtitle: `${l.date} · ${l.time}`, parentId: l.programId });
       } else if (type === "club_session") {
         const listingRows = (await db
           .prepare(
-            `SELECT cs.id, COALESCE(cs.label, c.name) as name, COALESCE(cs.image_url, c.image_url) as imageUrl, cs.day_of_week as dayOfWeek, cs.time
+            `SELECT cs.id, c.id as clubId, COALESCE(cs.label, c.name) as name, COALESCE(cs.image_url, c.image_url) as imageUrl, cs.day_of_week as dayOfWeek, cs.time
              FROM club_sessions cs JOIN clubs c ON c.id = cs.club_id
              WHERE cs.id IN (${placeholders})`
           )
-          .all(...ids)) as { id: string; name: string; imageUrl: string | null; dayOfWeek: number; time: string }[];
+          .all(...ids)) as { id: string; clubId: string; name: string; imageUrl: string | null; dayOfWeek: number; time: string }[];
         for (const l of listingRows) {
           const day = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][l.dayOfWeek] ?? "";
-          details.set(key(type, l.id), { name: l.name, imageUrl: l.imageUrl, subtitle: `${day} · ${l.time}` });
+          details.set(key(type, l.id), { name: l.name, imageUrl: l.imageUrl, subtitle: `${day} · ${l.time}`, parentId: l.clubId });
         }
       }
     })

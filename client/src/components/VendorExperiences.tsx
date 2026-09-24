@@ -290,7 +290,9 @@ export function ExperienceEditor({
     </>
   );
 
-  const photosField = <MultiImageUpload images={form.images ?? []} onChange={(images) => set("images", images)} />;
+  const photosField = (
+    <MultiImageUpload images={form.images ?? []} onChange={(images) => set("images", images)} mediaEntityType="experience-gallery" mediaEntityId={id} />
+  );
 
   const footer = (
     <>

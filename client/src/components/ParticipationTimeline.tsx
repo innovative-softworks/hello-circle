@@ -18,7 +18,7 @@ function splitDate(iso: string): { dow: string; day: number; mon: string } {
 export interface TimelineRow {
   key: string;
   date: string;
-  kind: "PLAN" | "BOOKING" | "ADVENTURE";
+  kind: "PLAN" | "BOOKING" | "ADVENTURE" | "PROGRAM";
   title: string;
   subtitle: string;
   meta?: string;

@@ -1,7 +1,8 @@
 import { useState } from "react";
-import { uploadImage } from "../api";
-import { CameraIcon, CloseIcon, PlusIcon, StarIcon } from "./icons";
+import { releaseMedia, uploadMedia, type MediaEntityType } from "../api";
+import { CameraIcon, ChevronLeftIcon, ChevronRightIcon, CloseIcon, PlusIcon, StarIcon } from "./icons";
 import { labelStyle } from "./ui";
+import { getMediaUrl } from "../media";
 import { colors, radius } from "../theme";
 
 // Used identically by both VendorCentreEditor.tsx and VendorClubEditor.tsx
@@ -15,7 +16,20 @@ import { colors, radius } from "../theme";
 // uploads.ts's multer config, which is what these numbers/types are
 // actually enforced against).
 
-export function MultiImageUpload({ images, onChange }: { images: string[]; onChange: (urls: string[]) => void }) {
+export function MultiImageUpload({
+  images,
+  onChange,
+  mediaEntityType,
+  mediaEntityId,
+}: {
+  images: string[];
+  onChange: (urls: string[]) => void;
+  /** Which entity these photos belong to — routes the upload through R2 via
+   * /api/media when cloud storage is configured, or the legacy /api/uploads
+   * route otherwise (see client/src/api/media.ts's uploadMedia()). */
+  mediaEntityType: MediaEntityType;
+  mediaEntityId: string;
+}) {
   const [uploadProgress, setUploadProgress] = useState<{ done: number; total: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [dragIndex, setDragIndex] = useState<number | null>(null);
@@ -26,22 +40,38 @@ export function MultiImageUpload({ images, onChange }: { images: string[]; onCha
     const list = Array.from(files);
     setUploadProgress({ done: 0, total: list.length });
     setError(null);
-    try {
-      const uploaded: string[] = [];
-      for (const file of list) {
-        const { url } = await uploadImage(file);
-        uploaded.push(url);
-        setUploadProgress((p) => (p ? { ...p, done: p.done + 1 } : p));
+    // Commit each photo to the gallery as soon as ITS upload succeeds,
+    // rather than only once the whole batch finishes — a failure partway
+    // through a multi-file selection used to silently drop every file
+    // uploaded before it, with no way to recover except re-adding
+    // everything from scratch. Now the succeeded ones stay in the gallery
+    // and the error names how many are left to retry.
+    const next = [...images];
+    for (let i = 0; i < list.length; i++) {
+      try {
+        const { url } = await uploadMedia(list[i], mediaEntityType, mediaEntityId);
+        next.push(url);
+        onChange([...next]);
+        setUploadProgress({ done: i + 1, total: list.length });
+      } catch (e) {
+        const remaining = list.length - i;
+        setError(
+          i === 0
+            ? e instanceof Error
+              ? e.message
+              : "Upload failed"
+            : `${i} of ${list.length} photo${list.length === 1 ? "" : "s"} uploaded. ${remaining} failed — select the remaining file${remaining === 1 ? "" : "s"} to try again.`
+        );
+        break;
       }
-      onChange([...images, ...uploaded]);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Upload failed");
-    } finally {
-      setUploadProgress(null);
     }
+    setUploadProgress(null);
   };
 
-  const removeAt = (i: number) => onChange(images.filter((_, idx) => idx !== i));
+  const removeAt = (i: number) => {
+    releaseMedia(mediaEntityType, mediaEntityId, images[i]);
+    onChange(images.filter((_, idx) => idx !== i));
+  };
   const setCover = (i: number) => onChange([images[i], ...images.slice(0, i), ...images.slice(i + 1)]);
   const reorder = (from: number, to: number) => {
     if (from === to) return;
@@ -55,7 +85,7 @@ export function MultiImageUpload({ images, onChange }: { images: string[]; onCha
     <div>
       <label style={labelStyle}>Photos</label>
       <p style={{ fontSize: 12, color: colors.mutedLight, margin: "-2px 0 8px" }}>
-        JPEG, PNG, WebP or GIF, up to 8MB each. Drag to reorder — the first photo is your cover.
+        JPEG, PNG or WebP, up to 10MB each. Drag to reorder, or use the arrows — the first photo is your cover.
       </p>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(110px, 1fr))", gap: 10 }}>
         {images.map((url, i) => (
@@ -90,7 +120,7 @@ export function MultiImageUpload({ images, onChange }: { images: string[]; onCha
               opacity: dragIndex === i ? 0.4 : 1,
             }}
           >
-            <img src={url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block", pointerEvents: "none" }} />
+            <img src={getMediaUrl(url, "thumbnail")} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block", pointerEvents: "none" }} />
             <button
               onClick={() => removeAt(i)}
               aria-label="Remove photo"
@@ -98,6 +128,26 @@ export function MultiImageUpload({ images, onChange }: { images: string[]; onCha
             >
               <CloseIcon size={12} />
             </button>
+            {images.length > 1 && (
+              <div style={{ position: "absolute", top: 5, left: 5, display: "flex", gap: 3 }}>
+                <button
+                  onClick={() => reorder(i, i - 1)}
+                  disabled={i === 0}
+                  aria-label="Move photo earlier"
+                  style={{ width: 20, height: 20, borderRadius: "50%", border: "none", background: "rgba(20,22,20,.7)", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", cursor: i === 0 ? "default" : "pointer", opacity: i === 0 ? 0.35 : 1 }}
+                >
+                  <ChevronLeftIcon size={12} />
+                </button>
+                <button
+                  onClick={() => reorder(i, i + 1)}
+                  disabled={i === images.length - 1}
+                  aria-label="Move photo later"
+                  style={{ width: 20, height: 20, borderRadius: "50%", border: "none", background: "rgba(20,22,20,.7)", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", cursor: i === images.length - 1 ? "default" : "pointer", opacity: i === images.length - 1 ? 0.35 : 1 }}
+                >
+                  <ChevronRightIcon size={12} />
+                </button>
+              </div>
+            )}
             {i === 0 ? (
               <span style={{ position: "absolute", left: 5, bottom: 5, background: "rgba(20,22,20,.7)", color: "#fff", fontSize: 10, fontWeight: 700, borderRadius: 5, padding: "2px 6px", display: "inline-flex", alignItems: "center", gap: 3 }}>
                 <StarIcon size={9} /> Cover

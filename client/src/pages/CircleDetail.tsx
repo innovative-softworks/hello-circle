@@ -11,13 +11,17 @@ import {
   fetchCircleMembership,
   fetchCirclePlanIdeas,
   fetchCirclePolls,
+  fetchCircleRecentActivity,
   fetchCircleUpcoming,
   fetchCircles,
+  fetchGame,
   fetchMyCircles,
+  fetchMyReports,
   inviteToCircle,
   joinCircle,
   leaveCircle,
   setCircleStatus,
+  submitReport,
   voteOnCirclePollOption,
 } from "../api";
 import { signInHref } from "../authRedirect";
@@ -41,13 +45,20 @@ import { CirclePlanIdeaCard } from "../components/CirclePlanIdeaCard";
 import { CircleStatsBar } from "../components/CircleStatsBar";
 import { CircleUpcomingSummary } from "../components/CircleUpcomingSummary";
 import { IntentCaptureForm } from "../components/IntentCaptureForm";
-import { isFavorite, toggleFavorite } from "../favorites";
+import { useSavedState } from "../components/SaveButton";
 import { useGuest } from "../GuestContext";
 import { dateLabel } from "../euro";
+import { rehostHref } from "../rehost";
+import { getCircleCoverUrl } from "../media";
 import { colors, fonts, radius } from "../theme";
-import type { Circle, CircleActivityStats, CirclePlanIdea, CirclePlanPreview, CirclePoll } from "../types";
+import type { Circle, CircleActivityStats, CirclePlanIdea, CirclePlanPreview, CirclePoll, CircleRecentActivity } from "../types";
 
 const hairline = `1px solid ${colors.border}`;
+
+// Circle Experience Polish — Changeset 4. Same reason set / dialog pattern
+// as the review-reporting flow (Resident Experience Polish, Changeset 7) —
+// reusing the existing generic reports backend, not a new one.
+const CIRCLE_REPORT_REASONS = ["Spam or fake", "Inappropriate content", "Harassment or abuse", "Other"];
 
 function SectionHeader({ title, action }: { title: string; action?: { label: string; onClick: () => void } }) {
   return (
@@ -66,7 +77,22 @@ function Section({ children }: { children: React.ReactNode }) {
   return <section style={{ borderTop: hairline, padding: "36px 0" }}>{children}</section>;
 }
 
-function PollCard({ poll, isOrganiser, onVote, onClose }: { poll: CirclePoll; isOrganiser: boolean; onVote: (optionId: number) => void; onClose: () => void }) {
+function PollCard({
+  poll,
+  isOrganiser,
+  onVote,
+  onClose,
+  onCreateActivity,
+}: {
+  poll: CirclePoll;
+  isOrganiser: boolean;
+  onVote: (optionId: number) => void;
+  onClose: () => void;
+  // Circle Experience Polish — Changeset 3B. Undefined when there's no
+  // winning option, the poll isn't closed, or the viewer isn't the
+  // organiser — the button only renders when there's something real to do.
+  onCreateActivity?: () => void;
+}) {
   const maxVotes = Math.max(0, ...poll.options.map((o) => o.voteCount));
   return (
     <Card style={{ marginBottom: 10 }}>
@@ -106,6 +132,11 @@ function PollCard({ poll, isOrganiser, onVote, onClose }: { poll: CirclePoll; is
           <Button variant="ghost" onClick={onClose}>Close poll</Button>
         </div>
       )}
+      {onCreateActivity && (
+        <div style={{ marginTop: 10 }}>
+          <Button onClick={onCreateActivity}>Create activity from this</Button>
+        </div>
+      )}
     </Card>
   );
 }
@@ -122,7 +153,13 @@ export function CircleDetail() {
   const [polls, setPolls] = useState<CirclePoll[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
-  const [saved, setSaved] = useState(false);
+  // Resident Experience Polish — Changeset 4. Circle was the one entity
+  // type left out of the unified save system (SaveButton/useSavedState) —
+  // this page previously called the raw localStorage helpers directly, so
+  // a signed-in resident's saved Circle never synced to their account or
+  // crossed devices. circle?.id can be empty during initial load; the hook
+  // re-syncs once it's real, same as any other optional-id effect dependency.
+  const [saved, toggleSaved] = useSavedState("circle", circle?.id ?? "");
   const [confirmingClose, setConfirmingClose] = useState(false);
   const [inviteError, setInviteError] = useState<string | null>(null);
   const [pollOpen, setPollOpen] = useState(false);
@@ -147,7 +184,15 @@ export function CircleDetail() {
   const [joinBusy, setJoinBusy] = useState(false);
   const [activityPeriod, setActivityPeriod] = useState<"week" | "month">("week");
   const [activityStats, setActivityStats] = useState<CircleActivityStats | null>(null);
+  const [recentActivity, setRecentActivity] = useState<CircleRecentActivity[]>([]);
+  const [rehostBusyId, setRehostBusyId] = useState<string | null>(null);
   const [otherCircles, setOtherCircles] = useState<Circle[]>([]);
+  // Circle Experience Polish — Changeset 4.
+  const [alreadyReported, setAlreadyReported] = useState(false);
+  const [reportOpen, setReportOpen] = useState(false);
+  const [reportReason, setReportReason] = useState(CIRCLE_REPORT_REASONS[0]);
+  const [reportDetail, setReportDetail] = useState("");
+  const [reportSubmitting, setReportSubmitting] = useState(false);
   const [otherJoinedIds, setOtherJoinedIds] = useState<Set<string>>(new Set());
   const [otherBusyId, setOtherBusyId] = useState<string | null>(null);
 
@@ -159,6 +204,20 @@ export function CircleDetail() {
     fetchCircle(idOrSlug)
       .then(async (c) => {
         setCircle(c);
+        // Circle Experience Polish — Changeset 1B. A restricted (non-member
+        // of an approval/invite Circle) response already carries
+        // requested/hasPendingInvite itself, and the server now 403s
+        // upcoming/polls/plan-ideas for exactly this viewer anyway — so
+        // there's nothing correct to fetch beyond the teaser itself.
+        if (c.restricted) {
+          setUpcoming([]);
+          setIsMember(false);
+          setRole(null);
+          setRequested(!!c.requested);
+          setPolls([]);
+          setPlanIdeas([]);
+          return;
+        }
         const [up, membership, p, pi] = await Promise.all([
           fetchCircleUpcoming(c.id),
           resident ? fetchCircleMembership(c.id) : Promise.resolve({ member: false, role: null, requested: false }),
@@ -178,14 +237,18 @@ export function CircleDetail() {
 
   useEffect(load, [idOrSlug, resident]);
   useEffect(() => {
-    if (circle) setSaved(isFavorite("circle", circle.id));
-  }, [circle?.id]);
-  useEffect(() => {
-    if (!circle) return;
+    if (!circle || circle.restricted) return;
     fetchCircleActivity(circle.id, activityPeriod).then(setActivityStats).catch(() => setActivityStats(null));
-  }, [circle?.id, activityPeriod]);
+  }, [circle?.id, circle?.restricted, activityPeriod]);
   useEffect(() => {
-    if (!circle) return;
+    if (!circle || circle.restricted) return;
+    // Circle Experience Polish — Changeset 2C. Closes the "return to
+    // circle" loop the audit flagged — GET /:id/recent-activity existed
+    // server-side with zero client callers before this.
+    fetchCircleRecentActivity(circle.id).then(setRecentActivity).catch(() => setRecentActivity([]));
+  }, [circle?.id, circle?.restricted]);
+  useEffect(() => {
+    if (!circle || circle.restricted) return;
     fetchCircles(circle.county ?? undefined)
       .then(async (rows) => {
         let others = rows.filter((c) => c.id !== circle.id);
@@ -206,6 +269,31 @@ export function CircleDetail() {
   useEffect(() => {
     if (resident) fetchMyCircles().then((rows) => setOtherJoinedIds(new Set(rows.map((c) => c.id)))).catch(() => {});
   }, [resident]);
+  useEffect(() => {
+    if (!circle || circle.restricted) return;
+    // Circle Experience Polish — Changeset 4. Real duplicate check against
+    // the existing reports backend (not just a session-local flag) — this
+    // works for guests too, since reports are keyed by X-Client-Id.
+    fetchMyReports()
+      .then((rows) => setAlreadyReported(rows.some((r) => r.targetType === "circle" && r.targetId === circle.id)))
+      .catch(() => {});
+  }, [circle?.id, circle?.restricted]);
+
+  const submitCircleReport = async () => {
+    if (!circle) return;
+    setReportSubmitting(true);
+    try {
+      const reason = reportDetail.trim() ? `${reportReason}: ${reportDetail.trim()}` : reportReason;
+      await submitReport("circle", circle.id, reason);
+      setAlreadyReported(true);
+      setReportOpen(false);
+      setReportDetail("");
+    } catch {
+      // Best-effort — leave the dialog open so the resident can retry.
+    } finally {
+      setReportSubmitting(false);
+    }
+  };
 
   const handleCloseCircle = async () => {
     if (!circle) return;
@@ -268,6 +356,60 @@ export function CircleDetail() {
       load();
     } finally {
       setPlanBusyId(null);
+    }
+  };
+
+  // Circle Experience Polish — Changeset 3B. Routes through the existing
+  // Plan Idea → Game conversion architecture rather than a second
+  // Circle→Game creation path: a poll already attached to a plan-idea just
+  // gets that plan confirmed (if it wasn't already); a standalone poll gets
+  // a brand-new plan-idea created from its winning option and immediately
+  // confirmed (the organiser closing the poll with a clear winner already
+  // is the decision — nothing here auto-publishes an activity, the
+  // organiser still reviews/edits on the create-activity screen next).
+  const handleCreateActivityFromPoll = async (poll: CirclePoll) => {
+    if (!circle) return;
+    const maxVotes = Math.max(0, ...poll.options.map((o) => o.voteCount));
+    const winner = poll.options.find((o) => o.voteCount === maxVotes && maxVotes > 0);
+    if (!winner) return;
+
+    let planId = poll.planId;
+    if (planId) {
+      const linkedPlan = planIdeas.find((p) => p.id === planId);
+      if (linkedPlan?.status === "idea") await confirmCirclePlanIdea(circle.id, planId);
+    } else {
+      const created = await createCirclePlanIdea(circle.id, {
+        title: poll.question,
+        proposedDate: winner.date,
+        proposedTime: winner.time || undefined,
+      });
+      await confirmCirclePlanIdea(circle.id, created.id);
+      planId = created.id;
+    }
+
+    navigate(
+      `/games/host?activity=${encodeURIComponent(poll.question)}&circleId=${circle.id}&planId=${planId}` +
+        (winner.date ? `&date=${winner.date}` : "") +
+        (winner.time ? `&time=${winner.time}` : "")
+    );
+  };
+
+  // Circle Experience Polish — Changeset 3C. Reuses the existing rehost
+  // helper (already used by GameDetail's own "Do it again" and
+  // HostActivitiesTab's Duplicate/Host again) rather than a new mechanism —
+  // the only difference is passing circleId so the new activity stays
+  // linked to this Circle. planId is never carried (a fresh activity, not
+  // a plan conversion). A CircleRecentActivity row only has id/date/
+  // attended, not the full Game shape buildRehostParams needs, hence the
+  // fetch before navigating.
+  const handleDoItAgain = async (gameId: string) => {
+    if (!circle) return;
+    setRehostBusyId(gameId);
+    try {
+      const game = await fetchGame(gameId);
+      navigate(rehostHref(game, { circleId: circle.id }));
+    } finally {
+      setRehostBusyId(null);
     }
   };
   const handleJoinCircle = async () => {
@@ -359,18 +501,76 @@ export function CircleDetail() {
     ? "signed-out"
     : isMember
     ? "member"
+    : circle.hasPendingInvite
+    ? "invited"
     : requested
     ? "requested"
     : circle.joinMode === "invite"
     ? "invite-only"
     : "available";
-  const activeThisWeek = !!circle.nextPlan && (() => {
+  // Circle Experience Polish — Changeset 2A. "Active this week" is a claim
+  // about this Circle specifically — only a real, circle_id-owned nextPlan
+  // earns it; a 'nearby' fuzzy match doesn't, since that's someone else's
+  // unrelated activity that merely shares this Circle's activity label.
+  const activeThisWeek = circle.nextPlan?.source === "circle" && (() => {
     const days = (new Date(`${circle.nextPlan!.date}T00:00:00`).getTime() - Date.now()) / 86400000;
     return days >= 0 && days <= 7;
   })();
 
+  // Circle Experience Polish — Changeset 1B. A non-member's view of an
+  // 'approval'/'invite' Circle — deliberately a separate, minimal layout
+  // rather than feeding a partially-populated circle into the full page's
+  // component tree (CircleHero/CircleStatsBar/CircleAboutCard/etc all
+  // expect real member-only content like whatWeDo/nextPlan/activePlan,
+  // which the server correctly leaves null on a restricted response).
+  if (circle.restricted) {
+    return (
+      <section className="section-pad" style={{ maxWidth: 640, margin: "0 auto", padding: "0 24px" }}>
+        <div style={{ padding: "22px 0 20px" }}>
+          <BackLink onClick={() => navigate("/circles")} marginBottom={0}>Back to Circles</BackLink>
+        </div>
+        {circle.hasImage && (
+          <div style={{ borderRadius: radius.card, overflow: "hidden", marginBottom: 20, aspectRatio: "16/7", background: colors.panel }}>
+            {/* Non-member view of a restricted Circle — imageUrl is
+                deliberately always null here (see toCircleTeaserJson()),
+                so this always goes through the protected endpoint rather
+                than a permanent public URL. */}
+            <img src={getCircleCoverUrl(circle) ?? undefined} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+          </div>
+        )}
+        <h1 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(24px,3.4vw,32px)", margin: "0 0 6px", letterSpacing: "-.01em" }}>{circle.name}</h1>
+        <p style={{ margin: "0 0 20px", fontSize: 14, color: colors.mutedLight }}>
+          {circle.activityLabel}
+          {circle.area ? ` · ${circle.area}` : ""}
+          {circle.joinMode === "approval" && circle.county ? `, ${circle.county}` : ""}
+        </p>
+        {circle.about && <p style={{ fontSize: 15, lineHeight: 1.6, color: "#3B423C", marginBottom: 28 }}>{circle.about}</p>}
+        <div style={{ maxWidth: 380 }}>
+          <CircleJoinCard
+            circle={circle}
+            state={joinState}
+            busy={joinBusy}
+            onJoin={handleJoinCircle}
+            onLeave={handleLeaveCircle}
+            onMessage={() => {}}
+            onCreatePlan={() => {}}
+            onInvite={handleInvite}
+            inviteError={inviteError}
+            onRequestClose={() => {}}
+          />
+        </div>
+      </section>
+    );
+  }
+
   const featuredPlans = upcoming.slice(0, 4);
   const highlightPlans = upcoming.length > 4 ? upcoming.slice(4) : upcoming;
+  // Circle Experience Polish — Changeset 2A — see the "From this Circle"/
+  // "You might also like" split in the Upcoming plans section below.
+  const realPlans = upcoming.filter((p) => p.source === "circle");
+  const nearbyPlans = upcoming.filter((p) => p.source === "nearby");
+  const featuredRealPlans = realPlans.slice(0, 4);
+  const featuredNearbyPlans = nearbyPlans.slice(0, Math.max(0, 4 - featuredRealPlans.length));
   const scrollToPlanning = () => planningRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
 
   return (
@@ -388,9 +588,16 @@ export function CircleDetail() {
           <BackLink onClick={() => navigate("/circles")} marginBottom={0}>Back to Circles</BackLink>
           <div style={{ display: "flex", gap: 18 }}>
             <ShareButton entityType="circle" entityId={circle.id} render={(onClick) => <button onClick={onClick} style={{ background: "none", border: "none", padding: 0, fontSize: 13, fontWeight: 700, color: colors.text, cursor: "pointer" }}>Share</button>} />
-            <button onClick={() => setSaved(toggleFavorite("circle", circle.id))} style={{ display: "inline-flex", alignItems: "center", gap: 5, background: "none", border: "none", padding: 0, fontSize: 13, fontWeight: 700, color: saved ? colors.orange : colors.text, cursor: "pointer" }}>
+            <button onClick={toggleSaved} style={{ display: "inline-flex", alignItems: "center", gap: 5, background: "none", border: "none", padding: 0, fontSize: 13, fontWeight: 700, color: saved ? colors.orange : colors.text, cursor: "pointer" }}>
               <HeartIcon size={14} filled={saved} /> {saved ? "Saved" : "Save"}
             </button>
+            {alreadyReported ? (
+              <span style={{ fontSize: 13, color: colors.mutedLight }}>Reported</span>
+            ) : (
+              <button onClick={() => setReportOpen(true)} style={{ background: "none", border: "none", padding: 0, fontSize: 13, fontWeight: 700, color: colors.mutedLight, cursor: "pointer" }}>
+                Report
+              </button>
+            )}
           </div>
         </div>
 
@@ -405,32 +612,116 @@ export function CircleDetail() {
             </div>
 
             <Section>
-              <SectionHeader title="Upcoming plans" action={{ label: "See all", onClick: () => navigate(`/games?activity=${encodeURIComponent(circle.activityLabel)}`) }} />
-              {featuredPlans.length > 0 ? (
-                <div
-                  className="grid-responsive-3"
-                  style={{
-                    display: "grid",
-                    gridTemplateColumns: featuredPlans.length < 4
-                      ? `repeat(${featuredPlans.length},minmax(0,1fr)) minmax(200px,${4 - featuredPlans.length}fr)`
-                      : "repeat(4,1fr)",
-                    gap: 16,
-                  }}
-                >
-                  {featuredPlans.map((plan) => (
-                    <CirclePlanCard key={plan.id} plan={plan} />
-                  ))}
-                  {featuredPlans.length < 4 && <CircleUpcomingSummary circle={circle} plans={upcoming} />}
-                </div>
+              {/* Circle Experience Polish — Changeset 2A. Real
+                  games.circle_id-owned plans get their own "From this
+                  Circle" heading; platform-wide activity-label matches are
+                  a visually separate, clearly-labelled "You might also
+                  like" — never merged into one undifferentiated list. */}
+              {featuredRealPlans.length > 0 ? (
+                <>
+                  <SectionHeader title="From this Circle" action={{ label: "See all", onClick: () => navigate(`/games?activity=${encodeURIComponent(circle.activityLabel)}`) }} />
+                  <div
+                    className="grid-responsive-3"
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: featuredRealPlans.length < 4
+                        ? `repeat(${featuredRealPlans.length},minmax(0,1fr)) minmax(200px,${4 - featuredRealPlans.length}fr)`
+                        : "repeat(4,1fr)",
+                      gap: 16,
+                    }}
+                  >
+                    {featuredRealPlans.map((plan) => (
+                      <CirclePlanCard key={plan.id} plan={plan} />
+                    ))}
+                    {featuredRealPlans.length < 4 && <CircleUpcomingSummary circle={circle} plans={upcoming} />}
+                  </div>
+                  {featuredNearbyPlans.length > 0 && (
+                    <div style={{ marginTop: 28 }}>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: colors.mutedLight, marginBottom: 12 }}>You might also like</div>
+                      <div className="grid-responsive-3" style={{ display: "grid", gridTemplateColumns: `repeat(${featuredNearbyPlans.length},minmax(0,1fr))`, gap: 16 }}>
+                        {featuredNearbyPlans.map((plan) => (
+                          <CirclePlanCard key={plan.id} plan={plan} />
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </>
+              ) : nearbyPlans.length > 0 ? (
+                <>
+                  <SectionHeader title="You might also like" action={{ label: "See all", onClick: () => navigate(`/games?activity=${encodeURIComponent(circle.activityLabel)}`) }} />
+                  <p style={{ margin: "-10px 0 16px", fontSize: 13, color: colors.mutedLight }}>Similar activity happening nearby — not organised through this Circle.</p>
+                  <div
+                    className="grid-responsive-3"
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: nearbyPlans.slice(0, 4).length < 4
+                        ? `repeat(${nearbyPlans.slice(0, 4).length},minmax(0,1fr)) minmax(200px,${4 - nearbyPlans.slice(0, 4).length}fr)`
+                        : "repeat(4,1fr)",
+                      gap: 16,
+                    }}
+                  >
+                    {nearbyPlans.slice(0, 4).map((plan) => (
+                      <CirclePlanCard key={plan.id} plan={plan} />
+                    ))}
+                    {nearbyPlans.slice(0, 4).length < 4 && <CircleUpcomingSummary circle={circle} plans={upcoming} />}
+                  </div>
+                </>
               ) : (
-                <EmptyState
-                  icon={<CalendarIcon size={20} />}
-                  title={isOrganiser ? "Your Circle is ready." : "Nothing planned yet."}
-                  subtitle={isOrganiser ? "Create the first plan and give people something to join." : "Join the Circle and we'll let you know when the next activity is announced."}
-                  action={isOrganiser ? <Button onClick={() => navigate(`/games/host?activity=${encodeURIComponent(circle.activityLabel)}&circleId=${circle.id}`)}><PlusIcon size={14} /> Create first plan</Button> : joinState === "available" ? <Button onClick={handleJoinCircle} disabled={joinBusy}>{joinBusy ? "…" : "Join Circle"}</Button> : undefined}
-                />
+                <>
+                  <SectionHeader title="Upcoming plans" />
+                  <EmptyState
+                    icon={<CalendarIcon size={20} />}
+                    title={isOrganiser ? "Your Circle is ready." : "Nothing planned yet."}
+                    subtitle={isOrganiser ? "Create the first plan and give people something to join." : "Join the Circle and we'll let you know when the next activity is announced."}
+                    action={isOrganiser ? <Button onClick={() => navigate(`/games/host?activity=${encodeURIComponent(circle.activityLabel)}&circleId=${circle.id}`)}><PlusIcon size={14} /> Create first plan</Button> : joinState === "available" ? <Button onClick={handleJoinCircle} disabled={joinBusy}>{joinBusy ? "…" : "Join Circle"}</Button> : undefined}
+                  />
+                </>
               )}
             </Section>
+
+            {/* Circle Experience Polish — Changeset 2C — "Recently
+                together" closes the loop back from a completed activity to
+                this Circle; only shown once there's something real (and
+                confirmed-attended) to report. */}
+            {recentActivity.length > 0 && (
+              <Section>
+                <SectionHeader title="Recently together" />
+                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                  {recentActivity.map((r) => (
+                    <Card key={r.id} style={{ padding: "14px 16px", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12 }}>
+                      <div>
+                        <div style={{ fontWeight: 700, fontSize: 14.5 }}>{r.activityLabel}</div>
+                        <div style={{ fontSize: 12.5, color: colors.mutedLight, marginTop: 2 }}>
+                          {r.attended} attended · Completed {dateLabel(r.date)}
+                        </div>
+                      </div>
+                      {isOrganiser ? (
+                        <button
+                          onClick={() => handleDoItAgain(r.id)}
+                          disabled={rehostBusyId === r.id}
+                          style={{ flex: "none", background: "none", border: "none", padding: 0, fontSize: 13, fontWeight: 700, color: colors.text, cursor: "pointer" }}
+                        >
+                          {rehostBusyId === r.id ? "…" : "Do it again →"}
+                        </button>
+                      ) : (
+                        resident &&
+                        isMember && (
+                          <button
+                            onClick={() => {
+                              scrollToPlanning();
+                              setPlanIdeaFormOpen(true);
+                            }}
+                            style={{ flex: "none", background: "none", border: "none", padding: 0, fontSize: 13, fontWeight: 700, color: colors.text, cursor: "pointer" }}
+                          >
+                            Plan the next one →
+                          </button>
+                        )
+                      )}
+                    </Card>
+                  ))}
+                </div>
+              </Section>
+            )}
 
             <Section>
               <SectionHeader title="About our community" />
@@ -559,15 +850,23 @@ export function CircleDetail() {
                   {polls.length === 0 && !pollOpen ? (
                     <EmptyState icon={<CalendarIcon size={18} />} title="No polls yet" subtitle="Propose a few dates and let the circle vote on what works." />
                   ) : (
-                    polls.map((p) => (
-                      <PollCard
-                        key={p.id}
-                        poll={p}
-                        isOrganiser={isOrganiser}
-                        onVote={(optionId) => voteOnCirclePollOption(circle.id, p.id, optionId).then(load)}
-                        onClose={() => closeCirclePoll(circle.id, p.id).then(load)}
-                      />
-                    ))
+                    polls.map((p) => {
+                      const maxVotes = Math.max(0, ...p.options.map((o) => o.voteCount));
+                      const hasWinner = p.status === "closed" && maxVotes > 0;
+                      const linkedPlan = p.planId ? planIdeas.find((pl) => pl.id === p.planId) : undefined;
+                      const alreadyConverted = linkedPlan?.status === "activity_created" || linkedPlan?.status === "cancelled";
+                      const canCreateActivity = isOrganiser && hasWinner && !alreadyConverted;
+                      return (
+                        <PollCard
+                          key={p.id}
+                          poll={p}
+                          isOrganiser={isOrganiser}
+                          onVote={(optionId) => voteOnCirclePollOption(circle.id, p.id, optionId).then(load)}
+                          onClose={() => closeCirclePoll(circle.id, p.id).then(load)}
+                          onCreateActivity={canCreateActivity ? () => handleCreateActivityFromPoll(p) : undefined}
+                        />
+                      );
+                    })
                   )}
 
                   <h2 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 19, margin: "24px 0 12px", letterSpacing: "-.01em" }}>Chat</h2>
@@ -616,6 +915,45 @@ export function CircleDetail() {
           onConfirm={handleCloseCircle}
           onCancel={() => setConfirmingClose(false)}
         />
+
+        <ConfirmDialog
+          open={reportOpen}
+          title="Report this Circle"
+          message="Let us know what's wrong — a moderator will take a look."
+          confirmLabel="Submit report"
+          tone="neutral"
+          busy={reportSubmitting}
+          onConfirm={submitCircleReport}
+          onCancel={() => setReportOpen(false)}
+        >
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 10 }}>
+            {CIRCLE_REPORT_REASONS.map((reason) => (
+              <button
+                key={reason}
+                onClick={() => setReportReason(reason)}
+                style={{
+                  border: `1px solid ${reason === reportReason ? colors.text : colors.border}`,
+                  background: reason === reportReason ? colors.text : "transparent",
+                  color: reason === reportReason ? colors.surface : colors.muted,
+                  borderRadius: 999,
+                  padding: "6px 12px",
+                  fontSize: 12.5,
+                  fontWeight: 600,
+                  cursor: "pointer",
+                }}
+              >
+                {reason}
+              </button>
+            ))}
+          </div>
+          <textarea
+            placeholder="Anything else the moderator should know? (optional)"
+            value={reportDetail}
+            onChange={(e) => setReportDetail(e.target.value)}
+            rows={2}
+            style={{ ...inputStyle, resize: "vertical" }}
+          />
+        </ConfirmDialog>
 
         {/* Discover more — reuses the same CircleDiscoveryCard as the Circles list page, real other Circles only. */}
         {otherCircles.length > 0 && (
@@ -671,7 +1009,9 @@ export function CircleDetail() {
           {joinState === "member" ? (
             <>
               <div>
-                <div style={{ fontWeight: 800, fontSize: 14, fontFamily: fonts.display }}>{circle.nextPlan ? `Next: ${circle.activityLabel}` : circle.name}</div>
+                <div style={{ fontWeight: 800, fontSize: 14, fontFamily: fonts.display }}>
+                  {circle.nextPlan ? `${circle.nextPlan.source === "circle" ? "Next" : "Similar nearby"}: ${circle.activityLabel}` : circle.name}
+                </div>
                 {circle.nextPlan && (
                   <div style={{ fontSize: 12, color: colors.mutedLight, display: "flex", alignItems: "center", gap: 4 }}>
                     <CalendarIcon size={11} /> {dateLabel(circle.nextPlan.date)} · {circle.nextPlan.time}

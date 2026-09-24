@@ -393,6 +393,29 @@ textarea:focus {
   color: #fff !important;
 }
 
+/* SEO Phase 5 — discovery cards used to navigate purely via a JS onClick on
+   a plain <div> (useNavigate()), so a crawler saw zero <a href> into
+   /centres/:id, /clubs/:id, etc. anywhere in the site's actual link graph;
+   it could only ever discover those pages through the sitemap. This is the
+   standard "stretched link" pattern instead: a real <a>/<Link> positioned to
+   cover the whole card (so the entire card stays clickable exactly as
+   before), placed *first* in DOM order so nested interactive elements
+   (Save/Follow/Share buttons, the CTA button) simply need `position:
+   relative` + no z-index of their own to paint on top of it and keep
+   receiving their own clicks — avoids the invalid-HTML anchor-inside-anchor
+   nesting a naive "wrap the whole card in <Link>" would produce. The parent
+   card element needs `position: relative` for the absolute inset to resolve
+   against it (added alongside this class at each call site). */
+.stretched-link {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+}
+.stretched-link-above {
+  position: relative;
+  z-index: 2;
+}
+
 .tab-btn {
   transition: transform 0.15s ease, background-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
 }
@@ -496,6 +519,16 @@ textarea:focus {
    always win over a class, important is what lets the breakpoint override. */
 
 .mobile-menu-btn {
+  display: none;
+}
+
+/* Vendor Experience Polish — table-to-card mobile pattern for data-heavy
+   Vendor screens (Bookings, Listings, Earnings). Both markups render;
+   `.hide-mobile` (below) hides the desktop <table>, this hides the mobile
+   card list until the same breakpoint flips both — no JS width-detection
+   needed, matches the existing inline-style/CSS-escape-hatch convention
+   this file already uses everywhere else. */
+.mobile-cards {
   display: none;
 }
 
@@ -712,7 +745,8 @@ textarea:focus {
   .experience-detail-mobile-pad,
   .centre-detail-mobile-pad,
   .club-detail-mobile-pad,
-  .program-detail-mobile-pad {
+  .program-detail-mobile-pad,
+  .booking-flow-mobile-pad {
     padding-bottom: 76px;
   }
   .mobile-join-bar {
@@ -768,6 +802,11 @@ textarea:focus {
   }
   .hide-mobile {
     display: none !important;
+  }
+  .mobile-cards {
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 10px !important;
   }
   .search-btn-overlap {
     margin: 0 !important;

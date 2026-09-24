@@ -5,24 +5,26 @@ import {
   deleteVendorProgram,
   fetchProgramEnrollments,
   fetchSessionAttendance,
-  fetchVendorBookings,
   fetchVendorProgram,
   fetchVendorPrograms,
   fetchVendorRooms,
-  fetchVendorSchedule,
+  fetchVendorScheduleItems,
   markSessionAttendance,
   removeProgramSession,
   updateVendorProgram,
   type ProgramEnrollment,
 } from "../api";
 import { CalendarIcon, PlusIcon, TrashIcon, UsersIcon } from "./icons";
+import { SingleImageUpload } from "./SingleImageUpload";
 import { VendorCheckInScreen } from "./VendorCheckInScreen";
 import { FormErrorSummary } from "./form";
 import { MonthCalendar } from "./MonthCalendar";
+import { SourceTypeBadge, StatusPill } from "./VendorOverviewCards";
 import { Button, ManageCard as Card, ConfirmDialog, EmptyState, inputStyle, labelStyle } from "./ui";
 import { ACTIVITY_CATEGORIES, ATTENDANCE_STATUSES, ATTENDANCE_STATUS_LABELS, PROGRAM_STATUSES, SKILL_LEVELS } from "../constants";
+import { formatScheduleCount, formatScheduleWhen, manageTargetFor, scheduleItemDateKey, todayDateKey, type VendorScheduleNavTarget } from "../vendorSchedule";
 import { colors, fonts, radius } from "../theme";
-import type { AttendanceStatus, Program, ProgramStatus, Room, VendorBookingRow, VendorProgramSummary } from "../types";
+import type { AttendanceStatus, Program, ProgramStatus, Room, VendorProgramSummary, VendorScheduleItem } from "../types";
 import { formatPrice } from "../formatters";
 
 const ATTENDANCE_STATUS_COLORS: Record<AttendanceStatus, { fg: string; bg: string }> = {
@@ -181,6 +183,18 @@ export function ProgramManager({ programId, onChanged }: { programId: string; on
           Draft programs aren't visible to guests yet — publish when ready.
         </p>
       )}
+
+      <div style={{ marginBottom: 20 }}>
+        <SingleImageUpload
+          value={program.imageUrl || null}
+          onChange={async (url) => {
+            await updateVendorProgram(programId, { imageUrl: url ?? "" });
+            load();
+          }}
+          mediaEntityType="program-cover"
+          mediaEntityId={programId}
+        />
+      </div>
 
       <h4 style={{ fontSize: 13, fontWeight: 700, color: colors.muted, margin: "0 0 10px" }}>SESSIONS</h4>
       <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 16 }}>
@@ -546,55 +560,69 @@ export function VendorProgramsTab({ onOpenProgram }: { onOpenProgram: (id: strin
   );
 }
 
-// --- Schedule / Today's Operations (Phase B) ------------------------------
+// --- Schedule / Today's Operations (Phase B, unified in Vendor Experience
+// Polish) ------------------------------------------------------------------
 // A list view rather than a full drag-and-drop calendar grid — the session
 // volume this app has today doesn't yet justify that complexity, and a
 // sorted list is a strict subset of a calendar's information, not a
-// different one.
+// different one. Used to be Program-sessions-only (plus hall bookings in
+// the calendar grid view only, nowhere else) — now built on the unified
+// GET /vendor/schedule-items, so a Centre-only or Club-only vendor sees
+// their own activity here too, not just an empty tab. Selecting a row
+// jumps to that item's real management context (Bookings/Calendar's own
+// Club section/Programs/Experiences) via `onNavigateItem` rather than a new
+// generic management screen.
 
-export function VendorScheduleTab() {
-  const [entries, setEntries] = useState<{ id: string; date: string; time: string; durationMinutes: number; capacity: number | null; title: string; programId: string; enrolled: number }[]>([]);
-  const [bookings, setBookings] = useState<VendorBookingRow[]>([]);
+export function VendorScheduleTab({ onNavigateItem }: { onNavigateItem?: (tab: VendorScheduleNavTarget) => void }) {
+  const [items, setItems] = useState<VendorScheduleItem[]>([]);
   const [loading, setLoading] = useState(true);
   // Calendar grid view (IA spec §14) — same List/Calendar toggle convention
   // as My Life's booking view (MyBookings.tsx), reusing MonthCalendar as-is.
   const [view, setView] = useState<"list" | "calendar">("list");
 
   useEffect(() => {
-    fetchVendorSchedule()
-      .then(setEntries)
+    fetchVendorScheduleItems(undefined, 30)
+      .then(setItems)
       .finally(() => setLoading(false));
-    // Host Manage spec §12 — the calendar previously only plotted program
-    // sessions; a vendor's real room usage includes paid hall bookings too.
-    // Kept out of the Today/Upcoming list below, which stays program-only
-    // (BookingsTab is already the full-detail place for bookings) — only
-    // the calendar grid gains them.
-    fetchVendorBookings()
-      .then((rows) => setBookings(rows.filter((b) => b.status !== "cancelled")))
-      .catch(() => setBookings([]));
   }, []);
 
-  const today = new Date().toISOString().slice(0, 10);
-  const todayEntries = entries.filter((e) => e.date === today);
-  const upcoming = entries.filter((e) => e.date !== today);
+  const todayKey = todayDateKey();
+  const todayItems = items.filter((i) => scheduleItemDateKey(i) === todayKey);
+  const upcoming = items.filter((i) => scheduleItemDateKey(i) !== todayKey);
 
   if (loading) return null;
 
-  const entryRow = (e: (typeof entries)[number]) => (
-    <div style={{ display: "flex", justifyContent: "space-between", background: colors.bg, borderRadius: radius.control, padding: "10px 14px", fontSize: 13.5 }}>
-      <span>{e.time} · {e.title}</span>
-      <span>{e.enrolled}{e.capacity ? `/${e.capacity}` : ""} enrolled</span>
+  const goManage = (item: VendorScheduleItem) => onNavigateItem?.(manageTargetFor(item));
+
+  const itemRow = (item: VendorScheduleItem) => (
+    <div
+      key={item.id}
+      onClick={onNavigateItem ? () => goManage(item) : undefined}
+      style={{
+        display: "flex",
+        justifyContent: "space-between",
+        alignItems: "center",
+        gap: 10,
+        flexWrap: "wrap",
+        background: item.status === "cancelled" ? colors.bg : colors.greenBg,
+        borderRadius: radius.control,
+        padding: "10px 14px",
+        fontSize: 13.5,
+        cursor: onNavigateItem ? "pointer" : "default",
+      }}
+    >
+      <span style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+        <strong>{formatScheduleWhen(item.startDateTime)}</strong> · {item.title}
+        <SourceTypeBadge sourceType={item.sourceType} />
+      </span>
+      <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        {formatScheduleCount(item) && <span style={{ color: colors.mutedLight }}>{formatScheduleCount(item)}</span>}
+        <StatusPill status={item.status} />
+      </span>
     </div>
   );
 
-  const bookingRow = (b: VendorBookingRow) => (
-    <div style={{ display: "flex", justifyContent: "space-between", background: colors.greenBg, borderRadius: radius.control, padding: "10px 14px", fontSize: 13.5 }}>
-      <span>{b.time} · {b.roomName ?? b.centreName} — {b.name}</span>
-      <span style={{ color: colors.greenText, fontWeight: 700 }}>Booking</span>
-    </div>
-  );
-
-  const calendarItems = [...entries.map((e) => ({ date: e.date, el: entryRow(e) })), ...bookings.map((b) => ({ date: b.date, el: bookingRow(b) }))];
+  const calendarItems = items.map((item) => ({ date: scheduleItemDateKey(item), el: itemRow(item) }));
 
   return (
     <div className="fade-panel" style={{ display: "flex", flexDirection: "column", gap: 24 }}>
@@ -621,17 +649,10 @@ export function VendorScheduleTab() {
         <>
           <Card>
             <h4 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 16, margin: "0 0 14px" }}>Today</h4>
-            {todayEntries.length === 0 ? (
+            {todayItems.length === 0 ? (
               <EmptyState icon={<CalendarIcon size={22} />} title="Nothing scheduled today" />
             ) : (
-              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                {todayEntries.map((e) => (
-                  <div key={e.id} style={{ display: "flex", justifyContent: "space-between", background: colors.greenBg, borderRadius: radius.control, padding: "10px 14px", fontSize: 13.5 }}>
-                    <span><strong>{e.time}</strong> · {e.title}</span>
-                    <span>{e.enrolled}{e.capacity ? `/${e.capacity}` : ""} enrolled</span>
-                  </div>
-                ))}
-              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>{todayItems.map(itemRow)}</div>
             )}
           </Card>
           <Card>
@@ -639,11 +660,7 @@ export function VendorScheduleTab() {
             {upcoming.length === 0 ? (
               <EmptyState icon={<CalendarIcon size={22} />} title="Nothing else scheduled" />
             ) : (
-              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                {upcoming.map((e) => (
-                  <div key={e.id}>{entryRow(e)}</div>
-                ))}
-              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>{upcoming.map(itemRow)}</div>
             )}
           </Card>
         </>

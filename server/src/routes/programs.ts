@@ -1,8 +1,9 @@
 import { Router } from "express";
 import { createCheckoutSession, pricingLineItems } from "../checkoutService.js";
 import { db } from "../db/index.js";
+import { irelandTodayIso } from "../irelandTime.js";
 import { notifyCancellation, notifyNewBookingOrRegistration } from "../notifications.js";
-import { computePricing } from "../pricing.js";
+import { computePricing, evaluateCoupon } from "../pricing.js";
 import { BadRequestError, clientIdFrom, generateRef, isValidEmail } from "../util.js";
 
 export const programsRouter = Router();
@@ -129,7 +130,26 @@ programsRouter.post("/:id/enroll", async (req, res) => {
   if (program.status !== "published") return res.status(409).json({ error: "This program is no longer open for enrollment" });
 
   const ref = generateRef("PR");
-  const pricing = computePricing(program.price_cents, 0, 0, null);
+  // Resident Experience Polish — Changeset 3. EnrollBody.couponCode was
+  // accepted by this route's own type since it was written, but silently
+  // ignored — computePricing was always called with discount=0/code=null,
+  // no matter what was submitted. Now wired to the same evaluateCoupon()
+  // every other paid flow (bookings/registrations/experiences) already
+  // uses. A coupon scoped to this specific program (eligible_listing_type=
+  // 'program') can't be *created* yet — vendorOperations.ts's coupon-
+  // creation route only offers centre/club as eligibleListingType today,
+  // the same pre-existing gap Experience coupons have — but an unscoped
+  // (eligible_listing_id IS NULL) coupon now correctly applies here, same
+  // as it always has for every other paid flow.
+  let discountCents = 0;
+  let couponCode: string | null = null;
+  if (body.couponCode) {
+    const result = await evaluateCoupon(body.couponCode, program.price_cents, { listingType: "program", listingId: program.id });
+    if (!result.valid) return res.status(400).json({ error: result.error! });
+    discountCents = result.discountCents!;
+    couponCode = result.code!;
+  }
+  const pricing = computePricing(program.price_cents, 0, discountCents, couponCode);
   const isFree = pricing.totalCents === 0;
 
   try {
@@ -143,10 +163,10 @@ programsRouter.post("/:id/enroll", async (req, res) => {
       }
       await tx
         .prepare(
-          `INSERT INTO program_enrollments (ref, program_id, resident_id, client_id, participant_name, participant_dob, email, phone, total_cents, payment_status, status)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'confirmed')`
+          `INSERT INTO program_enrollments (ref, program_id, resident_id, client_id, participant_name, participant_dob, email, phone, total_cents, coupon_code, payment_status, status)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'confirmed')`
         )
-        .run(ref, program.id, req.resident?.id ?? null, clientId, body.participantName, body.participantDob ?? "", body.email, body.phone ?? "", pricing.totalCents, isFree ? "paid" : "pending");
+        .run(ref, program.id, req.resident?.id ?? null, clientId, body.participantName, body.participantDob ?? "", body.email, body.phone ?? "", pricing.totalCents, couponCode, isFree ? "paid" : "pending");
     });
   } catch (e) {
     if (e instanceof Error && e.message === "PROGRAM_FULL") return res.status(409).json({ error: "This program is full" });
@@ -164,6 +184,7 @@ programsRouter.post("/:id/enroll", async (req, res) => {
       guestEmail: body.email,
       ref,
       detailsText: `${body.participantName} enrolled in ${program.title} · €${(pricing.totalCents / 100).toFixed(2)}${isFree ? " (free)" : " total"}`,
+      residentId: req.resident?.id ?? null,
     }).catch((e) => console.error("[notifications] program enrollment notify failed:", e));
 
   if (isFree) {
@@ -199,12 +220,23 @@ programsRouter.get("/enrollments/mine", async (req, res) => {
     if (e instanceof BadRequestError) return res.status(400).json({ error: e.message });
     throw e;
   }
+  // Resident Experience Polish — nextSessionDate/nextSessionTime are the
+  // program's own real next occurrence (program_sessions), not
+  // pe.created_at (enrollment date) — the two were previously conflated by
+  // every consumer that needed "when is this actually happening next,"
+  // which is what My Life's Next Up timeline needs. Both stay null (never
+  // fabricated) when no future, non-cancelled session exists — an honest
+  // "nothing scheduled" rather than a made-up date.
+  const today = irelandTodayIso();
   const rows = await db
     .prepare(
       `SELECT pe.ref, pe.program_id as programId, pe.participant_name as participantName, pe.total_cents as totalCents,
               pe.status, pe.payment_status as paymentStatus, pe.created_at as createdAt,
-              p.title, p.image_url as imageUrl, p.listing_type as listingType,
-              COALESCE(c.name, cl.name) as listingName
+              p.title, p.image_url as imageUrl, p.listing_type as listingType, p.vendor_id as vendorId,
+              COALESCE(c.name, cl.name) as listingName,
+              (SELECT ps.date FROM program_sessions ps WHERE ps.program_id = pe.program_id AND ps.status != 'cancelled' AND ps.date >= ? ORDER BY ps.date, ps.time LIMIT 1) as nextSessionDate,
+              (SELECT ps.time FROM program_sessions ps WHERE ps.program_id = pe.program_id AND ps.status != 'cancelled' AND ps.date >= ? ORDER BY ps.date, ps.time LIMIT 1) as nextSessionTime,
+              (SELECT 1 FROM program_sessions ps WHERE ps.program_id = pe.program_id AND ps.status != 'cancelled' AND ps.date < ? LIMIT 1) IS NOT NULL as hasPastSession
        FROM program_enrollments pe
        JOIN programs p ON p.id = pe.program_id
        LEFT JOIN centres c ON p.listing_type = 'centre' AND c.id = p.listing_id
@@ -212,7 +244,7 @@ programsRouter.get("/enrollments/mine", async (req, res) => {
        WHERE (pe.client_id = ? OR (pe.resident_id IS NOT NULL AND pe.resident_id = ?)) AND pe.payment_status = 'paid'
        ORDER BY pe.created_at DESC`
     )
-    .all(clientId, req.resident?.id ?? "");
+    .all(today, today, today, clientId, req.resident?.id ?? "");
   res.json(rows);
 });
 
@@ -241,7 +273,7 @@ programsRouter.post("/enrollments/:ref/cancel", async (req, res) => {
 
   const row = (await db
     .prepare(
-      `SELECT pe.ref, pe.status, pe.payment_status as paymentStatus, pe.participant_name as participantName, pe.email,
+      `SELECT pe.ref, pe.status, pe.payment_status as paymentStatus, pe.participant_name as participantName, pe.email, pe.resident_id as residentId,
               p.title, p.listing_type as listingType, p.listing_id as listingId, p.vendor_id as vendorId
        FROM program_enrollments pe JOIN programs p ON p.id = pe.program_id
        WHERE pe.ref = ? AND (pe.client_id = ? OR (pe.resident_id IS NOT NULL AND pe.resident_id = ?))`
@@ -253,6 +285,7 @@ programsRouter.post("/enrollments/:ref/cancel", async (req, res) => {
         paymentStatus: string;
         participantName: string;
         email: string;
+        residentId: string | null;
         title: string;
         listingType: "centre" | "club";
         listingId: string;
@@ -275,6 +308,7 @@ programsRouter.post("/enrollments/:ref/cancel", async (req, res) => {
     guestEmail: row.email,
     ref: row.ref,
     detailsText: row.title,
+    residentId: row.residentId,
   }).catch((e) => console.error("[notifications] program enrollment cancellation notify failed:", e));
 
   res.json({ ok: true });
@@ -288,8 +322,20 @@ programsRouter.get("/enrollments/status/:ref", async (req, res) => {
     if (e instanceof BadRequestError) return res.status(400).json({ error: e.message });
     throw e;
   }
+  // Resident Experience Polish — Changeset 5, same reasoning as
+  // bookings.ts's GET /status/:ref. No date/time here — one enrollment
+  // covers every session of the program, not a single dated occurrence
+  // (see the real nextSessionDate on GET /enrollments/mine if that's ever
+  // needed here too — not fetched in this poll loop to keep it minimal).
   const row = await db
-    .prepare(`SELECT ref, payment_status as paymentStatus, total_cents as totalCents FROM program_enrollments WHERE ref = ? AND client_id = ?`)
+    .prepare(
+      `SELECT pe.ref, pe.payment_status as paymentStatus, pe.total_cents as totalCents,
+              p.id as programId, p.title, COALESCE(c.name, cl.name) as listingName
+       FROM program_enrollments pe JOIN programs p ON p.id = pe.program_id
+       LEFT JOIN centres c ON p.listing_type = 'centre' AND c.id = p.listing_id
+       LEFT JOIN clubs cl ON p.listing_type = 'club' AND cl.id = p.listing_id
+       WHERE pe.ref = ? AND pe.client_id = ?`
+    )
     .get(req.params.ref, clientId);
   if (!row) return res.status(404).json({ error: "Enrollment not found" });
   res.json(row);

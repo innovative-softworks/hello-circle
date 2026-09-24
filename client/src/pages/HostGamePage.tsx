@@ -1,11 +1,12 @@
 import { useEffect, useState, type SetStateAction } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { createGame, fetchCentres, fetchGame, fetchGameParticipantsForManage, updateGame } from "../api";
+import { createGame, fetchCentres, fetchGame, fetchGameParticipantsForManage, setGameLifecycle, updateGame } from "../api";
 import { signInHref } from "../authRedirect";
 import { BackLink } from "../components/BackLink";
 import { GuidedFlow } from "../components/GuidedFlow";
 import { NumberStepper, useUnsavedChangesGuard } from "../components/form";
 import { ShareButton } from "../components/ShareButton";
+import { SingleImageUpload } from "../components/SingleImageUpload";
 import { CheckCircleIcon } from "../components/icons";
 import { Button, Card, inputStyle, labelStyle } from "../components/ui";
 import { useGuest } from "../GuestContext";
@@ -102,6 +103,8 @@ export function HostGamePage() {
     indoorOutdoor: (initialIndoorOutdoor === "indoor" || initialIndoorOutdoor === "outdoor" || initialIndoorOutdoor === "mixed" ? initialIndoorOutdoor : "") as "" | "indoor" | "outdoor" | "mixed",
     meetingInstructions: qp("meetingInstructions"),
     cancellationPolicy: qp("cancellationPolicy"),
+    imageUrl: null as string | null,
+    lifecycle: "active" as "draft" | "coming_soon" | "active" | "paused" | "archived",
   });
   const [createError, setCreateError] = useState<string | null>(null);
   const [stepError, setStepError] = useState<string | null>(null);
@@ -120,6 +123,7 @@ export function HostGamePage() {
   // Circles tab — both already land somewhere with their own confirmation
   // context, so this state stays null on those paths.
   const [justCreated, setJustCreated] = useState<{ id: string } | null>(null);
+  const [justCreatedImageUrl, setJustCreatedImageUrl] = useState<string | null>(null);
 
   useEffect(() => {
     fetchCentres().then(setCentres);
@@ -154,6 +158,8 @@ export function HostGamePage() {
           indoorOutdoor: (game.indoorOutdoor as "" | "indoor" | "outdoor" | "mixed") ?? "",
           meetingInstructions: game.meetingInstructions ?? "",
           cancellationPolicy: game.cancellationPolicy ?? "",
+          imageUrl: game.imageUrl ?? null,
+          lifecycle: game.lifecycle,
         });
         setPriceLocked(participants.some((p) => p.residentId !== resident.id && (p.status === "joined" || p.status === "pending_payment")));
       })
@@ -200,9 +206,19 @@ export function HostGamePage() {
         cancellationPolicy: form.cancellationPolicy || undefined,
         circleId,
         planId,
+        // The radio control (below) only ever sets one of these three
+        // values, and is hidden entirely in edit mode — the wider type on
+        // form.lifecycle exists only so loading an existing (possibly
+        // paused/archived) game into the form for display doesn't need a
+        // separate field.
+        lifecycle: gameId ? undefined : (form.lifecycle as "draft" | "coming_soon" | "active"),
       };
       if (gameId) {
-        await updateGame(gameId, { ...baseInput, date: form.date });
+        // "" (not undefined) when cleared — the edit form always loads and
+        // resubmits the current value, so there's no "untouched" case to
+        // preserve via COALESCE here; an explicit empty string is what
+        // actually clears the cover (see games.ts's PUT /:id).
+        await updateGame(gameId, { ...baseInput, date: form.date, imageUrl: form.imageUrl ?? "" });
         setDirty(false);
         navigate("/manage?tab=activities");
         return;
@@ -229,10 +245,42 @@ export function HostGamePage() {
       else if (circleId) navigate(`/manage/circles/${circleId}`);
       else setJustCreated(firstGame);
     } catch (e) {
-      setCreateError(e instanceof Error ? e.message : `Couldn't ${gameId ? "update" : "create"} this game — any earlier occurrences in this batch were still created`);
+      setCreateError(e instanceof Error ? e.message : `Couldn't ${gameId ? "update" : "create"} this session — any earlier occurrences in this batch were still created`);
     } finally {
       setCreating(false);
     }
+  };
+
+  // SingleImageUpload on the "You're live." card uploads straight to R2 and
+  // hands back a url, but (unlike the edit form above) there's no later
+  // save step on this screen to persist it — so this attaches it right
+  // away via the same updateGame() the edit path uses, resending the
+  // fields the just-created game already has (form state is untouched
+  // between create and this screen).
+  const handleJustCreatedImageChange = async (url: string | null) => {
+    if (!justCreated) return;
+    setJustCreatedImageUrl(url);
+    await updateGame(justCreated.id, {
+      activityLabel: form.activityLabel,
+      centreId: form.centreId || undefined,
+      locationText: form.centreId ? undefined : form.locationText,
+      date: form.date,
+      time: form.time,
+      capacity: form.capacity,
+      priceCents: form.priceCents ? Math.round(parseFloat(form.priceCents) * 100) : undefined,
+      soloFriendly: form.soloFriendly,
+      skillLevel: form.skillLevel || undefined,
+      minParticipants: form.minParticipants ? parseInt(form.minParticipants, 10) : undefined,
+      description: form.description || undefined,
+      durationMinutes: form.durationMinutes ? parseInt(form.durationMinutes, 10) : undefined,
+      equipmentNeeded: form.equipmentNeeded || undefined,
+      minAge: form.minAge ? parseInt(form.minAge, 10) : undefined,
+      surfaceType: form.surfaceType || undefined,
+      indoorOutdoor: form.indoorOutdoor || undefined,
+      meetingInstructions: form.meetingInstructions || undefined,
+      cancellationPolicy: form.cancellationPolicy || undefined,
+      imageUrl: url ?? "",
+    });
   };
 
   return (
@@ -252,12 +300,21 @@ export function HostGamePage() {
               <p style={{ fontSize: 14, color: colors.muted, margin: "0 0 22px" }}>
                 {form.activityLabel} is posted — share it to help fill it up.
               </p>
+              <div style={{ display: "flex", justifyContent: "center", marginBottom: 20 }}>
+                <SingleImageUpload
+                  value={justCreatedImageUrl}
+                  onChange={handleJustCreatedImageChange}
+                  mediaEntityType="activity-cover"
+                  mediaEntityId={justCreated.id}
+                />
+              </div>
               <div style={{ display: "flex", flexDirection: "column", gap: 10, alignItems: "stretch" }}>
                 <ShareButton entityType="game" entityId={justCreated.id} label="Share" variant="primary" />
                 <Button
                   variant="ghost"
                   onClick={() => {
                     setJustCreated(null);
+                    setJustCreatedImageUrl(null);
                     setStepError(null);
                     setFormRaw((f) => ({ ...f, date: "", time: "" }));
                     setStep(1);
@@ -373,10 +430,29 @@ export function HostGamePage() {
                   max={form.capacity}
                 />
               </div>
+              {gameId && (
+                <div style={{ marginTop: 14 }}>
+                  <SingleImageUpload
+                    value={form.imageUrl}
+                    onChange={(url) => setForm((f) => ({ ...f, imageUrl: url }))}
+                    mediaEntityType="activity-cover"
+                    mediaEntityId={gameId}
+                  />
+                </div>
+              )}
+              {gameId && (
+                <PublishingStatusPanel
+                  lifecycle={form.lifecycle}
+                  onChange={async (next) => {
+                    await setGameLifecycle(gameId, next);
+                    setForm((f) => ({ ...f, lifecycle: next }));
+                  }}
+                />
+              )}
               {form.minParticipants && (
                 <>
                   <p style={{ fontSize: 12.5, color: colors.mutedLight, margin: "8px 0 0" }}>
-                    This game stays "pending", but still joinable, until {form.minParticipants} players (including you) have joined.
+                    This session stays "pending", but still joinable, until {form.minParticipants} players (including you) have joined.
                   </p>
                   <div style={{ marginTop: 10 }}>
                     <label style={labelStyle}>Confirm by (optional)</label>
@@ -472,6 +548,40 @@ export function HostGamePage() {
                     style={{ ...inputStyle, resize: "vertical" }}
                   />
                 </div>
+                {!gameId && (
+                  <div style={{ marginTop: 16, paddingTop: 16, borderTop: `1px solid ${colors.border}` }}>
+                    <label style={labelStyle}>Publishing</label>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                      {(
+                        [
+                          { value: "active" as const, title: "Publish now", body: "Make this live and available to book right away." },
+                          { value: "coming_soon" as const, title: "Coming soon", body: "Show this publicly, but bookings open later — you can open them any time from Manage." },
+                          { value: "draft" as const, title: "Save as draft", body: "Only you can see this until you publish it." },
+                        ]
+                      ).map((opt) => (
+                        <label
+                          key={opt.value}
+                          style={{
+                            display: "flex",
+                            gap: 10,
+                            alignItems: "flex-start",
+                            border: `1px solid ${form.lifecycle === opt.value ? colors.green : colors.border}`,
+                            borderRadius: radius.control,
+                            padding: "10px 12px",
+                            cursor: "pointer",
+                            background: form.lifecycle === opt.value ? colors.greenBg : "transparent",
+                          }}
+                        >
+                          <input type="radio" name="lifecycle" checked={form.lifecycle === opt.value} onChange={() => setForm((f) => ({ ...f, lifecycle: opt.value }))} style={{ marginTop: 3 }} />
+                          <div>
+                            <div style={{ fontWeight: 700, fontSize: 13.5 }}>{opt.title}</div>
+                            <div style={{ fontSize: 12.5, color: colors.mutedLight }}>{opt.body}</div>
+                          </div>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             </GuidedFlow>
           )
@@ -480,7 +590,7 @@ export function HostGamePage() {
             <button onClick={() => navigate(signInHref())} style={{ background: "none", border: "none", padding: 0, color: colors.greenText, fontWeight: 700, cursor: "pointer" }}>
               Sign in
             </button>{" "}
-            to start a game of your own.
+            to host a session of your own.
           </div>
         )}
       </section>
@@ -488,3 +598,62 @@ export function HostGamePage() {
     </div>
   );
 }
+
+// §27/§31 — manual override for an existing activity's publishing state.
+// Deliberately compact (not the full "STATUS / Public since … / Bookings
+// open …" mockup from §31) — just the current state plus whichever actions
+// are actually valid from it, reusing the exact same transition rules the
+// server enforces (POST /:id/lifecycle) so this never offers a button that
+// would 409. Cancel/Archive aren't offered here — those already have their
+// own dedicated, confirmed flows elsewhere (GameJoinCard's "Cancel this
+// session"), and §29 wants real participant-count confirmation UX for a
+// dangerous transition that this compact panel isn't the place to build.
+function PublishingStatusPanel({ lifecycle, onChange }: { lifecycle: "draft" | "coming_soon" | "active" | "paused" | "archived"; onChange: (next: "draft" | "coming_soon" | "active" | "paused") => Promise<void> }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const label = statusLabel[lifecycle];
+
+  const act = async (next: "draft" | "coming_soon" | "active" | "paused") => {
+    setBusy(true);
+    setError(null);
+    try {
+      await onChange(next);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Couldn't update the publishing state");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const actions: { next: "draft" | "coming_soon" | "active" | "paused"; label: string }[] =
+    lifecycle === "draft" ? [{ next: "coming_soon", label: "Announce (Coming soon)" }, { next: "active", label: "Publish now" }]
+    : lifecycle === "coming_soon" ? [{ next: "active", label: "Open bookings now" }]
+    : lifecycle === "active" ? [{ next: "paused", label: "Pause bookings" }]
+    : lifecycle === "paused" ? [{ next: "active", label: "Resume bookings" }]
+    : [];
+
+  return (
+    <div style={{ marginTop: 14, border: `1px solid ${colors.border}`, borderRadius: radius.card, padding: 14 }}>
+      <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: ".04em", textTransform: "uppercase", color: colors.mutedLight, marginBottom: 6 }}>Status</div>
+      <div style={{ fontWeight: 700, marginBottom: actions.length ? 10 : 0 }}>{label}</div>
+      {error && <p style={{ color: colors.danger, fontSize: 12.5, margin: "0 0 8px" }}>{error}</p>}
+      {actions.length > 0 && (
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          {actions.map((a) => (
+            <Button key={a.next} variant="ghost" disabled={busy} onClick={() => act(a.next)}>
+              {a.label}
+            </Button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+const statusLabel: Record<"draft" | "coming_soon" | "active" | "paused" | "archived", string> = {
+  draft: "Draft — only you can see this",
+  coming_soon: "Coming soon — public, bookings not open yet",
+  active: "Live",
+  paused: "Bookings paused",
+  archived: "Archived",
+};

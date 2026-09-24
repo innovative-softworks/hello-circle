@@ -7,6 +7,7 @@ import type { Role } from "./types";
 // `from "./api"` / `from "../api"` call sites need to change.
 
 export * from "./api/core";
+export * from "./api/media";
 export * from "./api/public";
 export * from "./api/resident";
 export * from "./api/vendorAuth";

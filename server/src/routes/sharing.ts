@@ -2,6 +2,7 @@ import { Router } from "express";
 import { logEvent } from "../analytics.js";
 import { dataDir } from "../dataDir.js";
 import { db } from "../db/index.js";
+import { isMember } from "./circleHelpers.js";
 import { renderShareCardPng } from "../shareCard.js";
 import { CLIENT_URL } from "../stripe.js";
 
@@ -33,6 +34,20 @@ export interface ShareData {
   priceCents?: number | null;
   circleName?: string | null;
   privacy: "public" | "circle_only" | "private";
+  // SEO Phase 8 — Event JSON-LD completion. Only real, already-collected
+  // data (games.duration_minutes/capacity, the joined centre's lat/lng) —
+  // never fabricated. Each is independently optional: a free-text-location
+  // game has no lat/lng, a game with no duration set has no computable
+  // endDate, so ogMeta.ts's Event branch below only emits the JSON-LD
+  // property when the underlying value is actually present.
+  durationMinutes?: number | null;
+  capacity?: number | null;
+  lat?: number | null;
+  lng?: number | null;
+  /** §59 — set only on the cancelled-Activity branch below, so a consumer
+   * (ogMeta.ts) can render an honest `EventCancelled` status instead of
+   * detecting cancellation by parsing the title string. */
+  cancelled?: boolean;
 }
 
 function pathFor(entityType: ShareEntityType, entityIdOrSlug: string): string {
@@ -61,7 +76,7 @@ function pathFor(entityType: ShareEntityType, entityIdOrSlug: string): string {
  * linked circle, or an already-joined participant; an 'invite' game only
  * to the host, a joined participant, or someone with a real invitations
  * row for it. Everyone else gets the private stub shape. */
-async function canViewPrivateGame(gameId: string, circleId: string | null, viewerResidentId: string | null, hostResidentId: string): Promise<boolean> {
+export async function canViewPrivateGame(gameId: string, circleId: string | null, viewerResidentId: string | null, hostResidentId: string): Promise<boolean> {
   if (!viewerResidentId) return false;
   if (viewerResidentId === hostResidentId) return true;
   const joined = await db.prepare(`SELECT 1 FROM game_participants WHERE game_id = ? AND resident_id = ? AND status = 'joined'`).get(gameId, viewerResidentId);
@@ -87,10 +102,29 @@ export async function getShareData(entityType: ShareEntityType, idOrSlug: string
   }
 
   if (entityType === "circle") {
-    const row = (await db.prepare(`SELECT id, name, about, activity_label as activityLabel, image_url as imageUrl, created_by_resident_id as createdBy FROM circles WHERE (slug = ? OR id = ?) AND status = 'active'`).get(idOrSlug, idOrSlug)) as
-      | { id: string; name: string; about: string; activityLabel: string; imageUrl: string; createdBy: string }
+    const row = (await db
+      .prepare(`SELECT id, name, about, activity_label as activityLabel, image_url as imageUrl, created_by_resident_id as createdBy, join_mode as joinMode FROM circles WHERE (slug = ? OR id = ?) AND status = 'active'`)
+      .get(idOrSlug, idOrSlug)) as
+      | { id: string; name: string; about: string; activityLabel: string; imageUrl: string; createdBy: string; joinMode: "open" | "approval" | "invite" }
       | undefined;
     if (!row) return null;
+
+    // Media plan Task 2 closed this leak in circles.ts's own toCircleJson()/
+    // toCircleTeaserJson() — but this file runs an entirely separate raw
+    // query (getShareData is also what ogMeta.ts's og:image/sitemap and the
+    // unauthenticated GET /:entityType/:entityId route both consume), which
+    // never checked join_mode at all until now. Same public/private mapping
+    // convention the game branch above already established: an 'open'
+    // Circle shares in full; anything else falls back to a generic stub
+    // (no title/about/image/host/member count) unless the viewer can
+    // actually see the Circle — never leak the real name/photo into an
+    // og:image or a share-card PNG that could be cached/indexed
+    // independently of the page it's on.
+    const privacy = row.joinMode === "open" ? "public" : "circle_only";
+    if (privacy !== "public" && !(viewerResidentId && (await isMember(row.id, viewerResidentId)))) {
+      return { entityType, entityId: row.id, title: "Private Circle", description: "This Circle is only visible to its members.", url, privacy };
+    }
+
     const { n: members } = (await db.prepare(`SELECT COUNT(*) as n FROM circle_members WHERE circle_id = ?`).get(row.id)) as { n: number };
     const creator = (await db.prepare(`SELECT name, host_status as hostStatus FROM residents WHERE id = ?`).get(row.createdBy)) as { name: string; hostStatus: string } | undefined;
     return {
@@ -102,7 +136,7 @@ export async function getShareData(entityType: ShareEntityType, idOrSlug: string
       url,
       host: creator ? { name: creator.name, verified: creator.hostStatus === "verified" } : null,
       interestedCount: members,
-      privacy: "public",
+      privacy,
     };
   }
 
@@ -147,9 +181,10 @@ export async function getShareData(entityType: ShareEntityType, idOrSlug: string
       .prepare(
         `SELECT g.id, g.activity_label as activityLabel, g.date, g.time, g.location_text as locationText, g.price_cents as priceCents,
                 g.visibility, g.circle_id as circleId, g.host_resident_id as hostResidentId, g.image_url as imageUrl,
-                c.name as centreName, c.area as area, c.county as county
+                g.duration_minutes as durationMinutes, g.capacity as capacity, g.status as status, g.lifecycle as lifecycle,
+                c.name as centreName, c.area as area, c.county as county, c.lat as lat, c.lng as lng
          FROM games g LEFT JOIN centres c ON c.id = g.centre_id
-         WHERE g.id = ? AND g.status != 'cancelled'`
+         WHERE g.id = ?`
       )
       .get(idOrSlug)) as
       | {
@@ -163,12 +198,23 @@ export async function getShareData(entityType: ShareEntityType, idOrSlug: string
           circleId: string | null;
           hostResidentId: string;
           imageUrl: string;
+          durationMinutes: number | null;
+          capacity: number;
+          status: string;
+          lifecycle: string;
           centreName: string | null;
           area: string | null;
           county: string | null;
+          lat: number | null;
+          lng: number | null;
         }
       | undefined;
     if (!row) return null;
+    // §6/§54 — a Draft is never shareable/indexable/sitemap-eligible at
+    // all, same as a genuinely nonexistent game (404-equivalent). This is
+    // the lifecycle half of the gate; the visibility check right below is
+    // the separate, pre-existing privacy half.
+    if (row.lifecycle === "draft") return null;
 
     const privacy = row.visibility === "invite" ? "private" : row.visibility === "circle" ? "circle_only" : "public";
     if (privacy !== "public" && !(await canViewPrivateGame(row.id, row.circleId, viewerResidentId, row.hostResidentId))) {
@@ -179,6 +225,29 @@ export async function getShareData(entityType: ShareEntityType, idOrSlug: string
         description: "This activity is only visible to people who've been invited.",
         url,
         privacy,
+      };
+    }
+
+    // §59 — a cancelled Activity keeps a real, informative page (never
+    // auto-404'd just because it's cancelled) rather than the generic
+    // "invite-only" stub above or the full live-listing shape below —
+    // someone who booked or was shared this link should still be able to
+    // see what it was and that it was cancelled, without the page
+    // implying it's still bookable.
+    if (row.status === "cancelled") {
+      const where = row.centreName ?? row.locationText;
+      return {
+        entityType,
+        entityId: row.id,
+        title: `${row.activityLabel} (Cancelled)`,
+        description: `This activity — originally ${row.date} at ${row.time}${where ? ` · ${where}` : ""} — was cancelled.`,
+        image: row.imageUrl || null,
+        url,
+        date: row.date,
+        time: row.time,
+        location: where ?? null,
+        privacy: "public",
+        cancelled: true,
       };
     }
 
@@ -201,6 +270,10 @@ export async function getShareData(entityType: ShareEntityType, idOrSlug: string
       priceCents: row.priceCents,
       circleName: circle?.name ?? null,
       privacy,
+      durationMinutes: row.durationMinutes,
+      capacity: row.capacity,
+      lat: row.lat !== null ? Number(row.lat) : null,
+      lng: row.lng !== null ? Number(row.lng) : null,
     };
   }
 

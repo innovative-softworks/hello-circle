@@ -1,6 +1,7 @@
 import { db } from "./index.js";
 import { haversineKm, type RadiusFilter } from "../geo.js";
 import { irelandWallTimeToUtc } from "../irelandTime.js";
+import { DISCOVERABLE_LIFECYCLES_SQL } from "../lifecycle.js";
 import type { Centre, Club, Room } from "../types.js";
 
 interface CentreRow {
@@ -23,6 +24,7 @@ interface CentreRow {
   map_url: string;
   lat: number | null;
   lng: number | null;
+  location_source: string;
   phone: string;
   accessibility: string;
   featured: number;
@@ -49,6 +51,7 @@ interface ClubRow {
   capacity: number | null;
   lat: number | null;
   lng: number | null;
+  location_source: string;
   phone: string;
   accessibility: string;
   category: string;
@@ -153,6 +156,7 @@ async function toCentre(row: CentreRow): Promise<Centre> {
     vendorId: row.vendor_id,
     lat: row.lat !== null ? Number(row.lat) : null,
     lng: row.lng !== null ? Number(row.lng) : null,
+    locationSource: (row.location_source as "confirmed" | "approximate" | "unknown") || "unknown",
     phone: row.phone,
     accessibility: row.accessibility ? row.accessibility.split(",").filter(Boolean) : [],
     featured: !!row.featured,
@@ -192,6 +196,7 @@ async function toClub(row: ClubRow): Promise<Club> {
     capacity: row.capacity,
     lat: row.lat !== null ? Number(row.lat) : null,
     lng: row.lng !== null ? Number(row.lng) : null,
+    locationSource: (row.location_source as "confirmed" | "approximate" | "unknown") || "unknown",
     phone: row.phone,
     accessibility: row.accessibility ? row.accessibility.split(",").filter(Boolean) : [],
     category: row.category,
@@ -214,10 +219,19 @@ async function toClub(row: ClubRow): Promise<Club> {
  * than kept-by-default, since "within Xkm" can't be evaluated for it.
  * Sorted nearest-first when active; callers with no radius filter keep
  * whatever order they already had (featured/name, or unsorted). */
-function applyRadiusFilter<T extends { lat: number | null; lng: number | null }>(rows: T[], radius: RadiusFilter | undefined): T[] {
+// A radius filter/sort is a precise distance CLAIM ("within Xkm", ranked
+// nearest-first) — unlike ordinary discovery, which can honestly show a
+// listing with an approximate/unknown location, a distance claim about that
+// same listing can be wrong by the ~6km jitter radius approximateCoords()
+// uses. Only 'confirmed' coordinates are trustworthy enough to support that
+// claim (Maps cost-control follow-up pass, review point #4) — an
+// approximate/unknown-location listing simply doesn't participate in a
+// radius filter, the same way it wouldn't appear in "Near me" results with
+// a real GPS-based competitor.
+function applyRadiusFilter<T extends { lat: number | null; lng: number | null; locationSource: string | null }>(rows: T[], radius: RadiusFilter | undefined): T[] {
   if (!radius) return rows;
   return rows
-    .filter((r) => r.lat !== null && r.lng !== null && haversineKm(radius.lat, radius.lng, r.lat, r.lng) <= radius.km)
+    .filter((r) => r.lat !== null && r.lng !== null && r.locationSource === "confirmed" && haversineKm(radius.lat, radius.lng, r.lat, r.lng) <= radius.km)
     .sort((a, b) => haversineKm(radius.lat, radius.lng, a.lat!, a.lng!) - haversineKm(radius.lat, radius.lng, b.lat!, b.lng!));
 }
 
@@ -285,6 +299,211 @@ export async function getApprovedClub(idOrSlug: string): Promise<Club | null> {
   if (!row) return null;
   await bumpClubViews.run(row.id);
   return toClub(row);
+}
+
+// Map discovery (Maps & Geographic Discovery, Phase E) — a minimal marker
+// payload for the bounds-scoped `/api/discover/map` endpoint. Deliberately
+// its own small query rather than reusing listCentres/listClubs/experiences'
+// full row shape: a viewport can hold hundreds of pins, so this returns only
+// what a map preview needs (routes/discover.ts's own comment has the full
+// rationale). Centres/clubs/experiences only — Games/Programs/Circles are
+// out of scope for this pass (Games are frequently freestanding with no
+// coordinates; Circles need their own privacy-safe approximate-area policy,
+// not exact coordinates; Programs already surface via their parent
+// centre/club pin).
+export type MapMarkerType = "centre" | "club" | "experience";
+
+/** `locationSource` lets the client visually distinguish an approximate pin
+ * from a confirmed one (spec: "clearly separate approximate results" rather
+ * than presenting a fabricated county-centroid jitter as a precise venue
+ * location) — see CentreDetail.tsx/ClubDetail.tsx for the same distinction
+ * on a listing's own detail page. */
+export type MapMarker =
+  | { id: string; type: "centre"; lat: number; lng: number; title: string; area: string; county: string; image: string | null; href: string; from: number; locationSource: string }
+  | { id: string; type: "club"; lat: number; lng: number; title: string; area: string; county: string; image: string | null; href: string; price: number; unit: string; locationSource: string }
+  | { id: string; type: "experience"; lat: number; lng: number; title: string; area: string; county: string; image: string | null; href: string; priceCents: number; locationSource: string };
+
+export interface MapBounds {
+  north: number;
+  south: number;
+  east: number;
+  west: number;
+}
+
+// A sane per-type cap — "do not load the entire database into the browser"
+// (spec §28-29). A dense viewport still clusters client-side (DiscoveryMap.tsx),
+// but the server itself must never hand back thousands of rows for one pan.
+const MAP_MARKER_LIMIT_PER_TYPE = 500;
+
+/** "Search this area" filter consistency (Maps cost-control follow-up pass,
+ * review point #2) — the same text/price filters a browse page's list panel
+ * already applies client-side, now also enforced server-side for map
+ * results, so a "free activities" filter can't suddenly surface paid
+ * results just because the user panned the map. `q` matches
+ * name/title case-insensitively (MySQL's default collation); price is
+ * normalized to cents at the call site (centres/clubs store euros).
+ * Amenity/accessibility filtering is NOT included here — the minimal
+ * marker payload deliberately omits those fields (spec §32, "do not send
+ * full entity records for thousands of markers"), so it's a real, disclosed
+ * gap, not silently dropped: ExperienceKindBrowse.tsx has no amenity/
+ * accessibility filter to begin with, and Browse.tsx's do not yet pass
+ * through to Search-this-area. */
+export interface MapMarkerFilters {
+  q?: string;
+  minPriceCents?: number;
+  maxPriceCents?: number;
+}
+
+export async function listMapMarkers(bounds: MapBounds, types: ReadonlySet<MapMarkerType>, filters: MapMarkerFilters = {}): Promise<MapMarker[]> {
+  const { north, south, east, west } = bounds;
+  const { q, minPriceCents, maxPriceCents } = filters;
+  const markers: MapMarker[] = [];
+
+  if (types.has("centre")) {
+    const clauses = ["status = 'approved'", "lat IS NOT NULL", "lng IS NOT NULL", "lat BETWEEN ? AND ?", "lng BETWEEN ? AND ?"];
+    const params: (string | number)[] = [south, north, west, east];
+    if (q) {
+      clauses.push("name LIKE ?");
+      params.push(`%${q}%`);
+    }
+    if (minPriceCents !== undefined) {
+      clauses.push("from_price * 100 >= ?");
+      params.push(minPriceCents);
+    }
+    if (maxPriceCents !== undefined) {
+      clauses.push("from_price * 100 <= ?");
+      params.push(maxPriceCents);
+    }
+    params.push(MAP_MARKER_LIMIT_PER_TYPE);
+    const rows = (await db
+      .prepare(`SELECT id, slug, name, area, county, image_url, from_price, lat, lng, location_source FROM centres WHERE ${clauses.join(" AND ")} ORDER BY featured DESC LIMIT ?`)
+      .all(...params)) as {
+      id: string;
+      slug: string | null;
+      name: string;
+      area: string;
+      county: string;
+      image_url: string | null;
+      from_price: number;
+      lat: number;
+      lng: number;
+      location_source: string;
+    }[];
+    markers.push(
+      ...rows.map((r) => ({
+        id: r.id,
+        type: "centre" as const,
+        lat: Number(r.lat),
+        lng: Number(r.lng),
+        title: r.name,
+        area: r.area,
+        county: r.county,
+        image: r.image_url,
+        href: `/centres/${r.slug ?? r.id}`,
+        from: r.from_price,
+        locationSource: r.location_source,
+      }))
+    );
+  }
+
+  if (types.has("club")) {
+    const clubClauses = ["status = 'approved'", "lat IS NOT NULL", "lng IS NOT NULL", "lat BETWEEN ? AND ?", "lng BETWEEN ? AND ?"];
+    const clubParams: (string | number)[] = [south, north, west, east];
+    if (q) {
+      clubClauses.push("name LIKE ?");
+      clubParams.push(`%${q}%`);
+    }
+    if (minPriceCents !== undefined) {
+      clubClauses.push("price * 100 >= ?");
+      clubParams.push(minPriceCents);
+    }
+    if (maxPriceCents !== undefined) {
+      clubClauses.push("price * 100 <= ?");
+      clubParams.push(maxPriceCents);
+    }
+    clubParams.push(MAP_MARKER_LIMIT_PER_TYPE);
+    const rows = (await db
+      .prepare(`SELECT id, slug, name, area, county, image_url, price, unit, lat, lng, location_source FROM clubs WHERE ${clubClauses.join(" AND ")} ORDER BY featured DESC LIMIT ?`)
+      .all(...clubParams)) as {
+      id: string;
+      slug: string | null;
+      name: string;
+      area: string;
+      county: string;
+      image_url: string | null;
+      price: number;
+      unit: string;
+      lat: number;
+      lng: number;
+      location_source: string;
+    }[];
+    markers.push(
+      ...rows.map((r) => ({
+        id: r.id,
+        type: "club" as const,
+        lat: Number(r.lat),
+        lng: Number(r.lng),
+        title: r.name,
+        area: r.area,
+        county: r.county,
+        image: r.image_url,
+        href: `/clubs/${r.slug ?? r.id}`,
+        price: r.price,
+        unit: r.unit,
+        locationSource: r.location_source,
+      }))
+    );
+  }
+
+  if (types.has("experience")) {
+    const expClauses = ["status = 'approved'", "lat IS NOT NULL", "lng IS NOT NULL", "lat BETWEEN ? AND ?", "lng BETWEEN ? AND ?"];
+    const expParams: (string | number)[] = [south, north, west, east];
+    if (q) {
+      expClauses.push("title LIKE ?");
+      expParams.push(`%${q}%`);
+    }
+    if (minPriceCents !== undefined) {
+      expClauses.push("price_cents >= ?");
+      expParams.push(minPriceCents);
+    }
+    if (maxPriceCents !== undefined) {
+      expClauses.push("price_cents <= ?");
+      expParams.push(maxPriceCents);
+    }
+    expParams.push(MAP_MARKER_LIMIT_PER_TYPE);
+    const rows = (await db
+      .prepare(`SELECT id, slug, kind, title, area, county, image_url, price_cents, lat, lng, location_source FROM experiences WHERE ${expClauses.join(" AND ")} ORDER BY featured DESC LIMIT ?`)
+      .all(...expParams)) as {
+      id: string;
+      slug: string | null;
+      kind: "adventure" | "experience";
+      title: string;
+      area: string;
+      county: string;
+      location_source: string;
+      image_url: string | null;
+      price_cents: number;
+      lat: number;
+      lng: number;
+    }[];
+    markers.push(
+      ...rows.map((r) => ({
+        id: r.id,
+        type: "experience" as const,
+        lat: Number(r.lat),
+        lng: Number(r.lng),
+        title: r.title,
+        area: r.area,
+        county: r.county,
+        image: r.image_url,
+        href: `/${r.kind === "adventure" ? "adventures" : "experiences"}/${r.slug ?? r.id}`,
+        priceCents: r.price_cents,
+        locationSource: r.location_source,
+      }))
+    );
+  }
+
+  return markers;
 }
 
 const DEFAULT_ORG_POLICIES = { cancellationHours: 48, bookingWindowDays: 90 };
@@ -895,6 +1114,12 @@ export interface ScheduledActivity {
    * coordinates set. Powers Free Time Mode's distance filter. */
   lat: number | null;
   lng: number | null;
+  /** Coordinate provenance of the hosting centre/club (see Centre.
+   * locationSource) — a distance-based filter/claim must only trust
+   * 'confirmed' coordinates (applyRadiusFilter enforces this); ordinary
+   * non-distance discovery is unaffected and still shows every activity
+   * regardless of this value. */
+  locationSource: string | null;
 }
 
 export interface GameRow {
@@ -911,6 +1136,7 @@ export interface GameRow {
   joined: number;
   lat: number | string | null;
   lng: number | string | null;
+  location_source: string | null;
 }
 
 export interface ProgramSessionRow {
@@ -927,6 +1153,7 @@ export interface ProgramSessionRow {
   duration_minutes: number;
   lat: number | string | null;
   lng: number | string | null;
+  location_source: string | null;
 }
 
 export interface ClubSessionRow {
@@ -942,6 +1169,7 @@ export interface ClubSessionRow {
   price: number;
   lat: number | string | null;
   lng: number | string | null;
+  location_source: string | null;
 }
 
 /** The next date (today or later) this weekday falls on, YYYY-MM-DD. */
@@ -973,7 +1201,15 @@ export function computeIsLive(kind: ScheduledActivity["kind"], date: string, tim
  * `[from, to]` (club sessions are recurring, so `to` only bounds how many
  * weekly occurrences roll forward — see nextOccurrence), optionally scoped
  * to one county. Callers apply their own ranking/keyword/filter logic on
- * top — this only owns the "is it real and currently offered" contract. */
+ * top — this only owns the "is it real and currently offered" contract.
+ *
+ * Lifecycle-audit privacy fix — the games branch is the one shared query
+ * behind Home/Explore/Search/Free-Time (`discover.ts`, `search.ts`), and
+ * until now it filtered only `status = 'open'`, never `visibility` — a
+ * circle-only or invite-only game (see games.ts's `visibility` column)
+ * would surface in general discovery feeds to anyone. `sharing.ts`'s
+ * `getShareData`/`ogMeta.ts` already correctly gate on visibility for the
+ * share-card/OG-meta paths; this closes the same gap for real discovery. */
 export async function listScheduledActivities(opts: { county?: string; from: Date; to: Date; radius?: RadiusFilter }): Promise<ScheduledActivity[]> {
   const { county, from, to } = opts;
   const fromIso = from.toISOString().slice(0, 10);
@@ -983,18 +1219,18 @@ export async function listScheduledActivities(opts: { county?: string; from: Dat
     county
       ? await db
           .prepare(
-            `SELECT g.id, g.activity_label, g.date, g.time, g.price_cents, g.capacity, g.image_url, c.name as centre_name, c.area, c.county, c.lat, c.lng,
+            `SELECT g.id, g.activity_label, g.date, g.time, g.price_cents, g.capacity, g.image_url, c.name as centre_name, c.area, c.county, c.lat, c.lng, c.location_source,
                     (SELECT COUNT(*) FROM game_participants gp WHERE gp.game_id = g.id AND gp.status = 'joined') as joined
              FROM games g LEFT JOIN centres c ON c.id = g.centre_id
-             WHERE g.status = 'open' AND g.date >= ? AND g.date <= ? AND c.county = ?`
+             WHERE g.status = 'open' AND g.visibility = 'public' AND g.lifecycle IN ${DISCOVERABLE_LIFECYCLES_SQL} AND g.date >= ? AND g.date <= ? AND c.county = ?`
           )
           .all(fromIso, toIso, county)
       : await db
           .prepare(
-            `SELECT g.id, g.activity_label, g.date, g.time, g.price_cents, g.capacity, g.image_url, c.name as centre_name, c.area, c.county, c.lat, c.lng,
+            `SELECT g.id, g.activity_label, g.date, g.time, g.price_cents, g.capacity, g.image_url, c.name as centre_name, c.area, c.county, c.lat, c.lng, c.location_source,
                     (SELECT COUNT(*) FROM game_participants gp WHERE gp.game_id = g.id AND gp.status = 'joined') as joined
              FROM games g LEFT JOIN centres c ON c.id = g.centre_id
-             WHERE g.status = 'open' AND g.date >= ? AND g.date <= ?`
+             WHERE g.status = 'open' AND g.visibility = 'public' AND g.lifecycle IN ${DISCOVERABLE_LIFECYCLES_SQL} AND g.date >= ? AND g.date <= ?`
           )
           .all(fromIso, toIso)
   ) as GameRow[];
@@ -1003,7 +1239,7 @@ export async function listScheduledActivities(opts: { county?: string; from: Dat
     .prepare(
       `SELECT ps.id, ps.date, ps.time, ps.duration_minutes, p.title, p.price_cents, p.listing_type, p.image_url,
               COALESCE(c.name, cl.name) as listing_name, COALESCE(c.area, cl.area) as area, COALESCE(c.county, cl.county) as county,
-              COALESCE(c.lat, cl.lat) as lat, COALESCE(c.lng, cl.lng) as lng
+              COALESCE(c.lat, cl.lat) as lat, COALESCE(c.lng, cl.lng) as lng, COALESCE(c.location_source, cl.location_source) as location_source
        FROM program_sessions ps
        JOIN programs p ON p.id = ps.program_id
        LEFT JOIN centres c ON p.listing_type = 'centre' AND c.id = p.listing_id
@@ -1015,7 +1251,7 @@ export async function listScheduledActivities(opts: { county?: string; from: Dat
 
   const clubSessions = (await db
     .prepare(
-      `SELECT cs.id, cs.day_of_week, cs.time, cs.label, cs.image_url, cl.id as club_id, cl.name as club_name, cl.area, cl.county, cl.price, cl.lat, cl.lng
+      `SELECT cs.id, cs.day_of_week, cs.time, cs.label, cs.image_url, cl.id as club_id, cl.name as club_name, cl.area, cl.county, cl.price, cl.lat, cl.lng, cl.location_source
        FROM club_sessions cs JOIN clubs cl ON cl.id = cs.club_id
        WHERE cs.active = 1 ${county ? "AND cl.county = ?" : ""}`
     )
@@ -1042,6 +1278,7 @@ export async function listScheduledActivities(opts: { county?: string; from: Dat
       durationMinutes: ASSUMED_DURATION_MINUTES.game,
       lat: g.lat !== null ? Number(g.lat) : null,
       lng: g.lng !== null ? Number(g.lng) : null,
+      locationSource: g.location_source,
     })),
     ...programSessions.map((p) => ({
       kind: "program_session" as const,
@@ -1062,6 +1299,7 @@ export async function listScheduledActivities(opts: { county?: string; from: Dat
       durationMinutes: p.duration_minutes,
       lat: p.lat !== null ? Number(p.lat) : null,
       lng: p.lng !== null ? Number(p.lng) : null,
+      locationSource: p.location_source,
     })),
     ...clubSessions.map((cs) => {
       const date = nextOccurrence(cs.day_of_week, now);
@@ -1084,6 +1322,7 @@ export async function listScheduledActivities(opts: { county?: string; from: Dat
         durationMinutes: ASSUMED_DURATION_MINUTES.club_session,
         lat: cs.lat !== null ? Number(cs.lat) : null,
         lng: cs.lng !== null ? Number(cs.lng) : null,
+        locationSource: cs.location_source,
       };
     }),
   ];

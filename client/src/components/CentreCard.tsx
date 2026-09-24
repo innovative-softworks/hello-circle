@@ -4,19 +4,19 @@ import { cardImageRatio, colors } from "../theme";
 import { BuildingIcon, StarIcon } from "./icons";
 import { Photo } from "./Photo";
 import { SaveButton, useSavedState } from "./SaveButton";
-import { Button } from "./ui";
+import { Button, CardLink } from "./ui";
 
 export function CentreCard({ centre }: { centre: Centre }) {
   const navigate = useNavigate();
   const [fav, toggleFav] = useSavedState("centre", centre.id);
-  const open = () => navigate(`/centres/${centre.slug ?? centre.id}`);
+  const href = `/centres/${centre.slug ?? centre.id}`;
+  const open = () => navigate(href);
 
   return (
     <div
-      onClick={open}
       className="card-hover card-surface"
       style={{
-        cursor: "pointer",
+        position: "relative",
         background: colors.surface,
         border: `1px solid ${colors.border}`,
         borderRadius: 18,
@@ -25,6 +25,7 @@ export function CentreCard({ centre }: { centre: Centre }) {
         flexDirection: "column",
       }}
     >
+      <CardLink to={href} label={centre.name} />
       <Photo
         src={centre.image}
         alt={centre.name}
@@ -65,7 +66,7 @@ export function CentreCard({ centre }: { centre: Centre }) {
         <p style={{ margin: "0 0 12px", color: colors.mutedLight, fontSize: 14 }}>{centre.area}</p>
         <div style={{ marginTop: "auto", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
           <span style={{ fontWeight: 700, fontSize: 15, color: colors.text }}>from €{centre.from}/hr</span>
-          <div onClick={(e) => e.stopPropagation()}>
+          <div className="stretched-link-above">
             <Button
               variant={centre.isOpen === false ? "ghost" : "dark"}
               disabled={centre.isOpen === false}

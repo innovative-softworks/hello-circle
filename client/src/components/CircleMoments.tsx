@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { CloseIcon } from "./icons";
 import { fetchCircleMoments } from "../api";
+import { getMediaUrl } from "../media";
 import type { Circle, CircleMoment } from "../types";
 import { radius } from "../theme";
 
@@ -43,7 +44,7 @@ export function CircleMoments({ circle }: { circle: Circle }) {
             key={m.id}
             className="circle-moments-item"
             onClick={() => setOpen(m.imageUrl)}
-            style={{ ...MOSAIC_AREAS[i], background: `url(${m.imageUrl}) center/cover`, borderRadius: radius.control, border: "none", padding: 0, cursor: "pointer" }}
+            style={{ ...MOSAIC_AREAS[i], background: `url(${getMediaUrl(m.imageUrl, "thumbnail")}) center/cover`, borderRadius: radius.control, border: "none", padding: 0, cursor: "pointer" }}
             aria-label="Enlarge photo"
           />
         ))}
@@ -64,7 +65,7 @@ export function CircleMoments({ circle }: { circle: Circle }) {
             >
               <CloseIcon size={18} />
             </button>
-            <img src={open} alt="" style={{ maxWidth: "90vw", maxHeight: "85vh", borderRadius: 12, objectFit: "contain" }} onClick={(e) => e.stopPropagation()} />
+            <img src={getMediaUrl(open, "card")} alt="" style={{ maxWidth: "90vw", maxHeight: "85vh", borderRadius: 12, objectFit: "contain" }} onClick={(e) => e.stopPropagation()} />
           </div>,
           document.body
         )}

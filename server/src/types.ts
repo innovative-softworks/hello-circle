@@ -41,6 +41,10 @@ export interface Centre {
   vendorId: string | null;
   lat: number | null;
   lng: number | null;
+  /** Coordinate provenance (Maps cost-control follow-up pass) — see
+   * packages/types' Centre.locationSource for the full explanation; this
+   * file is a separate hand-synced mirror (CLAUDE.md), not a re-export. */
+  locationSource: "confirmed" | "approximate" | "unknown";
   phone: string;
   accessibility: string[];
   /** Bounded "featured" flag (IA spec §16) — admin-toggled promotion. */
@@ -85,6 +89,8 @@ export interface Club {
   capacity: number | null;
   lat: number | null;
   lng: number | null;
+  /** See Centre.locationSource — same provenance semantics. */
+  locationSource: "confirmed" | "approximate" | "unknown";
   phone: string;
   accessibility: string[];
   category: string;
@@ -106,7 +112,7 @@ export interface Review {
   id: number;
   /** Host & Activity reviews (master-prompt punch list #3) — kept separate
    * per listing_type, matching the different trust signal each represents. */
-  listingType: "centre" | "club" | "game" | "host" | "experience";
+  listingType: "centre" | "club" | "game" | "host" | "experience" | "program";
   listingId: string;
   name: string;
   rating: number;

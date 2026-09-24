@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { checkInGame, confirmGameAttendance, fetchGame } from "../api";
-import { BallIcon, CalendarIcon, CheckIcon, HeartIcon } from "../components/icons";
+import { BallIcon, CalendarIcon, CheckIcon, HeartIcon, UsersIcon } from "../components/icons";
 import { BackLink } from "../components/BackLink";
 import { ChatPanel } from "../components/ChatPanel";
 import { GameHostCard } from "../components/GameHostCard";
@@ -20,7 +20,7 @@ import { isFavorite, toggleFavorite } from "../favorites";
 import { useGuest } from "../GuestContext";
 import { rehostHref } from "../rehost";
 import { dateLabel } from "../euro";
-import { colors, fonts, maxWidth, photoOverlay, placeholderStripes, radius } from "../theme";
+import { cardImageRatio, colors, fonts, maxWidth, photoOverlay, placeholderStripes, radius } from "../theme";
 import type { Game } from "../types";
 
 // Self-serve check-in only makes sense in a real window around the game's
@@ -217,7 +217,9 @@ export function GameDetail() {
               ph={placeholderStripes.green}
               icon={<BallIcon size={40} />}
               iconColor={colors.green}
-              style={{ height: 340, borderRadius: 20, marginBottom: 24 }}
+              variant="hero"
+              eager
+              style={{ aspectRatio: cardImageRatio.hero, borderRadius: 20, marginBottom: 24 }}
               contentStyle={{ padding: 16, display: "flex", alignItems: "flex-start", justifyContent: "space-between" }}
             >
               <span style={{ display: "inline-flex", alignItems: "center", gap: 6, background: "rgba(255,255,255,.92)", color: colors.text, borderRadius: radius.pill, padding: "6px 12px", fontSize: 13, fontWeight: 700 }}>
@@ -250,11 +252,30 @@ export function GameDetail() {
               </div>
             </div>
             {game.description && <p style={{ margin: "6px 0 0", fontSize: 15, color: colors.mutedLight, lineHeight: 1.5 }}>{game.description}</p>}
+
+            {/* Circle Experience Polish — Changeset 2B. toGameJson already
+                returns circleId/circleName/circleSlug for every real
+                games.circle_id-owned game; this is the client's first use
+                of any of the three — closes the Activity→Circle discovery
+                gap the audit found (a resident joining a circle's own
+                activity previously had no way back to the Circle itself). */}
+            {game.circleId && (
+              <button
+                onClick={() => navigate(`/circles/${game.circleSlug ?? game.circleId}`)}
+                style={{
+                  display: "inline-flex", alignItems: "center", gap: 6, marginTop: 10, background: colors.panel, border: "none",
+                  borderRadius: radius.pill, padding: "6px 12px", fontSize: 12.5, fontWeight: 700, color: colors.text, cursor: "pointer",
+                }}
+              >
+                <UsersIcon size={13} /> Hosted with {game.circleName || "a Circle"} →
+              </button>
+            )}
+
             <QuickAttributes game={game} />
 
             {game.bookingRef && (
               <div style={{ background: colors.panel, color: colors.muted, borderRadius: 12, padding: "10px 14px", fontSize: 13, margin: "16px 0" }}>
-                This game is happening as part of the host's existing room booking — you'll pay your own share to join.
+                This session is happening as part of the host's existing room booking — you'll pay your own share to join.
               </div>
             )}
             {pending && !cancelled && (

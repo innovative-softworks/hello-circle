@@ -1,8 +1,9 @@
-import { useEffect, useRef } from "react";
+import { lazy, Suspense, useEffect, useRef } from "react";
 import { Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { AuthProvider } from "./AuthContext";
 import { logReferralLand } from "./api/public";
 import { CookieNotice } from "./components/CookieNotice";
+import { PageSpinner } from "./components/ui";
 import { DashboardNavProvider } from "./DashboardNavContext";
 import { Footer } from "./components/Footer";
 import { GuestProvider } from "./GuestContext";
@@ -12,66 +13,84 @@ import { NativePushSync } from "./components/NativePushSync";
 import { NativeShellSync } from "./components/NativeShellSync";
 import { hideSplashScreen, setupAppUrlListener, setupBackButton } from "./native";
 import { MyStuffProvider } from "./MyStuffContext";
-import { AcceptInvite } from "./pages/AcceptInvite";
-import { InvitationLanding } from "./pages/InvitationLanding";
-import { AdminDashboard } from "./pages/AdminDashboard";
-import { AskHelloCircle } from "./pages/AskHelloCircle";
-import { Browse } from "./pages/Browse";
-import { CentreDetail } from "./pages/CentreDetail";
-import { CircleDetail } from "./pages/CircleDetail";
-import { Circles } from "./pages/Circles";
-import { ClubDetail } from "./pages/ClubDetail";
-import { BookingFlow } from "./pages/BookingFlow";
 import { ComingSoon } from "./pages/ComingSoon";
-import { CookiePolicy } from "./pages/CookiePolicy";
-import { Adventures } from "./pages/Adventures";
-import { ExperienceDetail } from "./pages/ExperienceDetail";
-import { Experiences } from "./pages/Experiences";
-import { Explore } from "./pages/Explore";
-import { ForgotPassword } from "./pages/ForgotPassword";
-import { ForVenues } from "./pages/ForVenues";
-import { BecomeAHost } from "./pages/BecomeAHost";
-import { FreeTimeMode } from "./pages/FreeTimeMode";
-import { GameDetail } from "./pages/GameDetail";
-import { Games } from "./pages/Games";
-import { Home } from "./pages/Home";
-import { HostProfilePage } from "./pages/HostProfile";
-import { HelpGuideIndex } from "./pages/helpGuide/HelpGuideIndex";
-import { HelpGuideExplore } from "./pages/helpGuide/HelpGuideExplore";
-import { HelpGuideCircles } from "./pages/helpGuide/HelpGuideCircles";
-import { HelpGuideMyLife } from "./pages/helpGuide/HelpGuideMyLife";
-import { HelpGuideStart } from "./pages/helpGuide/HelpGuideStart";
-import { Login } from "./pages/Login";
-import { MakeItHappen } from "./pages/MakeItHappen";
-import { MyBookings } from "./pages/MyBookings";
 import { NotFound } from "./pages/NotFound";
-import { Onboarding } from "./pages/Onboarding";
-import { PaymentCancel } from "./pages/PaymentCancel";
-import { PaymentSuccess } from "./pages/PaymentSuccess";
-import { PrivacyPolicy } from "./pages/PrivacyPolicy";
-import { Profile } from "./pages/Profile";
-import { SuggestPlacePage } from "./pages/SuggestPlace";
-import { LandingPage } from "./landing/LandingPage";
-import { LocalActivity } from "./pages/LocalActivity";
-import { ProgramDetail } from "./pages/ProgramDetail";
-import { ProviderProfilePage } from "./pages/ProviderProfile";
-import { RegistrationFlow } from "./pages/RegistrationFlow";
-import { ResetPassword } from "./pages/ResetPassword";
-import { SearchRedirect } from "./pages/SearchRedirect";
-import { SignIn } from "./pages/SignIn";
-import { SignUp } from "./pages/SignUp";
-import { EmailLinkSignIn } from "./pages/EmailLinkSignIn";
 import { ThemeProvider } from "./ThemeContext";
-import { VendorDashboard } from "./pages/VendorDashboard";
-import { VendorSignup } from "./pages/VendorSignup";
-import { VendorCentreEditPage } from "./pages/VendorCentreEditPage";
-import { VendorClubEditPage } from "./pages/VendorClubEditPage";
-import { VendorProgramEditPage } from "./pages/VendorProgramEditPage";
-import { VendorExperienceEditPage } from "./pages/VendorExperienceEditPage";
-import { HostGamePage } from "./pages/HostGamePage";
-import { ManageCircle } from "./pages/ManageCircle";
-import { ManageHome } from "./pages/ManageHome";
-import { StartCirclePage } from "./pages/StartCirclePage";
+
+// SEO Phase 6 — every route below used to be a static top-level import, so
+// react-router's own per-route code splitting never kicked in: visiting the
+// homepage downloaded the entire app (every dashboard, every wizard, every
+// help-guide page) in one ~1.5MB JS chunk before anything could render. Each
+// of these now becomes its own chunk, fetched only when its route is
+// actually visited (a returning vendor never pays for the resident Circle
+// pages' code, a resident never pays for AdminDashboard's, etc.) — the
+// `.then(m => ({ default: m.X }))` shape is just adapting this codebase's
+// named exports to what `React.lazy` requires (a default export).
+// ComingSoon/NotFound are the two exceptions, kept as ordinary eager
+// imports: ComingSoon is what most visitors currently see first on every
+// single pre-launch page load (the LAUNCH_GATE_ENABLED redirect below), and
+// NotFound is the catch-all `*` route — lazy-loading either would add a
+// waterfall (render fallback, then fetch, then render for real) to the most
+// common and the most already-degraded paths respectively, which is the
+// opposite of what code-splitting is for.
+const AcceptInvite = lazy(() => import("./pages/AcceptInvite").then((m) => ({ default: m.AcceptInvite })));
+const ManageLinkConfirm = lazy(() => import("./pages/ManageLinkConfirm").then((m) => ({ default: m.ManageLinkConfirm })));
+const InvitationLanding = lazy(() => import("./pages/InvitationLanding").then((m) => ({ default: m.InvitationLanding })));
+const AdminDashboard = lazy(() => import("./pages/AdminDashboard").then((m) => ({ default: m.AdminDashboard })));
+const AskHelloCircle = lazy(() => import("./pages/AskHelloCircle").then((m) => ({ default: m.AskHelloCircle })));
+const Browse = lazy(() => import("./pages/Browse").then((m) => ({ default: m.Browse })));
+const CentreDetail = lazy(() => import("./pages/CentreDetail").then((m) => ({ default: m.CentreDetail })));
+const CircleDetail = lazy(() => import("./pages/CircleDetail").then((m) => ({ default: m.CircleDetail })));
+const Circles = lazy(() => import("./pages/Circles").then((m) => ({ default: m.Circles })));
+const ClubDetail = lazy(() => import("./pages/ClubDetail").then((m) => ({ default: m.ClubDetail })));
+const BookingFlow = lazy(() => import("./pages/BookingFlow").then((m) => ({ default: m.BookingFlow })));
+const CookiePolicy = lazy(() => import("./pages/CookiePolicy").then((m) => ({ default: m.CookiePolicy })));
+const Adventures = lazy(() => import("./pages/Adventures").then((m) => ({ default: m.Adventures })));
+const ExperienceDetail = lazy(() => import("./pages/ExperienceDetail").then((m) => ({ default: m.ExperienceDetail })));
+const Experiences = lazy(() => import("./pages/Experiences").then((m) => ({ default: m.Experiences })));
+const Explore = lazy(() => import("./pages/Explore").then((m) => ({ default: m.Explore })));
+const ForgotPassword = lazy(() => import("./pages/ForgotPassword").then((m) => ({ default: m.ForgotPassword })));
+const ForVenues = lazy(() => import("./pages/ForVenues").then((m) => ({ default: m.ForVenues })));
+const BecomeAHost = lazy(() => import("./pages/BecomeAHost").then((m) => ({ default: m.BecomeAHost })));
+const FreeTimeMode = lazy(() => import("./pages/FreeTimeMode").then((m) => ({ default: m.FreeTimeMode })));
+const GameDetail = lazy(() => import("./pages/GameDetail").then((m) => ({ default: m.GameDetail })));
+const Games = lazy(() => import("./pages/Games").then((m) => ({ default: m.Games })));
+const Home = lazy(() => import("./pages/Home").then((m) => ({ default: m.Home })));
+const HostProfilePage = lazy(() => import("./pages/HostProfile").then((m) => ({ default: m.HostProfilePage })));
+const HelpGuideIndex = lazy(() => import("./pages/helpGuide/HelpGuideIndex").then((m) => ({ default: m.HelpGuideIndex })));
+const HelpGuideExplore = lazy(() => import("./pages/helpGuide/HelpGuideExplore").then((m) => ({ default: m.HelpGuideExplore })));
+const HelpGuideCircles = lazy(() => import("./pages/helpGuide/HelpGuideCircles").then((m) => ({ default: m.HelpGuideCircles })));
+const HelpGuideMyLife = lazy(() => import("./pages/helpGuide/HelpGuideMyLife").then((m) => ({ default: m.HelpGuideMyLife })));
+const HelpGuideStart = lazy(() => import("./pages/helpGuide/HelpGuideStart").then((m) => ({ default: m.HelpGuideStart })));
+const Login = lazy(() => import("./pages/Login").then((m) => ({ default: m.Login })));
+const MakeItHappen = lazy(() => import("./pages/MakeItHappen").then((m) => ({ default: m.MakeItHappen })));
+const MyBookings = lazy(() => import("./pages/MyBookings").then((m) => ({ default: m.MyBookings })));
+const Onboarding = lazy(() => import("./pages/Onboarding").then((m) => ({ default: m.Onboarding })));
+const PaymentCancel = lazy(() => import("./pages/PaymentCancel").then((m) => ({ default: m.PaymentCancel })));
+const PaymentSuccess = lazy(() => import("./pages/PaymentSuccess").then((m) => ({ default: m.PaymentSuccess })));
+const PrivacyPolicy = lazy(() => import("./pages/PrivacyPolicy").then((m) => ({ default: m.PrivacyPolicy })));
+const Profile = lazy(() => import("./pages/Profile").then((m) => ({ default: m.Profile })));
+const SuggestPlacePage = lazy(() => import("./pages/SuggestPlace").then((m) => ({ default: m.SuggestPlacePage })));
+const LandingPage = lazy(() => import("./landing/LandingPage").then((m) => ({ default: m.LandingPage })));
+const LocalActivity = lazy(() => import("./pages/LocalActivity").then((m) => ({ default: m.LocalActivity })));
+const ProgramDetail = lazy(() => import("./pages/ProgramDetail").then((m) => ({ default: m.ProgramDetail })));
+const ProviderProfilePage = lazy(() => import("./pages/ProviderProfile").then((m) => ({ default: m.ProviderProfilePage })));
+const RegistrationFlow = lazy(() => import("./pages/RegistrationFlow").then((m) => ({ default: m.RegistrationFlow })));
+const ResetPassword = lazy(() => import("./pages/ResetPassword").then((m) => ({ default: m.ResetPassword })));
+const SearchRedirect = lazy(() => import("./pages/SearchRedirect").then((m) => ({ default: m.SearchRedirect })));
+const SignIn = lazy(() => import("./pages/SignIn").then((m) => ({ default: m.SignIn })));
+const SignUp = lazy(() => import("./pages/SignUp").then((m) => ({ default: m.SignUp })));
+const EmailLinkSignIn = lazy(() => import("./pages/EmailLinkSignIn").then((m) => ({ default: m.EmailLinkSignIn })));
+const VendorDashboard = lazy(() => import("./pages/VendorDashboard").then((m) => ({ default: m.VendorDashboard })));
+const VendorSignup = lazy(() => import("./pages/VendorSignup").then((m) => ({ default: m.VendorSignup })));
+const VendorCentreEditPage = lazy(() => import("./pages/VendorCentreEditPage").then((m) => ({ default: m.VendorCentreEditPage })));
+const VendorClubEditPage = lazy(() => import("./pages/VendorClubEditPage").then((m) => ({ default: m.VendorClubEditPage })));
+const VendorProgramEditPage = lazy(() => import("./pages/VendorProgramEditPage").then((m) => ({ default: m.VendorProgramEditPage })));
+const VendorExperienceEditPage = lazy(() => import("./pages/VendorExperienceEditPage").then((m) => ({ default: m.VendorExperienceEditPage })));
+const HostGamePage = lazy(() => import("./pages/HostGamePage").then((m) => ({ default: m.HostGamePage })));
+const ManageCircle = lazy(() => import("./pages/ManageCircle").then((m) => ({ default: m.ManageCircle })));
+const ManageHome = lazy(() => import("./pages/ManageHome").then((m) => ({ default: m.ManageHome })));
+const StartCirclePage = lazy(() => import("./pages/StartCirclePage").then((m) => ({ default: m.StartCirclePage })));
 
 // Pre-launch lockdown (no real vendor/resident data yet — see CLAUDE.md's
 // "Dev vs. prod database" section). Defaults ON (gated) until a deploy
@@ -242,6 +261,7 @@ export function App() {
                   <Route path="*" element={<Navigate to="/coming-soon" replace />} />
                 </Routes>
               ) : (
+              <Suspense fallback={<PageSpinner />}>
               <Routes>
                 {/* /for-venues is now doing double duty as the pre-launch
                     root landing page (per explicit request) — Home moves to
@@ -301,6 +321,7 @@ export function App() {
                 <Route path="/forgot-password" element={<ForgotPassword />} />
                 <Route path="/reset-password" element={<ResetPassword />} />
                 <Route path="/accept-invite" element={<AcceptInvite />} />
+                <Route path="/manage/link-confirm" element={<ManageLinkConfirm />} />
                 <Route path="/i/:token" element={<InvitationLanding />} />
                 <Route path="/for-venues" element={<ForVenues />} />
                 <Route path="/become-a-host" element={<BecomeAHost />} />
@@ -339,6 +360,7 @@ export function App() {
                 <Route path="/:county/:activity" element={<LocalActivity />} />
                 <Route path="*" element={<NotFound />} />
               </Routes>
+              </Suspense>
               )}
             </main>
             {!isStandaloneLanding && !isAuthPage && !isComingSoon && <Footer />}

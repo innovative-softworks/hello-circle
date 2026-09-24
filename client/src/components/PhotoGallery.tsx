@@ -1,6 +1,7 @@
 import { useEffect, useState, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
 import { ChevronLeftIcon, ChevronRightIcon, CloseIcon, GridIcon } from "./icons";
+import { getMediaUrl } from "../media";
 import { colors, radius } from "../theme";
 
 interface PhotoGalleryProps {
@@ -39,8 +40,9 @@ export function PhotoGallery({ images, alt, ph, height = 380 }: PhotoGalleryProp
         >
           {photos[0] && (
             <img
-              src={photos[0]}
+              src={getMediaUrl(photos[0], "hero")}
               alt={alt}
+              loading="eager"
               style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover" }}
               onError={(e) => {
                 e.currentTarget.style.display = "none";
@@ -58,8 +60,9 @@ export function PhotoGallery({ images, alt, ph, height = 380 }: PhotoGalleryProp
               >
                 {photos[i] && (
                   <img
-                    src={photos[i]}
+                    src={getMediaUrl(photos[i], "thumbnail")}
                     alt={`${alt} photo ${i + 1}`}
+                    loading="lazy"
                     style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover" }}
                     onError={(e) => {
                       e.currentTarget.style.display = "none";
@@ -172,7 +175,7 @@ function Lightbox({
           </button>
         )}
         <img
-          src={photos[index]}
+          src={getMediaUrl(photos[index], "hero")}
           alt={`${alt} photo ${index + 1}`}
           style={{ maxWidth: "100%", maxHeight: "100%", borderRadius: 12, objectFit: "contain" }}
         />

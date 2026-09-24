@@ -6,7 +6,8 @@ import { db } from "../db/index.js";
 import { sendMail } from "../email.js";
 import { notifyCancellation, notifyRefund, resendConfirmationEmail } from "../notifications.js";
 import { inClause, ownsCentre, ownsClub } from "./vendorHelpers.js";
-import { irelandTodayIso } from "../irelandTime.js";
+import { irelandTodayIso, irelandWallTimeToUtc } from "../irelandTime.js";
+import { ASSUMED_DURATION_MINUTES } from "../db/queries.js";
 import { offerToWaitlistEntry, promoteNextWaitlistEntry } from "../waitlist.js";
 
 // Day-to-day operational surface: read-only bookings/registrations
@@ -52,12 +53,12 @@ vendorOperationsRouter.post("/bookings/:ref/cancel", requirePlatformRole("centre
   const row = (await db
     .prepare(
       `SELECT b.ref, b.date, b.time, b.duration, b.guests, b.status, b.name, b.email,
-              b.centre_id as centreId, c.name as centreName, c.vendor_id as vendorId
+              b.centre_id as centreId, c.name as centreName, c.vendor_id as vendorId, b.resident_id as residentId
        FROM bookings b JOIN centres c ON c.id = b.centre_id
        WHERE b.ref = ? AND c.vendor_id IN (${inClause(ids)})`
     )
     .get(req.params.ref, ...ids)) as
-    | { ref: string; date: string; time: string; duration: number; guests: number; status: string; name: string; email: string; centreId: string; centreName: string; vendorId: string | null }
+    | { ref: string; date: string; time: string; duration: number; guests: number; status: string; name: string; email: string; centreId: string; centreName: string; vendorId: string | null; residentId: string | null }
     | undefined;
   if (!row) return res.status(404).json({ error: "Booking not found" });
   if (row.status === "cancelled") return res.status(409).json({ error: "This booking is already cancelled" });
@@ -83,6 +84,7 @@ vendorOperationsRouter.post("/bookings/:ref/cancel", requirePlatformRole("centre
     guestEmail: row.email,
     ref: row.ref,
     detailsText: `${row.date} at ${row.time} · ${row.duration}h · ${row.guests} guests`,
+    residentId: row.residentId,
   }).catch((e) => console.error("[notifications] vendor booking cancellation notify failed:", e));
 
   res.json({ ok: true });
@@ -103,7 +105,7 @@ vendorOperationsRouter.post("/registrations/:ref/cancel", requirePlatformRole("f
     .prepare(
       `SELECT r.ref, r.child_first as childFirst, r.child_last as childLast, r.team, r.status,
               r.g_first as gFirst, r.g_last as gLast, r.email,
-              r.club_id as clubId, c.name as clubName, c.vendor_id as vendorId
+              r.club_id as clubId, c.name as clubName, c.vendor_id as vendorId, r.resident_id as residentId
        FROM registrations r JOIN clubs c ON c.id = r.club_id
        WHERE r.ref = ? AND c.vendor_id IN (${inClause(ids)})`
     )
@@ -120,6 +122,7 @@ vendorOperationsRouter.post("/registrations/:ref/cancel", requirePlatformRole("f
         clubId: string;
         clubName: string;
         vendorId: string | null;
+        residentId: string | null;
       }
     | undefined;
   if (!row) return res.status(404).json({ error: "Registration not found" });
@@ -146,6 +149,7 @@ vendorOperationsRouter.post("/registrations/:ref/cancel", requirePlatformRole("f
     guestEmail: row.email,
     ref: row.ref,
     detailsText: `${row.childFirst} ${row.childLast}${row.team ? ` · ${row.team}` : ""}`,
+    residentId: row.residentId,
   }).catch((e) => console.error("[notifications] vendor registration cancellation notify failed:", e));
 
   promoteNextWaitlistEntry("club", row.clubId, row.clubName);
@@ -247,12 +251,12 @@ vendorOperationsRouter.post("/bookings/:ref/refund", requirePlatformRole("financ
   const row = (await db
     .prepare(
       `SELECT b.ref, b.date, b.time, b.duration, b.guests, b.name, b.email, b.payment_status as paymentStatus, b.stripe_session_id as stripeSessionId,
-              b.centre_id as centreId, c.name as centreName, c.vendor_id as vendorId
+              b.centre_id as centreId, c.name as centreName, c.vendor_id as vendorId, b.resident_id as residentId
        FROM bookings b JOIN centres c ON c.id = b.centre_id
        WHERE b.ref = ? AND c.vendor_id IN (${inClause(ids)})`
     )
     .get(req.params.ref, ...ids)) as
-    | { ref: string; date: string; time: string; duration: number; guests: number; name: string; email: string; paymentStatus: string; stripeSessionId: string | null; centreId: string; centreName: string; vendorId: string | null }
+    | { ref: string; date: string; time: string; duration: number; guests: number; name: string; email: string; paymentStatus: string; stripeSessionId: string | null; centreId: string; centreName: string; vendorId: string | null; residentId: string | null }
     | undefined;
   if (!row) return res.status(404).json({ error: "Booking not found" });
   if (row.paymentStatus === "refunded") return res.status(409).json({ error: "This booking has already been refunded" });
@@ -292,6 +296,7 @@ vendorOperationsRouter.post("/bookings/:ref/refund", requirePlatformRole("financ
     ref: row.ref,
     detailsText: `${row.date} at ${row.time} · ${row.duration}h · ${row.guests} guests`,
     refundedCents: result.amountCents,
+    residentId: row.residentId,
   }).catch((e) => console.error("[notifications] booking refund notify failed:", e));
 
   res.json({ ok: true });
@@ -303,7 +308,7 @@ vendorOperationsRouter.post("/registrations/:ref/refund", requirePlatformRole("f
     .prepare(
       `SELECT r.ref, r.child_first as childFirst, r.child_last as childLast, r.team, r.payment_status as paymentStatus, r.stripe_session_id as stripeSessionId,
               r.g_first as gFirst, r.g_last as gLast, r.email,
-              r.club_id as clubId, c.name as clubName, c.vendor_id as vendorId
+              r.club_id as clubId, c.name as clubName, c.vendor_id as vendorId, r.resident_id as residentId
        FROM registrations r JOIN clubs c ON c.id = r.club_id
        WHERE r.ref = ? AND c.vendor_id IN (${inClause(ids)})`
     )
@@ -321,6 +326,7 @@ vendorOperationsRouter.post("/registrations/:ref/refund", requirePlatformRole("f
         clubId: string;
         clubName: string;
         vendorId: string | null;
+        residentId: string | null;
       }
     | undefined;
   if (!row) return res.status(404).json({ error: "Registration not found" });
@@ -357,6 +363,7 @@ vendorOperationsRouter.post("/registrations/:ref/refund", requirePlatformRole("f
     ref: row.ref,
     detailsText: `${row.childFirst} ${row.childLast}${row.team ? ` · ${row.team}` : ""}`,
     refundedCents: result.amountCents,
+    residentId: row.residentId,
   }).catch((e) => console.error("[notifications] registration refund notify failed:", e));
 
   res.json({ ok: true });
@@ -490,6 +497,250 @@ vendorOperationsRouter.get("/today", async (req, res) => {
     )
     .all(...ids, dayOfWeek);
   res.json({ bookings, clubSessions });
+});
+
+// --- unified cross-listing-type schedule (Vendor Experience Polish) -------
+// The Vendor Experience Audit found /schedule above is deliberately
+// Program-session-only, and /today above deliberately excludes Programs and
+// Experiences and only ever covers "today" — neither answers "what's
+// happening across everything I run, this week" for a vendor whose
+// business isn't Programs. This is the shared normalized read layer for
+// both the Overview "Next Up" section and the full Schedule tab — one query
+// per listing type, mapped into one common shape at the read layer only
+// (see CLAUDE.md's "five separate participant tables aren't unified" note —
+// same root cause; this doesn't touch the underlying tables).
+//
+// Fields deliberately stay null rather than fabricated where the source
+// genuinely doesn't support them — see the club-session and program-session
+// branches below for the two real cases of this.
+
+export interface VendorScheduleItemResponse {
+  id: string;
+  sourceType: "centre" | "club" | "program" | "experience";
+  sourceId: string;
+  listingId: string;
+  listingName: string;
+  spaceName: string | null;
+  title: string;
+  startDateTime: string;
+  endDateTime: string | null;
+  status: string;
+  participantCount: number | null;
+  bookingCount: number | null;
+  location: string | null;
+}
+
+interface VendorScheduleBookingRow {
+  id: string;
+  listingId: string;
+  listingName: string;
+  spaceName: string | null;
+  title: string;
+  date: string;
+  time: string;
+  duration: number;
+  status: string;
+  guests: number;
+  location: string | null;
+}
+
+interface VendorScheduleClubSessionRow {
+  id: string;
+  listingId: string;
+  listingName: string;
+  dayOfWeek: number;
+  time: string;
+  label: string;
+  location: string | null;
+}
+
+interface VendorScheduleProgramSessionRow {
+  id: string;
+  listingId: string;
+  listingName: string;
+  date: string;
+  time: string;
+  durationMinutes: number;
+  status: string;
+  enrolled: number;
+}
+
+interface VendorScheduleExperienceSessionRow {
+  id: string;
+  listingId: string;
+  listingName: string;
+  date: string;
+  time: string;
+  status: string;
+  booked: number;
+  location: string | null;
+}
+
+/** Every date >= fromIso and <= toIso (inclusive) that falls on dayOfWeek
+ * (0=Sunday..6=Saturday, matching JS's getUTCDay()) — club_sessions are
+ * recurring-weekly, not tied to one date, so this projects each active
+ * session onto every real calendar occurrence in the requested window
+ * rather than just the single soonest one (queries.ts's nextOccurrence()
+ * only ever returns that one date, which is enough for a discovery feed
+ * but not for a multi-week vendor schedule). */
+function weeklyOccurrencesInRange(dayOfWeek: number, fromIso: string, toIso: string): string[] {
+  const dates: string[] = [];
+  const cursor = new Date(`${fromIso}T12:00:00Z`);
+  const end = new Date(`${toIso}T12:00:00Z`);
+  const diff = (dayOfWeek - cursor.getUTCDay() + 7) % 7;
+  cursor.setUTCDate(cursor.getUTCDate() + diff);
+  while (cursor <= end) {
+    dates.push(cursor.toISOString().slice(0, 10));
+    cursor.setUTCDate(cursor.getUTCDate() + 7);
+  }
+  return dates;
+}
+
+function parseTime(t: string): [number, number] {
+  const [h, m] = t.split(":").map(Number);
+  return [h, m || 0];
+}
+
+vendorOperationsRouter.get("/schedule-items", async (req, res) => {
+  const ids = req.vendorIds!;
+  const in1 = inClause(ids);
+  const fromIso = typeof req.query.from === "string" ? req.query.from : irelandTodayIso();
+  const days = Math.min(Number(req.query.days) || 14, 90);
+  const toIso = new Date(new Date(`${fromIso}T12:00:00Z`).getTime() + days * 86400000).toISOString().slice(0, 10);
+
+  const [bookingRows, clubSessionRows, programSessionRows, experienceSessionRows] = (await Promise.all([
+    db
+      .prepare(
+        `SELECT b.ref as id, b.centre_id as listingId, c.name as listingName, r.name as spaceName,
+                b.event_type as title, b.date, b.time, b.duration, b.status, b.guests as guests, c.area as location
+         FROM bookings b JOIN centres c ON c.id = b.centre_id
+         LEFT JOIN rooms r ON r.id = b.room_id AND r.centre_id = b.centre_id
+         WHERE c.vendor_id IN (${in1}) AND b.payment_status IN ('paid', 'refunded') AND b.status != 'cancelled' AND b.date BETWEEN ? AND ?
+         ORDER BY b.date, b.time`
+      )
+      .all(...ids, fromIso, toIso),
+    db
+      .prepare(
+        `SELECT cs.id, cs.club_id as listingId, c.name as listingName, cs.day_of_week as dayOfWeek, cs.time, cs.label, c.area as location
+         FROM club_sessions cs JOIN clubs c ON c.id = cs.club_id
+         WHERE c.vendor_id IN (${in1}) AND cs.active = 1`
+      )
+      .all(...ids),
+    db
+      .prepare(
+        `SELECT ps.id, p.id as listingId, p.title as listingName, ps.date, ps.time, ps.duration_minutes as durationMinutes, ps.status,
+                (SELECT COUNT(*) FROM program_enrollments pe WHERE pe.program_id = p.id AND pe.payment_status = 'paid' AND pe.status != 'cancelled') as enrolled
+         FROM program_sessions ps JOIN programs p ON p.id = ps.program_id
+         WHERE p.vendor_id IN (${in1}) AND ps.status != 'cancelled' AND ps.date BETWEEN ? AND ?
+         ORDER BY ps.date, ps.time`
+      )
+      .all(...ids, fromIso, toIso),
+    db
+      .prepare(
+        `SELECT es.id, e.id as listingId, e.title as listingName, es.date, es.time, es.status, e.area as location,
+                (SELECT COUNT(*) FROM experience_bookings eb WHERE eb.session_id = es.id AND eb.payment_status = 'paid' AND eb.status != 'cancelled') as booked
+         FROM experience_sessions es JOIN experiences e ON e.id = es.experience_id
+         WHERE e.vendor_id IN (${in1}) AND es.status != 'cancelled' AND es.date BETWEEN ? AND ?
+         ORDER BY es.date, es.time`
+      )
+      .all(...ids, fromIso, toIso),
+  ])) as [VendorScheduleBookingRow[], VendorScheduleClubSessionRow[], VendorScheduleProgramSessionRow[], VendorScheduleExperienceSessionRow[]];
+
+  const items: VendorScheduleItemResponse[] = [];
+
+  for (const b of bookingRows) {
+    const [h, m] = parseTime(b.time);
+    const start = irelandWallTimeToUtc(b.date, h, m);
+    items.push({
+      id: `centre-${b.id}`,
+      sourceType: "centre",
+      sourceId: b.id,
+      listingId: b.listingId,
+      listingName: b.listingName,
+      spaceName: b.spaceName ?? null,
+      title: b.title,
+      startDateTime: start.toISOString(),
+      endDateTime: new Date(start.getTime() + b.duration * 60 * 60 * 1000).toISOString(),
+      status: b.status,
+      participantCount: b.guests,
+      bookingCount: null,
+      location: b.location ?? null,
+    });
+  }
+
+  for (const cs of clubSessionRows) {
+    const [h, m] = parseTime(cs.time);
+    for (const date of weeklyOccurrencesInRange(cs.dayOfWeek, fromIso, toIso)) {
+      const start = irelandWallTimeToUtc(date, h, m);
+      items.push({
+        id: `club-${cs.id}-${date}`,
+        sourceType: "club",
+        sourceId: cs.id,
+        listingId: cs.listingId,
+        listingName: cs.listingName,
+        spaceName: null,
+        title: cs.label || "Training session",
+        startDateTime: start.toISOString(),
+        endDateTime: new Date(start.getTime() + ASSUMED_DURATION_MINUTES.club_session * 60000).toISOString(),
+        status: "confirmed",
+        // No per-session roster exists — registrations tie to the club as a
+        // whole, not to one weekly occurrence (see CLAUDE.md's "five
+        // separate participant tables" note) — left null rather than
+        // showing a club-wide total mislabeled as this one session's
+        // headcount.
+        participantCount: null,
+        bookingCount: null,
+        location: cs.location ?? null,
+      });
+    }
+  }
+
+  for (const ps of programSessionRows) {
+    const [h, m] = parseTime(ps.time);
+    const start = irelandWallTimeToUtc(ps.date, h, m);
+    items.push({
+      id: `program-${ps.id}`,
+      sourceType: "program",
+      sourceId: ps.id,
+      listingId: ps.listingId,
+      listingName: ps.listingName,
+      spaceName: null,
+      title: ps.listingName,
+      startDateTime: start.toISOString(),
+      endDateTime: new Date(start.getTime() + ps.durationMinutes * 60000).toISOString(),
+      status: ps.status,
+      // Program-wide paid-enrollment count, the same approximation the
+      // existing /schedule route above already uses (enrollments aren't
+      // tied to one session) — matching established precedent, not a new
+      // fabrication.
+      participantCount: ps.enrolled,
+      bookingCount: null,
+      location: null,
+    });
+  }
+
+  for (const es of experienceSessionRows) {
+    const [h, m] = parseTime(es.time);
+    const start = irelandWallTimeToUtc(es.date, h, m);
+    items.push({
+      id: `experience-${es.id}`,
+      sourceType: "experience",
+      sourceId: es.id,
+      listingId: es.listingId,
+      listingName: es.listingName,
+      spaceName: null,
+      title: es.listingName,
+      startDateTime: start.toISOString(),
+      endDateTime: null,
+      status: es.status,
+      participantCount: null,
+      bookingCount: es.booked,
+      location: es.location ?? null,
+    });
+  }
+
+  items.sort((a, b) => new Date(a.startDateTime).getTime() - new Date(b.startDateTime).getTime());
+  res.json(items);
 });
 
 // --- club waitlist visibility (Tier 3 — was genuinely missing, not just

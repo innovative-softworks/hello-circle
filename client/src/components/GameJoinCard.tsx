@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { cancelGame, downloadGameIcs, fetchGameParticipants, joinGame, joinGameWaitlist, leaveGame, leaveGameWaitlist, validateCoupon } from "../api";
+import { cancelGame, downloadGameIcs, fetchGameParticipants, joinGame, joinGameWaitlist, leaveGame, leaveGameWaitlist, subscribeGameNotifyMe, validateCoupon } from "../api";
 import { signInHref } from "../authRedirect";
 import { openCheckout } from "../native";
 import { CalendarIcon, CheckIcon, PinIcon, UsersIcon } from "./icons";
@@ -17,11 +17,22 @@ import { formatPrice } from "../formatters";
 // The join CTA state machine (Game Detail redesign §19/§20) — one function
 // so the desktop sticky card and the mobile bottom bar can never disagree
 // about what state a game/resident pair is in.
-type JoinState = "cancelled" | "host" | "signed-out" | "joined" | "waitlisted" | "full" | "available";
+//
+// Universal Publishing, Lifecycle & Availability System, §7/§35/§36 —
+// "coming-soon" added: a non-host viewer of a Coming Soon activity gets
+// "Notify me" instead of any of the normal join/waitlist CTAs, regardless
+// of signed-in state (the Notify Me button itself routes a signed-out
+// click through signInHref, same pattern "available"/"full" already use
+// for join/waitlist). Checked *after* isHost so a host previewing/managing
+// their own Coming Soon activity still gets the normal "host" controls
+// (e.g. Cancel) here — the host's own publishing controls (open now/pause/
+// edit schedule) live in Manage, not this public-facing card.
+type JoinState = "cancelled" | "host" | "coming-soon" | "signed-out" | "joined" | "waitlisted" | "full" | "available";
 
 function computeState(game: Game, resident: Resident | null, isHost: boolean): JoinState {
   if (game.status === "cancelled") return "cancelled";
   if (isHost) return "host";
+  if (game.effectiveLifecycle === "coming_soon") return "coming-soon";
   if (!resident) return "signed-out";
   if (game.joinedByMe) return "joined";
   if (game.spotsLeft === 0) return game.waitlistedByMe ? "waitlisted" : "full";
@@ -151,6 +162,14 @@ function JoinHeadline({ game, state }: { game: Game; state: JoinState }) {
   if (state === "host") {
     return <h2 style={{ ...h2Style, fontSize: 20 }}>{game.activityLabel}</h2>;
   }
+  if (state === "coming-soon") {
+    return (
+      <>
+        <h2 style={{ ...h2Style, color: colors.orangeDark }}>Coming soon</h2>
+        <p style={subStyle}>Bookings aren't open yet — we'll let you know the moment they are.</p>
+      </>
+    );
+  }
   if (state === "full") {
     return (
       <>
@@ -191,8 +210,22 @@ export function GameJoinCard({ game, resident, isHost, onRefresh }: JoinCardProp
   const [participants, setParticipants] = useState<{ residentId: string; name: string }[]>([]);
   const [couponCode, setCouponCode] = useState<string | null>(null);
   const [leaveConfirmOpen, setLeaveConfirmOpen] = useState(false);
+  const [notifySubscribed, setNotifySubscribed] = useState(false);
+  const [notifyBusy, setNotifyBusy] = useState(false);
 
   const state = computeState(game, resident, isHost);
+  const handleNotifyMe = async () => {
+    if (!resident) return navigate(signInHref(gameSignInContext(game)));
+    setNotifyBusy(true);
+    try {
+      await subscribeGameNotifyMe(game.id);
+      setNotifySubscribed(true);
+    } catch {
+      setError("Couldn't set up the notification — try again.");
+    } finally {
+      setNotifyBusy(false);
+    }
+  };
   const isPast = new Date(`${game.date}T${game.time}:00`).getTime() < Date.now();
 
   useEffect(() => {
@@ -303,14 +336,24 @@ export function GameJoinCard({ game, resident, isHost, onRefresh }: JoinCardProp
           )}
           {state === "host" && (
             <Button variant="danger" onClick={() => setCancelConfirmOpen(true)} disabled={busy}>
-              Cancel this game
+              Cancel this session
             </Button>
           )}
+          {state === "coming-soon" &&
+            (notifySubscribed ? (
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "9px 0", color: colors.greenText, fontWeight: 700, fontSize: 13 }}>
+                <CheckIcon size={14} /> We'll let you know
+              </div>
+            ) : (
+              <Button full onClick={handleNotifyMe} disabled={notifyBusy}>
+                {notifyBusy ? "Setting up…" : "Notify me"}
+              </Button>
+            ))}
           {state === "signed-out" && (
             <Button full onClick={() => navigate(signInHref(gameSignInContext(game)))}>{game.spotsLeft === 0 ? "Sign in to join the waitlist" : "Sign in to join"}</Button>
           )}
           {state === "joined" && (
-            <Button variant="ghost" full onClick={() => setLeaveConfirmOpen(true)} disabled={busy}>Leave game</Button>
+            <Button variant="ghost" full onClick={() => setLeaveConfirmOpen(true)} disabled={busy}>Leave session</Button>
           )}
           {state === "waitlisted" && (
             <Button variant="ghost" full onClick={() => run(() => leaveGameWaitlist(game.id))} disabled={busy}>Leave waitlist</Button>
@@ -371,7 +414,7 @@ export function GameJoinCard({ game, resident, isHost, onRefresh }: JoinCardProp
         open={leaveConfirmOpen}
         title={`Leave ${game.activityLabel}?`}
         message={game.priceCents ? "You'll lose your spot and this platform doesn't automatically refund it — contact the host if you paid." : "You'll lose your spot — someone else may take it."}
-        confirmLabel="Leave game"
+        confirmLabel="Leave session"
         cancelLabel="Stay in"
         busy={busy}
         onConfirm={() => {
@@ -394,9 +437,31 @@ export function MobileJoinBar({ game, resident, isHost, onRefresh }: JoinCardPro
   const [busy, setBusy] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [couponCode, setCouponCode] = useState<string | null>(null);
+  const [notifySubscribed, setNotifySubscribed] = useState(false);
 
   const state = computeState(game, resident, isHost);
   if (state === "cancelled" || state === "host" || state === "joined") return null;
+
+  if (state === "coming-soon") {
+    const onNotify = () => {
+      if (!resident) return navigate(signInHref(gameSignInContext(game)));
+      setBusy(true);
+      subscribeGameNotifyMe(game.id)
+        .then(() => setNotifySubscribed(true))
+        .finally(() => setBusy(false));
+    };
+    return (
+      <div className="mobile-join-bar">
+        <div>
+          <div style={{ fontWeight: 800, fontSize: 15, fontFamily: fonts.display, color: colors.orangeDark }}>Coming soon</div>
+          <div style={{ fontSize: 12.5, color: colors.mutedLight }}>Bookings aren't open yet</div>
+        </div>
+        <Button onClick={onNotify} disabled={busy || notifySubscribed} style={{ flex: "none" }}>
+          {notifySubscribed ? "We'll let you know" : busy ? "Please wait…" : "Notify me"}
+        </Button>
+      </div>
+    );
+  }
 
   const label = state === "signed-out" ? (game.spotsLeft === 0 ? "Sign in to join the waitlist" : "Sign in to join") : ctaLabel(game, state);
   const onClick = () => {

@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { useDashboardNav } from "../DashboardNavContext";
 import { NavRail, NavSidebar } from "./ui";
-import { fonts, maxWidth } from "../theme";
+import { colors, fonts, maxWidth } from "../theme";
 
 // HelloCircle Manage (Phase 1) — the sidebar/title-row shell shared by every
 // operational dashboard, extracted from what used to be two copy-pasted
@@ -23,6 +23,7 @@ export function ManageShell<T extends string>({
   activeKey,
   onNavChange,
   banner,
+  contextLabel,
   pageTitle,
   headerActions,
   showNavLogo = true,
@@ -36,6 +37,14 @@ export function ManageShell<T extends string>({
   /** Rendered above the sidebar/title row — typically the colored
    * DashboardTopPanel block, only passed on the "overview" tab. */
   banner?: ReactNode;
+  /** Platform Pre-Launch Polish — Changeset 5C. A small, one-line "which
+   * workspace am I in" cue above pageTitle — e.g. "MANAGING AS HOST",
+   * "MANAGING CIRCLE", "MANAGING VENDOR ACCOUNT" — since pageTitle alone
+   * (a bare name like a circle's own name) doesn't say which *kind* of
+   * workspace it is. Deliberately just a text line, not a new banner
+   * component — every caller already knows its own workspace kind, so this
+   * is just surfacing that, not adding new state. */
+  contextLabel?: string;
   pageTitle: ReactNode;
   /** Right-aligned actions next to pageTitle, e.g. an "Add program" button. */
   headerActions?: ReactNode;
@@ -67,7 +76,14 @@ export function ManageShell<T extends string>({
 
           <div style={{ minWidth: 0 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 16, marginBottom: 18 }}>
-              <h2 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 26, margin: 0, letterSpacing: "-.02em" }}>{pageTitle}</h2>
+              <div>
+                {contextLabel && (
+                  <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: colors.mutedLight, marginBottom: 2 }}>
+                    {contextLabel}
+                  </div>
+                )}
+                <h2 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 26, margin: 0, letterSpacing: "-.02em" }}>{pageTitle}</h2>
+              </div>
               {headerActions}
             </div>
 

@@ -55,11 +55,13 @@ import {
 } from "../api";
 import { useAuth } from "../AuthContext";
 import { ManageShell } from "../components/ManageShell";
-import { AwardIcon, BallIcon, BuildingIcon, CalendarIcon, CheckIcon, ClipboardIcon, EyeIcon, GridIcon, IdCardIcon, MailIcon, PinIcon, SearchIcon, StarIcon, TagIcon, TrendUpIcon, UsersIcon } from "../components/icons";
+import { AwardIcon, BallIcon, BuildingIcon, CalendarIcon, CheckIcon, ClipboardIcon, EyeIcon, GridIcon, IdCardIcon, MailIcon, PhotoStackIcon, PinIcon, SearchIcon, StarIcon, TagIcon, TrendUpIcon, UsersIcon } from "../components/icons";
 import { Avatar, BadgedIcon, Button, ManageCard as Card, ConfirmDialog, DashboardTopPanel, Drawer, EmptyState, onActivateProps, PageSpinner, StarDisplay, KpiHero, KpiStrip, StatTile, StatusBadge, inputStyle, labelStyle, tableStyle, tdStyle, thStyle, type ListingStatus } from "../components/ui";
+import { AdminMediaTab } from "../components/AdminMedia";
 import { DemandSignalsView, IntentClusterView } from "../components/DemandSignals";
 import { MarketplaceHealthView } from "../components/MarketplaceHealth";
 import { MarketConfig } from "../components/MarketConfig";
+import { getMediaUrl } from "../media";
 import { colors, fonts, radius } from "../theme";
 import { FEATURE_FLAG_KEYS, FEATURE_FLAG_LABELS, PLATFORM_ROLE_LABELS } from "../types";
 import type { AdminOrganisation, AdminStats, AnalyticsFunnelRow, AuditEntry, CircleActivity, DemandRow, FeatureFlagKey, FeatureFlags, IntentCluster, MarketplaceHealth, ModerationReport, NotificationTemplateInfo, OpenBookingActivity, PlaceSuggestion, ReferralAttributionRow, ReportCase, Review, SupportBooking, SupportCircle, SupportGame, SupportRegistration, SupportUser } from "../types";
@@ -514,7 +516,7 @@ function ListingRow({
     <Card hover onClick={onOpen} style={{ padding: 15, display: "flex", flexWrap: "wrap", gap: 14, justifyContent: "space-between", alignItems: "center" }}>
       <div style={{ display: "flex", gap: 12, minWidth: 0 }}>
         {item.image && (
-          <img src={item.image} alt="" style={{ width: 44, height: 44, borderRadius: radius.control, objectFit: "cover", flex: "none" }} />
+          <img src={getMediaUrl(item.image, "thumbnail")} alt="" style={{ width: 44, height: 44, borderRadius: radius.control, objectFit: "cover", flex: "none" }} />
         )}
         <div style={{ minWidth: 0 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
@@ -611,7 +613,7 @@ function ListingDrawer({
 
   return (
     <Drawer open onClose={onClose} title={item.name}>
-      {item.image && <img src={item.image} alt="" style={{ width: "100%", height: 160, borderRadius: 12, objectFit: "cover", marginBottom: 16 }} />}
+      {item.image && <img src={getMediaUrl(item.image, "card")} alt="" style={{ width: "100%", height: 160, borderRadius: 12, objectFit: "cover", marginBottom: 16 }} />}
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
         <StatusBadge status={item.status as ListingStatus} />
       </div>
@@ -1644,7 +1646,7 @@ function AdminMarketplaceHealthTab() {
   );
 }
 
-type AdminTab = "overview" | "vendors" | "pending" | "listings" | "claims" | "hostApplications" | "placeSuggestions" | "reviews" | "coupons" | "organisations" | "demand" | "marketplaceHealth" | "audit" | "support" | "notificationTemplates";
+type AdminTab = "overview" | "vendors" | "pending" | "listings" | "claims" | "hostApplications" | "placeSuggestions" | "reviews" | "coupons" | "organisations" | "demand" | "marketplaceHealth" | "audit" | "support" | "notificationTemplates" | "media";
 
 const ADMIN_TABS: { key: AdminTab; label: string; icon: ReactNode }[] = [
   { key: "overview", label: "Overview", icon: <EyeIcon size={15} /> },
@@ -1662,6 +1664,7 @@ const ADMIN_TABS: { key: AdminTab; label: string; icon: ReactNode }[] = [
   { key: "audit", label: "Audit", icon: <ClipboardIcon size={15} /> },
   { key: "support", label: "Support", icon: <SearchIcon size={15} /> },
   { key: "notificationTemplates", label: "Notification templates", icon: <MailIcon size={15} /> },
+  { key: "media", label: "Media", icon: <PhotoStackIcon size={15} /> },
 ];
 
 // At-a-glance landing tab — the KPI row (moved here from the top-of-page
@@ -1743,6 +1746,7 @@ export function AdminDashboard() {
       navOptions={ADMIN_TABS}
       activeKey={tab}
       onNavChange={setTab}
+      contextLabel="Admin"
       pageTitle={ADMIN_TABS.find((t) => t.key === tab)?.label}
       banner={
         tab === "overview" ? (
@@ -1798,6 +1802,7 @@ export function AdminDashboard() {
       {tab === "audit" && <AuditTab />}
       {tab === "support" && <SupportTab />}
       {tab === "notificationTemplates" && <NotificationTemplatesTab />}
+      {tab === "media" && <AdminMediaTab />}
     </ManageShell>
   );
 }

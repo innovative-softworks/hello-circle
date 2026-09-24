@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { addFavourite, bookExperienceSession, downloadExperienceBookingIcs, fetchExperience, fetchExperiences, fetchFavourites, removeFavourite } from "../api";
 import { openCheckout } from "../native";
 import { BackLink } from "../components/BackLink";
@@ -16,7 +16,7 @@ import { Button, Card, Drawer, PageSpinner, inputStyle, labelStyle } from "../co
 import { isFavorite, toggleFavorite } from "../favorites";
 import { useGuest } from "../GuestContext";
 import { dateLabel } from "../euro";
-import { colors, fonts, maxWidth, photoOverlay, radius } from "../theme";
+import { cardImageRatio, colors, fonts, maxWidth, photoOverlay, radius } from "../theme";
 import { isValidEmail } from "../validate";
 import type { Experience, ExperienceSessionSlot } from "../types";
 import { formatPrice } from "../formatters";
@@ -128,6 +128,7 @@ export function ExperienceDetail() {
   // booking submits with experience.id once loaded, never this raw param.
   const { id: idOrSlug } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
   const { resident } = useGuest();
   const [experience, setExperience] = useState<Experience | null>(null);
   const [loading, setLoading] = useState(true);
@@ -220,13 +221,22 @@ export function ExperienceDetail() {
 
   if (loading) return <PageSpinner />;
 
-  const browsePath = experience ? (experience.kind === "adventure" ? "/adventures" : "/experiences") : "/adventures";
-  const browseLabel = experience?.kind === "adventure" ? "All adventures" : "All experiences";
+  // Product Language & IA Polish — Changeset 1F. Before the experience has
+  // (or ever) loads, `experience.kind` isn't known — these two error states
+  // used to default to "adventure" phrasing unconditionally, which was
+  // wrong whenever someone landed here via /experiences/:id. The route
+  // itself (mounted separately at /adventures/:id and /experiences/:id,
+  // see App.tsx) is a real, always-available signal for which one they
+  // actually meant, so use that instead of a hardcoded default.
+  const isAdventureRoute = experience ? experience.kind === "adventure" : location.pathname.startsWith("/adventures");
+  const browsePath = isAdventureRoute ? "/adventures" : "/experiences";
+  const browseLabel = isAdventureRoute ? "All adventures" : "All experiences";
+  const kindNoun = isAdventureRoute ? "adventure" : "experience";
 
   if (loadError) {
     return (
       <section className="section-pad" style={{ maxWidth: 560, margin: "0 auto", padding: "80px 24px", textAlign: "center" }}>
-        <h1 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 22, margin: "0 0 10px" }}>We couldn't load this adventure.</h1>
+        <h1 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 22, margin: "0 0 10px" }}>We couldn't load this {kindNoun}.</h1>
         <div style={{ display: "flex", gap: 10, justifyContent: "center", marginTop: 16 }}>
           <Button onClick={load}>Try again</Button>
           <Button variant="ghost" onClick={() => navigate(browsePath)}>Browse listings</Button>
@@ -238,7 +248,7 @@ export function ExperienceDetail() {
   if (!experience) {
     return (
       <section className="section-pad" style={{ maxWidth: 560, margin: "0 auto", padding: "80px 24px", textAlign: "center" }}>
-        <h1 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 22, margin: "0 0 10px" }}>This adventure is no longer available.</h1>
+        <h1 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 22, margin: "0 0 10px" }}>This {kindNoun} is no longer available.</h1>
         <p style={{ color: colors.mutedLight, marginBottom: 20 }}>It may have been removed by its host.</p>
         <Button onClick={() => navigate(browsePath)}>Find something similar</Button>
       </section>
@@ -404,7 +414,9 @@ export function ExperienceDetail() {
               ph={experience.kind === "adventure" ? colors.greenBg : colors.orangeBg}
               icon={<TreeIconSmall size={40} />}
               iconColor={kindAccent}
-              style={{ height: 340, borderRadius: 20, marginBottom: photos.length > 1 ? 10 : 24 }}
+              variant="hero"
+              eager
+              style={{ aspectRatio: cardImageRatio.hero, borderRadius: 20, marginBottom: photos.length > 1 ? 10 : 24 }}
               contentStyle={{ padding: 16, display: "flex", alignItems: "flex-start", justifyContent: "space-between" }}
             >
               {session ? (

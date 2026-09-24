@@ -1063,6 +1063,22 @@ export async function initSchema() {
       created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
 
+    -- Small global key/value settings (Maps cost-control follow-up pass) —
+    -- first (only, so far) use is 'maps_enabled', a real runtime kill
+    -- switch for map initialization that an admin can flip via
+    -- PUT /api/admin/config/maps-enabled with NO rebuild/redeploy/restart:
+    -- GET /api/config reads this table fresh (a few-second in-memory cache,
+    -- not per-request DB load) on every client page load. This is
+    -- deliberately separate from VITE_MAPBOX_ENABLED (client/src/mapbox.ts)
+    -- — that build-time env var is a defense-in-depth *hard* disable (still
+    -- correct to document, but it requires a rebuild+redeploy to change,
+    -- which is NOT "immediate"); this table is the actually-immediate lever.
+    CREATE TABLE IF NOT EXISTS app_settings (
+      \`key\` VARCHAR(64) PRIMARY KEY,
+      value VARCHAR(255) NOT NULL,
+      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    );
+
     -- HelloCircle Manage — links a vendor account to the resident (magic-link)
     -- account of the same person, so one browser session can hold both a
     -- vendor and a resident cookie and switch between them without signing
@@ -1116,6 +1132,44 @@ export async function initSchema() {
     -- exactly the shape share_opened/share_channel_selected/invite_accepted/
     -- etc. need — see AnalyticsEventType in analytics.ts for the actual
     -- event vocabulary.
+
+    -- Media provider ledger (Cloudinary/media-architecture pass) — an
+    -- AUXILIARY record of every media/mediaService.ts finalizeUpload (R2)
+    -- or Cloudinary upload, not a replacement for how images are actually
+    -- attached to entities. Every existing entity table (centres.image_url,
+    -- centre_images, residents.avatar_url, circles.image_url, ...) keeps
+    -- being the source of truth for "what image is this entity showing" —
+    -- changing that to point through this table instead would be the kind
+    -- of large, deliberate migration this app's CLAUDE.md explicitly says
+    -- not to do as a side effect. This table exists purely so uploads have
+    -- somewhere to record provider/bytes/dimensions/status for usage
+    -- visibility (routes/adminMedia.ts) and orphan/pending cleanup
+    -- (scripts/mediaCleanup.ts), and so a curated Cloudinary editorial
+    -- asset — which has no existing entity column of its own — has a real
+    -- home. entity_id is nullable for exactly that editorial case.
+    CREATE TABLE IF NOT EXISTS media_assets (
+      id VARCHAR(191) PRIMARY KEY,
+      provider VARCHAR(20) NOT NULL,
+      provider_key VARCHAR(500) NOT NULL,
+      url VARCHAR(500) NOT NULL,
+      entity_type VARCHAR(40) NOT NULL,
+      entity_id VARCHAR(191),
+      purpose VARCHAR(20) NOT NULL,
+      mime_type VARCHAR(50),
+      width INT,
+      height INT,
+      bytes INT,
+      status VARCHAR(20) NOT NULL DEFAULT 'attached',
+      caption VARCHAR(255),
+      created_by_user_id VARCHAR(191),
+      created_by_resident_id VARCHAR(191),
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      deleted_at DATETIME,
+      KEY idx_media_provider_status (provider, status),
+      KEY idx_media_entity (entity_type, entity_id),
+      KEY idx_media_status_created (status, created_at)
+    );
   `);
 
   async function ensureColumn(table: string, column: string, ddl: string) {
@@ -1270,6 +1324,13 @@ export async function initSchema() {
     await ensureColumn(table, "payment_status", "payment_status VARCHAR(20) NOT NULL DEFAULT 'pending'");
     await ensureColumn(table, "stripe_session_id", "stripe_session_id VARCHAR(255)");
   }
+  // Resident Experience Polish — program_enrollments never got a
+  // coupon_code column even though every other paid participation row did;
+  // its own enroll route accepted a couponCode param and silently ignored
+  // it. total_cents already reflects the discounted total via
+  // computePricing() regardless, this column just makes the applied code
+  // visible/auditable, same as bookings/registrations/experience_bookings.
+  await ensureColumn("program_enrollments", "coupon_code", "coupon_code VARCHAR(191)");
   // Backfill: rows created before payment tracking existed were confirmed
   // on submit (the old flow) — treat them as already paid.
   await db.exec(`
@@ -1451,6 +1512,22 @@ export async function initSchema() {
   await ensureColumn("centres", "lng", "lng DECIMAL(9,6)");
   await ensureColumn("clubs", "lat", "lat DECIMAL(9,6)");
   await ensureColumn("clubs", "lng", "lng DECIMAL(9,6)");
+  // Coordinate provenance (Maps cost-control follow-up pass, §4) — added
+  // retroactively, so this can only be honest about rows written from here
+  // on: 'confirmed' (a vendor picked/adjusted a real address via
+  // AddressSearch), 'approximate' (this server generated it via
+  // approximateCoords() because none was supplied), or the default
+  // 'unknown' for every row that already had a non-null lat/lng before this
+  // column existed — we genuinely cannot tell, after the fact, which of
+  // those two categories an old row falls into, so 'unknown' is the honest
+  // answer rather than guessing either way. See vendorListings.ts's/
+  // vendorExperiences.ts's POST/PUT handlers for where 'confirmed' vs
+  // 'approximate' actually gets set going forward, and CentreDetail.tsx/
+  // ClubDetail.tsx/ExperienceDetail.tsx for where non-'confirmed' locations
+  // are labeled "Approximate area" rather than shown as a precise pin.
+  await ensureColumn("centres", "location_source", "location_source VARCHAR(20) NOT NULL DEFAULT 'unknown'");
+  await ensureColumn("clubs", "location_source", "location_source VARCHAR(20) NOT NULL DEFAULT 'unknown'");
+  await ensureColumn("experiences", "location_source", "location_source VARCHAR(20) NOT NULL DEFAULT 'unknown'");
   await backfillCentreClubCoords();
 
   // A real contact number for the listing itself — distinct from `ph`
@@ -1880,6 +1957,58 @@ export async function initSchema() {
   // mirrors the same column already on `bookings`/`registrations`.
   await ensureColumn("coupons", "created_by_resident_id", "created_by_resident_id VARCHAR(191)");
   await ensureColumn("game_participants", "coupon_code", "coupon_code VARCHAR(50)");
+
+  // Universal Publishing, Lifecycle & Availability System, Phase C —
+  // Activities. DEFAULT 'active' means every pre-existing game (there is no
+  // draft/coming_soon concept today — see server/src/lifecycle.ts's audit
+  // comment) keeps behaving exactly as before the moment this column
+  // exists: already-live activities stay discoverable/bookable with zero
+  // backfill needed (Draft/Coming Soon only ever apply going forward, to a
+  // host who deliberately chooses one at create/edit time).
+  //
+  // Deliberately does NOT add a 'cancelled' or 'completed' value here —
+  // `games.status = 'cancelled'` (existing, battle-tested column) remains
+  // the sole authority for cancellation, and "completed" stays *derived*
+  // from `date < today` at read time (see getEffectiveGameLifecycle in
+  // routes/games.ts) — both exactly matching this codebase's pre-existing
+  // pattern (circles.ts:586, client's activityStatus.ts) rather than
+  // duplicating either concept into a second stored field.
+  await ensureColumn("games", "lifecycle", "lifecycle VARCHAR(20) NOT NULL DEFAULT 'active'");
+  // All three nullable/optional — a game that never uses scheduled
+  // publishing simply never sets them, and getEffectiveLifecycle (lifecycle.ts)
+  // then falls back to the stored `lifecycle` value unchanged.
+  await ensureColumn("games", "publish_at", "publish_at DATETIME");
+  await ensureColumn("games", "booking_open_at", "booking_open_at DATETIME");
+  await ensureColumn("games", "booking_close_at", "booking_close_at DATETIME");
+
+  // Local-processing pass — one upload now produces MULTIPLE real objects
+  // (one per generated variant: thumbnail/card/hero, or just avatar), not
+  // one. group_id ties those rows together (same value across every
+  // variant from a single upload event) so cleanup/usage-visibility can
+  // account for every actual object, not just the one the entity column
+  // happens to point at; `variant` records which size each specific row
+  // is. Both nullable — a row from before this pass (or a Cloudinary
+  // editorial upload, still single-file) simply has neither set.
+  await ensureColumn("media_assets", "group_id", "group_id VARCHAR(191)");
+  await ensureColumn("media_assets", "variant", "variant VARCHAR(20)");
+
+  // Phase L — "Notify me" subscriptions for a Coming Soon entity. See
+  // server/src/notifyMe.ts's own top-of-file comment for why this is a new,
+  // minimal, polymorphic table rather than reusing favourites/follows/
+  // waitlist_entries. `notified_at IS NULL` is the one-shot-per-opening
+  // idempotency guard notifyGameNotifyMeSubscribers relies on.
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS notify_me_subscriptions (
+      id VARCHAR(191) PRIMARY KEY,
+      resident_id VARCHAR(191) NOT NULL,
+      entity_type VARCHAR(20) NOT NULL,
+      entity_id VARCHAR(191) NOT NULL,
+      notified_at DATETIME,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE KEY uniq_notify_me (resident_id, entity_type, entity_id),
+      KEY idx_notify_me_entity (entity_type, entity_id, notified_at)
+    )
+  `);
 }
 
 export const COUNTY_CENTROIDS: Record<string, { lat: number; lng: number }> = {
@@ -1928,7 +2057,14 @@ export async function backfillCentreClubCoords() {
     const rows = (await db.prepare(`SELECT id, county FROM ${table} WHERE lat IS NULL`).all()) as { id: string; county: string }[];
     for (const row of rows) {
       const { lat, lng } = approximateCoords(row.county, row.id);
-      await db.prepare(`UPDATE ${table} SET lat = ?, lng = ? WHERE id = ?`).run(lat, lng, row.id);
+      // Unlike the 'unknown' default the location_source column itself
+      // ships with (for rows that already had coordinates before that
+      // column existed), a row backfilled *right here* has a provenance we
+      // genuinely know: the county-centroid approximation, not a real
+      // address. Marking it 'approximate' (not 'unknown') is what lets
+      // CentreDetail.tsx/ClubDetail.tsx honestly label it rather than
+      // showing a fabricated precise pin as if it were confirmed.
+      await db.prepare(`UPDATE ${table} SET lat = ?, lng = ?, location_source = 'approximate' WHERE id = ?`).run(lat, lng, row.id);
     }
   }
 }
@@ -1941,4 +2077,27 @@ export function approximateCoords(county: string, seedId: string): { lat: number
   const offsetLat = (((hash & 0xffff) / 0xffff) - 0.5) * 0.12;
   const offsetLng = ((((hash >>> 16) & 0xffff) / 0xffff) - 0.5) * 0.12;
   return { lat: centroid.lat + offsetLat, lng: centroid.lng + offsetLng };
+}
+
+// --- app_settings — small global key/value store, see the CREATE TABLE's
+// own comment for why this exists (a real, no-redeploy runtime kill switch
+// for maps). A short in-memory cache avoids a DB round trip on every
+// GET /api/config call (every client page load) while still picking up an
+// admin's change within a few seconds, not requiring a server restart.
+
+const settingsCache = new Map<string, { value: string; expiresAt: number }>();
+const SETTINGS_CACHE_TTL_MS = 5000;
+
+export async function getSetting(key: string, defaultValue: string): Promise<string> {
+  const cached = settingsCache.get(key);
+  if (cached && cached.expiresAt > Date.now()) return cached.value;
+  const row = (await db.prepare(`SELECT value FROM app_settings WHERE \`key\` = ?`).get(key)) as { value: string } | undefined;
+  const value = row?.value ?? defaultValue;
+  settingsCache.set(key, { value, expiresAt: Date.now() + SETTINGS_CACHE_TTL_MS });
+  return value;
+}
+
+export async function setSetting(key: string, value: string): Promise<void> {
+  await db.prepare(`INSERT INTO app_settings (\`key\`, value) VALUES (?, ?) ON DUPLICATE KEY UPDATE value = VALUES(value)`).run(key, value);
+  settingsCache.set(key, { value, expiresAt: Date.now() + SETTINGS_CACHE_TTL_MS });
 }

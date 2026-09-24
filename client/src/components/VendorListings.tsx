@@ -11,6 +11,7 @@ import {
 } from "../api";
 import { BallIcon, BuildingIcon, CheckCircleIcon, CopyIcon, EditIcon, EyeIcon, PauseIcon, PinIcon, PlayIcon, PlusIcon, ShareIcon, StarIcon, TrashIcon } from "./icons";
 import { Button, ManageCard as Card, ConfirmDialog, LinkButton, StatusBadge, tableStyle, tdStyle, thStyle } from "./ui";
+import { getMediaUrl } from "../media";
 import { colors, fonts } from "../theme";
 import type { VendorListingSummary, VendorType } from "../types";
 
@@ -119,7 +120,7 @@ function ListingProfileCard({
       <div style={{ display: "flex", flexWrap: "wrap" }}>
         <div style={{ flex: "0 0 260px", minHeight: 200, background: colors.panel }}>
           {listing.image ? (
-            <img src={listing.image} alt="" style={{ width: "100%", height: "100%", minHeight: 200, objectFit: "cover", display: "block" }} />
+            <img src={getMediaUrl(listing.image, "card")} alt="" style={{ width: "100%", height: "100%", minHeight: 200, objectFit: "cover", display: "block" }} />
           ) : (
             <div style={{ width: "100%", height: "100%", minHeight: 200, display: "flex", alignItems: "center", justifyContent: "center", color: colors.faint }}>
               {kind === "centre" ? <BuildingIcon size={32} /> : <BallIcon size={32} />}
@@ -214,7 +215,43 @@ function ListingsTable({
   onDuplicate: (id: string) => void;
 }) {
   return (
-    <div style={{ overflowX: "auto" }}>
+    <>
+      {/* Vendor Experience Polish — mobile card fallback. Only "Manage"
+          (→ the full editor) surfaces here; Share/Pause/Duplicate/Delete stay
+          reachable from inside the editor rather than five icon-only tap
+          targets crowded onto a phone-width card. */}
+      <div className="mobile-cards">
+        {rows.map((r) => (
+          <Card key={r.id} onClick={() => onEdit(r.id)} style={{ cursor: "pointer" }}>
+            <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+              {r.image ? (
+                <img src={getMediaUrl(r.image, "thumbnail")} alt="" style={{ width: 48, height: 48, borderRadius: 8, objectFit: "cover", flex: "none" }} />
+              ) : (
+                <div style={{ width: 48, height: 48, borderRadius: 8, background: colors.panel, flex: "none" }} />
+              )}
+              <div style={{ minWidth: 0, flex: 1 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                  <span style={{ fontWeight: 700, fontSize: 14 }}>{r.name}</span>
+                  <StatusBadge status={r.status} />
+                </div>
+                <div style={{ fontSize: 11.5, color: colors.mutedLight }}>
+                  {kind === "centre" ? "Centre" : "Club"} · {r.area}, {r.county}
+                </div>
+              </div>
+            </div>
+            <div style={{ marginTop: 10, fontSize: 12.5, color: colors.muted, display: "flex", justifyContent: "space-between" }}>
+              <span>{r.bookingsCount} {kind === "centre" ? "bookings" : "registrations"}</span>
+              <span>{r.views} views</span>
+            </div>
+            <div style={{ marginTop: 12 }} onClick={(e) => e.stopPropagation()}>
+              <Button variant="ghost" onClick={() => onEdit(r.id)} style={{ width: "100%", justifyContent: "center" }}>
+                Manage
+              </Button>
+            </div>
+          </Card>
+        ))}
+      </div>
+      <div className="hide-mobile" style={{ overflowX: "auto" }}>
       <table style={tableStyle}>
         <thead>
           <tr>
@@ -231,7 +268,7 @@ function ListingsTable({
             <tr key={r.id}>
               <td style={{ ...tdStyle, width: 44 }}>
                 {r.image ? (
-                  <img src={r.image} alt="" style={{ width: 36, height: 36, borderRadius: 8, objectFit: "cover", display: "block" }} />
+                  <img src={getMediaUrl(r.image, "thumbnail")} alt="" style={{ width: 36, height: 36, borderRadius: 8, objectFit: "cover", display: "block" }} />
                 ) : (
                   <div style={{ width: 36, height: 36, borderRadius: 8, background: colors.panel }} />
                 )}
@@ -274,7 +311,8 @@ function ListingsTable({
           ))}
         </tbody>
       </table>
-    </div>
+      </div>
+    </>
   );
 }
 

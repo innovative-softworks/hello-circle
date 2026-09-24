@@ -5,10 +5,12 @@ import { openCheckout } from "../native";
 import { BackLink } from "../components/BackLink";
 import { CalendarIcon, ClockIcon, UsersIcon } from "../components/icons";
 import { InviteSheetButton } from "../components/InviteSheetButton";
+import { Photo } from "../components/Photo";
+import { Reviews } from "../components/Reviews";
 import { ShareButton } from "../components/ShareButton";
 import { AvailabilityBadge, availabilityFromSpots, Button, Card, PageSpinner, inputStyle, labelStyle } from "../components/ui";
 import { useGuest } from "../GuestContext";
-import { colors, fonts, maxWidth, radius } from "../theme";
+import { cardImageRatio, colors, fonts, maxWidth, radius } from "../theme";
 import { isValidEmail } from "../validate";
 import type { Program } from "../types";
 import { formatPrice } from "../formatters";
@@ -116,6 +118,16 @@ export function ProgramDetail() {
 
         <div className="grid-responsive" style={{ display: "grid", gridTemplateColumns: "1.6fr 1fr", gap: 40, alignItems: "start" }}>
           <div>
+            {program.imageUrl && (
+              <Photo
+                src={program.imageUrl}
+                alt={program.title}
+                ph={colors.greenBg}
+                variant="hero"
+                eager
+                style={{ aspectRatio: cardImageRatio.hero, borderRadius: 20, marginBottom: 20 }}
+              />
+            )}
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
               <h1 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: "clamp(24px,3vw,30px)", margin: "0 0 4px", letterSpacing: "-.01em" }}>{program.title}</h1>
               <div style={{ display: "flex", gap: 8 }}>
@@ -183,6 +195,9 @@ export function ProgramDetail() {
             </Card>
           </div>
         </div>
+      </section>
+      <section className="section-pad" style={{ maxWidth, margin: "0 auto", padding: "0 24px 80px" }}>
+        <Reviews listingType="program" listingId={program.id} accent={program.listingType === "club" ? "orange" : "green"} />
       </section>
     </div>
 

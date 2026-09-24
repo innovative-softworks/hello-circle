@@ -88,6 +88,7 @@ export function gameToActivitySummary(g: GameRow, now: Date = new Date()): Activ
     durationMinutes: ASSUMED_DURATION_MINUTES.game,
     lat: g.lat !== null ? Number(g.lat) : null,
     lng: g.lng !== null ? Number(g.lng) : null,
+    locationSource: g.location_source,
     host: null, // GameRow doesn't currently select host_resident_id/name — see file header
     hostVerified: null,
     vendorName: null,
@@ -116,6 +117,7 @@ export function programSessionToActivitySummary(p: ProgramSessionRow, now: Date 
     durationMinutes: p.duration_minutes,
     lat: p.lat !== null ? Number(p.lat) : null,
     lng: p.lng !== null ? Number(p.lng) : null,
+    locationSource: p.location_source,
     host: null,
     hostVerified: null,
     vendorName: null, // ProgramSessionRow resolves the listing's name, not the vendor's own — different field
@@ -145,6 +147,7 @@ export function clubSessionToActivitySummary(cs: ClubSessionRow, now: Date = new
     durationMinutes: ASSUMED_DURATION_MINUTES.club_session,
     lat: cs.lat !== null ? Number(cs.lat) : null,
     lng: cs.lng !== null ? Number(cs.lng) : null,
+    locationSource: cs.location_source,
     host: null,
     hostVerified: null,
     vendorName: null,
@@ -165,6 +168,7 @@ export interface ExperienceSessionRow {
   county: string;
   lat: number | string | null;
   lng: number | string | null;
+  location_source: string | null;
   booked: number;
   vendor_business_name: string;
   vendor_name: string;
@@ -181,7 +185,7 @@ export async function listUpcomingExperienceSessionRows(opts: { county?: string;
   const toIso = opts.to.toISOString().slice(0, 10);
   const rows = (await db
     .prepare(
-      `SELECT es.id, es.date, es.time, es.capacity, e.id as experience_id, e.title, e.price_cents, e.image_url, e.area, e.county, e.lat, e.lng,
+      `SELECT es.id, es.date, es.time, es.capacity, e.id as experience_id, e.title, e.price_cents, e.image_url, e.area, e.county, e.lat, e.lng, e.location_source,
               e.capacity as experience_capacity,
               (SELECT COALESCE(SUM(party_size), 0) FROM experience_bookings eb WHERE eb.session_id = es.id AND eb.payment_status = 'paid' AND eb.status != 'cancelled') as booked,
               u.business_name as vendor_business_name, u.name as vendor_name, u.provider_tier as vendor_provider_tier
@@ -226,6 +230,7 @@ export function experienceToActivitySummary(row: ExperienceSessionRow & { experi
     durationMinutes: 120,
     lat: row.lat !== null ? Number(row.lat) : null,
     lng: row.lng !== null ? Number(row.lng) : null,
+    locationSource: row.location_source,
     host: null,
     // Experiences are vendor-run, not host-organised — reuses the same
     // trust-badge concept as Games' Verified Host, derived from

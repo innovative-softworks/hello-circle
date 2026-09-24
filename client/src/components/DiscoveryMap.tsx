@@ -1,62 +1,90 @@
-import L from "leaflet";
-import "leaflet/dist/leaflet.css";
-import { useNavigate } from "react-router-dom";
-import { MapContainer, Marker, Popup, TileLayer } from "react-leaflet";
-import { euro } from "../euro";
-import type { Centre, Club } from "../types";
-import { radius } from "../theme";
+import { lazy, Suspense } from "react";
+import type { MapMarkerFilters } from "../api";
+import { MAPS_ENABLED } from "../mapbox";
+import { useMapsEnabled } from "../mapsConfig";
+import type { MapMarkerType } from "../types";
+import { colors, radius } from "../theme";
 
-// Vite bundles Leaflet's default marker images under a hashed URL that the
-// library's own CSS doesn't know about — point the default icon at the
-// bundled asset URLs explicitly, once, at module load.
-import markerIcon2x from "leaflet/dist/images/marker-icon-2x.png";
-import markerIcon from "leaflet/dist/images/marker-icon.png";
-import markerShadow from "leaflet/dist/images/marker-shadow.png";
+/** Normalized shape every browse page (Browse.tsx's centres/clubs,
+ * ExperienceKindBrowse.tsx's experiences/adventures) maps its own data into
+ * before handing it to this component — kept deliberately generic (not
+ * `Centre | Club | Experience`) so DiscoveryMapImpl.tsx has no knowledge of
+ * any one entity's fields; each page owns its own subtitle/price-label
+ * formatting. Lives in this (non-Mapbox-importing) module so consumers can
+ * import the type without pulling in the lazy chunk below. */
+export interface DiscoveryMapPin {
+  id: string;
+  lat: number;
+  lng: number;
+  title: string;
+  subtitle: string;
+  priceLabel: string;
+  href: string;
+  /** Coordinate provenance (Maps cost-control follow-up pass) — when not
+   * 'confirmed', the pin renders in a lighter/outlined style and the popup
+   * labels it "Approximate area" rather than implying a precise venue
+   * location. Optional so existing callers that don't have this info yet
+   * default to the confirmed styling. */
+  locationSource?: "confirmed" | "approximate" | "unknown";
+}
 
-L.Icon.Default.mergeOptions({
-  iconRetinaUrl: markerIcon2x,
-  iconUrl: markerIcon,
-  shadowUrl: markerShadow,
-});
+// The actual Mapbox GL/react-map-gl implementation is dynamically imported —
+// this file (statically imported by Browse.tsx/ExperienceKindBrowse.tsx at
+// their page-chunk level) stays Mapbox-free so navigating to /centres or
+// /experiences never fetches the ~500KB mapbox-gl bundle. It only loads once
+// this component actually renders, i.e. once the user picks "Map" view.
+const DiscoveryMapImpl = lazy(() => import("./DiscoveryMapImpl").then((m) => ({ default: m.DiscoveryMap })));
 
-const IRELAND_CENTER: [number, number] = [53.4, -8.0];
+const unavailablePanel = (
+  <div
+    style={{
+      borderRadius: radius.card,
+      border: `1px solid ${colors.border}`,
+      height: 520,
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      color: colors.mutedLight,
+      fontSize: 14,
+      textAlign: "center",
+      padding: 24,
+    }}
+  >
+    Map is temporarily unavailable — browse the list instead.
+  </div>
+);
 
-export function DiscoveryMap({ centres, clubs }: { centres: Centre[]; clubs: Club[] }) {
-  const navigate = useNavigate();
-  const pins = [
-    ...centres.filter((c) => c.lat !== null && c.lng !== null).map((c) => ({ kind: "centre" as const, item: c })),
-    ...clubs.filter((c) => c.lat !== null && c.lng !== null).map((c) => ({ kind: "club" as const, item: c })),
-  ];
+const loadingPanel = <div style={{ borderRadius: radius.card, border: `1px solid ${colors.border}`, height: 520, background: colors.panel }} />;
+
+export function DiscoveryMap({
+  pins,
+  searchTypes,
+  searchFilters,
+}: {
+  pins: DiscoveryMapPin[];
+  searchTypes?: MapMarkerType[];
+  /** The page's *current* text/price filters (Maps cost-control follow-up
+   * pass, review point #2) — passed through unchanged to "Search this
+   * area" so a live viewport query respects the same filters the list
+   * panel already applies, not just entity type. Recomputed by the caller
+   * on every render, so this always reflects the latest filter state even
+   * though the user might click "Search this area" long after last
+   * changing a filter. */
+  searchFilters?: MapMarkerFilters;
+}) {
+  // Two checks, both before the lazy chunk even loads (an operator during a
+  // real cost incident shouldn't still pay for downloading the ~500KB
+  // mapbox-gl bundle just to show a fallback message):
+  //  - MAPS_ENABLED: build-time hard disable (VITE_MAPBOX_ENABLED).
+  //  - useMapsEnabled(): the actually-immediate runtime kill switch — a
+  //    DB-backed setting an admin can flip with no rebuild/redeploy/restart.
+  const runtimeEnabled = useMapsEnabled();
+  if (!MAPS_ENABLED || runtimeEnabled === false) return unavailablePanel;
+  if (runtimeEnabled === null) return loadingPanel;
 
   return (
-    <div style={{ borderRadius: radius.card, overflow: "hidden", border: "1px solid #E4E1D8", height: 520 }}>
-      <MapContainer center={IRELAND_CENTER} zoom={7} style={{ height: "100%", width: "100%" }} scrollWheelZoom>
-        <TileLayer
-          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-        />
-        {pins.map(({ kind, item }) => (
-          <Marker key={`${kind}-${item.id}`} position={[item.lat as number, item.lng as number]}>
-            <Popup>
-              <div style={{ minWidth: 160 }}>
-                <div style={{ fontWeight: 700, marginBottom: 2 }}>{item.name}</div>
-                <div style={{ fontSize: 12.5, color: "#5B635C", marginBottom: 6 }}>
-                  {item.area} · {item.county}
-                </div>
-                <div style={{ fontSize: 12.5, marginBottom: 8 }}>
-                  {kind === "centre" ? `From ${euro((item as Centre).from)}` : euro((item as Club).price) + ` / ${(item as Club).unit}`}
-                </div>
-                <button
-                  onClick={() => navigate(kind === "centre" ? `/centres/${item.slug ?? item.id}` : `/clubs/${item.slug ?? item.id}`)}
-                  style={{ background: "#1C5B3D", color: "#fff", border: "none", borderRadius: 8, padding: "6px 10px", fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}
-                >
-                  View details
-                </button>
-              </div>
-            </Popup>
-          </Marker>
-        ))}
-      </MapContainer>
-    </div>
+    <Suspense fallback={loadingPanel}>
+      <DiscoveryMapImpl pins={pins} searchTypes={searchTypes} searchFilters={searchFilters} />
+    </Suspense>
   );
 }

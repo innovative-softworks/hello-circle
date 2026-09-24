@@ -5,6 +5,7 @@ import { AwardIcon, ChevronRightIcon, PinIcon } from "../components/icons";
 import { FollowButton } from "../components/FollowButton";
 import { ShareButton } from "../components/ShareButton";
 import { Photo } from "../components/Photo";
+import { getMediaUrl } from "../media";
 import { PhotoGallery } from "../components/PhotoGallery";
 import { ProviderCard } from "../components/ProviderCard";
 import { SinglePinMap } from "../components/SinglePinMap";
@@ -196,6 +197,16 @@ export function ProviderProfilePage() {
           style={{ display: "grid", gridTemplateColumns: galleryImages.length > 0 ? "0.95fr 1.15fr" : "1fr", gap: 48, alignItems: "center", marginBottom: 32 }}
         >
           <div>
+            {profile.logo && (
+              // Org logo (Image Upload Coverage spec §2: "reuse the saved
+              // logo throughout organisation representations") — the org
+              // settings editor already let a vendor upload/replace/remove
+              // this, but nothing public ever displayed it. contain (not
+              // cover) so a wide/tall logo is never cropped into a square.
+              <div style={{ width: 56, height: 56, borderRadius: radius.control, background: colors.surface, border: `1px solid ${colors.border}`, display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden", marginBottom: 14 }}>
+                <img src={getMediaUrl(profile.logo, "card")} alt="" style={{ width: "100%", height: "100%", objectFit: "contain", padding: 6 }} />
+              </div>
+            )}
             {typeLabels.length > 0 && (
               <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginBottom: 10 }}>
                 {typeLabels.map((t) => (
@@ -452,7 +463,6 @@ export function ProviderProfilePage() {
 
             {profile.mapLocation && (
               <div style={{ border: `1px solid ${colors.border}`, borderRadius: radius.card, overflow: "hidden" }}>
-                <SinglePinMap lat={profile.mapLocation.lat} lng={profile.mapLocation.lng} label={profile.mapLocation.label} height={180} />
                 <div style={{ padding: "14px 16px" }}>
                   <div style={{ fontWeight: 700, fontSize: 13.5, marginBottom: 2 }}>{profile.mapLocation.label}</div>
                   <div style={{ fontSize: 12.5, color: colors.mutedLight, marginBottom: 10 }}>{profile.county}</div>
@@ -465,6 +475,7 @@ export function ProviderProfilePage() {
                     <PinIcon size={12} /> Get directions
                   </LinkButton>
                 </div>
+                <SinglePinMap lat={profile.mapLocation.lat} lng={profile.mapLocation.lng} label={profile.mapLocation.label} height={180} />
               </div>
             )}
           </div>

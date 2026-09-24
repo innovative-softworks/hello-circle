@@ -261,6 +261,7 @@ registrationsRouter.post("/checkout", async (req, res) => {
       guestEmail: body.email,
       ref,
       detailsText: `${registrantSummary(body)} · redeemed via pass`,
+      residentId: req.resident!.id,
     }).catch((e) => console.error("[notifications] registration notify failed:", e));
     await upgradeFavouriteStatus(req.resident!.id, "club", club.id);
     return res.status(201).json({ ref, totalEuro: 0, trial: false });
@@ -292,6 +293,7 @@ registrationsRouter.post("/checkout", async (req, res) => {
       guestEmail: body.email,
       ref,
       detailsText: `${registrantSummary(body)}${body.trial ? " · Trial session" : ""} · €${(pricing.totalCents / 100).toFixed(2)}${isCash ? " due in cash on arrival" : " total"}`,
+      residentId: req.resident?.id ?? null,
     }).catch((e) => console.error("[notifications] registration notify failed:", e));
   if (pricing.totalCents === 0 || isCash) {
     try {
@@ -344,8 +346,17 @@ registrationsRouter.get("/status/:ref", async (req, res) => {
     throw e;
   }
 
+  // Resident Experience Polish — Changeset 5, same reasoning as
+  // bookings.ts's GET /status/:ref. A registration has no single dated
+  // occurrence (ongoing club membership, not a booked slot), so no
+  // date/time here — never fabricated.
   const row = await db
-    .prepare(`SELECT ref, payment_status as paymentStatus, total_cents as totalCents FROM registrations WHERE ref = ? AND client_id = ?`)
+    .prepare(
+      `SELECT r.ref, r.payment_status as paymentStatus, r.total_cents as totalCents,
+              r.club_id as clubId, c.name as clubName, r.child_first as childFirst, r.child_last as childLast, r.team
+       FROM registrations r JOIN clubs c ON c.id = r.club_id
+       WHERE r.ref = ? AND r.client_id = ?`
+    )
     .get(req.params.ref, clientId);
   if (!row) return res.status(404).json({ error: "Registration not found" });
   res.json(row);
@@ -431,12 +442,12 @@ registrationsRouter.post("/:ref/cancel", lookupLimiter, async (req, res) => {
   const row = (await db
     .prepare(
       `SELECT r.ref, r.team, r.child_first as childFirst, r.child_last as childLast, r.status, r.payment_status as paymentStatus,
-              r.g_first as gFirst, r.g_last as gLast, r.email, r.club_id as clubId, c.name as clubName, c.vendor_id as vendorId
+              r.g_first as gFirst, r.g_last as gLast, r.email, r.club_id as clubId, c.name as clubName, c.vendor_id as vendorId, r.resident_id as residentId
        FROM registrations r JOIN clubs c ON c.id = r.club_id
        WHERE r.ref = ? AND (r.client_id = ? OR LOWER(r.email) = LOWER(?))`
     )
     .get(req.params.ref, headerClientId ?? "", (email ?? "").trim())) as
-    | { ref: string; team: string; childFirst: string; childLast: string; status: string; paymentStatus: string; gFirst: string; gLast: string; email: string; clubId: string; clubName: string; vendorId: string | null }
+    | { ref: string; team: string; childFirst: string; childLast: string; status: string; paymentStatus: string; gFirst: string; gLast: string; email: string; clubId: string; clubName: string; vendorId: string | null; residentId: string | null }
     | undefined;
   if (!row) return res.status(404).json({ error: "Registration not found" });
   if (row.status === "cancelled") return res.status(409).json({ error: "This registration is already cancelled" });
@@ -454,6 +465,7 @@ registrationsRouter.post("/:ref/cancel", lookupLimiter, async (req, res) => {
     guestEmail: row.email,
     ref: row.ref,
     detailsText: row.team ? `${row.childFirst} ${row.childLast} · ${row.team}` : `${row.childFirst} ${row.childLast}`,
+    residentId: row.residentId,
   }).catch((e) => console.error("[notifications] registration cancellation notify failed:", e));
 
   // A cancelled paid registration frees a capacity spot (NEXT — waitlist

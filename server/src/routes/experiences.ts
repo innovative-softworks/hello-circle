@@ -27,6 +27,7 @@ interface ExperienceRow {
   county: string;
   lat: number | null;
   lng: number | null;
+  location_source: string;
   meeting_point: string;
   blurb: string;
   description: string;
@@ -91,6 +92,7 @@ async function toExperienceJson(row: ExperienceRow) {
     // clubs) already coerces these; this one was missed.
     lat: row.lat === null ? null : Number(row.lat),
     lng: row.lng === null ? null : Number(row.lng),
+    locationSource: row.location_source || "unknown",
     meetingPoint: row.meeting_point,
     blurb: row.blurb,
     description: row.description,
@@ -281,6 +283,7 @@ experiencesRouter.post("/:id/sessions/:sessionId/checkout", async (req, res) => 
       guestEmail: body.email,
       ref,
       detailsText,
+      residentId: req.resident?.id ?? null,
     }).catch((e) => console.error("[notifications] experience booking notify failed:", e));
     if (req.resident?.id) await upgradeFavouriteStatus(req.resident.id, "experience", experience.id);
     return res.status(201).json({ ref, totalEuro: pricing.totalCents / 100 });
@@ -320,7 +323,7 @@ experiencesRouter.get("/bookings/mine", async (req, res) => {
     .prepare(
       `SELECT eb.ref, eb.experience_id as experienceId, eb.participant_name as participantName, eb.party_size as partySize,
               eb.total_cents as totalCents, eb.status, eb.payment_status as paymentStatus, eb.created_at as createdAt,
-              e.title, e.image_url as imageUrl, e.kind, es.date, es.time
+              e.title, e.image_url as imageUrl, e.kind, e.vendor_id as vendorId, es.date, es.time
        FROM experience_bookings eb
        JOIN experiences e ON e.id = eb.experience_id
        JOIN experience_sessions es ON es.id = eb.session_id
@@ -352,7 +355,7 @@ experiencesRouter.post("/bookings/:ref/cancel", async (req, res) => {
 
   const row = (await db
     .prepare(
-      `SELECT eb.ref, eb.status, eb.payment_status as paymentStatus, eb.participant_name as participantName, eb.email,
+      `SELECT eb.ref, eb.status, eb.payment_status as paymentStatus, eb.participant_name as participantName, eb.email, eb.resident_id as residentId,
               es.date, es.time,
               e.id as experienceId, e.title, e.vendor_id as vendorId
        FROM experience_bookings eb
@@ -361,7 +364,7 @@ experiencesRouter.post("/bookings/:ref/cancel", async (req, res) => {
        WHERE eb.ref = ? AND (eb.client_id = ? OR (eb.resident_id IS NOT NULL AND eb.resident_id = ?))`
     )
     .get(req.params.ref, clientId, req.resident?.id ?? "")) as
-    | { ref: string; status: string; paymentStatus: string; participantName: string; email: string; date: string; time: string; experienceId: string; title: string; vendorId: string }
+    | { ref: string; status: string; paymentStatus: string; participantName: string; email: string; residentId: string | null; date: string; time: string; experienceId: string; title: string; vendorId: string }
     | undefined;
   if (!row) return res.status(404).json({ error: "Booking not found" });
   if (row.status === "cancelled") return res.status(409).json({ error: "This booking is already cancelled" });
@@ -386,6 +389,7 @@ experiencesRouter.post("/bookings/:ref/cancel", async (req, res) => {
     guestEmail: row.email,
     ref: row.ref,
     detailsText: `${row.date} at ${row.time} · ${row.title}`,
+    residentId: row.residentId,
   }).catch((e) => console.error("[notifications] experience booking cancellation notify failed:", e));
 
   res.json({ ok: true });
@@ -399,8 +403,15 @@ experiencesRouter.get("/bookings/status/:ref", async (req, res) => {
     if (e instanceof BadRequestError) return res.status(400).json({ error: e.message });
     throw e;
   }
+  // Resident Experience Polish — Changeset 5, same reasoning as
+  // bookings.ts's GET /status/:ref.
   const row = await db
-    .prepare(`SELECT ref, payment_status as paymentStatus, total_cents as totalCents FROM experience_bookings WHERE ref = ? AND client_id = ?`)
+    .prepare(
+      `SELECT eb.ref, eb.payment_status as paymentStatus, eb.total_cents as totalCents,
+              e.id as experienceId, e.title, e.meeting_point as meetingPoint, es.date, es.time, eb.party_size as partySize
+       FROM experience_bookings eb JOIN experiences e ON e.id = eb.experience_id JOIN experience_sessions es ON es.id = eb.session_id
+       WHERE eb.ref = ? AND eb.client_id = ?`
+    )
     .get(req.params.ref, clientId);
   if (!row) return res.status(404).json({ error: "Booking not found" });
   res.json(row);

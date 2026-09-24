@@ -6,6 +6,7 @@ import {
   fetchVendorClub,
   fetchVendorClubWaitlist,
   offerVendorClubWaitlistEntry,
+  updateClubSession,
   updateVendorClub,
   type ClubInput,
 } from "../api";
@@ -14,6 +15,7 @@ import { PlusIcon, TrashIcon, UsersIcon } from "./icons";
 import { FormErrorSummary, SettingsSection } from "./form";
 import { Button, ConfirmDialog, EmptyState, inputStyle, labelStyle } from "./ui";
 import { MultiImageUpload } from "./VendorImageUpload";
+import { SingleImageUpload } from "./SingleImageUpload";
 import { ACTIVITY_CATEGORIES } from "../constants";
 import { colors, fonts, radius } from "../theme";
 import type { Club, ClubSession, WaitlistEntry } from "../types";
@@ -44,6 +46,8 @@ export function ClubEditor({
   onDirtyChange?: (dirty: boolean) => void;
 }) {
   const [form, setForm] = useState<ClubInput>(blankClubInput());
+  // See VendorCentreEditor.tsx's identical field/comment.
+  const [locationConfirmed, setLocationConfirmed] = useState(false);
   const [includesText, setIncludesText] = useState("");
   const [accessibilityText, setAccessibilityText] = useState("");
   const [saving, setSaving] = useState(false);
@@ -54,6 +58,7 @@ export function ClubEditor({
   useEffect(() => {
     fetchVendorClub(clubId).then((c) => {
       setForm(clubToInput(c));
+      setLocationConfirmed(false);
       setIncludesText(c.includes.join("\n"));
       setAccessibilityText(c.accessibility.join("\n"));
     });
@@ -83,7 +88,8 @@ export function ClubEditor({
     try {
       const includes = includesText.split("\n").map((s) => s.trim()).filter(Boolean);
       const accessibility = accessibilityText.split("\n").map((s) => s.trim()).filter(Boolean);
-      const updated = await updateVendorClub(clubId, { ...form, includes, accessibility });
+      const { lat, lng, ...formWithoutLocation } = form;
+      const updated = await updateVendorClub(clubId, { ...formWithoutLocation, ...(locationConfirmed ? { lat, lng } : {}), includes, accessibility });
       setSaved(true);
       onDirtyChange?.(false);
       onSaved(updated);
@@ -131,6 +137,7 @@ export function ClubEditor({
         <AddressSearch
           onSelect={(r) => {
             setForm((f) => ({ ...f, area: r.area || f.area, county: r.county || f.county, lat: r.lat, lng: r.lng }));
+            setLocationConfirmed(true);
             setFieldErrors([]);
             markDirty();
           }}
@@ -233,7 +240,9 @@ export function ClubEditor({
     </div>
   );
 
-  const photosField = <MultiImageUpload images={form.images ?? []} onChange={(images) => set("images", images)} />;
+  const photosField = (
+    <MultiImageUpload images={form.images ?? []} onChange={(images) => set("images", images)} mediaEntityType="club-gallery" mediaEntityId={clubId} />
+  );
 
   const footer = (
     <>
@@ -295,6 +304,7 @@ export function ClubSessionsManager({ clubId }: { clubId: string }) {
   const [adding, setAdding] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
+  const [editingImageId, setEditingImageId] = useState<string | null>(null);
 
   const load = () => {
     fetchClubSessions(clubId).then(setSessions).catch(() => {});
@@ -321,6 +331,11 @@ export function ClubSessionsManager({ clubId }: { clubId: string }) {
     setConfirmingId(null);
   };
 
+  const setSessionImage = async (id: string, url: string | null) => {
+    await updateClubSession(id, { imageUrl: url ?? "" });
+    load();
+  };
+
   return (
     <div style={{ marginTop: 26, paddingTop: 22, borderTop: `1px solid ${colors.border}` }}>
       <h4 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 15, margin: "0 0 4px" }}>Recurring sessions</h4>
@@ -330,16 +345,45 @@ export function ClubSessionsManager({ clubId }: { clubId: string }) {
       {sessions.length > 0 && (
         <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 14 }}>
           {sessions.map((s) => (
-            <div key={s.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: colors.bg, borderRadius: radius.control, padding: "8px 12px", fontSize: 13.5 }}>
-              <span>
-                {DAY_NAMES[s.dayOfWeek]} {s.time}
-                {s.label ? ` — ${s.label}` : ""}
-                {s.capacity ? ` · cap ${s.capacity}` : ""}
-                {s.instructorName ? ` · ${s.instructorName}` : ""}
-              </span>
-              <button onClick={() => setConfirmingId(s.id)} aria-label="Remove session" style={{ background: "none", border: "none", cursor: "pointer", color: colors.faint, display: "flex" }}>
-                <TrashIcon size={14} />
-              </button>
+            <div key={s.id} style={{ background: colors.bg, borderRadius: radius.control, padding: "8px 12px" }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 13.5, gap: 10 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+                  {s.imageUrl && (
+                    <img src={s.imageUrl} alt="" style={{ width: 32, height: 32, borderRadius: 6, objectFit: "cover", flexShrink: 0 }} />
+                  )}
+                  <span>
+                    {DAY_NAMES[s.dayOfWeek]} {s.time}
+                    {s.label ? ` — ${s.label}` : ""}
+                    {s.capacity ? ` · cap ${s.capacity}` : ""}
+                    {s.instructorName ? ` · ${s.instructorName}` : ""}
+                  </span>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
+                  <button
+                    onClick={() => setEditingImageId(editingImageId === s.id ? null : s.id)}
+                    style={{ background: "none", border: "none", cursor: "pointer", color: colors.mutedLight, fontSize: 12, textDecoration: "underline" }}
+                  >
+                    {s.hasCustomImage ? "Change photo" : "Add photo"}
+                  </button>
+                  <button onClick={() => setConfirmingId(s.id)} aria-label="Remove session" style={{ background: "none", border: "none", cursor: "pointer", color: colors.faint, display: "flex" }}>
+                    <TrashIcon size={14} />
+                  </button>
+                </div>
+              </div>
+              {editingImageId === s.id && (
+                <div style={{ marginTop: 10, paddingTop: 10, borderTop: `1px solid ${colors.border}` }}>
+                  <p style={{ fontSize: 12, color: colors.mutedLight, margin: "0 0 8px" }}>
+                    Uses the club photo unless you add a session photo.
+                  </p>
+                  <SingleImageUpload
+                    label="Session photo (optional)"
+                    value={s.hasCustomImage ? s.imageUrl : null}
+                    onChange={(url) => setSessionImage(s.id, url)}
+                    mediaEntityType="club-session-cover"
+                    mediaEntityId={s.id}
+                  />
+                </div>
+              )}
             </div>
           ))}
         </div>

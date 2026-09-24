@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../AuthContext";
+import { getMediaUrl } from "../media";
 import {
   bookingsReportCsvUrl,
   changePassword,
@@ -10,16 +11,19 @@ import {
   fetchVendorInsights,
   fetchVendorPayments,
   inviteStaff,
+  requestManageLink,
   revokeInvite,
   updateOrgPolicies,
   updateOrgProfile,
   updateVendorLogo,
-  uploadImage,
+  uploadMedia,
+  releaseMedia,
 } from "../api";
 import { PLATFORM_ROLES, PLATFORM_ROLE_LABELS } from "../types";
 import type { OrgProfile, Participant, VendorInsights, VendorPayments } from "../types";
 import { CameraIcon, CloseIcon, PlusIcon, SearchIcon, TrashIcon, TrendUpIcon, UsersIcon } from "./icons";
 import { Button, ManageCard as Card, ConfirmDialog, EmptyState, PageSpinner, Tabs, inputStyle, labelStyle, tableStyle, tdStyle, thStyle } from "./ui";
+import { formatDate } from "../vendorFormat";
 import { colors, fonts, radius } from "../theme";
 
 // Organisation entity + Staff + RBAC (Phase C — Gate 2 from the plan doc).
@@ -28,6 +32,16 @@ import { colors, fonts, radius } from "../theme";
 // within the existing flat-tab pattern rather than a full nav redesign.
 
 const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+
+// Vendor Experience Polish — PaymentsPanel's transactions now span all four
+// Vendor-ownable listing types (previously booking/registration only), so a
+// visible Type column is needed to tell them apart.
+const PAYMENT_KIND_LABELS: Record<VendorPayments["transactions"][number]["kind"], string> = {
+  booking: "Centre",
+  registration: "Club",
+  program: "Program",
+  experience: "Experience",
+};
 
 /** Friendly label for a possibly-null/possibly-stale platform_role string —
  * falls back to the raw value (space-swapped) for safety rather than
@@ -43,17 +57,20 @@ function roleLabel(role: string | null | undefined): string {
 // than folding into SettingsPanel's name/cancellation-hours save button,
 // since there's nothing to "save" here beyond the upload itself.
 function LogoPanel({ profile, reload }: { profile: OrgProfile; reload: () => void }) {
+  const { user } = useAuth();
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const onFile = async (files: FileList | null) => {
     const file = files?.[0];
-    if (!file) return;
+    if (!file || !user?.orgId) return;
     setUploading(true);
     setError(null);
     try {
-      const { url } = await uploadImage(file);
+      const previous = profile.logo;
+      const { url } = await uploadMedia(file, "org-logo", user.orgId);
       await updateVendorLogo(url);
+      if (previous) releaseMedia("org-logo", user.orgId, previous);
       reload();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Upload failed");
@@ -65,6 +82,7 @@ function LogoPanel({ profile, reload }: { profile: OrgProfile; reload: () => voi
   const remove = async () => {
     setError(null);
     await updateVendorLogo(null);
+    if (profile.logo && user?.orgId) releaseMedia("org-logo", user.orgId, profile.logo);
     reload();
   };
 
@@ -80,7 +98,7 @@ function LogoPanel({ profile, reload }: { profile: OrgProfile; reload: () => voi
         {profile.logo ? (
           <div style={{ position: "relative", width: 72, height: 72, flex: "none" }}>
             <div style={{ width: "100%", height: "100%", borderRadius: radius.control, border: `1px solid ${colors.border}`, background: colors.bg, overflow: "hidden", display: "flex", alignItems: "center", justifyContent: "center" }}>
-              <img src={profile.logo} alt="" style={{ width: "100%", height: "100%", objectFit: "contain" }} />
+              <img src={getMediaUrl(profile.logo, "card")} alt="" style={{ width: "100%", height: "100%", objectFit: "contain" }} />
             </div>
             <button
               onClick={remove}
@@ -245,7 +263,7 @@ function SettingsPanel({ profile, reload }: { profile: OrgProfile; reload: () =>
 // anywhere in this codebase, and 2FA is separate new auth infrastructure.
 function AccountSettingsPanel() {
   const navigate = useNavigate();
-  const { refresh } = useAuth();
+  const { user, refresh } = useAuth();
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [pwSaving, setPwSaving] = useState(false);
@@ -253,6 +271,36 @@ function AccountSettingsPanel() {
   const [pwSaved, setPwSaved] = useState(false);
   const [confirmingDeactivate, setConfirmingDeactivate] = useState(false);
   const [deactivating, setDeactivating] = useState(false);
+  // Platform Pre-Launch Polish — Changeset 1. requestManageLink() already
+  // existed with zero callers anywhere in the client — the vendor side of
+  // account linking had no UI at all, not just the confirm-page fix the
+  // audit found. Slotted in here since Account Settings is the natural,
+  // already-existing home for "link your accounts" alongside password/
+  // deactivate, and this is the vendor-authenticated step that kicks off
+  // the flow /manage/link-confirm completes.
+  const [linkEmail, setLinkEmail] = useState("");
+  const [linkSending, setLinkSending] = useState(false);
+  const [linkError, setLinkError] = useState<string | null>(null);
+  const [linkSent, setLinkSent] = useState(false);
+
+  const sendLinkRequest = async () => {
+    setLinkError(null);
+    setLinkSent(false);
+    if (!linkEmail.trim()) {
+      setLinkError("Enter the email of the HelloCircle account to link");
+      return;
+    }
+    setLinkSending(true);
+    try {
+      await requestManageLink(linkEmail.trim());
+      setLinkSent(true);
+      setLinkEmail("");
+    } catch (e) {
+      setLinkError(e instanceof Error ? e.message : "Couldn't send that link");
+    } finally {
+      setLinkSending(false);
+    }
+  };
 
   const savePassword = async () => {
     setPwError(null);
@@ -297,6 +345,32 @@ function AccountSettingsPanel() {
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 22 }}>
         <Button onClick={savePassword} disabled={pwSaving}>{pwSaving ? "Saving…" : "Change password"}</Button>
         {pwSaved && <span style={{ fontSize: 13, color: colors.greenText, fontWeight: 600 }}>Saved</span>}
+      </div>
+      <div style={{ borderTop: `1px solid ${colors.border}`, paddingTop: 18, marginBottom: 22 }}>
+        <h4 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 15, margin: "0 0 8px" }}>Linked HelloCircle account</h4>
+        {user?.residentId ? (
+          <p style={{ fontSize: 12.5, color: colors.mutedLight, margin: 0 }}>
+            This vendor login is linked to a personal HelloCircle account — switch between them any time from the account menu.
+          </p>
+        ) : (
+          <>
+            <p style={{ fontSize: 12.5, color: colors.mutedLight, margin: "0 0 10px" }}>
+              Link this vendor login to your own HelloCircle (resident) account so you can switch between them without signing in twice. We'll email a confirmation link to that account to prove it's really yours.
+            </p>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+              <input
+                type="email"
+                value={linkEmail}
+                onChange={(e) => setLinkEmail(e.target.value)}
+                placeholder="you@example.com"
+                style={{ ...inputStyle, flex: "1 1 220px" }}
+              />
+              <Button onClick={sendLinkRequest} disabled={linkSending}>{linkSending ? "Sending…" : "Send link"}</Button>
+            </div>
+            {linkError && <p style={{ color: colors.danger, fontSize: 12.5, margin: "8px 0 0" }}>{linkError}</p>}
+            {linkSent && <p style={{ color: colors.greenText, fontSize: 12.5, fontWeight: 600, margin: "8px 0 0" }}>Confirmation link sent — check that account's inbox.</p>}
+          </>
+        )}
       </div>
       <div style={{ borderTop: `1px solid ${colors.border}`, paddingTop: 18 }}>
         <p style={{ fontSize: 12.5, color: colors.mutedLight, margin: "0 0 10px" }}>
@@ -538,11 +612,18 @@ function InsightsPanel() {
   );
 }
 
+type PaymentsFilter = "all" | "paid" | "refunded";
+
 // Host Manage spec §20/§21 — promoted to a top-level "Earnings" tab in
 // VendorDashboard.tsx (still finance-gated, same component, just relocated
-// out of the Organisation tab's sub-nav to match the spec's own IA).
+// out of the Organisation tab's sub-nav to match the spec's own IA). Vendor
+// Experience Polish added the Paid/Refunded filter below — the brief's
+// "Earnings > Overview / Transactions / Refunds" possible structure,
+// implemented as a filter over the one existing transaction list rather
+// than new sub-tabs/routes/queries, since it's the same data either way.
 export function PaymentsPanel() {
   const [data, setData] = useState<VendorPayments | "forbidden" | null>(null);
+  const [filter, setFilter] = useState<PaymentsFilter>("all");
   useEffect(() => {
     fetchVendorPayments()
       .then(setData)
@@ -554,35 +635,92 @@ export function PaymentsPanel() {
     return <EmptyState icon={<UsersIcon size={22} />} title="Finance access required" subtitle="This tab is restricted to the organisation owner or staff with the finance role." />;
   }
 
+  const filteredTransactions = data.transactions.filter((t) => filter === "all" || t.paymentStatus === filter);
+
   return (
     <Card>
       <div style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 22, marginBottom: 4 }}>€{(data.totalPaidCents / 100).toFixed(2)}</div>
-      <div style={{ fontSize: 12.5, color: colors.mutedLight, marginBottom: 18 }}>Total paid, last 200 transactions</div>
+      {/* Vendor Experience Polish — totalPaidCents is now a true SUM across
+          every paid booking/registration/enrollment/experience-booking, not
+          derived from the transactions list below (which stays capped for
+          display) — the old "last 200 transactions" caption was actively
+          misleading about what the total represented, so it's dropped. */}
+      <div style={{ fontSize: 12.5, color: colors.mutedLight, marginBottom: 18 }}>Total paid, all time</div>
       {data.transactions.length === 0 ? (
         <EmptyState icon={<UsersIcon size={22} />} title="No transactions yet" />
       ) : (
-        <div style={{ overflowX: "auto" }}>
-          <table style={tableStyle}>
-            <thead>
-              <tr>
-                <th style={thStyle}>Listing</th>
-                <th style={thStyle}>Ref</th>
-                <th style={thStyle}>Amount</th>
-                <th style={thStyle}>Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {data.transactions.map((t) => (
-                <tr key={t.ref}>
-                  <td style={tdStyle}>{t.listingName}</td>
-                  <td style={{ ...tdStyle, fontFamily: "monospace" }}>{t.ref}</td>
-                  <td style={{ ...tdStyle, fontWeight: 700 }}>€{(t.totalCents / 100).toFixed(2)}</td>
-                  <td style={{ ...tdStyle, color: colors.mutedLight }}>{t.paymentStatus}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <>
+          <div style={{ marginBottom: 14 }}>
+            <Tabs
+              value={filter}
+              onChange={setFilter}
+              options={[
+                { key: "all", label: "All" },
+                { key: "paid", label: "Paid" },
+                { key: "refunded", label: "Refunded" },
+              ]}
+            />
+          </div>
+          {filteredTransactions.length === 0 ? (
+            <EmptyState icon={<UsersIcon size={22} />} title="No transactions match this filter" />
+          ) : (
+            <>
+              {/* Vendor Experience Polish — mobile card fallback, avoids
+                  horizontal scrolling on a phone-width transaction table. */}
+              <div className="mobile-cards">
+                {filteredTransactions.map((t) => (
+                  <Card key={t.ref}>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 6 }}>
+                      <span style={{ fontFamily: "monospace", fontSize: 12.5 }}>{t.ref}</span>
+                      <span
+                        style={{
+                          fontSize: 11,
+                          fontWeight: 700,
+                          color: t.paymentStatus === "refunded" ? colors.muted : colors.greenText,
+                          background: t.paymentStatus === "refunded" ? colors.panel : colors.greenBg,
+                          borderRadius: radius.pill,
+                          padding: "2px 8px",
+                          textTransform: "capitalize",
+                        }}
+                      >
+                        {t.paymentStatus}
+                      </span>
+                    </div>
+                    <div style={{ fontSize: 13.5, fontWeight: 700, marginBottom: 2 }}>{t.listingName}</div>
+                    <div style={{ fontSize: 12, color: colors.mutedLight, marginBottom: 8 }}>
+                      {PAYMENT_KIND_LABELS[t.kind]} · {formatDate(t.createdAt)}
+                    </div>
+                    <div style={{ fontWeight: 700, fontSize: 15 }}>€{(t.totalCents / 100).toFixed(2)}</div>
+                  </Card>
+                ))}
+              </div>
+              <div className="hide-mobile" style={{ overflowX: "auto" }}>
+              <table style={tableStyle}>
+                <thead>
+                  <tr>
+                    <th style={thStyle}>Listing</th>
+                    <th style={thStyle}>Type</th>
+                    <th style={thStyle}>Ref</th>
+                    <th style={thStyle}>Amount</th>
+                    <th style={thStyle}>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredTransactions.map((t) => (
+                    <tr key={t.ref}>
+                      <td style={tdStyle}>{t.listingName}</td>
+                      <td style={{ ...tdStyle, color: colors.mutedLight }}>{PAYMENT_KIND_LABELS[t.kind]}</td>
+                      <td style={{ ...tdStyle, fontFamily: "monospace" }}>{t.ref}</td>
+                      <td style={{ ...tdStyle, fontWeight: 700 }}>€{(t.totalCents / 100).toFixed(2)}</td>
+                      <td style={{ ...tdStyle, color: colors.mutedLight }}>{t.paymentStatus}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              </div>
+            </>
+          )}
+        </>
       )}
     </Card>
   );

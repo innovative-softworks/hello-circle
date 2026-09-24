@@ -269,13 +269,13 @@ vendorProgramsRouter.post("/programs/:programId/enrollments/:enrollmentId/cancel
 
   const row = (await db
     .prepare(
-      `SELECT pe.ref, pe.status, pe.participant_name as participantName, pe.email,
+      `SELECT pe.ref, pe.status, pe.participant_name as participantName, pe.email, pe.resident_id as residentId,
               p.title, p.listing_type as listingType, p.listing_id as listingId, p.vendor_id as vendorId
        FROM program_enrollments pe JOIN programs p ON p.id = pe.program_id
        WHERE pe.id = ? AND pe.program_id = ?`
     )
     .get(req.params.enrollmentId, req.params.programId)) as
-    | { ref: string; status: string; participantName: string; email: string; title: string; listingType: "centre" | "club"; listingId: string; vendorId: string }
+    | { ref: string; status: string; participantName: string; email: string; residentId: string | null; title: string; listingType: "centre" | "club"; listingId: string; vendorId: string }
     | undefined;
   if (!row) return res.status(404).json({ error: "Enrollment not found" });
   if (row.status === "cancelled") return res.status(409).json({ error: "This enrollment is already cancelled" });
@@ -301,6 +301,7 @@ vendorProgramsRouter.post("/programs/:programId/enrollments/:enrollmentId/cancel
     guestEmail: row.email,
     ref: row.ref,
     detailsText: row.title,
+    residentId: row.residentId,
   }).catch((e) => console.error("[notifications] vendor program enrollment cancellation notify failed:", e));
 
   res.json({ ok: true });
@@ -313,13 +314,13 @@ vendorProgramsRouter.post("/programs/:programId/enrollments/:enrollmentId/refund
 
   const row = (await db
     .prepare(
-      `SELECT pe.ref, pe.payment_status as paymentStatus, pe.stripe_session_id as stripeSessionId, pe.participant_name as participantName, pe.email,
+      `SELECT pe.ref, pe.payment_status as paymentStatus, pe.stripe_session_id as stripeSessionId, pe.participant_name as participantName, pe.email, pe.resident_id as residentId,
               p.title, p.listing_type as listingType, p.listing_id as listingId, p.vendor_id as vendorId
        FROM program_enrollments pe JOIN programs p ON p.id = pe.program_id
        WHERE pe.id = ? AND pe.program_id = ?`
     )
     .get(req.params.enrollmentId, req.params.programId)) as
-    | { ref: string; paymentStatus: string; stripeSessionId: string | null; participantName: string; email: string; title: string; listingType: "centre" | "club"; listingId: string; vendorId: string }
+    | { ref: string; paymentStatus: string; stripeSessionId: string | null; participantName: string; email: string; residentId: string | null; title: string; listingType: "centre" | "club"; listingId: string; vendorId: string }
     | undefined;
   if (!row) return res.status(404).json({ error: "Enrollment not found" });
   if (row.paymentStatus === "refunded") return res.status(409).json({ error: "This enrollment has already been refunded" });
@@ -352,6 +353,7 @@ vendorProgramsRouter.post("/programs/:programId/enrollments/:enrollmentId/refund
     ref: row.ref,
     detailsText: row.title,
     refundedCents: result.amountCents,
+    residentId: row.residentId,
   }).catch((e) => console.error("[notifications] program enrollment refund notify failed:", e));
 
   res.json({ ok: true });

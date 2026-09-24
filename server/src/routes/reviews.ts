@@ -14,7 +14,7 @@ export const reviewsRouter = Router();
 // game/host reviews are necessarily resident-id-eligible instead, since
 // joining a Game has always required a signed-in resident (requireResident
 // on games.ts's own join route) — see isEligibleToReview()'s branch below.
-type ReviewListingType = "centre" | "club" | "game" | "host" | "experience";
+type ReviewListingType = "centre" | "club" | "game" | "host" | "experience" | "program";
 
 interface ReviewRow {
   id: number;
@@ -50,16 +50,33 @@ async function listingExists(listingType: string, listingId: string): Promise<bo
   // GET /residents/:id/host-profile already applies.
   if (listingType === "host") return !!(await db.prepare(`SELECT 1 FROM residents WHERE id = ? AND host_status = 'verified'`).get(listingId));
   if (listingType === "experience") return !!(await db.prepare(`SELECT 1 FROM experiences WHERE id = ?`).get(listingId));
+  if (listingType === "program") return !!(await db.prepare(`SELECT 1 FROM programs WHERE id = ?`).get(listingId));
   return false;
 }
 
 async function isEligibleToReview(clientId: string, residentId: string | null, listingType: string, listingId: string): Promise<boolean> {
   if (listingType === "centre") {
-    const row = await db.prepare(`SELECT 1 FROM bookings WHERE client_id = ? AND centre_id = ? LIMIT 1`).get(clientId, listingId);
+    // Resident Experience Polish — previously any booking row at all made a
+    // centre reviewable, including a future-dated, cancelled, or never-paid
+    // one. Now matches the same real-past-participation bar game/host/
+    // experience already use: paid, not cancelled, and the booked date has
+    // actually passed. Cancelling only flips `status` (payment_status stays
+    // 'paid' — refunds are handled off-platform, see bookings.ts's cancel
+    // route), so both checks are needed, not just payment_status.
+    const row = await db
+      .prepare(`SELECT 1 FROM bookings WHERE client_id = ? AND centre_id = ? AND payment_status = 'paid' AND status != 'cancelled' AND date < CURDATE() LIMIT 1`)
+      .get(clientId, listingId);
     return !!row;
   }
   if (listingType === "club") {
-    const row = await db.prepare(`SELECT 1 FROM registrations WHERE client_id = ? AND club_id = ? LIMIT 1`).get(clientId, listingId);
+    // A registration has no single dated occurrence to wait out (ongoing
+    // membership, not a booked slot — same distinction drawn throughout
+    // this codebase, e.g. vendorOperations.ts's /today endpoint), so there's
+    // no "date < CURDATE()" equivalent to require here — but paid and not
+    // cancelled is still required, closing the same gap centre had.
+    const row = await db
+      .prepare(`SELECT 1 FROM registrations WHERE client_id = ? AND club_id = ? AND payment_status = 'paid' AND status != 'cancelled' LIMIT 1`)
+      .get(clientId, listingId);
     return !!row;
   }
   if (listingType === "game") {
@@ -92,6 +109,23 @@ async function isEligibleToReview(clientId: string, residentId: string | null, l
       .prepare(
         `SELECT 1 FROM experience_bookings eb JOIN experience_sessions es ON es.id = eb.session_id
          WHERE eb.client_id = ? AND eb.experience_id = ? AND eb.payment_status = 'paid' AND es.date < CURDATE() LIMIT 1`
+      )
+      .get(clientId, listingId);
+    return !!row;
+  }
+  if (listingType === "program") {
+    // Resident Experience Polish — Changeset 3. client_id-eligible like
+    // centre/club/experience (program enrollment is guest-form-no-account
+    // checkout, same as those). "Meaningful participation" for an ongoing,
+    // multi-session enrollment means at least one real session has actually
+    // happened yet — not merely enrolled — same bar as hasPastSession on
+    // GET /programs/enrollments/mine.
+    const row = await db
+      .prepare(
+        `SELECT 1 FROM program_enrollments pe
+         WHERE pe.client_id = ? AND pe.program_id = ? AND pe.payment_status = 'paid' AND pe.status != 'cancelled'
+           AND EXISTS (SELECT 1 FROM program_sessions ps WHERE ps.program_id = pe.program_id AND ps.status != 'cancelled' AND ps.date < CURDATE())
+         LIMIT 1`
       )
       .get(clientId, listingId);
     return !!row;
@@ -153,6 +187,7 @@ reviewsRouter.post("/", async (req, res) => {
       game: "You can only review a session after actually attending a past one.",
       host: "You can only review a host after playing in one of their past sessions.",
       experience: "You can only review this after a past booking on it.",
+      program: "You can only review a program after attending at least one past session.",
     };
     return res.status(403).json({ error: messages[listingType] });
   }

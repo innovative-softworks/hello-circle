@@ -14,6 +14,14 @@ export interface NotifyParams {
   guestEmail: string;
   ref: string;
   detailsText: string;
+  /** Resident Experience Polish — set only when this booking/registration/
+   * enrollment/experience-booking row actually has a resident_id (a
+   * signed-in resident made it), never derived from guestEmail alone. Lets
+   * notifyNewBookingOrRegistration/notifyCancellation/notifyRefund also
+   * write a real in-app notification for the person who made it, not just
+   * email — see notifyResident() below. Omitted/null = guest-only booking,
+   * no in-app notification to write (there's no resident to write one for). */
+  residentId?: string | null;
 }
 
 // Copy noun per `kind` — was a bare `kind === "booking" ? "booking" :
@@ -70,7 +78,7 @@ export async function residentAllows(residentId: string, prefKey: string): Promi
 
 interface NotifyResidentParams {
   residentId: string;
-  kind: "booking" | "registration" | "waitlist" | "game" | "intent_match" | "circle" | "provider_update" | "host_update" | "centre_update" | "invite" | "share";
+  kind: "booking" | "registration" | "program" | "experience" | "waitlist" | "game" | "intent_match" | "circle" | "provider_update" | "host_update" | "centre_update" | "invite" | "share";
   title: string;
   body: string;
   listingType: "centre" | "club" | "game" | "intent" | "circle" | "vendor" | "host" | "experience" | "program";
@@ -95,7 +103,14 @@ const DETAIL_PATH_BY_LISTING_TYPE: Partial<Record<NotifyResidentParams["listingT
 };
 
 function pushPathFor(params: NotifyResidentParams): string | undefined {
-  if (params.kind === "booking" || params.kind === "registration") return `/bookings?ref=${params.ref}`;
+  // My Life's own "manage this" link (see notifyNewBookingOrRegistration's
+  // manageUrl below) for every kind with a ref-scoped participation row —
+  // program/experience included, so the in-app/push deep link matches
+  // exactly what the confirmation email already points guests to, rather
+  // than the more generic listing detail page.
+  if (params.kind === "booking" || params.kind === "registration" || params.kind === "program" || params.kind === "experience") {
+    return `/bookings?ref=${params.ref}`;
+  }
   const base = DETAIL_PATH_BY_LISTING_TYPE[params.listingType];
   return base ? `${base}${params.listingId}` : undefined;
 }
@@ -154,8 +169,9 @@ async function recipients(vendorId: string | null) {
  * booking/registration. Never throws: a notification failure must not fail
  * the booking/registration itself. */
 export async function notifyNewBookingOrRegistration(params: NotifyParams) {
-  const { kind, listingType, listingId, listingName, vendorId, guestName, guestEmail, ref, detailsText } = params;
+  const { kind, listingType, listingId, listingName, vendorId, guestName, guestEmail, ref, detailsText, residentId } = params;
   const noun = nounFor(kind);
+  const nounCap = `${noun[0].toUpperCase()}${noun.slice(1)}`;
 
   const { admins, vendorEmail } = await recipients(vendorId);
 
@@ -172,6 +188,23 @@ export async function notifyNewBookingOrRegistration(params: NotifyParams) {
       listingId,
       ref,
     });
+  }
+
+  // Resident Experience Polish — the resident's own copy of this event,
+  // previously email-only (see this function's own long-standing gap: it
+  // only ever wrote notifications for the vendor/admin side above). Only
+  // fires when residentId is actually set on the row — never inferred from
+  // guestEmail, which isn't a verified resident identity.
+  if (residentId) {
+    await notifyResident({
+      residentId,
+      kind,
+      title: `${nounCap} confirmed: ${listingName}`,
+      body: detailsText,
+      listingType,
+      listingId,
+      ref,
+    }).catch((e) => console.error("[notifications] resident copy of new-booking notify failed:", e));
   }
 
   const manageUrl = `${CLIENT_URL}/bookings?ref=${ref}`;
@@ -225,7 +258,7 @@ export async function resendConfirmationEmail(params: NotifyParams) {
  * a slot/place has freed up (refunds, if any, are handled off-platform).
  * Never throws, same as the new-booking path. */
 export async function notifyCancellation(params: NotifyParams) {
-  const { kind, listingType, listingId, listingName, vendorId, guestName, guestEmail, ref, detailsText } = params;
+  const { kind, listingType, listingId, listingName, vendorId, guestName, guestEmail, ref, detailsText, residentId } = params;
   const noun = nounFor(kind);
   const nounCap = `${noun[0].toUpperCase()}${noun.slice(1)}`;
 
@@ -244,6 +277,22 @@ export async function notifyCancellation(params: NotifyParams) {
       listingId,
       ref,
     });
+  }
+
+  // Resident Experience Polish — same reasoning as notifyNewBookingOrRegistration.
+  // This function is called both from the resident's own self-cancel routes
+  // and from a vendor-initiated cancel, so residentId being set here also
+  // covers "a vendor cancelled a signed-in resident's booking" correctly.
+  if (residentId) {
+    await notifyResident({
+      residentId,
+      kind,
+      title: `${nounCap} cancelled: ${listingName}`,
+      body: detailsText,
+      listingType,
+      listingId,
+      ref,
+    }).catch((e) => console.error("[notifications] resident copy of cancellation notify failed:", e));
   }
 
   const guestVars = { guestName, noun, listingName, ref, detailsText };
@@ -281,7 +330,7 @@ export async function notifyCancellation(params: NotifyParams) {
  * follows the same "not migrated" precedent as the waitlist/game/circle
  * notifications elsewhere. Never throws, same contract as the others. */
 export async function notifyRefund(params: NotifyParams & { refundedCents: number }) {
-  const { kind, listingType, listingId, listingName, vendorId, guestName, guestEmail, ref, detailsText, refundedCents } = params;
+  const { kind, listingType, listingId, listingName, vendorId, guestName, guestEmail, ref, detailsText, refundedCents, residentId } = params;
   const noun = nounFor(kind);
   const amount = `€${(refundedCents / 100).toFixed(2)}`;
 
@@ -298,6 +347,19 @@ export async function notifyRefund(params: NotifyParams & { refundedCents: numbe
       listingId,
       ref,
     });
+  }
+
+  // Resident Experience Polish — same reasoning as the two functions above.
+  if (residentId) {
+    await notifyResident({
+      residentId,
+      kind,
+      title: `Refund issued: ${listingName}`,
+      body: `${amount} refunded — ${detailsText}`,
+      listingType,
+      listingId,
+      ref,
+    }).catch((e) => console.error("[notifications] resident copy of refund notify failed:", e));
   }
 
   await sendMail({

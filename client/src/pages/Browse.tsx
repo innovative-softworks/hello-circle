@@ -4,7 +4,8 @@ import { fetchCentres, fetchClubs } from "../api";
 import { BrowseTicker } from "../components/BrowseTicker";
 import { CentreCard } from "../components/CentreCard";
 import { ClubCard } from "../components/ClubCard";
-import { DiscoveryMap } from "../components/DiscoveryMap";
+import { DiscoveryMap, type DiscoveryMapPin } from "../components/DiscoveryMap";
+import { euro } from "../euro";
 import { DropdownCheckbox, DropdownOption, FilterDropdown } from "../components/FilterDropdown";
 import { CheckIcon, ChevronLeftIcon, ChevronRightIcon, CloseIcon, GridIcon, HomeIcon, PinIcon, SearchIcon } from "../components/icons";
 import { IntentCaptureForm } from "../components/IntentCaptureForm";
@@ -191,6 +192,36 @@ export function Browse() {
     });
     return sorted;
   }, [isClubs, clubs, centres, query, sort, selectedAmenities, selectedAccessibility]);
+
+  const mapPins = useMemo<DiscoveryMapPin[]>(
+    () =>
+      filtered
+        .filter((r) => r.lat !== null && r.lng !== null)
+        .map((r) =>
+          isClubs
+            ? {
+                id: r.id,
+                lat: (r as Club).lat as number,
+                lng: (r as Club).lng as number,
+                title: r.name,
+                subtitle: `${r.area} · ${r.county}`,
+                priceLabel: `${euro((r as Club).price)} / ${(r as Club).unit}`,
+                href: `/clubs/${(r as Club).slug ?? r.id}`,
+                locationSource: (r as Club).locationSource,
+              }
+            : {
+                id: r.id,
+                lat: (r as Centre).lat as number,
+                lng: (r as Centre).lng as number,
+                title: r.name,
+                subtitle: `${r.area} · ${r.county}`,
+                priceLabel: `From ${euro((r as Centre).from)}`,
+                href: `/centres/${(r as Centre).slug ?? r.id}`,
+                locationSource: (r as Centre).locationSource,
+              }
+        ),
+    [filtered, isClubs]
+  );
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const pageSafe = Math.min(page, totalPages);
@@ -387,7 +418,7 @@ export function Browse() {
             action={<IntentCaptureForm activityLabel={(isClubs && sport !== "All" ? sport : query) || (isClubs ? "clubs" : "centres")} county={county === "All" ? "" : county} />}
           />
         ) : view === "map" ? (
-          <DiscoveryMap centres={isClubs ? [] : (filtered as Centre[])} clubs={isClubs ? (filtered as Club[]) : []} />
+          <DiscoveryMap pins={mapPins} searchTypes={[isClubs ? "club" : "centre"]} searchFilters={{ q: query.trim() || undefined }} />
         ) : (
           <div className="grid-responsive-3" style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 20 }}>
             {isClubs

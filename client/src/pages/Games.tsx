@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { fetchGames, fetchMyGames, joinGame, joinGameWaitlist } from "../api";
+import { fetchGames, fetchMyGames, joinGame, joinGameWaitlist, subscribeGameNotifyMe } from "../api";
 import { openCheckout } from "../native";
 import { signInHref } from "../authRedirect";
 import { ArrowRightIcon, AwardIcon, BallIcon, CalendarIcon, ClockIcon, CloseIcon, LightbulbIcon, PinIcon, PlusIcon, SearchIcon, UsersIcon } from "../components/icons";
@@ -9,7 +9,7 @@ import { Chip } from "../components/Chip";
 import { DropdownCheckbox, DropdownOption, FilterDropdown } from "../components/FilterDropdown";
 import { IntentCaptureForm } from "../components/IntentCaptureForm";
 import { Photo } from "../components/Photo";
-import { Button, Card, CardSkeleton, ConfirmDialog, Drawer, EmptyState, inputStyle } from "../components/ui";
+import { Button, Card, CardLink, CardSkeleton, ConfirmDialog, Drawer, EmptyState, inputStyle } from "../components/ui";
 import { PageTitle } from "../components/PageTitle";
 import { AuthContextCard } from "../components/AuthShell";
 import { SignInPanel } from "../components/SignInPanel";
@@ -76,15 +76,28 @@ export function GameCard({ game, onJoin, onLeave, joining }: { game: Game; onJoi
   const navigate = useNavigate();
   const { resident } = useGuest();
   const [saved, toggleSaved] = useSavedState("game", game.id);
+  const [notifySubscribed, setNotifySubscribed] = useState(false);
+  const [notifyBusy, setNotifyBusy] = useState(false);
   const full = game.spotsLeft === 0;
+  const comingSoon = game.effectiveLifecycle === "coming_soon";
   const headline = needHeadline(game);
-  const open = () => navigate(`/games/${game.id}`);
+  const href = `/games/${game.id}`;
+  const handleNotifyMe = async () => {
+    if (!resident) return navigate(signInHref(gameSignInContext(game)));
+    setNotifyBusy(true);
+    try {
+      await subscribeGameNotifyMe(game.id);
+      setNotifySubscribed(true);
+    } finally {
+      setNotifyBusy(false);
+    }
+  };
   return (
     <div
-      onClick={open}
       className="card-hover card-surface"
-      style={{ cursor: "pointer", background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 18, overflow: "hidden" }}
+      style={{ position: "relative", background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 18, overflow: "hidden" }}
     >
+      <CardLink to={href} label={game.activityLabel} />
       <Photo
         src={game.imageUrl ?? undefined}
         alt={game.activityLabel}
@@ -94,7 +107,7 @@ export function GameCard({ game, onJoin, onLeave, joining }: { game: Game; onJoi
         style={{ aspectRatio: cardImageRatio.discovery }}
         contentStyle={{ display: "flex", alignItems: "flex-end", padding: 12 }}
       >
-        {(full || headline) && (
+        {(comingSoon || full || headline) && (
           <span
             className={full ? "card-photo-badge" : undefined}
             style={{
@@ -107,7 +120,7 @@ export function GameCard({ game, onJoin, onLeave, joining }: { game: Game; onJoi
               transition: "background-color .2s ease, color .2s ease",
             }}
           >
-            {full ? "Full" : headline}
+            {comingSoon ? "Coming soon" : full ? "Full" : headline}
           </span>
         )}
         <SaveButton saved={saved} onToggle={toggleSaved} />
@@ -143,8 +156,14 @@ export function GameCard({ game, onJoin, onLeave, joining }: { game: Game; onJoi
             <UsersIcon size={14} /> {game.joined}/{game.capacity}
           </span>
         </div>
-        {full ? (
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }} onClick={(e) => e.stopPropagation()}>
+        {comingSoon ? (
+          <div className="stretched-link-above">
+            <Button onClick={handleNotifyMe} disabled={notifyBusy || notifySubscribed} full>
+              {notifySubscribed ? "We'll let you know" : notifyBusy ? "Setting up…" : "Notify me"}
+            </Button>
+          </div>
+        ) : full ? (
+          <div className="stretched-link-above" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
             <span style={{ fontSize: 13, fontWeight: 700, color: colors.muted }}>No spots left</span>
             <Button
               variant="ghost"
@@ -155,7 +174,7 @@ export function GameCard({ game, onJoin, onLeave, joining }: { game: Game; onJoi
             </Button>
           </div>
         ) : (
-          <div onClick={(e) => e.stopPropagation()}>
+          <div className="stretched-link-above">
             <Button onClick={resident ? onJoin : () => navigate(signInHref(gameSignInContext(game)))} disabled={joining} full>
               {joining ? "Joining…" : resident ? "I'm in" : "Sign in to join"}
             </Button>
@@ -334,8 +353,19 @@ function JoinGameCard({
 }) {
   const navigate = useNavigate();
   const [saved, toggleSaved] = useSavedState("game", game.id);
+  const [notifySubscribed, setNotifySubscribed] = useState(false);
+  const [notifyBusy, setNotifyBusy] = useState(false);
   const state = gameState(game);
   const full = state === "full";
+  const comingSoon = game.effectiveLifecycle === "coming_soon";
+  const href = `/games/${game.id}`;
+  const handleNotifyMe = () => {
+    setNotifyBusy(true);
+    subscribeGameNotifyMe(game.id)
+      .then(() => setNotifySubscribed(true))
+      .catch(() => navigate(signInHref(gameSignInContext(game))))
+      .finally(() => setNotifyBusy(false));
+  };
 
   // Every card CTA is a small, compact button (never full-width) - "I'm
   // in"/"Join" (needs/available) dark, "Join waitlist"/"View plan" (full/
@@ -348,7 +378,8 @@ function JoinGameCard({
   const spotsColor = full ? colors.muted : state === "needs" ? colors.orangeDark : colors.mutedLight;
 
   return (
-    <Card hover style={{ padding: 0, overflow: "hidden", cursor: "pointer" }} onClick={() => navigate(`/games/${game.id}`)}>
+    <Card hover style={{ position: "relative", padding: 0, overflow: "hidden" }}>
+      <CardLink to={href} label={game.activityLabel} />
       <Photo
         src={game.imageUrl ?? undefined}
         alt={game.activityLabel}
@@ -375,6 +406,22 @@ function JoinGameCard({
         >
           <ClockIcon size={12} /> {gameWhen12h(game)}
         </span>
+        {comingSoon && (
+          <span
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              background: photoOverlay.goldBg,
+              color: photoOverlay.goldText,
+              borderRadius: radius.pill,
+              padding: "5px 11px",
+              fontSize: 11.5,
+              fontWeight: 800,
+            }}
+          >
+            Coming soon
+          </span>
+        )}
         <SaveButton saved={saved} onToggle={toggleSaved} />
       </Photo>
       <div style={{ padding: 16 }}>
@@ -412,18 +459,22 @@ function JoinGameCard({
           <span style={{ fontWeight: 700, fontSize: 15, color: game.priceCents ? colors.text : colors.greenText }}>
             {formatPrice(game.priceCents)}
           </span>
-          <div onClick={(e) => e.stopPropagation()}>
-            <Button variant={ctaVariant} disabled={busy} onClick={onPrimaryAction} style={ctaStyle}>
-              {busy ? "Joining…" : ctaLabel}
-            </Button>
+          <div className="stretched-link-above">
+            {comingSoon ? (
+              <Button disabled={notifyBusy || notifySubscribed} onClick={handleNotifyMe} style={ctaStyle}>
+                {notifySubscribed ? "We'll let you know" : notifyBusy ? "Setting up…" : "Notify me"}
+              </Button>
+            ) : (
+              <Button variant={ctaVariant} disabled={busy} onClick={onPrimaryAction} style={ctaStyle}>
+                {busy ? "Joining…" : ctaLabel}
+              </Button>
+            )}
           </div>
         </div>
         {full && !joinedByMe && (
           <button
-            onClick={(e) => {
-              e.stopPropagation();
-              onFindSimilar();
-            }}
+            onClick={onFindSimilar}
+            className="stretched-link-above"
             style={{ display: "block", width: "100%", textAlign: "right", background: "none", border: "none", padding: "8px 0 0", cursor: "pointer", fontSize: 12.5, fontWeight: 700, color: colors.muted }}
           >
             Find similar

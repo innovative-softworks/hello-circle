@@ -2,7 +2,7 @@ import { useNavigate } from "react-router-dom";
 import { TreeIconSmall } from "./icons";
 import { Photo } from "./Photo";
 import { SaveButton, useSavedState } from "./SaveButton";
-import { Button } from "./ui";
+import { Button, CardLink } from "./ui";
 import { cardImageRatio, colors, placeholderStripes } from "../theme";
 import type { ExperienceSearchResult } from "../types";
 import { formatPrice } from "../formatters";
@@ -18,15 +18,15 @@ import { formatPrice } from "../formatters";
 export function ExperienceSearchCard({ e }: { e: ExperienceSearchResult }) {
   const navigate = useNavigate();
   const [fav, toggleFav] = useSavedState("experience", e.id);
-  const open = () => navigate(`/${e.kind === "adventure" ? "adventures" : "experiences"}/${e.id}`);
+  const href = `/${e.kind === "adventure" ? "adventures" : "experiences"}/${e.id}`;
   // Same per-kind CTA verb ExperienceDetail.tsx's own booking button uses.
   const registerLabel = e.kind === "adventure" ? "Book this adventure" : "Register for this experience";
   return (
     <div
-      onClick={open}
       className="card-hover card-surface"
-      style={{ cursor: "pointer", background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 18, overflow: "hidden" }}
+      style={{ position: "relative", background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 18, overflow: "hidden" }}
     >
+      <CardLink to={href} label={e.title} />
       <Photo
         src={e.imageUrl || undefined}
         alt={e.title}
@@ -58,8 +58,8 @@ export function ExperienceSearchCard({ e }: { e: ExperienceSearchResult }) {
           <span style={{ fontWeight: 700, fontSize: 15, whiteSpace: "nowrap" }}>{formatPrice(e.priceCents)}</span>
         </div>
         <p style={{ margin: "0 0 12px", color: colors.mutedLight, fontSize: 14 }}>{e.area}{e.area && e.county ? ", " : ""}{e.county}</p>
-        <div onClick={(ev) => ev.stopPropagation()}>
-          <Button style={{ width: "100%", fontSize: 13 }} onClick={open}>
+        <div className="stretched-link-above">
+          <Button style={{ width: "100%", fontSize: 13 }} onClick={() => navigate(href)}>
             {registerLabel}
           </Button>
         </div>

@@ -1,9 +1,8 @@
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
 import { fetchHostProfile } from "../api";
 import { AwardIcon, CheckIcon } from "./icons";
-import { Avatar, Card } from "./ui";
-import { colors, fonts, radius } from "../theme";
+import { Avatar, Card, RouteLinkButton } from "./ui";
+import { colors, fonts } from "../theme";
 import type { Circle, HostProfile } from "../types";
 
 // Right-rail About card (reference §24-25) — short description, real
@@ -16,7 +15,6 @@ import type { Circle, HostProfile } from "../types";
 // (CircleOrganiserCard) — no "member since"/fabricated portrait photo.
 
 export function CircleAboutCard({ circle }: { circle: Circle }) {
-  const navigate = useNavigate();
   const [profile, setProfile] = useState<HostProfile | null>(null);
 
   useEffect(() => {
@@ -65,12 +63,9 @@ export function CircleAboutCard({ circle }: { circle: Circle }) {
             </div>
           </div>
           {circle.hostVerified && (
-            <button
-              onClick={() => navigate(`/host/${circle.createdByResidentId}`)}
-              style={{ marginTop: 10, background: "none", border: `1px solid ${colors.borderStrong}`, borderRadius: radius.control, padding: "8px 14px", fontSize: 13, fontWeight: 700, color: colors.text, cursor: "pointer", width: "100%" }}
-            >
+            <RouteLinkButton variant="ghost" to={`/host/${circle.createdByResidentId}`} style={{ marginTop: 10, width: "100%" }}>
               View profile
-            </button>
+            </RouteLinkButton>
           )}
         </div>
       )}

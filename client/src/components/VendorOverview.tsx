@@ -1,12 +1,11 @@
-import { useEffect, useState } from "react";
-import { fetchVendorToday } from "../api";
 import { BallIcon, BuildingIcon, CalendarIcon, ChatIcon, CheckIcon, EyeIcon, LightbulbIcon } from "./icons";
-import { ManageCard as Card, EmptyState, KpiHero, KpiStrip, StatTile } from "./ui";
+import { Button, ManageCard as Card, EmptyState, KpiHero, KpiStrip, StatTile } from "./ui";
 import { CommunityIllustration } from "./illustrations";
-import { VendorAttentionPanel, type AttentionTargetTab } from "./VendorAttention";
-import { VendorScheduleTab } from "./VendorPrograms";
+import { VendorAttentionPanel } from "./VendorAttention";
+import { VendorNextUpHero, VendorUpcomingList } from "./VendorOverviewCards";
+import { manageTargetFor, type VendorScheduleNavTarget } from "../vendorSchedule";
 import { colors, fonts, radius } from "../theme";
-import type { VendorListingSummary, VendorStats, VendorToday } from "../types";
+import type { VendorListingSummary, VendorScheduleItem, VendorStats } from "../types";
 
 // The Overview tab (KPI row, same-day summary, engagement tips) — split
 // out of the original single VendorDashboard.tsx (see CLAUDE.md).
@@ -50,35 +49,73 @@ function TipsPanel() {
   );
 }
 
-// At-a-glance landing tab — the KPI row (moved here from the top-of-page
-// header, which used to render it unconditionally on every tab), a
-// same-day summary of hall bookings + club sessions (GET /vendor/today),
-// the standalone Schedule tab's own Today/Upcoming (program sessions), and
-// a static engagement-tips panel.
+// At-a-glance landing tab — a "Needs your attention" panel, a cross-
+// listing-type Next Up hero + Coming up list (GET /vendor/schedule-items,
+// Vendor Experience Polish — superseded the old Centre/Club-only "Today"
+// card and the Program-only Schedule tab that used to be embedded here too;
+// the full multi-view schedule now lives only in its own Calendar tab), the
+// KPI row (moved here from the top-of-page header, which used to render it
+// unconditionally on every tab), and a static engagement-tips panel.
 export function VendorOverviewTab({
   stats,
   unreadCount,
   listings,
+  items,
+  itemsError,
   onNavigateTab,
 }: {
   stats: VendorStats;
   unreadCount: number;
   listings: { centres: VendorListingSummary[]; clubs: VendorListingSummary[] };
-  onNavigateTab: (tab: AttentionTargetTab) => void;
+  // Vendor Experience Polish — GET /vendor/schedule-items, fetched once by
+  // VendorDashboard.tsx (which also needs it for the banner's weekly
+  // summary) and passed down here rather than fetched again — avoids a
+  // duplicate/racy second request for the same data.
+  items: VendorScheduleItem[] | null;
+  itemsError: boolean;
+  onNavigateTab: (tab: VendorScheduleNavTarget) => void;
 }) {
-  const [today, setToday] = useState<VendorToday | null>(null);
-  const [todayError, setTodayError] = useState(false);
-  useEffect(() => {
-    fetchVendorToday()
-      .then(setToday)
-      .catch(() => setTodayError(true));
-  }, []);
-
-  const nothingToday = today !== null && today.bookings.length === 0 && today.clubSessions.length === 0;
+  const [nextItem, ...restItems] = items ?? [];
 
   return (
     <div className="fade-panel" style={{ display: "flex", flexDirection: "column", gap: 24 }}>
       <VendorAttentionPanel listings={listings} unreadCount={unreadCount} onNavigateTab={onNavigateTab} />
+
+      {itemsError ? (
+        <Card>
+          <p style={{ fontSize: 13, color: colors.orangeDark, margin: 0 }}>Couldn't load your upcoming schedule — try refreshing.</p>
+        </Card>
+      ) : items === null ? (
+        <Card>
+          <p style={{ fontSize: 13, color: colors.faint, margin: 0 }}>Loading…</p>
+        </Card>
+      ) : nextItem ? (
+        <>
+          <VendorNextUpHero item={nextItem} onManage={() => onNavigateTab(manageTargetFor(nextItem))} />
+          {restItems.length > 0 && (
+            <div>
+              <h4 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 15, margin: "0 0 10px" }}>Coming up</h4>
+              <VendorUpcomingList items={restItems.slice(0, 8)} onManage={(item) => onNavigateTab(manageTargetFor(item))} />
+            </div>
+          )}
+        </>
+      ) : (
+        <Card>
+          <EmptyState
+            icon={<CalendarIcon size={22} />}
+            title="Nothing scheduled yet."
+            subtitle="Your upcoming bookings, sessions and activities will appear here."
+            action={
+              stats.centresLive + stats.clubsLive === 0 ? (
+                <Button variant="ghost" onClick={() => onNavigateTab("listings")}>
+                  Set up your first listing →
+                </Button>
+              ) : undefined
+            }
+          />
+        </Card>
+      )}
+
       <KpiStrip
         marginBottom={0}
         hero={
@@ -90,32 +127,6 @@ export function VendorOverviewTab({
         <StatTile icon={<EyeIcon size={19} />} value={stats.totalViews} label="Total views" sublabel="All time" sublabelColor={colors.mutedLight} />
         <StatTile icon={<ChatIcon size={19} />} value={unreadCount} label="Unread messages" sublabel="From users" sublabelColor={colors.mutedLight} />
       </KpiStrip>
-      <Card>
-        <h4 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 16, margin: "0 0 14px" }}>Today — hall bookings &amp; club sessions</h4>
-        {todayError ? (
-          <p style={{ fontSize: 13, color: colors.orangeDark }}>Couldn't load today's activity — try refreshing.</p>
-        ) : today === null ? (
-          <p style={{ fontSize: 13, color: colors.faint }}>Loading…</p>
-        ) : nothingToday ? (
-          <EmptyState icon={<CalendarIcon size={22} />} title="Nothing on today" />
-        ) : (
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {today.bookings.map((b) => (
-              <div key={b.ref} style={{ display: "flex", justifyContent: "space-between", background: colors.greenBg, borderRadius: radius.control, padding: "10px 14px", fontSize: 13.5 }}>
-                <span><strong>{b.time}</strong> · {b.centreName} — {b.name}</span>
-                <span>{b.guests} guests</span>
-              </div>
-            ))}
-            {today.clubSessions.map((s) => (
-              <div key={s.id} style={{ display: "flex", justifyContent: "space-between", background: colors.orangeBg, borderRadius: radius.control, padding: "10px 14px", fontSize: 13.5 }}>
-                <span><strong>{s.time}</strong> · {s.clubName}{s.label ? ` — ${s.label}` : ""}</span>
-                <span>{s.instructorName || (s.capacity ? `cap ${s.capacity}` : "")}</span>
-              </div>
-            ))}
-          </div>
-        )}
-      </Card>
-      <VendorScheduleTab />
       <TipsPanel />
     </div>
   );

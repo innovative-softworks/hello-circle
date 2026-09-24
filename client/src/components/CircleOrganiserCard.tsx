@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link } from "react-router-dom";
 import { fetchHostProfile } from "../api";
 import { AwardIcon, StarIcon } from "./icons";
 import { Avatar } from "./ui";
@@ -10,13 +10,12 @@ import type { Circle, HostProfile } from "../types";
 // editorial ~40/60 layout with a large avatar mark instead of a small
 // sidebar-card row. Same real-stats-only stance as before: gamesHostedTotal/
 // circles.length/rating/reviews/bio come from the existing host-profile
-// endpoint. No "member since"/"show-up rate" — neither exists anywhere in
-// this app. No fabricated portrait photo either — residents have no photo
-// field in this app's data model, so a large Avatar (initials) mark is the
-// honest equivalent of the reference's "large portrait."
+// endpoint, which also carries the resident's own avatarUrl (Image Upload
+// Coverage audit: this was already being fetched here but never rendered —
+// Avatar falls back to initials on its own when there's none, so passing
+// it through is a pure win, not a new requirement).
 
 export function CircleOrganiserCard({ circle }: { circle: Circle }) {
-  const navigate = useNavigate();
   const [profile, setProfile] = useState<HostProfile | null>(null);
 
   useEffect(() => {
@@ -31,7 +30,7 @@ export function CircleOrganiserCard({ circle }: { circle: Circle }) {
   return (
     <div className="grid-responsive" style={{ display: "grid", gridTemplateColumns: "5fr 7fr", gap: 40, alignItems: "center" }}>
       <div style={{ width: 160, height: 160, borderRadius: "50%", overflow: "hidden" }}>
-        <Avatar name={circle.hostName} size={160} />
+        <Avatar name={circle.hostName} size={160} src={profile?.avatarUrl} />
       </div>
       <div>
         <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 4 }}>
@@ -67,12 +66,12 @@ export function CircleOrganiserCard({ circle }: { circle: Circle }) {
         )}
         {profile?.bio && <p style={{ margin: "0 0 14px", fontSize: 14.5, color: "#3B423C", lineHeight: 1.6, maxWidth: 480 }}>{profile.bio}</p>}
         {circle.hostVerified && (
-          <button
-            onClick={() => navigate(`/host/${circle.createdByResidentId}`)}
-            style={{ background: "none", border: "none", padding: 0, fontSize: 13.5, fontWeight: 700, color: colors.text, cursor: "pointer" }}
+          <Link
+            to={`/host/${circle.createdByResidentId}`}
+            style={{ display: "inline-block", fontSize: 13.5, fontWeight: 700, color: colors.text, cursor: "pointer", textDecoration: "none" }}
           >
             View profile →
-          </button>
+          </Link>
         )}
       </div>
     </div>

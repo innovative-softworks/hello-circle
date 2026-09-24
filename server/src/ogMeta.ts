@@ -35,8 +35,13 @@ export interface OgMeta {
   /** Defaults to `noindex, nofollow` in injectOgTags when omitted — same
    * "fail closed" posture as client/src/App.tsx's LAUNCH_GATE_ENABLED, so a
    * route nobody explicitly marked indexable stays out of search results by
-   * default instead of silently becoming crawlable. Only resolveMarketingOgMeta
-   * currently sets this to "index, follow". */
+   * default instead of silently becoming crawlable. Every genuinely public
+   * resolveOgMeta branch (approved Centre/Club/Experience/Program, published
+   * Program, public Activity, open Circle, verified Host, approved Provider,
+   * local SEO landing pages) and resolveMarketingOgMeta set this explicitly
+   * to "index, follow"; private/restricted/stub branches (invite-only
+   * Circle, non-public Activity) and defaultOgMeta deliberately omit it so
+   * they fall through to the noindex default. */
   robots?: "index, follow" | "noindex, nofollow";
 }
 
@@ -56,6 +61,21 @@ const RESERVED_FIRST_SEGMENTS = new Set([
 function truncate(text: string, max: number): string {
   const clean = text.replace(/\s+/g, " ").trim();
   return clean.length > max ? `${clean.slice(0, max - 1)}…` : clean;
+}
+
+/** SEO Phase 8 — Event JSON-LD's endDate, computed only when a real
+ * duration is set (most games have no duration_minutes at all). Mirrors
+ * startDate's own naive `${date}T${time}` format (no timezone offset) rather
+ * than reaching for irelandTime.ts's DST-aware conversion — that would make
+ * endDate more "correct" than startDate immediately above it in the same
+ * object, which is a worse inconsistency than the pre-existing format. */
+function eventEndDate(date: string | null | undefined, time: string | null | undefined, durationMinutes: number | null | undefined): string | null {
+  if (!durationMinutes || !date || !time) return null;
+  const start = new Date(`${date}T${time}`);
+  if (Number.isNaN(start.getTime())) return null;
+  const end = new Date(start.getTime() + durationMinutes * 60000);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${end.getFullYear()}-${pad(end.getMonth() + 1)}-${pad(end.getDate())}T${pad(end.getHours())}:${pad(end.getMinutes())}`;
 }
 
 // Same copy as client/index.html's static <title>/description — kept in
@@ -117,6 +137,58 @@ export function resolveMarketingOgMeta(pathName: string): OgMeta | null {
   return { title: page.title, description: page.description, image: page.image, jsonLd: page.jsonLd, url: `${CLIENT_URL}${pathName}`, robots: "index, follow" };
 }
 
+// SEO Phase 7/10 — every one of these is a STATIC_SITEMAP_PATHS entry (see
+// generateSitemapUrls below), i.e. already submitted to Google as a "static
+// high-value route" once the site launches. None of them matches
+// ROUTE_PATTERN (they're list/browse pages, not entity detail pages) or
+// MARKETING_PAGES above, so — before this — every one of them fell straight
+// through resolveOgMeta and resolveMarketingOgMeta to defaultOgMeta's
+// noindex fallback. That meant the app's actual core discovery surfaces
+// (Explore, Browse, Games, Circles, Adventures, Experiences, and the
+// consumer Home page at /home) would have stayed permanently out of the
+// index even after a real launch — the exact "Do not accidentally noindex"
+// failure Phase 10 calls out, just for list pages instead of detail pages.
+const STATIC_DISCOVERY_PAGES: Record<string, { title: string; description: string }> = {
+  "/home": {
+    title: "HelloCircle — book a hall, join a club, or start a Circle",
+    description: "Browse community centres, sports clubs, pickup sessions, and recurring Circles across Ireland, all in one place.",
+  },
+  "/explore": {
+    title: "Explore what's on near you — HelloCircle",
+    description: "Discover community centres, sports clubs, sessions, and Circles happening across Ireland right now.",
+  },
+  "/browse/centres": {
+    title: "Community centres in Ireland — HelloCircle",
+    description: "Browse and book halls, rooms, and community centres across Ireland.",
+  },
+  "/browse/clubs": {
+    title: "Sports clubs in Ireland — HelloCircle",
+    description: "Browse and register with sports clubs for kids and adults across Ireland.",
+  },
+  "/games": {
+    title: "Join a pickup session — HelloCircle",
+    description: "Find and join casual pickup sessions and one-off activities happening near you in Ireland.",
+  },
+  "/circles": {
+    title: "Circles — recurring groups near you — HelloCircle",
+    description: "Join or start a recurring Circle around a shared activity, from running clubs to book groups, across Ireland.",
+  },
+  "/adventures": {
+    title: "Adventures across Ireland — HelloCircle",
+    description: "Book guided adventures and outdoor experiences across Ireland.",
+  },
+  "/experiences": {
+    title: "Experiences across Ireland — HelloCircle",
+    description: "Book classes, workshops, and one-off experiences across Ireland.",
+  },
+};
+
+export function resolveStaticDiscoveryOgMeta(pathName: string): OgMeta | null {
+  const page = STATIC_DISCOVERY_PAGES[pathName];
+  if (!page) return null;
+  return { title: page.title, description: page.description, url: `${CLIENT_URL}${pathName}`, robots: "index, follow" };
+}
+
 // Plural ogMeta route kind -> singular getShareData/ShareEntityType kind —
 // both name the same 9 entities, just spelled differently (this file's
 // ROUTE_PATTERN segments read as URL path plurals; sharing.ts's
@@ -142,6 +214,19 @@ function cardImageUrl(kind: string, idOrSlug: string): string {
   return `${CLIENT_URL}/api/share/${SHARE_KIND[kind] ?? kind}/${encodeURIComponent(idOrSlug)}/card.png`;
 }
 
+/** SEO audit Phase 2 — lets the catch-all handler in index.ts tell "this
+ * path looks like an entity-detail URL (/centres/:id etc), but
+ * resolveOgMeta() came back null because that specific id/slug genuinely
+ * doesn't exist" (a real 404) apart from "this path was never an entity
+ * route in the first place" (e.g. /manage, /profile — always 200, the SPA
+ * decides what to render). Deliberately does NOT cover the local landing
+ * pages (/:county/:activity) — those have their own established, honest
+ * "zero real inventory for this county" page state (Phase 11 says
+ * preserve it untouched), not a 404 case. */
+export function isEntityDetailRoute(pathName: string): boolean {
+  return ROUTE_PATTERN.test(pathName);
+}
+
 export async function resolveOgMeta(pathName: string, viewerResidentId: string | null = null): Promise<OgMeta | null> {
   const match = pathName.match(ROUTE_PATTERN);
   if (!match) return resolveLocalLandingOgMeta(pathName);
@@ -149,77 +234,118 @@ export async function resolveOgMeta(pathName: string, viewerResidentId: string |
   const url = `${CLIENT_URL}${pathName}`;
   const cardImage = cardImageUrl(kind, idOrSlug);
 
+  // SEO Phase 7 — canonical cleanup. Every slug-bearing kind's own query
+  // matches `slug = ? OR id = ?`, so /centres/{real-slug} and
+  // /centres/{raw-uuid} both resolve to the identical page — without this,
+  // `url` above (built from the raw request path) would put a *different*
+  // <link rel="canonical">/og:url/JSON-LD url on each of those two URLs,
+  // which is close to the textbook definition of duplicate content in
+  // Google's eyes. `canonicalPath(row.slug)` always prefers the real slug
+  // when the row has one, regardless of which variant was actually
+  // requested, so both URLs converge on one canonical target.
+  const canonicalPath = (slug: string | null | undefined) => `${CLIENT_URL}/${kind}/${slug || idOrSlug}`;
+
   if (kind === "centres") {
-    const row = (await db.prepare(`SELECT name, blurb, image_url, area, county FROM centres WHERE (slug = ? OR id = ?) AND status = 'approved'`).get(idOrSlug, idOrSlug)) as
-      | { name: string; blurb: string; image_url: string; area: string; county: string }
+    const row = (await db.prepare(`SELECT name, blurb, image_url, area, county, slug FROM centres WHERE (slug = ? OR id = ?) AND status = 'approved'`).get(idOrSlug, idOrSlug)) as
+      | { name: string; blurb: string; image_url: string; area: string; county: string; slug: string | null }
       | undefined;
     if (!row) return null;
+    const canonicalUrl = canonicalPath(row.slug);
     return {
       title: `${row.name} — HelloCircle`,
       description: truncate(row.blurb, 200),
       image: cardImage,
-      url,
+      url: canonicalUrl,
+      robots: "index, follow",
       jsonLd: {
         "@context": "https://schema.org",
         "@type": "LocalBusiness",
         name: row.name,
         description: truncate(row.blurb, 300),
         image: row.image_url || undefined,
-        url,
+        url: canonicalUrl,
         address: { "@type": "PostalAddress", addressLocality: row.area, addressRegion: row.county, addressCountry: "IE" },
       },
     };
   }
 
   if (kind === "clubs") {
-    const row = (await db.prepare(`SELECT name, blurb, image_url, area, county FROM clubs WHERE (slug = ? OR id = ?) AND status = 'approved'`).get(idOrSlug, idOrSlug)) as
-      | { name: string; blurb: string; image_url: string; area: string; county: string }
+    const row = (await db.prepare(`SELECT name, blurb, image_url, area, county, slug FROM clubs WHERE (slug = ? OR id = ?) AND status = 'approved'`).get(idOrSlug, idOrSlug)) as
+      | { name: string; blurb: string; image_url: string; area: string; county: string; slug: string | null }
       | undefined;
     if (!row) return null;
+    const canonicalUrl = canonicalPath(row.slug);
     return {
       title: `${row.name} — HelloCircle`,
       description: truncate(row.blurb, 200),
       image: cardImage,
-      url,
+      url: canonicalUrl,
+      robots: "index, follow",
       jsonLd: {
         "@context": "https://schema.org",
-        "@type": "LocalBusiness",
+        // SEO Phase 8 — audited against generic LocalBusiness. A sports
+        // club is a real, more specific schema.org LocalBusiness subtype
+        // (SportsActivityLocation, "a sports location, such as a playing
+        // field") — more accurate than the generic type, and Google's rich
+        // results treat a more specific applicable subtype as strictly
+        // better, never worse, than the generic ancestor. Centre keeps
+        // plain LocalBusiness above: "a community centre with rentable
+        // rooms" has no closer-fitting subtype in schema.org's vocabulary.
+        "@type": "SportsActivityLocation",
         name: row.name,
         description: truncate(row.blurb, 300),
         image: row.image_url || undefined,
-        url,
+        url: canonicalUrl,
         address: { "@type": "PostalAddress", addressLocality: row.area, addressRegion: row.county, addressCountry: "IE" },
       },
     };
   }
 
   if (kind === "circles") {
-    const row = (await db.prepare(`SELECT name, about, activity_label as activityLabel FROM circles WHERE (slug = ? OR id = ?) AND status = 'active'`).get(idOrSlug, idOrSlug)) as
-      | { name: string; about: string; activityLabel: string }
-      | undefined;
+    const row = (await db
+      .prepare(`SELECT name, about, activity_label as activityLabel, join_mode as joinMode, slug FROM circles WHERE (slug = ? OR id = ?) AND status = 'active'`)
+      .get(idOrSlug, idOrSlug)) as { name: string; about: string; activityLabel: string; joinMode: "open" | "approval" | "invite"; slug: string | null } | undefined;
     if (!row) return null;
+
+    // Media plan Task 2 closed this leak in the JSON API responses and in
+    // getShareData()/the share-card image above — this raw `<head>` HTML
+    // (sent to every requester, crawlers included, with no session/viewer
+    // concept at all) had the identical gap independently: the real
+    // name/about was always in the page source regardless of join_mode.
+    // No viewer check possible/meaningful here (unauthenticated HTML), so
+    // a non-open Circle always gets the generic stub, unconditionally.
+    if (row.joinMode !== "open") {
+      return {
+        title: "Private Circle — HelloCircle",
+        description: "This Circle is only visible to its members.",
+        url,
+      };
+    }
+
+    const canonicalUrl = canonicalPath(row.slug);
     const description = row.about || `A ${row.activityLabel || "local"} Circle on HelloCircle.`;
     return {
       title: `${row.name} — HelloCircle`,
       description: truncate(description, 200),
       image: cardImage,
-      url,
+      url: canonicalUrl,
+      robots: "index, follow",
       // Organization, not Event — a Circle is a persistent group, not a
       // single dated occurrence (its next session is a Game, which gets its
       // own Event markup on its own detail page).
-      jsonLd: { "@context": "https://schema.org", "@type": "Organization", name: row.name, description: truncate(description, 300), url },
+      jsonLd: { "@context": "https://schema.org", "@type": "Organization", name: row.name, description: truncate(description, 300), url: canonicalUrl },
     };
   }
 
   if (kind === "experiences" || kind === "adventures") {
-    const row = (await db.prepare(`SELECT title, blurb, image_url FROM experiences WHERE (slug = ? OR id = ?) AND status = 'approved'`).get(idOrSlug, idOrSlug)) as
-      | { title: string; blurb: string; image_url: string }
+    const row = (await db.prepare(`SELECT title, blurb, image_url, slug FROM experiences WHERE (slug = ? OR id = ?) AND status = 'approved'`).get(idOrSlug, idOrSlug)) as
+      | { title: string; blurb: string; image_url: string; slug: string | null }
       | undefined;
     if (!row) return null;
     // No JSON-LD here — the fields resolveOgMeta already fetches for
     // experiences/adventures (title/blurb/image only) don't include a date,
     // and Event/Product markup without one would be worse than none.
-    return { title: `${row.title} — HelloCircle`, description: truncate(row.blurb, 200), image: cardImage, url };
+    return { title: `${row.title} — HelloCircle`, description: truncate(row.blurb, 200), image: cardImage, url: canonicalPath(row.slug), robots: "index, follow" };
   }
 
   if (kind === "programs") {
@@ -227,7 +353,7 @@ export async function resolveOgMeta(pathName: string, viewerResidentId: string |
       | { title: string; description: string; image_url: string }
       | undefined;
     if (!row) return null;
-    return { title: `${row.title} — HelloCircle`, description: truncate(row.description, 200), image: cardImage, url };
+    return { title: `${row.title} — HelloCircle`, description: truncate(row.description, 200), image: cardImage, url, robots: "index, follow" };
   }
 
   if (kind === "host") {
@@ -238,6 +364,7 @@ export async function resolveOgMeta(pathName: string, viewerResidentId: string |
       description: truncate(row.bio || `See what ${row.name} is hosting on HelloCircle.`, 200),
       image: cardImage,
       url,
+      robots: "index, follow",
       jsonLd: { "@context": "https://schema.org", "@type": "Person", name: row.name, description: truncate(row.bio || "", 300), url },
     };
   }
@@ -248,7 +375,13 @@ export async function resolveOgMeta(pathName: string, viewerResidentId: string |
       | undefined;
     if (!row) return null;
     const displayName = row.businessName || row.name;
-    return { title: `${displayName} — HelloCircle`, description: truncate(row.description || `See what's on with ${displayName} on HelloCircle.`, 200), image: cardImage, url };
+    return {
+      title: `${displayName} — HelloCircle`,
+      description: truncate(row.description || `See what's on with ${displayName} on HelloCircle.`, 200),
+      image: cardImage,
+      url,
+      robots: "index, follow",
+    };
   }
 
   if (kind === "games") {
@@ -264,19 +397,70 @@ export async function resolveOgMeta(pathName: string, viewerResidentId: string |
     if (data.privacy !== "public") {
       return { title: `${data.title} — HelloCircle`, description: data.description, image: cardImage, url };
     }
+    // Lifecycle §59 — a cancelled Activity gets its own real, indexable
+    // page (sharing.ts's getShareData no longer 404s it) with an honest
+    // `EventCancelled` status, never the generic "book now" shape below —
+    // no `offers` block at all (there's nothing to book), matching §59's
+    // "do not fabricate" instruction rather than emitting a Cancelled event
+    // that still advertises a price/availability.
+    if (data.cancelled) {
+      return {
+        title: `${data.title} — HelloCircle`,
+        description: truncate(data.description, 200),
+        image: cardImage,
+        url,
+        robots: "index, follow",
+        jsonLd: {
+          "@context": "https://schema.org",
+          "@type": "Event",
+          name: data.title,
+          startDate: data.date && data.time ? `${data.date}T${data.time}` : undefined,
+          eventAttendanceMode: "https://schema.org/OfflineEventAttendanceMode",
+          eventStatus: "https://schema.org/EventCancelled",
+          location: { "@type": "Place", name: data.location || "Location to be confirmed" },
+          url,
+        },
+      };
+    }
+    // SEO Phase 8 — Event JSON-LD completion, real data only. endDate is
+    // computed only when duration_minutes is actually set on the game (most
+    // aren't — no fabricated duration); offers/geo are similarly omitted
+    // outright rather than filled with a placeholder when the underlying
+    // value is missing (no centre, no lat/lng). Real regardless of
+    // lifecycle — a Coming Soon activity's date/time/location are already
+    // collected at creation, so §55's "do not add fake Event structured
+    // data" doesn't apply here the way it does for e.g. Experiences (which
+    // never collect a date at all until booked).
+    const startDate = `${data.date}T${data.time}`;
+    const endDate = eventEndDate(data.date, data.time, data.durationMinutes);
+    const spotsLeft = typeof data.capacity === "number" ? Math.max(0, data.capacity - (data.interestedCount ?? 0)) : null;
     return {
       title: `${data.title} — HelloCircle`,
       description: truncate(data.description, 200),
       image: cardImage,
       url,
+      robots: "index, follow",
       jsonLd: {
         "@context": "https://schema.org",
         "@type": "Event",
         name: data.title,
-        startDate: `${data.date}T${data.time}`,
+        startDate,
+        ...(endDate ? { endDate } : {}),
         eventAttendanceMode: "https://schema.org/OfflineEventAttendanceMode",
         eventStatus: "https://schema.org/EventScheduled",
-        location: { "@type": "Place", name: data.location || "Location to be confirmed" },
+        location: {
+          "@type": "Place",
+          name: data.location || "Location to be confirmed",
+          ...(data.lat != null && data.lng != null ? { geo: { "@type": "GeoCoordinates", latitude: data.lat, longitude: data.lng } } : {}),
+        },
+        organizer: data.host ? { "@type": "Person", name: data.host.name } : undefined,
+        offers: {
+          "@type": "Offer",
+          price: ((data.priceCents ?? 0) / 100).toFixed(2),
+          priceCurrency: "EUR",
+          availability: spotsLeft === null || spotsLeft > 0 ? "https://schema.org/InStock" : "https://schema.org/SoldOut",
+          url,
+        },
         url,
       },
     };
@@ -317,7 +501,7 @@ async function resolveLocalLandingOgMeta(pathName: string): Promise<OgMeta | nul
     count > 0
       ? `${count} ${activityQuery} ${count === 1 ? "activity" : "activities"} in ${centre.county} — join one or start your own on HelloCircle.`
       : `Nothing scheduled for ${activityQuery} in ${centre.county} yet — be the first to start one on HelloCircle.`;
-  return { title, description: truncate(description, 200), url: `${CLIENT_URL}${pathName}` };
+  return { title, description: truncate(description, 200), url: `${CLIENT_URL}${pathName}`, robots: "index, follow" };
 }
 
 function escapeHtml(text: string): string {
@@ -343,6 +527,11 @@ export function injectOgTags(html: string, meta: OgMeta): string {
     `<meta name="twitter:card" content="${meta.image ? "summary_large_image" : "summary"}" />`,
     `<meta name="twitter:title" content="${escapeHtml(meta.title)}" />`,
     `<meta name="twitter:description" content="${escapeHtml(meta.description)}" />`,
+    // SEO Phase 14 — Twitter's crawler falls back to og:image when this is
+    // absent, but that's undocumented-enough behavior to not rely on;
+    // emitting it explicitly costs nothing since meta.image is already
+    // resolved for the og:image tag two lines above.
+    meta.image ? `<meta name="twitter:image" content="${escapeHtml(meta.image)}" />` : "",
     // JSON.stringify does not escape "<" — a vendor blurb or a resident-set
     // Game activity_label containing "</script><script>..." would otherwise
     // close this tag early and execute as real markup for anyone hitting the
@@ -379,15 +568,22 @@ export async function generateSitemapUrls(): Promise<string[]> {
   const [centres, clubs, circles, experiences, programs, hosts, providers, games, localPages] = await Promise.all([
     db.prepare(`SELECT COALESCE(slug, id) as slug FROM centres WHERE status = 'approved'`).all() as Promise<{ slug: string }[]>,
     db.prepare(`SELECT COALESCE(slug, id) as slug FROM clubs WHERE status = 'approved'`).all() as Promise<{ slug: string }[]>,
-    db.prepare(`SELECT COALESCE(slug, id) as slug FROM circles WHERE status = 'active'`).all() as Promise<{ slug: string }[]>,
+    // 'open'-only — same reasoning as the games query below: an approval/
+    // invite Circle must never end up in a crawlable public sitemap (Media
+    // plan Task 2 closed this same leak in the Circle JSON responses
+    // themselves; this query had the identical gap independently).
+    db.prepare(`SELECT COALESCE(slug, id) as slug FROM circles WHERE status = 'active' AND join_mode = 'open'`).all() as Promise<{ slug: string }[]>,
     db.prepare(`SELECT COALESCE(slug, id) as slug FROM experiences WHERE status = 'approved'`).all() as Promise<{ slug: string }[]>,
     db.prepare(`SELECT id FROM programs WHERE status = 'published'`).all() as Promise<{ id: string }[]>,
     db.prepare(`SELECT id FROM residents WHERE host_status = 'verified'`).all() as Promise<{ id: string }[]>,
     db.prepare(`SELECT id FROM users WHERE role = 'vendor' AND status = 'approved'`).all() as Promise<{ id: string }[]>,
     // 'public'-only — a circle-only/invite-only game must never end up in a
     // crawlable public sitemap (Universal Sharing system §21/§22: privacy
-    // can't leak just because a link exists somewhere).
-    db.prepare(`SELECT id FROM games WHERE status IN ('open', 'pending_participants') AND date >= ? AND visibility = 'public'`).all(todayIso) as Promise<{ id: string }[]>,
+    // can't leak just because a link exists somewhere). `lifecycle != 'draft'`
+    // closes the same class of gap for the newer Publishing/Lifecycle system
+    // — `status` and `lifecycle` are independent columns, so a draft game
+    // could otherwise still have `status = 'open'` and leak into the sitemap.
+    db.prepare(`SELECT id FROM games WHERE status IN ('open', 'pending_participants') AND lifecycle != 'draft' AND date >= ? AND visibility = 'public'`).all(todayIso) as Promise<{ id: string }[]>,
     db
       .prepare(
         `SELECT DISTINCT c.county as county, g.activity_label as activityLabel

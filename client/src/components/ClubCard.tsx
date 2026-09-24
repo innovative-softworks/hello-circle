@@ -5,19 +5,19 @@ import { priceLabel } from "../priceLabel";
 import { BallIcon } from "./icons";
 import { Photo } from "./Photo";
 import { SaveButton, useSavedState } from "./SaveButton";
-import { Button } from "./ui";
+import { Button, CardLink } from "./ui";
 
 export function ClubCard({ club }: { club: Club }) {
   const navigate = useNavigate();
   const [fav, toggleFav] = useSavedState("club", club.id);
-  const open = () => navigate(`/clubs/${club.slug ?? club.id}`);
+  const href = `/clubs/${club.slug ?? club.id}`;
+  const open = () => navigate(href);
 
   return (
     <div
-      onClick={open}
       className="card-hover card-surface"
       style={{
-        cursor: "pointer",
+        position: "relative",
         background: colors.surface,
         border: `1px solid ${colors.border}`,
         borderRadius: 18,
@@ -26,6 +26,7 @@ export function ClubCard({ club }: { club: Club }) {
         flexDirection: "column",
       }}
     >
+      <CardLink to={href} label={club.name} />
       <Photo
         src={club.image}
         alt={club.name}
@@ -75,7 +76,7 @@ export function ClubCard({ club }: { club: Club }) {
           )}
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
             <span style={{ fontWeight: 700, fontSize: 15, color: colors.text }}>{priceLabel(club)}</span>
-            <div onClick={(e) => e.stopPropagation()}>
+            <div className="stretched-link-above">
               <Button variant="dark" style={{ padding: "8px 16px", fontSize: 13 }} onClick={open}>
                 {club.audience === "kids" ? "Register my child" : "Register"}
               </Button>

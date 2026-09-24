@@ -53,6 +53,12 @@ export function CentreEditor({
   onDirtyChange?: (dirty: boolean) => void;
 }) {
   const [form, setForm] = useState<CentreInput>(blankCentreInput());
+  // True only once the vendor picks/adjusts a location via AddressSearch in
+  // *this* editing session (Maps cost-control follow-up pass, review point
+  // #1) — `form.lat`/`form.lng` are pre-populated from the fetched centre on
+  // load, so saving any unrelated field (amenities, hours, ...) must not
+  // resend that pre-existing value as if it were a fresh confirmation.
+  const [locationConfirmed, setLocationConfirmed] = useState(false);
   const [amenitiesText, setAmenitiesText] = useState("");
   const [accessibilityText, setAccessibilityText] = useState("");
   const [saving, setSaving] = useState(false);
@@ -63,6 +69,7 @@ export function CentreEditor({
   useEffect(() => {
     fetchVendorCentre(centreId).then((c) => {
       setForm(centreToInput(c));
+      setLocationConfirmed(false);
       setAmenitiesText(c.amenities.join("\n"));
       setAccessibilityText(c.accessibility.join("\n"));
     });
@@ -91,7 +98,10 @@ export function CentreEditor({
     try {
       const amenities = amenitiesText.split("\n").map((s) => s.trim()).filter(Boolean);
       const accessibility = accessibilityText.split("\n").map((s) => s.trim()).filter(Boolean);
-      const updated = await updateVendorCentre(centreId, { ...form, amenities, accessibility });
+      // lat/lng omitted unless actually reconfirmed this session — see
+      // locationConfirmed's own comment.
+      const { lat, lng, ...formWithoutLocation } = form;
+      const updated = await updateVendorCentre(centreId, { ...formWithoutLocation, ...(locationConfirmed ? { lat, lng } : {}), amenities, accessibility });
       setSaved(true);
       onDirtyChange?.(false);
       onSaved(updated);
@@ -130,6 +140,7 @@ export function CentreEditor({
         <AddressSearch
           onSelect={(r) => {
             setForm((f) => ({ ...f, area: r.area || f.area, county: r.county || f.county, lat: r.lat, lng: r.lng }));
+            setLocationConfirmed(true);
             setFieldErrors([]);
             markDirty();
           }}
@@ -204,7 +215,9 @@ export function CentreEditor({
     </div>
   );
 
-  const photosField = <MultiImageUpload images={form.images ?? []} onChange={(images) => set("images", images)} />;
+  const photosField = (
+    <MultiImageUpload images={form.images ?? []} onChange={(images) => set("images", images)} mediaEntityType="centre-gallery" mediaEntityId={centreId} />
+  );
 
   const footer = (
     <>

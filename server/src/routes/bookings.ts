@@ -279,6 +279,7 @@ export async function createBookingInternal(input: CreateBookingInternalInput): 
       guestEmail: input.email,
       ref,
       detailsText: `${input.date} at ${input.time} · ${input.duration}h · ${input.guests} guests · €${(pricing.totalCents / 100).toFixed(2)} due in cash on arrival`,
+      residentId: input.residentId,
     }).catch((e) => console.error("[notifications] booking notify failed:", e));
     if (input.openSpots) await createGameFromOpenBooking(ref);
     if (input.residentId) await upgradeFavouriteStatus(input.residentId, "centre", centre.id);
@@ -373,8 +374,18 @@ bookingsRouter.get("/status/:ref", async (req, res) => {
     throw e;
   }
 
+  // Resident Experience Polish — Changeset 5. Previously this only ever
+  // returned {ref, paymentStatus, totalCents} — enough for PaymentSuccess.tsx's
+  // polling loop, not enough to answer "what did I just book?" once paid.
+  // Enriched in place rather than adding a second fetch: PaymentSuccess.tsx
+  // already stores the terminal poll response, so no extra round trip.
   const row = await db
-    .prepare(`SELECT ref, payment_status as paymentStatus, total_cents as totalCents FROM bookings WHERE ref = ? AND client_id = ?`)
+    .prepare(
+      `SELECT b.ref, b.payment_status as paymentStatus, b.total_cents as totalCents,
+              b.centre_id as centreId, c.name as centreName, r.name as roomName, b.date, b.time, b.duration, b.guests
+       FROM bookings b JOIN centres c ON c.id = b.centre_id LEFT JOIN rooms r ON r.id = b.room_id AND r.centre_id = b.centre_id
+       WHERE b.ref = ? AND b.client_id = ?`
+    )
     .get(req.params.ref, clientId);
   if (!row) return res.status(404).json({ error: "Booking not found" });
   res.json(row);
@@ -492,12 +503,12 @@ bookingsRouter.post("/:ref/cancel", lookupLimiter, async (req, res) => {
   const row = (await db
     .prepare(
       `SELECT b.ref, b.date, b.time, b.duration, b.guests, b.status, b.payment_status as paymentStatus,
-              b.name, b.email, b.centre_id as centreId, c.name as centreName, c.vendor_id as vendorId
+              b.name, b.email, b.centre_id as centreId, c.name as centreName, c.vendor_id as vendorId, b.resident_id as residentId
        FROM bookings b JOIN centres c ON c.id = b.centre_id
        WHERE b.ref = ? AND (b.client_id = ? OR LOWER(b.email) = LOWER(?))`
     )
     .get(req.params.ref, headerClientId ?? "", (email ?? "").trim())) as
-    | { ref: string; date: string; time: string; duration: number; guests: number; status: string; paymentStatus: string; name: string; email: string; centreId: string; centreName: string; vendorId: string | null }
+    | { ref: string; date: string; time: string; duration: number; guests: number; status: string; paymentStatus: string; name: string; email: string; centreId: string; centreName: string; vendorId: string | null; residentId: string | null }
     | undefined;
   if (!row) return res.status(404).json({ error: "Booking not found" });
   if (row.status === "cancelled") return res.status(409).json({ error: "This booking is already cancelled" });
@@ -525,6 +536,7 @@ bookingsRouter.post("/:ref/cancel", lookupLimiter, async (req, res) => {
     guestEmail: row.email,
     ref: row.ref,
     detailsText: `${row.date} at ${row.time} · ${row.duration}h · ${row.guests} guests`,
+    residentId: row.residentId,
   }).catch((e) => console.error("[notifications] booking cancellation notify failed:", e));
 
   res.json({ ok: true });
@@ -547,14 +559,14 @@ bookingsRouter.post("/:ref/reschedule", lookupLimiter, async (req, res) => {
   const row = (await db
     .prepare(
       `SELECT b.ref, b.date, b.time, b.duration, b.status, b.payment_status as paymentStatus, b.room_id as roomId,
-              b.name, b.email, b.centre_id as centreId, c.name as centreName, c.vendor_id as vendorId, c.opens_at as opensAt, c.closes_at as closesAt
+              b.name, b.email, b.centre_id as centreId, c.name as centreName, c.vendor_id as vendorId, c.opens_at as opensAt, c.closes_at as closesAt, b.resident_id as residentId
        FROM bookings b JOIN centres c ON c.id = b.centre_id
        WHERE b.ref = ? AND (b.client_id = ? OR LOWER(b.email) = LOWER(?))`
     )
     .get(req.params.ref, headerClientId ?? "", (email ?? "").trim())) as
     | {
         ref: string; date: string; time: string; duration: number; status: string; paymentStatus: string; roomId: string;
-        name: string; email: string; centreId: string; centreName: string; vendorId: string | null; opensAt: string; closesAt: string;
+        name: string; email: string; centreId: string; centreName: string; vendorId: string | null; opensAt: string; closesAt: string; residentId: string | null;
       }
     | undefined;
   if (!row) return res.status(404).json({ error: "Booking not found" });
@@ -619,6 +631,7 @@ bookingsRouter.post("/:ref/reschedule", lookupLimiter, async (req, res) => {
     guestEmail: row.email,
     ref: row.ref,
     detailsText: `Rescheduled to ${date} at ${time} (was ${row.date} at ${row.time})`,
+    residentId: row.residentId,
   }).catch((e) => console.error("[notifications] reschedule notify failed:", e));
 
   res.json({ ok: true, date, time });

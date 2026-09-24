@@ -14,6 +14,23 @@ import { isMember, isOrganiser } from "./circleHelpers.js";
 
 export const circlesRouter = Router();
 
+const JOIN_MODES = ["open", "approval", "invite"] as const;
+type JoinMode = (typeof JOIN_MODES)[number];
+
+// Circle Experience Polish — Changeset 1B. join_mode gates joining, not
+// reading, for an 'open' circle — matches the original design exactly, so
+// this stays a same-value passthrough there. For 'approval'/'invite',
+// full content (members/plan-ideas/polls/upcoming/activity/moments/
+// recent-activity) is member-only; a signed-out or non-member viewer gets
+// the reduced teaser shape from toCircleTeaserJson() instead. Enforced here
+// at the route layer, not left to the client to hide — see each route
+// below that calls this before returning anything beyond the teaser.
+async function canViewCircleFull(circleId: string, joinMode: string, viewerId: string | null): Promise<boolean> {
+  if (joinMode === "open") return true;
+  if (!viewerId) return false;
+  return isMember(circleId, viewerId);
+}
+
 interface CircleRow {
   id: string;
   name: string;
@@ -40,18 +57,34 @@ interface NextPlan {
   joined: number;
   capacity: number;
   spotsLeft: number;
+  source: "circle" | "nearby";
 }
 
-// Circle discovery redesign — "what's happening next" is the single most
-// important discovery signal a Circle card can show (see Circles.tsx's own
-// hero copy). Circles have no first-class plan relationship (see this
-// file's own "Circles (NEXT)" comment below); this reuses the exact same
-// activity-label match GET /:id/upcoming already does, just capped to the
-// one soonest row instead of ten, and shaped like a Game so the card can
-// use the same spots-left urgency language as Games.tsx.
-async function nextPlanFor(activityLabel: string): Promise<NextPlan | null> {
-  if (!activityLabel) return null;
+// Circle Experience Polish — Changeset 2A. "What's happening next" is the
+// single most important discovery signal a Circle card can show (see
+// Circles.tsx's own hero copy) — this used to be a pure activity-label
+// match, which could show a total stranger's unrelated game as though it
+// belonged to this Circle. Now: a real games.circle_id-owned upcoming game
+// wins whenever one exists (source: 'circle'); only when the Circle has no
+// real upcoming activity of its own does this fall back to the platform-
+// wide activity-label match (source: 'nearby') GET /:id/upcoming's fallback
+// also uses — every consumer of `source` must keep the two visually
+// distinct rather than presenting both as "this Circle's plan".
+async function nextPlanFor(circleId: string, activityLabel: string): Promise<NextPlan | null> {
   const today = irelandTodayIso();
+  const real = (await db
+    .prepare(
+      `SELECT g.id, g.date, g.time, g.capacity,
+              (SELECT COUNT(*) FROM game_participants gp WHERE gp.game_id = g.id AND gp.status = 'joined') as joined
+       FROM games g
+       WHERE g.status IN ('open', 'pending_participants') AND g.date >= ? AND g.circle_id = ?
+       ORDER BY g.date, g.time LIMIT 1`
+    )
+    .get(today, circleId)) as { id: string; date: string; time: string; capacity: number; joined: number } | undefined;
+  if (real) {
+    return { id: real.id, date: real.date, time: real.time, joined: real.joined, capacity: real.capacity, spotsLeft: computeCapacity(real.capacity, real.joined).spotsLeft ?? 0, source: "circle" };
+  }
+  if (!activityLabel) return null;
   const row = (await db
     .prepare(
       `SELECT g.id, g.date, g.time, g.capacity,
@@ -62,19 +95,24 @@ async function nextPlanFor(activityLabel: string): Promise<NextPlan | null> {
     )
     .get(today, activityLabel)) as { id: string; date: string; time: string; capacity: number; joined: number } | undefined;
   if (!row) return null;
-  return { id: row.id, date: row.date, time: row.time, joined: row.joined, capacity: row.capacity, spotsLeft: computeCapacity(row.capacity, row.joined).spotsLeft ?? 0 };
+  return { id: row.id, date: row.date, time: row.time, joined: row.joined, capacity: row.capacity, spotsLeft: computeCapacity(row.capacity, row.joined).spotsLeft ?? 0, source: "nearby" };
 }
 
-// Loose calendar-month count of open games matching this Circle's activity
-// — a participation-health signal (spec's "plans this month") rather than
-// member count. Same activity-label-match caveat as nextPlanFor: this counts
-// every matching game platform-wide, not just ones this Circle's own
-// members organised, since Circles don't have a first-class plan link.
-async function plansThisMonthFor(activityLabel: string): Promise<number> {
-  if (!activityLabel) return 0;
+// Loose calendar-month count of activity — a participation-health signal
+// (spec's "plans this month"), not a stored/cached counter. Changeset 2A:
+// prefers this Circle's own real games.circle_id-linked activity; only
+// falls back to the platform-wide activity-label count when the Circle has
+// none of its own this month, so a Circle that's actually running its own
+// sessions is never undercounted by (or conflated with) unrelated games.
+async function plansThisMonthFor(circleId: string, activityLabel: string): Promise<number> {
   const now = new Date();
   const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)).toISOString().slice(0, 10);
   const end = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1)).toISOString().slice(0, 10);
+  const { n: real } = (await db
+    .prepare(`SELECT COUNT(*) as n FROM games WHERE status IN ('open', 'pending_participants') AND circle_id = ? AND date >= ? AND date < ?`)
+    .get(circleId, start, end)) as { n: number };
+  if (real > 0) return real;
+  if (!activityLabel) return 0;
   const { n } = (await db
     .prepare(`SELECT COUNT(*) as n FROM games WHERE status IN ('open', 'pending_participants') AND activity_label = ? AND date >= ? AND date < ?`)
     .get(activityLabel, start, end)) as { n: number };
@@ -116,7 +154,7 @@ async function toCircleJson(row: CircleRow) {
   const creator = (await db.prepare(`SELECT name, host_status as hostStatus FROM residents WHERE id = ?`).get(row.created_by_resident_id)) as
     | { name: string; hostStatus: string }
     | undefined;
-  const [nextPlan, plansThisMonth, activePlan] = await Promise.all([nextPlanFor(row.activity_label), plansThisMonthFor(row.activity_label), activePlanFor(row.id)]);
+  const [nextPlan, plansThisMonth, activePlan] = await Promise.all([nextPlanFor(row.id, row.activity_label), plansThisMonthFor(row.id, row.activity_label), activePlanFor(row.id)]);
   return {
     id: row.id,
     name: row.name,
@@ -132,7 +170,15 @@ async function toCircleJson(row: CircleRow) {
     hostVerified: creator?.hostStatus === "verified",
     status: row.status,
     slug: row.slug,
-    imageUrl: row.image_url || null,
+    // Media plan Task 2 — the raw R2/custom-domain URL is a permanent,
+    // unauthenticated-fetchable link once it's ever left the server. For
+    // any non-open Circle, never put it in a response at all (this
+    // function backs GET / and GET /mine too, not just GET /:id, so this
+    // is the one place that closes the leak for every read path at once)
+    // — the client resolves the actual image via the protected signed
+    // endpoint instead, which re-checks membership on every request.
+    imageUrl: row.join_mode === "open" ? row.image_url || null : null,
+    hasImage: !!row.image_url,
     nextPlan,
     plansThisMonth,
     activePlan,
@@ -143,15 +189,92 @@ async function toCircleJson(row: CircleRow) {
   };
 }
 
+// Circle Experience Polish — Changeset 1B. What a non-member of an
+// 'approval'/'invite' Circle gets back from GET /:id instead of the full
+// toCircleJson() shape above — deliberately a strict allow-list (never "the
+// full object minus a few fields"), so a new field added to toCircleJson
+// later doesn't silently leak here too. 'approval' additionally exposes
+// member count + organiser identity (both already public elsewhere and
+// useful for deciding whether to request); 'invite' doesn't even get that —
+// per the brief's own allow-lists, an invite-only Circle's non-member view
+// is the narrowest of the three modes.
+async function toCircleTeaserJson(row: CircleRow, viewerId: string | null) {
+  const [pendingInvite, requested] = await Promise.all([
+    viewerId
+      ? db.prepare(`SELECT 1 FROM circle_invites WHERE circle_id = ? AND resident_id = ? AND status = 'pending' AND initiated_by = 'organiser'`).get(row.id, viewerId)
+      : null,
+    viewerId
+      ? db.prepare(`SELECT 1 FROM circle_invites WHERE circle_id = ? AND resident_id = ? AND status = 'pending' AND initiated_by = 'resident'`).get(row.id, viewerId)
+      : null,
+  ]);
+
+  const base = {
+    id: row.id,
+    name: row.name,
+    activityLabel: row.activity_label,
+    area: row.area,
+    about: row.about,
+    centreId: null as string | null,
+    createdAt: row.created_at,
+    createdByResidentId: "",
+    status: row.status,
+    slug: row.slug,
+    // Teaser is only ever built for a non-open Circle to begin with — same
+    // reasoning as toCircleJson()'s identical comment above.
+    imageUrl: null,
+    hasImage: !!row.image_url,
+    joinMode: row.join_mode,
+    restricted: true as const,
+    hasPendingInvite: !!pendingInvite,
+    requested: !!requested,
+    // Never fabricated — these all describe internal planning/participation
+    // that's explicitly member-only content, so they stay honestly empty
+    // rather than a smaller, still-real number.
+    nextPlan: null,
+    plansThisMonth: 0,
+    activePlan: null,
+    whatWeDo: null,
+    whoCanJoin: null,
+    values: null,
+    hostName: "",
+    hostVerified: false,
+    county: "",
+    members: 0,
+  };
+
+  if (row.join_mode === "approval") {
+    const [{ n: members }, creator] = await Promise.all([
+      db.prepare(`SELECT COUNT(*) as n FROM circle_members WHERE circle_id = ?`).get(row.id) as Promise<{ n: number }>,
+      db.prepare(`SELECT name, host_status as hostStatus FROM residents WHERE id = ?`).get(row.created_by_resident_id) as Promise<{ name: string; hostStatus: string } | undefined>,
+    ]);
+    return { ...base, county: row.county, members, hostName: creator?.name ?? "", hostVerified: creator?.hostStatus === "verified" };
+  }
+
+  return base;
+}
+
 // Circles (NEXT) — a persistent group anchored to recurring participation
 // (upcoming games/sessions), deliberately not a generic social feed: no
 // posts/likes/followers, just membership + what's coming up.
+// SEO/Privacy audit P0 — this is the public, zero-auth browse list, so it
+// must apply the exact same per-row visibility check GET /:id already does
+// before ever calling toCircleJson() (the "viewer can see everything"
+// shape) — previously every row got the full shape unconditionally
+// regardless of join_mode, leaking about/whatWeDo/whoCanJoin/values/
+// nextPlan/activePlan/hostName/hostVerified/members for every restricted
+// Circle to any anonymous request. Same teaser fallback already
+// established for GET /:id, not a new privacy policy.
 circlesRouter.get("/", async (req, res) => {
   const county = typeof req.query.county === "string" ? req.query.county : undefined;
   const rows = (county
     ? await db.prepare(`SELECT * FROM circles WHERE county = ? AND status = 'active' ORDER BY name`).all(county)
     : await db.prepare(`SELECT * FROM circles WHERE status = 'active' ORDER BY name`).all()) as CircleRow[];
-  res.json(await Promise.all(rows.map(toCircleJson)));
+  const viewerId = req.resident?.id ?? null;
+  res.json(
+    await Promise.all(
+      rows.map(async (row) => ((await canViewCircleFull(row.id, row.join_mode, viewerId)) ? toCircleJson(row) : toCircleTeaserJson(row, viewerId)))
+    )
+  );
 });
 
 // Every circle this resident belongs to — distinct from GET / (public
@@ -271,6 +394,10 @@ async function familiarMembersFor(circleId: string, residentId: string): Promise
 circlesRouter.get("/:id", async (req, res) => {
   const row = (await db.prepare(`SELECT * FROM circles WHERE slug = ? OR id = ?`).get(req.params.id, req.params.id)) as CircleRow | undefined;
   if (!row) return res.status(404).json({ error: "Circle not found" });
+  const viewerId = req.resident?.id ?? null;
+  if (!(await canViewCircleFull(row.id, row.join_mode, viewerId))) {
+    return res.json(await toCircleTeaserJson(row, viewerId));
+  }
   const json = await toCircleJson(row);
   const stats = await detailStatsFor(row.id, row.activity_label);
   const familiarMembers = req.resident ? await familiarMembersFor(row.id, req.resident.id) : 0;
@@ -287,8 +414,11 @@ const MEMBERS_PREVIEW_LIMIT = 8;
 // CircleMembersSection's "See all" (an expand, not a dead link to a
 // members directory page that doesn't exist).
 circlesRouter.get("/:id/members", async (req, res) => {
-  const circle = (await db.prepare(`SELECT id FROM circles WHERE slug = ? OR id = ?`).get(req.params.id, req.params.id)) as { id: string } | undefined;
+  const circle = (await db.prepare(`SELECT id, join_mode FROM circles WHERE slug = ? OR id = ?`).get(req.params.id, req.params.id)) as { id: string; join_mode: JoinMode } | undefined;
   if (!circle) return res.status(404).json({ error: "Circle not found" });
+  if (!(await canViewCircleFull(circle.id, circle.join_mode, req.resident?.id ?? null))) {
+    return res.status(403).json({ error: "Only circle members can view the member list" });
+  }
   // Mutual-block filter (post-audit hardening pass) — same rationale as
   // games.ts's /:id/participants. Unauthenticated viewers still get the
   // unfiltered list.
@@ -326,20 +456,59 @@ circlesRouter.get("/:id/members", async (req, res) => {
 // per-plan fetch, but deliberately not the full toGameJson shape (no host/
 // solo-friendly/etc — this is a preview card, GameDetail is where the full
 // plan experience lives; clicking through goes there).
+interface UpcomingRow {
+  id: string;
+  activityLabel: string;
+  date: string;
+  time: string;
+  locationText: string;
+  capacity: number;
+  priceCents: number | null;
+  centreName: string | null;
+  joined: number;
+}
+
+const UPCOMING_SELECT = `g.id, g.activity_label as activityLabel, g.date, g.time, g.location_text as locationText, g.capacity, g.price_cents as priceCents,
+              c.name as centreName,
+              (SELECT COUNT(*) FROM game_participants gp WHERE gp.game_id = g.id AND gp.status = 'joined') as joined`;
+
+// Circle Experience Polish — Changeset 2A. Real Circle-owned activities
+// (games.circle_id) always come first, tagged source:'circle'. Only once
+// those run out do we fill remaining slots with platform-wide
+// activity-label matches, tagged source:'nearby' — never merged into one
+// undifferentiated list. See CircleDetail.tsx's "From this Circle"/"You
+// might also like" split, the client side of this same change.
 circlesRouter.get("/:id/upcoming", async (req, res) => {
   const circle = (await db.prepare(`SELECT * FROM circles WHERE id = ?`).get(req.params.id)) as CircleRow | undefined;
   if (!circle) return res.status(404).json({ error: "Circle not found" });
+  if (!(await canViewCircleFull(circle.id, circle.join_mode, req.resident?.id ?? null))) {
+    return res.status(403).json({ error: "Only circle members can view this" });
+  }
   const today = irelandTodayIso();
-  const rows = (await db
+  const real = (await db
     .prepare(
-      `SELECT g.id, g.activity_label as activityLabel, g.date, g.time, g.location_text as locationText, g.capacity, g.price_cents as priceCents,
-              c.name as centreName,
-              (SELECT COUNT(*) FROM game_participants gp WHERE gp.game_id = g.id AND gp.status = 'joined') as joined
+      `SELECT ${UPCOMING_SELECT}
        FROM games g LEFT JOIN centres c ON c.id = g.centre_id
-       WHERE g.status IN ('open', 'pending_participants') AND g.date >= ? AND g.activity_label = ?
+       WHERE g.status IN ('open', 'pending_participants') AND g.date >= ? AND g.circle_id = ?
        ORDER BY g.date, g.time LIMIT 10`
     )
-    .all(today, circle.activity_label)) as { id: string; activityLabel: string; date: string; time: string; locationText: string; capacity: number; priceCents: number | null; centreName: string | null; joined: number }[];
+    .all(today, circle.id)) as UpcomingRow[];
+
+  let nearby: UpcomingRow[] = [];
+  if (real.length < 10 && circle.activity_label) {
+    const excludeIds = real.map((r) => r.id);
+    const excludeClause = excludeIds.length ? `AND g.id NOT IN (${excludeIds.map(() => "?").join(",")})` : "";
+    nearby = (await db
+      .prepare(
+        `SELECT ${UPCOMING_SELECT}
+         FROM games g LEFT JOIN centres c ON c.id = g.centre_id
+         WHERE g.status IN ('open', 'pending_participants') AND g.date >= ? AND g.activity_label = ? ${excludeClause}
+         ORDER BY g.date, g.time LIMIT ?`
+      )
+      .all(today, circle.activity_label, ...excludeIds, 10 - real.length)) as UpcomingRow[];
+  }
+
+  const rows = [...real.map((r) => ({ ...r, source: "circle" as const })), ...nearby.map((r) => ({ ...r, source: "nearby" as const }))];
   res.json(rows.map((r) => ({ ...r, spotsLeft: computeCapacity(r.capacity, r.joined).spotsLeft ?? 0 })));
 });
 
@@ -439,15 +608,19 @@ async function toCirclePlanJson(row: CirclePlanRow) {
 }
 
 circlesRouter.get("/:id/plan-ideas", async (req, res) => {
-  const circle = (await db.prepare(`SELECT id FROM circles WHERE slug = ? OR id = ?`).get(req.params.id, req.params.id)) as { id: string } | undefined;
+  const circle = (await db.prepare(`SELECT id, join_mode FROM circles WHERE slug = ? OR id = ?`).get(req.params.id, req.params.id)) as { id: string; join_mode: JoinMode } | undefined;
   if (!circle) return res.status(404).json({ error: "Circle not found" });
+  if (!(await canViewCircleFull(circle.id, circle.join_mode, req.resident?.id ?? null))) {
+    return res.status(403).json({ error: "Only circle members can view plan ideas" });
+  }
   const rows = (await db.prepare(`SELECT * FROM circle_plans WHERE circle_id = ? ORDER BY created_at DESC`).all(circle.id)) as CirclePlanRow[];
   res.json(await Promise.all(rows.map(toCirclePlanJson)));
 });
 
 circlesRouter.post("/:id/plan-ideas", requireResident, async (req, res) => {
-  const circle = (await db.prepare(`SELECT id, name FROM circles WHERE slug = ? OR id = ?`).get(req.params.id, req.params.id)) as { id: string; name: string } | undefined;
+  const circle = (await db.prepare(`SELECT id, name, status FROM circles WHERE slug = ? OR id = ?`).get(req.params.id, req.params.id)) as { id: string; name: string; status: string } | undefined;
   if (!circle) return res.status(404).json({ error: "Circle not found" });
+  if (circle.status === "closed") return res.status(409).json({ error: "This Circle is closed — new plans can't be started" });
   if (!(await isMember(circle.id, req.resident!.id))) return res.status(403).json({ error: "Only circle members can propose a plan" });
 
   const { title, note, proposedDate, proposedTime, locationText } = req.body as {
@@ -486,8 +659,11 @@ circlesRouter.post("/:id/plan-ideas", requireResident, async (req, res) => {
 });
 
 circlesRouter.get("/:id/plan-ideas/:planId", async (req, res) => {
-  const circle = (await db.prepare(`SELECT id FROM circles WHERE slug = ? OR id = ?`).get(req.params.id, req.params.id)) as { id: string } | undefined;
+  const circle = (await db.prepare(`SELECT id, join_mode FROM circles WHERE slug = ? OR id = ?`).get(req.params.id, req.params.id)) as { id: string; join_mode: JoinMode } | undefined;
   if (!circle) return res.status(404).json({ error: "Circle not found" });
+  if (!(await canViewCircleFull(circle.id, circle.join_mode, req.resident?.id ?? null))) {
+    return res.status(403).json({ error: "Only circle members can view this" });
+  }
   const row = (await db.prepare(`SELECT * FROM circle_plans WHERE id = ? AND circle_id = ?`).get(req.params.planId, circle.id)) as CirclePlanRow | undefined;
   if (!row) return res.status(404).json({ error: "Plan not found" });
   res.json(await toCirclePlanJson(row));
@@ -595,14 +771,33 @@ const RECENT_ACTIVITY_LIMIT = 3;
 // nobody's attendance confirmed yet is skipped rather than shown as "0
 // attended", which would read as nobody showing up rather than "not yet
 // confirmed".
+// Circle Experience Polish — Changeset 2C. Prefers this Circle's own real
+// games.circle_id-owned completed activity; only falls back to the
+// platform-wide activity-label match when the Circle has none of its own —
+// same real-first, tagged-fallback pattern as nextPlanFor/GET :id/upcoming
+// above, so "Recently together" never claims someone else's unrelated game.
 circlesRouter.get("/:id/recent-activity", async (req, res) => {
-  const circle = (await db.prepare(`SELECT activity_label FROM circles WHERE slug = ? OR id = ?`).get(req.params.id, req.params.id)) as
-    | { activity_label: string }
+  const circle = (await db.prepare(`SELECT id, activity_label, join_mode FROM circles WHERE slug = ? OR id = ?`).get(req.params.id, req.params.id)) as
+    | { id: string; activity_label: string; join_mode: JoinMode }
     | undefined;
   if (!circle) return res.status(404).json({ error: "Circle not found" });
-  if (!circle.activity_label) return res.json([]);
+  if (!(await canViewCircleFull(circle.id, circle.join_mode, req.resident?.id ?? null))) {
+    return res.status(403).json({ error: "Only circle members can view this" });
+  }
   const today = irelandTodayIso();
-  const rows = (await db
+  const real = (await db
+    .prepare(
+      `SELECT g.id, g.activity_label as activityLabel, g.date,
+              (SELECT COUNT(*) FROM game_participants gp WHERE gp.game_id = g.id AND gp.attended = 1) as attended
+       FROM games g
+       WHERE g.circle_id = ? AND g.date < ? AND g.status != 'cancelled'
+       ORDER BY g.date DESC LIMIT ?`
+    )
+    .all(circle.id, today, RECENT_ACTIVITY_LIMIT * 3)) as { id: string; activityLabel: string; date: string; attended: number }[];
+  const realRecent = real.filter((r) => r.attended > 0).slice(0, RECENT_ACTIVITY_LIMIT);
+  if (realRecent.length > 0 || !circle.activity_label) return res.json(realRecent.map((r) => ({ ...r, source: "circle" as const })));
+
+  const nearby = (await db
     .prepare(
       `SELECT g.id, g.activity_label as activityLabel, g.date,
               (SELECT COUNT(*) FROM game_participants gp WHERE gp.game_id = g.id AND gp.attended = 1) as attended
@@ -611,7 +806,7 @@ circlesRouter.get("/:id/recent-activity", async (req, res) => {
        ORDER BY g.date DESC LIMIT ?`
     )
     .all(circle.activity_label, today, RECENT_ACTIVITY_LIMIT * 3)) as { id: string; activityLabel: string; date: string; attended: number }[];
-  res.json(rows.filter((r) => r.attended > 0).slice(0, RECENT_ACTIVITY_LIMIT));
+  res.json(nearby.filter((r) => r.attended > 0).slice(0, RECENT_ACTIVITY_LIMIT).map((r) => ({ ...r, source: "nearby" as const })));
 });
 
 const MOMENTS_LIMIT = 4;
@@ -626,10 +821,13 @@ const MOMENTS_LIMIT = 4;
 // centre has several) is the honest source of actual photo variety here;
 // falls back to nothing (section hidden) for a Circle with no linked venue.
 circlesRouter.get("/:id/moments", async (req, res) => {
-  const circle = (await db.prepare(`SELECT centre_id FROM circles WHERE slug = ? OR id = ?`).get(req.params.id, req.params.id)) as
-    | { centre_id: string | null }
+  const circle = (await db.prepare(`SELECT id, centre_id, join_mode FROM circles WHERE slug = ? OR id = ?`).get(req.params.id, req.params.id)) as
+    | { id: string; centre_id: string | null; join_mode: JoinMode }
     | undefined;
   if (!circle) return res.status(404).json({ error: "Circle not found" });
+  if (!(await canViewCircleFull(circle.id, circle.join_mode, req.resident?.id ?? null))) {
+    return res.status(403).json({ error: "Only circle members can view this" });
+  }
   if (!circle.centre_id) return res.json([]);
   const rows = await db
     .prepare(`SELECT url as imageUrl FROM centre_images WHERE centre_id = ? ORDER BY sort_order LIMIT ?`)
@@ -644,10 +842,13 @@ circlesRouter.get("/:id/moments", async (req, res) => {
 // `period` is real and functional (not a decorative dropdown) — each
 // value recomputes against a genuinely different date window.
 circlesRouter.get("/:id/activity", async (req, res) => {
-  const circle = (await db.prepare(`SELECT id, activity_label FROM circles WHERE slug = ? OR id = ?`).get(req.params.id, req.params.id)) as
-    | { id: string; activity_label: string }
+  const circle = (await db.prepare(`SELECT id, activity_label, join_mode FROM circles WHERE slug = ? OR id = ?`).get(req.params.id, req.params.id)) as
+    | { id: string; activity_label: string; join_mode: JoinMode }
     | undefined;
   if (!circle) return res.status(404).json({ error: "Circle not found" });
+  if (!(await canViewCircleFull(circle.id, circle.join_mode, req.resident?.id ?? null))) {
+    return res.status(403).json({ error: "Only circle members can view this" });
+  }
 
   const period = req.query.period === "month" ? "month" : "week";
   const now = new Date();
@@ -679,9 +880,6 @@ circlesRouter.get("/:id/activity", async (req, res) => {
   ]);
   res.json({ period, newMembers, plansCreated, participants });
 });
-
-const JOIN_MODES = ["open", "approval", "invite"] as const;
-type JoinMode = (typeof JOIN_MODES)[number];
 
 interface CreateCircleInput {
   name: string;
@@ -736,8 +934,13 @@ circlesRouter.post("/", requireResident, async (req, res) => {
 // resident-initiated request for the organiser to decide on, and 'invite'
 // is refused outright since there's no self-serve path in.
 circlesRouter.post("/:id/join", requireResident, async (req, res) => {
-  const circle = (await db.prepare(`SELECT join_mode as joinMode FROM circles WHERE id = ?`).get(req.params.id)) as { joinMode: JoinMode } | undefined;
+  const circle = (await db.prepare(`SELECT join_mode as joinMode, status FROM circles WHERE id = ?`).get(req.params.id)) as { joinMode: JoinMode; status: string } | undefined;
   if (!circle) return res.status(404).json({ error: "Circle not found" });
+  // Circle Experience Polish — Changeset 1D. A closed Circle doesn't accept
+  // new members — checked before the organiser-invite shortcut below too,
+  // so an outstanding invite can't be used to join a Circle that's since
+  // closed either.
+  if (circle.status === "closed") return res.status(409).json({ error: "This Circle is closed and isn't accepting new members" });
 
   const existingInvite = (await db
     .prepare(`SELECT initiated_by as initiatedBy, status FROM circle_invites WHERE circle_id = ? AND resident_id = ?`)
@@ -795,6 +998,22 @@ circlesRouter.post("/:id/join", requireResident, async (req, res) => {
 });
 
 circlesRouter.delete("/:id/join", requireResident, async (req, res) => {
+  // Circle Experience Polish — Changeset 1C. Mirrors the existing demote
+  // guard below (a Circle can never end up with zero organisers) — this
+  // route previously had no such check, so a solo organiser using the
+  // ordinary "Leave Circle" action could zero out the organiser count with
+  // no way back in (promote/demote both require being an organiser to
+  // call). Deliberately not an auto-promote: the brief calls for an
+  // explicit hand-off, not a silent one.
+  const membership = (await db.prepare(`SELECT role FROM circle_members WHERE circle_id = ? AND resident_id = ?`).get(req.params.id, req.resident!.id)) as
+    | { role: string }
+    | undefined;
+  if (membership?.role === "organiser") {
+    const { n: organiserCount } = (await db.prepare(`SELECT COUNT(*) as n FROM circle_members WHERE circle_id = ? AND role = 'organiser'`).get(req.params.id)) as { n: number };
+    if (organiserCount <= 1) {
+      return res.status(409).json({ error: "You're the only organiser. Promote another member before leaving this Circle." });
+    }
+  }
   await db.prepare(`DELETE FROM circle_members WHERE circle_id = ? AND resident_id = ?`).run(req.params.id, req.resident!.id);
   // Withdraws a still-pending request too, so re-requesting later starts
   // fresh rather than tripping the uniq_circle_invite key on a stale row.
@@ -837,12 +1056,21 @@ circlesRouter.post("/:id/join-requests/:requestId/respond", requireResident, asy
   if (!request || request.initiatedBy !== "resident") return res.status(404).json({ error: "Join request not found" });
   if (request.status !== "pending") return res.status(409).json({ error: "This request has already been answered" });
 
+  const circleRow = (await db.prepare(`SELECT name, status FROM circles WHERE id = ?`).get(req.params.id)) as { name: string; status: string } | undefined;
+  // Circle Experience Polish — Changeset 1D. Approving a pending request
+  // still admits a new member — a closed Circle can't do that, matching
+  // the same rule POST /:id/join already enforces for a fresh request.
+  // Declining is always fine (it never adds anyone).
+  if (accept && circleRow?.status === "closed") {
+    return res.status(409).json({ error: "This Circle is closed and isn't accepting new members" });
+  }
+
   await db.transaction(async (tx) => {
     await tx.prepare(`UPDATE circle_invites SET status = ? WHERE id = ?`).run(accept ? "accepted" : "declined", req.params.requestId);
     if (accept) await tx.prepare(`INSERT IGNORE INTO circle_members (circle_id, resident_id) VALUES (?, ?)`).run(req.params.id, request.residentId);
   });
 
-  const circle = (await db.prepare(`SELECT name FROM circles WHERE id = ?`).get(req.params.id)) as { name: string } | undefined;
+  const circle = circleRow;
   await notifyResident({
     residentId: request.residentId,
     kind: "circle",
@@ -909,9 +1137,16 @@ circlesRouter.put("/:id", requireResident, async (req, res) => {
   if (b.joinMode && !JOIN_MODES.includes(b.joinMode)) return res.status(400).json({ error: "Invalid joinMode" });
   if (!(await isOrganiser(req.params.id, req.resident!.id))) return res.status(403).json({ error: "Only the organiser can edit this Circle" });
 
+  // image_url is COALESCE'd, everything else here is a plain overwrite —
+  // deliberately, since imageUrl is no longer always present in what the
+  // client can even see for a restricted Circle (Media plan Task 2: the
+  // raw URL is withheld from GET responses once join_mode isn't "open"),
+  // so this route can no longer assume every caller is resending the
+  // current value on every edit. undefined (omitted from the request
+  // body) now means "leave the cover untouched"; an explicit "" clears it.
   await db
     .prepare(
-      `UPDATE circles SET name = ?, activity_label = ?, area = ?, county = ?, about = ?, centre_id = ?, image_url = ?, what_we_do = ?, who_can_join = ?, circle_values = ?, join_mode = COALESCE(?, join_mode)
+      `UPDATE circles SET name = ?, activity_label = ?, area = ?, county = ?, about = ?, centre_id = ?, image_url = COALESCE(?, image_url), what_we_do = ?, who_can_join = ?, circle_values = ?, join_mode = COALESCE(?, join_mode)
        WHERE id = ?`
     )
     .run(
@@ -921,7 +1156,7 @@ circlesRouter.put("/:id", requireResident, async (req, res) => {
       b.county ?? "",
       b.about ?? "",
       b.centreId ?? null,
-      b.imageUrl ?? "",
+      b.imageUrl,
       b.whatWeDo || null,
       b.whoCanJoin || null,
       b.values || null,
@@ -1022,6 +1257,8 @@ circlesRouter.post("/:id/invite", requireResident, async (req, res) => {
   const { residentId } = req.body as { residentId?: string };
   if (!residentId) return res.status(400).json({ error: "residentId is required" });
   if (!(await isOrganiser(req.params.id, req.resident!.id))) return res.status(403).json({ error: "Only the organiser can invite" });
+  const circle = (await db.prepare(`SELECT name, status FROM circles WHERE id = ?`).get(req.params.id)) as { name: string; status: string } | undefined;
+  if (circle?.status === "closed") return res.status(409).json({ error: "This Circle is closed — new invitations can't be sent" });
   const alreadyMember = await db.prepare(`SELECT 1 FROM circle_members WHERE circle_id = ? AND resident_id = ?`).get(req.params.id, residentId);
   if (alreadyMember) return res.status(409).json({ error: "Already a member" });
   const id = crypto.randomUUID();
@@ -1032,7 +1269,6 @@ circlesRouter.post("/:id/invite", requireResident, async (req, res) => {
     )
     .run(id, req.params.id, residentId, req.resident!.id);
 
-  const circle = (await db.prepare(`SELECT name FROM circles WHERE id = ?`).get(req.params.id)) as { name: string } | undefined;
   await notifyResident({
     residentId,
     kind: "circle",
@@ -1067,12 +1303,16 @@ circlesRouter.post("/invitations/:id/respond", requireResident, async (req, res)
   if (!invite || invite.residentId !== req.resident!.id || invite.initiatedBy !== "organiser") return res.status(404).json({ error: "Invitation not found" });
   if (invite.status !== "pending") return res.status(409).json({ error: "This invitation has already been answered" });
 
+  const circle = (await db.prepare(`SELECT name, status FROM circles WHERE id = ?`).get(invite.circleId)) as { name: string; status: string } | undefined;
+  if (accept && circle?.status === "closed") {
+    return res.status(409).json({ error: "This Circle is closed and isn't accepting new members" });
+  }
+
   await db.transaction(async (tx) => {
     await tx.prepare(`UPDATE circle_invites SET status = ? WHERE id = ?`).run(accept ? "accepted" : "declined", req.params.id);
     if (accept) await tx.prepare(`INSERT IGNORE INTO circle_members (circle_id, resident_id) VALUES (?, ?)`).run(invite.circleId, req.resident!.id);
   });
 
-  const circle = (await db.prepare(`SELECT name FROM circles WHERE id = ?`).get(invite.circleId)) as { name: string } | undefined;
   await notifyResident({
     residentId: invite.invitedByResidentId,
     kind: "circle",
@@ -1139,6 +1379,11 @@ circlesRouter.post("/:id/share", requireResident, async (req, res) => {
 // option" is derived from vote counts on the client, not stored.
 
 circlesRouter.get("/:id/polls", async (req, res) => {
+  const circle = (await db.prepare(`SELECT id, join_mode FROM circles WHERE id = ?`).get(req.params.id)) as { id: string; join_mode: JoinMode } | undefined;
+  if (!circle) return res.status(404).json({ error: "Circle not found" });
+  if (!(await canViewCircleFull(circle.id, circle.join_mode, req.resident?.id ?? null))) {
+    return res.status(403).json({ error: "Only circle members can view polls" });
+  }
   // Phase 2 "Circles V2" — optional ?planId= scopes to polls attached to one
   // plan-idea (e.g. "which day works?"); omitted, this is the unchanged
   // full-circle list every existing caller already gets.
@@ -1172,6 +1417,15 @@ circlesRouter.get("/:id/polls", async (req, res) => {
 });
 
 circlesRouter.post("/:id/polls", requireResident, async (req, res) => {
+  const circle = (await db.prepare(`SELECT id, status FROM circles WHERE id = ?`).get(req.params.id)) as { id: string; status: string } | undefined;
+  if (!circle) return res.status(404).json({ error: "Circle not found" });
+  if (circle.status === "closed") return res.status(409).json({ error: "This Circle is closed — new polls can't be started" });
+  // Circle Experience Polish — Changeset 1A. This previously required only
+  // requireResident, not membership — any signed-in resident could create a
+  // poll in any Circle, including one they'd never joined and couldn't even
+  // read (invite-only). Same rule as plan-ideas above.
+  if (!(await isMember(circle.id, req.resident!.id))) return res.status(403).json({ error: "Only circle members can create a poll" });
+
   const { question, options, planId } = req.body as { question?: string; options?: { date: string; time?: string }[]; planId?: string };
   if (!question || !options || options.length === 0) return res.status(400).json({ error: "A question and at least one date option are required" });
   // Optional plan-idea link (Phase 2 "Circles V2") — validated the same
@@ -1196,6 +1450,10 @@ circlesRouter.post("/:id/polls", requireResident, async (req, res) => {
 });
 
 circlesRouter.post("/:id/polls/:pollId/options/:optionId/vote", requireResident, async (req, res) => {
+  // Circle Experience Polish — Changeset 1A. Same authorization gap as
+  // poll creation above — voting only checked requireResident, so a
+  // non-member could vote in any Circle's poll, including invite-only ones.
+  if (!(await isMember(req.params.id, req.resident!.id))) return res.status(403).json({ error: "Only circle members can vote" });
   const option = await db.prepare(`SELECT id FROM circle_poll_options WHERE id = ? AND poll_id = ?`).get(req.params.optionId, req.params.pollId);
   if (!option) return res.status(404).json({ error: "Option not found" });
   const existing = await db.prepare(`SELECT 1 FROM circle_poll_votes WHERE poll_id = ? AND option_id = ? AND resident_id = ?`).get(req.params.pollId, req.params.optionId, req.resident!.id);

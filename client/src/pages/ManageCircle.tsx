@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import {
   cancelGame,
   demoteCircleMember,
@@ -12,6 +12,7 @@ import {
   inviteToCircle,
   postGameUpdate,
   promoteCircleMember,
+  refundGameParticipant,
   removeCircleMember,
   removeGameParticipant,
   respondToCircleJoinRequest,
@@ -23,6 +24,8 @@ import { signInHref } from "../authRedirect";
 import { CalendarIcon, PlusIcon, UsersIcon } from "../components/icons";
 import { ManageShell } from "../components/ManageShell";
 import { ResidentPicker } from "../components/ResidentPicker";
+import { SingleImageUpload } from "../components/SingleImageUpload";
+import { getCircleCoverUrl } from "../media";
 import { Avatar, Button, Card, ConfirmDialog, Drawer, EmptyState, PageSpinner, inputStyle, labelStyle } from "../components/ui";
 import { useGuest } from "../GuestContext";
 import { colors, fonts, radius } from "../theme";
@@ -62,6 +65,13 @@ function ParticipantsDrawer({ gameId, onClose }: { gameId: string | null; onClos
   const [removeTarget, setRemoveTarget] = useState<ManageParticipant | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Platform Pre-Launch Polish — Changeset 4D. This drawer only gets a
+  // gameId, not the full Game (unlike HostActivitiesTab.tsx's own copy of
+  // this component), so the confirm dialog can't quote a specific amount —
+  // the server still refunds the real, exact amount regardless.
+  const [refundTarget, setRefundTarget] = useState<ManageParticipant | null>(null);
+  const [refundBusy, setRefundBusy] = useState(false);
+  const [refundError, setRefundError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!gameId) return;
@@ -77,12 +87,27 @@ function ParticipantsDrawer({ gameId, onClose }: { gameId: string | null; onClos
     setError(null);
     try {
       await removeGameParticipant(gameId, removeTarget.residentId);
-      setParticipants((prev) => prev.filter((p) => p.residentId !== removeTarget.residentId));
+      setParticipants((prev) => prev.map((p) => (p.residentId === removeTarget.residentId ? { ...p, status: "cancelled" } : p)));
       setRemoveTarget(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Couldn't remove this participant");
     } finally {
       setBusy(false);
+    }
+  };
+
+  const handleRefund = async () => {
+    if (!gameId || !refundTarget) return;
+    setRefundBusy(true);
+    setRefundError(null);
+    try {
+      await refundGameParticipant(gameId, refundTarget.residentId);
+      setParticipants((prev) => prev.map((p) => (p.residentId === refundTarget.residentId ? { ...p, paymentStatus: "refunded" } : p)));
+      setRefundTarget(null);
+    } catch (e) {
+      setRefundError(e instanceof Error ? e.message : "Couldn't issue this refund");
+    } finally {
+      setRefundBusy(false);
     }
   };
 
@@ -94,17 +119,35 @@ function ParticipantsDrawer({ gameId, onClose }: { gameId: string | null; onClos
         <EmptyState icon={<CalendarIcon size={26} />} title="No one's joined yet" />
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          {participants.map((p) => (
-            <div key={p.residentId} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: colors.bg, borderRadius: radius.control, padding: "10px 14px" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                <Avatar name={p.name} size={30} />
-                <div style={{ fontWeight: 700, fontSize: 13.5 }}>{p.name}</div>
+          {participants.map((p) => {
+            const canRefund = p.paymentStatus === "paid";
+            const statusLabel = p.status === "cancelled" ? "Cancelled" : p.status === "pending_payment" ? "Payment pending" : "Joined";
+            return (
+              <div key={p.residentId} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10, background: colors.bg, borderRadius: radius.control, padding: "10px 14px" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <Avatar name={p.name} size={30} />
+                  <div>
+                    <div style={{ fontWeight: 700, fontSize: 13.5 }}>{p.name}</div>
+                    <div style={{ fontSize: 11.5, color: colors.mutedLight }}>
+                      {statusLabel}{p.paymentStatus === "refunded" ? " · Refunded" : ""}
+                    </div>
+                  </div>
+                </div>
+                <div style={{ display: "flex", gap: 14, alignItems: "center" }}>
+                  {canRefund && (
+                    <button onClick={() => setRefundTarget(p)} style={{ background: "none", border: "none", color: colors.text, fontWeight: 700, fontSize: 12.5, cursor: "pointer" }}>
+                      Refund
+                    </button>
+                  )}
+                  {p.status !== "cancelled" && (
+                    <button onClick={() => setRemoveTarget(p)} style={{ background: "none", border: "none", color: colors.danger, fontWeight: 700, fontSize: 12.5, cursor: "pointer" }}>
+                      Remove
+                    </button>
+                  )}
+                </div>
               </div>
-              <button onClick={() => setRemoveTarget(p)} style={{ background: "none", border: "none", color: colors.danger, fontWeight: 700, fontSize: 12.5, cursor: "pointer" }}>
-                Remove
-              </button>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
       <ConfirmDialog
@@ -117,6 +160,18 @@ function ParticipantsDrawer({ gameId, onClose }: { gameId: string | null; onClos
         onCancel={() => setRemoveTarget(null)}
       >
         {error && <p style={{ color: colors.danger, fontSize: 13 }}>{error}</p>}
+      </ConfirmDialog>
+      <ConfirmDialog
+        open={!!refundTarget}
+        title={`Refund ${refundTarget?.name ?? "this participant"}?`}
+        message="This will return their full payment. Cancellation and refund are tracked separately."
+        confirmLabel={refundBusy ? "Refunding…" : "Refund"}
+        tone="neutral"
+        busy={refundBusy}
+        onConfirm={handleRefund}
+        onCancel={() => setRefundTarget(null)}
+      >
+        {refundError && <p style={{ color: colors.danger, fontSize: 13 }}>{refundError}</p>}
       </ConfirmDialog>
     </Drawer>
   );
@@ -234,7 +289,12 @@ function PlansTab({ circle }: { circle: Circle }) {
         </Button>
       </div>
       {plans.length === 0 ? (
-        <EmptyState icon={<CalendarIcon size={26} />} title="No plans yet" />
+        <EmptyState
+          icon={<CalendarIcon size={26} />}
+          title="Nothing planned yet."
+          subtitle="Start with an idea for something your Circle could do together."
+          action={<Button onClick={() => navigate(`/games/host?activity=${encodeURIComponent(circle.activityLabel)}&circleId=${circle.id}`)}><PlusIcon size={14} /> Create a plan</Button>}
+        />
       ) : (
         plans.map((p) => <PlanRow key={p.id} plan={p} circleId={circle.id} onChanged={reload} onManageParticipants={() => setManagingGameId(p.id)} />)
       )}
@@ -267,17 +327,22 @@ function JoinRequestsCard({ circle }: { circle: Circle }) {
     }
   };
 
-  // Only relevant for an approval-mode Circle, and only worth a card once
-  // there's actually something to decide on — an empty inbox for a Circle
-  // that isn't even set to 'approval' would just be dead space.
-  if (circle.joinMode !== "approval" || loading || requests.length === 0) return null;
+  // Only relevant for an approval-mode Circle — a non-approval Circle has
+  // no join-request concept at all, so this stays dead space for that case.
+  // An approval Circle with an empty inbox DOES get a card now (Circle
+  // Experience Polish — Changeset 5) — it used to vanish entirely, which
+  // read as broken rather than "nothing pending right now".
+  if (circle.joinMode !== "approval" || loading) return null;
 
   return (
     <Card>
       <h4 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 16, margin: "0 0 14px" }}>Join requests</h4>
+      {requests.length === 0 && (
+        <p style={{ margin: 0, fontSize: 13.5, color: colors.mutedLight }}>You're all caught up. New join requests will appear here.</p>
+      )}
       <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
         {requests.map((r) => (
-          <div key={r.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: colors.bg, borderRadius: radius.control, padding: "10px 14px" }}>
+          <div key={r.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10, background: colors.bg, borderRadius: radius.control, padding: "10px 14px" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
               <Avatar name={r.name} size={30} />
               <div style={{ fontWeight: 700, fontSize: 13.5 }}>{r.name}</div>
@@ -372,9 +437,15 @@ function MembersTab({ circle }: { circle: Circle }) {
       <Card>
         <h4 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 16, margin: "0 0 14px" }}>Members</h4>
         {roleError && <p style={{ color: colors.danger, fontSize: 12.5, margin: "0 0 10px" }}>{roleError}</p>}
+        {/* Circle Experience Polish — Changeset 5. `members` always
+            includes the organiser themselves, so the real "empty" case is
+            <= 1, not 0. */}
+        {members.length <= 1 && (
+          <p style={{ margin: "0 0 14px", fontSize: 13.5, color: colors.mutedLight }}>It's just you for now. Invite a few people to get the Circle moving.</p>
+        )}
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
           {members.map((m) => (
-            <div key={m.residentId} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: colors.bg, borderRadius: radius.control, padding: "10px 14px" }}>
+            <div key={m.residentId} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10, background: colors.bg, borderRadius: radius.control, padding: "10px 14px" }}>
               <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                 <Avatar name={m.name} size={30} />
                 <div>
@@ -430,11 +501,23 @@ function SettingsTab({ circle, onSaved }: { circle: Circle; onSaved: (c: Circle)
     about: circle.about,
     centreId: circle.centreId ?? "",
     joinMode: circle.joinMode,
-    imageUrl: circle.imageUrl ?? "",
     whatWeDo: circle.whatWeDo ?? "",
     whoCanJoin: circle.whoCanJoin ?? "",
     values: circle.values ?? "",
   });
+  // The cover photo is tracked separately from the rest of the form. For a
+  // restricted Circle, `circle.imageUrl` is deliberately always null
+  // (Media plan Task 2 — the raw permanent URL never leaves the server for
+  // a non-open Circle), so there's no current value to seed a form field
+  // with; the organiser's own preview instead goes through the protected
+  // endpoint (getCircleCoverUrl()). `photoChange` stays undefined until
+  // they actually upload/remove a cover in this session — only then is
+  // `imageUrl` included in the save payload at all (an explicit "" clears
+  // it, a real URL replaces it); leaving it undefined relies on the
+  // server's COALESCE to leave whatever's already stored untouched, so an
+  // unrelated edit (e.g. just "About") can never silently wipe the cover.
+  const [photoChange, setPhotoChange] = useState<string | null | undefined>(undefined);
+  const photoPreview = photoChange !== undefined ? photoChange : getCircleCoverUrl(circle);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirmingClose, setConfirmingClose] = useState(false);
@@ -456,12 +539,13 @@ function SettingsTab({ circle, onSaved }: { circle: Circle; onSaved: (c: Circle)
         about: form.about || undefined,
         centreId: form.centreId || undefined,
         joinMode: form.joinMode,
-        imageUrl: form.imageUrl || undefined,
+        imageUrl: photoChange !== undefined ? photoChange ?? "" : undefined,
         whatWeDo: form.whatWeDo || undefined,
         whoCanJoin: form.whoCanJoin || undefined,
         values: form.values || undefined,
       });
       onSaved(updated);
+      setPhotoChange(undefined);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Couldn't save these changes");
     } finally {
@@ -485,6 +569,14 @@ function SettingsTab({ circle, onSaved }: { circle: Circle; onSaved: (c: Circle)
   return (
     <div className="fade-panel" style={{ display: "flex", flexDirection: "column", gap: 24 }}>
       <Card>
+        <div style={{ marginBottom: 16 }}>
+          <SingleImageUpload
+            value={photoPreview}
+            onChange={setPhotoChange}
+            mediaEntityType="circle-cover"
+            mediaEntityId={circle.id}
+          />
+        </div>
         <div className="grid-responsive" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
           <div>
             <label style={labelStyle}>Name</label>
@@ -565,10 +657,15 @@ export function ManageCircle() {
   const { resident, loading } = useGuest();
   const navigate = useNavigate();
   const { id } = useParams<{ id: string }>();
+  const [searchParams] = useSearchParams();
   const [circle, setCircle] = useState<Circle | null>(null);
   const [circleLoading, setCircleLoading] = useState(true);
   const [circleError, setCircleError] = useState<string | null>(null);
-  const [tab, setTab] = useState<CircleTab>("plans");
+  // Circle Experience Polish — Changeset 3A. Lets the post-creation success
+  // screen (StartCirclePage.tsx) and any other future deep link land an
+  // organiser directly on a specific tab, e.g. ?tab=members.
+  const initialTab = searchParams.get("tab");
+  const [tab, setTab] = useState<CircleTab>(initialTab === "members" || initialTab === "settings" ? initialTab : "plans");
 
   useEffect(() => {
     if (!resident || !id) return;
@@ -604,6 +701,7 @@ export function ManageCircle() {
         if (key === "overview") navigate("/manage");
         else setTab(key);
       }}
+      contextLabel="Managing Circle"
       pageTitle={circle?.name ?? "Circle"}
     >
       {circleLoading ? (

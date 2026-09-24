@@ -49,7 +49,7 @@ export function HostProfilePage() {
         <Card style={{ marginBottom: 24 }}>
           <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 14 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-              <Avatar name={profile.name} size={52} />
+              <Avatar name={profile.name} size={52} src={profile.avatarUrl} />
               <div>
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                   <PageTitle level="section" style={{ margin: 0 }}>{profile.name}</PageTitle>

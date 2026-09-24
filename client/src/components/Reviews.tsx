@@ -1,9 +1,11 @@
 import { useEffect, useState } from "react";
-import { checkReviewEligibility, fetchReviews, submitReview, type ReviewListingType } from "../api";
+import { checkReviewEligibility, fetchReviews, submitReport, submitReview, type ReviewListingType } from "../api";
 import { colors, fonts } from "../theme";
 import type { Review } from "../types";
 import { CheckCircleIcon, StarIcon } from "./icons";
-import { Avatar, Button, Card, EmptyState, StarDisplay, StarPicker, inputStyle } from "./ui";
+import { Avatar, Button, Card, ConfirmDialog, EmptyState, StarDisplay, StarPicker, inputStyle } from "./ui";
+
+const REPORT_REASONS = ["Spam or fake", "Inappropriate content", "Harassment or abuse", "Other"];
 
 interface Props {
   listingType: ReviewListingType;
@@ -39,6 +41,12 @@ export function Reviews({ listingType, listingId, accent, onReviewPosted }: Prop
   const [reviewError, setReviewError] = useState<string | null>(null);
   const [reviewSent, setReviewSent] = useState(false);
 
+  const [reportTarget, setReportTarget] = useState<Review | null>(null);
+  const [reportReason, setReportReason] = useState(REPORT_REASONS[0]);
+  const [reportDetail, setReportDetail] = useState("");
+  const [reportSubmitting, setReportSubmitting] = useState(false);
+  const [reportedIds, setReportedIds] = useState<Set<number>>(new Set());
+
   useEffect(() => {
     fetchReviews(listingType, listingId).then(setReviews);
     checkReviewEligibility(listingType, listingId)
@@ -62,6 +70,27 @@ export function Reviews({ listingType, listingId, accent, onReviewPosted }: Prop
       setReviewError(e instanceof Error ? e.message : "Couldn't submit your review");
     } finally {
       setReviewSubmitting(false);
+    }
+  };
+
+  const openReport = (r: Review) => {
+    setReportTarget(r);
+    setReportReason(REPORT_REASONS[0]);
+    setReportDetail("");
+  };
+
+  const submitTheReport = async () => {
+    if (!reportTarget) return;
+    setReportSubmitting(true);
+    try {
+      const reason = reportDetail.trim() ? `${reportReason}: ${reportDetail.trim()}` : reportReason;
+      await submitReport("review", String(reportTarget.id), reason);
+      setReportedIds((s) => new Set(s).add(reportTarget.id));
+      setReportTarget(null);
+    } catch {
+      // Best-effort — leave the dialog open so the guest can retry.
+    } finally {
+      setReportSubmitting(false);
     }
   };
 
@@ -89,11 +118,29 @@ export function Reviews({ listingType, listingId, accent, onReviewPosted }: Prop
               {r.vendorReply && (
                 <div style={{ marginTop: 10, background: colors.bg, borderRadius: 10, padding: "10px 12px" }}>
                   <div style={{ fontSize: 11, fontWeight: 700, color: colors.mutedLight, marginBottom: 3 }}>
-                    {listingType === "host" ? "RESPONSE FROM THE HOST" : `RESPONSE FROM THE ${listingType === "centre" ? "VENUE" : "CLUB"}`}
+                    {listingType === "host"
+                      ? "RESPONSE FROM THE HOST"
+                      : listingType === "centre"
+                        ? "RESPONSE FROM THE VENUE"
+                        : listingType === "club"
+                          ? "RESPONSE FROM THE CLUB"
+                          : "RESPONSE FROM THE ORGANISER"}
                   </div>
                   <div style={{ fontSize: 13.5, color: "#3B423C" }}>{r.vendorReply}</div>
                 </div>
               )}
+              <div style={{ marginTop: 8, textAlign: "right" }}>
+                {reportedIds.has(r.id) ? (
+                  <span style={{ fontSize: 11.5, color: colors.faint }}>Reported</span>
+                ) : (
+                  <button
+                    onClick={() => openReport(r)}
+                    style={{ background: "none", border: "none", padding: 0, fontSize: 11.5, color: colors.faint, cursor: "pointer", fontFamily: "inherit" }}
+                  >
+                    Report
+                  </button>
+                )}
+              </div>
             </div>
           </Card>
         ))}
@@ -107,6 +154,7 @@ export function Reviews({ listingType, listingId, accent, onReviewPosted }: Prop
             {listingType === "game" && "Only residents who attended a past session can review it."}
             {listingType === "host" && "Only residents who've played in one of this host's past sessions can review them."}
             {listingType === "experience" && "Only guests with a past booking can leave a review — book a session first, then come back once it's happened."}
+            {listingType === "program" && "Only participants who've attended at least one past session can leave a review — enrol first, then come back once a session has happened."}
           </p>
         </Card>
       )}
@@ -137,6 +185,45 @@ export function Reviews({ listingType, listingId, accent, onReviewPosted }: Prop
           <CheckCircleIcon size={15} /> Thanks — your review is live.
         </p>
       )}
+
+      <ConfirmDialog
+        open={!!reportTarget}
+        title="Report this review"
+        message="Let us know what's wrong with it — a moderator will take a look."
+        confirmLabel="Submit report"
+        tone="neutral"
+        busy={reportSubmitting}
+        onConfirm={submitTheReport}
+        onCancel={() => setReportTarget(null)}
+      >
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 10 }}>
+          {REPORT_REASONS.map((reason) => (
+            <button
+              key={reason}
+              onClick={() => setReportReason(reason)}
+              style={{
+                border: `1px solid ${reason === reportReason ? colors.text : colors.border}`,
+                background: reason === reportReason ? colors.text : "transparent",
+                color: reason === reportReason ? colors.surface : colors.muted,
+                borderRadius: 999,
+                padding: "6px 12px",
+                fontSize: 12.5,
+                fontWeight: 600,
+                cursor: "pointer",
+              }}
+            >
+              {reason}
+            </button>
+          ))}
+        </div>
+        <textarea
+          placeholder="Anything else the moderator should know? (optional)"
+          value={reportDetail}
+          onChange={(e) => setReportDetail(e.target.value)}
+          rows={2}
+          style={{ ...inputStyle, resize: "vertical" }}
+        />
+      </ConfirmDialog>
     </div>
   );
 }

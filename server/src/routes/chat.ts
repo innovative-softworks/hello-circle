@@ -54,10 +54,15 @@ async function checkGameMembership(gameId: string, residentId: string): Promise<
 }
 
 async function checkCircleMembership(circleId: string, residentId: string): Promise<MembershipCheck | null> {
-  const exists = await db.prepare(`SELECT id FROM circles WHERE id = ?`).get(circleId);
-  if (!exists) return null;
+  const circle = (await db.prepare(`SELECT status FROM circles WHERE id = ?`).get(circleId)) as { status: string } | undefined;
+  if (!circle) return null;
   const isMember = !!(await db.prepare(`SELECT id FROM circle_members WHERE circle_id = ? AND resident_id = ?`).get(circleId, residentId));
   if (!isMember) return { allowed: false, canPost: false };
+  // Circle Experience Polish — Changeset 1D. A closed Circle is read-only
+  // historical context, not deleted — members keep their chat history but
+  // can't post new messages, reusing the same canPost/postBlockedReason
+  // mechanism game chat already uses for its own time-window states.
+  if (circle.status === "closed") return { allowed: true, canPost: false, postBlockedReason: "This Circle is closed — chat is read-only now." };
   return { allowed: true, canPost: true };
 }
 

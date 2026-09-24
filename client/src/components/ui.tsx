@@ -1,12 +1,33 @@
 import { Fragment, useEffect, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
+import { Link } from "react-router-dom";
 import { CheckIcon, CloseIcon, StarIcon } from "./icons";
+import { getMediaUrl } from "../media";
 import { colors, fonts, maxWidth, radius, zIndex } from "../theme";
 
 // Shared, reusable building blocks for the vendor/admin/reviews UI — kept in
 // one place so button/card/badge styling can't drift between dashboards.
 
-export type ListingStatus = "draft" | "pending" | "approved" | "rejected" | "suspended" | "paused" | "deleted";
+export type ListingStatus =
+  | "draft"
+  | "pending"
+  | "approved"
+  | "rejected"
+  | "suspended"
+  | "paused"
+  | "deleted"
+  // Universal Publishing, Lifecycle & Availability System — the per-entity
+  // publishing lifecycle (server/src/lifecycle.ts) reuses this same shared
+  // badge system rather than a second one (§33), even though it's a
+  // conceptually different dimension from the vendor/admin moderation
+  // values above it (draft/paused happen to already exist here and are
+  // reused as-is for both meanings — the label/color for "draft" already
+  // reads correctly either way).
+  | "coming_soon"
+  | "active"
+  | "completed"
+  | "cancelled"
+  | "archived";
 
 // --- Keyboard-accessible non-navigation clickables (post-audit hardening
 // pass) --------------------------------------------------------------------
@@ -27,6 +48,21 @@ export function onActivateProps(handler: () => void) {
       }
     },
   };
+}
+
+// SEO Phase 5 — the "stretched link" pattern (see the .stretched-link/
+// .stretched-link-above rules in index.css): a real <a href> covering an
+// entire discovery card, so a crawler can actually reach /centres/:id,
+// /clubs/:id, etc. through the page's own link graph rather than only via
+// the sitemap. Card components render this as their *first* child inside a
+// `position: relative` container, then give every nested interactive
+// element (Save button, CTA button, …) the `stretched-link-above` class so
+// it keeps receiving its own clicks instead of the whole card just
+// navigating. `label` is required (not optional) because the link usually
+// has no visible text content of its own — screen readers need a real
+// accessible name, not "View" repeated for every card on the page.
+export function CardLink({ to, label }: { to: string; label: string }) {
+  return <Link to={to} className="stretched-link" aria-label={label} />;
 }
 
 // --- Button ------------------------------------------------------------
@@ -133,6 +169,30 @@ export function LinkButton({
   );
 }
 
+// Same shared button visual/hover system as Button/LinkButton (SEO Phase 5/7
+// consistency pass), but for a same-app route — renders react-router's
+// <Link> so it stays a client-side SPA navigation (no full reload), unlike
+// LinkButton's plain <a> (which is deliberately a real page navigation, e.g.
+// opening a live listing in a new tab). Reach for this whenever a link needs
+// to *look* like a Button but must navigate to an in-app route.
+export function RouteLinkButton({
+  variant = "primary",
+  to,
+  children,
+  style,
+}: {
+  variant?: ButtonVariant;
+  to: string;
+  children: ReactNode;
+  style?: CSSProperties;
+}) {
+  return (
+    <Link to={to} className={`btn ${variantClass[variant]}`} style={{ ...buttonBase, ...buttonVariants[variant], textDecoration: "none", ...style }}>
+      {children}
+    </Link>
+  );
+}
+
 // --- Card ----------------------------------------------------------------
 
 export function Card({
@@ -189,6 +249,16 @@ const statusStyles: Record<ListingStatus, { bg: string; fg: string; label: strin
   suspended: { bg: colors.dangerBg, fg: colors.danger, label: "Suspended" },
   paused: { bg: colors.panel, fg: colors.orangeDark, label: "Paused" },
   deleted: { bg: colors.panel, fg: colors.muted, label: "Deleted" },
+  // Publishing/Lifecycle system additions — same token palette as above,
+  // no new colors (§33/§72). "active" reuses the same look as "approved"
+  // ("Live") since both mean the same thing to a viewer; kept as a
+  // separate key only because the two moderation/lifecycle vocabularies
+  // are conceptually distinct even where their visual treatment matches.
+  coming_soon: { bg: "#FCEDE4", fg: colors.orangeDark, label: "Coming soon" },
+  active: { bg: colors.greenBg, fg: colors.greenText, label: "Live" },
+  completed: { bg: colors.panel, fg: colors.muted, label: "Completed" },
+  cancelled: { bg: colors.dangerBg, fg: colors.danger, label: "Cancelled" },
+  archived: { bg: colors.panel, fg: colors.muted, label: "Archived" },
 };
 
 export function StatusBadge({ status }: { status: string }) {
@@ -306,12 +376,15 @@ function hashString(s: string): number {
 export function Avatar({ name, size = 32, src }: { name: string; size?: number; src?: string | null }) {
   const initials = name.trim().split(/\s+/).slice(0, 2).map((w) => w[0]?.toUpperCase()).join("") || "?";
   const bg = AVATAR_PALETTE[hashString(name) % AVATAR_PALETTE.length];
-  if (src) {
+  const [broken, setBroken] = useState(false);
+  const resolvedSrc = src ? getMediaUrl(src, "avatar") : null;
+  if (resolvedSrc && !broken) {
     return (
       <img
-        src={src}
+        src={resolvedSrc}
         alt={name}
         style={{ width: size, height: size, borderRadius: "50%", objectFit: "cover", flex: "none" }}
+        onError={() => setBroken(true)}
       />
     );
   }

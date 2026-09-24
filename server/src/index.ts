@@ -10,7 +10,7 @@ import "express-async-errors";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { buildSitemapXml, defaultOgMeta, generateSitemapUrls, injectOgTags, resolveMarketingOgMeta, resolveOgMeta } from "./ogMeta.js";
+import { buildSitemapXml, defaultOgMeta, generateSitemapUrls, injectOgTags, isEntityDetailRoute, resolveMarketingOgMeta, resolveOgMeta, resolveStaticDiscoveryOgMeta } from "./ogMeta.js";
 import { CLIENT_URL } from "./stripe.js";
 import { attachUser } from "./auth.js";
 import { dataDir } from "./dataDir.js";
@@ -20,6 +20,7 @@ import { backfillSlugs } from "./slugify.js";
 import { attachGuestEmail } from "./guestAuth.js";
 import { attachResident } from "./residents.js";
 import { adminRouter } from "./routes/admin.js";
+import { adminMediaRouter } from "./routes/adminMedia.js";
 import { authRouter } from "./routes/auth.js";
 import { availabilityRouter } from "./routes/availability.js";
 import { bookingsRouter } from "./routes/bookings.js";
@@ -37,6 +38,7 @@ import { favouritesRouter } from "./routes/favourites.js";
 import { feedbackRouter } from "./routes/feedback.js";
 import { followsRouter } from "./routes/follows.js";
 import { geocodeRouter } from "./routes/geocode.js";
+import { configRouter } from "./routes/config.js";
 import { gamesRouter } from "./routes/games.js";
 import { guestAuthRouter } from "./routes/guestAuth.js";
 import { householdRouter } from "./routes/household.js";
@@ -57,6 +59,7 @@ import { searchRouter } from "./routes/search.js";
 import { sharingRouter } from "./routes/sharing.js";
 import { askRouter } from "./routes/ask.js";
 import { stripeWebhookHandler } from "./routes/stripeWebhook.js";
+import { mediaRouter } from "./routes/media.js";
 import { uploadsRouter } from "./routes/uploads.js";
 import { vendorRouter } from "./routes/vendor.js";
 import { sweepExpiredWaitlistOffers } from "./waitlist.js";
@@ -133,6 +136,7 @@ app.use("/api/launch-signups", launchSignupsRouter);
 app.use("/api/favourites", favouritesRouter);
 app.use("/api/follows", followsRouter);
 app.use("/api/geocode", geocodeRouter);
+app.use("/api/config", configRouter);
 app.use("/api/intents", participationIntentsRouter);
 app.use("/api/referrals", referralsRouter);
 app.use("/api/share", sharingRouter);
@@ -162,7 +166,9 @@ app.use("/api/ask", askRouter);
 app.use("/api/coupons", couponsRouter);
 app.use("/api/reviews", reviewsRouter);
 app.use("/api/uploads", uploadsRouter);
+app.use("/api/media", mediaRouter);
 app.use("/api/vendor", vendorRouter);
+app.use("/api/admin/media", adminMediaRouter);
 app.use("/api/admin", adminRouter);
 
 app.get("/api/health", (_req, res) => res.json({ ok: true }));
@@ -185,6 +191,46 @@ app.get("/api/health", (_req, res) => res.json({ ok: true }));
 const PUBLIC_LAUNCH = process.env.VITE_LAUNCH_MODE === "public";
 const PRELAUNCH_SITEMAP_PATHS = ["/", "/for-venues", "/become-a-host", "/coming-soon", "/privacy", "/cookies"];
 
+// SEO Phase 3 — pulled directly from client/src/App.tsx's route table (not
+// re-derived by hand from memory), scoped to routes that carry no
+// independent SEO value and/or are session/account-scoped: resident account
+// pages, all auth/onboarding flows, the vendor/admin/host *management*
+// dashboards (as opposed to the public-facing /provider/:id, /host/:id,
+// /centres/:id, etc. detail pages, which stay crawlable), and the
+// transactional booking/registration/payment flows (the canonical,
+// indexable page for a listing is its own /centres/:id or /clubs/:id, not
+// the checkout form). /vendor/signup is the one exception under /vendor/ —
+// it's the public vendor-recruitment page, not a dashboard — so it gets its
+// own explicit Allow (Google matches the longest applicable rule, so a more
+// specific Allow wins over the broader Disallow: /vendor/). Before this, the
+// post-launch branch was a blanket `Allow: /` with zero path-level
+// disallows — the per-page <meta name="robots"> injectOgTags() writes
+// already keeps these out of the index (none of these paths match
+// resolveOgMeta's ROUTE_PATTERN or resolveMarketingOgMeta's list, so they
+// fall through to defaultOgMeta's noindex), but robots.txt is the layer
+// that stops a crawler requesting them (and burning crawl budget on them)
+// in the first place — defense in depth, not a duplicate of the same check.
+const PRODUCTION_DISALLOW_PATHS = [
+  "/manage",
+  "/vendor/",
+  "/admin",
+  "/profile",
+  "/bookings",
+  "/my-life",
+  "/signin",
+  "/login",
+  "/forgot-password",
+  "/reset-password",
+  "/accept-invite",
+  "/onboarding",
+  "/payment/",
+  "/book/",
+  "/register/",
+  "/games/host",
+  "/circles/start",
+  "/i/",
+];
+
 app.get("/robots.txt", (_req, res) => {
   // /sitemap.xml itself needs an explicit Allow in the pre-launch branch —
   // without it, the file falls under the blanket `Disallow: /` just like
@@ -198,7 +244,7 @@ app.get("/robots.txt", (_req, res) => {
   // per-request Sitemap: line would point Google at whichever host it
   // happened to fetch robots.txt from instead of one consistent URL.
   const body = PUBLIC_LAUNCH
-    ? `User-agent: *\nAllow: /\nSitemap: ${CLIENT_URL}/sitemap.xml\n`
+    ? `User-agent: *\n${PRODUCTION_DISALLOW_PATHS.map((p) => `Disallow: ${p}\n`).join("")}Allow: /vendor/signup\nSitemap: ${CLIENT_URL}/sitemap.xml\n`
     : `User-agent: *\nDisallow: /\n${PRELAUNCH_SITEMAP_PATHS.map((p) => `Allow: ${p === "/" ? "/$" : p}\n`).join("")}Allow: /sitemap.xml\nSitemap: ${CLIENT_URL}/sitemap.xml\n`;
   res.type("text/plain").send(body);
 });
@@ -343,7 +389,14 @@ app.get("*", async (req, res, next) => {
   // defaultOgMeta (SEO #1) so it still gets a real description/canonical/
   // OG/Twitter set instead of nothing, explicitly marked noindex.
   try {
-    const meta = (await resolveOgMeta(req.path, req.resident?.id ?? null)) ?? resolveMarketingOgMeta(req.path) ?? defaultOgMeta(req.path);
+    const entityMeta = await resolveOgMeta(req.path, req.resident?.id ?? null);
+    // SEO audit Phase 2 — a path shaped like /centres/:id etc. whose id/slug
+    // resolved to nothing is a genuinely nonexistent public entity, not
+    // just an unmatched route; every other unmatched path (management,
+    // account pages, ...) still falls through to the 200 default/marketing
+    // meta exactly as before — the SPA itself decides what to render there.
+    if (!entityMeta && isEntityDetailRoute(req.path)) res.status(404);
+    const meta = entityMeta ?? resolveMarketingOgMeta(req.path) ?? resolveStaticDiscoveryOgMeta(req.path) ?? defaultOgMeta(req.path);
     res.setHeader("Content-Type", "text/html");
     return res.send(injectOgTags(readIndexHtmlTemplate(), meta));
   } catch (e) {

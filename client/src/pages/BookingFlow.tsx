@@ -300,8 +300,9 @@ export function BookingFlow() {
   }
 
   return (
+    <>
     <div style={{ animation: "fadeUp .3s ease both" }}>
-      <section className="section-pad" style={{ maxWidth: 920, margin: "0 auto", padding: "26px 24px 80px" }}>
+      <section className="section-pad booking-flow-mobile-pad" style={{ maxWidth: 920, margin: "0 auto", padding: "26px 24px 80px" }}>
         <BackLink onClick={back}>{step > 1 ? "Back a step" : "Back to centre"}</BackLink>
         <Stepper labels={["Room", "Date & time", "Event details", "Review & pay"]} current={step} accent="green" />
 
@@ -698,5 +699,31 @@ export function BookingFlow() {
         </div>
       </section>
     </div>
+
+    {/* Resident Experience Polish — Changeset 6. The price/action area
+        previously relied on the generic .sticky-aside class, which goes
+        position: static and stacks below the form on mobile (per
+        index.css's own 900px rule) — a long step's worth of fields could
+        push "Continue"/"Pay" well below the fold with no persistent way
+        back to it. Same fixed-bar pattern every other detail page's
+        .mobile-join-bar already uses, reusing the exact same `next` handler
+        and label logic as the in-flow button above (no duplicate submit
+        path — a tap here calls the identical function). */}
+    <div className="mobile-join-bar">
+      <div style={{ minWidth: 0 }}>
+        <div style={{ fontWeight: 800, fontSize: 15, fontFamily: fonts.display }}>{euro(totalCents / 100)}</div>
+        <div style={{ fontSize: 12.5, color: colors.mutedLight, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+          {centre.name}{room ? ` · ${room.name}` : ""}
+        </div>
+      </div>
+      <Button variant="primary" onClick={next} disabled={submitting || !ready} style={{ flex: "none" }}>
+        {step === 4
+          ? submitting
+            ? isCash ? "Confirming…" : "Redirecting…"
+            : isCash ? "Confirm booking" : "Continue to pay"
+          : "Continue"}
+      </Button>
+    </div>
+    </>
   );
 }

@@ -81,3 +81,94 @@ describe("webhook confirm* idempotency", () => {
     expect(joinedCountAfterSecond).toBe(1);
   });
 });
+
+// Platform Pre-Launch Polish — Changeset 3/6. Paid Game joins and Pass
+// purchases previously had zero payer-facing confirmation — this proves the
+// fix directly: no notification while pending, exactly one after
+// confirmation (for the correct resident/game/ref), and no duplicate on a
+// replayed webhook.
+describe("Changeset 3 — resident confirmation on paid Game join", () => {
+  const residentId = `test-res-gameconfirm-${crypto.randomUUID()}`;
+  const hostId = `test-host-gameconfirm-${crypto.randomUUID()}`;
+  const gameId = `test-game-gameconfirm-${crypto.randomUUID()}`;
+  const ref = `test-gj-confirm-${crypto.randomUUID()}`;
+
+  beforeAll(async () => {
+    await db.prepare(`INSERT INTO residents (id, email, name) VALUES (?, ?, 'Confirm Resident')`).run(residentId, `${residentId}@example.test`);
+    await db.prepare(`INSERT INTO residents (id, email, name) VALUES (?, ?, 'Confirm Host')`).run(hostId, `${hostId}@example.test`);
+    const future = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    await db
+      .prepare(`INSERT INTO games (id, host_resident_id, activity_label, date, time, capacity, status, price_cents) VALUES (?, ?, 'Confirm Badminton', ?, '18:00', 10, 'open', 1500)`)
+      .run(gameId, hostId, future);
+    await db
+      .prepare(`INSERT INTO game_participants (game_id, resident_id, ref, status, payment_status) VALUES (?, ?, ?, 'pending_payment', 'pending')`)
+      .run(gameId, residentId, ref);
+  });
+
+  afterAll(async () => {
+    await db.prepare(`DELETE FROM notifications WHERE resident_id = ?`).run(residentId);
+    await db.prepare(`DELETE FROM game_participants WHERE game_id = ?`).run(gameId);
+    await db.prepare(`DELETE FROM games WHERE id = ?`).run(gameId);
+    await db.prepare(`DELETE FROM residents WHERE id IN (?, ?)`).run(residentId, hostId);
+  });
+
+  it("sends no confirmation while the payment is still pending", async () => {
+    const { n } = (await db.prepare(`SELECT COUNT(*) as n FROM notifications WHERE resident_id = ? AND ref = ?`).get(residentId, gameId)) as { n: number };
+    expect(n).toBe(0);
+  });
+
+  it("sends exactly one confirmation, to the right resident, for the right game, once paid", async () => {
+    await confirmGameJoin(ref);
+    const rows = (await db
+      .prepare(`SELECT kind, listing_type as listingType, listing_id as listingId, ref, title FROM notifications WHERE resident_id = ? AND ref = ?`)
+      .all(residentId, gameId)) as { kind: string; listingType: string; listingId: string; ref: string; title: string }[];
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ kind: "game", listingType: "game", listingId: gameId, ref: gameId });
+    expect(rows[0].title).toContain("Confirm Badminton");
+  });
+
+  it("does not send a second confirmation on a replayed webhook", async () => {
+    await confirmGameJoin(ref); // already 'paid' from the previous test — idempotency guard no-ops
+    const { n } = (await db.prepare(`SELECT COUNT(*) as n FROM notifications WHERE resident_id = ? AND ref = ?`).get(residentId, gameId)) as { n: number };
+    expect(n).toBe(1);
+  });
+});
+
+describe("Changeset 3 — resident confirmation on Pass purchase", () => {
+  const residentId = `test-res-passconfirm-${crypto.randomUUID()}`;
+  const clubId = `test-club-passconfirm-${crypto.randomUUID()}`;
+  const ref = `test-pass-confirm-${crypto.randomUUID()}`;
+
+  beforeAll(async () => {
+    await db.prepare(`INSERT INTO residents (id, email, name) VALUES (?, ?, 'Pass Confirm Resident')`).run(residentId, `${residentId}@example.test`);
+    await db
+      .prepare(`INSERT INTO clubs (id, name, sport, area, county, ages, price, unit, trial, ph, image_url, blurb) VALUES (?, 'Confirm Club', 'Testball', 'Area', 'Dublin', '5-12', 10, 'year', 0, '', '', '')`)
+      .run(clubId);
+    await db
+      .prepare(`INSERT INTO passes (ref, resident_id, listing_type, listing_id, credits_total, purchased_cents, payment_status) VALUES (?, ?, 'club', ?, 10, 9000, 'pending')`)
+      .run(ref, residentId, clubId);
+  });
+
+  afterAll(async () => {
+    await db.prepare(`DELETE FROM notifications WHERE resident_id = ?`).run(residentId);
+    await db.prepare(`DELETE FROM passes WHERE ref = ?`).run(ref);
+    await db.prepare(`DELETE FROM clubs WHERE id = ?`).run(clubId);
+    await db.prepare(`DELETE FROM residents WHERE id = ?`).run(residentId);
+  });
+
+  it("sends no confirmation while pending, exactly one once paid, none on replay", async () => {
+    const before = (await db.prepare(`SELECT COUNT(*) as n FROM notifications WHERE resident_id = ?`).get(residentId)) as { n: number };
+    expect(before.n).toBe(0);
+
+    await confirmPass(ref);
+    const after = (await db
+      .prepare(`SELECT kind, listing_type as listingType, listing_id as listingId FROM notifications WHERE resident_id = ?`)
+      .all(residentId)) as { kind: string; listingType: string; listingId: string }[];
+    expect(after).toHaveLength(1);
+    expect(after[0]).toMatchObject({ listingType: "club", listingId: clubId });
+
+    await confirmPass(ref); // already paid — idempotency guard no-ops
+    const final = (await db.prepare(`SELECT COUNT(*) as n FROM notifications WHERE resident_id = ?`).get(residentId)) as { n: number };
+    expect(final.n).toBe(1);
+  });
+});

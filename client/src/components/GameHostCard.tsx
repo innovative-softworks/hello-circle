@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link } from "react-router-dom";
 import { fetchHostProfile } from "../api";
 import { AwardIcon, StarIcon } from "./icons";
 import { Avatar } from "./ui";
@@ -16,7 +16,6 @@ import type { Game, HostProfile } from "../types";
 // unverified host still gets a name + avatar, just no stats/CTA.
 
 export function GameHostCard({ game }: { game: Game }) {
-  const navigate = useNavigate();
   const [profile, setProfile] = useState<HostProfile | null>(null);
 
   useEffect(() => {
@@ -32,7 +31,7 @@ export function GameHostCard({ game }: { game: Game }) {
     <div style={{ marginBottom: 28 }}>
       <h2 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 18, margin: "0 0 12px" }}>Hosted by</h2>
       <div style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
-        <Avatar name={game.hostName} size={44} />
+        <Avatar name={game.hostName} size={44} src={game.hostAvatarUrl ?? profile?.avatarUrl} />
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
             <span style={{ fontWeight: 700, fontSize: 15 }}>{game.hostName}</span>
@@ -54,12 +53,12 @@ export function GameHostCard({ game }: { game: Game }) {
           )}
           {profile?.bio && <p style={{ margin: "8px 0 0", fontSize: 13.5, color: "#3B423C", lineHeight: 1.5 }}>{profile.bio}</p>}
           {game.hostVerified && (
-            <button
-              onClick={() => navigate(`/host/${game.hostResidentId}`)}
-              style={{ background: "none", border: "none", padding: 0, marginTop: 8, fontSize: 12.5, fontWeight: 700, color: colors.text, cursor: "pointer", textDecoration: "underline" }}
+            <Link
+              to={`/host/${game.hostResidentId}`}
+              style={{ display: "inline-block", marginTop: 8, fontSize: 12.5, fontWeight: 700, color: colors.text, cursor: "pointer", textDecoration: "underline" }}
             >
               View profile
-            </button>
+            </Link>
           )}
         </div>
       </div>

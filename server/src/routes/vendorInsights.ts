@@ -129,11 +129,26 @@ vendorInsightsRouter.get("/reports/bookings.csv", requirePlatformRole("finance",
 // this codebase RBAC actually restricts an invited staff member's access
 // rather than just recording a role field nobody checks. The org owner
 // (invitedStaff=false) always passes regardless of role.
+//
+// Vendor Experience Polish — `totalPaidCents` used to be reduce()'d over
+// the same 100-row-per-source `transactions` list this route returns for
+// display, so once a vendor passed 100 paid bookings (or 100 paid
+// registrations), older paid rows fell out of the LIMIT and silently
+// stopped counting toward the total — a real undercount, not just a
+// display truncation. It's now a separate true SUM(total_cents) aggregate
+// with no row cap, computed independently of how many transactions are
+// shown. Also extended to all four Vendor-ownable listing types (Centre
+// bookings, Club registrations, Program enrollments, Experience bookings —
+// see CLAUDE.md's "five separate participant tables" note and the Vendor
+// Experience Audit's finding that Vendor already owns all four types) —
+// the previous version only ever summed bookings+registrations, so a
+// vendor with paid Program/Experience revenue was undercounted regardless
+// of row count.
 
 vendorInsightsRouter.get("/payments", requirePlatformRole("finance"), async (req, res) => {
   const ids = req.vendorIds!;
   const in1 = inClause(ids);
-  const [bookings, registrations] = await Promise.all([
+  const [bookings, registrations, programEnrollments, experienceBookings, totalRow] = await Promise.all([
     db
       .prepare(
         `SELECT b.ref, 'booking' as kind, c.name as listingName, b.total_cents as totalCents, b.created_at as createdAt, b.payment_status as paymentStatus
@@ -146,9 +161,36 @@ vendorInsightsRouter.get("/payments", requirePlatformRole("finance"), async (req
          FROM registrations r JOIN clubs c ON c.id = r.club_id WHERE c.vendor_id IN (${in1}) ORDER BY r.created_at DESC LIMIT 100`
       )
       .all(...ids),
+    db
+      .prepare(
+        `SELECT pe.ref, 'program' as kind, p.title as listingName, pe.total_cents as totalCents, pe.created_at as createdAt, pe.payment_status as paymentStatus
+         FROM program_enrollments pe JOIN programs p ON p.id = pe.program_id WHERE p.vendor_id IN (${in1}) ORDER BY pe.created_at DESC LIMIT 100`
+      )
+      .all(...ids),
+    db
+      .prepare(
+        `SELECT eb.ref, 'experience' as kind, e.title as listingName, eb.total_cents as totalCents, eb.created_at as createdAt, eb.payment_status as paymentStatus
+         FROM experience_bookings eb JOIN experiences e ON e.id = eb.experience_id WHERE e.vendor_id IN (${in1}) ORDER BY eb.created_at DESC LIMIT 100`
+      )
+      .all(...ids),
+    db
+      .prepare(
+        `SELECT
+          COALESCE((SELECT SUM(b.total_cents) FROM bookings b JOIN centres c ON c.id = b.centre_id WHERE c.vendor_id IN (${in1}) AND b.payment_status = 'paid'), 0) +
+          COALESCE((SELECT SUM(r.total_cents) FROM registrations r JOIN clubs c ON c.id = r.club_id WHERE c.vendor_id IN (${in1}) AND r.payment_status = 'paid'), 0) +
+          COALESCE((SELECT SUM(pe.total_cents) FROM program_enrollments pe JOIN programs p ON p.id = pe.program_id WHERE p.vendor_id IN (${in1}) AND pe.payment_status = 'paid'), 0) +
+          COALESCE((SELECT SUM(eb.total_cents) FROM experience_bookings eb JOIN experiences e ON e.id = eb.experience_id WHERE e.vendor_id IN (${in1}) AND eb.payment_status = 'paid'), 0)
+          as totalPaidCents`
+      )
+      .get(...ids, ...ids, ...ids, ...ids),
   ]);
-  const all = [...bookings, ...registrations].sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-  const totalPaidCents = all.filter((r: any) => r.paymentStatus === "paid").reduce((sum: number, r: any) => sum + r.totalCents, 0);
+  const all = [...bookings, ...registrations, ...programEnrollments, ...experienceBookings].sort(
+    (a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+  );
+  // total_cents is INT, but mysql2 still returns a multi-term SUM(...)+SUM(...)
+  // expression as a string when decimalNumbers isn't enabled on the pool (see
+  // CLAUDE.md's DECIMAL-as-string note) — coerce explicitly rather than assume.
+  const totalPaidCents = Number((totalRow as { totalPaidCents: number | string }).totalPaidCents ?? 0);
   res.json({ transactions: all.slice(0, 150), totalPaidCents });
 });
 

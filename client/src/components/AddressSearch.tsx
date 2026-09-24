@@ -1,16 +1,24 @@
 import { useEffect, useRef, useState } from "react";
 import { searchAddress, type AddressSuggestion } from "../api";
 import { SinglePinMap } from "./SinglePinMap";
-import { Spinner } from "./ui";
+import { Button, Spinner } from "./ui";
 import { colors, radius } from "../theme";
 
-// Address search + map confirmation (Form System Audit, Phase 4) — spec
-// §33: "Use address search, then map confirmation — don't ask users to
-// enter coordinates." Debounced against server/src/routes/geocode.ts's
-// Nominatim proxy, which already throttles to that service's shared
-// 1 req/sec usage policy — 400ms here just avoids firing one request per
-// keystroke on top of that.
-
+// Address search + map confirmation (Form System Audit, Phase 4; hardened
+// for Nominatim policy compliance in the Maps cost-control follow-up pass)
+// — spec §33: "Use address search, then map confirmation — don't ask users
+// to enter coordinates."
+//
+// Deliberately NOT search-as-you-type. The public OSMF Nominatim instance's
+// usage policy (https://operations.osmfoundation.org/policies/nominatim/)
+// is explicit: "Auto-complete search — This is not yet supported by
+// Nominatim and you must not implement such a service on the client side
+// using the API." A keystroke-debounced auto-search (this component's
+// previous behavior) is exactly that, regardless of debounce length —
+// debouncing reduces request volume but doesn't change what the feature
+// *is*. Search now fires only on an explicit action: pressing Enter in the
+// field or clicking "Search". See server/src/routes/geocode.ts for the
+// server-side rate-limit/caching half of policy compliance.
 export function AddressSearch({
   label = "Search for an address",
   onSelect,
@@ -22,24 +30,21 @@ export function AddressSearch({
   const [results, setResults] = useState<AddressSuggestion[]>([]);
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [searched, setSearched] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    if (query.trim().length < 3) {
-      setResults([]);
-      return;
-    }
+  const runSearch = () => {
+    const q = query.trim();
+    if (q.length < 3) return;
     setLoading(true);
-    const handle = setTimeout(() => {
-      searchAddress(query)
-        .then((r) => {
-          setResults(r);
-          setOpen(true);
-        })
-        .finally(() => setLoading(false));
-    }, 400);
-    return () => clearTimeout(handle);
-  }, [query]);
+    setSearched(true);
+    searchAddress(q)
+      .then((r) => {
+        setResults(r);
+        setOpen(true);
+      })
+      .finally(() => setLoading(false));
+  };
 
   useEffect(() => {
     const onClickOutside = (e: MouseEvent) => {
@@ -52,25 +57,43 @@ export function AddressSearch({
   return (
     <div ref={containerRef} style={{ position: "relative" }}>
       <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: colors.muted, margin: "0 0 6px", letterSpacing: ".01em" }}>{label}</label>
-      <div style={{ position: "relative" }}>
-        <input
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          onFocus={() => results.length > 0 && setOpen(true)}
-          placeholder="Start typing an address…"
-          style={{
-            width: "100%",
-            padding: "11px 36px 11px 13px",
-            border: `1px solid ${colors.inputBorder}`,
-            borderRadius: 11,
-            fontSize: 14,
-            background: colors.surface,
-            color: colors.text,
-            outline: "none",
-          }}
-        />
-        {loading && <Spinner size={16} style={{ position: "absolute", right: 12, top: "50%", transform: "translateY(-50%)" }} />}
+      <div style={{ display: "flex", gap: 8 }}>
+        <div style={{ position: "relative", flex: 1 }}>
+          <input
+            value={query}
+            onChange={(e) => {
+              setQuery(e.target.value);
+              setSearched(false);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                runSearch();
+              }
+            }}
+            onFocus={() => results.length > 0 && setOpen(true)}
+            placeholder="Enter an address, then press Enter or Search"
+            style={{
+              width: "100%",
+              padding: "11px 36px 11px 13px",
+              border: `1px solid ${colors.inputBorder}`,
+              borderRadius: 11,
+              fontSize: 14,
+              background: colors.surface,
+              color: colors.text,
+              outline: "none",
+            }}
+          />
+          {loading && <Spinner size={16} style={{ position: "absolute", right: 12, top: "50%", transform: "translateY(-50%)" }} />}
+        </div>
+        <Button type="button" onClick={runSearch} disabled={query.trim().length < 3 || loading}>
+          Search
+        </Button>
       </div>
+      <div style={{ fontSize: 11, color: colors.faint, marginTop: 4 }}>Address search powered by OpenStreetMap contributors.</div>
+      {searched && !loading && results.length === 0 && (
+        <div style={{ fontSize: 12.5, color: colors.mutedLight, marginTop: 6 }}>No matches — try a more specific address, or enter Area/County by hand below.</div>
+      )}
       {open && results.length > 0 && (
         <div
           style={{

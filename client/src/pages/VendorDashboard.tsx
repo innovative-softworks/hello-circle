@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { fetchOrgProfile, fetchVendorListings, fetchVendorNotifications, fetchVendorStats } from "../api";
+import { fetchOrgProfile, fetchVendorListings, fetchVendorNotifications, fetchVendorScheduleItems, fetchVendorStats } from "../api";
 import { useAuth } from "../AuthContext";
 import { ManageShell } from "../components/ManageShell";
 import {
@@ -30,8 +30,10 @@ import { VendorOverviewTab } from "../components/VendorOverview";
 import { VendorProgramsTab, VendorScheduleTab } from "../components/VendorPrograms";
 import { VendorReviewsTab } from "../components/VendorReviews";
 import { formatMemberSince } from "../vendorFormat";
+import { greeting } from "../greeting";
+import { summarizeUpcomingWeek } from "../vendorSchedule";
 import { colors, fonts } from "../theme";
-import type { VendorListingSummary, VendorStats } from "../types";
+import type { VendorListingSummary, VendorScheduleItem, VendorStats } from "../types";
 
 // The orchestrating page component only — every tab's actual content now
 // lives in its own file under components/Vendor*.tsx (split out of what
@@ -69,6 +71,10 @@ export function VendorDashboard() {
   const [listings, setListings] = useState<{ centres: VendorListingSummary[]; clubs: VendorListingSummary[] }>({ centres: [], clubs: [] });
   const [stats, setStats] = useState<VendorStats | null>(null);
   const [unreadCount, setUnreadCount] = useState(0);
+  // Vendor Experience Polish — feeds both the Overview "Next Up"/"Coming up"
+  // section and the banner's weekly summary line below.
+  const [scheduleItems, setScheduleItems] = useState<VendorScheduleItem[] | null>(null);
+  const [scheduleItemsError, setScheduleItemsError] = useState(false);
   // Feature flags (implementation backlog #5) — read-only here, admin
   // controls them (AdminDashboard.tsx's Organisations tab). Defaults to
   // enabled while loading so the button doesn't flash disabled-then-enabled
@@ -81,6 +87,9 @@ export function VendorDashboard() {
     fetchVendorListings().then(setListings);
     fetchVendorStats().then(setStats);
     loadUnreadCount();
+    fetchVendorScheduleItems()
+      .then(setScheduleItems)
+      .catch(() => setScheduleItemsError(true));
   };
 
   useEffect(() => {
@@ -147,6 +156,7 @@ export function VendorDashboard() {
       navOptions={displayTabs}
       activeKey={tab}
       onNavChange={setTab}
+      contextLabel={user?.businessName ? `Managing ${user.businessName}` : "Managing Vendor account"}
       pageTitle={displayTabs.find((t) => t.key === tab)?.label}
       headerActions={
         tab === "programs" ? (
@@ -165,7 +175,11 @@ export function VendorDashboard() {
           <div style={{ borderBottom: `1px solid ${colors.border}`, paddingBottom: 24, marginBottom: 32 }}>
             <DashboardTopPanel
               title={user.name}
-              subtitle={`HelloCircle Manage · ${user.email}`}
+              subtitle={
+                scheduleItems === null
+                  ? `HelloCircle Manage · ${user.email}`
+                  : `${greeting()}, ${user.businessName || user.name}. ${summarizeUpcomingWeek(scheduleItems)}`
+              }
               avatarName={user.name}
               accent="green"
               eyebrow="/ Vendor"
@@ -240,7 +254,16 @@ export function VendorDashboard() {
         ) : undefined
       }
     >
-      {tab === "overview" && stats && <VendorOverviewTab stats={stats} unreadCount={unreadCount} listings={listings} onNavigateTab={setTab} />}
+      {tab === "overview" && stats && (
+        <VendorOverviewTab
+          stats={stats}
+          unreadCount={unreadCount}
+          listings={listings}
+          items={scheduleItems}
+          itemsError={scheduleItemsError}
+          onNavigateTab={setTab}
+        />
+      )}
 
       {tab === "listings" && (
         <ListingsTab
@@ -262,7 +285,7 @@ export function VendorDashboard() {
       {tab === "demand" && <DemandTab />}
       {tab === "programs" && <VendorProgramsTab onOpenProgram={(id) => navigate(`/vendor/programs/${id}`)} />}
       {tab === "experiences" && <VendorExperiencesTab onOpenExperience={(id) => navigate(`/vendor/experiences/${id}`)} />}
-      {tab === "schedule" && <VendorScheduleTab />}
+      {tab === "schedule" && <VendorScheduleTab onNavigateItem={setTab} />}
       {tab === "org" && <VendorOrgTab />}
     </ManageShell>
   );

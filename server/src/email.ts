@@ -9,7 +9,18 @@ const MAIL_FROM = process.env.MAIL_FROM || SMTP_USER || "hello-circle@example.co
 
 // Without SMTP credentials configured, mail is logged instead of sent — keeps
 // bookings/registrations working in dev without requiring a real mailbox.
-const transporter = SMTP_HOST && SMTP_USER && SMTP_PASS
+//
+// Under vitest (`process.env.VITEST` is set automatically by the test
+// runner), mail is logged too, even when server/.env has real SMTP
+// credentials — vitest.setup.ts deliberately loads the full .env (for a DB-
+// safety check) as a side effect, so without this, every test that
+// exercises a notification path was sending real Gmail messages to test
+// fixtures' fake `@example.test` addresses, which bounce back to the
+// configured mailbox. Sending real email is never something a test should
+// need to verify (the "was an email attempted" behavior is covered by unit
+// tests around the call sites, not by actually delivering one).
+const isTestRun = !!process.env.VITEST;
+const transporter = SMTP_HOST && SMTP_USER && SMTP_PASS && !isTestRun
   ? nodemailer.createTransport({
       host: SMTP_HOST,
       port: SMTP_PORT,
@@ -19,7 +30,11 @@ const transporter = SMTP_HOST && SMTP_USER && SMTP_PASS
   : null;
 
 if (!transporter) {
-  console.log("[email] SMTP not configured (set SMTP_HOST/SMTP_USER/SMTP_PASS in server/.env) — mail will be logged, not sent");
+  console.log(
+    isTestRun
+      ? "[email] running under vitest — mail will be logged, not sent (even with real SMTP configured)"
+      : "[email] SMTP not configured (set SMTP_HOST/SMTP_USER/SMTP_PASS in server/.env) — mail will be logged, not sent"
+  );
 }
 
 export interface MailMessage {

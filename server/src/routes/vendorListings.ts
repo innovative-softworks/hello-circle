@@ -4,7 +4,9 @@ import { requirePlatformRole } from "../auth.js";
 import { writeAudit } from "../audit.js";
 import { approximateCoords, db } from "../db/index.js";
 import { getCentre, getClub } from "../db/queries.js";
+import { exceedsGalleryLimit, GALLERY_LIMITS } from "../media/quotas.js";
 import { generateSlug } from "../slugify.js";
+import { invalidCoordinateReason } from "../util.js";
 import { inClause, ownsCentre, ownsClub, recomputeCentreRollup } from "./vendorHelpers.js";
 
 // Own-listing CRUD: overview/stats, claims, centres (+ rooms, blocked
@@ -173,14 +175,21 @@ vendorListingsRouter.post("/centres", requirePlatformRole("centre_manager"), asy
   // until POST /centres/:id/publish flips it to 'pending' once every
   // required field is actually present.
   if (!b.name) return res.status(400).json({ error: "A name is required" });
+  const coordError = invalidCoordinateReason(b.lat, b.lng);
+  if (coordError) return res.status(400).json({ error: coordError });
+  if (exceedsGalleryLimit("centre", (b.images ?? []).length)) {
+    return res.status(400).json({ error: `A centre can have at most ${GALLERY_LIMITS.centre} photos (cover + gallery)` });
+  }
 
   const id = crypto.randomUUID();
-  const { lat, lng } = b.lat !== undefined && b.lng !== undefined ? { lat: b.lat, lng: b.lng } : approximateCoords(b.county || "dublin", id);
+  const vendorSuppliedCoords = b.lat !== undefined && b.lng !== undefined;
+  const { lat, lng } = vendorSuppliedCoords ? { lat: b.lat, lng: b.lng } : approximateCoords(b.county || "dublin", id);
+  const locationSource = vendorSuppliedCoords ? "confirmed" : "approximate";
   const slug = await generateSlug("centres", b.name);
   await db.transaction(async (tx) => {
     await tx.prepare(
-      `INSERT INTO centres (id, name, area, county, rating, reviews, capacity, from_price, managed_by, ph, image_url, blurb, vendor_id, status, created_at, opens_at, closes_at, payment_method, map_url, lat, lng, phone, accessibility, slug)
-       VALUES (?, ?, ?, ?, 0, 0, ?, ?, ?, '', ?, ?, ?, 'draft', NOW(), ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO centres (id, name, area, county, rating, reviews, capacity, from_price, managed_by, ph, image_url, blurb, vendor_id, status, created_at, opens_at, closes_at, payment_method, map_url, lat, lng, location_source, phone, accessibility, slug)
+       VALUES (?, ?, ?, ?, 0, 0, ?, ?, ?, '', ?, ?, ?, 'draft', NOW(), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
       id,
       b.name,
@@ -198,6 +207,7 @@ vendorListingsRouter.post("/centres", requirePlatformRole("centre_manager"), asy
       b.mapUrl ?? "",
       lat,
       lng,
+      locationSource,
       b.phone ?? "",
       (b.accessibility ?? []).join(","),
       slug
@@ -222,15 +232,26 @@ vendorListingsRouter.post("/centres", requirePlatformRole("centre_manager"), asy
 vendorListingsRouter.put("/centres/:id", requirePlatformRole("centre_manager"), async (req, res) => {
   if (!(await ownsCentre(req.vendorIds!, req.params.id))) return res.status(403).json({ error: "Not your listing" });
   const b = req.body as Partial<CentreInput>;
+  const coordError = invalidCoordinateReason(b.lat, b.lng);
+  if (coordError) return res.status(400).json({ error: coordError });
+  if (b.images && exceedsGalleryLimit("centre", b.images.length)) {
+    return res.status(400).json({ error: `A centre can have at most ${GALLERY_LIMITS.centre} photos (cover + gallery)` });
+  }
   const before = (await db.prepare(`SELECT name, capacity, from_price FROM centres WHERE id = ?`).get(req.params.id)) as Record<string, unknown> | undefined;
   // A county change moves the county-centroid the map pin approximates —
   // re-jitter from the new county; otherwise leave the existing pin alone.
-  const coords =
-    b.lat !== undefined && b.lng !== undefined
-      ? { lat: b.lat, lng: b.lng }
-      : b.county
-        ? approximateCoords(b.county, req.params.id)
-        : { lat: undefined, lng: undefined };
+  // locationSource mirrors which branch fired: a vendor-supplied pair is
+  // 'confirmed', a server-generated re-jitter is 'approximate', and
+  // "neither" leaves the column (like lat/lng themselves) untouched via
+  // COALESCE — this never overwrites a previously-'confirmed' row just
+  // because some *other* field changed.
+  const vendorSuppliedCoords = b.lat !== undefined && b.lng !== undefined;
+  const coords = vendorSuppliedCoords
+    ? { lat: b.lat, lng: b.lng }
+    : b.county
+      ? approximateCoords(b.county, req.params.id)
+      : { lat: undefined, lng: undefined };
+  const locationSource = vendorSuppliedCoords ? "confirmed" : b.county ? "approximate" : undefined;
 
   await db.transaction(async (tx) => {
     await tx.prepare(
@@ -239,6 +260,7 @@ vendorListingsRouter.put("/centres/:id", requirePlatformRole("centre_manager"), 
        image_url = COALESCE(?, image_url), blurb = COALESCE(?, blurb),
        opens_at = COALESCE(?, opens_at), closes_at = COALESCE(?, closes_at),
        is_open = COALESCE(?, is_open), map_url = COALESCE(?, map_url), lat = COALESCE(?, lat), lng = COALESCE(?, lng),
+       location_source = COALESCE(?, location_source),
        phone = COALESCE(?, phone), accessibility = COALESCE(?, accessibility)
        WHERE id = ?`
     ).run(
@@ -254,6 +276,7 @@ vendorListingsRouter.put("/centres/:id", requirePlatformRole("centre_manager"), 
       b.mapUrl,
       coords.lat,
       coords.lng,
+      locationSource,
       b.phone,
       b.accessibility ? b.accessibility.join(",") : undefined,
       req.params.id
@@ -347,8 +370,8 @@ vendorListingsRouter.post("/centres/:id/duplicate", requirePlatformRole("centre_
   await db.transaction(async (tx) => {
     await tx
       .prepare(
-        `INSERT INTO centres (id, name, area, county, rating, reviews, capacity, from_price, managed_by, ph, image_url, blurb, vendor_id, status, created_at, opens_at, closes_at, payment_method, map_url, lat, lng, phone, accessibility, slug)
-         VALUES (?, ?, ?, ?, 0, 0, ?, ?, ?, '', ?, ?, ?, 'draft', NOW(), ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO centres (id, name, area, county, rating, reviews, capacity, from_price, managed_by, ph, image_url, blurb, vendor_id, status, created_at, opens_at, closes_at, payment_method, map_url, lat, lng, location_source, phone, accessibility, slug)
+         VALUES (?, ?, ?, ?, 0, 0, ?, ?, ?, '', ?, ?, ?, 'draft', NOW(), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         id,
@@ -367,6 +390,11 @@ vendorListingsRouter.post("/centres/:id/duplicate", requirePlatformRole("centre_
         source.mapUrl,
         source.lat,
         source.lng,
+        // Copied verbatim from the source centre, not re-derived — a
+        // duplicate of a 'confirmed' location is still that same real
+        // address, and a duplicate of an 'approximate' one shouldn't be
+        // laundered into looking more precise than it is.
+        source.locationSource,
         source.phone,
         source.accessibility.join(","),
         slug
@@ -579,15 +607,22 @@ vendorListingsRouter.post("/clubs", requirePlatformRole("facility_manager"), asy
   // later steps' PUTs, until POST /clubs/:id/publish flips it to 'pending'
   // once every required field is actually present.
   if (!b.name) return res.status(400).json({ error: "A name is required" });
+  const coordError = invalidCoordinateReason(b.lat, b.lng);
+  if (coordError) return res.status(400).json({ error: coordError });
+  if (exceedsGalleryLimit("club", (b.images ?? []).length)) {
+    return res.status(400).json({ error: `A club can have at most ${GALLERY_LIMITS.club} photos (cover + gallery)` });
+  }
 
   const id = crypto.randomUUID();
-  const { lat, lng } = b.lat !== undefined && b.lng !== undefined ? { lat: b.lat, lng: b.lng } : approximateCoords(b.county || "dublin", id);
+  const vendorSuppliedCoords = b.lat !== undefined && b.lng !== undefined;
+  const { lat, lng } = vendorSuppliedCoords ? { lat: b.lat, lng: b.lng } : approximateCoords(b.county || "dublin", id);
+  const locationSource = vendorSuppliedCoords ? "confirmed" : "approximate";
   const slug = await generateSlug("clubs", b.name);
   await db.transaction(async (tx) => {
     await tx.prepare(
-      `INSERT INTO clubs (id, name, sport, area, county, ages, price, unit, trial, ph, image_url, blurb, vendor_id, status, created_at, payment_method, map_url, capacity, lat, lng, phone, accessibility, category, slug, audience)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, '', ?, ?, ?, 'draft', NOW(), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    ).run(id, b.name, b.sport ?? "", b.area ?? "", b.county ?? "", b.ages ?? "", b.price ?? 0, b.unit ?? "year", b.trial ? 1 : 0, (b.images ?? [])[0] ?? b.image ?? "", b.blurb ?? "", req.user!.id, b.paymentMethod ?? "online", b.mapUrl ?? "", b.capacity ?? null, lat, lng, b.phone ?? "", (b.accessibility ?? []).join(","), b.category ?? "", slug, b.audience ?? "kids");
+      `INSERT INTO clubs (id, name, sport, area, county, ages, price, unit, trial, ph, image_url, blurb, vendor_id, status, created_at, payment_method, map_url, capacity, lat, lng, location_source, phone, accessibility, category, slug, audience)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, '', ?, ?, ?, 'draft', NOW(), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(id, b.name, b.sport ?? "", b.area ?? "", b.county ?? "", b.ages ?? "", b.price ?? 0, b.unit ?? "year", b.trial ? 1 : 0, (b.images ?? [])[0] ?? b.image ?? "", b.blurb ?? "", req.user!.id, b.paymentMethod ?? "online", b.mapUrl ?? "", b.capacity ?? null, lat, lng, locationSource, b.phone ?? "", (b.accessibility ?? []).join(","), b.category ?? "", slug, b.audience ?? "kids");
     for (const [i, item] of (b.includes ?? []).entries()) {
       await tx.prepare(`INSERT INTO club_includes (club_id, item, sort_order) VALUES (?, ?, ?)`).run(id, item, i);
     }
@@ -602,13 +637,19 @@ vendorListingsRouter.post("/clubs", requirePlatformRole("facility_manager"), asy
 vendorListingsRouter.put("/clubs/:id", requirePlatformRole("facility_manager"), async (req, res) => {
   if (!(await ownsClub(req.vendorIds!, req.params.id))) return res.status(403).json({ error: "Not your listing" });
   const b = req.body as Partial<ClubInput>;
+  const coordError = invalidCoordinateReason(b.lat, b.lng);
+  if (coordError) return res.status(400).json({ error: coordError });
+  if (b.images && exceedsGalleryLimit("club", b.images.length)) {
+    return res.status(400).json({ error: `A club can have at most ${GALLERY_LIMITS.club} photos (cover + gallery)` });
+  }
   const before = (await db.prepare(`SELECT name, price, capacity, payment_method FROM clubs WHERE id = ?`).get(req.params.id)) as Record<string, unknown> | undefined;
-  const coords =
-    b.lat !== undefined && b.lng !== undefined
-      ? { lat: b.lat, lng: b.lng }
-      : b.county
-        ? approximateCoords(b.county, req.params.id)
-        : { lat: undefined, lng: undefined };
+  const vendorSuppliedCoords = b.lat !== undefined && b.lng !== undefined;
+  const coords = vendorSuppliedCoords
+    ? { lat: b.lat, lng: b.lng }
+    : b.county
+      ? approximateCoords(b.county, req.params.id)
+      : { lat: undefined, lng: undefined };
+  const locationSource = vendorSuppliedCoords ? "confirmed" : b.county ? "approximate" : undefined;
 
   await db.transaction(async (tx) => {
     await tx.prepare(
@@ -617,7 +658,7 @@ vendorListingsRouter.put("/clubs/:id", requirePlatformRole("facility_manager"), 
        trial = COALESCE(?, trial), image_url = COALESCE(?, image_url), blurb = COALESCE(?, blurb),
        payment_method = COALESCE(?, payment_method), map_url = COALESCE(?, map_url),
        capacity = CASE WHEN ? THEN capacity ELSE ? END,
-       lat = COALESCE(?, lat), lng = COALESCE(?, lng),
+       lat = COALESCE(?, lat), lng = COALESCE(?, lng), location_source = COALESCE(?, location_source),
        phone = COALESCE(?, phone), accessibility = COALESCE(?, accessibility), category = COALESCE(?, category),
        audience = COALESCE(?, audience)
        WHERE id = ?`
@@ -638,6 +679,7 @@ vendorListingsRouter.put("/clubs/:id", requirePlatformRole("facility_manager"), 
       b.capacity === undefined ? null : b.capacity,
       coords.lat,
       coords.lng,
+      locationSource,
       b.phone,
       b.accessibility ? b.accessibility.join(",") : undefined,
       b.category,
@@ -715,8 +757,8 @@ vendorListingsRouter.post("/clubs/:id/duplicate", requirePlatformRole("facility_
   await db.transaction(async (tx) => {
     await tx
       .prepare(
-        `INSERT INTO clubs (id, name, sport, area, county, ages, price, unit, trial, ph, image_url, blurb, vendor_id, status, created_at, payment_method, map_url, capacity, lat, lng, phone, accessibility, category, slug, audience)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, '', ?, ?, ?, 'draft', NOW(), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO clubs (id, name, sport, area, county, ages, price, unit, trial, ph, image_url, blurb, vendor_id, status, created_at, payment_method, map_url, capacity, lat, lng, location_source, phone, accessibility, category, slug, audience)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, '', ?, ?, ?, 'draft', NOW(), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         id,
@@ -736,6 +778,9 @@ vendorListingsRouter.post("/clubs/:id/duplicate", requirePlatformRole("facility_
         source.capacity,
         source.lat,
         source.lng,
+        // See the centre duplicate route's identical comment — copied
+        // verbatim, not re-derived.
+        source.locationSource,
         source.phone,
         source.accessibility.join(","),
         source.category,

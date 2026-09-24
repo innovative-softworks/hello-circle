@@ -1,6 +1,6 @@
-import { useNavigate } from "react-router-dom";
 import { Photo } from "./Photo";
 import { EntityTypeLabel } from "./symbols";
+import { CardLink } from "./ui";
 import { cardImageRatio, colors, placeholderStripes, radius } from "../theme";
 import type { SimilarProvider } from "../types";
 
@@ -8,13 +8,12 @@ import type { SimilarProvider } from "../types";
 // minimal per the redesign brief's §44 (no followers/reviews/ratings/five
 // CTAs stacked onto a card meant for quick comparison).
 export function ProviderCard({ provider }: { provider: SimilarProvider }) {
-  const navigate = useNavigate();
   return (
     <div
-      onClick={() => navigate(`/provider/${provider.id}`)}
       className="card-hover card-surface"
-      style={{ cursor: "pointer", background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: radius.card, overflow: "hidden" }}
+      style={{ position: "relative", background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: radius.card, overflow: "hidden" }}
     >
+      <CardLink to={`/provider/${provider.id}`} label={provider.name} />
       <Photo src={provider.image ?? undefined} alt={provider.name} ph={placeholderStripes.green} style={{ aspectRatio: cardImageRatio.discovery }} />
       <div style={{ padding: "14px 16px 16px" }}>
         <EntityTypeLabel type={provider.type} size={12} color={colors.mutedLight} />

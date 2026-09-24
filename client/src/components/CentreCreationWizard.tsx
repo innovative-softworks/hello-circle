@@ -40,6 +40,13 @@ interface WizardForm {
   mapUrl: string;
   lat?: number;
   lng?: number;
+  /** True only when the vendor picked/adjusted a location via AddressSearch
+   * in *this* editing session (Maps cost-control follow-up pass, review
+   * point #1) — an edit form resending a pre-populated `lat`/`lng` value
+   * that was never re-touched must NOT get upgraded to 'confirmed' on the
+   * server just because the field round-tripped through a save. Reset to
+   * false on load; `saveLocation()` only sends lat/lng when this is true. */
+  locationConfirmed: boolean;
   opensAt: string;
   closesAt: string;
   isOpen: boolean;
@@ -50,7 +57,7 @@ interface WizardForm {
 }
 
 function blankForm(): WizardForm {
-  return { name: "", managedBy: "", blurb: "", area: "", county: "", mapUrl: "", opensAt: "09:00", closesAt: "21:00", isOpen: true, phone: "", amenitiesText: "", accessibilityText: "", images: [] };
+  return { name: "", managedBy: "", blurb: "", area: "", county: "", mapUrl: "", locationConfirmed: false, opensAt: "09:00", closesAt: "21:00", isOpen: true, phone: "", amenitiesText: "", accessibilityText: "", images: [] };
 }
 
 export function CentreCreationWizard({
@@ -95,6 +102,7 @@ export function CentreCreationWizard({
         mapUrl: c.mapUrl,
         lat: c.lat ?? undefined,
         lng: c.lng ?? undefined,
+        locationConfirmed: false,
         opensAt: c.opensAt,
         closesAt: c.closesAt,
         isOpen: c.isOpen,
@@ -155,7 +163,15 @@ export function CentreCreationWizard({
     setSaving(true);
     setError(null);
     try {
-      await updateVendorCentre(id, { area: form.area, county: form.county, mapUrl: form.mapUrl, lat: form.lat, lng: form.lng });
+      await updateVendorCentre(id, {
+        area: form.area,
+        county: form.county,
+        mapUrl: form.mapUrl,
+        // Only sent when actually re-confirmed this session — otherwise
+        // omitted so the server leaves the existing coordinate AND its
+        // 'confirmed'/'approximate'/'unknown' classification untouched.
+        ...(form.locationConfirmed ? { lat: form.lat, lng: form.lng } : {}),
+      });
       fetchVendorRooms(id).then(setRooms);
       onDirtyChange?.(false);
       goNext();
@@ -276,7 +292,7 @@ export function CentreCreationWizard({
         error={error}
       >
         <div style={{ display: "flex", flexDirection: "column", gap: 14, maxWidth: 480 }}>
-          <AddressSearch onSelect={(r) => setForm({ area: r.area || form.area, county: r.county || form.county, lat: r.lat, lng: r.lng })} />
+          <AddressSearch onSelect={(r) => setForm({ area: r.area || form.area, county: r.county || form.county, lat: r.lat, lng: r.lng, locationConfirmed: true })} />
           <div className="grid-responsive" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
             <div>
               <label htmlFor="centre-wizard-area" style={labelStyle}>Area</label>
@@ -396,7 +412,10 @@ export function CentreCreationWizard({
         continueBusy={saving}
         error={error}
       >
-        <MultiImageUpload images={form.images} onChange={(images) => setForm({ images })} />
+        {/* id is guaranteed real (not "new") here — the wizard creates the
+            centre in step 1 (see the setId(created.id) call above) and this
+            photos step is only reachable afterward. */}
+        <MultiImageUpload images={form.images} onChange={(images) => setForm({ images })} mediaEntityType="centre-gallery" mediaEntityId={id as string} />
       </GuidedFlow>
     );
   }

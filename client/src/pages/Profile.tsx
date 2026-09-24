@@ -68,7 +68,9 @@ import { SearchAlertsPanel } from "../components/SearchAlertsPanel";
 import { Avatar, Button, ConfirmDialog, EmptyState, RowSkeleton, Switch, inputStyle, labelStyle } from "../components/ui";
 import { signInHref } from "../authRedirect";
 import { euro } from "../euro";
+import { favouriteDetailHref } from "../favouriteLink";
 import { useGuest } from "../GuestContext";
+import { notificationHref } from "../notificationLink";
 import { colors, fonts, radius } from "../theme";
 import { ACCESSIBILITY_OPTIONS, AVAILABILITY_OPTIONS, BUDGET_OPTIONS, GOAL_OPTIONS, GROUP_SIZE_OPTIONS, INTEREST_OPTIONS } from "../types";
 import type { BlockedResident, Favourite, HostStatus, HouseholdMember, NotificationPrefs, Pass, Receipt, ReportRecord, ResidentNotification, Routine, RoutineSuggestion } from "../types";
@@ -136,11 +138,11 @@ function ProfilePhotoRow() {
   const handleFileChosen = async (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     e.target.value = "";
-    if (!file) return;
+    if (!file || !resident) return;
     setError(null);
     setUploading(true);
     try {
-      await uploadAvatar(file);
+      await uploadAvatar(file, resident.id);
       await refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Couldn't upload that photo");
@@ -303,6 +305,7 @@ const FAVOURITE_LISTING_LABEL: Record<Favourite["listingType"], string> = {
   program_session: "Program session",
   club_session: "Club session",
   experience: "Adventure / Experience",
+  circle: "Circle",
 };
 
 const STATUS_LABEL: Record<Favourite["status"], string> = { interested: "Interested", planning: "Planning", joined: "Joined" };
@@ -373,16 +376,7 @@ function FavouritesPanel() {
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
           {filtered.map((f) => {
             const next = NEXT_STATUS[f.status];
-            const detailHref =
-              f.listingType === "centre"
-                ? `/centres/${f.listingId}`
-                : f.listingType === "club"
-                  ? `/clubs/${f.listingId}`
-                  : f.listingType === "game"
-                    ? `/games/${f.listingId}`
-                    : f.listingType === "experience"
-                      ? `/experiences/${f.listingId}`
-                      : null;
+            const detailHref = favouriteDetailHref(f);
             return (
               <div key={`${f.listingType}:${f.listingId}`} style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 14, padding: "14px 18px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
                 <button
@@ -470,6 +464,7 @@ function FollowingPanel() {
               src={f.imageUrl ?? undefined}
               alt={f.name ?? ""}
               ph={colors.panel}
+              variant="thumbnail"
               style={{ width: 38, height: 38, borderRadius: "50%", overflow: "hidden", flex: "none" }}
               icon={!f.imageUrl ? f.followedType === "vendor" ? <BuildingIcon size={14} /> : <PersonIcon size={14} /> : undefined}
             />
@@ -512,6 +507,7 @@ function FollowingPanel() {
 // notification-preference toggles in NotificationPrefsPanel below) ----------
 
 function NotificationInboxPanel() {
+  const navigate = useNavigate();
   const [notifications, setNotifications] = useState<ResidentNotification[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -529,9 +525,19 @@ function NotificationInboxPanel() {
     setNotifications((rows) => rows.map((n) => (n.id === id ? { ...n, read: 1 } : n)));
   };
 
+  // Resident Experience Polish — this panel previously never navigated
+  // anywhere on click, for any notification kind — it only marked a row
+  // read. Now opens the same place the matching native push already does
+  // (see notificationLink.ts, mirroring notifications.ts's pushPathFor).
+  const handleClick = (n: ResidentNotification) => {
+    if (!n.read) handleRead(n.id);
+    const href = notificationHref(n);
+    if (href) navigate(href);
+  };
+
   if (loading) return <RowSkeleton />;
   if (notifications.length === 0) {
-    return <EmptyState icon={<ChevronRightIcon size={20} />} title="Nothing yet" subtitle="Waitlist offers and session updates will show up here." />;
+    return <EmptyState icon={<ChevronRightIcon size={20} />} title="Nothing yet" subtitle="Bookings, registrations, waitlist offers and session updates will show up here." />;
   }
 
   return (
@@ -539,13 +545,13 @@ function NotificationInboxPanel() {
       {notifications.map((n) => (
         <div
           key={n.id}
-          onClick={() => !n.read && handleRead(n.id)}
+          onClick={() => handleClick(n)}
           style={{
             background: n.read ? colors.surface : colors.greenBg,
             border: `1px solid ${colors.border}`,
             borderRadius: 14,
             padding: "14px 18px",
-            cursor: n.read ? "default" : "pointer",
+            cursor: notificationHref(n) || !n.read ? "pointer" : "default",
           }}
         >
           <div style={{ fontWeight: 700, fontSize: 14.5 }}>{n.title}</div>

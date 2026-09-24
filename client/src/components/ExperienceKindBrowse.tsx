@@ -1,28 +1,18 @@
-import L from "leaflet";
-import "leaflet/dist/leaflet.css";
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { useNavigate } from "react-router-dom";
-import { MapContainer, Marker, Popup, TileLayer } from "react-leaflet";
 import { fetchExperiences } from "../api";
 import { ArrowRightIcon, CalendarIcon, ClockIcon, CloseIcon, GridIcon, LightbulbIcon, PinIcon, SearchIcon, TreeIconSmall, UsersIcon } from "./icons";
 import { Chip } from "./Chip";
+import { DiscoveryMap, type DiscoveryMapPin } from "./DiscoveryMap";
 import { DropdownOption, FilterDropdown } from "./FilterDropdown";
 import { Photo } from "./Photo";
 import { PageTitle } from "./PageTitle";
-import { Button, Card, CardSkeleton, Drawer, EmptyState } from "./ui";
+import { Button, Card, CardLink, CardSkeleton, Drawer, EmptyState } from "./ui";
 import { SaveButton, useSavedState } from "./SaveButton";
 import { dateLabel } from "../euro";
 import { formatAvailability, formatDateTime, formatPrice } from "../formatters";
 import { cardImageRatio, colors, fonts, maxWidth, radius } from "../theme";
 import type { Experience, ExperienceKind, ExperienceSessionSlot } from "../types";
-
-// Same marker-icon fix DiscoveryMap.tsx/SinglePinMap.tsx need — see either
-// for why. Safe to re-apply (mergeOptions is idempotent).
-import markerIcon2x from "leaflet/dist/images/marker-icon-2x.png";
-import markerIcon from "leaflet/dist/images/marker-icon.png";
-import markerShadow from "leaflet/dist/images/marker-shadow.png";
-
-L.Icon.Default.mergeOptions({ iconRetinaUrl: markerIcon2x, iconUrl: markerIcon, shadowUrl: markerShadow });
 
 // Shared browse layout for the Adventures and Experiences pages (see
 // pages/Adventures.tsx / pages/Experiences.tsx) — same underlying
@@ -87,6 +77,18 @@ function priceMatches(e: Experience, tier: PriceTier): boolean {
   return true;
 }
 
+/** Same boundaries as priceMatches() above, expressed as the min/max-cents
+ * pair /api/discover/map accepts — so "Search this area" respects the same
+ * price tier the list panel already filters by (Maps cost-control follow-up
+ * pass, review point #2: a "free/cheap" filter must not suddenly surface
+ * pricier results just because the map was panned). */
+function priceTierToRange(tier: PriceTier): { minPriceCents?: number; maxPriceCents?: number } {
+  if (tier === "under30") return { maxPriceCents: 2999 };
+  if (tier === "30to50") return { minPriceCents: 3000, maxPriceCents: 5000 };
+  if (tier === "over50") return { minPriceCents: 5001 };
+  return {};
+}
+
 function dateWhenMatches(e: Experience, when: WhenFilter, whenDate: string): boolean {
   if (when === "any") return true;
   const session = nextSession(e);
@@ -134,40 +136,23 @@ function compareExperiences(a: Experience, b: Experience, sort: SortKey): number
   return `${sa.date}${sa.time}`.localeCompare(`${sb.date}${sb.time}`);
 }
 
-// --- Map view (unchanged behavior from the previous version of this file) -
+// --- Map view — shared clustered map component (DiscoveryMap.tsx), also
+// used by Browse.tsx for centres/clubs; this just builds the generic pin
+// shape from Experience rows. -----------------------------------------------
 
-const IRELAND_CENTER: [number, number] = [53.4, -8.0];
-
-function ExperienceMap({ items }: { items: Experience[] }) {
-  const navigate = useNavigate();
-  const pins = items.filter((e) => e.lat !== null && e.lng !== null);
-  return (
-    <div style={{ borderRadius: radius.card, overflow: "hidden", border: `1px solid ${colors.border}`, height: 520 }}>
-      <MapContainer center={IRELAND_CENTER} zoom={7} style={{ height: "100%", width: "100%" }} scrollWheelZoom>
-        <TileLayer
-          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-        />
-        {pins.map((e) => (
-          <Marker key={e.id} position={[e.lat as number, e.lng as number]}>
-            <Popup>
-              <div style={{ minWidth: 160 }}>
-                <div style={{ fontWeight: 700, marginBottom: 2 }}>{e.title}</div>
-                <div style={{ fontSize: 12.5, color: "#5B635C", marginBottom: 6 }}>{e.area}{e.area && e.county ? ", " : ""}{e.county}</div>
-                <div style={{ fontSize: 12.5, marginBottom: 8 }}>{formatPrice(e.priceCents, { each: true })}</div>
-                <button
-                  onClick={() => navigate(`/${e.kind === "adventure" ? "adventures" : "experiences"}/${e.slug ?? e.id}`)}
-                  style={{ background: colors.dark, color: "#fff", border: "none", borderRadius: 8, padding: "6px 10px", fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}
-                >
-                  View {e.kind === "adventure" ? "adventure" : "experience"}
-                </button>
-              </div>
-            </Popup>
-          </Marker>
-        ))}
-      </MapContainer>
-    </div>
-  );
+function experiencesToPins(items: Experience[]): DiscoveryMapPin[] {
+  return items
+    .filter((e) => e.lat !== null && e.lng !== null)
+    .map((e) => ({
+      id: e.id,
+      lat: e.lat as number,
+      lng: e.lng as number,
+      title: e.title,
+      subtitle: `${e.area}${e.area && e.county ? ", " : ""}${e.county}`,
+      priceLabel: formatPrice(e.priceCents, { each: true }),
+      href: `/${e.kind === "adventure" ? "adventures" : "experiences"}/${e.slug ?? e.id}`,
+      locationSource: e.locationSource,
+    }));
 }
 
 // --- Browse card (this page's grid only — ExperienceCard.tsx elsewhere is
@@ -179,10 +164,12 @@ function ExperienceBrowseCard({ e }: { e: Experience }) {
   const [saved, toggleSaved] = useSavedState("experience", e.id);
   const session = nextSession(e);
   const kindPath = e.kind === "adventure" ? "adventures" : "experiences";
-  const open = () => navigate(`/${kindPath}/${e.slug ?? e.id}`);
+  const href = `/${kindPath}/${e.slug ?? e.id}`;
+  const open = () => navigate(href);
 
   return (
-    <Card hover style={{ padding: 0, overflow: "hidden", cursor: "pointer" }} onClick={open}>
+    <Card hover style={{ position: "relative", padding: 0, overflow: "hidden" }}>
+      <CardLink to={href} label={e.title} />
       <Photo
         src={e.imageUrl || undefined}
         alt={e.title}
@@ -274,9 +261,11 @@ function ExperienceBrowseCard({ e }: { e: Experience }) {
             {formatPrice(e.priceCents)}
             {e.priceCents ? <span style={{ fontSize: 12, fontWeight: 600, color: colors.mutedLight }}> pp</span> : null}
           </span>
-          <Button variant="dark" onClick={open} style={{ padding: "8px 16px", fontSize: 13 }}>
-            View {e.kind === "adventure" ? "adventure" : "experience"}
-          </Button>
+          <div className="stretched-link-above">
+            <Button variant="dark" onClick={open} style={{ padding: "8px 16px", fontSize: 13 }}>
+              View {e.kind === "adventure" ? "adventure" : "experience"}
+            </Button>
+          </div>
         </div>
       </div>
     </Card>
@@ -597,7 +586,7 @@ export function ExperienceKindBrowse({ kind, title, subtitle }: { kind: Experien
                 }
               />
             ) : view === "map" ? (
-              <ExperienceMap items={sorted} />
+              <DiscoveryMap pins={experiencesToPins(sorted)} searchTypes={["experience"]} searchFilters={{ q: query.trim() || undefined, ...priceTierToRange(price) }} />
             ) : (
               <>
                 <div className="grid-responsive-3" style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 20 }}>

@@ -341,3 +341,74 @@ export function fetchAdminPlaceSuggestions(all = false): Promise<PlaceSuggestion
 export function setPlaceSuggestionStatus(id: string, status: "approved" | "rejected"): Promise<{ ok: boolean }> {
   return request(`/admin/place-suggestions/${id}/status`, { method: "PUT", body: JSON.stringify({ status }) });
 }
+
+// --- Media (Cloudinary/R2 architecture pass) — usage visibility, the
+// small admin-managed editorial collection, and the same "no redeploy
+// needed" pause-switch shape as the pre-existing maps-enabled config. -----
+
+export interface MediaUsageResponse {
+  application: { byProviderAndStatus: { provider: string; status: string; count: number; bytes: number }[]; trackedSince: string | null; note: string };
+  providerReported: { r2: { available: boolean; note: string }; cloudinary: { available: boolean; note: string } };
+  hasPendingR2Cleanup: boolean;
+  hasPendingDeletionRetries: boolean;
+  config: {
+    uploadsEnabled: boolean;
+    cloudinaryConfigured: boolean;
+    cloudinaryEnabledByEnv: boolean;
+    cloudinaryRuntimeEnabled: boolean;
+    cloudinaryUploadAllowed: boolean;
+    galleryLimits: Record<string, number>;
+  };
+}
+
+export function fetchMediaUsage(): Promise<MediaUsageResponse> {
+  return request(`/admin/media/usage`);
+}
+
+export interface EditorialImage {
+  id: string;
+  url: string;
+  caption: string | null;
+  bytes: number | null;
+  width: number | null;
+  height: number | null;
+  createdAt: string;
+}
+
+export function fetchEditorialImages(): Promise<{ images: EditorialImage[] }> {
+  return request(`/admin/media/editorial`);
+}
+
+/** Raw fetch, not request() — this is a multipart upload, same reasoning
+ * as api/public.ts's uploadImage(). */
+export async function uploadEditorialImage(file: File, caption: string): Promise<{ id: string; url: string }> {
+  const form = new FormData();
+  form.append("file", file);
+  if (caption) form.append("caption", caption);
+  const res = await fetch(`/api/admin/media/editorial`, { method: "POST", credentials: "include", body: form });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({ error: res.statusText }));
+    throw new Error(body.error || `Upload failed: ${res.status}`);
+  }
+  return res.json();
+}
+
+export function deleteEditorialImage(id: string): Promise<{ ok: boolean }> {
+  return request(`/admin/media/editorial/${id}`, { method: "DELETE" });
+}
+
+export function fetchMediaUploadsEnabled(): Promise<{ enabled: boolean }> {
+  return request(`/admin/media/config/uploads-enabled`);
+}
+
+export function setMediaUploadsEnabled(enabled: boolean): Promise<{ enabled: boolean }> {
+  return request(`/admin/media/config/uploads-enabled`, { method: "PUT", body: JSON.stringify({ enabled }) });
+}
+
+export function fetchCloudinaryUploadsEnabled(): Promise<{ enabled: boolean; configuredByEnv: boolean; credentialsPresent: boolean }> {
+  return request(`/admin/media/config/cloudinary-enabled`);
+}
+
+export function setCloudinaryUploadsEnabled(enabled: boolean): Promise<{ enabled: boolean }> {
+  return request(`/admin/media/config/cloudinary-enabled`, { method: "PUT", body: JSON.stringify({ enabled }) });
+}

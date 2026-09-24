@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildRehostParams } from "./rehost";
+import { buildRehostParams, rehostHref } from "./rehost";
 import type { Game } from "./types";
 
 // Host Experience Polish — pure-function coverage for the param-building
@@ -101,5 +101,26 @@ describe("buildRehostParams", () => {
     expect(params.get("indoorOutdoor")).toBe("indoor");
     expect(params.get("meetingInstructions")).toBe("Meet at reception");
     expect(params.get("cancellationPolicy")).toBe("24h notice");
+  });
+
+  // Circle Experience Polish — Changeset 3C.
+  it("omits circleId by default — every existing caller (GameDetail's own Do it again, HostActivitiesTab) is unaffected", () => {
+    const params = buildRehostParams(baseGame());
+    expect(params.has("circleId")).toBe(false);
+  });
+
+  it("carries circleId only when a Circle-context caller opts in", () => {
+    const params = buildRehostParams(baseGame(), { circleId: "circle-123" });
+    expect(params.get("circleId")).toBe("circle-123");
+  });
+
+  it("never carries planId, even from Circle context — a rehosted activity is fresh, not a plan conversion", () => {
+    const params = buildRehostParams(baseGame(), { circleId: "circle-123" });
+    expect(params.has("planId")).toBe(false);
+  });
+
+  it("rehostHref includes circleId in the query string when passed", () => {
+    const href = rehostHref(baseGame(), { circleId: "circle-123" });
+    expect(href).toContain("circleId=circle-123");
   });
 });

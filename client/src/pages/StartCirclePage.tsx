@@ -1,14 +1,16 @@
 import { useState, type SetStateAction } from "react";
 import { useNavigate } from "react-router-dom";
-import { createCircle } from "../api";
+import { createCircle, updateCircle } from "../api";
 import { signInHref } from "../authRedirect";
 import { BackLink } from "../components/BackLink";
 import { useUnsavedChangesGuard } from "../components/form";
-import { PlusIcon } from "../components/icons";
+import { CheckCircleIcon, PlusIcon } from "../components/icons";
+import { ShareButton } from "../components/ShareButton";
+import { SingleImageUpload } from "../components/SingleImageUpload";
 import { Button, Card, inputStyle, labelStyle } from "../components/ui";
 import { PageTitle } from "../components/PageTitle";
 import { useGuest } from "../GuestContext";
-import { colors, radius } from "../theme";
+import { colors, fonts, radius } from "../theme";
 
 // "Start a Circle" form, split out of Circles.tsx into its own page — same
 // "big multi-section form gets a page" pattern as the vendor Centre/Club/
@@ -26,6 +28,12 @@ export function StartCirclePage() {
   const { requestNavigation, dialog: unsavedDialog } = useUnsavedChangesGuard(dirty);
   const [showMoreCircleFields, setShowMoreCircleFields] = useState(false);
   const [creating, setCreating] = useState(false);
+  // Circle Experience Polish — Changeset 3A. Was a hard navigate straight
+  // to the new, empty Circle with zero guidance — the audit's own example
+  // of a Circle dead end. A brief success state with the two real next
+  // actions replaces that, without turning this into another wizard step.
+  const [created, setCreated] = useState<{ id: string; slug: string | null } | null>(null);
+  const [createdImageUrl, setCreatedImageUrl] = useState<string | null>(null);
 
   const handleCreate = async () => {
     if (!form.name.trim()) return;
@@ -33,11 +41,51 @@ export function StartCirclePage() {
     try {
       const { id, slug } = await createCircle(form);
       setDirty(false);
-      navigate(`/circles/${slug ?? id}`);
+      setCreated({ id, slug });
     } finally {
       setCreating(false);
     }
   };
+
+  if (created) {
+    const ref = created.slug ?? created.id;
+    return (
+      <div className="fade-panel">
+        <section className="section-pad" style={{ maxWidth: 560, margin: "0 auto", padding: "70px 24px 90px", textAlign: "center" }}>
+          <div style={{ color: colors.greenText, marginBottom: 14 }}>
+            <CheckCircleIcon size={36} />
+          </div>
+          <h1 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 26, margin: "0 0 8px", letterSpacing: "-.01em" }}>Your Circle is live.</h1>
+          <p style={{ margin: "0 0 28px", fontSize: 15, color: colors.mutedLight }}>
+            {form.name || "Your Circle"} is ready. Now get things moving.
+          </p>
+          <div style={{ display: "flex", justifyContent: "center", marginBottom: 20 }}>
+            <SingleImageUpload
+              value={createdImageUrl}
+              onChange={async (url) => {
+                setCreatedImageUrl(url);
+                await updateCircle(created.id, { ...form, imageUrl: url ?? "" });
+              }}
+              mediaEntityType="circle-cover"
+              mediaEntityId={created.id}
+            />
+          </div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 10, justifyContent: "center", marginBottom: 14 }}>
+            <Button onClick={() => navigate(`/manage/circles/${ref}?tab=members`)}>Invite people</Button>
+            <Button onClick={() => navigate(`/games/host?activity=${encodeURIComponent(form.activityLabel)}&circleId=${created.id}`)}>
+              <PlusIcon size={14} /> Create first plan
+            </Button>
+          </div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 14, justifyContent: "center", alignItems: "center" }}>
+            <ShareButton entityType="circle" entityId={created.id} render={(onClick) => <button onClick={onClick} style={{ background: "none", border: "none", padding: 0, fontSize: 13, fontWeight: 700, color: colors.text, cursor: "pointer" }}>Share Circle</button>} />
+            <button onClick={() => navigate(`/circles/${ref}`)} style={{ background: "none", border: "none", padding: 0, fontSize: 13, fontWeight: 700, color: colors.text, cursor: "pointer" }}>
+              View Circle
+            </button>
+          </div>
+        </section>
+      </div>
+    );
+  }
 
   return (
     <div className="fade-panel">

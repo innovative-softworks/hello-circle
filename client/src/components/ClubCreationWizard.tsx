@@ -36,6 +36,8 @@ interface WizardForm {
   mapUrl: string;
   lat?: number;
   lng?: number;
+  /** See CentreCreationWizard.tsx's identical field/comment. */
+  locationConfirmed: boolean;
   ages: string;
   audience: "kids" | "adults" | "all";
   price: number;
@@ -58,6 +60,7 @@ function blankForm(): WizardForm {
     area: "",
     county: "",
     mapUrl: "",
+    locationConfirmed: false,
     ages: "",
     audience: "kids",
     price: 0,
@@ -110,6 +113,7 @@ export function ClubCreationWizard({
         mapUrl: c.mapUrl,
         lat: c.lat ?? undefined,
         lng: c.lng ?? undefined,
+        locationConfirmed: false,
         ages: c.ages,
         audience: c.audience,
         price: c.price,
@@ -177,7 +181,12 @@ export function ClubCreationWizard({
     setSaving(true);
     setError(null);
     try {
-      await updateVendorClub(id, { area: form.area, county: form.county, mapUrl: form.mapUrl, lat: form.lat, lng: form.lng });
+      await updateVendorClub(id, {
+        area: form.area,
+        county: form.county,
+        mapUrl: form.mapUrl,
+        ...(form.locationConfirmed ? { lat: form.lat, lng: form.lng } : {}),
+      });
       onDirtyChange?.(false);
       goNext();
     } catch (e) {
@@ -316,7 +325,7 @@ export function ClubCreationWizard({
         error={error}
       >
         <div style={{ display: "flex", flexDirection: "column", gap: 14, maxWidth: 480 }}>
-          <AddressSearch onSelect={(r) => setForm({ area: r.area || form.area, county: r.county || form.county, lat: r.lat, lng: r.lng })} />
+          <AddressSearch onSelect={(r) => setForm({ area: r.area || form.area, county: r.county || form.county, lat: r.lat, lng: r.lng, locationConfirmed: true })} />
           <div className="grid-responsive" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
             <div>
               <label htmlFor="club-wizard-area" style={labelStyle}>Area</label>
@@ -454,7 +463,9 @@ export function ClubCreationWizard({
         continueBusy={saving}
         error={error}
       >
-        <MultiImageUpload images={form.images} onChange={(images) => setForm({ images })} />
+        {/* id is guaranteed real (not "new") here — same reasoning as
+            CentreCreationWizard.tsx's identical comment. */}
+        <MultiImageUpload images={form.images} onChange={(images) => setForm({ images })} mediaEntityType="club-gallery" mediaEntityId={id as string} />
       </GuidedFlow>
     );
   }

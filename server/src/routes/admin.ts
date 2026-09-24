@@ -2,7 +2,7 @@ import crypto from "node:crypto";
 import { Router } from "express";
 import { requireAdmin } from "../auth.js";
 import { writeAudit } from "../audit.js";
-import { approximateCoords, db } from "../db/index.js";
+import { approximateCoords, db, getSetting, setSetting } from "../db/index.js";
 import { FEATURE_FLAG_KEYS, getAnalyticsFunnel, getCentre, getClub, getDemandSignals, getIntentClusters, getLiquidityScores, getMarketCategories, getParticipationStats, getReferralAttribution, getSupplyOverview, MARKET_CATEGORIES, orgFeatureFlagsById, type MarketCategory } from "../db/queries.js";
 import { endOfIrelandDay } from "../irelandTime.js";
 import { NOTIFICATION_TEMPLATE_KEYS } from "../notificationTemplates.js";
@@ -929,8 +929,8 @@ adminRouter.put("/place-suggestions/:id/status", async (req, res) => {
       await db.transaction(async (tx) => {
         await tx
           .prepare(
-            `INSERT INTO centres (id, name, area, county, rating, reviews, capacity, from_price, managed_by, ph, image_url, blurb, status, created_at, opens_at, closes_at, payment_method, lat, lng, phone, accessibility, slug)
-             VALUES (?, ?, ?, ?, 0, 0, 0, 0, '', '', '', ?, 'approved', NOW(), '09:00', '21:00', 'cash', ?, ?, '', '', ?)`
+            `INSERT INTO centres (id, name, area, county, rating, reviews, capacity, from_price, managed_by, ph, image_url, blurb, status, created_at, opens_at, closes_at, payment_method, lat, lng, location_source, phone, accessibility, slug)
+             VALUES (?, ?, ?, ?, 0, 0, 0, 0, '', '', '', ?, 'approved', NOW(), '09:00', '21:00', 'cash', ?, ?, 'approximate', '', '', ?)`
           )
           .run(listingId, suggestion.suggested_name, suggestion.area, county, suggestion.description, lat, lng, slug);
         await tx
@@ -940,8 +940,8 @@ adminRouter.put("/place-suggestions/:id/status", async (req, res) => {
     } else {
       await db
         .prepare(
-          `INSERT INTO clubs (id, name, sport, area, county, ages, price, unit, trial, ph, image_url, blurb, status, created_at, payment_method, lat, lng, phone, accessibility, category, slug)
-           VALUES (?, ?, '', ?, ?, '', 0, 'year', 0, '', '', ?, 'approved', NOW(), 'cash', ?, ?, '', '', '', ?)`
+          `INSERT INTO clubs (id, name, sport, area, county, ages, price, unit, trial, ph, image_url, blurb, status, created_at, payment_method, lat, lng, location_source, phone, accessibility, category, slug)
+           VALUES (?, ?, '', ?, ?, '', 0, 'year', 0, '', '', ?, 'approved', NOW(), 'cash', ?, ?, 'approximate', '', '', '', ?)`
         )
         .run(listingId, suggestion.suggested_name, suggestion.area, county, suggestion.description, lat, lng, slug);
     }
@@ -959,4 +959,31 @@ adminRouter.put("/place-suggestions/:id/status", async (req, res) => {
     newValue: { publishedListingId },
   });
   res.json({ ok: true, publishedListingId });
+});
+
+// Maps kill switch (Maps cost-control follow-up pass, review point #3) — a
+// real runtime toggle, not the build-time VITE_MAPBOX_ENABLED env var. GET
+// here is the same read GET /api/config (public) exposes, duplicated only
+// so the admin UI can show current state without relying on the public
+// route's own cache timing; PUT is the actual admin action, audited like
+// every other admin mutation in this file.
+adminRouter.get("/config/maps-enabled", async (_req, res) => {
+  const enabled = (await getSetting("maps_enabled", "true")) !== "false";
+  res.json({ enabled });
+});
+
+adminRouter.put("/config/maps-enabled", async (req, res) => {
+  const { enabled } = req.body as { enabled?: boolean };
+  if (typeof enabled !== "boolean") return res.status(400).json({ error: "enabled must be a boolean" });
+  const before = (await getSetting("maps_enabled", "true")) !== "false";
+  await setSetting("maps_enabled", enabled ? "true" : "false");
+  await writeAudit({
+    actorUserId: req.user!.id,
+    action: "config.maps_enabled_changed",
+    objectType: "app_settings",
+    objectId: "maps_enabled",
+    previousValue: { enabled: before },
+    newValue: { enabled },
+  });
+  res.json({ enabled });
 });

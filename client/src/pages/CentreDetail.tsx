@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { addFavourite, fetchCentre, fetchFavourites, fetchGames, fetchPrograms, joinGame, removeFavourite } from "../api";
 import { openCheckout } from "../native";
 import { BackLink } from "../components/BackLink";
@@ -199,6 +199,39 @@ export function CentreDetail() {
               <h3 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 20, margin: "0 0 12px", letterSpacing: "-.01em" }}>
                 Location
               </h3>
+              <div style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 14, padding: "16px 18px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap", marginBottom: 12 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <PinIcon size={16} style={{ color: colors.mutedLight, flex: "none" }} />
+                  <div>
+                    <div style={{ fontWeight: 700, fontSize: 14.5 }}>{centre.name}</div>
+                    {(centre.area || centre.county) && (
+                      <div style={{ fontSize: 12.5, color: colors.mutedLight, marginTop: 2 }}>
+                        {centre.area}
+                        {centre.area && centre.county ? ", " : ""}
+                        {centre.county}
+                      </div>
+                    )}
+                    {centre.locationSource !== "confirmed" && (
+                      <div style={{ fontSize: 11.5, fontWeight: 700, color: "#9a7b1f", marginTop: 3 }}>Approximate area — not an exact address</div>
+                    )}
+                  </div>
+                </div>
+                {/* A fabricated county-centroid pin shouldn't be handed to a
+                    real navigation app as if it were the venue's actual
+                    address (spec: "do not provide navigation to a
+                    fabricated exact venue pin") — the area/county text above
+                    is the honest version for an approximate location. */}
+                {centre.locationSource === "confirmed" && (
+                  <a
+                    href={`https://www.google.com/maps/search/?api=1&query=${centre.lat},${centre.lng}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    style={{ fontSize: 13, fontWeight: 700, color: colors.text, textDecoration: "underline", flex: "none" }}
+                  >
+                    Get directions
+                  </a>
+                )}
+              </div>
               <SinglePinMap lat={centre.lat} lng={centre.lng} label={centre.name} height={220} />
               <div style={{ marginBottom: 32 }} />
             </>
@@ -211,17 +244,17 @@ export function CentreDetail() {
               </h3>
               <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 32 }}>
                 {programs.map((p) => (
-                  <button
+                  <Link
                     key={p.id}
-                    onClick={() => navigate(`/programs/${p.id}`)}
-                    style={{ textAlign: "left", border: `1px solid ${colors.border}`, borderRadius: 14, padding: "14px 16px", cursor: "pointer", background: colors.surface, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, width: "100%" }}
+                    to={`/programs/${p.id}`}
+                    style={{ textAlign: "left", textDecoration: "none", color: "inherit", border: `1px solid ${colors.border}`, borderRadius: 14, padding: "14px 16px", cursor: "pointer", background: colors.surface, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, width: "100%" }}
                   >
                     <div>
                       <div style={{ fontWeight: 700 }}>{p.title}</div>
                       <div style={{ fontSize: 13, color: colors.mutedLight }}>{p.sessions.length} session{p.sessions.length === 1 ? "" : "s"}{p.ageRange ? ` · ${p.ageRange}` : ""}</div>
                     </div>
                     <div style={{ fontWeight: 700 }}>{formatPrice(p.priceCents)}</div>
-                  </button>
+                  </Link>
                 ))}
               </div>
             </>

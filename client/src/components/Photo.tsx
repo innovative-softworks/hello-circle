@@ -1,4 +1,5 @@
 import type { CSSProperties, ReactNode } from "react";
+import { getMediaUrl, type MediaVariant } from "../media";
 
 interface PhotoProps {
   src: string | undefined;
@@ -12,6 +13,16 @@ interface PhotoProps {
   icon?: ReactNode;
   iconColor?: string;
   children?: ReactNode;
+  /** Which delivery size to request — see client/src/media.ts. Defaults to
+   * "card" since the overwhelming majority of call sites are discovery/list
+   * cards; pass "hero" for a detail page's primary image, "thumbnail" for a
+   * small list-row photo. No effect until a Cloudflare-backed image and
+   * VITE_MEDIA_PUBLIC_DOMAIN are both in play — a legacy `/uploads/...` or
+   * external URL renders exactly as before either way. */
+  variant?: MediaVariant;
+  /** Opts out of the default `loading="lazy"` for a genuinely above-the-fold
+   * image (a detail page's own hero) — see Image/Media System Audit §15. */
+  eager?: boolean;
 }
 
 /** A placeholder-gradient box with a real photo layered on top, and optional
@@ -32,7 +43,8 @@ const tintStyle: CSSProperties = {
   pointerEvents: "none",
 };
 
-export function Photo({ src, alt, ph, style, contentStyle, icon, iconColor, children }: PhotoProps) {
+export function Photo({ src, alt, ph, style, contentStyle, icon, iconColor, children, variant = "card", eager }: PhotoProps) {
+  const resolvedSrc = getMediaUrl(src, variant);
   return (
     <div style={{ position: "relative", background: ph, overflow: "hidden", ...style }}>
       {icon && (
@@ -53,10 +65,11 @@ export function Photo({ src, alt, ph, style, contentStyle, icon, iconColor, chil
           </div>
         </div>
       )}
-      {src && (
+      {resolvedSrc && (
         <img
-          src={src}
+          src={resolvedSrc}
           alt={alt}
+          loading={eager ? "eager" : "lazy"}
           style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover", zIndex: 0 }}
           onError={(e) => {
             e.currentTarget.style.display = "none";

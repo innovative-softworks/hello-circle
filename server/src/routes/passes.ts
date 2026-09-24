@@ -69,8 +69,17 @@ passesRouter.post("/checkout", requireResident, async (req, res) => {
  * polls this for a "PS-" ref after the Stripe redirect. Passes are always
  * resident-owned (no guest-client-id path), so ownership is by resident_id. */
 passesRouter.get("/status/:ref", requireResident, async (req, res) => {
+  // Resident Experience Polish — Changeset 5, same reasoning as
+  // bookings.ts's GET /status/:ref. Passes are always listing_type='club'
+  // today (the only pass-purchase flow that exists — ClubDetail.tsx's
+  // 10-session pack), confirmed by grep across every INSERT INTO passes.
   const row = await db
-    .prepare(`SELECT ref, payment_status as paymentStatus, purchased_cents as totalCents FROM passes WHERE ref = ? AND resident_id = ?`)
+    .prepare(
+      `SELECT p.ref, p.payment_status as paymentStatus, p.purchased_cents as totalCents,
+              p.listing_id as clubId, c.name as clubName, p.credits_total as creditsTotal
+       FROM passes p LEFT JOIN clubs c ON p.listing_type = 'club' AND c.id = p.listing_id
+       WHERE p.ref = ? AND p.resident_id = ?`
+    )
     .get(req.params.ref, req.resident!.id);
   if (!row) return res.status(404).json({ error: "Pass not found" });
   res.json(row);

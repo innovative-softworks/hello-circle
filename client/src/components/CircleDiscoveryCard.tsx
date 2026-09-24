@@ -1,10 +1,10 @@
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
 import { AwardIcon, CalendarIcon, RepeatIcon, UsersIcon } from "./icons";
 import { Photo } from "./Photo";
-import { Button, Card, ConfirmDialog } from "./ui";
+import { Button, Card, CardLink, ConfirmDialog } from "./ui";
 import { dateLabel } from "../euro";
 import { formatCircleAvailability } from "../formatters";
+import { getCircleCoverUrl } from "../media";
 import { cardImageRatio, colors, fonts, photoOverlay, placeholderStripes, radius } from "../theme";
 import type { Circle } from "../types";
 
@@ -26,18 +26,18 @@ function activityState(circle: Circle): "active-now" | "new" | null {
 }
 
 export function CircleDiscoveryCard({ circle, joined, onJoin, onLeave, busy }: { circle: Circle; joined: boolean; onJoin: () => void; onLeave: () => void; busy: boolean }) {
-  const navigate = useNavigate();
   const [leaveConfirmOpen, setLeaveConfirmOpen] = useState(false);
   const [joinConfirmOpen, setJoinConfirmOpen] = useState(false);
   const state = activityState(circle);
   const urgent = !!circle.nextPlan && circle.nextPlan.spotsLeft <= 3;
-  const open = () => navigate(`/circles/${circle.slug ?? circle.id}`);
+  const href = `/circles/${circle.slug ?? circle.id}`;
 
   return (
-    <Card hover style={{ padding: 0, overflow: "hidden", cursor: "pointer", borderRadius: 18 }} onClick={open}>
+    <Card hover style={{ position: "relative", padding: 0, overflow: "hidden", borderRadius: 18 }}>
+      <CardLink to={href} label={circle.name} />
       <div>
         <Photo
-          src={circle.imageUrl ?? undefined}
+          src={getCircleCoverUrl(circle) ?? undefined}
           alt={circle.name}
           ph={placeholderStripes.green}
           icon={<RepeatIcon size={22} />}
@@ -94,7 +94,7 @@ export function CircleDiscoveryCard({ circle, joined, onJoin, onLeave, busy }: {
         </div>
       </div>
 
-      <div style={{ padding: "12px 16px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }} onClick={(e) => e.stopPropagation()}>
+      <div className="stretched-link-above" style={{ padding: "12px 16px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
         <span style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 12.5, color: colors.mutedLight }}>
           <UsersIcon size={12} /> {circle.members} member{circle.members === 1 ? "" : "s"}
         </span>

@@ -37,6 +37,14 @@ export interface Centre {
   mapUrl: string;
   lat: number | null;
   lng: number | null;
+  /** Coordinate provenance (Maps cost-control follow-up pass) — 'confirmed'
+   * (a vendor picked/adjusted a real address), 'approximate' (this server
+   * generated it from a county centroid because none was supplied), or
+   * 'unknown' (a pre-existing row from before this field existed — real
+   * provenance genuinely can't be recovered after the fact). Detail pages
+   * label anything other than 'confirmed' as an approximate area rather
+   * than showing it as a precise pin. */
+  locationSource: "confirmed" | "approximate" | "unknown";
   claimed: boolean;
   /** Provider public profile (IA spec §5) — null for an unclaimed listing. */
   vendorId: string | null;
@@ -101,6 +109,8 @@ export interface Club {
   capacity: number | null;
   lat: number | null;
   lng: number | null;
+  /** See Centre.locationSource — same provenance/approximation semantics. */
+  locationSource: "confirmed" | "approximate" | "unknown";
   phone: string;
   accessibility: string[];
   category: string;
@@ -131,6 +141,80 @@ export interface MyBooking {
   image: string;
   status: BookingStatus;
   vendorId: string;
+}
+
+// Resident Experience Polish — Changeset 5. PaymentSuccess.tsx's six
+// GET .../status/:ref polling endpoints used to return only
+// {ref, paymentStatus, totalCents} — enough to know payment succeeded, not
+// enough to answer "what did I just book?" These are what each now returns
+// once paid, enriched in place (no second fetch — the terminal poll
+// response already has everything). Fields genuinely don't exist for some
+// types (e.g. no date/time on a registration or program enrollment, which
+// have no single dated occurrence) — left absent rather than fabricated.
+export interface BookingConfirmation {
+  ref: string;
+  paymentStatus: string;
+  totalCents: number;
+  centreId: string;
+  centreName: string;
+  roomName: string | null;
+  date: string;
+  time: string;
+  duration: number;
+  guests: number;
+}
+
+export interface RegistrationConfirmation {
+  ref: string;
+  paymentStatus: string;
+  totalCents: number;
+  clubId: string;
+  clubName: string;
+  childFirst: string;
+  childLast: string;
+  team: string;
+}
+
+export interface GameJoinConfirmation {
+  ref: string;
+  paymentStatus: string;
+  totalCents: number;
+  gameId: string;
+  activityLabel: string;
+  date: string;
+  time: string;
+  centreName: string | null;
+  locationText: string;
+}
+
+export interface ExperienceBookingConfirmation {
+  ref: string;
+  paymentStatus: string;
+  totalCents: number;
+  experienceId: string;
+  title: string;
+  meetingPoint: string;
+  date: string;
+  time: string;
+  partySize: number;
+}
+
+export interface ProgramEnrollmentConfirmation {
+  ref: string;
+  paymentStatus: string;
+  totalCents: number;
+  programId: string;
+  title: string;
+  listingName: string | null;
+}
+
+export interface PassConfirmation {
+  ref: string;
+  paymentStatus: string;
+  totalCents: number;
+  clubId: string | null;
+  clubName: string | null;
+  creditsTotal: number;
 }
 
 /** Vendor's own view of a hall booking (VendorBookings.tsx) — a superset of
@@ -220,6 +304,16 @@ export interface MyProgramEnrollment {
   imageUrl: string;
   listingType: "centre" | "club";
   listingName: string;
+  vendorId: string | null;
+  /** Resident Experience Polish — the program's own real next occurrence
+   * (program_sessions), never pe.createdAt. Both null when no future,
+   * non-cancelled session exists — never fabricated. */
+  nextSessionDate: string | null;
+  nextSessionTime: string | null;
+  /** True once at least one real, non-cancelled session has actually
+   * happened — the "meaningful participation" gate for showing post-
+   * activity feedback/reviews, same weight as isPast for a dated booking. */
+  hasPastSession: boolean;
 }
 
 export interface VendorNotification {
@@ -265,8 +359,10 @@ export interface AuthUser {
 export interface Review {
   id: number;
   /** Host & Activity reviews (master-prompt punch list #3) — kept separate
-   * per listing_type, matching the different trust signal each represents. */
-  listingType: "centre" | "club" | "game" | "host";
+   * per listing_type, matching the different trust signal each represents.
+   * "program" added in Resident Experience Polish; "experience" was already
+   * reviewable server-side but missing from this type — added alongside. */
+  listingType: "centre" | "club" | "game" | "host" | "experience" | "program";
   listingId: string;
   name: string;
   rating: number;
@@ -353,21 +449,35 @@ export interface HouseholdMember {
 export type FavouriteStatus = "interested" | "planning" | "joined";
 
 export interface Favourite {
-  listingType: "centre" | "club" | "game" | "program_session" | "club_session" | "experience";
+  listingType: "centre" | "club" | "game" | "program_session" | "club_session" | "experience" | "circle";
   listingId: string;
   status: FavouriteStatus;
   /** Best-effort listing display details — null if the listing was since removed. */
   name: string | null;
   imageUrl: string | null;
   subtitle: string | null;
+  /** Resident Experience Polish — set only for program_session/club_session,
+   * whose own id has no detail route: the parent program/club id to link
+   * to instead. Undefined for every other listing type, or if the parent
+   * listing was itself since removed. */
+  parentId?: string;
+  /** Resident Experience Polish — set only for circle, matching CircleRow's
+   * own slug-preferred, id-fallback link convention. */
+  slug?: string;
 }
 
 export interface ResidentNotification {
   id: number;
-  kind: "booking" | "registration" | "waitlist" | "game" | "intent_match" | "circle";
+  kind: "booking" | "registration" | "program" | "experience" | "waitlist" | "game" | "intent_match" | "circle";
   title: string;
   body: string;
-  listingType: "centre" | "club" | "game" | "intent" | "circle";
+  /** Platform Pre-Launch Polish — Changeset 2. Widened to match the
+   * server's actual NotifyResidentParams["listingType"] union
+   * (notifications.ts) — 'vendor' and 'host' were missing here even though
+   * the server has sent notifications carrying them since the Follow
+   * feature shipped; the in-app notification list's own type didn't
+   * represent that, on top of notificationLink.ts's separate route-map gap. */
+  listingType: "centre" | "club" | "game" | "intent" | "circle" | "vendor" | "host" | "experience" | "program";
   listingId: string;
   ref: string;
   read: number;
@@ -407,6 +517,7 @@ export interface Game {
    * gate on creating a game. hostVerified is true only once an admin has
    * approved this resident's host application. */
   hostName: string;
+  hostAvatarUrl: string | null;
   hostVerified: boolean;
   activityLabel: string;
   centreId: string | null;
@@ -473,6 +584,20 @@ export interface Game {
    * back to it. Both null whenever circleId is null. */
   circleName: string | null;
   circleSlug: string | null;
+  /** Universal Publishing, Lifecycle & Availability System — `lifecycle` is
+   * the host's own last explicit publishing choice; `effectiveLifecycle`/
+   * `effectiveAvailability`/`publicLifecycleLabel` are what a viewer sees
+   * right now once any schedule + the existing status/date fields are
+   * accounted for (server/src/lifecycle.ts + routes/games.ts's
+   * getEffectiveGameLifecycle). The client renders off the effective
+   * values, never re-deriving the policy itself. */
+  lifecycle: "draft" | "coming_soon" | "active" | "paused" | "archived";
+  publishAt: string | null;
+  bookingOpenAt: string | null;
+  bookingCloseAt: string | null;
+  effectiveLifecycle: "draft" | "coming_soon" | "active" | "paused" | "completed" | "cancelled" | "archived";
+  effectiveAvailability: "not_open" | "open" | "limited" | "full" | "waitlist" | "closed";
+  publicLifecycleLabel: string;
 }
 
 /** "Who's going" preview (Game Detail redesign §13) — name only, never
@@ -528,13 +653,25 @@ export interface Circle {
   /** Slugs (master-prompt punch list #1) — null until backfilled/generated. */
   slug: string | null;
   /** Real photo when set (huge-data seed pass) — null falls back to a
-   * tinted placeholder, same convention as Game.imageUrl above. */
+   * tinted placeholder, same convention as Game.imageUrl above. For a
+   * non-open (approval/invite) Circle, this is ALWAYS null regardless of
+   * whether a cover is actually set — the raw permanent R2/custom-domain
+   * URL is never exposed via the API response for a restricted Circle
+   * (Media plan Task 2). Check `hasImage` for whether one exists, and
+   * build the protected delivery URL (`/api/media/circles/:id/cover`)
+   * client-side — see client/src/media.ts's getCircleCoverUrl(). */
   imageUrl: string | null;
-  /** Circle discovery redesign — the soonest open game matching this
-   * Circle's activity label (Circles have no first-class plan relationship
-   * — see routes/circles.ts's own comment on nextPlanFor). Null when
-   * nothing's currently scheduled; the client never fakes one. */
-  nextPlan: { id: string; date: string; time: string; joined: number; capacity: number; spotsLeft: number } | null;
+  /** Whether this Circle has a cover image set at all, independent of
+   * whether `imageUrl` above is populated (it's null for any non-open
+   * Circle even when a cover exists). */
+  hasImage?: boolean;
+  /** Circle discovery redesign — the soonest upcoming activity for this
+   * Circle. Circle Experience Polish — Changeset 2A: nextPlanFor() now
+   * prefers a real games.circle_id-owned game first (source: 'circle'),
+   * only falling back to an activity-label match (source: 'nearby') when
+   * the Circle has no real upcoming activity of its own. Null when
+   * nothing's currently scheduled either way; the client never fakes one. */
+  nextPlan: { id: string; date: string; time: string; joined: number; capacity: number; spotsLeft: number; source: "circle" | "nearby" } | null;
   /** Loose calendar-month count of open games matching this activity —
    * a participation-health signal, not a stored/cached counter. */
   plansThisMonth: number;
@@ -568,6 +705,18 @@ export interface Circle {
    * on GET /circles/mine; role is relative to whoever's asking, not a
    * property of the circle itself, so every other fetch omits it. */
   myRole?: "member" | "organiser";
+  /** Circle Experience Polish — Changeset 1B. True when GET /:id returned
+   * the reduced non-member teaser shape (an 'approval'/'invite' Circle the
+   * viewer isn't a member of) instead of the full object above — every
+   * other field on a restricted response still conforms to this interface,
+   * just with honest empty/neutral values rather than real content. */
+  restricted?: boolean;
+  /** Only meaningful on a restricted response — true when the viewer has an
+   * outstanding organiser-sent invite they can still accept. */
+  hasPendingInvite?: boolean;
+  /** Only meaningful on a restricted response for an 'approval' Circle —
+   * true when the viewer already has a pending join request in. */
+  requested?: boolean;
 }
 
 /** A real photo from a recent game matching this Circle's activity (§18) —
@@ -598,6 +747,12 @@ export interface CirclePlanPreview {
   joined: number;
   spotsLeft: number;
   priceCents: number | null;
+  /** Circle Experience Polish — Changeset 2A. 'circle' = a real
+   * games.circle_id-owned activity; 'nearby' = a platform-wide
+   * activity-label match with no real relationship to this Circle. Never
+   * presented as the same thing — see CircleDetail.tsx's "From this
+   * Circle"/"You might also like" split. */
+  source: "circle" | "nearby";
 }
 
 /** Organiser-only, real plans linked via games.circle_id (HelloCircle Manage
@@ -622,13 +777,17 @@ export interface ManageCircleMember {
   role: string;
 }
 
-/** "Recently in this Circle" row (§20) — a completed game matching this
- * Circle's activity, with a real confirmed-attendance count. */
+/** "Recently in this Circle" row (§20) — a completed game with a real
+ * confirmed-attendance count. Circle Experience Polish — Changeset 2C:
+ * `source` distinguishes a real games.circle_id-owned completion from a
+ * platform-wide activity-label fallback, same convention as
+ * CirclePlanPreview above. */
 export interface CircleRecentActivity {
   id: string;
   activityLabel: string;
   date: string;
   attended: number;
+  source: "circle" | "nearby";
 }
 
 /** "Circle activity" card (§26-28) — real, period-scoped participation
@@ -819,6 +978,7 @@ export interface HostProfile {
   id: string;
   name: string;
   bio: string;
+  avatarUrl: string | null;
   upcomingGames: { id: string; activityLabel: string; date: string; time: string }[];
   circles: { id: string; name: string; activityLabel: string; slug: string | null }[];
   gamesHostedTotal: number;
@@ -861,6 +1021,16 @@ export interface ClubSession {
   label: string;
   active: boolean;
   instructorName: string;
+  /** Resolved for display — the session's own photo if one was uploaded,
+   * otherwise the parent club's cover (Image Upload Coverage spec §"Club
+   * Sessions": "Without an override, inherit the Club cover"). Null only
+   * when the club itself has no cover either. */
+  imageUrl: string | null;
+  /** True only when this session has its own uploaded photo (distinct from
+   * imageUrl being non-null, which is also true when inheriting the club's
+   * cover) — lets the editor UI show "Uses the club photo" vs "Custom
+   * photo" and know whether Remove has anything of its own to clear. */
+  hasCustomImage: boolean;
 }
 
 // --- passes (NEXT) ----------------------------------------------------------
@@ -983,6 +1153,17 @@ export interface DiscoverFeed {
   today: DiscoverItem[];
   weekend: DiscoverItem[];
 }
+
+// --- Map discovery (Maps & Geographic Discovery, Phase E) -------------------
+// Minimal marker payload for the bounds-scoped GET /api/discover/map — see
+// server/src/db/queries.ts's listMapMarkers for the query side.
+
+export type MapMarkerType = "centre" | "club" | "experience";
+
+export type MapMarker =
+  | { id: string; type: "centre"; lat: number; lng: number; title: string; area: string; county: string; image: string | null; href: string; from: number; locationSource: string }
+  | { id: string; type: "club"; lat: number; lng: number; title: string; area: string; county: string; image: string | null; href: string; price: number; unit: string; locationSource: string }
+  | { id: string; type: "experience"; lat: number; lng: number; title: string; area: string; county: string; image: string | null; href: string; priceCents: number; locationSource: string };
 
 // --- Local Momentum (implementation plan Phase 7) --------------------------
 
@@ -1348,6 +1529,10 @@ export interface Experience {
   county: string;
   lat: number | null;
   lng: number | null;
+  /** See Centre.locationSource — same provenance semantics, except an
+   * Experience has no county-centroid fallback, so this is only ever
+   * 'confirmed' or 'unknown' (never 'approximate') in practice. */
+  locationSource: "confirmed" | "approximate" | "unknown";
   meetingPoint: string;
   blurb: string;
   description: string;
@@ -1423,6 +1608,7 @@ export interface MyExperienceBooking {
   title: string;
   imageUrl: string;
   kind: ExperienceKind;
+  vendorId: string | null;
   date: string;
   time: string;
 }
@@ -1535,8 +1721,35 @@ export interface VendorInsights {
   trend: { thisMonth: number; lastMonth: number; deltaPercent: number | null };
 }
 
+/** Vendor Experience Polish — one normalized row per bookable
+ * occurrence across all four Vendor-ownable listing types (Centre
+ * bookings, Club sessions, Program sessions, Experience sessions), shared
+ * by the Overview "Next Up" section and the unified Schedule tab. Fields a
+ * given `sourceType` genuinely has no data for stay `null` rather than
+ * being approximated — see `GET /vendor/schedule-items`'s own comment for
+ * exactly which fields are null for which source. */
+export interface VendorScheduleItem {
+  id: string;
+  sourceType: "centre" | "club" | "program" | "experience";
+  sourceId: string;
+  listingId: string;
+  listingName: string;
+  spaceName: string | null;
+  title: string;
+  startDateTime: string;
+  endDateTime: string | null;
+  status: string;
+  participantCount: number | null;
+  bookingCount: number | null;
+  location: string | null;
+}
+
 export interface VendorPayments {
-  transactions: { ref: string; kind: "booking" | "registration"; listingName: string; totalCents: number; createdAt: string; paymentStatus: string }[];
+  transactions: { ref: string; kind: "booking" | "registration" | "program" | "experience"; listingName: string; totalCents: number; createdAt: string; paymentStatus: string }[];
+  /** A true SUM across ALL paid rows for every Vendor-ownable listing type
+   * (Centre bookings, Club registrations, Program enrollments, Experience
+   * bookings) — not derived from `transactions` above, which is capped at
+   * 150 rows for display. See vendorInsights.ts's `/payments` route comment. */
   totalPaidCents: number;
 }
 

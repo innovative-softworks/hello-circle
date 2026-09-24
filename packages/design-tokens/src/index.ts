@@ -25,7 +25,14 @@ export const cardImageRatio = {
   discovery: "16/10",
   compact: "4/3",
   horizontal: "3/2",
-  hero: "16/6",
+  /** Detail-page single-cover hero (Activity/Experience/Circle/Program) —
+   * matches the proportions those pages already rendered via a fixed
+   * ~340px height at their typical ~620px content width, now expressed as
+   * a ratio so the hero scales correctly on narrower viewports instead of
+   * staying pinned to a fixed pixel height (Image/Media System Audit §11).
+   * This token had zero real call sites before that fix, so correcting its
+   * value here doesn't change any already-shipped page's appearance. */
+  hero: "16/9",
 } as const;
 
 /** Diagonal-stripe placeholder background generator, used when a listing

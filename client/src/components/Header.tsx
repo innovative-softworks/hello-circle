@@ -6,7 +6,7 @@ import { useAuth } from "../AuthContext";
 import { useDashboardNav } from "../DashboardNavContext";
 import { useGuest } from "../GuestContext";
 import { useTheme } from "../ThemeContext";
-import { BallIcon, BellIcon, BuildingIcon, ChevronDownIcon, CloseIcon, LightbulbIcon, MenuIcon, MoonIcon, PinIcon, RepeatIcon, SearchIcon, SunIcon, TreeIconSmall } from "./icons";
+import { BallIcon, BellIcon, BuildingIcon, ChevronDownIcon, CloseIcon, GridIcon, LightbulbIcon, MenuIcon, MoonIcon, PinIcon, RepeatIcon, SearchIcon, SunIcon, TreeIconSmall } from "./icons";
 import { Avatar } from "./ui";
 import { colors, fonts, maxWidth, radius } from "../theme";
 import { useMyStuff } from "../MyStuffContext";
@@ -460,16 +460,35 @@ export function Header() {
                       <span style={megaItemDescStyle}>Guided hikes, kayaking &amp; outdoor trips</span>
                     </span>
                   </button>
-                  <button style={{ ...megaItemStyle, borderBottom: `1px solid ${colors.border}` }} onClick={() => go("/experiences")}>
+                  <button style={megaItemStyle} onClick={() => go("/experiences")}>
                     <span style={megaIconWrapStyle}><TreeIconSmall size={19} style={{ color: colors.text }} /></span>
                     <span>
                       <span style={megaItemTitleStyle}>Experiences</span>
                       <span style={megaItemDescStyle}>Workshops, classes &amp; one-off outings</span>
                     </span>
                   </button>
+                  {/* Platform Pre-Launch Polish — Changeset 5A. Programs had
+                      no entry point in desktop discovery nav at all (mobile's
+                      Explore sheet already had one) — same destination as
+                      that one: the unified "activities" result type on
+                      /explore, since there's no standalone Programs browse
+                      page (see App.tsx's route table). */}
+                  <button style={{ ...megaItemStyle, borderBottom: `1px solid ${colors.border}` }} onClick={() => go("/explore?rtype=activities")}>
+                    <span style={megaIconWrapStyle}><GridIcon size={19} style={{ color: colors.text }} /></span>
+                    <span>
+                      <span style={megaItemTitleStyle}>Programs</span>
+                      <span style={megaItemDescStyle}>Multi-week courses &amp; series</span>
+                    </span>
+                  </button>
                 </div>
                 <div style={megaColStyle}>
-                  <div style={megaColLabelStyle}><span style={{ opacity: .6 }}>/</span> VENUES</div>
+                  {/* Product Language & IA Polish — Changeset 1C. Was
+                      "VENUES" — the audit found Centre/Venue/Place used as
+                      four different words for one concept within this file
+                      alone. "Places" is the high-level discovery/nav word;
+                      the item label below ("Community centres") still names
+                      the actual entity/listing type. */}
+                  <div style={megaColLabelStyle}><span style={{ opacity: .6 }}>/</span> PLACES</div>
                   <button style={megaItemStyle} onClick={() => go("/browse/centres")}>
                     <span style={megaIconWrapStyle}><BuildingIcon size={19} style={{ color: colors.text }} /></span>
                     <span>
@@ -570,7 +589,7 @@ export function Header() {
                     <span style={megaIconWrapStyle}><PinIcon size={19} style={{ color: colors.text }} /></span>
                     <span>
                       <span style={megaItemTitleStyle}>Suggest a place</span>
-                      <span style={megaItemDescStyle}>Tell us about a venue we're missing</span>
+                      <span style={megaItemDescStyle}>Tell us about a place we're missing</span>
                     </span>
                   </button>
                 </div>
@@ -795,6 +814,14 @@ export function Header() {
                     sits at status 'pending' until admin approves — requireVendor
                     403s every /vendor/* route until then, so show the state
                     rather than a switch that lands on an empty dashboard. */}
+                {/* Product Language & IA Polish — Changeset 1E: was "Vendor
+                    dashboard" here but "Provider account" in the pending
+                    branch just below — same underlying object, two
+                    different words for the same account one line apart.
+                    Standardized on "Vendor", matching this same dropdown's
+                    other three self-referential nav labels (this is the
+                    account owner's own operational tool, not resident-
+                    facing description of someone else's business). */}
                 {workspaces?.vendor &&
                   (workspaces.vendor.status === "approved" ? (
                     <button className="dropdown-item" style={dropdownItemStyle} onClick={switchToVendor}>
@@ -802,7 +829,7 @@ export function Header() {
                     </button>
                   ) : (
                     <div style={{ ...dropdownItemStyle, color: colors.mutedLight, cursor: "default", fontSize: 12.5 }}>
-                      {workspaces.vendor.businessName || "Provider account"} — awaiting approval
+                      {workspaces.vendor.businessName || "Vendor account"} — awaiting approval
                     </div>
                   ))}
                 {(hasHostedGames || !!workspaces?.circlesOrganising.length) && (
@@ -951,6 +978,49 @@ export function Header() {
               >
                 <MenuIcon size={16} /> Dashboard menu
               </button>
+            </>
+          )}
+          {/* Platform Pre-Launch Polish — Changeset 5B. Before this, a mobile
+              Host/Circle-organiser/linked-Vendor had no route into Manage at
+              all unless a ManageShell page was already mounted (the openNav
+              case above) — the only path in was three taps through an
+              unrelated page (My Life → Edit profile → Profile → a Host-only
+              button). This mirrors the desktop account dropdown's own
+              workspace section exactly (same `workspaces`/`hasHostedGames`
+              state, already fetched for that dropdown) rather than adding a
+              new mobile-only nav concept — reuses the existing workspace
+              architecture as-is. Not shown while `openNav` is (a ManageShell
+              page is already mounted, so this would just duplicate the
+              "Dashboard menu" entry above). */}
+          {!openNav && (workspaces?.vendor || hasHostedGames || !!workspaces?.circlesOrganising.length) && (
+            <>
+              <div style={{ ...dropdownLabelStyle, padding: "2px 6px 2px" }}>Manage</div>
+              {workspaces?.vendor &&
+                (workspaces.vendor.status === "approved" ? (
+                  <button
+                    style={{ ...mobileNavBtn, display: "flex", alignItems: "center", gap: 8 }}
+                    onClick={() => {
+                      setMenuOpen(false);
+                      switchToVendor();
+                    }}
+                  >
+                    {workspaces.vendor.businessName || "Vendor dashboard"}
+                  </button>
+                ) : (
+                  <div style={{ ...mobileNavBtn, color: colors.mutedLight, fontSize: 12.5 }}>
+                    {workspaces.vendor.businessName || "Vendor account"} — awaiting approval
+                  </div>
+                ))}
+              {(hasHostedGames || !!workspaces?.circlesOrganising.length) && (
+                <button style={{ ...mobileNavBtn, display: "flex", alignItems: "center", gap: 8 }} onClick={() => go("/manage")}>
+                  Manage hosting
+                </button>
+              )}
+              {workspaces?.circlesOrganising.map((c) => (
+                <button key={c.id} style={{ ...mobileNavBtn, display: "flex", alignItems: "center", gap: 8 }} onClick={() => go(`/manage/circles/${c.slug ?? c.id}`)}>
+                  Manage {c.name}
+                </button>
+              ))}
             </>
           )}
           {/* Primary destinations (Community centres/Sports clubs/Join a

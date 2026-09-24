@@ -24,6 +24,7 @@ import type {
   VendorPayments,
   VendorProgramSummary,
   VendorBookingRow,
+  VendorScheduleItem,
   VendorStats,
   VendorToday,
   WaitlistEntry,
@@ -225,9 +226,16 @@ export function duplicateVendorClub(id: string): Promise<Club> {
 }
 
 export function createClubSession(
-  input: { clubId: string; dayOfWeek: number; time: string; capacity?: number; label?: string; instructorName?: string }
+  input: { clubId: string; dayOfWeek: number; time: string; capacity?: number; label?: string; instructorName?: string; imageUrl?: string }
 ): Promise<{ id: string }> {
   return request(`/club-sessions`, { method: "POST", body: JSON.stringify(input) });
+}
+
+export function updateClubSession(
+  id: string,
+  input: Partial<{ dayOfWeek: number; time: string; capacity: number | null; label: string; active: boolean; instructorName: string; imageUrl: string }>
+): Promise<{ ok: boolean }> {
+  return request(`/club-sessions/${id}`, { method: "PUT", body: JSON.stringify(input) });
 }
 
 export function deleteClubSession(id: string): Promise<{ ok: boolean }> {
@@ -446,6 +454,19 @@ export function fetchVendorSchedule(from?: string, days?: number): Promise<Sched
   if (days) params.set("days", String(days));
   const qs = params.toString();
   return request(`/vendor/schedule${qs ? `?${qs}` : ""}`);
+}
+
+// Vendor Experience Polish — unified across Centre bookings, Club sessions,
+// Program sessions and Experience sessions (see the server route's own
+// comment); shared by the Overview "Next Up" section and, later, the full
+// Schedule tab. Deliberately a separate endpoint from fetchVendorSchedule
+// above, which stays Program-only.
+export function fetchVendorScheduleItems(from?: string, days?: number): Promise<VendorScheduleItem[]> {
+  const params = new URLSearchParams();
+  if (from) params.set("from", from);
+  if (days) params.set("days", String(days));
+  const qs = params.toString();
+  return request(`/vendor/schedule-items${qs ? `?${qs}` : ""}`);
 }
 
 export function fetchVendorToday(): Promise<VendorToday> {

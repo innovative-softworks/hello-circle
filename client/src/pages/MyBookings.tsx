@@ -49,6 +49,8 @@ import { Button, ConfirmDialog, EmptyState, onActivateProps, RowSkeleton, inputS
 import { dateLabel, euro } from "../euro";
 import { formatDatePill } from "../formatters";
 import { useGuest } from "../GuestContext";
+import { isUpcomingProgramEnrollment } from "../participation";
+import { getMediaUrl } from "../media";
 import { colors, fonts, radius } from "../theme";
 import { AVAILABILITY_OPTIONS } from "../types";
 import type { Circle, Favourite, Game, MyBooking, MyExperienceBooking, MyIntent, MyProgramEnrollment, MyRegistration, NeedsAttentionItem, ParticipationEntry, ResidentFull, RoutineSuggestion, WaitlistOfferStatus } from "../types";
@@ -308,14 +310,18 @@ function GameRow({ game }: { game: Game }) {
 function ExperienceBookingRow({ booking }: { booking: MyExperienceBooking }) {
   const navigate = useNavigate();
   const cancelled = booking.status === "cancelled";
+  // Resident Experience Polish — PostActivityFeedback previously only
+  // existed for Centre bookings/Club registrations; an Experience booking
+  // has a real single session date, same as a Centre booking, so the same
+  // isPast gate applies directly.
+  const isPast = new Date(`${booking.date}T00:00:00`) < new Date(new Date().toDateString());
   return (
     <div
-      onClick={() => navigate(`/experiences/${booking.experienceId}`)}
-      style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: radius.card, padding: "18px 20px", opacity: cancelled ? 0.6 : 1, cursor: "pointer" }}
+      style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: radius.card, padding: "18px 20px", opacity: cancelled ? 0.6 : 1 }}
     >
-      <div style={{ display: "flex", alignItems: "center", gap: 18 }}>
+      <div onClick={() => navigate(`/experiences/${booking.experienceId}`)} style={{ display: "flex", alignItems: "center", gap: 18, cursor: "pointer" }}>
         {booking.imageUrl ? (
-          <img src={booking.imageUrl} alt={booking.title} style={{ width: 52, height: 52, borderRadius: 12, objectFit: "cover", flex: "none" }} />
+          <img src={getMediaUrl(booking.imageUrl, "thumbnail")} alt={booking.title} style={{ width: 52, height: 52, borderRadius: 12, objectFit: "cover", flex: "none" }} />
         ) : (
           <div style={{ width: 52, height: 52, borderRadius: 12, background: colors.orangeBg, flex: "none", display: "flex", alignItems: "center", justifyContent: "center", color: colors.orangeDark, fontWeight: 700, fontSize: 18 }}>
             {booking.title.charAt(0)}
@@ -336,6 +342,11 @@ function ExperienceBookingRow({ booking }: { booking: MyExperienceBooking }) {
         </div>
         <ChevronRightIcon size={16} style={{ flex: "none", color: colors.faint }} />
       </div>
+      {!cancelled && isPast && (
+        <div style={{ marginTop: 12, paddingTop: 12, borderTop: `1px solid ${colors.border}` }} onClick={(e) => e.stopPropagation()}>
+          <PostActivityFeedback kind="experience" reference={booking.ref} followTarget={booking.vendorId ? { type: "vendor", id: booking.vendorId } : undefined} />
+        </div>
+      )}
     </div>
   );
 }
@@ -367,11 +378,8 @@ function ProgramEnrollmentRow({ enrollment }: { enrollment: MyProgramEnrollment 
   const navigate = useNavigate();
   const cancelled = enrollment.status === "cancelled";
   return (
-    <div
-      onClick={() => navigate(`/programs/${enrollment.programId}`)}
-      style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: radius.card, padding: "18px 20px", opacity: cancelled ? 0.6 : 1, cursor: "pointer" }}
-    >
-      <div style={{ display: "flex", alignItems: "center", gap: 18 }}>
+    <div style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: radius.card, padding: "18px 20px", opacity: cancelled ? 0.6 : 1 }}>
+      <div onClick={() => navigate(`/programs/${enrollment.programId}`)} style={{ display: "flex", alignItems: "center", gap: 18, cursor: "pointer" }}>
         <Photo src={enrollment.imageUrl} alt={enrollment.title} ph={colors.panel} style={{ width: 52, height: 52, borderRadius: 12, overflow: "hidden", flex: "none" }} />
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
@@ -381,12 +389,29 @@ function ProgramEnrollmentRow({ enrollment }: { enrollment: MyProgramEnrollment 
           <div style={{ color: colors.mutedLight, fontSize: 14 }}>
             {enrollment.participantName} · {enrollment.listingName}
           </div>
+          {/* Resident Experience Polish — honest next-session state: a real
+              date when one exists, never a fabricated one otherwise. */}
+          {!cancelled && (
+            <div style={{ color: colors.mutedLight, fontSize: 12.5, marginTop: 2 }}>
+              {enrollment.nextSessionDate ? `Next session: ${enrollment.nextSessionDate}${enrollment.nextSessionTime ? ` · ${enrollment.nextSessionTime}` : ""}` : "No upcoming sessions scheduled"}
+            </div>
+          )}
         </div>
         <div style={{ textAlign: "right", flex: "none" }}>
           <div style={{ fontWeight: 700 }}>{enrollment.totalCents ? euro(enrollment.totalCents / 100) : "Free"}</div>
           <div style={{ fontSize: 12, color: colors.faint }}>{enrollment.ref}</div>
         </div>
       </div>
+      {/* Resident Experience Polish — PostActivityFeedback previously only
+          existed for Centre bookings/Club registrations. Gated on
+          hasPastSession (a real session has actually happened), not just
+          "enrolled a while ago" — a program is ongoing, so isPast doesn't
+          apply the way it does to a single-dated booking. */}
+      {!cancelled && enrollment.hasPastSession && (
+        <div style={{ marginTop: 12, paddingTop: 12, borderTop: `1px solid ${colors.border}` }} onClick={(e) => e.stopPropagation()}>
+          <PostActivityFeedback kind="program" reference={enrollment.ref} followTarget={enrollment.vendorId ? { type: "vendor", id: enrollment.vendorId } : undefined} />
+        </div>
+      )}
     </div>
   );
 }
@@ -581,25 +606,30 @@ export function MyBookings() {
   };
 
   // --- Next Up / Coming Up: one merged, chronological set of dated plans —
-  // games, centre/room bookings and Adventure bookings. Registrations and
-  // program enrollments have no single dated "next occurrence" (ongoing
-  // membership, not a dated plan), so — same as the previous pass — they're
-  // deliberately left out of this and only appear in "View full activity"
-  // below. Each entity is normalized into one shape so Next Up/Coming Up
-  // don't have to know which table it came from.
+  // games, centre/room bookings, Adventure bookings, and (Resident
+  // Experience Polish) program enrollments with a real future session.
+  // Registrations still have no single dated "next occurrence" (ongoing
+  // membership, not a dated plan) and stay out, same as before — only
+  // program enrollments changed, now that GET /programs/enrollments/mine
+  // exposes a real nextSessionDate/nextSessionTime instead of nothing.
+  // Each entity is normalized into one shape so Next Up/Coming Up don't
+  // have to know which table it came from.
   type NextEntity =
     | { date: string; time: string; kind: "game"; game: Game }
     | { date: string; time: string; kind: "booking"; booking: MyBooking }
-    | { date: string; time: string; kind: "experience"; booking: MyExperienceBooking };
+    | { date: string; time: string; kind: "experience"; booking: MyExperienceBooking }
+    | { date: string; time: string; kind: "program"; enrollment: MyProgramEnrollment };
 
   const upcomingGames = games.filter((g) => g.date >= today && g.status !== "cancelled");
   const upcomingBookingsList = bookings.filter((b) => b.date >= today && b.status !== "cancelled");
   const upcomingExperienceBookings = experienceBookings.filter((b) => b.date >= today && b.status !== "cancelled");
+  const upcomingProgramEnrollments = programEnrollments.filter((e) => isUpcomingProgramEnrollment(e, today));
 
   const nextEntities: NextEntity[] = [
     ...upcomingGames.map((game): NextEntity => ({ date: game.date, time: game.time, kind: "game", game })),
     ...upcomingBookingsList.map((booking): NextEntity => ({ date: booking.date, time: booking.time, kind: "booking", booking })),
     ...upcomingExperienceBookings.map((booking): NextEntity => ({ date: booking.date, time: booking.time, kind: "experience", booking })),
+    ...upcomingProgramEnrollments.map((enrollment): NextEntity => ({ date: enrollment.nextSessionDate!, time: enrollment.nextSessionTime ?? "00:00", kind: "program", enrollment })),
   ].sort((a, b) => `${a.date}${a.time}`.localeCompare(`${b.date}${b.time}`));
 
   const [nextEntity, ...restEntities] = nextEntities;
@@ -625,7 +655,7 @@ export function MyBookings() {
     priceLabel: euro(nextEntity.booking.totalCents / 100),
     ctaLabel: "Manage booking",
     onCta: () => setShowAllActivity(true),
-  } : {
+  } : nextEntity.kind === "experience" ? {
     eyebrow: dayEyebrow(nextEntity.date, nextEntity.time),
     title: nextEntity.booking.title,
     subtitle: `${nextEntity.booking.partySize} ${nextEntity.booking.partySize === 1 ? "person" : "people"}`,
@@ -633,6 +663,14 @@ export function MyBookings() {
     priceLabel: euro(nextEntity.booking.totalCents / 100),
     ctaLabel: "View booking",
     onCta: () => navigate(`/experiences/${nextEntity.booking.experienceId}`),
+  } : {
+    eyebrow: dayEyebrow(nextEntity.date, nextEntity.time),
+    title: nextEntity.enrollment.title,
+    subtitle: nextEntity.enrollment.listingName,
+    going: null,
+    priceLabel: nextEntity.enrollment.totalCents ? euro(nextEntity.enrollment.totalCents / 100) : null,
+    ctaLabel: "View program",
+    onCta: () => navigate(`/programs/${nextEntity.enrollment.programId}`),
   };
 
   const comingUpRows: TimelineRow[] = restEntities.slice(0, 6).map((entity) => {
@@ -654,12 +692,21 @@ export function MyBookings() {
         actionLabel: "Manage", onAction: () => setShowAllActivity(true),
       };
     }
-    const e = entity.booking;
+    if (entity.kind === "experience") {
+      const e = entity.booking;
+      return {
+        key: `eb-${e.ref}`, date: e.date, kind: "ADVENTURE", title: e.title,
+        subtitle: `${e.time} · ${e.partySize} ${e.partySize === 1 ? "person" : "people"}`,
+        meta: euro(e.totalCents / 100),
+        actionLabel: "View", onAction: () => navigate(`/experiences/${e.experienceId}`),
+      };
+    }
+    const p = entity.enrollment;
     return {
-      key: `eb-${e.ref}`, date: e.date, kind: "ADVENTURE", title: e.title,
-      subtitle: `${e.time} · ${e.partySize} ${e.partySize === 1 ? "person" : "people"}`,
-      meta: euro(e.totalCents / 100),
-      actionLabel: "View", onAction: () => navigate(`/experiences/${e.experienceId}`),
+      key: `pe-${p.ref}`, date: entity.date, kind: "PROGRAM", title: p.title,
+      subtitle: `${entity.time !== "00:00" ? `${entity.time} · ` : ""}${p.listingName}`,
+      meta: p.totalCents ? euro(p.totalCents / 100) : "Free",
+      actionLabel: "View", onAction: () => navigate(`/programs/${p.programId}`),
     };
   });
 

@@ -17,7 +17,7 @@ import type { Circle } from "../types";
 // full-bleed CTA band; it's real functionality, just relocated here behind
 // "Manage Circle" so it isn't lost in the restructure.
 
-export type JoinState = "closed" | "organiser" | "signed-out" | "member" | "available" | "requested" | "invite-only";
+export type JoinState = "closed" | "organiser" | "signed-out" | "member" | "available" | "requested" | "invite-only" | "invited";
 
 interface Props {
   circle: Circle;
@@ -42,11 +42,13 @@ export function CircleJoinCard({ circle, state, busy, onJoin, onLeave, onMessage
     <Card>
       <h3 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 18, margin: "0 0 6px", letterSpacing: "-.01em" }}>
         {state === "member"
-          ? "You're in"
+          ? "You're in the Circle" /* Product Language & IA Polish — Changeset 1F. Was bare "You're in", identical to a one-off Game's own post-join headline, despite Circle membership being ongoing rather than a single occurrence. */
           : state === "organiser"
           ? "Manage this Circle"
           : state === "requested"
           ? "Request sent"
+          : state === "invited"
+          ? "You're invited"
           : state === "invite-only"
           ? "Invite only"
           : `Join ${circle.name}`}
@@ -58,6 +60,8 @@ export function CircleJoinCard({ circle, state, busy, onJoin, onLeave, onMessage
           ? `Be part of ${circle.name} — you'll hear about every plan.`
           : state === "requested"
           ? "The organiser will let you know when they respond."
+          : state === "invited"
+          ? `The organiser has invited you to join ${circle.name}.`
           : state === "invite-only"
           ? "The organiser adds members by invite."
           : `Be part of our active and friendly ${circle.activityLabel.toLowerCase()} community.`}
@@ -93,6 +97,12 @@ export function CircleJoinCard({ circle, state, busy, onJoin, onLeave, onMessage
           </Button>
         )}
 
+        {state === "invited" && (
+          <Button full onClick={onJoin} disabled={busy}>
+            {busy ? "…" : "Accept invite"}
+          </Button>
+        )}
+
         {state === "requested" && (
           <>
             <div style={{ fontWeight: 700, fontSize: 13.5, color: colors.muted, background: colors.panel, borderRadius: radius.control, padding: "10px 14px", textAlign: "center" }}>
@@ -114,7 +124,9 @@ export function CircleJoinCard({ circle, state, busy, onJoin, onLeave, onMessage
               <CheckIcon size={14} /> Joined
             </div>
             {circle.nextPlan && (
-              <Button full onClick={() => navigate(`/games/${circle.nextPlan!.id}`)}>View next plan</Button>
+              <Button full onClick={() => navigate(`/games/${circle.nextPlan!.id}`)}>
+                {circle.nextPlan.source === "circle" ? "View next plan" : "View similar activity"}
+              </Button>
             )}
             <Button variant="ghost" full onClick={onMessage}>Message Circle</Button>
             <Button variant="ghost" full onClick={() => setLeaveConfirmOpen(true)} disabled={busy}>{busy ? "…" : "Leave Circle"}</Button>
@@ -152,7 +164,7 @@ export function CircleJoinCard({ circle, state, busy, onJoin, onLeave, onMessage
         </div>
       )}
 
-      {(state !== "closed" || !!circle.familiarMembers) && (
+      {(state !== "closed" || !!circle.familiarMembers) && !(circle.restricted && circle.joinMode === "invite") && (
         <div style={{ marginTop: 14, paddingTop: 14, borderTop: `1px solid ${colors.border}`, fontSize: 13, color: colors.mutedLight }}>
           {circle.familiarMembers
             ? `${circle.familiarMembers} ${circle.familiarMembers === 1 ? "person" : "people"} you've played with before ${circle.familiarMembers === 1 ? "is" : "are"} here.`

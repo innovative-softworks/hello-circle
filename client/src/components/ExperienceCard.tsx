@@ -1,6 +1,6 @@
-import { useNavigate } from "react-router-dom";
 import { CalendarIcon, PinIcon, TreeIconSmall } from "./icons";
-import { Card } from "./ui";
+import { Photo } from "./Photo";
+import { Card, CardLink } from "./ui";
 import { colors, fonts, radius } from "../theme";
 import type { Experience } from "../types";
 import { formatPrice } from "../formatters";
@@ -14,21 +14,19 @@ import { formatPrice } from "../formatters";
 // result) rendered it.
 
 export function ExperienceCard({ e }: { e: Experience }) {
-  const navigate = useNavigate();
   const nextSession = e.sessions[0];
+  const href = `/${e.kind === "adventure" ? "adventures" : "experiences"}/${e.slug ?? e.id}`;
   return (
-    <Card hover onClick={() => navigate(`/${e.kind === "adventure" ? "adventures" : "experiences"}/${e.slug ?? e.id}`)} style={{ padding: 0, overflow: "hidden" }}>
-      <div
-        style={{
-          height: 140,
-          background: e.imageUrl ? `url(${e.imageUrl}) center/cover` : e.kind === "adventure" ? colors.greenBg : colors.orangeBg,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-        }}
-      >
-        {!e.imageUrl && <TreeIconSmall size={28} style={{ color: e.kind === "adventure" ? colors.greenText : colors.orangeDark, opacity: 0.6 }} />}
-      </div>
+    <Card hover style={{ position: "relative", padding: 0, overflow: "hidden" }}>
+      <CardLink to={href} label={e.title} />
+      <Photo
+        src={e.imageUrl || undefined}
+        alt={e.title}
+        ph={e.kind === "adventure" ? colors.greenBg : colors.orangeBg}
+        icon={<TreeIconSmall size={28} />}
+        iconColor={e.kind === "adventure" ? colors.greenText : colors.orangeDark}
+        style={{ height: 140 }}
+      />
       <div style={{ padding: 15 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10 }}>
           <h3 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 16, margin: 0 }}>{e.title}</h3>
