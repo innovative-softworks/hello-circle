@@ -19,6 +19,7 @@
     "@capacitor/push-notifications": "^8.1.2",
     "@capacitor/splash-screen": "^8.0.2",
     "@capacitor/status-bar": "^8.0.3",
+    "firebase": "^12.19.0",
     "lucide-react": "^1.34.0",
     "mapbox-gl": "^3.9.0",
     "qrcode": "^1.5.4",

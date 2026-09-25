@@ -1,9 +1,9 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
-import { fetchResidentFull, requestResidentPasswordReset, resetResidentPassword } from "../api";
+import { requestResidentPasswordReset, resetResidentPassword } from "../api";
 import { readAuthIntentContext, safeReturnTo } from "../authRedirect";
 import { AuthEditorialHeader, AuthEditorialShell } from "../components/AuthEditorialShell";
-import { LoginForm, PasswordField } from "../components/AuthForms";
+import { AuthFormError, LoginForm, PasswordField, useFocusOnError } from "../components/AuthForms";
 import { AuthContextCard } from "../components/AuthShell";
 import { CheckIcon } from "../components/icons";
 import { Button, inputStyle, labelStyle } from "../components/ui";
@@ -28,6 +28,7 @@ function ForgotPasswordForm({ onBack }: { onBack: () => void }) {
   const [sent, setSent] = useState(false);
 
   const submit = async () => {
+    if (busy) return;
     const value = email.trim();
     if (!value) return;
     setBusy(true);
@@ -41,7 +42,7 @@ function ForgotPasswordForm({ onBack }: { onBack: () => void }) {
 
   return (
     <div>
-      <button onClick={onBack} style={{ background: "none", border: "none", padding: 0, fontSize: 13, fontWeight: 700, color: colors.mutedLight, cursor: "pointer", marginBottom: 16 }}>
+      <button type="button" className="auth-plain-btn" onClick={onBack} style={{ background: "none", border: "none", padding: 0, fontSize: 13, fontWeight: 700, color: colors.mutedLight, cursor: "pointer", marginBottom: 16 }}>
         ← Back to login
       </button>
       {sent ? (
@@ -55,13 +56,13 @@ function ForgotPasswordForm({ onBack }: { onBack: () => void }) {
         <>
           <h1 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(24px,2.8vw,30px)", margin: "0 0 8px", letterSpacing: "-.02em" }}>Reset your password</h1>
           <p style={{ margin: "0 0 20px", fontSize: 15, color: colors.mutedLight }}>Enter your email address and we'll send you a password reset link.</p>
-          <div style={{ display: "flex", flexDirection: "column", gap: 10, maxWidth: 340 }}>
+          <form onSubmit={(e: FormEvent) => { e.preventDefault(); submit(); }} style={{ display: "flex", flexDirection: "column", gap: 10, maxWidth: 340 }}>
             <div>
               <label htmlFor="forgot-email" style={labelStyle}>Email address</label>
-              <input id="forgot-email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@email.ie" autoFocus autoComplete="email" style={inputStyle} />
+              <input id="forgot-email" name="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@email.ie" autoFocus autoComplete="email" style={inputStyle} />
             </div>
-            <Button onClick={submit} disabled={busy || !email.trim()} full>{busy ? "Sending…" : "Send reset link →"}</Button>
-          </div>
+            <Button type="submit" disabled={busy || !email.trim()} full>{busy ? "Sending…" : "Send reset link →"}</Button>
+          </form>
         </>
       )}
     </div>
@@ -73,9 +74,11 @@ function ResetPasswordForm({ token, onSuccess }: { token: string; onSuccess: () 
   const [confirm, setConfirm] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const errorRef = useFocusOnError(error);
   const [done, setDone] = useState(false);
 
   const submit = async () => {
+    if (busy) return;
     setError(null);
     if (password.length < 8) return setError("Use at least 8 characters.");
     if (password !== confirm) return setError("Passwords don't match.");
@@ -102,16 +105,18 @@ function ResetPasswordForm({ token, onSuccess }: { token: string; onSuccess: () 
     );
   }
 
+  const describedBy = error ? "reset-password-error" : undefined;
+
   return (
     <div>
       <h1 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(24px,2.8vw,30px)", margin: "0 0 8px", letterSpacing: "-.02em" }}>Create a new password</h1>
       <p style={{ margin: "0 0 20px", fontSize: 15, color: colors.mutedLight }}>Choose a new password for your HelloCircle account.</p>
-      <div style={{ display: "flex", flexDirection: "column", gap: 14, maxWidth: 340 }}>
-        <PasswordField id="reset-new-password" label="New password" value={password} onChange={setPassword} autoComplete="new-password" placeholder="Enter new password" />
-        <PasswordField id="reset-confirm-password" label="Confirm password" value={confirm} onChange={setConfirm} autoComplete="new-password" placeholder="Enter again" />
-        <Button full onClick={submit} disabled={busy || !password || !confirm}>{busy ? "…" : "Set password →"}</Button>
-      </div>
-      {error && <div style={{ color: colors.danger, fontSize: 13, marginTop: 10 }}>{error}</div>}
+      <form onSubmit={(e: FormEvent) => { e.preventDefault(); submit(); }} style={{ display: "flex", flexDirection: "column", gap: 14, maxWidth: 340 }}>
+        <PasswordField id="reset-new-password" label="New password" value={password} onChange={setPassword} autoComplete="new-password" placeholder="Enter new password" invalid={!!error} describedBy={describedBy} />
+        <PasswordField id="reset-confirm-password" label="Confirm password" value={confirm} onChange={setConfirm} autoComplete="new-password" placeholder="Enter again" invalid={!!error} describedBy={describedBy} />
+        <Button type="submit" full disabled={busy || !password || !confirm}>{busy ? "…" : "Set password →"}</Button>
+        {error && <AuthFormError id="reset-password-error" innerRef={errorRef} message={error} />}
+      </form>
     </div>
   );
 }
@@ -125,17 +130,12 @@ export function SignIn() {
   const intentContext = readAuthIntentContext(searchParams);
   const [forgotMode, setForgotMode] = useState(false);
 
-  // Real bug caught by tracing the URL timeline: without this guard, a
-  // fresh signup/login raced two independent navigations — this effect
-  // (firing the instant `resident` changes from refresh() below) and
-  // handleSuccess's own onboarding-aware navigate a beat later — so a brand
-  // new account visibly flashed through /bookings before correcting to
-  // /onboarding ~35ms after. ownSuccessRef makes handleSuccess the single
-  // source of truth for "just signed in on this page": it's set before
-  // refresh() runs, so the resulting re-render's effect sees it and skips
-  // its own navigate, leaving only handleSuccess's explicit one. The effect
-  // still does its real job — bouncing someone already signed in (from an
-  // earlier session) who lands on /signin directly.
+  // ownSuccessRef makes handleSuccess the single source of truth for "just
+  // signed in on this page": it's set before refresh() runs, so the re-render
+  // that refresh() causes doesn't also fire this effect's own navigate and
+  // race handleSuccess's. The effect still does its real job — bouncing
+  // someone already signed in (from an earlier session) who lands on /signin
+  // directly.
   const ownSuccessRef = useRef(false);
 
   useEffect(() => {
@@ -146,10 +146,9 @@ export function SignIn() {
   const handleSuccess = async () => {
     ownSuccessRef.current = true;
     await refresh();
-    // Same "send new/incomplete accounts through onboarding first" behaviour
-    // the magic-link verify flow already has (see MyBookings.tsx).
-    const full = await fetchResidentFull().catch(() => null);
-    navigate(full?.resident && !full.resident.onboardingCompleted ? "/onboarding" : destination);
+    // Onboarding no longer redirects anywhere: AccountSetupGate opens it as a
+    // popup over the intended destination, so intent needs no carrying.
+    navigate(destination);
   };
 
   const siblingSearch = window.location.search;

@@ -5,6 +5,7 @@ import { db } from "./db/index.js";
 export const GUEST_SESSION_COOKIE = "hello_circle_guest_session";
 const GUEST_SESSION_DAYS = 30;
 const LOGIN_TOKEN_MINUTES = 15;
+const SIGNUP_TOKEN_MINUTES = 15;
 
 declare global {
   // eslint-disable-next-line @typescript-eslint/no-namespace
@@ -42,6 +43,37 @@ export async function consumeLoginToken(token: string): Promise<string | null> {
       | undefined;
     if (!row) return null;
     await tx.prepare(`DELETE FROM guest_login_tokens WHERE token = ?`).run(token);
+    return row.email;
+  });
+}
+
+// --- resident signup completion token (onboarding audit, consent pass) ----
+// Minted only when POST /guest/verify discovers a brand-new email (no
+// resident row) — the original guest_login_tokens row proved inbox access
+// but is already consumed by that point (single-use), so this is a second,
+// equally short-lived, equally single-use token that carries "this email
+// was just proven" forward into the account-completion step (name + Terms
+// acceptance + optional marketing), the same two-step shape Google sign-in
+// already uses (see routes/guestAuth.ts's POST /google + POST
+// /google/complete). Never created for an email that already has a
+// resident row — that case logs straight in, unchanged.
+export async function createResidentSignupToken(email: string): Promise<{ token: string }> {
+  const token = crypto.randomBytes(32).toString("hex");
+  await db
+    .prepare(`INSERT INTO resident_signup_tokens (token, email, expires_at) VALUES (?, ?, DATE_ADD(NOW(), INTERVAL ${SIGNUP_TOKEN_MINUTES} MINUTE))`)
+    .run(token, email.toLowerCase().trim());
+  return { token };
+}
+
+/** Same FOR UPDATE + DELETE-in-one-transaction shape as consumeLoginToken
+ * above, for the same single-use-guarantee reason. */
+export async function consumeResidentSignupToken(token: string): Promise<string | null> {
+  return db.transaction(async (tx) => {
+    const row = (await tx.prepare(`SELECT email FROM resident_signup_tokens WHERE token = ? AND expires_at > NOW() FOR UPDATE`).get(token)) as
+      | { email: string }
+      | undefined;
+    if (!row) return null;
+    await tx.prepare(`DELETE FROM resident_signup_tokens WHERE token = ?`).run(token);
     return row.email;
   });
 }

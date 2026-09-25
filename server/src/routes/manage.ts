@@ -9,6 +9,7 @@ import { getResidentByEmail, requireResident } from "../residents.js";
 import { CLIENT_URL } from "../stripe.js";
 import { isValidEmail } from "../util.js";
 import { writeAudit } from "../audit.js";
+import { TERMS_VERSION } from "../terms.js";
 
 // HelloCircle Manage (Phase 1) — links a vendor account to the resident
 // (magic-link) account of the same person, and lets an already-authenticated
@@ -104,8 +105,16 @@ manageRouter.post("/link/confirm", async (req, res) => {
  * Everything after this route is already built — /manage/workspaces reports
  * the linked vendor from a resident session, and /manage/switch mints the
  * vendor cookie — so creating the row is the whole of the missing piece. */
+// Onboarding audit (consent pass) — a resident becoming a provider creates a
+// brand-new `users` row (a new legal capacity — a business account that will
+// eventually take payments), the same moment POST /auth/signup's direct
+// vendor path already requires Terms acceptance for. The resident's own
+// prior acceptance on their `residents` row doesn't carry over automatically
+// — that would be inferring one account's consent onto a different account
+// it was never given for. termsAccepted is required here too now, same
+// wording/shape as every other vendor-signup surface.
 manageRouter.post("/become-provider", requireResident, async (req, res) => {
-  const { password, vendorType, businessName, address, county, mobile, landline, description } = req.body as {
+  const { password, vendorType, businessName, address, county, mobile, landline, description, termsAccepted, marketingConsent } = req.body as {
     password?: string;
     vendorType?: string;
     businessName?: string;
@@ -114,6 +123,8 @@ manageRouter.post("/become-provider", requireResident, async (req, res) => {
     mobile?: string;
     landline?: string;
     description?: string;
+    termsAccepted?: boolean;
+    marketingConsent?: boolean;
   };
 
   const resident = (await db.prepare(`SELECT id, email, name, host_status as hostStatus FROM residents WHERE id = ?`).get(req.resident!.id)) as
@@ -131,6 +142,7 @@ manageRouter.post("/become-provider", requireResident, async (req, res) => {
   if (!businessName || !address || !county || !mobile || !description) {
     return res.status(400).json({ error: "Business name, address, county, mobile number and description are required" });
   }
+  if (!termsAccepted) return res.status(400).json({ error: "Please accept the Terms to continue" });
 
   const existingLink = (await db.prepare(`SELECT id FROM users WHERE resident_id = ?`).get(resident.id)) as { id: string } | undefined;
   if (existingLink) return res.status(409).json({ error: "This account already has a provider login — switch into it instead." });
@@ -169,7 +181,7 @@ manageRouter.post("/become-provider", requireResident, async (req, res) => {
     );
     // createUser() builds its return value before this UPDATE, so the link has
     // to be reflected back onto it or the response reports residentId: null.
-    await tx.prepare(`UPDATE users SET resident_id = ? WHERE id = ?`).run(resident.id, user.id);
+    await tx.prepare(`UPDATE users SET resident_id = ?, terms_accepted_at = NOW(), terms_version = ?, marketing_consent = ? WHERE id = ?`).run(resident.id, TERMS_VERSION, marketingConsent ? 1 : 0, user.id);
     user.residentId = resident.id;
 
     const listingId = crypto.randomUUID();

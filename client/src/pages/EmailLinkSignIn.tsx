@@ -1,5 +1,5 @@
 import { Link, useSearchParams } from "react-router-dom";
-import { readAuthIntentContext } from "../authRedirect";
+import { readAuthIntentContext, safeReturnTo } from "../authRedirect";
 import { AuthEditorialHeader, AuthEditorialShell } from "../components/AuthEditorialShell";
 import { EmailLinkForm } from "../components/AuthForms";
 import { AuthContextCard } from "../components/AuthShell";
@@ -38,7 +38,7 @@ export function EmailLinkSignIn() {
         headline={<>No password.<br /><span style={{ color: colors.green }}>Just a link.</span></>}
         subtitle="We'll email you a secure sign-in link — nothing to remember."
       />
-      <EmailLinkForm />
+      <EmailLinkForm returnTo={safeReturnTo(searchParams.get("returnTo"))} />
 
       <p style={{ margin: "24px 0 0", fontSize: 14 }}>
         Prefer using a password?{" "}

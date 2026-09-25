@@ -58,3 +58,12 @@ export const magicLinkLimiter = simpleRateLimit({ windowMs: 15 * 60 * 1000, max:
 /** Guards password login/signup/change — an actual secret worth guarding
  * against brute force, unlike the magic-link routes above. */
 export const passwordLoginLimiter = simpleRateLimit({ windowMs: 15 * 60 * 1000, max: 10 });
+
+/** Guards POST /guest/google and /auth/google. A different risk shape than
+ * password login — a Firebase ID token isn't a guessable secret, so this
+ * isn't a brute-force concern — but it's still worth a generous cap against
+ * scripted abuse, kept separate from passwordLoginLimiter's tighter budget
+ * so a real user isn't blocked from Google sign-in just because they (or
+ * this app's own resident/vendor screens on one shared IP) recently hit the
+ * password-login limiter too. */
+export const googleAuthLimiter = simpleRateLimit({ windowMs: 15 * 60 * 1000, max: 30 });

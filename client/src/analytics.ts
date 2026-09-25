@@ -40,3 +40,25 @@ export function loadGoogleTagManager(): void {
   script.src = `https://www.googletagmanager.com/gtm.js?id=${GTM_CONTAINER_ID}`;
   document.head.appendChild(script);
 }
+
+// Generic event hook (onboarding audit F-5) — extends the vendor-recruitment
+// pages' pre-existing trackVendorEvent() placeholder (forVenuesAnalytics.ts,
+// now a thin alias of this) to the resident onboarding and account-creation
+// funnels, which previously had zero instrumentation of any kind. Pushing
+// onto window.dataLayer is safe even before consent: nothing leaves the
+// browser until loadGoogleTagManager() above actually loads the GTM script,
+// which only ever happens after CookieNotice's consent-gated call — an
+// unconsented visitor's events just accumulate harmlessly in the in-memory
+// array and are never sent anywhere. The console.debug branch is purely a
+// local dev convenience for verifying an event fired without needing GTM's
+// own Tag Assistant.
+export function trackEvent(event: string, props?: Record<string, unknown>): void {
+  if (typeof window !== "undefined") {
+    window.dataLayer = window.dataLayer || [];
+    window.dataLayer.push({ event, ...props });
+  }
+  if (import.meta.env.DEV) {
+    // eslint-disable-next-line no-console
+    console.debug(`[analytics] ${event}`, props ?? {});
+  }
+}

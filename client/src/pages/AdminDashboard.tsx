@@ -54,6 +54,7 @@ import {
   type HostApplication,
 } from "../api";
 import { useAuth } from "../AuthContext";
+import { vendorLoginHref } from "../authRedirect";
 import { ManageShell } from "../components/ManageShell";
 import { AwardIcon, BallIcon, BuildingIcon, CalendarIcon, CheckIcon, ClipboardIcon, EyeIcon, GridIcon, IdCardIcon, MailIcon, PhotoStackIcon, PinIcon, SearchIcon, StarIcon, TagIcon, TrendUpIcon, UsersIcon } from "../components/icons";
 import { Avatar, BadgedIcon, Button, ManageCard as Card, ConfirmDialog, DashboardTopPanel, Drawer, EmptyState, onActivateProps, PageSpinner, StarDisplay, KpiHero, KpiStrip, StatTile, StatusBadge, inputStyle, labelStyle, tableStyle, tdStyle, thStyle, type ListingStatus } from "../components/ui";
@@ -1734,7 +1735,7 @@ export function AdminDashboard() {
   // See VendorDashboard.tsx's identical comment — navigate() belongs in an
   // effect, not called directly during render.
   useEffect(() => {
-    if (!loading && (!user || user.role !== "admin")) navigate("/login");
+    if (!loading && (!user || user.role !== "admin")) navigate(vendorLoginHref());
   }, [loading, user, navigate]);
 
   if (loading) return <PageSpinner />;

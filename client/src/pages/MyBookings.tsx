@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
+import { safeReturnTo } from "../authRedirect";
 import {
   cancelBooking,
   cancelRegistration,
@@ -39,6 +40,8 @@ import { MyLifeRepeatOpportunities } from "../components/MyLifeRepeatOpportuniti
 import { MyLifeRhythm } from "../components/MyLifeRhythm";
 import { MyLifeFollowing } from "../components/MyLifeFollowing";
 import { MyInvitationsPanel } from "../components/MyInvitationsPanel";
+import { MagicLinkCompleteAccount } from "../components/MagicLinkCompleteAccount";
+import { openOnboarding } from "../components/AccountSetupGate";
 import { MyLifeSaved } from "../components/MyLifeSaved";
 import { MyLifeThisMonth } from "../components/MyLifeThisMonth";
 import { MyLifeWaitingFor } from "../components/MyLifeWaitingFor";
@@ -433,7 +436,7 @@ function SectionHeader({ eyebrow, title, subtitle }: { eyebrow: string; title: s
 
 export function MyBookings() {
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { email: guestEmail, resident, loading: guestLoading, refresh: refreshGuest } = useGuest();
 
   const [bookings, setBookings] = useState<MyBooking[]>([]);
@@ -499,32 +502,72 @@ export function MyBookings() {
     }
   }, [searchParams]);
 
+  // Onboarding audit (consent pass) — a brand-new email now comes back as
+  // "needs_completion" instead of an immediate sign-in (see
+  // server/src/routes/guestAuth.ts's POST /verify) — this holds that state
+  // long enough to show MagicLinkCompleteAccount inline before the normal
+  // page renders. destination travels with it so the original `returnTo`
+  // survives the extra step exactly as it does for the immediate-sign-in
+  // branch.
+  const [pendingCompletion, setPendingCompletion] = useState<{ email: string; completionToken: string; destination: string } | null>(null);
+
+  const finishGuestSignIn = async (destination: string) => {
+    await refreshGuest();
+    await loadMyStuff();
+    navigate(destination, { replace: true });
+  };
+
   const verifiedTokenRef = useRef<string | null>(null);
   useEffect(() => {
     const token = searchParams.get("token");
     if (!token || verifiedTokenRef.current === token) return;
     verifiedTokenRef.current = token;
     setVerifying(true);
-    let destination = "/bookings";
+    // Onboarding audit F-1 — the emailed magic link now carries `returnTo`
+    // (see server/src/routes/guestAuth.ts's POST /request-link) so choosing
+    // the passwordless option no longer strands someone back on /bookings
+    // after they were trying to join a Circle/Game or finish a booking.
+    // safeReturnTo() falls back to /bookings for a missing/unsafe value,
+    // same guard SignIn.tsx already relies on.
+    const destination = safeReturnTo(searchParams.get("returnTo"));
     verifyGuestLink(token)
-      .then(async () => {
-        await refreshGuest();
-        await loadMyStuff();
-        const full = await fetchResidentFull().catch(() => null);
-        if (full?.resident && !full.resident.onboardingCompleted) destination = "/onboarding";
-      })
-      .catch((e) => setVerifyError(e instanceof Error ? e.message : "That sign-in link didn't work"))
-      .finally(() => {
+      .then(async (result) => {
+        // Strip the consumed token from the URL immediately, regardless of
+        // outcome — it's single-use and already dead server-side the moment
+        // this response arrives, and it must not linger visible in the
+        // address bar while an account-completion form (or anything else)
+        // is on screen (onboarding audit requirement).
+        const next = new URLSearchParams(searchParams);
+        next.delete("token");
+        setSearchParams(next, { replace: true });
+
+        if (result.status === "needs_completion") {
+          setPendingCompletion({ email: result.email, completionToken: result.completionToken, destination });
+          setVerifying(false);
+          return;
+        }
         setVerifying(false);
-        navigate(destination, { replace: true });
+        await finishGuestSignIn(destination);
+      })
+      .catch((e) => {
+        setVerifyError(e instanceof Error ? e.message : "That sign-in link didn't work");
+        setVerifying(false);
       });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const [confirmingSignOut, setConfirmingSignOut] = useState(false);
+  const [signingOut, setSigningOut] = useState(false);
   const handleSignOut = async () => {
-    await guestLogout();
-    await refreshGuest();
-    await loadMyStuff();
+    setSigningOut(true);
+    try {
+      await guestLogout();
+      await refreshGuest();
+      await loadMyStuff();
+    } finally {
+      setSigningOut(false);
+      setConfirmingSignOut(false);
+    }
   };
 
   const hasNone =
@@ -726,6 +769,19 @@ export function MyBookings() {
   const last30 = participation.filter((e) => { const d = daysAgo(e.date); return d >= 0 && d < 30; }).length;
   const prev30 = participation.filter((e) => { const d = daysAgo(e.date); return d >= 30 && d < 60; }).length;
 
+  // Onboarding audit (consent pass) — a brand-new magic-link signup shows
+  // this instead of the normal page until Terms are actually accepted; no
+  // resident row or session exists yet (see the token-verify effect above).
+  if (pendingCompletion) {
+    return (
+      <MagicLinkCompleteAccount
+        email={pendingCompletion.email}
+        completionToken={pendingCompletion.completionToken}
+        onSuccess={() => finishGuestSignIn(pendingCompletion.destination)}
+      />
+    );
+  }
+
   if (guestLoading || loading) {
     return (
       <section className="section-pad" style={{ maxWidth: 1440, margin: "0 auto", padding: "36px 24px 80px" }}>
@@ -751,11 +807,21 @@ export function MyBookings() {
           ) : <div />}
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
             <Button variant="ghost" onClick={() => setLookupOpen((o) => !o)}>Find a booking</Button>
-            {guestEmail && <Button variant="ghost" onClick={handleSignOut}>Sign out</Button>}
+            {guestEmail && <Button variant="ghost" onClick={() => setConfirmingSignOut(true)}>Sign out</Button>}
             {resident && <Button variant="ghost" onClick={() => navigate("/profile")}>Edit profile</Button>}
           </div>
         </div>
       </div>
+      <ConfirmDialog
+        open={confirmingSignOut}
+        title="Sign out?"
+        message="You'll need to sign back in to see your bookings, Circles and saved things."
+        confirmLabel={signingOut ? "…" : "Sign out"}
+        tone="neutral"
+        busy={signingOut}
+        onConfirm={handleSignOut}
+        onCancel={() => setConfirmingSignOut(false)}
+      />
 
       <div className="section-pad" style={{ maxWidth: 1440, margin: "0 auto", padding: "0 24px 0" }}>
         {!hasNone && resident && residentFull && residentFull.interests.length === 0 && !interestsNudgeDismissed && (
@@ -776,7 +842,7 @@ export function MyBookings() {
               </div>
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-              <Button onClick={() => navigate("/onboarding")}>Get started</Button>
+              <Button onClick={() => openOnboarding()}>Get started</Button>
               <button
                 onClick={() => {
                   localStorage.setItem(INTERESTS_NUDGE_DISMISSED_KEY, "1");
@@ -951,7 +1017,7 @@ export function MyBookings() {
                     {residentFull.availability.map((a) => (
                       <span key={a} style={{ background: colors.panel, color: colors.text, borderRadius: radius.pill, padding: "7px 14px", fontSize: 13, fontWeight: 600 }}>{a}</span>
                     ))}
-                    <button onClick={() => navigate("/onboarding")} style={{ background: "none", border: "none", padding: 0, fontSize: 13, fontWeight: 700, color: colors.text, cursor: "pointer", textDecoration: "underline" }}>
+                    <button onClick={() => openOnboarding()} style={{ background: "none", border: "none", padding: 0, fontSize: 13, fontWeight: 700, color: colors.text, cursor: "pointer", textDecoration: "underline" }}>
                       Update availability
                     </button>
                   </div>

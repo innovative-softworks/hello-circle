@@ -1,10 +1,10 @@
-import { useState } from "react";
+import { useState, type FormEvent } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { resetPassword } from "../api";
 import { AuthEditorialHeader, AuthEditorialShell } from "../components/AuthEditorialShell";
-import { PasswordField } from "../components/AuthForms";
+import { AuthFormError, PasswordField, useFocusOnError } from "../components/AuthForms";
 import { Button } from "../components/ui";
-import { colors, radius } from "../theme";
+import { colors } from "../theme";
 
 export function ResetPassword() {
   const navigate = useNavigate();
@@ -13,9 +13,11 @@ export function ResetPassword() {
   const [password, setPassword] = useState("");
   const [done, setDone] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const errorRef = useFocusOnError(error);
   const [loading, setLoading] = useState(false);
 
   const submit = async () => {
+    if (loading) return;
     setError(null);
     if (password.length < 8) {
       setError("Password must be at least 8 characters");
@@ -55,26 +57,25 @@ export function ResetPassword() {
             headline={<>Set a new<br /><span style={{ color: colors.orange }}>password.</span></>}
             subtitle="Choose a strong password for your HelloCircle account."
           />
-          <div style={{ marginBottom: 8 }}>
-            <PasswordField
-              id="reset-new-password"
-              label="New password"
-              value={password}
-              onChange={setPassword}
-              autoComplete="new-password"
-              placeholder="Enter new password"
-              autoFocus
-              onKeyDown={(e) => e.key === "Enter" && submit()}
-            />
-          </div>
-          {error && (
-            <p role="alert" className="pop-in" style={{ color: colors.danger, fontSize: 14, margin: "0 0 14px", background: colors.dangerBg, padding: "9px 12px", borderRadius: radius.control }}>
-              {error}
-            </p>
-          )}
-          <Button variant="orange" full onClick={submit} disabled={loading || !password}>
-            {loading ? "Saving…" : "Set password →"}
-          </Button>
+          <form onSubmit={(e: FormEvent) => { e.preventDefault(); submit(); }}>
+            <div style={{ marginBottom: 8 }}>
+              <PasswordField
+                id="reset-new-password"
+                label="New password"
+                value={password}
+                onChange={setPassword}
+                autoComplete="new-password"
+                placeholder="Enter new password"
+                autoFocus
+                invalid={!!error}
+                describedBy={error ? "reset-vendor-password-error" : undefined}
+              />
+            </div>
+            {error && <div style={{ marginBottom: 14 }}><AuthFormError id="reset-vendor-password-error" innerRef={errorRef} message={error} /></div>}
+            <Button type="submit" variant="orange" full disabled={loading || !password}>
+              {loading ? "Saving…" : "Set password →"}
+            </Button>
+          </form>
         </>
       )}
     </AuthEditorialShell>

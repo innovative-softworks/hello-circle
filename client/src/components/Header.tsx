@@ -3,11 +3,12 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { fetchAdminPendingListings, fetchManageWorkspaces, fetchMyGames, fetchResidentNotifications, fetchVendorListings, guestLogout, logout, markResidentNotificationRead, switchWorkspace } from "../api";
 import type { ManageWorkspaces } from "../api/manage";
 import { useAuth } from "../AuthContext";
+import { signInHref, signUpHref } from "../authRedirect";
 import { useDashboardNav } from "../DashboardNavContext";
 import { useGuest } from "../GuestContext";
 import { useTheme } from "../ThemeContext";
 import { BallIcon, BellIcon, BuildingIcon, ChevronDownIcon, CloseIcon, GridIcon, LightbulbIcon, MenuIcon, MoonIcon, PinIcon, RepeatIcon, SearchIcon, SunIcon, TreeIconSmall } from "./icons";
-import { Avatar } from "./ui";
+import { Avatar, ConfirmDialog } from "./ui";
 import { colors, fonts, maxWidth, radius } from "../theme";
 import { useMyStuff } from "../MyStuffContext";
 import type { ResidentNotification } from "../types";
@@ -191,18 +192,37 @@ export function Header() {
     navigate(path);
   };
 
+  // Confirmed via a dialog rather than logging out on the first click —
+  // this menu item sits right next to plain navigation links, so a mis-tap
+  // (especially on mobile, where menu items are packed closer together)
+  // used to sign someone out with no way to back out of it.
+  const [confirmingLogout, setConfirmingLogout] = useState<"vendor" | "guest" | null>(null);
+  const [loggingOut, setLoggingOut] = useState(false);
+
   const doLogout = async () => {
     setMenuOpen(false);
-    await logout();
-    await refresh();
-    navigate("/");
+    setLoggingOut(true);
+    try {
+      await logout();
+      await refresh();
+      navigate("/");
+    } finally {
+      setLoggingOut(false);
+      setConfirmingLogout(null);
+    }
   };
 
   const doGuestLogout = async () => {
     setMenuOpen(false);
-    await guestLogout();
-    await refreshGuest();
-    navigate("/");
+    setLoggingOut(true);
+    try {
+      await guestLogout();
+      await refreshGuest();
+      navigate("/");
+    } finally {
+      setLoggingOut(false);
+      setConfirmingLogout(null);
+    }
   };
 
   const navBtn: React.CSSProperties = {
@@ -866,7 +886,7 @@ export function Header() {
                     style={dropdownItemStyle}
                     onClick={() => {
                       setAccountMenuOpen(false);
-                      doLogout();
+                      setConfirmingLogout("vendor");
                     }}
                   >
                     Log out
@@ -878,7 +898,7 @@ export function Header() {
                       style={dropdownItemStyle}
                       onClick={() => {
                         setAccountMenuOpen(false);
-                        doGuestLogout();
+                        setConfirmingLogout("guest");
                       }}
                     >
                       Sign out
@@ -891,17 +911,25 @@ export function Header() {
                         go("/for-venues");
                       }}
                     >
-                      List your venue
+                      For venues & organisers
                     </button>
                   </>
                 ) : (
+                  // Auth UX audit §4 — "Vendor / admin login" removed as a
+                  // public label (it named a role, not a method, and was the
+                  // only door a new vendor could find, despite being a
+                  // login-only screen). Vendor/admin sign-in is still fully
+                  // reachable, just via /for-venues's own "Partner sign in"
+                  // link now, matching a real partner-entry landing page
+                  // rather than sitting next to "Sign in" as if it were a
+                  // second, equally-generic option.
                   <>
                     <button
                       className="dropdown-item"
                       style={dropdownItemStyle}
                       onClick={() => {
                         setAccountMenuOpen(false);
-                        go("/signin");
+                        go(signInHref());
                       }}
                     >
                       Sign in
@@ -911,10 +939,10 @@ export function Header() {
                       style={dropdownItemStyle}
                       onClick={() => {
                         setAccountMenuOpen(false);
-                        go("/login");
+                        go(signUpHref());
                       }}
                     >
-                      Vendor / admin login
+                      Join HelloCircle
                     </button>
                     <button
                       className="dropdown-item"
@@ -924,7 +952,7 @@ export function Header() {
                         go("/for-venues");
                       }}
                     >
-                      List your venue
+                      For venues & organisers
                     </button>
                   </>
                 )}
@@ -1061,7 +1089,7 @@ export function Header() {
               <button style={{ ...mobileNavBtn, color: colors.greenText, fontWeight: 700 }} onClick={() => go(user.role === "admin" ? "/admin" : "/vendor")}>
                 {user.role === "admin" ? "Admin dashboard" : "Vendor dashboard"}
               </button>
-              <button style={mobileNavBtn} onClick={doLogout}>
+              <button style={mobileNavBtn} onClick={() => setConfirmingLogout("vendor")}>
                 Log out
               </button>
             </>
@@ -1070,28 +1098,42 @@ export function Header() {
               <div style={{ padding: "6px 6px 2px", fontSize: 13, color: colors.muted }}>
                 Signed in as <strong>{guestEmail}</strong>
               </div>
-              <button style={mobileNavBtn} onClick={doGuestLogout}>
+              <button style={mobileNavBtn} onClick={() => setConfirmingLogout("guest")}>
                 Sign out
               </button>
               <button style={mobileNavBtn} onClick={() => go("/for-venues")}>
-                List your venue
+                For venues & organisers
               </button>
             </>
           ) : (
             <>
-              <button style={{ ...mobileNavBtn, color: colors.greenText, fontWeight: 700 }} onClick={() => go("/signin")}>
+              <button style={{ ...mobileNavBtn, color: colors.greenText, fontWeight: 700 }} onClick={() => go(signInHref())}>
                 Sign in
               </button>
-              <button style={mobileNavBtn} onClick={() => go("/login")}>
-                Vendor / admin login
+              <button style={mobileNavBtn} onClick={() => go(signUpHref())}>
+                Join HelloCircle
               </button>
               <button style={mobileNavBtn} onClick={() => go("/for-venues")}>
-                List your venue
+                For venues & organisers
               </button>
             </>
           )}
         </div>
       )}
+      <ConfirmDialog
+        open={confirmingLogout !== null}
+        title={confirmingLogout === "vendor" ? "Log out?" : "Sign out?"}
+        message={
+          confirmingLogout === "vendor"
+            ? "You'll need to log back in to access your vendor/admin dashboard."
+            : "You'll need to sign back in to see your bookings, Circles and saved things."
+        }
+        confirmLabel={loggingOut ? "…" : confirmingLogout === "vendor" ? "Log out" : "Sign out"}
+        tone="neutral"
+        busy={loggingOut}
+        onConfirm={() => (confirmingLogout === "vendor" ? doLogout() : doGuestLogout())}
+        onCancel={() => setConfirmingLogout(null)}
+      />
     </header>
   );
 }

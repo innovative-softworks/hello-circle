@@ -19,6 +19,23 @@ export function isValidEmail(email: string): boolean {
   return EMAIL_RE.test(email);
 }
 
+/** Format/plausibility check only — deliberately not an age or legal-
+ * eligibility rule (see the onboarding audit's explicit "don't invent
+ * minimum ages" scope boundary). Rejects a value that isn't a real calendar
+ * date (including a nonsense date like "2024-02-30", which JS's own Date
+ * would otherwise silently roll into March), or that's in the future — a
+ * date of birth literally cannot be — the same class of shape check
+ * isValidEmail above already does for email addresses. Used wherever a
+ * registration/enrollment collects a participant's dob as a plain
+ * YYYY-MM-DD string (see routes/registrations.ts). */
+export function isPlausibleDob(dob: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dob)) return false;
+  const [y, m, d] = dob.split("-").map(Number);
+  const parsed = new Date(Date.UTC(y, m - 1, d));
+  if (parsed.getUTCFullYear() !== y || parsed.getUTCMonth() + 1 !== m || parsed.getUTCDate() !== d) return false;
+  return parsed.getTime() <= Date.now();
+}
+
 /** Server-side coordinate validation (Maps cost-control follow-up pass, §6)
  * — every vendor-facing centre/club/experience create/update route runs
  * client-supplied lat/lng through this before it ever reaches a query,

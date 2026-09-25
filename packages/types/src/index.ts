@@ -350,6 +350,8 @@ export interface AuthUser {
   invitedStaff: boolean;
   providerTier: "standard" | "verified" | "featured";
   createdAt: string;
+  /** Onboarding audit E1 — set by GET /auth/me; null = no Terms acceptance on file. */
+  termsAcceptedAt?: string | null;
   /** HelloCircle Manage (Phase 1) — set once this vendor links the resident
    * (magic-link) account of the same person. Null for every vendor until
    * they deliberately do that (see api/manage.ts). */
@@ -1282,6 +1284,9 @@ export interface ResidentFull extends Resident {
   interests: string[];
   availability: string[];
   onboardingCompleted: boolean;
+  /** Onboarding audit E1/E2 — when (and under which Terms version) this account accepted the Terms. Null = nothing on file (never fabricated for older accounts); termsVersion is also null for acceptances recorded before versions existed. */
+  termsAcceptedAt: string | null;
+  termsVersion: string | null;
   notificationPrefs: NotificationPrefs | null;
   accessibilityPrefs: string[];
   searchRadiusKm: number;

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { becomeProvider, fetchManageWorkspaces, switchWorkspace } from "../api";
 import { useAuth } from "../AuthContext";
+import { CheckboxField } from "./AuthForms";
 import { AwardIcon } from "./icons";
 import { Button, inputStyle, labelStyle } from "./ui";
 import { colors, fonts, radius } from "../theme";
@@ -44,6 +45,12 @@ export function BecomeProviderPanel({ hostStatus }: { hostStatus: HostStatus }) 
   const [mobile, setMobile] = useState("");
   const [description, setDescription] = useState("");
   const [password, setPassword] = useState("");
+  // Onboarding audit (consent pass) — this creates a brand-new provider
+  // account (a `users` row), same required-Terms/optional-marketing shape
+  // every other vendor-signup surface already has; the resident's own prior
+  // acceptance doesn't carry over automatically onto this new account.
+  const [termsAccepted, setTermsAccepted] = useState(false);
+  const [marketingConsent, setMarketingConsent] = useState(false);
 
   useEffect(() => {
     if (hostStatus === "verified") fetchManageWorkspaces().then(setWorkspaces).catch(() => setWorkspaces(null));
@@ -60,10 +67,14 @@ export function BecomeProviderPanel({ hostStatus }: { hostStatus: HostStatus }) 
       setError("Password must be at least 8 characters");
       return;
     }
+    if (!termsAccepted) {
+      setError("Please accept the Terms to continue");
+      return;
+    }
     setError(null);
     setSubmitting(true);
     try {
-      await becomeProvider({ vendorType, businessName, address, county, mobile, description, password });
+      await becomeProvider({ vendorType, businessName, address, county, mobile, description, password, termsAccepted, marketingConsent });
       setOpen(false);
       setPassword("");
       setWorkspaces(await fetchManageWorkspaces());
@@ -173,9 +184,19 @@ export function BecomeProviderPanel({ hostStatus }: { hostStatus: HostStatus }) 
             with the same email you use here.
           </p>
 
+          <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 14 }}>
+            <CheckboxField id="become-provider-terms" checked={termsAccepted} onChange={setTermsAccepted}>
+              I agree to HelloCircle's{" "}
+              <a href="/privacy" target="_blank" rel="noopener noreferrer" style={{ color: colors.text, fontWeight: 700 }}>Privacy Policy</a> and Terms.
+            </CheckboxField>
+            <CheckboxField id="become-provider-marketing" checked={marketingConsent} onChange={setMarketingConsent}>
+              Send me occasional emails about new features and vendor tips (optional).
+            </CheckboxField>
+          </div>
+
           {error && <p style={{ color: colors.danger, fontSize: 13, margin: "0 0 10px" }}>{error}</p>}
           <div style={{ display: "flex", gap: 8 }}>
-            <Button onClick={submit} disabled={submitting}>
+            <Button onClick={submit} disabled={submitting || !termsAccepted}>
               {submitting ? "Opening…" : "Open provider account"}
             </Button>
             <Button variant="ghost" onClick={() => { setOpen(false); setError(null); }} disabled={submitting}>

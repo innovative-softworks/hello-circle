@@ -1,10 +1,10 @@
-import { useState } from "react";
+import { useState, type FormEvent } from "react";
 import { requestPasswordReset } from "../api";
 import { AuthEditorialHeader, AuthEditorialShell } from "../components/AuthEditorialShell";
-import { FieldIcon } from "../components/AuthForms";
+import { AuthFormError, FieldIcon, useFocusOnError } from "../components/AuthForms";
 import { MailIcon } from "../components/icons";
 import { Button, inputStyle, labelStyle } from "../components/ui";
-import { colors, radius } from "../theme";
+import { colors } from "../theme";
 
 // Forgot password (Phase A) — vendor/admin only. Residents got their own
 // optional password login later (My Life auth redesign); their forgot-
@@ -20,8 +20,10 @@ export function ForgotPassword() {
   const [sent, setSent] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const errorRef = useFocusOnError(error);
 
   const submit = async () => {
+    if (loading) return;
     if (!email.trim()) return;
     setError(null);
     setLoading(true);
@@ -62,28 +64,29 @@ export function ForgotPassword() {
             headline={<>Forgotten something?<br /><span style={{ color: colors.orange }}>Let's get you back in.</span></>}
             subtitle="Enter the email on your vendor or admin account."
           />
-          <label htmlFor="forgot-email" style={labelStyle}>Email address</label>
-          <div style={{ position: "relative", marginBottom: 16 }}>
-            <FieldIcon><MailIcon size={16} /></FieldIcon>
-            <input
-              id="forgot-email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && submit()}
-              placeholder="you@email.ie"
-              autoFocus
-              autoComplete="email"
-              style={{ ...inputStyle, paddingLeft: 38 }}
-            />
-          </div>
-          {error && (
-            <p role="alert" className="pop-in" style={{ color: colors.danger, fontSize: 14, margin: "0 0 14px", background: colors.dangerBg, padding: "9px 12px", borderRadius: radius.control }}>
-              {error}
-            </p>
-          )}
-          <Button variant="orange" full onClick={submit} disabled={loading || !email.trim()}>
-            {loading ? "Sending…" : "Send reset link →"}
-          </Button>
+          <form onSubmit={(e: FormEvent) => { e.preventDefault(); submit(); }}>
+            <label htmlFor="forgot-email" style={labelStyle}>Email address</label>
+            <div style={{ position: "relative", marginBottom: 16 }}>
+              <FieldIcon><MailIcon size={16} /></FieldIcon>
+              <input
+                id="forgot-email"
+                name="email"
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="you@email.ie"
+                autoFocus
+                autoComplete="email"
+                aria-invalid={!!error}
+                aria-describedby={error ? "forgot-password-error" : undefined}
+                style={{ ...inputStyle, paddingLeft: 38 }}
+              />
+            </div>
+            {error && <div style={{ marginBottom: 14 }}><AuthFormError id="forgot-password-error" innerRef={errorRef} message={error} /></div>}
+            <Button type="submit" variant="orange" full disabled={loading || !email.trim()}>
+              {loading ? "Sending…" : "Send reset link →"}
+            </Button>
+          </form>
         </>
       )}
     </AuthEditorialShell>

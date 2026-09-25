@@ -2,6 +2,7 @@ import { lazy, Suspense, useEffect, useRef } from "react";
 import { Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { AuthProvider } from "./AuthContext";
 import { logReferralLand } from "./api/public";
+import { AccountSetupGate } from "./components/AccountSetupGate";
 import { CookieNotice } from "./components/CookieNotice";
 import { PageSpinner } from "./components/ui";
 import { DashboardNavProvider } from "./DashboardNavContext";
@@ -11,6 +12,7 @@ import { Header } from "./components/Header";
 import { MobileTabBar } from "./components/MobileTabBar";
 import { NativePushSync } from "./components/NativePushSync";
 import { NativeShellSync } from "./components/NativeShellSync";
+import { SessionExpiryBanner } from "./components/SessionExpiryBanner";
 import { hideSplashScreen, setupAppUrlListener, setupBackButton } from "./native";
 import { MyStuffProvider } from "./MyStuffContext";
 import { ComingSoon } from "./pages/ComingSoon";
@@ -65,7 +67,6 @@ const HelpGuideStart = lazy(() => import("./pages/helpGuide/HelpGuideStart").the
 const Login = lazy(() => import("./pages/Login").then((m) => ({ default: m.Login })));
 const MakeItHappen = lazy(() => import("./pages/MakeItHappen").then((m) => ({ default: m.MakeItHappen })));
 const MyBookings = lazy(() => import("./pages/MyBookings").then((m) => ({ default: m.MyBookings })));
-const Onboarding = lazy(() => import("./pages/Onboarding").then((m) => ({ default: m.Onboarding })));
 const PaymentCancel = lazy(() => import("./pages/PaymentCancel").then((m) => ({ default: m.PaymentCancel })));
 const PaymentSuccess = lazy(() => import("./pages/PaymentSuccess").then((m) => ({ default: m.PaymentSuccess })));
 const PrivacyPolicy = lazy(() => import("./pages/PrivacyPolicy").then((m) => ({ default: m.PrivacyPolicy })));
@@ -124,7 +125,7 @@ function isExemptFromLaunchGate(pathname: string): boolean {
   if (pathname === "/login" || pathname === "/forgot-password" || pathname === "/reset-password" || pathname === "/accept-invite") return true;
   if (pathname === "/privacy" || pathname === "/cookies") return true;
   if (pathname.startsWith("/vendor") || pathname.startsWith("/admin")) return true;
-  if (pathname === "/signin" || pathname.startsWith("/signin/") || pathname === "/onboarding") return true;
+  if (pathname === "/signin" || pathname.startsWith("/signin/") || pathname === "/onboarding") return true; // /onboarding now just redirects to /bookings?setup=1
   // /bookings is "My Life", the resident's own account home — not a discovery
   // surface, so the gate's "no real data yet" rationale doesn't apply. It also
   // has to be exempt for sign-in to work at all: safeReturnTo() defaults there
@@ -237,7 +238,7 @@ export function App() {
     location.pathname === "/reset-password" ||
     location.pathname === "/accept-invite" ||
     location.pathname === "/vendor/signup";
-  const hideHeader = isAuthPage || location.pathname === "/onboarding" || isStandaloneLanding || isComingSoon;
+  const hideHeader = isAuthPage || isStandaloneLanding || isComingSoon;
   // The bottom tab bar is participant-facing primary nav (IA spec's
   // Home/Explore/Create/Circles/My Life) — the vendor/admin dashboards
   // already have their own nav model (NavSidebar, see CLAUDE.md), so it
@@ -253,6 +254,7 @@ export function App() {
         <NativePushSync />
         <MyStuffProvider>
           <DashboardNavProvider>
+            <SessionExpiryBanner />
             {!hideHeader && <Header />}
             <main className={hideTabBar ? undefined : "mobile-tab-bar-space"} style={isStandaloneLanding || isComingSoon ? undefined : { minHeight: "70vh" }}>
               {gated || venueGated ? (
@@ -314,7 +316,8 @@ export function App() {
                 {/* Search merged into Explore's Results Mode — preserve old
                     /search?q=... links/bookmarks (see SearchRedirect.tsx). */}
                 <Route path="/search" element={<SearchRedirect />} />
-                <Route path="/onboarding" element={<Onboarding />} />
+                {/* Onboarding is a popup now (AccountSetupGate), not a page — old links/bookmarks land on My Life with it open. */}
+                <Route path="/onboarding" element={<Navigate to="/bookings?setup=1" replace />} />
                 <Route path="/payment/success" element={<PaymentSuccess />} />
                 <Route path="/payment/cancel" element={<PaymentCancel />} />
                 <Route path="/login" element={<Login />} />
@@ -364,6 +367,7 @@ export function App() {
               )}
             </main>
             {!isStandaloneLanding && !isAuthPage && !isComingSoon && <Footer />}
+            <AccountSetupGate />
             <CookieNotice />
             {!hideTabBar && <MobileTabBar />}
           </DashboardNavProvider>

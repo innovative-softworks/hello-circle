@@ -959,7 +959,7 @@ export function CircleDetail() {
         {otherCircles.length > 0 && (
           <Section>
             <SectionHeader title="More happening near you" />
-            <div className="grid-responsive-3" style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 20 }}>
+            <div className="grid-responsive-3" style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 20 }}>
               {otherCircles.map((c) => (
                 <CircleDiscoveryCard
                   key={c.id}

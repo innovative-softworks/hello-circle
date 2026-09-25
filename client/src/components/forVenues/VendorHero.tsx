@@ -1,3 +1,4 @@
+import { Link } from "react-router-dom";
 import { Button } from "../ui";
 import { CheckIcon } from "../icons";
 import { cardImageRatio, colors, fonts } from "../../theme";
@@ -84,7 +85,7 @@ export function VendorHero({
           </div>
 
           <div>
-            <div className="stack-mobile" style={{ display: "flex", gap: 12, marginBottom: 22 }}>
+            <div className="stack-mobile" style={{ display: "flex", gap: 12, marginBottom: 14 }}>
               <Button variant="orange" onClick={onPrimaryCta} style={{ padding: "13px 22px", fontSize: 15, background: FV_ACCENT }}>
                 List your venue
               </Button>
@@ -92,6 +93,17 @@ export function VendorHero({
                 Become a Host
               </Button>
             </div>
+            {/* Secondary partner-entry CTA (auth UX audit §4) — a returning
+                vendor landing on this page from a search engine or a shared
+                link had no way back into their account short of the header's
+                own (now-removed) "Vendor / admin login" link. */}
+            <Link
+              to="/login"
+              className="link-accent"
+              style={{ display: "inline-block", marginBottom: 22, fontSize: 13.5, fontWeight: 700, color: colors.textSoft, textDecoration: "none" }}
+            >
+              Already list with us? Partner sign in →
+            </Link>
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
               {REASSURANCE.map((r) => (
                 <div key={r} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13.5, color: colors.muted, fontWeight: 600 }}>

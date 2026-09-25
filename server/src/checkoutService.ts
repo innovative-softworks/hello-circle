@@ -10,6 +10,16 @@ import { CLIENT_URL, stripe } from "./stripe.js";
 // own pending-row shape and, in bookings.ts's case, its own row-locked
 // transaction around the insert, so ownership of that insert (and of
 // cleanup on failure) stays with the caller.
+//
+// Architectural decision record (onboarding audit F-7): every Checkout
+// session here is created against the platform's own single STRIPE_SECRET_KEY
+// — there is no Stripe Connect (or any other) vendor payout integration
+// anywhere in this codebase. A vendor's `payment_method` field on a room/
+// club/centre only chooses 'online' vs 'cash' at the venue; it is not a
+// payout-readiness gate, because no such gate exists. This is a v1 model,
+// not an oversight: the platform is the sole merchant of record, and vendor
+// settlement is manual/off-platform. Don't assume a "connect your bank
+// account" vendor onboarding step exists anywhere — it doesn't.
 
 export type CheckoutType = "booking" | "registration" | "game" | "program" | "pass" | "experience";
 

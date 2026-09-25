@@ -151,7 +151,7 @@ cp server/.env.example server/.env
 | `CLIENT_URL` | no (default `http://localhost:5173`) | Public origin used for Stripe Checkout success/cancel redirect URLs — must be the real deployed domain in production |
 | `PUBLIC_ORIGINS` (or `PUBLIC_ORIGIN`) | no (falls back to reflecting the request origin) | Comma-separated list of allowed CORS origins — **set this to the real deployed domain(s) in production**, since the fallback (reflecting any origin) is broader than a production deploy needs |
 | `TRUST_PROXY_HOPS` | no (default off) | Number of trusted reverse-proxy hops in front of the process — set this behind a load balancer/CDN so the rate limiter keys on the real client IP (`X-Forwarded-For`) instead of the proxy's |
-| `FIREBASE_PROJECT_ID` | no | Firebase project id, for native push notifications (mobile app). Without this + `FIREBASE_CLIENT_EMAIL`/`FIREBASE_PRIVATE_KEY`, push is **logged to the console** instead of sent — see `MOBILE_SETUP.md` §7 in the `hello-circle-mobile` repo |
+| `FIREBASE_PROJECT_ID` | no | Firebase project id — shared by native push notifications (mobile app) and Google sign-in token verification (`server/src/googleAuth.ts`). Without this + `FIREBASE_CLIENT_EMAIL`/`FIREBASE_PRIVATE_KEY`: push is **logged to the console** instead of sent (see `MOBILE_SETUP.md` §7 in the `hello-circle-mobile` repo), and `POST /api/guest/google` / `POST /api/auth/google` respond **503**. See "Google Sign-In setup" below for the full setup. |
 | `FIREBASE_CLIENT_EMAIL` | no | Firebase service account client email |
 | `FIREBASE_PRIVATE_KEY` | no | Firebase service account private key (paste as-is; literal `\n` escapes are un-escaped automatically) |
 | `MEDIA_PROVIDER` | no (default `local`) | `local` keeps uploads on the existing `/uploads` disk pipeline; `r2` switches image uploads to Cloudflare R2 (`server/src/media/`) — requires every `R2_*` var below to be set, and **throws at startup if `r2` is requested with any of them missing in production** (`NODE_ENV=production`); in dev, an incomplete `r2` config just warns and falls back to `local`. |
@@ -181,6 +181,52 @@ build-time env vars:
 | `VITE_MAPBOX_TOKEN` | no (maps degrade to a "temporarily unavailable" fallback without it) | Mapbox GL JS public token (`pk.*`) for `DiscoveryMap.tsx`/`SinglePinMap.tsx` — scope it to the production domain via Mapbox's own token-restriction settings before launch. Geocoding/address search (`server/src/routes/geocode.ts`, `client/src/components/AddressSearch.tsx`) is unrelated and still uses Nominatim — this token only affects map *rendering*. |
 | `VITE_MAPBOX_ENABLED` | no (default `true`) | Operational kill switch (`client/src/mapbox.ts`) — set to `false` to force every map component into its "unavailable" fallback without downloading the mapbox-gl bundle at all, e.g. during a real Mapbox cost/outage incident. This is an app-level lever, not a Mapbox-account-side spending cap — check the Mapbox account dashboard for actual usage/billing. |
 | `GEOCODER_BASE_URL` | no (default `https://nominatim.openstreetmap.org`) | Server env var (not `VITE_*`) — the Nominatim-compatible geocoding endpoint `server/src/routes/geocode.ts` proxies. Lets a self-hosted or third-party instance be swapped in without a code change. |
+| `VITE_FIREBASE_API_KEY` / `VITE_FIREBASE_AUTH_DOMAIN` / `VITE_FIREBASE_PROJECT_ID` / `VITE_FIREBASE_APP_ID` | no (Google sign-in button shows as unavailable without all four) | The Firebase **Web app** config (`client/src/firebase.ts`) — not secret, just identifies the project; see "Google Sign-In setup" below for where to get these and what else needs enabling alongside them. |
+
+---
+
+## Google Sign-In setup
+
+Google sign-in (`server/src/googleAuth.ts`, `client/src/firebase.ts`/`googleSignIn.ts`) is built on **Firebase
+Authentication**, reusing the same Firebase project already configured for native push (`FIREBASE_PROJECT_ID`/
+`FIREBASE_CLIENT_EMAIL`/`FIREBASE_PRIVATE_KEY` above) rather than a second, separate OAuth setup. The server
+verifies the Firebase ID token the client SDK produces (`firebase-admin`'s `verifyIdToken`) and mints this
+app's own normal session cookie from it — Firebase never issues a HelloCircle session directly, and nothing
+about the existing password/magic-link session architecture changes.
+
+**It's login-only for vendor/admin** (`POST /api/auth/google`) — an email with no existing HelloCircle account
+gets sent back to `/vendor/signup`'s full listing intake, never a bare auto-created account, so Google sign-in
+can't be used to skip admin approval or grant a role. **It's login-or-signup for residents**
+(`POST /api/guest/google`) — the lightweight resident identity has no such intake step, so a brand new Google
+identity creates a resident the same way the existing magic-link flow does on first verify.
+
+Code-side, this is complete without any further changes. What's still required, and can only be done by
+someone with access to the relevant consoles (not something this app's own credentials can do — same posture
+as the R2 CORS setup elsewhere in this README):
+
+1. **Firebase console → Authentication → Sign-in method** → enable the **Google** provider for the project
+   named by `FIREBASE_PROJECT_ID`.
+2. **Firebase console → Authentication → Settings → Authorized domains** → add every origin the client is
+   actually served from: `localhost` is included by default (covers local dev on any port, e.g. `:5173`); add
+   the real production domain (e.g. `hellocircle.ie`) and any staging domain before testing sign-in there —
+   Firebase's own popup/redirect flow refuses to complete from an origin not on this list.
+3. **Firebase console → Project settings → General → "Your apps"** → if there's no **Web** app registered yet
+   for this project (the existing entries are likely Android/iOS only, for push), click "Add app" → Web, and
+   register one (a nickname is enough, Firebase Hosting isn't needed). Copy its `apiKey`, `authDomain`,
+   `projectId`, and `appId` into `client/.env` (and `client/.env.production` for a real deploy) as
+   `VITE_FIREBASE_API_KEY`, `VITE_FIREBASE_AUTH_DOMAIN`, `VITE_FIREBASE_PROJECT_ID`, `VITE_FIREBASE_APP_ID`.
+   These four are not secret — they identify the project, not authorize access — but the domain restriction
+   in step 2 is what actually gates who can complete a sign-in.
+4. **Google Cloud console → APIs & Services → OAuth consent screen** (same underlying GCP project as the
+   Firebase project) → confirm the app name/support email/logo are filled in reasonably; while the app is in
+   "Testing" publish status, only explicitly added test users can complete Google sign-in at all, so either
+   add real test accounts or move the consent screen to "In production" before wider testing.
+
+⚠️ **The Firebase service-account private key already in `server/.env`/`server/.env.production` was
+previously exposed in a session transcript and has not been rotated (tracked separately — see internal
+notes)**. That's an existing, unrelated issue predating this feature, but it means the same credential this
+feature's server-side token verification depends on should be rotated before any real production launch,
+not assumed safe to carry forward as-is.
 
 ---
 

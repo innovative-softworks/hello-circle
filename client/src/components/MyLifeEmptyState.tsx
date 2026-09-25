@@ -1,4 +1,5 @@
 import { useNavigate } from "react-router-dom";
+import { openOnboarding } from "./AccountSetupGate";
 import { Button } from "./ui";
 import { colors, fonts } from "../theme";
 
@@ -6,8 +7,8 @@ import { colors, fonts } from "../theme";
 // Circles/empty charts. Three real, working destinations instead.
 
 const STEPS = [
-  { n: "01", title: "Tell us what you like.", cta: "Choose interests", href: "/onboarding" },
-  { n: "02", title: "Tell us when you're free.", cta: "Add availability", href: "/onboarding" },
+  { n: "01", title: "Tell us what you like.", cta: "Choose interests", href: "" },
+  { n: "02", title: "Tell us when you're free.", cta: "Add availability", href: "/profile?tab=preferences" },
   { n: "03", title: "Join your first plan.", cta: "Find something nearby", href: "/games" },
 ];
 
@@ -23,7 +24,7 @@ export function MyLifeEmptyState() {
           <div key={s.n} style={{ border: `1px solid ${colors.border}`, borderRadius: 12, padding: 20 }}>
             <div style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 22, color: colors.faint, marginBottom: 10 }}>{s.n}</div>
             <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 14 }}>{s.title}</div>
-            <Button variant="ghost" onClick={() => navigate(s.href)}>{s.cta}</Button>
+            <Button variant="ghost" onClick={() => (s.href ? navigate(s.href) : openOnboarding())}>{s.cta}</Button>
           </div>
         ))}
       </div>

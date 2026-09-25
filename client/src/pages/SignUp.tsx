@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
-import { fetchResidentFull } from "../api";
+import { AnalyticsEvent, trackTypedEvent } from "../analyticsEvents";
 import { readAuthIntentContext, safeReturnTo } from "../authRedirect";
 import { AuthEditorialHeader, AuthEditorialShell } from "../components/AuthEditorialShell";
 import { SignupForm } from "../components/AuthForms";
@@ -27,11 +27,15 @@ export function SignUp() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loading, resident]);
 
+  useEffect(() => {
+    trackTypedEvent(AnalyticsEvent.ResidentSignupStarted);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const handleSuccess = async () => {
     ownSuccessRef.current = true;
     await refresh();
-    const full = await fetchResidentFull().catch(() => null);
-    navigate(full?.resident && !full.resident.onboardingCompleted ? "/onboarding" : destination);
+    navigate(destination); // onboarding, if due, opens as a popup over it (AccountSetupGate)
   };
 
   const siblingSearch = window.location.search;

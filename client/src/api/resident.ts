@@ -56,13 +56,37 @@ import { authorizeAndFinalize } from "./media";
 // --- guest magic-link session ---------------------------------------------
 
 /** Always resolves the same way regardless of whether that email has any
- * bookings — see server/src/routes/guestAuth.ts. */
-export function requestGuestLink(email: string): Promise<{ ok: boolean }> {
-  return request(`/guest/request-link`, { method: "POST", body: JSON.stringify({ email }) });
+ * bookings — see server/src/routes/guestAuth.ts. `returnTo` (onboarding audit
+ * F-1) lets the emailed link carry the visitor back to whatever they were
+ * doing — the server re-validates it (same-origin, not an auth page) before
+ * embedding it, so passing an unsafe value here just falls back silently. */
+export function requestGuestLink(email: string, returnTo?: string): Promise<{ ok: boolean }> {
+  return request(`/guest/request-link`, { method: "POST", body: JSON.stringify({ email, returnTo }) });
 }
 
-export function verifyGuestLink(token: string): Promise<{ email: string }> {
+/** Onboarding audit (consent pass) — two outcomes, mirroring googleSignIn()'s
+ * own shape below: an existing resident's link signs straight in
+ * ("signed_in"); a brand-new email gets "needs_completion" with no account
+ * created yet — the caller shows an inline "Complete your account" panel
+ * (name + Terms, required; marketing, optional) and calls
+ * completeMagicLinkSignup() below. Closing the tab at that point leaves
+ * nothing behind — no resident row exists until completion succeeds. */
+export type VerifyGuestLinkResult =
+  | { status: "signed_in"; email: string }
+  | { status: "needs_completion"; email: string; completionToken: string };
+
+export function verifyGuestLink(token: string): Promise<VerifyGuestLinkResult> {
   return request(`/guest/verify`, { method: "POST", body: JSON.stringify({ token }) });
+}
+
+/** Completes a brand-new magic-link signup after "needs_completion" above —
+ * this is the call that actually creates the resident row + session, once
+ * Terms are genuinely accepted (never inferred from opening the email). */
+export function completeMagicLinkSignup(
+  completionToken: string,
+  input: { name: string; termsAccepted: boolean; marketingConsent: boolean }
+): Promise<{ email: string }> {
+  return request(`/guest/verify/complete`, { method: "POST", body: JSON.stringify({ completionToken, ...input }) });
 }
 
 export function guestLogout(): Promise<{ ok: boolean }> {
@@ -73,8 +97,11 @@ export function guestLogout(): Promise<{ ok: boolean }> {
  * identity requestGuestLink/verifyGuestLink above already create/use. If an
  * account already exists for that email with no password set yet (e.g.
  * created earlier via magic link), this attaches the password to it rather
- * than creating a duplicate — same account either way. */
-export function signupWithPassword(input: { name: string; email: string; password: string }): Promise<{ email: string }> {
+ * than creating a duplicate — same account either way. termsAccepted is
+ * enforced server-side too (see routes/guestAuth.ts) — this is the one
+ * signup path that didn't collect it until the auth UX audit's C8 finding
+ * (Google-completion and vendor signup always did). */
+export function signupWithPassword(input: { name: string; email: string; password: string; termsAccepted: boolean; marketingConsent: boolean }): Promise<{ email: string }> {
   return request(`/guest/signup`, { method: "POST", body: JSON.stringify(input) });
 }
 
@@ -91,6 +118,52 @@ export function requestResidentPasswordReset(email: string): Promise<{ ok: boole
 
 export function resetResidentPassword(input: { token: string; password: string }): Promise<{ email: string }> {
   return request(`/guest/reset-password`, { method: "POST", body: JSON.stringify(input) });
+}
+
+/** Google sign-in — a third, opt-in way into the same resident identity as
+ * the two above. Three outcomes (see server/src/routes/guestAuth.ts's POST
+ * /google): an existing linked account signs straight in ("signed_in"); a
+ * brand-new Google identity gets "needs_completion" with no account created
+ * yet — the caller shows the "Complete your HelloCircle account" screen and
+ * calls completeGoogleSignup() below; an existing account with a matching
+ * but unlinked email throws (ApiError, `accountExists: true` in its body —
+ * NOT auto-linked, see the account-linking audit note server-side). */
+export type GoogleSignInResult = { status: "signed_in"; email: string } | { status: "needs_completion"; email: string; name: string | null; picture: string | null };
+
+export function googleSignIn(idToken: string): Promise<GoogleSignInResult> {
+  return request(`/guest/google`, { method: "POST", body: JSON.stringify({ idToken }) });
+}
+
+/** Finishes a "needs_completion" Google sign-in — actually creates the
+ * resident row, only after the person has seen and confirmed the
+ * "Complete your HelloCircle account" screen. Re-sends the same idToken
+ * (still valid; Firebase ID tokens last ~1 hour) rather than anything
+ * cached from the earlier googleSignIn() call. */
+export function completeGoogleSignup(idToken: string, input: { name: string; termsAccepted: boolean; marketingConsent: boolean }): Promise<{ email: string }> {
+  return request(`/guest/google/complete`, { method: "POST", body: JSON.stringify({ idToken, ...input }) });
+}
+
+/** Explicit "link my Google account" from an already-authenticated session —
+ * see server/src/routes/residents.ts's POST /me/google. The replacement for
+ * silently auto-linking on a matching email during sign-in. */
+export function linkGoogleAccount(idToken: string): Promise<{ ok: boolean; googleEmail: string }> {
+  return request(`/residents/me/google`, { method: "POST", body: JSON.stringify({ idToken }) });
+}
+
+/** Onboarding audit E1 — confirms the Terms for an account with none on
+ * file. Only ever fills a NULL server-side; requires the explicit flag. */
+export function acceptResidentTerms(): Promise<{ ok: boolean }> {
+  return request(`/residents/me/accept-terms`, { method: "POST", body: JSON.stringify({ termsAccepted: true }) });
+}
+
+/** Onboarding audit §7 — re-sends the same email-confirmation link
+ * POST /guest/signup already sends once at signup, for a resident whose
+ * email still isn't verified (password-signup accounts, or magic-link
+ * accounts that verified before this pass existed). No-op (alreadyVerified:
+ * true, no email sent) if they're already verified, so a stray click can't
+ * spam an inbox that doesn't need it. */
+export function resendVerificationEmail(): Promise<{ ok: boolean; alreadyVerified: boolean }> {
+  return request(`/residents/me/resend-verification`, { method: "POST" });
 }
 
 /** Set a password on the currently signed-in resident (any sign-in method),

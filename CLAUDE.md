@@ -95,10 +95,26 @@ a fourth, older, account-less mechanism that predates all of them:
    works for a pure guest purely off this header. A signed-in resident's bookings additionally get
    `resident_id` set, so `residents.ts`'s receipts endpoint can find them without needing the client id too.
 
-None of these four share a table, and nothing unifies them — a person who both registered a child for a club
-as a pure guest *and* later signs in via magic link with the same email will not automatically see that old
-booking linked to their resident account. Don't assume "the current user" has one obvious meaning in a new
-route; check which of the three middlewares actually populated something before writing a guard.
+None of these four share a table, and nothing unifies them by default — a person who both registered a child
+for a club as a pure guest *and* later signs in via magic link with the same email will not automatically see
+that old booking linked to their resident account. Don't assume "the current user" has one obvious meaning in
+a new route; check which of the three middlewares actually populated something before writing a guard.
+
+**HelloCircle Manage (`server/src/routes/manage.ts`) is a deliberate, opt-in bridge between the `req.user`
+(vendor/admin) and `req.resident` identities** — the one place the two systems above are allowed to touch.
+`users.resident_id` links a vendor account to the resident (magic-link) account of the same person, via two
+distinct paths: `POST /manage/link/request` + `/link/confirm` (a vendor asserts they know a resident's email;
+confirmation is emailed to that inbox, not trusted on assertion alone) and `POST /manage/become-provider` (the
+reverse — a resident with `host_status = 'verified'` self-serves a new vendor account already linked to their
+own resident row, blocked if a `users` row for that email already exists). Once linked, `GET
+/manage/workspaces` reports which of "resident" / "linked vendor" / "circles organised" the caller's current
+session actually has, and `POST /manage/switch` mints the *other* side's session cookie without a password —
+being authenticated as one side is treated as sufficient proof to switch into an already-linked other side,
+same trust model as any other "you're logged in, so we trust you" action, audit-logged via `writeAudit()`
+either way. `client/src/components/Header.tsx`'s account-menu "Personal ⇄ {business name}" switcher is the UI
+for this. Constraints worth knowing before extending it: one `users` row can link to at most one resident (no
+multi-org-style fan-out), and nothing here changes `attachUser`/`attachResident`/`attachGuestEmail` — a
+browser can simply hold both session cookies at once, and these routes only mint the second one on request.
 
 **Vendor/admin roles**, for the `req.user` side specifically:
 - `vendor` — lists a centre and/or a club (a vendor account is no longer locked to one type; see

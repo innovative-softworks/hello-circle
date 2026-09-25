@@ -1,12 +1,14 @@
-import { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
-import { login } from "../api";
+import { useState, type FormEvent } from "react";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { googleLogin, login } from "../api";
 import { useAuth } from "../AuthContext";
+import { safeReturnTo } from "../authRedirect";
 import { AuthEditorialHeader, AuthEditorialShell } from "../components/AuthEditorialShell";
-import { FieldIcon, OAuthDivider, OAuthNotice, useOAuthNotice } from "../components/AuthForms";
+import { AuthFormError, FieldIcon, OAuthDivider, OAuthNotice, useFocusOnError, useOAuthNotice } from "../components/AuthForms";
 import { ArrowRightIcon, EyeIcon, EyeOffIcon, LockIcon, MailIcon } from "../components/icons";
 import { Button, inputStyle, labelStyle } from "../components/ui";
-import { colors, radius } from "../theme";
+import { useGoogleSignIn } from "../googleSignIn";
+import { colors } from "../theme";
 
 // Vendor/admin sign-in — editorial shell (Form System Audit follow-up:
 // bring /login and /signin into the same visual language as My Life and
@@ -17,31 +19,56 @@ import { colors, radius } from "../theme";
 // password, no magic link, no signup-in-place) since vendor accounts are
 // approved by an admin after the listing intake form on /vendor/signup,
 // not created here.
+//
+// Auth UX audit (§5): heading/copy standardized to "Manage your HelloCircle
+// business", Google labeled "Continue with Google" here specifically (the
+// resident forms keep their shorter default), and — unlike before — this
+// screen now reads/honours ?returnTo= the same way SignIn.tsx does, so a
+// vendor bounced here by an expired session (see SessionExpiryBanner.tsx) or
+// a cold deep link into /vendor lands back where they were, not always the
+// dashboard's default tab.
 
 export function Login() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { refresh } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const errorRef = useFocusOnError(error);
   const [submitting, setSubmitting] = useState(false);
-  const { notice, trigger } = useOAuthNotice();
+  const { notice, trigger: triggerApple } = useOAuthNotice();
+
+  const destinationFor = (role: "vendor" | "admin") => safeReturnTo(searchParams.get("returnTo"), role === "admin" ? "/admin" : "/vendor");
+
+  // Login only — a Google account with no matching HelloCircle vendor/admin
+  // record gets ApiError's server message ("No HelloCircle account found
+  // for that Google account…") surfaced here the same way any other failed
+  // login would be; see server/src/routes/auth.ts's POST /google.
+  const { busy: googleBusy, error: googleError, trigger: triggerGoogle } = useGoogleSignIn(async (idToken) => {
+    const { user } = await googleLogin(idToken);
+    await refresh();
+    navigate(destinationFor(user.role));
+  });
 
   const submit = async () => {
+    if (submitting || googleBusy) return;
     if (!email || !password) return;
     setError(null);
     setSubmitting(true);
     try {
       const { user } = await login({ email, password });
       await refresh();
-      navigate(user.role === "admin" ? "/admin" : "/vendor");
+      navigate(destinationFor(user.role));
     } catch (e) {
       setError(e instanceof Error ? e.message : "Couldn't log in");
     } finally {
       setSubmitting(false);
     }
   };
+
+  const describedBy = error ? "vendor-login-error" : undefined;
 
   return (
     <AuthEditorialShell
@@ -58,22 +85,26 @@ export function Login() {
       <AuthEditorialHeader
         eyebrow="For venues & hosts"
         accent="orange"
-        headline={<>Welcome back.<br /><span style={{ color: colors.orange }}>Let's fill your calendar.</span></>}
-        subtitle="For vendors and admins — visitors don't need an account."
+        headline="Manage your HelloCircle business"
+        subtitle="Sign in to manage your venues, activities and bookings."
       />
 
-      <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      <form onSubmit={(e: FormEvent) => { e.preventDefault(); submit(); }} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
         <div>
           <label htmlFor="login-email" style={labelStyle}>Email</label>
           <div style={{ position: "relative" }}>
             <FieldIcon><MailIcon size={16} /></FieldIcon>
             <input
               id="login-email"
+              name="email"
+              type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="you@email.ie"
               autoFocus
               autoComplete="email"
+              aria-invalid={!!error}
+              aria-describedby={describedBy}
               style={{ ...inputStyle, paddingLeft: 38 }}
             />
           </div>
@@ -84,15 +115,18 @@ export function Login() {
             <FieldIcon><LockIcon size={16} /></FieldIcon>
             <input
               id="login-password"
+              name="password"
               type={showPassword ? "text" : "password"}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && submit()}
               autoComplete="current-password"
+              aria-invalid={!!error}
+              aria-describedby={describedBy}
               style={{ ...inputStyle, paddingLeft: 38, paddingRight: 40 }}
             />
             <button
               type="button"
+              className="auth-plain-btn"
               onClick={() => setShowPassword((v) => !v)}
               aria-label={showPassword ? "Hide password" : "Show password"}
               style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", padding: 4, color: colors.mutedLight, cursor: "pointer", display: "flex" }}
@@ -100,26 +134,38 @@ export function Login() {
               {showPassword ? <EyeOffIcon size={17} /> : <EyeIcon size={17} />}
             </button>
           </div>
+          <Link
+            to="/forgot-password"
+            className="link-accent"
+            style={{ display: "inline-block", marginTop: 8, fontSize: 13, fontWeight: 700, color: colors.text, textDecoration: "none" }}
+          >
+            Forgot password?
+          </Link>
         </div>
 
-        {error && (
-          <p role="alert" className="pop-in" style={{ color: colors.danger, fontSize: 14, margin: 0, background: colors.dangerBg, padding: "9px 12px", borderRadius: radius.control }}>
-            {error}
-          </p>
-        )}
+        {error && <AuthFormError id="vendor-login-error" innerRef={errorRef} message={error} />}
 
-        <Button variant="orange" full disabled={submitting || !email || !password} onClick={submit}>
-          {submitting ? "Logging in…" : "Log in →"}
+        <Button type="submit" variant="orange" full disabled={submitting || googleBusy || !email || !password}>
+          {submitting ? "Logging in…" : "Sign in →"}
         </Button>
-      </div>
+      </form>
 
-      <OAuthDivider onClickProvider={trigger} />
+      <OAuthDivider onGoogle={triggerGoogle} googleBusy={googleBusy} onApple={triggerApple} googleLabel="Continue with Google" dividerText="or sign in with email" />
+      {/* Explains the existing-account requirement up front (auth UX audit
+          §5/§6) — Google here only ever matches an already-registered
+          vendor/admin (server/src/routes/auth.ts's POST /google is
+          login-only); this makes that explicit before someone without an
+          account clicks it and gets a generic error. */}
+      <p style={{ margin: "10px 0 0", fontSize: 12, color: colors.muted, textAlign: "center" }}>
+        Continue with Google works for an existing HelloCircle business account only.
+      </p>
+      {googleError && <div style={{ marginTop: 14 }}><AuthFormError message={googleError} /></div>}
       <OAuthNotice notice={notice} />
 
       <p style={{ textAlign: "center", color: colors.muted, fontSize: 14, marginTop: 24 }}>
-        Run a community centre or sports club?{" "}
+        New to HelloCircle as an organiser?{" "}
         <Link to="/vendor/signup" className="link-accent" style={{ textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 5, color: colors.orange, fontWeight: 700 }}>
-          List it on Hello Circle <ArrowRightIcon size={14} />
+          Create a business account <ArrowRightIcon size={14} />
         </Link>
       </p>
     </AuthEditorialShell>

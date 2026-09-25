@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { loadGoogleTagManager } from "../analytics";
 import { colors, fonts, radius } from "../theme";
@@ -24,12 +24,34 @@ export function getStoredConsent(): Consent | null {
 export function CookieNotice() {
   const navigate = useNavigate();
   const [consent, setConsent] = useState<Consent | null>("accepted");
+  const bannerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const stored = getStoredConsent();
     setConsent(stored);
     if (stored === "accepted") loadGoogleTagManager();
   }, []);
+
+  // The banner is position:fixed, so it used to sit on top of whatever was at
+  // the bottom of the page — on a short viewport that covered primary buttons
+  // (e.g. "Accept & join" on the invite page) until the banner was dismissed.
+  // While it's showing, reserve its own height (plus its margin) as padding at
+  // the end of the document so the page can always scroll clear of it.
+  useEffect(() => {
+    const el = bannerRef.current;
+    if (consent !== null || !el) return;
+    const previous = document.body.style.paddingBottom;
+    const reserve = () => {
+      document.body.style.paddingBottom = `${el.offsetHeight + 32}px`;
+    };
+    reserve();
+    const observer = new ResizeObserver(reserve);
+    observer.observe(el);
+    return () => {
+      observer.disconnect();
+      document.body.style.paddingBottom = previous;
+    };
+  }, [consent]);
 
   if (consent !== null) return null;
 
@@ -41,6 +63,9 @@ export function CookieNotice() {
 
   return (
     <div
+      ref={bannerRef}
+      role="region"
+      aria-label="Cookie preferences"
       className="pop-in"
       style={{
         position: "fixed",

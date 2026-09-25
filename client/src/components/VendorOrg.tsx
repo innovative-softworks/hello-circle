@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../AuthContext";
+import { useGoogleSignIn } from "../googleSignIn";
 import { getMediaUrl } from "../media";
 import {
   bookingsReportCsvUrl,
@@ -11,6 +12,7 @@ import {
   fetchVendorInsights,
   fetchVendorPayments,
   inviteStaff,
+  linkVendorGoogleAccount,
   requestManageLink,
   revokeInvite,
   updateOrgPolicies,
@@ -21,7 +23,7 @@ import {
 } from "../api";
 import { PLATFORM_ROLES, PLATFORM_ROLE_LABELS } from "../types";
 import type { OrgProfile, Participant, VendorInsights, VendorPayments } from "../types";
-import { CameraIcon, CloseIcon, PlusIcon, SearchIcon, TrashIcon, TrendUpIcon, UsersIcon } from "./icons";
+import { CameraIcon, CloseIcon, GoogleIcon, PlusIcon, SearchIcon, TrashIcon, TrendUpIcon, UsersIcon } from "./icons";
 import { Button, ManageCard as Card, ConfirmDialog, EmptyState, PageSpinner, Tabs, inputStyle, labelStyle, tableStyle, tdStyle, thStyle } from "./ui";
 import { formatDate } from "../vendorFormat";
 import { colors, fonts, radius } from "../theme";
@@ -282,6 +284,15 @@ function AccountSettingsPanel() {
   const [linkSending, setLinkSending] = useState(false);
   const [linkError, setLinkError] = useState<string | null>(null);
   const [linkSent, setLinkSent] = useState(false);
+  // Account-linking audit follow-up: linking a Google identity onto this
+  // account now only ever happens from here — an authenticated session —
+  // never inferred from a matching email during sign-in (see the doc
+  // comment on POST /auth/google in server/src/routes/auth.ts).
+  const [googleLinked, setGoogleLinked] = useState(false);
+  const { busy: googleLinking, error: googleLinkError, trigger: linkGoogle } = useGoogleSignIn(async (idToken) => {
+    await linkVendorGoogleAccount(idToken);
+    setGoogleLinked(true);
+  });
 
   const sendLinkRequest = async () => {
     setLinkError(null);
@@ -345,6 +356,21 @@ function AccountSettingsPanel() {
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 22 }}>
         <Button onClick={savePassword} disabled={pwSaving}>{pwSaving ? "Saving…" : "Change password"}</Button>
         {pwSaved && <span style={{ fontSize: 13, color: colors.greenText, fontWeight: 600 }}>Saved</span>}
+      </div>
+      <div style={{ borderTop: `1px solid ${colors.border}`, paddingTop: 18, marginBottom: 22 }}>
+        <h4 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 15, margin: "0 0 8px" }}>Google sign-in</h4>
+        <p style={{ fontSize: 12.5, color: colors.mutedLight, margin: "0 0 10px" }}>
+          Link your Google account so you can log in with it instead of your password.
+        </p>
+        <button
+          type="button"
+          onClick={linkGoogle}
+          disabled={googleLinking || googleLinked}
+          style={{ display: "inline-flex", alignItems: "center", gap: 8, padding: "9px 14px", border: `1px solid ${colors.inputBorder}`, borderRadius: 10, background: colors.surface, fontSize: 13.5, fontWeight: 700, color: colors.text, cursor: googleLinking || googleLinked ? "default" : "pointer", opacity: googleLinking ? 0.7 : 1 }}
+        >
+          <GoogleIcon size={16} /> {googleLinked ? "Linked ✓" : googleLinking ? "Linking…" : "Link Google account"}
+        </button>
+        {googleLinkError && <p style={{ color: colors.danger, fontSize: 12.5, margin: "8px 0 0" }}>{googleLinkError}</p>}
       </div>
       <div style={{ borderTop: `1px solid ${colors.border}`, paddingTop: 18, marginBottom: 22 }}>
         <h4 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 15, margin: "0 0 8px" }}>Linked HelloCircle account</h4>

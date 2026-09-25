@@ -9,11 +9,14 @@ import { db } from "../db/index.js";
 import { getRoutineSuggestions, listResidentParticipation, reviewStats } from "../db/queries.js";
 import { irelandTodayIso } from "../irelandTime.js";
 import { MOOD_KEYWORDS } from "./discover.js";
-import { getResidentPasswordHash, requireResident, setResidentPassword, updateResident } from "../residents.js";
-import { GUEST_SESSION_COOKIE, destroyGuestSession } from "../guestAuth.js";
+import { getResidentPasswordHash, linkResidentGoogleUid, requireResident, setResidentPassword, updateResident } from "../residents.js";
+import { GUEST_SESSION_COOKIE, createLoginToken, destroyGuestSession } from "../guestAuth.js";
+import { sendMail } from "../email.js";
+import { GoogleAuthNotConfigured, verifyGoogleIdToken } from "../googleAuth.js";
 import { deleteObject, objectKeyFromUrl } from "../media/mediaService.js";
-import { passwordLoginLimiter } from "../rateLimit.js";
-import { stripe } from "../stripe.js";
+import { googleAuthLimiter, magicLinkLimiter, passwordLoginLimiter } from "../rateLimit.js";
+import { CLIENT_URL, stripe } from "../stripe.js";
+import { TERMS_VERSION } from "../terms.js";
 import { BadRequestError, clientIdFrom } from "../util.js";
 
 export const residentsRouter = Router();
@@ -345,7 +348,8 @@ residentsRouter.get("/me", async (req, res) => {
               goals, pref_group_size as prefGroupSize, pref_beginner_friendly as prefBeginnerFriendly,
               pref_solo_friendly as prefSoloFriendly, pref_budget as prefBudget,
               hide_from_familiar_count as hideFromFamiliarCount, discoverable_by_name as discoverableByName,
-              (password_hash IS NOT NULL) as hasPassword, (email_verified_at IS NOT NULL) as emailVerified
+              (password_hash IS NOT NULL) as hasPassword, (email_verified_at IS NOT NULL) as emailVerified,
+              terms_accepted_at as termsAcceptedAt, terms_version as termsVersion
        FROM residents WHERE id = ?`
     )
     .get(req.resident.id)) as {
@@ -367,6 +371,8 @@ residentsRouter.get("/me", async (req, res) => {
     discoverableByName: number;
     hasPassword: number;
     emailVerified: number;
+    termsAcceptedAt: string | null;
+    termsVersion: string | null;
   };
   res.json({
     resident: {
@@ -389,6 +395,8 @@ residentsRouter.get("/me", async (req, res) => {
       discoverableByName: !!row.discoverableByName,
       hasPassword: !!row.hasPassword,
       emailVerified: !!row.emailVerified,
+      termsAcceptedAt: row.termsAcceptedAt,
+      termsVersion: row.termsVersion,
     },
   });
 });
@@ -450,6 +458,71 @@ residentsRouter.delete("/me/avatar", requireResident, async (req, res) => {
   await db.prepare(`UPDATE residents SET avatar_url = NULL WHERE id = ?`).run(req.resident!.id);
   releasePreviousAvatarBestEffort(previous);
   res.json({ ok: true });
+});
+
+// Explicit "link my Google account" from an already-authenticated session —
+// the account-linking audit's replacement for the auto-link-on-email-match
+// behaviour POST /guest/google used to have (see residents.ts's
+// linkResidentGoogleUid doc comment). Being logged in here already proves
+// control of this resident account, so no further re-auth step is needed —
+// the person is only ever adding a sign-in method to an account they've
+// already proven ownership of, never gaining access to a new one.
+residentsRouter.post("/me/google", requireResident, googleAuthLimiter, async (req, res) => {
+  const { idToken } = req.body as { idToken?: string };
+  if (!idToken) return res.status(400).json({ error: "Missing Google sign-in token" });
+
+  let identity;
+  try {
+    identity = await verifyGoogleIdToken(idToken);
+  } catch (e) {
+    if (e instanceof GoogleAuthNotConfigured) return res.status(503).json({ error: "Google sign-in isn't set up yet" });
+    throw e;
+  }
+  if (!identity) return res.status(401).json({ error: "Couldn't verify that Google sign-in — please try again" });
+
+  const result = await linkResidentGoogleUid(req.resident!.id, identity.uid);
+  if (!result.ok) return res.status(409).json({ error: result.error });
+  res.json({ ok: true, googleEmail: identity.email });
+});
+
+// Renewed Terms acceptance (onboarding audit E1) — for accounts that exist
+// but have no acceptance on file (created via magic link or the native app
+// before Terms were captured there). Requires an explicit termsAccepted:true
+// in the body — never inferred from being signed in. Only ever fills a NULL:
+// an existing acceptance timestamp/version is never overwritten, and the
+// person's marketing choice is left exactly as it was.
+residentsRouter.post("/me/accept-terms", requireResident, async (req, res) => {
+  const { termsAccepted } = req.body as { termsAccepted?: boolean };
+  if (!termsAccepted) return res.status(400).json({ error: "Please accept the Terms to continue" });
+  await db
+    .prepare(`UPDATE residents SET terms_accepted_at = NOW(), terms_version = ? WHERE id = ? AND terms_accepted_at IS NULL`)
+    .run(TERMS_VERSION, req.resident!.id);
+  res.json({ ok: true });
+});
+
+// Email verification (onboarding audit §7) — reuses the exact same
+// guest_login_tokens mechanism as magic-link sign-in and the confirmation
+// email POST /guest/signup already sends (see routes/guestAuth.ts):
+// clicking it hits POST /guest/verify, which sets email_verified_at whether
+// or not the resident was already signed in. No-op (not an error) when
+// already verified, so a stale "Resend" button double-click can't spam an
+// inbox that doesn't need it. Same magicLinkLimiter budget as every other
+// "email a link" route in this codebase.
+residentsRouter.post("/me/resend-verification", requireResident, magicLinkLimiter, async (req, res) => {
+  const row = (await db.prepare(`SELECT email_verified_at as emailVerifiedAt FROM residents WHERE id = ?`).get(req.resident!.id)) as
+    | { emailVerifiedAt: string | null }
+    | undefined;
+  if (row?.emailVerifiedAt) return res.json({ ok: true, alreadyVerified: true });
+
+  const { token } = await createLoginToken(req.resident!.email);
+  const verifyUrl = `${CLIENT_URL}/bookings?token=${token}`;
+  await sendMail({
+    to: req.resident!.email,
+    subject: "Confirm your email — Hello Circle",
+    text: `Hi,\n\nClick the link below to confirm this is your email address:\n\n${verifyUrl}\n\nThis link expires in 15 minutes and can only be used once.\n\nThanks for using Hello Circle.`,
+    cta: { label: "Confirm my email", url: verifyUrl },
+  });
+  res.json({ ok: true, alreadyVerified: false });
 });
 
 residentsRouter.use((err: Error, _req: unknown, res: import("express").Response, next: (err?: unknown) => void) => {

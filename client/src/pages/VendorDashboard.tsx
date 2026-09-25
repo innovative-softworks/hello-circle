@@ -2,6 +2,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { fetchOrgProfile, fetchVendorListings, fetchVendorNotifications, fetchVendorScheduleItems, fetchVendorStats } from "../api";
 import { useAuth } from "../AuthContext";
+import { vendorLoginHref } from "../authRedirect";
 import { ManageShell } from "../components/ManageShell";
 import {
   BanIcon,
@@ -19,6 +20,7 @@ import {
   TrendUpIcon,
   UsersIcon,
 } from "../components/icons";
+import { VendorSetupChecklist } from "../components/VendorSetupChecklist";
 import { Button, LinkButton, ManageCard as Card, DashboardTopPanel, PageSpinner } from "../components/ui";
 import { BookingsTab, DemandTab } from "../components/VendorBookings";
 import { VendorExperiencesTab } from "../components/VendorExperiences";
@@ -104,7 +106,7 @@ export function VendorDashboard() {
   // that's undefined-behavior-adjacent under concurrent rendering/Strict
   // Mode's double-render, even though the redirect visually still worked.
   useEffect(() => {
-    if (!loading && (!user || user.role !== "vendor")) navigate("/login");
+    if (!loading && (!user || user.role !== "vendor")) navigate(vendorLoginHref());
   }, [loading, user, navigate]);
 
   if (loading) return <PageSpinner />;
@@ -121,9 +123,10 @@ export function VendorDashboard() {
             </h2>
             <p style={{ color: colors.muted, fontSize: 15, lineHeight: 1.5 }}>
               {user.status === "pending"
-                ? "An admin needs to approve your vendor account before you can create listings. Check back soon."
+                ? "An admin reviews your details before your listing can go live. Nothing more is needed from you right now — you'll be able to edit your listing once you're approved."
                 : "Your vendor account has been suspended. Contact the site admin for details."}
             </p>
+            {user.status === "pending" && <VendorSetupChecklist variant="pending" />}
           </Card>
         </section>
       </div>
@@ -254,6 +257,7 @@ export function VendorDashboard() {
         ) : undefined
       }
     >
+      {tab === "overview" && <VendorSetupChecklist variant="approved" />}
       {tab === "overview" && stats && (
         <VendorOverviewTab
           stats={stats}

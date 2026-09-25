@@ -8,7 +8,7 @@ import { notifyCancellation, notifyNewBookingOrRegistration } from "../notificat
 import { computePricing, evaluateCoupon } from "../pricing.js";
 import { lookupLimiter } from "../rateLimit.js";
 import { stripe } from "../stripe.js";
-import { BadRequestError, ConflictError, clientIdFrom, generateRef, isValidEmail } from "../util.js";
+import { BadRequestError, ConflictError, clientIdFrom, generateRef, isPlausibleDob, isValidEmail } from "../util.js";
 import { activeOfferedCount, claimWaitlistOffer, hasActiveOffer, promoteNextWaitlistEntry } from "../waitlist.js";
 
 export const registrationsRouter = Router();
@@ -174,8 +174,16 @@ registrationsRouter.post("/checkout", async (req, res) => {
   // "adults"/"all") skips both. Every pre-existing caller omits
   // registrantType entirely, which defaults to "child" here and keeps this
   // check byte-for-byte the same as before this field existed.
-  if (body.registrantType !== "adult" && (!body.dob || !body.team)) {
-    return res.status(400).json({ error: "Missing required registration fields" });
+  if (body.registrantType !== "adult") {
+    if (!body.dob || !body.team) {
+      return res.status(400).json({ error: "Missing required registration fields" });
+    }
+    // Onboarding audit §6 — format/plausibility only (not an age rule): dob
+    // previously passed through completely unvalidated, so "not-a-real-date"
+    // text could land in a registration record alongside medical info.
+    if (!isPlausibleDob(body.dob)) {
+      return res.status(400).json({ error: "That doesn't look like a valid date of birth" });
+    }
   }
   if (!isValidEmail(body.email)) {
     return res.status(400).json({ error: "That doesn't look like a valid email address" });

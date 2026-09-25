@@ -82,6 +82,7 @@ describe("Vendor signup -> pending -> admin approval -> vendor access", () => {
         county: "Dublin",
         mobile: "0850000000",
         description: "A test centre for the auth flow suite",
+        termsAccepted: true,
       }),
     });
     expect(res.status).toBe(201);

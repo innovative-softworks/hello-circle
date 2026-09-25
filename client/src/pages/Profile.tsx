@@ -18,9 +18,11 @@ import {
   fetchResidentFull,
   fetchResidentNotifications,
   fetchRoutineSuggestions,
+  linkGoogleAccount,
   markResidentNotificationRead,
   removeAvatar,
   removeFavourite,
+  resendVerificationEmail,
   saveAccessibilityPrefs,
   saveNotificationPrefs,
   saveOnboarding,
@@ -47,6 +49,7 @@ import {
   ClipboardIcon,
   EditIcon,
   EyeOffIcon,
+  GoogleIcon,
   HeartIcon,
   IdCardIcon,
   LightbulbIcon,
@@ -69,6 +72,7 @@ import { Avatar, Button, ConfirmDialog, EmptyState, RowSkeleton, Switch, inputSt
 import { signInHref } from "../authRedirect";
 import { euro } from "../euro";
 import { favouriteDetailHref } from "../favouriteLink";
+import { useGoogleSignIn } from "../googleSignIn";
 import { useGuest } from "../GuestContext";
 import { notificationHref } from "../notificationLink";
 import { colors, fonts, radius } from "../theme";
@@ -838,11 +842,23 @@ function AccountDetailsPanel() {
 
   const [hasPassword, setHasPassword] = useState(false);
   const [emailVerified, setEmailVerified] = useState(false);
+  const [resendingVerification, setResendingVerification] = useState(false);
+  const [verificationResent, setVerificationResent] = useState(false);
+  const [resendError, setResendError] = useState<string | null>(null);
   const [editingPassword, setEditingPassword] = useState(false);
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [pwSaving, setPwSaving] = useState(false);
   const [pwError, setPwError] = useState<string | null>(null);
+  // Account-linking audit follow-up: linking a Google identity onto this
+  // account now only ever happens from here — an authenticated session —
+  // never inferred from a matching email during sign-in (see the doc
+  // comment on POST /guest/google in server/src/routes/guestAuth.ts).
+  const [googleLinked, setGoogleLinked] = useState(false);
+  const { busy: googleLinking, error: googleLinkError, trigger: linkGoogle } = useGoogleSignIn(async (idToken) => {
+    await linkGoogleAccount(idToken);
+    setGoogleLinked(true);
+  });
 
   const [exporting, setExporting] = useState(false);
   const [deactivating, setDeactivating] = useState(false);
@@ -864,6 +880,25 @@ function AccountDetailsPanel() {
       await exportMyData();
     } finally {
       setExporting(false);
+    }
+  };
+
+  // Onboarding audit §7 — "clear verification status in the account
+  // interface" + "resend, rate limited". alreadyVerified is possible if
+  // another tab/device verified in the meantime (e.g. clicking an earlier
+  // link) — treated as success, not an error, since the goal (a verified
+  // email) is already met either way.
+  const handleResendVerification = async () => {
+    setResendError(null);
+    setResendingVerification(true);
+    try {
+      const { alreadyVerified } = await resendVerificationEmail();
+      if (alreadyVerified) setEmailVerified(true);
+      else setVerificationResent(true);
+    } catch (e) {
+      setResendError(e instanceof Error ? e.message : "Couldn't send that — try again in a few minutes");
+    } finally {
+      setResendingVerification(false);
     }
   };
 
@@ -966,13 +1001,34 @@ function AccountDetailsPanel() {
               label="Email"
               description="Used to sign in — can't be changed here"
               control={
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <span style={{ fontSize: 14.5, color: colors.text }}>{resident?.email}</span>
-                  {emailVerified && (
-                    <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11, fontWeight: 700, color: colors.greenText, background: colors.greenBg, borderRadius: radius.pill, padding: "2px 8px" }}>
-                      <CheckCircleIcon size={11} /> Verified
-                    </span>
+                <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <span style={{ fontSize: 14.5, color: colors.text }}>{resident?.email}</span>
+                    {emailVerified ? (
+                      <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11, fontWeight: 700, color: colors.greenText, background: colors.greenBg, borderRadius: radius.pill, padding: "2px 8px" }}>
+                        <CheckCircleIcon size={11} /> Verified
+                      </span>
+                    ) : (
+                      <span style={{ fontSize: 11, fontWeight: 700, color: colors.orangeDark, background: colors.orangeBg, borderRadius: radius.pill, padding: "2px 8px" }}>
+                        Not verified
+                      </span>
+                    )}
+                  </div>
+                  {!emailVerified && (
+                    verificationResent ? (
+                      <span style={{ fontSize: 11.5, color: colors.greenText, fontWeight: 600 }}>Check your email for a confirmation link</span>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={handleResendVerification}
+                        disabled={resendingVerification}
+                        style={{ background: "none", border: "none", padding: 0, fontSize: 11.5, fontWeight: 700, color: colors.text, textDecoration: "underline", cursor: resendingVerification ? "default" : "pointer" }}
+                      >
+                        {resendingVerification ? "Sending…" : "Resend verification email"}
+                      </button>
+                    )
                   )}
+                  {resendError && <span style={{ fontSize: 11, color: colors.danger }}>{resendError}</span>}
                 </div>
               }
               last
@@ -1022,6 +1078,26 @@ function AccountDetailsPanel() {
             last
           />
         )}
+      </SettingsSection>
+
+      <SettingsSection title="Google sign-in">
+        <SettingsRow
+          icon={<GoogleIcon size={15} />}
+          label="Google account"
+          description={googleLinked ? "Linked — you can now sign in with Google too." : "Link your Google account to sign in with it instead of a password or email link."}
+          control={
+            <button
+              type="button"
+              onClick={linkGoogle}
+              disabled={googleLinking || googleLinked}
+              style={{ display: "inline-flex", alignItems: "center", gap: 7, padding: "8px 13px", border: `1px solid ${colors.border}`, borderRadius: radius.control, background: colors.surface, fontSize: 13, fontWeight: 700, color: colors.text, cursor: googleLinking || googleLinked ? "default" : "pointer", opacity: googleLinking ? 0.7 : 1 }}
+            >
+              <GoogleIcon size={14} /> {googleLinked ? "Linked ✓" : googleLinking ? "Linking…" : "Link Google"}
+            </button>
+          }
+          last
+        />
+        {googleLinkError && <div style={{ color: colors.danger, fontSize: 12.5, marginTop: 8 }}>{googleLinkError}</div>}
       </SettingsSection>
 
       <SettingsSection title="Your data" last>
@@ -1512,11 +1588,16 @@ const NAV_OPTIONS: { key: ProfileSection; label: string; icon: ReactNode; group:
   { key: "safety", label: "Safety Centre", icon: <ShieldIcon size={15} />, group: "Support" },
   { key: "help", label: "Help & Support", icon: <ChatIcon size={15} />, group: "Support" },
 ];
+const NAV_SECTION_KEYS = new Set<string>(NAV_OPTIONS.map((o) => o.key));
 
 export function Profile() {
   const navigate = useNavigate();
   const { resident, loading: guestLoading } = useGuest();
-  const [section, setSection] = useState<ProfileSection>("account");
+  // ?tab= lets other screens deep-link a section (e.g. My Life's "Add availability" -> preferences).
+  const [section, setSection] = useState<ProfileSection>(() => {
+    const t = new URLSearchParams(window.location.search).get("tab");
+    return t && NAV_SECTION_KEYS.has(t) ? (t as ProfileSection) : "account";
+  });
 
   if (!guestLoading && !resident) {
     return (

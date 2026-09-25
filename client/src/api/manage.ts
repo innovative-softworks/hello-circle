@@ -18,6 +18,11 @@ export interface BecomeProviderInput {
   mobile: string;
   landline?: string;
   description: string;
+  /** Onboarding audit (consent pass) — required server-side: this creates a
+   * brand-new `users` row, a new legal capacity the resident's own prior
+   * Terms acceptance doesn't automatically carry over onto. */
+  termsAccepted: boolean;
+  marketingConsent: boolean;
 }
 
 /** Verified Hosts only — opens the provider account this resident doesn't have

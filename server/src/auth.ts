@@ -181,6 +181,32 @@ export async function findUserByEmail(email: string): Promise<(AuthedUser & { pa
   return { ...rowToUser(row), passwordHash: row.password_hash };
 }
 
+// --- Google sign-in (vendor/admin) — login-only, see routes/auth.ts's POST
+// /google. Never creates a users row: an unrecognised email is sent back to
+// the existing /vendor/signup listing-intake flow instead, so Google can't
+// be used to grant a role or skip admin approval.
+
+export async function findUserByGoogleUid(uid: string): Promise<AuthedUser | null> {
+  const row = (await db
+    .prepare(
+      `SELECT id, email, password_hash, role, status, name, vendor_type, business_name, address, county, mobile, landline, description, org_id, platform_role, invited_staff, provider_tier, created_at, resident_id
+       FROM users WHERE google_uid = ?`
+    )
+    .get(uid)) as UserRow | undefined;
+  return row ? rowToUser(row) : null;
+}
+
+/** Links a verified Google identity onto an existing users row — only ever
+ * called from an already-authenticated session (PUT /auth/link-google), not
+ * during sign-in (see the account-linking audit note on POST /auth/google).
+ * Being logged in already proves control of this account, so this can
+ * safely overwrite a previously-linked uid — it's an explicit, deliberate
+ * user action, not an inference from a matching email. Grants no new
+ * privileges; the account's role/status/org are entirely unchanged. */
+export async function linkUserGoogleUid(userId: string, uid: string): Promise<void> {
+  await db.prepare(`UPDATE users SET google_uid = ? WHERE id = ?`).run(uid, userId);
+}
+
 export async function createSession(userId: string): Promise<{ token: string; expiresAt: Date }> {
   const token = crypto.randomBytes(32).toString("hex");
   const expiresAt = new Date(Date.now() + SESSION_DAYS * 24 * 60 * 60 * 1000);

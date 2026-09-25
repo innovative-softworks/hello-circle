@@ -239,6 +239,24 @@ export async function initSchema() {
       expires_at DATETIME NOT NULL
     );
 
+    -- Onboarding audit (consent pass, 2026-09-25) — a second, short-lived
+    -- single-use token minted only when POST /guest/verify discovers the
+    -- clicked link's email has no resident row yet. It's what lets a
+    -- brand-new magic-link signup go through the same "prove identity, then
+    -- separately capture Terms acceptance" shape Google sign-in already
+    -- uses, without reusing the original (already-consumed) login token —
+    -- see server/src/routes/guestAuth.ts's POST /verify and POST
+    -- /verify/complete, and residents.ts's createResidentFromMagicLink().
+    -- No down-migration tooling exists in this repo (see CLAUDE.md); to
+    -- fully revert this table, drop it manually (DROP TABLE IF EXISTS
+    -- resident_signup_tokens) — no backticks in this comment on purpose,
+    -- since the whole schema block is one JS template literal.
+    CREATE TABLE IF NOT EXISTS resident_signup_tokens (
+      token VARCHAR(191) PRIMARY KEY,
+      email VARCHAR(255) NOT NULL,
+      expires_at DATETIME NOT NULL
+    );
+
     -- The resulting signed-in session after a magic link is verified — same
     -- shape/lifetime as sessions above, keyed by email instead of user_id.
     CREATE TABLE IF NOT EXISTS guest_sessions (
@@ -1190,6 +1208,26 @@ export async function initSchema() {
     }
   }
 
+  // Same idempotent-add shape as ensureColumn above, for a UNIQUE index
+  // instead of a column — used by the google_uid columns below, so two
+  // different residents/users rows can never link to the same Google
+  // identity. MySQL treats every NULL as distinct under a UNIQUE index, so
+  // this is safe to add even though every pre-existing row has a NULL
+  // google_uid.
+  async function ensureUniqueIndex(table: string, indexName: string, column: string) {
+    const rows = (await db
+      .prepare(`SELECT INDEX_NAME as name FROM INFORMATION_SCHEMA.STATISTICS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND INDEX_NAME = ?`)
+      .all(table, indexName)) as { name: string }[];
+    if (rows.length === 0) {
+      try {
+        await db.exec(`ALTER TABLE ${table} ADD UNIQUE INDEX ${indexName} (${column})`);
+      } catch (e) {
+        // Same rolling-deploy race as ensureColumn's ER_DUP_FIELDNAME guard.
+        if ((e as { code?: string }).code !== "ER_DUP_KEYNAME") throw e;
+      }
+    }
+  }
+
   // Migration for databases created before image_url existed.
   await ensureColumn("centres", "image_url", "image_url VARCHAR(500) NOT NULL DEFAULT ''");
   await ensureColumn("clubs", "image_url", "image_url VARCHAR(500) NOT NULL DEFAULT ''");
@@ -1759,6 +1797,24 @@ export async function initSchema() {
   // the same self-service pattern as Instagram/X's own "deactivate".
   await ensureColumn("residents", "deactivated_at", "deactivated_at DATETIME NULL");
 
+  // Google sign-in (Firebase Authentication verifies the identity; this app
+  // still mints its own guest_sessions cookie — see server/src/googleAuth.ts
+  // and routes/guestAuth.ts's POST /google). Nullable/unlinked for every
+  // resident who's never used it; NULL forever for one who never does.
+  await ensureColumn("residents", "google_uid", "google_uid VARCHAR(191) NULL");
+  await ensureUniqueIndex("residents", "residents_google_uid_unique", "google_uid");
+
+  // Explicit consent, collected on the "Complete your HelloCircle account"
+  // screen a brand-new Google sign-in goes through (POST /guest/google/
+  // complete) before any resident row is created — never assumed just
+  // because someone authenticated with Google. marketing_consent is a
+  // separate, optional flag; terms_accepted_at is required (the route
+  // rejects completion without it). Left NULL/0 for every resident created
+  // before this existed and for anyone who signed up via password/magic
+  // link, which don't collect this yet.
+  await ensureColumn("residents", "terms_accepted_at", "terms_accepted_at DATETIME NULL");
+  await ensureColumn("residents", "marketing_consent", "marketing_consent TINYINT NOT NULL DEFAULT 0");
+
   // Slugs (master-prompt punch list #1) — human-readable, shareable URLs
   // for the 4 listing types worth indexing (centres/clubs/experiences/
   // circles; Games are ephemeral one-offs and deliberately excluded).
@@ -1948,6 +2004,28 @@ export async function initSchema() {
   // logic): not a hard account lock, just a visibility/status toggle that
   // clears itself the next time this user logs in.
   await ensureColumn("users", "deactivated_at", "deactivated_at DATETIME");
+
+  // Google sign-in for vendor/admin accounts (routes/auth.ts's POST
+  // /google) — login-only, never account creation: an unrecognised email is
+  // sent back to /vendor/signup rather than getting a bare account with no
+  // business profile/admin approval behind it. Linking a Google identity
+  // onto an EXISTING account now only ever happens from an authenticated
+  // session (PUT /auth/link-google) — see the "account linking audit" note
+  // on POST /auth/google in routes/auth.ts for why matching-email accounts
+  // are no longer auto-linked during sign-in.
+  await ensureColumn("users", "google_uid", "google_uid VARCHAR(191) NULL");
+  await ensureUniqueIndex("users", "users_google_uid_unique", "google_uid");
+
+  // Same explicit-consent columns as residents above, collected on
+  // /vendor/signup's step 2 (both the password and Google paths use the
+  // same form/submit) — required for a new vendor account, unlike
+  // residents' Google-only interstitial, since this form already exists
+  // and already gates account creation for every new vendor either way.
+  await ensureColumn("users", "terms_accepted_at", "terms_accepted_at DATETIME NULL");
+  // Onboarding audit E2 — which Terms version terms_accepted_at refers to. NULL for every row accepted before this column existed (never backfilled).
+  await ensureColumn("users", "terms_version", "terms_version VARCHAR(40) NULL");
+  await ensureColumn("residents", "terms_version", "terms_version VARCHAR(40) NULL");
+  await ensureColumn("users", "marketing_consent", "marketing_consent TINYINT NOT NULL DEFAULT 0");
 
   // Host-created coupons for paid Games (Vendor-parity pass, Phase 25) — a
   // resident host isn't a vendor `users` row, so this needs its own creator
