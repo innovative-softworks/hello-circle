@@ -670,13 +670,15 @@ export async function getIntentClusters(opts: { county?: string; minCount?: numb
   const minCount = Math.max(1, Math.floor(opts.minCount ?? 1));
   const rows = (await db
     .prepare(
-      `SELECT activity_label as activityLabel, county, COUNT(*) as count,
-              CAST(SUM(CASE WHEN resident_id IS NOT NULL THEN 1 ELSE 0 END) AS UNSIGNED) as residentCount,
+      `SELECT cluster_key as activityLabel, county, COUNT(DISTINCT client_id) as count,
+              COUNT(DISTINCT resident_id) as residentCount,
               MAX(created_at) as latestAt,
               SUBSTRING_INDEX(GROUP_CONCAT(NULLIF(name, '') ORDER BY created_at DESC), ',', 5) as sampleNamesRaw
        FROM participation_intents
        WHERE status = 'active' AND (expires_at IS NULL OR expires_at > NOW()) ${countyClause}
-       GROUP BY activity_label, county
+       -- Release 6: grouped by cluster, so wording variants add up (see
+       -- demandNormalize.ts); activityLabel here is the cluster key.
+       GROUP BY cluster_key, county
        HAVING count >= ${minCount}
        ORDER BY count DESC`
     )
@@ -1086,7 +1088,7 @@ export async function getRoutineSuggestions(residentId: string): Promise<Routine
 // twice — the exact duplication CLAUDE.md flags for this table set.
 
 export interface ScheduledActivity {
-  kind: "game" | "program_session" | "club_session";
+  kind: "game" | "program_session" | "club_session" | "experience_session";
   id: string;
   title: string;
   date: string;
@@ -1120,6 +1122,14 @@ export interface ScheduledActivity {
    * non-distance discovery is unaffected and still shows every activity
    * regardless of this value. */
   locationSource: string | null;
+  /** Release 4 — the parent listing, for listing_attributes lookups
+   * (a program session's program, a club session's club, …). */
+  listingType?: "game" | "program" | "club" | "experience";
+  listingId?: string;
+  /** Release 4 — the listing's official Circle, for "From your Circles". */
+  circleId?: string | null;
+  /** Release 4/5 — experiences only: 'experience' | 'adventure' | 'volunteer'. */
+  experienceKind?: string | null;
 }
 
 export interface GameRow {
@@ -1137,6 +1147,7 @@ export interface GameRow {
   lat: number | string | null;
   lng: number | string | null;
   location_source: string | null;
+  circle_id?: string | null;
 }
 
 export interface ProgramSessionRow {
@@ -1154,6 +1165,8 @@ export interface ProgramSessionRow {
   lat: number | string | null;
   lng: number | string | null;
   location_source: string | null;
+  program_id?: string;
+  circle_id?: string | null;
 }
 
 export interface ClubSessionRow {
@@ -1170,6 +1183,7 @@ export interface ClubSessionRow {
   lat: number | string | null;
   lng: number | string | null;
   location_source: string | null;
+  circle_id?: string | null;
 }
 
 /** The next date (today or later) this weekday falls on, YYYY-MM-DD. */
@@ -1188,6 +1202,7 @@ export const ASSUMED_DURATION_MINUTES: Record<ScheduledActivity["kind"], number>
   game: 120,
   club_session: 90,
   program_session: 0, // unused — program sessions always pass their own real duration
+  experience_session: 120, // experiences carry their own duration; this is only the isLive fallback
 };
 
 export function computeIsLive(kind: ScheduledActivity["kind"], date: string, time: string, durationMinutes: number, now: Date): boolean {
@@ -1210,7 +1225,7 @@ export function computeIsLive(kind: ScheduledActivity["kind"], date: string, tim
  * would surface in general discovery feeds to anyone. `sharing.ts`'s
  * `getShareData`/`ogMeta.ts` already correctly gate on visibility for the
  * share-card/OG-meta paths; this closes the same gap for real discovery. */
-export async function listScheduledActivities(opts: { county?: string; from: Date; to: Date; radius?: RadiusFilter }): Promise<ScheduledActivity[]> {
+export async function listScheduledActivities(opts: { county?: string; from: Date; to: Date; radius?: RadiusFilter; includeExperiences?: boolean }): Promise<ScheduledActivity[]> {
   const { county, from, to } = opts;
   const fromIso = from.toISOString().slice(0, 10);
   const toIso = to.toISOString().slice(0, 10);
@@ -1219,7 +1234,7 @@ export async function listScheduledActivities(opts: { county?: string; from: Dat
     county
       ? await db
           .prepare(
-            `SELECT g.id, g.activity_label, g.date, g.time, g.price_cents, g.capacity, g.image_url, c.name as centre_name, c.area, c.county, c.lat, c.lng, c.location_source,
+            `SELECT g.id, g.activity_label, g.date, g.time, g.price_cents, g.capacity, g.image_url, g.circle_id, c.name as centre_name, c.area, c.county, c.lat, c.lng, c.location_source,
                     (SELECT COUNT(*) FROM game_participants gp WHERE gp.game_id = g.id AND gp.status = 'joined') as joined
              FROM games g LEFT JOIN centres c ON c.id = g.centre_id
              WHERE g.status = 'open' AND g.visibility = 'public' AND g.lifecycle IN ${DISCOVERABLE_LIFECYCLES_SQL} AND g.date >= ? AND g.date <= ? AND c.county = ?`
@@ -1227,7 +1242,7 @@ export async function listScheduledActivities(opts: { county?: string; from: Dat
           .all(fromIso, toIso, county)
       : await db
           .prepare(
-            `SELECT g.id, g.activity_label, g.date, g.time, g.price_cents, g.capacity, g.image_url, c.name as centre_name, c.area, c.county, c.lat, c.lng, c.location_source,
+            `SELECT g.id, g.activity_label, g.date, g.time, g.price_cents, g.capacity, g.image_url, g.circle_id, c.name as centre_name, c.area, c.county, c.lat, c.lng, c.location_source,
                     (SELECT COUNT(*) FROM game_participants gp WHERE gp.game_id = g.id AND gp.status = 'joined') as joined
              FROM games g LEFT JOIN centres c ON c.id = g.centre_id
              WHERE g.status = 'open' AND g.visibility = 'public' AND g.lifecycle IN ${DISCOVERABLE_LIFECYCLES_SQL} AND g.date >= ? AND g.date <= ?`
@@ -1237,7 +1252,7 @@ export async function listScheduledActivities(opts: { county?: string; from: Dat
 
   const programSessions = (await db
     .prepare(
-      `SELECT ps.id, ps.date, ps.time, ps.duration_minutes, p.title, p.price_cents, p.listing_type, p.image_url,
+      `SELECT ps.id, ps.date, ps.time, ps.duration_minutes, p.id as program_id, p.circle_id, p.title, p.price_cents, p.listing_type, p.image_url,
               COALESCE(c.name, cl.name) as listing_name, COALESCE(c.area, cl.area) as area, COALESCE(c.county, cl.county) as county,
               COALESCE(c.lat, cl.lat) as lat, COALESCE(c.lng, cl.lng) as lng, COALESCE(c.location_source, cl.location_source) as location_source
        FROM program_sessions ps
@@ -1251,7 +1266,7 @@ export async function listScheduledActivities(opts: { county?: string; from: Dat
 
   const clubSessions = (await db
     .prepare(
-      `SELECT cs.id, cs.day_of_week, cs.time, cs.label, cs.image_url, cl.id as club_id, cl.name as club_name, cl.area, cl.county, cl.price, cl.lat, cl.lng, cl.location_source
+      `SELECT cs.id, cs.day_of_week, cs.time, cs.label, cs.image_url, cl.id as club_id, cl.name as club_name, cl.area, cl.county, cl.price, cl.lat, cl.lng, cl.location_source, cl.circle_id
        FROM club_sessions cs JOIN clubs cl ON cl.id = cs.club_id
        WHERE cs.active = 1 ${county ? "AND cl.county = ?" : ""}`
     )
@@ -1279,6 +1294,9 @@ export async function listScheduledActivities(opts: { county?: string; from: Dat
       lat: g.lat !== null ? Number(g.lat) : null,
       lng: g.lng !== null ? Number(g.lng) : null,
       locationSource: g.location_source,
+      listingType: "game" as const,
+      listingId: g.id,
+      circleId: g.circle_id ?? null,
     })),
     ...programSessions.map((p) => ({
       kind: "program_session" as const,
@@ -1291,7 +1309,9 @@ export async function listScheduledActivities(opts: { county?: string; from: Dat
       area: p.area,
       county: p.county,
       priceCents: p.price_cents,
-      href: `/programs/${p.id}`,
+      // Was `/programs/${p.id}` — p.id is the *session* id here, so every
+      // program card in discovery linked to a 404. Release 4 fix.
+      href: `/programs/${p.program_id}`,
       spotsLeft: null,
       joined: null,
       imageUrl: p.image_url || null,
@@ -1300,6 +1320,9 @@ export async function listScheduledActivities(opts: { county?: string; from: Dat
       lat: p.lat !== null ? Number(p.lat) : null,
       lng: p.lng !== null ? Number(p.lng) : null,
       locationSource: p.location_source,
+      listingType: "program" as const,
+      listingId: p.program_id,
+      circleId: p.circle_id ?? null,
     })),
     ...clubSessions.map((cs) => {
       const date = nextOccurrence(cs.day_of_week, now);
@@ -1323,9 +1346,59 @@ export async function listScheduledActivities(opts: { county?: string; from: Dat
         lat: cs.lat !== null ? Number(cs.lat) : null,
         lng: cs.lng !== null ? Number(cs.lng) : null,
         locationSource: cs.location_source,
+        listingType: "club" as const,
+        listingId: cs.club_id,
+        circleId: cs.circle_id ?? null,
       };
     }),
   ];
+
+  // Experiences (Release 4 — "add Experiences to the ranking pool"). Opt-in:
+  // search.ts already returns experiences as their own result group, so it
+  // doesn't pass this and never shows the same departure twice.
+  if (opts.includeExperiences) {
+    const sessions = (await db
+      .prepare(
+        `SELECT es.id, es.date, es.time, e.id as experience_id, e.slug, e.title, e.kind, e.price_cents, e.image_url, e.area, e.county, e.lat, e.lng,
+                e.location_source, e.duration_minutes, e.circle_id, e.capacity, es.capacity as session_capacity,
+                (SELECT COALESCE(SUM(eb.party_size), 0) FROM experience_bookings eb WHERE eb.session_id = es.id AND eb.payment_status = 'paid' AND eb.status != 'cancelled') as booked
+         FROM experience_sessions es JOIN experiences e ON e.id = es.experience_id
+         WHERE e.status = 'approved' AND es.status = 'scheduled' AND es.date >= ? AND es.date <= ? ${county ? "AND e.county = ?" : ""}`
+      )
+      .all(...(county ? [fromIso, toIso, county] : [fromIso, toIso]))) as {
+      id: string; date: string; time: string; experience_id: string; slug: string | null; title: string; kind: string; price_cents: number; image_url: string;
+      area: string; county: string; lat: number | string | null; lng: number | string | null; location_source: string | null; duration_minutes: number;
+      circle_id: string | null; capacity: number; session_capacity: number | null; booked: number | string;
+    }[];
+    for (const e of sessions) {
+      const cap = e.session_capacity ?? e.capacity;
+      items.push({
+        kind: "experience_session",
+        id: e.id,
+        title: e.title,
+        date: e.date,
+        time: e.time,
+        centreName: null,
+        clubName: null,
+        area: e.area,
+        county: e.county,
+        priceCents: e.price_cents,
+        href: `/experiences/${e.slug ?? e.experience_id}`,
+        spotsLeft: cap ? Math.max(0, cap - Number(e.booked)) : null,
+        joined: Number(e.booked),
+        imageUrl: e.image_url || null,
+        isLive: computeIsLive("program_session", e.date, e.time, e.duration_minutes || 120, now),
+        durationMinutes: e.duration_minutes || 120,
+        lat: e.lat !== null ? Number(e.lat) : null,
+        lng: e.lng !== null ? Number(e.lng) : null,
+        locationSource: e.location_source,
+        listingType: "experience",
+        listingId: e.experience_id,
+        circleId: e.circle_id,
+        experienceKind: e.kind,
+      });
+    }
+  }
 
   return applyRadiusFilter(items, opts.radius);
 }

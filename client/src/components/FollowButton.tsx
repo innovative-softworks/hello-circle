@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useConfirm } from "./ConfirmProvider";
 import { useNavigate } from "react-router-dom";
 import { followEntity, setFollowNotificationLevel, unfollowEntity, type FollowedType, type NotificationLevel } from "../api";
 import { signInHref } from "../authRedirect";
@@ -47,6 +48,7 @@ export function FollowButton({
     return () => document.removeEventListener("mousedown", onDocClick);
   }, [menuOpen]);
 
+  const confirm = useConfirm();
   const toggleFollow = async () => {
     if (!resident) {
       navigate(signInHref());
@@ -55,6 +57,14 @@ export function FollowButton({
     setBusy(true);
     try {
       if (following) {
+        setMenuOpen(false);
+        const ok = await confirm({
+          title: "Unfollow?",
+          message: "You'll stop getting updates when they post something new. You can follow again any time.",
+          confirmLabel: "Unfollow",
+          tone: "danger",
+        });
+        if (!ok) return;
         await unfollowEntity(followedType, followedId);
         setFollowing(false);
         setMenuOpen(false);

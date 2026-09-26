@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 import { Router } from "express";
-import { logEvent } from "../analytics.js";
+import { logEvent, logView } from "../analytics.js";
 import { computeCapacity } from "../capacity.js";
 import { createCheckoutSession, issueStripeRefund, pricingLineItems } from "../checkoutService.js";
 import { db } from "../db/index.js";
@@ -19,6 +19,9 @@ import { computePricing, evaluateCoupon } from "../pricing.js";
 import { requireResident } from "../residents.js";
 import { matchSearchAlertsForGame } from "../searchAlerts.js";
 import { canViewPrivateGame } from "./sharing.js";
+import { getListingAttributes, setListingAttributes } from "../listingAttributes.js";
+import { getNextSteps } from "../nextSteps.js";
+import { getOpportunities } from "../participationIntents.js";
 import { ConflictError, generateRef } from "../util.js";
 import { DISCOVERABLE_LIFECYCLES_SQL, getEffectiveAvailability, getEffectiveLifecycle, getPublicLifecycleLabel, validateLifecycleTransition, type Lifecycle } from "../lifecycle.js";
 import { notifyGameNotifyMeSubscribers, subscribeNotifyMe, unsubscribeNotifyMe } from "../notifyMe.js";
@@ -52,6 +55,8 @@ interface GameRow {
   surface_type: string;
   indoor_outdoor: string;
   meeting_instructions: string | null;
+  experience_required: string | null;
+  accessibility_info: string | null;
   cancellation_policy: string | null;
   circle_id: string | null;
   lifecycle: string;
@@ -153,6 +158,8 @@ async function toGameJson(row: GameRow) {
     description: row.description,
     durationMinutes: row.duration_minutes,
     equipmentNeeded: row.equipment_needed,
+    experienceRequired: row.experience_required || null,
+    accessibilityInfo: row.accessibility_info || null,
     minAge: row.min_age,
     surfaceType: row.surface_type || null,
     indoorOutdoor: row.indoor_outdoor || null,
@@ -229,6 +236,19 @@ gamesRouter.get("/mine", requireResident, async (req, res) => {
 // amount column, but `updateGame` (PUT /:id below) freezes `price_cents`
 // the moment anyone besides the host has joined, so `games.price_cents` is
 // safe to show as "amount paid" per row here — no new column needed.
+// Host opportunities for verified resident hosts (Release 6) — same
+// aggregate-only clusters vendors see, scoped to the host's home county.
+// The action on the client is "Create a game", prefilled from the cluster.
+gamesRouter.get("/host/opportunities", requireResident, async (req, res) => {
+  const me = (await db.prepare(`SELECT host_status as hostStatus, home_county as homeCounty FROM residents WHERE id = ?`).get(req.resident!.id)) as
+    | { hostStatus: string; homeCounty: string | null }
+    | undefined;
+  if (me?.hostStatus !== "verified") return res.status(403).json({ error: "Opportunities are for verified hosts" });
+  const opportunities = await getOpportunities(me.homeCounty ? [me.homeCounty] : null);
+  void logEvent("host_opportunity_viewed", { residentId: req.resident!.id, metadata: { by: "resident_host", shown: opportunities.length } });
+  res.json({ opportunities, counties: me.homeCounty ? [me.homeCounty] : [] });
+});
+
 gamesRouter.get("/host/earnings", requireResident, async (req, res) => {
   const rows = await db
     .prepare(
@@ -374,6 +394,32 @@ gamesRouter.put("/coupons/:id/active", requireResident, async (req, res) => {
   res.json({ ok: true });
 });
 
+// "6 first-timers" (Release 2) — joined participants, host excluded, with no
+// earlier joined game of the same activity. Aggregate only, and null below
+// FIRST_TIMER_MIN so a small group can't be narrowed down to individuals.
+// Anyone who opted out of familiarity counts (hide_from_familiar_count, the
+// existing privacy switch for exactly this kind of aggregate) isn't counted.
+const FIRST_TIMER_MIN = 3;
+
+async function countFirstTimers(row: GameRow): Promise<number | null> {
+  const { n } = (await db
+    .prepare(
+      `SELECT COUNT(*) as n FROM game_participants gp
+       JOIN residents r ON r.id = gp.resident_id
+       WHERE gp.game_id = ? AND gp.status = 'joined' AND gp.resident_id != ?
+         AND r.hide_from_familiar_count = 0 AND r.deactivated_at IS NULL
+         AND NOT EXISTS (
+           SELECT 1 FROM game_participants gp2 JOIN games g2 ON g2.id = gp2.game_id
+           WHERE gp2.resident_id = gp.resident_id AND gp2.status = 'joined' AND g2.id != gp.game_id
+             AND LOWER(g2.activity_label) = LOWER(?) AND g2.status != 'cancelled'
+             AND (g2.date < ? OR (g2.date = ? AND g2.time < ?))
+         )`
+    )
+    .get(row.id, row.host_resident_id, row.activity_label, row.date, row.date, row.time)) as { n: number | string };
+  const count = Number(n);
+  return count >= FIRST_TIMER_MIN ? count : null;
+}
+
 gamesRouter.get("/:id", async (req, res) => {
   const row = (await db.prepare(`SELECT * FROM games WHERE id = ?`).get(req.params.id)) as GameRow | undefined;
   if (!row) return res.status(404).json({ error: "Session not found" });
@@ -440,7 +486,25 @@ gamesRouter.get("/:id", async (req, res) => {
   // the public venue location, nothing more precise than that.
   const isHost = req.resident?.id === row.host_resident_id;
   const meetingInstructions = isHost || joinedByMe ? row.meeting_instructions : null;
-  res.json({ ...json, joinedByMe, waitlistedByMe, familiarCount, checkedInAt, attended, meetingInstructions });
+  const [participationAttributes, firstTimerCount] = await Promise.all([getListingAttributes("game", row.id), countFirstTimers(row)]);
+  logView("activity_viewed", req, { kind: "game", id: row.id });
+  res.json({ ...json, joinedByMe, waitlistedByMe, familiarCount, checkedInAt, attended, meetingInstructions, participationAttributes, firstTimerCount });
+});
+
+// "Keep the connection going" (community participation upgrade, Release 1)
+// — what to do after a game, in priority order: the game's own Circle, an
+// open Circle for the same activity in the same county, the next open game
+// for the same activity, else a prefilled "start a Circle". Participants
+// only (the host, or someone who joined): it's a post-activity surface, and
+// a circle-only game's official Circle shouldn't be probe-able by id.
+// Returns aggregate member counts only — never who is in a Circle or game.
+gamesRouter.get("/:id/next-steps", requireResident, async (req, res) => {
+  // Logic lives in nextSteps.ts (shared with bookings/registrations/
+  // programs/experiences since Release 3); this route stays for the
+  // Release 1 client.
+  const steps = await getNextSteps("game", req.params.id, req.resident!.id, null);
+  if (!steps) return res.status(404).json({ error: "Session not found" });
+  res.json(steps);
 });
 
 // "Add to calendar" (IA spec §13) — same visibility gate as GET /:id (a
@@ -806,7 +870,8 @@ gamesRouter.put("/:id", requireResident, async (req, res) => {
       `UPDATE games SET activity_label = ?, centre_id = ?, location_text = ?, date = ?, time = ?, skill_level = ?, capacity = ?,
               price_cents = ?, visibility = ?, solo_friendly = ?, min_participants = ?, confirmation_deadline = ?,
               description = ?, duration_minutes = ?, equipment_needed = ?, min_age = ?, surface_type = ?, indoor_outdoor = ?,
-              meeting_instructions = ?, cancellation_policy = ?, image_url = COALESCE(?, image_url)
+              meeting_instructions = ?, cancellation_policy = ?, image_url = COALESCE(?, image_url),
+              experience_required = COALESCE(?, experience_required), accessibility_info = COALESCE(?, accessibility_info)
        WHERE id = ?`
     )
     .run(
@@ -819,7 +884,7 @@ gamesRouter.put("/:id", requireResident, async (req, res) => {
       b.capacity,
       priceCents,
       b.visibility ?? row.visibility,
-      b.soloFriendly ? 1 : 0,
+      gameSoloFriendly(b) ? 1 : 0,
       b.minParticipants ?? null,
       b.confirmationDeadline ?? null,
       b.description ?? null,
@@ -831,8 +896,14 @@ gamesRouter.put("/:id", requireResident, async (req, res) => {
       b.meetingInstructions ?? null,
       b.cancellationPolicy ?? null,
       b.imageUrl,
+      // COALESCE-guarded (unlike the full-overwrite columns above) so an
+      // installed native build on the pre-Release-2 bundle, which never
+      // sends these, can't wipe them; "" is an explicit clear.
+      b.experienceRequired === undefined ? null : b.experienceRequired.trim(),
+      b.accessibilityInfo === undefined ? null : b.accessibilityInfo.trim(),
       req.params.id
     );
+  await syncGameAttributes(req.params.id, b);
 
   const materialChange = b.date !== row.date || b.time !== row.time || (b.centreId ?? null) !== row.centre_id || (b.locationText ?? "") !== row.location_text;
   if (materialChange) {
@@ -938,6 +1009,14 @@ interface CreateGameInput {
   indoorOutdoor?: "indoor" | "outdoor" | "mixed";
   meetingInstructions?: string;
   cancellationPolicy?: string;
+  /** Release 2 — what-to-expect gaps. "" clears on update; omitted leaves it. */
+  experienceRequired?: string;
+  accessibilityInfo?: string;
+  /** Release 6 — set when created from a Host Opportunity (the cluster key); analytics only. */
+  fromDemand?: string;
+  /** Release 2 — host-selected participation attributes (participationVocab.ts).
+   * Omitted (an older client) falls back to syncing come_alone from soloFriendly. */
+  participationAttributes?: string[];
   /** HelloCircle Manage Phase 4 — set when this game is created as a specific
    * Circle's plan (the "Create plan" deep-link). Not ownership-checked here:
    * whoever's running this wizard is, by definition, the one creating the
@@ -968,6 +1047,24 @@ interface CreateGameInput {
   bookingCloseAt?: string;
 }
 
+// Release 2 — games.solo_friendly predates listing_attributes and is still
+// read by list cards (Games.tsx's "Solo friendly" pill), so the two are kept
+// in sync: the attribute set wins when sent; an older client that only
+// sends soloFriendly toggles come_alone to match.
+function gameSoloFriendly(b: { soloFriendly?: boolean; participationAttributes?: string[] }): boolean {
+  return Array.isArray(b.participationAttributes) ? b.participationAttributes.includes("come_alone") : !!b.soloFriendly;
+}
+
+async function syncGameAttributes(gameId: string, b: { soloFriendly?: boolean; participationAttributes?: string[] }) {
+  if (Array.isArray(b.participationAttributes)) {
+    await setListingAttributes("game", gameId, b.participationAttributes);
+  } else if (b.soloFriendly) {
+    await db.prepare(`INSERT IGNORE INTO listing_attributes (listing_type, listing_id, attr) VALUES ('game', ?, 'come_alone')`).run(gameId);
+  } else {
+    await db.prepare(`DELETE FROM listing_attributes WHERE listing_type = 'game' AND listing_id = ? AND attr = 'come_alone'`).run(gameId);
+  }
+}
+
 /** Shared by POST / below and Phase 2's Plan→Activity conversion
  * (routes/circles.ts) — extracted verbatim from what used to be this
  * route's own body (zero behavior change for the existing route). Owns:
@@ -988,8 +1085,8 @@ export async function createGameRow(input: CreateGameInput & { hostResidentId: s
   await db.transaction(async (tx) => {
     await tx
       .prepare(
-        `INSERT INTO games (id, host_resident_id, activity_label, centre_id, location_text, date, time, skill_level, capacity, price_cents, visibility, solo_friendly, min_participants, confirmation_deadline, status, description, duration_minutes, equipment_needed, min_age, surface_type, indoor_outdoor, meeting_instructions, cancellation_policy, circle_id, plan_id, lifecycle, publish_at, booking_open_at, booking_close_at)
-         VALUES (@id, @hostResidentId, @activityLabel, @centreId, @locationText, @date, @time, @skillLevel, @capacity, @priceCents, @visibility, @soloFriendly, @minParticipants, @confirmationDeadline, @status, @description, @durationMinutes, @equipmentNeeded, @minAge, @surfaceType, @indoorOutdoor, @meetingInstructions, @cancellationPolicy, @circleId, @planId, @lifecycle, @publishAt, @bookingOpenAt, @bookingCloseAt)`
+        `INSERT INTO games (id, host_resident_id, activity_label, centre_id, location_text, date, time, skill_level, capacity, price_cents, visibility, solo_friendly, min_participants, confirmation_deadline, status, description, duration_minutes, equipment_needed, min_age, surface_type, indoor_outdoor, meeting_instructions, cancellation_policy, circle_id, plan_id, lifecycle, publish_at, booking_open_at, booking_close_at, experience_required, accessibility_info)
+         VALUES (@id, @hostResidentId, @activityLabel, @centreId, @locationText, @date, @time, @skillLevel, @capacity, @priceCents, @visibility, @soloFriendly, @minParticipants, @confirmationDeadline, @status, @description, @durationMinutes, @equipmentNeeded, @minAge, @surfaceType, @indoorOutdoor, @meetingInstructions, @cancellationPolicy, @circleId, @planId, @lifecycle, @publishAt, @bookingOpenAt, @bookingCloseAt, @experienceRequired, @accessibilityInfo)`
       )
       .run({
         id,
@@ -1003,7 +1100,7 @@ export async function createGameRow(input: CreateGameInput & { hostResidentId: s
         capacity: input.capacity,
         priceCents: input.priceCents ?? null,
         visibility: input.visibility ?? "public",
-        soloFriendly: input.soloFriendly ? 1 : 0,
+        soloFriendly: gameSoloFriendly(input) ? 1 : 0,
         minParticipants: input.minParticipants ?? null,
         confirmationDeadline: input.confirmationDeadline ?? null,
         status: startsPending ? "pending_participants" : "open",
@@ -1021,6 +1118,8 @@ export async function createGameRow(input: CreateGameInput & { hostResidentId: s
         publishAt: input.publishAt ?? null,
         bookingOpenAt: input.bookingOpenAt ?? null,
         bookingCloseAt: input.bookingCloseAt ?? null,
+        experienceRequired: input.experienceRequired?.trim() || null,
+        accessibilityInfo: input.accessibilityInfo?.trim() || null,
       });
     // The host is automatically a participant — they take one of the capacity spots.
     await tx.prepare(`INSERT INTO game_participants (game_id, resident_id) VALUES (?, ?)`).run(id, input.hostResidentId);
@@ -1040,6 +1139,8 @@ export async function createGameRow(input: CreateGameInput & { hostResidentId: s
     }
   });
 
+  await syncGameAttributes(id, input);
+  if (input.fromDemand) void logEvent("host_created_from_demand", { residentId: input.hostResidentId, metadata: { kind: "game", id, clusterKey: input.fromDemand } });
   const row = (await db.prepare(`SELECT * FROM games WHERE id = ?`).get(id)) as GameRow;
 
   // Universal Publishing, Lifecycle & Availability System — a draft/coming-

@@ -28,6 +28,12 @@
    apps/mobile (React Native, no CSS engine) reads that copy instead of these
    custom properties. Update both when changing a color here. */
 :root {
+  /* Floating UI (toasts) sits above whatever fixed bar is at the bottom —
+     BottomChromeSync.tsx sets --bottom-chrome to the mobile tab bar's
+     height; without a bar it's just the safe-area inset. */
+  --bottom-chrome: env(safe-area-inset-bottom, 0px);
+  --r-card: 16px;
+  --shadow-overlay: 0 12px 32px rgba(20, 22, 20, 0.18);
   --color-bg: #fbfaf7;
   --color-surface: #ffffff;
   --color-text: #1e2420;
@@ -1004,6 +1010,17 @@ textarea:focus {
 .slide-out-right { animation: slideOutRight 0.22s ease-in both; }
 .backdrop-in { animation: backdropIn 0.2s ease both; }
 .backdrop-out { animation: backdropOut 0.22s ease both; }
+/* Modal popup (ui.tsx's Modal) — a gentle scale+fade in the centre, not a slide. */
+@keyframes modalIn {
+  from { opacity: 0; transform: translateY(8px) scale(0.97); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes modalOut {
+  from { opacity: 1; transform: none; }
+  to { opacity: 0; transform: translateY(6px) scale(0.98); }
+}
+.modal-in { animation: modalIn 0.24s cubic-bezier(0.22, 1, 0.36, 1) both; }
+.modal-out { animation: modalOut 0.18s ease-in both; }
 
 /* --- card hover depth: 3D tilt (useCardTilt.ts) + photo zoom ----------- */
 @media (hover: hover) and (pointer: fine) and (prefers-reduced-motion: no-preference) {
@@ -1026,7 +1043,9 @@ textarea:focus {
   .sheet-out,
   .slide-out-right,
   .backdrop-in,
-  .backdrop-out {
+  .backdrop-out,
+  .modal-in,
+  .modal-out {
     animation: none !important;
   }
 }
@@ -1053,4 +1072,21 @@ textarea:focus {
     transform: none !important;
     transition: none !important;
   }
+}
+
+/* --- Toasts (components/Toast.tsx) ------------------------------------- */
+.toast-region {
+  position: fixed;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: calc(var(--bottom-chrome) + 16px);
+  width: min(420px, calc(100vw - 32px));
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  pointer-events: none;
+}
+.toast-region > * > * {
+  pointer-events: auto;
 }

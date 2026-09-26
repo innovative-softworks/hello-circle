@@ -3,7 +3,7 @@ import { db } from "../db/index.js";
 import { haversineKm, resolveRadiusFilter } from "../geo.js";
 import { irelandTodayIso, irelandWallTimeToUtc } from "../irelandTime.js";
 import { getLocalMomentum, getMarketCategories, listMapMarkers, listScheduledActivities, type MapMarkerType, type ScheduledActivity } from "../db/queries.js";
-import { personalizeActivity } from "../personalization.js";
+import { loadResidentProfile, loadScoringContext, RANK_BONUS_PER_POINT, scoreFit, type FitLabel, type ScoringContext } from "../personalization.js";
 
 export const discoverRouter = Router();
 
@@ -15,7 +15,7 @@ export const discoverRouter = Router();
 // ranking + today/weekend bucketing. Deliberately read-only and public — no
 // capacity/checkout logic here, just "what's on."
 
-export type DiscoverItem = ScheduledActivity & { matchReasons: string[] };
+export type DiscoverItem = ScheduledActivity & { matchReasons: string[]; fitLabel?: FitLabel | null };
 
 export interface DiscoverFeed {
   today: DiscoverItem[];
@@ -63,11 +63,17 @@ export async function scoreActivities(
   activities: ScheduledActivity[],
   now: Date,
   residentId: string | null,
-  residentHomeCounty: string | null
+  residentHomeCounty: string | null,
+  preloaded?: ScoringContext
 ): Promise<{ item: DiscoverItem; score: number }[]> {
+  // Release 4 — everything personalisation needs is loaded once for the
+  // whole batch (profile, weights, attributes, familiarity), then each item
+  // is scored in memory.
+  const ctx = preloaded ?? (await loadScoringContext(activities, residentId, residentHomeCounty));
   return Promise.all(
     activities.map(async (item) => {
-      const personalization = await personalizeActivity(item, residentId, residentHomeCounty);
+      const fit = scoreFit(item, ctx);
+      const personalization = { bonus: fit.earned * RANK_BONUS_PER_POINT, reasons: fit.reasons };
       const score = rankScore({
         isLive: item.isLive,
         minutesUntilStart: minutesUntil(now, item.date, item.time),
@@ -76,7 +82,7 @@ export async function scoreActivities(
         hasPhoto: !!item.imageUrl,
         personalizationBonus: personalization.bonus,
       });
-      return { item: { ...item, matchReasons: personalization.reasons }, score };
+      return { item: { ...item, matchReasons: personalization.reasons, fitLabel: fit.label }, score };
     })
   );
 }
@@ -140,7 +146,7 @@ discoverRouter.get("/", async (req, res) => {
   weekFromNow.setUTCDate(now.getUTCDate() + 7);
   const weekFromNowIso = weekFromNow.toISOString().slice(0, 10);
 
-  const activities = await listScheduledActivities({ county, from: now, to: weekFromNow, radius });
+  const activities = await listScheduledActivities({ county, from: now, to: weekFromNow, radius, includeExperiences: true });
   const scored = await scoreActivities(activities, now, req.resident?.id ?? null, req.resident?.homeCounty ?? null);
 
   const today: { item: DiscoverItem; score: number }[] = [];
@@ -224,7 +230,7 @@ discoverRouter.get("/free-time", async (req, res) => {
   const weekFromNow = new Date(now);
   weekFromNow.setUTCDate(now.getUTCDate() + 7);
 
-  let activities = await listScheduledActivities({ county, from: now, to: weekFromNow });
+  let activities = await listScheduledActivities({ county, from: now, to: weekFromNow, includeExperiences: true });
 
   if (maxMinutes !== undefined && !Number.isNaN(maxMinutes)) {
     activities = activities.filter((a) => a.durationMinutes <= maxMinutes);
@@ -324,7 +330,7 @@ export async function getNextBestParticipation(residentId: string | null, homeCo
   const weekFromNow = new Date(now);
   weekFromNow.setUTCDate(now.getUTCDate() + 7);
 
-  const activities = await listScheduledActivities({ county: homeCounty ?? undefined, from: now, to: weekFromNow });
+  const activities = await listScheduledActivities({ county: homeCounty ?? undefined, from: now, to: weekFromNow, includeExperiences: true });
   const scored = await scoreActivities(activities, now, residentId, homeCounty);
   const { routines, circleActivityLabels, followedHostIds, followedVendorIds } = await personalBoostSignals(residentId);
   const { hostByItemId, vendorByItemId } = followedHostIds.size || followedVendorIds.size ? await ownerIdsFor(scored.map(({ item }) => item)) : { hostByItemId: new Map(), vendorByItemId: new Map() };
@@ -363,6 +369,109 @@ export async function getNextBestParticipation(residentId: string | null, homeCo
   return blended.slice(0, limit).map((b) => b.item);
 }
 
+// "For You" (community participation upgrade, Release 4) — personalised
+// discovery, alongside (never replacing) Explore. One scored pool for the
+// next two weeks near the resident, cut into sections; a section with
+// nothing real in it is dropped rather than padded. Signed-out visitors get
+// no sections (there's nothing to personalise on).
+export interface ForYouSection {
+  key: string;
+  title: string;
+  items: DiscoverItem[];
+}
+
+const SECTION_LIMIT = 10;
+
+export async function buildForYouSections(residentId: string, homeCounty: string | null, mode: "for_you" | "new_here" = "for_you"): Promise<ForYouSection[]> {
+  const now = new Date();
+  const twoWeeks = new Date(now);
+  twoWeeks.setUTCDate(now.getUTCDate() + 14);
+  const profile = await loadResidentProfile(residentId, homeCounty);
+  // The pool is the resident's county (or everywhere if unknown) — not a
+  // radius filter, which only keeps confirmed coordinates and would quietly
+  // empty most sections. "Near" is decided per item below instead.
+  const pool = await listScheduledActivities({ county: homeCounty ?? undefined, from: now, to: twoWeeks, includeExperiences: true });
+  const ctx = await loadScoringContext(pool, residentId, homeCounty);
+  const scored = (await scoreActivities(pool, now, residentId, homeCounty, ctx)).sort((a, b) => b.score - a.score || a.item.date.localeCompare(b.item.date));
+  const items = scored.map((s) => s.item);
+  const attrsOf = (i: DiscoverItem) => (i.listingType && i.listingId && ctx.attributes.get(`${i.listingType}:${i.listingId}`)) || [];
+  const todayIso = irelandTodayIso();
+  const isWeekend = (i: DiscoverItem) => {
+    const dow = new Date(`${i.date}T12:00:00Z`).getUTCDay();
+    const daysAway = (Date.parse(i.date) - Date.parse(todayIso)) / 86400000;
+    return (dow === 0 || dow === 6) && daysAway <= 7;
+  };
+  const near = (i: DiscoverItem) =>
+    profile?.home && i.lat !== null && i.lng !== null && i.locationSource === "confirmed"
+      ? haversineKm(profile.home.lat, profile.home.lng, i.lat, i.lng) <= profile.radiusKm
+      : !!homeCounty && i.county?.toLowerCase() === homeCounty.toLowerCase();
+  const free = (i: DiscoverItem) => !i.priceCents;
+  const easy = (i: DiscoverItem) => attrsOf(i).some((a) => ["beginner_friendly", "no_experience", "first_timers_welcome"].includes(a));
+  const whenFree = (i: DiscoverItem) => {
+    if (!profile?.availability.size) return false;
+    const day = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"][new Date(`${i.date}T12:00:00Z`).getUTCDay()];
+    const hour = Number(i.time.split(":")[0]);
+    return profile.availability.has(`${day}:${hour < 12 ? "morning" : hour < 17 ? "afternoon" : "evening"}`);
+  };
+  const interestHit = (i: DiscoverItem) => !!profile?.interests.some((x) => i.title.toLowerCase().includes(x.toLowerCase()));
+
+  const sections: ForYouSection[] =
+    mode === "new_here"
+      ? [
+          { key: "easy", title: "Easy activities to join", items: items.filter(easy) },
+          { key: "come_alone", title: "Come-alone friendly", items: items.filter((i) => attrsOf(i).includes("come_alone")) },
+          { key: "volunteer", title: "Volunteer", items: items.filter((i) => i.experienceKind === "volunteer") },
+          { key: "free_nearby", title: "Free nearby", items: items.filter((i) => free(i) && near(i)) },
+          { key: "this_weekend", title: "Things this weekend", items: items.filter(isWeekend) },
+        ]
+      : [
+          { key: "for_you", title: "For you", items: items.filter((i) => !!i.fitLabel) },
+          { key: "this_weekend", title: "This weekend", items: items.filter(isWeekend) },
+          { key: "when_free", title: "Available when you're free", items: items.filter(whenFree) },
+          { key: "come_alone", title: "Come-alone friendly", items: items.filter((i) => attrsOf(i).includes("come_alone")) },
+          { key: "near_you", title: "Near you", items: items.filter(near) },
+          { key: "free_nearby", title: "Free nearby", items: items.filter((i) => free(i) && near(i)) },
+          { key: "from_circles", title: "From your Circles", items: items.filter((i) => !!i.circleId && !!profile?.circleIds.has(i.circleId)) },
+          { key: "try_new", title: "Try something new", items: items.filter((i) => easy(i) && !interestHit(i)) },
+        ];
+  return sections.map((s) => ({ ...s, items: s.items.slice(0, SECTION_LIMIT) })).filter((s) => s.items.length > 0);
+}
+
+discoverRouter.get("/for-you", async (req, res) => {
+  if (!req.resident) return res.json({ sections: [] });
+  res.json({ sections: await buildForYouSections(req.resident.id, req.resident.homeCounty ?? null) });
+});
+
+// "New here?" (community participation upgrade, Release 5) — for a resident
+// who said they're new to the area: easy starting points from the existing
+// inventory (not a separate newcomer app), plus open Circles that are
+// actively welcoming people. Empty for anyone else, so the Home block only
+// appears when it's wanted.
+discoverRouter.get("/new-here", async (req, res) => {
+  if (!req.resident) return res.json({ sections: [], circles: [] });
+  const row = (await db.prepare(`SELECT area_tenure FROM residents WHERE id = ?`).get(req.resident.id)) as { area_tenure: string } | undefined;
+  if (row?.area_tenure !== "new") return res.json({ sections: [], circles: [] });
+  const homeCounty = req.resident.homeCounty ?? null;
+  const since = new Date(Date.now() - 60 * 86400000).toISOString().slice(0, 19).replace("T", " ");
+  const circles = (await db
+    .prepare(
+      `SELECT c.id, c.slug, c.name, c.activity_label as activityLabel, NULLIF(c.image_url, '') as imageUrl,
+              (SELECT COUNT(*) FROM circle_members cm WHERE cm.circle_id = c.id) as members,
+              (SELECT COUNT(*) FROM circle_members cm WHERE cm.circle_id = c.id AND cm.joined_at >= ?) as recentJoins
+       FROM circles c
+       WHERE c.status = 'active' AND c.join_mode = 'open' ${homeCounty ? "AND c.county = ?" : ""}
+         AND NOT EXISTS (SELECT 1 FROM circle_members cm WHERE cm.circle_id = c.id AND cm.resident_id = ?)
+       ORDER BY recentJoins DESC, members DESC
+       LIMIT 6`
+    )
+    .all(...(homeCounty ? [since, homeCounty, req.resident.id] : [since, req.resident.id]))) as { id: string; slug: string | null; name: string; activityLabel: string; imageUrl: string | null; members: number | string }[];
+  res.json({
+    sections: await buildForYouSections(req.resident.id, homeCounty, "new_here"),
+    // Explicit pick — the recentJoins sort key stays internal.
+    circles: circles.map((c) => ({ id: c.id, slug: c.slug, name: c.name, activityLabel: c.activityLabel, imageUrl: c.imageUrl, members: Number(c.members) })),
+  });
+});
+
 discoverRouter.get("/next-best", async (req, res) => {
   const items = await getNextBestParticipation(req.resident?.id ?? null, req.resident?.homeCounty ?? null, 8);
   res.json(items);
@@ -383,7 +492,7 @@ discoverRouter.get("/local/:county/:activity", async (req, res) => {
   const monthFromNow = new Date(now);
   monthFromNow.setUTCDate(now.getUTCDate() + 30);
 
-  const activities = await listScheduledActivities({ county, from: now, to: monthFromNow });
+  const activities = await listScheduledActivities({ county, from: now, to: monthFromNow, includeExperiences: true });
   const matched = activities.filter((a) => a.title.toLowerCase().includes(activityQuery.toLowerCase()));
 
   const scored = await scoreActivities(matched, now, req.resident?.id ?? null, req.resident?.homeCounty ?? null);

@@ -1,6 +1,8 @@
 import crypto from "node:crypto";
 import mysql from "mysql2/promise";
 import type { Pool, PoolConnection } from "mysql2/promise";
+import { normalizeAvailability, normalizeGoals } from "../participationVocab.js";
+import { normalizeDemand } from "../demandNormalize.js";
 
 const pool = mysql.createPool({
   host: process.env.DB_HOST || "127.0.0.1",
@@ -1190,6 +1192,19 @@ export async function initSchema() {
     );
   `);
 
+  // Release 6 — same idempotent, race-tolerant shape as ensureColumn below.
+  async function ensureIndex(table: string, name: string, columns: string) {
+    const rows = (await db
+      .prepare(`SELECT 1 FROM INFORMATION_SCHEMA.STATISTICS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND INDEX_NAME = ? LIMIT 1`)
+      .all(table, name)) as unknown[];
+    if (rows.length) return;
+    try {
+      await db.exec(`CREATE INDEX ${name} ON ${table} ${columns}`);
+    } catch (e) {
+      if ((e as { code?: string }).code !== "ER_DUP_KEYNAME") throw e;
+    }
+  }
+
   async function ensureColumn(table: string, column: string, ddl: string) {
     const cols = (await db
       .prepare(`SELECT COLUMN_NAME as name FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?`)
@@ -2087,6 +2102,132 @@ export async function initSchema() {
       KEY idx_notify_me_entity (entity_type, entity_id, notified_at)
     )
   `);
+
+  // Community participation upgrade, Release 2 ------------------------------
+  // Two more optional comfort preferences alongside pref_solo_friendly/
+  // pref_beginner_friendly — same TINYINT 0/1 shape, never gate anything.
+  await ensureColumn("residents", "pref_first_timer", "pref_first_timer TINYINT NOT NULL DEFAULT 0");
+  await ensureColumn("residents", "pref_family", "pref_family TINYINT NOT NULL DEFAULT 0");
+
+  // Host-selected participation attributes for every listing type (see
+  // listingAttributes.ts for why a table, not a comma-joined column).
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS listing_attributes (
+      listing_type VARCHAR(20) NOT NULL,
+      listing_id VARCHAR(191) NOT NULL,
+      attr VARCHAR(40) NOT NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (listing_type, listing_id, attr),
+      KEY idx_listing_attributes_attr (attr, listing_type)
+    )
+  `);
+  // games.solo_friendly predates the table — carried over as come_alone.
+  // INSERT IGNORE keeps this idempotent on every boot; games.ts keeps the
+  // two in sync from here on, so a host who later clears come_alone also
+  // clears solo_friendly and this never re-adds it.
+  await db.prepare(`INSERT IGNORE INTO listing_attributes (listing_type, listing_id, attr) SELECT 'game', id, 'come_alone' FROM games WHERE solo_friendly = 1`).run();
+
+  // What-to-expect gaps — only the fields each listing type genuinely lacks
+  // (games already have meeting_instructions/equipment_needed/min_age;
+  // programs already have age_range/equipment/skill_level; experiences
+  // already have meeting_point/equipment_required/fitness_requirements/
+  // eligibility). TEXT, so no DEFAULT (ER_BLOB_CANT_HAVE_DEFAULT).
+  await ensureColumn("games", "experience_required", "experience_required TEXT");
+  await ensureColumn("games", "accessibility_info", "accessibility_info TEXT");
+  await ensureColumn("programs", "arrival_instructions", "arrival_instructions TEXT");
+  await ensureColumn("programs", "accessibility_info", "accessibility_info TEXT");
+  await ensureColumn("experiences", "accessibility_info", "accessibility_info TEXT");
+
+  // One-time vocabulary migration: the old goal labels and the 5 coarse
+  // availability labels become the new goals (max 3) and day:slot tokens.
+  // Idempotent — only rows still holding a legacy value are touched, and the
+  // converted values are never legacy values themselves.
+  const legacyRows = (await db
+    .prepare(
+      `SELECT id, goals, availability FROM residents
+       WHERE (availability IS NOT NULL AND availability != '' AND availability NOT LIKE '%:%')
+          OR (goals IS NOT NULL AND goals != '')`
+    )
+    .all()) as { id: string; goals: string | null; availability: string | null }[];
+  for (const row of legacyRows) {
+    const goals = row.goals ? row.goals.split(",").filter(Boolean) : [];
+    const availability = row.availability ? row.availability.split(",").filter(Boolean) : [];
+    const nextGoals = normalizeGoals(goals).join(",");
+    const nextAvailability = normalizeAvailability(availability).join(",");
+    if (nextGoals !== goals.join(",") || nextAvailability !== availability.join(",")) {
+      await db.prepare(`UPDATE residents SET goals = ?, availability = ? WHERE id = ?`).run(nextGoals || null, nextAvailability || null, row.id);
+    }
+  }
+
+  // Community participation upgrade, Release 3 ------------------------------
+  // Post-activity feedback grows a private star rating, a few tags and an
+  // optional comment. `response` stays the "would you do something like
+  // this again?" answer. Public reviews remain the separate reviews table.
+  await ensureColumn("activity_feedback", "rating", "rating TINYINT");
+  await ensureColumn("activity_feedback", "tags", "tags VARCHAR(255) NOT NULL DEFAULT ''");
+  await ensureColumn("activity_feedback", "comment", "comment TEXT");
+  // How an attendance row was recorded — 'qr' (scanned code), 'host_manual'
+  // (tapped in a list) or '' for rows from before this column existed.
+  await ensureColumn("attendance", "source", "source VARCHAR(20) NOT NULL DEFAULT ''");
+  // Official Circle for vendor listings — same meaning as games.circle_id.
+  // Only a Circle organised by someone linked to the vendor's own org can be
+  // set (routes/vendorParticipation.ts), so a listing can't claim a
+  // stranger's Circle.
+  await ensureColumn("programs", "circle_id", "circle_id VARCHAR(191)");
+  await ensureColumn("experiences", "circle_id", "circle_id VARCHAR(191)");
+  await ensureColumn("clubs", "circle_id", "circle_id VARCHAR(191)");
+
+  // Community participation upgrade, Release 5 ------------------------------
+  // Volunteering is an experience kind ('volunteer'), not a separate module —
+  // capacity is "volunteers needed", equipment_provided/meeting point/
+  // booking/attendance/feedback are all reused. Only these are new.
+  await ensureColumn("experiences", "skills_required", "skills_required TEXT");
+  await ensureColumn("experiences", "cause", "cause VARCHAR(100) NOT NULL DEFAULT ''");
+  await ensureColumn("experiences", "min_age", "min_age INT");
+  // "Are you new to the area?" — 'new' | 'settled' | 'exploring' | '' (not
+  // answered). Deliberately nothing about nationality, visa or immigration.
+  await ensureColumn("residents", "area_tenure", "area_tenure VARCHAR(20) NOT NULL DEFAULT ''");
+
+  // Community participation upgrade, Release 6 ------------------------------
+  // participation_intents IS the community request (no separate request/
+  // interest tables): each row is one person's interest; a cluster is every
+  // active row sharing cluster_key + county. cluster_key comes from
+  // demandNormalize.ts so wording variants don't fragment demand.
+  await ensureColumn("participation_intents", "cluster_key", "cluster_key VARCHAR(255) NOT NULL DEFAULT ''");
+  await ensureColumn("participation_intents", "category", "category VARCHAR(50) NOT NULL DEFAULT ''");
+  await ensureColumn("participation_intents", "preferred_days", "preferred_days VARCHAR(100) NOT NULL DEFAULT ''");
+  await ensureColumn("participation_intents", "budget_min_cents", "budget_min_cents INT");
+  await ensureColumn("participation_intents", "budget_max_cents", "budget_max_cents INT");
+  await ensureColumn("participation_intents", "radius_km", "radius_km INT");
+  await ensureColumn("participation_intents", "source_query", "source_query VARCHAR(500) NOT NULL DEFAULT ''");
+  await ensureIndex("participation_intents", "idx_intent_cluster_key", "(cluster_key, county, status)");
+  // Chat everywhere — experience sessions, programs and clubs join games and
+  // Circles (routes/chat.ts). A provider can post in chats for their own
+  // listings as the "Host": those rows carry author_user_id (the vendor
+  // user) and an empty resident_id. chat_reads tracks the last message each
+  // reader has seen per conversation, for unread counts; reader_key is
+  // "r:<residentId>" or "u:<userId>".
+  await ensureColumn("chat_messages", "author_user_id", "author_user_id VARCHAR(191)");
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS chat_reads (
+      reader_key VARCHAR(200) NOT NULL,
+      scope_type VARCHAR(20) NOT NULL,
+      scope_id VARCHAR(191) NOT NULL,
+      last_read_id INT NOT NULL DEFAULT 0,
+      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (reader_key, scope_type, scope_id)
+    )
+  `);
+
+  // Backfill cluster fields for intents created before this release —
+  // idempotent (only rows still without a cluster_key).
+  const unclustered = (await db.prepare(`SELECT id, activity_label FROM participation_intents WHERE cluster_key = ''`).all()) as { id: string; activity_label: string }[];
+  for (const row of unclustered) {
+    const n = normalizeDemand(row.activity_label);
+    await db
+      .prepare(`UPDATE participation_intents SET cluster_key = ?, category = ?, preferred_days = CASE WHEN preferred_days = '' THEN ? ELSE preferred_days END WHERE id = ?`)
+      .run(n.clusterKey || row.activity_label.toLowerCase(), n.category, n.days.join(","), row.id);
+  }
 }
 
 export const COUNTY_CENTROIDS: Record<string, { lat: number; lng: number }> = {

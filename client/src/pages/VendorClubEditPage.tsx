@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { HostChatButton } from "../components/HostChatButton";
 import { useNavigate, useParams } from "react-router-dom";
 import { fetchVendorClub, fetchVendorListings } from "../api";
 import { useAuth } from "../AuthContext";
@@ -12,7 +13,7 @@ import { MessageComposer } from "../components/VendorMessages";
 import { PublishedScreen } from "../components/PublishedScreen";
 import { VendorListingPerformance } from "../components/VendorListingPerformance";
 import { PageSpinner, Tabs } from "../components/ui";
-import { fonts } from "../theme";
+import { colors, fonts, radius } from "../theme";
 import type { Club, VendorListingSummary } from "../types";
 
 // Dedicated page for the sports club create/edit form — same reasoning as
@@ -88,7 +89,10 @@ export function VendorClubEditPage() {
           <PublishedScreen name={club?.name ?? "Your club"} publicHref={`/clubs/${club?.slug ?? clubId}`} onDismiss={() => setJustPublished(false)} />
         ) : (
           <>
-            <h2 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 24, margin: "0 0 18px", letterSpacing: "-.01em" }}>{title}</h2>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap", margin: "0 0 18px" }}>
+              <h2 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 24, margin: 0, letterSpacing: "-.01em" }}>{title}</h2>
+              {clubId !== "new" && <HostChatButton scopeType="club" scopeId={clubId} title={club?.name ?? "Club chat"} label="Members chat" style={{ border: `1px solid ${colors.borderStrong}`, borderRadius: radius.pill, padding: "8px 14px", fontSize: 13.5, color: colors.text, background: colors.surface }} />}
+            </div>
             <div style={{ marginBottom: 22 }}>
               <Tabs
                 value={tab}

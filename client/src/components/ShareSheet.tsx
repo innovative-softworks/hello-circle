@@ -6,7 +6,7 @@ import { useGuest } from "../GuestContext";
 import { colors, fonts, radius } from "../theme";
 import { ChatIcon, CheckIcon, ChevronLeftIcon, ClipboardIcon, PhotoStackIcon, ShareIcon, UsersIcon } from "./icons";
 import { Photo } from "./Photo";
-import { Button, Drawer, PageSpinner } from "./ui";
+import { Button, Modal, PageSpinner } from "./ui";
 import type { Circle } from "../types";
 
 // Universal Sharing & Invitation system, Phase 1/3 — the ONE reusable
@@ -14,7 +14,7 @@ import type { Circle } from "../types";
 // its own navigator.share()-or-clipboard logic (see this repo's earlier
 // InviteButton.tsx / ExperienceDetail.tsx's own handleShare — both now
 // superseded by this, per the spec's §33 "don't duplicate sharing logic per
-// page" rule). Built on the existing Drawer primitive (no new UI framework,
+// page" rule). Built on the shared Modal popup (no new UI framework,
 // per §30) — full-height slide-over on mobile already reads like a bottom
 // sheet at that width.
 
@@ -216,7 +216,7 @@ export function ShareSheet({ open, onClose, entityType, entityId }: { open: bool
   };
 
   return (
-    <Drawer open={open} onClose={onClose} title="Share">
+    <Modal open={open} onClose={onClose} title="Share" subtitle={data?.title}>
       {!data ? (
         <PageSpinner />
       ) : pane === "circle" ? (
@@ -303,6 +303,6 @@ export function ShareSheet({ open, onClose, entityType, entityId }: { open: bool
           </div>
         </>
       )}
-    </Drawer>
+    </Modal>
   );
 }

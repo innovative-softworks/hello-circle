@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useConfirm } from "../components/ConfirmProvider";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import {
   cancelGame,
@@ -26,7 +27,7 @@ import { ManageShell } from "../components/ManageShell";
 import { ResidentPicker } from "../components/ResidentPicker";
 import { SingleImageUpload } from "../components/SingleImageUpload";
 import { getCircleCoverUrl } from "../media";
-import { Avatar, Button, Card, ConfirmDialog, Drawer, EmptyState, PageSpinner, inputStyle, labelStyle } from "../components/ui";
+import { Avatar, Button, Card, ConfirmDialog, EmptyState, Modal, PageSpinner, inputStyle, labelStyle } from "../components/ui";
 import { useGuest } from "../GuestContext";
 import { colors, fonts, radius } from "../theme";
 import type { Centre, Circle, ManageCircleMember, ManageCirclePlan, ManageParticipant } from "../types";
@@ -59,13 +60,13 @@ function statusBadge(status: string) {
   return <span style={{ fontSize: 11, fontWeight: 700, color: s.fg, background: s.bg, borderRadius: radius.pill, padding: "2px 8px" }}>{s.label}</span>;
 }
 
-function ParticipantsDrawer({ gameId, onClose }: { gameId: string | null; onClose: () => void }) {
+function ParticipantsModal({ gameId, onClose }: { gameId: string | null; onClose: () => void }) {
   const [participants, setParticipants] = useState<ManageParticipant[]>([]);
   const [loading, setLoading] = useState(false);
   const [removeTarget, setRemoveTarget] = useState<ManageParticipant | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // Platform Pre-Launch Polish — Changeset 4D. This drawer only gets a
+  // Platform Pre-Launch Polish — Changeset 4D. This popup only gets a
   // gameId, not the full Game (unlike HostActivitiesTab.tsx's own copy of
   // this component), so the confirm dialog can't quote a specific amount —
   // the server still refunds the real, exact amount regardless.
@@ -112,7 +113,17 @@ function ParticipantsDrawer({ gameId, onClose }: { gameId: string | null; onClos
   };
 
   return (
-    <Drawer open={!!gameId} onClose={onClose} title="Participants">
+    <Modal
+      open={!!gameId}
+      onClose={onClose}
+      title="Participants"
+      subtitle={loading ? undefined : `${participants.filter((p) => p.status !== "cancelled").length} joined`}
+      footer={
+        <div style={{ display: "flex", justifyContent: "flex-end" }}>
+          <Button onClick={onClose}>Done</Button>
+        </div>
+      }
+    >
       {loading ? (
         <PageSpinner />
       ) : participants.length === 0 ? (
@@ -173,7 +184,7 @@ function ParticipantsDrawer({ gameId, onClose }: { gameId: string | null; onClos
       >
         {refundError && <p style={{ color: colors.danger, fontSize: 13 }}>{refundError}</p>}
       </ConfirmDialog>
-    </Drawer>
+    </Modal>
   );
 }
 
@@ -298,12 +309,13 @@ function PlansTab({ circle }: { circle: Circle }) {
       ) : (
         plans.map((p) => <PlanRow key={p.id} plan={p} circleId={circle.id} onChanged={reload} onManageParticipants={() => setManagingGameId(p.id)} />)
       )}
-      <ParticipantsDrawer gameId={managingGameId} onClose={() => setManagingGameId(null)} />
+      <ParticipantsModal gameId={managingGameId} onClose={() => setManagingGameId(null)} />
     </div>
   );
 }
 
 function JoinRequestsCard({ circle }: { circle: Circle }) {
+  const confirm = useConfirm();
   const [requests, setRequests] = useState<CircleJoinRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -318,6 +330,16 @@ function JoinRequestsCard({ circle }: { circle: Circle }) {
   useEffect(reload, [circle.id]);
 
   const respond = async (requestId: string, accept: boolean) => {
+    if (!accept) {
+      const name = requests.find((r) => r.id === requestId)?.name ?? "this person";
+      const ok = await confirm({
+        title: `Decline ${name}'s request?`,
+        message: "They won't be added to the Circle. They can ask again later.",
+        confirmLabel: "Decline",
+        tone: "danger",
+      });
+      if (!ok) return;
+    }
     setBusyId(requestId);
     try {
       await respondToCircleJoinRequest(circle.id, requestId, accept);
@@ -363,6 +385,7 @@ function JoinRequestsCard({ circle }: { circle: Circle }) {
 }
 
 function MembersTab({ circle }: { circle: Circle }) {
+  const confirm = useConfirm();
   const [members, setMembers] = useState<ManageCircleMember[]>([]);
   const [loading, setLoading] = useState(true);
   const [removeTarget, setRemoveTarget] = useState<ManageCircleMember | null>(null);
@@ -400,6 +423,12 @@ function MembersTab({ circle }: { circle: Circle }) {
   // dialog, mirroring the low-stakes waitlist "Invite" button pattern),
   // since either direction is reversible, unlike Remove.
   const promote = async (m: ManageCircleMember) => {
+    const ok = await confirm({
+      title: `Make ${m.name} an organiser?`,
+      message: "Organisers can edit the Circle, approve join requests, create plans and remove members.",
+      confirmLabel: "Make organiser",
+    });
+    if (!ok) return;
     setRoleActionId(m.residentId);
     setRoleError(null);
     try {
@@ -413,6 +442,13 @@ function MembersTab({ circle }: { circle: Circle }) {
   };
 
   const demote = async (m: ManageCircleMember) => {
+    const ok = await confirm({
+      title: `Remove ${m.name} as an organiser?`,
+      message: "They'll stay a member but won't be able to manage the Circle any more.",
+      confirmLabel: "Remove organiser",
+      tone: "danger",
+    });
+    if (!ok) return;
     setRoleActionId(m.residentId);
     setRoleError(null);
     try {

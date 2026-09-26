@@ -1,4 +1,6 @@
 import { useEffect, useState } from "react";
+import { leaveWaitlistConfirm } from "../confirmCopy";
+import { useConfirm } from "./ConfirmProvider";
 import { useNavigate } from "react-router-dom";
 import { cancelGame, downloadGameIcs, fetchGameParticipants, joinGame, joinGameWaitlist, leaveGame, leaveGameWaitlist, subscribeGameNotifyMe, validateCoupon } from "../api";
 import { signInHref } from "../authRedirect";
@@ -201,6 +203,7 @@ function JoinHeadline({ game, state }: { game: Game; state: JoinState }) {
  * requirement instead of reordering the page). */
 export function GameJoinCard({ game, resident, isHost, onRefresh }: JoinCardProps) {
   const navigate = useNavigate();
+  const confirm = useConfirm();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -356,7 +359,16 @@ export function GameJoinCard({ game, resident, isHost, onRefresh }: JoinCardProp
             <Button variant="ghost" full onClick={() => setLeaveConfirmOpen(true)} disabled={busy}>Leave session</Button>
           )}
           {state === "waitlisted" && (
-            <Button variant="ghost" full onClick={() => run(() => leaveGameWaitlist(game.id))} disabled={busy}>Leave waitlist</Button>
+            <Button
+              variant="ghost"
+              full
+              onClick={async () => {
+                if (await confirm(leaveWaitlistConfirm(game.activityLabel))) run(() => leaveGameWaitlist(game.id));
+              }}
+              disabled={busy}
+            >
+              Leave waitlist
+            </Button>
           )}
           {state === "full" && (
             <Button variant="orange" full onClick={() => run(() => joinGameWaitlist(game.id))} disabled={busy}>Join waitlist</Button>

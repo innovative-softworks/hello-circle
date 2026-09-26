@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { declineInviteConfirm } from "../confirmCopy";
+import { useConfirm } from "../components/ConfirmProvider";
 import { useNavigate } from "react-router-dom";
 import { signInHref } from "../authRedirect";
 import {
@@ -178,10 +180,12 @@ export function Circles() {
     if (resident) fetchMyCircleInvitations().then(setInvitations).catch(() => setInvitations([]));
     else setInvitations([]);
   }, [resident]);
+  const confirm = useConfirm();
   const openStartForm = () => navigate("/circles/start");
   const scrollToResults = () => resultsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
 
   const handleRespond = async (invite: CircleInvitation, accept: boolean) => {
+    if (!accept && !(await confirm(declineInviteConfirm(invite.circleName)))) return;
     setRespondingId(invite.id);
     try {
       await respondToCircleInvitation(invite.id, accept);

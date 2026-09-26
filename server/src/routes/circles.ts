@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 import { Router } from "express";
-import { logEvent } from "../analytics.js";
+import { logEvent, logView } from "../analytics.js";
 import { computeCapacity } from "../capacity.js";
 import { db } from "../db/index.js";
 import { getCircleSuggestions } from "../db/queries.js";
@@ -395,6 +395,7 @@ circlesRouter.get("/:id", async (req, res) => {
   const row = (await db.prepare(`SELECT * FROM circles WHERE slug = ? OR id = ?`).get(req.params.id, req.params.id)) as CircleRow | undefined;
   if (!row) return res.status(404).json({ error: "Circle not found" });
   const viewerId = req.resident?.id ?? null;
+  logView("circle_viewed", req, { kind: "circle", id: row.id });
   if (!(await canViewCircleFull(row.id, row.join_mode, viewerId))) {
     return res.json(await toCircleTeaserJson(row, viewerId));
   }
@@ -923,6 +924,7 @@ circlesRouter.post("/", requireResident, async (req, res) => {
       });
     await tx.prepare(`INSERT INTO circle_members (circle_id, resident_id, role) VALUES (?, ?, 'organiser')`).run(id, req.resident!.id);
   });
+  void logEvent("circle_created", { residentId: req.resident!.id, metadata: { circleId: id, activityLabel: b.activityLabel ?? "", county: b.county ?? "" } });
   res.status(201).json({ id, slug });
 });
 

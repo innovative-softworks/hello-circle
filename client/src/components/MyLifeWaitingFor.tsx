@@ -1,4 +1,6 @@
 import { useState } from "react";
+import { withdrawInterestConfirm } from "../confirmCopy";
+import { useConfirm } from "./ConfirmProvider";
 import { cancelIntent } from "../api";
 import { colors, fonts, radius } from "../theme";
 import type { MyIntent } from "../types";
@@ -18,10 +20,13 @@ const STATUS_LABEL: Record<MyIntent["status"], string> = {
 
 export function MyLifeWaitingFor({ intents, onChange }: { intents: MyIntent[]; onChange: () => void }) {
   const [busyId, setBusyId] = useState<string | null>(null);
+  const confirm = useConfirm();
   const active = intents.filter((i) => i.status === "active" || i.status === "matched");
   if (active.length === 0) return null;
 
   const handleRemove = async (id: string) => {
+    const label = intents.find((i) => i.id === id)?.activityLabel ?? "this";
+    if (!(await confirm(withdrawInterestConfirm(label)))) return;
     setBusyId(id);
     try {
       await cancelIntent(id);

@@ -1,4 +1,5 @@
 import type {
+  HostOpportunity,
   AttendanceStatus,
   Centre,
   CentreHoursRow,
@@ -364,11 +365,16 @@ export function fetchVendorDemand(scope: "own" | "all" = "own"): Promise<DemandR
   return request(`/vendor/demand${scope === "all" ? "?scope=all" : ""}`);
 }
 
-export function checkInBooking(kind: "booking" | "registration", ref: string): Promise<{ ok: boolean }> {
-  return request(`/vendor/checkin/${kind}/${encodeURIComponent(ref)}`, { method: "POST" });
+/** Release 3 — `status` "no_show" records a no-show; default is a check-in. */
+export function checkInBooking(kind: "booking" | "registration", ref: string, status: "present" | "no_show" = "present"): Promise<{ ok: boolean }> {
+  return request(`/vendor/checkin/${kind}/${encodeURIComponent(ref)}`, { method: "POST", body: JSON.stringify({ status }) });
 }
 
-export function fetchCheckInStatus(kind: "booking" | "registration", ref: string): Promise<{ checkedIn: boolean; checkedInAt: string | null; cancelledAt: string | null }> {
+export function markExperienceAttendance(experienceId: string, ref: string, status: "present" | "no_show"): Promise<{ ok: boolean }> {
+  return request(`/vendor/experiences/${encodeURIComponent(experienceId)}/bookings/${encodeURIComponent(ref)}/attendance`, { method: "POST", body: JSON.stringify({ status }) });
+}
+
+export function fetchCheckInStatus(kind: "booking" | "registration", ref: string): Promise<{ checkedIn: boolean; status?: string | null; checkedInAt: string | null; cancelledAt: string | null }> {
   return request(`/vendor/checkin/${kind}/${encodeURIComponent(ref)}`);
 }
 
@@ -380,11 +386,38 @@ export function fetchVendorPrograms(): Promise<VendorProgramSummary[]> {
 
 /** Unlike fetchProgram (public.ts, published-only), returns a program in
  * any status — needed to open a draft program's manage view. */
+/** Release 2 — vendor "Participation experience" editor (attributes plus
+ * the what-to-expect fields each type supports; see
+ * server/src/routes/vendorParticipation.ts). */
+export interface VendorParticipation {
+  attributes: string[];
+  arrivalInstructions?: string;
+  accessibilityInfo?: string;
+  /** Release 3 — official Circle; only one organised by someone in your org. */
+  circleId?: string | null;
+}
+
+export function fetchLinkableCircles(): Promise<{ id: string; name: string; slug: string | null }[]> {
+  return request(`/vendor/participation/circles`);
+}
+
+export type VendorParticipationType = "program" | "experience" | "club";
+
+export function fetchVendorParticipation(type: VendorParticipationType, id: string): Promise<VendorParticipation> {
+  return request(`/vendor/participation/${type}/${encodeURIComponent(id)}`);
+}
+
+export function saveVendorParticipation(type: VendorParticipationType, id: string, input: VendorParticipation): Promise<VendorParticipation> {
+  return request(`/vendor/participation/${type}/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify(input) });
+}
+
 export function fetchVendorProgram(id: string): Promise<Program> {
   return request(`/vendor/programs/${id}`);
 }
 
 export interface ProgramInput {
+  /** Release 6 — created from a Host Opportunity (analytics only). */
+  fromDemand?: string;
   listingType: "centre" | "club";
   listingId: string;
   title: string;
@@ -476,7 +509,13 @@ export function fetchVendorToday(): Promise<VendorToday> {
 // --- Adventures & Experiences (vendor side) --------------------------------
 
 export interface ExperienceInput {
+  /** Release 6 — created from a Host Opportunity (analytics only). */
+  fromDemand?: string;
   kind?: ExperienceKind;
+  /** Release 5 — volunteer listings. */
+  skillsRequired?: string;
+  cause?: string;
+  minAge?: number | null;
   title: string;
   area?: string;
   county?: string;
@@ -600,4 +639,9 @@ export function fetchVendorPayments(): Promise<VendorPayments> {
 
 export function bookingsReportCsvUrl(): string {
   return `/api/vendor/reports/bookings.csv`;
+}
+
+/** Release 6 — resident-backed demand in this org's counties. */
+export function fetchVendorOpportunities(): Promise<{ opportunities: HostOpportunity[]; counties: string[] }> {
+  return request(`/vendor/opportunities`);
 }

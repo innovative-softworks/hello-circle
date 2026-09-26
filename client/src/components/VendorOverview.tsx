@@ -1,4 +1,6 @@
 import { BallIcon, BuildingIcon, CalendarIcon, ChatIcon, CheckIcon, EyeIcon, LightbulbIcon } from "./icons";
+import { OpportunitiesCard } from "./OpportunitiesCard";
+import { VendorChatsCard } from "./HostChatButton";
 import { Button, ManageCard as Card, EmptyState, KpiHero, KpiStrip, StatTile } from "./ui";
 import { CommunityIllustration } from "./illustrations";
 import { VendorAttentionPanel } from "./VendorAttention";
@@ -80,6 +82,8 @@ export function VendorOverviewTab({
   return (
     <div className="fade-panel" style={{ display: "flex", flexDirection: "column", gap: 24 }}>
       <VendorAttentionPanel listings={listings} unreadCount={unreadCount} onNavigateTab={onNavigateTab} />
+      <VendorChatsCard />
+      <OpportunitiesCard audience="vendor" />
 
       {itemsError ? (
         <Card>

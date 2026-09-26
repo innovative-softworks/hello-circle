@@ -1,4 +1,6 @@
 import { useState } from "react";
+import { useConfirm } from "./ConfirmProvider";
+import { useToast } from "./Toast";
 import {
   deleteVendorCentre,
   deleteVendorClub,
@@ -22,10 +24,13 @@ import type { VendorListingSummary, VendorType } from "../types";
 // 'paused' status (see vendorListings.ts's routes — every public read
 // already filters to status = 'approved', so this needs no other wiring);
 // Duplicate clones core fields into a new draft, landing in the wizard.
-async function copyPublicLink(kind: "centre" | "club", id: string) {
-  const url = `${window.location.origin}/${kind === "centre" ? "centres" : "clubs"}/${id}`;
-  await navigator.clipboard.writeText(url);
-  alert("Link copied to clipboard");
+function useCopyPublicLink() {
+  const toast = useToast();
+  return async (kind: "centre" | "club", id: string) => {
+    const url = `${window.location.origin}/${kind === "centre" ? "centres" : "clubs"}/${id}`;
+    await navigator.clipboard.writeText(url);
+    toast.success("Link copied");
+  };
 }
 
 // The Listings tab (deliberately NOT a uniform CRUD list: for the common
@@ -114,6 +119,7 @@ function ListingProfileCard({
   onPauseResume: () => void;
   onDuplicate: () => void;
 }) {
+  const copyPublicLink = useCopyPublicLink();
   const publicHref = kind === "centre" ? `/centres/${listing.id}` : `/clubs/${listing.id}`;
   return (
     <Card style={{ padding: 0, overflow: "hidden" }}>
@@ -214,6 +220,7 @@ function ListingsTable({
   onPauseResume: (id: string) => void;
   onDuplicate: (id: string) => void;
 }) {
+  const copyPublicLink = useCopyPublicLink();
   return (
     <>
       {/* Vendor Experience Polish — mobile card fallback. Only "Manage"
@@ -388,6 +395,7 @@ export function ListingsTab({
   onNewClub: () => void;
   reload: () => void;
 }) {
+  const confirm = useConfirm();
   const activeCentres = listings.centres.filter((c) => c.status !== "deleted");
   const activeClubs = listings.clubs.filter((c) => c.status !== "deleted");
   const [confirming, setConfirming] = useState<{ type: "centre" | "club"; id: string; name: string } | null>(null);
@@ -411,6 +419,14 @@ export function ListingsTab({
     const listing = rows.find((r) => r.id === id);
     if (!listing) return;
     const paused = listing.status === "paused";
+    if (!paused) {
+      const ok = await confirm({
+        title: `Pause ${listing.name}?`,
+        message: "It disappears from search and can't take new bookings until you resume it. Existing bookings aren't affected.",
+        confirmLabel: "Pause listing",
+      });
+      if (!ok) return;
+    }
     if (type === "centre") await (paused ? resumeVendorCentre(id) : pauseVendorCentre(id));
     else await (paused ? resumeVendorClub(id) : pauseVendorClub(id));
     reload();

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { dateLabel } from "../euro";
 import { useNavigate } from "react-router-dom";
 import { cancelGame, fetchGameParticipantsForManage, fetchGameWaitlist, fetchMyGames, offerGameWaitlistEntry, postGameUpdate, refundGameParticipant, removeGameParticipant } from "../api";
 import { deriveActivityStatus } from "../activityStatus";
@@ -6,7 +7,7 @@ import { rehostHref } from "../rehost";
 import { CalendarIcon, SearchIcon } from "./icons";
 import { HostCheckInScreen } from "./HostCheckInScreen";
 import { ShareButton } from "./ShareButton";
-import { Avatar, Button, Card, ConfirmDialog, Drawer, EmptyState, PageSpinner, ProgressBar } from "./ui";
+import { Avatar, Button, Card, ConfirmDialog, EmptyState, Modal, PageSpinner, ProgressBar } from "./ui";
 import { colors, fonts, radius } from "../theme";
 import type { Game, ManageParticipant, WaitlistEntry } from "../types";
 
@@ -107,7 +108,7 @@ function statusBadge(game: Pick<Game, "status" | "date" | "spotsLeft" | "capacit
   return <span style={{ fontSize: 11, fontWeight: 700, color: s.fg, background: s.bg, borderRadius: radius.pill, padding: "2px 8px" }}>{s.label}</span>;
 }
 
-function ParticipantsDrawer({ game, onClose }: { game: Game | null; onClose: () => void }) {
+function ParticipantsModal({ game, onClose }: { game: Game | null; onClose: () => void }) {
   const [participants, setParticipants] = useState<ManageParticipant[]>([]);
   const [loading, setLoading] = useState(false);
   const [removeTarget, setRemoveTarget] = useState<ManageParticipant | null>(null);
@@ -175,7 +176,21 @@ function ParticipantsDrawer({ game, onClose }: { game: Game | null; onClose: () 
   };
 
   return (
-    <Drawer open={!!game} onClose={onClose} title="Participants">
+    <Modal
+      open={!!game}
+      onClose={onClose}
+      title="Participants"
+      subtitle={
+        game
+          ? `${game.activityLabel} · ${dateLabel(game.date)} · ${game.time} · ${participants.filter((p) => p.status !== "cancelled").length} of ${game.capacity} joined`
+          : undefined
+      }
+      footer={
+        <div style={{ display: "flex", justifyContent: "flex-end" }}>
+          <Button onClick={onClose}>Done</Button>
+        </div>
+      }
+    >
       {loading ? (
         <PageSpinner />
       ) : participants.length === 0 ? (
@@ -285,7 +300,7 @@ function ParticipantsDrawer({ game, onClose }: { game: Game | null; onClose: () 
       >
         {refundError && <p style={{ color: colors.danger, fontSize: 13 }}>{refundError}</p>}
       </ConfirmDialog>
-    </Drawer>
+    </Modal>
   );
 }
 
@@ -467,7 +482,7 @@ export function ActivitiesTab() {
           )}
         </div>
       )}
-      <ParticipantsDrawer game={managingGame} onClose={() => setManagingGame(null)} />
+      <ParticipantsModal game={managingGame} onClose={() => setManagingGame(null)} />
       <HostCheckInScreen game={checkingInGame} onClose={() => setCheckingInGame(null)} />
     </>
   );

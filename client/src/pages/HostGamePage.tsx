@@ -3,6 +3,7 @@ import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { createGame, fetchCentres, fetchGame, fetchGameParticipantsForManage, setGameLifecycle, updateGame } from "../api";
 import { signInHref } from "../authRedirect";
 import { BackLink } from "../components/BackLink";
+import { AttributePicker } from "../components/AttributePicker";
 import { GuidedFlow } from "../components/GuidedFlow";
 import { NumberStepper, useUnsavedChangesGuard } from "../components/form";
 import { ShareButton } from "../components/ShareButton";
@@ -68,8 +69,11 @@ export function HostGamePage() {
   // date/time genuinely SHOULD prefill here — the whole point of a
   // confirmed plan is that the circle already agreed on them (brief §20).
   const planId = gameId ? undefined : searchParams.get("planId") ?? undefined;
-  const initialDate = planId ? searchParams.get("date") ?? "" : "";
-  const initialTime = planId ? searchParams.get("time") ?? "" : "";
+  // Release 6 — "Create a game" from a Host Opportunity carries the demand
+  // cluster's suggested day/time too (the whole point is to match it).
+  const fromDemand = gameId ? undefined : searchParams.get("fromDemand") ?? undefined;
+  const initialDate = planId || fromDemand ? searchParams.get("date") ?? "" : "";
+  const initialTime = planId || fromDemand ? searchParams.get("time") ?? "" : "";
 
   const [step, setStep] = useState(1);
   const [centres, setCentres] = useState<Centre[]>([]);
@@ -91,7 +95,9 @@ export function HostGamePage() {
     time: initialTime,
     capacity: qp("capacity") ? Number(qp("capacity")) : 4,
     priceCents: initialPriceCents ? String(Number(initialPriceCents) / 100) : "",
-    soloFriendly: false,
+    // Release 2 — replaces the single soloFriendly checkbox; "come_alone"
+    // is kept in sync with games.solo_friendly server-side.
+    participationAttributes: [] as string[],
     skillLevel: qp("skillLevel"),
     minParticipants: "",
     confirmationDeadline: "",
@@ -103,6 +109,8 @@ export function HostGamePage() {
     indoorOutdoor: (initialIndoorOutdoor === "indoor" || initialIndoorOutdoor === "outdoor" || initialIndoorOutdoor === "mixed" ? initialIndoorOutdoor : "") as "" | "indoor" | "outdoor" | "mixed",
     meetingInstructions: qp("meetingInstructions"),
     cancellationPolicy: qp("cancellationPolicy"),
+    experienceRequired: "",
+    accessibilityInfo: "",
     imageUrl: null as string | null,
     lifecycle: "active" as "draft" | "coming_soon" | "active" | "paused" | "archived",
   });
@@ -146,7 +154,7 @@ export function HostGamePage() {
           time: game.time,
           capacity: game.capacity,
           priceCents: game.priceCents ? String(game.priceCents / 100) : "",
-          soloFriendly: game.soloFriendly,
+          participationAttributes: game.participationAttributes ?? (game.soloFriendly ? ["come_alone"] : []),
           skillLevel: game.skillLevel ?? "",
           minParticipants: game.minParticipants ? String(game.minParticipants) : "",
           confirmationDeadline: game.confirmationDeadline ? isoToDatetimeLocal(game.confirmationDeadline) : "",
@@ -158,6 +166,8 @@ export function HostGamePage() {
           indoorOutdoor: (game.indoorOutdoor as "" | "indoor" | "outdoor" | "mixed") ?? "",
           meetingInstructions: game.meetingInstructions ?? "",
           cancellationPolicy: game.cancellationPolicy ?? "",
+          experienceRequired: game.experienceRequired ?? "",
+          accessibilityInfo: game.accessibilityInfo ?? "",
           imageUrl: game.imageUrl ?? null,
           lifecycle: game.lifecycle,
         });
@@ -192,7 +202,10 @@ export function HostGamePage() {
         time: form.time,
         capacity: form.capacity,
         priceCents: form.priceCents ? Math.round(parseFloat(form.priceCents) * 100) : undefined,
-        soloFriendly: form.soloFriendly,
+        soloFriendly: form.participationAttributes.includes("come_alone"),
+        participationAttributes: form.participationAttributes,
+        experienceRequired: form.experienceRequired,
+        accessibilityInfo: form.accessibilityInfo,
         skillLevel: form.skillLevel || undefined,
         minParticipants: form.minParticipants ? parseInt(form.minParticipants, 10) : undefined,
         confirmationDeadline: form.minParticipants && form.confirmationDeadline ? new Date(form.confirmationDeadline).toISOString() : undefined,
@@ -206,6 +219,7 @@ export function HostGamePage() {
         cancellationPolicy: form.cancellationPolicy || undefined,
         circleId,
         planId,
+        fromDemand,
         // The radio control (below) only ever sets one of these three
         // values, and is hidden entirely in edit mode — the wider type on
         // form.lifecycle exists only so loading an existing (possibly
@@ -268,7 +282,10 @@ export function HostGamePage() {
       time: form.time,
       capacity: form.capacity,
       priceCents: form.priceCents ? Math.round(parseFloat(form.priceCents) * 100) : undefined,
-      soloFriendly: form.soloFriendly,
+      soloFriendly: form.participationAttributes.includes("come_alone"),
+      participationAttributes: form.participationAttributes,
+      experienceRequired: form.experienceRequired,
+      accessibilityInfo: form.accessibilityInfo,
       skillLevel: form.skillLevel || undefined,
       minParticipants: form.minParticipants ? parseInt(form.minParticipants, 10) : undefined,
       description: form.description || undefined,
@@ -466,10 +483,6 @@ export function HostGamePage() {
                   </div>
                 </>
               )}
-              <label style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 12, fontSize: 13.5, color: colors.muted, cursor: "pointer" }}>
-                <input type="checkbox" checked={form.soloFriendly} onChange={(e) => setForm((f) => ({ ...f, soloFriendly: e.target.checked }))} />
-                Solo friendly - welcome someone who doesn't have a partner or group
-              </label>
             </GuidedFlow>
           ) : (
             <GuidedFlow
@@ -493,6 +506,22 @@ export function HostGamePage() {
                     placeholder="What's the pace, format and vibe? e.g. A relaxed, social ride at an easy-to-moderate pace."
                     rows={3}
                     style={{ ...inputStyle, resize: "vertical" }}
+                  />
+                </div>
+                <div style={{ marginBottom: 16 }}>
+                  <label style={labelStyle}>Participation experience (optional)</label>
+                  <p style={{ fontSize: 12.5, color: colors.mutedLight, margin: "0 0 10px" }}>
+                    Tick only what's true of how you'll run it — the first three show on your session page.
+                  </p>
+                  <AttributePicker value={form.participationAttributes} onChange={(next) => setForm((f) => ({ ...f, participationAttributes: next }))} />
+                </div>
+                <div style={{ marginBottom: 12 }}>
+                  <label style={labelStyle}>Experience needed (optional)</label>
+                  <input
+                    value={form.experienceRequired}
+                    onChange={(e) => setForm((f) => ({ ...f, experienceRequired: e.target.value }))}
+                    placeholder="e.g. None — we'll show you the basics on the day."
+                    style={inputStyle}
                   />
                 </div>
                 <div style={{ marginBottom: 12 }}>
@@ -534,6 +563,16 @@ export function HostGamePage() {
                     value={form.meetingInstructions}
                     onChange={(e) => setForm((f) => ({ ...f, meetingInstructions: e.target.value }))}
                     placeholder="Exact meeting point — only shown to the host and joined players, e.g. Meet by the north gate, past the car park."
+                    rows={2}
+                    style={{ ...inputStyle, resize: "vertical" }}
+                  />
+                </div>
+                <div style={{ marginBottom: 12 }}>
+                  <label style={labelStyle}>Accessibility (optional)</label>
+                  <textarea
+                    value={form.accessibilityInfo}
+                    onChange={(e) => setForm((f) => ({ ...f, accessibilityInfo: e.target.value }))}
+                    placeholder="e.g. Step-free route from the car park; accessible toilet on site."
                     rows={2}
                     style={{ ...inputStyle, resize: "vertical" }}
                   />

@@ -1,4 +1,6 @@
 import { Router } from "express";
+import { logEvent } from "../analytics.js";
+import { getOpportunities } from "../participationIntents.js";
 import { requirePlatformRole } from "../auth.js";
 import { db } from "../db/index.js";
 import { getDemandSignals } from "../db/queries.js";
@@ -192,6 +194,27 @@ vendorInsightsRouter.get("/payments", requirePlatformRole("finance"), async (req
   // CLAUDE.md's DECIMAL-as-string note) — coerce explicitly rather than assume.
   const totalPaidCents = Number((totalRow as { totalPaidCents: number | string }).totalPaidCents ?? 0);
   res.json({ transactions: all.slice(0, 150), totalPaidCents });
+});
+
+// --- host opportunities (community participation upgrade, Release 6) ----------
+// Resident-backed demand clusters in the counties this org already operates
+// in (all counties if it has no listings yet). Aggregates only — ranges,
+// typical day/time/budget — never who asked. The client offers "Create a
+// program" / "Create an experience", prefilled from the cluster.
+vendorInsightsRouter.get("/opportunities", async (req, res) => {
+  const ids = req.vendorIds!;
+  const marks = ids.map(() => "?").join(", ");
+  const rows = (await db
+    .prepare(
+      `SELECT county FROM centres WHERE vendor_id IN (${marks}) AND county != ''
+       UNION SELECT county FROM clubs WHERE vendor_id IN (${marks}) AND county != ''
+       UNION SELECT county FROM experiences WHERE vendor_id IN (${marks}) AND county != ''`
+    )
+    .all(...ids, ...ids, ...ids)) as { county: string }[];
+  const counties = rows.map((r) => r.county);
+  const opportunities = await getOpportunities(counties.length ? counties : null);
+  void logEvent("host_opportunity_viewed", { metadata: { by: "vendor", userId: req.user!.id, shown: opportunities.length } });
+  res.json({ opportunities, counties });
 });
 
 // --- demand intelligence (NEXT) -------------------------------------------

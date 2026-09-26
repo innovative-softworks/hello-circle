@@ -1,5 +1,7 @@
 import { Router } from "express";
+import { logView } from "../analytics.js";
 import { db } from "../db/index.js";
+import { getListingAttributes, officialCircleSummary } from "../listingAttributes.js";
 import { getApprovedClub, getClub, listClubs } from "../db/queries.js";
 import { resolveRadiusFilter } from "../geo.js";
 import { BadRequestError, clientIdFrom } from "../util.js";
@@ -18,7 +20,8 @@ clubsRouter.get("/", async (req, res) => {
 clubsRouter.get("/:id", async (req, res) => {
   const club = await getApprovedClub(req.params.id);
   if (!club) return res.status(404).json({ error: "Club not found" });
-  res.json(club);
+  logView("place_viewed", req, { kind: "club", id: club.id });
+  res.json({ ...club, participationAttributes: await getListingAttributes("club", club.id), ...(await officialCircleSummary("clubs", club.id)) });
 });
 
 // --- waitlist (MVP) --------------------------------------------------------

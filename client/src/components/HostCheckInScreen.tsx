@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
+import { dateLabel } from "../euro";
 import { checkInGameParticipant, fetchGameParticipantsForManage } from "../api";
 import { CheckIcon, SearchIcon } from "./icons";
-import { Avatar, Drawer, EmptyState, PageSpinner } from "./ui";
+import { Avatar, Button, EmptyState, Modal, PageSpinner } from "./ui";
 import { colors, fonts, radius } from "../theme";
 import type { Game, ManageParticipant } from "../types";
 
@@ -38,30 +39,49 @@ export function HostCheckInScreen({ game, onClose }: { game: Game | null; onClos
   };
 
   return (
-    <Drawer open={!!game} onClose={onClose} title={game ? `${game.activityLabel} — check-in` : "Check-in"}>
+    <Modal
+      open={!!game}
+      onClose={onClose}
+      title={game ? `${game.activityLabel} — check-in` : "Check-in"}
+      subtitle={game ? `${dateLabel(game.date)} · ${game.time}` : undefined}
+      toolbar={
+        participants ? (
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12 }}>
+              <div style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 24 }}>
+                {checkedInCount} <span style={{ color: colors.mutedLight, fontWeight: 700, fontSize: 18 }}>/ {joined.length}</span>
+              </div>
+              <div style={{ fontSize: 12.5, color: colors.mutedLight, fontWeight: 700, letterSpacing: ".03em", textTransform: "uppercase" }}>Checked in</div>
+            </div>
+            <div aria-hidden="true" style={{ height: 6, borderRadius: 6, background: colors.panel, overflow: "hidden" }}>
+              <div style={{ height: "100%", width: `${joined.length ? (checkedInCount / joined.length) * 100 : 0}%`, background: colors.green, transition: "width .3s ease" }} />
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: radius.control, padding: "10px 14px" }}>
+              <SearchIcon size={15} style={{ color: colors.faint }} />
+              <input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search participant"
+                aria-label="Search participants"
+                style={{ flex: 1, border: "none", background: "none", fontSize: 15, outline: "none" }}
+              />
+            </div>
+          </div>
+        ) : undefined
+      }
+      footer={
+        <div style={{ display: "flex", justifyContent: "flex-end" }}>
+          <Button onClick={onClose}>Done</Button>
+        </div>
+      }
+    >
       {!participants ? (
         <PageSpinner />
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-          <div style={{ textAlign: "center", padding: "6px 0 10px" }}>
-            <div style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 28 }}>
-              {checkedInCount} / {joined.length}
-            </div>
-            <div style={{ fontSize: 12.5, color: colors.mutedLight, fontWeight: 700, letterSpacing: ".03em", textTransform: "uppercase" }}>Checked in</div>
-          </div>
-
-          <div style={{ display: "flex", alignItems: "center", gap: 8, background: colors.bg, borderRadius: radius.control, padding: "10px 14px" }}>
-            <SearchIcon size={15} style={{ color: colors.faint }} />
-            <input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search participant"
-              style={{ flex: 1, border: "none", background: "none", fontSize: 15, outline: "none" }}
-            />
-          </div>
 
           {filtered.length === 0 ? (
-            <EmptyState icon={<SearchIcon size={22} />} title="No one matches that search" />
+            <EmptyState icon={<SearchIcon size={22} />} title={joined.length === 0 ? "No one's joined yet" : "No one matches that search"} />
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
               {filtered.map((p) => (
@@ -92,6 +112,6 @@ export function HostCheckInScreen({ game, onClose }: { game: Game | null; onClos
           )}
         </div>
       )}
-    </Drawer>
+    </Modal>
   );
 }

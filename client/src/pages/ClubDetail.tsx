@@ -1,7 +1,11 @@
 import { useEffect, useState } from "react";
+import { useToast } from "../components/Toast";
+import { OfficialCircleLink } from "../components/OfficialCircleLink";
+import { ParticipationBlock } from "../components/ParticipationBlock";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { addFavourite, createPassCheckout, fetchClub, fetchFavourites, fetchPrograms, PLATFORM_FEE_RATE, removeFavourite, VAT_RATE } from "../api";
 import { openCheckout } from "../native";
+import { ListingChatButton } from "../components/ListingChats";
 import { BackLink } from "../components/BackLink";
 import { ClaimListingCTA } from "../components/ClaimListingCTA";
 import { PhotoGallery } from "../components/PhotoGallery";
@@ -18,6 +22,7 @@ import type { Club, Program } from "../types";
 import { formatPrice } from "../formatters";
 
 export function ClubDetail() {
+  const toast = useToast();
   // Slugs (master-prompt punch list #1) — see CentreDetail.tsx's own
   // comment; every call below uses club.id once loaded, never this raw
   // param.
@@ -64,7 +69,7 @@ export function ClubDetail() {
       const res = await createPassCheckout({ listingId: club.id, creditsTotal: 10 });
       if (res.url) openCheckout(res.url);
     } catch (e) {
-      alert(e instanceof Error ? e.message : "Couldn't start checkout");
+      toast.error(e instanceof Error ? e.message : "Couldn't start checkout");
     } finally {
       setPassLoading(false);
     }
@@ -133,6 +138,7 @@ export function ClubDetail() {
                 </button>
               )}
             />
+            <ListingChatButton scopeType="club" listingId={club.id} iconOnly style={{ background: "none", border: "none", padding: 0, color: colors.greenText }} />
           </h1>
           {club.capacity !== null && (
             <span style={{ display: "inline-block", background: colors.panel, color: colors.muted, borderRadius: 20, padding: "3px 11px", fontSize: 12, fontWeight: 700, marginBottom: 8 }}>
@@ -163,6 +169,10 @@ export function ClubDetail() {
               <span style={{ fontWeight: 500, color: colors.muted }}>({club.wouldRepeatCount})</span>
             </div>
           )}
+          <div style={{ marginBottom: 18 }}>
+            <ParticipationBlock attributes={club.participationAttributes} />
+            <OfficialCircleLink circleId={club.circleId} circleName={club.circleName} circleSlug={club.circleSlug} />
+          </div>
           <p style={{ fontSize: 16, lineHeight: 1.6, color: colors.textSoft, margin: "0 0 28px" }}>{club.blurb}</p>
           <h3 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 20, margin: "0 0 12px", letterSpacing: "-.01em" }}>
             What's included

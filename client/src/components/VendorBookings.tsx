@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { dateLabel } from "../euro";
 import {
   cancelVendorBooking,
   cancelVendorRegistration,
@@ -13,7 +14,7 @@ import {
   resendRegistrationConfirmation,
 } from "../api";
 import { AwardIcon, CalendarIcon, CheckIcon, SearchIcon } from "./icons";
-import { Avatar, Button, ManageCard as Card, ConfirmDialog, Drawer, EmptyState, tableStyle, tdStyle, thStyle } from "./ui";
+import { Avatar, Button, ConfirmDialog, EmptyState, ManageCard as Card, Modal, tableStyle, tdStyle, thStyle } from "./ui";
 import { DemandSignalsView } from "./DemandSignals";
 import { MonthCalendar } from "./MonthCalendar";
 import { colors, fonts, radius } from "../theme";
@@ -29,22 +30,54 @@ import type { DemandRow, MyRegistration, VendorBookingRow } from "../types";
 // selected" action and an individual click both land in the same place —
 // previously this managed its own local state and never preloaded real
 // status, so a bulk check-in wouldn't have been reflected here at all.
-function CheckInButton({ kind, reference, checkedIn, onChecked }: { kind: "booking" | "registration"; reference: string; checkedIn: boolean; onChecked: (reference: string) => void }) {
+// Release 3 — booking no longer implies attendance: once the date has
+// arrived a host can also record a no-show (canMarkNoShow), and existing
+// attendance is preloaded from the list endpoints instead of starting empty.
+function CheckInButton({
+  kind,
+  reference,
+  checkedIn,
+  noShow = false,
+  canMarkNoShow = false,
+  onChecked,
+  onNoShow,
+}: {
+  kind: "booking" | "registration";
+  reference: string;
+  checkedIn: boolean;
+  noShow?: boolean;
+  canMarkNoShow?: boolean;
+  onChecked: (reference: string) => void;
+  onNoShow?: (reference: string) => void;
+}) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const handleClick = async () => {
+  const mark = async (status: "present" | "no_show") => {
     setBusy(true);
     setError(null);
     try {
-      await checkInBooking(kind, reference);
-      onChecked(reference);
+      await checkInBooking(kind, reference, status);
+      if (status === "present") onChecked(reference);
+      else onNoShow?.(reference);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Couldn't check in");
+      setError(e instanceof Error ? e.message : "Couldn't update attendance");
     } finally {
       setBusy(false);
     }
   };
+  const handleClick = () => mark("present");
+
+  if (noShow && !checkedIn) {
+    return (
+      <span style={{ display: "flex", alignItems: "center", gap: 8, flex: "none" }}>
+        <span style={{ fontSize: 11, fontWeight: 700, color: colors.orangeDark, background: colors.orangeBg, borderRadius: radius.pill, padding: "3px 10px" }}>No-show</span>
+        <button onClick={handleClick} disabled={busy} style={{ fontSize: 11, fontWeight: 700, color: colors.muted, background: "none", border: "none", padding: 0, cursor: "pointer", textDecoration: "underline" }}>
+          {busy ? "…" : "Undo — they came"}
+        </button>
+      </span>
+    );
+  }
 
   if (checkedIn) {
     return (
@@ -63,12 +96,21 @@ function CheckInButton({ kind, reference, checkedIn, onChecked }: { kind: "booki
       >
         {busy ? "…" : "Check in"}
       </button>
+      {canMarkNoShow && (
+        <button
+          onClick={() => mark("no_show")}
+          disabled={busy}
+          style={{ fontSize: 11, fontWeight: 700, color: colors.muted, background: "none", border: "none", padding: 0, cursor: "pointer", textDecoration: "underline", flex: "none" }}
+        >
+          No-show
+        </button>
+      )}
     </span>
   );
 }
 
 // One-off, per-row "Resend confirmation" — small enough not to warrant a
-// full detail drawer for registrations (which don't have one today).
+// full detail popup for registrations (which don't have one today).
 function ResendConfirmationButton({ onResend }: { onResend: () => Promise<void> }) {
   const [busy, setBusy] = useState(false);
   const [sent, setSent] = useState(false);
@@ -199,7 +241,7 @@ function TimelineStep({ label, achieved, time }: { label: string; achieved: bool
   );
 }
 
-function BookingDetailDrawer({ booking, onClose, onCancelled, onRefunded }: { booking: VendorBookingRow | null; onClose: () => void; onCancelled: (ref: string) => void; onRefunded: (ref: string) => void }) {
+function BookingDetailModal({ booking, onClose, onCancelled, onRefunded }: { booking: VendorBookingRow | null; onClose: () => void; onCancelled: (ref: string) => void; onRefunded: (ref: string) => void }) {
   const [confirming, setConfirming] = useState(false);
   const [refundConfirming, setRefundConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -264,14 +306,47 @@ function BookingDetailDrawer({ booking, onClose, onCancelled, onRefunded }: { bo
   );
 
   return (
-    <Drawer open={!!booking} onClose={onClose} title="Booking detail">
+    <Modal
+      open={!!booking}
+      onClose={onClose}
+      title={booking ? booking.name : "Booking detail"}
+      subtitle={booking ? `${dateLabel(booking.date)} · ${booking.time} · ${booking.ref}` : undefined}
+      footer={
+        booking && (booking.status !== "cancelled" || (booking.paymentStatus === "paid" && booking.hasStripePayment)) ? (
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+            {booking.status !== "cancelled" ? (
+              <button
+                onClick={() => setConfirming(true)}
+                style={{ background: "none", border: "none", color: colors.danger, fontWeight: 700, fontSize: 13, cursor: "pointer", padding: 0 }}
+              >
+                Cancel booking
+              </button>
+            ) : (
+              <span />
+            )}
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              {booking.paymentStatus === "paid" && booking.hasStripePayment && (
+                <Button variant="ghost" onClick={() => setRefundConfirming(true)}>
+                  Issue refund
+                </Button>
+              )}
+              {booking.status !== "cancelled" && (
+                <Button onClick={handleResend} disabled={resent}>
+                  {resent ? "Confirmation resent" : "Resend confirmation"}
+                </Button>
+              )}
+            </div>
+          </div>
+        ) : undefined
+      }
+    >
       {booking && (
         <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <Avatar name={booking.name} size={36} />
-            <div>
-              <div style={{ fontWeight: 700, fontSize: 15 }}>{booking.name}</div>
-              <div style={{ fontSize: 12.5, color: colors.mutedLight }}>{booking.email} · {booking.phone}</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 2, fontSize: 13 }}>
+              <a href={`mailto:${booking.email}`} style={{ color: colors.text, fontWeight: 600 }}>{booking.email}</a>
+              {booking.phone && <a href={`tel:${booking.phone}`} style={{ color: colors.mutedLight }}>{booking.phone}</a>}
             </div>
           </div>
 
@@ -287,7 +362,7 @@ function BookingDetailDrawer({ booking, onClose, onCancelled, onRefunded }: { bo
             {row("Ref", booking.ref)}
             {row("Centre", booking.centreName)}
             {row("Room", booking.roomName ?? "—")}
-            {row("Date / time", `${booking.date} · ${booking.time}`)}
+            {row("Date / time", `${dateLabel(booking.date)} · ${booking.time}`)}
             {row("Duration", `${booking.duration}h`)}
             {row("Event type", booking.eventType || "—")}
             {row("Guests", booking.guests)}
@@ -304,26 +379,11 @@ function BookingDetailDrawer({ booking, onClose, onCancelled, onRefunded }: { bo
             )}
           </div>
 
-          <div style={{ display: "flex", flexDirection: "column", gap: 10, alignItems: "flex-start" }}>
-            {booking.status !== "cancelled" && (
-              <Button variant="ghost" onClick={handleResend} disabled={resent}>
-                {resent ? "Confirmation resent" : "Resend confirmation"}
-              </Button>
-            )}
-            {booking.paymentStatus === "paid" && booking.hasStripePayment && (
-              <Button variant="ghost" onClick={() => setRefundConfirming(true)}>
-                Issue refund
-              </Button>
-            )}
-            {booking.status !== "cancelled" && (
-              <button
-                onClick={() => setConfirming(true)}
-                style={{ background: "none", border: "none", color: colors.danger, fontWeight: 700, fontSize: 13, cursor: "pointer", padding: 0 }}
-              >
-                Cancel booking
-              </button>
-            )}
-          </div>
+          {error && !confirming && (
+            <p role="alert" style={{ color: colors.danger, fontSize: 13, margin: 0 }}>
+              {error}
+            </p>
+          )}
         </div>
       )}
       <ConfirmDialog
@@ -348,13 +408,13 @@ function BookingDetailDrawer({ booking, onClose, onCancelled, onRefunded }: { bo
       >
         {refundError && <p style={{ color: colors.danger, fontSize: 13 }}>{refundError}</p>}
       </ConfirmDialog>
-    </Drawer>
+    </Modal>
   );
 }
 
 // `centreId`/`clubId` (Host Manage spec §8) narrow this to one listing's own
 // Bookings sub-tab, reusing every bit of dashboard-wide behaviour (filters,
-// bulk actions, drawer, timeline, resend, registration cancel) instead of a
+// bulk actions, detail popup, timeline, resend, registration cancel) instead of a
 // second copy — a centre has no registrations and a club has no hall
 // bookings, so whichever table doesn't apply to the given scope is hidden.
 export function BookingsTab({ centreId, clubId }: { centreId?: string; clubId?: string } = {}) {
@@ -368,6 +428,7 @@ export function BookingsTab({ centreId, clubId }: { centreId?: string; clubId?: 
   const [search, setSearch] = useState("");
 
   const [checkedInRefs, setCheckedInRefs] = useState<Set<string>>(new Set());
+  const [noShowRefs, setNoShowRefs] = useState<Set<string>>(new Set());
   const [selectedBookings, setSelectedBookings] = useState<Set<string>>(new Set());
   const [selectedRegistrations, setSelectedRegistrations] = useState<Set<string>>(new Set());
   const [bulkCancelTarget, setBulkCancelTarget] = useState<{ kind: "booking" | "registration"; refs: string[] } | null>(null);
@@ -380,9 +441,32 @@ export function BookingsTab({ centreId, clubId }: { centreId?: string; clubId?: 
   const showBookings = !clubId;
   const showRegistrations = !centreId;
 
+  // Preload recorded attendance (Release 3) so check-ins and no-shows from
+  // an earlier visit or the QR scanner show up, instead of an empty state.
+  const preloadAttendance = (kind: "booking" | "registration", rows: { ref: string; attendance?: string | null }[]) => {
+    setCheckedInRefs((prev) => {
+      const next = new Set(prev);
+      rows.forEach((r) => (r.attendance === "present" || r.attendance === "late") && next.add(`${kind}:${r.ref}`));
+      return next;
+    });
+    setNoShowRefs((prev) => {
+      const next = new Set(prev);
+      rows.forEach((r) => r.attendance === "no_show" && next.add(`${kind}:${r.ref}`));
+      return next;
+    });
+  };
+
   useEffect(() => {
-    if (showBookings) fetchVendorBookings(centreId).then(setBookings);
-    if (showRegistrations) fetchVendorRegistrations(clubId).then(setRegistrations);
+    if (showBookings)
+      fetchVendorBookings(centreId).then((rows) => {
+        setBookings(rows);
+        preloadAttendance("booking", rows);
+      });
+    if (showRegistrations)
+      fetchVendorRegistrations(clubId).then((rows) => {
+        setRegistrations(rows);
+        preloadAttendance("registration", rows);
+      });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [centreId, clubId]);
 
@@ -425,6 +509,19 @@ export function BookingsTab({ centreId, clubId }: { centreId?: string; clubId?: 
 
   const markCheckedIn = (kind: "booking" | "registration", reference: string) => {
     setCheckedInRefs((prev) => new Set(prev).add(`${kind}:${reference}`));
+    setNoShowRefs((prev) => {
+      const next = new Set(prev);
+      next.delete(`${kind}:${reference}`);
+      return next;
+    });
+  };
+  const markNoShow = (kind: "booking" | "registration", reference: string) => {
+    setNoShowRefs((prev) => new Set(prev).add(`${kind}:${reference}`));
+    setCheckedInRefs((prev) => {
+      const next = new Set(prev);
+      next.delete(`${kind}:${reference}`);
+      return next;
+    });
   };
 
   const toggleSelected = (set: React.Dispatch<React.SetStateAction<Set<string>>>, ref: string) => {
@@ -500,12 +597,12 @@ export function BookingsTab({ centreId, clubId }: { centreId?: string; clubId?: 
 
   // Vendor Experience Polish — mobile card fallback for the bookings table
   // below (`.hide-mobile`/`.mobile-cards`, see index.css). Tapping a card
-  // opens the same detail Drawer the desktop row does — that's the "primary
+  // opens the same detail popup the desktop row does — that's the "primary
   // contextual action" plus every secondary action (resend/refund/cancel/
   // check-in) in one place, so this doesn't need its own "•••" menu.
   // Bulk multi-select isn't carried into the card view (harder to hit
   // targets reliably on a phone, and every action is one tap away in the
-  // drawer regardless) — desktop/tablet keep it via the table.
+  // popup regardless) — desktop/tablet keep it via the table.
   const bookingCard = (b: VendorBookingRow) => (
     <Card key={b.ref} onClick={() => setOpenRef(b.ref)} style={{ cursor: "pointer", opacity: b.status === "cancelled" ? 0.55 : 1 }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 8 }}>
@@ -533,7 +630,7 @@ export function BookingsTab({ centreId, clubId }: { centreId?: string; clubId?: 
   );
 
   // Vendor Experience Polish — mobile card fallback for the registrations
-  // table below. Registrations have no detail Drawer (unlike bookings), so
+  // table below. Registrations have no detail popup (unlike bookings), so
   // every action stays visible on the card itself rather than being tucked
   // behind a "•••" that would hide the only way to reach it.
   const registrationCard = (r: MyRegistration & { email: string; phone: string }) => (
@@ -561,7 +658,15 @@ export function BookingsTab({ centreId, clubId }: { centreId?: string; clubId?: 
           )}
           {r.status !== "cancelled" && (
             <>
-              <CheckInButton kind="registration" reference={r.ref} checkedIn={checkedInRefs.has(`registration:${r.ref}`)} onChecked={(ref) => markCheckedIn("registration", ref)} />
+              <CheckInButton
+                kind="registration"
+                reference={r.ref}
+                checkedIn={checkedInRefs.has(`registration:${r.ref}`)}
+                noShow={noShowRefs.has(`registration:${r.ref}`)}
+                canMarkNoShow
+                onChecked={(ref) => markCheckedIn("registration", ref)}
+                onNoShow={(ref) => markNoShow("registration", ref)}
+              />
               <ResendConfirmationButton onResend={() => resendRegistrationConfirmation(r.ref).then(() => {})} />
               {r.paymentStatus === "paid" && r.hasStripePayment && (
                 <button
@@ -655,7 +760,15 @@ export function BookingsTab({ centreId, clubId }: { centreId?: string; clubId?: 
                           {b.status === "cancelled" ? (
                             <span style={{ fontSize: 11, fontWeight: 700, color: colors.danger, background: colors.dangerBg, borderRadius: radius.pill, padding: "2px 8px" }}>Cancelled</span>
                           ) : (
-                            <CheckInButton kind="booking" reference={b.ref} checkedIn={checkedInRefs.has(`booking:${b.ref}`)} onChecked={(ref) => markCheckedIn("booking", ref)} />
+                            <CheckInButton
+                              kind="booking"
+                              reference={b.ref}
+                              checkedIn={checkedInRefs.has(`booking:${b.ref}`)}
+                              noShow={noShowRefs.has(`booking:${b.ref}`)}
+                              canMarkNoShow={b.date <= today}
+                              onChecked={(ref) => markCheckedIn("booking", ref)}
+                              onNoShow={(ref) => markNoShow("booking", ref)}
+                            />
                           )}
                           {b.paymentStatus === "refunded" && (
                             <span style={{ fontSize: 11, fontWeight: 700, color: colors.muted, background: colors.panel, borderRadius: radius.pill, padding: "2px 8px" }}>Refunded</span>
@@ -671,7 +784,7 @@ export function BookingsTab({ centreId, clubId }: { centreId?: string; clubId?: 
         )}
       </Card>
       )}
-      {showBookings && <BookingDetailDrawer booking={openBooking} onClose={() => setOpenRef(null)} onCancelled={handleCancelled} onRefunded={handleRefunded} />}
+      {showBookings && <BookingDetailModal booking={openBooking} onClose={() => setOpenRef(null)} onCancelled={handleCancelled} onRefunded={handleRefunded} />}
       {showRegistrations && (
       <Card>
         <h4 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 16, margin: "0 0 14px" }}>Club registrations</h4>
@@ -719,7 +832,15 @@ export function BookingsTab({ centreId, clubId }: { centreId?: string; clubId?: 
                           {r.status === "cancelled" ? (
                             <span style={{ fontSize: 11, fontWeight: 700, color: colors.danger, background: colors.dangerBg, borderRadius: radius.pill, padding: "2px 8px" }}>Cancelled</span>
                           ) : (
-                            <CheckInButton kind="registration" reference={r.ref} checkedIn={checkedInRefs.has(`registration:${r.ref}`)} onChecked={(ref) => markCheckedIn("registration", ref)} />
+                            <CheckInButton
+                kind="registration"
+                reference={r.ref}
+                checkedIn={checkedInRefs.has(`registration:${r.ref}`)}
+                noShow={noShowRefs.has(`registration:${r.ref}`)}
+                canMarkNoShow
+                onChecked={(ref) => markCheckedIn("registration", ref)}
+                onNoShow={(ref) => markNoShow("registration", ref)}
+              />
                           )}
                           {r.paymentStatus === "refunded" && (
                             <span style={{ fontSize: 11, fontWeight: 700, color: colors.muted, background: colors.panel, borderRadius: radius.pill, padding: "2px 8px" }}>Refunded</span>

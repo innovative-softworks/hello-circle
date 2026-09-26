@@ -1,9 +1,11 @@
 import { useEffect, useState } from "react";
+import { useToast } from "../components/Toast";
+import { ParticipationBlock } from "../components/ParticipationBlock";
 import { useNavigate, useParams } from "react-router-dom";
 import { checkInGame, confirmGameAttendance, fetchGame } from "../api";
 import { BallIcon, CalendarIcon, CheckIcon, HeartIcon, UsersIcon } from "../components/icons";
+import { ListingChatButton } from "../components/ListingChats";
 import { BackLink } from "../components/BackLink";
-import { ChatPanel } from "../components/ChatPanel";
 import { GameHostCard } from "../components/GameHostCard";
 import { GameJoinCard, MobileJoinBar } from "../components/GameJoinCard";
 import { GameLocationCard } from "../components/GameLocationCard";
@@ -14,6 +16,7 @@ import { IntentCaptureForm } from "../components/IntentCaptureForm";
 import { PageTitle } from "../components/PageTitle";
 import { Photo } from "../components/Photo";
 import { PostActivityFeedback } from "../components/PostActivityFeedback";
+import { IcebreakerCard } from "../components/IcebreakerCard";
 import { Reviews } from "../components/Reviews";
 import { Button, Card, PageSpinner } from "../components/ui";
 import { isFavorite, toggleFavorite } from "../favorites";
@@ -83,6 +86,8 @@ function GoodToKnow({ game }: { game: Game }) {
   if (game.indoorOutdoor) fields.push({ label: "Setting", value: capitalize(game.indoorOutdoor) });
   if (game.minAge) fields.push({ label: "Age", value: `${game.minAge}+` });
   if (game.equipmentNeeded) fields.push({ label: "Equipment", value: game.equipmentNeeded });
+  if (game.experienceRequired) fields.push({ label: "Experience", value: game.experienceRequired });
+  if (game.accessibilityInfo) fields.push({ label: "Accessibility", value: game.accessibilityInfo });
 
   return (
     <Card style={{ marginTop: 16 }}>
@@ -121,6 +126,9 @@ export function GameDetail() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
   const [saved, setSaved] = useState(false);
+  const toast = useToast();
+  // Bumped when the host shares an icebreaker, so GameUpdates refetches.
+  const [updatesKey, setUpdatesKey] = useState(0);
 
   // Deliberately doesn't flip `loading` back to true on every call — this
   // also runs as the onRefresh() callback after joining/leaving/cancelling
@@ -154,7 +162,7 @@ export function GameDetail() {
       }
     }
     await navigator.clipboard.writeText(url);
-    alert("Link copied to clipboard");
+    toast.success("Link copied");
   };
 
   if (loading) return <PageSpinner />;
@@ -194,6 +202,7 @@ export function GameDetail() {
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 18, flexWrap: "wrap", gap: 12 }}>
           <BackLink onClick={() => navigate("/games")} marginBottom={0}>All sessions</BackLink>
           <div style={{ display: "flex", gap: 10 }}>
+            <ListingChatButton scopeType="game" listingId={game.id} style={outlineButtonStyle} refreshKey={game.joinedByMe} />
             <button onClick={handleShare} style={outlineButtonStyle}>Share</button>
             <button onClick={() => setSaved(toggleFavorite("game", game.id))} style={{ ...outlineButtonStyle, color: saved ? colors.orange : colors.text }}>
               <HeartIcon size={14} filled={saved} /> {saved ? "Saved" : "Save"}
@@ -273,6 +282,7 @@ export function GameDetail() {
             )}
 
             <QuickAttributes game={game} />
+            <ParticipationBlock attributes={game.participationAttributes} going={cancelled ? 0 : game.joined} firstTimers={game.firstTimerCount} />
 
             {game.bookingRef && (
               <div style={{ background: colors.panel, color: colors.muted, borderRadius: 12, padding: "10px 14px", fontSize: 13, margin: "16px 0" }}>
@@ -321,7 +331,8 @@ export function GameDetail() {
             <GameParticipants game={game} />
             <GameHostCard game={game} />
             <GameLocationCard game={game} />
-            <GameUpdates game={game} isHost={isHost} />
+            {isHost && !cancelled && !isPast && <IcebreakerCard game={game} onShared={() => setUpdatesKey((k) => k + 1)} />}
+            <GameUpdates key={updatesKey} game={game} isHost={isHost} />
             <GameRelated game={game} />
           </div>
 
@@ -396,11 +407,6 @@ export function GameDetail() {
             </Card>
           )}
 
-          {resident && (isHost || game.joinedByMe) && (
-            <div style={{ marginTop: 32 }}>
-              <ChatPanel scopeType="game" scopeId={game.id} residentId={resident.id} />
-            </div>
-          )}
         </div>
       </section>
 

@@ -6,6 +6,7 @@ import multer from "multer";
 import { hashPassword, verifyPassword } from "../auth.js";
 import { dataDir } from "../dataDir.js";
 import { db } from "../db/index.js";
+import { normalizeAvailability, normalizeGoals } from "../participationVocab.js";
 import { getRoutineSuggestions, listResidentParticipation, reviewStats } from "../db/queries.js";
 import { irelandTodayIso } from "../irelandTime.js";
 import { MOOD_KEYWORDS } from "./discover.js";
@@ -347,6 +348,7 @@ residentsRouter.get("/me", async (req, res) => {
               host_status as hostStatus, host_bio as hostBio, host_phone as hostPhone,
               goals, pref_group_size as prefGroupSize, pref_beginner_friendly as prefBeginnerFriendly,
               pref_solo_friendly as prefSoloFriendly, pref_budget as prefBudget,
+              pref_first_timer as prefFirstTimer, pref_family as prefFamily, area_tenure as areaTenure,
               hide_from_familiar_count as hideFromFamiliarCount, discoverable_by_name as discoverableByName,
               (password_hash IS NOT NULL) as hasPassword, (email_verified_at IS NOT NULL) as emailVerified,
               terms_accepted_at as termsAcceptedAt, terms_version as termsVersion
@@ -367,6 +369,9 @@ residentsRouter.get("/me", async (req, res) => {
     prefBeginnerFriendly: number;
     prefSoloFriendly: number;
     prefBudget: string;
+    prefFirstTimer: number;
+    prefFamily: number;
+    areaTenure: string;
     hideFromFamiliarCount: number;
     discoverableByName: number;
     hasPassword: number;
@@ -391,6 +396,9 @@ residentsRouter.get("/me", async (req, res) => {
       prefBeginnerFriendly: !!row.prefBeginnerFriendly,
       prefSoloFriendly: !!row.prefSoloFriendly,
       prefBudget: row.prefBudget,
+      prefFirstTimer: !!row.prefFirstTimer,
+      prefFamily: !!row.prefFamily,
+      areaTenure: row.areaTenure || "",
       hideFromFamiliarCount: !!row.hideFromFamiliarCount,
       discoverableByName: !!row.discoverableByName,
       hasPassword: !!row.hasPassword,
@@ -816,8 +824,8 @@ residentsRouter.delete("/me/search-alerts/:id", requireResident, async (req, res
 // rejecting the whole request) matches the rest of onboarding's "never gates
 // anything" behaviour — an unrecognized value is just dropped.
 const INTEREST_OPTIONS = new Set(["Badminton", "Football", "Swimming", "Fitness", "Yoga", "Walking", "Kids activities", "Arts", "Learning", "Community events", "Outdoor", "Wellbeing"]);
-const AVAILABILITY_OPTIONS = new Set(["Weekday mornings", "Weekday afternoons", "Weekday evenings", "Saturday", "Sunday"]);
-const GOAL_OPTIONS = new Set(["Become more active", "Meet new people", "Find a hobby", "Get outdoors", "Try something new", "Do more with family", "Build a routine", "Explore my area"]);
+// Goals and availability moved to participationVocab.ts in Release 2 (new
+// vocabulary, legacy values still accepted and converted for one release).
 
 function sanitizeOptions(values: string[] | undefined, allowed: Set<string>): string[] | undefined {
   return values ? values.filter((v) => allowed.has(v)) : undefined;
@@ -828,7 +836,7 @@ interface OnboardingBody {
   searchRadiusKm?: number;
   interests?: string[];
   availability?: string[];
-  /** IA spec §2 — "what would make life better right now", multi-select. */
+  /** "What are you looking for right now?" — up to 3 (participationVocab.ts). */
   goals?: string[];
   /** IA spec §2's "participation comfort" step — travel distance and
    * preferred times already exist above (searchRadiusKm/availability), so
@@ -839,13 +847,21 @@ interface OnboardingBody {
   prefBeginnerFriendly?: boolean;
   prefSoloFriendly?: boolean;
   prefBudget?: string;
+  prefFirstTimer?: boolean;
+  prefFamily?: boolean;
+  /** Release 5 — "Are you new to the area?" ('' clears). */
+  areaTenure?: string;
 }
+
+const AREA_TENURES = ["new", "settled", "exploring", ""];
+
+const bit = (v: boolean | undefined) => (v === undefined ? undefined : v ? 1 : 0);
 
 residentsRouter.put("/me/onboarding", requireResident, async (req, res) => {
   const b = req.body as OnboardingBody;
   const interests = sanitizeOptions(b.interests, INTEREST_OPTIONS);
-  const availability = sanitizeOptions(b.availability, AVAILABILITY_OPTIONS);
-  const goals = sanitizeOptions(b.goals, GOAL_OPTIONS);
+  const availability = Array.isArray(b.availability) ? normalizeAvailability(b.availability) : undefined;
+  const goals = Array.isArray(b.goals) ? normalizeGoals(b.goals) : undefined;
   await db
     .prepare(
       `UPDATE residents SET
@@ -858,6 +874,9 @@ residentsRouter.put("/me/onboarding", requireResident, async (req, res) => {
         pref_beginner_friendly = COALESCE(?, pref_beginner_friendly),
         pref_solo_friendly = COALESCE(?, pref_solo_friendly),
         pref_budget = COALESCE(?, pref_budget),
+        pref_first_timer = COALESCE(?, pref_first_timer),
+        pref_family = COALESCE(?, pref_family),
+        area_tenure = COALESCE(?, area_tenure),
         onboarding_completed = 1
        WHERE id = ?`
     )
@@ -865,14 +884,34 @@ residentsRouter.put("/me/onboarding", requireResident, async (req, res) => {
       b.homeCounty,
       b.searchRadiusKm,
       interests ? interests.join(",") : undefined,
+      // An explicitly emptied list is stored as '' (cleared), not skipped —
+      // COALESCE only skips undefined/NULL.
       availability ? availability.join(",") : undefined,
       goals ? goals.join(",") : undefined,
       b.prefGroupSize,
-      b.prefBeginnerFriendly === undefined ? undefined : b.prefBeginnerFriendly ? 1 : 0,
-      b.prefSoloFriendly === undefined ? undefined : b.prefSoloFriendly ? 1 : 0,
+      bit(b.prefBeginnerFriendly),
+      bit(b.prefSoloFriendly),
       b.prefBudget,
+      bit(b.prefFirstTimer),
+      bit(b.prefFamily),
+      b.areaTenure !== undefined && AREA_TENURES.includes(b.areaTenure) ? b.areaTenure : undefined,
       req.resident!.id
     );
+  res.json({ ok: true });
+});
+
+// "Clear my preferences" (Release 2) — preference data must be deletable,
+// not just editable. Resets every discovery/comfort signal to "no
+// preference"; leaves account, host profile, privacy and notification
+// settings alone (those aren't preferences about what to recommend).
+residentsRouter.delete("/me/preferences", requireResident, async (req, res) => {
+  await db
+    .prepare(
+      `UPDATE residents SET interests = NULL, availability = NULL, goals = NULL, accessibility_prefs = NULL,
+         pref_group_size = '', pref_budget = '', pref_beginner_friendly = 0, pref_solo_friendly = 0, pref_first_timer = 0, pref_family = 0, area_tenure = ''
+       WHERE id = ?`
+    )
+    .run(req.resident!.id);
   res.json({ ok: true });
 });
 

@@ -1,4 +1,6 @@
 import crypto from "node:crypto";
+import { logEvent } from "../analytics.js";
+import { matchProgramSupply } from "../participationIntents.js";
 import { Router } from "express";
 import { assertPlatformRole } from "../auth.js";
 import { writeAudit } from "../audit.js";
@@ -88,7 +90,9 @@ vendorProgramsRouter.post("/programs", async (req, res) => {
       b.guardianRules ?? "",
       b.safeguardingInfo ?? ""
     );
-  res.status(201).json({ id });
+const fromDemand = (req.body as { fromDemand?: string }).fromDemand;
+  if (fromDemand) void logEvent("host_created_from_demand", { metadata: { kind: "program", id, clusterKey: fromDemand, userId: req.user!.id } });
+    res.status(201).json({ id });
 });
 
 /** Ownership + which role a mutation on this program needs, in one lookup —
@@ -122,6 +126,7 @@ vendorProgramsRouter.put("/programs/:id", async (req, res) => {
   if (b.status !== undefined && !PROGRAM_STATUSES.includes(b.status)) {
     return res.status(400).json({ error: `status must be one of: ${PROGRAM_STATUSES.join(", ")}` });
   }
+  const before = (await db.prepare(`SELECT status FROM programs WHERE id = ?`).get(req.params.id)) as { status: string } | undefined;
   await db
     .prepare(
       `UPDATE programs SET title = COALESCE(?, title), description = COALESCE(?, description), age_range = COALESCE(?, age_range),
@@ -149,6 +154,8 @@ vendorProgramsRouter.put("/programs/:id", async (req, res) => {
       b.capacity === undefined ? null : b.capacity,
       req.params.id
     );
+  // Release 6 — newly published supply closes the demand loop.
+  if (b.status === "published" && before?.status !== "published") await matchProgramSupply(req.params.id);
   res.json({ ok: true });
 });
 

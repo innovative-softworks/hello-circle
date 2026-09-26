@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { matchClubSessionSupply } from "../participationIntents.js";
 import { Router } from "express";
 import { attachVendorIds, requirePlatformRole, requireVendor } from "../auth.js";
 import { db } from "../db/index.js";
@@ -68,6 +69,8 @@ clubSessionsRouter.post("/", requireVendor, attachVendorIds, requirePlatformRole
   await db
     .prepare(`INSERT INTO club_sessions (id, club_id, day_of_week, time, capacity, label, instructor_name, image_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
     .run(id, b.clubId, b.dayOfWeek, b.time, b.capacity ?? null, b.label ?? "", b.instructorName ?? "", b.imageUrl ?? "");
+  const day = ["Sundays", "Mondays", "Tuesdays", "Wednesdays", "Thursdays", "Fridays", "Saturdays"][b.dayOfWeek] ?? "";
+  await matchClubSessionSupply(b.clubId, b.label ?? "", `${day} · ${b.time}`); // Release 6
   res.status(201).json({ id });
 });
 

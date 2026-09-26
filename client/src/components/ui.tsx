@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
+import { Fragment, useEffect, useId, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { Link, useNavigate } from "react-router-dom";
 import { CheckIcon, CloseIcon, StarIcon } from "./icons";
@@ -998,6 +998,8 @@ export const thStyle: CSSProperties = {
 export const tdStyle: CSSProperties = { padding: "10px", borderBottom: `1px solid ${colors.border}`, verticalAlign: "middle" };
 
 // --- Drawer --------------------------------------------------------------
+// Now reserved for phone-only edge panels (filter sheets, the tab bar's
+// Explore/Start menus) — everything else uses Modal below, a centred popup.
 // Generalizes PhotoGallery.tsx's Lightbox overlay mechanics (portal to
 // document.body, fixed scrim, Escape/backdrop-click to close) into a
 // reusable slide-over panel for entity detail views — the list behind it
@@ -1184,6 +1186,254 @@ export function Drawer({
   );
 }
 
+// --- Modal ---------------------------------------------------------------
+// The default overlay for a focused task or detail view — a centred popup
+// (booking/enrol forms, share/invite, participant lists, check-in, admin
+// detail). Same props as Drawer, so switching between them is a one-word
+// change. Drawer is kept only for phone-only panels that belong at the edge
+// of the screen (filter sheets, the tab bar's menus). Same scrim, Escape and
+// backdrop-click behaviour as Drawer; z-index matches Drawer's so a
+// ConfirmDialog (modal layer) still opens above it. On a phone it's the
+// same centred card with a 16px gutter, scrolling inside if it's tall.
+
+const MODAL_EXIT_MS = 180;
+const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+export function Modal({
+  open,
+  onClose,
+  title,
+  subtitle,
+  children,
+  toolbar,
+  footer,
+  size = "default",
+  confirmClose,
+}: {
+  open: boolean;
+  onClose: () => void;
+  title: string;
+  /** One line of context under the title (a date, a venue, a price). */
+  subtitle?: ReactNode;
+  children: ReactNode;
+  /** Pinned between the header and the scrolling body — e.g. a search box or
+   * a progress count that must stay visible while a long list scrolls. */
+  toolbar?: ReactNode;
+  /** Pinned below the scrolling body — put the primary action here so it's
+   * always visible, however long the content is. */
+  footer?: ReactNode;
+  /** "wide" for multi-field forms or long lists; "default" for compact content. */
+  size?: "default" | "wide";
+  /** When set (e.g. a half-filled form), closing via Escape, the backdrop or
+   * the close button asks first instead of throwing the input away. */
+  confirmClose?: { title: string; message: string };
+}) {
+  const [render, setRender] = useState(open);
+  const [closing, setClosing] = useState(false);
+  const [askingToClose, setAskingToClose] = useState(false);
+  const titleId = useId();
+  const panelRef = useRef<HTMLDivElement>(null);
+  const restoreFocusRef = useRef<HTMLElement | null>(null);
+  // A click only counts as "outside" if it also *started* outside — so
+  // selecting text in a field and releasing over the backdrop doesn't close.
+  const pressStartedOnBackdrop = useRef(false);
+
+  const requestClose = () => {
+    if (confirmClose) setAskingToClose(true);
+    else onClose();
+  };
+
+  useEffect(() => {
+    if (open) {
+      setRender(true);
+      setClosing(false);
+      return;
+    }
+    setAskingToClose(false);
+    if (!render) return;
+    setClosing(true);
+    const t = window.setTimeout(() => {
+      setRender(false);
+      setClosing(false);
+    }, MODAL_EXIT_MS);
+    return () => window.clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+
+  // Focus: move into the popup on open (first field, else the close
+  // button), keep Tab inside it, and hand focus back to whatever opened it.
+  useEffect(() => {
+    if (!open) return;
+    restoreFocusRef.current = document.activeElement as HTMLElement | null;
+    const t = window.setTimeout(() => {
+      const panel = panelRef.current;
+      if (!panel) return;
+      // On a touchscreen, focusing a field would pop the keyboard straight
+      // away — focus the dialog itself there (screen readers still land in it).
+      const touch = window.matchMedia("(pointer: coarse)").matches;
+      const firstField = touch
+        ? null
+        : panel.querySelector<HTMLElement>("[data-modal-body] input:not([disabled]), [data-modal-body] select:not([disabled]), [data-modal-body] textarea:not([disabled])");
+      (firstField ?? panel).focus();
+    }, 30);
+    return () => {
+      window.clearTimeout(t);
+      restoreFocusRef.current?.focus?.();
+    };
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        // A ConfirmDialog opened from inside this popup (or the discard
+        // prompt) handles its own Escape — don't close the popup under it.
+        if (askingToClose || document.querySelector("[data-confirm-dialog]")) return;
+        e.stopPropagation();
+        requestClose();
+        return;
+      }
+      if (e.key !== "Tab" || !panelRef.current) return;
+      const items = Array.from(panelRef.current.querySelectorAll<HTMLElement>(FOCUSABLE)).filter((el) => el.offsetParent !== null);
+      if (!items.length) return;
+      const first = items[0];
+      const last = items[items.length - 1];
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    // Stop the page behind scrolling, and pad for the scrollbar that
+    // disappears so the page doesn't shift sideways on desktop.
+    const prevOverflow = document.body.style.overflow;
+    const prevPadding = document.body.style.paddingRight;
+    const scrollbar = window.innerWidth - document.documentElement.clientWidth;
+    document.body.style.overflow = "hidden";
+    if (scrollbar > 0) document.body.style.paddingRight = `${scrollbar}px`;
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      document.body.style.overflow = prevOverflow;
+      document.body.style.paddingRight = prevPadding;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, onClose, askingToClose, confirmClose]);
+
+  if (!render) return null;
+
+  return createPortal(
+    <div
+      className={closing ? "backdrop-out" : "backdrop-in"}
+      style={{
+        position: "fixed",
+        inset: 0,
+        zIndex: zIndex.drawer,
+        background: "rgba(20,22,20,.45)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: 16,
+      }}
+      onMouseDown={(e) => {
+        pressStartedOnBackdrop.current = e.target === e.currentTarget;
+      }}
+      onClick={(e) => {
+        if (e.target === e.currentTarget && pressStartedOnBackdrop.current) requestClose();
+        pressStartedOnBackdrop.current = false;
+      }}
+    >
+      <div
+        ref={panelRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        tabIndex={-1}
+        className={closing ? "modal-out" : "modal-in"}
+        style={{
+          width: size === "wide" ? "min(680px, 100%)" : "min(480px, 100%)",
+          maxHeight: "calc(100dvh - 32px)",
+          background: colors.bg,
+          borderRadius: radius.card,
+          boxShadow: "0 24px 64px rgba(20,22,20,.28)",
+          display: "flex",
+          flexDirection: "column",
+          overflow: "hidden",
+          outline: "none",
+        }}
+      >
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "flex-start",
+            gap: 12,
+            padding: "16px 20px",
+            borderBottom: `1px solid ${colors.border}`,
+            flex: "none",
+          }}
+        >
+          <div style={{ minWidth: 0 }}>
+            <div
+              id={titleId}
+              style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 17, lineHeight: 1.3, overflow: "hidden", textOverflow: "ellipsis", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}
+            >
+              {title}
+            </div>
+            {subtitle && <div style={{ fontSize: 13, color: colors.mutedLight, marginTop: 3 }}>{subtitle}</div>}
+          </div>
+          <button
+            data-modal-close
+            onClick={requestClose}
+            aria-label="Close"
+            style={{
+              background: colors.panel,
+              border: "none",
+              borderRadius: "50%",
+              width: 36,
+              height: 36,
+              color: colors.text,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              cursor: "pointer",
+              flex: "none",
+            }}
+          >
+            <CloseIcon size={16} />
+          </button>
+        </div>
+        {toolbar && <div style={{ flex: "none", padding: "14px 20px", borderBottom: `1px solid ${colors.border}` }}>{toolbar}</div>}
+        <div data-modal-body style={{ flex: 1, overflowY: "auto", padding: "20px", overscrollBehavior: "contain" }}>
+          {children}
+        </div>
+        {footer && (
+          <div style={{ flex: "none", padding: "14px 20px calc(14px + env(safe-area-inset-bottom, 0px))", borderTop: `1px solid ${colors.border}`, background: colors.surface }}>
+            {footer}
+          </div>
+        )}
+      </div>
+      {confirmClose && (
+        <ConfirmDialog
+          open={askingToClose}
+          title={confirmClose.title}
+          message={confirmClose.message}
+          confirmLabel="Discard"
+          cancelLabel="Keep editing"
+          onConfirm={() => {
+            setAskingToClose(false);
+            onClose();
+          }}
+          onCancel={() => setAskingToClose(false)}
+        />
+      )}
+    </div>,
+    document.body
+  );
+}
+
 // --- ConfirmDialog -------------------------------------------------------
 // A centered yes/no interrupt for destructive actions — distinct from Drawer
 // (a slide-over for detail/edit views), so it doesn't slide in and isn't
@@ -1235,6 +1485,9 @@ export function ConfirmDialog({
       onClick={onCancel}
     >
       <div
+        data-confirm-dialog
+        role="alertdialog"
+        aria-modal="true"
         className="pop-in"
         style={{ background: colors.surface, borderRadius: radius.card, padding: 24, maxWidth: 380, width: "100%", boxShadow: "0 20px 60px rgba(20,22,20,.25)" }}
         onClick={(e) => e.stopPropagation()}

@@ -1,5 +1,5 @@
 import { getClientId } from "../clientId";
-import type { BookingConfirmation, Centre, Club, DiscoverFeed, DiscoverItem, Experience, ExperienceBookingConfirmation, ExperienceSearchResult, IntentCount, LocalMomentumSignal, MapMarker, MapMarkerType, MyBooking, MyExperienceBooking, MyIntent, MyProgramEnrollment, MyRegistration, Program, ProgramEnrollmentConfirmation, ProviderProfile, RegistrationConfirmation, Review, SearchParsed, SearchResult } from "../types";
+import type { BookingConfirmation, Centre, Club, ExperienceKind, ProgramSummary, DiscoverFeed, DiscoverItem, ForYouSection, NewHereCircle, Experience, ExperienceBookingConfirmation, ExperienceSearchResult, IntentCount, LocalMomentumSignal, MapMarker, MapMarkerType, MyBooking, MyExperienceBooking, MyIntent, MyProgramEnrollment, MyRegistration, Program, ProgramEnrollmentConfirmation, ProviderProfile, RegistrationConfirmation, Review, SearchParsed, SearchResult } from "../types";
 import { downloadIcs, request } from "./core";
 
 // Guest-facing browsing + transactions — no account needed. Centres/clubs,
@@ -191,7 +191,12 @@ export function submitIntent(input: {
   notes?: string;
   name?: string;
   email?: string;
-}): Promise<{ id: string }> {
+  /** Release 6 — optional request details. */
+  preferredDays?: string[];
+  budgetMaxEuro?: number;
+  radiusKm?: number;
+  sourceQuery?: string;
+}): Promise<{ id: string; clusterKey?: string; label?: string }> {
   return request(`/intents`, { method: "POST", body: JSON.stringify(input) });
 }
 
@@ -390,6 +395,16 @@ export function fetchNextBestParticipation(): Promise<DiscoverItem[]> {
   return request(`/discover/next-best`);
 }
 
+/** Release 4 — personalised sections (empty for a signed-out visitor). */
+export function fetchForYou(): Promise<{ sections: ForYouSection[] }> {
+  return request(`/discover/for-you`);
+}
+
+/** Release 5 — "New here?" starter sections (empty unless signed in). */
+export function fetchNewHere(): Promise<{ sections: ForYouSection[]; circles: NewHereCircle[] }> {
+  return request(`/discover/new-here`);
+}
+
 // --- reviews -------------------------------------------------------------
 
 // Host & Activity reviews (master-prompt punch list #3) — same reviews
@@ -444,6 +459,15 @@ export function fetchPrograms(listingType: "centre" | "club", listingId: string)
   return request(`/programs?listingType=${listingType}&listingId=${encodeURIComponent(listingId)}`);
 }
 
+/** The /programs browse page — every published program with an upcoming session. */
+export function fetchProgramBrowse(county?: string, category?: string): Promise<ProgramSummary[]> {
+  const params = new URLSearchParams();
+  if (county && county !== "All") params.set("county", county);
+  if (category && category !== "All") params.set("category", category);
+  const qs = params.toString();
+  return request(`/programs${qs ? `?${qs}` : ""}`);
+}
+
 export function fetchProgram(id: string): Promise<Program> {
   return request(`/programs/${id}`);
 }
@@ -470,7 +494,7 @@ export function fetchProgramEnrollmentStatus(ref: string): Promise<ProgramEnroll
 
 // --- Adventures & Experiences (guest-facing browsing + booking) -----------
 
-export function fetchExperiences(kind?: "adventure" | "experience", county?: string): Promise<Experience[]> {
+export function fetchExperiences(kind?: ExperienceKind, county?: string): Promise<Experience[]> {
   const params = new URLSearchParams();
   if (kind) params.set("kind", kind);
   if (county && county !== "All") params.set("county", county);

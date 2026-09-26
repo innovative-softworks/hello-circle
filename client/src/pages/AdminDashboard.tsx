@@ -1,4 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
+import { useConfirm } from "../components/ConfirmProvider";
 import { useNavigate } from "react-router-dom";
 import {
   adminDeleteCentre,
@@ -57,11 +58,12 @@ import { useAuth } from "../AuthContext";
 import { vendorLoginHref } from "../authRedirect";
 import { ManageShell } from "../components/ManageShell";
 import { AwardIcon, BallIcon, BuildingIcon, CalendarIcon, CheckIcon, ClipboardIcon, EyeIcon, GridIcon, IdCardIcon, MailIcon, PhotoStackIcon, PinIcon, SearchIcon, StarIcon, TagIcon, TrendUpIcon, UsersIcon } from "../components/icons";
-import { Avatar, BadgedIcon, Button, ManageCard as Card, ConfirmDialog, DashboardTopPanel, Drawer, EmptyState, onActivateProps, PageSpinner, StarDisplay, KpiHero, KpiStrip, StatTile, StatusBadge, inputStyle, labelStyle, tableStyle, tdStyle, thStyle, type ListingStatus } from "../components/ui";
+import { Avatar, BadgedIcon, Button, ConfirmDialog, DashboardTopPanel, EmptyState, KpiHero, KpiStrip, ManageCard as Card, Modal, PageSpinner, StarDisplay, StatTile, StatusBadge, inputStyle, labelStyle, onActivateProps, tableStyle, tdStyle, thStyle, type ListingStatus } from "../components/ui";
 import { AdminMediaTab } from "../components/AdminMedia";
 import { DemandSignalsView, IntentClusterView } from "../components/DemandSignals";
 import { MarketplaceHealthView } from "../components/MarketplaceHealth";
 import { MarketConfig } from "../components/MarketConfig";
+import { RecommendationWeightsCard } from "../components/RecommendationWeightsCard";
 import { getMediaUrl } from "../media";
 import { colors, fonts, radius } from "../theme";
 import { FEATURE_FLAG_KEYS, FEATURE_FLAG_LABELS, PLATFORM_ROLE_LABELS } from "../types";
@@ -91,7 +93,7 @@ function vendorTypePill(vendorType: "community" | "sports" | null) {
   );
 }
 
-function VendorDrawer({
+function VendorDetailModal({
   vendor,
   vendors,
   organisations,
@@ -142,7 +144,24 @@ function VendorDrawer({
   ];
 
   return (
-    <Drawer open onClose={onClose} title={vendor.name}>
+    <Modal
+      open
+      onClose={onClose}
+      title={vendor.name}
+      subtitle={vendor.email}
+      size="wide"
+      footer={
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 10, flexWrap: "wrap" }}>
+          <div style={{ display: "flex", gap: 8 }}>
+            {vendor.status !== "suspended" && <Button variant="ghost" onClick={() => setConfirmingSuspend(true)}>Suspend</Button>}
+            {vendor.status === "suspended" && <Button variant="ghost" onClick={() => setVendorStatus(vendor.id, "approved").then(onChanged)}>Reinstate</Button>}
+            {vendor.status !== "approved" && vendor.status !== "suspended" && (
+              <Button variant="dark" onClick={() => setVendorStatus(vendor.id, "approved").then(onChanged)}>Approve</Button>
+            )}
+          </div>
+        </div>
+      }
+    >
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 18 }}>
         <Avatar name={vendor.name} size={40} />
         <div>
@@ -150,7 +169,6 @@ function VendorDrawer({
             <StatusBadge status={vendor.status} />
             {vendorTypePill(vendor.vendorType)}
           </div>
-          <div style={{ fontSize: 12.5, color: colors.mutedLight, marginTop: 3 }}>{vendor.email}</div>
         </div>
       </div>
 
@@ -161,15 +179,6 @@ function VendorDrawer({
         </div>
       )}
       {vendor.description && <div style={{ fontSize: 12.5, color: colors.muted, marginBottom: 18 }}>{vendor.description}</div>}
-
-      <h5 style={{ fontFamily: fonts.display, fontSize: 12, fontWeight: 700, color: colors.muted, margin: "0 0 8px", textTransform: "uppercase", letterSpacing: ".03em" }}>
-        Account status
-      </h5>
-      <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
-        {vendor.status !== "approved" && <Button variant="dark" onClick={() => setVendorStatus(vendor.id, "approved").then(onChanged)}>Approve</Button>}
-        {vendor.status !== "suspended" && <Button variant="ghost" onClick={() => setConfirmingSuspend(true)}>Suspend</Button>}
-        {vendor.status === "suspended" && <Button variant="ghost" onClick={() => setVendorStatus(vendor.id, "approved").then(onChanged)}>Reinstate</Button>}
-      </div>
 
       <h5 style={{ fontFamily: fonts.display, fontSize: 12, fontWeight: 700, color: colors.muted, margin: "0 0 8px", textTransform: "uppercase", letterSpacing: ".03em" }}>
         Platform role &amp; tier
@@ -254,7 +263,7 @@ function VendorDrawer({
         onConfirm={() => { setConfirmingSuspend(false); setVendorStatus(vendor.id, "suspended").then(onChanged); }}
         onCancel={() => setConfirmingSuspend(false)}
       />
-    </Drawer>
+    </Modal>
   );
 }
 
@@ -304,7 +313,7 @@ function VendorsTab({
         </Card>
       ))}
       {vendors.length === 0 && <EmptyState icon={<UsersIcon size={26} />} title="No vendors yet" />}
-      <VendorDrawer
+      <VendorDetailModal
         vendor={openVendor}
         vendors={vendors}
         organisations={organisations}
@@ -570,7 +579,7 @@ function ListingRow({
       {/* Wrapper stops the click from bubbling to the Card's onClick={onOpen}
           — a React portal's events still bubble through the React tree
           (not the DOM tree), so without this, confirming here would also
-          open the drawer. Same pattern the sibling Approve/Reject div uses. */}
+          open the detail popup. Same pattern the sibling Approve/Reject div uses. */}
       <div onClick={(e) => e.stopPropagation()}>
         <ConfirmDialog
           open={confirmingReject}
@@ -589,7 +598,7 @@ function ListingRow({
   );
 }
 
-function ListingDrawer({
+function ListingDetailModal({
   item,
   type,
   organisations,
@@ -613,36 +622,44 @@ function ListingDrawer({
   const facts = listingFacts(item, type);
 
   return (
-    <Drawer open onClose={onClose} title={item.name}>
+    <Modal
+      open
+      onClose={onClose}
+      title={item.name}
+      subtitle={item.vendorEmail ? `${item.vendorName ? `${item.vendorName} · ` : ""}${item.vendorEmail}` : undefined}
+      size="wide"
+      footer={
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+            <button
+              onClick={() => setConfirmingDelete(true)}
+              style={{ background: "none", border: "none", color: colors.danger, fontWeight: 700, fontSize: 13, cursor: "pointer", padding: 0 }}
+            >
+              Delete listing
+            </button>
+            <div style={{ display: "flex", gap: 8 }}>
+              {item.status !== "rejected" && <Button variant="ghost" onClick={() => setConfirmingReject(true)}>Reject</Button>}
+              {item.status !== "approved" && (
+                <Button variant="dark" disabled={vendorNotApproved} onClick={() => setStatus(item.id, "approved").then(onChanged)}>
+                  Approve
+                </Button>
+              )}
+            </div>
+          </div>
+          {vendorNotApproved && item.status !== "approved" && (
+            <span style={{ fontSize: 11.5, color: colors.orangeDark, textAlign: "right" }}>Approve the vendor account first</span>
+          )}
+        </div>
+      }
+    >
       {item.image && <img src={getMediaUrl(item.image, "card")} alt="" style={{ width: "100%", height: 160, borderRadius: 12, objectFit: "cover", marginBottom: 16 }} />}
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
         <StatusBadge status={item.status as ListingStatus} />
       </div>
-      {item.vendorEmail && (
-        <div style={{ fontSize: 13, color: colors.mutedLight, marginBottom: 6 }}>
-          {item.vendorName ? `${item.vendorName} · ` : ""}{item.vendorEmail}
-        </div>
-      )}
       {facts.length > 0 && (
         <div style={{ fontSize: 13, color: colors.muted, marginBottom: 10 }}>{facts.join(" · ")}</div>
       )}
       {item.blurb && <div style={{ fontSize: 13, color: colors.muted, marginBottom: 20 }}>{item.blurb}</div>}
-
-      <h5 style={{ fontFamily: fonts.display, fontSize: 12, fontWeight: 700, color: colors.muted, margin: "0 0 8px", textTransform: "uppercase", letterSpacing: ".03em" }}>
-        Moderation
-      </h5>
-      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 4 }}>
-        {item.status !== "approved" && (
-          <Button variant="dark" disabled={vendorNotApproved} onClick={() => setStatus(item.id, "approved").then(onChanged)}>
-            Approve
-          </Button>
-        )}
-        {item.status !== "rejected" && <Button variant="ghost" onClick={() => setConfirmingReject(true)}>Reject</Button>}
-        <Button variant="danger" onClick={() => setConfirmingDelete(true)}>Delete</Button>
-      </div>
-      {vendorNotApproved && (
-        <span style={{ fontSize: 11, color: colors.orangeDark, display: "block", marginBottom: 20 }}>Approve the vendor account first</span>
-      )}
 
       {organisations.length > 0 && (
         <>
@@ -683,7 +700,7 @@ function ListingDrawer({
         onConfirm={() => { setConfirmingReject(false); setStatus(item.id, "rejected").then(onChanged); }}
         onCancel={() => setConfirmingReject(false)}
       />
-    </Drawer>
+    </Modal>
   );
 }
 
@@ -718,8 +735,8 @@ function ListingsTab({
   }, [openRequest, onOpenRequestHandled]);
 
   const openItem = open ? (open.type === "centre" ? centres : clubs).find((c) => c.id === open.id) ?? null : null;
-  const closeDrawer = () => setOpen(null);
-  const onChanged = () => { load(); closeDrawer(); };
+  const closeDetail = () => setOpen(null);
+  const onChanged = () => { load(); closeDetail(); };
 
   return (
     <div className="fade-panel" style={{ display: "flex", flexDirection: "column", gap: 30 }}>
@@ -750,7 +767,7 @@ function ListingsTab({
         </div>
       </div>
       {open && (
-        <ListingDrawer item={openItem} type={open.type} organisations={organisations} onChanged={onChanged} onClose={closeDrawer} />
+        <ListingDetailModal item={openItem} type={open.type} organisations={organisations} onChanged={onChanged} onClose={closeDetail} />
       )}
     </div>
   );
@@ -1015,6 +1032,7 @@ function AuditTab() {
 // on save clears back to that fallback (DELETE, not an empty-string row).
 
 function NotificationTemplateCard({ t, onSaved }: { t: NotificationTemplateInfo; onSaved: () => void }) {
+  const confirm = useConfirm();
   const [subject, setSubject] = useState(t.subjectTemplate ?? "");
   const [title, setTitle] = useState(t.titleTemplate ?? "");
   const [body, setBody] = useState(t.bodyTemplate ?? "");
@@ -1036,6 +1054,13 @@ function NotificationTemplateCard({ t, onSaved }: { t: NotificationTemplateInfo;
   };
 
   const reset = async () => {
+    const ok = await confirm({
+      title: "Reset to the default wording?",
+      message: "Your custom subject, title and body for this notification will be discarded.",
+      confirmLabel: "Reset",
+      tone: "danger",
+    });
+    if (!ok) return;
     await resetNotificationTemplate(t.key);
     setSubject("");
     setTitle("");
@@ -1642,6 +1667,7 @@ function AdminMarketplaceHealthTab() {
   return (
     <div className="fade-panel" style={{ display: "flex", flexDirection: "column", gap: 20 }}>
       <MarketConfig />
+      <RecommendationWeightsCard />
       <MarketplaceHealthView data={data} referrals={referrals} funnel={funnel} />
     </div>
   );
@@ -1723,8 +1749,8 @@ export function AdminDashboard() {
   const navigate = useNavigate();
   const [tab, setTab] = useState<AdminTab>("overview");
   const [stats, setStats] = useState<AdminStats | null>(null);
-  // Lets VendorDrawer's listing links jump to the Listings tab with that
-  // listing's own drawer already open, instead of just switching tabs.
+  // Lets VendorDetailModal's listing links jump to the Listings tab with that
+  // listing's own detail popup already open, instead of just switching tabs.
   const [openListingRequest, setOpenListingRequest] = useState<{ type: "centre" | "club"; id: string } | null>(null);
   const [openVendorRequest, setOpenVendorRequest] = useState<string | null>(null);
 

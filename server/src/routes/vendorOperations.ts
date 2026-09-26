@@ -2,7 +2,9 @@ import { Router } from "express";
 import { assertPlatformRole, requirePlatformRole } from "../auth.js";
 import { writeAudit } from "../audit.js";
 import { issueStripeRefund } from "../checkoutService.js";
+import { logEvent } from "../analytics.js";
 import { db } from "../db/index.js";
+import { fromAttendanceStatus, HOST_ATTENDANCE_STATUSES } from "../attendanceState.js";
 import { sendMail } from "../email.js";
 import { notifyCancellation, notifyRefund, resendConfirmationEmail } from "../notifications.js";
 import { inClause, ownsCentre, ownsClub } from "./vendorHelpers.js";
@@ -32,7 +34,8 @@ vendorOperationsRouter.get("/bookings", async (req, res) => {
       `SELECT b.ref, b.date, b.time, b.duration, b.event_type as eventType, b.guests, b.name, b.email, b.phone,
               b.notes, b.total_cents as totalCents, b.created_at as createdAt, b.status, b.payment_status as paymentStatus,
               (b.stripe_session_id IS NOT NULL) as hasStripePayment,
-              b.centre_id as centreId, c.name as centreName, r.name as roomName
+              b.centre_id as centreId, c.name as centreName, r.name as roomName,
+              (SELECT a.status FROM attendance a WHERE a.kind = 'booking' AND a.ref = b.ref) as attendance
        FROM bookings b
        JOIN centres c ON c.id = b.centre_id
        LEFT JOIN rooms r ON r.id = b.room_id AND r.centre_id = b.centre_id
@@ -380,7 +383,8 @@ vendorOperationsRouter.get("/registrations", async (req, res) => {
               r.g_first as gFirst, r.g_last as gLast, r.email, r.phone, r.trial, r.total_cents as totalCents,
               r.created_at as createdAt, r.status, r.payment_status as paymentStatus,
               (r.stripe_session_id IS NOT NULL) as hasStripePayment,
-              r.club_id as clubId, c.name as clubName, c.sport
+              r.club_id as clubId, c.name as clubName, c.sport,
+              (SELECT a.status FROM attendance a WHERE a.kind = 'registration' AND a.ref = r.ref) as attendance
        FROM registrations r
        JOIN clubs c ON c.id = r.club_id
        WHERE c.vendor_id IN (${inClause(ids)}) AND r.payment_status IN ('paid', 'refunded') ${clubId ? "AND r.club_id = ?" : ""}
@@ -963,10 +967,19 @@ vendorOperationsRouter.post("/checkin/:kind/:ref", async (req, res) => {
   if (!row.vendorId || !req.vendorIds!.includes(row.vendorId)) return res.status(403).json({ error: "Not your listing" });
   if (row.paymentStatus !== "paid") return res.status(409).json({ error: "This isn't a paid booking/registration" });
 
+  // Release 3 — a host can now also mark someone as a no-show (booking no
+  // longer implies attendance). Default stays 'present', so the existing
+  // check-in button/QR scan is unchanged.
+  const { status = "present", source = "host_manual" } = (req.body ?? {}) as { status?: string; source?: string };
+  if (!(HOST_ATTENDANCE_STATUSES as readonly string[]).includes(status)) return res.status(400).json({ error: "status must be present or no_show" });
   await db
-    .prepare(`INSERT INTO attendance (kind, ref, checked_in_by) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE checked_in_at = NOW(), checked_in_by = VALUES(checked_in_by)`)
-    .run(kind, ref, req.user!.id);
-  res.json({ ok: true });
+    .prepare(
+      `INSERT INTO attendance (kind, ref, checked_in_by, status, source) VALUES (?, ?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE checked_in_at = NOW(), checked_in_by = VALUES(checked_in_by), status = VALUES(status), source = VALUES(source)`
+    )
+    .run(kind, ref, req.user!.id, status, source === "qr" ? "qr" : "host_manual");
+  if (status === "present") void logEvent("attendance_confirmed", { metadata: { kind, ref, by: "host" } });
+  res.json({ ok: true, status });
 });
 
 vendorOperationsRouter.get("/checkin/:kind/:ref", async (req, res) => {
@@ -981,7 +994,7 @@ vendorOperationsRouter.get("/checkin/:kind/:ref", async (req, res) => {
   // staff member with any platform_role, e.g. finance, could read another
   // team's check-in status. Same role split as the POST handler above.
   if (!assertPlatformRole(req, res, kind === "booking" ? "centre_manager" : "facility_manager")) return;
-  const row = await db.prepare(`SELECT checked_in_at as checkedInAt FROM attendance WHERE kind = ? AND ref = ?`).get(kind, ref);
+  const row = await db.prepare(`SELECT checked_in_at as checkedInAt, status FROM attendance WHERE kind = ? AND ref = ?`).get(kind, ref);
   // Cancellation has no dedicated timestamp column on bookings/registrations
   // themselves (only a current-state `status` flag) — the vendor cancel
   // routes above already write a real one to audit_log, so source it from
@@ -990,7 +1003,9 @@ vendorOperationsRouter.get("/checkin/:kind/:ref", async (req, res) => {
     .prepare(`SELECT created_at as cancelledAt FROM audit_log WHERE object_type = ? AND object_id = ? AND action = ? ORDER BY created_at DESC LIMIT 1`)
     .get(kind, ref, `${kind}.cancelled_by_vendor`);
   res.json({
-    checkedIn: !!row,
+    // A no-show row (Release 3) isn't a check-in.
+    checkedIn: !!row && fromAttendanceStatus((row as { status: string }).status) === "attended",
+    status: (row as { status: string } | undefined)?.status ?? null,
     checkedInAt: (row as { checkedInAt: string } | undefined)?.checkedInAt ?? null,
     cancelledAt: (cancelRow as { cancelledAt: string } | undefined)?.cancelledAt ?? null,
   });

@@ -1,10 +1,13 @@
 import { useEffect, useState } from "react";
+import { HostChatButton } from "./HostChatButton";
+import { VendorParticipationEditor } from "./VendorParticipationEditor";
 import {
   addExperienceSession,
   deleteVendorExperience,
   fetchOrgProfile,
   fetchVendorExperience,
   fetchVendorExperienceBookings,
+  markExperienceAttendance,
   fetchVendorExperienceSessions,
   fetchVendorExperiences,
   removeExperienceSession,
@@ -81,6 +84,9 @@ function experienceToInput(e: Experience): ExperienceInput {
     eligibility: e.eligibility,
     cancellationTerms: e.cancellationTerms,
     priceCents: e.priceCents,
+    skillsRequired: e.skillsRequired ?? "",
+    cause: e.cause ?? "",
+    minAge: e.minAge ?? null,
     capacity: e.capacity,
     paymentMethod: e.paymentMethod,
     images: e.images,
@@ -154,9 +160,10 @@ export function ExperienceEditor({
       <div className="grid-responsive" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 14 }}>
         <div>
           <label style={labelStyle}>Kind</label>
-          <select value={form.kind ?? "experience"} onChange={(e) => set("kind", e.target.value as "adventure" | "experience")} style={inputStyle}>
+          <select value={form.kind ?? "experience"} onChange={(e) => set("kind", e.target.value as "adventure" | "experience" | "volunteer")} style={inputStyle}>
             <option value="experience">Experience</option>
             <option value="adventure">Adventure</option>
+            <option value="volunteer">Volunteer opportunity</option>
           </select>
         </div>
         <div>
@@ -180,6 +187,22 @@ export function ExperienceEditor({
       <textarea id="experience-blurb" value={form.blurb} onChange={(e) => set("blurb", e.target.value)} rows={2} style={{ ...inputStyle, resize: "vertical", marginBottom: 14 }} />
       <label style={labelStyle}>Full description</label>
       <textarea value={form.description ?? ""} onChange={(e) => set("description", e.target.value)} rows={3} style={{ ...inputStyle, resize: "vertical" }} />
+      {form.kind === "volunteer" && (
+        <div className="grid-responsive" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginTop: 14 }}>
+          <div>
+            <label style={labelStyle}>Cause (optional)</label>
+            <input value={form.cause ?? ""} maxLength={100} onChange={(e) => set("cause", e.target.value)} placeholder="e.g. Coastal clean-up" style={inputStyle} />
+          </div>
+          <div>
+            <label style={labelStyle}>Minimum age (optional)</label>
+            <input type="number" min={0} value={form.minAge ?? ""} onChange={(e) => set("minAge", e.target.value ? Number(e.target.value) : null)} style={{ ...inputStyle, maxWidth: 120 }} />
+          </div>
+          <div style={{ gridColumn: "1 / -1" }}>
+            <label style={labelStyle}>Skills needed (optional)</label>
+            <input value={form.skillsRequired ?? ""} onChange={(e) => set("skillsRequired", e.target.value)} placeholder="e.g. None — we'll show you what to do" style={inputStyle} />
+          </div>
+        </div>
+      )}
     </>
   );
 
@@ -208,7 +231,11 @@ export function ExperienceEditor({
       </div>
       <div>
         <label style={labelStyle}>Price per person (€)</label>
-        <input type="number" value={(form.priceCents ?? 0) / 100} onChange={(e) => set("priceCents", Math.round(Number(e.target.value) * 100))} style={{ ...inputStyle, maxWidth: 140 }} />
+        {form.kind === "volunteer" ? (
+          <p style={{ fontSize: 13, color: colors.mutedLight, margin: 0 }}>Volunteering is always free to sign up for.</p>
+        ) : (
+          <input type="number" value={(form.priceCents ?? 0) / 100} onChange={(e) => set("priceCents", Math.round(Number(e.target.value) * 100))} style={{ ...inputStyle, maxWidth: 140 }} />
+        )}
       </div>
       <NumberStepper label="Capacity per departure" value={form.capacity ?? 8} onChange={(n) => set("capacity", n)} min={1} />
       <div>
@@ -332,6 +359,7 @@ export function ExperienceEditor({
       <SettingsSection title="Logistics & safety" summary={`${logisticsCount} of 4 details added`}>
         {logisticsFields}
       </SettingsSection>
+      <VendorParticipationEditor type="experience" id={id} />
       <SettingsSection title="Photos" summary={`${(form.images ?? []).length} photo${(form.images ?? []).length === 1 ? "" : "s"}`}>
         {photosField}
       </SettingsSection>
@@ -392,9 +420,12 @@ export function SessionsManager({ experienceId }: { experienceId: string }) {
                 {s.capacity ? ` · cap ${s.capacity}` : ""}
                 {s.status !== "scheduled" && <span style={{ color: colors.mutedLight }}> · {s.status}</span>}
               </span>
-              <button onClick={() => setConfirmingId(s.id)} aria-label="Cancel departure" style={{ background: "none", border: "none", cursor: "pointer", color: colors.faint, display: "flex" }}>
-                <TrashIcon size={14} />
-              </button>
+              <span style={{ display: "flex", alignItems: "center", gap: 14 }}>
+                {s.status !== "cancelled" && <HostChatButton scopeType="experience_session" scopeId={s.id} title={`Departure ${s.date} · ${s.time}`} />}
+                <button onClick={() => setConfirmingId(s.id)} aria-label="Cancel departure" style={{ background: "none", border: "none", cursor: "pointer", color: colors.faint, display: "flex" }}>
+                  <TrashIcon size={14} />
+                </button>
+              </span>
             </div>
           ))}
         </div>
@@ -427,8 +458,39 @@ export function SessionsManager({ experienceId }: { experienceId: string }) {
   );
 }
 
+// Release 3 — experiences had no attendance at all. Once a session date has
+// arrived, the host marks each booking attended or no-show; that's what
+// lets the guest's "How was it?" and next steps appear (or not).
+function ExperienceAttendance({ status, onMark }: { status: string | null; onMark: (status: "present" | "no_show") => Promise<void> }) {
+  const [busy, setBusy] = useState(false);
+  const mark = async (s: "present" | "no_show") => {
+    setBusy(true);
+    try {
+      await onMark(s);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const link = { fontSize: 12, fontWeight: 700, color: colors.muted, background: "none", border: "none", padding: 0, cursor: "pointer", textDecoration: "underline" } as const;
+  if (status === "present") return <span style={{ fontSize: 11.5, fontWeight: 700, color: colors.greenText }}>Attended</span>;
+  if (status === "no_show")
+    return (
+      <span style={{ display: "flex", gap: 8, alignItems: "center" }}>
+        <span style={{ fontSize: 11.5, fontWeight: 700, color: colors.orangeDark }}>No-show</span>
+        <button disabled={busy} onClick={() => mark("present")} style={link}>Undo</button>
+      </span>
+    );
+  return (
+    <span style={{ display: "flex", gap: 10 }}>
+      <button disabled={busy} onClick={() => mark("present")} style={link}>Attended</button>
+      <button disabled={busy} onClick={() => mark("no_show")} style={link}>No-show</button>
+    </span>
+  );
+}
+
 export function BookingsPanel({ experienceId }: { experienceId: string }) {
   const [bookings, setBookings] = useState<VendorExperienceBooking[] | null>(null);
+  const today = new Date().toISOString().slice(0, 10);
 
   useEffect(() => {
     fetchVendorExperienceBookings(experienceId).then(setBookings).catch(() => setBookings([]));
@@ -444,9 +506,20 @@ export function BookingsPanel({ experienceId }: { experienceId: string }) {
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
           {bookings.map((b) => (
-            <div key={b.id} style={{ fontSize: 13.5, display: "flex", justifyContent: "space-between", background: colors.bg, borderRadius: radius.control, padding: "8px 12px" }}>
+            <div key={b.id} style={{ fontSize: 13.5, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap", background: colors.bg, borderRadius: radius.control, padding: "8px 12px" }}>
               <span>{b.participantName} · party of {b.partySize} · {b.date} {b.time}</span>
-              <span style={{ fontWeight: 700 }}>€{(b.totalCents / 100).toFixed(2)}</span>
+              <span style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                {b.status !== "cancelled" && b.date <= today && (
+                  <ExperienceAttendance
+                    status={b.attendance ?? null}
+                    onMark={async (status) => {
+                      await markExperienceAttendance(experienceId, b.ref, status);
+                      setBookings((prev) => (prev ?? []).map((x) => (x.ref === b.ref ? { ...x, attendance: status } : x)));
+                    }}
+                  />
+                )}
+                <span style={{ fontWeight: 700 }}>€{(b.totalCents / 100).toFixed(2)}</span>
+              </span>
             </div>
           ))}
         </div>
@@ -499,7 +572,7 @@ export function VendorExperiencesTab({ onOpenExperience }: { onOpenExperience: (
                 <div style={{ fontWeight: 700, fontSize: 14 }}>{e.title}</div>
                 <div style={{ fontSize: 12, color: colors.mutedLight, display: "flex", alignItems: "center", gap: 6, marginTop: 2 }}>
                   <CalendarIcon size={12} />
-                  {e.kind === "adventure" ? "Adventure" : "Experience"} · {formatPrice(e.priceCents, { each: true })}
+                  {e.kind === "adventure" ? "Adventure" : e.kind === "volunteer" ? "Volunteer" : "Experience"} · {e.kind === "volunteer" ? "Free" : formatPrice(e.priceCents, { each: true })}
                   <span style={{ fontSize: 11, fontWeight: 700, borderRadius: radius.pill, padding: "2px 8px", background: palette.bg, color: palette.fg, textTransform: "capitalize" }}>{e.status}</span>
                 </div>
               </div>

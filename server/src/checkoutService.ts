@@ -1,4 +1,5 @@
 import type Stripe from "stripe";
+import { logEvent } from "./analytics.js";
 import { db } from "./db/index.js";
 import { CLIENT_URL, stripe } from "./stripe.js";
 
@@ -148,6 +149,7 @@ export async function createCheckoutSession(params: {
         : `${CLIENT_URL}/payment/cancel?ref=${params.ref}`,
       metadata: { type: params.type, ref: params.ref },
     });
+    void logEvent("booking_started", { residentId: params.residentId ?? null, metadata: { type: params.type, ref: params.ref } });
     return { ok: true, session };
   } catch (e) {
     console.error(`[stripe] ${params.type} checkout session creation failed:`, e instanceof Error ? e.message : e);

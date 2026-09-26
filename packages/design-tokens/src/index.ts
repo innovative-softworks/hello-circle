@@ -112,5 +112,8 @@ export const zIndex = {
   lightbox: 200,
   mobileBar: 250,
   drawer: 300,
+  // Non-blocking feedback (components/Toast.tsx) — above drawers and the
+  // mobile bar, below modals, so a confirmation never covers a dialog.
+  toast: 350,
   modal: 400,
 } as const;

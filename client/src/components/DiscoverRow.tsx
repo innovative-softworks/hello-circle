@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from "react";
+import { joinGameConfirm, joinWaitlistConfirm } from "../confirmCopy";
+import { useConfirm } from "./ConfirmProvider";
 import { useNavigate } from "react-router-dom";
 import { joinGame, joinGameWaitlist } from "../api";
 import { useGuest } from "../GuestContext";
@@ -6,10 +8,11 @@ import { openCheckout } from "../native";
 import { ArrowRightIcon, AwardIcon, BallIcon, CheckIcon, ChevronLeftIcon, ChevronRightIcon, RepeatIcon, TreeIconSmall, UsersIcon } from "./icons";
 import { Button, CardLink } from "./ui";
 import { Photo } from "./Photo";
+import { WhyRecommended } from "./WhyRecommended";
 import { SaveButton, useSavedState } from "./SaveButton";
 import { cardImageRatio, colors, fonts, placeholderStripes, radius, statTile } from "../theme";
 import type { ActivitySummary } from "../types";
-import { formatPrice } from "../formatters";
+import { formatDateTime, formatPrice } from "../formatters";
 
 // Photo-driven cards for the homepage "Happening today" / "This weekend"
 // feeds (Phase 5), extended in Phase 1 "Connect" to also render Experience/
@@ -64,6 +67,7 @@ function JoinControl({ item }: { item: ActivitySummary }) {
   const [waitlisted, setWaitlisted] = useState(false);
   const [joining, setJoining] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const confirm = useConfirm();
 
   if (!resident) {
     return (
@@ -94,6 +98,8 @@ function JoinControl({ item }: { item: ActivitySummary }) {
   const full = spotsLeft <= 0;
 
   const handleJoin = async () => {
+    const when = formatDateTime(item.date, item.time);
+    if (!(await confirm(full ? joinWaitlistConfirm(item.title) : joinGameConfirm({ title: item.title, when, priceCents: item.priceCents })))) return;
     setJoining(true);
     setError(null);
     try {
@@ -273,11 +279,7 @@ export function DiscoverCard({ item, isToday }: { item: ActivitySummary; isToday
             )}
           </div>
         )}
-        {matchReasons.length > 0 && (
-          <div style={{ fontSize: 11.5, fontWeight: 700, color: colors.greenText, background: colors.greenBg, borderRadius: 8, padding: "3px 8px", marginTop: 2, display: "inline-block", width: "fit-content" }}>
-            {matchReasons[0]}
-          </div>
-        )}
+        <WhyRecommended reasons={matchReasons} label={item.fitLabel} />
         <div style={{ marginTop: "auto", paddingTop: 8, display: "flex", flexDirection: "column", gap: 8 }}>
           {isJoinableGame ? (
             <>

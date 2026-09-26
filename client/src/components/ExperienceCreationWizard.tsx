@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useConfirm } from "./ConfirmProvider";
+import type { ExperienceKind } from "../types";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import {
   createVendorExperience,
   fetchVendorExperience,
@@ -26,7 +28,11 @@ import type { Experience } from "../types";
 const STEP_LABELS = ["Basics", "Location", "Pricing", "Prep & logistics", "Photos", "Review"];
 
 interface WizardForm {
-  kind: "adventure" | "experience";
+  kind: ExperienceKind;
+  /** Release 5 — volunteer listings only. */
+  skillsRequired: string;
+  cause: string;
+  minAge: string;
   title: string;
   difficulty: string;
   blurb: string;
@@ -57,9 +63,16 @@ interface WizardForm {
   images: string[];
 }
 
+function volunteerFields(form: WizardForm) {
+  return form.kind === "volunteer" ? { skillsRequired: form.skillsRequired, cause: form.cause, minAge: form.minAge ? Number(form.minAge) : null } : {};
+}
+
 function blankForm(): WizardForm {
   return {
     kind: "experience",
+    skillsRequired: "",
+    cause: "",
+    minAge: "",
     title: "",
     difficulty: "",
     blurb: "",
@@ -98,9 +111,16 @@ export function ExperienceCreationWizard({
   onPublished: (id: string) => void;
 }) {
   const navigate = useNavigate();
+  const confirm = useConfirm();
+  // Release 6 — "Create an experience" from a Host Opportunity prefills the
+  // title and county; read once for a new listing only.
+  const [searchParams] = useSearchParams();
+  const fromDemand = initialExperienceId === "new" ? searchParams.get("fromDemand") ?? undefined : undefined;
   const [id, setId] = useState<string | "new">(initialExperienceId);
   const [step, setStep] = useState(1);
-  const [form, setFormRaw] = useState<WizardForm>(blankForm());
+  const [form, setFormRaw] = useState<WizardForm>(() =>
+    initialExperienceId === "new" ? { ...blankForm(), title: searchParams.get("title") ?? "", county: searchParams.get("county") ?? "" } : blankForm()
+  );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(initialExperienceId === "new");
@@ -115,6 +135,9 @@ export function ExperienceCreationWizard({
     fetchVendorExperience(initialExperienceId).then((e: Experience) => {
       setFormRaw({
         kind: e.kind,
+        skillsRequired: e.skillsRequired ?? "",
+        cause: e.cause ?? "",
+        minAge: e.minAge ? String(e.minAge) : "",
         title: e.title,
         difficulty: e.difficulty,
         blurb: e.blurb,
@@ -166,11 +189,11 @@ export function ExperienceCreationWizard({
     setError(null);
     try {
       if (id === "new") {
-        const created = await createVendorExperience({ title: form.title, kind: form.kind, difficulty: form.difficulty, blurb: form.blurb, description: form.description });
+        const created = await createVendorExperience({ fromDemand, title: form.title, kind: form.kind, difficulty: form.difficulty, blurb: form.blurb, description: form.description, ...volunteerFields(form) });
         setId(created.id);
         navigate(`/vendor/experiences/${created.id}`, { replace: true });
       } else {
-        await updateVendorExperience(id, { title: form.title, kind: form.kind, difficulty: form.difficulty, blurb: form.blurb, description: form.description });
+        await updateVendorExperience(id, { title: form.title, kind: form.kind, difficulty: form.difficulty, blurb: form.blurb, description: form.description, ...volunteerFields(form) });
       }
       onDirtyChange?.(false);
       goNext();
@@ -266,6 +289,12 @@ export function ExperienceCreationWizard({
 
   const publish = async () => {
     if (id === "new") return;
+    const ok = await confirm({
+      title: "Submit for review?",
+      message: "It'll be sent to the HelloCircle team to check before it goes live on the site.",
+      confirmLabel: "Submit for review",
+    });
+    if (!ok) return;
     setSaving(true);
     setError(null);
     try {
@@ -296,9 +325,10 @@ export function ExperienceCreationWizard({
           <div className="grid-responsive" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
             <div>
               <label htmlFor="experience-wizard-kind" style={labelStyle}>Kind</label>
-              <select id="experience-wizard-kind" value={form.kind} onChange={(e) => setForm({ kind: e.target.value as "adventure" | "experience" })} style={inputStyle}>
+              <select id="experience-wizard-kind" value={form.kind} onChange={(e) => setForm({ kind: e.target.value as ExperienceKind })} style={inputStyle}>
                 <option value="experience">Experience</option>
                 <option value="adventure">Adventure</option>
+                <option value="volunteer">Volunteer opportunity</option>
               </select>
             </div>
             <div>
@@ -311,6 +341,22 @@ export function ExperienceCreationWizard({
               </select>
             </div>
           </div>
+          {form.kind === "volunteer" && (
+            <div className="grid-responsive" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+              <div>
+                <label htmlFor="experience-wizard-cause" style={labelStyle}>Cause (optional)</label>
+                <input id="experience-wizard-cause" value={form.cause} maxLength={100} onChange={(e) => setForm({ cause: e.target.value })} placeholder="e.g. Coastal clean-up" style={inputStyle} />
+              </div>
+              <div>
+                <label htmlFor="experience-wizard-min-age" style={labelStyle}>Minimum age (optional)</label>
+                <input id="experience-wizard-min-age" type="number" min={0} value={form.minAge} onChange={(e) => setForm({ minAge: e.target.value })} style={{ ...inputStyle, maxWidth: 120 }} />
+              </div>
+              <div style={{ gridColumn: "1 / -1" }}>
+                <label htmlFor="experience-wizard-skills" style={labelStyle}>Skills needed (optional)</label>
+                <input id="experience-wizard-skills" value={form.skillsRequired} onChange={(e) => setForm({ skillsRequired: e.target.value })} placeholder="e.g. None — we'll show you what to do" style={inputStyle} />
+              </div>
+            </div>
+          )}
           <div>
             <label htmlFor="experience-wizard-title" style={labelStyle}>Title</label>
             <input id="experience-wizard-title" value={form.title} onChange={(e) => setForm({ title: e.target.value })} placeholder="e.g. Guided coastal walk" style={inputStyle} autoFocus />
@@ -394,11 +440,15 @@ export function ExperienceCreationWizard({
               <label htmlFor="experience-wizard-duration" style={labelStyle}>Duration (minutes)</label>
               <input id="experience-wizard-duration" type="number" value={form.durationMinutes} onChange={(e) => setForm({ durationMinutes: Number(e.target.value) })} style={{ ...inputStyle, maxWidth: 140 }} />
             </div>
-            <div>
-              <label htmlFor="experience-wizard-price" style={labelStyle}>Price per person (€)</label>
-              <input id="experience-wizard-price" type="number" value={form.priceCents / 100} onChange={(e) => setForm({ priceCents: Math.round(Number(e.target.value) * 100) })} style={{ ...inputStyle, maxWidth: 140 }} />
-            </div>
-            <NumberStepper label="Capacity per departure" value={form.capacity} onChange={(n) => setForm({ capacity: n })} min={1} />
+            {form.kind === "volunteer" ? (
+              <p style={{ fontSize: 13, color: colors.mutedLight, margin: 0 }}>Volunteering is always free to sign up for.</p>
+            ) : (
+              <div>
+                <label htmlFor="experience-wizard-price" style={labelStyle}>Price per person (€)</label>
+                <input id="experience-wizard-price" type="number" value={form.priceCents / 100} onChange={(e) => setForm({ priceCents: Math.round(Number(e.target.value) * 100) })} style={{ ...inputStyle, maxWidth: 140 }} />
+              </div>
+            )}
+            <NumberStepper label={form.kind === "volunteer" ? "Volunteers needed per session" : "Capacity per departure"} value={form.capacity} onChange={(n) => setForm({ capacity: n })} min={1} />
             <div>
               <label htmlFor="experience-wizard-payment-method" style={labelStyle}>Payment</label>
               <select id="experience-wizard-payment-method" value={form.paymentMethod} onChange={(e) => setForm({ paymentMethod: e.target.value as "online" | "cash" })} style={inputStyle}>
@@ -523,9 +573,9 @@ export function ExperienceCreationWizard({
           {form.blurb && <p style={{ fontSize: 13.5, color: colors.mutedLight, margin: "4px 0 0" }}>{form.blurb}</p>}
         </div>
         <div style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 13.5, color: colors.text }}>
-          <span>{form.kind === "adventure" ? "Adventure" : "Experience"}{form.difficulty ? ` · ${form.difficulty}` : ""}</span>
+          <span>{form.kind === "adventure" ? "Adventure" : form.kind === "volunteer" ? "Volunteer opportunity" : "Experience"}{form.difficulty ? ` · ${form.difficulty}` : ""}</span>
           <span>{[form.area, form.county].filter(Boolean).join(", ") || "No location set"}</span>
-          <span>€{(form.priceCents / 100).toFixed(2)}/person · cap {form.capacity} · {form.durationMinutes} min</span>
+          <span>{form.kind === "volunteer" ? `Free · ${form.capacity} volunteers needed` : `€${(form.priceCents / 100).toFixed(2)}/person · cap ${form.capacity}`} · {form.durationMinutes} min</span>
           <span>{form.images.length} photo{form.images.length === 1 ? "" : "s"}</span>
         </div>
         <p style={{ fontSize: 12.5, color: colors.mutedLight, margin: 0, borderTop: `1px solid ${colors.border}`, paddingTop: 12 }}>

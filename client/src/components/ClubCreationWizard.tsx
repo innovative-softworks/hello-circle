@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useConfirm } from "./ConfirmProvider";
 import { useNavigate } from "react-router-dom";
 import {
   createVendorClub,
@@ -85,6 +86,7 @@ export function ClubCreationWizard({
   onPublished: (club: Club) => void;
 }) {
   const navigate = useNavigate();
+  const confirm = useConfirm();
   const [id, setId] = useState<string | "new">(initialClubId);
   const [step, setStep] = useState(1);
   const [form, setFormRaw] = useState<WizardForm>(blankForm());
@@ -253,6 +255,12 @@ export function ClubCreationWizard({
 
   const publish = async () => {
     if (id === "new") return;
+    const ok = await confirm({
+      title: "Submit for review?",
+      message: "It'll be sent to the HelloCircle team to check before it goes live on the site.",
+      confirmLabel: "Submit for review",
+    });
+    if (!ok) return;
     setSaving(true);
     setError(null);
     try {

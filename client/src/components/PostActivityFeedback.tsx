@@ -1,47 +1,37 @@
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
 import { fetchFeedbackStatus, fetchMyFollows, submitFeedback } from "../api";
 import { FollowButton } from "./FollowButton";
-import { colors, radius } from "../theme";
+import { StarIcon } from "./icons";
+import { NextStepsPanel } from "./NextStepsPanel";
+import { colors, fonts, radius } from "../theme";
 import type { FeedbackStatus, FollowedType } from "../api";
+import type { NextStepsKind } from "../types";
 
-// Fuller post-activity feedback (IA spec §11) — the spec's 5-question set,
-// not just "would you do this again" (Phase A's original, narrower prompt —
-// kept as the first, always-shown question; the other 4 are optional and
-// answered together in one submit, not staged one-by-one). Followed by a
-// light repeat suggestion once the resident says they'd do it again again —
-// matches the spec's own explicit next-step instruction for this screen.
+// "How was it?" (community participation upgrade, Release 3) — deliberately
+// short: an optional star rating, a few optional tags, an optional comment,
+// and the one required answer, "Would you do something like this again?",
+// which submits. Private to the host/platform (public reviews stay the
+// separate Reviews component). Then — not "back to Home" — the next steps:
+// the Circle, the next session, or starting a Circle (NextStepsPanel).
+// Callers only render this once taking part is known or plausible (see
+// participation.ts's feedback gating); the server also refuses a no-show.
 
-const QUESTIONS: { key: "beginnerFriendly" | "soloFriendly" | "descriptionAccurate" | "welcoming"; label: string }[] = [
-  { key: "beginnerFriendly", label: "Beginner-friendly?" },
-  { key: "soloFriendly", label: "Solo-friendly?" },
-  { key: "descriptionAccurate", label: "Was the description accurate?" },
-  { key: "welcoming", label: "Welcoming atmosphere?" },
+const TAGS: { key: string; label: string }[] = [
+  { key: "great_host", label: "Great host" },
+  { key: "met_new_people", label: "Met new people" },
+  { key: "well_organised", label: "Well organised" },
+  { key: "beginner_friendly", label: "Beginner friendly" },
+  { key: "great_location", label: "Great location" },
 ];
 
-const chipRow = (
-  value: string | null,
-  onPick: (v: "yes" | "maybe" | "no") => void
-) => (
-  <div style={{ display: "flex", gap: 6 }}>
-    {(["yes", "maybe", "no"] as const).map((r) => (
-      <button
-        key={r}
-        onClick={() => onPick(r)}
-        style={{
-          background: value === r ? colors.green : colors.panel,
-          color: value === r ? "#fff" : colors.muted,
-          border: "none", borderRadius: radius.pill, padding: "3px 10px", fontSize: 12, cursor: "pointer", fontWeight: 600,
-        }}
-      >
-        {r}
-      </button>
-    ))}
-  </div>
-);
+const ANSWERS = [
+  { value: "yes", label: "Yes" },
+  { value: "maybe", label: "Maybe" },
+  { value: "no", label: "No" },
+] as const;
 
 /** Optional "keep up with them?" nudge — only shown once the resident says
- * they'd do this again (doc: the relationship should form after a real
+ * they'd do this again (the relationship should form after a real
  * interaction, never during onboarding or unconditionally). `id` must
  * already be followable (a vendor account, or a resident with a verified
  * host badge) — callers only pass this when that's already known true. */
@@ -50,73 +40,141 @@ export interface FollowTarget {
   id: string;
 }
 
-export function PostActivityFeedback({ kind, reference, followTarget }: { kind: string; reference: string; followTarget?: FollowTarget }) {
-  const navigate = useNavigate();
+const chip = (active: boolean) => ({
+  border: `1px solid ${active ? colors.green : colors.border}`,
+  background: active ? colors.greenBg : colors.surface,
+  color: active ? colors.greenText : colors.text,
+  borderRadius: radius.pill,
+  padding: "5px 11px",
+  fontSize: 12.5,
+  fontWeight: 600,
+  cursor: "pointer",
+});
+
+export function PostActivityFeedback({ kind, reference, followTarget }: { kind: NextStepsKind; reference: string; followTarget?: FollowTarget }) {
   const [status, setStatus] = useState<FeedbackStatus | "loading">("loading");
-  const [expanded, setExpanded] = useState(false);
-  const [draft, setDraft] = useState<Partial<Record<(typeof QUESTIONS)[number]["key"], "yes" | "maybe" | "no">>>({});
+  const [rating, setRating] = useState<number | null>(null);
+  const [hover, setHover] = useState<number | null>(null);
+  const [tags, setTags] = useState<string[]>([]);
+  const [commenting, setCommenting] = useState(false);
+  const [comment, setComment] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [skipped, setSkipped] = useState(false);
   const [alreadyFollowing, setAlreadyFollowing] = useState<boolean | null>(null);
 
   useEffect(() => {
-    fetchFeedbackStatus(kind, reference).then(setStatus);
+    fetchFeedbackStatus(kind, reference)
+      .then(setStatus)
+      .catch(() => setStatus({ response: null, beginnerFriendly: null, soloFriendly: null, descriptionAccurate: null, welcoming: null }));
   }, [kind, reference]);
 
   if (status === "loading") return null;
 
   const answer = async (response: "yes" | "maybe" | "no") => {
-    await submitFeedback(kind, reference, response, draft);
-    setStatus({ response, beginnerFriendly: draft.beginnerFriendly ?? null, soloFriendly: draft.soloFriendly ?? null, descriptionAccurate: draft.descriptionAccurate ?? null, welcoming: draft.welcoming ?? null });
-    setExpanded(false);
-    if (response === "yes" && followTarget) {
-      fetchMyFollows()
-        .then((follows) => setAlreadyFollowing(follows.some((f) => f.followedType === followTarget.type && f.followedId === followTarget.id)))
-        .catch(() => setAlreadyFollowing(null));
+    setSubmitting(true);
+    setError(null);
+    try {
+      await submitFeedback(kind, reference, { response, rating: rating ?? undefined, tags, comment: comment.trim() || undefined });
+      setStatus({ ...status, response, rating, tags, comment });
+      if (response === "yes" && followTarget) {
+        fetchMyFollows()
+          .then((follows) => setAlreadyFollowing(follows.some((f) => f.followedType === followTarget.type && f.followedId === followTarget.id)))
+          .catch(() => setAlreadyFollowing(null));
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Couldn't send that");
+    } finally {
+      setSubmitting(false);
     }
   };
 
-  if (status.response) {
+  if (status.response || skipped) {
     return (
       <div>
-        <span style={{ fontSize: 12, color: colors.greenText, fontWeight: 700 }}>Thanks for the feedback!</span>
-        {status.response === "yes" && (
-          <div style={{ marginTop: 6, display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-            <button onClick={() => navigate("/explore")} style={{ background: "none", border: "none", padding: 0, color: colors.greenText, fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
-              Looking for more? Explore similar activities →
-            </button>
-            {followTarget && alreadyFollowing === false && (
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <span style={{ fontSize: 12, color: colors.muted }}>Want to know when they start something new?</span>
+        {status.response && (
+          <>
+            <div style={{ fontSize: 13, color: colors.greenText, fontWeight: 700 }}>Thanks — that helps the host and the next person deciding.</div>
+            {status.response === "yes" && followTarget && alreadyFollowing === false && (
+              <div style={{ marginTop: 8, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                <span style={{ fontSize: 12.5, color: colors.muted }}>Want to know when they start something new?</span>
                 <FollowButton followedType={followTarget.type} followedId={followTarget.id} initialFollowing={false} />
               </div>
             )}
-          </div>
+          </>
         )}
+        <NextStepsPanel kind={kind} reference={reference} />
       </div>
     );
   }
 
+  const shown = hover ?? rating ?? 0;
+
   return (
-    <div style={{ fontSize: 12.5, color: colors.muted }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: expanded ? 10 : 0 }}>
-        Would you do this again?
-        {chipRow(null, answer)}
-        {!expanded && (
-          <button onClick={() => setExpanded(true)} style={{ background: "none", border: "none", padding: 0, color: colors.muted, fontSize: 11.5, textDecoration: "underline", cursor: "pointer" }}>
-            A few more questions
+    <div style={{ fontSize: 13, color: colors.muted }}>
+      <h3 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 16, color: colors.text, margin: "0 0 8px" }}>How was it?</h3>
+
+      <div role="radiogroup" aria-label="Rating" style={{ display: "flex", gap: 4, marginBottom: 12 }} onMouseLeave={() => setHover(null)}>
+        {[1, 2, 3, 4, 5].map((n) => (
+          <button
+            key={n}
+            type="button"
+            role="radio"
+            aria-checked={rating === n}
+            aria-label={`${n} star${n === 1 ? "" : "s"}`}
+            onClick={() => setRating(rating === n ? null : n)}
+            onMouseEnter={() => setHover(n)}
+            style={{ background: "none", border: "none", padding: 2, cursor: "pointer", color: n <= shown ? colors.gold : colors.borderStrong }}
+          >
+            <StarIcon size={26} filled={n <= shown} />
           </button>
-        )}
+        ))}
       </div>
-      {expanded && (
-        <div style={{ display: "flex", flexDirection: "column", gap: 6, background: colors.panel, borderRadius: radius.control, padding: 10 }}>
-          {QUESTIONS.map((q) => (
-            <div key={q.key} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-              <span>{q.label}</span>
-              {chipRow(draft[q.key] ?? null, (v) => setDraft((d) => ({ ...d, [q.key]: v })))}
-            </div>
-          ))}
-          <p style={{ fontSize: 11, color: colors.faint, margin: "4px 0 0" }}>Answer "Would you do this again?" above to submit.</p>
-        </div>
+
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 10 }}>
+        {TAGS.map((t) => {
+          const on = tags.includes(t.key);
+          return (
+            <button key={t.key} type="button" aria-pressed={on} onClick={() => setTags(on ? tags.filter((k) => k !== t.key) : [...tags, t.key])} style={chip(on)}>
+              {t.label}
+            </button>
+          );
+        })}
+      </div>
+
+      {commenting ? (
+        <textarea
+          value={comment}
+          onChange={(e) => setComment(e.target.value)}
+          maxLength={1000}
+          rows={2}
+          placeholder="Anything the host should know? (optional, only they see it)"
+          style={{ width: "100%", boxSizing: "border-box", border: `1px solid ${colors.border}`, borderRadius: radius.control, padding: "8px 10px", fontSize: 13.5, fontFamily: "inherit", resize: "vertical", marginBottom: 10 }}
+        />
+      ) : (
+        <button type="button" onClick={() => setCommenting(true)} style={{ background: "none", border: "none", padding: 0, marginBottom: 12, fontSize: 12.5, color: colors.muted, textDecoration: "underline", cursor: "pointer" }}>
+          Add a comment
+        </button>
       )}
+
+      <div style={{ fontWeight: 700, color: colors.text, marginBottom: 8 }}>Would you do something like this again?</div>
+      <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+        {ANSWERS.map((a) => (
+          <button
+            key={a.value}
+            type="button"
+            disabled={submitting}
+            onClick={() => answer(a.value)}
+            style={{ ...chip(false), padding: "7px 16px", fontSize: 13.5, fontWeight: 700 }}
+          >
+            {a.label}
+          </button>
+        ))}
+        <button type="button" onClick={() => setSkipped(true)} style={{ background: "none", border: "none", padding: 0, marginLeft: 4, fontSize: 12.5, color: colors.faint, cursor: "pointer" }}>
+          Skip
+        </button>
+      </div>
+      {error && <div style={{ fontSize: 12.5, color: colors.danger, marginTop: 8 }}>{error}</div>}
     </div>
   );
 }

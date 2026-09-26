@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { computeCapacity } from "../capacity.js";
 import { createCheckoutSession, pricingLineItems } from "../checkoutService.js";
+import { logEvent } from "../analytics.js";
 import { db } from "../db/index.js";
 import { getClub } from "../db/queries.js";
 import { upgradeFavouriteStatus } from "./favourites.js";
@@ -272,6 +273,7 @@ registrationsRouter.post("/checkout", async (req, res) => {
       residentId: req.resident!.id,
     }).catch((e) => console.error("[notifications] registration notify failed:", e));
     await upgradeFavouriteStatus(req.resident!.id, "club", club.id);
+    void logEvent("booking_completed", { residentId: req.resident!.id, metadata: { type: "registration", ref, via: "pass" } });
     return res.status(201).json({ ref, totalEuro: 0, trial: false });
   }
 
@@ -313,6 +315,7 @@ registrationsRouter.post("/checkout", async (req, res) => {
     await claimWaitlistOffer("club", club.id, clientId, req.resident?.id ?? null);
     notify("paid");
     if (req.resident) await upgradeFavouriteStatus(req.resident.id, "club", club.id);
+    void logEvent("booking_completed", { residentId: req.resident?.id ?? null, clientId, metadata: { type: "registration", ref, via: isCash ? "cash" : "free" } });
     return res.status(201).json({ ref, totalEuro: pricing.totalCents / 100, trial: body.trial });
   }
 
@@ -387,7 +390,8 @@ registrationsRouter.get("/", async (req, res) => {
         .prepare(
           `SELECT r.ref, r.team, r.child_first as childFirst, r.child_last as childLast, r.trial, r.status,
                   r.total_cents as totalCents, r.created_at as createdAt,
-                  c.id as clubId, c.name as clubName, c.sport as sport, c.vendor_id as vendorId
+                  c.id as clubId, c.name as clubName, c.sport as sport, c.vendor_id as vendorId,
+                  (SELECT a.status FROM attendance a WHERE a.kind = 'registration' AND a.ref = r.ref) as attendance
            FROM registrations r
            JOIN clubs c ON c.id = r.club_id
            WHERE (r.client_id = ? OR LOWER(r.email) = LOWER(?)) AND r.payment_status = 'paid'
@@ -398,7 +402,8 @@ registrationsRouter.get("/", async (req, res) => {
         .prepare(
           `SELECT r.ref, r.team, r.child_first as childFirst, r.child_last as childLast, r.trial, r.status,
                   r.total_cents as totalCents, r.created_at as createdAt,
-                  c.id as clubId, c.name as clubName, c.sport as sport, c.vendor_id as vendorId
+                  c.id as clubId, c.name as clubName, c.sport as sport, c.vendor_id as vendorId,
+                  (SELECT a.status FROM attendance a WHERE a.kind = 'registration' AND a.ref = r.ref) as attendance
            FROM registrations r
            JOIN clubs c ON c.id = r.club_id
            WHERE r.client_id = ? AND r.payment_status = 'paid'

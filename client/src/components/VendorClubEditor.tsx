@@ -1,4 +1,6 @@
 import { useEffect, useState } from "react";
+import { useConfirm } from "./ConfirmProvider";
+import { VendorParticipationEditor } from "./VendorParticipationEditor";
 import {
   createClubSession,
   deleteClubSession,
@@ -280,6 +282,7 @@ export function ClubEditor({
       <SettingsSection title="Accessibility" summary={accessibilityList.length > 0 ? accessibilityList.join(" · ") : "None added"}>
         {accessibilityField}
       </SettingsSection>
+      <VendorParticipationEditor type="club" id={clubId} />
       <SettingsSection title="Photos" summary={`${(form.images ?? []).length} photo${(form.images ?? []).length === 1 ? "" : "s"}`}>
         {photosField}
       </SettingsSection>
@@ -429,6 +432,7 @@ export function ClubWaitlistPanel({ clubId }: { clubId: string }) {
   const [entries, setEntries] = useState<WaitlistEntry[] | null>(null);
   const [invitingId, setInvitingId] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const confirm = useConfirm();
 
   const load = () => fetchVendorClubWaitlist(clubId).then(setEntries).catch(() => setEntries([]));
   useEffect(() => {
@@ -440,6 +444,13 @@ export function ClubWaitlistPanel({ clubId }: { clubId: string }) {
   // waiting for the automatic earliest-first promotion (still fires on its
   // own whenever a spot frees up; this is an additional, manual option).
   const invite = async (entryId: number) => {
+    const entry = entries?.find((e) => e.id === entryId);
+    const ok = await confirm({
+      title: `Offer a spot to ${entry?.name || entry?.email || "this person"}?`,
+      message: "They'll get an email and have a limited time to claim it before it passes to the next person.",
+      confirmLabel: "Send offer",
+    });
+    if (!ok) return;
     setInvitingId(entryId);
     setError(null);
     try {

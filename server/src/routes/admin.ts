@@ -1,4 +1,6 @@
 import crypto from "node:crypto";
+import { matchExperienceSupply } from "../participationIntents.js";
+import { DEFAULT_WEIGHTS, getRecommendationWeights, setRecommendationWeights, validateWeights } from "../recommendationWeights.js";
 import { Router } from "express";
 import { requireAdmin } from "../auth.js";
 import { writeAudit } from "../audit.js";
@@ -244,7 +246,10 @@ adminRouter.put("/experiences/:id/status", async (req, res) => {
   }
   const info = await db.prepare(`UPDATE experiences SET status = ? WHERE id = ?`).run(status, req.params.id);
   if (info.changes === 0) return res.status(404).json({ error: "Experience not found" });
-  if (status === "approved") await notifyFollowersOfNewListing("experiences", req.params.id);
+  if (status === "approved") {
+    await notifyFollowersOfNewListing("experiences", req.params.id);
+    await matchExperienceSupply(req.params.id); // Release 6 — close the demand loop
+  }
   res.json({ ok: true });
 });
 
@@ -620,6 +625,22 @@ adminRouter.get("/analytics/funnel", async (req, res) => {
 // Market/category launch config (participation-intent plan Phase 4) — same
 // enabled-by-default/opt-out shape and GET/PUT split as the org feature-flag
 // routes above, scoped by county instead of org.
+// Recommendation weights (community participation upgrade, Release 4) —
+// how much each For You signal can contribute. Runtime-configurable here,
+// never hardcoded at call sites; see recommendationWeights.ts.
+adminRouter.get("/recommendation-weights", async (_req, res) => {
+  res.json({ weights: await getRecommendationWeights(), defaults: DEFAULT_WEIGHTS });
+});
+
+adminRouter.put("/recommendation-weights", async (req, res) => {
+  const next = validateWeights(req.body?.weights);
+  if (!next) return res.status(400).json({ error: "Each weight must be a number from 0 to 100" });
+  const before = await getRecommendationWeights();
+  await setRecommendationWeights(next);
+  await writeAudit({ actorUserId: req.user!.id, action: "recommendation_weights.updated", objectType: "app_setting", objectId: "recommendation_weights", previousValue: before, newValue: next });
+  res.json({ weights: next });
+});
+
 adminRouter.get("/market-categories", async (req, res) => {
   const county = typeof req.query.county === "string" ? req.query.county : "";
   if (!county) return res.status(400).json({ error: "county is required" });
@@ -646,11 +667,11 @@ adminRouter.post("/demand/intents/notify", async (req, res) => {
 
   const rows = (await db
     .prepare(
-      `SELECT resident_id as residentId FROM participation_intents
+      `SELECT DISTINCT resident_id as residentId FROM participation_intents
        WHERE status = 'active' AND (expires_at IS NULL OR expires_at > NOW())
-         AND activity_label = ? AND county = ? AND resident_id IS NOT NULL`
+         AND (cluster_key = ? OR activity_label = ?) AND county = ? AND resident_id IS NOT NULL`
     )
-    .all(activityLabel, county ?? "")) as { residentId: string }[];
+    .all(activityLabel.toLowerCase(), activityLabel, county ?? "")) as { residentId: string }[];
 
   const ref = `${activityLabel}::${county ?? ""}`;
   for (const row of rows) {

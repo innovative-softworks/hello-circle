@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { logView } from "../analytics.js";
 import { db } from "../db/index.js";
 import { getApprovedCentre, listCentres } from "../db/queries.js";
 import { resolveRadiusFilter } from "../geo.js";
@@ -17,6 +18,7 @@ centresRouter.get("/", async (req, res) => {
 centresRouter.get("/:id", async (req, res) => {
   const centre = await getApprovedCentre(req.params.id);
   if (!centre) return res.status(404).json({ error: "Centre not found" });
+  logView("place_viewed", req, { kind: "centre", id: centre.id });
 
   // Venue-level Follow (Follow feature) — kept out of getApprovedCentre
   // itself (a shared query with non-resident-scoped callers); attached

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useConfirm } from "./ConfirmProvider";
 import {
   deleteEditorialImage,
   fetchCloudinaryUploadsEnabled,
@@ -47,6 +48,7 @@ export function AdminMediaTab() {
   const [caption, setCaption] = useState("");
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const confirm = useConfirm();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const load = () => {
@@ -74,7 +76,13 @@ export function AdminMediaTab() {
   };
 
   const remove = async (id: string) => {
-    if (!confirm("Delete this editorial image? This can't be undone.")) return;
+    const ok = await confirm({
+      title: "Delete this editorial image?",
+      message: "It's removed from the collection and anywhere it's used. This can't be undone.",
+      confirmLabel: "Delete image",
+      tone: "danger",
+    });
+    if (!ok) return;
     await deleteEditorialImage(id);
     load();
   };

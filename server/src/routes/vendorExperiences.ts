@@ -1,9 +1,13 @@
 import crypto from "node:crypto";
+import { matchExperienceSupply } from "../participationIntents.js";
 import { Router } from "express";
 import { requirePlatformRole } from "../auth.js";
 import { writeAudit } from "../audit.js";
 import { issueStripeRefund } from "../checkoutService.js";
+import { logEvent } from "../analytics.js";
 import { db } from "../db/index.js";
+import { irelandTodayIso } from "../irelandTime.js";
+import { HOST_ATTENDANCE_STATUSES } from "../attendanceState.js";
 import { orgFeatureFlags } from "../db/queries.js";
 import { exceedsGalleryLimit, GALLERY_LIMITS } from "../media/quotas.js";
 import { notifyCancellation, notifyRefund } from "../notifications.js";
@@ -24,7 +28,11 @@ export const vendorExperiencesRouter = Router();
 const EXPERIENCE_ROLES = ["centre_manager", "facility_manager"] as const;
 
 interface ExperienceInput {
-  kind?: "adventure" | "experience";
+  kind?: "adventure" | "experience" | "volunteer";
+  /** Release 5 — volunteer listings. */
+  skillsRequired?: string;
+  cause?: string;
+  minAge?: number | null;
   title: string;
   area?: string;
   county?: string;
@@ -52,6 +60,21 @@ interface ExperienceInput {
   paymentMethod?: "online" | "cash";
   imageUrl?: string;
   images?: string[];
+}
+
+const EXPERIENCE_KINDS = ["experience", "adventure", "volunteer"] as const;
+
+// Release 5 — volunteer-only fields (skills needed, cause, minimum age) and
+// the "volunteering is free" rule, applied after either the create INSERT
+// or the partial-update UPDATE so neither big statement needs to change.
+// The price rule keys off the row's *effective* kind, so switching an
+// existing listing to volunteer also zeroes its price.
+async function applyVolunteerFields(tx: Pick<typeof db, "prepare">, id: string, b: Partial<ExperienceInput>) {
+  // Only fields actually sent are touched; "" / null clears.
+  if (b.skillsRequired !== undefined) await tx.prepare(`UPDATE experiences SET skills_required = ? WHERE id = ?`).run(b.skillsRequired.trim() || null, id);
+  if (b.cause !== undefined) await tx.prepare(`UPDATE experiences SET cause = ? WHERE id = ?`).run(b.cause.trim().slice(0, 100), id);
+  if (b.minAge !== undefined) await tx.prepare(`UPDATE experiences SET min_age = ? WHERE id = ?`).run(b.minAge && b.minAge > 0 ? Math.floor(b.minAge) : null, id);
+  await tx.prepare(`UPDATE experiences SET price_cents = 0 WHERE id = ? AND kind = 'volunteer'`).run(id);
 }
 
 async function ownsExperience(vendorIds: string[], id: string): Promise<boolean> {
@@ -120,7 +143,7 @@ vendorExperiencesRouter.post("/experiences", requirePlatformRole(...EXPERIENCE_R
         id,
         slug,
         vendorId: req.user!.id,
-        kind: b.kind === "adventure" ? "adventure" : "experience",
+        kind: b.kind === "adventure" || b.kind === "volunteer" ? b.kind : "experience",
         title: b.title,
         area: b.area ?? "",
         county: b.county ?? "",
@@ -144,7 +167,8 @@ vendorExperiencesRouter.post("/experiences", requirePlatformRole(...EXPERIENCE_R
         weatherPolicy: b.weatherPolicy ?? "",
         eligibility: b.eligibility ?? "",
         cancellationTerms: b.cancellationTerms ?? "",
-        priceCents: b.priceCents ?? 0,
+        // Volunteering is always free — never trust a client price for it.
+        priceCents: b.kind === "volunteer" ? 0 : b.priceCents ?? 0,
         capacity: b.capacity ?? 8,
         paymentMethod: b.paymentMethod ?? "online",
         imageUrl: (b.images ?? [])[0] ?? b.imageUrl ?? "",
@@ -152,7 +176,10 @@ vendorExperiencesRouter.post("/experiences", requirePlatformRole(...EXPERIENCE_R
     for (const [i, url] of (b.images ?? []).entries()) {
       await tx.prepare(`INSERT INTO experience_images (experience_id, url, sort_order) VALUES (?, ?, ?)`).run(id, url, i);
     }
+    await applyVolunteerFields(tx, id, b);
   });
+  const fromDemand = (req.body as { fromDemand?: string }).fromDemand;
+  if (fromDemand) void logEvent("host_created_from_demand", { metadata: { kind: "experience", id, clusterKey: fromDemand, userId: req.user!.id } });
   res.status(201).json({ id });
 });
 
@@ -163,6 +190,8 @@ vendorExperiencesRouter.put("/experiences/:id", requirePlatformRole(...EXPERIENC
   // endpoint), and a vendor's own "remove" path is the DELETE below (soft-
   // delete to 'deleted'), not this general-purpose edit endpoint.
   const b = req.body as Partial<ExperienceInput>;
+  // `kind` goes straight into the UPDATE below — only the real kinds.
+  if (b.kind !== undefined && !EXPERIENCE_KINDS.includes(b.kind)) return res.status(400).json({ error: `kind must be one of: ${EXPERIENCE_KINDS.join(", ")}` });
   const coordError = invalidCoordinateReason(b.lat, b.lng);
   if (coordError) return res.status(400).json({ error: coordError });
   if (b.images && exceedsGalleryLimit("experience", b.images.length)) {
@@ -227,6 +256,7 @@ vendorExperiencesRouter.put("/experiences/:id", requirePlatformRole(...EXPERIENC
         await tx.prepare(`INSERT INTO experience_images (experience_id, url, sort_order) VALUES (?, ?, ?)`).run(req.params.id, url, i);
       }
     }
+    await applyVolunteerFields(tx, req.params.id, b);
   });
   res.json({ ok: true });
 });
@@ -280,6 +310,7 @@ vendorExperiencesRouter.post("/experiences/:id/sessions", requirePlatformRole(..
     await notifyVendorFollowers(experience.vendorId, { title: "New session added", body: `A new session was added for ${experience.title} on ${date}.`, ref: id }, "everything");
   }
 
+  await matchExperienceSupply(req.params.id); // Release 6 — a new date is new supply
   res.status(201).json({ id });
 });
 
@@ -393,12 +424,41 @@ vendorExperiencesRouter.post("/experiences/:id/bookings/:bookingId/refund", requ
   res.json({ ok: true });
 });
 
+// Attendance for an experience booking (Release 3) — experiences had no
+// check-in path at all. Same attendance table and present/no_show pair as
+// the booking/registration check-in in vendorOperations.ts; kind
+// 'experience', keyed on the booking ref. Only for a paid, not-cancelled
+// booking whose session has started (you can't miss something in advance).
+vendorExperiencesRouter.post("/experiences/:id/bookings/:ref/attendance", requirePlatformRole(...EXPERIENCE_ROLES), async (req, res) => {
+  if (!(await ownsExperience(req.vendorIds!, req.params.id))) return res.status(403).json({ error: "Not your listing" });
+  const status = (req.body?.status ?? "present") as string;
+  if (!(HOST_ATTENDANCE_STATUSES as readonly string[]).includes(status)) return res.status(400).json({ error: "status must be present or no_show" });
+  const row = (await db
+    .prepare(
+      `SELECT eb.status, eb.payment_status as paymentStatus, es.date FROM experience_bookings eb JOIN experience_sessions es ON es.id = eb.session_id
+       WHERE eb.ref = ? AND eb.experience_id = ?`
+    )
+    .get(req.params.ref, req.params.id)) as { status: string; paymentStatus: string; date: string } | undefined;
+  if (!row) return res.status(404).json({ error: "Booking not found" });
+  if (row.paymentStatus !== "paid" || row.status === "cancelled") return res.status(409).json({ error: "Only a paid, active booking can be marked" });
+  if (row.date > irelandTodayIso()) return res.status(409).json({ error: "You can mark attendance once the session has started" });
+  await db
+    .prepare(
+      `INSERT INTO attendance (kind, ref, checked_in_by, status, source) VALUES ('experience', ?, ?, ?, 'host_manual')
+       ON DUPLICATE KEY UPDATE checked_in_at = NOW(), checked_in_by = VALUES(checked_in_by), status = VALUES(status), source = VALUES(source)`
+    )
+    .run(req.params.ref, req.user!.id, status);
+  if (status === "present") void logEvent("attendance_confirmed", { metadata: { kind: "experience", ref: req.params.ref, by: "host" } });
+  res.json({ ok: true, status });
+});
+
 vendorExperiencesRouter.get("/experiences/:id/bookings", async (req, res) => {
   if (!(await ownsExperience(req.vendorIds!, req.params.id))) return res.status(403).json({ error: "Not your listing" });
   const rows = await db
     .prepare(
       `SELECT eb.id, eb.ref, eb.participant_name as participantName, eb.email, eb.phone, eb.party_size as partySize,
-              eb.total_cents as totalCents, eb.status, eb.created_at as createdAt, es.date, es.time
+              eb.total_cents as totalCents, eb.status, eb.created_at as createdAt, es.date, es.time,
+              (SELECT a.status FROM attendance a WHERE a.kind = 'experience' AND a.ref = eb.ref) as attendance
        FROM experience_bookings eb JOIN experience_sessions es ON es.id = eb.session_id
        WHERE eb.experience_id = ? AND eb.payment_status = 'paid' ORDER BY es.date, es.time`
     )

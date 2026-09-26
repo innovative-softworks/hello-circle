@@ -412,3 +412,15 @@ export function fetchCloudinaryUploadsEnabled(): Promise<{ enabled: boolean; con
 export function setCloudinaryUploadsEnabled(enabled: boolean): Promise<{ enabled: boolean }> {
   return request(`/admin/media/config/cloudinary-enabled`, { method: "PUT", body: JSON.stringify({ enabled }) });
 }
+
+// --- Recommendation weights (community participation upgrade, Release 4) ---
+
+export type RecommendationWeights = Record<"interest" | "availability" | "distance" | "goal" | "social" | "budget" | "circle", number>;
+
+export function fetchRecommendationWeights(): Promise<{ weights: RecommendationWeights; defaults: RecommendationWeights }> {
+  return request(`/admin/recommendation-weights`);
+}
+
+export function saveRecommendationWeights(weights: RecommendationWeights): Promise<{ weights: RecommendationWeights }> {
+  return request(`/admin/recommendation-weights`, { method: "PUT", body: JSON.stringify({ weights }) });
+}

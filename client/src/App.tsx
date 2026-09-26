@@ -1,6 +1,9 @@
 import { lazy, Suspense, useEffect, useRef } from "react";
 import { Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { AuthProvider } from "./AuthContext";
+import { ConfirmProvider } from "./components/ConfirmProvider";
+import { ToastProvider } from "./components/Toast";
+import { BottomChromeSync } from "./components/BottomChromeSync";
 import { useCardTilt } from "./useCardTilt";
 import { logReferralLand } from "./api/public";
 import { AccountSetupGate } from "./components/AccountSetupGate";
@@ -49,6 +52,8 @@ const ClubDetail = lazy(() => import("./pages/ClubDetail").then((m) => ({ defaul
 const BookingFlow = lazy(() => import("./pages/BookingFlow").then((m) => ({ default: m.BookingFlow })));
 const CookiePolicy = lazy(() => import("./pages/CookiePolicy").then((m) => ({ default: m.CookiePolicy })));
 const Adventures = lazy(() => import("./pages/Adventures").then((m) => ({ default: m.Adventures })));
+const Volunteer = lazy(() => import("./pages/Volunteer").then((m) => ({ default: m.Volunteer })));
+const Programs = lazy(() => import("./pages/Programs").then((m) => ({ default: m.Programs })));
 const ExperienceDetail = lazy(() => import("./pages/ExperienceDetail").then((m) => ({ default: m.ExperienceDetail })));
 const Experiences = lazy(() => import("./pages/Experiences").then((m) => ({ default: m.Experiences })));
 const Explore = lazy(() => import("./pages/Explore").then((m) => ({ default: m.Explore })));
@@ -71,6 +76,7 @@ const MyBookings = lazy(() => import("./pages/MyBookings").then((m) => ({ defaul
 const PaymentCancel = lazy(() => import("./pages/PaymentCancel").then((m) => ({ default: m.PaymentCancel })));
 const PaymentSuccess = lazy(() => import("./pages/PaymentSuccess").then((m) => ({ default: m.PaymentSuccess })));
 const PrivacyPolicy = lazy(() => import("./pages/PrivacyPolicy").then((m) => ({ default: m.PrivacyPolicy })));
+const Chats = lazy(() => import("./pages/Chats").then((m) => ({ default: m.Chats })));
 const Profile = lazy(() => import("./pages/Profile").then((m) => ({ default: m.Profile })));
 const SuggestPlacePage = lazy(() => import("./pages/SuggestPlace").then((m) => ({ default: m.SuggestPlacePage })));
 const LandingPage = lazy(() => import("./landing/LandingPage").then((m) => ({ default: m.LandingPage })));
@@ -269,8 +275,9 @@ export function App() {
   const venueGated = !gated && isVenueGatedPath(location.pathname);
 
   return (
-    <ThemeProvider><AuthProvider>
+    <ThemeProvider><AuthProvider><ConfirmProvider><ToastProvider>
       <NativeShellSync />
+      <BottomChromeSync />
       <GuestProvider>
         <NativePushSync />
         <MyStuffProvider>
@@ -320,9 +327,11 @@ export function App() {
                     "My Life" nav label a URL that actually matches it. */}
                 <Route path="/my-life" element={<MyBookings />} />
                 <Route path="/profile" element={<Profile />} />
+                <Route path="/chats" element={<Chats />} />
                 <Route path="/signin" element={<SignIn />} />
                 <Route path="/signin/create" element={<SignUp />} />
                 <Route path="/signin/email-link" element={<EmailLinkSignIn />} />
+                <Route path="/programs" element={<Programs />} />
                 <Route path="/programs/:id" element={<ProgramDetail />} />
                 <Route path="/provider/:id" element={<ProviderProfilePage />} />
                 <Route path="/host/:id" element={<HostProfilePage />} />
@@ -331,6 +340,7 @@ export function App() {
                     (post-audit hardening pass) — redirect any bookmarked link. */}
                 <Route path="/compare" element={<Navigate to="/browse/centres" replace />} />
                 <Route path="/adventures" element={<Adventures />} />
+                <Route path="/volunteer" element={<Volunteer />} />
                 <Route path="/adventures/:id" element={<ExperienceDetail />} />
                 <Route path="/experiences" element={<Experiences />} />
                 <Route path="/experiences/:id" element={<ExperienceDetail />} />
@@ -394,6 +404,6 @@ export function App() {
           </DashboardNavProvider>
         </MyStuffProvider>
       </GuestProvider>
-    </AuthProvider></ThemeProvider>
+    </ToastProvider></ConfirmProvider></AuthProvider></ThemeProvider>
   );
 }

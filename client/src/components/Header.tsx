@@ -1,13 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { fetchAdminPendingListings, fetchManageWorkspaces, fetchMyGames, fetchResidentNotifications, fetchVendorListings, guestLogout, logout, markResidentNotificationRead, switchWorkspace } from "../api";
+import { fetchAdminPendingListings, fetchChatInbox, fetchManageWorkspaces, fetchMyGames, fetchResidentNotifications, fetchVendorListings, guestLogout, logout, markResidentNotificationRead, switchWorkspace } from "../api";
 import type { ManageWorkspaces } from "../api/manage";
 import { useAuth } from "../AuthContext";
 import { signInHref, signUpHref } from "../authRedirect";
 import { useDashboardNav } from "../DashboardNavContext";
 import { useGuest } from "../GuestContext";
 import { useTheme } from "../ThemeContext";
-import { BallIcon, BellIcon, BuildingIcon, ChevronDownIcon, CloseIcon, GridIcon, LightbulbIcon, MenuIcon, MoonIcon, PinIcon, RepeatIcon, SearchIcon, SunIcon, TreeIconSmall } from "./icons";
+import { BallIcon, BellIcon, ChatIcon, BuildingIcon, ChevronDownIcon, CloseIcon, GridIcon, LightbulbIcon, MenuIcon, MoonIcon, PinIcon, RepeatIcon, SearchIcon, SunIcon, TreeIconSmall } from "./icons";
 import { Avatar, ConfirmDialog } from "./ui";
 import { colors, fonts, maxWidth, radius } from "../theme";
 import { useMyStuff } from "../MyStuffContext";
@@ -55,6 +55,21 @@ export function Header() {
   const [notifOpen, setNotifOpen] = useState(false);
   const notifRef = useRef<HTMLDivElement>(null);
   const unreadNotifs = residentNotifs.filter((n) => !n.read).length;
+
+  // Unread group-chat messages across every conversation this session can
+  // see — the resident's own, or (vendor-only session) the host inbox.
+  const [chatUnread, setChatUnread] = useState(0);
+  const hostOnly = !resident && user?.role === "vendor";
+  useEffect(() => {
+    if (!resident && !hostOnly) {
+      setChatUnread(0);
+      return;
+    }
+    const load = () => fetchChatInbox(hostOnly).then((r) => setChatUnread(r.unread)).catch(() => {});
+    load();
+    const id = window.setInterval(load, 60000);
+    return () => window.clearInterval(id);
+  }, [resident?.id, hostOnly, location.pathname]);
 
   const loadResidentNotifs = () => {
     if (resident) fetchResidentNotifications().then(setResidentNotifs).catch(() => {});
@@ -487,13 +502,9 @@ export function Header() {
                       <span style={megaItemDescStyle}>Workshops, classes &amp; one-off outings</span>
                     </span>
                   </button>
-                  {/* Platform Pre-Launch Polish — Changeset 5A. Programs had
-                      no entry point in desktop discovery nav at all (mobile's
-                      Explore sheet already had one) — same destination as
-                      that one: the unified "activities" result type on
-                      /explore, since there's no standalone Programs browse
-                      page (see App.tsx's route table). */}
-                  <button style={{ ...megaItemStyle, borderBottom: `1px solid ${colors.border}` }} onClick={() => go("/explore?rtype=activities")}>
+                  {/* Programs has its own browse page (/programs) — it used
+                      to land on Explore's mixed "Things to do" results. */}
+                  <button style={{ ...megaItemStyle, borderBottom: `1px solid ${colors.border}` }} onClick={() => go("/programs")}>
                     <span style={megaIconWrapStyle}><GridIcon size={19} style={{ color: colors.text }} /></span>
                     <span>
                       <span style={megaItemTitleStyle}>Programs</span>
@@ -685,6 +696,40 @@ export function Header() {
             </button>
           )}
 
+          {(resident || hostOnly) && (
+            <button
+              className="btn btn-ghost"
+              onClick={() => go("/chats")}
+              aria-label={chatUnread > 0 ? `Chats, ${chatUnread} unread` : "Chats"}
+              title="Chats"
+              style={isActive(["/chats"]) ? { ...circleBtnStyle, position: "relative", background: colors.greenBg, borderColor: colors.green } : { ...circleBtnStyle, position: "relative" }}
+            >
+              <ChatIcon size={17} />
+              {chatUnread > 0 && (
+                <span
+                  style={{
+                    position: "absolute",
+                    top: -3,
+                    right: -3,
+                    background: colors.orange,
+                    color: "#fff",
+                    borderRadius: radius.pill,
+                    fontSize: 10,
+                    fontWeight: 700,
+                    minWidth: 16,
+                    height: 16,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    padding: "0 3px",
+                  }}
+                >
+                  {chatUnread > 99 ? "99+" : chatUnread}
+                </span>
+              )}
+            </button>
+          )}
+
           {resident && (
             <div ref={notifRef} style={{ position: "relative" }}>
               <button
@@ -805,6 +850,19 @@ export function Header() {
                   My Life
                   {count > 0 && <span style={countBadgeStyle}>{count}</span>}
                 </button>
+                {(resident || hostOnly) && (
+                  <button
+                    className="dropdown-item"
+                    style={dropdownItemStyle}
+                    onClick={() => {
+                      setAccountMenuOpen(false);
+                      go("/chats");
+                    }}
+                  >
+                    Chats
+                    {chatUnread > 0 && <span style={{ ...countBadgeStyle, background: colors.orange }}>{chatUnread}</span>}
+                  </button>
+                )}
 
                 {user && (user.role === "admin" || user.role === "vendor") && (
                   <button
@@ -1066,6 +1124,11 @@ export function Header() {
           </button>
 
           <div style={{ ...dropdownLabelStyle, padding: "10px 6px 2px" }}>You</div>
+          {(resident || hostOnly) && (
+            <button style={{ ...mobileNavBtn, display: "flex", alignItems: "center", gap: 8 }} onClick={() => go("/chats")}>
+              <ChatIcon size={16} /> Chats{chatUnread > 0 ? ` (${chatUnread})` : ""}
+            </button>
+          )}
           {resident && (
             <button style={{ ...mobileNavBtn, display: "flex", alignItems: "center", gap: 8 }} onClick={() => go("/bookings")}>
               <BellIcon size={16} /> Notifications{unreadNotifs > 0 ? ` (${unreadNotifs})` : ""}

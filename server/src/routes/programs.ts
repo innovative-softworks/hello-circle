@@ -1,6 +1,8 @@
 import { Router } from "express";
 import { createCheckoutSession, pricingLineItems } from "../checkoutService.js";
+import { logEvent, logView } from "../analytics.js";
 import { db } from "../db/index.js";
+import { getListingAttributes, officialCircleSummary } from "../listingAttributes.js";
 import { irelandTodayIso } from "../irelandTime.js";
 import { notifyCancellation, notifyNewBookingOrRegistration } from "../notifications.js";
 import { computePricing, evaluateCoupon } from "../pricing.js";
@@ -33,6 +35,8 @@ export interface ProgramRow {
   instructor_name: string;
   guardian_rules: string | null;
   safeguarding_info: string | null;
+  arrival_instructions: string | null;
+  accessibility_info: string | null;
 }
 
 export async function toProgramJson(row: ProgramRow) {
@@ -64,6 +68,8 @@ export async function toProgramJson(row: ProgramRow) {
     title: row.title,
     description: row.description,
     ageRange: row.age_range,
+    arrivalInstructions: row.arrival_instructions || null,
+    accessibilityInfo: row.accessibility_info || null,
     imageUrl: row.image_url,
     priceCents: row.price_cents,
     capacity: row.capacity,
@@ -82,9 +88,55 @@ export async function toProgramJson(row: ProgramRow) {
   };
 }
 
+// Public Programs browse (the /programs page) — every published program
+// across centres and clubs that still has an upcoming session, optionally
+// narrowed by county/category. One query with the fields a browse card
+// needs (venue, area, next session, spots left) rather than toProgramJson()
+// per row, which runs several queries each. Only approved venues.
+async function listProgramsForBrowse(county?: string, category?: string) {
+  const today = irelandTodayIso();
+  const rows = (await db
+    .prepare(
+      `SELECT p.id, p.title, p.description, p.image_url as imageUrl, p.price_cents as priceCents, p.capacity, p.category, p.skill_level as skillLevel,
+              p.age_range as ageRange, p.listing_type as listingType, p.listing_id as listingId,
+              COALESCE(c.name, cl.name) as listingName, COALESCE(c.area, cl.area) as area, COALESCE(c.county, cl.county) as county,
+              COALESCE(c.lat, cl.lat) as lat, COALESCE(c.lng, cl.lng) as lng, COALESCE(c.location_source, cl.location_source) as locationSource,
+              ns.date as nextSessionDate, ns.time as nextSessionTime,
+              (SELECT COUNT(*) FROM program_sessions ps2 WHERE ps2.program_id = p.id AND ps2.status != 'cancelled' AND ps2.date >= ?) as upcomingSessions,
+              (SELECT COUNT(*) FROM program_enrollments pe WHERE pe.program_id = p.id AND pe.payment_status = 'paid' AND pe.status != 'cancelled') as enrolled
+       FROM programs p
+       LEFT JOIN centres c ON p.listing_type = 'centre' AND c.id = p.listing_id AND c.status = 'approved'
+       LEFT JOIN clubs cl ON p.listing_type = 'club' AND cl.id = p.listing_id AND cl.status = 'approved'
+       JOIN program_sessions ns ON ns.id = (
+         SELECT ps.id FROM program_sessions ps WHERE ps.program_id = p.id AND ps.status != 'cancelled' AND ps.date >= ? ORDER BY ps.date, ps.time LIMIT 1
+       )
+       WHERE p.status = 'published' AND COALESCE(c.id, cl.id) IS NOT NULL
+         ${county ? "AND COALESCE(c.county, cl.county) = ?" : ""}
+         ${category ? "AND p.category = ?" : ""}
+       ORDER BY ns.date, ns.time
+       LIMIT 200`
+    )
+    .all(today, today, ...(county ? [county] : []), ...(category ? [category] : []))) as (Record<string, unknown> & { capacity: number | null; enrolled: number | string; upcomingSessions: number | string })[];
+  return rows.map((r) => {
+    const enrolled = Number(r.enrolled);
+    return {
+      ...r,
+      // DECIMAL columns come back from mysql2 as strings.
+      lat: r.lat === null || r.lat === undefined ? null : Number(r.lat),
+      lng: r.lng === null || r.lng === undefined ? null : Number(r.lng),
+      enrolled,
+      upcomingSessions: Number(r.upcomingSessions),
+      spotsLeft: r.capacity !== null ? Math.max(0, r.capacity - enrolled) : null,
+    };
+  });
+}
+
 programsRouter.get("/", async (req, res) => {
-  const { listingType, listingId } = req.query as { listingType?: string; listingId?: string };
-  if (!listingType || !listingId) return res.status(400).json({ error: "listingType and listingId are required" });
+  const { listingType, listingId, county, category } = req.query as { listingType?: string; listingId?: string; county?: string; category?: string };
+  // No venue given → the public browse list (was a 400 before the /programs page existed).
+  if (!listingType || !listingId) {
+    return res.json(await listProgramsForBrowse(county && county !== "All" ? county : undefined, category && category !== "All" ? category : undefined));
+  }
   const rows = (await db
     .prepare(`SELECT * FROM programs WHERE listing_type = ? AND listing_id = ? AND status = 'published' ORDER BY created_at DESC`)
     .all(listingType, listingId)) as ProgramRow[];
@@ -99,7 +151,31 @@ programsRouter.get("/", async (req, res) => {
 programsRouter.get("/:id", async (req, res) => {
   const row = (await db.prepare(`SELECT * FROM programs WHERE id = ? AND status = 'published'`).get(req.params.id)) as ProgramRow | undefined;
   if (!row) return res.status(404).json({ error: "Program not found" });
-  res.json(await toProgramJson(row));
+  logView("activity_viewed", req, { kind: "program", id: row.id });
+  // Public detail page only — where it happens (venue area/county/map pin,
+  // linkable via slug) and who runs it (provider name + verified flag, same
+  // derivation as experiences.ts's "Hosted by").
+  const table = row.listing_type === "centre" ? "centres" : "clubs";
+  const venue = (await db
+    .prepare(`SELECT area, county, lat, lng, location_source as locationSource, slug FROM ${table} WHERE id = ?`)
+    .get(row.listing_id)) as { area: string; county: string; lat: number | string | null; lng: number | string | null; locationSource: string | null; slug: string | null } | undefined;
+  const host = (await db.prepare(`SELECT business_name as businessName, name, provider_tier as providerTier FROM users WHERE id = ?`).get(row.vendor_id)) as
+    | { businessName: string | null; name: string; providerTier: string }
+    | undefined;
+  res.json({
+    ...(await toProgramJson(row)),
+    participationAttributes: await getListingAttributes("program", row.id),
+    ...(await officialCircleSummary("programs", row.id)),
+    venueArea: venue?.area ?? "",
+    venueCounty: venue?.county ?? "",
+    venueLat: venue?.lat === null || venue?.lat === undefined ? null : Number(venue.lat),
+    venueLng: venue?.lng === null || venue?.lng === undefined ? null : Number(venue.lng),
+    venueLocationSource: venue?.locationSource ?? null,
+    venueSlug: venue?.slug ?? null,
+    vendorId: row.vendor_id,
+    vendorName: host ? host.businessName || host.name : null,
+    vendorVerified: host ? host.providerTier !== "standard" : false,
+  });
 });
 
 interface EnrollBody {
@@ -189,6 +265,7 @@ programsRouter.post("/:id/enroll", async (req, res) => {
 
   if (isFree) {
     notify();
+    void logEvent("booking_completed", { residentId: req.resident?.id ?? null, clientId, metadata: { type: "program", ref, via: "free" } });
     return res.status(201).json({ ref, totalEuro: 0 });
   }
 
@@ -228,7 +305,7 @@ programsRouter.get("/enrollments/mine", async (req, res) => {
   // fabricated) when no future, non-cancelled session exists — an honest
   // "nothing scheduled" rather than a made-up date.
   const today = irelandTodayIso();
-  const rows = await db
+  const rows = (await db
     .prepare(
       `SELECT pe.ref, pe.program_id as programId, pe.participant_name as participantName, pe.total_cents as totalCents,
               pe.status, pe.payment_status as paymentStatus, pe.created_at as createdAt,
@@ -236,7 +313,9 @@ programsRouter.get("/enrollments/mine", async (req, res) => {
               COALESCE(c.name, cl.name) as listingName,
               (SELECT ps.date FROM program_sessions ps WHERE ps.program_id = pe.program_id AND ps.status != 'cancelled' AND ps.date >= ? ORDER BY ps.date, ps.time LIMIT 1) as nextSessionDate,
               (SELECT ps.time FROM program_sessions ps WHERE ps.program_id = pe.program_id AND ps.status != 'cancelled' AND ps.date >= ? ORDER BY ps.date, ps.time LIMIT 1) as nextSessionTime,
-              (SELECT 1 FROM program_sessions ps WHERE ps.program_id = pe.program_id AND ps.status != 'cancelled' AND ps.date < ? LIMIT 1) IS NOT NULL as hasPastSession
+              (SELECT 1 FROM program_sessions ps WHERE ps.program_id = pe.program_id AND ps.status != 'cancelled' AND ps.date < ? LIMIT 1) IS NOT NULL as hasPastSession,
+              (SELECT COUNT(*) FROM attendance a WHERE a.kind = 'program_session' AND a.ref LIKE CONCAT('%:', pe.id) AND a.status IN ('present', 'late')) as sessionsAttended,
+              (SELECT COUNT(*) FROM attendance a WHERE a.kind = 'program_session' AND a.ref LIKE CONCAT('%:', pe.id) AND a.status IN ('absent', 'no_show')) as sessionsMissed
        FROM program_enrollments pe
        JOIN programs p ON p.id = pe.program_id
        LEFT JOIN centres c ON p.listing_type = 'centre' AND c.id = p.listing_id
@@ -244,8 +323,10 @@ programsRouter.get("/enrollments/mine", async (req, res) => {
        WHERE (pe.client_id = ? OR (pe.resident_id IS NOT NULL AND pe.resident_id = ?)) AND pe.payment_status = 'paid'
        ORDER BY pe.created_at DESC`
     )
-    .all(today, today, today, clientId, req.resident?.id ?? "");
-  res.json(rows);
+    .all(today, today, today, clientId, req.resident?.id ?? "")) as Record<string, unknown>[];
+  // Attendance (Release 1) — per-enrollment counts from the vendor's own
+  // session register (vendorPrograms.ts); both 0 when nobody took a register.
+  res.json(rows.map((r) => ({ ...r, sessionsAttended: Number(r.sessionsAttended ?? 0), sessionsMissed: Number(r.sessionsMissed ?? 0) })));
 });
 
 /** Resident/guest self-cancel — Phase 0 protect. Programs previously had no

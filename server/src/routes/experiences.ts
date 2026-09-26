@@ -1,6 +1,8 @@
 import { Router } from "express";
 import { createCheckoutSession, pricingLineItems } from "../checkoutService.js";
+import { logEvent, logView } from "../analytics.js";
 import { db } from "../db/index.js";
+import { getListingAttributes, officialCircleSummary } from "../listingAttributes.js";
 import { orgPoliciesForVendor } from "../db/queries.js";
 import { upgradeFavouriteStatus } from "./favourites.js";
 import { buildIcsEvent } from "../ics.js";
@@ -21,7 +23,7 @@ import { BadRequestError, ConflictError, clientIdFrom, generateRef, isValidEmail
 interface ExperienceRow {
   id: string;
   vendor_id: string;
-  kind: "adventure" | "experience";
+  kind: "adventure" | "experience" | "volunteer";
   title: string;
   area: string;
   county: string;
@@ -39,6 +41,10 @@ interface ExperienceRow {
   equipment_required: string;
   transport_info: string;
   safety_info: string;
+  accessibility_info: string | null;
+  skills_required: string | null;
+  cause: string;
+  min_age: number | null;
   weather_policy: string;
   eligibility: string;
   cancellation_terms: string;
@@ -104,6 +110,11 @@ async function toExperienceJson(row: ExperienceRow) {
     equipmentRequired: row.equipment_required,
     transportInfo: row.transport_info,
     safetyInfo: row.safety_info,
+    accessibilityInfo: row.accessibility_info || null,
+    // Release 5 — volunteer listings only (empty/null otherwise).
+    skillsRequired: row.skills_required || null,
+    cause: row.cause || null,
+    minAge: row.min_age ?? null,
     weatherPolicy: row.weather_policy,
     eligibility: row.eligibility,
     cancellationTerms: row.cancellation_terms,
@@ -144,7 +155,7 @@ experiencesRouter.get("/", async (req, res) => {
   const { kind, county } = req.query as { kind?: string; county?: string };
   const conditions = [`e.status = 'approved'`];
   const params: string[] = [];
-  if (kind === "adventure" || kind === "experience") {
+  if (kind === "adventure" || kind === "experience" || kind === "volunteer") {
     conditions.push(`e.kind = ?`);
     params.push(kind);
   }
@@ -177,7 +188,8 @@ experiencesRouter.get("/:id", async (req, res) => {
     .get(req.params.id, req.params.id)) as ExperienceRow | undefined;
   if (!row) return res.status(404).json({ error: "Experience not found" });
   await db.prepare(`UPDATE experiences SET views = views + 1 WHERE id = ?`).run(row.id);
-  res.json(await toExperienceJson(row));
+  logView("activity_viewed", req, { kind: "experience", id: row.id });
+  res.json({ ...(await toExperienceJson(row)), participationAttributes: await getListingAttributes("experience", row.id), ...(await officialCircleSummary("experiences", row.id)) });
 });
 
 interface BookBody {
@@ -226,6 +238,10 @@ experiencesRouter.post("/:id/sessions/:sessionId/checkout", async (req, res) => 
   }
   const pricing = computePricing(subtotalCents, 0, discountCents, couponCode);
   const ref = generateRef("EX");
+  // Release 5 — a free booking (always true for a volunteer listing, whose
+  // price is forced to 0) confirms immediately like cash; it previously
+  // fell through to a €0 Stripe checkout.
+  const confirmsNow = isCash || pricing.totalCents === 0;
 
   try {
     await db.transaction(async (tx) => {
@@ -262,7 +278,7 @@ experiencesRouter.post("/:id/sessions/:sessionId/checkout", async (req, res) => 
           platformFeeCents: pricing.platformFeeCents,
           couponCode: pricing.couponCode,
           totalCents: pricing.totalCents,
-          status: isCash ? "paid" : "pending",
+          status: confirmsNow ? "paid" : "pending",
         });
     });
   } catch (e) {
@@ -270,9 +286,12 @@ experiencesRouter.post("/:id/sessions/:sessionId/checkout", async (req, res) => 
     throw e;
   }
 
-  const detailsText = `${body.participantName} · party of ${partySize} · €${(pricing.totalCents / 100).toFixed(2)}${isCash ? " due in cash on arrival" : " total"}`;
+  const detailsText =
+    experience.kind === "volunteer"
+      ? `${body.participantName} · ${partySize} volunteer${partySize === 1 ? "" : "s"}`
+      : `${body.participantName} · party of ${partySize} · €${(pricing.totalCents / 100).toFixed(2)}${isCash ? " due in cash on arrival" : pricing.totalCents === 0 ? " (free)" : " total"}`;
 
-  if (isCash) {
+  if (confirmsNow) {
     notifyNewBookingOrRegistration({
       kind: "booking",
       listingType: "experience",
@@ -286,6 +305,7 @@ experiencesRouter.post("/:id/sessions/:sessionId/checkout", async (req, res) => 
       residentId: req.resident?.id ?? null,
     }).catch((e) => console.error("[notifications] experience booking notify failed:", e));
     if (req.resident?.id) await upgradeFavouriteStatus(req.resident.id, "experience", experience.id);
+    void logEvent("booking_completed", { residentId: req.resident?.id ?? null, clientId, metadata: { type: "experience", ref, via: "immediate" } });
     return res.status(201).json({ ref, totalEuro: pricing.totalCents / 100 });
   }
 
@@ -323,7 +343,8 @@ experiencesRouter.get("/bookings/mine", async (req, res) => {
     .prepare(
       `SELECT eb.ref, eb.experience_id as experienceId, eb.participant_name as participantName, eb.party_size as partySize,
               eb.total_cents as totalCents, eb.status, eb.payment_status as paymentStatus, eb.created_at as createdAt,
-              e.title, e.image_url as imageUrl, e.kind, e.vendor_id as vendorId, es.date, es.time
+              e.title, e.image_url as imageUrl, e.kind, e.vendor_id as vendorId, es.date, es.time,
+              (SELECT a.status FROM attendance a WHERE a.kind = 'experience' AND a.ref = eb.ref) as attendance
        FROM experience_bookings eb
        JOIN experiences e ON e.id = eb.experience_id
        JOIN experience_sessions es ON es.id = eb.session_id

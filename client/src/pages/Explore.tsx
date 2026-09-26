@@ -85,15 +85,9 @@ const CATEGORIES: { key: CategoryKey; label: string; desc: string; icon: ReactNo
   { key: "games", label: "Open sessions", desc: "Join people who are already playing.", icon: <RepeatIcon size={20} />, to: "/games" },
   { key: "adventures", label: "Adventures", desc: "Guided hikes, kayaking and outdoor trips.", icon: <TreeIconSmall size={20} />, to: "/adventures" },
   { key: "experiences", label: "Experiences", desc: "Workshops, classes and one-off outings.", icon: <TreeIconSmall size={20} />, to: "/experiences" },
-  // Product Language & IA Polish — Changeset 1B. Programs previously had no
-  // direct discovery entry point in Explore at all (folded invisibly into
-  // the mixed "Things to do" result group). Reuses the exact same
-  // /explore?rtype=activities destination the desktop mega-menu and mobile
-  // Explore sheet already route Programs to (no new browsing architecture)
-  // — `direct: true` skips the other tiles' cat= preview-card mechanism
-  // (which has its own per-category fetch/render wiring Programs doesn't
-  // have) and just navigates straight there on click.
-  { key: "programs", label: "Programs", desc: "Multi-week courses and series.", icon: <GridIcon size={20} />, to: "/explore?rtype=activities", direct: true },
+  // Programs has its own browse page (/programs). `direct: true` skips the
+  // other tiles' cat= preview-card mechanism and just navigates there.
+  { key: "programs", label: "Programs", desc: "Multi-week courses and series.", icon: <GridIcon size={20} />, to: "/programs", direct: true },
   { key: "circles", label: "Circles", desc: "Recurring groups built around shared activity.", icon: <CalendarIcon size={20} />, to: "/circles" },
 ];
 
@@ -761,7 +755,7 @@ export function Explore() {
                 icon={<SearchIcon size={22} />}
                 title={qParam.trim() || mood ? "Nothing matched yet" : "Nothing here right now"}
                 subtitle="Try a different phrasing, widen the distance, or drop a filter."
-                action={<IntentCaptureForm activityLabel={emptyStateActivityLabel || "this"} county={emptyStateCounty} />}
+                action={<IntentCaptureForm activityLabel={emptyStateActivityLabel} county={emptyStateCounty} timeOfDay={result?.parsed?.timeOfDay} maxPriceEuro={result?.parsed?.maxPriceEuro} />}
               />
             ) : hasNoVisibleData ? (
               <div style={{ background: colors.panel, borderRadius: radius.card, padding: "24px", textAlign: "center" }}>

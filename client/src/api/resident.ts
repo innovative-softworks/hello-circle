@@ -1,4 +1,8 @@
 import type {
+  ChatInboxItem,
+  GameNextSteps,
+  HostOpportunity,
+  NextStepsKind,
   BlockedResident,
   ChatFeed,
   ChatMessage,
@@ -449,6 +453,13 @@ export interface CreateGameInput {
   surfaceType?: string;
   indoorOutdoor?: "indoor" | "outdoor" | "mixed";
   meetingInstructions?: string;
+  /** Release 6 — created from a Host Opportunity (analytics only). */
+  fromDemand?: string;
+  /** Release 2 — what-to-expect gaps ("" clears on update). */
+  experienceRequired?: string;
+  accessibilityInfo?: string;
+  /** Release 2 — host-selected attributes (participationVocab.ts); replaces the whole set. */
+  participationAttributes?: string[];
   cancellationPolicy?: string;
   /** Set when this game is created as a specific Circle's plan (HelloCircle
    * Manage Phase 4's "Create plan" deep-link). */
@@ -644,6 +655,16 @@ export function checkInGame(id: string): Promise<{ ok: boolean }> {
 
 export function confirmGameAttendance(id: string, attended: boolean): Promise<{ ok: boolean }> {
   return request(`/games/${id}/confirm-attendance`, { method: "POST", body: JSON.stringify({ attended }) });
+}
+
+/** "Keep the connection going" after a game — participants/host only. */
+export function fetchGameNextSteps(id: string): Promise<GameNextSteps> {
+  return request(`/games/${id}/next-steps`);
+}
+
+/** Release 3 — the same, for any participation kind (owned via client id or resident). */
+export function fetchNextSteps(kind: NextStepsKind, ref: string): Promise<GameNextSteps> {
+  return request(`/next-steps?kind=${kind}&ref=${encodeURIComponent(ref)}`);
 }
 
 // --- Circles (NEXT) ----------------------------------------------------
@@ -854,6 +875,16 @@ export function fetchChatMessages(scopeType: ChatScopeType, scopeId: string, aft
   return request(`/chat/${scopeType}/${scopeId}/messages${after ? `?after=${after}` : ""}`);
 }
 
+/** Every conversation the caller is in, with unread counts. `asHost` asks
+ * for the provider view when a browser holds both sessions. */
+export function fetchChatInbox(asHost = false): Promise<{ items: ChatInboxItem[]; unread: number; viewerRole: "resident" | "host" }> {
+  return request(`/chat/mine${asHost ? "?as=host" : ""}`);
+}
+
+export function reportChatMessage(id: number, reason: string): Promise<{ ok: boolean }> {
+  return request(`/chat/messages/${id}/report`, { method: "POST", body: JSON.stringify({ reason }) });
+}
+
 export function postChatMessage(scopeType: ChatScopeType, scopeId: string, body: string): Promise<ChatMessage> {
   return request(`/chat/${scopeType}/${scopeId}/messages`, { method: "POST", body: JSON.stringify({ body }) });
 }
@@ -896,8 +927,16 @@ export function saveOnboarding(input: {
   prefBeginnerFriendly?: boolean;
   prefSoloFriendly?: boolean;
   prefBudget?: string;
+  prefFirstTimer?: boolean;
+  prefFamily?: boolean;
+  areaTenure?: string;
 }): Promise<{ ok: boolean }> {
   return request(`/residents/me/onboarding`, { method: "PUT", body: JSON.stringify(input) });
+}
+
+/** Release 2 — resets every discovery/comfort preference to "no preference". */
+export function clearPreferences(): Promise<{ ok: boolean }> {
+  return request(`/residents/me/preferences`, { method: "DELETE" });
 }
 
 export function skipOnboarding(): Promise<{ ok: boolean }> {
@@ -979,13 +1018,14 @@ type FeedbackAnswer = "yes" | "maybe" | "no";
 
 /** Fuller post-activity feedback (IA spec §11) — the 4 extra questions are
  * all optional, same as server-side; pass only the ones you're collecting. */
+/** "How was it?" (Release 3) — `response` is the required "would you do
+ * something like this again?"; everything else is optional. */
 export function submitFeedback(
   kind: string,
   ref: string,
-  response: FeedbackAnswer,
-  extra?: { beginnerFriendly?: FeedbackAnswer; soloFriendly?: FeedbackAnswer; descriptionAccurate?: FeedbackAnswer; welcoming?: FeedbackAnswer }
+  input: { response: FeedbackAnswer; rating?: number; tags?: string[]; comment?: string }
 ): Promise<{ ok: boolean }> {
-  return request(`/feedback`, { method: "POST", body: JSON.stringify({ kind, ref, response, ...extra }) });
+  return request(`/feedback`, { method: "POST", body: JSON.stringify({ kind, ref, ...input }) });
 }
 
 export interface FeedbackStatus {
@@ -994,6 +1034,9 @@ export interface FeedbackStatus {
   soloFriendly: FeedbackAnswer | null;
   descriptionAccurate: FeedbackAnswer | null;
   welcoming: FeedbackAnswer | null;
+  rating?: number | null;
+  tags?: string[];
+  comment?: string | null;
 }
 
 export function fetchFeedbackStatus(kind: string, ref: string): Promise<FeedbackStatus> {
@@ -1037,4 +1080,9 @@ export function setSearchAlertActive(id: string, active: boolean): Promise<{ ok:
 
 export function deleteSearchAlert(id: string): Promise<{ ok: boolean }> {
   return request(`/residents/me/search-alerts/${id}`, { method: "DELETE" });
+}
+
+/** Release 6 — demand opportunities for a verified resident host. */
+export function fetchHostOpportunities(): Promise<{ opportunities: HostOpportunity[]; counties: string[] }> {
+  return request(`/games/host/opportunities`);
 }

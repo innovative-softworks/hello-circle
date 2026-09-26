@@ -1,4 +1,6 @@
 import { useEffect, useState } from "react";
+import { declineInviteConfirm } from "../confirmCopy";
+import { useConfirm } from "./ConfirmProvider";
 import { useNavigate } from "react-router-dom";
 import { fetchMyInvitations, respondToInvitation, type MyInvitation } from "../api/invitations";
 import { colors, radius } from "../theme";
@@ -23,12 +25,14 @@ export function MyInvitationsPanel() {
   const navigate = useNavigate();
   const [invitations, setInvitations] = useState<MyInvitation[]>([]);
   const [respondingId, setRespondingId] = useState<string | null>(null);
+  const confirm = useConfirm();
 
   useEffect(() => {
     fetchMyInvitations().then(setInvitations).catch(() => setInvitations([]));
   }, []);
 
   const respond = async (invite: MyInvitation, response: "accepted" | "maybe" | "declined") => {
+    if (response === "declined" && !(await confirm(declineInviteConfirm(invite.entity?.title ?? "this")))) return;
     setRespondingId(invite.id);
     try {
       await respondToInvitation(invite.id, response);

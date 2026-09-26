@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { useToast } from "../components/Toast";
 import { createPortal } from "react-dom";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { fetchGames, fetchMyGames, joinGame, joinGameWaitlist, subscribeGameNotifyMe } from "../api";
@@ -541,6 +542,7 @@ function JoinAuthModal({ open, game, onClose, onSignedIn }: { open: boolean; gam
 
 export function Games() {
   const navigate = useNavigate();
+  const toast = useToast();
   const { resident, refresh: refreshGuest } = useGuest();
   const [games, setGames] = useState<Game[]>([]);
   const [loading, setLoading] = useState(true);
@@ -706,7 +708,7 @@ export function Games() {
       setMyGameIds((prev) => new Set(prev).add(id));
       load();
     } catch (e) {
-      alert(e instanceof Error ? e.message : "Couldn't join this session");
+      toast.error(e instanceof Error ? e.message : "Couldn't join this session");
     } finally {
       setJoiningId(null);
     }
@@ -715,10 +717,10 @@ export function Games() {
   const handleWaitlist = async (id: string) => {
     try {
       await joinGameWaitlist(id);
-      alert("You're on the waitlist - we'll email you if a spot opens up.");
+      toast.success("You're on the waitlist — we'll email you if a spot opens up.");
       load();
     } catch (e) {
-      alert(e instanceof Error ? e.message : "Couldn't join the waitlist");
+      toast.error(e instanceof Error ? e.message : "Couldn't join the waitlist");
     }
   };
 

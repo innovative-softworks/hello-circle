@@ -32,7 +32,25 @@ export type AnalyticsEventType =
   | "invite_opened"
   | "invite_accepted"
   | "invite_maybe"
-  | "invite_declined";
+  | "invite_declined"
+  // Community participation upgrade, Release 1 — the discovery → intent →
+  // conversion → participation → community funnel. Views are logged on the
+  // public detail GET routes (logView below); the rest at their mutation.
+  | "activity_viewed"
+  | "place_viewed"
+  | "circle_viewed"
+  | "activity_saved"
+  | "request_interest_added"
+  | "booking_started"
+  | "booking_completed"
+  | "feedback_submitted"
+  | "circle_created"
+  // Release 3 — a host confirming someone attended (self-confirm for games
+  // keeps its existing "attended" event).
+  | "attendance_confirmed"
+  // Release 6 — the host side of the demand loop.
+  | "host_opportunity_viewed"
+  | "host_created_from_demand";
 
 const insertEvent = db.prepare(
   `INSERT INTO analytics_events (event_type, resident_id, client_id, metadata) VALUES (@eventType, @residentId, @clientId, @metadata)`
@@ -54,4 +72,15 @@ export async function logEvent(
   } catch (err) {
     console.error("[analytics] logEvent failed:", eventType, err);
   }
+}
+
+/** Detail-page view event — resident/client id only, never the query
+ * string or anything the visitor typed. X-Client-Id is optional here (a
+ * crawler or share-card fetch has none), unlike clientIdFrom(). */
+export function logView(
+  eventType: "activity_viewed" | "place_viewed" | "circle_viewed",
+  req: { header(name: string): string | undefined; resident?: { id: string } | null },
+  metadata: { kind: string; id: string }
+): void {
+  void logEvent(eventType, { residentId: req.resident?.id ?? null, clientId: req.header("X-Client-Id") ?? null, metadata });
 }

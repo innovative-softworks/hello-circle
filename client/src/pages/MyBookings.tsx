@@ -52,10 +52,10 @@ import { Button, ConfirmDialog, EmptyState, onActivateProps, RowSkeleton, inputS
 import { dateLabel, euro } from "../euro";
 import { formatDatePill } from "../formatters";
 import { useGuest } from "../GuestContext";
-import { isUpcomingProgramEnrollment } from "../participation";
+import { attendanceStateOf, isUpcomingProgramEnrollment, shouldPromptFeedback, shouldPromptProgramFeedback } from "../participation";
 import { getMediaUrl } from "../media";
 import { colors, fonts, radius } from "../theme";
-import { AVAILABILITY_OPTIONS } from "../types";
+import { describeAvailability } from "../participationVocab";
 import type { Circle, Favourite, Game, MyBooking, MyExperienceBooking, MyIntent, MyProgramEnrollment, MyRegistration, NeedsAttentionItem, ParticipationEntry, ResidentFull, RoutineSuggestion, WaitlistOfferStatus } from "../types";
 
 // My Life — participation-first home (IA redesign). One purpose: "what am
@@ -78,6 +78,9 @@ import type { Circle, Favourite, Game, MyBooking, MyExperienceBooking, MyIntent,
 
 const INTERESTS_NUDGE_DISMISSED_KEY = "hc_interests_nudge_dismissed";
 
+// Front-door check-in (attendance table) — shown only when the vendor
+// actually checked this booking/registration in; no badge means unknown.
+const checkedInBadgeStyle: React.CSSProperties = { fontSize: 11, fontWeight: 700, color: colors.greenText, background: colors.greenBg, borderRadius: radius.pill, padding: "2px 8px" };
 const cancelledBadgeStyle: React.CSSProperties = { fontSize: 11, fontWeight: 700, color: colors.danger, background: colors.dangerBg, borderRadius: radius.pill, padding: "2px 8px" };
 const recoveredBadgeStyle: React.CSSProperties = { fontSize: 11, fontWeight: 700, color: colors.greenText, background: colors.greenBg, borderRadius: radius.pill, padding: "2px 8px" };
 
@@ -136,6 +139,7 @@ function BookingRow({
           <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
             <span style={{ fontWeight: 700, fontSize: 16 }}>{booking.centreName}{booking.roomName ? ` — ${booking.roomName}` : ""}</span>
             {cancelled && <span style={cancelledBadgeStyle}>Cancelled</span>}
+            {!cancelled && booking.attendance === "present" && <span style={checkedInBadgeStyle}>Checked in</span>}
             {recovered && <span style={recoveredBadgeStyle}>Found by reference</span>}
           </div>
           <div style={{ color: colors.mutedLight, fontSize: 14 }}>
@@ -183,7 +187,7 @@ function BookingRow({
             )}
             <div style={{ fontSize: 12, fontWeight: 700, color: colors.muted, marginBottom: 8 }}>RESCHEDULE</div>
             <RescheduleForm booking={booking} onDone={() => window.location.reload()} />
-            {isPast && (
+            {shouldPromptFeedback(attendanceStateOf({ cancelled, attendance: booking.attendance }), isPast) && (
               <div style={{ marginTop: 16 }}>
                 <PostActivityFeedback kind="booking" reference={booking.ref} followTarget={{ type: "vendor", id: booking.vendorId }} />
               </div>
@@ -243,6 +247,7 @@ function RegistrationRow({
           <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
             <span style={{ fontWeight: 700, fontSize: 16 }}>{`${registration.childFirst} ${registration.childLast}`.trim()}</span>
             {cancelled && <span style={cancelledBadgeStyle}>Cancelled</span>}
+            {!cancelled && registration.attendance === "present" && <span style={checkedInBadgeStyle}>Checked in</span>}
             {recovered && <span style={recoveredBadgeStyle}>Found by reference</span>}
           </div>
           <div style={{ color: colors.mutedLight, fontSize: 14 }}>
@@ -274,7 +279,7 @@ function RegistrationRow({
         onCancel={() => setConfirmOpen(false)}
       />
       {!cancelled && <WaitlistOfferBanner clubId={registration.clubId} />}
-      {!cancelled && enoughTimeSinceSignup && (
+      {shouldPromptFeedback(attendanceStateOf({ cancelled, attendance: registration.attendance }), enoughTimeSinceSignup) && (
         <div style={{ marginTop: 12, paddingTop: 12, borderTop: `1px solid ${colors.border}` }}>
           <PostActivityFeedback kind="registration" reference={registration.ref} followTarget={{ type: "vendor", id: registration.vendorId }} />
         </div>
@@ -334,6 +339,7 @@ function ExperienceBookingRow({ booking }: { booking: MyExperienceBooking }) {
           <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
             <span style={{ fontWeight: 700, fontSize: 16 }}>{booking.title}</span>
             {cancelled && <span style={cancelledBadgeStyle}>Cancelled</span>}
+            {!cancelled && booking.attendance === "present" && <span style={checkedInBadgeStyle}>Attended</span>}
           </div>
           <div style={{ color: colors.mutedLight, fontSize: 14 }}>
             {dateLabel(booking.date)} · {booking.time} · {booking.partySize} {booking.partySize === 1 ? "person" : "people"}
@@ -345,7 +351,7 @@ function ExperienceBookingRow({ booking }: { booking: MyExperienceBooking }) {
         </div>
         <ChevronRightIcon size={16} style={{ flex: "none", color: colors.faint }} />
       </div>
-      {!cancelled && isPast && (
+      {shouldPromptFeedback(attendanceStateOf({ cancelled, attendance: booking.attendance }), isPast) && (
         <div style={{ marginTop: 12, paddingTop: 12, borderTop: `1px solid ${colors.border}` }} onClick={(e) => e.stopPropagation()}>
           <PostActivityFeedback kind="experience" reference={booking.ref} followTarget={booking.vendorId ? { type: "vendor", id: booking.vendorId } : undefined} />
         </div>
@@ -410,7 +416,7 @@ function ProgramEnrollmentRow({ enrollment }: { enrollment: MyProgramEnrollment 
           hasPastSession (a real session has actually happened), not just
           "enrolled a while ago" — a program is ongoing, so isPast doesn't
           apply the way it does to a single-dated booking. */}
-      {!cancelled && enrollment.hasPastSession && (
+      {shouldPromptProgramFeedback(enrollment) && (
         <div style={{ marginTop: 12, paddingTop: 12, borderTop: `1px solid ${colors.border}` }} onClick={(e) => e.stopPropagation()}>
           <PostActivityFeedback kind="program" reference={enrollment.ref} followTarget={enrollment.vendorId ? { type: "vendor", id: enrollment.vendorId } : undefined} />
         </div>
@@ -1014,10 +1020,13 @@ export function MyBookings() {
                 <section style={{ gridColumn: "1 / -1", borderTop: `1px solid ${colors.border}`, paddingTop: 36 }}>
                   <SectionHeader eyebrow="AVAILABILITY" title="When you're usually free" />
                   <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
-                    {residentFull.availability.map((a) => (
+                    {describeAvailability(residentFull.availability).map((a) => (
                       <span key={a} style={{ background: colors.panel, color: colors.text, borderRadius: radius.pill, padding: "7px 14px", fontSize: 13, fontWeight: 600 }}>{a}</span>
                     ))}
-                    <button onClick={() => openOnboarding()} style={{ background: "none", border: "none", padding: 0, fontSize: 13, fontWeight: 700, color: colors.text, cursor: "pointer", textDecoration: "underline" }}>
+                    {/* Was openOnboarding() — but onboarding only asks location +
+                        interests now, so availability lives in Profile's
+                        preferences (same target MyLifeEmptyState already uses). */}
+                    <button onClick={() => navigate("/profile?tab=preferences")} style={{ background: "none", border: "none", padding: 0, fontSize: 13, fontWeight: 700, color: colors.text, cursor: "pointer", textDecoration: "underline" }}>
                       Update availability
                     </button>
                   </div>

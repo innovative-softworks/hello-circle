@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useConfirm } from "./ConfirmProvider";
 import { useNavigate } from "react-router-dom";
 import {
   createVendorCentre,
@@ -70,6 +71,7 @@ export function CentreCreationWizard({
   onPublished: (centre: Centre) => void;
 }) {
   const navigate = useNavigate();
+  const confirm = useConfirm();
   const [id, setId] = useState<string | "new">(initialCentreId);
   const [step, setStep] = useState(1);
   const [form, setFormRaw] = useState<WizardForm>(blankForm());
@@ -231,6 +233,12 @@ export function CentreCreationWizard({
 
   const publish = async () => {
     if (id === "new") return;
+    const ok = await confirm({
+      title: "Submit for review?",
+      message: "It'll be sent to the HelloCircle team to check before it goes live on the site.",
+      confirmLabel: "Submit for review",
+    });
+    if (!ok) return;
     setSaving(true);
     setError(null);
     try {

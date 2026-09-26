@@ -1,4 +1,5 @@
 import { CheckCircleIcon, EyeIcon, ShareIcon } from "./icons";
+import { useToast } from "./Toast";
 import { Button, ManageCard as Card, LinkButton } from "./ui";
 import { colors, fonts } from "../theme";
 
@@ -7,9 +8,10 @@ import { colors, fonts } from "../theme";
 // right after `onPublished` fires; dismissing it lands on the same tabbed
 // view as before.
 export function PublishedScreen({ name, publicHref, onDismiss }: { name: string; publicHref: string; onDismiss: () => void }) {
+  const toast = useToast();
   const copyLink = async () => {
     await navigator.clipboard.writeText(`${window.location.origin}${publicHref}`);
-    alert("Link copied to clipboard");
+    toast.success("Link copied");
   };
 
   return (

@@ -47,6 +47,7 @@ interface RegistrationForNotify {
 export async function confirmBooking(ref: string) {
   const info = await db.prepare(`UPDATE bookings SET payment_status = 'paid' WHERE ref = ? AND payment_status = 'pending'`).run(ref);
   if (info.changes === 0) return; // already processed (webhook retried) or unknown ref
+  void logEvent("booking_completed", { metadata: { type: "booking", ref, via: "stripe" } });
 
   const row = (await db
     .prepare(
@@ -79,6 +80,7 @@ export async function confirmBooking(ref: string) {
 export async function confirmRegistration(ref: string) {
   const info = await db.prepare(`UPDATE registrations SET payment_status = 'paid' WHERE ref = ? AND payment_status = 'pending'`).run(ref);
   if (info.changes === 0) return;
+  void logEvent("booking_completed", { metadata: { type: "registration", ref, via: "stripe" } });
 
   const row = (await db
     .prepare(
@@ -129,6 +131,7 @@ interface GameJoinForNotify {
 export async function confirmGameJoin(ref: string) {
   const info = await db.prepare(`UPDATE game_participants SET status = 'joined', payment_status = 'paid' WHERE ref = ? AND payment_status = 'pending'`).run(ref);
   if (info.changes === 0) return;
+  void logEvent("booking_completed", { metadata: { type: "game", ref, via: "stripe" } });
 
   const row = (await db
     .prepare(
@@ -193,6 +196,7 @@ export async function confirmGameJoin(ref: string) {
 export async function confirmPass(ref: string) {
   const info = await db.prepare(`UPDATE passes SET payment_status = 'paid' WHERE ref = ? AND payment_status = 'pending'`).run(ref);
   if (info.changes === 0) return;
+  void logEvent("booking_completed", { metadata: { type: "pass", ref, via: "stripe" } });
 
   // Platform Pre-Launch Polish — Changeset 3. This function previously had
   // zero notification code at all — a Pass purchase confirmed with no
@@ -236,6 +240,7 @@ export async function confirmPass(ref: string) {
 export async function confirmProgramEnrollment(ref: string) {
   const info = await db.prepare(`UPDATE program_enrollments SET payment_status = 'paid' WHERE ref = ? AND payment_status = 'pending'`).run(ref);
   if (info.changes === 0) return;
+  void logEvent("booking_completed", { metadata: { type: "program", ref, via: "stripe" } });
   const row = (await db
     .prepare(
       `SELECT pe.participant_name as participantName, pe.email, p.title, p.vendor_id as vendorId, p.listing_type as listingType, p.listing_id as listingId, pe.total_cents as totalCents, pe.resident_id as residentId, pe.coupon_code as couponCode
@@ -265,6 +270,7 @@ export async function confirmProgramEnrollment(ref: string) {
 export async function confirmExperienceBooking(ref: string) {
   const info = await db.prepare(`UPDATE experience_bookings SET payment_status = 'paid' WHERE ref = ? AND payment_status = 'pending'`).run(ref);
   if (info.changes === 0) return;
+  void logEvent("booking_completed", { metadata: { type: "experience", ref, via: "stripe" } });
 
   const row = (await db
     .prepare(

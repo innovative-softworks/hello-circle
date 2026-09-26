@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useConfirm } from "./ConfirmProvider";
 import { fetchPaymentMethods, removePaymentMethod, setDefaultPaymentMethod } from "../api";
 import { CardIcon } from "./icons";
 import { Button, EmptyState } from "./ui";
@@ -26,6 +27,7 @@ const CARD_BRAND_LABEL: Record<string, string> = {
 export function PaymentMethodsPanel() {
   const [methods, setMethods] = useState<SavedPaymentMethod[] | null>(null);
   const [defaultId, setDefaultId] = useState<string | null>(null);
+  const confirm = useConfirm();
   const [unavailable, setUnavailable] = useState(false);
 
   const load = () => {
@@ -45,6 +47,14 @@ export function PaymentMethodsPanel() {
   };
 
   const handleRemove = async (id: string) => {
+    const m = methods?.find((x) => x.id === id);
+    const ok = await confirm({
+      title: "Remove this card?",
+      message: `${m ? `${CARD_BRAND_LABEL[m.brand] ?? m.brand} •••• ${m.last4} ` : "This card "}won't be offered at checkout any more. You can add it again when you next pay.`,
+      confirmLabel: "Remove card",
+      tone: "danger",
+    });
+    if (!ok) return;
     await removePaymentMethod(id);
     setMethods((m) => m && m.filter((mm) => mm.id !== id));
   };

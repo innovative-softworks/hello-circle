@@ -4,7 +4,7 @@ import { colors, radius } from "../theme";
 import { CheckIcon } from "./icons";
 import { InviteButton } from "./InviteButton";
 import { ResidentPicker } from "./ResidentPicker";
-import { Button, Drawer, inputStyle, labelStyle } from "./ui";
+import { Button, Modal, inputStyle, labelStyle } from "./ui";
 
 // Universal Sharing & Invitation system, Phase 2 — "Invite" is distinct from
 // "Share" (§7): this is for "I specifically want you to come to this",
@@ -38,10 +38,24 @@ export function InviteSheet({ open, onClose, entityType, entityId, title }: { op
   };
 
   return (
-    <Drawer open={open} onClose={onClose} title="Invite people">
-      <p style={{ fontSize: 13.5, color: colors.mutedLight, marginTop: 0, marginBottom: 18 }}>
-        Invite someone specifically to <strong>{title}</strong> — they'll be able to accept, say maybe, or decline.
-      </p>
+    <Modal
+      open={open}
+      onClose={onClose}
+      title="Invite people"
+      subtitle={title}
+      footer={
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+          {sentTo.length > 0 ? (
+            <span role="status" style={{ display: "inline-flex", alignItems: "center", gap: 6, color: colors.greenText, fontSize: 13, fontWeight: 700 }}>
+              <CheckIcon size={15} /> {sentTo.length} invitation{sentTo.length === 1 ? "" : "s"} sent
+            </span>
+          ) : (
+            <span style={{ fontSize: 12.5, color: colors.faint }}>They can accept, say maybe, or decline.</span>
+          )}
+          <Button onClick={onClose}>Done</Button>
+        </div>
+      }
+    >
 
       <div style={{ fontSize: 11.5, fontWeight: 700, color: colors.faint, letterSpacing: ".04em", textTransform: "uppercase", marginBottom: 8 }}>Invite via HelloCircle</div>
       <div style={{ marginBottom: 18 }}>
@@ -52,23 +66,17 @@ export function InviteSheet({ open, onClose, entityType, entityId, title }: { op
       <div style={{ display: "flex", gap: 8, marginBottom: 18 }}>
         <div style={{ flex: 1 }}>
           <label htmlFor="invite-email" style={labelStyle}>Email address</label>
-          <input id="invite-email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="friend@email.ie" style={inputStyle} onKeyDown={(e) => e.key === "Enter" && inviteEmail()} />
+          <input id="invite-email" type="email" inputMode="email" autoComplete="off" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="friend@email.ie" style={inputStyle} onKeyDown={(e) => e.key === "Enter" && inviteEmail()} />
         </div>
         <Button onClick={inviteEmail} disabled={!email.trim() || emailBusy} style={{ alignSelf: "flex-end" }}>
           {emailBusy ? "Sending…" : "Send"}
         </Button>
       </div>
 
-      {sentTo.length > 0 && (
-        <div style={{ display: "flex", alignItems: "center", gap: 8, color: colors.greenText, fontSize: 13, fontWeight: 600, background: colors.greenBg, borderRadius: radius.control, padding: "9px 12px", marginBottom: 18 }}>
-          <CheckIcon size={15} /> {sentTo.length} invitation{sentTo.length === 1 ? "" : "s"} sent
-        </div>
-      )}
-
       <div style={{ borderTop: `1px solid ${colors.border}`, paddingTop: 16 }}>
         <div style={{ fontSize: 11.5, fontWeight: 700, color: colors.faint, letterSpacing: ".04em", textTransform: "uppercase", marginBottom: 10 }}>Other ways to invite</div>
         <InviteButton title={title} text={`I'm going to ${title}. Want to join me?`} listingType={entityType} listingId={entityId} />
       </div>
-    </Drawer>
+    </Modal>
   );
 }

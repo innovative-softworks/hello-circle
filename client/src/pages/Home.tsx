@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useToast } from "../components/Toast";
 import { useNavigate } from "react-router-dom";
 import {
   fetchCentres,
@@ -20,6 +21,8 @@ import { openCheckout } from "../native";
 import { CentreCard } from "../components/CentreCard";
 import { ClubCard } from "../components/ClubCard";
 import { DiscoverCard, DiscoverRow } from "../components/DiscoverRow";
+import { ForYouSections } from "../components/ForYouSections";
+import { NewHereBlock } from "../components/NewHereBlock";
 import { GameCard } from "./Games";
 import { formatDateTime, formatPrice } from "../formatters";
 import { HeroScrollSplit, type HeroScrollImage } from "../components/HeroScrollSplit";
@@ -204,6 +207,7 @@ function DestinationCard({ image, title, caption, onClick }: { image: string | n
 
 export function Home() {
   const navigate = useNavigate();
+  const toast = useToast();
   const revealRef = useScrollReveal<HTMLDivElement>(0);
   const { resident } = useGuest();
   const [homeCounty, setHomeCounty] = useState("All");
@@ -488,7 +492,7 @@ export function Home() {
       }
       loadOpenGames();
     } catch (e) {
-      alert(e instanceof Error ? e.message : "Couldn't join this session");
+      toast.error(e instanceof Error ? e.message : "Couldn't join this session");
     } finally {
       setJoiningGameId(null);
     }
@@ -971,6 +975,28 @@ export function Home() {
             </div>
           </div>
         </section>
+      )}
+
+      {/* Release 4 — personalised For You rows for a signed-in resident
+          (renders nothing when there's nothing real to show). */}
+      {resident && (
+        <NewHereBlock
+          county={resident.homeCounty}
+          wrap={(children, key) => (
+            <section key={key} style={fullBleedStyle(colors.bg)}>
+              <div className="section-pad" style={innerWrapStyle}>{children}</div>
+            </section>
+          )}
+        />
+      )}
+      {resident && (
+        <ForYouSections
+          wrap={(children, key) => (
+            <section key={key} style={fullBleedStyle(colors.bg)}>
+              <div className="section-pad" style={innerWrapStyle}>{children}</div>
+            </section>
+          )}
+        />
       )}
 
       {/* §5 — Happening today, before This weekend. */}

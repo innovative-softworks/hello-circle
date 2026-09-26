@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ChangeEvent, type CSSProperties, type ReactNode } from "react";
+import { useConfirm } from "../components/ConfirmProvider";
 import { useNavigate } from "react-router-dom";
 import {
   addHouseholdMember,
@@ -26,6 +27,7 @@ import {
   saveAccessibilityPrefs,
   saveNotificationPrefs,
   saveOnboarding,
+  clearPreferences,
   setFollowNotificationLevel,
   unblockResident,
   unfollowEntity,
@@ -76,7 +78,9 @@ import { useGoogleSignIn } from "../googleSignIn";
 import { useGuest } from "../GuestContext";
 import { notificationHref } from "../notificationLink";
 import { colors, fonts, radius } from "../theme";
-import { ACCESSIBILITY_OPTIONS, AVAILABILITY_OPTIONS, BUDGET_OPTIONS, GOAL_OPTIONS, GROUP_SIZE_OPTIONS, INTEREST_OPTIONS } from "../types";
+import { ACCESSIBILITY_OPTIONS, BUDGET_OPTIONS, GROUP_SIZE_OPTIONS, INTEREST_OPTIONS } from "../types";
+import { GOALS, MAX_GOALS, toggleGoal } from "../participationVocab";
+import { AvailabilityPicker } from "../components/AvailabilityPicker";
 import type { BlockedResident, Favourite, HostStatus, HouseholdMember, NotificationPrefs, Pass, Receipt, ReportRecord, ResidentNotification, Routine, RoutineSuggestion } from "../types";
 
 // Profile & settings (My Life redesign §46, restructured again in the
@@ -425,6 +429,7 @@ const LEVEL_LABELS: Record<NotificationLevel, string> = { highlights: "Highlight
  * secondary control) rather than inventing a new layout. */
 function FollowingPanel() {
   const navigate = useNavigate();
+  const confirm = useConfirm();
   const [follows, setFollows] = useState<FollowedEntity[]>([]);
   const [loading, setLoading] = useState(true);
   const [openLevelMenu, setOpenLevelMenu] = useState<string | null>(null);
@@ -438,6 +443,13 @@ function FollowingPanel() {
   const key = (f: FollowedEntity) => `${f.followedType}:${f.followedId}`;
 
   const handleUnfollow = async (f: FollowedEntity) => {
+    const ok = await confirm({
+      title: `Unfollow ${f.name ?? "this account"}?`,
+      message: "You'll stop getting updates when they post something new. You can follow again any time.",
+      confirmLabel: "Unfollow",
+      tone: "danger",
+    });
+    if (!ok) return;
     await unfollowEntity(f.followedType, f.followedId);
     setFollows((rows) => rows.filter((r) => key(r) !== key(f)));
   };
@@ -1223,9 +1235,14 @@ function ParticipationPreferencesPanel() {
   const [prefBudget, setPrefBudget] = useState("");
   const [prefBeginnerFriendly, setPrefBeginnerFriendly] = useState(false);
   const [prefSoloFriendly, setPrefSoloFriendly] = useState(false);
+  const [prefFirstTimer, setPrefFirstTimer] = useState(false);
+  const [prefFamily, setPrefFamily] = useState(false);
+  const [areaTenure, setAreaTenure] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [confirmClear, setConfirmClear] = useState(false);
+  const [clearing, setClearing] = useState(false);
 
   useEffect(() => {
     fetchResidentFull()
@@ -1239,6 +1256,9 @@ function ParticipationPreferencesPanel() {
         setPrefBudget(r.prefBudget);
         setPrefBeginnerFriendly(r.prefBeginnerFriendly);
         setPrefSoloFriendly(r.prefSoloFriendly);
+        setPrefFirstTimer(r.prefFirstTimer ?? false);
+        setPrefFamily(r.prefFamily ?? false);
+        setAreaTenure(r.areaTenure ?? "");
       })
       .finally(() => setLoading(false));
   }, []);
@@ -1251,10 +1271,32 @@ function ParticipationPreferencesPanel() {
     setSaving(true);
     setSaved(false);
     try {
-      await saveOnboarding({ interests, availability, searchRadiusKm, goals, prefGroupSize, prefBeginnerFriendly, prefSoloFriendly, prefBudget });
+      await saveOnboarding({ interests, availability, searchRadiusKm, goals, prefGroupSize, prefBeginnerFriendly, prefSoloFriendly, prefBudget, prefFirstTimer, prefFamily, areaTenure });
       setSaved(true);
     } finally {
       setSaving(false);
+    }
+  };
+
+  // "Clear my preferences" — preference data is deletable, not just editable.
+  const handleClear = async () => {
+    setClearing(true);
+    try {
+      await clearPreferences();
+      setInterests([]);
+      setAvailability([]);
+      setGoals([]);
+      setPrefGroupSize("");
+      setPrefBudget("");
+      setPrefBeginnerFriendly(false);
+      setPrefSoloFriendly(false);
+      setPrefFirstTimer(false);
+      setPrefFamily(false);
+      setAreaTenure("");
+      setSaved(false);
+      setConfirmClear(false);
+    } finally {
+      setClearing(false);
     }
   };
 
@@ -1279,12 +1321,24 @@ function ParticipationPreferencesPanel() {
         </div>
       </SettingsSection>
 
-      <SettingsSection title="When you're usually free">
+      <SettingsSection title="Are you new to the area?">
+        <p style={{ fontSize: 12.5, color: colors.mutedLight, margin: "0 0 12px" }}>Optional — if you're new, we'll show a few easy ways to get started.</p>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-          {AVAILABILITY_OPTIONS.map((opt) => (
-            <button key={opt} onClick={() => toggleIn(availability, setAvailability, opt)} style={tagStyle(availability.includes(opt))}>{opt}</button>
+          {[
+            { v: "new", l: "Yes, I'm new here" },
+            { v: "settled", l: "I've been here a while" },
+            { v: "exploring", l: "I'm just exploring" },
+          ].map((o) => (
+            <button key={o.v} aria-pressed={areaTenure === o.v} onClick={() => setAreaTenure(areaTenure === o.v ? "" : o.v)} style={tagStyle(areaTenure === o.v)}>
+              {o.l}
+            </button>
           ))}
         </div>
+      </SettingsSection>
+
+      <SettingsSection title="When you're usually free">
+        <p style={{ fontSize: 12.5, color: colors.mutedLight, margin: "0 0 12px" }}>Optional — helps us show things that fit your week.</p>
+        <AvailabilityPicker value={availability} onChange={setAvailability} />
       </SettingsSection>
 
       <SettingsSection title="Discover things within">
@@ -1295,12 +1349,26 @@ function ParticipationPreferencesPanel() {
         </div>
       </SettingsSection>
 
-      <SettingsSection title="Goals">
-        <p style={{ fontSize: 12.5, color: colors.mutedLight, margin: "0 0 12px" }}>What you'd like HelloCircle to help with right now.</p>
+      <SettingsSection title="What are you looking for right now?">
+        <p style={{ fontSize: 12.5, color: colors.mutedLight, margin: "0 0 12px" }}>
+          Pick up to {MAX_GOALS}. {goals.length >= MAX_GOALS ? "Unselect one to choose another." : ""}
+        </p>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-          {GOAL_OPTIONS.map((opt) => (
-            <button key={opt} onClick={() => toggleIn(goals, setGoals, opt)} style={tagStyle(goals.includes(opt))}>{opt}</button>
-          ))}
+          {GOALS.map((opt) => {
+            const active = goals.includes(opt);
+            const blocked = !active && goals.length >= MAX_GOALS;
+            return (
+              <button
+                key={opt}
+                aria-pressed={active}
+                disabled={blocked}
+                onClick={() => setGoals((g) => toggleGoal(g, opt))}
+                style={{ ...tagStyle(active), opacity: blocked ? 0.45 : 1, cursor: blocked ? "not-allowed" : "pointer" }}
+              >
+                {opt}
+              </button>
+            );
+          })}
         </div>
       </SettingsSection>
 
@@ -1335,15 +1403,41 @@ function ParticipationPreferencesPanel() {
           control={<Switch checked={prefBeginnerFriendly} onChange={() => setPrefBeginnerFriendly((v) => !v)} label="Prefer beginner-friendly activities" />}
         />
         <SettingsRow
-          label="Prefer solo-friendly activities"
-          description="Favour activities that work well on your own, not just in a group"
-          control={<Switch checked={prefSoloFriendly} onChange={() => setPrefSoloFriendly((v) => !v)} label="Prefer solo-friendly activities" />}
+          label="Happy to come alone"
+          description="Favour activities where people commonly come on their own"
+          control={<Switch checked={prefSoloFriendly} onChange={() => setPrefSoloFriendly((v) => !v)} label="Happy to come alone" />}
+        />
+        <SettingsRow
+          label="Prefer first-timer-friendly activities"
+          description="Favour hosts who make newcomers feel at home"
+          control={<Switch checked={prefFirstTimer} onChange={() => setPrefFirstTimer((v) => !v)} label="Prefer first-timer-friendly activities" />}
+        />
+        <SettingsRow
+          label="Family friendly"
+          description="Favour activities that suit children with a parent or guardian"
+          control={<Switch checked={prefFamily} onChange={() => setPrefFamily((v) => !v)} label="Family friendly" />}
           last
         />
-        <div style={{ marginTop: 16 }}>
+        <div style={{ marginTop: 16, display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
           <Button onClick={handleSave} disabled={saving}>{saving ? "Saving…" : saved ? "Saved" : "Save"}</Button>
+          <button
+            onClick={() => setConfirmClear(true)}
+            style={{ background: "none", border: "none", padding: 0, fontSize: 13, color: colors.muted, cursor: "pointer", textDecoration: "underline" }}
+          >
+            Clear my preferences
+          </button>
         </div>
       </SettingsSection>
+      <ConfirmDialog
+        open={confirmClear}
+        title="Clear your preferences?"
+        message="Your interests, availability, goals and comfort preferences will be removed. Your account and bookings aren't affected."
+        confirmLabel={clearing ? "Clearing…" : "Clear preferences"}
+        cancelLabel="Keep them"
+        busy={clearing}
+        onConfirm={handleClear}
+        onCancel={() => setConfirmClear(false)}
+      />
     </div>
   );
 }
@@ -1469,6 +1563,7 @@ function HostingPanel() {
 // --- Safety Centre (IA spec §13, relocated unchanged) -----------------------
 
 function SafetyCentrePanel() {
+  const confirm = useConfirm();
   const [blocked, setBlocked] = useState<BlockedResident[]>([]);
   const [reports, setReports] = useState<ReportRecord[]>([]);
   const [loading, setLoading] = useState(true);
@@ -1486,6 +1581,13 @@ function SafetyCentrePanel() {
   useEffect(load, []);
 
   const handleUnblock = async (id: string) => {
+    const name = blocked.find((b) => b.id === id)?.name ?? "this person";
+    const ok = await confirm({
+      title: `Unblock ${name}?`,
+      message: "They'll be able to see you in shared activities and chats again, and you'll see their messages.",
+      confirmLabel: "Unblock",
+    });
+    if (!ok) return;
     await unblockResident(id);
     setBlocked((rows) => rows.filter((b) => b.id !== id));
   };

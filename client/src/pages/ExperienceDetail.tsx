@@ -1,7 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
+import { OfficialCircleLink } from "../components/OfficialCircleLink";
+import { ParticipationBlock } from "../components/ParticipationBlock";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { addFavourite, bookExperienceSession, downloadExperienceBookingIcs, fetchExperience, fetchExperiences, fetchFavourites, removeFavourite } from "../api";
 import { openCheckout } from "../native";
+import { ListingChatButton } from "../components/ListingChats";
 import { BackLink } from "../components/BackLink";
 import { ExperienceCard } from "../components/ExperienceCard";
 import { NumberStepper } from "../components/form";
@@ -12,7 +15,7 @@ import { Photo } from "../components/Photo";
 import { Reviews } from "../components/Reviews";
 import { ShareButton } from "../components/ShareButton";
 import { SinglePinMap } from "../components/SinglePinMap";
-import { Button, Card, Drawer, PageSpinner, inputStyle, labelStyle } from "../components/ui";
+import { Button, Card, Modal, PageSpinner, inputStyle, labelStyle } from "../components/ui";
 import { isFavorite, toggleFavorite } from "../favorites";
 import { useGuest } from "../GuestContext";
 import { dateLabel } from "../euro";
@@ -275,7 +278,8 @@ export function ExperienceDetail() {
   const description = experience.description || "";
   const descriptionIsLong = description.length > 320;
   const visibleDescription = descriptionExpanded || !descriptionIsLong ? description : `${description.slice(0, 320).trimEnd()}…`;
-  const kindLabel = experience.kind === "adventure" ? "Adventure" : "Experience";
+  const isVolunteer = experience.kind === "volunteer";
+  const kindLabel = experience.kind === "adventure" ? "Adventure" : isVolunteer ? "Volunteer" : "Experience";
   const kindAccent = experience.kind === "adventure" ? colors.green : colors.orange;
   const directionsUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${experience.meetingPoint || experience.title}, ${experience.area}, ${experience.county}`)}`;
 
@@ -286,8 +290,17 @@ export function ExperienceDetail() {
     ...(experience.distanceKm !== null ? [{ label: "Distance", value: `${experience.distanceKm} km` }] : []),
     ...(experience.elevationGainM !== null ? [{ label: "Elevation gain", value: `${experience.elevationGainM} m` }] : []),
     ...(experience.difficulty ? [{ label: "Difficulty", value: capitalize(experience.difficulty) }] : []),
-    { label: "Group size", value: `Up to ${experience.capacity}` },
-    { label: "Price", value: formatPrice(experience.priceCents, { each: true }) },
+    ...(isVolunteer
+      ? [
+          { label: "Volunteers needed", value: String(experience.capacity) },
+          ...(experience.cause ? [{ label: "Cause", value: experience.cause }] : []),
+          ...(experience.minAge ? [{ label: "Minimum age", value: `${experience.minAge}+` }] : []),
+          ...(experience.skillsRequired ? [{ label: "Skills needed", value: experience.skillsRequired }] : []),
+        ]
+      : [
+          { label: "Group size", value: `Up to ${experience.capacity}` },
+          { label: "Price", value: formatPrice(experience.priceCents, { each: true }) },
+        ]),
     ...(experience.terrainType ? [{ label: "Terrain", value: experience.terrainType }] : []),
     ...(experience.eligibility ? [{ label: "Requirements", value: experience.eligibility }] : []),
   ];
@@ -298,94 +311,130 @@ export function ExperienceDetail() {
     ? "No dates yet"
     : full
     ? "Full"
+    : isVolunteer
+    ? // "18 joining · 6 more volunteers needed" — aggregate counts only.
+      `${joined} joining · ${session.spotsLeft} more volunteer${session.spotsLeft === 1 ? "" : "s"} needed`
     : session.spotsLeft === 1
     ? "1 spot left"
     : `${session.spotsLeft} spots left`;
   const joinHeadlineColor = !session ? colors.muted : full ? colors.muted : session.spotsLeft <= 3 ? colors.orangeDark : colors.text;
   const anyAvailable = experience.sessions.some((s) => s.spotsLeft > 0);
-  const registerLabel = experience.kind === "adventure" ? "Book this adventure" : "Register for this experience";
+  const registerLabel = experience.kind === "adventure" ? "Book this adventure" : isVolunteer ? "Volunteer" : "Register for this experience";
   // The step-2 submit verb ("Book"/"Register") tracks the same per-kind
   // choice as `registerLabel` above, so a free experience's flow doesn't
   // open on "Register for this experience" and then submit as "Book for
   // free" — same action, same verb, both steps.
-  const submitVerb = experience.kind === "adventure" ? "Book" : "Register";
+  const submitVerb = experience.kind === "adventure" ? "Book" : isVolunteer ? "Sign up to volunteer" : "Register";
 
-  const bookingForm = (
+  // Booking popup — two short steps instead of one long scroll: pick a date
+  // (tapping one moves on), then your details, with the total and the pay
+  // button pinned in the footer so they're always visible. A single-date
+  // listing skips straight to step 2 (see openBooking).
+  const bookingTotalCents = experience.priceCents * form.partySize;
+  const bookingDirty = !!selectedSession && (form.participantName.trim() !== "" || form.phone.trim() !== "" || form.partySize > 1);
+  const openBooking = () => {
+    const available = experience.sessions.filter((s) => s.spotsLeft > 0);
+    if (available.length === 1) setSelectedSession(available[0]);
+    setError(null);
+    setBookingOpen(true);
+  };
+
+  const bookingSubtitle = selectedSession
+    ? `${dateLabel(selectedSession.date)} · ${selectedSession.time}`
+    : `Step 1 of 2 · choose a date`;
+
+  const bookingBody = !selectedSession ? (
+    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+      {experience.sessions.map((s) => {
+        const sFull = s.spotsLeft === 0;
+        return (
+          <button
+            key={s.id}
+            onClick={() => !sFull && setSelectedSession(s)}
+            disabled={sFull}
+            style={{
+              textAlign: "left",
+              background: colors.surface,
+              border: `1.5px solid ${colors.border}`,
+              borderRadius: 12,
+              padding: "14px 16px",
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              gap: 12,
+              cursor: sFull ? "default" : "pointer",
+              opacity: sFull ? 0.55 : 1,
+            }}
+          >
+            <span style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+              <span style={{ fontWeight: 700, fontSize: 14.5, color: colors.text }}>{dateLabel(s.date)}</span>
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 13, color: colors.muted }}>
+                <ClockIcon size={13} /> {s.time}
+              </span>
+            </span>
+            <span style={{ fontSize: 12.5, fontWeight: 700, color: sFull ? colors.muted : s.spotsLeft <= 3 ? colors.orangeDark : colors.greenText, flex: "none" }}>
+              {sFull ? "Full" : `${s.spotsLeft} left`}
+            </span>
+          </button>
+        );
+      })}
+      {experience.sessions.length === 0 && <p style={{ color: colors.faint, fontSize: 13.5, margin: 0 }}>No upcoming departures scheduled yet.</p>}
+    </div>
+  ) : (
     <>
-      <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: selectedSession ? 20 : 0 }}>
-        {experience.sessions.map((s) => {
-          const sFull = s.spotsLeft === 0;
-          const selected = selectedSession?.id === s.id;
-          return (
-            <button
-              key={s.id}
-              onClick={() => !sFull && setSelectedSession(s)}
-              disabled={sFull}
-              style={{
-                textAlign: "left",
-                background: selected ? colors.greenBg : colors.surface,
-                border: `1.5px solid ${selected ? colors.green : colors.border}`,
-                borderRadius: 12,
-                padding: "12px 14px",
-                display: "flex",
-                justifyContent: "space-between",
-                alignItems: "center",
-                cursor: sFull ? "default" : "pointer",
-                opacity: sFull ? 0.55 : 1,
-              }}
-            >
-              <span style={{ display: "flex", flexDirection: "column", gap: 3, fontSize: 13, color: colors.muted }}>
-                <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><CalendarIcon size={13} /> {s.date}</span>
-                <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><ClockIcon size={13} /> {s.time}</span>
-              </span>
-              <span style={{ fontSize: 12, fontWeight: 700, color: sFull ? colors.muted : colors.greenText }}>
-                {sFull ? "Full" : `${s.spotsLeft} left`}
-              </span>
-            </button>
-          );
-        })}
-        {experience.sessions.length === 0 && <p style={{ color: colors.faint, fontSize: 13.5, margin: 0 }}>No upcoming departures scheduled yet.</p>}
+      {experience.sessions.filter((s) => s.spotsLeft > 0).length > 1 && (
+        <button
+          onClick={() => setSelectedSession(null)}
+          style={{ background: "none", border: "none", padding: 0, marginBottom: 16, fontSize: 13, fontWeight: 700, color: colors.muted, cursor: "pointer", textDecoration: "underline" }}
+        >
+          ← Choose a different date
+        </button>
+      )}
+      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        <div>
+          <label style={labelStyle}>{isVolunteer ? "Your name" : "Name for the booking"}</label>
+          <input autoComplete="name" value={form.participantName} onChange={(e) => setForm((f) => ({ ...f, participantName: e.target.value }))} style={inputStyle} />
+        </div>
+        <NumberStepper
+          label={isVolunteer ? "How many volunteers" : "Party size"}
+          value={form.partySize}
+          onChange={(n) => setForm((f) => ({ ...f, partySize: n }))}
+          min={1}
+          max={selectedSession.spotsLeft}
+        />
+        <div>
+          <label style={labelStyle}>Email</label>
+          <input type="email" autoComplete="email" inputMode="email" value={form.email} onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))} style={inputStyle} />
+          <div style={{ fontSize: 12, color: colors.faint, marginTop: 4 }}>We'll send your confirmation here.</div>
+        </div>
+        <div>
+          <label style={labelStyle}>Phone (optional)</label>
+          <input type="tel" autoComplete="tel" inputMode="tel" value={form.phone} onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))} style={inputStyle} />
+        </div>
       </div>
-
-      {selectedSession && (
-        <>
-          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-            <div>
-              <label style={labelStyle}>Your name</label>
-              <input value={form.participantName} onChange={(e) => setForm((f) => ({ ...f, participantName: e.target.value }))} style={inputStyle} />
-            </div>
-            <NumberStepper
-              label="Party size"
-              value={form.partySize}
-              onChange={(n) => setForm((f) => ({ ...f, partySize: n }))}
-              min={1}
-              max={selectedSession.spotsLeft}
-            />
-            <div>
-              <label style={labelStyle}>Email</label>
-              <input type="email" value={form.email} onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))} style={inputStyle} />
-            </div>
-            <div>
-              <label style={labelStyle}>Phone (optional)</label>
-              <input value={form.phone} onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))} style={inputStyle} />
-            </div>
-          </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 14, fontSize: 13, color: colors.muted }}>
-            <UsersIcon size={13} /> {form.partySize} × €{(experience.priceCents / 100).toFixed(2)} = <strong>€{((experience.priceCents * form.partySize) / 100).toFixed(2)}</strong>
-          </div>
-          {error && <p style={{ color: colors.danger, fontSize: 13, margin: "12px 0 0" }}>{error}</p>}
-          <div style={{ marginTop: 16 }}>
-            <Button onClick={submit} disabled={submitting} full>
-              {submitting ? "Please wait…" : experience.priceCents * form.partySize ? `Continue to pay €${((experience.priceCents * form.partySize) / 100).toFixed(2)}` : `${submitVerb} for free`}
-            </Button>
-          </div>
-          {!(experience.priceCents * form.partySize) && (
-            <div style={{ textAlign: "center", fontSize: 12, color: colors.faint, marginTop: 8 }}>No payment required</div>
-          )}
-        </>
+      {error && (
+        <p role="alert" style={{ color: colors.danger, fontSize: 13, margin: "14px 0 0" }}>
+          {error}
+        </p>
       )}
     </>
   );
+
+  const bookingFooter = selectedSession ? (
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 14 }}>
+      <div style={{ minWidth: 0 }}>
+        <div style={{ fontWeight: 800, fontSize: 17, color: bookingTotalCents ? colors.text : colors.greenText }}>
+          {bookingTotalCents ? `€${(bookingTotalCents / 100).toFixed(2)}` : "Free"}
+        </div>
+        <div style={{ fontSize: 12, color: colors.mutedLight }}>
+          {bookingTotalCents ? `${form.partySize} × €${(experience.priceCents / 100).toFixed(2)}` : "No payment required"}
+        </div>
+      </div>
+      <Button onClick={submit} disabled={submitting} style={{ flex: "none" }}>
+        {submitting ? "Please wait…" : bookingTotalCents ? "Continue to pay" : submitVerb}
+      </Button>
+    </div>
+  ) : undefined;
 
   return (
     <div className="experience-detail-mobile-pad" style={{ animation: "fadeUp .3s ease both" }}>
@@ -393,6 +442,7 @@ export function ExperienceDetail() {
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 18, flexWrap: "wrap", gap: 12 }}>
           <BackLink onClick={() => navigate(browsePath)} marginBottom={0}>{browseLabel}</BackLink>
           <div style={{ display: "flex", gap: 10 }}>
+            <ListingChatButton scopeType="experience_session" listingId={experience.id} style={outlineButtonStyle} />
             <ShareButton entityType={experience.kind === "adventure" ? "adventure" : "experience"} entityId={experience.id} render={(onClick) => <button onClick={onClick} style={outlineButtonStyle}>Share</button>} />
             <button onClick={handleToggleSave} style={{ ...outlineButtonStyle, color: saved ? colors.orange : colors.text }}>
               <HeartIcon size={14} filled={saved} /> {saved ? "Saved" : "Save"}
@@ -483,6 +533,9 @@ export function ExperienceDetail() {
                   </span>
                 ))}
             </div>
+
+            <ParticipationBlock attributes={experience.participationAttributes} />
+            <OfficialCircleLink circleId={experience.circleId} circleName={experience.circleName} circleSlug={experience.circleSlug} />
 
             {experience.meetingPoint && (
               <div style={{ background: colors.greenBg, color: colors.greenText, borderRadius: 12, padding: "10px 14px", fontSize: 13.5, margin: "16px 0" }}>
@@ -592,6 +645,7 @@ export function ExperienceDetail() {
             <InfoBlock heading="Fitness requirements" body={experience.fitnessRequirements} />
             <InfoBlock heading="Transport" body={experience.transportInfo} />
             <InfoBlock heading="Weather policy" body={experience.weatherPolicy} />
+            <InfoBlock heading="Accessibility" body={experience.accessibilityInfo ?? ""} />
 
             {/* Hosted by — the real vendor behind this listing (businessName-
                 or-name + a verified badge off provider_tier), linking to
@@ -686,7 +740,7 @@ export function ExperienceDetail() {
 
           {/* RIGHT COLUMN — sticky Join card, mirroring GameJoinCard's own
               headline / social-proof / divider / info / CTA rhythm. Booking
-              itself (session picker + form) now lives in a popup Drawer,
+              itself (session picker + form) now lives in a centred popup (Modal),
               opened by the CTA button below, rather than sitting inline in
               this card. */}
           <div className="sticky-aside" style={{ position: "sticky", top: 90 }}>
@@ -713,7 +767,7 @@ export function ExperienceDetail() {
               </div>
 
               {experience.sessions.length > 0 && (
-                <Button full disabled={!anyAvailable} onClick={() => setBookingOpen(true)}>
+                <Button full disabled={!anyAvailable} onClick={openBooking}>
                   {anyAvailable ? registerLabel : "Full"}
                 </Button>
               )}
@@ -727,9 +781,16 @@ export function ExperienceDetail() {
         </div>
       </section>
 
-      <Drawer open={bookingOpen} onClose={() => setBookingOpen(false)} title={registerLabel} size="wide">
-        {bookingForm}
-      </Drawer>
+      <Modal
+        open={bookingOpen}
+        onClose={() => setBookingOpen(false)}
+        title={registerLabel}
+        subtitle={bookingSubtitle}
+        footer={bookingFooter}
+        confirmClose={bookingDirty ? { title: "Discard this booking?", message: "The details you've entered won't be saved." } : undefined}
+      >
+        {bookingBody}
+      </Modal>
 
       {/* "Can't make this one?" — full-width mint band, same treatment as
           GameDetail's own closing band (pale mint background, dark green
@@ -756,14 +817,14 @@ export function ExperienceDetail() {
       {/* Mobile sticky bar — same fixed-above-tab-bar pattern as
           GameJoinCard's own MobileJoinBar. Unlike a Game there's no
           single-tap join (booking needs a session + a short form), so this
-          opens the same booking Drawer the desktop CTA does. */}
+          opens the same booking popup the desktop CTA does. */}
       {anyAvailable && (
         <div className="mobile-join-bar">
           <div>
             <div style={{ fontWeight: 800, fontSize: 15, fontFamily: fonts.display, color: joinHeadlineColor }}>{joinHeadline}</div>
             <div style={{ fontSize: 12.5, color: colors.mutedLight }}>{formatPrice(experience.priceCents)}</div>
           </div>
-          <Button onClick={() => setBookingOpen(true)} style={{ flex: "none" }}>{registerLabel}</Button>
+          <Button onClick={openBooking} style={{ flex: "none" }}>{registerLabel}</Button>
         </div>
       )}
     </div>

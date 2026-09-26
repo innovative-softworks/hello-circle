@@ -1,5 +1,5 @@
 import { useState, type SetStateAction } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { createCircle, updateCircle } from "../api";
 import { signInHref } from "../authRedirect";
 import { BackLink } from "../components/BackLink";
@@ -19,7 +19,11 @@ import { colors, fonts, radius } from "../theme";
 export function StartCirclePage() {
   const navigate = useNavigate();
   const { resident } = useGuest();
-  const [form, setFormRaw] = useState({ name: "", activityLabel: "", area: "", county: "", about: "", whatWeDo: "", whoCanJoin: "", values: "", joinMode: "open" as "open" | "approval" | "invite" });
+  // ?activity=&county= prefill — used by NextStepsPanel's "Start a Circle"
+  // after a game. Read once as the initial state, not synced, and doesn't
+  // mark the form dirty (nothing the visitor typed would be lost).
+  const [searchParams] = useSearchParams();
+  const [form, setFormRaw] = useState({ name: "", activityLabel: searchParams.get("activity") ?? "", area: "", county: searchParams.get("county") ?? "", about: "", whatWeDo: "", whoCanJoin: "", values: "", joinMode: "open" as "open" | "approval" | "invite" });
   const [dirty, setDirty] = useState(false);
   const setForm = (updater: SetStateAction<typeof form>) => {
     setFormRaw(updater);

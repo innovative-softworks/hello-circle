@@ -1,4 +1,6 @@
 import { useEffect, useState, type SetStateAction } from "react";
+import { useSearchParams } from "react-router-dom";
+import { VendorParticipationEditor } from "./VendorParticipationEditor";
 import {
   addProgramSession,
   createVendorProgram,
@@ -196,6 +198,10 @@ export function ProgramManager({ programId, onChanged }: { programId: string; on
         />
       </div>
 
+      <div style={{ marginBottom: 18 }}>
+        <VendorParticipationEditor type="program" id={programId} />
+      </div>
+
       <h4 style={{ fontSize: 13, fontWeight: 700, color: colors.muted, margin: "0 0 10px" }}>SESSIONS</h4>
       <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 16 }}>
         {program.sessions.map((s) => (
@@ -349,15 +355,19 @@ export function ProgramCreateForm({
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<{ field: string; message: string; fieldId: string }[]>([]);
+  // Release 6 — "Create a program" from a Host Opportunity prefills the
+  // activity; read once, not synced.
+  const [searchParams] = useSearchParams();
+  const fromDemand = searchParams.get("fromDemand") ?? undefined;
   const [form, setFormRaw] = useState({
     listingType: "centre" as "centre" | "club",
     listingId: "",
-    title: "",
+    title: searchParams.get("title") ?? "",
     description: "",
     ageRange: "",
     priceCents: "",
     capacity: "",
-    category: "",
+    category: searchParams.get("category") ?? "",
     skillLevel: "",
     instructorName: "",
     guardianRules: "",
@@ -391,6 +401,7 @@ export function ProgramCreateForm({
     setError(null);
     try {
       const created = await createVendorProgram({
+        fromDemand,
         listingType: form.listingType,
         listingId: form.listingId,
         title: form.title,

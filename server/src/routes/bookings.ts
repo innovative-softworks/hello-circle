@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import { Router } from "express";
 import { createCheckoutSession, pricingLineItems } from "../checkoutService.js";
+import { logEvent } from "../analytics.js";
 import { db } from "../db/index.js";
 import { getCentre, orgFeatureFlags, orgPoliciesForVendor } from "../db/queries.js";
 import { TIME_SLOTS } from "./availability.js";
@@ -283,6 +284,7 @@ export async function createBookingInternal(input: CreateBookingInternalInput): 
     }).catch((e) => console.error("[notifications] booking notify failed:", e));
     if (input.openSpots) await createGameFromOpenBooking(ref);
     if (input.residentId) await upgradeFavouriteStatus(input.residentId, "centre", centre.id);
+    void logEvent("booking_completed", { residentId: input.residentId ?? null, metadata: { type: "booking", ref, via: "cash" } });
     return { ok: true, ref, totalEuro: pricing.totalCents / 100 };
   }
 
@@ -438,7 +440,8 @@ bookingsRouter.get("/", async (req, res) => {
     ? await db
         .prepare(
           `SELECT b.ref, b.date, b.time, b.total_cents as totalCents, b.created_at as createdAt, b.status,
-                  c.name as centreName, c.ph as ph, c.image_url as image, r.name as roomName, c.vendor_id as vendorId
+                  c.name as centreName, c.ph as ph, c.image_url as image, r.name as roomName, c.vendor_id as vendorId,
+                  (SELECT a.status FROM attendance a WHERE a.kind = 'booking' AND a.ref = b.ref) as attendance
            FROM bookings b
            JOIN centres c ON c.id = b.centre_id
            LEFT JOIN rooms r ON r.id = b.room_id AND r.centre_id = b.centre_id
@@ -449,7 +452,8 @@ bookingsRouter.get("/", async (req, res) => {
     : await db
         .prepare(
           `SELECT b.ref, b.date, b.time, b.total_cents as totalCents, b.created_at as createdAt, b.status,
-                  c.name as centreName, c.ph as ph, c.image_url as image, r.name as roomName, c.vendor_id as vendorId
+                  c.name as centreName, c.ph as ph, c.image_url as image, r.name as roomName, c.vendor_id as vendorId,
+                  (SELECT a.status FROM attendance a WHERE a.kind = 'booking' AND a.ref = b.ref) as attendance
            FROM bookings b
            JOIN centres c ON c.id = b.centre_id
            LEFT JOIN rooms r ON r.id = b.room_id AND r.centre_id = b.centre_id

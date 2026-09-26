@@ -1,4 +1,8 @@
 import { useEffect, useState } from "react";
+import { useToast } from "../components/Toast";
+import { dateLabel } from "../euro";
+import { joinGameConfirm } from "../confirmCopy";
+import { useConfirm } from "../components/ConfirmProvider";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { addFavourite, fetchCentre, fetchFavourites, fetchGames, fetchPrograms, joinGame, removeFavourite } from "../api";
 import { openCheckout } from "../native";
@@ -30,6 +34,8 @@ export function CentreDetail() {
   const [favourited, setFavourited] = useState(false);
   const [games, setGames] = useState<Game[]>([]);
   const [joiningId, setJoiningId] = useState<string | null>(null);
+  const confirm = useConfirm();
+  const toast = useToast();
   const [programs, setPrograms] = useState<Program[]>([]);
 
   useEffect(() => {
@@ -67,6 +73,8 @@ export function CentreDetail() {
   };
 
   const handleJoinGame = async (gameId: string) => {
+    const g = games.find((x) => x.id === gameId);
+    if (g && !(await confirm(joinGameConfirm({ title: g.activityLabel, when: `${dateLabel(g.date)} · ${g.time}`, priceCents: g.priceCents })))) return;
     setJoiningId(gameId);
     try {
       const res = await joinGame(gameId);
@@ -76,7 +84,7 @@ export function CentreDetail() {
       }
       setGames((rows) => rows.map((g) => (g.id === gameId ? { ...g, joined: g.joined + 1, spotsLeft: g.spotsLeft - 1 } : g)));
     } catch (e) {
-      alert(e instanceof Error ? e.message : "Couldn't join this session");
+      toast.error(e instanceof Error ? e.message : "Couldn't join this session");
     } finally {
       setJoiningId(null);
     }
@@ -274,7 +282,7 @@ export function CentreDetail() {
                     <div>
                       <div style={{ fontWeight: 700 }}>{g.activityLabel}</div>
                       <div style={{ fontSize: 13, color: colors.mutedLight, display: "flex", gap: 12, marginTop: 2 }}>
-                        <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}><CalendarIcon size={13} /> {g.date} · {g.time}</span>
+                        <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}><CalendarIcon size={13} /> {dateLabel(g.date)} · {g.time}</span>
                       </div>
                       <AvailabilityBadge state={availabilityFromSpots(g.spotsLeft)} style={{ marginTop: 6 }}>
                         <UsersIcon size={12} /> {g.spotsLeft === 0 ? "Full" : `${g.spotsLeft} spot${g.spotsLeft === 1 ? "" : "s"} left`}

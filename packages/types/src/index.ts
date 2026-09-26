@@ -83,6 +83,12 @@ export interface RoomBlock {
 }
 
 export interface Club {
+  /** Release 2 — public detail fetch only. */
+  participationAttributes?: string[];
+  /** Release 3 — official Circle (public detail fetch only). */
+  circleId?: string | null;
+  circleName?: string | null;
+  circleSlug?: string | null;
   id: string;
   name: string;
   sport: string;
@@ -141,6 +147,10 @@ export interface MyBooking {
   image: string;
   status: BookingStatus;
   vendorId: string;
+  /** Front-door check-in (attendance table): "present" once the vendor
+   * checked this booking in, null when nobody did — null is "unknown", not
+   * "absent" (Release 1). Optional: older servers don't send it. */
+  attendance?: string | null;
 }
 
 // Resident Experience Polish — Changeset 5. PaymentSuccess.tsx's six
@@ -262,6 +272,8 @@ export interface MyRegistration {
    * fetch. */
   paymentStatus?: string;
   hasStripePayment?: boolean;
+  /** Resident-facing fetch only — same meaning as MyBooking.attendance. */
+  attendance?: string | null;
 }
 
 export interface ParticipationEntry {
@@ -314,6 +326,10 @@ export interface MyProgramEnrollment {
    * happened — the "meaningful participation" gate for showing post-
    * activity feedback/reviews, same weight as isPast for a dated booking. */
   hasPastSession: boolean;
+  /** From the vendor's session register (Release 1). Both 0 when no
+   * register was taken — unknown, not absent. Optional for older servers. */
+  sessionsAttended?: number;
+  sessionsMissed?: number;
 }
 
 export interface VendorNotification {
@@ -494,9 +510,37 @@ export interface WaitlistPosition {
 
 // --- Participation Intent (demand capture, participation-intent plan Phase 1) ---
 
+/** GET /games/:id/next-steps — "keep the connection going" after a game
+ * (Release 1). Aggregate member counts only; never who is in anything. */
+export interface NextStepCircle {
+  id: string;
+  slug: string | null;
+  name: string;
+  members: number;
+  joinMode: string;
+  isMember: boolean;
+}
+
+/** Release 3 — the same shape for every participation kind (GET /next-steps). */
+export type NextSteps = GameNextSteps;
+export type NextStepsKind = "game" | "booking" | "registration" | "program" | "experience";
+
+export interface GameNextSteps {
+  officialCircle: NextStepCircle | null;
+  suggestedCircle: NextStepCircle | null;
+  nextSession: { id: string; href: string; title: string; activityLabel: string; date: string; time: string; centreName: string | null; spotsLeft: number | null; sameHost: boolean } | null;
+  createCircle: { activityLabel: string; county: string } | null;
+}
+
 export interface IntentCount {
   count: number;
   residentCount: number;
+  /** The caller's own active intent in this cluster, if any (Release 1's
+   * "You're interested" state). Optional: older servers don't send it. */
+  myIntentId?: string | null;
+  /** Release 6 — the normalised cluster ("badminton") and its display label. */
+  clusterKey?: string;
+  label?: string;
 }
 
 export interface MyIntent {
@@ -575,6 +619,13 @@ export interface Game {
   surfaceType: string | null;
   indoorOutdoor: string | null;
   cancellationPolicy: string | null;
+  /** Release 2 — what-to-expect gaps; null when the host left them blank. */
+  experienceRequired?: string | null;
+  accessibilityInfo?: string | null;
+  /** Release 2 — single-game detail fetch only. Host-selected, canonical order. */
+  participationAttributes?: string[];
+  /** Release 2 — joined participants new to this activity; null below 3 (privacy). */
+  firstTimerCount?: number | null;
   /** Only present on the single-game detail fetch, and only populated for
    * the host or a joined participant — see server routes/games.ts's GET /:id. */
   meetingInstructions?: string | null;
@@ -994,7 +1045,7 @@ export interface HostProfile {
 
 // --- Participation Chat (implementation plan Phase 11) ----------------------
 
-export type ChatScopeType = "game" | "circle";
+export type ChatScopeType = "game" | "circle" | "experience_session" | "program" | "club";
 
 export interface ChatMessage {
   id: number;
@@ -1002,6 +1053,10 @@ export interface ChatMessage {
   residentName: string;
   body: string;
   createdAt: string;
+  /** "host" when the provider posted it (experience/program/club chats). */
+  authorType?: "resident" | "host";
+  /** Whether the viewer wrote it — server-computed, works for hosts too. */
+  isMine?: boolean;
 }
 
 export interface ChatFeed {
@@ -1010,6 +1065,19 @@ export interface ChatFeed {
   postBlockedReason?: string;
   opensAt?: string;
   archivesAt?: string;
+  viewerRole?: "resident" | "host";
+}
+
+/** GET /chat/mine — one conversation in the inbox. */
+export interface ChatInboxItem {
+  scopeType: ChatScopeType;
+  scopeId: string;
+  listingId: string;
+  title: string;
+  subtitle: string;
+  href: string;
+  lastMessage: { body: string; authorName: string; createdAt: string } | null;
+  unread: number;
 }
 
 // --- recurring club sessions (NEXT) -----------------------------------------
@@ -1118,6 +1186,44 @@ export interface DiscoverItem {
    * out visitor, or when nothing about this item matched the resident's
    * own signals (interests/home county/familiar co-players). */
   matchReasons: string[];
+  /** Release 4 — plain-language fit ("Great fit" / "Good fit" / "Worth
+   * exploring"), never a percentage; null/absent when there's no real reason. */
+  fitLabel?: "Great fit" | "Good fit" | "Worth exploring" | null;
+  /** Release 4 — parent listing + official Circle + experience kind. */
+  listingType?: "game" | "program" | "club" | "experience";
+  listingId?: string;
+  experienceKind?: string | null;
+}
+
+/** Release 6 — a demand cluster shown to hosts. Aggregate only: a range,
+ * typical day/time/budget — never who asked. */
+export interface HostOpportunity {
+  clusterKey: string;
+  label: string;
+  category: string;
+  county: string;
+  interested: string;
+  preferredDays: string[];
+  preferredTime: string | null;
+  budget: { minCents: number | null; maxCents: number | null } | null;
+  radiusKm: number | null;
+}
+
+/** Release 5 — an open Circle welcoming new members, for "New here?". */
+export interface NewHereCircle {
+  id: string;
+  slug: string | null;
+  name: string;
+  activityLabel: string;
+  members: number;
+  imageUrl: string | null;
+}
+
+/** Release 4 — GET /discover/for-you and /discover/new-here. */
+export interface ForYouSection {
+  key: string;
+  title: string;
+  items: ActivitySummary[];
 }
 
 // Phase 1 "Connect" — a normalized presentation contract spanning Games,
@@ -1301,6 +1407,11 @@ export interface ResidentFull extends Resident {
   prefBeginnerFriendly: boolean;
   prefSoloFriendly: boolean;
   prefBudget: string;
+  /** Release 2 — "prefer first-timer-friendly" / "family friendly". */
+  prefFirstTimer: boolean;
+  prefFamily: boolean;
+  /** Release 5 — "new" | "settled" | "exploring" | "" (not answered). */
+  areaTenure?: string;
   /** Safety Centre (IA spec §13) — opt out of other people's "familiar
    * participants" counts. */
   hideFromFamiliarCount: boolean;
@@ -1410,9 +1521,11 @@ export const ACCESSIBILITY_OPTIONS = ["Wheelchair access", "Step-free access", "
 
 export const INTEREST_OPTIONS = ["Badminton", "Football", "Swimming", "Fitness", "Yoga", "Walking", "Kids activities", "Arts", "Learning", "Community events", "Outdoor", "Wellbeing"];
 
-export const AVAILABILITY_OPTIONS = ["Weekday mornings", "Weekday afternoons", "Weekday evenings", "Saturday", "Sunday"];
-
-export const GOAL_OPTIONS = ["Become more active", "Meet new people", "Find a hobby", "Get outdoors", "Try something new", "Do more with family", "Build a routine", "Explore my area"];
+// Release 2 — availability is now "day:slot" tokens and goals are a new
+// 8-value list (max 3); both live with their helpers in
+// client/src/participationVocab.ts (mirrored server-side in
+// server/src/participationVocab.ts). The server still accepts the old
+// values for one release.
 
 export const GROUP_SIZE_OPTIONS = [
   { key: "solo", label: "Just me" },
@@ -1452,6 +1565,34 @@ export interface WaitlistOfferStatus {
 }
 
 // --- Programs / Sessions (Phase B) -----------------------------------
+
+/** GET /programs (no venue) — one card on the /programs browse page. Only
+ * published programs at approved venues with an upcoming session. */
+export interface ProgramSummary {
+  id: string;
+  title: string;
+  description: string;
+  imageUrl: string;
+  priceCents: number;
+  capacity: number | null;
+  category: string;
+  skillLevel: string;
+  ageRange: string;
+  listingType: "centre" | "club";
+  listingId: string;
+  listingName: string;
+  area: string;
+  county: string;
+  /** The venue's coordinates (for the map view); null when not set. */
+  lat: number | null;
+  lng: number | null;
+  locationSource: string | null;
+  nextSessionDate: string;
+  nextSessionTime: string;
+  upcomingSessions: number;
+  enrolled: number;
+  spotsLeft: number | null;
+}
 
 export interface ProgramSession {
   id: string;
@@ -1497,6 +1638,25 @@ export interface Program {
   /** Community program detail (IA spec §5) — both optional. */
   guardianRules: string;
   safeguardingInfo: string;
+  /** Release 2 — what-to-expect gaps, null when blank. */
+  arrivalInstructions?: string | null;
+  accessibilityInfo?: string | null;
+  /** Release 2 — public detail fetch only. */
+  participationAttributes?: string[];
+  /** Release 3 — official Circle (public detail fetch only). */
+  circleId?: string | null;
+  circleName?: string | null;
+  circleSlug?: string | null;
+  /** Public detail fetch only — the venue it runs at, and who runs it. */
+  venueArea?: string;
+  venueCounty?: string;
+  venueLat?: number | null;
+  venueLng?: number | null;
+  venueLocationSource?: string | null;
+  venueSlug?: string | null;
+  vendorId?: string;
+  vendorName?: string | null;
+  vendorVerified?: boolean;
 }
 
 export interface VendorProgramSummary {
@@ -1516,7 +1676,8 @@ export interface VendorProgramSummary {
 // experience_bookings comments. Booked per-session (a single departure),
 // not a multi-session enrollment the way a Program is.
 
-export type ExperienceKind = "adventure" | "experience";
+/** Release 5 — "volunteer" is an experience kind, not a separate module. */
+export type ExperienceKind = "adventure" | "experience" | "volunteer";
 
 export interface ExperienceSessionSlot {
   id: string;
@@ -1549,6 +1710,18 @@ export interface Experience {
   equipmentRequired: string;
   transportInfo: string;
   safetyInfo: string;
+  /** Release 2 — null when blank. */
+  accessibilityInfo?: string | null;
+  /** Release 2 — public detail fetch only. */
+  participationAttributes?: string[];
+  /** Release 3 — official Circle (public detail fetch only). */
+  circleId?: string | null;
+  circleName?: string | null;
+  circleSlug?: string | null;
+  /** Release 5 — volunteer listings only. */
+  skillsRequired?: string | null;
+  cause?: string | null;
+  minAge?: number | null;
   weatherPolicy: string;
   eligibility: string;
   cancellationTerms: string;
@@ -1616,6 +1789,8 @@ export interface MyExperienceBooking {
   vendorId: string | null;
   date: string;
   time: string;
+  /** Release 3 — host-recorded attendance ("present"/"no_show"), null when none. */
+  attendance?: string | null;
 }
 
 export interface VendorExperienceBooking {
@@ -1630,6 +1805,8 @@ export interface VendorExperienceBooking {
   createdAt: string;
   date: string;
   time: string;
+  /** Release 3 — "present"/"no_show", null when not recorded yet. */
+  attendance?: string | null;
 }
 
 export interface ScheduleEntry {

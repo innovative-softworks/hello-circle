@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from "react";
+import { useConfirm } from "../components/ConfirmProvider";
+import { joinCircleConfirm } from "../confirmCopy";
 import { useNavigate, useParams } from "react-router-dom";
 import {
   cancelCirclePlanIdea,
@@ -28,8 +30,8 @@ import { signInHref } from "../authRedirect";
 import { CalendarIcon, HeartIcon, PlusIcon, UsersIcon } from "../components/icons";
 import { ShareButton } from "../components/ShareButton";
 import { Button, Card, ConfirmDialog, EmptyState, inputStyle, labelStyle, PageSpinner } from "../components/ui";
+import { ListingChatButton } from "../components/ListingChats";
 import { BackLink } from "../components/BackLink";
-import { ChatPanel } from "../components/ChatPanel";
 import { CircleAboutCard } from "../components/CircleAboutCard";
 import { CircleActivityCard } from "../components/CircleActivityCard";
 import { CircleCommunityGrid } from "../components/CircleCommunityGrid";
@@ -437,6 +439,25 @@ export function CircleDetail() {
       setJoinBusy(false);
     }
   };
+  // Join/leave entry points that don't go through CircleJoinCard /
+  // CircleDiscoveryCard (both of which already confirm) — the empty-Plans
+  // button, the contextual CTA and the mobile bar — confirm here instead.
+  const confirm = useConfirm();
+  const confirmThenJoin = async () => {
+    if (!circle) return;
+    if (resident && !(await confirm(joinCircleConfirm(circle)))) return;
+    await handleJoinCircle();
+  };
+  const confirmThenWithdraw = async () => {
+    if (!circle) return;
+    const ok = await confirm({
+      title: "Withdraw your request?",
+      message: `Your request to join ${circle.name} will be cancelled. You can ask again later.`,
+      confirmLabel: "Withdraw request",
+      tone: "danger",
+    });
+    if (ok) await handleLeaveCircle();
+  };
   const handleOtherJoin = async (other: Circle) => {
     if (!resident) {
       return navigate(
@@ -586,7 +607,8 @@ export function CircleDetail() {
         {/* Utility bar — back link + save/share, kept compact and non-primary per spec. */}
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "22px 0 20px", flexWrap: "wrap", gap: 12 }}>
           <BackLink onClick={() => navigate("/circles")} marginBottom={0}>Back to Circles</BackLink>
-          <div style={{ display: "flex", gap: 18 }}>
+          <div style={{ display: "flex", gap: 18, alignItems: "center" }}>
+            <ListingChatButton scopeType="circle" listingId={circle.id} refreshKey={isMember} style={{ background: "none", border: "none", padding: 0, fontSize: 13, fontWeight: 700, color: colors.greenText }} />
             <ShareButton entityType="circle" entityId={circle.id} render={(onClick) => <button onClick={onClick} style={{ background: "none", border: "none", padding: 0, fontSize: 13, fontWeight: 700, color: colors.text, cursor: "pointer" }}>Share</button>} />
             <button onClick={toggleSaved} style={{ display: "inline-flex", alignItems: "center", gap: 5, background: "none", border: "none", padding: 0, fontSize: 13, fontWeight: 700, color: saved ? colors.orange : colors.text, cursor: "pointer" }}>
               <HeartIcon size={14} filled={saved} /> {saved ? "Saved" : "Save"}
@@ -673,7 +695,7 @@ export function CircleDetail() {
                     icon={<CalendarIcon size={20} />}
                     title={isOrganiser ? "Your Circle is ready." : "Nothing planned yet."}
                     subtitle={isOrganiser ? "Create the first plan and give people something to join." : "Join the Circle and we'll let you know when the next activity is announced."}
-                    action={isOrganiser ? <Button onClick={() => navigate(`/games/host?activity=${encodeURIComponent(circle.activityLabel)}&circleId=${circle.id}`)}><PlusIcon size={14} /> Create first plan</Button> : joinState === "available" ? <Button onClick={handleJoinCircle} disabled={joinBusy}>{joinBusy ? "…" : "Join Circle"}</Button> : undefined}
+                    action={isOrganiser ? <Button onClick={() => navigate(`/games/host?activity=${encodeURIComponent(circle.activityLabel)}&circleId=${circle.id}`)}><PlusIcon size={14} /> Create first plan</Button> : joinState === "available" ? <Button onClick={confirmThenJoin} disabled={joinBusy}>{joinBusy ? "…" : "Join Circle"}</Button> : undefined}
                   />
                 </>
               )}
@@ -729,7 +751,7 @@ export function CircleDetail() {
             </Section>
 
             {(joinState === "available" || joinState === "signed-out") && (
-              <CircleContextualCta circle={circle} signedOut={joinState === "signed-out"} busy={joinBusy} onJoin={handleJoinCircle} />
+              <CircleContextualCta circle={circle} signedOut={joinState === "signed-out"} busy={joinBusy} onJoin={confirmThenJoin} />
             )}
 
             <Section>
@@ -862,15 +884,20 @@ export function CircleDetail() {
                           poll={p}
                           isOrganiser={isOrganiser}
                           onVote={(optionId) => voteOnCirclePollOption(circle.id, p.id, optionId).then(load)}
-                          onClose={() => closeCirclePoll(circle.id, p.id).then(load)}
+                          onClose={async () => {
+                            const ok = await confirm({
+                              title: "Close this poll?",
+                              message: "Nobody will be able to vote any more, and the current result stands.",
+                              confirmLabel: "Close poll",
+                            });
+                            if (ok) closeCirclePoll(circle.id, p.id).then(load);
+                          }}
                           onCreateActivity={canCreateActivity ? () => handleCreateActivityFromPoll(p) : undefined}
                         />
                       );
                     })
                   )}
 
-                  <h2 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 19, margin: "24px 0 12px", letterSpacing: "-.01em" }}>Chat</h2>
-                  <ChatPanel scopeType="circle" scopeId={circle.id} residentId={resident.id} />
                 </div>
               </Section>
             )}
@@ -1032,8 +1059,8 @@ export function CircleDetail() {
                           signInHref({ kind: "circle", title: circle.name, meta: `${circle.members.toLocaleString()} member${circle.members === 1 ? "" : "s"} · ${circle.area}, ${circle.county}` })
                         )
                     : joinState === "requested"
-                    ? handleLeaveCircle
-                    : handleJoinCircle
+                    ? confirmThenWithdraw
+                    : confirmThenJoin
                 }
                 disabled={joinBusy || joinState === "invite-only"}
               >

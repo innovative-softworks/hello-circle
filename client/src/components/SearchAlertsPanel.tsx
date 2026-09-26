@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useConfirm } from "./ConfirmProvider";
 import { deleteSearchAlert, fetchSearchAlerts, setSearchAlertActive } from "../api";
 import { BellIcon } from "./icons";
 import { colors, fonts, radius } from "../theme";
@@ -17,6 +18,7 @@ function describe(a: SearchAlert): string {
 
 export function SearchAlertsPanel() {
   const [alerts, setAlerts] = useState<SearchAlert[]>([]);
+  const confirm = useConfirm();
   const load = () => fetchSearchAlerts().then(setAlerts);
   useEffect(() => { load(); }, []);
 
@@ -43,7 +45,15 @@ export function SearchAlertsPanel() {
                 {a.active ? "Pause" : "Resume"}
               </button>
               <button
-                onClick={() => deleteSearchAlert(a.id).then(load)}
+                onClick={async () => {
+                  const ok = await confirm({
+                    title: "Delete this alert?",
+                    message: "You'll stop being told when new activities match it. Pause it instead if you might want it back.",
+                    confirmLabel: "Delete alert",
+                    tone: "danger",
+                  });
+                  if (ok) deleteSearchAlert(a.id).then(load);
+                }}
                 style={{ background: "none", border: "none", color: colors.danger, fontSize: 12, cursor: "pointer" }}
               >
                 Remove

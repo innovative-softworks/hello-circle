@@ -141,15 +141,9 @@ export function MobileTabBar() {
         <button style={sheetItemStyle} onClick={() => go("/experiences")}>
           <TreeIconSmall size={18} style={{ color: colors.orangeDark, flex: "none" }} /> Experiences
         </button>
-        {/* Resident Experience Polish — Programs had no entry point anywhere
-            in mobile Explore, even though they're a real bookable listing
-            type. There's no standalone Programs browse page (see
-            App.tsx's route table — only /programs/:id exists), so this
-            follows the one place Programs genuinely already surface: the
-            unified "activities" result type on /explore (games + program
-            sessions + recurring club sessions, via the same search the
-            desktop Explore page already uses) — not a new page. */}
-        <button style={sheetItemStyle} onClick={() => go("/explore?rtype=activities")}>
+        {/* Programs has its own browse page (/programs), same as the
+            desktop mega menu — it used to land on Explore's mixed results. */}
+        <button style={sheetItemStyle} onClick={() => go("/programs")}>
           <GridIcon size={18} style={{ color: colors.greenText, flex: "none" }} /> Programs
         </button>
         {/* Product Language & IA Polish — Changeset 1C — mirrors Header.tsx's

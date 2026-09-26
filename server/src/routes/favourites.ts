@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { logEvent } from "../analytics.js";
 import { db } from "../db/index.js";
 import { requireResident } from "../residents.js";
 
@@ -114,6 +115,7 @@ favouritesRouter.post("/", async (req, res) => {
        ON DUPLICATE KEY UPDATE status = VALUES(status)`
     )
     .run(req.resident!.id, listingType, listingId, status ?? "interested");
+  void logEvent("activity_saved", { residentId: req.resident!.id, metadata: { listingType, listingId } });
   res.status(201).json({ ok: true });
 });
 

@@ -4,6 +4,7 @@ import { vendorExperiencesRouter } from "./vendorExperiences.js";
 import { vendorInsightsRouter } from "./vendorInsights.js";
 import { vendorListingsRouter } from "./vendorListings.js";
 import { vendorOperationsRouter } from "./vendorOperations.js";
+import { vendorParticipationRouter } from "./vendorParticipation.js";
 import { vendorProgramsRouter } from "./vendorPrograms.js";
 
 // Split from a single 1088-line file into domain sub-routers — see
@@ -28,3 +29,4 @@ vendorRouter.use(vendorProgramsRouter);
 vendorRouter.use(vendorOperationsRouter);
 vendorRouter.use(vendorInsightsRouter);
 vendorRouter.use(vendorExperiencesRouter);
+vendorRouter.use(vendorParticipationRouter);

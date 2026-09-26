@@ -14,7 +14,7 @@ import {
 import { AddressSearch, MapConfirm } from "./AddressSearch";
 import { CalendarIcon, PlusIcon } from "./icons";
 import { Field, FormErrorSummary, NumberStepper, SettingsSection, TextInput } from "./form";
-import { Button, ConfirmDialog, Drawer, EmptyState, inputStyle, labelStyle } from "./ui";
+import { Button, ConfirmDialog, EmptyState, Modal, inputStyle, labelStyle } from "./ui";
 import { MultiImageUpload } from "./VendorImageUpload";
 import { formatDate } from "../vendorFormat";
 import { colors, fonts, radius } from "../theme";
@@ -470,7 +470,18 @@ export function AvailabilityBlocksManager({ centreId, rooms }: { centreId: strin
         {blocks.length === 0 && <EmptyState icon={<CalendarIcon size={26} />} title="Nothing blocked" subtitle="Every open date is bookable." />}
       </div>
 
-      <Drawer open={blockOpen} onClose={() => setBlockOpen(false)} title="Block time">
+      <Modal
+        open={blockOpen}
+        onClose={() => setBlockOpen(false)}
+        title="Block time"
+        subtitle="Stops new bookings on that date. Existing bookings aren't affected."
+        footer={
+          <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+            <Button variant="ghost" onClick={() => setBlockOpen(false)}>Cancel</Button>
+            <Button onClick={addBlock}>Block time</Button>
+          </div>
+        }
+      >
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
           <TextInput label="Date" type="date" value={blockForm.date} onChange={(e) => setBlockForm((f) => ({ ...f, date: e.target.value }))} />
           <Field label="Space">
@@ -482,13 +493,9 @@ export function AvailabilityBlocksManager({ centreId, rooms }: { centreId: strin
             </select>
           </Field>
           <TextInput label="Reason (optional)" placeholder="e.g. Festival, maintenance" value={blockForm.reason} onChange={(e) => setBlockForm((f) => ({ ...f, reason: e.target.value }))} />
-          {blockError && <p style={{ color: colors.danger, fontSize: 13, margin: 0 }}>{blockError}</p>}
-          <div style={{ display: "flex", gap: 10 }}>
-            <Button onClick={addBlock}>Block time</Button>
-            <Button variant="ghost" onClick={() => setBlockOpen(false)}>Cancel</Button>
-          </div>
+          {blockError && <p role="alert" style={{ color: colors.danger, fontSize: 13, margin: 0 }}>{blockError}</p>}
         </div>
-      </Drawer>
+      </Modal>
 
       <ConfirmDialog
         open={confirmingBlockId !== null}
