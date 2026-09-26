@@ -25,7 +25,7 @@ export function CentreCard({ centre }: { centre: Centre }) {
         flexDirection: "column",
       }}
     >
-      <CardLink to={href} label={centre.name} />
+      <CardLink to={href} label={centre.name} sharedImage />
       <Photo
         src={centre.image}
         alt={centre.name}

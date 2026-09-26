@@ -26,7 +26,7 @@ export function ExperienceSearchCard({ e }: { e: ExperienceSearchResult }) {
       className="card-hover card-surface"
       style={{ position: "relative", background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 18, overflow: "hidden" }}
     >
-      <CardLink to={href} label={e.title} />
+      <CardLink to={href} label={e.title} sharedImage />
       <Photo
         src={e.imageUrl || undefined}
         alt={e.title}

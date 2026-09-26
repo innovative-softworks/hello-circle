@@ -219,6 +219,7 @@ export function GameDetail() {
               iconColor={colors.green}
               variant="hero"
               eager
+              sharedHero
               style={{ aspectRatio: cardImageRatio.hero, borderRadius: 20, marginBottom: 24 }}
               contentStyle={{ padding: 16, display: "flex", alignItems: "flex-start", justifyContent: "space-between" }}
             >

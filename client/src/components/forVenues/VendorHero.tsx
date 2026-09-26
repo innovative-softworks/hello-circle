@@ -1,8 +1,10 @@
 import { Link } from "react-router-dom";
 import { Button } from "../ui";
 import { CheckIcon } from "../icons";
-import { cardImageRatio, colors, fonts } from "../../theme";
+import { ParallaxImage } from "../ParallaxImage";
+import { colors, fonts } from "../../theme";
 import { FV_ACCENT, FV_MAX_WIDTH, FV_MONO } from "./constants";
+import { RevealText } from "../RevealText";
 
 const REASSURANCE = ["Simple to get started", "Manage your availability", "Reach local people"];
 
@@ -29,7 +31,7 @@ export function VendorHero({
       {/* Utility strip — a small "technical label" beat borrowed from the
           brief's reference (a poster-style top bar), before the page settles
           into its normal editorial rhythm. */}
-      <div className="section-pad" style={{ maxWidth: FV_MAX_WIDTH, margin: "0 auto", padding: "20px 24px 16px" }}>
+      <div data-no-reveal className="section-pad" style={{ maxWidth: FV_MAX_WIDTH, margin: "0 auto", padding: "20px 24px 16px" }}>
         <div
           className="stack-mobile"
           style={{
@@ -61,7 +63,7 @@ export function VendorHero({
             <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: ".09em", textTransform: "uppercase", color: FV_ACCENT, marginBottom: 14 }}>
               <span aria-hidden="true">/</span> For venues & hosts
             </div>
-            <h1
+            <RevealText as="h1"
               style={{
                 fontFamily: fonts.display,
                 fontWeight: 800,
@@ -76,7 +78,7 @@ export function VendorHero({
               Get booked.
               <br />
               <span style={{ color: FV_ACCENT }}>Grow your community.</span>
-            </h1>
+            </RevealText>
             <p style={{ fontSize: 16.5, color: colors.textSoft, lineHeight: 1.6, margin: 0, maxWidth: 560 }}>
               Join HelloCircle to showcase your space, fill more available slots and connect with local people
               looking for things to do. Don&rsquo;t run a venue? You can host a Session or Circle yourself — no
@@ -124,14 +126,9 @@ export function VendorHero({
           brief's reference: an edge-to-edge banner photo, not a boxed
           image beside the headline. `cardImageRatio.hero` (16/6) is the
           app's own existing "wide banner" ratio token. */}
-      <div style={{ position: "relative" }}>
-        <img
-          src={HERO_IMAGE.src}
-          alt={HERO_IMAGE.alt}
-          style={{ width: "100%", aspectRatio: cardImageRatio.hero, objectFit: "cover", display: "block" }}
-        />
+      <ParallaxImage src={HERO_IMAGE.src} alt={HERO_IMAGE.alt} aspectRatio="16 / 6" minHeight={220}>
         <span className="for-venues-vertical-tag">/ HelloCircle</span>
-      </div>
+      </ParallaxImage>
     </div>
   );
 }

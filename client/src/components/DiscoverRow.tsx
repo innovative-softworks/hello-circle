@@ -170,7 +170,7 @@ export function DiscoverCard({ item, isToday }: { item: ActivitySummary; isToday
         flexDirection: "column",
       }}
     >
-      <CardLink to={href} label={`${item.title}${place ? `, ${place}` : ""}`} />
+      <CardLink to={href} label={`${item.title}${place ? `, ${place}` : ""}`} sharedImage />
       <Photo
         src={item.imageUrl ?? undefined}
         alt={item.title}

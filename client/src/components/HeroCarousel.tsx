@@ -32,6 +32,7 @@ export function HeroCarousel({ slides }: { slides: HeroCarouselSlide[] }) {
 
   return (
     <div
+      data-no-reveal
       style={{ position: "relative", width: "100%", height: "100%" }}
       onMouseEnter={() => setPaused(true)}
       onMouseLeave={() => setPaused(false)}

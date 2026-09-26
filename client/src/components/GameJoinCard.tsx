@@ -151,7 +151,7 @@ function JoinHeadline({ game, state }: { game: Game; state: JoinState }) {
   }
   if (state === "joined") {
     return (
-      <h2 style={{ ...h2Style, color: colors.greenText, display: "flex", alignItems: "center", gap: 6 }}>
+      <h2 className="pop-in" style={{ ...h2Style, color: colors.greenText, display: "flex", alignItems: "center", gap: 6 }}>
         You're going <CheckIcon size={16} />
       </h2>
     );

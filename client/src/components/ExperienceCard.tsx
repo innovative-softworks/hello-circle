@@ -18,7 +18,7 @@ export function ExperienceCard({ e }: { e: Experience }) {
   const href = `/${e.kind === "adventure" ? "adventures" : "experiences"}/${e.slug ?? e.id}`;
   return (
     <Card hover style={{ position: "relative", padding: 0, overflow: "hidden" }}>
-      <CardLink to={href} label={e.title} />
+      <CardLink to={href} label={e.title} sharedImage />
       <Photo
         src={e.imageUrl || undefined}
         alt={e.title}

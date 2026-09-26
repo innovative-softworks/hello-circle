@@ -26,7 +26,7 @@ export function ClubCard({ club }: { club: Club }) {
         flexDirection: "column",
       }}
     >
-      <CardLink to={href} label={club.name} />
+      <CardLink to={href} label={club.name} sharedImage />
       <Photo
         src={club.image}
         alt={club.name}

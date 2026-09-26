@@ -2,6 +2,7 @@ import { useState } from "react";
 import { BallIcon, BuildingIcon, ChevronRightIcon, HandshakeIcon, SunIcon, TreeIconSmall } from "../icons";
 import { colors, fonts, radius } from "../../theme";
 import { FV_ACCENT, FV_MAX_WIDTH } from "./constants";
+import { RevealText } from "../RevealText";
 
 const TYPES: { title: string; blurb: string; examples?: string; photo: string; alt: string; icon: typeof BallIcon }[] = [
   {
@@ -53,11 +54,11 @@ export function ProviderTypeGrid({ onLearnMore }: { onLearnMore: () => void }) {
           <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: ".09em", textTransform: "uppercase", color: colors.mutedLight, marginBottom: 8 }}>
             <span style={{ color: FV_ACCENT }}>/</span> Who it's for
           </div>
-          <h2 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(30px, 4.2vw, 46px)", lineHeight: 1.05, letterSpacing: "-.02em", margin: "0 0 32px" }}>
+          <RevealText as="h2" style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(30px, 4.2vw, 46px)", lineHeight: 1.05, letterSpacing: "-.02em", margin: "0 0 32px" }}>
             Places and people
             <br />
             that make things happen.
-          </h2>
+          </RevealText>
           <div style={{ borderTop: `1px solid ${colors.border}` }}>
           {TYPES.map((t, i) => {
             const isActive = i === active;

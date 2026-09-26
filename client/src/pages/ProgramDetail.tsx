@@ -125,6 +125,7 @@ export function ProgramDetail() {
                 ph={colors.greenBg}
                 variant="hero"
                 eager
+                sharedHero
                 style={{ aspectRatio: cardImageRatio.hero, borderRadius: 20, marginBottom: 20 }}
               />
             )}

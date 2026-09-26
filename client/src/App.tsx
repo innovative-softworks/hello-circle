@@ -1,6 +1,7 @@
 import { lazy, Suspense, useEffect, useRef } from "react";
 import { Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { AuthProvider } from "./AuthContext";
+import { useCardTilt } from "./useCardTilt";
 import { logReferralLand } from "./api/public";
 import { AccountSetupGate } from "./components/AccountSetupGate";
 import { CookieNotice } from "./components/CookieNotice";
@@ -165,6 +166,26 @@ function isVenueGatedPath(pathname: string): boolean {
 export function App() {
   const location = useLocation();
   const navigate = useNavigate();
+  const mainRef = useRef<HTMLElement>(null);
+  const lastPathRef = useRef(location.pathname);
+  useCardTilt();
+
+  useEffect(() => {
+    if (lastPathRef.current === location.pathname) return;
+    lastPathRef.current = location.pathname;
+    const el = mainRef.current;
+    if (!el || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    el.classList.remove("route-enter");
+    void el.offsetWidth;
+    el.classList.add("route-enter");
+    const done = (e: AnimationEvent) => {
+      if (e.target !== el) return;
+      el.classList.remove("route-enter");
+      el.removeEventListener("animationend", done);
+    };
+    el.addEventListener("animationend", done);
+    return () => el.removeEventListener("animationend", done);
+  }, [location.pathname]);
 
   // Hides the native splash screen (Capacitor's SplashScreen.hide(), no-op
   // on web) once the app shell has mounted, instead of relying on the
@@ -256,7 +277,7 @@ export function App() {
           <DashboardNavProvider>
             <SessionExpiryBanner />
             {!hideHeader && <Header />}
-            <main className={hideTabBar ? undefined : "mobile-tab-bar-space"} style={isStandaloneLanding || isComingSoon ? undefined : { minHeight: "70vh" }}>
+            <main ref={mainRef} className={hideTabBar ? undefined : "mobile-tab-bar-space"} style={isStandaloneLanding || isComingSoon ? undefined : { minHeight: "70vh" }}>
               {gated || venueGated ? (
                 <Routes>
                   <Route path="/coming-soon" element={<ComingSoon />} />

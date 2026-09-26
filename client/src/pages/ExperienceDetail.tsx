@@ -416,6 +416,7 @@ export function ExperienceDetail() {
               iconColor={kindAccent}
               variant="hero"
               eager
+              sharedHero
               style={{ aspectRatio: cardImageRatio.hero, borderRadius: 20, marginBottom: photos.length > 1 ? 10 : 24 }}
               contentStyle={{ padding: 16, display: "flex", alignItems: "flex-start", justifyContent: "space-between" }}
             >

@@ -120,7 +120,7 @@ export function CircleJoinCard({ circle, state, busy, onJoin, onLeave, onMessage
 
         {state === "member" && (
           <>
-            <div style={{ display: "inline-flex", alignItems: "center", gap: 6, fontWeight: 700, fontSize: 14, color: colors.greenText, background: colors.greenBg, borderRadius: radius.control, padding: "10px 14px", justifyContent: "center" }}>
+            <div className="pop-in" style={{ display: "inline-flex", alignItems: "center", gap: 6, fontWeight: 700, fontSize: 14, color: colors.greenText, background: colors.greenBg, borderRadius: radius.control, padding: "10px 14px", justifyContent: "center" }}>
               <CheckIcon size={14} /> Joined
             </div>
             {circle.nextPlan && (

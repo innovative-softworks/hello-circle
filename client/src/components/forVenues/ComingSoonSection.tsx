@@ -4,6 +4,7 @@ import { joinLaunchWaitlist } from "../../api/public";
 import { CheckCircleIcon } from "../icons";
 import { colors, fonts } from "../../theme";
 import { FV_ACCENT, FV_MAX_WIDTH, FV_MONO } from "./constants";
+import { RevealText } from "../RevealText";
 
 // Sits directly below VendorHero's full-bleed photo (see ForVenues.tsx) —
 // a second, bigger "coming soon" moment than the slim ComingSoonBanner up
@@ -46,9 +47,9 @@ export function ComingSoonSection() {
             <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: ".09em", textTransform: "uppercase", color: FV_ACCENT, marginBottom: 10 }}>
               <span aria-hidden="true">/</span> Launching soon
             </div>
-            <h2 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(24px, 3vw, 32px)", color: "#fff", margin: "0 0 8px", letterSpacing: "-.01em" }}>
+            <RevealText as="h2" style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(24px, 3vw, 32px)", color: "#fff", margin: "0 0 8px", letterSpacing: "-.01em" }}>
               HelloCircle is almost ready.
-            </h2>
+            </RevealText>
             <p style={{ margin: 0, color: "rgba(255,255,255,.72)", fontSize: 15.5, maxWidth: 440, lineHeight: 1.6 }}>
               We&rsquo;re putting the finishing touches on it. Launching soon in Ireland, and everywhere — leave
               your email and we&rsquo;ll let you know the moment we open.

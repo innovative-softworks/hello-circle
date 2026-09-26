@@ -1,7 +1,8 @@
-import { useEffect, useState, type CSSProperties } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
 import { ChevronLeftIcon, ChevronRightIcon, CloseIcon, GridIcon } from "./icons";
 import { getMediaUrl } from "../media";
+import { useScrollZoom } from "../useScrollZoom";
 import { colors, radius } from "../theme";
 
 interface PhotoGalleryProps {
@@ -11,12 +12,16 @@ interface PhotoGalleryProps {
   /** Defaults to 380 (every existing call site's height) — only
    * ProviderProfile.tsx's asymmetric hero passes something taller. */
   height?: number;
+  /** Marks the main photo as the target of a card→detail shared-image transition. */
+  sharedHero?: boolean;
 }
 
 /** Airbnb-style hero: one big photo + a 2x2 thumbnail grid, with a "Show all
  * photos" button that opens a full-screen, keyboard-navigable lightbox. */
-export function PhotoGallery({ images, alt, ph, height = 380 }: PhotoGalleryProps) {
+export function PhotoGallery({ images, alt, ph, height = 380, sharedHero }: PhotoGalleryProps) {
   const [openAt, setOpenAt] = useState<number | null>(null);
+  const mainRef = useRef<HTMLDivElement>(null);
+  useScrollZoom(mainRef);
   const photos = images;
 
   return (
@@ -35,7 +40,9 @@ export function PhotoGallery({ images, alt, ph, height = 380 }: PhotoGalleryProp
         }}
       >
         <div
-          style={{ position: "relative", cursor: photos.length ? "pointer" : "default", background: ph }}
+          ref={mainRef}
+          data-vt-hero={sharedHero ? "" : undefined}
+          style={{ position: "relative", overflow: "hidden", cursor: photos.length ? "pointer" : "default", background: ph }}
           onClick={() => photos.length && setOpenAt(0)}
         >
           {photos[0] && (

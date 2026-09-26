@@ -2,6 +2,7 @@ import { ArrowRightIcon, AwardIcon, BuildingIcon } from "../icons";
 import { Button } from "../ui";
 import { colors, fonts } from "../../theme";
 import { FV_ACCENT, FV_MAX_WIDTH } from "./constants";
+import { RevealText } from "../RevealText";
 
 // Swiss/editorial fork, matching this page's own dominant visual language
 // (giant numerals + thin rule dividers, same as VendorHowItWorks) rather
@@ -42,11 +43,11 @@ export function ChooseYourPathSection({ onListVenueCta, onBecomeHostCta }: { onL
           <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: ".09em", textTransform: "uppercase", color: "rgba(255,255,255,.5)", marginBottom: 12 }}>
             <span style={{ color: FV_ACCENT }}>/</span> Choose your path
           </div>
-          <h2 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(36px, 5.4vw, 64px)", lineHeight: 0.98, letterSpacing: "-.03em", color: "#fff", margin: 0 }}>
+          <RevealText as="h2" style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(36px, 5.4vw, 64px)", lineHeight: 0.98, letterSpacing: "-.03em", color: "#fff", margin: 0 }}>
             Neither path
             <br />
             needs the other.
-          </h2>
+          </RevealText>
         </div>
 
         <div className="stack-mobile" style={{ display: "flex", gap: 0 }}>

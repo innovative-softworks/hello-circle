@@ -51,7 +51,6 @@ const COLUMNS: { heading: string; links: { label: string; to: string; external?:
     heading: "For venues",
     links: [
       { label: "List your venue", to: "/for-venues" },
-      { label: "How it works", to: "/for-venues#how-it-works" },
     ],
   },
 ];

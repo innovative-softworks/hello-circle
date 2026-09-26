@@ -1,8 +1,9 @@
 import { Fragment, useEffect, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { CheckIcon, CloseIcon, StarIcon } from "./icons";
 import { getMediaUrl } from "../media";
+import { navigateWithSharedImage } from "../sharedElementTransition";
 import { colors, fonts, maxWidth, radius, zIndex } from "../theme";
 
 // Shared, reusable building blocks for the vendor/admin/reviews UI — kept in
@@ -61,8 +62,26 @@ export function onActivateProps(handler: () => void) {
 // navigating. `label` is required (not optional) because the link usually
 // has no visible text content of its own — screen readers need a real
 // accessible name, not "View" repeated for every card on the page.
-export function CardLink({ to, label }: { to: string; label: string }) {
-  return <Link to={to} className="stretched-link" aria-label={label} />;
+export function CardLink({ to, label, sharedImage }: { to: string; label: string; sharedImage?: boolean }) {
+  const navigate = useNavigate();
+  return (
+    <Link
+      to={to}
+      className="stretched-link"
+      aria-label={label}
+      onClick={
+        sharedImage
+          ? (e) => {
+              if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+              const source = e.currentTarget.parentElement?.querySelector("img")?.parentElement;
+              if (!source) return;
+              e.preventDefault();
+              navigateWithSharedImage(navigate, to, source);
+            }
+          : undefined
+      }
+    />
+  );
 }
 
 // --- Button ------------------------------------------------------------
@@ -987,6 +1006,22 @@ export const tdStyle: CSSProperties = { padding: "10px", borderBottom: `1px soli
 // a drawer can never be hidden behind an open photo lightbox (they're not
 // expected to be open together, but this keeps the ordering unambiguous).
 
+function useIsMobile() {
+  const [mobile, setMobile] = useState(() => typeof window !== "undefined" && window.matchMedia("(max-width: 720px)").matches);
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 720px)");
+    const on = () => setMobile(mq.matches);
+    mq.addEventListener("change", on);
+    return () => mq.removeEventListener("change", on);
+  }, []);
+  return mobile;
+}
+
+const DRAWER_EXIT_MS = 220;
+const SHEET_DISMISS_PX = 110;
+
+// Desktop: right-hand slide-over. Mobile (<=720px): bottom sheet with a
+// spring entrance and drag-down-to-dismiss. Both animate out before unmounting.
 export function Drawer({
   open,
   onClose,
@@ -1002,6 +1037,28 @@ export function Drawer({
    * edit form — rather than a compact detail/actions view. */
   size?: "default" | "wide";
 }) {
+  const mobile = useIsMobile();
+  const [render, setRender] = useState(open);
+  const [closing, setClosing] = useState(false);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const dragStartY = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (open) {
+      setRender(true);
+      setClosing(false);
+      return;
+    }
+    if (!render) return;
+    setClosing(true);
+    const t = window.setTimeout(() => {
+      setRender(false);
+      setClosing(false);
+    }, DRAWER_EXIT_MS);
+    return () => window.clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
@@ -1011,26 +1068,83 @@ export function Drawer({
     return () => window.removeEventListener("keydown", onKey);
   }, [open, onClose]);
 
-  if (!open) return null;
+  if (!render) return null;
+
+  const onDragStart = (e: React.PointerEvent) => {
+    if (!mobile) return;
+    dragStartY.current = e.clientY;
+    e.currentTarget.setPointerCapture(e.pointerId);
+    if (panelRef.current) panelRef.current.style.transition = "none";
+  };
+  const onDragMove = (e: React.PointerEvent) => {
+    if (dragStartY.current === null || !panelRef.current) return;
+    const dy = Math.max(0, e.clientY - dragStartY.current);
+    panelRef.current.style.transform = `translateY(${dy}px)`;
+  };
+  const onDragEnd = (e: React.PointerEvent) => {
+    if (dragStartY.current === null || !panelRef.current) return;
+    const dy = Math.max(0, e.clientY - dragStartY.current);
+    dragStartY.current = null;
+    const panel = panelRef.current;
+    panel.style.transition = "transform .3s cubic-bezier(.34,1.56,.64,1)";
+    if (dy > SHEET_DISMISS_PX) {
+      panel.style.transform = "translateY(100%)";
+      onClose();
+    } else {
+      panel.style.transform = "";
+    }
+  };
+
+  const panelClass = mobile ? (closing ? "sheet-out" : "sheet-in") : closing ? "slide-out-right" : "slide-in-right";
+  const panelStyle: CSSProperties = mobile
+    ? {
+        position: "absolute",
+        left: 0,
+        right: 0,
+        bottom: 0,
+        maxHeight: "90vh",
+        background: colors.bg,
+        borderRadius: "20px 20px 0 0",
+        boxShadow: "0 -16px 40px rgba(20,22,20,.18)",
+        display: "flex",
+        flexDirection: "column",
+      }
+    : {
+        position: "absolute",
+        right: 0,
+        top: 0,
+        bottom: 0,
+        width: size === "wide" ? "min(680px, 94vw)" : "min(480px, 92vw)",
+        background: colors.bg,
+        boxShadow: "-16px 0 40px rgba(20,22,20,.18)",
+        display: "flex",
+        flexDirection: "column",
+      };
 
   return createPortal(
-    <div style={{ position: "fixed", inset: 0, zIndex: zIndex.drawer, background: "rgba(20,22,20,.45)" }} onClick={onClose}>
-      <div
-        className="slide-in-right"
-        style={{
-          position: "absolute",
-          right: 0,
-          top: 0,
-          bottom: 0,
-          width: size === "wide" ? "min(680px, 94vw)" : "min(480px, 92vw)",
-          background: colors.bg,
-          boxShadow: "-16px 0 40px rgba(20,22,20,.18)",
-          display: "flex",
-          flexDirection: "column",
-        }}
-        onClick={(e) => e.stopPropagation()}
-      >
+    <div
+      className={closing ? "backdrop-out" : "backdrop-in"}
+      style={{ position: "fixed", inset: 0, zIndex: zIndex.drawer, background: "rgba(20,22,20,.45)" }}
+      onClick={onClose}
+    >
+      <div ref={panelRef} className={panelClass} style={panelStyle} onClick={(e) => e.stopPropagation()}>
+        {mobile && (
+          <div
+            onPointerDown={onDragStart}
+            onPointerMove={onDragMove}
+            onPointerUp={onDragEnd}
+            onPointerCancel={onDragEnd}
+            style={{ flex: "none", padding: "10px 0 2px", cursor: "grab", touchAction: "none" }}
+            aria-hidden="true"
+          >
+            <div style={{ width: 40, height: 4, borderRadius: 4, background: colors.borderStrong, margin: "0 auto" }} />
+          </div>
+        )}
         <div
+          onPointerDown={onDragStart}
+          onPointerMove={onDragMove}
+          onPointerUp={onDragEnd}
+          onPointerCancel={onDragEnd}
           style={{
             display: "flex",
             justifyContent: "space-between",
@@ -1038,11 +1152,13 @@ export function Drawer({
             padding: "18px 22px",
             borderBottom: `1px solid ${colors.border}`,
             flex: "none",
+            touchAction: mobile ? "none" : undefined,
           }}
         >
           <span style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 17 }}>{title}</span>
           <button
             onClick={onClose}
+            onPointerDown={(e) => e.stopPropagation()}
             aria-label="Close"
             style={{
               background: colors.panel,

@@ -82,7 +82,7 @@ export function ClubDetail() {
       <section className="section-pad" style={{ maxWidth, margin: "0 auto", padding: "26px 24px 0" }}>
         <BackLink onClick={() => navigate("/browse/clubs")} marginBottom={16}>All sports clubs</BackLink>
         <div style={{ position: "relative" }}>
-          <PhotoGallery images={club.images} alt={club.name} ph={club.ph} />
+          <PhotoGallery images={club.images} alt={club.name} ph={club.ph} sharedHero />
           <span
             style={{
               position: "absolute",

@@ -4,12 +4,15 @@ import { joinLaunchWaitlist } from "../api/public";
 import { ApiError } from "../api/core";
 import { AppleIcon, BallIcon, BuildingIcon, CheckCircleIcon, ChevronDownIcon, GoogleIcon, MailIcon, MoonIcon, PinIcon, RepeatIcon, SunIcon, TreeIconSmall } from "../components/icons";
 import { IRISH_COUNTY_COORDS } from "../irishCounties";
-import { cardImageRatio, colors } from "../theme";
+import { ParallaxImage } from "../components/ParallaxImage";
+import { colors } from "../theme";
 import { useTheme } from "../ThemeContext";
 import { lc, lcFonts, lcMaxWidth } from "../landing/theme";
 import { placeholderImage } from "../placeholderImage";
+import { useScrollReveal } from "../useScrollReveal";
 import { FV_ACCENT, FV_ACCENT_DARK, FV_MONO } from "../components/forVenues/constants";
 import "../landing/landing.css";
+import { RevealText } from "../components/RevealText";
 
 // Brand accent + mono utility-strip treatment deliberately match
 // /for-venues (FV_ACCENT etc., imported directly from its own constants
@@ -66,6 +69,7 @@ const FEATURES = [
 ];
 
 export function ComingSoon() {
+  const revealRef = useScrollReveal<HTMLDivElement>(0);
   const { resolvedTheme, setTheme } = useTheme();
   const [email, setEmail] = useState("");
   const [county, setCounty] = useState("");
@@ -96,7 +100,7 @@ export function ComingSoon() {
   }
 
   return (
-    <div className="lc-page" style={{ background: lc.paper, color: lc.ink }}>
+    <div className="lc-page" ref={revealRef} style={{ background: lc.paper, color: lc.ink }}>
       {/* Header — real brand mark, linked home; otherwise no live nav
           (nothing else to send people to yet). */}
       <header className="lc-header" style={{ background: colors.headerBg, backdropFilter: "blur(12px)", borderBottom: `1px solid ${lc.line}` }}>
@@ -167,9 +171,9 @@ export function ComingSoon() {
             <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: "0.09em", textTransform: "uppercase", color: FV_ACCENT, marginBottom: 14 }}>
               <span aria-hidden="true">/</span> Launching soon
             </div>
-            <h1 style={{ fontSize: "clamp(42px, 5vw, 64px)", lineHeight: 1.05, fontWeight: 800, color: lc.ink }}>
+            <RevealText as="h1" style={{ fontSize: "clamp(42px, 5vw, 64px)", lineHeight: 1.05, fontWeight: 800, color: lc.ink }}>
               Your town is about to get a lot more <span style={{ color: FV_ACCENT }}>interesting.</span>
-            </h1>
+            </RevealText>
             <p style={{ fontSize: 17.5, lineHeight: 1.6, color: lc.inkSoft, marginTop: 22, maxWidth: 460 }}>
               One place to book a hall, join a club, catch a pickup game, or start a recurring Circle across Ireland.
             </p>
@@ -268,14 +272,9 @@ export function ComingSoon() {
           vertical tag reuses index.css's .for-venues-vertical-tag, doing
           double duty here as the big, unmissable "coming soon" statement
           the small header chip alone doesn't deliver. */}
-      <div style={{ position: "relative" }}>
-        <img
-          src={img("hc-cs-social", 1920, 720)}
-          alt="People meeting up for a local sports session"
-          style={{ width: "100%", aspectRatio: cardImageRatio.hero, objectFit: "cover", display: "block" }}
-        />
+      <ParallaxImage src={img("hc-cs-social", 1920, 720)} alt="People meeting up for a local sports session" aspectRatio="16 / 6" minHeight={220}>
         <span className="for-venues-vertical-tag">Coming soon</span>
-      </div>
+      </ParallaxImage>
 
       {/* What's coming */}
       <section className="lc-section" style={{ maxWidth: lcMaxWidth, margin: "0 auto", padding: "16px 24px 88px" }}>
@@ -283,9 +282,9 @@ export function ComingSoon() {
           <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: "0.09em", textTransform: "uppercase", color: FV_ACCENT, marginBottom: 8 }}>
             <span aria-hidden="true">/</span> What&rsquo;s coming
           </div>
-          <h2 style={{ fontFamily: lcFonts.display, fontWeight: 800, fontSize: "clamp(26px, 3.2vw, 38px)", letterSpacing: "-0.02em", color: lc.ink }}>
+          <RevealText as="h2" style={{ fontFamily: lcFonts.display, fontWeight: 800, fontSize: "clamp(26px, 3.2vw, 38px)", letterSpacing: "-0.02em", color: lc.ink }}>
             Everything you need to get out more.
-          </h2>
+          </RevealText>
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 18 }} className="lc-cs-features-grid">
           {FEATURES.map((f) => (
@@ -308,9 +307,9 @@ export function ComingSoon() {
             <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: "0.09em", textTransform: "uppercase", color: FV_ACCENT, marginBottom: 8 }}>
               <span aria-hidden="true">/</span> Rollout
             </div>
-            <h2 style={{ fontFamily: lcFonts.display, fontWeight: 800, fontSize: "clamp(26px, 3.2vw, 38px)", letterSpacing: "-0.02em", color: lc.ink }}>
+            <RevealText as="h2" style={{ fontFamily: lcFonts.display, fontWeight: 800, fontSize: "clamp(26px, 3.2vw, 38px)", letterSpacing: "-0.02em", color: lc.ink }}>
               We&rsquo;re opening county by county.
-            </h2>
+            </RevealText>
             <p style={{ marginTop: 14, fontSize: 16, lineHeight: 1.55, color: lc.inkSoft, maxWidth: 480, marginLeft: "auto", marginRight: "auto" }}>
               Dublin goes live first. Everywhere else follows soon after.
             </p>
@@ -362,9 +361,9 @@ export function ComingSoon() {
           vars rather than fixed colors). */}
       <section style={{ background: lc.ink, padding: "90px 24px 64px", textAlign: "center" }}>
         <div style={{ maxWidth: lcMaxWidth, margin: "0 auto" }}>
-          <h2 style={{ fontFamily: lcFonts.display, fontSize: "clamp(30px, 4.5vw, 50px)", color: lc.paper, lineHeight: 1.15 }}>
+          <RevealText as="h2" style={{ fontFamily: lcFonts.display, fontSize: "clamp(30px, 4.5vw, 50px)", color: lc.paper, lineHeight: 1.15 }}>
             Be first to know when we open.
-          </h2>
+          </RevealText>
           <p style={{ fontSize: 17, color: "rgba(250,248,242,0.72)", marginTop: 16 }}>It takes ten seconds, and we&rsquo;ll do the rest.</p>
           <button className="lc-btn" style={{ background: FV_ACCENT, color: lc.white, padding: "15px 30px", fontSize: 15.5, marginTop: 32 }} onClick={scrollToForm}>
             Join the waitlist

@@ -93,7 +93,7 @@ export function CentreDetail() {
     <div className="centre-detail-mobile-pad" style={{ animation: "fadeUp .35s ease both" }}>
       <section className="section-pad" style={{ maxWidth, margin: "0 auto", padding: "26px 24px 0" }}>
         <BackLink onClick={() => navigate("/browse/centres")} marginBottom={16}>All community centres</BackLink>
-        <PhotoGallery images={centre.images} alt={centre.name} ph={centre.ph} />
+        <PhotoGallery images={centre.images} alt={centre.name} ph={centre.ph} sharedHero />
       </section>
       <section
         className="grid-responsive section-pad"

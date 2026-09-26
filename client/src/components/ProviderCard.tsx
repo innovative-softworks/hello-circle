@@ -13,7 +13,7 @@ export function ProviderCard({ provider }: { provider: SimilarProvider }) {
       className="card-hover card-surface"
       style={{ position: "relative", background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: radius.card, overflow: "hidden" }}
     >
-      <CardLink to={`/provider/${provider.id}`} label={provider.name} />
+      <CardLink to={`/provider/${provider.id}`} label={provider.name} sharedImage />
       <Photo src={provider.image ?? undefined} alt={provider.name} ph={placeholderStripes.green} style={{ aspectRatio: cardImageRatio.discovery }} />
       <div style={{ padding: "14px 16px 16px" }}>
         <EntityTypeLabel type={provider.type} size={12} color={colors.mutedLight} />

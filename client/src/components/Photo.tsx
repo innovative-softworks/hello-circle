@@ -1,5 +1,6 @@
-import type { CSSProperties, ReactNode } from "react";
+import { useRef, type CSSProperties, type ReactNode } from "react";
 import { getMediaUrl, type MediaVariant } from "../media";
+import { useScrollZoom } from "../useScrollZoom";
 
 interface PhotoProps {
   src: string | undefined;
@@ -23,6 +24,8 @@ interface PhotoProps {
   /** Opts out of the default `loading="lazy"` for a genuinely above-the-fold
    * image (a detail page's own hero) — see Image/Media System Audit §15. */
   eager?: boolean;
+  /** Marks this box as the target of a card→detail shared-image transition. */
+  sharedHero?: boolean;
 }
 
 /** A placeholder-gradient box with a real photo layered on top, and optional
@@ -43,10 +46,12 @@ const tintStyle: CSSProperties = {
   pointerEvents: "none",
 };
 
-export function Photo({ src, alt, ph, style, contentStyle, icon, iconColor, children, variant = "card", eager }: PhotoProps) {
+export function Photo({ src, alt, ph, style, contentStyle, icon, iconColor, children, variant = "card", eager, sharedHero }: PhotoProps) {
   const resolvedSrc = getMediaUrl(src, variant);
+  const frameRef = useRef<HTMLDivElement>(null);
+  useScrollZoom(frameRef, variant === "hero");
   return (
-    <div style={{ position: "relative", background: ph, overflow: "hidden", ...style }}>
+    <div ref={frameRef} data-vt-hero={sharedHero ? "" : undefined} style={{ position: "relative", background: ph, overflow: "hidden", ...style }}>
       {icon && (
         <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
           <div

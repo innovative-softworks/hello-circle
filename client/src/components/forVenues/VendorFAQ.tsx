@@ -2,6 +2,7 @@ import { useState } from "react";
 import { ChevronDownIcon } from "../icons";
 import { colors, fonts } from "../../theme";
 import { FV_ACCENT, FV_MAX_WIDTH } from "./constants";
+import { RevealText } from "../RevealText";
 
 const VENUE_FAQS: { q: string; a: string }[] = [
   { q: "Who can list on HelloCircle?", a: "Community centres, sports clubs, and other local venues and activity providers looking to reach people nearby." },
@@ -32,9 +33,9 @@ export function VendorFAQ({
       <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: ".09em", textTransform: "uppercase", color: colors.mutedLight, marginBottom: 8 }}>
         <span style={{ color: FV_ACCENT }}>/</span> {eyebrow}
       </div>
-      <h2 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(24px, 3vw, 32px)", letterSpacing: "-.02em", margin: "0 0 8px" }}>
+      <RevealText as="h2" style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(24px, 3vw, 32px)", letterSpacing: "-.02em", margin: "0 0 8px" }}>
         {title}
-      </h2>
+      </RevealText>
       <div style={{ borderTop: `1px solid ${colors.border}`, marginTop: 24 }}>
         {faqs.map((f, i) => {
           const open = openIndex === i;

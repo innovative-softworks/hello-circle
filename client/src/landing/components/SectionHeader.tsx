@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { lc, lcFonts } from "../theme";
+import { RevealText } from "../../components/RevealText";
 
 export function SectionHeader({
   eyebrow,
@@ -32,7 +33,7 @@ export function SectionHeader({
             {eyebrow}
           </div>
         )}
-        <h2 style={{ fontSize: "clamp(28px, 4vw, 44px)", lineHeight: 1.12, color: lc.ink }}>{title}</h2>
+        <RevealText as="h2" style={{ fontSize: "clamp(28px, 4vw, 44px)", lineHeight: 1.12, color: lc.ink }}>{title}</RevealText>
         {subtitle && <p style={{ marginTop: 14, fontSize: 17, lineHeight: 1.55, color: lc.inkSoft, maxWidth: 540 }}>{subtitle}</p>}
       </div>
       {action}

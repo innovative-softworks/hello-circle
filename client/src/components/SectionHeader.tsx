@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { colors, fonts } from "../theme";
+import { RevealText } from "./RevealText";
 
 /** Shared editorial section header (Swiss/minimal design system) — a small
  * uppercase eyebrow label, a title, an optional supporting line, and an
@@ -41,9 +42,9 @@ export function SectionHeader({
         <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: ".09em", textTransform: "uppercase", color: colors.mutedLight, marginBottom: 6 }}>
           {eyebrow}
         </div>
-        <h2 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: titleSize ?? "clamp(20px, 2.4vw, 26px)", letterSpacing: "-.01em", margin: 0, color: titleColor ?? colors.text }}>
+        <RevealText as="h2" style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: titleSize ?? "clamp(20px, 2.4vw, 26px)", letterSpacing: "-.01em", margin: 0, color: titleColor ?? colors.text }}>
           {title}
-        </h2>
+        </RevealText>
         {subtitle && <p style={{ fontSize: 14, color: colors.mutedLight, margin: "6px 0 0" }}>{subtitle}</p>}
       </div>
       {action}

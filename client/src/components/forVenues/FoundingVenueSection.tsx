@@ -1,6 +1,7 @@
 import { Button } from "../ui";
 import { colors, fonts, radius } from "../../theme";
 import { FV_ACCENT, FV_MAX_WIDTH } from "./constants";
+import { RevealText } from "../RevealText";
 
 const HELP_US_UNDERSTAND = [
   "How availability should work",
@@ -25,9 +26,9 @@ export function FoundingVenueSection({ onCta }: { onCta: () => void }) {
           <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: ".09em", textTransform: "uppercase", color: FV_ACCENT, marginBottom: 10 }}>
             <span aria-hidden="true">/</span> Founding venues
           </div>
-          <h2 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(26px, 3.2vw, 36px)", lineHeight: 1.05, letterSpacing: "-.02em", margin: "0 0 16px", maxWidth: 420 }}>
+          <RevealText as="h2" style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(26px, 3.2vw, 36px)", lineHeight: 1.05, letterSpacing: "-.02em", margin: "0 0 16px", maxWidth: 420 }}>
             Help shape HelloCircle in your area.
-          </h2>
+          </RevealText>
           <p style={{ fontSize: 15, color: colors.textSoft, lineHeight: 1.6, margin: "0 0 20px", maxWidth: 440 }}>
             We're working with local venues and activity providers to make it easier for people to find places
             to do things nearby. Early partners can help us understand:

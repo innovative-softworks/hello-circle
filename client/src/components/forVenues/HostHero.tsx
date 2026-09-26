@@ -1,7 +1,9 @@
 import { Button } from "../ui";
 import { CheckIcon } from "../icons";
-import { cardImageRatio, colors, fonts } from "../../theme";
+import { ParallaxImage } from "../ParallaxImage";
+import { colors, fonts } from "../../theme";
 import { FV_ACCENT, FV_MAX_WIDTH } from "./constants";
+import { RevealText } from "../RevealText";
 
 const REASSURANCE = ["Completely free", "No venue or business needed", "Live in minutes"];
 
@@ -24,7 +26,7 @@ export function HostHero({ onCta }: { onCta: () => void }) {
             <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: ".09em", textTransform: "uppercase", color: FV_ACCENT, marginBottom: 14 }}>
               <span aria-hidden="true">/</span> For hosts
             </div>
-            <h1
+            <RevealText as="h1"
               style={{
                 fontFamily: fonts.display,
                 fontWeight: 800,
@@ -37,7 +39,7 @@ export function HostHero({ onCta }: { onCta: () => void }) {
               Host something.
               <br />
               <span style={{ color: FV_ACCENT }}>No venue needed.</span>
-            </h1>
+            </RevealText>
             <p style={{ fontSize: 16.5, color: colors.textSoft, lineHeight: 1.6, margin: 0, maxWidth: 560 }}>
               A one-off Session or a standing Circle — a kickabout, a class, a standing group. Pick a time and a
               spot, and it&rsquo;s live. No listing, no business, no approval to start.
@@ -64,14 +66,9 @@ export function HostHero({ onCta }: { onCta: () => void }) {
         </div>
       </div>
 
-      <div style={{ position: "relative" }}>
-        <img
-          src={HERO_IMAGE.src}
-          alt={HERO_IMAGE.alt}
-          style={{ width: "100%", aspectRatio: cardImageRatio.hero, objectFit: "cover", display: "block" }}
-        />
+      <ParallaxImage src={HERO_IMAGE.src} alt={HERO_IMAGE.alt} aspectRatio="16 / 6" minHeight={220}>
         <span className="for-venues-vertical-tag">/ HelloCircle</span>
-      </div>
+      </ParallaxImage>
     </div>
   );
 }

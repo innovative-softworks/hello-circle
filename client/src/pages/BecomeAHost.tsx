@@ -4,10 +4,10 @@ import { useGuest } from "../GuestContext";
 import { HostExampleBand } from "../components/forVenues/HostExampleBand";
 import { HostFinalCTA } from "../components/forVenues/HostFinalCTA";
 import { HostHero } from "../components/forVenues/HostHero";
-import { HostHowItWorks } from "../components/forVenues/HostHowItWorks";
 import { HostWhatSection } from "../components/forVenues/HostWhatSection";
 import { VendorFAQ } from "../components/forVenues/VendorFAQ";
 import { trackVendorEvent } from "../forVenuesAnalytics";
+import { useScrollReveal } from "../useScrollReveal";
 
 const HOST_FAQS: { q: string; a: string }[] = [
   { q: "Do I need a venue or business?", a: "No — a Session or a Circle needs a time and a place to meet, not a listing. Use a park, a court, your own back garden, or an existing venue someone else already listed." },
@@ -27,6 +27,7 @@ const HOST_FAQS: { q: string; a: string }[] = [
 export function BecomeAHost() {
   const navigate = useNavigate();
   const { resident } = useGuest();
+  const revealRef = useScrollReveal<HTMLDivElement>(0);
   const becomeHostHref = resident ? "/profile" : `/signin?returnTo=${encodeURIComponent("/profile")}`;
 
   useEffect(() => {
@@ -39,10 +40,9 @@ export function BecomeAHost() {
   };
 
   return (
-    <div className="fade-panel">
+    <div className="fade-panel" ref={revealRef}>
       <HostHero onCta={() => goToBecomeHost("hero")} />
       <HostWhatSection />
-      <HostHowItWorks />
       <HostExampleBand />
       <VendorFAQ
         eyebrow="Questions"

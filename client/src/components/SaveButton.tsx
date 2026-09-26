@@ -51,6 +51,7 @@ export function useSavedState(kind: Favourite["listingType"], id: string): [bool
 export function SaveButton({ saved, onToggle, position = "top" }: { saved: boolean; onToggle: () => void; position?: "top" | "bottom" }) {
   return (
     <button
+      className="press-scale"
       onClick={(e) => {
         e.stopPropagation();
         onToggle();
@@ -70,9 +71,12 @@ export function SaveButton({ saved, onToggle, position = "top" }: { saved: boole
         justifyContent: "center",
         cursor: "pointer",
         color: saved ? colors.orange : "#8A928B",
+        transition: "transform .15s ease",
       }}
     >
-      <HeartIcon size={15} filled={saved} />
+      <span key={String(saved)} className={saved ? "heart-pop" : undefined} style={{ display: "flex" }}>
+        <HeartIcon size={15} filled={saved} />
+      </span>
     </button>
   );
 }

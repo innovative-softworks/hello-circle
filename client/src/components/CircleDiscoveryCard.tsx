@@ -34,7 +34,7 @@ export function CircleDiscoveryCard({ circle, joined, onJoin, onLeave, busy }: {
 
   return (
     <Card hover style={{ position: "relative", padding: 0, overflow: "hidden", borderRadius: 18 }}>
-      <CardLink to={href} label={circle.name} />
+      <CardLink to={href} label={circle.name} sharedImage />
       <div>
         <Photo
           src={getCircleCoverUrl(circle) ?? undefined}

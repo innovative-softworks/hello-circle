@@ -269,6 +269,39 @@ textarea:focus {
   outline: 2px solid var(--color-green);
   outline-offset: 2px;
 }
+/* !important so elements with their own transition/transform rules (.btn's
+   0.15s hover transition, etc.) still animate in at the reveal timing
+   instead of snapping. The class is removed once the reveal finishes. */
+/* Card image -> detail hero shared-element morph (sharedElementTransition.ts) */
+[data-vt-hero] {
+  view-transition-name: hc-hero;
+}
+::view-transition-group(hc-hero) {
+  animation-duration: 600ms;
+  animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+  overflow: clip;
+  border-radius: 18px;
+}
+::view-transition-old(hc-hero),
+::view-transition-new(hc-hero) {
+  height: 100%;
+  width: 100%;
+  object-fit: cover;
+}
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: 300ms;
+}
+.reveal {
+  opacity: 0 !important;
+  transform: translate3d(0, 64px, 0) !important;
+  transition: opacity 1200ms cubic-bezier(0.25, 0.8, 0.25, 1), transform 1400ms cubic-bezier(0.16, 1, 0.3, 1) !important;
+  will-change: opacity, transform;
+}
+.reveal.is-visible {
+  opacity: 1 !important;
+  transform: none !important;
+}
 @keyframes fadeUp {
   from {
     opacity: 0;
@@ -339,7 +372,7 @@ textarea:focus {
   transform: translateY(-1px);
 }
 .btn:active:not(:disabled) {
-  transform: translateY(0);
+  transform: translateY(0) scale(0.97);
 }
 .btn:disabled {
   cursor: not-allowed;
@@ -911,5 +944,113 @@ textarea:focus {
 @media (max-width: 900px) {
   .for-venues-flow-arrow {
     display: none !important;
+  }
+}
+
+/* --- micro-interactions ---------------------------------------------- */
+@keyframes heartPop {
+  0% { transform: scale(0.6); }
+  45% { transform: scale(1.4); }
+  100% { transform: scale(1); }
+}
+.heart-pop {
+  animation: heartPop 0.45s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.press-scale:active {
+  transform: scale(0.88);
+}
+
+/* --- skeleton -> content: cards fade in when they replace a skeleton ---- */
+@keyframes cardFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.card-surface {
+  animation: cardFadeIn 0.45s ease backwards;
+}
+
+/* --- page transitions (App.tsx toggles .route-enter on <main>) ---------- */
+@keyframes routeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.route-enter {
+  animation: routeIn 0.32s ease both;
+}
+
+/* --- drawer / bottom sheet ------------------------------------------- */
+@keyframes sheetIn {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
+}
+@keyframes sheetOut {
+  from { transform: translateY(0); }
+  to { transform: translateY(100%); }
+}
+@keyframes slideOutRight {
+  from { transform: translateX(0); }
+  to { transform: translateX(100%); }
+}
+@keyframes backdropIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes backdropOut {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+.sheet-in { animation: sheetIn 0.42s cubic-bezier(0.34, 1.3, 0.64, 1) both; }
+.sheet-out { animation: sheetOut 0.22s ease-in both; }
+.slide-out-right { animation: slideOutRight 0.22s ease-in both; }
+.backdrop-in { animation: backdropIn 0.2s ease both; }
+.backdrop-out { animation: backdropOut 0.22s ease both; }
+
+/* --- card hover depth: 3D tilt (useCardTilt.ts) + photo zoom ----------- */
+@media (hover: hover) and (pointer: fine) and (prefers-reduced-motion: no-preference) {
+  .card-hover:hover {
+    transform: perspective(900px) translateY(-3px) rotateX(var(--tilt-x, 0deg)) rotateY(var(--tilt-y, 0deg));
+  }
+  .card-hover img {
+    transition: transform 0.7s cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  .card-hover:hover img {
+    transform: scale(1.05);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .heart-pop,
+  .card-surface,
+  .route-enter,
+  .sheet-in,
+  .sheet-out,
+  .slide-out-right,
+  .backdrop-in,
+  .backdrop-out {
+    animation: none !important;
+  }
+}
+
+/* --- text reveal (RevealText.tsx): words rise out of a clipped line ---- */
+.rt-word {
+  display: inline-block;
+  overflow: hidden;
+  vertical-align: top;
+  padding: 0.06em 0.02em 0.16em;
+  margin: -0.06em -0.02em -0.16em;
+}
+.rt-inner {
+  display: inline-block;
+  transform: translateY(115%);
+  transition: transform 900ms cubic-bezier(0.16, 1, 0.3, 1);
+  will-change: transform;
+}
+.rt-root.is-in .rt-inner {
+  transform: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .rt-inner {
+    transform: none !important;
+    transition: none !important;
   }
 }

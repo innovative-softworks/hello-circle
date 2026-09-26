@@ -236,7 +236,7 @@ export function ProviderProfilePage() {
             </div>
           </div>
 
-          {galleryImages.length > 0 && <PhotoGallery images={galleryImages} alt={profile.name} ph={placeholderStripes.green} height={460} />}
+          {galleryImages.length > 0 && <PhotoGallery images={galleryImages} alt={profile.name} ph={placeholderStripes.green} height={460} sharedHero />}
         </div>
 
         {/* Stat row — now a full-width band under the hero split (rather

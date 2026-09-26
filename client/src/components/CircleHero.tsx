@@ -47,6 +47,7 @@ export function CircleHero({ circle, activeThisWeek }: { circle: Circle; activeT
       iconColor={colors.green}
       variant="hero"
       eager
+      sharedHero
       style={{ aspectRatio: cardImageRatio.hero, borderRadius: 2, overflow: "hidden" }}
       contentStyle={{
         display: "flex",

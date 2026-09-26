@@ -23,6 +23,8 @@ import { DiscoverCard, DiscoverRow } from "../components/DiscoverRow";
 import { GameCard } from "./Games";
 import { formatDateTime, formatPrice } from "../formatters";
 import { HeroScrollSplit, type HeroScrollImage } from "../components/HeroScrollSplit";
+import { useScrollReveal } from "../useScrollReveal";
+import { Marquee } from "../components/Marquee";
 import { Photo } from "../components/Photo";
 import { SectionHeader } from "../components/SectionHeader";
 import { CardSkeleton, ConfirmDialog } from "../components/ui";
@@ -45,6 +47,7 @@ import { useGuest } from "../GuestContext";
 import { haversineDistanceKm, nearestCounty } from "../irishCounties";
 import { colors, fonts, maxWidth, radius } from "../theme";
 import type { Centre, Circle, Club, DiscoverFeed, DiscoverItem, Experience, Game, LocalMomentumSignal, MyBooking, RoutineSuggestion } from "../types";
+import { RevealText } from "../components/RevealText";
 
 // Home's intent selector (IA spec §3) — reuses discover.ts's existing mood
 // keyword filter (built for Free Time Mode) rather than a new taxonomy.
@@ -201,6 +204,7 @@ function DestinationCard({ image, title, caption, onClick }: { image: string | n
 
 export function Home() {
   const navigate = useNavigate();
+  const revealRef = useScrollReveal<HTMLDivElement>(0);
   const { resident } = useGuest();
   const [homeCounty, setHomeCounty] = useState("All");
   const [continuePlan, setContinuePlan] = useState<ContinuePlanningDraft | null>(null);
@@ -582,7 +586,7 @@ export function Home() {
   };
 
   return (
-    <div style={{ animation: "fadeUp .4s ease both" }}>
+    <div ref={revealRef} style={{ animation: "fadeUp .4s ease both" }}>
       {/* HERO — the app's first true full-bleed section: no maxWidth cap on
           the outer <section>, so its background/border spans the viewport
           edge to edge. Top content is a two-column split (headline column
@@ -602,7 +606,7 @@ export function Home() {
               <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: ".09em", textTransform: "uppercase", color: ACCENT, marginBottom: 14 }}>
                 <span aria-hidden="true">/</span> Local activity, real people
               </div>
-              <h1
+              <RevealText as="h1"
                 style={{
                   fontFamily: fonts.display,
                   fontWeight: 800,
@@ -616,7 +620,7 @@ export function Home() {
                 Make things happen
                 <br />
                 near you.
-              </h1>
+              </RevealText>
               <div style={{ width: 64, height: 3, background: ACCENT, margin: "0 0 22px" }} />
               <p style={{ fontSize: 18, lineHeight: 1.5, color: colors.muted, margin: 0, maxWidth: 440 }}>
                 Find people nearby, join something already happening, or start a plan of your own — book a hall, join a
@@ -751,6 +755,8 @@ export function Home() {
           <HeroScrollSplit images={HERO_IMAGES} />
         </div>
       </section>
+
+      <Marquee label="Ways to get involved" accent={ACCENT} items={INTENT_CHIPS.map((c) => ({ label: c.label }))} />
 
       {/* §3 — Mood/intent selector. Immediately after the hero. */}
       <section style={fullBleedStyle(colors.bg)}>
@@ -1538,31 +1544,6 @@ export function Home() {
         </div>
       </section>
 
-      {/* §15 — How HelloCircle works (borrowed from client/src/landing/'s
-          numbered-steps section — the one motif the earlier audit flagged
-          as genuinely Swiss). Static copy, no data, guest-only per the
-          "stop selling once signed in" rule already applied above. */}
-      {!resident && (
-        <section style={fullBleedStyle(colors.bg)}>
-          <div className="section-pad" style={innerWrapStyle}>
-            <SectionHeader eyebrow={accentEyebrow("How it works")} title={'From "maybe" to "I\'m in."'} />
-            <div className="grid-responsive" style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 1, background: colors.border }}>
-              {[
-                { n: "01", title: "Say what you want to do", text: "Football tonight? Hiking Saturday? Coffee nearby?" },
-                { n: "02", title: "Join or start something", text: "Find an existing plan, or create one in seconds." },
-                { n: "03", title: "Show up", text: "Meet, play, explore, learn — then do it again." },
-              ].map((step) => (
-                <div key={step.n} style={{ background: colors.surface, padding: "26px 24px" }}>
-                  <span style={{ fontFamily: fonts.display, fontSize: 13, fontWeight: 800, color: ACCENT }}>{step.n}</span>
-                  <h3 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 18, margin: "8px 0 6px" }}>{step.title}</h3>
-                  <p style={{ margin: 0, color: colors.muted, fontSize: 14, lineHeight: 1.5 }}>{step.text}</p>
-                </div>
-              ))}
-            </div>
-          </div>
-        </section>
-      )}
-
       {/* §16 + §17 — Partner CTA + Final CTA, consolidated into one closing
           dark band — the page's second (and last) strong contrast beat,
           echoing the demand-capture band above to bookend the page. */}
@@ -1573,9 +1554,9 @@ export function Home() {
               <div style={{ fontSize: 11.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".09em", color: ACCENT, marginBottom: 10 }}>
                 <span aria-hidden="true">/</span> Ready when you are
               </div>
-              <h2 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(28px, 4vw, 44px)", lineHeight: 1.02, color: "#fff", margin: "0 0 8px", letterSpacing: "-.02em" }}>
+              <RevealText as="h2" style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(28px, 4vw, 44px)", lineHeight: 1.02, color: "#fff", margin: "0 0 8px", letterSpacing: "-.02em" }}>
                 Fancy doing something?
-              </h2>
+              </RevealText>
               <p style={{ margin: 0, color: "rgba(255,255,255,.72)", fontSize: 16 }}>See what people near you are up for.</p>
             </div>
             <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>

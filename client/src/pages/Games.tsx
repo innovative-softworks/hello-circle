@@ -97,7 +97,7 @@ export function GameCard({ game, onJoin, onLeave, joining }: { game: Game; onJoi
       className="card-hover card-surface"
       style={{ position: "relative", background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 18, overflow: "hidden" }}
     >
-      <CardLink to={href} label={game.activityLabel} />
+      <CardLink to={href} label={game.activityLabel} sharedImage />
       <Photo
         src={game.imageUrl ?? undefined}
         alt={game.activityLabel}
@@ -379,7 +379,7 @@ function JoinGameCard({
 
   return (
     <Card hover style={{ position: "relative", padding: 0, overflow: "hidden" }}>
-      <CardLink to={href} label={game.activityLabel} />
+      <CardLink to={href} label={game.activityLabel} sharedImage />
       <Photo
         src={game.imageUrl ?? undefined}
         alt={game.activityLabel}

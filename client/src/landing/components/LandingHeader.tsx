@@ -8,7 +8,6 @@ const NAV_LINKS = [
   { label: "Activities", href: "/games" },
   { label: "Circles", href: "/circles" },
   { label: "Places", href: "/browse/centres" },
-  { label: "How it Works", href: "#how-it-works" },
 ];
 
 export function LandingHeader() {

@@ -41,6 +41,7 @@ export function HeroScrollSplit({ images }: { images: HeroScrollImage[] }) {
   return (
     <div
       ref={scrollRef}
+      data-no-reveal
       className="hide-scrollbar"
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}

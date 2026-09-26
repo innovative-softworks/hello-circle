@@ -37,7 +37,7 @@ export function ComingSoonBanner() {
   }
 
   return (
-    <div style={{ background: FV_ACCENT, color: "#fff" }}>
+    <div data-no-reveal style={{ background: FV_ACCENT, color: "#fff" }}>
       <div
         className="section-pad stack-mobile"
         style={{

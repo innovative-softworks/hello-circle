@@ -1,6 +1,7 @@
 import { ArrowRightIcon } from "../icons";
 import { colors, fonts } from "../../theme";
 import { FV_ACCENT, FV_MAX_WIDTH } from "./constants";
+import { RevealText } from "../RevealText";
 
 const STEPS: { n: string; title: string; detail: string }[] = [
   { n: "1", title: "You've got an idea", detail: "A kickabout, a class, a standing group — no venue or business required." },
@@ -23,9 +24,9 @@ export function HostExampleBand() {
             <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: ".09em", textTransform: "uppercase", color: "rgba(255,255,255,.5)", marginBottom: 14 }}>
               <span style={{ color: FV_ACCENT }}>/</span> No listing required
             </div>
-            <h2 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(26px, 4.6vw, 56px)", lineHeight: 1, letterSpacing: "-.03em", color: "#fff", margin: 0 }}>
+            <RevealText as="h2" style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(26px, 4.6vw, 56px)", lineHeight: 1, letterSpacing: "-.03em", color: "#fff", margin: 0 }}>
               Show up as yourself.
-            </h2>
+            </RevealText>
           </div>
           <p style={{ fontSize: 16, color: "rgba(255,255,255,.65)", lineHeight: 1.6, margin: 0 }}>
             You&rsquo;re not building a business — you&rsquo;re just the person who made the plan. Here&rsquo;s

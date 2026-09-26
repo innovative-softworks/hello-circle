@@ -1,4 +1,7 @@
 import { useNavigate } from "react-router-dom";
+import { useScrollReveal } from "../useScrollReveal";
+import { ScrollRail } from "./components/ScrollRail";
+import { Marquee } from "../components/Marquee";
 import {
   BuildingIcon,
   CalendarIcon,
@@ -36,23 +39,25 @@ import { ArrowUpRightIcon, SparkleIcon } from "./icons";
 import { lc, lcFonts, lcMaxWidth, lcRadius } from "./theme";
 import { placeholderImage } from "../placeholderImage";
 import "./landing.css";
+import { RevealText } from "../components/RevealText";
 
 const img = (seed: string, w = 900, h = 700) => placeholderImage(seed, w, h);
 
 export function LandingPage() {
   const navigate = useNavigate();
+  const revealRef = useScrollReveal<HTMLDivElement>(0);
 
   return (
-    <div className="lc-page" style={{ background: lc.paper, color: lc.ink }}>
+    <div className="lc-page" ref={revealRef} style={{ background: lc.paper, color: lc.ink }}>
       <LandingHeader />
 
       {/* 3. Hero -------------------------------------------------------- */}
       <section className="lc-section" style={{ maxWidth: lcMaxWidth, margin: "0 auto", padding: "28px 24px 80px" }}>
         <div className="lc-stack-mobile" style={{ display: "grid", gridTemplateColumns: "1.05fr 0.95fr", gap: 56, alignItems: "center" }}>
-          <div className="lc-fade-up">
-            <h1 style={{ fontFamily: lcFonts.display, fontSize: "clamp(38px, 5.4vw, 68px)", lineHeight: 1.06, fontWeight: 800, color: lc.ink }}>
+          <div>
+            <RevealText as="h1" style={{ fontFamily: lcFonts.display, fontSize: "clamp(38px, 5.4vw, 68px)", lineHeight: 1.06, fontWeight: 800, color: lc.ink }}>
               Your city is full of things to do.
-            </h1>
+            </RevealText>
             <p style={{ fontSize: 18, lineHeight: 1.6, color: lc.inkSoft, marginTop: 20, maxWidth: 480 }}>
               Discover activities, meet people, join local circles, and find places to make plans happen.
             </p>
@@ -96,6 +101,8 @@ export function LandingPage() {
         </div>
       </section>
 
+      <Marquee label="Things to do on HelloCircle" accent={lc.forest} items={CATEGORIES.map((c) => ({ label: c.label }))} />
+
       {/* 4. Discovery Preview -------------------------------------------- */}
       <section className="lc-section" style={{ maxWidth: lcMaxWidth, margin: "0 auto", padding: "40px 24px" }}>
         <SectionHeader eyebrow="Happening today" title="Something is always happening nearby." subtitle="Real activities, starting today, within a few kilometres of you." />
@@ -107,15 +114,14 @@ export function LandingPage() {
       </section>
 
       {/* 5. This Weekend --------------------------------------------------- */}
-      <section className="lc-section" style={{ background: lc.paperRaised, padding: "64px 24px" }}>
-        <div style={{ maxWidth: lcMaxWidth, margin: "0 auto" }}>
-          <SectionHeader eyebrow="This weekend" title="Make something of your weekend." subtitle="A wider, more editorial mix — from sunrise hikes to Sunday football." />
-          <Carousel>
-            {WEEKEND_ACTIVITIES.map((a) => (
-              <ActivityCard key={a.id} activity={a} width={240} />
-            ))}
-          </Carousel>
-        </div>
+      <section className="lc-section" style={{ background: lc.paperRaised, padding: "64px 0" }}>
+        <ScrollRail
+          header={<SectionHeader eyebrow="This weekend" title="Make something of your weekend." subtitle="A wider, more editorial mix — from sunrise hikes to Sunday football." />}
+        >
+          {WEEKEND_ACTIVITIES.map((a) => (
+            <ActivityCard key={a.id} activity={a} width={240} />
+          ))}
+        </ScrollRail>
       </section>
 
       {/* 6. Intent-Based Discovery ------------------------------------------ */}
@@ -214,30 +220,6 @@ export function LandingPage() {
         </div>
       </section>
 
-      {/* 11. How It Works --------------------------------------------------------- */}
-      <section id="how-it-works" className="lc-section" style={{ maxWidth: lcMaxWidth, margin: "0 auto", padding: "88px 24px" }}>
-        <SectionHeader eyebrow="How it works" title={'From "maybe" to "I\'m in."'} align="center" />
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 22 }} className="lc-steps-grid">
-          {[
-            { n: "01", title: "Discover", text: "Tell HelloCircle what you feel like doing.", seed: "hc-step-discover" },
-            { n: "02", title: "Join or Book", text: "Join people, reserve a place, or start your own plan.", seed: "hc-step-join" },
-            { n: "03", title: "Show up", text: "Meet, play, learn, explore — and do it again.", seed: "hc-step-showup" },
-          ].map((step) => (
-            <div key={step.n} style={{ borderRadius: 20, overflow: "hidden", border: `1px solid ${lc.line}`, background: lc.white }}>
-              <div className="lc-card-image" style={{ height: 170 }}>
-                <img src={img(step.seed, 700, 400)} alt="" loading="lazy" />
-              </div>
-              <div style={{ padding: "20px 22px 24px" }}>
-                <span style={{ fontFamily: lcFonts.display, fontSize: 13, fontWeight: 800, color: lc.forest }}>{step.n}</span>
-                <h4 style={{ fontFamily: lcFonts.display, fontSize: 19, fontWeight: 700, marginTop: 6 }}>{step.title}</h4>
-                <p style={{ fontSize: 14, color: lc.inkSoft, marginTop: 8, lineHeight: 1.5 }}>{step.text}</p>
-              </div>
-            </div>
-          ))}
-        </div>
-        <style>{`@media (max-width: 860px) { .lc-steps-grid { grid-template-columns: 1fr !important; } }`}</style>
-      </section>
-
       {/* 12. Personalized Discovery ------------------------------------------------- */}
       <section className="lc-section" style={{ background: lc.ink, padding: "88px 24px" }}>
         <div className="lc-stack-mobile" style={{ maxWidth: lcMaxWidth, margin: "0 auto", display: "grid", gridTemplateColumns: "1fr 0.85fr", gap: 56, alignItems: "center" }}>
@@ -245,9 +227,9 @@ export function LandingPage() {
             <div style={{ fontFamily: lcFonts.body, fontSize: 12.5, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: lc.gold, marginBottom: 12 }}>
               Personalized discovery
             </div>
-            <h2 style={{ fontFamily: lcFonts.display, fontSize: "clamp(28px, 4vw, 42px)", color: lc.paper, lineHeight: 1.15 }}>
+            <RevealText as="h2" style={{ fontFamily: lcFonts.display, fontSize: "clamp(28px, 4vw, 42px)", color: lc.paper, lineHeight: 1.15 }}>
               HelloCircle gets more useful the more you use it.
-            </h2>
+            </RevealText>
             <p style={{ fontSize: 16.5, color: "rgba(250,248,242,0.68)", marginTop: 16, maxWidth: 440, lineHeight: 1.6 }}>
               Every activity you join, every Circle you follow — it all sharpens what shows up for you next. No
               settings to configure, nothing to train.
@@ -286,7 +268,7 @@ export function LandingPage() {
             <div style={{ fontFamily: lcFonts.body, fontSize: 12.5, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: lc.forest, marginBottom: 12 }}>
               For organizers
             </div>
-            <h2 style={{ fontFamily: lcFonts.display, fontSize: "clamp(26px, 3.6vw, 38px)", lineHeight: 1.18 }}>Bring people together.</h2>
+            <RevealText as="h2" style={{ fontFamily: lcFonts.display, fontSize: "clamp(26px, 3.6vw, 38px)", lineHeight: 1.18 }}>Bring people together.</RevealText>
             <p style={{ fontSize: 16, color: lc.inkSoft, marginTop: 14, lineHeight: 1.6 }}>
               Create activities, build a community and manage participants without complicated event software.
             </p>
@@ -311,7 +293,7 @@ export function LandingPage() {
             <div style={{ fontFamily: lcFonts.body, fontSize: 12.5, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: lc.forest, marginBottom: 12 }}>
               For places
             </div>
-            <h2 style={{ fontFamily: lcFonts.display, fontSize: "clamp(26px, 3.6vw, 38px)", lineHeight: 1.18 }}>Turn empty time into active communities.</h2>
+            <RevealText as="h2" style={{ fontFamily: lcFonts.display, fontSize: "clamp(26px, 3.6vw, 38px)", lineHeight: 1.18 }}>Turn empty time into active communities.</RevealText>
             <p style={{ fontSize: 16, color: lc.inkSoft, marginTop: 14, lineHeight: 1.6 }}>
               List your venue, manage availability and connect with people looking for places to play, learn and meet.
             </p>
