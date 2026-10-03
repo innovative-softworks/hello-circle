@@ -5,6 +5,10 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { db } from "../db/index.js";
 import { residentsRouter } from "./residents.js";
 
+// HC-QA-092 — live-provider tests (real Cloudinary/R2 configuration) only run
+// with HC_LIVE_PROVIDER_TESTS=1; the isolated release gate skips them.
+const liveProviders = process.env.HC_LIVE_PROVIDER_TESTS === "1";
+
 // Phase 1 "Connect": My Life V2's "Needs You" aggregation
 // (GET /me/needs-attention). Auth stubbed the same way other route tests
 // stub req.resident — this endpoint additionally reads req.guestEmail,
@@ -161,7 +165,7 @@ describe("PUT /me/avatar-url", () => {
     expect(res.status).toBe(400);
   });
 
-  it("accepts and attaches a URL under this resident's own avatar key prefix", async () => {
+  it.skipIf(!liveProviders)("accepts and attaches a URL under this resident's own avatar key prefix", async () => {
     const url = `https://media.hellocircle.ie/residents/${testResidentId}/avatar/test.jpg`;
     const res = await fetch(`${baseUrl}/me/avatar-url`, {
       method: "PUT",

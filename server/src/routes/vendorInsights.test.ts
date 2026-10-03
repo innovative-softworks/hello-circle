@@ -199,6 +199,16 @@ describe("GET /insights — real aggregate math, not just HTTP 200", () => {
   const centreId = `test-centre-insights-${crypto.randomUUID()}`;
   const clubId = `test-club-insights-${crypto.randomUUID()}`;
 
+  // HC-QA-092 — created_at fixtures are relative to the CURRENT month (the
+  // trend compares calendar months against NOW()); hard-coded Sept/Aug 2026
+  // timestamps made this test fail as soon as the calendar moved on.
+  const monthTs = (monthsAgo: number, day: number) => {
+    const now = new Date();
+    const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - monthsAgo, day, 0, 0, 30));
+    return d.toISOString().slice(0, 19).replace("T", " ");
+  };
+  const THIS_MONTH = monthTs(0, 1);
+
   beforeAll(async () => {
     await db.prepare(`INSERT INTO users (id, email, password_hash, role, status, name) VALUES (?, ?, 'x', 'vendor', 'approved', 'Test Insights Vendor')`).run(vendorId, `${vendorId}@example.test`);
     await db
@@ -213,12 +223,12 @@ describe("GET /insights — real aggregate math, not just HTTP 200", () => {
     // more than the 10% narrative threshold. clientA is reused on a Monday
     // + an August (last-month) row to control uniqueBookers precisely.
     const bookingRows: { ref: string; date: string; time: string; client: string; createdAt: string; status: string; paymentStatus: string }[] = [
-      { ref: "b1", date: "2026-09-21", time: "10:00", client: "clientA", createdAt: "2026-09-15 10:00:00", status: "confirmed", paymentStatus: "paid" },
-      { ref: "b2", date: "2026-09-21", time: "10:30", client: "clientB", createdAt: "2026-09-15 10:00:00", status: "confirmed", paymentStatus: "paid" },
-      { ref: "b3", date: "2026-09-21", time: "11:00", client: "clientA", createdAt: "2026-08-15 10:00:00", status: "confirmed", paymentStatus: "paid" },
-      { ref: "b4", date: "2026-09-22", time: "14:00", client: "clientC", createdAt: "2026-09-15 10:00:00", status: "confirmed", paymentStatus: "paid" },
-      { ref: "b5", date: "2026-09-23", time: "16:00", client: "clientD", createdAt: "2026-09-15 10:00:00", status: "confirmed", paymentStatus: "paid" },
-      { ref: "b6", date: "2026-09-24", time: "09:00", client: "clientE", createdAt: "2026-09-15 10:00:00", status: "cancelled", paymentStatus: "refunded" },
+      { ref: "b1", date: "2026-09-21", time: "10:00", client: "clientA", createdAt: THIS_MONTH, status: "confirmed", paymentStatus: "paid" },
+      { ref: "b2", date: "2026-09-21", time: "10:30", client: "clientB", createdAt: THIS_MONTH, status: "confirmed", paymentStatus: "paid" },
+      { ref: "b3", date: "2026-09-21", time: "11:00", client: "clientA", createdAt: monthTs(1, 15), status: "confirmed", paymentStatus: "paid" },
+      { ref: "b4", date: "2026-09-22", time: "14:00", client: "clientC", createdAt: THIS_MONTH, status: "confirmed", paymentStatus: "paid" },
+      { ref: "b5", date: "2026-09-23", time: "16:00", client: "clientD", createdAt: THIS_MONTH, status: "confirmed", paymentStatus: "paid" },
+      { ref: "b6", date: "2026-09-24", time: "09:00", client: "clientE", createdAt: THIS_MONTH, status: "cancelled", paymentStatus: "refunded" },
     ];
     for (const b of bookingRows) {
       await db
@@ -230,10 +240,10 @@ describe("GET /insights — real aggregate math, not just HTTP 200", () => {
     }
 
     const registrationRows: { ref: string; createdAt: string; status: string; paymentStatus: string }[] = [
-      { ref: "r1", createdAt: "2026-09-15 10:00:00", status: "confirmed", paymentStatus: "paid" },
-      { ref: "r2", createdAt: "2026-09-15 10:00:00", status: "confirmed", paymentStatus: "paid" },
-      { ref: "r3", createdAt: "2026-09-15 10:00:00", status: "cancelled", paymentStatus: "refunded" },
-      { ref: "r4", createdAt: "2026-08-10 10:00:00", status: "confirmed", paymentStatus: "paid" },
+      { ref: "r1", createdAt: THIS_MONTH, status: "confirmed", paymentStatus: "paid" },
+      { ref: "r2", createdAt: THIS_MONTH, status: "confirmed", paymentStatus: "paid" },
+      { ref: "r3", createdAt: THIS_MONTH, status: "cancelled", paymentStatus: "refunded" },
+      { ref: "r4", createdAt: monthTs(1, 10), status: "confirmed", paymentStatus: "paid" },
     ];
     for (const r of registrationRows) {
       await db

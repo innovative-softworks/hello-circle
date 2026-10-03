@@ -7,10 +7,11 @@
     "build": "tsc -p tsconfig.json",
     "start": "node dist/index.js",
     "reset-demo": "tsx src/scripts/resetDemo.ts",
+    "migrate": "tsx src/scripts/migrate.ts",
     "seed-big": "tsx src/scripts/seedBig.ts",
     "migrate-legacy-uploads": "tsx src/scripts/migrateLegacyUploads.ts",
     "media-cleanup": "tsx src/scripts/mediaCleanup.ts",
-    "test": "vitest run"
+    "test": "tsx src/scripts/testIsolated.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.699.0",

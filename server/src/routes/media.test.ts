@@ -8,6 +8,12 @@ import { r2Client } from "../media/r2Client.js";
 import { deleteObject } from "../media/mediaService.js";
 import { mediaRouter } from "./media.js";
 
+// HC-QA-092 — tests marked live-provider talk to REAL R2/Cloudinary. They only
+// run with HC_LIVE_PROVIDER_TESTS=1 (testProfile.ts then requires a bucket
+// name that is clearly staging/test/QA); the release gate skips them and still
+// runs every authorization-denial case in this file.
+const liveProviders = process.env.HC_LIVE_PROVIDER_TESTS === "1";
+
 /** SOI + a single SOF0 segment — same minimal, real-signature fixture as
  * media/imageSniff.test.ts's buildMinimalJpeg, not a fully decodable JPEG
  * (no scan data). sniffImage() only reads the signature/header, so this is
@@ -214,7 +220,7 @@ describe("POST /media/authorize — resident-avatar", () => {
     expect(res.status).toBe(403);
   });
 
-  it("authorizes a real R2 upload for one's own avatar", async () => {
+  it.skipIf(!liveProviders)("authorizes a real R2 upload for one's own avatar", async () => {
     const res = await fetch(`${baseUrl}/media/authorize`, {
       method: "POST",
       headers: { "Content-Type": "application/json", ...asResident(hostResidentId) },
@@ -238,7 +244,7 @@ describe("POST /media/authorize — activity-cover (Game)", () => {
     expect(res.status).toBe(403);
   });
 
-  it("authorizes a real R2 upload for the actual host", async () => {
+  it.skipIf(!liveProviders)("authorizes a real R2 upload for the actual host", async () => {
     const res = await fetch(`${baseUrl}/media/authorize`, {
       method: "POST",
       headers: { "Content-Type": "application/json", ...asResident(hostResidentId) },
@@ -259,7 +265,7 @@ describe("POST /media/authorize — circle-cover", () => {
     expect(res.status).toBe(403);
   });
 
-  it("authorizes a real R2 upload for the organiser", async () => {
+  it.skipIf(!liveProviders)("authorizes a real R2 upload for the organiser", async () => {
     const res = await fetch(`${baseUrl}/media/authorize`, {
       method: "POST",
       headers: { "Content-Type": "application/json", ...asResident(organiserResidentId) },
@@ -289,7 +295,7 @@ describe("POST /media/authorize — centre-gallery (org scoping)", () => {
     expect(res.status).toBe(401);
   });
 
-  it("authorizes a real R2 upload for the owning org's owner", async () => {
+  it.skipIf(!liveProviders)("authorizes a real R2 upload for the owning org's owner", async () => {
     const res = await fetch(`${baseUrl}/media/authorize`, {
       method: "POST",
       headers: { "Content-Type": "application/json", ...asVendor({ id: orgAOwnerId, orgId: orgAId }) },
@@ -299,7 +305,7 @@ describe("POST /media/authorize — centre-gallery (org scoping)", () => {
     await expectPendingLedgerRow((await res.json()).objectKey, "centre-gallery", centreId);
   });
 
-  it("authorizes a real R2 upload for another member of the SAME org (org-wide ownership, not just the creator)", async () => {
+  it.skipIf(!liveProviders)("authorizes a real R2 upload for another member of the SAME org (org-wide ownership, not just the creator)", async () => {
     const res = await fetch(`${baseUrl}/media/authorize`, {
       method: "POST",
       headers: { "Content-Type": "application/json", ...asVendor({ id: orgAStaffId, orgId: orgAId, invitedStaff: true }) },
@@ -319,7 +325,7 @@ describe("POST /media/authorize — club-session-cover", () => {
     expect(res.status).toBe(403);
   });
 
-  it("authorizes a real R2 upload for the owning club's org", async () => {
+  it.skipIf(!liveProviders)("authorizes a real R2 upload for the owning club's org", async () => {
     const res = await fetch(`${baseUrl}/media/authorize`, {
       method: "POST",
       headers: { "Content-Type": "application/json", ...asVendor({ id: orgAOwnerId, orgId: orgAId }) },
@@ -340,7 +346,7 @@ describe("POST /media/authorize — org-logo", () => {
     expect(res.status).toBe(403);
   });
 
-  it("authorizes a real R2 upload for the org owner", async () => {
+  it.skipIf(!liveProviders)("authorizes a real R2 upload for the org owner", async () => {
     const res = await fetch(`${baseUrl}/media/authorize`, {
       method: "POST",
       headers: { "Content-Type": "application/json", ...asVendor({ id: orgAOwnerId, orgId: orgAId }) },
@@ -351,7 +357,7 @@ describe("POST /media/authorize — org-logo", () => {
   });
 });
 
-describe("POST /media/authorize — content type validation (real R2, reachable now)", () => {
+describe.skipIf(!liveProviders)("POST /media/authorize — content type validation (real R2, reachable now)", () => {
   it("400s an unsupported content type", async () => {
     const res = await fetch(`${baseUrl}/media/authorize`, {
       method: "POST",
@@ -397,7 +403,7 @@ describe("POST /media/finalize and /media/release — same authorization matrix"
   // of Centre A could delete Centre B's object by passing B's url while
   // claiming entityId=A. Fixed by objectKeyFromUrlForEntity() re-checking
   // the url's key prefix against the claimed entity before deleting.
-  it("release 403s when the url belongs to a DIFFERENT entity than the one the caller owns", async () => {
+  it.skipIf(!liveProviders)("release 403s when the url belongs to a DIFFERENT entity than the one the caller owns", async () => {
     const res = await fetch(`${baseUrl}/media/release`, {
       method: "POST",
       headers: { "Content-Type": "application/json", ...asVendor({ id: orgAOwnerId, orgId: orgAId }) },
@@ -427,7 +433,7 @@ describe("POST /media/finalize and /media/release — same authorization matrix"
   // Media Cost Controls pass — release used to trust the caller's own
   // claim that the entity's DB row had already been updated to stop
   // referencing this url. Proves the server now re-checks that itself.
-  it("release 409s when the url is still the entity's CURRENT live cover image", async () => {
+  it.skipIf(!liveProviders)("release 409s when the url is still the entity's CURRENT live cover image", async () => {
     const currentUrl = `https://media.hellocircle.ie/centres/${centreId}/gallery/still-current.jpg`;
     await db.prepare(`UPDATE centres SET image_url = ? WHERE id = ?`).run(currentUrl, centreId);
     const res = await fetch(`${baseUrl}/media/release`, {
@@ -439,7 +445,7 @@ describe("POST /media/finalize and /media/release — same authorization matrix"
     await db.prepare(`UPDATE centres SET image_url = '' WHERE id = ?`).run(centreId);
   });
 
-  it("release 409s when the url is still present in the entity's gallery rows", async () => {
+  it.skipIf(!liveProviders)("release 409s when the url is still present in the entity's gallery rows", async () => {
     const currentUrl = `https://media.hellocircle.ie/centres/${centreId}/gallery/still-in-gallery.jpg`;
     await db.prepare(`INSERT INTO centre_images (centre_id, url, sort_order) VALUES (?, ?, 0)`).run(centreId, currentUrl);
     const res = await fetch(`${baseUrl}/media/release`, {
@@ -452,7 +458,7 @@ describe("POST /media/finalize and /media/release — same authorization matrix"
   });
 });
 
-describe("POST /media/finalize — real upload validation against live R2", () => {
+describe.skipIf(!liveProviders)("POST /media/finalize — real upload validation against live R2", () => {
   it("authorize -> real PUT -> finalize promotes a validated staging object to its final, entity-namespaced key", async () => {
     const authRes = await fetch(`${baseUrl}/media/authorize`, {
       method: "POST",
@@ -569,7 +575,7 @@ describe("GET /media/circles/:id/cover — restricted-media privacy gate", () =>
     expect(res.status).toBe(403);
   });
 
-  it("redirects an actual member to a short-lived signed R2 GET URL (not the flat public bucket path)", async () => {
+  it.skipIf(!liveProviders)("redirects an actual member to a short-lived signed R2 GET URL (not the flat public bucket path)", async () => {
     const res = await fetch(`${baseUrl}/media/circles/${restrictedCircleId}/cover`, { headers: asResident(memberResidentId), redirect: "manual" });
     expect(res.status).toBe(302);
     const location = res.headers.get("location") ?? "";
@@ -577,19 +583,19 @@ describe("GET /media/circles/:id/cover — restricted-media privacy gate", () =>
     expect(location).toContain("X-Amz-Signature=");
   });
 
-  it("redirects the organiser too (not just an ordinary member)", async () => {
+  it.skipIf(!liveProviders)("redirects the organiser too (not just an ordinary member)", async () => {
     const res = await fetch(`${baseUrl}/media/circles/${restrictedCircleId}/cover`, { headers: asResident(organiserResidentId), redirect: "manual" });
     expect(res.status).toBe(302);
     expect(res.headers.get("location")).toContain("X-Amz-Signature=");
   });
 
-  it("ignores ?variant= for a legacy-shaped cover (no siblings to swap to) and signs the same one file", async () => {
+  it.skipIf(!liveProviders)("ignores ?variant= for a legacy-shaped cover (no siblings to swap to) and signs the same one file", async () => {
     const res = await fetch(`${baseUrl}/media/circles/${restrictedCircleId}/cover?variant=thumbnail`, { headers: asResident(memberResidentId), redirect: "manual" });
     expect(res.status).toBe(302);
     expect(res.headers.get("location")).toMatch(/circles\/test-fixture\/cover\/x\.jpg\?/);
   });
 
-  it("signs the SIBLING variant's own key (never rewrites the already-issued signed url) for a local-processing-style cover", async () => {
+  it.skipIf(!liveProviders)("signs the SIBLING variant's own key (never rewrites the already-issued signed url) for a local-processing-style cover", async () => {
     const localProcCircleId = `test-local-proc-circle-${crypto.randomUUID()}`;
     await db
       .prepare(
@@ -611,7 +617,7 @@ describe("GET /media/circles/:id/cover — restricted-media privacy gate", () =>
   });
 });
 
-describe("POST /media/upload — local-processing route wiring", () => {
+describe.skipIf(!liveProviders)("POST /media/upload — local-processing route wiring", () => {
   it("processes a real upload end-to-end through the actual HTTP route (multer, permission check, pipeline, response shape)", async () => {
     const form = new FormData();
     const jpeg = await (await import("sharp")).default({ create: { width: 1200, height: 900, channels: 3, background: { r: 90, g: 140, b: 60 } } }).jpeg({ quality: 85 }).toBuffer();

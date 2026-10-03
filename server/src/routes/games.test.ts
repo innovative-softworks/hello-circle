@@ -96,8 +96,11 @@ describe("DELETE /:id/join — paid leave notifies the host", () => {
 
   beforeAll(async () => {
     const future = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    // HC-QA-027 — only a genuinely priced activity has anything to refund, so
+    // the "paid" fixture must carry a real price (payment_status alone
+    // defaults to 'paid' even for free joins).
     await db
-      .prepare(`INSERT INTO games (id, host_resident_id, activity_label, date, time, capacity, status) VALUES (?, ?, ?, ?, ?, 10, 'open')`)
+      .prepare(`INSERT INTO games (id, host_resident_id, activity_label, date, time, capacity, status, price_cents) VALUES (?, ?, ?, ?, ?, 10, 'open', 800)`)
       .run(paidLeaveGameId, testHostId, "Test Paid Leave Badminton", future, "18:00");
     await db
       .prepare(`INSERT INTO games (id, host_resident_id, activity_label, date, time, capacity, status) VALUES (?, ?, ?, ?, ?, 10, 'open')`)

@@ -126,7 +126,7 @@ describe("Owner-only mutations reject an invited staff member", () => {
     expect(row.taxNumber).toBe("IE1234567T");
   });
 
-  it("POST /staff/invite and DELETE /staff/invite/:token — staff rejected, owner succeeds", async () => {
+  it("POST /staff/invite and DELETE /staff/invite/:id — staff rejected, owner succeeds", async () => {
     apiUser = { id: staffId, role: "vendor", status: "approved", invitedStaff: true, orgId };
     const staffRes = await fetch(`${baseUrl}/staff/invite`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: "new-staff@example.test", platformRole: "finance" }) });
     expect(staffRes.status).toBe(403);
@@ -138,12 +138,24 @@ describe("Owner-only mutations reject an invited staff member", () => {
     const invite = (await db.prepare(`SELECT token FROM org_invites WHERE org_id = ? AND email = ?`).get(orgId, "new-staff@example.test")) as { token: string };
     expect(invite.token).toBeTruthy();
 
+    // Security contract (invitation hardening): invites are managed by an
+    // opaque id (SHA-256 of the token) listed to the owner — the bearer token
+    // that accepts the invite is never a management identifier.
+    const profile = (await (await fetch(`${baseUrl}/`)).json()) as { pendingInvites: { id: string; email: string }[] };
+    const listed = profile.pendingInvites.find((i) => i.email === "new-staff@example.test");
+    expect(listed?.id).toMatch(/^[a-f0-9]{64}$/);
+    expect(listed?.id).not.toBe(invite.token);
+
     apiUser = { id: staffId, role: "vendor", status: "approved", invitedStaff: true, orgId };
-    const revokeAsStaff = await fetch(`${baseUrl}/staff/invite/${invite.token}`, { method: "DELETE" });
+    const revokeAsStaff = await fetch(`${baseUrl}/staff/invite/${listed!.id}`, { method: "DELETE" });
     expect(revokeAsStaff.status).toBe(403);
 
     apiUser = { id: ownerId, role: "vendor", status: "approved", invitedStaff: false, orgId };
-    const revokeAsOwner = await fetch(`${baseUrl}/staff/invite/${invite.token}`, { method: "DELETE" });
+    await fetch(`${baseUrl}/staff/invite/${invite.token}`, { method: "DELETE" });
+    const stillPending = (await db.prepare(`SELECT status FROM org_invites WHERE token = ?`).get(invite.token)) as { status: string };
+    expect(stillPending.status, "the raw bearer token must not revoke").toBe("pending");
+
+    const revokeAsOwner = await fetch(`${baseUrl}/staff/invite/${listed!.id}`, { method: "DELETE" });
     expect(revokeAsOwner.status).toBe(200);
 
     const row = (await db.prepare(`SELECT status FROM org_invites WHERE token = ?`).get(invite.token)) as { status: string };

@@ -129,10 +129,15 @@ describe("E2 — version recorded on every path", () => {
     expect((await terms(ml)).version).toBe(TERMS_VERSION);
   });
 
-  it("password signup on a pre-existing consent-less account records the acceptance just given, but never overwrites an earlier one", async () => {
+  it("password signup against a pre-existing consent-less account is refused (no takeover, nothing recorded), and never overwrites an earlier acceptance", async () => {
+    // HC-QA-002 — signup must not take over an existing passwordless resident:
+    // the requester hasn't proven they own the inbox, so no password is set and
+    // no terms acceptance is recorded on that account. (Was: 201 + recorded.)
     const r = await legacyResident();
-    expect((await call("POST", "/guest/signup", { email: r.email, password: "password123", termsAccepted: true })).status).toBe(201);
-    expect((await terms(r.email)).version).toBe(TERMS_VERSION);
+    expect((await call("POST", "/guest/signup", { email: r.email, password: "password123", termsAccepted: true })).status).toBe(409);
+    expect((await terms(r.email)).version).toBeNull();
+    const row = (await db.prepare(`SELECT password_hash FROM residents WHERE id = ?`).get(r.id)) as { password_hash: string | null };
+    expect(row.password_hash).toBeNull();
 
     const kept = fresh("kept");
     await db.prepare(`INSERT INTO residents (id, email, terms_accepted_at, terms_version) VALUES (?, ?, '2024-01-01 00:00:00', 'old')`).run(crypto.randomUUID(), kept);

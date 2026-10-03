@@ -5,6 +5,10 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { getSetting, setSetting } from "../db/index.js";
 import { adminMediaRouter } from "./adminMedia.js";
 
+// HC-QA-092 — live-provider tests (real Cloudinary/R2 configuration) only run
+// with HC_LIVE_PROVIDER_TESTS=1; the isolated release gate skips them.
+const liveProviders = process.env.HC_LIVE_PROVIDER_TESTS === "1";
+
 // Media Cost Controls / Cloudinary pilot pass — exercises the admin-only
 // usage-visibility + editorial-collection + pause-toggle surface.
 // Cloudinary has real, verified credentials AND is genuinely enabled in
@@ -78,7 +82,7 @@ describe("GET /admin/media/usage", () => {
   // real state. cloudinaryUploadAllowed additionally depends on the
   // runtime app_settings toggle, which other tests in this file flip, so
   // it's asserted separately (see "pause toggles" below) rather than here.
-  it("reports Cloudinary as configured and env-enabled, and never reports provider-billing numbers as available", async () => {
+  it.skipIf(!liveProviders)("reports Cloudinary as configured and env-enabled, and never reports provider-billing numbers as available", async () => {
     const res = await fetch(`${baseUrl}/admin/media/usage`, { headers: asAdmin() });
     expect(res.status).toBe(200);
     const body = await res.json();
@@ -145,7 +149,7 @@ describe("pause toggles", () => {
   // !mediaConfig.cloudinaryUploadsEnabledByEnv)` in adminMedia.ts) is a
   // one-line condition covered by reading the code, not exercisable
   // against a live server that has the env var set.
-  it("round-trips the Cloudinary runtime switch now that CLOUDINARY_UPLOADS_ENABLED is set in this environment", async () => {
+  it.skipIf(!liveProviders)("round-trips the Cloudinary runtime switch now that CLOUDINARY_UPLOADS_ENABLED is set in this environment", async () => {
     const on = await fetch(`${baseUrl}/admin/media/config/cloudinary-enabled`, { method: "PUT", headers: { ...asAdmin(), "Content-Type": "application/json" }, body: JSON.stringify({ enabled: true }) });
     expect(on.status).toBe(200);
     expect((await on.json()).enabled).toBe(true);
