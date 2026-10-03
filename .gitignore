@@ -8,9 +8,16 @@ build/
 .env
 .env.*
 !apps/mobile/.env.example
+!.env.test.example
+playwright-report/
+test-results/
+playwright/.auth/
+.qa-data/
 *.keystore
 *.jks
 server/uploads/
+server/private-uploads/
 .agents/
 .claude/
 DEPLOYMENT.md
+*.tsbuildinfo

@@ -11,9 +11,29 @@
     "dev": "concurrently -n server,client -c blue,green \"npm run dev --workspace server\" \"npm run dev --workspace client\"",
     "build": "npm run build --workspace server && npm run build --workspace client",
     "start": "npm run start --workspace server",
-    "test": "npm run test --workspace server && npm run test --workspace client"
+    "test": "npm run test --workspace server && npm run test --workspace client",
+    "qa:serve": "vite --config tests/support/vite.config.ts",
+    "qa:check": "vitest run --config tests/vitest.config.ts && tsc --project tests/tsconfig.json",
+    "qa:preflight": "tsx tests/support/preflight.ts",
+    "qa:db:setup": "tsx tests/integration/database.ts setup",
+    "qa:db:seed": "tsx tests/integration/seed.ts",
+    "qa:db:reset": "tsx tests/integration/database.ts reset",
+    "qa:auth": "tsx tests/integration/run.ts",
+    "qa:authorization": "tsx tests/integration/run.ts authorization",
+    "qa:security-gate": "tsx tests/integration/run.ts security-gate",
+    "qa:lifecycle": "tsx tests/integration/run.ts lifecycle",
+    "qa:booking": "tsx tests/integration/run.ts booking",
+    "qa:preflight:connected": "tsx tests/integration/database.ts preflight",
+    "qa:smoke": "node tests/support/run-mock.mjs",
+    "qa:e2e": "playwright test",
+    "qa:report": "playwright show-report",
+    "qa:stripe": "tsx tests/integration/run.ts stripe",
+    "qa:product": "tsx tests/integration/run.ts product",
+    "qa:browsers": "tsx tests/integration/run.ts browsers"
   },
   "devDependencies": {
-    "concurrently": "^9.1.0"
+    "@playwright/test": "^1.63.0",
+    "concurrently": "^9.1.0",
+    "dotenv": "^17.4.2"
   }
 }
