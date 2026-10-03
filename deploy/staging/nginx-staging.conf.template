@@ -1,0 +1,63 @@
+# HelloCircle STAGING — nginx site TEMPLATE. Replace STAGING_HOST with the
+# confirmed staging hostname (not assumed to exist yet). Install as
+# /etc/nginx/sites-available/hellocircle-staging and symlink into
+# sites-enabled. TLS lines are filled in by `certbot --nginx -d STAGING_HOST`.
+#
+# Single upstream: the Node app on 127.0.0.1:3001 (never exposed publicly), so
+# exactly ONE trusted proxy hop → TRUST_PROXY_HOPS=1 in server.env.
+
+server {
+    listen 80;
+    listen [::]:80;
+    server_name STAGING_HOST;
+    location /.well-known/acme-challenge/ { root /var/www/certbot; }
+    location / { return 301 https://$host$request_uri; }
+}
+
+server {
+    listen 443 ssl http2;
+    listen [::]:443 ssl http2;
+    server_name STAGING_HOST;
+
+    # ssl_certificate / ssl_certificate_key — managed by certbot
+    add_header Strict-Transport-Security "max-age=63072000" always;
+
+    # Never indexed, never in search results (in addition to the app's own
+    # robots meta). Staging serves its own robots.txt that disallows all.
+    add_header X-Robots-Tag "noindex, nofollow, noarchive" always;
+    location = /robots.txt {
+        add_header X-Robots-Tag "noindex, nofollow, noarchive" always;
+        default_type text/plain;
+        return 200 "User-agent: *\nDisallow: /\n";
+    }
+    location = /sitemap.xml { return 404; }
+
+    # Keep staging off the public web: HTTP basic auth for every page...
+    auth_basic "HelloCircle staging";
+    auth_basic_user_file /etc/nginx/hellocircle-staging.htpasswd;
+
+    client_max_body_size 25m;
+    access_log /var/log/nginx/hellocircle-staging.access.log;
+    error_log  /var/log/nginx/hellocircle-staging.error.log;
+
+    # ...except the Stripe webhook, which Stripe must reach (it is protected by
+    # the Stripe signature check, enforced in NODE_ENV=production).
+    location = /api/stripe/webhook {
+        auth_basic off;
+        proxy_pass http://127.0.0.1:3001;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $remote_addr;   # overwrite, never append client-supplied XFF
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    location / {
+        proxy_pass http://127.0.0.1:3001;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        # Overwrite (not $proxy_add_x_forwarded_for): the app trusts exactly one
+        # hop, so the only X-Forwarded-For value it ever sees is nginx's view of
+        # the client address — a client-sent header cannot spoof rate limits.
+        proxy_set_header X-Forwarded-For $remote_addr;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}

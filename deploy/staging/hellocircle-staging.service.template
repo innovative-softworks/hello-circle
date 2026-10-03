@@ -1,0 +1,30 @@
+# HelloCircle STAGING — systemd unit TEMPLATE.
+# Install as /etc/systemd/system/hellocircle-staging.service, then:
+#   systemctl daemon-reload && systemctl enable --now hellocircle-staging
+[Unit]
+Description=HelloCircle (staging)
+After=network.target mysql.service
+Requires=mysql.service
+
+[Service]
+Type=simple
+User=hcstaging
+Group=hcstaging
+# `current` is a symlink to the active release (see QA_STAGING_PROVISIONING.md §Deployment)
+WorkingDirectory=/srv/hellocircle-staging/current
+EnvironmentFile=/srv/hellocircle-staging/shared/server.env
+ExecStart=/usr/bin/node server/dist/index.js
+Restart=on-failure
+RestartSec=5
+# stdout/stderr → journald (journalctl -u hellocircle-staging)
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=hellocircle-staging
+# Hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ReadWritePaths=/srv/hellocircle-staging/shared/data
+
+[Install]
+WantedBy=multi-user.target
