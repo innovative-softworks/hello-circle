@@ -57,7 +57,10 @@ test --workspace server` / `--workspace client`, or `npm test` from the root to 
 capacity/games/registrations/the Stripe webhook (`server/src/**/*.test.ts`), client covers a handful of pure
 utility functions (`client/src/**/*.test.ts`); neither is close to comprehensive (no route/component/
 integration coverage), so still verify payment-adjacent changes by hand against `hello_circle_dev` per the
-"Known gaps" section below.
+"Known gaps" section below. The server suite runs ONLY in an isolated profile (needs Docker): a disposable
+`hello_circle_test_<runid>` MySQL container, scrubbed env, never `server/.env` / `hello_circle_dev` /
+provider credentials — see `server/TESTING.md` (HC-QA-092). Payment, deploy and browser regressions live in the
+guarded `npm run qa:*` harness under `tests/integration/` (Stripe TEST mode only).
 
 **Requires a running MySQL/MariaDB server reachable from the machine running the API** — there's no bundled
 database on this branch. There is no `server/.env.example` on this branch (it was removed); every env var
