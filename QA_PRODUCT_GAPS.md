@@ -92,3 +92,18 @@ Reclassified for MVP and staging. Nothing was implemented.
 | Resident uploads without R2 | **Resolved for local mode** (HC-QA-062): local storage with validation; restricted covers private. R2 remains required for production-quality variants |
 | Draft activity sharing | **Decision recorded:** drafts are private and not shareable (Share hidden; the API 404 stands) |
 | Lazy-route chunk-load recovery (e.g. stale tab after deploy) | New, **POST-MVP** (observed via BRW-1) |
+
+## Phase 11B — MVP product gaps implemented (2026-10-03)
+
+Implemented locally (not deployed). Each was failing before and passing after, verified against the committed release branch.
+
+| Gap | Outcome |
+|---|---|
+| **Revoke a pending activity invitation** | **Implemented.** `GET /api/invitations/sent` lists safe ids only, never tokens; the host sees all of an activity's invitations, others only their own. `POST /api/invitations/:id/revoke` is allowed for the activity host or the original inviter. Unauthorised and nonexistent both return 404. It is a single conditional `pending → revoked` update that rotates the token (old links 404) and writes an audit row (`invitation.revoked`); repeats are no-ops. A revoked invite grants nothing: detail, participants, updates, join, waitlist, respond, the token landing page and the share preview all deny. It can't be revived by anyone except the host or the original inviter. UI: "Invitations sent" with **Revoke invitation** (confirmation) in the invite sheet, now also on the host's card |
+| **Revoke a pending Circle invitation** | **Implemented.** `GET /api/circles/:id/invitations` and `POST /api/circles/:id/invitations/:inviteId/revoke`, organiser of that Circle only (a wrong Circle returns 404). Accept and the join shortcut are now conditional, so a revoke/accept race always ends consistent. Existing members are never removed. UI: a "Pending invitations" card on Manage Circle → Members. There's no expiry concept for Circle invites, so "expired" isn't applicable |
+| **Experience booking self-cancel (My Life)** | **Implemented.** It reuses the existing cancel route; the rules were centralised in `server/src/selfCancel.ts`, so no second implementation exists. `/mine` returns server-decided `canCancel` and `refundState`, and now keeps refunded bookings visible. UI: **Cancel booking** with a confirmation, then "Cancellation confirmed" or "Cancellation confirmed — refund processing" (Policy A: the host issues the refund in HelloCircle; "Refunded" appears only once it is). Covers already-cancelled, network-error and provider-error states |
+| **Programme enrolment self-cancel (My Life)** | **Implemented.** Same pattern, with **Cancel enrolment** |
+
+**Residual (not in scope):**
+- A revoked invitee keeps the original in-app "X invited you" notification in their inbox. Opening it leads to the invite-only teaser or a 404, with no details.
+- The cancel controls sit under My Life's "View full activity" section, alongside the existing hall-booking Cancel, rather than on the hub cards.

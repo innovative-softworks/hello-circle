@@ -45,3 +45,24 @@ export function fetchInviteByToken(token: string): Promise<InviteTokenLookup> {
 export function respondToInviteToken(token: string, response: "accepted" | "maybe" | "declined"): Promise<{ ok: boolean }> {
   return request(`/invitations/token/${encodeURIComponent(token)}/respond`, { method: "POST", body: JSON.stringify({ response }) });
 }
+
+// Phase 11B — invitations this resident may manage (the activity host sees
+// all of an activity's invitations; others only the ones they sent).
+// Identified by id — the bearer token is never exposed.
+export interface SentInvitation {
+  id: string;
+  invitee: string;
+  status: "pending" | "accepted" | "maybe" | "declined" | "expired" | "revoked" | string;
+  createdAt: string;
+  expiresAt: string;
+  sentByMe: boolean;
+  canRevoke: boolean;
+}
+
+export function fetchSentInvitations(entityType: InvitableEntityType, entityId: string): Promise<SentInvitation[]> {
+  return request(`/invitations/sent?entityType=${encodeURIComponent(entityType)}&entityId=${encodeURIComponent(entityId)}`);
+}
+
+export function revokeInvitation(id: string): Promise<{ ok: boolean; status: "revoked"; alreadyRevoked?: boolean }> {
+  return request(`/invitations/${encodeURIComponent(id)}/revoke`, { method: "POST" });
+}

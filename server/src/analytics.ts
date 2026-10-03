@@ -31,6 +31,8 @@ export type AnalyticsEventType =
   | "invite_created"
   | "invite_opened"
   | "invite_accepted"
+  | "invite_revoked"
+  | "circle_invite_revoked"
   | "invite_maybe"
   | "invite_declined"
   // Community participation upgrade, Release 1 — the discovery → intent →

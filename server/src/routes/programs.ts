@@ -4,6 +4,7 @@ import { logEvent, logView } from "../analytics.js";
 import { db } from "../db/index.js";
 import { consumeCoupon, endPendingHold, occupiesCapacitySql } from "../bookingIntegrity.js";
 import { getListingAttributes, officialCircleSummary } from "../listingAttributes.js";
+import { programmeCancelBlock, refundStateOf } from "../selfCancel.js";
 import { irelandTodayIso } from "../irelandTime.js";
 import { notifyCancellation, notifyNewBookingOrRegistration } from "../notifications.js";
 import { computePricing, evaluateCoupon } from "../pricing.js";
@@ -342,6 +343,7 @@ programsRouter.get("/enrollments/mine", async (req, res) => {
     .prepare(
       `SELECT pe.ref, pe.program_id as programId, pe.participant_name as participantName, pe.total_cents as totalCents,
               pe.status, pe.payment_status as paymentStatus, pe.created_at as createdAt,
+              pe.stripe_session_id IS NOT NULL as paidOnline,
               p.title, p.image_url as imageUrl, p.listing_type as listingType, p.vendor_id as vendorId,
               COALESCE(c.name, cl.name) as listingName,
               (SELECT ps.date FROM program_sessions ps WHERE ps.program_id = pe.program_id AND ps.status != 'cancelled' AND ps.date >= ? ORDER BY ps.date, ps.time LIMIT 1) as nextSessionDate,
@@ -353,13 +355,24 @@ programsRouter.get("/enrollments/mine", async (req, res) => {
        JOIN programs p ON p.id = pe.program_id
        LEFT JOIN centres c ON p.listing_type = 'centre' AND c.id = p.listing_id
        LEFT JOIN clubs cl ON p.listing_type = 'club' AND cl.id = p.listing_id
-       WHERE (pe.client_id = ? OR (pe.resident_id IS NOT NULL AND pe.resident_id = ?)) AND pe.payment_status = 'paid'
+       WHERE (pe.client_id = ? OR (pe.resident_id IS NOT NULL AND pe.resident_id = ?)) AND pe.payment_status IN ('paid', 'refunded')
        ORDER BY pe.created_at DESC`
     )
     .all(today, today, today, clientId, req.resident?.id ?? "")) as Record<string, unknown>[];
   // Attendance (Release 1) — per-enrollment counts from the vendor's own
   // session register (vendorPrograms.ts); both 0 when nobody took a register.
-  res.json(rows.map((r) => ({ ...r, sessionsAttended: Number(r.sessionsAttended ?? 0), sessionsMissed: Number(r.sessionsMissed ?? 0) })));
+  // Phase 11B — canCancel/refundState from the same rules the cancel route enforces.
+  res.json(rows.map(({ paidOnline, ...r }) => {
+    const row = r as { status: string; paymentStatus: string; totalCents: number };
+    return {
+      ...r,
+      sessionsAttended: Number(r.sessionsAttended ?? 0),
+      sessionsMissed: Number(r.sessionsMissed ?? 0),
+      paidOnline: !!paidOnline,
+      canCancel: programmeCancelBlock(row) === null,
+      refundState: refundStateOf({ ...row, paidOnline: !!paidOnline }),
+    };
+  }));
 });
 
 /** Resident/guest self-cancel — Phase 0 protect. Programs previously had no
@@ -388,6 +401,7 @@ programsRouter.post("/enrollments/:ref/cancel", async (req, res) => {
   const row = (await db
     .prepare(
       `SELECT pe.ref, pe.status, pe.payment_status as paymentStatus, pe.participant_name as participantName, pe.email, pe.resident_id as residentId,
+              pe.total_cents as totalCents, pe.stripe_session_id IS NOT NULL as paidOnline,
               p.title, p.listing_type as listingType, p.listing_id as listingId, p.vendor_id as vendorId
        FROM program_enrollments pe JOIN programs p ON p.id = pe.program_id
        WHERE pe.ref = ? AND (pe.client_id = ? OR (pe.resident_id IS NOT NULL AND pe.resident_id = ?))`
@@ -400,6 +414,8 @@ programsRouter.post("/enrollments/:ref/cancel", async (req, res) => {
         participantName: string;
         email: string;
         residentId: string | null;
+        totalCents: number;
+        paidOnline: number;
         title: string;
         listingType: "centre" | "club";
         listingId: string;
@@ -407,8 +423,8 @@ programsRouter.post("/enrollments/:ref/cancel", async (req, res) => {
       }
     | undefined;
   if (!row) return res.status(404).json({ error: "Enrollment not found" });
-  if (row.status === "cancelled") return res.status(409).json({ error: "This enrollment is already cancelled" });
-  if (row.paymentStatus !== "paid") return res.status(409).json({ error: "This enrollment can't be cancelled" });
+  const block = programmeCancelBlock(row);
+  if (block) return res.status(block.status).json({ error: block.error });
 
   // HC-QA-046 — atomic transition: only the request that actually flips the row
   // runs the side effects (capacity release, audit, notifications, promotion).
@@ -428,7 +444,7 @@ programsRouter.post("/enrollments/:ref/cancel", async (req, res) => {
     residentId: row.residentId,
   }).catch((e) => console.error("[notifications] program enrollment cancellation notify failed:", e));
 
-  res.json({ ok: true });
+  res.json({ ok: true, status: "cancelled", refundState: refundStateOf({ ...row, status: "cancelled" }) });
 });
 
 programsRouter.get("/enrollments/status/:ref", async (req, res) => {

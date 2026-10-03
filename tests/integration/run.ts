@@ -82,6 +82,8 @@ async function main() {
       ["product-a11y-a", "product-a11y-a\\.spec\\.ts$"],
       ["product-a11y-b", "product-a11y-b\\.spec\\.ts$"],
       ["product-deploy", "product-deploy\\.spec\\.ts$"],
+      ["product-gaps-ui", "product-gaps-ui\\.spec\\.ts$"],
+      ["product-gaps-ui-invites", "product-gaps-ui-invites\\.spec\\.ts$"],
     ] : product ? [
       // Phase 10A product-quality gate HC-QA-052..069 (failing-before
       // regressions + adjacent invariants), one file per fresh backend so
@@ -96,6 +98,10 @@ async function main() {
       ["product-a11y-a", "product-a11y-a\\.spec\\.ts$"],
       ["product-a11y-b", "product-a11y-b\\.spec\\.ts$"],
       ["product-deploy", "product-deploy\\.spec\\.ts$"],
+      ["product-gaps-api", "product-gaps-api\\.spec\\.ts$"],
+      ["product-gaps-circle", "product-gaps-circle\\.spec\\.ts$"],
+      ["product-gaps-ui", "product-gaps-ui\\.spec\\.ts$"],
+      ["product-gaps-ui-invites", "product-gaps-ui-invites\\.spec\\.ts$"],
     ] : stripeMode ? [
       ["stripe-preflight", "stripe-preflight\\.spec\\.ts$"],
       ["stripe-webhook", "stripe-webhook\\.spec\\.ts$"],
@@ -103,6 +109,7 @@ async function main() {
       ["stripe-payment", "stripe-payment\\.spec\\.ts$"],
       ["stripe-refund", "stripe-refund\\.spec\\.ts$"],
       ["stripe-refund-external", "stripe-refund-external\\.spec\\.ts$"],
+      ["stripe-selfcancel", "stripe-selfcancel\\.spec\\.ts$"],
       ["stripe-browser", "stripe-browser\\.spec\\.ts$"],
       ["stripe-findings", "stripe-findings\\.spec\\.ts$"],
     ] : booking ? [

@@ -145,6 +145,18 @@ export function lookupBooking(ref: string, email: string): Promise<MyBooking> {
 /** `email` is only needed when cancelling a booking recovered via
  * lookupBooking (no matching X-Client-Id on this device) — omit it for a
  * normal same-device cancel. */
+/** Phase 11B — resident/guest self-cancel (same server rules as the vendor
+ * view; refundState reflects real server state, never assumed). */
+export interface SelfCancelResult { ok: boolean; status: "cancelled"; refundState: "none" | "pending" | "refunded" }
+
+export function cancelExperienceBooking(ref: string): Promise<SelfCancelResult> {
+  return request(`/experiences/bookings/${encodeURIComponent(ref)}/cancel`, { method: "POST" });
+}
+
+export function cancelProgramEnrollment(ref: string): Promise<SelfCancelResult> {
+  return request(`/programs/enrollments/${encodeURIComponent(ref)}/cancel`, { method: "POST" });
+}
+
 export function cancelBooking(ref: string, email?: string): Promise<{ ok: boolean }> {
   return request(`/bookings/${encodeURIComponent(ref)}/cancel`, {
     method: "POST",

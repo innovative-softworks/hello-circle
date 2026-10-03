@@ -1,8 +1,11 @@
 import { useEffect, useRef, useState } from "react";
+import { SelfCancelControl, refundBadgeText } from "../components/SelfCancelControl";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { safeReturnTo } from "../authRedirect";
 import {
   cancelBooking,
+  cancelExperienceBooking,
+  cancelProgramEnrollment,
   cancelRegistration,
   downloadBookingIcs,
   fetchFavourites,
@@ -316,9 +319,10 @@ function GameRow({ game }: { game: Game }) {
   );
 }
 
-function ExperienceBookingRow({ booking }: { booking: MyExperienceBooking }) {
+function ExperienceBookingRow({ booking, onChanged }: { booking: MyExperienceBooking; onChanged: () => void }) {
   const navigate = useNavigate();
   const cancelled = booking.status === "cancelled";
+  const refundBadge = refundBadgeText(booking.refundState);
   // Resident Experience Polish — PostActivityFeedback previously only
   // existed for Centre bookings/Club registrations; an Experience booking
   // has a real single session date, same as a Centre booking, so the same
@@ -340,6 +344,7 @@ function ExperienceBookingRow({ booking }: { booking: MyExperienceBooking }) {
           <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
             <span style={{ fontWeight: 700, fontSize: 16 }}>{booking.title}</span>
             {cancelled && <span style={cancelledBadgeStyle}>Cancelled</span>}
+            {refundBadge && <span style={cancelledBadgeStyle}>{refundBadge}</span>}
             {!cancelled && booking.attendance === "present" && <span style={checkedInBadgeStyle}>Attended</span>}
           </div>
           <div style={{ color: colors.mutedLight, fontSize: 14 }}>
@@ -352,6 +357,17 @@ function ExperienceBookingRow({ booking }: { booking: MyExperienceBooking }) {
         </div>
         <ChevronRightIcon size={16} style={{ flex: "none", color: colors.faint }} />
       </Link>
+      {!isPast && (
+        <SelfCancelControl
+          noun="booking"
+          title={booking.title}
+          detail={`${dateLabel(booking.date)} at ${booking.time}`}
+          canCancel={!!booking.canCancel}
+          paidOnline={!!booking.paidOnline && booking.totalCents > 0}
+          cancel={() => cancelExperienceBooking(booking.ref)}
+          onCancelled={onChanged}
+        />
+      )}
       {shouldPromptFeedback(attendanceStateOf({ cancelled, attendance: booking.attendance }), isPast) && (
         <div style={{ marginTop: 12, paddingTop: 12, borderTop: `1px solid ${colors.border}` }} onClick={(e) => e.stopPropagation()}>
           <PostActivityFeedback kind="experience" reference={booking.ref} followTarget={booking.vendorId ? { type: "vendor", id: booking.vendorId } : undefined} />
@@ -385,9 +401,10 @@ function CircleRow({ circle }: { circle: Circle }) {
   );
 }
 
-function ProgramEnrollmentRow({ enrollment }: { enrollment: MyProgramEnrollment }) {
+function ProgramEnrollmentRow({ enrollment, onChanged }: { enrollment: MyProgramEnrollment; onChanged: () => void }) {
   const navigate = useNavigate();
   const cancelled = enrollment.status === "cancelled";
+  const refundBadge = refundBadgeText(enrollment.refundState);
   return (
     <div style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: radius.card, padding: "18px 20px", opacity: cancelled ? 0.6 : 1 }}>
       <Link to={`/programs/${enrollment.programId}`} className="row-link" style={{ display: "flex", alignItems: "center", gap: 18 }}>
@@ -396,6 +413,7 @@ function ProgramEnrollmentRow({ enrollment }: { enrollment: MyProgramEnrollment 
           <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
             <span style={{ fontWeight: 700, fontSize: 16 }}>{enrollment.title}</span>
             {cancelled && <span style={cancelledBadgeStyle}>Cancelled</span>}
+            {refundBadge && <span style={cancelledBadgeStyle}>{refundBadge}</span>}
           </div>
           <div style={{ color: colors.mutedLight, fontSize: 14 }}>
             {enrollment.participantName} · {enrollment.listingName}
@@ -418,6 +436,15 @@ function ProgramEnrollmentRow({ enrollment }: { enrollment: MyProgramEnrollment 
           hasPastSession (a real session has actually happened), not just
           "enrolled a while ago" — a program is ongoing, so isPast doesn't
           apply the way it does to a single-dated booking. */}
+      <SelfCancelControl
+        noun="enrolment"
+        title={enrollment.title}
+        detail={enrollment.participantName}
+        canCancel={!!enrollment.canCancel}
+        paidOnline={!!enrollment.paidOnline && enrollment.totalCents > 0}
+        cancel={() => cancelProgramEnrollment(enrollment.ref)}
+        onCancelled={onChanged}
+      />
       {shouldPromptProgramFeedback(enrollment) && (
         <div style={{ marginTop: 12, paddingTop: 12, borderTop: `1px solid ${colors.border}` }} onClick={(e) => e.stopPropagation()}>
           <PostActivityFeedback kind="program" reference={enrollment.ref} followTarget={enrollment.vendorId ? { type: "vendor", id: enrollment.vendorId } : undefined} />
@@ -453,6 +480,10 @@ export function MyBookings() {
   const [circles, setCircles] = useState<Circle[]>([]);
   const [programEnrollments, setProgramEnrollments] = useState<MyProgramEnrollment[]>([]);
   const [experienceBookings, setExperienceBookings] = useState<MyExperienceBooking[]>([]);
+  // Phase 11B — refresh from the server after a self-cancel (or a 409 that
+  // shows it was already cancelled), so status/refund badges are server truth.
+  const reloadExperienceBookings = () => { fetchMyExperienceBookings().then(setExperienceBookings).catch(() => {}); };
+  const reloadProgramEnrollments = () => { fetchMyProgramEnrollments().then(setProgramEnrollments).catch(() => {}); };
   const [loading, setLoading] = useState(true);
 
   const [residentFull, setResidentFull] = useState<ResidentFull | null>(null);
@@ -603,7 +634,7 @@ export function MyBookings() {
       ),
     })),
     ...games.map((g) => ({ date: g.date, el: <GameRow key={`g-${g.id}`} game={g} /> })),
-    ...experienceBookings.map((eb) => ({ date: eb.date, el: <ExperienceBookingRow key={`eb-${eb.ref}`} booking={eb} /> })),
+    ...experienceBookings.map((eb) => ({ date: eb.date, el: <ExperienceBookingRow key={`eb-${eb.ref}`} booking={eb} onChanged={reloadExperienceBookings} /> })),
   ];
   const upcomingRows = timelineRows.filter((r) => r.date >= today).sort((a, b) => a.date.localeCompare(b.date));
   const pastRows = timelineRows.filter((r) => r.date < today).sort((a, b) => b.date.localeCompare(a.date));
@@ -1123,7 +1154,7 @@ export function MyBookings() {
                             />
                           ))}
                           {circles.map((c) => <CircleRow key={c.id} circle={c} />)}
-                          {programEnrollments.map((e) => <ProgramEnrollmentRow key={e.ref} enrollment={e} />)}
+                          {programEnrollments.map((e) => <ProgramEnrollmentRow key={e.ref} enrollment={e} onChanged={reloadProgramEnrollments} />)}
                         </div>
                       </>
                     )}

@@ -311,6 +311,12 @@ export interface MyProgramEnrollment {
   totalCents: number;
   status: string;
   paymentStatus: string;
+  /** Phase 11B — server-decided: may the booker self-cancel right now? */
+  canCancel?: boolean;
+  /** Phase 11B — paid through Stripe (refund then issued in HelloCircle); never the provider id. */
+  paidOnline?: boolean;
+  /** Phase 11B — "pending" = cancelled, paid online, refund not yet issued (Refund Policy A). */
+  refundState?: "none" | "pending" | "refunded";
   createdAt: string;
   title: string;
   imageUrl: string;
@@ -1782,6 +1788,12 @@ export interface MyExperienceBooking {
   totalCents: number;
   status: string;
   paymentStatus: string;
+  /** Phase 11B — server-decided: may the booker self-cancel right now? */
+  canCancel?: boolean;
+  /** Phase 11B — paid through Stripe (refund then issued in HelloCircle); never the provider id. */
+  paidOnline?: boolean;
+  /** Phase 11B — "pending" = cancelled, paid online, refund not yet issued (Refund Policy A). */
+  refundState?: "none" | "pending" | "refunded";
   createdAt: string;
   title: string;
   imageUrl: string;

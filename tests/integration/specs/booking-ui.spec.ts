@@ -65,7 +65,9 @@ for (const viewport of ["desktop", "mobile"] as const) {
         await cancel.evaluate((el) => el.scrollIntoView({ block: "center" })); // a user scrolls the row into view
         expect(await reachable(page, cancel), "cancel control not obscured").toBe(true);
         await cancel.click();
-        await page.getByRole("button", { name: "Cancel booking" }).click();
+        // Confirm inside the confirmation dialog (My Life now also offers
+        // "Cancel booking for <adventure>" on the experience row — Phase 11B).
+        await page.getByRole("alertdialog").getByRole("button", { name: "Cancel booking" }).click();
         await expect.poll(async () => (await rows(f, "SELECT status FROM bookings WHERE ref = ?", [hallRef]))[0].status).toBe("cancelled");
         await page.reload();
         await page.getByRole("button", { name: /View full activity/ }).click();

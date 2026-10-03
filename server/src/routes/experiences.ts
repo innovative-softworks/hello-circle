@@ -7,6 +7,7 @@ import { orgPoliciesForVendor } from "../db/queries.js";
 import { upgradeFavouriteStatus } from "./favourites.js";
 import { buildIcsEvent } from "../ics.js";
 import { irelandWallTimeToUtc } from "../irelandTime.js";
+import { experienceCancelBlock, refundStateOf } from "../selfCancel.js";
 import { notifyCancellation, notifyNewBookingOrRegistration } from "../notifications.js";
 import { computePricing, evaluateCoupon } from "../pricing.js";
 import { BadRequestError, ConflictError, clientIdFrom, generateRef, isValidEmail } from "../util.js";
@@ -378,20 +379,29 @@ experiencesRouter.get("/bookings/mine", async (req, res) => {
     if (e instanceof BadRequestError) return res.status(400).json({ error: e.message });
     throw e;
   }
-  const rows = await db
+  const rows = (await db
     .prepare(
       `SELECT eb.ref, eb.experience_id as experienceId, eb.participant_name as participantName, eb.party_size as partySize,
               eb.total_cents as totalCents, eb.status, eb.payment_status as paymentStatus, eb.created_at as createdAt,
+              eb.stripe_session_id IS NOT NULL as paidOnline,
               e.title, e.image_url as imageUrl, e.kind, e.vendor_id as vendorId, es.date, es.time,
               (SELECT a.status FROM attendance a WHERE a.kind = 'experience' AND a.ref = eb.ref) as attendance
        FROM experience_bookings eb
        JOIN experiences e ON e.id = eb.experience_id
        JOIN experience_sessions es ON es.id = eb.session_id
-       WHERE (eb.client_id = ? OR (eb.resident_id IS NOT NULL AND eb.resident_id = ?)) AND eb.payment_status = 'paid'
+       WHERE (eb.client_id = ? OR (eb.resident_id IS NOT NULL AND eb.resident_id = ?)) AND eb.payment_status IN ('paid', 'refunded')
        ORDER BY eb.created_at DESC`
     )
-    .all(clientId, req.resident?.id ?? "");
-  res.json(rows);
+    .all(clientId, req.resident?.id ?? "")) as (Record<string, unknown> & { status: string; paymentStatus: string; totalCents: number; paidOnline: number; vendorId: string; date: string; time: string })[];
+  // Phase 11B — canCancel/refundState come from the same rules the cancel
+  // route enforces (selfCancel.ts), so the UI never offers what the server refuses.
+  const hoursByVendor = new Map<string, number>();
+  const out = [];
+  for (const { paidOnline, ...r } of rows) {
+    if (!hoursByVendor.has(r.vendorId)) hoursByVendor.set(r.vendorId, (await orgPoliciesForVendor(r.vendorId)).cancellationHours);
+    out.push({ ...r, paidOnline: !!paidOnline, canCancel: experienceCancelBlock(r, hoursByVendor.get(r.vendorId)!) === null, refundState: refundStateOf({ ...r, paidOnline }) });
+  }
+  res.json(out);
 });
 
 /** Resident/guest self-cancel — Phase 0 protect. Experience bookings
@@ -416,6 +426,7 @@ experiencesRouter.post("/bookings/:ref/cancel", async (req, res) => {
   const row = (await db
     .prepare(
       `SELECT eb.ref, eb.status, eb.payment_status as paymentStatus, eb.participant_name as participantName, eb.email, eb.resident_id as residentId,
+              eb.total_cents as totalCents, eb.stripe_session_id IS NOT NULL as paidOnline,
               es.date, es.time,
               e.id as experienceId, e.title, e.vendor_id as vendorId
        FROM experience_bookings eb
@@ -424,18 +435,12 @@ experiencesRouter.post("/bookings/:ref/cancel", async (req, res) => {
        WHERE eb.ref = ? AND (eb.client_id = ? OR (eb.resident_id IS NOT NULL AND eb.resident_id = ?))`
     )
     .get(req.params.ref, clientId, req.resident?.id ?? "")) as
-    | { ref: string; status: string; paymentStatus: string; participantName: string; email: string; residentId: string | null; date: string; time: string; experienceId: string; title: string; vendorId: string }
+    | { ref: string; status: string; paymentStatus: string; participantName: string; email: string; residentId: string | null; totalCents: number; paidOnline: number; date: string; time: string; experienceId: string; title: string; vendorId: string }
     | undefined;
   if (!row) return res.status(404).json({ error: "Booking not found" });
-  if (row.status === "cancelled") return res.status(409).json({ error: "This booking is already cancelled" });
-  if (row.paymentStatus !== "paid") return res.status(409).json({ error: "This booking can't be cancelled" });
-
   const { cancellationHours } = await orgPoliciesForVendor(row.vendorId);
-  const startHour = parseInt(row.time.slice(0, 2), 10);
-  const sessionStart = irelandWallTimeToUtc(row.date, startHour);
-  if (sessionStart.getTime() - Date.now() < cancellationHours * 60 * 60 * 1000) {
-    return res.status(409).json({ error: `This booking is within ${cancellationHours} hours and can no longer be cancelled online — please contact the host directly` });
-  }
+  const block = experienceCancelBlock(row, cancellationHours);
+  if (block) return res.status(block.status).json({ error: block.error });
 
   // HC-QA-046 — atomic transition: only the request that actually flips the row
   // runs the side effects (capacity release, audit, notifications, promotion).
@@ -455,7 +460,7 @@ experiencesRouter.post("/bookings/:ref/cancel", async (req, res) => {
     residentId: row.residentId,
   }).catch((e) => console.error("[notifications] experience booking cancellation notify failed:", e));
 
-  res.json({ ok: true });
+  res.json({ ok: true, status: "cancelled", refundState: refundStateOf({ ...row, status: "cancelled" }) });
 });
 
 experiencesRouter.get("/bookings/status/:ref", async (req, res) => {

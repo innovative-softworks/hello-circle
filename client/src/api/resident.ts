@@ -756,6 +756,17 @@ export interface CircleJoinRequest {
   createdAt: string;
 }
 
+/** Phase 11B — organiser-only list of pending organiser-sent invitations. */
+export interface CircleInvitationSummary { id: string; residentName: string; invitedByName: string; createdAt: string }
+
+export function fetchCircleInvitations(circleId: string): Promise<CircleInvitationSummary[]> {
+  return request(`/circles/${encodeURIComponent(circleId)}/invitations`);
+}
+
+export function revokeCircleInvitation(circleId: string, inviteId: string): Promise<{ ok: boolean; status: "revoked"; alreadyRevoked?: boolean }> {
+  return request(`/circles/${encodeURIComponent(circleId)}/invitations/${encodeURIComponent(inviteId)}/revoke`, { method: "POST" });
+}
+
 /** Organiser-only pending join-requests inbox for an 'approval' Circle. */
 export function fetchCircleJoinRequests(circleId: string): Promise<CircleJoinRequest[]> {
   return request(`/circles/${circleId}/join-requests`);

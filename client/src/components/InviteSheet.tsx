@@ -1,5 +1,6 @@
-import { useState } from "react";
-import { createInvitation, type InvitableEntityType } from "../api/invitations";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { createInvitation, fetchSentInvitations, revokeInvitation, type InvitableEntityType, type SentInvitation } from "../api/invitations";
+import { useConfirm } from "./ConfirmProvider";
 import { colors, radius } from "../theme";
 import { CheckIcon } from "./icons";
 import { InviteButton } from "./InviteButton";
@@ -14,14 +15,69 @@ import { Button, Modal, inputStyle, labelStyle } from "./ui";
 // established, so this is the same interaction pattern generalized to
 // games/experiences/programs rather than a new one.
 
+const INVITE_STATUS_LABEL: Record<string, string> = {
+  pending: "Pending",
+  accepted: "Accepted",
+  maybe: "Maybe",
+  declined: "Declined",
+  expired: "Expired",
+  revoked: "Revoked",
+};
+
 export function InviteSheet({ open, onClose, entityType, entityId, title }: { open: boolean; onClose: () => void; entityType: InvitableEntityType; entityId: string; title: string }) {
   const [email, setEmail] = useState("");
   const [emailBusy, setEmailBusy] = useState(false);
   const [sentTo, setSentTo] = useState<string[]>([]);
 
+  // Phase 11B — invitations this resident may manage (host: all; others:
+  // their own), with "Revoke invitation" for pending ones.
+  const confirm = useConfirm();
+  const [sent, setSent] = useState<SentInvitation[] | null>(null);
+  const [sentError, setSentError] = useState<string | null>(null);
+  const [revokingId, setRevokingId] = useState<string | null>(null);
+  const [revokeMessage, setRevokeMessage] = useState<{ tone: "ok" | "error"; text: string } | null>(null);
+  const revokeInFlight = useRef(false);
+
+  const loadSent = useCallback(() => {
+    setSentError(null);
+    fetchSentInvitations(entityType, entityId)
+      .then(setSent)
+      .catch(() => setSentError("Couldn't load your invitations."));
+  }, [entityType, entityId]);
+
+  useEffect(() => {
+    if (open) loadSent();
+  }, [open, loadSent]);
+
+  const revoke = async (inv: SentInvitation) => {
+    if (revokeInFlight.current) return;
+    const ok = await confirm({
+      title: "Revoke invitation?",
+      message: `${inv.invitee} will no longer be able to see or join ${title} through this invitation. You can invite them again later.`,
+      confirmLabel: "Revoke invitation",
+      cancelLabel: "Keep invitation",
+      tone: "danger",
+    });
+    if (!ok) return;
+    revokeInFlight.current = true;
+    setRevokingId(inv.id);
+    setRevokeMessage(null);
+    try {
+      const result = await revokeInvitation(inv.id);
+      setRevokeMessage({ tone: "ok", text: result.alreadyRevoked ? `The invitation to ${inv.invitee} was already revoked.` : `Invitation to ${inv.invitee} revoked.` });
+    } catch (e) {
+      setRevokeMessage({ tone: "error", text: e instanceof Error && e.message ? e.message : "Couldn't revoke this invitation — please try again." });
+    } finally {
+      revokeInFlight.current = false;
+      setRevokingId(null);
+      loadSent();
+    }
+  };
+
   const inviteResident = async (residentId: string) => {
     await createInvitation({ entityType, entityId, inviteeResidentIds: [residentId] });
     setSentTo((s) => [...s, residentId]);
+    loadSent();
   };
 
   const inviteEmail = async () => {
@@ -32,6 +88,7 @@ export function InviteSheet({ open, onClose, entityType, entityId, title }: { op
       await createInvitation({ entityType, entityId, inviteeEmails: [value] });
       setSentTo((s) => [...s, value]);
       setEmail("");
+      loadSent();
     } finally {
       setEmailBusy(false);
     }
@@ -71,6 +128,36 @@ export function InviteSheet({ open, onClose, entityType, entityId, title }: { op
         <Button onClick={inviteEmail} disabled={!email.trim() || emailBusy} style={{ alignSelf: "flex-end" }}>
           {emailBusy ? "Sending…" : "Send"}
         </Button>
+      </div>
+
+      {sent && sent.length > 0 && (
+        <div style={{ borderTop: `1px solid ${colors.border}`, paddingTop: 16, marginBottom: 18 }}>
+          <h3 style={{ fontSize: 11.5, fontWeight: 700, color: colors.faint, letterSpacing: ".04em", textTransform: "uppercase", margin: "0 0 10px" }}>Invitations sent</h3>
+          <ul aria-label="Invitations sent" style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: 6 }}>
+            {sent.map((inv) => (
+              <li key={inv.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, background: colors.bg, borderRadius: radius.control, padding: "8px 12px" }}>
+                <span style={{ fontSize: 13.5, fontWeight: 600, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }}>
+                  {inv.invitee} <span style={{ fontWeight: 500, color: colors.mutedLight }}>· {INVITE_STATUS_LABEL[inv.status] ?? inv.status}</span>
+                </span>
+                {inv.canRevoke && (
+                  <button
+                    type="button"
+                    className="btn-reset"
+                    onClick={() => revoke(inv)}
+                    disabled={revokingId !== null}
+                    aria-label={`Revoke invitation to ${inv.invitee}`}
+                    style={{ color: colors.danger, fontWeight: 700, fontSize: 12.5, padding: "4px 2px", cursor: revokingId ? "default" : "pointer", flex: "none" }}
+                  >
+                    {revokingId === inv.id ? "Revoking…" : "Revoke invitation"}
+                  </button>
+                )}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      <div aria-live="polite" role={revokeMessage?.tone === "error" || sentError ? "alert" : "status"} style={{ fontSize: 13, fontWeight: 600, marginBottom: revokeMessage || sentError ? 12 : 0, color: revokeMessage?.tone === "error" || sentError ? colors.danger : colors.greenText }}>
+        {sentError ?? revokeMessage?.text}
       </div>
 
       <div style={{ borderTop: `1px solid ${colors.border}`, paddingTop: 16 }}>

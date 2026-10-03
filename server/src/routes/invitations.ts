@@ -9,6 +9,7 @@ import { CLIENT_URL } from "../stripe.js";
 import { isValidEmail } from "../util.js";
 import { getShareData, type ShareEntityType } from "./sharing.js";
 import { loadViewableGame } from "../gameVisibility.js";
+import { writeAudit } from "../audit.js";
 
 export const invitationsRouter = Router();
 
@@ -70,6 +71,29 @@ invitationsRouter.post("/", requireResident, async (req, res) => {
   if (!data) return res.status(404).json({ error: "That activity is no longer available" });
 
   const expiresAt = new Date(Date.now() + INVITE_EXPIRY_DAYS * 24 * 60 * 60 * 1000);
+
+  // Phase 11B — a revoked invitation is only re-issued by someone who may
+  // manage it (the activity host or the original inviter); anyone else's
+  // "invite" for that person is skipped rather than silently reviving it.
+  const manager = await canManageInvitationsFor(entityType, b.entityId, req.resident!.id);
+  const revokedFor = async (column: "invitee_resident_id" | "invitee_email", value: string) =>
+    (await db.prepare(`SELECT inviter_resident_id as inviterId FROM invitations WHERE entity_type = ? AND entity_id = ? AND ${column} = ? AND status = 'revoked'`)
+      .get(entityType, b.entityId, value)) as { inviterId: string } | undefined;
+  const blockedResidents = new Set<string>();
+  for (const residentId of residentIds) {
+    const r = await revokedFor("invitee_resident_id", residentId);
+    if (r && !manager && r.inviterId !== req.resident!.id) blockedResidents.add(residentId);
+  }
+  const blockedEmails = new Set<string>();
+  for (const email of emails) {
+    // An email belonging to an existing resident is stored by resident id.
+    const existing = await getResidentByEmail(email);
+    const r = existing ? await revokedFor("invitee_resident_id", existing.id) : await revokedFor("invitee_email", email);
+    if (r && !manager && r.inviterId !== req.resident!.id) blockedEmails.add(email);
+  }
+  residentIds.splice(0, residentIds.length, ...residentIds.filter((id) => !blockedResidents.has(id)));
+  emails.splice(0, emails.length, ...emails.filter((e) => !blockedEmails.has(e)));
+  if (residentIds.length === 0 && emails.length === 0) return res.status(201).json({ ok: true, count: 0 });
 
   await db.transaction(async (tx) => {
     for (const residentId of residentIds) {
@@ -185,6 +209,9 @@ invitationsRouter.get("/token/:token", async (req, res) => {
     .get(req.params.token)) as (InviteRow & { inviterName: string }) | undefined;
   if (!row) return res.status(404).json({ error: "This invitation link isn't valid" });
   const status = effectiveStatus(row);
+  // Phase 11B — a revoked invitation reveals nothing (its token is also
+  // rotated on revoke, so an old link normally 404s before reaching here).
+  if (status === "revoked") return res.status(404).json({ error: "This invitation link isn't valid" });
   const data = await getShareData(row.entity_type, row.entity_id, req.resident?.id ?? null);
   if (!data) return res.status(404).json({ error: "This activity is no longer available" });
   void logEvent("invite_opened", { residentId: req.resident?.id ?? null, metadata: { entityType: row.entity_type, entityId: row.entity_id } });
@@ -242,4 +269,76 @@ invitationsRouter.post("/token/:token/respond", requireResident, async (req, res
   if (effectiveStatus(row) !== "pending") return res.status(409).json({ error: "This invitation has already been answered or has expired" });
   if (!(await respondToInvite(row, response, req.resident!.id))) return res.status(409).json({ error: "This invitation has already been answered or has expired" });
   res.json({ ok: true });
+});
+
+// --- Phase 11B — sent invitations + revocation --------------------------------
+// The activity host may manage every invitation to their activity; anyone
+// else only the invitations they sent themselves. Rows are identified by
+// their id — the bearer token that accepts an invitation is never exposed.
+
+async function canManageInvitationsFor(entityType: string, entityId: string, residentId: string): Promise<boolean> {
+  if (entityType !== "game") return false;
+  const game = (await db.prepare(`SELECT host_resident_id as hostId FROM games WHERE id = ?`).get(entityId)) as { hostId: string } | undefined;
+  return game?.hostId === residentId;
+}
+
+function maskEmail(email: string): string {
+  const [user, domain] = email.split("@");
+  return `${user.slice(0, 1)}${"•".repeat(Math.max(1, Math.min(user.length - 1, 4)))}@${domain ?? ""}`;
+}
+
+invitationsRouter.get("/sent", requireResident, async (req, res) => {
+  const entityType = String(req.query.entityType ?? "");
+  const entityId = String(req.query.entityId ?? "");
+  if (!INVITABLE_ENTITY_TYPES.has(entityType as ShareEntityType) || !entityId) return res.status(400).json({ error: "entityType and entityId are required" });
+  const manager = await canManageInvitationsFor(entityType, entityId, req.resident!.id);
+  const rows = (await db
+    .prepare(
+      `SELECT i.id, i.status, i.expires_at as expiresAt, i.created_at as createdAt, i.responded_at as respondedAt,
+              i.inviter_resident_id as inviterId, i.invitee_email as inviteeEmail, r.name as inviteeName
+       FROM invitations i LEFT JOIN residents r ON r.id = i.invitee_resident_id
+       WHERE i.entity_type = ? AND i.entity_id = ? ${manager ? "" : "AND i.inviter_resident_id = ?"}
+       ORDER BY i.created_at DESC`
+    )
+    .all(...(manager ? [entityType, entityId] : [entityType, entityId, req.resident!.id]))) as {
+    id: string; status: string; expiresAt: string; createdAt: string; respondedAt: string | null; inviterId: string; inviteeEmail: string | null; inviteeName: string | null;
+  }[];
+  res.json(
+    rows.map((r) => {
+      const status = effectiveStatus({ status: r.status, expires_at: r.expiresAt });
+      return {
+        id: r.id,
+        invitee: r.inviteeName ?? (r.inviteeEmail ? maskEmail(r.inviteeEmail) : "Invited guest"),
+        status,
+        createdAt: r.createdAt,
+        expiresAt: r.expiresAt,
+        sentByMe: r.inviterId === req.resident!.id,
+        canRevoke: status === "pending",
+      };
+    })
+  );
+});
+
+invitationsRouter.post("/:id/revoke", requireResident, async (req, res) => {
+  const row = (await db.prepare(`SELECT id, entity_type, entity_id, inviter_resident_id, status, expires_at FROM invitations WHERE id = ?`).get(req.params.id)) as
+    | Pick<InviteRow, "id" | "entity_type" | "entity_id" | "inviter_resident_id" | "status" | "expires_at">
+    | undefined;
+  // Unauthorised and nonexistent look the same — no probing of invitation ids.
+  const allowed = !!row && (row.inviter_resident_id === req.resident!.id || (await canManageInvitationsFor(row.entity_type, row.entity_id, req.resident!.id)));
+  if (!row || !allowed) return res.status(404).json({ error: "Invitation not found" });
+
+  // Single conditional transition; the token is rotated so the old link is dead.
+  const result = await db
+    .prepare(`UPDATE invitations SET status = 'revoked', responded_at = NOW(), token = ? WHERE id = ? AND status = 'pending' AND expires_at > NOW()`)
+    .run(crypto.randomBytes(24).toString("base64url"), row.id);
+  if (result.changes === 1) {
+    await writeAudit({ actorUserId: req.resident!.id, action: "invitation.revoked", objectType: "invitation", objectId: row.id, previousValue: { status: "pending" }, newValue: { status: "revoked", entityType: row.entity_type, entityId: row.entity_id } });
+    void logEvent("invite_revoked", { residentId: req.resident!.id, metadata: { entityType: row.entity_type, entityId: row.entity_id } });
+    return res.json({ ok: true, status: "revoked" });
+  }
+  const current = (await db.prepare(`SELECT status, expires_at FROM invitations WHERE id = ?`).get(row.id)) as { status: string; expires_at: string };
+  const status = effectiveStatus(current);
+  if (status === "revoked") return res.json({ ok: true, status: "revoked", alreadyRevoked: true });
+  if (status === "expired") return res.status(409).json({ error: "This invitation has already expired", status });
+  return res.status(409).json({ error: "This invitation has already been answered, so it can't be revoked", status });
 });

@@ -6,6 +6,7 @@ import {
   demoteCircleMember,
   fetchCentres,
   fetchCircle,
+  fetchCircleInvitations,
   fetchCircleJoinRequests,
   fetchCircleMembers,
   fetchCirclePlansForManage,
@@ -17,10 +18,11 @@ import {
   removeCircleMember,
   removeGameParticipant,
   respondToCircleJoinRequest,
+  revokeCircleInvitation,
   setCircleStatus,
   updateCircle,
 } from "../api";
-import type { CircleJoinRequest } from "../api";
+import type { CircleInvitationSummary, CircleJoinRequest } from "../api";
 import { signInHref } from "../authRedirect";
 import { CalendarIcon, PlusIcon, UsersIcon } from "../components/icons";
 import { ManageShell } from "../components/ManageShell";
@@ -384,7 +386,84 @@ function JoinRequestsCard({ circle }: { circle: Circle }) {
   );
 }
 
+// Phase 11B — organiser view of pending organiser-sent invitations, with
+// "Revoke invitation". Revoking withdraws the invite only; existing members
+// are never affected (they're managed in the Members list below).
+function PendingInvitationsCard({ circle, refreshKey }: { circle: Circle; refreshKey: number }) {
+  const confirm = useConfirm();
+  const [invites, setInvites] = useState<CircleInvitationSummary[]>([]);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [message, setMessage] = useState<{ tone: "ok" | "error"; text: string } | null>(null);
+
+  const reload = () => {
+    setLoadError(null);
+    fetchCircleInvitations(circle.id)
+      .then(setInvites)
+      .catch(() => setLoadError("Couldn't load pending invitations."));
+  };
+  useEffect(reload, [circle.id, refreshKey]);
+
+  const revoke = async (inv: CircleInvitationSummary) => {
+    if (busyId) return;
+    const ok = await confirm({
+      title: `Revoke ${inv.residentName}'s invitation?`,
+      message: "They won't be able to accept it or use it to join. You can invite them again later.",
+      confirmLabel: "Revoke invitation",
+      cancelLabel: "Keep invitation",
+      tone: "danger",
+    });
+    if (!ok) return;
+    setBusyId(inv.id);
+    setMessage(null);
+    try {
+      const result = await revokeCircleInvitation(circle.id, inv.id);
+      setMessage({ tone: "ok", text: result.alreadyRevoked ? `${inv.residentName}'s invitation was already revoked.` : `Invitation to ${inv.residentName} revoked.` });
+    } catch (e) {
+      setMessage({ tone: "error", text: e instanceof Error && e.message ? e.message : "Couldn't revoke this invitation — please try again." });
+    } finally {
+      setBusyId(null);
+      reload();
+    }
+  };
+
+  if (invites.length === 0 && !loadError && !message) return null;
+
+  return (
+    <Card>
+      <h4 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 16, margin: "0 0 14px" }}>Pending invitations</h4>
+      <div aria-live="polite" role={message?.tone === "error" || loadError ? "alert" : "status"} style={{ fontSize: 13, fontWeight: 600, marginBottom: message || loadError ? 10 : 0, color: message?.tone === "error" || loadError ? colors.danger : colors.greenText }}>
+        {loadError ?? message?.text}
+      </div>
+      <ul aria-label="Pending invitations" style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: 10 }}>
+        {invites.map((inv) => (
+          <li key={inv.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10, background: colors.bg, borderRadius: radius.control, padding: "10px 14px" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <Avatar name={inv.residentName} size={30} />
+              <div>
+                <div style={{ fontWeight: 700, fontSize: 13.5 }}>{inv.residentName}</div>
+                <div style={{ fontSize: 11.5, color: colors.mutedLight }}>Invited by {inv.invitedByName}</div>
+              </div>
+            </div>
+            <button
+              type="button"
+              className="btn-reset"
+              onClick={() => revoke(inv)}
+              disabled={busyId !== null}
+              aria-label={`Revoke invitation to ${inv.residentName}`}
+              style={{ color: colors.danger, fontWeight: 700, fontSize: 12.5, padding: "4px 2px", cursor: busyId ? "default" : "pointer" }}
+            >
+              {busyId === inv.id ? "Revoking…" : "Revoke invitation"}
+            </button>
+          </li>
+        ))}
+      </ul>
+    </Card>
+  );
+}
+
 function MembersTab({ circle }: { circle: Circle }) {
+  const [inviteRefresh, setInviteRefresh] = useState(0);
   const confirm = useConfirm();
   const [members, setMembers] = useState<ManageCircleMember[]>([]);
   const [loading, setLoading] = useState(true);
@@ -468,8 +547,9 @@ function MembersTab({ circle }: { circle: Circle }) {
       <JoinRequestsCard circle={circle} />
       <Card>
         <h4 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 16, margin: "0 0 14px" }}>Invite someone</h4>
-        <ResidentPicker onInvite={async (residentId) => { await inviteToCircle(circle.id, residentId); }} />
+        <ResidentPicker onInvite={async (residentId) => { await inviteToCircle(circle.id, residentId); setInviteRefresh((n) => n + 1); }} />
       </Card>
+      <PendingInvitationsCard circle={circle} refreshKey={inviteRefresh} />
       <Card>
         <h4 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 16, margin: "0 0 14px" }}>Members</h4>
         {roleError && <p style={{ color: colors.danger, fontSize: 12.5, margin: "0 0 10px" }}>{roleError}</p>}

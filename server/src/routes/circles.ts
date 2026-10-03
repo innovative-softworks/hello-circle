@@ -11,6 +11,7 @@ import { requireResident } from "../residents.js";
 import { generateSlug } from "../slugify.js";
 import { getShareData, type ShareEntityType } from "./sharing.js";
 import { isMember, isOrganiser } from "./circleHelpers.js";
+import { writeAudit } from "../audit.js";
 import { discoverableGameSql, filterViewable, GAME_VISIBILITY_COLUMNS } from "../gameVisibility.js";
 
 export const circlesRouter = Router();
@@ -952,12 +953,20 @@ circlesRouter.post("/:id/join", requireResident, async (req, res) => {
   const invitedByOrganiser = existingInvite?.status === "pending" && existingInvite.initiatedBy === "organiser";
 
   if (invitedByOrganiser) {
-    await db.transaction(async (tx) => {
-      await tx.prepare(`UPDATE circle_invites SET status = 'accepted' WHERE circle_id = ? AND resident_id = ?`).run(req.params.id, req.resident!.id);
+    // Phase 11B — consume the invite conditionally: a revoke that lands first
+    // wins, and then this falls through to the normal join-mode rules below.
+    const consumed = await db.transaction(async (tx) => {
+      const r = await tx
+        .prepare(`UPDATE circle_invites SET status = 'accepted' WHERE circle_id = ? AND resident_id = ? AND status = 'pending' AND initiated_by = 'organiser'`)
+        .run(req.params.id, req.resident!.id);
+      if (r.changes !== 1) return false;
       await tx.prepare(`INSERT IGNORE INTO circle_members (circle_id, resident_id) VALUES (?, ?)`).run(req.params.id, req.resident!.id);
+      return true;
     });
-    void logEvent("circle_joined", { residentId: req.resident!.id, metadata: { circleId: req.params.id } });
-    return res.status(201).json({ ok: true });
+    if (consumed) {
+      void logEvent("circle_joined", { residentId: req.resident!.id, metadata: { circleId: req.params.id } });
+      return res.status(201).json({ ok: true });
+    }
   }
 
   if (circle.joinMode === "invite") {
@@ -1322,10 +1331,15 @@ circlesRouter.post("/invitations/:id/respond", requireResident, async (req, res)
     return res.status(409).json({ error: "This Circle is closed and isn't accepting new members" });
   }
 
-  await db.transaction(async (tx) => {
-    await tx.prepare(`UPDATE circle_invites SET status = ? WHERE id = ?`).run(accept ? "accepted" : "declined", req.params.id);
+  // Phase 11B — conditional transition so a concurrent revoke (or a second
+  // response) can't be overwritten; only the winner adds membership/notifies.
+  const answered = await db.transaction(async (tx) => {
+    const r = await tx.prepare(`UPDATE circle_invites SET status = ? WHERE id = ? AND status = 'pending'`).run(accept ? "accepted" : "declined", req.params.id);
+    if (r.changes !== 1) return false;
     if (accept) await tx.prepare(`INSERT IGNORE INTO circle_members (circle_id, resident_id) VALUES (?, ?)`).run(invite.circleId, req.resident!.id);
+    return true;
   });
+  if (!answered) return res.status(409).json({ error: "This invitation is no longer available" });
 
   await notifyResident({
     residentId: invite.invitedByResidentId,
@@ -1338,6 +1352,42 @@ circlesRouter.post("/invitations/:id/respond", requireResident, async (req, res)
   });
 
   res.json({ ok: true });
+});
+
+// --- Phase 11B — organiser view + revocation of pending Circle invitations ---
+// Revoking only withdraws the outstanding invite. It never touches
+// membership: someone who already accepted stays a member (the organiser
+// can still remove them explicitly).
+circlesRouter.get("/:id/invitations", requireResident, async (req, res) => {
+  if (!(await isOrganiser(req.params.id, req.resident!.id))) return res.status(403).json({ error: "Only an organiser can view invitations" });
+  const rows = await db
+    .prepare(
+      `SELECT ci.id, r.name as residentName, u.name as invitedByName, ci.created_at as createdAt
+       FROM circle_invites ci JOIN residents r ON r.id = ci.resident_id JOIN residents u ON u.id = ci.invited_by_resident_id
+       WHERE ci.circle_id = ? AND ci.status = 'pending' AND ci.initiated_by = 'organiser' ORDER BY ci.created_at DESC`
+    )
+    .all(req.params.id);
+  res.json(rows);
+});
+
+circlesRouter.post("/:id/invitations/:inviteId/revoke", requireResident, async (req, res) => {
+  if (!(await isOrganiser(req.params.id, req.resident!.id))) return res.status(403).json({ error: "Only an organiser can revoke invitations" });
+  const invite = (await db
+    .prepare(`SELECT status, initiated_by as initiatedBy FROM circle_invites WHERE id = ? AND circle_id = ?`)
+    .get(req.params.inviteId, req.params.id)) as { status: string; initiatedBy: string } | undefined;
+  // Wrong Circle and nonexistent look identical.
+  if (!invite || invite.initiatedBy !== "organiser") return res.status(404).json({ error: "Invitation not found" });
+  const result = await db
+    .prepare(`UPDATE circle_invites SET status = 'revoked' WHERE id = ? AND circle_id = ? AND initiated_by = 'organiser' AND status = 'pending'`)
+    .run(req.params.inviteId, req.params.id);
+  if (result.changes === 1) {
+    await writeAudit({ actorUserId: req.resident!.id, action: "circle_invite.revoked", objectType: "circle_invite", objectId: req.params.inviteId, previousValue: { status: "pending" }, newValue: { status: "revoked", circleId: req.params.id } });
+    void logEvent("circle_invite_revoked", { residentId: req.resident!.id, metadata: { circleId: req.params.id } });
+    return res.json({ ok: true, status: "revoked" });
+  }
+  const current = (await db.prepare(`SELECT status FROM circle_invites WHERE id = ?`).get(req.params.inviteId)) as { status: string };
+  if (current.status === "revoked") return res.json({ ok: true, status: "revoked", alreadyRevoked: true });
+  return res.status(409).json({ error: "This invitation has already been answered, so it can't be revoked", status: current.status });
 });
 
 // --- Share to a Circle (Universal Sharing system §5) ------------------------

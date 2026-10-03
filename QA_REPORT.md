@@ -1,6 +1,46 @@
 # HelloCircle QA Execution Report
 
-## Phase 11A — Staging preparation and deployment resilience — 2026-10-03 (current)
+## Phase 11B — MVP product gaps: cancellation & invitation control — 2026-10-03 (current)
+
+Implemented locally, uncommitted and not deployed. Only isolated QA/test databases were used.
+
+**Fail-before → pass-after:**
+- All 13 new tests **failed** against the committed release branch (`6e85f4c`): Phase 11B application files checked out, tests unchanged, each test run individually.
+- All 13 **pass** on the implementation.
+- 5 new server unit tests (`selfCancel.test.ts`) pass.
+
+| Feature | Tests | After |
+|---|---|---|
+| Activity invitation revoke | HC-GAP-INV-1/2 (API), HC-GAP-UI-HOST-REVOKE | ✓ |
+| Circle invitation revoke | HC-GAP-CIRCLE-1/2 (API), HC-GAP-UI-CIRCLE-REVOKE | ✓ |
+| Experience self-cancel | HC-GAP-EXP-1, HC-GAP-UI-EXP, HC-GAP-UI-EXP-PAID, HC-GAP-STRIPE-EXPERIENCE (real TEST payment) | ✓ |
+| Programme self-cancel | HC-GAP-PROG-1, HC-GAP-UI-PROG, HC-GAP-STRIPE-PROGRAMME (real TEST payment) | ✓ |
+
+The UI tests also pass on the production build in Chromium, Firefox and WebKit.
+
+**Adjacent findings (fixed):**
+- HC-QA-096: Circle invite accept/join races.
+- HC-QA-097: refunded bookings vanished from My Life.
+- My Life "Cancel booking" controls now carry contextual accessible names ("Cancel booking for <title>"). The existing BK-UI test's confirm click was scoped to the confirmation dialog; its assertion is unchanged.
+
+**Regression (final tree):**
+
+| Gate | Result |
+|---|---|
+| QA safety | 97 |
+| Client unit | 91 |
+| Server unit (isolated) | 48 files, 480 passed + 23 skipped |
+| Typecheck and build | ✓ |
+| `qa:auth` | 20 |
+| `qa:authorization` | 83 |
+| `qa:security-gate` | 39 |
+| `qa:lifecycle` | 52 |
+| `qa:booking` | 38 + 2 skipped |
+| `qa:stripe` | 34/34 |
+| `qa:smoke` | 14/14 |
+| `qa:product` | 51/51 |
+
+## Phase 11A — Staging preparation and deployment resilience — 2026-10-03
 
 Nothing was deployed or provisioned. The production VPS and database were not touched, and no live Stripe was used.
 

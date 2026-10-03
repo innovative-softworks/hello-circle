@@ -353,6 +353,10 @@ export function GameJoinCard({ game, resident, isHost, onRefresh }: JoinCardProp
               This plan is no longer happening.
             </div>
           )}
+          {state === "host" && !isPast && (
+            // Phase 11B — hosts invite and manage (revoke) invitations here.
+            <InviteSheetButton entityType="game" entityId={game.id} title={game.activityLabel} />
+          )}
           {state === "host" && (
             <Button variant="danger" onClick={() => setCancelConfirmOpen(true)} disabled={busy}>
               Cancel this session
