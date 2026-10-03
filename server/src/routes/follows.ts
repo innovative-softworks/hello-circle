@@ -3,6 +3,7 @@ import { db } from "../db/index.js";
 import { requireResident } from "../residents.js";
 import { getProviderUpcoming } from "../db/queries.js";
 import { notifyResident } from "../notifications.js";
+import { canViewGame, type GameVisibilityRow } from "../gameVisibility.js";
 
 export const followsRouter = Router();
 followsRouter.use(requireResident);
@@ -137,18 +138,20 @@ followsRouter.get("/feed", async (req, res) => {
     hostIds.length
       ? (db
           .prepare(
-            `SELECT g.id, g.activity_label as title, g.date, g.time, g.image_url as imageUrl, c.name as centreName
+            `SELECT g.*, g.activity_label as title, g.image_url as imageUrl, c.name as centreName
              FROM games g LEFT JOIN centres c ON c.id = g.centre_id
              WHERE g.host_resident_id IN (${hostIds.map(() => "?").join(",")}) AND g.status = 'open' AND g.date >= CURDATE()
              ORDER BY g.date, g.time LIMIT 6`
           )
-          .all(...hostIds) as Promise<{ id: string; title: string; date: string; time: string; imageUrl: string | null; centreName: string | null }[]>)
+          .all(...hostIds) as Promise<(GameVisibilityRow & { title: string; time: string; imageUrl: string | null; centreName: string | null })[]>)
       : Promise.resolve([]),
   ]);
 
+  const visibleHosts = [];
+  for (const game of hostItems) if (await canViewGame(game, req.resident!.id)) visibleHosts.push(game);
   const items = [
     ...vendorItems.map((v) => ({ kind: v.kind as string, id: v.id, title: v.title, date: v.date, time: v.time, href: v.href, imageUrl: v.imageUrl })),
-    ...hostItems.map((g) => ({ kind: "game", id: g.id, title: g.title, date: g.date, time: g.time, href: `/games/${g.id}`, imageUrl: g.imageUrl })),
+    ...visibleHosts.map((g) => ({ kind: "game", id: g.id, title: g.title, date: g.date, time: g.time, href: `/games/${g.id}`, imageUrl: g.imageUrl })),
   ];
   items.sort((a, b) => (a.date === b.date ? a.time.localeCompare(b.time) : a.date.localeCompare(b.date)));
   res.json(items.slice(0, 6));

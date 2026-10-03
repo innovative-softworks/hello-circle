@@ -423,15 +423,15 @@ async function buildInbox(actor: Actor) {
           .get(s.scopeType, s.scopeId, actor.kind === "resident" ? actor.id : actor.userId, key, s.scopeType, s.scopeId)) as { n: number | string };
         unread = Number(n);
       }
-      return { ...s, lastMessage: last ? { body: last.body, authorName: last.authorName ?? "", createdAt: last.createdAt } : null, unread };
+      return { item: { ...s, lastMessage: last ? { body: last.body, authorName: last.authorName ?? "", createdAt: last.createdAt } : null, unread }, lastId: last ? Number(last.id) : 0, lastAt: last ? new Date(last.createdAt).getTime() : 0 };
     })
   );
-  items.sort((a, b) => {
-    const at = a.lastMessage?.createdAt ?? "";
-    const bt = b.lastMessage?.createdAt ?? "";
-    return bt.localeCompare(at);
-  });
-  return items;
+  // HC-QA-022 — mysql2 returns DATETIME as Date objects (no dateStrings on the
+  // pool), so the previous string localeCompare threw once two conversations
+  // had messages. Newest activity first by instant, then by the (global,
+  // auto-increment) message id for same-second ties; no messages sort last.
+  items.sort((a, b) => b.lastAt - a.lastAt || b.lastId - a.lastId);
+  return items.map((i) => i.item);
 }
 
 /** GET /chat/mine?as=host — every conversation the caller is in, newest

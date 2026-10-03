@@ -514,6 +514,32 @@ export function bookExperienceSession(
   return request(`/experiences/${experienceId}/sessions/${sessionId}/checkout`, { method: "POST", body: JSON.stringify(input) });
 }
 
+/** Authoritative server price for a prospective experience booking (HC-QA-042) —
+ * the same calculation checkout stores/charges; nothing is reserved. */
+export interface BookingQuote {
+  partySize: number;
+  subtotalCents: number;
+  discountCents: number;
+  taxableCents: number;
+  vatCents: number;
+  platformFeeCents: number;
+  totalCents: number;
+  couponCode: string | null;
+  currency: "EUR";
+}
+export function quoteExperienceSession(experienceId: string, sessionId: string, input: { partySize: number; couponCode?: string }): Promise<BookingQuote> {
+  return request(`/experiences/${experienceId}/sessions/${sessionId}/quote`, { method: "POST", body: JSON.stringify(input) });
+}
+
+/** HC-QA-047 — authoritative totals for a programme enrolment / paid activity join. */
+export interface PriceQuote { subtotalCents: number; discountCents: number; vatCents: number; platformFeeCents: number; totalCents: number; couponCode: string | null; currency: "EUR" }
+export function quoteProgram(programId: string): Promise<PriceQuote> {
+  return request(`/programs/${encodeURIComponent(programId)}/quote`);
+}
+export function quoteGame(gameId: string, couponCode?: string | null): Promise<PriceQuote> {
+  return request(`/games/${encodeURIComponent(gameId)}/quote${couponCode ? `?couponCode=${encodeURIComponent(couponCode)}` : ""}`);
+}
+
 /** Same guest-or-resident ownership model as fetchMyProgramEnrollments. */
 export function fetchMyExperienceBookings(): Promise<MyExperienceBooking[]> {
   return request(`/experiences/bookings/mine`);

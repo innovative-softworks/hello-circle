@@ -197,7 +197,7 @@ export function GameDetail() {
   const isPast = !cancelled && new Date(`${game.date}T${game.time}:00`).getTime() < Date.now() - CHECK_IN_CLOSES_AFTER_MS;
 
   return (
-    <div className="game-detail-mobile-pad" style={{ animation: "fadeUp .3s ease both" }}>
+    <div className="game-detail-mobile-pad" style={{ animation: "fadeUp .3s ease backwards" }}>
       <section className="section-pad" style={{ maxWidth: 1440, margin: "0 auto", padding: "26px 24px 90px" }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 18, flexWrap: "wrap", gap: 12 }}>
           <BackLink onClick={() => navigate("/games")} marginBottom={0}>All sessions</BackLink>

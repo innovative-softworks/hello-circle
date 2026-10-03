@@ -1,7 +1,7 @@
 import { db } from "./db/index.js";
 import { nextOccurrence } from "./db/queries.js";
 import { irelandTodayIso } from "./irelandTime.js";
-import { DISCOVERABLE_LIFECYCLES_SQL } from "./lifecycle.js";
+import { discoverableGameSql } from "./gameVisibility.js";
 
 // "Keep the connection going" (community participation upgrade, Releases
 // 1+3) — what to do after taking part, for every participation kind, in
@@ -89,7 +89,7 @@ async function nextGame(opts: { excludeId?: string; label?: string; hostId?: str
       `SELECT g.id, g.activity_label, g.date, g.time, g.capacity, g.host_resident_id, c.name as centreName,
               (SELECT COUNT(*) FROM game_participants gp WHERE gp.game_id = g.id AND gp.status IN ('joined', 'pending_payment')) as joined
        FROM games g LEFT JOIN centres c ON c.id = g.centre_id
-       WHERE g.id != ? AND g.status = 'open' AND g.visibility = 'public' AND g.lifecycle IN ${DISCOVERABLE_LIFECYCLES_SQL} AND g.date >= ?
+       WHERE g.id != ? AND g.status = 'open' AND ${discoverableGameSql("g")} AND g.date >= ?
          AND (? = '' OR LOWER(g.activity_label) = LOWER(?))
          AND (g.host_resident_id = ? OR (? != '' AND g.centre_id = ?) OR (? != '' AND c.county = ?))
          AND NOT EXISTS (SELECT 1 FROM game_participants gp WHERE gp.game_id = g.id AND gp.resident_id = ? AND gp.status IN ('joined', 'pending_payment'))

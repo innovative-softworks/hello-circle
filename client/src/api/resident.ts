@@ -97,14 +97,9 @@ export function guestLogout(): Promise<{ ok: boolean }> {
   return request(`/guest/logout`, { method: "POST" });
 }
 
-/** Optional password signup — a second, opt-in way into the same resident
- * identity requestGuestLink/verifyGuestLink above already create/use. If an
- * account already exists for that email with no password set yet (e.g.
- * created earlier via magic link), this attaches the password to it rather
- * than creating a duplicate — same account either way. termsAccepted is
- * enforced server-side too (see routes/guestAuth.ts) — this is the one
- * signup path that didn't collect it until the auth UX audit's C8 finding
- * (Google-completion and vendor signup always did). */
+/** Creates a new password account. Existing emails conflict regardless of
+ * sign-in method; public signup never links credentials to an existing
+ * resident. Terms acceptance is also enforced server-side. */
 export function signupWithPassword(input: { name: string; email: string; password: string; termsAccepted: boolean; marketingConsent: boolean }): Promise<{ email: string }> {
   return request(`/guest/signup`, { method: "POST", body: JSON.stringify(input) });
 }

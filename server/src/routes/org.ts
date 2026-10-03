@@ -44,8 +44,10 @@ orgRouter.get("/", async (req, res) => {
   const staff = await db
     .prepare(`SELECT id, name, email, platform_role as platformRole, status FROM users WHERE org_id = ? ORDER BY invited_staff, created_at`)
     .all(orgId);
-  const pendingInvites = await db
-    .prepare(`SELECT token, email, platform_role as platformRole, created_at as createdAt FROM org_invites WHERE org_id = ? AND status = 'pending' AND expires_at > NOW()`)
+  // Only owners manage invitations. A management identifier must not double
+  // as the bearer credential used by the public acceptance endpoint.
+  const pendingInvites = req.user!.invitedStaff ? [] : await db
+    .prepare(`SELECT SHA2(token, 256) as id, email, platform_role as platformRole, status, created_at as createdAt, expires_at as expiresAt FROM org_invites WHERE org_id = ? AND status = 'pending' AND expires_at > NOW()`)
     .all(orgId);
   const locations = await db.prepare(`SELECT id, name, 'centre' as type FROM centres WHERE vendor_id IN (SELECT id FROM users WHERE org_id = ?) UNION ALL SELECT id, name, 'club' as type FROM clubs WHERE vendor_id IN (SELECT id FROM users WHERE org_id = ?)`).all(orgId, orgId);
   // Read-only here — feature flags are admin-controlled, never vendor-self-
@@ -150,8 +152,8 @@ orgRouter.post("/staff/invite", async (req, res) => {
     actorUserId: req.user!.id,
     action: "org.staff_invited",
     objectType: "org_invite",
-    objectId: token,
-    newValue: { email: email.toLowerCase().trim(), platformRole },
+    objectId: crypto.createHash("sha256").update(token).digest("hex"),
+    newValue: { orgId: req.user!.orgId, email: email.toLowerCase().trim(), platformRole },
   });
   const acceptUrl = `${CLIENT_URL}/accept-invite?token=${token}`;
   await sendMail({
@@ -163,10 +165,11 @@ orgRouter.post("/staff/invite", async (req, res) => {
   res.status(201).json({ ok: true });
 });
 
-orgRouter.delete("/staff/invite/:token", async (req, res) => {
+orgRouter.delete("/staff/invite/:id", async (req, res) => {
   if (req.user!.invitedStaff) return res.status(403).json({ error: "Only the organisation owner can manage invites" });
-  await db.prepare(`UPDATE org_invites SET status = 'revoked' WHERE token = ? AND org_id = ?`).run(req.params.token, req.user!.orgId);
-  writeAudit({ actorUserId: req.user!.id, action: "org.staff_invite_revoked", objectType: "org_invite", objectId: req.params.token });
+  const result = await db.prepare(`UPDATE org_invites SET status = 'revoked' WHERE SHA2(token, 256) = ? AND org_id = ?`).run(req.params.id, req.user!.orgId);
+  // Never persist unmatched caller input (including a legacy bearer token).
+  if (result.changes > 0) writeAudit({ actorUserId: req.user!.id, action: "org.staff_invite_revoked", objectType: "org_invite", objectId: req.params.id });
   res.json({ ok: true });
 });
 

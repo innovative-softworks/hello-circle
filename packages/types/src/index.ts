@@ -1838,7 +1838,7 @@ export interface OrgProfile {
   org: { id: string; name: string; kind: string } | null;
   policies: { cancellationHours: number; bookingWindowDays: number; refundPolicyText: string | null; taxNumber: string | null; businessRegistrationNumber: string | null };
   staff: { id: string; name: string; email: string; platformRole: string | null; status: string }[];
-  pendingInvites: { token: string; email: string; platformRole: string; createdAt: string }[];
+  pendingInvites: { id: string; email: string; platformRole: string; status: string; createdAt: string; expiresAt: string }[];
   locations: { id: string; name: string; type: "centre" | "club" }[];
   isOwner: boolean;
   flags: FeatureFlags;

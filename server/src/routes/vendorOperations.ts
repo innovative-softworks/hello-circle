@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { assertPlatformRole, requirePlatformRole } from "../auth.js";
 import { writeAudit } from "../audit.js";
-import { issueStripeRefund } from "../checkoutService.js";
+import { refundPaidOnce } from "../checkoutService.js";
 import { logEvent } from "../analytics.js";
 import { db } from "../db/index.js";
 import { fromAttendanceStatus, HOST_ATTENDANCE_STATUSES } from "../attendanceState.js";
@@ -66,7 +66,10 @@ vendorOperationsRouter.post("/bookings/:ref/cancel", requirePlatformRole("centre
   if (!row) return res.status(404).json({ error: "Booking not found" });
   if (row.status === "cancelled") return res.status(409).json({ error: "This booking is already cancelled" });
 
-  await db.prepare(`UPDATE bookings SET status = 'cancelled' WHERE ref = ?`).run(row.ref);
+  // HC-QA-046 — atomic transition: only the request that actually flips the row
+  // runs the side effects (capacity release, audit, notifications, promotion).
+  const flipped = await db.prepare(`UPDATE bookings SET status = 'cancelled' WHERE ref = ? AND status != 'cancelled'`).run(row.ref);
+  if (flipped.changes !== 1) return res.status(409).json({ error: "This booking is already cancelled" });
 
   await writeAudit({
     actorUserId: req.user!.id,
@@ -131,7 +134,10 @@ vendorOperationsRouter.post("/registrations/:ref/cancel", requirePlatformRole("f
   if (!row) return res.status(404).json({ error: "Registration not found" });
   if (row.status === "cancelled") return res.status(409).json({ error: "This registration is already cancelled" });
 
-  await db.prepare(`UPDATE registrations SET status = 'cancelled' WHERE ref = ?`).run(row.ref);
+  // HC-QA-046 — atomic transition: only the request that actually flips the row
+  // runs the side effects (capacity release, audit, notifications, promotion).
+  const flipped = await db.prepare(`UPDATE registrations SET status = 'cancelled' WHERE ref = ? AND status != 'cancelled'`).run(row.ref);
+  if (flipped.changes !== 1) return res.status(409).json({ error: "This registration is already cancelled" });
 
   await writeAudit({
     actorUserId: req.user!.id,
@@ -245,7 +251,7 @@ vendorOperationsRouter.post("/registrations/:ref/resend-confirmation", requirePl
 // operational centre_manager/facility_manager cancel gate above. A cash
 // booking has no Stripe charge to refund (stripe_session_id is only set on
 // a paid-online booking) — 400s with a clear message instead of silently
-// no-op'ing. issueStripeRefund itself now lives in checkoutService.ts,
+// no-op'ing. refundPaidOnce itself now lives in checkoutService.ts,
 // shared with vendorPrograms.ts/vendorExperiences.ts's refund routes
 // (Phase 0 protect) rather than duplicated per resource.
 
@@ -266,26 +272,17 @@ vendorOperationsRouter.post("/bookings/:ref/refund", requirePlatformRole("financ
   if (row.paymentStatus !== "paid") return res.status(400).json({ error: "Only a paid booking can be refunded" });
   if (!row.stripeSessionId) return res.status(400).json({ error: "This was a cash booking — refund the guest directly, not through Stripe" });
 
-  const result = await issueStripeRefund(row.stripeSessionId);
-  if (!result.ok) return res.status(502).json({ error: result.error });
-
-  // Guarded on payment_status='paid', same .changes idempotency idiom the
-  // Stripe webhook's confirm* functions use — without it, two concurrent
-  // refund requests could both pass the earlier SELECT-time check and both
-  // call Stripe, double-refunding. changes===0 here means we lost the race
-  // (already refunded by a concurrent request), so skip the notify/audit —
-  // the request that won already sent them.
-  const updateResult = await db.prepare(`UPDATE bookings SET payment_status = 'refunded' WHERE ref = ? AND payment_status = 'paid'`).run(row.ref);
-  if (updateResult.changes === 0) {
-    return res.status(409).json({ error: "This booking has already been refunded" });
-  }
+  // HC-QA-051 — lock, re-check, refund and mark refunded in one transaction;
+  // concurrent requests get 409 instead of each calling the provider.
+  const result = await refundPaidOnce("bookings", "ref = ?", [row.ref], row.stripeSessionId, "This booking has already been refunded", { actorUserId: req.user!.id, objectType: "booking", objectId: row.ref });
+  if (!result.ok) return res.status(result.status).json({ error: result.error });
   await writeAudit({
     actorUserId: req.user!.id,
-    action: "booking.refunded_by_vendor",
+    action: result.reconciled ? "booking.refund_reconciled_external" : "booking.refunded_by_vendor",
     objectType: "booking",
     objectId: row.ref,
     previousValue: { paymentStatus: row.paymentStatus },
-    newValue: { paymentStatus: "refunded", amountCents: result.amountCents },
+    newValue: { paymentStatus: "refunded", amountCents: result.amountCents, source: result.reconciled ? "stripe_external" : "hellocircle" },
   });
 
   notifyRefund({
@@ -337,22 +334,17 @@ vendorOperationsRouter.post("/registrations/:ref/refund", requirePlatformRole("f
   if (row.paymentStatus !== "paid") return res.status(400).json({ error: "Only a paid registration can be refunded" });
   if (!row.stripeSessionId) return res.status(400).json({ error: "This was a cash registration — refund the guest directly, not through Stripe" });
 
-  const result = await issueStripeRefund(row.stripeSessionId);
-  if (!result.ok) return res.status(502).json({ error: result.error });
-
-  // Same payment_status='paid'-guarded idempotency check as the booking
-  // refund route above — see that route's comment for why.
-  const updateResult = await db.prepare(`UPDATE registrations SET payment_status = 'refunded' WHERE ref = ? AND payment_status = 'paid'`).run(row.ref);
-  if (updateResult.changes === 0) {
-    return res.status(409).json({ error: "This registration has already been refunded" });
-  }
+  // HC-QA-051 — lock, re-check, refund and mark refunded in one transaction;
+  // concurrent requests get 409 instead of each calling the provider.
+  const result = await refundPaidOnce("registrations", "ref = ?", [row.ref], row.stripeSessionId, "This registration has already been refunded", { actorUserId: req.user!.id, objectType: "registration", objectId: row.ref });
+  if (!result.ok) return res.status(result.status).json({ error: result.error });
   await writeAudit({
     actorUserId: req.user!.id,
-    action: "registration.refunded_by_vendor",
+    action: result.reconciled ? "registration.refund_reconciled_external" : "registration.refunded_by_vendor",
     objectType: "registration",
     objectId: row.ref,
     previousValue: { paymentStatus: row.paymentStatus },
-    newValue: { paymentStatus: "refunded", amountCents: result.amountCents },
+    newValue: { paymentStatus: "refunded", amountCents: result.amountCents, source: result.reconciled ? "stripe_external" : "hellocircle" },
   });
 
   notifyRefund({

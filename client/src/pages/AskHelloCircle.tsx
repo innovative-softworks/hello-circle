@@ -51,7 +51,7 @@ export function AskHelloCircle() {
   };
 
   return (
-    <div style={{ animation: "fadeUp .35s ease both" }}>
+    <div style={{ animation: "fadeUp .35s ease backwards" }}>
       <section className="section-pad" style={{ maxWidth: 720, margin: "0 auto", padding: "26px 24px 100px" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
           <ChatIcon size={22} style={{ color: colors.green }} />

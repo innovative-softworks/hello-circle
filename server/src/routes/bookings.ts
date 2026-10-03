@@ -12,6 +12,7 @@ import { notifyCancellation, notifyNewBookingOrRegistration } from "../notificat
 import { computePricing, evaluateCoupon, splitCostPerPerson } from "../pricing.js";
 import { lookupLimiter } from "../rateLimit.js";
 import { BadRequestError, ConflictError, bookingEndHour, clientIdFrom, generateRef, hoursOverlap, isValidEmail } from "../util.js";
+import { consumeCoupon, endPendingHold, isPositiveInt, occupiesCapacitySql, startIsInFuture, validateFutureDate } from "../bookingIntegrity.js";
 
 export const bookingsRouter = Router();
 
@@ -154,6 +155,16 @@ export async function createBookingInternal(input: CreateBookingInternalInput): 
   // not on the fixed slot grid the client itself offers, rather than
   // silently truncating it.
   if (!TIME_SLOTS.includes(input.time)) return { ok: false, status: 400, error: "Invalid time slot" };
+  // Phase 8 (HC-QA-035/036) — validate everything that drives price and
+  // inventory before pricing: whole hours (the billed hours ARE the reserved
+  // hours — end is derived from start + duration), a real party size within
+  // the room's capacity, and a real date/time that hasn't passed.
+  if (!isPositiveInt(input.duration, 24)) return { ok: false, status: 400, error: "Duration must be a whole number of hours" };
+  if (!isPositiveInt(input.guests)) return { ok: false, status: 400, error: "Number of guests must be a whole number of at least 1" };
+  if (room.cap > 0 && input.guests > room.cap) return { ok: false, status: 400, error: `This room holds up to ${room.cap} guests` };
+  const dateError = validateFutureDate(input.date);
+  if (dateError) return { ok: false, status: 400, error: dateError };
+  if (!startIsInFuture(input.date, input.time)) return { ok: false, status: 400, error: "That time has already passed" };
 
   const startHour = parseInt(input.time.slice(0, 2), 10);
   const reqEnd = bookingEndHour(startHour, input.duration);
@@ -210,7 +221,8 @@ export async function createBookingInternal(input: CreateBookingInternalInput): 
       // without this, a different centre's booking on a colliding room_id
       // could wrongly reject this checkout as clashing.
       const overlapping = (await tx
-        .prepare(`SELECT time, duration FROM bookings WHERE room_id = ? AND centre_id = ? AND date = ? AND payment_status != 'failed' AND status != 'cancelled'`)
+        // HC-QA-041 — a stale pending hold (abandoned checkout) no longer blocks the slot.
+        .prepare(`SELECT time, duration FROM bookings WHERE room_id = ? AND centre_id = ? AND date = ? AND ${occupiesCapacitySql()}`)
         .all(input.roomId, input.centreId, input.date)) as { time: string; duration: number }[];
       const clashes = overlapping.some((b) => {
         const bStart = parseInt(b.time.slice(0, 2), 10);
@@ -227,6 +239,16 @@ export async function createBookingInternal(input: CreateBookingInternalInput): 
         return bh >= startHour && bh < reqEnd;
       });
       if (blocked) throw new ConflictError("The vendor has closed that date/time");
+
+      // HC-QA-037/050 — the coupon use is reserved with the booking itself (cash
+      // or online); a pending online hold that fails/expires hands it back.
+      if (couponCode) {
+        try {
+          await consumeCoupon(tx, couponCode);
+        } catch {
+          throw new BadRequestError("That code has been fully redeemed");
+        }
+      }
 
       await tx
         .prepare(
@@ -263,6 +285,7 @@ export async function createBookingInternal(input: CreateBookingInternalInput): 
         });
     });
   } catch (e) {
+    if (e instanceof BadRequestError) return { ok: false, status: 400, error: e.message };
     if (e instanceof ConflictError) return { ok: false, status: 409, error: e.message };
     throw e;
   }
@@ -300,7 +323,7 @@ export async function createBookingInternal(input: CreateBookingInternalInput): 
     isNative: input.isNative,
   });
   if (!result.ok) {
-    await db.prepare(`DELETE FROM bookings WHERE ref = ?`).run(ref);
+    await endPendingHold("bookings", ref, "delete");
     return { ok: false, status: result.status, error: result.error };
   }
 
@@ -528,7 +551,10 @@ bookingsRouter.post("/:ref/cancel", lookupLimiter, async (req, res) => {
     return res.status(409).json({ error: `This booking is within ${cancellationHours} hours and can no longer be cancelled online — please contact the venue directly` });
   }
 
-  await db.prepare(`UPDATE bookings SET status = 'cancelled' WHERE ref = ?`).run(row.ref);
+  // HC-QA-046 — atomic transition: only the request that actually flips the row
+  // runs the side effects (capacity release, audit, notifications, promotion).
+  const flipped = await db.prepare(`UPDATE bookings SET status = 'cancelled' WHERE ref = ? AND status != 'cancelled'`).run(row.ref);
+  if (flipped.changes !== 1) return res.status(409).json({ error: "This booking is already cancelled" });
 
   notifyCancellation({
     kind: "booking",
@@ -559,6 +585,9 @@ bookingsRouter.post("/:ref/reschedule", lookupLimiter, async (req, res) => {
   // check below only compares whole hours, so an off-grid time like "14:30"
   // would clash-check as "14:00" while displaying/storing as "14:30".
   if (!TIME_SLOTS.includes(time)) return res.status(400).json({ error: "Invalid time slot" });
+  const newDateError = validateFutureDate(date);
+  if (newDateError) return res.status(400).json({ error: newDateError });
+  if (!startIsInFuture(date, time)) return res.status(400).json({ error: "That time has already passed" });
 
   const row = (await db
     .prepare(
@@ -604,7 +633,7 @@ bookingsRouter.post("/:ref/reschedule", lookupLimiter, async (req, res) => {
       // fetched above), same fix as availability.ts/queries.ts/programs.ts.
       await tx.prepare(`SELECT id FROM rooms WHERE id = ? AND centre_id = ? FOR UPDATE`).get(row.roomId, row.centreId);
       const overlapping = (await tx
-        .prepare(`SELECT ref, time, duration FROM bookings WHERE room_id = ? AND centre_id = ? AND date = ? AND ref != ? AND payment_status != 'failed' AND status != 'cancelled'`)
+        .prepare(`SELECT ref, time, duration FROM bookings WHERE room_id = ? AND centre_id = ? AND date = ? AND ref != ? AND ${occupiesCapacitySql()}`)
         .all(row.roomId, row.centreId, date, row.ref)) as { ref: string; time: string; duration: number }[];
       const clashes = overlapping.some((b) => {
         const bStart = parseInt(b.time.slice(0, 2), 10);

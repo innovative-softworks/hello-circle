@@ -510,7 +510,8 @@ export function Browse() {
       )}
 
       {!isClubs && compareIds.length > 0 && (
-        <div style={{ position: "fixed", left: 0, right: 0, bottom: 0, zIndex: 20, background: "#fff", borderTop: `1px solid ${colors.border}`, boxShadow: "0 -6px 20px rgba(30,40,32,.08)" }}>
+        // HC-QA-001 — sits on the mobile tab bar (not underneath it) and counts as bottom chrome.
+        <div data-bottom-chrome style={{ position: "fixed", left: 0, right: 0, bottom: "var(--bottom-nav)", zIndex: 20, background: "#fff", borderTop: `1px solid ${colors.border}`, boxShadow: "0 -6px 20px rgba(30,40,32,.08)" }}>
           {compareOpen && (
             <div style={{ maxWidth, margin: "0 auto", padding: "20px 24px 0", maxHeight: "60vh", overflowY: "auto" }}>
               <div style={{ overflowX: "auto" }}>

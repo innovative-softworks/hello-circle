@@ -162,7 +162,7 @@ export function ProviderProfilePage() {
   ];
 
   return (
-    <div className="fade-panel" style={{ animation: "fadeUp .3s ease both" }}>
+    <div className="fade-panel" style={{ animation: "fadeUp .3s ease backwards" }}>
       <section className="section-pad" style={{ maxWidth, margin: "0 auto", padding: "24px 24px 0" }}>
         {/* Utility row — breadcrumb + Share, echoing the reference's own
             top utility strip (see VendorHero.tsx's identical pattern on

@@ -1,4 +1,4 @@
-import type { ReactNode, RefObject } from "react";
+import { useEffect, useRef, type ReactNode, type RefObject } from "react";
 import { Stepper } from "./Stepper";
 import { Button } from "./ui";
 import { colors, fonts, radius } from "../theme";
@@ -59,6 +59,18 @@ export function GuidedFlow({
   errorRef?: RefObject<HTMLParagraphElement>;
   children: ReactNode;
 }) {
+  // HC-QA-052 adjacent — when the step changes (not on first render), move
+  // focus to the new step's heading so keyboard and screen-reader users
+  // start at the top of the new content. Previously focus stayed on the
+  // (re-labelled) submit button at the bottom; in Safari, Tab from there
+  // leaves the page entirely.
+  const headingRef = useRef<HTMLHeadingElement>(null);
+  const previousStep = useRef(currentStep);
+  useEffect(() => {
+    if (previousStep.current === currentStep) return;
+    previousStep.current = currentStep;
+    headingRef.current?.focus({ preventScroll: false });
+  }, [currentStep]);
   return (
     <div>
       <Stepper labels={stepLabels} current={currentStep} accent={accent} />
@@ -66,7 +78,7 @@ export function GuidedFlow({
         <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".07em", textTransform: "uppercase", color: accent === "orange" ? colors.orangeDark : colors.greenText, marginBottom: 6 }}>
           {String(currentStep).padStart(2, "0")} / {stepLabels[currentStep - 1]?.toUpperCase()}
         </div>
-        <h2 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 26, margin: "0 0 6px", letterSpacing: "-.01em" }}>{title}</h2>
+        <h2 ref={headingRef} tabIndex={-1} style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 26, margin: "0 0 6px", letterSpacing: "-.01em", outline: "none" }}>{title}</h2>
         {subtitle && <p style={{ fontSize: 14, color: colors.mutedLight, margin: "0 0 22px", maxWidth: 520, lineHeight: 1.5 }}>{subtitle}</p>}
       </div>
 

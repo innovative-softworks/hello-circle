@@ -98,7 +98,7 @@ export function CentreDetail() {
 
   return (
     <>
-    <div className="centre-detail-mobile-pad" style={{ animation: "fadeUp .35s ease both" }}>
+    <div className="centre-detail-mobile-pad" style={{ animation: "fadeUp .35s ease backwards" }}>
       <section className="section-pad" style={{ maxWidth, margin: "0 auto", padding: "26px 24px 0" }}>
         <BackLink onClick={() => navigate("/browse/centres")} marginBottom={16}>All community centres</BackLink>
         <PhotoGallery images={centre.images} alt={centre.name} ph={centre.ph} sharedHero />

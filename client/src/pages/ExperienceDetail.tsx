@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { OfficialCircleLink } from "../components/OfficialCircleLink";
 import { ParticipationBlock } from "../components/ParticipationBlock";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
-import { addFavourite, bookExperienceSession, downloadExperienceBookingIcs, fetchExperience, fetchExperiences, fetchFavourites, removeFavourite } from "../api";
+import { addFavourite, bookExperienceSession, downloadExperienceBookingIcs, fetchExperience, fetchExperiences, fetchFavourites, quoteExperienceSession, removeFavourite, type BookingQuote } from "../api";
 import { openCheckout } from "../native";
 import { ListingChatButton } from "../components/ListingChats";
 import { BackLink } from "../components/BackLink";
@@ -142,6 +142,9 @@ export function ExperienceDetail() {
   const [saved, setSaved] = useState(false);
   const [bookingOpen, setBookingOpen] = useState(false);
   const [selectedSession, setSelectedSession] = useState<ExperienceSessionSlot | null>(null);
+  // HC-QA-042 — the amount shown before confirming is the server's own quote
+  // (VAT + platform fee included), not a client-side price × party guess.
+  const [quote, setQuote] = useState<BookingQuote | null>(null);
   const [form, setForm] = useState({ participantName: "", email: resident?.email ?? "", phone: "", partySize: 1 });
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -185,6 +188,20 @@ export function ExperienceDetail() {
       })
       .catch(() => setSimilar([]));
   }, [experience]);
+
+  useEffect(() => {
+    if (!experience || !selectedSession || !experience.priceCents) {
+      setQuote(null);
+      return;
+    }
+    let live = true;
+    quoteExperienceSession(experience.id, selectedSession.id, { partySize: form.partySize })
+      .then((q) => live && setQuote(q))
+      .catch(() => live && setQuote(null));
+    return () => {
+      live = false;
+    };
+  }, [experience, selectedSession, form.partySize]);
 
   const handleToggleSave = async () => {
     if (!experience) return;
@@ -330,7 +347,8 @@ export function ExperienceDetail() {
   // (tapping one moves on), then your details, with the total and the pay
   // button pinned in the footer so they're always visible. A single-date
   // listing skips straight to step 2 (see openBooking).
-  const bookingTotalCents = experience.priceCents * form.partySize;
+  const bookingTotalCents = experience.priceCents * form.partySize; // > 0 ⇔ a paid booking (labels only)
+  const quotedTotal = quote && quote.partySize === form.partySize ? quote.totalCents : null;
   const bookingDirty = !!selectedSession && (form.participantName.trim() !== "" || form.phone.trim() !== "" || form.partySize > 1);
   const openBooking = () => {
     const available = experience.sessions.filter((s) => s.spotsLeft > 0);
@@ -424,10 +442,14 @@ export function ExperienceDetail() {
     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 14 }}>
       <div style={{ minWidth: 0 }}>
         <div style={{ fontWeight: 800, fontSize: 17, color: bookingTotalCents ? colors.text : colors.greenText }}>
-          {bookingTotalCents ? `€${(bookingTotalCents / 100).toFixed(2)}` : "Free"}
+          {bookingTotalCents ? (quotedTotal !== null ? `€${(quotedTotal / 100).toFixed(2)}` : "…") : "Free"}
         </div>
         <div style={{ fontSize: 12, color: colors.mutedLight }}>
-          {bookingTotalCents ? `${form.partySize} × €${(experience.priceCents / 100).toFixed(2)}` : "No payment required"}
+          {bookingTotalCents
+            ? quote && quotedTotal !== null
+              ? `${form.partySize} × €${(experience.priceCents / 100).toFixed(2)} + VAT €${(quote.vatCents / 100).toFixed(2)} + fee €${(quote.platformFeeCents / 100).toFixed(2)}`
+              : "Calculating total…"
+            : "No payment required"}
         </div>
       </div>
       <Button onClick={submit} disabled={submitting} style={{ flex: "none" }}>
@@ -437,7 +459,7 @@ export function ExperienceDetail() {
   ) : undefined;
 
   return (
-    <div className="experience-detail-mobile-pad" style={{ animation: "fadeUp .3s ease both" }}>
+    <div className="experience-detail-mobile-pad" style={{ animation: "fadeUp .3s ease backwards" }}>
       <section className="section-pad" style={{ maxWidth: 1280, margin: "0 auto", padding: "26px 24px 90px" }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 18, flexWrap: "wrap", gap: 12 }}>
           <BackLink onClick={() => navigate(browsePath)} marginBottom={0}>{browseLabel}</BackLink>

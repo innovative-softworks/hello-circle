@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { safeReturnTo } from "../authRedirect";
 import {
   cancelBooking,
@@ -48,7 +48,7 @@ import { MyLifeWaitingFor } from "../components/MyLifeWaitingFor";
 import { ParticipationTimeline, type TimelineRow } from "../components/ParticipationTimeline";
 import { Photo } from "../components/Photo";
 import { PostActivityFeedback } from "../components/PostActivityFeedback";
-import { Button, ConfirmDialog, EmptyState, onActivateProps, RowSkeleton, inputStyle, labelStyle } from "../components/ui";
+import { Button, ConfirmDialog, EmptyState, onActivateProps, RowSkeleton, inputStyle, labelStyle, LoadErrorState } from "../components/ui";
 import { dateLabel, euro } from "../euro";
 import { formatDatePill } from "../formatters";
 import { useGuest } from "../GuestContext";
@@ -292,9 +292,10 @@ function GameRow({ game }: { game: Game }) {
   const navigate = useNavigate();
   const cancelled = game.status === "cancelled";
   return (
-    <div
-      onClick={() => navigate(`/games/${game.id}`)}
-      style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: radius.card, padding: "18px 20px", opacity: cancelled ? 0.6 : 1, cursor: "pointer" }}
+    <Link
+      to={`/games/${game.id}`}
+      className="row-link"
+      style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: radius.card, padding: "18px 20px", opacity: cancelled ? 0.6 : 1 }}
     >
       <div style={{ display: "flex", alignItems: "center", gap: 18 }}>
         <div style={{ width: 52, height: 52, borderRadius: 12, background: colors.greenBg, flex: "none", display: "flex", alignItems: "center", justifyContent: "center", color: colors.greenText, fontWeight: 700, fontSize: 18 }}>
@@ -311,7 +312,7 @@ function GameRow({ game }: { game: Game }) {
         </div>
         <ChevronRightIcon size={16} style={{ flex: "none", color: colors.faint }} />
       </div>
-    </div>
+    </Link>
   );
 }
 
@@ -327,7 +328,7 @@ function ExperienceBookingRow({ booking }: { booking: MyExperienceBooking }) {
     <div
       style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: radius.card, padding: "18px 20px", opacity: cancelled ? 0.6 : 1 }}
     >
-      <div onClick={() => navigate(`/experiences/${booking.experienceId}`)} style={{ display: "flex", alignItems: "center", gap: 18, cursor: "pointer" }}>
+      <Link to={`/experiences/${booking.experienceId}`} className="row-link" style={{ display: "flex", alignItems: "center", gap: 18 }}>
         {booking.imageUrl ? (
           <img src={getMediaUrl(booking.imageUrl, "thumbnail")} alt={booking.title} style={{ width: 52, height: 52, borderRadius: 12, objectFit: "cover", flex: "none" }} />
         ) : (
@@ -350,7 +351,7 @@ function ExperienceBookingRow({ booking }: { booking: MyExperienceBooking }) {
           <div style={{ fontSize: 12, color: colors.faint }}>{booking.ref}</div>
         </div>
         <ChevronRightIcon size={16} style={{ flex: "none", color: colors.faint }} />
-      </div>
+      </Link>
       {shouldPromptFeedback(attendanceStateOf({ cancelled, attendance: booking.attendance }), isPast) && (
         <div style={{ marginTop: 12, paddingTop: 12, borderTop: `1px solid ${colors.border}` }} onClick={(e) => e.stopPropagation()}>
           <PostActivityFeedback kind="experience" reference={booking.ref} followTarget={booking.vendorId ? { type: "vendor", id: booking.vendorId } : undefined} />
@@ -363,9 +364,10 @@ function ExperienceBookingRow({ booking }: { booking: MyExperienceBooking }) {
 function CircleRow({ circle }: { circle: Circle }) {
   const navigate = useNavigate();
   return (
-    <div
-      onClick={() => navigate(`/circles/${circle.slug ?? circle.id}`)}
-      style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: radius.card, padding: "18px 20px", cursor: "pointer" }}
+    <Link
+      to={`/circles/${circle.slug ?? circle.id}`}
+      className="row-link"
+      style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: radius.card, padding: "18px 20px" }}
     >
       <div style={{ display: "flex", alignItems: "center", gap: 18 }}>
         <div style={{ width: 52, height: 52, borderRadius: 12, background: colors.orangeBg, flex: "none", display: "flex", alignItems: "center", justifyContent: "center", color: colors.orangeDark, fontWeight: 700, fontSize: 18 }}>
@@ -379,7 +381,7 @@ function CircleRow({ circle }: { circle: Circle }) {
         </div>
         <ChevronRightIcon size={16} style={{ flex: "none", color: colors.faint }} />
       </div>
-    </div>
+    </Link>
   );
 }
 
@@ -388,7 +390,7 @@ function ProgramEnrollmentRow({ enrollment }: { enrollment: MyProgramEnrollment 
   const cancelled = enrollment.status === "cancelled";
   return (
     <div style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: radius.card, padding: "18px 20px", opacity: cancelled ? 0.6 : 1 }}>
-      <div onClick={() => navigate(`/programs/${enrollment.programId}`)} style={{ display: "flex", alignItems: "center", gap: 18, cursor: "pointer" }}>
+      <Link to={`/programs/${enrollment.programId}`} className="row-link" style={{ display: "flex", alignItems: "center", gap: 18 }}>
         <Photo src={enrollment.imageUrl} alt={enrollment.title} ph={colors.panel} style={{ width: 52, height: 52, borderRadius: 12, overflow: "hidden", flex: "none" }} />
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
@@ -410,7 +412,7 @@ function ProgramEnrollmentRow({ enrollment }: { enrollment: MyProgramEnrollment 
           <div style={{ fontWeight: 700 }}>{enrollment.totalCents ? euro(enrollment.totalCents / 100) : "Free"}</div>
           <div style={{ fontSize: 12, color: colors.faint }}>{enrollment.ref}</div>
         </div>
-      </div>
+      </Link>
       {/* Resident Experience Polish — PostActivityFeedback previously only
           existed for Centre bookings/Club registrations. Gated on
           hasPastSession (a real session has actually happened), not just
@@ -443,7 +445,7 @@ function SectionHeader({ eyebrow, title, subtitle }: { eyebrow: string; title: s
 export function MyBookings() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { email: guestEmail, resident, loading: guestLoading, refresh: refreshGuest } = useGuest();
+  const { email: guestEmail, resident, loading: guestLoading, loadError: guestLoadError, refresh: refreshGuest } = useGuest();
 
   const [bookings, setBookings] = useState<MyBooking[]>([]);
   const [regs, setRegs] = useState<MyRegistration[]>([]);
@@ -799,7 +801,7 @@ export function MyBookings() {
   }
 
   return (
-    <div style={{ animation: "fadeUp .35s ease both" }}>
+    <div style={{ animation: "fadeUp .35s ease backwards" }}>
       {/* Header + account/utility actions share one row so "Edit profile" /
           "Find a booking" / "Sign out" read as one top-right cluster instead
           of two disconnected rows. "Find a booking" (guest reference
@@ -874,7 +876,14 @@ export function MyBookings() {
           </div>
         )}
 
-        {!guestEmail && (
+        {/* HC-QA-064 — a failed session/profile check is an error with a
+            retry, never a "Sign in" prompt for someone who is signed in. */}
+        {guestLoadError && !resident && (
+          <div style={{ marginBottom: 24 }}>
+            <LoadErrorState title="We couldn't load your account right now." detail="You're still signed in — this is usually temporary." onRetry={() => void refreshGuest()} />
+          </div>
+        )}
+        {!guestEmail && !guestLoadError && (
           <div style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 12, padding: "18px 20px", marginBottom: 24, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
             <div>
               <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 2 }}>Sign in to see your life</div>
@@ -1060,6 +1069,8 @@ export function MyBookings() {
                   so the sticky rail keeps following while this is open. */}
               <div style={{ gridColumn: 1, borderTop: `1px solid ${colors.border}`, paddingTop: 24 }}>
                 <button
+                  type="button"
+                  aria-expanded={showAllActivity}
                   onClick={() => setShowAllActivity((s) => !s)}
                   style={{ display: "flex", alignItems: "center", gap: 6, background: "none", border: "none", padding: 0, fontSize: 13.5, fontWeight: 700, color: colors.text, cursor: "pointer" }}
                 >

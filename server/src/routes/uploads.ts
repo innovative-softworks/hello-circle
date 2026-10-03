@@ -5,6 +5,7 @@ import { Router } from "express";
 import multer from "multer";
 import { requireVendorOrAdmin } from "../auth.js";
 import { dataDir } from "../dataDir.js";
+import { verifyStoredImage } from "../localUploads.js";
 
 export const uploadsRouter = Router();
 
@@ -42,6 +43,12 @@ const upload = multer({
 
 uploadsRouter.post("/", requireVendorOrAdmin, upload.single("file"), (req, res) => {
   if (!req.file) return res.status(400).json({ error: "No file uploaded" });
+  // HC-QA-062 adjacent — the declared Content-Type alone isn't proof; the
+  // file's own bytes must be the image type it claims to be.
+  if (!verifyStoredImage(req.file.path, req.file.mimetype)) {
+    fs.rmSync(req.file.path, { force: true });
+    return res.status(400).json({ error: "That file isn't a supported image (JPEG, PNG, WebP or GIF)" });
+  }
   res.status(201).json({ url: `/uploads/${req.file.filename}` });
 });
 

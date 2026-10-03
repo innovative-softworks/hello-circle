@@ -31,6 +31,7 @@ import { CalendarIcon, HeartIcon, PlusIcon, UsersIcon } from "../components/icon
 import { ShareButton } from "../components/ShareButton";
 import { Button, Card, ConfirmDialog, EmptyState, inputStyle, labelStyle, PageSpinner } from "../components/ui";
 import { ListingChatButton } from "../components/ListingChats";
+import { ChatModal } from "../components/ChatModal";
 import { BackLink } from "../components/BackLink";
 import { CircleAboutCard } from "../components/CircleAboutCard";
 import { CircleActivityCard } from "../components/CircleActivityCard";
@@ -165,6 +166,16 @@ export function CircleDetail() {
   const [confirmingClose, setConfirmingClose] = useState(false);
   const [inviteError, setInviteError] = useState<string | null>(null);
   const [pollOpen, setPollOpen] = useState(false);
+  // HC-QA-057 — "Message Circle" opens this Circle's own group chat.
+  const [chatOpen, setChatOpen] = useState(false);
+  // HC-QA-054 — one request at a time per form (a ref, so a fast double
+  // click can't slip in before the busy state re-renders).
+  const pollInFlight = useRef(false);
+  const [pollBusy, setPollBusy] = useState(false);
+  const [pollError, setPollError] = useState<string | null>(null);
+  const ideaInFlight = useRef(false);
+  const [ideaBusy, setIdeaBusy] = useState(false);
+  const [ideaError, setIdeaError] = useState<string | null>(null);
   const [pollQuestion, setPollQuestion] = useState("");
   const [pollDates, setPollDates] = useState(["", "", ""]);
   const [pollPlanId, setPollPlanId] = useState("");
@@ -316,29 +327,51 @@ export function CircleDetail() {
     if (!circle || !pollQuestion.trim()) return;
     const options = pollDates.filter(Boolean).map((date) => ({ date }));
     if (options.length === 0) return;
-    await createCirclePoll(circle.id, { question: pollQuestion.trim(), options, planId: pollPlanId || undefined });
-    setPollQuestion("");
-    setPollDates(["", "", ""]);
-    setPollPlanId("");
-    setPollOpen(false);
-    load();
+    if (pollInFlight.current) return;
+    pollInFlight.current = true;
+    setPollBusy(true);
+    setPollError(null);
+    try {
+      await createCirclePoll(circle.id, { question: pollQuestion.trim(), options, planId: pollPlanId || undefined });
+      setPollQuestion("");
+      setPollDates(["", "", ""]);
+      setPollPlanId("");
+      setPollOpen(false);
+      load();
+    } catch (e) {
+      setPollError(e instanceof Error ? e.message : "Couldn't create the poll — try again");
+    } finally {
+      pollInFlight.current = false;
+      setPollBusy(false);
+    }
   };
   const handleCreatePlanIdea = async () => {
     if (!circle || !newPlanTitle.trim()) return;
-    await createCirclePlanIdea(circle.id, {
-      title: newPlanTitle.trim(),
-      note: newPlanNote.trim() || undefined,
-      proposedDate: newPlanDate || undefined,
-      proposedTime: newPlanTime || undefined,
-      locationText: newPlanLocation.trim() || undefined,
-    });
-    setNewPlanTitle("");
-    setNewPlanNote("");
-    setNewPlanDate("");
-    setNewPlanTime("");
-    setNewPlanLocation("");
-    setPlanIdeaFormOpen(false);
-    load();
+    if (ideaInFlight.current) return;
+    ideaInFlight.current = true;
+    setIdeaBusy(true);
+    setIdeaError(null);
+    try {
+      await createCirclePlanIdea(circle.id, {
+        title: newPlanTitle.trim(),
+        note: newPlanNote.trim() || undefined,
+        proposedDate: newPlanDate || undefined,
+        proposedTime: newPlanTime || undefined,
+        locationText: newPlanLocation.trim() || undefined,
+      });
+      setNewPlanTitle("");
+      setNewPlanNote("");
+      setNewPlanDate("");
+      setNewPlanTime("");
+      setNewPlanLocation("");
+      setPlanIdeaFormOpen(false);
+      load();
+    } catch (e) {
+      setIdeaError(e instanceof Error ? e.message : "Couldn't share the idea — try again");
+    } finally {
+      ideaInFlight.current = false;
+      setIdeaBusy(false);
+    }
   };
   const handleConfirmPlanIdea = async (planId: string) => {
     if (!circle) return;
@@ -573,13 +606,14 @@ export function CircleDetail() {
             busy={joinBusy}
             onJoin={handleJoinCircle}
             onLeave={handleLeaveCircle}
-            onMessage={() => {}}
+            onMessage={() => setChatOpen(true)}
             onCreatePlan={() => {}}
             onInvite={handleInvite}
             inviteError={inviteError}
             onRequestClose={() => {}}
           />
         </div>
+        <ChatModal open={chatOpen} onClose={() => setChatOpen(false)} scopeType="circle" scopeId={circle.id} title={circle.name} />
       </section>
     );
   }
@@ -602,7 +636,7 @@ export function CircleDetail() {
     // the viewport). Keeping the fade-in animation scoped to the animated
     // content only, as a sibling of the fixed bar, avoids that.
     <>
-      <div style={{ animation: "fadeUp .3s ease both" }}>
+      <div style={{ animation: "fadeUp .3s ease backwards" }}>
       <div className="section-pad circle-detail-mobile-pad" style={{ maxWidth: 1440, margin: "0 auto", padding: "0 24px" }}>
         {/* Utility bar — back link + save/share, kept compact and non-primary per spec. */}
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "22px 0 20px", flexWrap: "wrap", gap: 12 }}>
@@ -805,9 +839,10 @@ export function CircleDetail() {
                         style={{ ...inputStyle, marginBottom: 10 }}
                       />
                       <div style={{ display: "flex", gap: 8 }}>
-                        <Button onClick={handleCreatePlanIdea} disabled={!newPlanTitle.trim()}>Suggest to Circle</Button>
+                        <Button onClick={handleCreatePlanIdea} disabled={!newPlanTitle.trim() || ideaBusy}>{ideaBusy ? "Sharing…" : "Suggest to Circle"}</Button>
                         <Button variant="ghost" onClick={() => setPlanIdeaFormOpen(false)}>Cancel</Button>
                       </div>
+                      {ideaError && <div role="alert" style={{ color: colors.danger, fontSize: 13, marginTop: 8 }}>{ideaError}</div>}
                     </Card>
                   )}
                   {planIdeas.length === 0 && !planIdeaFormOpen ? (
@@ -864,9 +899,10 @@ export function CircleDetail() {
                         />
                       ))}
                       <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
-                        <Button onClick={handleCreatePoll} disabled={!pollQuestion.trim()}>Create poll</Button>
+                        <Button onClick={handleCreatePoll} disabled={!pollQuestion.trim() || pollBusy}>{pollBusy ? "Creating…" : "Create poll"}</Button>
                         <Button variant="ghost" onClick={() => setPollOpen(false)}>Cancel</Button>
                       </div>
+                      {pollError && <div role="alert" style={{ color: colors.danger, fontSize: 13, marginTop: 8 }}>{pollError}</div>}
                     </Card>
                   )}
                   {polls.length === 0 && !pollOpen ? (
@@ -911,7 +947,7 @@ export function CircleDetail() {
               busy={joinBusy}
               onJoin={handleJoinCircle}
               onLeave={handleLeaveCircle}
-              onMessage={scrollToPlanning}
+              onMessage={() => setChatOpen(true)}
               // Phase 2 "Circles V2" — this is now the community-facing
               // "propose a plan" flow (scrolls to Planning and opens the
               // lightweight suggest-a-plan form) rather than jumping
@@ -1080,6 +1116,7 @@ export function CircleDetail() {
           )}
         </div>
       )}
+      <ChatModal open={chatOpen} onClose={() => setChatOpen(false)} scopeType="circle" scopeId={circle.id} title={circle.name} />
     </>
   );
 }

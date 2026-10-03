@@ -2,7 +2,7 @@ import crypto from "node:crypto";
 import { Router } from "express";
 import { logEvent, logView } from "../analytics.js";
 import { computeCapacity } from "../capacity.js";
-import { createCheckoutSession, issueStripeRefund, pricingLineItems } from "../checkoutService.js";
+import { createCheckoutSession, refundPaidOnce, pricingLineItems } from "../checkoutService.js";
 import { db } from "../db/index.js";
 import { countFamiliarCoParticipants } from "../db/queries.js";
 import { isOrganiser as isCircleOrganiser } from "./circleHelpers.js";
@@ -18,14 +18,47 @@ import { matchParticipationIntentsForGame } from "../participationIntents.js";
 import { computePricing, evaluateCoupon } from "../pricing.js";
 import { requireResident } from "../residents.js";
 import { matchSearchAlertsForGame } from "../searchAlerts.js";
-import { canViewPrivateGame } from "./sharing.js";
+import { canViewGame, discoverableGameSql, getEffectiveGameLifecycle, loadViewableGame } from "../gameVisibility.js";
+export { getEffectiveGameLifecycle } from "../gameVisibility.js";
 import { getListingAttributes, setListingAttributes } from "../listingAttributes.js";
 import { getNextSteps } from "../nextSteps.js";
 import { getOpportunities } from "../participationIntents.js";
-import { ConflictError, generateRef } from "../util.js";
-import { DISCOVERABLE_LIFECYCLES_SQL, getEffectiveAvailability, getEffectiveLifecycle, getPublicLifecycleLabel, validateLifecycleTransition, type Lifecycle } from "../lifecycle.js";
+import { BadRequestError, ConflictError, generateRef } from "../util.js";
+import { consumeCoupon, endPendingHold, gameSeatSql, holdIsLive } from "../bookingIntegrity.js";
+import { getEffectiveAvailability, getEffectiveLifecycle, getPublicLifecycleLabel, validateLifecycleTransition, type Lifecycle } from "../lifecycle.js";
 import { notifyGameNotifyMeSubscribers, subscribeNotifyMe, unsubscribeNotifyMe } from "../notifyMe.js";
 import { activeOfferedCount, claimWaitlistOffer, hasActiveOffer, offerToWaitlistEntry, promoteNextWaitlistEntry } from "../waitlist.js";
+
+// HC-QA-056 — Circle members hear about every plan (the join dialog and
+// Circle card promise this). Fired when a Circle plan becomes bookable —
+// created already active, or opened from Coming Soon — never for a draft or
+// a still-Coming-Soon plan (same reasoning as the follower notifications).
+// Current members only (removed members are no longer in circle_members),
+// never the organiser who created it, and at most once per member per plan
+// so a repeated open or a retry can't duplicate it.
+async function notifyCircleMembersOfPlan(row: GameRow) {
+  if (!row.circle_id) return;
+  const circle = (await db.prepare(`SELECT name FROM circles WHERE id = ?`).get(row.circle_id)) as { name: string } | undefined;
+  if (!circle) return;
+  const members = (await db
+    .prepare(`SELECT resident_id FROM circle_members WHERE circle_id = ? AND resident_id != ?`)
+    .all(row.circle_id, row.host_resident_id)) as { resident_id: string }[];
+  for (const m of members) {
+    const already = await db
+      .prepare(`SELECT 1 FROM notifications WHERE resident_id = ? AND kind = 'circle' AND listing_type = 'game' AND listing_id = ?`)
+      .get(m.resident_id, row.id);
+    if (already) continue;
+    await notifyResident({
+      residentId: m.resident_id,
+      kind: "circle",
+      title: `New plan in ${circle.name}: ${row.activity_label}`,
+      body: `${row.date} at ${row.time}${row.location_text ? ` · ${row.location_text}` : ""}`,
+      listingType: "game",
+      listingId: row.id,
+      ref: row.id,
+    });
+  }
+}
 
 export const gamesRouter = Router();
 
@@ -75,14 +108,6 @@ interface GameRow {
 // same precedent this codebase already uses (circles.ts's own displayStatus
 // logic, client/src/activityStatus.ts) rather than duplicating it into a
 // stored value that could drift from the real date.
-export function getEffectiveGameLifecycle(row: Pick<GameRow, "status" | "date" | "lifecycle" | "publish_at" | "booking_open_at" | "booking_close_at">, now: Date = new Date()): Lifecycle {
-  if (row.status === "cancelled") return "cancelled";
-  if (row.date < irelandTodayIso()) return "completed";
-  return getEffectiveLifecycle(
-    { lifecycle: row.lifecycle as Lifecycle, publishAt: row.publish_at, bookingOpenAt: row.booking_open_at, bookingCloseAt: row.booking_close_at },
-    now
-  );
-}
 
 async function toGameJson(row: GameRow) {
   const { n: joined } = (await db.prepare(`SELECT COUNT(*) as n FROM game_participants WHERE game_id = ? AND status = 'joined'`).get(row.id)) as {
@@ -198,11 +223,11 @@ gamesRouter.get("/", async (req, res) => {
       ? await db
           .prepare(
             `SELECT g.* FROM games g LEFT JOIN centres c ON c.id = g.centre_id
-             WHERE g.status = 'open' AND g.visibility = 'public' AND g.lifecycle IN ${DISCOVERABLE_LIFECYCLES_SQL} AND g.date >= ? AND c.county = ? ORDER BY g.date, g.time`
+             WHERE g.status = 'open' AND ${discoverableGameSql("g")} AND g.date >= ? AND c.county = ? ORDER BY g.date, g.time`
           )
           .all(today, county)
       : await db
-          .prepare(`SELECT * FROM games WHERE status = 'open' AND visibility = 'public' AND lifecycle IN ${DISCOVERABLE_LIFECYCLES_SQL} AND date >= ? ORDER BY date, time`)
+          .prepare(`SELECT * FROM games g WHERE g.status = 'open' AND ${discoverableGameSql("g")} AND g.date >= ? ORDER BY g.date, g.time`)
           .all(today)
   ) as GameRow[];
   res.json(await Promise.all(rows.map(toGameJson)));
@@ -432,7 +457,7 @@ gamesRouter.get("/:id", async (req, res) => {
   // applies for the share-card/OG-meta paths, rather than a second
   // ad-hoc check — 404 (not 403) so an unauthorized request can't even
   // confirm the id exists.
-  if (row.visibility !== "public" && !(await canViewPrivateGame(row.id, row.circle_id, req.resident?.id ?? null, row.host_resident_id))) {
+  if (!(await canViewGame(row, req.resident?.id ?? null))) {
     return res.status(404).json({ error: "Session not found" });
   }
   // §6 — a Draft is "not publicly discoverable... not searchable," full
@@ -518,12 +543,7 @@ const GAME_ICS_DEFAULT_DURATION_MS = 2 * 60 * 60 * 1000;
 gamesRouter.get("/:id/ics", async (req, res) => {
   const row = (await db.prepare(`SELECT * FROM games WHERE id = ?`).get(req.params.id)) as GameRow | undefined;
   if (!row) return res.status(404).json({ error: "Session not found" });
-  if (row.visibility !== "public" && !(await canViewPrivateGame(row.id, row.circle_id, req.resident?.id ?? null, row.host_resident_id))) {
-    return res.status(404).json({ error: "Session not found" });
-  }
-  if (getEffectiveGameLifecycle(row) === "draft" && req.resident?.id !== row.host_resident_id) {
-    return res.status(404).json({ error: "Session not found" });
-  }
+  if (!(await canViewGame(row, req.resident?.id ?? null))) return res.status(404).json({ error: "Session not found" });
   const json = await toGameJson(row);
   const [h, m] = json.time.split(":").map(Number);
   const start = irelandWallTimeToUtc(json.date, h, m);
@@ -549,6 +569,10 @@ const PARTICIPANTS_PREVIEW_LIMIT = 8;
 // the spec's own explicit privacy instruction. Capped to a preview count +
 // a total, so the client can render "+N" instead of dozens of avatars.
 gamesRouter.get("/:id/participants", async (req, res) => {
+  // HC-QA-010 — a child read must never exceed the canonical detail policy
+  // (GET /:id): 404 for a draft/scheduled or private activity the viewer
+  // can't see, same response as a nonexistent id.
+  if (!(await loadViewableGame(req.params.id, req.resident?.id ?? null))) return res.status(404).json({ error: "Session not found" });
   // Mutual-block filter (post-audit hardening pass) — if the viewer blocked
   // a participant, or a participant blocked the viewer, neither should see
   // the other here. This route is otherwise public/unauthenticated, so an
@@ -637,7 +661,7 @@ gamesRouter.post("/:id/participants/:residentId/remove", requireResident, async 
 // Platform Pre-Launch Polish — Changeset 4C/4D/4F. Paid Games previously had
 // no refund path from any role, anywhere — this is the first one. Full
 // refund only (no partial refunds this phase), Host-owned-game only, and
-// reuses issueStripeRefund() from checkoutService.ts exactly as-is — the
+// reuses refundPaidOnce() from checkoutService.ts exactly as-is — the
 // same function bookings/registrations/programs/experiences already refund
 // through — no second payment architecture. Cancellation and refund are
 // deliberately independent: this never touches `status`, only
@@ -663,25 +687,18 @@ gamesRouter.post("/:id/participants/:residentId/refund", requireResident, async 
   if (participant.paymentStatus !== "paid") return res.status(400).json({ error: "This participant hasn't paid, so there's nothing to refund" });
   if (!participant.stripeSessionId) return res.status(400).json({ error: "No payment record found for this participant" });
 
-  const result = await issueStripeRefund(participant.stripeSessionId);
-  if (!result.ok) return res.status(502).json({ error: result.error });
-
-  // Same idempotency idiom as vendorOperations.ts's refund routes — guards
-  // against two concurrent refund requests both passing the earlier check
-  // and both calling Stripe. changes===0 here means we lost that race; the
-  // request that won already notified/audited, so this one just no-ops.
-  const updateResult = await db
-    .prepare(`UPDATE game_participants SET payment_status = 'refunded' WHERE game_id = ? AND resident_id = ? AND payment_status = 'paid'`)
-    .run(req.params.id, req.params.residentId);
-  if (updateResult.changes === 0) return res.status(409).json({ error: "This participant has already been refunded" });
+  // HC-QA-051 — lock, re-check, refund and mark refunded in one transaction;
+  // concurrent requests get 409 instead of each calling the provider.
+  const result = await refundPaidOnce("game_participants", "game_id = ? AND resident_id = ?", [req.params.id, req.params.residentId], participant.stripeSessionId, "This participant has already been refunded", { actorUserId: req.resident!.id, objectType: "game_participant", objectId: `${req.params.id}:${req.params.residentId}` });
+  if (!result.ok) return res.status(result.status).json({ error: result.error });
 
   await writeAudit({
     actorUserId: req.resident!.id,
-    action: "game_participant.refunded_by_host",
+    action: result.reconciled ? "game_participant.refund_reconciled_external" : "game_participant.refunded_by_host",
     objectType: "game_participant",
     objectId: `${req.params.id}:${req.params.residentId}`,
     previousValue: { paymentStatus: "paid" },
-    newValue: { paymentStatus: "refunded", amountCents: result.amountCents },
+    newValue: { paymentStatus: "refunded", amountCents: result.amountCents, source: result.reconciled ? "stripe_external" : "hellocircle" },
   });
 
   const amount = `€${(result.amountCents / 100).toFixed(2)}`;
@@ -726,8 +743,10 @@ const GAME_UPDATES_LIMIT = 10;
 // Host-posted announcements ("Latest update" module, §25) — public read
 // (anyone with the link can see what changed), host-only write.
 gamesRouter.get("/:id/updates", async (req, res) => {
+  // HC-QA-010 — "public read" means public to whoever may view the activity.
+  if (!(await loadViewableGame(req.params.id, req.resident?.id ?? null))) return res.status(404).json({ error: "Session not found" });
   const rows = await db
-    .prepare(`SELECT id, message, created_at as createdAt FROM game_updates WHERE game_id = ? ORDER BY created_at DESC LIMIT ?`)
+    .prepare(`SELECT id, message, created_at as createdAt FROM game_updates WHERE game_id = ? ORDER BY created_at DESC, id DESC LIMIT ?`)
     .all(req.params.id, GAME_UPDATES_LIMIT);
   res.json(rows);
 });
@@ -804,7 +823,29 @@ gamesRouter.post("/:id/cancel", requireResident, async (req, res) => {
   if (!row) return res.status(404).json({ error: "Session not found" });
   if (row.host_resident_id !== req.resident!.id) return res.status(403).json({ error: "Only the host can cancel this session" });
 
-  await db.prepare(`UPDATE games SET status = 'cancelled' WHERE id = ?`).run(req.params.id);
+  // HC-QA-028 — idempotent: only the request that actually flips the status
+  // fans out notifications, so a repeat (or concurrent) cancel is a no-op.
+  const flipped = await db.prepare(`UPDATE games SET status = 'cancelled' WHERE id = ? AND status != 'cancelled'`).run(req.params.id);
+  if (flipped.changes === 0) return res.json({ ok: true, alreadyCancelled: true });
+
+  // Waitlisted residents lose their place too: close their entries (no
+  // offer can follow) and tell them, instead of leaving them "waiting".
+  const waiting = (await db
+    .prepare(`SELECT id, resident_id FROM waitlist_entries WHERE listing_type = 'game' AND listing_id = ? AND status IN ('waiting', 'offered')`)
+    .all(req.params.id)) as { id: number; resident_id: string | null }[];
+  await db.prepare(`UPDATE waitlist_entries SET status = 'cancelled' WHERE listing_type = 'game' AND listing_id = ? AND status IN ('waiting', 'offered')`).run(req.params.id);
+  for (const w of waiting) {
+    if (!w.resident_id) continue;
+    await notifyResident({
+      residentId: w.resident_id,
+      kind: "game",
+      title: `Cancelled: ${row.activity_label}`,
+      body: reason ? `The host has cancelled this session: ${reason}. You've been taken off the waitlist.` : "The host has cancelled this session. You've been taken off the waitlist.",
+      listingType: "game",
+      listingId: req.params.id,
+      ref: req.params.id,
+    });
+  }
 
   const participants = (await db
     .prepare(`SELECT resident_id FROM game_participants WHERE game_id = ? AND resident_id != ? AND status = 'joined'`)
@@ -849,9 +890,14 @@ gamesRouter.put("/:id", requireResident, async (req, res) => {
   if (!row) return res.status(404).json({ error: "Session not found" });
   if (row.host_resident_id !== req.resident!.id) return res.status(403).json({ error: "Only the host can edit this session" });
   if (row.status === "cancelled") return res.status(409).json({ error: "This session has been cancelled and can no longer be edited" });
+  // HC-QA-032 — only a CHANGED date must be in the future; an existing past
+  // (completed) activity can still have its other details corrected.
+  if (b.date !== row.date && (!/^\d{4}-\d{2}-\d{2}$/.test(b.date) || b.date < irelandTodayIso())) {
+    return res.status(400).json({ error: "Pick a date that hasn't passed" });
+  }
 
   const { n: joined } = (await db
-    .prepare(`SELECT COUNT(*) as n FROM game_participants WHERE game_id = ? AND status IN ('joined', 'pending_payment')`)
+    .prepare(`SELECT COUNT(*) as n FROM game_participants WHERE game_id = ? AND ${gameSeatSql()}`)
     .get(req.params.id)) as { n: number };
   if (b.capacity < joined) return res.status(409).json({ error: `Capacity can't be lower than the ${joined} people already joined` });
 
@@ -942,6 +988,24 @@ gamesRouter.post("/:id/lifecycle", requireResident, async (req, res) => {
   if (!row) return res.status(404).json({ error: "Session not found" });
   if (row.host_resident_id !== req.resident!.id) return res.status(403).json({ error: "Only the host can change this session's publishing state" });
 
+  // HC-QA-025 — games.lifecycle only ever holds the host's publishing choice
+  // (draft/coming_soon/active/paused/archived). Cancellation is owned by
+  // games.status via POST /:id/cancel (notifications, waitlist), and
+  // "completed" is derived from the date — storing either here produced
+  // contradictory rows (lifecycle=cancelled, status=open) with no side effects.
+  if (to === "cancelled") return res.status(409).json({ error: "Use cancel to cancel this session" });
+  if (to === "completed") return res.status(409).json({ error: "A session completes automatically after its date" });
+  if (row.status === "cancelled" && to !== "archived") return res.status(409).json({ error: "This session has been cancelled — it can only be archived" });
+  // HC-QA-028 — archiving is administrative: an upcoming, live session with
+  // other joined participants must be cancelled first (which notifies them)
+  // rather than silently disappearing from under them.
+  if (to === "archived" && row.status !== "cancelled" && getEffectiveGameLifecycle(row) !== "completed") {
+    const others = (await db
+      .prepare(`SELECT COUNT(*) as n FROM game_participants WHERE game_id = ? AND resident_id != ? AND status IN ('joined', 'pending_payment')`)
+      .get(row.id, row.host_resident_id)) as { n: number | string };
+    if (Number(others.n) > 0) return res.status(409).json({ error: "People have joined this session — cancel it first so they're told" });
+  }
+
   const from = row.lifecycle as Lifecycle;
   const result = validateLifecycleTransition("activity", from, to);
   if (!result.ok) return res.status(409).json({ error: result.reason });
@@ -961,6 +1025,7 @@ gamesRouter.post("/:id/lifecycle", requireResident, async (req, res) => {
     await matchSearchAlertsForGame({ id: row.id, activityLabel: row.activity_label, hostResidentId: row.host_resident_id, centreId: row.centre_id, date: row.date, time: row.time });
     await matchParticipationIntentsForGame({ id: row.id, activityLabel: row.activity_label, centreId: row.centre_id, date: row.date });
     await notifyGameNotifyMeSubscribers(row.id);
+    await notifyCircleMembersOfPlan(row);
   }
 
   const updated = (await db.prepare(`SELECT * FROM games WHERE id = ?`).get(req.params.id)) as GameRow;
@@ -1018,9 +1083,9 @@ interface CreateGameInput {
    * Omitted (an older client) falls back to syncing come_alone from soloFriendly. */
   participationAttributes?: string[];
   /** HelloCircle Manage Phase 4 — set when this game is created as a specific
-   * Circle's plan (the "Create plan" deep-link). Not ownership-checked here:
-   * whoever's running this wizard is, by definition, the one creating the
-   * game, regardless of which circle they're creating it for. */
+   * Circle's plan (the "Create plan" deep-link). Organiser-only — enforced in
+   * POST / below (HC-QA-014); createGameRow itself stays unchecked because its
+   * other caller (plan conversion) authorizes first. */
   circleId?: string;
   /** Phase 2 "Circles V2" — set when this game is being created by
    * converting a confirmed circle_plans row (the "Create Activity" action).
@@ -1177,6 +1242,7 @@ export async function createGameRow(input: CreateGameInput & { hostResidentId: s
     if (row.centre_id) {
       await notifyCentreFollowers(row.centre_id, { title: "New activity at this venue", body: `${row.activity_label} — ${row.date} at ${row.time}.`, ref: id });
     }
+    await notifyCircleMembersOfPlan(row);
   }
 
   return row;
@@ -1196,11 +1262,26 @@ gamesRouter.post("/", requireResident, async (req, res) => {
   if (b.lifecycle !== undefined && !["draft", "coming_soon", "active"].includes(b.lifecycle)) {
     return res.status(400).json({ error: "Publishing state must be draft, coming_soon, or active" });
   }
+  if (b.visibility !== undefined && !["public", "circle", "invite"].includes(b.visibility)) {
+    return res.status(400).json({ error: "Visibility must be public, circle, or invite" });
+  }
+  // HC-QA-032 — a new activity cannot start in the past (Ireland calendar
+  // date). Editing an existing past activity is handled separately in PUT.
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(b.date) || b.date < irelandTodayIso()) {
+    return res.status(400).json({ error: "Pick a date that hasn't passed" });
+  }
+
+  // HC-QA-014 (Model A, Circle-controlled planning) — attaching an activity
+  // to a Circle makes it that Circle's own plan ("From this Circle", nextPlan,
+  // organiser Plans, member visibility), so only the Circle's organiser may do
+  // it. Every client entry point that sends circleId is already organiser-only;
+  // members suggest through plan-ideas instead.
+  if (b.circleId && !(await isCircleOrganiser(b.circleId, req.resident!.id))) {
+    return res.status(403).json({ error: "Only the Circle's organiser can add a plan to it" });
+  }
 
   // Phase 2 "Circles V2" — converting a confirmed plan-idea into a real
-  // activity is a state-mutating action gated to that circle's organiser,
-  // unlike the bare circleId tag above (which stays intentionally
-  // unvalidated — see CreateGameInput's own comment).
+  // activity is a state-mutating action gated to that circle's organiser.
   if (b.planId) {
     const plan = (await db.prepare(`SELECT circle_id as circleId, status FROM circle_plans WHERE id = ?`).get(b.planId)) as { circleId: string; status: string } | undefined;
     if (!plan || plan.circleId !== b.circleId) return res.status(404).json({ error: "Plan not found" });
@@ -1214,9 +1295,20 @@ gamesRouter.post("/", requireResident, async (req, res) => {
     if (circle?.status === "closed") return res.status(409).json({ error: "This Circle is closed — plans can't be converted into new activities" });
   }
 
+  // HC-QA-023 — an official Circle plan must not be more public than its
+  // Circle unless the caller explicitly asks. The host UI never sends a
+  // visibility, so derive it from the Circle's join mode: an open Circle's
+  // plans are public; an approval/invite Circle's plans are circle-only
+  // (members, invitees and participants per canViewGame).
+  let visibility = b.visibility;
+  if (b.circleId && visibility === undefined) {
+    const circle = (await db.prepare(`SELECT join_mode as joinMode FROM circles WHERE id = ?`).get(b.circleId)) as { joinMode: string } | undefined;
+    visibility = circle?.joinMode === "open" ? "public" : "circle";
+  }
+
   let row: GameRow;
   try {
-    row = await createGameRow({ ...b, hostResidentId: req.resident!.id });
+    row = await createGameRow({ ...b, visibility, hostResidentId: req.resident!.id });
   } catch (e) {
     if (e instanceof ConflictError) return res.status(409).json({ error: e.message });
     throw e;
@@ -1270,7 +1362,31 @@ export async function checkMinParticipantsThreshold(gameId: string) {
 // returns a Stripe Checkout url; the join only becomes 'joined' once
 // stripeWebhook.ts confirms it — same never-trust-the-client contract as
 // bookings/registrations.
+class GameNotVisibleError extends Error {}
+
+/** HC-QA-047 — authoritative quote for a paid join (same computePricing as
+ * the join's checkout); visibility-gated exactly like GET /:id. */
+gamesRouter.get("/:id/quote", async (req, res) => {
+  const row = await loadViewableGame(req.params.id, req.resident?.id ?? null);
+  if (!row) return res.status(404).json({ error: "Session not found" });
+  const price = Number(row.price_cents ?? 0);
+  let discountCents = 0;
+  let couponCode: string | null = null;
+  const raw = typeof req.query.couponCode === "string" ? req.query.couponCode : "";
+  if (raw && price) {
+    const result = await evaluateCoupon(raw, price, { listingType: "game", listingId: req.params.id });
+    if (!result.valid) return res.status(400).json({ error: result.error });
+    discountCents = result.discountCents!;
+    couponCode = result.code!;
+  }
+  const p = computePricing(price, 0, discountCents, couponCode);
+  res.json({ subtotalCents: p.subtotalCents, discountCents: p.discountCents, vatCents: p.vatCents, platformFeeCents: p.platformFeeCents, totalCents: price ? p.totalCents : 0, couponCode, currency: "EUR" });
+});
+
 gamesRouter.post("/:id/join", requireResident, async (req, res) => {
+  // Visibility must precede coupons, participation and checkout: joining must
+  // never manufacture the relationship required to see a private activity.
+  if (!(await loadViewableGame(req.params.id, req.resident!.id))) return res.status(404).json({ error: "Session not found" });
   const { couponCode: rawCouponCode } = req.body as { couponCode?: string };
   let insertedRef: string | null = null;
   let checkoutRow: GameRow | null = null;
@@ -1278,8 +1394,8 @@ gamesRouter.post("/:id/join", requireResident, async (req, res) => {
   // Evaluated before the row-locked transaction below — coupon validity
   // depends only on the game's price, not on the capacity race that
   // transaction guards against — same order bookings.ts/registrations.ts
-  // already use. Skipped (not a 404) if the game doesn't exist; the
-  // transaction's own "Session not found" check handles that.
+  // already use. Visibility is checked above; the transaction rechecks the
+  // locked activity if it disappeared or changed in the meantime.
   let discountCents = 0;
   let appliedCouponCode: string | null = null;
   if (rawCouponCode) {
@@ -1302,7 +1418,9 @@ gamesRouter.post("/:id/join", requireResident, async (req, res) => {
   try {
     await db.transaction(async (tx) => {
       const row = (await tx.prepare(`SELECT * FROM games WHERE id = ? FOR UPDATE`).get(req.params.id)) as GameRow | undefined;
-      if (!row) throw new ConflictError("Session not found");
+      // Recheck the locked row in case publication/visibility changed after
+      // the early guard. Keep the canonical relationship policy unchanged.
+      if (!row || !(await canViewGame(row, req.resident!.id))) throw new GameNotVisibleError();
       joinedRow = row;
       // A 'pending_participants' game (Phase 4) is still joinable — that's
       // exactly how it reaches its threshold — only 'cancelled' blocks it.
@@ -1325,10 +1443,12 @@ gamesRouter.post("/:id/join", requireResident, async (req, res) => {
       // previously-cancelled row needs an explicit re-activation path
       // instead of a plain INSERT (the UNIQUE(game_id, resident_id) key
       // would otherwise reject it outright).
-      const existing = (await tx.prepare(`SELECT id, status, payment_status FROM game_participants WHERE game_id = ? AND resident_id = ?`).get(req.params.id, req.resident!.id)) as
-        | { id: number; status: string; payment_status: string }
+      const existing = (await tx.prepare(`SELECT id, status, payment_status, joined_at FROM game_participants WHERE game_id = ? AND resident_id = ?`).get(req.params.id, req.resident!.id)) as
+        | { id: number; status: string; payment_status: string; joined_at: string }
         | undefined;
-      if (existing && (existing.status === "joined" || existing.status === "pending_payment")) {
+      // A pending_payment row only blocks while its hold is live (HC-QA-041
+      // cross-model): an abandoned checkout can be restarted after expiry.
+      if (existing && (existing.status === "joined" || (existing.status === "pending_payment" && holdIsLive(existing.joined_at)))) {
         throw new ConflictError("You've already joined this session");
       }
       // A cancelled row that's still marked 'paid' means a prior payment was
@@ -1348,13 +1468,19 @@ gamesRouter.post("/:id/join", requireResident, async (req, res) => {
       }
 
       const { n: joined } = (await tx
-        .prepare(`SELECT COUNT(*) as n FROM game_participants WHERE game_id = ? AND status IN ('joined', 'pending_payment')`)
-        .get(req.params.id)) as { n: number };
-      if (computeCapacity(row.capacity, joined + reservedCount).isFull) throw new ConflictError("This session is full");
+        .prepare(`SELECT COUNT(*) as n FROM game_participants WHERE game_id = ? AND ${gameSeatSql()} AND resident_id != ?`)
+        .get(req.params.id, req.resident!.id)) as { n: number };
+      if (computeCapacity(row.capacity, Number(joined) + reservedCount).isFull) throw new ConflictError("This session is full");
 
       const isPaid = !!row.price_cents && row.price_cents > 0;
       if (isPaid) {
         const ref = generateRef("GJ");
+        // HC-QA-050 — reserve the coupon use with the seat hold (released if it fails/expires).
+        try {
+          await consumeCoupon(tx, appliedCouponCode);
+        } catch {
+          throw new BadRequestError("That code has been fully redeemed");
+        }
         if (existing) {
           await tx
             .prepare(
@@ -1392,6 +1518,8 @@ gamesRouter.post("/:id/join", requireResident, async (req, res) => {
       }
     });
   } catch (e) {
+    if (e instanceof GameNotVisibleError) return res.status(404).json({ error: "Session not found" });
+    if (e instanceof BadRequestError) return res.status(400).json({ error: e.message });
     if (e instanceof ConflictError) return res.status(409).json({ error: e.message });
     throw e;
   }
@@ -1437,11 +1565,11 @@ gamesRouter.post("/:id/join", requireResident, async (req, res) => {
     isNative: req.header("X-Client-Platform") === "mobile",
   });
   if (!result.ok) {
-    await db.prepare(`DELETE FROM game_participants WHERE ref = ?`).run(insertedRef);
+    await endPendingHold("game_participants", insertedRef, "delete");
     return res.status(result.status).json({ error: result.error });
   }
 
-  await db.prepare(`UPDATE game_participants SET stripe_session_id = ? WHERE ref = ?`).run(result.session.id, insertedRef);
+  await db.prepare(`UPDATE game_participants SET stripe_session_id = ?, total_cents = ? WHERE ref = ?`).run(result.session.id, pricing.totalCents, insertedRef);
   res.status(201).json({ ref: insertedRef, url: result.session.url, totalEuro: pricing.totalCents / 100 });
 });
 
@@ -1468,21 +1596,33 @@ gamesRouter.get("/status/:ref", requireResident, async (req, res) => {
 // --- waitlist (NEXT) — mirrors routes/clubs.ts's club waitlist ------------
 
 gamesRouter.post("/:id/waitlist", requireResident, async (req, res) => {
-  const row = (await db.prepare(`SELECT * FROM games WHERE id = ?`).get(req.params.id)) as GameRow | undefined;
-  if (!row) return res.status(404).json({ error: "Session not found" });
-  // §48 — same server-side lifecycle gate as a normal join: a waitlist
-  // signup is still a real transaction (an inserted waitlist_entries row),
-  // so a Draft/Coming Soon/Paused/Archived game must reject it too.
-  if (getEffectiveGameLifecycle(row) !== "active") {
-    return res.status(409).json({ error: "Bookings are not currently open for this activity" });
+  try {
+    await db.transaction(async (tx) => {
+      const row = (await tx.prepare(`SELECT * FROM games WHERE id = ? FOR UPDATE`).get(req.params.id)) as GameRow | undefined;
+      if (!row || !(await canViewGame(row, req.resident!.id))) throw new GameNotVisibleError();
+      // Visibility and lifecycle are independent gates, both before insertion.
+      if (getEffectiveGameLifecycle(row) !== "active") {
+        throw new ConflictError("Bookings are not currently open for this activity");
+      }
+      const existing = await tx
+        .prepare(`SELECT id FROM waitlist_entries WHERE listing_type = 'game' AND listing_id = ? AND resident_id = ? AND status = 'waiting'`)
+        .get(req.params.id, req.resident!.id);
+      if (existing) throw new ConflictError("You're already on the waitlist for this session");
+      // HC-QA-026 — a participant already holds a place; a parallel waitlist
+      // entry would later become an offer for capacity they already use.
+      const participant = await tx
+        .prepare(`SELECT 1 FROM game_participants WHERE game_id = ? AND resident_id = ? AND status IN ('joined', 'pending_payment')`)
+        .get(req.params.id, req.resident!.id);
+      if (participant) throw new ConflictError("You've already joined this session");
+      await tx
+        .prepare(`INSERT INTO waitlist_entries (listing_type, listing_id, resident_id, client_id, name, email) VALUES ('game', ?, ?, '', ?, ?)`)
+        .run(req.params.id, req.resident!.id, req.resident!.name, req.resident!.email);
+    });
+  } catch (e) {
+    if (e instanceof GameNotVisibleError) return res.status(404).json({ error: "Session not found" });
+    if (e instanceof ConflictError) return res.status(409).json({ error: e.message });
+    throw e;
   }
-  const existing = await db
-    .prepare(`SELECT id FROM waitlist_entries WHERE listing_type = 'game' AND listing_id = ? AND resident_id = ? AND status = 'waiting'`)
-    .get(req.params.id, req.resident!.id);
-  if (existing) return res.status(409).json({ error: "You're already on the waitlist for this session" });
-  await db
-    .prepare(`INSERT INTO waitlist_entries (listing_type, listing_id, resident_id, client_id, name, email) VALUES ('game', ?, ?, '', ?, ?)`)
-    .run(req.params.id, req.resident!.id, req.resident!.name, req.resident!.email);
   res.status(201).json({ ok: true });
 });
 
@@ -1534,8 +1674,8 @@ gamesRouter.post("/:id/waitlist/:entryId/offer", requireResident, async (req, re
 // refund via POST /:id/participants/:residentId/refund below), and is
 // blocked outright once the session's start time has passed.
 gamesRouter.delete("/:id/join", requireResident, async (req, res) => {
-  const row = (await db.prepare(`SELECT activity_label, host_resident_id as hostResidentId, date, time FROM games WHERE id = ?`).get(req.params.id)) as
-    | { activity_label: string; hostResidentId: string; date: string; time: string }
+  const row = (await db.prepare(`SELECT activity_label, host_resident_id as hostResidentId, date, time, price_cents as priceCents FROM games WHERE id = ?`).get(req.params.id)) as
+    | { activity_label: string; hostResidentId: string; date: string; time: string; priceCents: number | null }
     | undefined;
   if (!row) return res.status(404).json({ error: "Session not found" });
 
@@ -1545,16 +1685,24 @@ gamesRouter.delete("/:id/join", requireResident, async (req, res) => {
     return res.status(409).json({ error: "This activity has already taken place." });
   }
 
+  // HC-QA-028 — the host's own participant row is the ownership seat, not a
+  // normal place; same rule as POST /:id/participants/:residentId/remove.
+  if (row.hostResidentId === req.resident!.id) return res.status(400).json({ error: "You can't leave your own session as the host — cancel the session instead" });
+
   const participant = (await db
     .prepare(`SELECT payment_status as paymentStatus FROM game_participants WHERE game_id = ? AND resident_id = ? AND status = 'joined'`)
     .get(req.params.id, req.resident!.id)) as { paymentStatus: string | null } | undefined;
   if (!participant) return res.status(404).json({ error: "You haven't joined this session" });
 
-  await db.prepare(`UPDATE game_participants SET status = 'cancelled' WHERE game_id = ? AND resident_id = ? AND status = 'joined'`).run(req.params.id, req.resident!.id);
+  // HC-QA-046 — concurrent leaves: only the one that flips the row promotes/notifies.
+  const left = await db.prepare(`UPDATE game_participants SET status = 'cancelled' WHERE game_id = ? AND resident_id = ? AND status = 'joined'`).run(req.params.id, req.resident!.id);
+  if (left.changes !== 1) return res.status(404).json({ error: "You haven't joined this session" });
 
   promoteNextWaitlistEntry("game", req.params.id, row.activity_label);
 
-  if (participant.paymentStatus === "paid" && row.hostResidentId !== req.resident!.id) {
+  // HC-QA-027 — payment_status defaults to 'paid' even for a free join, so
+  // only a genuinely priced activity has anything to refund.
+  if (!!row.priceCents && row.priceCents > 0 && participant.paymentStatus === "paid" && row.hostResidentId !== req.resident!.id) {
     await notifyResident({
       residentId: row.hostResidentId,
       kind: "game",

@@ -187,7 +187,7 @@ export function PaymentSuccess() {
   const view = status === "paid" && ref && details ? viewFor(ref, details) : null;
 
   return (
-    <div style={{ animation: "fadeUp .3s ease both" }}>
+    <div style={{ animation: "fadeUp .3s ease backwards" }}>
       <section className="section-pad" style={{ maxWidth: 560, margin: "0 auto", padding: "64px 24px 90px", textAlign: "center" }}>
         {status === "checking" && (
           <>

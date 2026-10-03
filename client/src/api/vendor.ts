@@ -621,8 +621,8 @@ export function inviteStaff(email: string, platformRole: string): Promise<{ ok: 
   return request(`/vendor/org/staff/invite`, { method: "POST", body: JSON.stringify({ email, platformRole }) });
 }
 
-export function revokeInvite(token: string): Promise<{ ok: boolean }> {
-  return request(`/vendor/org/staff/invite/${token}`, { method: "DELETE" });
+export function revokeInvite(id: string): Promise<{ ok: boolean }> {
+  return request(`/vendor/org/staff/invite/${id}`, { method: "DELETE" });
 }
 
 export function fetchParticipants(q?: string): Promise<Participant[]> {

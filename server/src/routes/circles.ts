@@ -11,6 +11,7 @@ import { requireResident } from "../residents.js";
 import { generateSlug } from "../slugify.js";
 import { getShareData, type ShareEntityType } from "./sharing.js";
 import { isMember, isOrganiser } from "./circleHelpers.js";
+import { discoverableGameSql, filterViewable, GAME_VISIBILITY_COLUMNS } from "../gameVisibility.js";
 
 export const circlesRouter = Router();
 
@@ -70,27 +71,38 @@ interface NextPlan {
 // wide activity-label match (source: 'nearby') GET /:id/upcoming's fallback
 // also uses — every consumer of `source` must keep the two visually
 // distinct rather than presenting both as "this Circle's plan".
-async function nextPlanFor(circleId: string, activityLabel: string): Promise<NextPlan | null> {
+// HC-QA-011 — a Circle's OWN plans come only from the authoritative
+// games.circle_id relationship and are filtered per viewer by the canonical
+// detail policy (canViewGame). The label-matched "nearby" fallback is a
+// public recommendation, never an association, so it only ever draws from
+// publicly discoverable activities (discoverableGameSql).
+const CIRCLE_PLAN_COLUMNS = `g.id, g.date, g.time, g.capacity,
+              (SELECT COUNT(*) FROM game_participants gp WHERE gp.game_id = g.id AND gp.status = 'joined') as joined`;
+
+async function circleOwnGames<T extends Record<string, unknown>>(columns: string, where: string, params: unknown[], viewerId: string | null, order = "g.date, g.time"): Promise<T[]> {
+  const rows = (await db
+    .prepare(`SELECT ${columns}, ${GAME_VISIBILITY_COLUMNS("g")} FROM games g LEFT JOIN centres c ON c.id = g.centre_id WHERE ${where} ORDER BY ${order}`)
+    .all(...params)) as T[];
+  return filterViewable(rows, viewerId);
+}
+
+async function nextPlanFor(circleId: string, activityLabel: string, viewerId: string | null): Promise<NextPlan | null> {
   const today = irelandTodayIso();
-  const real = (await db
-    .prepare(
-      `SELECT g.id, g.date, g.time, g.capacity,
-              (SELECT COUNT(*) FROM game_participants gp WHERE gp.game_id = g.id AND gp.status = 'joined') as joined
-       FROM games g
-       WHERE g.status IN ('open', 'pending_participants') AND g.date >= ? AND g.circle_id = ?
-       ORDER BY g.date, g.time LIMIT 1`
-    )
-    .get(today, circleId)) as { id: string; date: string; time: string; capacity: number; joined: number } | undefined;
+  const [real] = await circleOwnGames<{ id: string; date: string; time: string; capacity: number; joined: number }>(
+    CIRCLE_PLAN_COLUMNS,
+    `g.status IN ('open', 'pending_participants') AND g.date >= ? AND g.circle_id = ?`,
+    [today, circleId],
+    viewerId
+  );
   if (real) {
     return { id: real.id, date: real.date, time: real.time, joined: real.joined, capacity: real.capacity, spotsLeft: computeCapacity(real.capacity, real.joined).spotsLeft ?? 0, source: "circle" };
   }
   if (!activityLabel) return null;
   const row = (await db
     .prepare(
-      `SELECT g.id, g.date, g.time, g.capacity,
-              (SELECT COUNT(*) FROM game_participants gp WHERE gp.game_id = g.id AND gp.status = 'joined') as joined
+      `SELECT ${CIRCLE_PLAN_COLUMNS}
        FROM games g
-       WHERE g.status IN ('open', 'pending_participants') AND g.date >= ? AND g.activity_label = ?
+       WHERE g.status IN ('open', 'pending_participants') AND g.date >= ? AND g.activity_label = ? AND ${discoverableGameSql("g")}
        ORDER BY g.date, g.time LIMIT 1`
     )
     .get(today, activityLabel)) as { id: string; date: string; time: string; capacity: number; joined: number } | undefined;
@@ -98,25 +110,19 @@ async function nextPlanFor(circleId: string, activityLabel: string): Promise<Nex
   return { id: row.id, date: row.date, time: row.time, joined: row.joined, capacity: row.capacity, spotsLeft: computeCapacity(row.capacity, row.joined).spotsLeft ?? 0, source: "nearby" };
 }
 
-// Loose calendar-month count of activity — a participation-health signal
-// (spec's "plans this month"), not a stored/cached counter. Changeset 2A:
-// prefers this Circle's own real games.circle_id-linked activity; only
-// falls back to the platform-wide activity-label count when the Circle has
-// none of its own this month, so a Circle that's actually running its own
-// sessions is never undercounted by (or conflated with) unrelated games.
-async function plansThisMonthFor(circleId: string, activityLabel: string): Promise<number> {
+async function plansThisMonthFor(circleId: string, activityLabel: string, viewerId: string | null): Promise<number> {
   const now = new Date();
   const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)).toISOString().slice(0, 10);
   const end = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1)).toISOString().slice(0, 10);
-  const { n: real } = (await db
-    .prepare(`SELECT COUNT(*) as n FROM games WHERE status IN ('open', 'pending_participants') AND circle_id = ? AND date >= ? AND date < ?`)
-    .get(circleId, start, end)) as { n: number };
+  // Counts follow the same visibility as the records (Part 6): a count must
+  // not reveal a plan the viewer couldn't open.
+  const real = (await circleOwnGames("g.id", `g.status IN ('open', 'pending_participants') AND g.circle_id = ? AND g.date >= ? AND g.date < ?`, [circleId, start, end], viewerId)).length;
   if (real > 0) return real;
   if (!activityLabel) return 0;
   const { n } = (await db
-    .prepare(`SELECT COUNT(*) as n FROM games WHERE status IN ('open', 'pending_participants') AND activity_label = ? AND date >= ? AND date < ?`)
+    .prepare(`SELECT COUNT(*) as n FROM games g WHERE g.status IN ('open', 'pending_participants') AND g.activity_label = ? AND g.date >= ? AND g.date < ? AND ${discoverableGameSql("g")}`)
     .get(activityLabel, start, end)) as { n: number };
-  return n;
+  return Number(n);
 }
 
 interface ActivePlan {
@@ -146,7 +152,7 @@ async function activePlanFor(circleId: string): Promise<ActivePlan | null> {
   return { id: row.id, title: row.title, status: row.status, proposedDate: row.proposedDate || null, proposedTime: row.proposedTime || null };
 }
 
-async function toCircleJson(row: CircleRow) {
+async function toCircleJson(row: CircleRow, viewerId: string | null) {
   const { n: members } = (await db.prepare(`SELECT COUNT(*) as n FROM circle_members WHERE circle_id = ?`).get(row.id)) as { n: number };
   // "Host" trust tier (IA spec five-layer audit) — badge-only, same
   // convention as games.ts's toGameJson. Neither the creator's id nor name
@@ -154,7 +160,7 @@ async function toCircleJson(row: CircleRow) {
   const creator = (await db.prepare(`SELECT name, host_status as hostStatus FROM residents WHERE id = ?`).get(row.created_by_resident_id)) as
     | { name: string; hostStatus: string }
     | undefined;
-  const [nextPlan, plansThisMonth, activePlan] = await Promise.all([nextPlanFor(row.id, row.activity_label), plansThisMonthFor(row.id, row.activity_label), activePlanFor(row.id)]);
+  const [nextPlan, plansThisMonth, activePlan] = await Promise.all([nextPlanFor(row.id, row.activity_label, viewerId), plansThisMonthFor(row.id, row.activity_label, viewerId), activePlanFor(row.id)]);
   return {
     id: row.id,
     name: row.name,
@@ -272,7 +278,7 @@ circlesRouter.get("/", async (req, res) => {
   const viewerId = req.resident?.id ?? null;
   res.json(
     await Promise.all(
-      rows.map(async (row) => ((await canViewCircleFull(row.id, row.join_mode, viewerId)) ? toCircleJson(row) : toCircleTeaserJson(row, viewerId)))
+      rows.map(async (row) => ((await canViewCircleFull(row.id, row.join_mode, viewerId)) ? toCircleJson(row, viewerId) : toCircleTeaserJson(row, viewerId)))
     )
   );
 });
@@ -295,7 +301,7 @@ circlesRouter.get("/mine", requireResident, async (req, res) => {
        ORDER BY c.name`
     )
     .all(req.resident!.id)) as (CircleRow & { viewer_role: string })[];
-  res.json(await Promise.all(rows.map(async (row) => ({ ...(await toCircleJson(row)), myRole: row.viewer_role }))));
+  res.json(await Promise.all(rows.map(async (row) => ({ ...(await toCircleJson(row, req.resident!.id)), myRole: row.viewer_role }))));
 });
 
 // Repetition-detection → "Make this a Circle?" (Phase 8) — activities where
@@ -399,7 +405,7 @@ circlesRouter.get("/:id", async (req, res) => {
   if (!(await canViewCircleFull(row.id, row.join_mode, viewerId))) {
     return res.json(await toCircleTeaserJson(row, viewerId));
   }
-  const json = await toCircleJson(row);
+  const json = await toCircleJson(row, viewerId);
   const stats = await detailStatsFor(row.id, row.activity_label);
   const familiarMembers = req.resident ? await familiarMembersFor(row.id, req.resident.id) : 0;
   res.json({ ...json, ...stats, familiarMembers });
@@ -486,14 +492,12 @@ circlesRouter.get("/:id/upcoming", async (req, res) => {
     return res.status(403).json({ error: "Only circle members can view this" });
   }
   const today = irelandTodayIso();
-  const real = (await db
-    .prepare(
-      `SELECT ${UPCOMING_SELECT}
-       FROM games g LEFT JOIN centres c ON c.id = g.centre_id
-       WHERE g.status IN ('open', 'pending_participants') AND g.date >= ? AND g.circle_id = ?
-       ORDER BY g.date, g.time LIMIT 10`
-    )
-    .all(today, circle.id)) as UpcomingRow[];
+  const real = (await circleOwnGames<UpcomingRow & Record<string, unknown>>(
+    UPCOMING_SELECT,
+    `g.status IN ('open', 'pending_participants') AND g.date >= ? AND g.circle_id = ?`,
+    [today, circle.id],
+    req.resident?.id ?? null
+  )).slice(0, 10) as UpcomingRow[];
 
   let nearby: UpcomingRow[] = [];
   if (real.length < 10 && circle.activity_label) {
@@ -503,7 +507,7 @@ circlesRouter.get("/:id/upcoming", async (req, res) => {
       .prepare(
         `SELECT ${UPCOMING_SELECT}
          FROM games g LEFT JOIN centres c ON c.id = g.centre_id
-         WHERE g.status IN ('open', 'pending_participants') AND g.date >= ? AND g.activity_label = ? ${excludeClause}
+         WHERE g.status IN ('open', 'pending_participants') AND g.date >= ? AND g.activity_label = ? AND ${discoverableGameSql("g")} ${excludeClause}
          ORDER BY g.date, g.time LIMIT ?`
       )
       .all(today, circle.activity_label, ...excludeIds, 10 - real.length)) as UpcomingRow[];
@@ -523,16 +527,15 @@ circlesRouter.get("/:id/plans", requireResident, async (req, res) => {
   const circle = (await db.prepare(`SELECT id FROM circles WHERE slug = ? OR id = ?`).get(req.params.id, req.params.id)) as { id: string } | undefined;
   if (!circle) return res.status(404).json({ error: "Circle not found" });
   if (!(await isOrganiser(circle.id, req.resident!.id))) return res.status(403).json({ error: "Only the organiser can view this" });
-  const rows = (await db
-    .prepare(
-      `SELECT g.id, g.activity_label as activityLabel, g.date, g.time, g.status, g.capacity,
+  const rows = (await circleOwnGames(
+    `g.id, g.activity_label as activityLabel, g.date, g.time, g.status, g.capacity,
               c.name as centreName,
-              (SELECT COUNT(*) FROM game_participants gp WHERE gp.game_id = g.id AND gp.status = 'joined') as joined
-       FROM games g LEFT JOIN centres c ON c.id = g.centre_id
-       WHERE g.circle_id = ?
-       ORDER BY g.date DESC, g.time DESC`
-    )
-    .all(circle.id)) as { id: string; activityLabel: string; date: string; time: string; status: string; capacity: number; centreName: string | null; joined: number }[];
+              (SELECT COUNT(*) FROM game_participants gp WHERE gp.game_id = g.id AND gp.status = 'joined') as joined`,
+    `g.circle_id = ?`,
+    [circle.id],
+    req.resident!.id,
+    "g.date DESC, g.time DESC"
+  )) as unknown as { id: string; activityLabel: string; date: string; time: string; status: string; capacity: number; centreName: string | null; joined: number }[];
   res.json(rows);
 });
 
@@ -786,15 +789,14 @@ circlesRouter.get("/:id/recent-activity", async (req, res) => {
     return res.status(403).json({ error: "Only circle members can view this" });
   }
   const today = irelandTodayIso();
-  const real = (await db
-    .prepare(
-      `SELECT g.id, g.activity_label as activityLabel, g.date,
-              (SELECT COUNT(*) FROM game_participants gp WHERE gp.game_id = g.id AND gp.attended = 1) as attended
-       FROM games g
-       WHERE g.circle_id = ? AND g.date < ? AND g.status != 'cancelled'
-       ORDER BY g.date DESC LIMIT ?`
-    )
-    .all(circle.id, today, RECENT_ACTIVITY_LIMIT * 3)) as { id: string; activityLabel: string; date: string; attended: number }[];
+  const real = (await circleOwnGames<{ id: string; activityLabel: string; date: string; attended: number }>(
+    `g.id, g.activity_label as activityLabel, g.date,
+              (SELECT COUNT(*) FROM game_participants gp WHERE gp.game_id = g.id AND gp.attended = 1) as attended`,
+    `g.circle_id = ? AND g.date < ? AND g.status != 'cancelled'`,
+    [circle.id, today],
+    req.resident?.id ?? null,
+    "g.date DESC"
+  )).slice(0, RECENT_ACTIVITY_LIMIT * 3);
   const realRecent = real.filter((r) => r.attended > 0).slice(0, RECENT_ACTIVITY_LIMIT);
   if (realRecent.length > 0 || !circle.activity_label) return res.json(realRecent.map((r) => ({ ...r, source: "circle" as const })));
 
@@ -803,7 +805,7 @@ circlesRouter.get("/:id/recent-activity", async (req, res) => {
       `SELECT g.id, g.activity_label as activityLabel, g.date,
               (SELECT COUNT(*) FROM game_participants gp WHERE gp.game_id = g.id AND gp.attended = 1) as attended
        FROM games g
-       WHERE g.activity_label = ? AND g.date < ? AND g.status != 'cancelled'
+       WHERE g.activity_label = ? AND g.date < ? AND g.status != 'cancelled' AND ${discoverableGameSql("g")}
        ORDER BY g.date DESC LIMIT ?`
     )
     .all(circle.activity_label, today, RECENT_ACTIVITY_LIMIT * 3)) as { id: string; activityLabel: string; date: string; attended: number }[];
@@ -867,7 +869,7 @@ circlesRouter.get("/:id/activity", async (req, res) => {
 
   const [{ n: newMembers }, { n: plansCreated }, { n: participants }] = await Promise.all([
     db.prepare(`SELECT COUNT(*) as n FROM circle_members WHERE circle_id = ? AND joined_at >= ?`).get(circle.id, startStr) as Promise<{ n: number }>,
-    db.prepare(`SELECT COUNT(*) as n FROM games WHERE activity_label = ? AND created_at >= ?`).get(circle.activity_label, startStr) as Promise<{ n: number }>,
+    db.prepare(`SELECT COUNT(*) as n FROM games g WHERE g.activity_label = ? AND g.created_at >= ? AND ${discoverableGameSql("g")}`).get(circle.activity_label, startStr) as Promise<{ n: number }>,
     // "Participated" means the plan actually happened — bounded to the
     // past, not open-ended into future bookings, which would double as an
     // upcoming-plans count instead of a real participation signal.
@@ -875,7 +877,7 @@ circlesRouter.get("/:id/activity", async (req, res) => {
       .prepare(
         `SELECT COUNT(DISTINCT gp.resident_id) as n FROM game_participants gp
          JOIN games g ON g.id = gp.game_id
-         WHERE g.activity_label = ? AND gp.status = 'joined' AND g.date >= ? AND g.date <= ?`
+         WHERE g.activity_label = ? AND gp.status = 'joined' AND g.date >= ? AND g.date <= ? AND ${discoverableGameSql("g")}`
       )
       .get(circle.activity_label, startDate, today) as Promise<{ n: number }>,
   ]);
@@ -965,6 +967,12 @@ circlesRouter.post("/:id/join", requireResident, async (req, res) => {
   if (circle.joinMode === "approval") {
     const alreadyMember = await db.prepare(`SELECT 1 FROM circle_members WHERE circle_id = ? AND resident_id = ?`).get(req.params.id, req.resident!.id);
     if (alreadyMember) return res.status(409).json({ error: "Already a member" });
+    // HC-QA-033 — idempotent while pending: the same request again changes
+    // nothing and must not re-notify organisers. (A re-request after a
+    // decline is a new pending request and does notify.)
+    if (existingInvite?.status === "pending" && existingInvite.initiatedBy === "resident") {
+      return res.status(202).json({ ok: true, requested: true });
+    }
     const requestId = crypto.randomUUID();
     await db
       .prepare(
@@ -1167,7 +1175,7 @@ circlesRouter.put("/:id", requireResident, async (req, res) => {
     );
 
   const row = (await db.prepare(`SELECT * FROM circles WHERE id = ?`).get(req.params.id)) as CircleRow;
-  res.json(await toCircleJson(row));
+  res.json(await toCircleJson(row, req.resident!.id));
 });
 
 // HelloCircle Manage Phase 4 — organiser removes a non-organiser member.
@@ -1261,6 +1269,10 @@ circlesRouter.post("/:id/invite", requireResident, async (req, res) => {
   if (!(await isOrganiser(req.params.id, req.resident!.id))) return res.status(403).json({ error: "Only the organiser can invite" });
   const circle = (await db.prepare(`SELECT name, status FROM circles WHERE id = ?`).get(req.params.id)) as { name: string; status: string } | undefined;
   if (circle?.status === "closed") return res.status(409).json({ error: "This Circle is closed — new invitations can't be sent" });
+  // HC-QA-033 — Circle invitations are resident-account invitations (no
+  // email/external invite model here): an unknown resident can't be invited.
+  const invitee = await db.prepare(`SELECT 1 FROM residents WHERE id = ?`).get(residentId);
+  if (!invitee) return res.status(404).json({ error: "We couldn't find that person" });
   const alreadyMember = await db.prepare(`SELECT 1 FROM circle_members WHERE circle_id = ? AND resident_id = ?`).get(req.params.id, residentId);
   if (alreadyMember) return res.status(409).json({ error: "Already a member" });
   const id = crypto.randomUUID();
@@ -1439,16 +1451,33 @@ circlesRouter.post("/:id/polls", requireResident, async (req, res) => {
     const plan = await db.prepare(`SELECT 1 FROM circle_plans WHERE id = ? AND circle_id = ?`).get(planId, req.params.id);
     if (!plan) return res.status(404).json({ error: "Plan not found" });
   }
+  // HC-QA-054 — retry/double-submit safe. Serialise poll creation per Circle
+  // (row lock), then treat an identical OPEN poll by the same member (same
+  // question, same plan link, same date/time options) as the same logical
+  // poll and return it instead of inserting a duplicate. A different
+  // question, different options or a different member is a new poll.
+  const normalisedQuestion = question.trim();
+  const optionKey = (list: { date: string; time?: string }[]) => list.map((o) => `${o.date}|${o.time ?? ""}`).join(",");
+  const wanted = optionKey(options);
   const id = crypto.randomUUID();
-  await db.transaction(async (tx) => {
+  const result = await db.transaction(async (tx) => {
+    await tx.prepare(`SELECT id FROM circles WHERE id = ? FOR UPDATE`).get(req.params.id);
+    const candidates = (await tx
+      .prepare(`SELECT id FROM circle_polls WHERE circle_id = ? AND created_by_resident_id = ? AND status = 'open' AND question = ? AND COALESCE(plan_id, '') = ?`)
+      .all(req.params.id, req.resident!.id, normalisedQuestion, planId ?? "")) as { id: string }[];
+    for (const c of candidates) {
+      const existing = (await tx.prepare(`SELECT date, time FROM circle_poll_options WHERE poll_id = ? ORDER BY sort_order`).all(c.id)) as { date: string; time: string }[];
+      if (optionKey(existing) === wanted) return { id: c.id, created: false };
+    }
     await tx
       .prepare(`INSERT INTO circle_polls (id, circle_id, question, created_by_resident_id, plan_id) VALUES (?, ?, ?, ?, ?)`)
-      .run(id, req.params.id, question, req.resident!.id, planId ?? null);
+      .run(id, req.params.id, normalisedQuestion, req.resident!.id, planId ?? null);
     for (const [i, o] of options.entries()) {
       await tx.prepare(`INSERT INTO circle_poll_options (poll_id, date, time, sort_order) VALUES (?, ?, ?, ?)`).run(id, o.date, o.time ?? "", i);
     }
+    return { id, created: true };
   });
-  res.status(201).json({ id });
+  res.status(result.created ? 201 : 200).json({ id: result.id, duplicate: !result.created });
 });
 
 circlesRouter.post("/:id/polls/:pollId/options/:optionId/vote", requireResident, async (req, res) => {
@@ -1456,6 +1485,15 @@ circlesRouter.post("/:id/polls/:pollId/options/:optionId/vote", requireResident,
   // poll creation above — voting only checked requireResident, so a
   // non-member could vote in any Circle's poll, including invite-only ones.
   if (!(await isMember(req.params.id, req.resident!.id))) return res.status(403).json({ error: "Only circle members can vote" });
+  // HC-QA-013 — resolve the poll THROUGH the authorized Circle (same
+  // parent→child rule as HC-QA-008): a member of Circle B must not reach
+  // Circle A's poll by pairing B's id with A's poll id.
+  const poll = (await db.prepare(`SELECT id, status FROM circle_polls WHERE id = ? AND circle_id = ?`).get(req.params.pollId, req.params.id)) as
+    | { id: string; status: string }
+    | undefined;
+  if (!poll) return res.status(404).json({ error: "Poll not found" });
+  // HC-QA-024 — a closed poll's result is final: no new votes and no toggles.
+  if (poll.status !== "open") return res.status(409).json({ error: "This poll is closed" });
   const option = await db.prepare(`SELECT id FROM circle_poll_options WHERE id = ? AND poll_id = ?`).get(req.params.optionId, req.params.pollId);
   if (!option) return res.status(404).json({ error: "Option not found" });
   const existing = await db.prepare(`SELECT 1 FROM circle_poll_votes WHERE poll_id = ? AND option_id = ? AND resident_id = ?`).get(req.params.pollId, req.params.optionId, req.resident!.id);

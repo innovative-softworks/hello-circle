@@ -226,21 +226,21 @@ export function ExperienceEditor({
   const pricingFields = (
     <div className="grid-responsive" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, alignItems: "end" }}>
       <div>
-        <label style={labelStyle}>Duration (minutes)</label>
-        <input type="number" value={form.durationMinutes ?? 120} onChange={(e) => set("durationMinutes", Number(e.target.value))} style={{ ...inputStyle, maxWidth: 140 }} />
+        <label htmlFor="experience-settings-duration" style={labelStyle}>Duration (minutes)</label>
+        <input id="experience-settings-duration" type="number" value={form.durationMinutes ?? 120} onChange={(e) => set("durationMinutes", Number(e.target.value))} style={{ ...inputStyle, maxWidth: 140 }} />
       </div>
       <div>
-        <label style={labelStyle}>Price per person (€)</label>
+        <label htmlFor="experience-settings-price" style={labelStyle}>Price per person (€)</label>
         {form.kind === "volunteer" ? (
           <p style={{ fontSize: 13, color: colors.mutedLight, margin: 0 }}>Volunteering is always free to sign up for.</p>
         ) : (
-          <input type="number" value={(form.priceCents ?? 0) / 100} onChange={(e) => set("priceCents", Math.round(Number(e.target.value) * 100))} style={{ ...inputStyle, maxWidth: 140 }} />
+          <input id="experience-settings-price" type="number" value={(form.priceCents ?? 0) / 100} onChange={(e) => set("priceCents", Math.round(Number(e.target.value) * 100))} style={{ ...inputStyle, maxWidth: 140 }} />
         )}
       </div>
       <NumberStepper label="Capacity per departure" value={form.capacity ?? 8} onChange={(n) => set("capacity", n)} min={1} />
       <div>
-        <label style={labelStyle}>Payment</label>
-        <select value={form.paymentMethod ?? "online"} onChange={(e) => set("paymentMethod", e.target.value as "online" | "cash")} style={inputStyle}>
+        <label htmlFor="experience-settings-payment" style={labelStyle}>Payment</label>
+        <select id="experience-settings-payment" value={form.paymentMethod ?? "online"} onChange={(e) => set("paymentMethod", e.target.value as "online" | "cash")} style={inputStyle}>
           <option value="online">Online payment</option>
           <option value="cash">Cash on arrival</option>
         </select>

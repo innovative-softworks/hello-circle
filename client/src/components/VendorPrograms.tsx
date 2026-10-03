@@ -268,20 +268,20 @@ export function ProgramManager({ programId, onChanged }: { programId: string; on
       </div>
       {addOpen ? (
         <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "flex-end", marginBottom: 20 }}>
-          <input type="date" value={date} onChange={(e) => setDate(e.target.value)} style={{ ...inputStyle, width: 150 }} />
-          <input type="time" value={time} onChange={(e) => setTime(e.target.value)} style={{ ...inputStyle, width: 110 }} />
-          <input type="number" value={duration} onChange={(e) => setDuration(Number(e.target.value))} placeholder="Minutes" style={{ ...inputStyle, width: 90 }} />
-          <input value={capacity} onChange={(e) => setCapacity(e.target.value)} placeholder="Cap" type="number" style={{ ...inputStyle, width: 70 }} />
-          <input value={sessionInstructor} onChange={(e) => setSessionInstructor(e.target.value)} placeholder="Instructor (optional)" style={{ ...inputStyle, width: 150 }} />
+          <input aria-label="Session date" type="date" value={date} onChange={(e) => setDate(e.target.value)} style={{ ...inputStyle, width: 150 }} />
+          <input aria-label="Session start time" type="time" value={time} onChange={(e) => setTime(e.target.value)} style={{ ...inputStyle, width: 110 }} />
+          <input aria-label="Duration in minutes" type="number" value={duration} onChange={(e) => setDuration(Number(e.target.value))} placeholder="Minutes" style={{ ...inputStyle, width: 90 }} />
+          <input aria-label="Capacity" value={capacity} onChange={(e) => setCapacity(e.target.value)} placeholder="Cap" type="number" style={{ ...inputStyle, width: 70 }} />
+          <input aria-label="Instructor (optional)" value={sessionInstructor} onChange={(e) => setSessionInstructor(e.target.value)} placeholder="Instructor (optional)" style={{ ...inputStyle, width: 150 }} />
           {program.listingType === "centre" && (
-            <select value={sessionRoomId} onChange={(e) => setSessionRoomId(e.target.value)} style={{ ...inputStyle, width: 150 }}>
+            <select aria-label="Room" value={sessionRoomId} onChange={(e) => setSessionRoomId(e.target.value)} style={{ ...inputStyle, width: 150 }}>
               <option value="">No room set</option>
               {rooms.filter((r) => r.active).map((r) => (
                 <option key={r.id} value={r.id}>{r.name}</option>
               ))}
             </select>
           )}
-          <select value={repeat} onChange={(e) => setRepeat(e.target.value as typeof repeat)} style={{ ...inputStyle, width: 130 }}>
+          <select aria-label="Repeat" value={repeat} onChange={(e) => setRepeat(e.target.value as typeof repeat)} style={{ ...inputStyle, width: 130 }}>
             <option value="none">Doesn't repeat</option>
             <option value="weekly">Every week</option>
             <option value="biweekly">Every 2 weeks</option>
@@ -432,14 +432,14 @@ export function ProgramCreateForm({
       </p>
       <div className="grid-responsive" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 12 }}>
         <div>
-          <label style={labelStyle}>Attach to</label>
-          <select value={form.listingType} onChange={(e) => setForm((f) => ({ ...f, listingType: e.target.value as "centre" | "club", listingId: "" }))} style={inputStyle}>
+          <label htmlFor="program-attach-to" style={labelStyle}>Attach to</label>
+          <select id="program-attach-to" value={form.listingType} onChange={(e) => setForm((f) => ({ ...f, listingType: e.target.value as "centre" | "club", listingId: "" }))} style={inputStyle}>
             <option value="centre">Community centre</option>
             <option value="club">Sports club</option>
           </select>
         </div>
         <div>
-          <label style={labelStyle}>Listing</label>
+          <label htmlFor="program-listing" style={labelStyle}>Listing</label>
           <select id="program-listing" value={form.listingId} onChange={(e) => setForm((f) => ({ ...f, listingId: e.target.value }))} style={inputStyle}>
             <option value="">— choose —</option>
             {options.map((o) => (
@@ -448,28 +448,28 @@ export function ProgramCreateForm({
           </select>
         </div>
         <div style={{ gridColumn: "1 / -1" }}>
-          <label style={labelStyle}>Title</label>
+          <label htmlFor="program-title" style={labelStyle}>Title</label>
           <input id="program-title" value={form.title} onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))} style={inputStyle} />
         </div>
         <div style={{ gridColumn: "1 / -1" }}>
-          <label style={labelStyle}>Description</label>
+          <label htmlFor="program-description" style={labelStyle}>Description</label>
           <textarea id="program-description" value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))} rows={2} style={{ ...inputStyle, resize: "vertical" }} />
         </div>
         <div>
-          <label style={labelStyle}>Age range</label>
-          <input value={form.ageRange} onChange={(e) => setForm((f) => ({ ...f, ageRange: e.target.value }))} placeholder="e.g. 8-12" style={inputStyle} />
+          <label htmlFor="program-age-range" style={labelStyle}>Age range</label>
+          <input id="program-age-range" value={form.ageRange} onChange={(e) => setForm((f) => ({ ...f, ageRange: e.target.value }))} placeholder="e.g. 8-12" style={inputStyle} />
         </div>
         <div>
-          <label style={labelStyle}>Price (€, total)</label>
-          <input value={form.priceCents} onChange={(e) => setForm((f) => ({ ...f, priceCents: e.target.value }))} placeholder="0 = free" style={{ ...inputStyle, maxWidth: 140 }} />
+          <label htmlFor="program-price-total" style={labelStyle}>Price (€, total)</label>
+          <input id="program-price-total" value={form.priceCents} onChange={(e) => setForm((f) => ({ ...f, priceCents: e.target.value }))} placeholder="0 = free" style={{ ...inputStyle, maxWidth: 140 }} />
         </div>
         <div>
-          <label style={labelStyle}>Capacity</label>
-          <input value={form.capacity} onChange={(e) => setForm((f) => ({ ...f, capacity: e.target.value }))} placeholder="Unlimited" style={{ ...inputStyle, maxWidth: 140 }} />
+          <label htmlFor="program-capacity" style={labelStyle}>Capacity</label>
+          <input id="program-capacity" value={form.capacity} onChange={(e) => setForm((f) => ({ ...f, capacity: e.target.value }))} placeholder="Unlimited" style={{ ...inputStyle, maxWidth: 140 }} />
         </div>
         <div>
-          <label style={labelStyle}>Category</label>
-          <select value={form.category} onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))} style={inputStyle}>
+          <label htmlFor="program-category" style={labelStyle}>Category</label>
+          <select id="program-category" value={form.category} onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))} style={inputStyle}>
             <option value="">— none —</option>
             {ACTIVITY_CATEGORIES.map((c) => (
               <option key={c} value={c}>{c}</option>
@@ -477,8 +477,8 @@ export function ProgramCreateForm({
           </select>
         </div>
         <div>
-          <label style={labelStyle}>Skill level</label>
-          <select value={form.skillLevel} onChange={(e) => setForm((f) => ({ ...f, skillLevel: e.target.value }))} style={inputStyle}>
+          <label htmlFor="program-skill-level" style={labelStyle}>Skill level</label>
+          <select id="program-skill-level" value={form.skillLevel} onChange={(e) => setForm((f) => ({ ...f, skillLevel: e.target.value }))} style={inputStyle}>
             <option value="">— none —</option>
             {SKILL_LEVELS.map((s) => (
               <option key={s} value={s}>{s}</option>
@@ -486,20 +486,20 @@ export function ProgramCreateForm({
           </select>
         </div>
         <div>
-          <label style={labelStyle}>Instructor (optional)</label>
-          <input value={form.instructorName} onChange={(e) => setForm((f) => ({ ...f, instructorName: e.target.value }))} style={inputStyle} />
+          <label htmlFor="program-instructor" style={labelStyle}>Instructor (optional)</label>
+          <input id="program-instructor" value={form.instructorName} onChange={(e) => setForm((f) => ({ ...f, instructorName: e.target.value }))} style={inputStyle} />
         </div>
         <div style={{ gridColumn: "1 / -1" }}>
-          <label style={labelStyle}>Equipment needed (one per line, optional)</label>
-          <textarea value={equipmentText} onChange={(e) => setEquipmentText(e.target.value)} rows={2} style={{ ...inputStyle, resize: "vertical" }} />
+          <label htmlFor="program-equipment" style={labelStyle}>Equipment needed (one per line, optional)</label>
+          <textarea id="program-equipment" value={equipmentText} onChange={(e) => setEquipmentText(e.target.value)} rows={2} style={{ ...inputStyle, resize: "vertical" }} />
         </div>
         <div style={{ gridColumn: "1 / -1" }}>
-          <label style={labelStyle}>Guardian rules (optional — for programs involving children/dependants)</label>
-          <textarea value={form.guardianRules} onChange={(e) => setForm((f) => ({ ...f, guardianRules: e.target.value }))} rows={2} style={{ ...inputStyle, resize: "vertical" }} />
+          <label htmlFor="program-guardian-rules" style={labelStyle}>Guardian rules (optional — for programs involving children/dependants)</label>
+          <textarea id="program-guardian-rules" value={form.guardianRules} onChange={(e) => setForm((f) => ({ ...f, guardianRules: e.target.value }))} rows={2} style={{ ...inputStyle, resize: "vertical" }} />
         </div>
         <div style={{ gridColumn: "1 / -1" }}>
-          <label style={labelStyle}>Safeguarding info (optional)</label>
-          <textarea value={form.safeguardingInfo} onChange={(e) => setForm((f) => ({ ...f, safeguardingInfo: e.target.value }))} rows={2} style={{ ...inputStyle, resize: "vertical" }} />
+          <label htmlFor="program-safeguarding-info" style={labelStyle}>Safeguarding info (optional)</label>
+          <textarea id="program-safeguarding-info" value={form.safeguardingInfo} onChange={(e) => setForm((f) => ({ ...f, safeguardingInfo: e.target.value }))} rows={2} style={{ ...inputStyle, resize: "vertical" }} />
         </div>
       </div>
       <FormErrorSummary errors={fieldErrors} />

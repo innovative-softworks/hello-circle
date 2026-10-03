@@ -74,17 +74,23 @@ manageRouter.post("/link/confirm", async (req, res) => {
   const { token } = req.body as { token?: string };
   if (!token) return res.status(400).json({ error: "Token is required" });
 
-  const row = (await db.prepare(`SELECT user_id, resident_email FROM manage_link_tokens WHERE token = ? AND expires_at > NOW()`).get(token)) as
-    | { user_id: string; resident_email: string }
-    | undefined;
-  if (!row) return res.status(400).json({ error: "This link has expired or was already used — request a new one from your vendor dashboard." });
-  await db.prepare(`DELETE FROM manage_link_tokens WHERE token = ?`).run(token);
-
-  const resident = await getResidentByEmail(row.resident_email);
-  if (!resident) return res.status(404).json({ error: "That HelloCircle account no longer exists." });
-
-  await db.prepare(`UPDATE users SET resident_id = ? WHERE id = ?`).run(resident.id, row.user_id);
-  await writeAudit({ actorUserId: row.user_id, action: "manage.linked_resident", objectType: "user", objectId: row.user_id, newValue: { residentId: resident.id } });
+  const result = await db.transaction(async tx => {
+    const row = await tx.prepare(`SELECT user_id, resident_email FROM manage_link_tokens WHERE token = ? AND expires_at > NOW() FOR UPDATE`).get(token) as { user_id: string; resident_email: string } | undefined;
+    if (!row) return { error: "This link has expired or was already used — request a new one from your vendor dashboard.", status: 400 };
+    // Serialize competing confirmations for either side of the association.
+    const resident = await tx.prepare(`SELECT id FROM residents WHERE email = ? FOR UPDATE`).get(row.resident_email) as { id: string } | undefined;
+    if (!resident) return { error: "That HelloCircle account no longer exists.", status: 404 };
+    const user = await tx.prepare(`SELECT resident_id, role, status FROM users WHERE id = ? FOR UPDATE`).get(row.user_id) as { resident_id: string | null; role: string; status: string } | undefined;
+    const other = await tx.prepare(`SELECT id FROM users WHERE resident_id = ? AND id != ?`).get(resident.id, row.user_id);
+    if (!user || user.role !== "vendor" || user.status !== "approved" || other || (user.resident_id && user.resident_id !== resident.id)) {
+      return { error: "These accounts cannot be linked. Check your existing account links.", status: 409 };
+    }
+    await tx.prepare(`UPDATE users SET resident_id = ? WHERE id = ?`).run(resident.id, row.user_id);
+    await tx.prepare(`DELETE FROM manage_link_tokens WHERE token = ?`).run(token);
+    return { userId: row.user_id, residentId: resident.id };
+  });
+  if ("error" in result) return res.status(result.status!).json({ error: result.error });
+  await writeAudit({ actorUserId: result.userId!, action: "manage.linked_resident", objectType: "user", objectId: result.userId!, newValue: { residentId: result.residentId } });
   res.json({ ok: true });
 });
 

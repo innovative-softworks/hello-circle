@@ -83,7 +83,7 @@ export function ClubDetail() {
 
   return (
     <>
-    <div className="club-detail-mobile-pad" style={{ animation: "fadeUp .35s ease both" }}>
+    <div className="club-detail-mobile-pad" style={{ animation: "fadeUp .35s ease backwards" }}>
       <section className="section-pad" style={{ maxWidth, margin: "0 auto", padding: "26px 24px 0" }}>
         <BackLink onClick={() => navigate("/browse/clubs")} marginBottom={16}>All sports clubs</BackLink>
         <div style={{ position: "relative" }}>

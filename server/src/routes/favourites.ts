@@ -2,6 +2,7 @@ import { Router } from "express";
 import { logEvent } from "../analytics.js";
 import { db } from "../db/index.js";
 import { requireResident } from "../residents.js";
+import { canViewGame, type GameVisibilityRow } from "../gameVisibility.js";
 
 export const favouritesRouter = Router();
 favouritesRouter.use(requireResident);
@@ -29,10 +30,9 @@ type FavouriteRow = { listingType: ListingType; listingId: string; status: Favou
  * the favourites table itself only ever carried listingType/listingId/status.
  * program_session/club_session go one level up to their parent
  * program/club for the name, since neither session table has its own title
- * worth showing standalone. Best-effort: a listing that's since been
- * deleted just falls back to the generic type label client-side (no name
- * attached), same as before this enrichment existed. */
-async function attachListingDetails(rows: FavouriteRow[]) {
+ * worth showing standalone. Unavailable/private records are omitted from
+ * the projection without deleting their saved relation. */
+async function attachListingDetails(rows: FavouriteRow[], viewerId: string) {
   const byType = new Map<ListingType, string[]>();
   for (const r of rows) byType.set(r.listingType, [...(byType.get(r.listingType) ?? []), r.listingId]);
 
@@ -49,31 +49,33 @@ async function attachListingDetails(rows: FavouriteRow[]) {
       const placeholders = ids.map(() => "?").join(",");
       if (type === "centre" || type === "club") {
         const table = type === "centre" ? "centres" : "clubs";
-        const listingRows = (await db.prepare(`SELECT id, name, image_url as imageUrl FROM ${table} WHERE id IN (${placeholders})`).all(...ids)) as {
+        const listingRows = (await db.prepare(`SELECT id, name, image_url as imageUrl FROM ${table} WHERE id IN (${placeholders}) AND status = 'approved'`).all(...ids)) as {
           id: string; name: string; imageUrl: string | null;
         }[];
         for (const l of listingRows) details.set(key(type, l.id), { name: l.name, imageUrl: l.imageUrl, subtitle: null });
       } else if (type === "game") {
         const listingRows = (await db
-          .prepare(`SELECT id, activity_label as name, image_url as imageUrl, date, time FROM games WHERE id IN (${placeholders})`)
-          .all(...ids)) as { id: string; name: string; imageUrl: string | null; date: string; time: string }[];
-        for (const l of listingRows) details.set(key(type, l.id), { name: l.name, imageUrl: l.imageUrl, subtitle: `${l.date} · ${l.time}` });
+          .prepare(`SELECT *, activity_label as name, image_url as imageUrl FROM games WHERE id IN (${placeholders})`)
+          .all(...ids)) as (GameVisibilityRow & { name: string; imageUrl: string | null; time: string })[];
+        for (const l of listingRows) {
+          if (await canViewGame(l, viewerId)) details.set(key(type, l.id), { name: l.name, imageUrl: l.imageUrl, subtitle: `${l.date} · ${l.time}` });
+        }
       } else if (type === "experience") {
-        const listingRows = (await db.prepare(`SELECT id, title as name, image_url as imageUrl FROM experiences WHERE id IN (${placeholders})`).all(...ids)) as {
+        const listingRows = (await db.prepare(`SELECT id, title as name, image_url as imageUrl FROM experiences WHERE id IN (${placeholders}) AND status = 'approved'`).all(...ids)) as {
           id: string; name: string; imageUrl: string | null;
         }[];
         for (const l of listingRows) details.set(key(type, l.id), { name: l.name, imageUrl: l.imageUrl, subtitle: null });
       } else if (type === "circle") {
         const listingRows = (await db
-          .prepare(`SELECT id, name, image_url as imageUrl, area, slug FROM circles WHERE id IN (${placeholders})`)
-          .all(...ids)) as { id: string; name: string; imageUrl: string | null; area: string; slug: string | null }[];
+          .prepare(`SELECT id, name, CASE WHEN join_mode = 'open' THEN image_url ELSE NULL END as imageUrl, area, slug FROM circles WHERE id IN (${placeholders}) AND (join_mode = 'open' OR EXISTS (SELECT 1 FROM circle_members cm WHERE cm.circle_id = circles.id AND cm.resident_id = ?))`)
+          .all(...ids, viewerId)) as { id: string; name: string; imageUrl: string | null; area: string; slug: string | null }[];
         for (const l of listingRows) details.set(key(type, l.id), { name: l.name, imageUrl: l.imageUrl || null, subtitle: l.area || null, slug: l.slug ?? undefined });
       } else if (type === "program_session") {
         const listingRows = (await db
           .prepare(
             `SELECT ps.id, p.id as programId, p.title as name, p.image_url as imageUrl, ps.date, ps.time
              FROM program_sessions ps JOIN programs p ON p.id = ps.program_id
-             WHERE ps.id IN (${placeholders})`
+             WHERE ps.id IN (${placeholders}) AND p.status = 'published'`
           )
           .all(...ids)) as { id: string; programId: string; name: string; imageUrl: string | null; date: string; time: string }[];
         for (const l of listingRows) details.set(key(type, l.id), { name: l.name, imageUrl: l.imageUrl, subtitle: `${l.date} · ${l.time}`, parentId: l.programId });
@@ -82,7 +84,7 @@ async function attachListingDetails(rows: FavouriteRow[]) {
           .prepare(
             `SELECT cs.id, c.id as clubId, COALESCE(cs.label, c.name) as name, COALESCE(cs.image_url, c.image_url) as imageUrl, cs.day_of_week as dayOfWeek, cs.time
              FROM club_sessions cs JOIN clubs c ON c.id = cs.club_id
-             WHERE cs.id IN (${placeholders})`
+             WHERE cs.id IN (${placeholders}) AND c.status = 'approved' AND cs.active = 1`
           )
           .all(...ids)) as { id: string; clubId: string; name: string; imageUrl: string | null; dayOfWeek: number; time: string }[];
         for (const l of listingRows) {
@@ -93,14 +95,16 @@ async function attachListingDetails(rows: FavouriteRow[]) {
     })
   );
 
-  return rows.map((r) => ({ ...r, ...(details.get(key(r.listingType, r.listingId)) ?? { name: null, imageUrl: null, subtitle: null }) }));
+  // Preserve saved relations, but re-authorize every read (including revocation).
+  // Missing/private records are omitted, never emitted as identifying placeholders.
+  return rows.filter(r => details.has(key(r.listingType, r.listingId))).map(r => ({ ...r, ...details.get(key(r.listingType, r.listingId))! }));
 }
 
 favouritesRouter.get("/", async (req, res) => {
   const rows = (await db
     .prepare(`SELECT listing_type as listingType, listing_id as listingId, status FROM favourites WHERE resident_id = ?`)
     .all(req.resident!.id)) as FavouriteRow[];
-  res.json(await attachListingDetails(rows));
+  res.json(await attachListingDetails(rows, req.resident!.id));
 });
 
 favouritesRouter.post("/", async (req, res) => {

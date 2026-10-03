@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../AuthContext";
 import { useGoogleSignIn } from "../googleSignIn";
@@ -61,6 +61,7 @@ function roleLabel(role: string | null | undefined): string {
 function LogoPanel({ profile, reload }: { profile: OrgProfile; reload: () => void }) {
   const { user } = useAuth();
   const [uploading, setUploading] = useState(false);
+  const logoInputRef = useRef<HTMLInputElement>(null); // HC-QA-067 adjacent
   const [error, setError] = useState<string | null>(null);
 
   const onFile = async (files: FileList | null) => {
@@ -111,9 +112,13 @@ function LogoPanel({ profile, reload }: { profile: OrgProfile; reload: () => voi
             </button>
           </div>
         ) : (
-          <label
+          <button
+            type="button"
             className="image-drop"
+            onClick={() => logoInputRef.current?.click()}
+            disabled={uploading}
             style={{
+              font: "inherit",
               display: "flex",
               flexDirection: "column",
               alignItems: "center",
@@ -133,11 +138,11 @@ function LogoPanel({ profile, reload }: { profile: OrgProfile; reload: () => voi
           >
             {uploading ? <CameraIcon size={16} /> : <PlusIcon size={16} />}
             {uploading ? "Uploading…" : "Add logo"}
-            <input type="file" accept="image/*" onChange={(e) => onFile(e.target.files)} disabled={uploading} style={{ display: "none" }} />
-          </label>
+          </button>
         )}
+        <input ref={logoInputRef} type="file" accept="image/*" hidden tabIndex={-1} onChange={(e) => { void onFile(e.target.files); e.target.value = ""; }} disabled={uploading} />
       </div>
-      {error && <p style={{ color: colors.danger, fontSize: 12, margin: "10px 0 0" }}>{error}</p>}
+      {error && <p role="alert" style={{ color: colors.danger, fontSize: 12, margin: "10px 0 0" }}>{error}</p>}
     </Card>
   );
 }
@@ -423,7 +428,7 @@ function StaffPanel({ profile, reload }: { profile: OrgProfile; reload: () => vo
   const [inviting, setInviting] = useState(false);
   const [inviteError, setInviteError] = useState<string | null>(null);
   const [invited, setInvited] = useState(false);
-  const [confirmingToken, setConfirmingToken] = useState<string | null>(null);
+  const [confirmingInviteId, setConfirmingInviteId] = useState<string | null>(null);
 
   const invite = async () => {
     if (!email.trim()) return;
@@ -498,10 +503,10 @@ function StaffPanel({ profile, reload }: { profile: OrgProfile; reload: () => vo
             <h4 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 13, margin: "18px 0 10px", color: colors.muted }}>PENDING INVITES</h4>
             <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
               {profile.pendingInvites.map((i) => (
-                <div key={i.token} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 13.5, background: colors.orangeBg, borderRadius: radius.control, padding: "8px 12px" }}>
+                <div key={i.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 13.5, background: colors.orangeBg, borderRadius: radius.control, padding: "8px 12px" }}>
                   <span>{i.email} · {roleLabel(i.platformRole)}</span>
                   {profile.isOwner && (
-                    <button onClick={() => setConfirmingToken(i.token)} style={{ background: "none", border: "none", cursor: "pointer", color: colors.faint }}>
+                    <button onClick={() => setConfirmingInviteId(i.id)} style={{ background: "none", border: "none", cursor: "pointer", color: colors.faint }}>
                       <TrashIcon size={14} />
                     </button>
                   )}
@@ -513,12 +518,12 @@ function StaffPanel({ profile, reload }: { profile: OrgProfile; reload: () => vo
       </Card>
 
       <ConfirmDialog
-        open={confirmingToken !== null}
+        open={confirmingInviteId !== null}
         title="Revoke this invite?"
         message="They won't be able to accept it anymore. You can send a new invite to the same email at any time."
         confirmLabel="Revoke"
-        onConfirm={() => { if (confirmingToken !== null) revokeInvite(confirmingToken).then(reload); setConfirmingToken(null); }}
-        onCancel={() => setConfirmingToken(null)}
+        onConfirm={() => { if (confirmingInviteId !== null) revokeInvite(confirmingInviteId).then(reload); setConfirmingInviteId(null); }}
+        onCancel={() => setConfirmingInviteId(null)}
       />
     </div>
   );

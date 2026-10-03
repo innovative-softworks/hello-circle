@@ -2,6 +2,7 @@ import { Router } from "express";
 import { createCheckoutSession, pricingLineItems } from "../checkoutService.js";
 import { logEvent, logView } from "../analytics.js";
 import { db } from "../db/index.js";
+import { consumeCoupon, endPendingHold, occupiesCapacitySql } from "../bookingIntegrity.js";
 import { getListingAttributes, officialCircleSummary } from "../listingAttributes.js";
 import { irelandTodayIso } from "../irelandTime.js";
 import { notifyCancellation, notifyNewBookingOrRegistration } from "../notifications.js";
@@ -189,6 +190,24 @@ interface EnrollBody {
 // One enrollment covers every session of the program (matches "8-week
 // program, one sign-up"). Row-locked the same way bookings.ts locks a room,
 // so two enrollments can't both take the program's last spot.
+/** HC-QA-047 — authoritative quote (same computePricing as enrolment) for
+ * the enrolment confirmation; nothing is reserved. */
+programsRouter.get("/:id/quote", async (req, res) => {
+  const program = (await db.prepare(`SELECT id, price_cents FROM programs WHERE id = ? AND status = 'published'`).get(req.params.id)) as { id: string; price_cents: number } | undefined;
+  if (!program) return res.status(404).json({ error: "Program not found" });
+  let discountCents = 0;
+  let couponCode: string | null = null;
+  const raw = typeof req.query.couponCode === "string" ? req.query.couponCode : "";
+  if (raw) {
+    const result = await evaluateCoupon(raw, program.price_cents, { listingType: "program", listingId: program.id });
+    if (!result.valid) return res.status(400).json({ error: result.error });
+    discountCents = result.discountCents!;
+    couponCode = result.code!;
+  }
+  const p = computePricing(program.price_cents, 0, discountCents, couponCode);
+  res.json({ subtotalCents: p.subtotalCents, discountCents: p.discountCents, vatCents: p.vatCents, platformFeeCents: p.platformFeeCents, totalCents: p.totalCents, couponCode, currency: "EUR" });
+});
+
 programsRouter.post("/:id/enroll", async (req, res) => {
   let clientId: string;
   try {
@@ -231,12 +250,24 @@ programsRouter.post("/:id/enroll", async (req, res) => {
   try {
     await db.transaction(async (tx) => {
       await tx.prepare(`SELECT id FROM programs WHERE id = ? FOR UPDATE`).get(program.id);
+      // HC-QA-038 — one active enrolment per owner + participant.
+      const duplicate = await tx
+        .prepare(
+          `SELECT id FROM program_enrollments WHERE program_id = ? AND ${occupiesCapacitySql()}
+             AND LOWER(participant_name) = LOWER(?) AND participant_dob = ?
+             AND (client_id = ? OR (resident_id IS NOT NULL AND resident_id = ?)) LIMIT 1`
+        )
+        .get(program.id, body.participantName.trim(), body.participantDob ?? "", clientId, req.resident?.id ?? "");
+      if (duplicate) throw new Error("PROGRAM_DUPLICATE");
       if (program.capacity !== null) {
+        // HC-QA-041 — live pending checkouts hold their place too.
         const { n: enrolled } = (await tx
-          .prepare(`SELECT COUNT(*) as n FROM program_enrollments WHERE program_id = ? AND payment_status = 'paid' AND status != 'cancelled'`)
+          .prepare(`SELECT COUNT(*) as n FROM program_enrollments WHERE program_id = ? AND ${occupiesCapacitySql()}`)
           .get(program.id)) as { n: number };
-        if (enrolled >= program.capacity) throw new Error("PROGRAM_FULL");
+        if (Number(enrolled) >= program.capacity) throw new Error("PROGRAM_FULL");
       }
+      // HC-QA-037/050 — the coupon use is reserved with the enrolment (free or pending).
+      await consumeCoupon(tx, couponCode).catch(() => { throw new Error("COUPON_EXHAUSTED"); });
       await tx
         .prepare(
           `INSERT INTO program_enrollments (ref, program_id, resident_id, client_id, participant_name, participant_dob, email, phone, total_cents, coupon_code, payment_status, status)
@@ -246,6 +277,8 @@ programsRouter.post("/:id/enroll", async (req, res) => {
     });
   } catch (e) {
     if (e instanceof Error && e.message === "PROGRAM_FULL") return res.status(409).json({ error: "This program is full" });
+    if (e instanceof Error && e.message === "PROGRAM_DUPLICATE") return res.status(409).json({ error: "This participant is already enrolled", duplicate: true });
+    if (e instanceof Error && e.message === "COUPON_EXHAUSTED") return res.status(400).json({ error: "That code has been fully redeemed" });
     throw e;
   }
 
@@ -277,7 +310,7 @@ programsRouter.post("/:id/enroll", async (req, res) => {
     lineItems: pricingLineItems(pricing, { name: program.title, description: body.participantName }),
   });
   if (!result.ok) {
-    await db.prepare(`DELETE FROM program_enrollments WHERE ref = ?`).run(ref);
+    await endPendingHold("program_enrollments", ref, "delete");
     return res.status(result.status).json({ error: result.error });
   }
 
@@ -377,7 +410,10 @@ programsRouter.post("/enrollments/:ref/cancel", async (req, res) => {
   if (row.status === "cancelled") return res.status(409).json({ error: "This enrollment is already cancelled" });
   if (row.paymentStatus !== "paid") return res.status(409).json({ error: "This enrollment can't be cancelled" });
 
-  await db.prepare(`UPDATE program_enrollments SET status = 'cancelled' WHERE ref = ?`).run(row.ref);
+  // HC-QA-046 — atomic transition: only the request that actually flips the row
+  // runs the side effects (capacity release, audit, notifications, promotion).
+  const flipped = await db.prepare(`UPDATE program_enrollments SET status = 'cancelled' WHERE ref = ? AND status != 'cancelled'`).run(row.ref);
+  if (flipped.changes !== 1) return res.status(409).json({ error: "This enrollment is already cancelled" });
 
   notifyCancellation({
     kind: "program",

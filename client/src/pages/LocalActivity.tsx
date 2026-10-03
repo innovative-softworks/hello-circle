@@ -44,7 +44,7 @@ export function LocalActivity() {
   const activityLabel = titleCase(activity.replace(/-/g, " "));
 
   return (
-    <div style={{ animation: "fadeUp .3s ease both" }}>
+    <div style={{ animation: "fadeUp .3s ease backwards" }}>
       <section className="section-pad" style={{ maxWidth, margin: "0 auto", padding: "26px 24px 80px" }}>
         <PageTitle>
           {activityLabel} in {countyName}

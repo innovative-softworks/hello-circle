@@ -10,7 +10,7 @@ import { Chip } from "../components/Chip";
 import { DropdownCheckbox, DropdownOption, FilterDropdown } from "../components/FilterDropdown";
 import { IntentCaptureForm } from "../components/IntentCaptureForm";
 import { Photo } from "../components/Photo";
-import { Button, Card, CardLink, CardSkeleton, ConfirmDialog, Drawer, EmptyState, inputStyle } from "../components/ui";
+import { Button, Card, CardLink, CardSkeleton, ConfirmDialog, Drawer, EmptyState, LoadErrorState, inputStyle, useDialogFocus } from "../components/ui";
 import { PageTitle } from "../components/PageTitle";
 import { AuthContextCard } from "../components/AuthShell";
 import { SignInPanel } from "../components/SignInPanel";
@@ -499,6 +499,15 @@ function JoinGameCard({
 // trip, which that same pending-action mechanism also already covers.
 
 function JoinAuthModal({ open, game, onClose, onSignedIn }: { open: boolean; game: Game | null; onClose: () => void; onSignedIn: () => void | Promise<void> }) {
+  // HC-QA-069 adjacent — same modal keyboard contract as ConfirmDialog.
+  const panelRef = useRef<HTMLDivElement>(null);
+  useDialogFocus(open, panelRef);
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open, onClose]);
   if (!open) return null;
 
   return createPortal(
@@ -507,6 +516,11 @@ function JoinAuthModal({ open, game, onClose, onSignedIn }: { open: boolean; gam
       onClick={onClose}
     >
       <div
+        ref={panelRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label={game ? `Sign in to join ${game.activityLabel}` : "Sign in to join this session"}
+        tabIndex={-1}
         className="pop-in"
         style={{ background: colors.surface, borderRadius: radius.card, padding: 24, maxWidth: 400, width: "100%", boxShadow: "0 20px 60px rgba(20,22,20,.25)" }}
         onClick={(e) => e.stopPropagation()}
@@ -572,10 +586,14 @@ export function Games() {
 
   const resultsRef = useRef<HTMLDivElement>(null);
 
+  // HC-QA-063 — a failed load is an error state, never "0 games".
+  const [loadFailed, setLoadFailed] = useState(false);
   const load = () => {
     setLoading(true);
+    setLoadFailed(false);
     fetchGames()
       .then(setGames)
+      .catch(() => setLoadFailed(true))
       .finally(() => setLoading(false));
   };
 
@@ -785,7 +803,7 @@ export function Games() {
         ))}
         <DropdownOption label="Pick a date" active={when === "date"} onClick={() => setWhen("date")} />
         {when === "date" && (
-          <input type="date" value={whenDate} onChange={(e) => setWhenDate(e.target.value)} style={{ ...inputStyle, marginTop: 4, fontSize: 13, padding: "7px 9px" }} />
+          <input aria-label="Pick a date" type="date" value={whenDate} onChange={(e) => setWhenDate(e.target.value)} style={{ ...inputStyle, marginTop: 4, fontSize: 13, padding: "7px 9px" }} />
         )}
       </div>
 
@@ -814,7 +832,7 @@ export function Games() {
   );
 
   return (
-    <div style={{ animation: "fadeUp .35s ease both" }}>
+    <div style={{ animation: "fadeUp .35s ease backwards" }}>
       <ConfirmDialog
         open={!!quickJoinGame}
         title="Confirm your spot"
@@ -867,7 +885,7 @@ export function Games() {
         <div style={{ border: `1px solid ${colors.border}`, borderRadius: radius.card, background: colors.surface, boxShadow: "0 8px 24px rgba(30,40,32,.05)", padding: 14, marginTop: 24, marginBottom: 16 }}>
           <div style={{ position: "relative" }}>
             <SearchIcon size={17} style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", color: colors.faint }} />
-            <input
+            <input aria-label="Search sessions"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="What do you feel like doing? e.g. Badminton tonight"
@@ -876,7 +894,7 @@ export function Games() {
           </div>
           <div style={{ height: 1, background: colors.border, margin: "10px 0" }} />
           <div className="stack-mobile" style={{ display: "flex", gap: 8, alignItems: "center" }}>
-            <select
+            <select aria-label="Area"
               value={county}
               onChange={(e) => setCounty(e.target.value)}
               style={{ padding: "8px 12px", border: "none", borderRadius: radius.control, fontSize: 13.5, background: colors.panel, color: colors.text, fontWeight: 600 }}
@@ -886,7 +904,7 @@ export function Games() {
                 <option key={c} value={c}>Near: {c}</option>
               ))}
             </select>
-            <select
+            <select aria-label="When"
               value={when}
               onChange={(e) => setWhen(e.target.value as WhenFilter)}
               style={{ padding: "8px 12px", border: "none", borderRadius: radius.control, fontSize: 13.5, background: colors.panel, color: colors.text, fontWeight: 600 }}
@@ -928,7 +946,7 @@ export function Games() {
               <div>
                 {loading ? (
                   <div style={{ fontWeight: 700, fontSize: 16 }}>Loading…</div>
-                ) : (
+                ) : loadFailed ? null : (
                   <>
                     {sorted.length > 0 && (
                       <div style={{ fontSize: 12, color: colors.faint, marginBottom: 2 }}>
@@ -956,7 +974,7 @@ export function Games() {
                 >
                   Filters{activeCount > 0 ? ` (${activeCount})` : ""}
                 </button>
-                <select
+                <select aria-label="Sort results"
                   value={sort}
                   onChange={(e) => setSort(e.target.value as SortKey)}
                   style={{ padding: "9px 12px", border: `1px solid ${colors.inputBorder}`, borderRadius: radius.control, fontSize: 14, background: colors.bg, color: colors.text, outline: "none", fontWeight: 600 }}
@@ -998,6 +1016,8 @@ export function Games() {
               <div className="grid-responsive-3" style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 20 }}>
                 {Array.from({ length: PAGE_SIZE }, (_, i) => <CardSkeleton key={i} photoHeight={150} />)}
               </div>
+            ) : loadFailed ? (
+              <LoadErrorState title="We couldn't load sessions right now." onRetry={load} />
             ) : sorted.length === 0 ? (
               <EmptyState
                 icon={<UsersIcon size={22} />}

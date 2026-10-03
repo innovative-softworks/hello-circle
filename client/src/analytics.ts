@@ -11,7 +11,18 @@
 // install redundant and was double-counting every pageview/event. GTM is
 // now the single source for all tracking; add any future tag (ads pixels,
 // etc.) inside the GTM dashboard, not as a new function in this file.
-const GTM_CONTAINER_ID = "GTM-WWNNDL99";
+const DEFAULT_GTM_CONTAINER_ID = "GTM-WWNNDL99";
+
+// HC-QA-093 — per-environment override so a staging/test build never feeds the
+// production container: VITE_GTM_CONTAINER_ID unset → the production default
+// (unchanged behaviour); "off" → GTM is never loaded; "GTM-…" → that container.
+export function resolveGtmContainerId(configured: string | undefined): string | null {
+  const value = (configured ?? "").trim();
+  if (!value) return DEFAULT_GTM_CONTAINER_ID;
+  if (value.toLowerCase() === "off") return null;
+  return /^GTM-[A-Z0-9]+$/.test(value) ? value : null;
+}
+const GTM_CONTAINER_ID = resolveGtmContainerId(import.meta.env.VITE_GTM_CONTAINER_ID as string | undefined);
 
 declare global {
   interface Window {
@@ -29,7 +40,7 @@ let gtmLoaded = false;
 // as its entire static markup, so a no-JS visitor sees a blank page
 // regardless — there's no functioning site for that fallback to track.
 export function loadGoogleTagManager(): void {
-  if (gtmLoaded || typeof window === "undefined") return;
+  if (gtmLoaded || typeof window === "undefined" || !GTM_CONTAINER_ID) return;
   gtmLoaded = true;
 
   window.dataLayer = window.dataLayer || [];

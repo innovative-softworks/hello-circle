@@ -5,9 +5,13 @@ import { getClientId } from "../clientId";
  * conflict) can inspect the parsed response body without a second fetch. */
 export class ApiError extends Error {
   body: Record<string, unknown>;
-  constructor(message: string, body: Record<string, unknown>) {
+  /** HTTP status (HC-QA-064) — lets callers tell an auth failure (401/403)
+   * from a transient server/network failure. Optional for older call sites. */
+  status?: number;
+  constructor(message: string, body: Record<string, unknown>, status?: number) {
     super(message);
     this.body = body;
+    this.status = status;
   }
 }
 
@@ -72,7 +76,7 @@ export async function request<T>(path: string, init?: RequestInit): Promise<T> {
   if (!res.ok) {
     const body = await res.json().catch(() => ({ error: res.statusText }));
     reportIfSessionExpired(path, res.status);
-    throw new ApiError(body.error || `Request failed: ${res.status}`, body);
+    throw new ApiError(body.error || `Request failed: ${res.status}`, body, res.status);
   }
   return res.json() as Promise<T>;
 }

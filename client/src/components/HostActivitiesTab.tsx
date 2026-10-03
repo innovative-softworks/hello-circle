@@ -87,7 +87,7 @@ function ActivitiesFilterBar({
       </div>
       <div style={{ display: "flex", alignItems: "center", gap: 6, flex: "1 1 200px", minWidth: 160 }}>
         <SearchIcon size={13} style={{ color: colors.faint, flex: "none" }} />
-        <input
+        <input aria-label="Search activities"
           value={search}
           onChange={(e) => onSearch(e.target.value)}
           placeholder="Search activity or venue"
@@ -372,7 +372,9 @@ function ActivityRow({ game, onChanged, onManage, onCheckIn }: { game: Game; onC
         </div>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           <Button variant="ghost" onClick={onManage}>Participants</Button>
-          <ShareButton entityType="game" entityId={game.id} variant="ghost" />
+          {/* HC-QA-053 — drafts are private (the share API 404s them by
+              design), same rule as HostGamePage's create confirmation. */}
+          {game.effectiveLifecycle !== "draft" && <ShareButton entityType="game" entityId={game.id} variant="ghost" />}
           {/* Duplicate (Host Experience Polish) — any status, reuses the
               same param-carrying logic as GameDetail.tsx's "Do it again"
               via the shared rehost.ts helper. "Host again" below is the
@@ -402,7 +404,7 @@ function ActivityRow({ game, onChanged, onManage, onCheckIn }: { game: Game; onC
             ))}
           </div>
           <div style={{ display: "flex", gap: 8 }}>
-            <input
+            <input aria-label="Update message"
               value={message}
               onChange={(e) => setMessage(e.target.value)}
               placeholder="What's changed, or what should people know?"

@@ -1,3 +1,4 @@
+import { discoverableGameSql } from "../gameVisibility.js";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
@@ -658,12 +659,18 @@ residentsRouter.get("/:id/host-profile", async (req, res) => {
   // should be listed (same join_mode semantics circles.ts's
   // canViewCircleFull() uses) — previously neither filter existed here.
   const games = await db
-    .prepare(`SELECT id, activity_label as activityLabel, date, time FROM games WHERE host_resident_id = ? AND status = 'open' AND visibility = 'public' AND date >= ? ORDER BY date, time`)
+    // HC-QA-012 — canonical discovery policy (public, not draft, publish_at reached).
+    .prepare(`SELECT g.id, g.activity_label as activityLabel, g.date, g.time FROM games g WHERE g.host_resident_id = ? AND g.status = 'open' AND ${discoverableGameSql("g")} AND g.date >= ? ORDER BY g.date, g.time`)
     .all(req.params.id, today);
   const circles = await db
     .prepare(`SELECT id, name, activity_label as activityLabel, slug FROM circles WHERE created_by_resident_id = ? AND status = 'active' AND join_mode = 'open' ORDER BY name`)
     .all(req.params.id);
-  const { n: gamesHostedTotal } = (await db.prepare(`SELECT COUNT(*) as n FROM games WHERE host_resident_id = ?`).get(req.params.id)) as { n: number };
+  // HC-QA-030 — a public count must not exceed what the public can discover:
+  // canonical discovery policy (public, published, publish_at reached), and a
+  // cancelled activity was never hosted. Past activities still count.
+  const { n: gamesHostedTotal } = (await db
+    .prepare(`SELECT COUNT(*) as n FROM games g WHERE g.host_resident_id = ? AND g.status != 'cancelled' AND ${discoverableGameSql("g")}`)
+    .get(req.params.id)) as { n: number };
   // Host reviews (master-prompt punch list #3) — reuses the same
   // reviewStats() aggregation centres/clubs already use, just for
   // listing_type='host'.
@@ -1021,7 +1028,7 @@ residentsRouter.get("/me/notifications", requireResident, async (req, res) => {
   const rows = await db
     .prepare(
       `SELECT id, kind, title, body, listing_type as listingType, listing_id as listingId, ref, \`read\`, created_at as createdAt
-       FROM notifications WHERE resident_id = ? ORDER BY created_at DESC`
+       FROM notifications WHERE resident_id = ? ORDER BY created_at DESC, id DESC`
     )
     .all(req.resident!.id);
   res.json(rows);

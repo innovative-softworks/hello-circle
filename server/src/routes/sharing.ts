@@ -5,6 +5,8 @@ import { db } from "../db/index.js";
 import { isMember } from "./circleHelpers.js";
 import { renderShareCardPng } from "../shareCard.js";
 import { CLIENT_URL } from "../stripe.js";
+import { canViewPrivateGame } from "../gameVisibility.js";
+export { canViewPrivateGame } from "../gameVisibility.js";
 
 export const sharingRouter = Router();
 
@@ -76,18 +78,6 @@ function pathFor(entityType: ShareEntityType, entityIdOrSlug: string): string {
  * linked circle, or an already-joined participant; an 'invite' game only
  * to the host, a joined participant, or someone with a real invitations
  * row for it. Everyone else gets the private stub shape. */
-export async function canViewPrivateGame(gameId: string, circleId: string | null, viewerResidentId: string | null, hostResidentId: string): Promise<boolean> {
-  if (!viewerResidentId) return false;
-  if (viewerResidentId === hostResidentId) return true;
-  const joined = await db.prepare(`SELECT 1 FROM game_participants WHERE game_id = ? AND resident_id = ? AND status = 'joined'`).get(gameId, viewerResidentId);
-  if (joined) return true;
-  if (circleId) {
-    const member = await db.prepare(`SELECT 1 FROM circle_members WHERE circle_id = ? AND resident_id = ?`).get(circleId, viewerResidentId);
-    if (member) return true;
-  }
-  const invited = await db.prepare(`SELECT 1 FROM invitations WHERE entity_type = 'game' AND entity_id = ? AND invitee_resident_id = ?`).get(gameId, viewerResidentId);
-  return !!invited;
-}
 
 export async function getShareData(entityType: ShareEntityType, idOrSlug: string, viewerResidentId: string | null): Promise<ShareData | null> {
   const url = `${CLIENT_URL}${pathFor(entityType, idOrSlug)}`;
@@ -181,7 +171,7 @@ export async function getShareData(entityType: ShareEntityType, idOrSlug: string
       .prepare(
         `SELECT g.id, g.activity_label as activityLabel, g.date, g.time, g.location_text as locationText, g.price_cents as priceCents,
                 g.visibility, g.circle_id as circleId, g.host_resident_id as hostResidentId, g.image_url as imageUrl,
-                g.duration_minutes as durationMinutes, g.capacity as capacity, g.status as status, g.lifecycle as lifecycle,
+                g.duration_minutes as durationMinutes, g.capacity as capacity, g.status as status, g.lifecycle as lifecycle, g.publish_at as publishAt,
                 c.name as centreName, c.area as area, c.county as county, c.lat as lat, c.lng as lng
          FROM games g LEFT JOIN centres c ON c.id = g.centre_id
          WHERE g.id = ?`
@@ -202,6 +192,7 @@ export async function getShareData(entityType: ShareEntityType, idOrSlug: string
           capacity: number;
           status: string;
           lifecycle: string;
+          publishAt: string | Date | null;
           centreName: string | null;
           area: string | null;
           county: string | null;
@@ -214,7 +205,8 @@ export async function getShareData(entityType: ShareEntityType, idOrSlug: string
     // all, same as a genuinely nonexistent game (404-equivalent). This is
     // the lifecycle half of the gate; the visibility check right below is
     // the separate, pre-existing privacy half.
-    if (row.lifecycle === "draft") return null;
+    // HC-QA-012 — a future publish_at behaves as draft (canonical policy).
+    if (row.lifecycle === "draft" || (row.publishAt && new Date(row.publishAt) > new Date())) return null;
 
     const privacy = row.visibility === "invite" ? "private" : row.visibility === "circle" ? "circle_only" : "public";
     if (privacy !== "public" && !(await canViewPrivateGame(row.id, row.circleId, viewerResidentId, row.hostResidentId))) {

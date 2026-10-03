@@ -7,11 +7,11 @@ const SMTP_USER = process.env.SMTP_USER;
 const SMTP_PASS = process.env.SMTP_PASS;
 const MAIL_FROM = process.env.MAIL_FROM || SMTP_USER || "hello-circle@example.com";
 
-// Without SMTP credentials configured, mail is logged instead of sent — keeps
-// bookings/registrations working in dev without requiring a real mailbox.
+// Without SMTP configured, skip delivery without exposing bearer links or PII.
+// Development can explicitly configure a local SMTP inbox; console is not a sink.
 //
 // Under vitest (`process.env.VITEST` is set automatically by the test
-// runner), mail is logged too, even when server/.env has real SMTP
+// runner), delivery is skipped too, even when server/.env has real SMTP
 // credentials — vitest.setup.ts deliberately loads the full .env (for a DB-
 // safety check) as a side effect, so without this, every test that
 // exercises a notification path was sending real Gmail messages to test
@@ -32,8 +32,8 @@ const transporter = SMTP_HOST && SMTP_USER && SMTP_PASS && !isTestRun
 if (!transporter) {
   console.log(
     isTestRun
-      ? "[email] running under vitest — mail will be logged, not sent (even with real SMTP configured)"
-      : "[email] SMTP not configured (set SMTP_HOST/SMTP_USER/SMTP_PASS in server/.env) — mail will be logged, not sent"
+      ? "[email] test environment — delivery disabled"
+      : "[email] SMTP not configured — delivery disabled"
   );
 }
 
@@ -137,9 +137,23 @@ function wrapEmailHtml(subject: string, bodyHtml: string): string {
 }
 
 /** Never throws — a failed/unconfigured send must not break a booking or registration. */
+// QA-only delivery observer (Phase 10A). Installed exclusively by the guarded
+// test wrapper (tests/integration/backend.ts) so the isolated QA profile —
+// which forbids SMTP configuration — can still assert that an email was
+// attempted. A no-op unless NODE_ENV=test and QA_E2E_ENABLED=true, so dev
+// and production sendMail behaviour is unchanged.
+type MailObserver = (msg: MailMessage) => void;
+let qaMailObserver: MailObserver | null = null;
+export function setQaMailObserver(observer: MailObserver | null): void {
+  if (process.env.NODE_ENV === "test" && process.env.QA_E2E_ENABLED === "true") qaMailObserver = observer;
+}
+
 export async function sendMail(msg: MailMessage): Promise<void> {
+  if (qaMailObserver) {
+    try { qaMailObserver(msg); } catch { /* observer must never affect delivery */ }
+  }
   if (!transporter) {
-    console.log(`[email:dev] to=${msg.to} subject="${msg.subject}"\n${msg.text}\n`);
+    console.warn("[email] delivery skipped: transport unavailable");
     return;
   }
   try {
@@ -149,7 +163,8 @@ export async function sendMail(msg: MailMessage): Promise<void> {
     // to maintain two copies of the same copy.
     const html = wrapEmailHtml(msg.subject, textToHtmlBody(msg.text, msg.cta));
     await transporter.sendMail({ from: MAIL_FROM, to: msg.to, subject: msg.subject, text: msg.text, html, replyTo: msg.replyTo });
-  } catch (e) {
-    console.error(`[email] failed to send to ${msg.to}:`, e instanceof Error ? e.message : e);
+  } catch {
+    // Provider errors may echo message content, recipients or credentials.
+    console.error("[email] delivery failed");
   }
 }

@@ -209,7 +209,7 @@ export function FreeTimeMode() {
   const currentMeta = step !== "results" ? STEPS.find((s) => s.key === step) : null;
 
   return (
-    <div style={{ animation: "fadeUp .35s ease both" }}>
+    <div style={{ animation: "fadeUp .35s ease backwards" }}>
       {/* Utility strip — mirrors /for-venues' hero utility bar: a small
           persistent page label + a live step readout, before the page's
           own giant per-step question takes over. */}

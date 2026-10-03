@@ -390,12 +390,18 @@ export function VendorSignup() {
           errorRef={errorRef}
         >
           <div>
-            <label style={labelStyle}>What are you?</label>
+            {/* HC-QA-052 — a native radio group (fieldset + legend), not
+                clickable divs: reachable with Tab, arrow keys move within
+                the group, Space selects, and screen readers announce
+                "What are you?, radio, 1 of 2". The radio itself is visually
+                hidden but focusable; the label draws the tile. */}
+            <fieldset style={{ border: "none", padding: 0, margin: 0, minWidth: 0 }}>
+            <legend style={{ ...labelStyle, padding: 0 }}>What are you?</legend>
             <div style={{ display: "flex", gap: 10, marginBottom: 14 }}>
               {typeOptions.map((opt) => (
-                <div
+                <label
                   key={opt.type}
-                  onClick={() => setVendorType(opt.type)}
+                  className="choice-tile"
                   style={{
                     position: "relative",
                     flex: 1,
@@ -403,11 +409,20 @@ export function VendorSignup() {
                     padding: "10px 12px",
                     borderRadius: 12,
                     border: `2px solid ${vendorType === opt.type ? colors.orange : colors.inputBorder}`,
-                    background: vendorType === opt.type ? colors.orangeBg : "#fff",
+                    background: vendorType === opt.type ? colors.orangeBg : colors.surface,
                     textAlign: "center",
                     transition: "border-color .15s ease, background .15s ease",
                   }}
                 >
+                  <input
+                    type="radio"
+                    name="vendor-type"
+                    value={opt.type}
+                    className="visually-hidden-input"
+                    checked={vendorType === opt.type}
+                    onChange={() => setVendorType(opt.type)}
+                    required
+                  />
                   {vendorType === opt.type && (
                     <div
                       style={{
@@ -430,9 +445,10 @@ export function VendorSignup() {
                   )}
                   <div style={{ color: vendorType === opt.type ? colors.orange : colors.muted, marginBottom: 4, display: "flex", justifyContent: "center" }}>{opt.icon}</div>
                   <div style={{ fontSize: 12.5, fontWeight: 700 }}>{opt.label}</div>
-                </div>
+                </label>
               ))}
             </div>
+            </fieldset>
 
             <div className="grid-responsive" style={gridStyle}>
               <Field label={businessLabel} htmlFor="vendor-signup-business-name">

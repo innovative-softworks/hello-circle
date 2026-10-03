@@ -2050,6 +2050,9 @@ export async function initSchema() {
   // mirrors the same column already on `bookings`/`registrations`.
   await ensureColumn("coupons", "created_by_resident_id", "created_by_resident_id VARCHAR(191)");
   await ensureColumn("game_participants", "coupon_code", "coupon_code VARCHAR(50)");
+  // HC-QA-049 — the server-computed charge for a paid join (VAT + fee − coupon),
+  // so confirmations/receipts and reconciliation use the amount actually charged.
+  await ensureColumn("game_participants", "total_cents", "total_cents INT");
 
   // Universal Publishing, Lifecycle & Availability System, Phase C —
   // Activities. DEFAULT 'active' means every pre-existing game (there is no

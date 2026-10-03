@@ -27,11 +27,21 @@
    sync by hand) in packages/design-tokens/src/colors.ts's lightColors —
    apps/mobile (React Native, no CSS engine) reads that copy instead of these
    custom properties. Update both when changing a color here. */
+/* HC-QA-043 — focus moves and scrollIntoView() stop above the fixed bottom
+   chrome (tab bar, join bars) and the consent banner while it is shown, so a
+   keyboard-focused control is never left underneath them. */
+html {
+  scroll-padding-bottom: calc(var(--bottom-chrome) + var(--consent-reserve, 0px) + 16px);
+}
+
 :root {
   /* Floating UI (toasts) sits above whatever fixed bar is at the bottom —
      BottomChromeSync.tsx sets --bottom-chrome to the mobile tab bar's
      height; without a bar it's just the safe-area inset. */
   --bottom-chrome: env(safe-area-inset-bottom, 0px);
+  /* HC-QA-001 — height of the mobile tab bar alone (safe-area included in
+     the bar's own padding); bars that sit on it use bottom: var(--bottom-nav). */
+  --bottom-nav: env(safe-area-inset-bottom, 0px);
   --r-card: 16px;
   --shadow-overlay: 0 12px 32px rgba(20, 22, 20, 0.18);
   --color-bg: #fbfaf7;
@@ -275,6 +285,50 @@ textarea:focus {
   outline: 2px solid var(--color-green);
   outline-offset: 2px;
 }
+
+/* --- Phase 10A keyboard semantics (HC-QA-052/066/067) ----------------------
+   .visually-hidden-input: a native control (radio/checkbox) that stays in the
+   tab order and the accessibility tree while its visual is drawn by the
+   surrounding <label> — never display:none, which would remove it from both.
+   .choice-tile: that label; :focus-within shows the keyboard focus ring.
+   .btn-reset: a real <button> that looks like the row/card it replaces. */
+.visually-hidden-input {
+  position: absolute;
+  opacity: 0;
+  width: 1px;
+  height: 1px;
+  margin: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.choice-tile:has(.visually-hidden-input:focus-visible) {
+  outline: 2px solid var(--color-green);
+  outline-offset: 2px;
+}
+.btn-reset {
+  appearance: none;
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  color: inherit;
+  text-align: inherit;
+  cursor: pointer;
+}
+.btn-reset:focus-visible,
+.row-link:focus-visible,
+.image-drop:focus-visible {
+  outline: 2px solid var(--color-green);
+  outline-offset: 2px;
+}
+.row-link {
+  display: block;
+  color: inherit;
+  text-decoration: none;
+}
 /* !important so elements with their own transition/transform rules (.btn's
    0.15s hover transition, etc.) still animate in at the reveal timing
    instead of snapping. The class is removed once the reveal finishes. */
@@ -455,6 +509,22 @@ textarea:focus {
   position: relative;
   z-index: 2;
 }
+/* HC-QA-031 — a Photo's overlay layer (badges, save button) sits above a card's
+   stretched link. Let clicks on its non-interactive area fall through to the
+   link; real controls inside it stay clickable. */
+.photo-content {
+  pointer-events: none;
+}
+.photo-content a,
+.photo-content button,
+.photo-content input,
+.photo-content select,
+.photo-content textarea,
+.photo-content label,
+.photo-content [role="button"],
+.photo-content [tabindex] {
+  pointer-events: auto;
+}
 
 .tab-btn {
   transition: transform 0.15s ease, background-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
@@ -492,8 +562,13 @@ textarea:focus {
   animation: pulseDot 1.6s ease-in-out infinite;
 }
 
+/* HC-QA-001 — `backwards`, not `both`, for every fadeUp: a retained end
+   transform (even an identity matrix) makes the animated wrapper the
+   containing block for position:fixed descendants, so detail pages'
+   .mobile-join-bar scrolled with the content instead of staying on the tab
+   bar. Same visual entrance. */
 .fade-panel {
-  animation: fadeUp 0.28s ease both;
+  animation: fadeUp 0.28s ease backwards;
 }
 .pop-in {
   animation: popIn 0.22s cubic-bezier(0.34, 1.56, 0.64, 1) both;
@@ -797,7 +872,9 @@ textarea:focus {
     position: fixed;
     left: 0;
     right: 0;
-    bottom: calc(64px + env(safe-area-inset-bottom));
+    /* HC-QA-001 — the measured tab bar (62px + inset), not an assumed 64px;
+       also correct between 861-900px where there's no tab bar at all. */
+    bottom: var(--bottom-nav);
     z-index: 240;
     background: var(--color-surface);
     border-top: 1px solid var(--color-border);

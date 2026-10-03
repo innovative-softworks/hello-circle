@@ -580,6 +580,18 @@ export function RowSkeleton() {
 
 // --- EmptyState --------------------------------------------------------
 
+/** A failed load — never shown as a legitimate empty result (HC-QA-063/064).
+ * Announced (role=alert), with a retry that re-runs the caller's loader. */
+export function LoadErrorState({ title, detail, onRetry, retryLabel = "Try again" }: { title: string; detail?: string; onRetry?: () => void; retryLabel?: string }) {
+  return (
+    <div role="alert" style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: radius.card, padding: "28px 24px", textAlign: "center" }}>
+      <div style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 17, marginBottom: 6 }}>{title}</div>
+      <div style={{ fontSize: 14, color: colors.mutedLight, marginBottom: onRetry ? 16 : 0 }}>{detail ?? "Check your connection and try again."}</div>
+      {onRetry && <Button variant="ghost" onClick={onRetry}>{retryLabel}</Button>}
+    </div>
+  );
+}
+
 export function EmptyState({ icon, title, subtitle, action }: { icon: ReactNode; title: string; subtitle?: string; action?: ReactNode }) {
   return (
     <div
@@ -1199,6 +1211,50 @@ export function Drawer({
 const MODAL_EXIT_MS = 180;
 const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
+/** Moves focus to the next/previous focusable element inside `panel`,
+ * wrapping at the ends (HC-QA-069/088). */
+function cycleFocus(panel: HTMLElement, backwards: boolean) {
+  const items = Array.from(panel.querySelectorAll<HTMLElement>(FOCUSABLE)).filter((el) => el.offsetParent !== null);
+  if (!items.length) { panel.focus(); return; }
+  const index = items.indexOf(document.activeElement as HTMLElement);
+  const next = index === -1 ? (backwards ? items.length - 1 : 0) : (index + (backwards ? -1 : 1) + items.length) % items.length;
+  items[next].focus();
+}
+
+/** Modal keyboard behaviour for hand-rolled dialogs (HC-QA-069): on open,
+ * move focus inside (the first field, else `initial`, else the panel);
+ * while open, keep Tab/Shift+Tab inside the panel; on close, hand focus
+ * back to whatever opened it. Escape stays the caller's own decision. */
+export function useDialogFocus(open: boolean, panelRef: { current: HTMLElement | null }, opts: { initial?: () => HTMLElement | null } = {}) {
+  const initialRef = useRef(opts.initial);
+  initialRef.current = opts.initial;
+  useEffect(() => {
+    if (!open) return;
+    const restore = document.activeElement as HTMLElement | null;
+    const t = window.setTimeout(() => {
+      const panel = panelRef.current;
+      if (!panel || panel.contains(document.activeElement)) return;
+      const field = panel.querySelector<HTMLElement>("input:not([disabled]):not([type=hidden]), select:not([disabled]), textarea:not([disabled])");
+      (field ?? initialRef.current?.() ?? panel).focus();
+    }, 20);
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Tab" || !panelRef.current) return;
+      // Move focus ourselves on EVERY Tab, not just at the edges: Safari's
+      // default Tab skips buttons/links, so leaving mid-dialog presses to
+      // the browser lets focus escape the modal (HC-QA-088).
+      e.preventDefault();
+      cycleFocus(panelRef.current, e.shiftKey);
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => {
+      window.clearTimeout(t);
+      window.removeEventListener("keydown", onKey, true);
+      if (restore && document.contains(restore)) restore.focus?.();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+}
+
 export function Modal({
   open,
   onClose,
@@ -1294,17 +1350,12 @@ export function Modal({
         return;
       }
       if (e.key !== "Tab" || !panelRef.current) return;
-      const items = Array.from(panelRef.current.querySelectorAll<HTMLElement>(FOCUSABLE)).filter((el) => el.offsetParent !== null);
-      if (!items.length) return;
-      const first = items[0];
-      const last = items[items.length - 1];
-      if (e.shiftKey && document.activeElement === first) {
-        e.preventDefault();
-        last.focus();
-      } else if (!e.shiftKey && document.activeElement === last) {
-        e.preventDefault();
-        first.focus();
-      }
+      // A ConfirmDialog stacked on top owns Tab (it traps focus itself).
+      if (document.querySelector("[data-confirm-dialog]")) return;
+      // HC-QA-088 — cycle focus ourselves on every Tab (Safari's default Tab
+      // skips buttons, which let focus leave the popup mid-cycle).
+      e.preventDefault();
+      cycleFocus(panelRef.current, e.shiftKey);
     };
     window.addEventListener("keydown", onKey);
     // Stop the page behind scrolling, and pad for the scrollbar that
@@ -1468,6 +1519,12 @@ export function ConfirmDialog({
   onConfirm: () => void;
   onCancel: () => void;
 }) {
+  const panelRef = useRef<HTMLDivElement>(null);
+  const titleId = useId();
+  const messageId = useId();
+  // HC-QA-069 — focus moves in (a field if present, else the least
+  // destructive action), Tab stays inside, focus returns to the trigger.
+  useDialogFocus(open, panelRef, { initial: () => panelRef.current?.querySelector<HTMLButtonElement>("[data-confirm-actions] button") ?? null });
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
@@ -1485,17 +1542,21 @@ export function ConfirmDialog({
       onClick={onCancel}
     >
       <div
+        ref={panelRef}
         data-confirm-dialog
         role="alertdialog"
         aria-modal="true"
+        aria-labelledby={titleId}
+        aria-describedby={messageId}
+        tabIndex={-1}
         className="pop-in"
         style={{ background: colors.surface, borderRadius: radius.card, padding: 24, maxWidth: 380, width: "100%", boxShadow: "0 20px 60px rgba(20,22,20,.25)" }}
         onClick={(e) => e.stopPropagation()}
       >
-        <h3 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 17, margin: "0 0 8px" }}>{title}</h3>
-        <div style={{ fontSize: 14, color: colors.muted, lineHeight: 1.5, marginBottom: children ? 16 : 20 }}>{message}</div>
+        <h3 id={titleId} style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 17, margin: "0 0 8px" }}>{title}</h3>
+        <div id={messageId} style={{ fontSize: 14, color: colors.muted, lineHeight: 1.5, marginBottom: children ? 16 : 20 }}>{message}</div>
         {children && <div style={{ marginBottom: 20 }}>{children}</div>}
-        <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+        <div data-confirm-actions style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
           <Button variant="ghost" onClick={onCancel} disabled={busy}>
             {cancelLabel}
           </Button>

@@ -114,22 +114,34 @@ export function ChatModal({
     endRef.current?.scrollIntoView({ block: "end" });
   }, [messages.length, open]);
 
-  const send = async () => {
+  // HC-QA-055 — an ordered send queue. Previously Enter was ignored while a
+  // send was in flight and the box was cleared when that send *completed*,
+  // wiping whatever had been typed in the meantime. Now the text leaves the
+  // box the moment it is sent, messages post one at a time in order, and a
+  // failed message goes back into the box (ahead of any newer typing) so
+  // nothing typed is ever lost.
+  const queueRef = useRef<Promise<void>>(Promise.resolve());
+  const pendingRef = useRef(0);
+  const send = () => {
     const body = draft.trim();
-    if (!body || sending) return;
-    setSending(true);
+    if (!body) return;
+    setDraft("");
     setSendError(null);
-    try {
-      const msg = await postChatMessage(scopeType, scopeId, body);
-      setMessages((prev) => [...prev, msg]);
-      lastIdRef.current = msg.id;
-      setDraft("");
-    } catch (e) {
-      // Kept in the box so nothing typed is lost.
-      setSendError(e instanceof Error ? e.message : "Couldn't send — try again");
-    } finally {
-      setSending(false);
-    }
+    pendingRef.current += 1;
+    setSending(true);
+    queueRef.current = queueRef.current.then(async () => {
+      try {
+        const msg = await postChatMessage(scopeType, scopeId, body);
+        setMessages((prev) => (prev.some((m) => m.id === msg.id) ? prev : [...prev, msg]));
+        lastIdRef.current = Math.max(lastIdRef.current, msg.id);
+      } catch (e) {
+        setDraft((current) => (current.trim() ? `${body}\n${current}` : body));
+        setSendError(e instanceof Error ? e.message : "Couldn't send — try again");
+      } finally {
+        pendingRef.current -= 1;
+        if (pendingRef.current === 0) setSending(false);
+      }
+    });
   };
 
   const block = async (m: ChatMessage) => {
@@ -178,8 +190,8 @@ export function ChatModal({
           aria-label="Message"
           style={{ ...inputStyle, flex: 1, resize: "none", lineHeight: 1.4, fontFamily: fonts.body }}
         />
-        <Button onClick={send} disabled={sending || !draft.trim()} style={{ flex: "none" }}>
-          {sending ? "…" : "Send"}
+        <Button onClick={send} disabled={!draft.trim()} style={{ flex: "none" }}>
+          {sending ? "Sending…" : "Send"}
         </Button>
       </div>
       {sendError && (

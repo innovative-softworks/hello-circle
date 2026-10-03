@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { releaseMedia, uploadMedia, type MediaEntityType } from "../api";
 import { getMediaUrl } from "../media";
 import { CameraIcon, CloseIcon, PlusIcon } from "./icons";
@@ -26,6 +26,10 @@ export function SingleImageUpload({
 }) {
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // HC-QA-067 — one hidden file input opened by real <button>s. The old
+  // pattern (a <label> wrapping a display:none input) dropped the control
+  // out of the tab order entirely, so keyboard users could never upload.
+  const inputRef = useRef<HTMLInputElement>(null);
 
   const onFile = async (files: FileList | null) => {
     const file = files?.[0];
@@ -63,11 +67,17 @@ export function SingleImageUpload({
           >
             <CloseIcon size={12} />
           </button>
-          <label
+          <button
+            type="button"
+            onClick={() => inputRef.current?.click()}
+            disabled={uploading}
+            className="image-drop"
+            aria-label={`Replace ${label.toLowerCase()}`}
             style={{
               position: "absolute",
               left: 5,
               bottom: 5,
+              border: "none",
               background: "rgba(20,22,20,.7)",
               color: "#fff",
               fontSize: 10,
@@ -78,12 +88,14 @@ export function SingleImageUpload({
             }}
           >
             {uploading ? "Uploading…" : "Replace"}
-            <input type="file" accept="image/jpeg,image/png,image/webp" onChange={(e) => onFile(e.target.files)} disabled={uploading} style={{ display: "none" }} />
-          </label>
+          </button>
         </div>
       ) : (
-        <label
+        <button
+          type="button"
           className="image-drop"
+          onClick={() => inputRef.current?.click()}
+          disabled={uploading}
           style={{
             display: "flex",
             flexDirection: "column",
@@ -104,10 +116,18 @@ export function SingleImageUpload({
         >
           {uploading ? <CameraIcon size={18} /> : <PlusIcon size={18} />}
           {uploading ? "Uploading…" : "Add photo"}
-          <input type="file" accept="image/jpeg,image/png,image/webp" onChange={(e) => onFile(e.target.files)} disabled={uploading} style={{ display: "none" }} />
-        </label>
+        </button>
       )}
-      {error && <p style={{ color: colors.danger, fontSize: 12, margin: "6px 0 0" }}>{error}</p>}
+      <input
+        ref={inputRef}
+        type="file"
+        accept="image/jpeg,image/png,image/webp"
+        hidden
+        tabIndex={-1}
+        onChange={(e) => { void onFile(e.target.files); e.target.value = ""; }}
+        disabled={uploading}
+      />
+      {error && <p role="alert" style={{ color: colors.danger, fontSize: 12, margin: "6px 0 0" }}>{error}</p>}
     </div>
   );
 }

@@ -122,6 +122,17 @@ async function createVendorSignup(
   });
 }
 
+// HC-QA-058 — a vendor application is acknowledged by email (the success
+// page says "once approved, log in", so the vendor needs to know it arrived
+// and, later, that it was approved — see admin.ts). No secret-bearing link.
+async function sendVendorApplicationReceived(email: string, name: string, businessName: string) {
+  await sendMail({
+    to: email,
+    subject: "We've received your Hello Circle application",
+    text: `Hi ${name || "there"},\n\nThanks for applying to list ${businessName} on Hello Circle. Our team reviews every new venue and club before it goes live — we'll email you as soon as your account is approved.\n\nYou don't need to do anything else for now. Once approved, you can log in here:\n\n${CLIENT_URL}/login\n\nThanks for using Hello Circle.`,
+  });
+}
+
 authRouter.post("/signup", async (req, res) => {
   const { password, termsAccepted, marketingConsent } = req.body as { password?: string; termsAccepted?: boolean; marketingConsent?: boolean };
   if (!password || password.length < 8) return res.status(400).json({ error: "Password must be at least 8 characters" });
@@ -140,6 +151,7 @@ authRouter.post("/signup", async (req, res) => {
   try {
     const user = await createVendorSignup(validated.intake, password, !!marketingConsent);
     res.status(201).json({ user });
+    void sendVendorApplicationReceived(validated.intake.email, validated.intake.name, validated.intake.businessName);
   } catch (e) {
     if ((e as { code?: string }).code === "ER_DUP_ENTRY") return res.status(409).json({ error: "An account with that email already exists" });
     throw e;
@@ -184,6 +196,7 @@ authRouter.post("/signup-google", googleAuthLimiter, async (req, res) => {
   try {
     const user = await createVendorSignup(validated.intake, throwawayPassword, !!marketingConsent, identity.uid);
     res.status(201).json({ user });
+    void sendVendorApplicationReceived(validated.intake.email, validated.intake.name, validated.intake.businessName);
   } catch (e) {
     if ((e as { code?: string }).code === "ER_DUP_ENTRY") {
       return res.status(409).json({ error: "An account with that email already exists — try logging in instead." });
@@ -413,26 +426,31 @@ authRouter.post("/accept-invite", passwordLoginLimiter, async (req, res) => {
   if (password.length < 8) return res.status(400).json({ error: "Password must be at least 8 characters" });
   if (!termsAccepted) return res.status(400).json({ error: "Please accept the Terms to continue" });
 
-  const invite = (await db
-    .prepare(`SELECT org_id as orgId, email, platform_role as platformRole FROM org_invites WHERE token = ? AND status = 'pending' AND expires_at > NOW()`)
-    .get(token)) as { orgId: string; email: string; platformRole: string } | undefined;
-  if (!invite) return res.status(400).json({ error: "This invite has expired or is no longer valid" });
-  if (await findUserByEmail(invite.email)) return res.status(409).json({ error: "An account with that email already exists" });
-
-  // Invited staff skip the pending-admin-approval step new self-serve
-  // vendor signups go through — the org owner inviting them by email is
-  // the vetting step here, not a second admin review.
-  const user = await db.transaction(async (tx) => {
+  const outcome = await db.transaction(async (tx) => {
+    const invite = await tx.prepare(`SELECT org_id as orgId, email, platform_role as platformRole FROM org_invites WHERE token = ? AND status = 'pending' AND expires_at > NOW() FOR UPDATE`).get(token) as { orgId: string; email: string; platformRole: string } | undefined;
+    if (!invite) return { status: 400, error: "This invite has expired or is no longer valid" };
+    const recipient = invite.email.toLowerCase().trim();
+    const identities = [req.user?.email, req.resident?.email, req.guestEmail].filter((email): email is string => !!email);
+    if (identities.some(email => email.toLowerCase().trim() !== recipient)) {
+      return { status: 403, error: "This invitation cannot be accepted in the current session" };
+    }
+    if (await tx.prepare(`SELECT id FROM users WHERE email = ?`).get(recipient)) return { status: 409, error: "An account with that email already exists" };
+    if (!await tx.prepare(`SELECT id FROM organisations WHERE id = ?`).get(invite.orgId)) return { status: 400, error: "This invite has expired or is no longer valid" };
     const u = await createUser(invite.email, password, name, "vendor", "approved", undefined, tx, {
       orgId: invite.orgId,
       platformRole: invite.platformRole,
       invitedStaff: true,
     });
     await tx.prepare(`UPDATE users SET terms_accepted_at = NOW(), terms_version = ?, marketing_consent = ? WHERE id = ?`).run(TERMS_VERSION, marketingConsent ? 1 : 0, u.id);
-    await tx.prepare(`UPDATE org_invites SET status = 'accepted' WHERE token = ?`).run(token);
-    return u;
+    await tx.prepare(`UPDATE org_invites SET status = 'accepted' WHERE token = ? AND status = 'pending'`).run(token);
+    return { user: u };
+  }).catch((error: unknown) => {
+    // A separate invitation/signup may concurrently claim the same email.
+    if ((error as { code?: string })?.code === "ER_DUP_ENTRY") return { status: 409, error: "An account with that email already exists" };
+    throw error;
   });
-
+  if ("error" in outcome) return res.status(outcome.status!).json({ error: outcome.error });
+  const user = outcome.user;
   const { token: sessionToken } = await createSession(user.id);
   res.cookie(SESSION_COOKIE, sessionToken, cookieOpts);
   res.status(201).json({ user });
@@ -443,13 +461,15 @@ authRouter.post("/reset-password", passwordLoginLimiter, async (req, res) => {
   if (!token || !password) return res.status(400).json({ error: "Token and new password are required" });
   if (password.length < 8) return res.status(400).json({ error: "Password must be at least 8 characters" });
 
-  const row = (await db.prepare(`SELECT user_id as userId FROM password_reset_tokens WHERE token = ? AND expires_at > NOW()`).get(token)) as
-    | { userId: string }
-    | undefined;
-  if (!row) return res.status(400).json({ error: "This link has expired or has already been used — request a new one" });
-
-  await db.prepare(`UPDATE users SET password_hash = ? WHERE id = ?`).run(hashPassword(password), row.userId);
-  await db.prepare(`DELETE FROM password_reset_tokens WHERE token = ?`).run(token);
+  const consumed = await db.transaction(async (tx) => {
+    const row = await tx.prepare(`SELECT user_id as userId FROM password_reset_tokens WHERE token = ? AND expires_at > NOW() FOR UPDATE`).get(token) as { userId: string } | undefined;
+    if (!row) return false;
+    const changed = await tx.prepare(`UPDATE users SET password_hash = ? WHERE id = ?`).run(hashPassword(password), row.userId);
+    if (changed.changes !== 1) return false;
+    await tx.prepare(`DELETE FROM password_reset_tokens WHERE token = ?`).run(token);
+    return true;
+  });
+  if (!consumed) return res.status(400).json({ error: "This link has expired or has already been used — request a new one" });
   res.json({ ok: true });
 });
 

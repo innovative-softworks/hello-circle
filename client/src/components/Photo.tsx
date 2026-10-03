@@ -83,7 +83,7 @@ export function Photo({ src, alt, ph, style, contentStyle, icon, iconColor, chil
       )}
       <div className="card-photo-tint" style={tintStyle} />
       {children && (
-        <div style={{ position: "relative", zIndex: 1, width: "100%", height: "100%", ...contentStyle }}>
+        <div className="photo-content" style={{ position: "relative", zIndex: 1, width: "100%", height: "100%", ...contentStyle }}>
           {children}
         </div>
       )}

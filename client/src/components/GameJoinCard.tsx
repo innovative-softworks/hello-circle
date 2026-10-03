@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { leaveWaitlistConfirm } from "../confirmCopy";
 import { useConfirm } from "./ConfirmProvider";
 import { useNavigate } from "react-router-dom";
-import { cancelGame, downloadGameIcs, fetchGameParticipants, joinGame, joinGameWaitlist, leaveGame, leaveGameWaitlist, subscribeGameNotifyMe, validateCoupon } from "../api";
+import { cancelGame, downloadGameIcs, fetchGameParticipants, joinGame, joinGameWaitlist, leaveGame, leaveGameWaitlist, quoteGame, subscribeGameNotifyMe, validateCoupon, type PriceQuote } from "../api";
 import { signInHref } from "../authRedirect";
 import { openCheckout } from "../native";
 import { CalendarIcon, CheckIcon, PinIcon, UsersIcon } from "./icons";
@@ -66,7 +66,18 @@ interface JoinCardProps {
 // Compact recap line shared by the confirm modal and the (rare) inline
 // error state — date/time, venue, headcount, price, in that order, matching
 // the spec's own §21 confirmation-sheet layout.
-function PlanRecap({ game }: { game: Game }) {
+function PlanRecap({ game, couponCode }: { game: Game; couponCode?: string | null }) {
+  // HC-QA-047 — a paid join's confirmation shows the server's own total
+  // (VAT + platform fee), not just the per-player listing price.
+  const [quote, setQuote] = useState<PriceQuote | null>(null);
+  useEffect(() => {
+    if (!game.priceCents) return;
+    let live = true;
+    quoteGame(game.id, couponCode).then((q) => live && setQuote(q)).catch(() => live && setQuote(null));
+    return () => {
+      live = false;
+    };
+  }, [game.id, game.priceCents, couponCode]);
   return (
     <div>
       <div style={{ fontWeight: 700, color: colors.text, marginBottom: 4 }}>{game.activityLabel}</div>
@@ -76,6 +87,11 @@ function PlanRecap({ game }: { game: Game }) {
       <div style={{ fontWeight: 700, color: game.priceCents ? colors.text : colors.greenText }}>
         {formatPrice(game.priceCents, { each: true })}
       </div>
+      {!!game.priceCents && (
+        <div data-qa="game-quote-total" style={{ fontWeight: 800, marginTop: 4 }}>
+          {quote ? `Total today €${(quote.totalCents / 100).toFixed(2)} (incl. VAT €${(quote.vatCents / 100).toFixed(2)} + fee €${(quote.platformFeeCents / 100).toFixed(2)})` : "Calculating total…"}
+        </div>
+      )}
     </div>
   );
 }
@@ -394,7 +410,7 @@ export function GameJoinCard({ game, resident, isHost, onRefresh }: JoinCardProp
         title={`Join ${game.activityLabel}?`}
         message={
           <>
-            <PlanRecap game={game} />
+            <PlanRecap game={game} couponCode={couponCode} />
             {!!game.priceCents && <GameCouponField subtotalCents={game.priceCents} onApplied={setCouponCode} />}
           </>
         }
@@ -502,7 +518,7 @@ export function MobileJoinBar({ game, resident, isHost, onRefresh }: JoinCardPro
         title={`Join ${game.activityLabel}?`}
         message={
           <>
-            <PlanRecap game={game} />
+            <PlanRecap game={game} couponCode={couponCode} />
             {!!game.priceCents && <GameCouponField subtotalCents={game.priceCents} onApplied={setCouponCode} />}
           </>
         }

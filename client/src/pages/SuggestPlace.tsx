@@ -64,7 +64,7 @@ export function SuggestPlacePage() {
   };
 
   return (
-    <div style={{ animation: "fadeUp .35s ease both" }}>
+    <div style={{ animation: "fadeUp .35s ease backwards" }}>
       <section className="section-pad" style={{ maxWidth: 640, margin: "0 auto", padding: "26px 24px 80px" }}>
         <BackLink onClick={() => navigate(-1)} marginBottom={16}>Back</BackLink>
 

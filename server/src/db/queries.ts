@@ -1,7 +1,7 @@
 import { db } from "./index.js";
 import { haversineKm, type RadiusFilter } from "../geo.js";
 import { irelandWallTimeToUtc } from "../irelandTime.js";
-import { DISCOVERABLE_LIFECYCLES_SQL } from "../lifecycle.js";
+import { discoverableGameSql } from "../gameVisibility.js";
 import type { Centre, Club, Room } from "../types.js";
 
 interface CentreRow {
@@ -635,7 +635,7 @@ export async function getLocalMomentum(opts: { county?: string; limit: number })
               CAST(SUM(CASE WHEN g.created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY) THEN g.capacity ELSE 0 END) AS SIGNED) as recentSpots,
               CAST(SUM(CASE WHEN g.created_at >= DATE_SUB(NOW(), INTERVAL 14 DAY) AND g.created_at < DATE_SUB(NOW(), INTERVAL 7 DAY) THEN g.capacity ELSE 0 END) AS SIGNED) as priorSpots
        FROM games g JOIN centres c ON c.id = g.centre_id
-       WHERE g.status != 'cancelled' ${countyClause}
+       WHERE g.status != 'cancelled' AND ${discoverableGameSql("g")} ${countyClause}
        GROUP BY g.activity_label, c.county
        HAVING recentSpots > priorSpots
        ORDER BY (recentSpots - priorSpots) DESC
@@ -1237,7 +1237,7 @@ export async function listScheduledActivities(opts: { county?: string; from: Dat
             `SELECT g.id, g.activity_label, g.date, g.time, g.price_cents, g.capacity, g.image_url, g.circle_id, c.name as centre_name, c.area, c.county, c.lat, c.lng, c.location_source,
                     (SELECT COUNT(*) FROM game_participants gp WHERE gp.game_id = g.id AND gp.status = 'joined') as joined
              FROM games g LEFT JOIN centres c ON c.id = g.centre_id
-             WHERE g.status = 'open' AND g.visibility = 'public' AND g.lifecycle IN ${DISCOVERABLE_LIFECYCLES_SQL} AND g.date >= ? AND g.date <= ? AND c.county = ?`
+             WHERE g.status = 'open' AND ${discoverableGameSql("g")} AND g.date >= ? AND g.date <= ? AND c.county = ?`
           )
           .all(fromIso, toIso, county)
       : await db
@@ -1245,7 +1245,7 @@ export async function listScheduledActivities(opts: { county?: string; from: Dat
             `SELECT g.id, g.activity_label, g.date, g.time, g.price_cents, g.capacity, g.image_url, g.circle_id, c.name as centre_name, c.area, c.county, c.lat, c.lng, c.location_source,
                     (SELECT COUNT(*) FROM game_participants gp WHERE gp.game_id = g.id AND gp.status = 'joined') as joined
              FROM games g LEFT JOIN centres c ON c.id = g.centre_id
-             WHERE g.status = 'open' AND g.visibility = 'public' AND g.lifecycle IN ${DISCOVERABLE_LIFECYCLES_SQL} AND g.date >= ? AND g.date <= ?`
+             WHERE g.status = 'open' AND ${discoverableGameSql("g")} AND g.date >= ? AND g.date <= ?`
           )
           .all(fromIso, toIso)
   ) as GameRow[];

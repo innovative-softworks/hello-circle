@@ -171,15 +171,21 @@ export function ShareSheet({ open, onClose, entityType, entityId }: { open: bool
   const [qrOpen, setQrOpen] = useState(false);
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
 
+  // HC-QA-053 — a failed load is its own state, never an endless spinner.
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [attempt, setAttempt] = useState(0);
   useEffect(() => {
     if (!open) return;
     setPane("main");
     setData(null);
+    setLoadFailed(false);
+    let cancelled = false;
     fetchShareData(entityType, entityId)
-      .then(setData)
-      .catch(() => setData(null));
-    void logShareEvent("share_opened", entityType, entityId).catch(() => {});
-  }, [open, entityType, entityId]);
+      .then((d) => { if (!cancelled) setData(d); })
+      .catch(() => { if (!cancelled) setLoadFailed(true); });
+    if (attempt === 0) void logShareEvent("share_opened", entityType, entityId).catch(() => {});
+    return () => { cancelled = true; };
+  }, [open, entityType, entityId, attempt]);
 
   useEffect(() => {
     if (!qrOpen || !data || qrDataUrl) return;
@@ -217,7 +223,15 @@ export function ShareSheet({ open, onClose, entityType, entityId }: { open: bool
 
   return (
     <Modal open={open} onClose={onClose} title="Share" subtitle={data?.title}>
-      {!data ? (
+      {!data && loadFailed ? (
+        <div role="alert" style={{ textAlign: "center", padding: "12px 4px" }}>
+          <p style={{ fontSize: 14, margin: "0 0 14px" }}>We couldn't load the share link right now.</p>
+          <div style={{ display: "flex", gap: 8, justifyContent: "center" }}>
+            <Button variant="ghost" onClick={onClose}>Close</Button>
+            <Button onClick={() => setAttempt((n) => n + 1)}>Try again</Button>
+          </div>
+        </div>
+      ) : !data ? (
         <PageSpinner />
       ) : pane === "circle" ? (
         <ShareToCirclePane data={data} onDone={onClose} onBack={() => setPane("main")} />

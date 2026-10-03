@@ -256,18 +256,11 @@ export async function createResidentFromMagicLink(email: string, name: string, m
  * here can point them at logging in instead). */
 export class ResidentSignupRaceError extends Error {}
 
-/** Creates a new resident with a password, or — if a resident already
- * exists for that email (e.g. from a prior magic-link sign-in) and has no
- * password yet — attaches the password to that same existing account
- * instead of erroring. Returns null only when an account already has a
- * password set, so the caller can reject as "account already exists".
- * Deliberately never overwrites the existing account's name on this path:
- * the person filling in the signup form may not even know an account
- * already exists for that email, so whatever they type here shouldn't
- * silently clobber a name that's already on file (a real bug caught here —
- * an existing "Niamh O'Brien" briefly became "Niamh" from a signup form
- * that only had room for a first name). name is only used for a genuinely
- * new row below.
+/** Creates a NEW resident with a password. Any existing email returns null,
+ * including Google/magic-link accounts with no password. Knowing an email
+ * is not ownership proof: public signup must never attach credentials or
+ * update an existing identity (HC-QA-002). Credential changes belong in a
+ * separately authenticated or verified recovery flow.
  *
  * termsAccepted/marketingConsent bring this path in line with the Google
  * signup flow (createResidentFromGoogle) and vendor signup, which have
@@ -285,18 +278,7 @@ export async function createResidentWithPassword(
   if (!termsAccepted) throw new Error("termsAccepted is required to create a resident account");
   const normalized = email.toLowerCase().trim();
   const existing = await getResidentPasswordHash(normalized);
-  if (existing) {
-    if (existing.passwordHash) return null;
-    await setResidentPassword(existing.id, passwordHash);
-    // This person just ticked the Terms box on the form — record it on the
-    // pre-existing (e.g. magic-link-created, consent-less) row too, but only
-    // if no acceptance is on file already: never overwrite an earlier
-    // timestamp/version, and never touch their existing marketing choice.
-    await db
-      .prepare(`UPDATE residents SET terms_accepted_at = NOW(), terms_version = ? WHERE id = ? AND terms_accepted_at IS NULL`)
-      .run(TERMS_VERSION, existing.id);
-    return await getResidentByEmail(normalized);
-  }
+  if (existing) return null;
   const id = crypto.randomUUID();
   try {
     await db

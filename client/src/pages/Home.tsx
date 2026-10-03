@@ -590,7 +590,7 @@ export function Home() {
   };
 
   return (
-    <div ref={revealRef} style={{ animation: "fadeUp .4s ease both" }}>
+    <div ref={revealRef} style={{ animation: "fadeUp .4s ease backwards" }}>
       {/* HERO — the app's first true full-bleed section: no maxWidth cap on
           the outer <section>, so its background/border spans the viewport
           edge to edge. Top content is a two-column split (headline column
@@ -659,7 +659,7 @@ export function Home() {
                 }}
               >
                 <SearchIcon size={20} style={{ color: colors.mutedLight, flex: "none" }} />
-                <input
+                <input aria-label="What do you feel like doing?"
                   value={heroQuery}
                   onChange={(e) => setHeroQuery(e.target.value)}
                   onKeyDown={(e) => e.key === "Enter" && handleHeroSearch()}

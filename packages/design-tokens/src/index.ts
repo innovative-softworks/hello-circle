@@ -111,6 +111,10 @@ export const zIndex = {
   dropdown: 60,
   lightbox: 200,
   mobileBar: 250,
+  // Cookie consent banner (HC-QA-001) — positioned above the bottom chrome,
+  // and stacked above the mobile bars as a safeguard, but below drawers and
+  // modals so it never covers a dialog.
+  consent: 260,
   drawer: 300,
   // Non-blocking feedback (components/Toast.tsx) — above drawers and the
   // mobile bar, below modals, so a confirmation never covers a dialog.

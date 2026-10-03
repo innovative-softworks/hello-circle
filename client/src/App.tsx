@@ -1,4 +1,5 @@
 import { lazy, Suspense, useEffect, useRef } from "react";
+import { AppUpdateBoundary } from "./components/AppUpdateBoundary";
 import { Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { AuthProvider } from "./AuthContext";
 import { ConfirmProvider } from "./components/ConfirmProvider";
@@ -291,6 +292,7 @@ export function App() {
                   <Route path="*" element={<Navigate to="/coming-soon" replace />} />
                 </Routes>
               ) : (
+              <AppUpdateBoundary resetKey={location.pathname}>
               <Suspense fallback={<PageSpinner />}>
               <Routes>
                 {/* /for-venues is now doing double duty as the pre-launch
@@ -395,6 +397,7 @@ export function App() {
                 <Route path="*" element={<NotFound />} />
               </Routes>
               </Suspense>
+              </AppUpdateBoundary>
               )}
             </main>
             {!isStandaloneLanding && !isAuthPage && !isComingSoon && <Footer />}

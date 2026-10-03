@@ -130,7 +130,11 @@ export function HostGamePage() {
   // navigate() call below) and a circleId-only create returns to Manage's
   // Circles tab — both already land somewhere with their own confirmation
   // context, so this state stays null on those paths.
-  const [justCreated, setJustCreated] = useState<{ id: string } | null>(null);
+  const [justCreated, setJustCreated] = useState<{ id: string; lifecycle?: string } | null>(null);
+  // HC-QA-032 — the activity's original date in edit mode: an unchanged past
+  // date (a completed activity) may still be edited; a new/changed one may not.
+  const [originalDate, setOriginalDate] = useState<string | null>(null);
+  const todayIso = new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Dublin", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
   const [justCreatedImageUrl, setJustCreatedImageUrl] = useState<string | null>(null);
 
   useEffect(() => {
@@ -146,6 +150,7 @@ export function HostGamePage() {
           setLoadError("Only the host can edit this session");
           return;
         }
+        setOriginalDate(game.date);
         setFormRaw({
           activityLabel: game.activityLabel,
           centreId: game.centreId ?? "",
@@ -182,6 +187,7 @@ export function HostGamePage() {
     if (!form.activityLabel.trim()) return setStepError("What are you planning? Give it a name.");
     if (!form.centreId && !form.locationText.trim()) return setStepError("Add a venue or a location");
     if (!form.date) return setStepError("Pick a date");
+    if (form.date < todayIso && form.date !== originalDate) return setStepError("Pick a date that hasn't passed");
     if (!form.time) return setStepError("Pick a time");
     setStepError(null);
     setStep(2);
@@ -238,7 +244,7 @@ export function HostGamePage() {
         return;
       }
       const count = repeat === "none" ? 1 : Math.max(1, Math.min(52, occurrences));
-      let firstGame: { id: string } | null = null;
+      let firstGame: { id: string; lifecycle?: string } | null = null;
       for (let i = 0; i < count; i++) {
         const d = new Date(`${form.date}T00:00:00`);
         if (repeat === "weekly") d.setDate(d.getDate() + 7 * i);
@@ -313,9 +319,14 @@ export function HostGamePage() {
           justCreated ? (
             <Card style={{ maxWidth: 480, margin: "40px auto 0", textAlign: "center", padding: "36px 28px" }}>
               <CheckCircleIcon size={36} style={{ color: colors.greenText }} />
-              <h2 style={{ margin: "14px 0 4px" }}>You're live.</h2>
+              {/* HC-QA-032 — confirmation matches what was actually saved. */}
+              <h2 style={{ margin: "14px 0 4px" }}>{justCreated.lifecycle === "draft" ? "Draft saved." : justCreated.lifecycle === "coming_soon" ? "Announced." : "You're live."}</h2>
               <p style={{ fontSize: 14, color: colors.muted, margin: "0 0 22px" }}>
-                {form.activityLabel} is posted — share it to help fill it up.
+                {justCreated.lifecycle === "draft"
+                  ? `Only you can see ${form.activityLabel} for now — publish it from Manage when you're ready.`
+                  : justCreated.lifecycle === "coming_soon"
+                  ? `${form.activityLabel} is showing as coming soon — open bookings from Manage when you're ready.`
+                  : `${form.activityLabel} is posted — share it to help fill it up.`}
               </p>
               <div style={{ display: "flex", justifyContent: "center", marginBottom: 20 }}>
                 <SingleImageUpload
@@ -326,7 +337,7 @@ export function HostGamePage() {
                 />
               </div>
               <div style={{ display: "flex", flexDirection: "column", gap: 10, alignItems: "stretch" }}>
-                <ShareButton entityType="game" entityId={justCreated.id} label="Share" variant="primary" />
+                {justCreated.lifecycle !== "draft" && <ShareButton entityType="game" entityId={justCreated.id} label="Share" variant="primary" />}
                 <Button
                   variant="ghost"
                   onClick={() => {
@@ -357,12 +368,12 @@ export function HostGamePage() {
             >
               <div className="grid-responsive" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
                 <div>
-                  <label style={labelStyle}>Activity</label>
+                  <label htmlFor="game-activity" style={labelStyle}>Activity</label>
                   <input id="game-activity" value={form.activityLabel} onChange={(e) => setForm((f) => ({ ...f, activityLabel: e.target.value }))} placeholder="e.g. Badminton" style={inputStyle} autoFocus />
                 </div>
                 <div>
-                  <label style={labelStyle}>Venue (optional)</label>
-                  <select value={form.centreId} onChange={(e) => setForm((f) => ({ ...f, centreId: e.target.value }))} style={inputStyle}>
+                  <label htmlFor="game-venue" style={labelStyle}>Venue (optional)</label>
+                  <select id="game-venue" value={form.centreId} onChange={(e) => setForm((f) => ({ ...f, centreId: e.target.value }))} style={inputStyle}>
                     <option value="">Pick a location instead</option>
                     {centres.map((c) => (
                       <option key={c.id} value={c.id}>{c.name}</option>
@@ -371,23 +382,23 @@ export function HostGamePage() {
                 </div>
                 {!form.centreId && (
                   <div style={{ gridColumn: "1 / -1" }}>
-                    <label style={labelStyle}>Location</label>
+                    <label htmlFor="game-location" style={labelStyle}>Location</label>
                     <input id="game-location" value={form.locationText} onChange={(e) => setForm((f) => ({ ...f, locationText: e.target.value }))} placeholder="e.g. Phoenix Park, main gate" style={inputStyle} />
                   </div>
                 )}
                 <div>
-                  <label style={labelStyle}>Date</label>
-                  <input id="game-date" type="date" value={form.date} onChange={(e) => setForm((f) => ({ ...f, date: e.target.value }))} style={inputStyle} />
+                  <label htmlFor="game-date" style={labelStyle}>Date</label>
+                  <input id="game-date" type="date" min={originalDate && originalDate < todayIso ? undefined : todayIso} value={form.date} onChange={(e) => setForm((f) => ({ ...f, date: e.target.value }))} style={inputStyle} />
                 </div>
                 <div>
-                  <label style={labelStyle}>Time</label>
+                  <label htmlFor="game-time" style={labelStyle}>Time</label>
                   <input id="game-time" type="time" value={form.time} onChange={(e) => setForm((f) => ({ ...f, time: e.target.value }))} style={inputStyle} />
                 </div>
                 {!gameId && !planId && (
                   <div>
-                    <label style={labelStyle}>Repeat (optional)</label>
+                    <label htmlFor="game-repeat" style={labelStyle}>Repeat (optional)</label>
                     <div style={{ display: "flex", gap: 8 }}>
-                      <select value={repeat} onChange={(e) => setRepeat(e.target.value as typeof repeat)} style={inputStyle}>
+                      <select id="game-repeat" value={repeat} onChange={(e) => setRepeat(e.target.value as typeof repeat)} style={inputStyle}>
                         <option value="none">Doesn't repeat</option>
                         <option value="weekly">Every week</option>
                         <option value="biweekly">Every 2 weeks</option>
@@ -420,8 +431,8 @@ export function HostGamePage() {
                   min={2}
                 />
                 <div>
-                  <label style={labelStyle}>Price per player (optional)</label>
-                  <input
+                  <label htmlFor="game-price-per-player" style={labelStyle}>Price per player (optional)</label>
+                  <input id="game-price-per-player"
                     value={form.priceCents}
                     onChange={(e) => setForm((f) => ({ ...f, priceCents: e.target.value }))}
                     placeholder="e.g. 5"
@@ -431,8 +442,8 @@ export function HostGamePage() {
                   {priceLocked && <p style={{ fontSize: 11.5, color: colors.mutedLight, margin: "4px 0 0" }}>Locked — someone has already joined at this price.</p>}
                 </div>
                 <div>
-                  <label style={labelStyle}>Skill level (optional)</label>
-                  <select value={form.skillLevel} onChange={(e) => setForm((f) => ({ ...f, skillLevel: e.target.value }))} style={inputStyle}>
+                  <label htmlFor="game-skill-level" style={labelStyle}>Skill level (optional)</label>
+                  <select id="game-skill-level" value={form.skillLevel} onChange={(e) => setForm((f) => ({ ...f, skillLevel: e.target.value }))} style={inputStyle}>
                     <option value="">Any level</option>
                     {SKILL_LEVELS.map((s) => (
                       <option key={s} value={s}>{s}</option>
@@ -472,8 +483,8 @@ export function HostGamePage() {
                     This session stays "pending", but still joinable, until {form.minParticipants} players (including you) have joined.
                   </p>
                   <div style={{ marginTop: 10 }}>
-                    <label style={labelStyle}>Confirm by (optional)</label>
-                    <input
+                    <label htmlFor="game-confirm-by" style={labelStyle}>Confirm by (optional)</label>
+                    <input id="game-confirm-by"
                       type="datetime-local"
                       value={form.confirmationDeadline}
                       onChange={(e) => setForm((f) => ({ ...f, confirmationDeadline: e.target.value }))}
@@ -499,8 +510,8 @@ export function HostGamePage() {
             >
               <div>
                 <div style={{ marginBottom: 12 }}>
-                  <label style={labelStyle}>About this plan (optional)</label>
-                  <textarea
+                  <label htmlFor="game-about-this-plan" style={labelStyle}>About this plan (optional)</label>
+                  <textarea id="game-about-this-plan"
                     value={form.description}
                     onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
                     placeholder="What's the pace, format and vibe? e.g. A relaxed, social ride at an easy-to-moderate pace."
@@ -516,8 +527,8 @@ export function HostGamePage() {
                   <AttributePicker value={form.participationAttributes} onChange={(next) => setForm((f) => ({ ...f, participationAttributes: next }))} />
                 </div>
                 <div style={{ marginBottom: 12 }}>
-                  <label style={labelStyle}>Experience needed (optional)</label>
-                  <input
+                  <label htmlFor="game-experience-needed" style={labelStyle}>Experience needed (optional)</label>
+                  <input id="game-experience-needed"
                     value={form.experienceRequired}
                     onChange={(e) => setForm((f) => ({ ...f, experienceRequired: e.target.value }))}
                     placeholder="e.g. None — we'll show you the basics on the day."
@@ -525,8 +536,8 @@ export function HostGamePage() {
                   />
                 </div>
                 <div style={{ marginBottom: 12 }}>
-                  <label style={labelStyle}>What to bring (optional)</label>
-                  <textarea
+                  <label htmlFor="game-what-to-bring" style={labelStyle}>What to bring (optional)</label>
+                  <textarea id="game-what-to-bring"
                     value={form.equipmentNeeded}
                     onChange={(e) => setForm((f) => ({ ...f, equipmentNeeded: e.target.value }))}
                     placeholder="e.g. Your bike, helmet, water bottle and lights if you have them."
@@ -536,20 +547,20 @@ export function HostGamePage() {
                 </div>
                 <div className="grid-responsive" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 12 }}>
                   <div>
-                    <label style={labelStyle}>Duration in minutes (optional)</label>
-                    <input type="number" min={1} value={form.durationMinutes} onChange={(e) => setForm((f) => ({ ...f, durationMinutes: e.target.value }))} placeholder="e.g. 60" style={{ ...inputStyle, maxWidth: 140 }} />
+                    <label htmlFor="game-duration-in-minutes" style={labelStyle}>Duration in minutes (optional)</label>
+                    <input id="game-duration-in-minutes" type="number" min={1} value={form.durationMinutes} onChange={(e) => setForm((f) => ({ ...f, durationMinutes: e.target.value }))} placeholder="e.g. 60" style={{ ...inputStyle, maxWidth: 140 }} />
                   </div>
                   <div>
-                    <label style={labelStyle}>Minimum age (optional)</label>
-                    <input type="number" min={0} value={form.minAge} onChange={(e) => setForm((f) => ({ ...f, minAge: e.target.value }))} placeholder="e.g. 18" style={{ ...inputStyle, maxWidth: 140 }} />
+                    <label htmlFor="game-minimum-age" style={labelStyle}>Minimum age (optional)</label>
+                    <input id="game-minimum-age" type="number" min={0} value={form.minAge} onChange={(e) => setForm((f) => ({ ...f, minAge: e.target.value }))} placeholder="e.g. 18" style={{ ...inputStyle, maxWidth: 140 }} />
                   </div>
                   <div>
-                    <label style={labelStyle}>Surface (optional)</label>
-                    <input value={form.surfaceType} onChange={(e) => setForm((f) => ({ ...f, surfaceType: e.target.value }))} placeholder="e.g. Road & trail" style={inputStyle} />
+                    <label htmlFor="game-surface" style={labelStyle}>Surface (optional)</label>
+                    <input id="game-surface" value={form.surfaceType} onChange={(e) => setForm((f) => ({ ...f, surfaceType: e.target.value }))} placeholder="e.g. Road & trail" style={inputStyle} />
                   </div>
                   <div>
-                    <label style={labelStyle}>Indoor or outdoor (optional)</label>
-                    <select value={form.indoorOutdoor} onChange={(e) => setForm((f) => ({ ...f, indoorOutdoor: e.target.value as typeof form.indoorOutdoor }))} style={inputStyle}>
+                    <label htmlFor="game-indoor-or-outdoor" style={labelStyle}>Indoor or outdoor (optional)</label>
+                    <select id="game-indoor-or-outdoor" value={form.indoorOutdoor} onChange={(e) => setForm((f) => ({ ...f, indoorOutdoor: e.target.value as typeof form.indoorOutdoor }))} style={inputStyle}>
                       <option value="">Not specified</option>
                       <option value="outdoor">Outdoor</option>
                       <option value="indoor">Indoor</option>
@@ -558,8 +569,8 @@ export function HostGamePage() {
                   </div>
                 </div>
                 <div style={{ marginBottom: 12 }}>
-                  <label style={labelStyle}>Meeting instructions (optional)</label>
-                  <textarea
+                  <label htmlFor="game-meeting-instructions" style={labelStyle}>Meeting instructions (optional)</label>
+                  <textarea id="game-meeting-instructions"
                     value={form.meetingInstructions}
                     onChange={(e) => setForm((f) => ({ ...f, meetingInstructions: e.target.value }))}
                     placeholder="Exact meeting point — only shown to the host and joined players, e.g. Meet by the north gate, past the car park."
@@ -568,8 +579,8 @@ export function HostGamePage() {
                   />
                 </div>
                 <div style={{ marginBottom: 12 }}>
-                  <label style={labelStyle}>Accessibility (optional)</label>
-                  <textarea
+                  <label htmlFor="game-accessibility" style={labelStyle}>Accessibility (optional)</label>
+                  <textarea id="game-accessibility"
                     value={form.accessibilityInfo}
                     onChange={(e) => setForm((f) => ({ ...f, accessibilityInfo: e.target.value }))}
                     placeholder="e.g. Step-free route from the car park; accessible toilet on site."
@@ -578,8 +589,8 @@ export function HostGamePage() {
                   />
                 </div>
                 <div>
-                  <label style={labelStyle}>Cancellation policy (optional)</label>
-                  <textarea
+                  <label htmlFor="game-cancellation-policy" style={labelStyle}>Cancellation policy (optional)</label>
+                  <textarea id="game-cancellation-policy"
                     value={form.cancellationPolicy}
                     onChange={(e) => setForm((f) => ({ ...f, cancellationPolicy: e.target.value }))}
                     placeholder="e.g. Free to cancel any time before the day of the plan."

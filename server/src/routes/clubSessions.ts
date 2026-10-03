@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 import { matchClubSessionSupply } from "../participationIntents.js";
 import { Router } from "express";
-import { attachVendorIds, requirePlatformRole, requireVendor } from "../auth.js";
+import { attachVendorIds, orgVendorIds, requirePlatformRole, requireVendor } from "../auth.js";
 import { db } from "../db/index.js";
 
 export const clubSessionsRouter = Router();
@@ -52,6 +52,18 @@ function toJson(row: SessionRow) {
 clubSessionsRouter.get("/", async (req, res) => {
   const clubId = typeof req.query.clubId === "string" ? req.query.clubId : undefined;
   if (!clubId) return res.status(400).json({ error: "clubId is required" });
+  // HC-QA-015 — the schedule must not outlive the club's own visibility:
+  // public only while the club is approved (same as GET /api/clubs/:id);
+  // the owning organisation keeps editor access in any status
+  // (VendorClubEditor reads this route for draft/paused clubs).
+  const club = (await db.prepare(`SELECT status FROM clubs WHERE id = ?`).get(clubId)) as { status: string } | undefined;
+  // An empty schedule (same as an unknown id before this fix) — never a
+  // signal that distinguishes "hidden" from "doesn't exist".
+  if (!club) return res.json([]);
+  if (club.status !== "approved") {
+    const owner = req.user?.role === "vendor" && req.user.status === "approved" && (await ownsClub(await orgVendorIds(req.user), clubId));
+    if (!owner) return res.json([]);
+  }
   const rows = (await db
     .prepare(
       `SELECT cs.*, cl.image_url as club_image_url FROM club_sessions cs JOIN clubs cl ON cl.id = cs.club_id WHERE cs.club_id = ? AND cs.active = 1 ORDER BY cs.day_of_week, cs.time`
@@ -90,6 +102,14 @@ clubSessionsRouter.put("/:id", requireVendor, attachVendorIds, requirePlatformRo
 clubSessionsRouter.delete("/:id", requireVendor, attachVendorIds, requirePlatformRole("facility_manager"), async (req, res) => {
   const row = (await db.prepare(`SELECT club_id FROM club_sessions WHERE id = ?`).get(req.params.id)) as { club_id: string } | undefined;
   if (!row || !(await ownsClub(req.vendorIds!, row.club_id))) return res.status(403).json({ error: "Not your session" });
+  // HC-QA-044 — never orphan registrations: a session anyone has registered
+  // for is deactivated (history kept, no new registrations — the checkout
+  // requires active = 1), same convention as rooms; an unused one is removed.
+  const used = await db.prepare(`SELECT 1 FROM registrations WHERE session_id = ? LIMIT 1`).get(req.params.id);
+  if (used) {
+    await db.prepare(`UPDATE club_sessions SET active = 0 WHERE id = ?`).run(req.params.id);
+    return res.json({ ok: true, deactivated: true });
+  }
   await db.prepare(`DELETE FROM club_sessions WHERE id = ?`).run(req.params.id);
-  res.json({ ok: true });
+  res.json({ ok: true, deactivated: false });
 });

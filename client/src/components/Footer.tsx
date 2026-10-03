@@ -59,7 +59,9 @@ export function Footer() {
   const navigate = useNavigate();
 
   return (
-    <footer style={{ borderTop: `1px solid ${colors.border}`, background: colors.footerBg }}>
+    // HC-QA-001 — the footer renders after <main>, outside .mobile-tab-bar-space,
+    // so it reserves the fixed bottom chrome itself (0 / safe-area on desktop).
+    <footer style={{ borderTop: `1px solid ${colors.border}`, background: colors.footerBg, paddingBottom: "var(--bottom-chrome)" }}>
       <div style={{ maxWidth, margin: "0 auto", padding: "40px 24px 24px" }}>
         <div className="grid-responsive" style={{ display: "grid", gridTemplateColumns: "1.2fr repeat(4, 1fr)", gap: 32, marginBottom: 32 }}>
           <div>

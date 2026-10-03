@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { loadGoogleTagManager } from "../analytics";
-import { colors, fonts, radius } from "../theme";
+import { colors, fonts, radius, zIndex } from "../theme";
 
 export const CONSENT_KEY = "hello_circle_cookie_consent";
 type Consent = "accepted" | "rejected";
@@ -41,8 +41,12 @@ export function CookieNotice() {
     const el = bannerRef.current;
     if (consent !== null || !el) return;
     const previous = document.body.style.paddingBottom;
+    const root = document.documentElement;
     const reserve = () => {
       document.body.style.paddingBottom = `${el.offsetHeight + 32}px`;
+      // HC-QA-043 — let focus/scrollIntoView keep controls clear of the banner
+      // (index.css: html scroll-padding-bottom adds this to --bottom-chrome).
+      root.style.setProperty("--consent-reserve", `${el.offsetHeight + 16}px`);
     };
     reserve();
     const observer = new ResizeObserver(reserve);
@@ -50,6 +54,7 @@ export function CookieNotice() {
     return () => {
       observer.disconnect();
       document.body.style.paddingBottom = previous;
+      root.style.removeProperty("--consent-reserve");
     };
   }, [consent]);
 
@@ -71,8 +76,14 @@ export function CookieNotice() {
         position: "fixed",
         left: 16,
         right: 16,
-        bottom: 16,
-        zIndex: 50,
+        // HC-QA-001 — sit above the fixed bottom stack (mobile tab bar, join
+        // bars; safe-area inset when there's none) published by
+        // BottomChromeSync, instead of underneath it.
+        bottom: "calc(var(--bottom-chrome) + 16px)",
+        zIndex: zIndex.consent,
+        // Short viewports: the banner scrolls internally so both choices stay reachable.
+        maxHeight: "calc(100dvh - var(--bottom-chrome) - 32px)",
+        overflowY: "auto",
         maxWidth: 640,
         margin: "0 auto",
         background: colors.dark,
@@ -89,12 +100,16 @@ export function CookieNotice() {
       <p style={{ margin: 0, fontSize: 13.5, lineHeight: 1.5, flex: "1 1 320px" }}>
         We use strictly necessary cookies/local storage to run this site, and — only if you accept — Google
         Analytics (via Google Tag Manager) to understand how it's used.{" "}
-        <span
-          onClick={() => navigate("/cookies")}
+        <a
+          href="/cookies"
+          onClick={(e) => {
+            e.preventDefault();
+            navigate("/cookies");
+          }}
           style={{ textDecoration: "underline", cursor: "pointer", fontWeight: 600, color: "#fff" }}
         >
           Learn more
-        </span>
+        </a>
       </p>
       <div style={{ display: "flex", gap: 8, flex: "none" }}>
         <button

@@ -8,7 +8,7 @@ export function PaymentCancel() {
   const ref = searchParams.get("ref");
 
   return (
-    <div style={{ animation: "fadeUp .3s ease both" }}>
+    <div style={{ animation: "fadeUp .3s ease backwards" }}>
       <section className="section-pad" style={{ maxWidth: 560, margin: "0 auto", padding: "64px 24px 90px", textAlign: "center" }}>
         <div style={{ width: 74, height: 74, borderRadius: "50%", background: colors.orangeBg, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 22px", color: colors.orangeDark }}>
           <CloseIcon size={30} />

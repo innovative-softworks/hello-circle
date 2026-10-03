@@ -246,7 +246,7 @@ export function RegistrationFlow() {
 
   if (step === 5) {
     return (
-      <div style={{ animation: "fadeUp .3s ease both" }}>
+      <div style={{ animation: "fadeUp .3s ease backwards" }}>
         <section className="section-pad" style={{ maxWidth: 640, margin: "0 auto", padding: "56px 24px 80px", textAlign: "center" }}>
           <div
             style={{ width: 74, height: 74, borderRadius: "50%", background: colors.orangeBg, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 22px", fontSize: 34, color: colors.orange }}
@@ -297,7 +297,7 @@ export function RegistrationFlow() {
   }
 
   return (
-    <div style={{ animation: "fadeUp .3s ease both" }}>
+    <div style={{ animation: "fadeUp .3s ease backwards" }}>
       <section className="section-pad" style={{ maxWidth: 920, margin: "0 auto", padding: "26px 24px 80px" }}>
         <BackLink onClick={back}>{step > 1 ? "Back a step" : "Back to club"}</BackLink>
         <Stepper labels={isAdult ? ["Your details", "Contact info", "Medical", "Review & pay"] : ["Your child", "Contacts", "Medical", "Review & pay"]} current={step} accent="orange" />

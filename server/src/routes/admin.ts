@@ -2,6 +2,8 @@ import crypto from "node:crypto";
 import { matchExperienceSupply } from "../participationIntents.js";
 import { DEFAULT_WEIGHTS, getRecommendationWeights, setRecommendationWeights, validateWeights } from "../recommendationWeights.js";
 import { Router } from "express";
+import { sendMail } from "../email.js";
+import { CLIENT_URL } from "../stripe.js";
 import { requireAdmin } from "../auth.js";
 import { writeAudit } from "../audit.js";
 import { approximateCoords, db, getSetting, setSetting } from "../db/index.js";
@@ -90,11 +92,24 @@ adminRouter.put("/vendors/:id/status", async (req, res) => {
   // steps: approving the account only lets the vendor log in and finish
   // setting up their listing (rooms/price/photos/etc) — the listing itself
   // still needs its own admin review once that setup is done.
-  const before = (await db.prepare(`SELECT status FROM users WHERE id = ?`).get(req.params.id)) as { status: string } | undefined;
-  const info = await db.prepare(`UPDATE users SET status = ? WHERE id = ? AND role = 'vendor'`).run(status, req.params.id);
-  if (info.changes === 0) return res.status(404).json({ error: "Vendor not found" });
-  writeAudit({ actorUserId: req.user!.id, action: "vendor.status_changed", objectType: "user", objectId: req.params.id, previousValue: before?.status, newValue: status });
+  const before = (await db.prepare(`SELECT status, email, name FROM users WHERE id = ? AND role = 'vendor'`).get(req.params.id)) as { status: string; email: string; name: string } | undefined;
+  if (!before) return res.status(404).json({ error: "Vendor not found" });
+  // HC-QA-058 — only a real transition counts (`status <> ?` makes the
+  // affected-row count mean "this call changed it"), so retries and
+  // concurrent approvals send at most one approval email; re-setting the
+  // same status stays an idempotent 200.
+  const info = await db.prepare(`UPDATE users SET status = ? WHERE id = ? AND role = 'vendor' AND status <> ?`).run(status, req.params.id, status);
+  const transitioned = info.changes === 1;
+  writeAudit({ actorUserId: req.user!.id, action: "vendor.status_changed", objectType: "user", objectId: req.params.id, previousValue: before.status, newValue: status });
   res.json({ ok: true });
+  if (transitioned && status === "approved") {
+    void sendMail({
+      to: before.email,
+      subject: "Your Hello Circle vendor account is approved",
+      text: `Hi ${before.name || "there"},\n\nGood news — your Hello Circle vendor account has been approved. You can now log in to finish setting up your listing (photos, rooms, prices and opening hours):\n\n${CLIENT_URL}/login\n\nYour listing itself still gets a quick review once it's ready to go live.\n\nThanks for using Hello Circle.`,
+      cta: { label: "Log in", url: `${CLIENT_URL}/login` },
+    });
+  }
 });
 
 // --- Host tier applications (IA spec five-layer audit) --------------------

@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { computeCapacity } from "../capacity.js";
-import { createCheckoutSession, pricingLineItems } from "../checkoutService.js";
+import { createCheckoutSession, paymentsAvailable, pricingLineItems } from "../checkoutService.js";
+import { consumeCoupon, endPendingHold, occupiesCapacitySql } from "../bookingIntegrity.js";
 import { logEvent } from "../analytics.js";
 import { db } from "../db/index.js";
 import { getClub } from "../db/queries.js";
@@ -76,7 +77,7 @@ async function insertRegistration(
   passId: number | null = null,
   // Accepts a transaction's `tx` in place of the module-level pool so this
   // insert can participate in a caller's transaction — see
-  // insertRegistrationWithSessionLock, which needs the session capacity
+  // reserveRegistration, which needs the capacity
   // check and this insert to commit atomically together.
   conn: Pick<typeof db, "prepare"> = db
 ) {
@@ -119,42 +120,81 @@ async function insertRegistration(
   });
 }
 
-/** Locks and checks a specific club_session's own capacity (independent of
- * the club-wide capacity check above — a club can configure both), then
- * inserts the registration in the same transaction so the check and the
- * insert are atomic. A club_session's capacity tends to be much smaller
- * than the whole club's, so the race the club-wide check accepts as a minor
- * risk matters more here — hence the row lock, matching the pattern
- * bookings.ts/games.ts/programs.ts already use for their own capacity
- * checks. No-ops to the plain unlocked insert when the registration isn't
- * tied to a session — every club without sessions configured behaves
- * exactly as before. */
-async function insertRegistrationWithSessionLock(
+class FullError extends ConflictError {}
+class DuplicateRegistrationError extends ConflictError {}
+class CouponExhaustedError extends ConflictError {}
+
+/** Phase 8 (HC-QA-034/037/038/041) — the single serialized reservation path
+ * for every registration (free, trial, cash, pass and pending-paid). Inside
+ * ONE transaction, under a row lock on the club (so different clubs never
+ * block each other): duplicate check, club-wide capacity (occupancy + live
+ * pending holds + held waitlist offers), per-session capacity (session row
+ * lock), coupon consumption for orders confirmed now, then the insert.
+ * Previously the club-wide count ran unlocked before the insert, so six
+ * concurrent registrations all fit a capacity of one. */
+async function reserveRegistration(
   ref: string,
   clientId: string,
   residentId: string | null,
   body: CreateRegistrationBody,
   pricing: ReturnType<typeof computePricing>,
   status: "pending" | "paid",
-  passId: number | null = null
+  passId: number | null = null,
+  existingTx?: Pick<typeof db, "prepare">
 ) {
-  if (!body.sessionId) {
-    await insertRegistration(ref, clientId, residentId, body, pricing, status, passId);
-    return;
-  }
-  await db.transaction(async (tx) => {
-    const session = (await tx
-      .prepare(`SELECT id, capacity FROM club_sessions WHERE id = ? AND club_id = ? AND active = 1 FOR UPDATE`)
-      .get(body.sessionId, body.clubId)) as { id: string; capacity: number | null } | undefined;
-    if (!session) throw new ConflictError("That session is no longer available — please pick another");
+  const run = async (tx: Pick<typeof db, "prepare">) => {
+    const club = (await tx.prepare(`SELECT id, capacity FROM clubs WHERE id = ? FOR UPDATE`).get(body.clubId)) as { id: string; capacity: number | null } | undefined;
+    if (!club) throw new ConflictError("Club not found");
+
+    // HC-QA-038 — one active registration per owner + participant (+ session).
+    const duplicate = await tx
+      .prepare(
+        `SELECT id FROM registrations
+         WHERE club_id = ? AND ${occupiesCapacitySql()} AND (session_id <=> ?)
+           AND LOWER(child_first) = LOWER(?) AND LOWER(child_last) = LOWER(?) AND dob = ?
+           AND (client_id = ? OR (resident_id IS NOT NULL AND resident_id = ?)) LIMIT 1`
+      )
+      .get(body.clubId, body.sessionId ?? null, body.childFirst, body.childLast, body.dob ?? "", clientId, residentId ?? "");
+    if (duplicate) throw new DuplicateRegistrationError("This person is already registered for this club");
+
+    if (club.capacity !== null) {
+      const { n } = (await tx.prepare(`SELECT COUNT(*) as n FROM registrations WHERE club_id = ? AND ${occupiesCapacitySql()}`).get(body.clubId)) as { n: number };
+      // An active waitlist offer holds its spot, except the registrant's own.
+      const offered = await activeOfferedCount("club", body.clubId);
+      const ownsOffer = await hasActiveOffer("club", body.clubId, clientId, residentId);
+      if (computeCapacity(club.capacity, Number(n) + offered - (ownsOffer ? 1 : 0)).isFull) throw new FullError("This club is currently full");
+    }
+
+    if (body.sessionId) {
+      const session = (await tx
+        .prepare(`SELECT id, capacity FROM club_sessions WHERE id = ? AND club_id = ? AND active = 1 FOR UPDATE`)
+        .get(body.sessionId, body.clubId)) as { id: string; capacity: number | null } | undefined;
+      if (!session) throw new FullError("That session is no longer available — please pick another");
+      const { n } = (await tx.prepare(`SELECT COUNT(*) as n FROM registrations WHERE session_id = ? AND ${occupiesCapacitySql()}`).get(body.sessionId)) as { n: number };
+      if (computeCapacity(session.capacity, Number(n)).isFull) throw new FullError("That session is full — please pick another");
+    }
+
+    // HC-QA-050 — reserve the coupon use with the registration, paid or pending.
     {
-      const { n } = (await tx
-        .prepare(`SELECT COUNT(*) as n FROM registrations WHERE session_id = ? AND payment_status = 'paid' AND status != 'cancelled'`)
-        .get(body.sessionId)) as { n: number };
-      if (computeCapacity(session.capacity, n).isFull) throw new ConflictError("That session is full — please pick another");
+      try {
+        await consumeCoupon(tx, pricing.couponCode);
+      } catch {
+        throw new CouponExhaustedError("That code has been fully redeemed");
+      }
     }
     await insertRegistration(ref, clientId, residentId, body, pricing, status, passId, tx);
-  });
+  };
+  if (existingTx) await run(existingTx);
+  else await db.transaction(run);
+}
+
+/** Maps reservation conflicts to the API's existing response shapes. */
+function reservationError(e: unknown, res: import("express").Response) {
+  if (e instanceof CouponExhaustedError) return res.status(400).json({ error: e.message });
+  if (e instanceof DuplicateRegistrationError) return res.status(409).json({ error: e.message, duplicate: true });
+  if (e instanceof FullError) return res.status(409).json({ error: e.message, full: true });
+  if (e instanceof ConflictError) return res.status(409).json({ error: e.message });
+  throw e;
 }
 
 registrationsRouter.post("/checkout", async (req, res) => {
@@ -198,26 +238,8 @@ registrationsRouter.post("/checkout", async (req, res) => {
     if (!session) return res.status(400).json({ error: "That session is no longer available — please pick another" });
   }
 
-  // Capacity/waitlist (MVP) — nullable capacity means unlimited, matching
-  // every club's behaviour before this existed. Not race-proof the way
-  // bookings.ts's room lock is (a club registration has no single row to
-  // lock against) — acceptable here since going slightly over capacity on a
-  // club roster is a minor operational issue, not a double-booked venue.
-  {
-    const { n: paidCount } = (await db
-      .prepare(`SELECT COUNT(*) as n FROM registrations WHERE club_id = ? AND payment_status = 'paid' AND status != 'cancelled'`)
-      .get(club.id)) as { n: number };
-    // An active (unexpired) waitlist offer holds its spot — without this, a
-    // fresh registration could grab a freed slot out from under the person
-    // it was actually offered to, during their 48h claim window. Exclude
-    // this registrant's own offer (if any) from the reserved count — it's
-    // their spot to claim, not competing demand against itself.
-    const offeredCount = await activeOfferedCount("club", club.id);
-    const ownsOffer = await hasActiveOffer("club", club.id, clientId, req.resident?.id ?? null);
-    if (computeCapacity(club.capacity, paidCount + offeredCount - (ownsOffer ? 1 : 0)).isFull) {
-      return res.status(409).json({ error: "This club is currently full", full: true });
-    }
-  }
+  // Capacity, duplicates and coupon use are decided inside reserveRegistration's
+  // locked transaction (HC-QA-034) — no unlocked pre-check here.
 
   const ref = generateRef("CR");
 
@@ -236,26 +258,12 @@ registrationsRouter.post("/checkout", async (req, res) => {
         if (pass.expires_at && new Date(pass.expires_at) < new Date()) throw new ConflictError("That pass has expired");
         if (pass.credits_used >= pass.credits_total) throw new ConflictError("That pass has no credits left");
 
-        if (body.sessionId) {
-          const session = (await tx
-            .prepare(`SELECT id, capacity FROM club_sessions WHERE id = ? AND club_id = ? AND active = 1 FOR UPDATE`)
-            .get(body.sessionId, body.clubId)) as { id: string; capacity: number | null } | undefined;
-          if (!session) throw new ConflictError("That session is no longer available — please pick another");
-          if (session.capacity !== null) {
-            const { n } = (await tx
-              .prepare(`SELECT COUNT(*) as n FROM registrations WHERE session_id = ? AND payment_status = 'paid' AND status != 'cancelled'`)
-              .get(body.sessionId)) as { n: number };
-            if (n >= session.capacity) throw new ConflictError("That session is full — please pick another");
-          }
-        }
-
         await tx.prepare(`UPDATE passes SET credits_used = credits_used + 1 WHERE id = ?`).run(pass.id);
         const zeroPricing = computePricing(0, 0, 0, null);
-        await insertRegistration(ref, clientId, req.resident!.id, body, zeroPricing, "paid", pass.id, tx);
+        await reserveRegistration(ref, clientId, req.resident!.id, body, zeroPricing, "paid", pass.id, tx);
       });
     } catch (e) {
-      if (e instanceof ConflictError) return res.status(409).json({ error: e.message });
-      throw e;
+      return reservationError(e, res);
     }
     await claimWaitlistOffer("club", body.clubId, clientId, req.resident!.id);
 
@@ -307,10 +315,9 @@ registrationsRouter.post("/checkout", async (req, res) => {
     }).catch((e) => console.error("[notifications] registration notify failed:", e));
   if (pricing.totalCents === 0 || isCash) {
     try {
-      await insertRegistrationWithSessionLock(ref, clientId, req.resident?.id ?? null, body, pricing, "paid");
+      await reserveRegistration(ref, clientId, req.resident?.id ?? null, body, pricing, "paid");
     } catch (e) {
-      if (e instanceof ConflictError) return res.status(409).json({ error: e.message, full: true });
-      throw e;
+      return reservationError(e, res);
     }
     await claimWaitlistOffer("club", club.id, clientId, req.resident?.id ?? null);
     notify("paid");
@@ -319,13 +326,13 @@ registrationsRouter.post("/checkout", async (req, res) => {
     return res.status(201).json({ ref, totalEuro: pricing.totalCents / 100, trial: body.trial });
   }
 
-  if (!stripe) return res.status(503).json({ error: "Payments aren't configured yet" });
+  if (!paymentsAvailable()) return res.status(503).json({ error: "Payments aren't configured yet" });
 
+  // HC-QA-041 — the pending row IS the capacity hold for the checkout's lifetime.
   try {
-    await insertRegistrationWithSessionLock(ref, clientId, req.resident?.id ?? null, body, pricing, "pending");
+    await reserveRegistration(ref, clientId, req.resident?.id ?? null, body, pricing, "pending");
   } catch (e) {
-    if (e instanceof ConflictError) return res.status(409).json({ error: e.message, full: true });
-    throw e;
+    return reservationError(e, res);
   }
 
   const result = await createCheckoutSession({
@@ -340,7 +347,7 @@ registrationsRouter.post("/checkout", async (req, res) => {
     isNative: req.header("X-Client-Platform") === "mobile",
   });
   if (!result.ok) {
-    await db.prepare(`DELETE FROM registrations WHERE ref = ?`).run(ref);
+    await endPendingHold("registrations", ref, "delete");
     return res.status(result.status).json({ error: result.error });
   }
 
@@ -466,7 +473,10 @@ registrationsRouter.post("/:ref/cancel", lookupLimiter, async (req, res) => {
   if (row.status === "cancelled") return res.status(409).json({ error: "This registration is already cancelled" });
   if (row.paymentStatus !== "paid") return res.status(409).json({ error: "This registration can't be cancelled" });
 
-  await db.prepare(`UPDATE registrations SET status = 'cancelled' WHERE ref = ?`).run(row.ref);
+  // HC-QA-046 — atomic transition: only the request that actually flips the row
+  // runs the side effects (capacity release, audit, notifications, promotion).
+  const flipped = await db.prepare(`UPDATE registrations SET status = 'cancelled' WHERE ref = ? AND status != 'cancelled'`).run(row.ref);
+  if (flipped.changes !== 1) return res.status(409).json({ error: "This registration is already cancelled" });
 
   notifyCancellation({
     kind: "registration",
@@ -485,7 +495,7 @@ registrationsRouter.post("/:ref/cancel", lookupLimiter, async (req, res) => {
   // auto-promotion). No-op if the club has no capacity set or no one is
   // waiting — promoteNextWaitlistEntry never throws. Club-scoped only: if
   // this registration was tied to a specific session (see
-  // insertRegistrationWithSessionLock above), the freed spot is on that
+  // reserveRegistration above), the freed spot is on that
   // session, but there's no session-level waitlist concept yet — this only
   // promotes from the club-wide waitlist. Fine for now since sessions are
   // opt-in per club and waitlisting is still club-wide everywhere else too.

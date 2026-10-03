@@ -1,7 +1,23 @@
 import type Stripe from "stripe";
 import { logEvent } from "./analytics.js";
+import { writeAudit } from "./audit.js";
 import { db } from "./db/index.js";
 import { CLIENT_URL, stripe } from "./stripe.js";
+import { PENDING_HOLD_MINUTES } from "./bookingIntegrity.js";
+
+/** Phase 8 QA seam: a deterministic, network-free provider stand-in so the
+ * internal pending → success/failure/expiry state machine can be proven
+ * before any real provider exists. Active ONLY when all three hold — the same
+ * double guard index.ts uses for its QA seeding exception, plus an explicit
+ * per-run opt-in. Never true in development or production. */
+export function qaProviderStubEnabled(): boolean {
+  return process.env.NODE_ENV === "test" && process.env.QA_E2E_ENABLED === "true" && process.env.QA_PAYMENT_PROVIDER_STUB === "1";
+}
+
+/** Whether a paid checkout can be started at all (real provider or QA seam). */
+export function paymentsAvailable(): boolean {
+  return !!stripe || qaProviderStubEnabled();
+}
 
 // Shared by bookings.ts/registrations.ts/games.ts/programs.ts/passes.ts —
 // each independently hand-rolled the same stripe.checkout.sessions.create
@@ -117,6 +133,10 @@ export async function createCheckoutSession(params: {
    * guestAuth.ts for the resident magic-link flow. */
   isNative?: boolean;
 }): Promise<CheckoutResult> {
+  if (qaProviderStubEnabled()) {
+    // QA-only provider seam (see qaProviderStubEnabled) — no network, no Stripe.
+    return { ok: true, session: { id: `cs_qa_stub_${params.ref}`, url: null } as unknown as Stripe.Checkout.Session };
+  }
   if (!stripe) return { ok: false, status: 503, error: "Payments aren't configured yet" };
 
   try {
@@ -148,6 +168,9 @@ export async function createCheckoutSession(params: {
         ? `${CLIENT_URL}/mobile-checkout-return?status=cancel&ref=${params.ref}&type=${params.type}`
         : `${CLIENT_URL}/payment/cancel?ref=${params.ref}`,
       metadata: { type: params.type, ref: params.ref },
+      // Phase 8 (HC-QA-041) — the provider session lives exactly as long as
+      // the capacity hold its pending row represents (bookingIntegrity.ts).
+      expires_at: Math.floor(Date.now() / 1000) + PENDING_HOLD_MINUTES * 60,
     });
     void logEvent("booking_started", { residentId: params.residentId ?? null, metadata: { type: params.type, ref: params.ref } });
     return { ok: true, session };
@@ -157,16 +180,101 @@ export async function createCheckoutSession(params: {
   }
 }
 
+export type StripeRefundResult =
+  | { ok: true; amountCents: number; reconciled: boolean }
+  | { ok: false; kind: "provider" | "unsupported"; error: string };
+
 /** Shared by every vendor-issued refund route (bookings/registrations in
  * vendorOperations.ts, programs/experiences in vendorPrograms.ts/
  * vendorExperiences.ts — Phase 0 protect) — previously duplicated only in
  * vendorOperations.ts as an unexported local function; factored out here
- * alongside createCheckoutSession rather than duplicated again per resource. */
-export async function issueStripeRefund(stripeSessionId: string): Promise<{ ok: true; amountCents: number } | { ok: false; error: string }> {
-  if (!stripe) return { ok: false, error: "Payments aren't configured on this server" };
-  const session = await stripe.checkout.sessions.retrieve(stripeSessionId);
-  if (!session.payment_intent) return { ok: false, error: "No payment found for this booking" };
-  const paymentIntentId = typeof session.payment_intent === "string" ? session.payment_intent : session.payment_intent.id;
-  const refund = await stripe.refunds.create({ payment_intent: paymentIntentId });
-  return { ok: true, amountCents: refund.amount ?? session.amount_total ?? 0 };
+ * alongside createCheckoutSession rather than duplicated again per resource.
+ *
+ * HC-QA-091 (Policy A) — refunds originate in HelloCircle, but the provider
+ * state is checked first: a charge already FULLY refunded at Stripe (an
+ * accidental Dashboard/manual refund) is reconciled (`reconciled: true`)
+ * instead of failing forever, and no second refund is ever requested. A
+ * partial external refund isn't a supported state, so it is refused
+ * (`kind: "unsupported"`) rather than guessed at. */
+export async function issueStripeRefund(stripeSessionId: string): Promise<StripeRefundResult> {
+  if (!stripe) return { ok: false, kind: "provider", error: "Payments aren't configured on this server" };
+  const client = stripe;
+  let paymentIntentId: string | null = null;
+  const providerState = async () => {
+    const pi = await client.paymentIntents.retrieve(paymentIntentId!, { expand: ["latest_charge"] });
+    const charge = pi.latest_charge && typeof pi.latest_charge !== "string" ? pi.latest_charge : null;
+    return { amount: charge?.amount ?? pi.amount_received ?? 0, refunded: charge?.amount_refunded ?? 0 };
+  };
+  const reconcile = (state: { amount: number; refunded: number }): StripeRefundResult | null => {
+    if (state.refunded <= 0) return null;
+    if (state.amount > 0 && state.refunded >= state.amount) return { ok: true, amountCents: state.refunded, reconciled: true };
+    return { ok: false, kind: "unsupported", error: "This payment was partly refunded outside HelloCircle, so it can't be refunded here. Please contact support to reconcile it." };
+  };
+  try {
+    const session = await client.checkout.sessions.retrieve(stripeSessionId);
+    if (!session.payment_intent) return { ok: false, kind: "provider", error: "No payment found for this booking" };
+    paymentIntentId = typeof session.payment_intent === "string" ? session.payment_intent : session.payment_intent.id;
+    const already = reconcile(await providerState());
+    if (already) return already;
+    // HC-QA-051 — one refund per paid session, even if a retry reaches the
+    // provider (e.g. the local commit failed after the provider succeeded).
+    const refund = await client.refunds.create(
+      { payment_intent: paymentIntentId, metadata: { hc_checkout_session: stripeSessionId } },
+      { idempotencyKey: `hc-refund-${stripeSessionId}` }
+    );
+    return { ok: true, amountCents: refund.amount ?? session.amount_total ?? 0, reconciled: false };
+  } catch (e) {
+    // Race: refunded at Stripe between the state check and our request.
+    if (paymentIntentId && (e as { code?: string })?.code === "charge_already_refunded") {
+      try {
+        const late = reconcile(await providerState());
+        if (late) return late;
+      } catch { /* fall through to the generic provider failure */ }
+    }
+    console.error("[stripe] refund failed:", e instanceof Error ? e.message : e);
+    return { ok: false, kind: "provider", error: "The refund couldn't be completed — please try again" };
+  }
+}
+
+type RefundTable = "bookings" | "registrations" | "program_enrollments" | "experience_bookings" | "game_participants";
+
+/** Who/what a refund attempt is about — used for the operational audit row
+ * when a provider state can't be reconciled safely (HC-QA-091). */
+export interface RefundAuditContext { actorUserId: string | null; objectType: string; objectId: string }
+
+/** HC-QA-051 — refund a paid row exactly once. The row is locked and re-checked
+ * before the provider is called and marked refunded in the same transaction,
+ * so concurrent requests serialize: one refunds, the rest see 'refunded' (409)
+ * instead of each calling the provider. A provider failure rolls back (stays paid).
+ * HC-QA-091 — the same single transition covers reconciling a payment already
+ * refunded at Stripe (`reconciled: true`; callers audit it distinctly). */
+export async function refundPaidOnce(table: RefundTable, where: string, params: unknown[], stripeSessionId: string, alreadyMessage: string, audit?: RefundAuditContext):
+  Promise<{ ok: true; amountCents: number; reconciled: boolean } | { ok: false; status: number; error: string }> {
+  class ProviderRefundError extends Error {
+    constructor(message: string, readonly unsupported: boolean) { super(message); }
+  }
+  try {
+    return await db.transaction(async (tx) => {
+      const row = (await tx.prepare(`SELECT payment_status FROM ${table} WHERE ${where} FOR UPDATE`).get(...params)) as { payment_status: string } | undefined;
+      if (!row) return { ok: false as const, status: 404, error: "Not found" };
+      if (row.payment_status === "refunded") return { ok: false as const, status: 409, error: alreadyMessage };
+      if (row.payment_status !== "paid") return { ok: false as const, status: 400, error: "Only a paid booking can be refunded" };
+      const result = await issueStripeRefund(stripeSessionId);
+      if (!result.ok) throw new ProviderRefundError(result.error, result.kind === "unsupported");
+      await tx.prepare(`UPDATE ${table} SET payment_status = 'refunded' WHERE ${where} AND payment_status = 'paid'`).run(...params);
+      return { ok: true as const, amountCents: result.amountCents, reconciled: result.reconciled };
+    });
+  } catch (e) {
+    if (e instanceof ProviderRefundError && e.unsupported) {
+      // Operational error: never guess which part of a partial refund maps to
+      // which local state — leave the row untouched and make it visible.
+      console.error(`[payments] RECONCILIATION REQUIRED: ${table} ${audit?.objectId ?? "(unknown)"} was partly refunded outside HelloCircle`);
+      if (audit) {
+        await writeAudit({ ...audit, action: "payment.refund_reconciliation_blocked", newValue: { table, reason: "partial_external_refund" } });
+      }
+      return { ok: false, status: 409, error: e.message };
+    }
+    if (e instanceof ProviderRefundError) return { ok: false, status: 502, error: e.message };
+    throw e;
+  }
 }

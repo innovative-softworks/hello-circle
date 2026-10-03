@@ -8,6 +8,7 @@ import { getResidentByEmail, requireResident } from "../residents.js";
 import { CLIENT_URL } from "../stripe.js";
 import { isValidEmail } from "../util.js";
 import { getShareData, type ShareEntityType } from "./sharing.js";
+import { loadViewableGame } from "../gameVisibility.js";
 
 export const invitationsRouter = Router();
 
@@ -59,6 +60,8 @@ invitationsRouter.post("/", requireResident, async (req, res) => {
   const entityType = b.entityType as ShareEntityType;
   if (!entityType || !INVITABLE_ENTITY_TYPES.has(entityType)) return res.status(400).json({ error: "This can't be invited to — only activities, experiences and programs can." });
   if (!b.entityId) return res.status(400).json({ error: "entityId is required" });
+  // A private share teaser is not authority to grant another resident access.
+  if (entityType === "game" && !(await loadViewableGame(b.entityId, req.resident!.id))) return res.status(404).json({ error: "That activity is no longer available" });
   const residentIds = (b.inviteeResidentIds ?? []).filter(Boolean);
   const emails = (b.inviteeEmails ?? []).map((e) => e.trim().toLowerCase()).filter((e) => isValidEmail(e));
   if (residentIds.length === 0 && emails.length === 0) return res.status(400).json({ error: "At least one person to invite is required" });
@@ -193,7 +196,9 @@ interface RespondBody {
 }
 
 async function respondToInvite(row: InviteRow, response: "accepted" | "maybe" | "declined", residentId: string) {
-  await db.prepare(`UPDATE invitations SET status = ?, responded_at = NOW(), invitee_resident_id = ? WHERE id = ?`).run(response, residentId, row.id);
+  const consumed = await db.prepare(`UPDATE invitations SET status = ?, responded_at = NOW(), invitee_resident_id = ?
+    WHERE id = ? AND token = ? AND status = 'pending' AND expires_at > NOW()`).run(response, residentId, row.id, row.token);
+  if (consumed.changes !== 1) return false;
   const data = await getShareData(row.entity_type, row.entity_id, residentId);
   const resident = (await db.prepare(`SELECT name FROM residents WHERE id = ?`).get(residentId)) as { name: string } | undefined;
   await notifyResident({
@@ -209,6 +214,7 @@ async function respondToInvite(row: InviteRow, response: "accepted" | "maybe" | 
     residentId,
     metadata: { entityType: row.entity_type, entityId: row.entity_id },
   });
+  return true;
 }
 
 invitationsRouter.post("/:id/respond", requireResident, async (req, res) => {
@@ -217,7 +223,7 @@ invitationsRouter.post("/:id/respond", requireResident, async (req, res) => {
   const row = (await db.prepare(`SELECT * FROM invitations WHERE id = ?`).get(req.params.id)) as InviteRow | undefined;
   if (!row || row.invitee_resident_id !== req.resident!.id) return res.status(404).json({ error: "Invitation not found" });
   if (effectiveStatus(row) !== "pending") return res.status(409).json({ error: "This invitation has already been answered or has expired" });
-  await respondToInvite(row, response, req.resident!.id);
+  if (!(await respondToInvite(row, response, req.resident!.id))) return res.status(409).json({ error: "This invitation has already been answered or has expired" });
   res.json({ ok: true });
 });
 
@@ -232,7 +238,8 @@ invitationsRouter.post("/token/:token/respond", requireResident, async (req, res
   const row = (await db.prepare(`SELECT * FROM invitations WHERE token = ?`).get(req.params.token)) as InviteRow | undefined;
   if (!row) return res.status(404).json({ error: "Invitation not found" });
   if (row.invitee_resident_id && row.invitee_resident_id !== req.resident!.id) return res.status(403).json({ error: "This invitation was sent to someone else" });
+  if (!row.invitee_resident_id && (!row.invitee_email || row.invitee_email.trim().toLowerCase() !== req.resident!.email.trim().toLowerCase())) return res.status(403).json({ error: "This invitation was sent to someone else" });
   if (effectiveStatus(row) !== "pending") return res.status(409).json({ error: "This invitation has already been answered or has expired" });
-  await respondToInvite(row, response, req.resident!.id);
+  if (!(await respondToInvite(row, response, req.resident!.id))) return res.status(409).json({ error: "This invitation has already been answered or has expired" });
   res.json({ ok: true });
 });

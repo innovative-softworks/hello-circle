@@ -23,7 +23,7 @@ import { DropdownOption, FilterDropdown } from "../components/FilterDropdown";
 import { SectionHeader } from "../components/SectionHeader";
 import { IntentCaptureForm } from "../components/IntentCaptureForm";
 import { Photo } from "../components/Photo";
-import { Button, CardSkeleton, EmptyState } from "../components/ui";
+import { Button, CardSkeleton, EmptyState, LoadErrorState } from "../components/ui";
 import { useGuest } from "../GuestContext";
 import { cardImageRatio, colors, fonts, maxWidth, placeholderStripes, radius } from "../theme";
 import type { Circle, CircleInvitation, CircleSuggestion, Game } from "../types";
@@ -157,10 +157,14 @@ export function Circles() {
 
   const resultsRef = useRef<HTMLDivElement>(null);
 
+  // HC-QA-063 — a failed load is an error state, never "No Circles yet".
+  const [loadFailed, setLoadFailed] = useState(false);
   const load = () => {
     setLoading(true);
+    setLoadFailed(false);
     fetchCircles()
       .then(setCircles)
+      .catch(() => setLoadFailed(true))
       .finally(() => setLoading(false));
   };
 
@@ -305,7 +309,7 @@ export function Circles() {
   );
 
   return (
-    <div style={{ animation: "fadeUp .35s ease both" }}>
+    <div style={{ animation: "fadeUp .35s ease backwards" }}>
       {/* HERO */}
       <section style={{ background: colors.surface, borderBottom: `1px solid ${colors.border}` }}>
         <div className="grid-responsive" style={{ maxWidth, margin: "0 auto", padding: "48px 24px 40px", display: "grid", gridTemplateColumns: "1.2fr 1fr", gap: 40, alignItems: "center" }}>
@@ -356,7 +360,7 @@ export function Circles() {
         <div style={{ border: `1px solid ${colors.border}`, borderRadius: radius.card, background: colors.surface, boxShadow: "0 8px 24px rgba(30,40,32,.05)", padding: 14, marginBottom: 16 }}>
           <div style={{ position: "relative" }}>
             <SearchIcon size={17} style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", color: colors.faint }} />
-            <input
+            <input aria-label="Search Circles"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Search circles, activities or places… e.g. Running in Dublin"
@@ -383,7 +387,7 @@ export function Circles() {
               ))}
             </FilterDropdown>
             <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
-              <select
+              <select aria-label="Sort Circles"
                 value={sort}
                 onChange={(e) => setSort(e.target.value as SortKey)}
                 style={{ padding: "9px 12px", border: `1px solid ${colors.inputBorder}`, borderRadius: radius.control, fontSize: 13.5, background: colors.bg, color: colors.text, outline: "none", fontWeight: 600 }}
@@ -460,6 +464,8 @@ export function Circles() {
           <div className="grid-responsive-4" style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 20, marginBottom: 40 }}>
             {Array.from({ length: 8 }, (_, i) => <CardSkeleton key={i} photoHeight={160} />)}
           </div>
+        ) : loadFailed ? (
+          <div style={{ marginBottom: 40 }}><LoadErrorState title="We couldn't load Circles right now." onRetry={load} /></div>
         ) : sorted.length === 0 ? (
           <EmptyState
             icon={<UsersIcon size={22} />}

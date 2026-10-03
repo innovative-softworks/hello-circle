@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { enrollInProgram, fetchProgram, fetchProgramBrowse } from "../api";
+import { enrollInProgram, fetchProgram, fetchProgramBrowse, quoteProgram, type PriceQuote } from "../api";
 import { openCheckout } from "../native";
 import { ListingChatButton } from "../components/ListingChats";
 import { BackLink } from "../components/BackLink";
@@ -87,6 +87,16 @@ export function ProgramDetail() {
   const [error, setError] = useState<string | null>(null);
   const [confirmed, setConfirmed] = useState<{ ref: string } | null>(null);
   const [enrollOpen, setEnrollOpen] = useState(false);
+  // HC-QA-047 — the enrolment confirmation shows the server's own total.
+  const [quote, setQuote] = useState<PriceQuote | null>(null);
+  useEffect(() => {
+    if (!enrollOpen || !id) return;
+    let live = true;
+    quoteProgram(id).then((q) => live && setQuote(q)).catch(() => live && setQuote(null));
+    return () => {
+      live = false;
+    };
+  }, [enrollOpen, id]);
   const [descriptionExpanded, setDescriptionExpanded] = useState(false);
   const [showPast, setShowPast] = useState(false);
 
@@ -205,9 +215,15 @@ export function ProgramDetail() {
     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 14 }}>
       <div style={{ minWidth: 0 }}>
         <div style={{ fontWeight: 800, fontSize: 17, color: program.priceCents ? colors.text : colors.greenText }}>
-          {program.priceCents ? `€${(program.priceCents / 100).toFixed(2)}` : "Free"}
+          {program.priceCents ? (quote ? `€${(quote.totalCents / 100).toFixed(2)}` : "…") : "Free"}
         </div>
-        <div style={{ fontSize: 12, color: colors.mutedLight }}>{program.priceCents ? "for every session" : "No payment required"}</div>
+        <div style={{ fontSize: 12, color: colors.mutedLight }}>
+          {program.priceCents
+            ? quote
+              ? `€${(program.priceCents / 100).toFixed(2)} + VAT €${(quote.vatCents / 100).toFixed(2)} + fee €${(quote.platformFeeCents / 100).toFixed(2)} · every session`
+              : "Calculating total…"
+            : "No payment required"}
+        </div>
       </div>
       <Button onClick={submit} disabled={submitting} style={{ flex: "none" }}>
         {submitting ? "Please wait…" : program.priceCents ? "Continue to pay" : "Enroll"}
@@ -248,7 +264,7 @@ export function ProgramDetail() {
   );
 
   return (
-    <div className="experience-detail-mobile-pad" style={{ animation: "fadeUp .3s ease both" }}>
+    <div className="experience-detail-mobile-pad" style={{ animation: "fadeUp .3s ease backwards" }}>
       <section className="section-pad" style={{ maxWidth: 1280, margin: "0 auto", padding: "26px 24px 90px" }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 18, flexWrap: "wrap", gap: 12 }}>
           <BackLink onClick={() => navigate("/programs")} marginBottom={0}>All programs</BackLink>

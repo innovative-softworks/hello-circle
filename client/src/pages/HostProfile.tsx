@@ -44,7 +44,7 @@ export function HostProfilePage() {
   }
 
   return (
-    <div style={{ animation: "fadeUp .3s ease both" }}>
+    <div style={{ animation: "fadeUp .3s ease backwards" }}>
       <section className="section-pad" style={{ maxWidth: 640, margin: "0 auto", padding: "36px 24px 80px" }}>
         <Card style={{ marginBottom: 24 }}>
           <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 14 }}>

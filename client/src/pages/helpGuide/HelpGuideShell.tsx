@@ -28,7 +28,7 @@ export function HelpGuideShell({
   const next = index >= 0 && index < GUIDE_SECTIONS.length - 1 ? GUIDE_SECTIONS[index + 1] : null;
 
   return (
-    <div style={{ animation: "fadeUp .3s ease both" }}>
+    <div style={{ animation: "fadeUp .3s ease backwards" }}>
       <section className="section-pad" style={{ maxWidth: 860, margin: "0 auto", padding: "36px 24px 90px" }}>
         <button
           onClick={() => (slug ? navigate("/help-guide") : navigate(-1))}

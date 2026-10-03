@@ -10,6 +10,7 @@ import { irelandWallTimeToUtc } from "../irelandTime.js";
 import { notifyCancellation, notifyNewBookingOrRegistration } from "../notifications.js";
 import { computePricing, evaluateCoupon } from "../pricing.js";
 import { BadRequestError, ConflictError, clientIdFrom, generateRef, isValidEmail } from "../util.js";
+import { consumeCoupon, endPendingHold, isPositiveInt, occupiesCapacitySql, startIsInFuture } from "../bookingIntegrity.js";
 
 // Adventures & Experiences — a standalone third listing type alongside
 // centres/clubs (not nested under either), added post-IA-spec-audit. Same
@@ -203,6 +204,37 @@ interface BookBody {
 // Books ONE session (a specific departure) — party_size spots on it, not a
 // multi-session enrollment. Row-locks the session the same way bookings.ts
 // row-locks a room, so two checkouts can't both take the same last spots.
+/** HC-QA-042 — the one pricing calculation for an experience booking, shared
+ * by the quote endpoint (what the booking form displays) and checkout (what
+ * is stored/charged), so the two can never disagree. */
+async function quoteExperience(experience: ExperienceRow, partySize: number, rawCoupon: string | undefined) {
+  const subtotalCents = experience.price_cents * partySize;
+  let discountCents = 0;
+  let couponCode: string | null = null;
+  if (rawCoupon) {
+    const result = await evaluateCoupon(rawCoupon, subtotalCents, { listingType: "experience", listingId: experience.id });
+    if (!result.valid) return { ok: false as const, error: result.error! };
+    discountCents = result.discountCents!;
+    couponCode = result.code!;
+  }
+  return { ok: true as const, pricing: computePricing(subtotalCents, 0, discountCents, couponCode), couponCode };
+}
+
+/** Authoritative price quote for the booking form (no reservation made). */
+experiencesRouter.post("/:id/sessions/:sessionId/quote", async (req, res) => {
+  const body = req.body as { partySize?: unknown; couponCode?: string };
+  if (body.partySize !== undefined && !isPositiveInt(body.partySize)) return res.status(400).json({ error: "Party size must be a whole number of at least 1" });
+  const partySize = (body.partySize as number | undefined) ?? 1;
+  const experience = (await db.prepare(`SELECT * FROM experiences WHERE id = ? AND status = 'approved'`).get(req.params.id)) as ExperienceRow | undefined;
+  if (!experience) return res.status(404).json({ error: "Experience not found" });
+  const session = await db.prepare(`SELECT id FROM experience_sessions WHERE id = ? AND experience_id = ?`).get(req.params.sessionId, experience.id);
+  if (!session) return res.status(404).json({ error: "Session not found" });
+  const quote = await quoteExperience(experience, partySize, body.couponCode);
+  if (!quote.ok) return res.status(400).json({ error: quote.error });
+  const { subtotalCents, discountCents, taxableCents, vatCents, platformFeeCents, totalCents } = quote.pricing;
+  res.json({ partySize, subtotalCents, discountCents, taxableCents, vatCents, platformFeeCents, totalCents, couponCode: quote.couponCode, currency: "EUR" });
+});
+
 experiencesRouter.post("/:id/sessions/:sessionId/checkout", async (req, res) => {
   let clientId: string;
   try {
@@ -214,29 +246,27 @@ experiencesRouter.post("/:id/sessions/:sessionId/checkout", async (req, res) => 
   const body = req.body as BookBody;
   if (!body.participantName || !body.email) return res.status(400).json({ error: "Participant name and email are required" });
   if (!isValidEmail(body.email)) return res.status(400).json({ error: "That doesn't look like a valid email address" });
-  const partySize = body.partySize && body.partySize > 0 ? body.partySize : 1;
+  // HC-QA-039 — party size is an authoritative whole number (it drives both
+  // price and seats); omitted means 1, anything else invalid is rejected.
+  if (body.partySize !== undefined && !isPositiveInt(body.partySize)) return res.status(400).json({ error: "Party size must be a whole number of at least 1" });
+  const partySize = body.partySize ?? 1;
 
   const experience = (await db.prepare(`SELECT * FROM experiences WHERE id = ?`).get(req.params.id)) as ExperienceRow | undefined;
   if (!experience) return res.status(404).json({ error: "Experience not found" });
   if (experience.status !== "approved") return res.status(409).json({ error: "This listing is no longer open for booking" });
 
   const session = (await db
-    .prepare(`SELECT id, capacity, status FROM experience_sessions WHERE id = ? AND experience_id = ?`)
-    .get(req.params.sessionId, experience.id)) as { id: string; capacity: number | null; status: string } | undefined;
+    .prepare(`SELECT id, capacity, status, date, time FROM experience_sessions WHERE id = ? AND experience_id = ?`)
+    .get(req.params.sessionId, experience.id)) as { id: string; capacity: number | null; status: string; date: string; time: string } | undefined;
   if (!session) return res.status(404).json({ error: "Session not found" });
   if (session.status !== "scheduled") return res.status(409).json({ error: "This session is no longer open for booking" });
+  // HC-QA-045 — a session that has already started can't take new bookings.
+  if (!startIsInFuture(session.date, session.time)) return res.status(409).json({ error: "This session has already started" });
 
   const isCash = experience.payment_method === "cash";
-  const subtotalCents = experience.price_cents * partySize;
-  let discountCents = 0;
-  let couponCode: string | null = null;
-  if (body.couponCode) {
-    const result = await evaluateCoupon(body.couponCode, subtotalCents, { listingType: "experience", listingId: experience.id });
-    if (!result.valid) return res.status(400).json({ error: result.error! });
-    discountCents = result.discountCents!;
-    couponCode = result.code!;
-  }
-  const pricing = computePricing(subtotalCents, 0, discountCents, couponCode);
+  const quote = await quoteExperience(experience, partySize, body.couponCode);
+  if (!quote.ok) return res.status(400).json({ error: quote.error });
+  const { pricing, couponCode } = quote;
   const ref = generateRef("EX");
   // Release 5 — a free booking (always true for a volunteer listing, whose
   // price is forced to 0) confirms immediately like cash; it previously
@@ -247,13 +277,21 @@ experiencesRouter.post("/:id/sessions/:sessionId/checkout", async (req, res) => 
     await db.transaction(async (tx) => {
       await tx.prepare(`SELECT id FROM experience_sessions WHERE id = ? FOR UPDATE`).get(session.id);
       const cap = session.capacity ?? experience.capacity;
+      // HC-QA-041 — live pending checkouts hold their seats; status re-read under the lock.
+      const locked = (await tx.prepare(`SELECT status FROM experience_sessions WHERE id = ?`).get(session.id)) as { status: string };
+      if (locked.status !== "scheduled") throw new ConflictError("This session is no longer open for booking");
       const { n: booked } = (await tx
-        .prepare(
-          `SELECT COALESCE(SUM(party_size), 0) as n FROM experience_bookings
-           WHERE session_id = ? AND payment_status = 'paid' AND status != 'cancelled'`
-        )
+        .prepare(`SELECT COALESCE(SUM(party_size), 0) as n FROM experience_bookings WHERE session_id = ? AND ${occupiesCapacitySql()}`)
         .get(session.id)) as { n: number };
       if (Number(booked) + partySize > cap) throw new ConflictError("Not enough spots left on this session");
+      // HC-QA-037/050 — the coupon use is reserved with the order (confirmed or pending).
+      if (couponCode) {
+        try {
+          await consumeCoupon(tx, couponCode);
+        } catch {
+          throw new BadRequestError("That code has been fully redeemed");
+        }
+      }
 
       await tx
         .prepare(
@@ -282,6 +320,7 @@ experiencesRouter.post("/:id/sessions/:sessionId/checkout", async (req, res) => 
         });
     });
   } catch (e) {
+    if (e instanceof BadRequestError) return res.status(400).json({ error: e.message });
     if (e instanceof ConflictError) return res.status(409).json({ error: e.message });
     throw e;
   }
@@ -320,7 +359,7 @@ experiencesRouter.post("/:id/sessions/:sessionId/checkout", async (req, res) => 
     }),
   });
   if (!result.ok) {
-    await db.prepare(`DELETE FROM experience_bookings WHERE ref = ?`).run(ref);
+    await endPendingHold("experience_bookings", ref, "delete");
     return res.status(result.status).json({ error: result.error });
   }
 
@@ -398,7 +437,10 @@ experiencesRouter.post("/bookings/:ref/cancel", async (req, res) => {
     return res.status(409).json({ error: `This booking is within ${cancellationHours} hours and can no longer be cancelled online — please contact the host directly` });
   }
 
-  await db.prepare(`UPDATE experience_bookings SET status = 'cancelled' WHERE ref = ?`).run(row.ref);
+  // HC-QA-046 — atomic transition: only the request that actually flips the row
+  // runs the side effects (capacity release, audit, notifications, promotion).
+  const flipped = await db.prepare(`UPDATE experience_bookings SET status = 'cancelled' WHERE ref = ? AND status != 'cancelled'`).run(row.ref);
+  if (flipped.changes !== 1) return res.status(409).json({ error: "This booking is already cancelled" });
 
   notifyCancellation({
     kind: "experience",

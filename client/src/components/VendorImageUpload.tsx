@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { releaseMedia, uploadMedia, type MediaEntityType } from "../api";
 import { CameraIcon, ChevronLeftIcon, ChevronRightIcon, CloseIcon, PlusIcon, StarIcon } from "./icons";
 import { labelStyle } from "./ui";
@@ -32,6 +32,8 @@ export function MultiImageUpload({
 }) {
   const [uploadProgress, setUploadProgress] = useState<{ done: number; total: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // HC-QA-067 — a real <button> opens the hidden file input (keyboard-reachable).
+  const inputRef = useRef<HTMLInputElement>(null);
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
 
@@ -162,9 +164,13 @@ export function MultiImageUpload({
             )}
           </div>
         ))}
-        <label
+        <button
+          type="button"
           className="image-drop"
+          onClick={() => inputRef.current?.click()}
+          disabled={!!uploadProgress}
           style={{
+            font: "inherit",
             display: "flex",
             flexDirection: "column",
             alignItems: "center",
@@ -183,10 +189,10 @@ export function MultiImageUpload({
         >
           {uploadProgress ? <CameraIcon size={18} /> : <PlusIcon size={18} />}
           {uploadProgress ? `Uploading ${uploadProgress.done + 1} of ${uploadProgress.total}…` : "Add photo"}
-          <input type="file" accept="image/*" multiple onChange={(e) => onFiles(e.target.files)} disabled={!!uploadProgress} style={{ display: "none" }} />
-        </label>
+        </button>
       </div>
-      {error && <p style={{ color: colors.danger, fontSize: 12, margin: "6px 0 0" }}>{error}</p>}
+      <input ref={inputRef} type="file" accept="image/*" multiple hidden tabIndex={-1} onChange={(e) => { void onFiles(e.target.files); e.target.value = ""; }} disabled={!!uploadProgress} />
+      {error && <p role="alert" style={{ color: colors.danger, fontSize: 12, margin: "6px 0 0" }}>{error}</p>}
     </div>
   );
 }

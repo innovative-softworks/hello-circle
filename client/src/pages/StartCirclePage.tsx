@@ -107,32 +107,32 @@ export function StartCirclePage() {
             </p>
             <div className="grid-responsive" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
               <div>
-                <label style={labelStyle}>Name</label>
-                <input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} placeholder="e.g. Clontarf Badminton Circle" style={inputStyle} />
+                <label htmlFor="circle-start-name" style={labelStyle}>Name</label>
+                <input id="circle-start-name" value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} placeholder="e.g. Clontarf Badminton Circle" style={inputStyle} />
               </div>
               <div>
-                <label style={labelStyle}>Activity</label>
-                <input value={form.activityLabel} onChange={(e) => setForm((f) => ({ ...f, activityLabel: e.target.value }))} placeholder="e.g. Badminton" style={inputStyle} />
+                <label htmlFor="circle-start-activity" style={labelStyle}>Activity</label>
+                <input id="circle-start-activity" value={form.activityLabel} onChange={(e) => setForm((f) => ({ ...f, activityLabel: e.target.value }))} placeholder="e.g. Badminton" style={inputStyle} />
               </div>
               <div>
-                <label style={labelStyle}>Area</label>
-                <input value={form.area} onChange={(e) => setForm((f) => ({ ...f, area: e.target.value }))} style={inputStyle} />
+                <label htmlFor="circle-start-area" style={labelStyle}>Area</label>
+                <input id="circle-start-area" value={form.area} onChange={(e) => setForm((f) => ({ ...f, area: e.target.value }))} style={inputStyle} />
               </div>
               <div>
-                <label style={labelStyle}>County</label>
-                <input value={form.county} onChange={(e) => setForm((f) => ({ ...f, county: e.target.value }))} style={inputStyle} />
+                <label htmlFor="circle-start-county" style={labelStyle}>County</label>
+                <input id="circle-start-county" value={form.county} onChange={(e) => setForm((f) => ({ ...f, county: e.target.value }))} style={inputStyle} />
               </div>
               <div style={{ gridColumn: "1 / -1" }}>
-                <label style={labelStyle}>Membership</label>
-                <select value={form.joinMode} onChange={(e) => setForm((f) => ({ ...f, joinMode: e.target.value as typeof f.joinMode }))} style={inputStyle}>
+                <label htmlFor="circle-start-membership" style={labelStyle}>Membership</label>
+                <select id="circle-start-membership" value={form.joinMode} onChange={(e) => setForm((f) => ({ ...f, joinMode: e.target.value as typeof f.joinMode }))} style={inputStyle}>
                   <option value="open">Open — anyone can join instantly</option>
                   <option value="approval">Approval — you approve each request</option>
                   <option value="invite">Invite only — you add members yourself</option>
                 </select>
               </div>
               <div style={{ gridColumn: "1 / -1" }}>
-                <label style={labelStyle}>About (optional)</label>
-                <textarea value={form.about} onChange={(e) => setForm((f) => ({ ...f, about: e.target.value }))} rows={2} style={{ ...inputStyle, resize: "vertical" }} />
+                <label htmlFor="circle-start-about" style={labelStyle}>About (optional)</label>
+                <textarea id="circle-start-about" value={form.about} onChange={(e) => setForm((f) => ({ ...f, about: e.target.value }))} rows={2} style={{ ...inputStyle, resize: "vertical" }} />
               </div>
             </div>
 
@@ -150,8 +150,8 @@ export function StartCirclePage() {
             ) : (
               <div style={{ marginTop: 16, paddingTop: 14, borderTop: `1px solid ${colors.border}` }}>
                 <div style={{ marginBottom: 12 }}>
-                  <label style={labelStyle}>What we do (optional)</label>
-                  <textarea
+                  <label htmlFor="circle-start-what-we-do" style={labelStyle}>What we do (optional)</label>
+                  <textarea id="circle-start-what-we-do"
                     value={form.whatWeDo}
                     onChange={(e) => setForm((f) => ({ ...f, whatWeDo: e.target.value }))}
                     placeholder="e.g. Weekly sessions, occasional social meetups and the odd challenge."
@@ -160,8 +160,8 @@ export function StartCirclePage() {
                   />
                 </div>
                 <div style={{ marginBottom: 12 }}>
-                  <label style={labelStyle}>Who can join (optional)</label>
-                  <textarea
+                  <label htmlFor="circle-start-who-can-join" style={labelStyle}>Who can join (optional)</label>
+                  <textarea id="circle-start-who-can-join"
                     value={form.whoCanJoin}
                     onChange={(e) => setForm((f) => ({ ...f, whoCanJoin: e.target.value }))}
                     placeholder="e.g. Anyone nearby who wants to give this a go — no experience needed."
@@ -170,8 +170,8 @@ export function StartCirclePage() {
                   />
                 </div>
                 <div>
-                  <label style={labelStyle}>Our values (optional)</label>
-                  <textarea
+                  <label htmlFor="circle-start-our-values" style={labelStyle}>Our values (optional)</label>
+                  <textarea id="circle-start-our-values"
                     value={form.values}
                     onChange={(e) => setForm((f) => ({ ...f, values: e.target.value }))}
                     placeholder="e.g. Respect, encouragement, and showing up for each other."

@@ -4,7 +4,7 @@ import { matchProgramSupply } from "../participationIntents.js";
 import { Router } from "express";
 import { assertPlatformRole } from "../auth.js";
 import { writeAudit } from "../audit.js";
-import { issueStripeRefund } from "../checkoutService.js";
+import { refundPaidOnce } from "../checkoutService.js";
 import { db } from "../db/index.js";
 import { orgFeatureFlags } from "../db/queries.js";
 import { notifyCancellation, notifyRefund } from "../notifications.js";
@@ -239,16 +239,18 @@ vendorProgramsRouter.get("/programs/:id/enrollments", async (req, res) => {
 // booking/registration check-in flow, which stays a simple binary tap and
 // always writes 'present' (see vendorOperations.ts's checkInBooking).
 vendorProgramsRouter.post("/program-sessions/:sessionId/attendance/:enrollmentId", async (req, res) => {
-  const session = (await db.prepare(`SELECT program_id as programId FROM program_sessions WHERE id = ?`).get(req.params.sessionId)) as { programId: string } | undefined;
+  const session = (await db.prepare(`SELECT id, program_id as programId FROM program_sessions WHERE id = ?`).get(req.params.sessionId)) as { id: string; programId: string } | undefined;
   if (!session) return res.status(403).json({ error: "Not your session" });
   const { owns, requiredRole } = await programOwnership(req.vendorIds!, session.programId);
   if (!owns) return res.status(403).json({ error: "Not your session" });
   if (!assertPlatformRole(req, res, requiredRole!)) return;
+  const enrollment = await db.prepare(`SELECT id FROM program_enrollments WHERE id = ? AND program_id = ?`).get(req.params.enrollmentId, session.programId) as { id: number } | undefined;
+  if (!enrollment) return res.status(404).json({ error: "Enrollment not found" });
   const status = typeof req.body?.status === "string" ? req.body.status : "present";
   if (!ATTENDANCE_STATUSES.includes(status)) {
     return res.status(400).json({ error: `status must be one of: ${ATTENDANCE_STATUSES.join(", ")}` });
   }
-  const ref = `${req.params.sessionId}:${req.params.enrollmentId}`;
+  const ref = `${session.id}:${enrollment.id}`;
   await db
     .prepare(
       `INSERT INTO attendance (kind, ref, checked_in_by, status) VALUES ('program_session', ?, ?, ?)
@@ -287,7 +289,10 @@ vendorProgramsRouter.post("/programs/:programId/enrollments/:enrollmentId/cancel
   if (!row) return res.status(404).json({ error: "Enrollment not found" });
   if (row.status === "cancelled") return res.status(409).json({ error: "This enrollment is already cancelled" });
 
-  await db.prepare(`UPDATE program_enrollments SET status = 'cancelled' WHERE ref = ?`).run(row.ref);
+  // HC-QA-046 — atomic transition: only the request that actually flips the row
+  // runs the side effects (capacity release, audit, notifications, promotion).
+  const flipped = await db.prepare(`UPDATE program_enrollments SET status = 'cancelled' WHERE ref = ? AND status != 'cancelled'`).run(row.ref);
+  if (flipped.changes !== 1) return res.status(409).json({ error: "This enrollment is already cancelled" });
 
   await writeAudit({
     actorUserId: req.user!.id,
@@ -334,19 +339,18 @@ vendorProgramsRouter.post("/programs/:programId/enrollments/:enrollmentId/refund
   if (row.paymentStatus !== "paid") return res.status(400).json({ error: "Only a paid enrollment can be refunded" });
   if (!row.stripeSessionId) return res.status(400).json({ error: "This was a cash enrollment — refund the participant directly, not through Stripe" });
 
-  const result = await issueStripeRefund(row.stripeSessionId);
-  if (!result.ok) return res.status(502).json({ error: result.error });
-
-  const updateResult = await db.prepare(`UPDATE program_enrollments SET payment_status = 'refunded' WHERE ref = ? AND payment_status = 'paid'`).run(row.ref);
-  if (updateResult.changes === 0) return res.status(409).json({ error: "This enrollment has already been refunded" });
+  // HC-QA-051 — lock, re-check, refund and mark refunded in one transaction;
+  // concurrent requests get 409 instead of each calling the provider.
+  const result = await refundPaidOnce("program_enrollments", "ref = ?", [row.ref], row.stripeSessionId, "This enrollment has already been refunded", { actorUserId: req.user!.id, objectType: "program_enrollment", objectId: row.ref });
+  if (!result.ok) return res.status(result.status).json({ error: result.error });
 
   await writeAudit({
     actorUserId: req.user!.id,
-    action: "program_enrollment.refunded_by_vendor",
+    action: result.reconciled ? "program_enrollment.refund_reconciled_external" : "program_enrollment.refunded_by_vendor",
     objectType: "program_enrollment",
     objectId: row.ref,
     previousValue: { paymentStatus: row.paymentStatus },
-    newValue: { paymentStatus: "refunded", amountCents: result.amountCents },
+    newValue: { paymentStatus: "refunded", amountCents: result.amountCents, source: result.reconciled ? "stripe_external" : "hellocircle" },
   });
 
   notifyRefund({
@@ -369,8 +373,13 @@ vendorProgramsRouter.post("/programs/:programId/enrollments/:enrollmentId/refund
 vendorProgramsRouter.get("/programs/:id/sessions/:sessionId/attendance", async (req, res) => {
   const { owns } = await programOwnership(req.vendorIds!, req.params.id);
   if (!owns) return res.status(403).json({ error: "Not your program" });
+  const session = await db.prepare(`SELECT id FROM program_sessions WHERE id = ? AND program_id = ?`).get(req.params.sessionId, req.params.id);
+  if (!session) return res.status(404).json({ error: "Session not found" });
   const rows = (await db
-    .prepare(`SELECT ref, status FROM attendance WHERE kind = 'program_session' AND ref LIKE ?`)
-    .all(`${req.params.sessionId}:%`)) as { ref: string; status: string }[];
+    .prepare(`SELECT a.ref, a.status FROM program_sessions ps
+              JOIN program_enrollments pe ON pe.program_id = ps.program_id
+              JOIN attendance a ON a.kind = 'program_session' AND a.ref = CONCAT(ps.id, ':', pe.id)
+              WHERE ps.id = ? AND ps.program_id = ?`)
+    .all(req.params.sessionId, req.params.id)) as { ref: string; status: string }[];
   res.json(rows.map((r) => ({ enrollmentId: r.ref.split(":")[1], status: r.status })));
 });

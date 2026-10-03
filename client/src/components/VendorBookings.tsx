@@ -585,14 +585,17 @@ export function BookingsTab({ centreId, clubId }: { centreId?: string; clubId?: 
     }
   };
 
+  // HC-QA-066 — a real button (keyboard-reachable, named), not a clickable div.
   const bookingRow = (b: VendorBookingRow) => (
-    <div
+    <button
+      type="button"
+      className="btn-reset"
       onClick={() => setOpenRef(b.ref)}
-      style={{ display: "flex", justifyContent: "space-between", background: colors.bg, borderRadius: radius.control, padding: "10px 14px", fontSize: 13.5, cursor: "pointer", opacity: b.status === "cancelled" ? 0.55 : 1 }}
+      style={{ display: "flex", width: "100%", justifyContent: "space-between", background: colors.bg, borderRadius: radius.control, padding: "10px 14px", fontSize: 13.5, opacity: b.status === "cancelled" ? 0.55 : 1 }}
     >
       <span>{b.time} · {b.roomName ?? b.centreName} · {b.name}</span>
       <span style={{ color: colors.mutedLight }}>{b.status === "cancelled" ? "Cancelled" : "Confirmed"}</span>
-    </div>
+    </button>
   );
 
   // Vendor Experience Polish — mobile card fallback for the bookings table
@@ -609,7 +612,7 @@ export function BookingsTab({ centreId, clubId }: { centreId?: string; clubId?: 
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <Avatar name={b.name} size={28} />
           <div>
-            <div style={{ fontWeight: 700, fontSize: 13.5 }}>{b.name}</div>
+            <button type="button" className="btn-reset" onClick={(e) => { e.stopPropagation(); setOpenRef(b.ref); }} aria-label={`Open booking for ${b.name}`} style={{ fontWeight: 700, fontSize: 13.5 }}>{b.name}</button>
             <div style={{ fontSize: 11.5, color: colors.mutedLight }}>{b.roomName ? `${b.centreName} — ${b.roomName}` : b.centreName}</div>
           </div>
         </div>
@@ -749,7 +752,8 @@ export function BookingsTab({ centreId, clubId }: { centreId?: string; clubId?: 
                       <td style={tdStyle}>
                         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                           <Avatar name={b.name} size={24} />
-                          {b.name}
+                          {/* HC-QA-066 — keyboard path to the same detail the row click opens. */}
+                          <button type="button" className="btn-reset" onClick={(e) => { e.stopPropagation(); setOpenRef(b.ref); }} aria-label={`Open booking for ${b.name}`} style={{ fontWeight: 600 }}>{b.name}</button>
                         </div>
                       </td>
                       <td style={tdStyle}>{b.roomName ? `${b.centreName} — ${b.roomName}` : b.centreName}</td>

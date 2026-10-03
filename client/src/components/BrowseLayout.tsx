@@ -6,7 +6,7 @@ import { DiscoveryMap, type DiscoveryMapPin } from "./DiscoveryMap";
 import { DropdownOption } from "./FilterDropdown";
 import { Photo } from "./Photo";
 import { PageTitle } from "./PageTitle";
-import { Button, Card, CardLink, CardSkeleton, Drawer, EmptyState } from "./ui";
+import { Button, Card, CardLink, CardSkeleton, Drawer, EmptyState, LoadErrorState } from "./ui";
 import { SaveButton, useSavedState } from "./SaveButton";
 import { dateLabel } from "../euro";
 import { formatAvailability, formatDateTime, formatPrice } from "../formatters";
@@ -307,16 +307,20 @@ export function BrowseLayout({ config }: { config: BrowseConfig }) {
 
   const resultsRef = useRef<HTMLDivElement>(null);
 
+  // HC-QA-063 — a failed load is an error state, never an empty result.
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [attempt, setAttempt] = useState(0);
   useEffect(() => {
     setLoading(true);
+    setLoadFailed(false);
     config
       .load()
       .then(setItems)
-      .catch(() => setItems([]))
+      .catch(() => { setItems([]); setLoadFailed(true); })
       .finally(() => setLoading(false));
     // `load` is recreated by callers on every render; resetKey is the real identity.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [config.resetKey]);
+  }, [config.resetKey, attempt]);
 
   useEffect(() => {
     setVisibleCount(PAGE_SIZE);
@@ -398,7 +402,7 @@ export function BrowseLayout({ config }: { config: BrowseConfig }) {
         ))}
         <DropdownOption label="Pick a date" active={when === "date"} onClick={() => setWhen("date")} />
         {when === "date" && (
-          <input
+          <input aria-label="Pick a date"
             type="date"
             value={whenDate}
             onChange={(e) => setWhenDate(e.target.value)}
@@ -427,7 +431,7 @@ export function BrowseLayout({ config }: { config: BrowseConfig }) {
   );
 
   return (
-    <div style={{ animation: "fadeUp .35s ease both" }}>
+    <div style={{ animation: "fadeUp .35s ease backwards" }}>
       <section className="section-pad" style={{ maxWidth, margin: "0 auto", padding: "36px 24px 24px" }}>
         <PageTitle>{config.title}</PageTitle>
         <p style={{ color: colors.mutedLight, fontSize: 15, margin: 0 }}>{config.subtitle}</p>
@@ -437,7 +441,7 @@ export function BrowseLayout({ config }: { config: BrowseConfig }) {
         <div style={{ border: `1px solid ${colors.border}`, borderRadius: radius.card, background: colors.surface, boxShadow: "0 8px 24px rgba(30,40,32,.05)", padding: 14, marginTop: 24, marginBottom: 16 }}>
           <div style={{ position: "relative" }}>
             <SearchIcon size={17} style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", color: colors.faint }} />
-            <input
+            <input aria-label="Search"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder={config.searchPlaceholder}
@@ -446,7 +450,7 @@ export function BrowseLayout({ config }: { config: BrowseConfig }) {
           </div>
           <div style={{ height: 1, background: colors.border, margin: "10px 0" }} />
           <div className="stack-mobile" style={{ display: "flex", gap: 8, alignItems: "center" }}>
-            <select
+            <select aria-label="Area"
               value={county}
               onChange={(e) => setCounty(e.target.value)}
               style={{ padding: "8px 12px", border: "none", borderRadius: radius.control, fontSize: 13.5, background: colors.panel, color: colors.text, fontWeight: 600 }}
@@ -456,7 +460,7 @@ export function BrowseLayout({ config }: { config: BrowseConfig }) {
                 <option key={c} value={c}>Near: {c}</option>
               ))}
             </select>
-            <select
+            <select aria-label="When"
               value={when}
               onChange={(e) => setWhen(e.target.value as WhenFilter)}
               style={{ padding: "8px 12px", border: "none", borderRadius: radius.control, fontSize: 13.5, background: colors.panel, color: colors.text, fontWeight: 600 }}
@@ -492,7 +496,7 @@ export function BrowseLayout({ config }: { config: BrowseConfig }) {
               <div>
                 {loading ? (
                   <div style={{ fontWeight: 700, fontSize: 16 }}>Loading…</div>
-                ) : (
+                ) : loadFailed ? null : (
                   <>
                     {sorted.length > 0 && (
                       <div style={{ fontSize: 12, color: colors.faint, marginBottom: 2 }}>
@@ -520,7 +524,7 @@ export function BrowseLayout({ config }: { config: BrowseConfig }) {
                 >
                   Filters{activeCount > 0 ? ` (${activeCount})` : ""}
                 </button>
-                <select
+                <select aria-label="Sort results"
                   value={sort}
                   onChange={(e) => setSort(e.target.value as SortKey)}
                   style={{ padding: "9px 12px", border: `1px solid ${colors.inputBorder}`, borderRadius: radius.control, fontSize: 14, background: colors.bg, color: colors.text, outline: "none", fontWeight: 600 }}
@@ -586,6 +590,8 @@ export function BrowseLayout({ config }: { config: BrowseConfig }) {
               <div className="grid-responsive-3" style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 20 }}>
                 {Array.from({ length: PAGE_SIZE }, (_, i) => <CardSkeleton key={i} photoHeight={150} />)}
               </div>
+            ) : loadFailed ? (
+              <LoadErrorState title="We couldn't load these listings right now." onRetry={() => setAttempt((n) => n + 1)} />
             ) : sorted.length === 0 ? (
               <EmptyState
                 icon={<UsersIcon size={22} />}

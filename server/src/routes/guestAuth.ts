@@ -25,7 +25,6 @@ import {
   resolveGoogleSignIn,
   ResidentEmailTakenError,
   ResidentSignupRaceError,
-  setResidentPassword,
   type Resident,
 } from "../residents.js";
 import { CLIENT_URL } from "../stripe.js";
@@ -393,16 +392,17 @@ guestAuthRouter.post("/reset-password", passwordLoginLimiter, async (req, res) =
   if (!token || !password) return res.status(400).json({ error: "Token and new password are required" });
   if (password.length < 8) return res.status(400).json({ error: "Password must be at least 8 characters" });
 
-  const row = (await db.prepare(`SELECT email FROM resident_password_reset_tokens WHERE token = ? AND expires_at > NOW()`).get(token)) as
-    | { email: string }
-    | undefined;
+  // Lock token consumption and its bound credential update together. A competing
+  // request waits, then finds no token; it must never reach session creation.
+  const row = await db.transaction(async (tx) => {
+    const recovery = await tx.prepare(`SELECT email FROM resident_password_reset_tokens WHERE token = ? AND expires_at > NOW() FOR UPDATE`).get(token) as { email: string } | undefined;
+    if (!recovery) return null;
+    const changed = await tx.prepare(`UPDATE residents SET password_hash = ? WHERE email = ?`).run(hashPassword(password), recovery.email);
+    if (changed.changes !== 1) return null;
+    await tx.prepare(`DELETE FROM resident_password_reset_tokens WHERE token = ?`).run(token);
+    return recovery;
+  });
   if (!row) return res.status(400).json({ error: "This link has expired or has already been used — request a new one" });
-
-  const existing = await getResidentPasswordHash(row.email);
-  if (!existing) return res.status(400).json({ error: "This link has expired or has already been used — request a new one" });
-
-  await setResidentPassword(existing.id, hashPassword(password));
-  await db.prepare(`DELETE FROM resident_password_reset_tokens WHERE token = ?`).run(token);
 
   const { token: sessionToken } = await createGuestSession(row.email);
   res.cookie(GUEST_SESSION_COOKIE, sessionToken, cookieOpts);

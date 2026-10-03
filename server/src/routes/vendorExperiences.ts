@@ -3,7 +3,7 @@ import { matchExperienceSupply } from "../participationIntents.js";
 import { Router } from "express";
 import { requirePlatformRole } from "../auth.js";
 import { writeAudit } from "../audit.js";
-import { issueStripeRefund } from "../checkoutService.js";
+import { refundPaidOnce } from "../checkoutService.js";
 import { logEvent } from "../analytics.js";
 import { db } from "../db/index.js";
 import { irelandTodayIso } from "../irelandTime.js";
@@ -93,11 +93,73 @@ vendorExperiencesRouter.get("/experiences", async (req, res) => {
   res.json(rows);
 });
 
+// HC-QA-061 — the vendor editor reads camelCase (client `Experience`), but
+// this route used to return the raw snake_case row, so every multi-word
+// field (price_cents, duration_minutes, meeting_point, …) hydrated as
+// undefined and the editor showed €NaN / form defaults. The raw columns are
+// kept for backward compatibility; the camelCase fields are authoritative.
+function toVendorExperienceJson(row: Record<string, any>, images: string[]) {
+  const num = (v: unknown) => (v === null || v === undefined ? null : Number(v));
+  return {
+    ...row,
+    id: row.id,
+    kind: row.kind,
+    status: row.status,
+    title: row.title,
+    blurb: row.blurb,
+    description: row.description,
+    difficulty: row.difficulty,
+    area: row.area,
+    county: row.county,
+    lat: num(row.lat),
+    lng: num(row.lng),
+    locationSource: row.location_source || "unknown",
+    meetingPoint: row.meeting_point,
+    durationMinutes: row.duration_minutes,
+    priceCents: row.price_cents,
+    capacity: row.capacity,
+    paymentMethod: row.payment_method,
+    distanceKm: num(row.distance_km),
+    elevationGainM: row.elevation_gain_m,
+    terrainType: row.terrain_type,
+    fitnessRequirements: row.fitness_requirements,
+    itinerary: row.itinerary,
+    equipmentProvided: row.equipment_provided,
+    equipmentRequired: row.equipment_required,
+    transportInfo: row.transport_info,
+    safetyInfo: row.safety_info,
+    accessibilityInfo: row.accessibility_info || null,
+    weatherPolicy: row.weather_policy,
+    eligibility: row.eligibility,
+    cancellationTerms: row.cancellation_terms,
+    skillsRequired: row.skills_required || null,
+    cause: row.cause || null,
+    minAge: row.min_age ?? null,
+    imageUrl: row.image_url,
+    slug: row.slug,
+    featured: !!row.featured,
+    createdAt: row.created_at,
+    images,
+  };
+}
+
+/** HC-QA-061 — money/capacity fields must be real non-negative integers
+ * (a display or parsing slip must never be persisted). Only checks fields
+ * that are actually present, matching the COALESCE partial-update style. */
+function invalidExperienceNumbers(b: Record<string, unknown>): string | null {
+  const intOk = (v: unknown, min: number) => typeof v === "number" && Number.isInteger(v) && v >= min;
+  if (b.priceCents !== undefined && b.priceCents !== null && !intOk(b.priceCents, 0)) return "Price must be zero or more, in whole cents";
+  if (b.durationMinutes !== undefined && b.durationMinutes !== null && !intOk(b.durationMinutes, 1)) return "Duration must be a whole number of minutes";
+  if (b.capacity !== undefined && b.capacity !== null && !intOk(b.capacity, 1)) return "Capacity must be at least 1";
+  return null;
+}
+
 vendorExperiencesRouter.get("/experiences/:id", async (req, res) => {
   if (!(await ownsExperience(req.vendorIds!, req.params.id))) return res.status(403).json({ error: "Not your listing" });
   const row = await db.prepare(`SELECT * FROM experiences WHERE id = ?`).get(req.params.id);
+  if (!row) return res.status(404).json({ error: "Not found" });
   const images = await db.prepare(`SELECT url FROM experience_images WHERE experience_id = ? ORDER BY sort_order`).all(req.params.id);
-  res.json({ ...(row as object), images: (images as { url: string }[]).map((i) => i.url) });
+  res.json(toVendorExperienceJson(row as Record<string, any>, (images as { url: string }[]).map((i) => i.url)));
 });
 
 vendorExperiencesRouter.post("/experiences", requirePlatformRole(...EXPERIENCE_ROLES), async (req, res) => {
@@ -108,6 +170,8 @@ vendorExperiencesRouter.post("/experiences", requirePlatformRole(...EXPERIENCE_R
   // across later steps' PUTs, until POST /experiences/:id/publish flips it
   // to 'pending' once title+blurb are both actually present.
   if (!b.title) return res.status(400).json({ error: "A title is required" });
+  const numberError = invalidExperienceNumbers(b as Record<string, unknown>);
+  if (numberError) return res.status(400).json({ error: numberError });
   const coordError = invalidCoordinateReason(b.lat, b.lng);
   if (coordError) return res.status(400).json({ error: coordError });
   if (exceedsGalleryLimit("experience", (b.images ?? []).length)) {
@@ -194,6 +258,8 @@ vendorExperiencesRouter.put("/experiences/:id", requirePlatformRole(...EXPERIENC
   if (b.kind !== undefined && !EXPERIENCE_KINDS.includes(b.kind)) return res.status(400).json({ error: `kind must be one of: ${EXPERIENCE_KINDS.join(", ")}` });
   const coordError = invalidCoordinateReason(b.lat, b.lng);
   if (coordError) return res.status(400).json({ error: coordError });
+  const numberError = invalidExperienceNumbers(b as Record<string, unknown>);
+  if (numberError) return res.status(400).json({ error: numberError });
   if (b.images && exceedsGalleryLimit("experience", b.images.length)) {
     return res.status(400).json({ error: `An experience can have at most ${GALLERY_LIMITS.experience} photos (cover + gallery)` });
   }
@@ -316,8 +382,49 @@ vendorExperiencesRouter.post("/experiences/:id/sessions", requirePlatformRole(..
 
 vendorExperiencesRouter.delete("/experiences/:id/sessions/:sessionId", requirePlatformRole(...EXPERIENCE_ROLES), async (req, res) => {
   if (!(await ownsExperience(req.vendorIds!, req.params.id))) return res.status(403).json({ error: "Not your listing" });
-  await db.prepare(`UPDATE experience_sessions SET status = 'cancelled' WHERE id = ? AND experience_id = ?`).run(req.params.sessionId, req.params.id);
-  res.json({ ok: true });
+  // HC-QA-040 — cancelling a session cancels its active bookings in the same
+  // transaction (row-locked, idempotent): a repeat cancel finds nothing to do.
+  // Paid bookings stay payment_status='paid' with status='cancelled' — the
+  // existing "refund required" state the vendor refund route acts on; no
+  // refund is performed or fabricated here. Pending holds are released.
+  const affected = await db.transaction(async (tx) => {
+    const session = (await tx
+      .prepare(`SELECT id, status, date, time FROM experience_sessions WHERE id = ? AND experience_id = ? FOR UPDATE`)
+      .get(req.params.sessionId, req.params.id)) as { id: string; status: string; date: string; time: string } | undefined;
+    if (!session || session.status === "cancelled") return { session, rows: [] as { ref: string; participantName: string; email: string; residentId: string | null }[] };
+    await tx.prepare(`UPDATE experience_sessions SET status = 'cancelled' WHERE id = ?`).run(session.id);
+    const rows = (await tx
+      .prepare(`SELECT ref, participant_name as participantName, email, resident_id as residentId FROM experience_bookings WHERE session_id = ? AND status != 'cancelled' AND payment_status IN ('paid', 'pending')`)
+      .all(session.id)) as { ref: string; participantName: string; email: string; residentId: string | null }[];
+    await tx.prepare(`UPDATE experience_bookings SET status = 'cancelled' WHERE session_id = ? AND status != 'cancelled' AND payment_status IN ('paid', 'pending')`).run(session.id);
+    await tx.prepare(`UPDATE experience_bookings SET payment_status = 'failed' WHERE session_id = ? AND payment_status = 'pending'`).run(session.id);
+    return { session, rows };
+  });
+  if (affected.session && affected.rows.length) {
+    const exp = (await db.prepare(`SELECT title, vendor_id as vendorId FROM experiences WHERE id = ?`).get(req.params.id)) as { title: string; vendorId: string };
+    await writeAudit({
+      actorUserId: req.user!.id,
+      action: "experience_session.cancelled_by_vendor",
+      objectType: "experience_session",
+      objectId: req.params.sessionId,
+      newValue: { status: "cancelled", bookingsCancelled: affected.rows.length },
+    });
+    for (const b of affected.rows) {
+      notifyCancellation({
+        kind: "experience",
+        listingType: "experience",
+        listingId: req.params.id,
+        listingName: exp.title,
+        vendorId: exp.vendorId,
+        guestName: b.participantName,
+        guestEmail: b.email,
+        ref: b.ref,
+        detailsText: `${affected.session.date} at ${affected.session.time} · ${exp.title} — this departure was cancelled by the host`,
+        residentId: b.residentId,
+      }).catch((e) => console.error("[notifications] session cancellation notify failed:", e));
+    }
+  }
+  res.json({ ok: true, bookingsCancelled: affected.rows.length });
 });
 
 // --- booking cancel + refund (Phase 0 protect) -------------------------
@@ -345,7 +452,10 @@ vendorExperiencesRouter.post("/experiences/:id/bookings/:bookingId/cancel", requ
   if (!row) return res.status(404).json({ error: "Booking not found" });
   if (row.status === "cancelled") return res.status(409).json({ error: "This booking is already cancelled" });
 
-  await db.prepare(`UPDATE experience_bookings SET status = 'cancelled' WHERE ref = ?`).run(row.ref);
+  // HC-QA-046 — atomic transition: only the request that actually flips the row
+  // runs the side effects (capacity release, audit, notifications, promotion).
+  const flipped = await db.prepare(`UPDATE experience_bookings SET status = 'cancelled' WHERE ref = ? AND status != 'cancelled'`).run(row.ref);
+  if (flipped.changes !== 1) return res.status(409).json({ error: "This booking is already cancelled" });
 
   await writeAudit({
     actorUserId: req.user!.id,
@@ -392,19 +502,18 @@ vendorExperiencesRouter.post("/experiences/:id/bookings/:bookingId/refund", requ
   if (row.paymentStatus !== "paid") return res.status(400).json({ error: "Only a paid booking can be refunded" });
   if (!row.stripeSessionId) return res.status(400).json({ error: "This was a cash booking — refund the participant directly, not through Stripe" });
 
-  const result = await issueStripeRefund(row.stripeSessionId);
-  if (!result.ok) return res.status(502).json({ error: result.error });
-
-  const updateResult = await db.prepare(`UPDATE experience_bookings SET payment_status = 'refunded' WHERE ref = ? AND payment_status = 'paid'`).run(row.ref);
-  if (updateResult.changes === 0) return res.status(409).json({ error: "This booking has already been refunded" });
+  // HC-QA-051 — lock, re-check, refund and mark refunded in one transaction;
+  // concurrent requests get 409 instead of each calling the provider.
+  const result = await refundPaidOnce("experience_bookings", "ref = ?", [row.ref], row.stripeSessionId, "This booking has already been refunded", { actorUserId: req.user!.id, objectType: "experience_booking", objectId: row.ref });
+  if (!result.ok) return res.status(result.status).json({ error: result.error });
 
   await writeAudit({
     actorUserId: req.user!.id,
-    action: "experience_booking.refunded_by_vendor",
+    action: result.reconciled ? "experience_booking.refund_reconciled_external" : "experience_booking.refunded_by_vendor",
     objectType: "experience_booking",
     objectId: row.ref,
     previousValue: { paymentStatus: row.paymentStatus },
-    newValue: { paymentStatus: "refunded", amountCents: result.amountCents },
+    newValue: { paymentStatus: "refunded", amountCents: result.amountCents, source: result.reconciled ? "stripe_external" : "hellocircle" },
   });
 
   notifyRefund({

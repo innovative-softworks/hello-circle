@@ -1,13 +1,13 @@
 import "dotenv/config";
 import cookieParser from "cookie-parser";
 import cors from "cors";
+import { createIndexHtmlReader, mountClient } from "./clientAssets.js";
 import express from "express";
 // Express 4 does not auto-catch a rejection thrown inside an async route
 // handler — this patches route/middleware registration so it does, letting
 // the global error handler below actually see those errors instead of the
 // request hanging forever with no response. Must load before any router.
 import "express-async-errors";
-import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { buildSitemapXml, defaultOgMeta, generateSitemapUrls, injectOgTags, isEntityDetailRoute, resolveMarketingOgMeta, resolveOgMeta, resolveStaticDiscoveryOgMeta } from "./ogMeta.js";
@@ -69,8 +69,13 @@ import { sweepExpiredWaitlistOffers } from "./waitlist.js";
 // starts accepting requests — top-level await (supported by this project's
 // ES2022/NodeNext TS config) blocks the rest of module evaluation until then.
 await initSchema();
-await seedIfEmpty();
-await seedAdminIfMissing();
+// The isolated QA harness seeds its own personas after verifying the actual
+// database/container. Never create demo content or default credentials there.
+// Production/development startup retains its existing seed behavior.
+if (!(process.env.NODE_ENV === "test" && process.env.QA_E2E_ENABLED === "true")) {
+  await seedIfEmpty();
+  await seedAdminIfMissing();
+}
 await backfillSlugs();
 
 // A route handler throwing inside an unawaited/uncaught async path (e.g. a
@@ -272,13 +277,10 @@ app.get("/sitemap.xml", async (_req, res) => {
 // avoids cross-origin cookie/CORS complications for the session cookie.
 const clientDist = path.join(__dirname, "..", "..", "client", "dist");
 const indexHtmlPath = path.join(clientDist, "index.html");
-// Read once and cache in memory — the built file never changes at runtime,
-// re-reading it from disk on every request would be pure waste.
-let indexHtmlTemplate: string | null = null;
-function readIndexHtmlTemplate(): string {
-  if (indexHtmlTemplate === null) indexHtmlTemplate = fs.readFileSync(indexHtmlPath, "utf-8");
-  return indexHtmlTemplate;
-}
+// Cached in memory, but re-read when index.html changes on disk (HC-QA-090):
+// a rebuild without a restart must never keep serving the previous build's
+// asset hashes.
+const readIndexHtmlTemplate = createIndexHtmlReader(indexHtmlPath);
 
 // Universal Links (iOS) / App Links (Android) — Phase 3 of the Capacitor
 // migration. Lets links this server already emails out (guestAuth.ts's
@@ -380,10 +382,7 @@ app.get("/mobile-checkout-return", (req, res) => {
 // of anything resolveOgMeta/defaultOgMeta ever did. Every other static
 // asset (JS/CSS/images under client/dist) is unaffected; only the implicit
 // "serve index.html for a directory request" behavior is turned off.
-app.use(express.static(clientDist, { index: false }));
-app.get("*", async (req, res, next) => {
-  if (req.path.startsWith("/api/") || req.path.startsWith("/uploads/")) return next();
-
+mountClient(app, clientDist, async (req, res) => {
   // Shareable link previews (master-prompt punch list #1) — the handful of
   // public detail routes (and local landing pages) get real per-listing
   // meta; the pre-launch marketing pages get their own tailored, indexable

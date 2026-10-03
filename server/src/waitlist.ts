@@ -1,4 +1,5 @@
 import { db } from "./db/index.js";
+import { gameSeatSql } from "./bookingIntegrity.js";
 import { sendMail } from "./email.js";
 import { notifyResident, residentAllows } from "./notifications.js";
 import { CLIENT_URL } from "./stripe.js";
@@ -56,6 +57,12 @@ async function makeOffer(entry: WaitlistRow, listingType: "club" | "game", listi
  * cancellation/leave that triggered it. */
 export async function promoteNextWaitlistEntry(listingType: "club" | "game", listingId: string, listingName: string) {
   try {
+    if (listingType === "game") {
+      // HC-QA-026 — resolve stale entries of residents who already hold a
+      // place, then offer only a spot that genuinely exists.
+      await closeJoinedGameWaitlistEntries(listingId);
+      if (!(await gameHasFreeSpot(listingId))) return;
+    }
     const next = (await db
       .prepare(
         `SELECT id, resident_id, name, email FROM waitlist_entries
@@ -85,6 +92,12 @@ export async function offerToWaitlistEntry(
     .prepare(`SELECT id, resident_id, name, email FROM waitlist_entries WHERE id = ? AND listing_type = ? AND listing_id = ? AND status = 'waiting'`)
     .get(entryId, listingType, listingId)) as WaitlistRow | undefined;
   if (!entry) return { ok: false, error: "This person isn't currently waiting" };
+  if (listingType === "game") {
+    await closeJoinedGameWaitlistEntries(listingId);
+    const still = await db.prepare(`SELECT 1 FROM waitlist_entries WHERE id = ? AND status = 'waiting'`).get(entryId);
+    if (!still) return { ok: false, error: "This person has already joined" };
+    if (!(await gameHasFreeSpot(listingId))) return { ok: false, error: "There's no free spot to offer right now" };
+  }
   await makeOffer(entry, listingType, listingId, listingName);
   return { ok: true };
 }
@@ -129,6 +142,42 @@ export async function claimWaitlistOffer(listingType: "club" | "game", listingId
        AND ((client_id IS NOT NULL AND client_id != '' AND client_id = ?) OR (resident_id IS NOT NULL AND resident_id = ?))`
     )
     .run(listingType, listingId, clientId ?? "", residentId ?? "");
+  // HC-QA-026 — a resident who joins a game no longer needs a waiting entry
+  // either; leaving it 'waiting' later turned into an offer for a spot they
+  // already held, reserving capacity nobody could use.
+  if (listingType === "game" && residentId) {
+    await db
+      .prepare(`UPDATE waitlist_entries SET status = 'claimed' WHERE listing_type = 'game' AND listing_id = ? AND resident_id = ? AND status = 'waiting'`)
+      .run(listingId, residentId);
+  }
+}
+
+/** HC-QA-026 — waiting/offered entries of residents who already hold a place
+ * (joined or pending payment) are resolved, never offered. */
+async function closeJoinedGameWaitlistEntries(gameId: string) {
+  await db
+    .prepare(
+      `UPDATE waitlist_entries w SET w.status = 'claimed'
+       WHERE w.listing_type = 'game' AND w.listing_id = ? AND w.status IN ('waiting', 'offered') AND w.resident_id IS NOT NULL
+         AND EXISTS (SELECT 1 FROM game_participants gp WHERE gp.game_id = w.listing_id AND gp.resident_id = w.resident_id AND gp.status IN ('joined', 'pending_payment'))`
+    )
+    .run(gameId);
+}
+
+/** HC-QA-026 — the authoritative availability for an offer: confirmed and
+ * pending places plus unexpired held offers must stay below capacity, and a
+ * cancelled game has no spots to offer. */
+export async function gameHasFreeSpot(gameId: string): Promise<boolean> {
+  const row = (await db
+    .prepare(
+      `SELECT g.capacity, g.status,
+              (SELECT COUNT(*) FROM game_participants gp WHERE gp.game_id = g.id AND ${gameSeatSql("gp")}) AS taken,
+              (SELECT COUNT(*) FROM waitlist_entries w WHERE w.listing_type = 'game' AND w.listing_id = g.id AND w.status = 'offered' AND w.offer_expires_at > NOW()) AS held
+       FROM games g WHERE g.id = ?`
+    )
+    .get(gameId)) as { capacity: number; status: string; taken: number | string; held: number | string } | undefined;
+  if (!row || row.status === "cancelled") return false;
+  return Number(row.taken) + Number(row.held) < row.capacity;
 }
 
 interface ExpiredOfferRow {

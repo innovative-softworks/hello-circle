@@ -1,4 +1,6 @@
+import fs from "node:fs";
 import { Router } from "express";
+import { LocalImageError, privateUploadPath, saveLocalImage } from "../localUploads.js";
 import multer from "multer";
 import { orgVendorIds } from "../auth.js";
 import { db } from "../db/index.js";
@@ -346,7 +348,22 @@ mediaRouter.post("/upload", localProcessingUpload, async (req, res) => {
   const denied = await checkUploadPermission(req, entityType as MediaEntityType, entityId);
   if (denied) return res.status(denied.status).json({ error: denied.error });
 
-  if (!isR2Enabled()) return res.status(503).json({ error: "Cloud media storage is not configured", provider: "local" });
+  // HC-QA-062 — without cloud storage, store the validated original on local
+  // disk instead of refusing (previously a 503 here sent residents to the
+  // vendor/admin-only legacy uploader → 401, so hosts could never add a
+  // photo). Same entity permission check as above has already passed.
+  // Restricted media (Circle covers) is kept out of the public static path.
+  if (!isR2Enabled()) {
+    try {
+      const restricted = entityType === "circle-cover";
+      const name = saveLocalImage(req.file.buffer, req.file.mimetype, { private: restricted });
+      const url = restricted ? `/api/media/circles/${entityId}/cover?file=${name}` : `/uploads/${name}`;
+      return res.status(201).json({ url, provider: "local" });
+    } catch (e) {
+      if (e instanceof LocalImageError) return res.status(400).json({ error: e.message });
+      throw e;
+    }
+  }
   if (!isLocalProcessingEnabled()) return res.status(503).json({ error: "Local media processing is not configured" });
 
   try {
@@ -375,6 +392,16 @@ mediaRouter.get("/circles/:id/cover", async (req, res) => {
   const viewerId = req.resident?.id ?? null;
   const canView = circle.join_mode === "open" ? true : !!viewerId && (await isMember(req.params.id, viewerId));
   if (!canView) return res.status(403).json({ error: "You don't have access to this Circle" });
+
+  // HC-QA-062 — a locally stored (private-uploads) cover is streamed only
+  // after the access check above; it is never reachable under /uploads.
+  const localCover = /^\/api\/media\/circles\/[^/?]+\/cover\?file=([^&]+)$/.exec(circle.image_url);
+  if (localCover) {
+    const file = privateUploadPath(localCover[1]);
+    if (!file || !fs.existsSync(file)) return res.status(404).json({ error: "No cover image" });
+    res.setHeader("Cache-Control", "private, no-store");
+    return res.sendFile(file);
+  }
 
   if (!isR2Enabled()) return res.status(503).json({ error: "Cloud media storage is not configured" });
 
