@@ -73,9 +73,18 @@ const sheetGroupLabelStyle: React.CSSProperties = {
   padding: "4px 2px 8px",
 };
 
-function TabButton({ icon, label, active, badge, onClick }: { icon: ReactNode; label: string; active: boolean; badge?: number; onClick: () => void }) {
+// HC-QA-070 — a tab that navigates exposes aria-current="page" when it IS the
+// current page; a tab that opens a sheet exposes its expanded state instead.
+function TabButton({ icon, label, active, badge, onClick, current, expanded }: { icon: ReactNode; label: string; active: boolean; badge?: number; onClick: () => void; current?: boolean; expanded?: boolean }) {
   return (
-    <button onClick={onClick} style={{ ...itemButtonStyle, color: active ? colors.greenText : colors.mutedLight, position: "relative" }}>
+    <button
+      type="button"
+      onClick={onClick}
+      aria-current={current ? "page" : undefined}
+      aria-expanded={expanded}
+      aria-haspopup={expanded === undefined ? undefined : "dialog"}
+      style={{ ...itemButtonStyle, color: active ? colors.greenText : colors.mutedLight, position: "relative" }}
+    >
       {icon}
       {label}
       {!!badge && (
@@ -123,52 +132,52 @@ export function MobileTabBar() {
   return (
     <>
       <nav className="mobile-tab-bar" aria-label="Primary">
-        <TabButton icon={<HomeIcon size={20} />} label="Home" active={location.pathname === "/home"} onClick={() => go("/home")} />
-        <TabButton icon={<GridIcon size={20} />} label="Explore" active={exploreActive} onClick={() => setExploreOpen(true)} />
-        <TabButton icon={<PlusIcon size={20} />} label="Start" active={false} onClick={() => setCreateOpen(true)} />
-        <TabButton icon={<RepeatIcon size={20} />} label="Circles" active={isActive(["/circles"])} onClick={() => go("/circles")} />
-        <TabButton icon={<PersonIcon size={20} />} label="My Life" active={isActive(["/bookings"])} badge={count} onClick={() => go("/bookings")} />
+        <TabButton icon={<HomeIcon size={20} />} label="Home" active={location.pathname === "/home"} current={location.pathname === "/home"} onClick={() => go("/home")} />
+        <TabButton icon={<GridIcon size={20} />} label="Explore" active={exploreActive} expanded={exploreOpen} onClick={() => setExploreOpen(true)} />
+        <TabButton icon={<PlusIcon size={20} />} label="Start" active={false} expanded={createOpen} onClick={() => setCreateOpen(true)} />
+        <TabButton icon={<RepeatIcon size={20} />} label="Circles" active={isActive(["/circles"])} current={location.pathname === "/circles"} onClick={() => go("/circles")} />
+        <TabButton icon={<PersonIcon size={20} />} label="My Life" active={isActive(["/bookings", "/my-life"])} current={location.pathname === "/bookings" || location.pathname === "/my-life"} badge={count} onClick={() => go("/bookings")} />
       </nav>
 
       <Drawer open={exploreOpen} onClose={() => setExploreOpen(false)} title="Explore">
         <div style={sheetGroupLabelStyle}>Explore</div>
-        <button style={sheetItemStyle} onClick={() => go("/games")}>
+        <button style={sheetItemStyle} onClick={() => go("/games")} aria-current={location.pathname === "/games" ? "page" : undefined}>
           <RepeatIcon size={18} style={{ color: colors.greenText, flex: "none" }} /> Join a session
         </button>
-        <button style={sheetItemStyle} onClick={() => go("/adventures")}>
+        <button style={sheetItemStyle} onClick={() => go("/adventures")} aria-current={location.pathname === "/adventures" ? "page" : undefined}>
           <TreeIconSmall size={18} style={{ color: colors.greenText, flex: "none" }} /> Adventures
         </button>
-        <button style={sheetItemStyle} onClick={() => go("/experiences")}>
+        <button style={sheetItemStyle} onClick={() => go("/experiences")} aria-current={location.pathname === "/experiences" ? "page" : undefined}>
           <TreeIconSmall size={18} style={{ color: colors.orangeDark, flex: "none" }} /> Experiences
         </button>
         {/* Programs has its own browse page (/programs), same as the
             desktop mega menu — it used to land on Explore's mixed results. */}
-        <button style={sheetItemStyle} onClick={() => go("/programs")}>
+        <button style={sheetItemStyle} onClick={() => go("/programs")} aria-current={location.pathname === "/programs" ? "page" : undefined}>
           <GridIcon size={18} style={{ color: colors.greenText, flex: "none" }} /> Programs
         </button>
         {/* Product Language & IA Polish — Changeset 1C — mirrors Header.tsx's
             desktop mega-menu's same convergence on "Places". */}
         <div style={sheetGroupLabelStyle}>Places</div>
-        <button style={sheetItemStyle} onClick={() => go("/browse/centres")}>
+        <button style={sheetItemStyle} onClick={() => go("/browse/centres")} aria-current={location.pathname === "/browse/centres" ? "page" : undefined}>
           <BuildingIcon size={18} style={{ color: colors.greenText, flex: "none" }} /> Community centres
         </button>
-        <button style={sheetItemStyle} onClick={() => go("/browse/clubs")}>
+        <button style={sheetItemStyle} onClick={() => go("/browse/clubs")} aria-current={location.pathname === "/browse/clubs" ? "page" : undefined}>
           <BallIcon size={18} style={{ color: colors.greenText, flex: "none" }} /> Sports clubs
         </button>
       </Drawer>
 
       <Drawer open={createOpen} onClose={() => setCreateOpen(false)} title="Start">
         <p style={{ fontSize: 13, color: colors.mutedLight, margin: "0 0 16px" }}>Start something new.</p>
-        <button style={sheetItemStyle} onClick={() => go("/browse/centres")}>
+        <button style={sheetItemStyle} onClick={() => go("/browse/centres")} aria-current={location.pathname === "/browse/centres" ? "page" : undefined}>
           <BuildingIcon size={18} style={{ color: colors.greenText, flex: "none" }} /> Book a place
         </button>
-        <button style={sheetItemStyle} onClick={() => go("/games")}>
+        <button style={sheetItemStyle} onClick={() => go("/games")} aria-current={location.pathname === "/games" ? "page" : undefined}>
           <PlusIcon size={18} style={{ color: colors.greenText, flex: "none" }} /> Start a session
         </button>
-        <button style={sheetItemStyle} onClick={() => go("/make-it-happen")}>
+        <button style={sheetItemStyle} onClick={() => go("/make-it-happen")} aria-current={location.pathname === "/make-it-happen" ? "page" : undefined}>
           <HandshakeIcon size={18} style={{ color: colors.orangeDark, flex: "none" }} /> Make It Happen
         </button>
-        <button style={sheetItemStyle} onClick={() => go("/suggest-place")}>
+        <button style={sheetItemStyle} onClick={() => go("/suggest-place")} aria-current={location.pathname === "/suggest-place" ? "page" : undefined}>
           <PinIcon size={18} style={{ color: colors.greenText, flex: "none" }} /> Suggest a place
         </button>
       </Drawer>

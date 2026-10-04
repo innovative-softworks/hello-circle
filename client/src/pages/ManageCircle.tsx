@@ -1,3 +1,4 @@
+import { usePageTitle } from "../pageTitle";
 import { useEffect, useState } from "react";
 import { useConfirm } from "../components/ConfirmProvider";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
@@ -360,7 +361,7 @@ function JoinRequestsCard({ circle }: { circle: Circle }) {
 
   return (
     <Card>
-      <h4 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 16, margin: "0 0 14px" }}>Join requests</h4>
+      <h2 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 16, margin: "0 0 14px" }}>Join requests</h2>
       {requests.length === 0 && (
         <p style={{ margin: 0, fontSize: 13.5, color: colors.mutedLight }}>You're all caught up. New join requests will appear here.</p>
       )}
@@ -431,7 +432,7 @@ function PendingInvitationsCard({ circle, refreshKey }: { circle: Circle; refres
 
   return (
     <Card>
-      <h4 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 16, margin: "0 0 14px" }}>Pending invitations</h4>
+      <h2 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 16, margin: "0 0 14px" }}>Pending invitations</h2>
       <div aria-live="polite" role={message?.tone === "error" || loadError ? "alert" : "status"} style={{ fontSize: 13, fontWeight: 600, marginBottom: message || loadError ? 10 : 0, color: message?.tone === "error" || loadError ? colors.danger : colors.greenText }}>
         {loadError ?? message?.text}
       </div>
@@ -546,12 +547,12 @@ function MembersTab({ circle }: { circle: Circle }) {
     <div className="fade-panel" style={{ display: "flex", flexDirection: "column", gap: 24 }}>
       <JoinRequestsCard circle={circle} />
       <Card>
-        <h4 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 16, margin: "0 0 14px" }}>Invite someone</h4>
+        <h2 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 16, margin: "0 0 14px" }}>Invite someone</h2>
         <ResidentPicker onInvite={async (residentId) => { await inviteToCircle(circle.id, residentId); setInviteRefresh((n) => n + 1); }} />
       </Card>
       <PendingInvitationsCard circle={circle} refreshKey={inviteRefresh} />
       <Card>
-        <h4 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 16, margin: "0 0 14px" }}>Members</h4>
+        <h2 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 16, margin: "0 0 14px" }}>Members</h2>
         {roleError && <p style={{ color: colors.danger, fontSize: 12.5, margin: "0 0 10px" }}>{roleError}</p>}
         {/* Circle Experience Polish — Changeset 5. `members` always
             includes the organiser themselves, so the real "empty" case is
@@ -751,7 +752,7 @@ function SettingsTab({ circle, onSaved }: { circle: Circle; onSaved: (c: Circle)
       </Card>
       {circle.status === "active" && (
         <Card>
-          <h4 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 16, margin: "0 0 8px" }}>Danger zone</h4>
+          <h2 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 16, margin: "0 0 8px" }}>Danger zone</h2>
           <p style={{ fontSize: 13, color: colors.mutedLight, margin: "0 0 12px" }}>Closing this Circle removes it from public browse and notifies every member.</p>
           <Button variant="danger" onClick={() => setConfirmingClose(true)}>Close this Circle</Button>
         </Card>
@@ -775,6 +776,7 @@ export function ManageCircle() {
   const { id } = useParams<{ id: string }>();
   const [searchParams] = useSearchParams();
   const [circle, setCircle] = useState<Circle | null>(null);
+  usePageTitle(circle ? `Manage ${circle.name}` : null);
   const [circleLoading, setCircleLoading] = useState(true);
   const [circleError, setCircleError] = useState<string | null>(null);
   // Circle Experience Polish — Changeset 3A. Lets the post-creation success

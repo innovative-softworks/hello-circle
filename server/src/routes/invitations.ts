@@ -320,8 +320,8 @@ invitationsRouter.get("/sent", requireResident, async (req, res) => {
 });
 
 invitationsRouter.post("/:id/revoke", requireResident, async (req, res) => {
-  const row = (await db.prepare(`SELECT id, entity_type, entity_id, inviter_resident_id, status, expires_at FROM invitations WHERE id = ?`).get(req.params.id)) as
-    | Pick<InviteRow, "id" | "entity_type" | "entity_id" | "inviter_resident_id" | "status" | "expires_at">
+  const row = (await db.prepare(`SELECT id, entity_type, entity_id, inviter_resident_id, invitee_resident_id, status, expires_at FROM invitations WHERE id = ?`).get(req.params.id)) as
+    | Pick<InviteRow, "id" | "entity_type" | "entity_id" | "inviter_resident_id" | "invitee_resident_id" | "status" | "expires_at">
     | undefined;
   // Unauthorised and nonexistent look the same — no probing of invitation ids.
   const allowed = !!row && (row.inviter_resident_id === req.resident!.id || (await canManageInvitationsFor(row.entity_type, row.entity_id, req.resident!.id)));
@@ -332,6 +332,10 @@ invitationsRouter.post("/:id/revoke", requireResident, async (req, res) => {
     .prepare(`UPDATE invitations SET status = 'revoked', responded_at = NOW(), token = ? WHERE id = ? AND status = 'pending' AND expires_at > NOW()`)
     .run(crypto.randomBytes(24).toString("base64url"), row.id);
   if (result.changes === 1) {
+    // Phase 12 (Part 10) — the recipient's actionable "X invited you" becomes a
+    // non-actionable, detail-free "Invitation withdrawn" (once: only on the
+    // transition; no new notification, no email).
+    if (row.invitee_resident_id) await withdrawInviteNotifications(row.invitee_resident_id, "invite", row.entity_id);
     await writeAudit({ actorUserId: req.resident!.id, action: "invitation.revoked", objectType: "invitation", objectId: row.id, previousValue: { status: "pending" }, newValue: { status: "revoked", entityType: row.entity_type, entityId: row.entity_id } });
     void logEvent("invite_revoked", { residentId: req.resident!.id, metadata: { entityType: row.entity_type, entityId: row.entity_id } });
     return res.json({ ok: true, status: "revoked" });
@@ -342,3 +346,15 @@ invitationsRouter.post("/:id/revoke", requireResident, async (req, res) => {
   if (status === "expired") return res.status(409).json({ error: "This invitation has already expired", status });
   return res.status(409).json({ error: "This invitation has already been answered, so it can't be revoked", status });
 });
+
+/** Phase 12 — turn a recipient's invitation notification(s) for an entity
+ * into a non-actionable "Invitation withdrawn": generic text (no activity
+ * name/time/place), no link target (kind invite_withdrawn has no route). */
+export async function withdrawInviteNotifications(residentId: string, kind: string, listingId: string, titlePrefix?: string) {
+  await db
+    .prepare(
+      `UPDATE notifications SET kind = 'invite_withdrawn', title = 'Invitation withdrawn', body = 'An invitation you received is no longer available.', listing_id = '', ref = ''
+       WHERE resident_id = ? AND kind = ? AND listing_id = ?${titlePrefix ? " AND title LIKE ?" : ""}`
+    )
+    .run(...(titlePrefix ? [residentId, kind, listingId, `${titlePrefix}%`] : [residentId, kind, listingId]));
+}

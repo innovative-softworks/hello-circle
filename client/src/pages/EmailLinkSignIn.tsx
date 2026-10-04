@@ -35,7 +35,7 @@ export function EmailLinkSignIn() {
       <AuthEditorialHeader
         eyebrow="Sign in"
         accent="green"
-        headline={<>No password.<br /><span style={{ color: colors.green }}>Just a link.</span></>}
+        headline={<>No password.<br /><span style={{ color: colors.greenText }}>Just a link.</span></>}
         subtitle="We'll email you a secure sign-in link — nothing to remember."
       />
       <EmailLinkForm returnTo={safeReturnTo(searchParams.get("returnTo"))} />
@@ -46,7 +46,7 @@ export function EmailLinkSignIn() {
       </p>
       <p style={{ margin: "10px 0 0", fontSize: 14 }}>
         New to HelloCircle?{" "}
-        <Link to={`/signin/create${siblingSearch}`} style={{ color: colors.green, fontWeight: 700, textDecoration: "none" }}>Create account →</Link>
+        <Link to={`/signin/create${siblingSearch}`} style={{ color: colors.greenText, fontWeight: 700, textDecoration: "none" }}>Create account →</Link>
       </p>
     </AuthEditorialShell>
   );

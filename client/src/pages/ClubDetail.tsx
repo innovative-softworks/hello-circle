@@ -1,3 +1,4 @@
+import { usePageTitle } from "../pageTitle";
 import { useEffect, useState } from "react";
 import { useToast } from "../components/Toast";
 import { OfficialCircleLink } from "../components/OfficialCircleLink";
@@ -30,6 +31,7 @@ export function ClubDetail() {
   const navigate = useNavigate();
   const { resident } = useGuest();
   const [club, setClub] = useState<Club | null>(null);
+  usePageTitle(club?.name);
   const [favourited, setFavourited] = useState(false);
   const [passLoading, setPassLoading] = useState(false);
   const [passConfirmOpen, setPassConfirmOpen] = useState(false);
@@ -180,7 +182,7 @@ export function ClubDetail() {
           <div className="grid-responsive" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px 24px", marginBottom: 20 }}>
             {club.includes.map((a) => (
               <div key={a} style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 15, color: colors.textSoft }}>
-                <CheckIcon size={16} style={{ color: colors.orange }} />
+                <CheckIcon size={16} style={{ color: colors.orangeDark }} />
                 {a}
               </div>
             ))}
@@ -194,7 +196,7 @@ export function ClubDetail() {
               <div className="grid-responsive" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px 24px", marginBottom: 20 }}>
                 {club.accessibility.map((a) => (
                   <div key={a} style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 15, color: colors.textSoft }}>
-                    <WheelchairIcon size={16} style={{ color: colors.orange }} />
+                    <WheelchairIcon size={16} style={{ color: colors.orangeDark }} />
                     {a}
                   </div>
                 ))}

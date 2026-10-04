@@ -45,9 +45,9 @@ export function VendorProgramEditPage() {
       <section className="section-pad" style={{ maxWidth: 920, margin: "0 auto", padding: "40px 24px 90px" }}>
         <BackLink onClick={() => requestNavigation(() => navigate("/vendor?tab=programs"))}>Back to programs</BackLink>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap", margin: "0 0 18px" }}>
-          <h2 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 24, margin: 0, letterSpacing: "-.01em" }}>
+          <h1 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 24, margin: 0, letterSpacing: "-.01em" }}>
             {programId === "new" ? "New program" : (title ?? "Program")}
-          </h2>
+          </h1>
           {programId !== "new" && <HostChatButton scopeType="program" scopeId={programId} title={title ?? "Program chat"} label="Group chat" style={{ border: `1px solid ${colors.borderStrong}`, borderRadius: radius.pill, padding: "8px 14px", fontSize: 13.5, color: colors.text, background: colors.surface }} />}
         </div>
 

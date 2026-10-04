@@ -201,7 +201,7 @@ export function PaymentSuccess() {
 
         {status === "paid" && (
           <>
-            <div className="pop-in" style={{ width: 74, height: 74, borderRadius: "50%", background: colors.greenBg, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 22px", color: colors.green }}>
+            <div className="pop-in" style={{ width: 74, height: 74, borderRadius: "50%", background: colors.greenBg, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 22px", color: colors.greenText }}>
               <CheckIcon size={32} />
             </div>
             <h1 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 32, margin: "0 0 8px", letterSpacing: "-.02em" }}>You're all set!</h1>

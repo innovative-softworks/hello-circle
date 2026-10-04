@@ -18,6 +18,7 @@ import { matchParticipationIntentsForGame } from "../participationIntents.js";
 import { computePricing, evaluateCoupon } from "../pricing.js";
 import { requireResident } from "../residents.js";
 import { matchSearchAlertsForGame } from "../searchAlerts.js";
+import { PaginationError, parsePageParams, setNextCursor } from "../pagination.js";
 import { canViewGame, discoverableGameSql, getEffectiveGameLifecycle, loadViewableGame } from "../gameVisibility.js";
 export { getEffectiveGameLifecycle } from "../gameVisibility.js";
 import { getListingAttributes, setListingAttributes } from "../listingAttributes.js";
@@ -215,22 +216,54 @@ async function toGameJson(row: GameRow) {
 // only their availability/CTA differs (see toGameJson's effectiveLifecycle/
 // effectiveAvailability/publicLifecycleLabel) — while 'draft'/'archived'
 // never appear.
+// HC-QA-073 — keyset-paginated public activity list (see pagination.ts).
+// Visibility/lifecycle (discoverableGameSql), status and date window are part
+// of the SAME query that is paginated, so nothing private is ever fetched and
+// filtered afterwards. Filters the Games page used to apply only client-side
+// over the full list are applied here too, so a page never hides matches:
+//   q (activity / centre / location / area), county, category (exact
+//   activity), dateFrom/dateTo (ISO), timeFrom (HH:MM), weekend=1,
+//   priceMin/priceMax (cents), skill (matches like the UI: unset/"All levels"
+//   always match). Order: date, time, id (total, stable).
 gamesRouter.get("/", async (req, res) => {
-  const today = irelandTodayIso();
-  const county = typeof req.query.county === "string" ? req.query.county : undefined;
-  const rows = (
-    county
-      ? await db
-          .prepare(
-            `SELECT g.* FROM games g LEFT JOIN centres c ON c.id = g.centre_id
-             WHERE g.status = 'open' AND ${discoverableGameSql("g")} AND g.date >= ? AND c.county = ? ORDER BY g.date, g.time`
-          )
-          .all(today, county)
-      : await db
-          .prepare(`SELECT * FROM games g WHERE g.status = 'open' AND ${discoverableGameSql("g")} AND g.date >= ? ORDER BY g.date, g.time`)
-          .all(today)
-  ) as GameRow[];
-  res.json(await Promise.all(rows.map(toGameJson)));
+  let page;
+  try {
+    page = parsePageParams<[string, string, string]>(req.query as Record<string, unknown>, ["string", "string", "string"]);
+  } catch (e) {
+    if (e instanceof PaginationError) return res.status(400).json({ error: e.message });
+    throw e;
+  }
+  const q = req.query as Record<string, string | undefined>;
+  const isoDate = (v?: string) => (v && /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : undefined);
+  const where: string[] = ["g.status = 'open'", discoverableGameSql("g"), "g.date >= ?"];
+  const params: unknown[] = [irelandTodayIso()];
+  if (q.county) { where.push("c.county = ?"); params.push(q.county); }
+  if (q.category) { where.push("g.activity_label = ?"); params.push(q.category); }
+  if (q.q && q.q.trim()) {
+    const like = `%${q.q.trim().toLowerCase().replace(/[\\%_]/g, (m) => `\\${m}`)}%`;
+    where.push("(LOWER(g.activity_label) LIKE ? OR LOWER(COALESCE(c.name, '')) LIKE ? OR LOWER(COALESCE(g.location_text, '')) LIKE ? OR LOWER(COALESCE(c.area, '')) LIKE ?)");
+    params.push(like, like, like, like);
+  }
+  if (isoDate(q.dateFrom)) { where.push("g.date >= ?"); params.push(q.dateFrom); }
+  if (isoDate(q.dateTo)) { where.push("g.date <= ?"); params.push(q.dateTo); }
+  if (q.timeFrom && /^\d{2}:\d{2}$/.test(q.timeFrom)) { where.push("g.time >= ?"); params.push(q.timeFrom); }
+  if (q.weekend === "1") where.push("DAYOFWEEK(g.date) IN (1, 7)");
+  if (q.priceMin && /^\d+$/.test(q.priceMin)) { where.push("COALESCE(g.price_cents, 0) >= ?"); params.push(Number(q.priceMin)); }
+  if (q.priceMax && /^\d+$/.test(q.priceMax)) { where.push("COALESCE(g.price_cents, 0) <= ?"); params.push(Number(q.priceMax)); }
+  if (q.skill && q.skill !== "any") { where.push("(g.skill_level IS NULL OR g.skill_level = '' OR g.skill_level = 'All levels' OR LOWER(g.skill_level) = LOWER(?))"); params.push(q.skill); }
+  if (page.after) {
+    const [d, t, id] = page.after;
+    where.push("(g.date > ? OR (g.date = ? AND (g.time > ? OR (g.time = ? AND g.id > ?))))");
+    params.push(d, d, t, t, id);
+  }
+  const rows = (await db
+    .prepare(`SELECT g.* FROM games g LEFT JOIN centres c ON c.id = g.centre_id WHERE ${where.join(" AND ")} ORDER BY g.date, g.time, g.id LIMIT ${page.limit + 1}`)
+    .all(...params)) as GameRow[];
+  const more = rows.length > page.limit;
+  const pageRows = more ? rows.slice(0, page.limit) : rows;
+  const last = pageRows[pageRows.length - 1];
+  setNextCursor(res, more && last ? [String(last.date), String(last.time), String(last.id)] : null);
+  res.json(await Promise.all(pageRows.map(toGameJson)));
 });
 
 // Every game this resident is hosting or has joined — the host is always

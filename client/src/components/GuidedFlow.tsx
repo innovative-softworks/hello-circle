@@ -13,6 +13,7 @@ import { colors, fonts, radius } from "../theme";
 export function GuidedFlow({
   title,
   subtitle,
+  headingLevel = 2,
   stepLabels,
   currentStep,
   accent = "green",
@@ -30,6 +31,8 @@ export function GuidedFlow({
 }: {
   title: ReactNode;
   subtitle?: ReactNode;
+  /** HC-QA-083 — 1 when the flow IS the page (e.g. vendor signup); 2 when it sits under a page heading. */
+  headingLevel?: 1 | 2;
   stepLabels: string[];
   /** 1-based, matches Stepper's own convention. */
   currentStep: number;
@@ -65,6 +68,7 @@ export function GuidedFlow({
   // (re-labelled) submit button at the bottom; in Safari, Tab from there
   // leaves the page entirely.
   const headingRef = useRef<HTMLHeadingElement>(null);
+  const Heading = headingLevel === 1 ? "h1" : "h2";
   const previousStep = useRef(currentStep);
   useEffect(() => {
     if (previousStep.current === currentStep) return;
@@ -78,7 +82,7 @@ export function GuidedFlow({
         <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".07em", textTransform: "uppercase", color: accent === "orange" ? colors.orangeDark : colors.greenText, marginBottom: 6 }}>
           {String(currentStep).padStart(2, "0")} / {stepLabels[currentStep - 1]?.toUpperCase()}
         </div>
-        <h2 ref={headingRef} tabIndex={-1} style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 26, margin: "0 0 6px", letterSpacing: "-.01em", outline: "none" }}>{title}</h2>
+        <Heading ref={headingRef} tabIndex={-1} style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 26, margin: "0 0 6px", letterSpacing: "-.01em", outline: "none" }}>{title}</Heading>
         {subtitle && <p style={{ fontSize: 14, color: colors.mutedLight, margin: "0 0 22px", maxWidth: 520, lineHeight: 1.5 }}>{subtitle}</p>}
       </div>
 

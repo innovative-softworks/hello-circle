@@ -81,6 +81,32 @@ export async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+/** HC-QA-073 — one page of a keyset-paginated list endpoint: the body is the
+ * page's items; the next page's opaque cursor (null on the last page) and
+ * any other response headers come alongside. */
+export interface Page<T> { items: T[]; nextCursor: string | null; headers: Headers }
+
+export async function requestPage<T>(path: string): Promise<Page<T>> {
+  const res = await fetch(`/api${path}`, {
+    credentials: "include",
+    headers: { "Content-Type": "application/json", "X-Client-Id": getClientId() },
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({ error: res.statusText }));
+    reportIfSessionExpired(path, res.status);
+    throw new ApiError(body.error || `Request failed: ${res.status}`, body, res.status);
+  }
+  return { items: (await res.json()) as T[], nextCursor: res.headers.get("X-Next-Cursor"), headers: res.headers };
+}
+
+/** Builds a query string from defined, non-empty values. */
+export function queryString(params: Record<string, string | number | undefined | null>): string {
+  const q = new URLSearchParams();
+  for (const [k, v] of Object.entries(params)) if (v !== undefined && v !== null && v !== "") q.set(k, String(v));
+  const s = q.toString();
+  return s ? `?${s}` : "";
+}
+
 /** "Add to calendar" (IA spec §13) — the .ics routes need the same
  * X-Client-Id/cookie auth as `request()`, but return text/calendar, not
  * JSON, so this triggers a browser download instead of parsing a body. */

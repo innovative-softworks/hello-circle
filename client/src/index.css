@@ -53,7 +53,7 @@ html {
   --color-text-soft: #3b423c;
   --color-border: #e7e4dc;
   --color-border-strong: #d8d4cb;
-  --color-input-border: #d8d4cb;
+  --color-input-border: #8a857a; /* HC-QA-071: ≥3:1 vs bg/surface/panel */
   --color-panel: #f0eee8;
   --color-footer-bg: #f6f4ef;
 
@@ -80,6 +80,7 @@ html {
      would have shipped a 2.43:1 (badly-failing) contrast ratio the moment
      dark mode's background went live, since a hardcoded hex can't adapt. */
   --color-danger: #b00020;
+  --color-danger-solid: #b00020; /* HC-QA-072: filled danger (white text 7.33:1) */
   --color-danger-bg: #fbeaea;
 
   --color-header-bg: rgba(251, 250, 247, 0.86);
@@ -104,7 +105,7 @@ html {
     --color-text-soft: #c7cdc0;
     --color-border: #2b302d;
     --color-border-strong: #3b423d;
-    --color-input-border: #3b423d;
+    --color-input-border: #6b736d; /* HC-QA-071: ≥3:1 vs bg/surface */
     --color-panel: #1d2220;
     --color-footer-bg: #1a1e1c;
 
@@ -143,6 +144,7 @@ html {
     --color-skeleton-highlight: #2d3335;
 
     --color-danger: #e37272;
+    --color-danger-solid: #b3261e; /* HC-QA-072: white text 6.54:1 (was 3.04:1 on #e37272) */
     --color-danger-bg: #3a1f1f;
 
     --color-header-bg: rgba(21, 24, 26, 0.86);
@@ -169,7 +171,7 @@ html {
   --color-text-soft: #c7cdc0;
   --color-border: #2b302d;
   --color-border-strong: #3b423d;
-  --color-input-border: #3b423d;
+  --color-input-border: #6b736d; /* HC-QA-071: ≥3:1 vs bg/surface */
   --color-panel: #1d2220;
   --color-footer-bg: #1a1e1c;
 
@@ -192,6 +194,7 @@ html {
   --color-skeleton-highlight: #2d3335;
 
   --color-danger: #e37272;
+    --color-danger-solid: #b3261e; /* HC-QA-072: white text 6.54:1 (was 3.04:1 on #e37272) */
   --color-danger-bg: #3a1f1f;
 
   --color-header-bg: rgba(21, 24, 26, 0.86);
@@ -209,7 +212,7 @@ html {
   --color-text-soft: #3b423c;
   --color-border: #e7e4dc;
   --color-border-strong: #d8d4cb;
-  --color-input-border: #d8d4cb;
+  --color-input-border: #8a857a; /* HC-QA-071: ≥3:1 vs bg/surface/panel */
   --color-panel: #f0eee8;
   --color-footer-bg: #f6f4ef;
 
@@ -232,6 +235,7 @@ html {
   --color-skeleton-highlight: #f5f3ec;
 
   --color-danger: #b00020;
+  --color-danger-solid: #b00020; /* HC-QA-072: filled danger (white text 7.33:1) */
   --color-danger-bg: #fbeaea;
 
   --color-header-bg: rgba(251, 250, 247, 0.86);
@@ -249,7 +253,7 @@ body {
 body {
   background: var(--color-bg);
   color: var(--color-text);
-  font-family: "Hanken Grotesk", system-ui, sans-serif;
+  font-family: "Hanken Grotesk Variable", "Hanken Grotesk", system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
 }
 input,
@@ -1167,3 +1171,33 @@ textarea:focus {
 .toast-region > * > * {
   pointer-events: auto;
 }
+
+/* HC-QA-083 — skip link: visually hidden until it receives keyboard focus. */
+.skip-link {
+  position: absolute;
+  left: 12px;
+  top: 8px;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  z-index: 10000;
+}
+.skip-link:focus,
+.skip-link:focus-visible {
+  width: auto;
+  height: auto;
+  clip-path: none;
+  padding: 10px 16px;
+  border-radius: 10px;
+  background: var(--color-surface, #fff);
+  color: var(--color-text, #141614);
+  font-weight: 700;
+  font-size: 14px;
+  box-shadow: 0 6px 24px rgba(20, 22, 20, 0.2);
+  outline: 2px solid var(--color-green, #1e7a4c);
+  outline-offset: 2px;
+}
+/* The <main> landmark receives programmatic focus from the skip link only. */
+main#main-content:focus { outline: none; }

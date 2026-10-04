@@ -795,7 +795,7 @@ function ReviewsTab() {
                     <span style={{ fontSize: 11, color: colors.faint }}>{r.listingType} · {r.listingId}</span>
                     {!!r.hidden && <StatusBadge status="rejected" />}
                   </div>
-                  {r.comment && <div style={{ fontSize: 13, color: "#3B423C", marginTop: 2 }}>{r.comment}</div>}
+                  {r.comment && <div style={{ fontSize: 13, color: colors.textSoft, marginTop: 2 }}>{r.comment}</div>}
                 </div>
               </div>
               {r.hidden ? (
@@ -1436,7 +1436,7 @@ function CouponsTab() {
         {coupons.map((c) => (
           <Card key={c.id} hover style={{ padding: 15, display: "flex", flexWrap: "wrap", gap: 10, justifyContent: "space-between", alignItems: "center" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-              <div style={{ width: 36, height: 36, borderRadius: "50%", background: colors.greenBg, color: colors.green, display: "flex", alignItems: "center", justifyContent: "center", flex: "none" }}>
+              <div style={{ width: 36, height: 36, borderRadius: "50%", background: colors.greenBg, color: colors.greenText, display: "flex", alignItems: "center", justifyContent: "center", flex: "none" }}>
                 <TagIcon size={16} />
               </div>
               <div>
@@ -1724,7 +1724,7 @@ function AdminOverviewTab({ stats }: { stats: AdminStats }) {
         <StatTile icon={<ClipboardIcon size={19} />} value={stats.openReports} label="Open reports" sublabel="Awaiting action" sublabelColor={colors.danger} />
       </KpiStrip>
       <Card>
-        <h4 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 15, margin: "0 0 12px" }}>Recent activity</h4>
+        <h3 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 15, margin: "0 0 12px" }}>Recent activity</h3>
         {recentError ? (
           <p style={{ fontSize: 13, color: colors.orangeDark }}>Couldn't load recent activity — try refreshing.</p>
         ) : recent.length === 0 ? (

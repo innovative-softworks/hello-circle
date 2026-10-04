@@ -12,6 +12,7 @@ import {
   resumeVendorClub,
 } from "../api";
 import { BallIcon, BuildingIcon, CheckCircleIcon, CopyIcon, EditIcon, EyeIcon, PauseIcon, PinIcon, PlayIcon, PlusIcon, ShareIcon, StarIcon, TrashIcon } from "./icons";
+import { VENUE_NOT_PUBLIC_HELP, VENUE_NOT_PUBLIC_LABEL, VENUE_PAGES_PUBLIC } from "../venueLaunch";
 import { Button, ManageCard as Card, ConfirmDialog, LinkButton, StatusBadge, tableStyle, tdStyle, thStyle } from "./ui";
 import { getMediaUrl } from "../media";
 import { colors, fonts } from "../theme";
@@ -121,6 +122,10 @@ function ListingProfileCard({
 }) {
   const copyPublicLink = useCopyPublicLink();
   const publicHref = kind === "centre" ? `/centres/${listing.id}` : `/clubs/${listing.id}`;
+  // HC-QA-059 — while venue pages are gated, an approved listing is not
+  // something the public can open: say so, and don't offer dead links.
+  const publiclyOpen = VENUE_PAGES_PUBLIC;
+  const approvedButGated = !publiclyOpen && listing.status === "approved";
   return (
     <Card style={{ padding: 0, overflow: "hidden" }}>
       <div style={{ display: "flex", flexWrap: "wrap" }}>
@@ -136,8 +141,11 @@ function ListingProfileCard({
         <div style={{ flex: "1 1 320px", padding: 24, display: "flex", flexDirection: "column", gap: 10 }}>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 10, alignItems: "center" }}>
             <h3 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 19, margin: 0, letterSpacing: "-.01em" }}>{listing.name}</h3>
-            <StatusBadge status={listing.status} />
+            <StatusBadge status={listing.status} label={approvedButGated ? VENUE_NOT_PUBLIC_LABEL : undefined} />
           </div>
+          {!publiclyOpen && (listing.status === "approved" || listing.status === "paused") && (
+            <p style={{ margin: 0, fontSize: 12.5, color: colors.mutedLight }}>{VENUE_NOT_PUBLIC_HELP}</p>
+          )}
           <div style={{ display: "flex", flexWrap: "wrap", gap: 14, fontSize: 13, color: colors.mutedLight }}>
             <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
               <PinIcon size={13} />
@@ -171,12 +179,16 @@ function ListingProfileCard({
             </Button>
             {listing.status === "approved" || listing.status === "paused" ? (
               <>
-                <LinkButton variant="ghost" href={publicHref} target="_blank">
-                  <EyeIcon size={14} /> View live listing
-                </LinkButton>
-                <Button variant="ghost" onClick={() => copyPublicLink(kind, listing.id)}>
-                  <ShareIcon size={14} /> Share
-                </Button>
+                {publiclyOpen && (
+                  <>
+                    <LinkButton variant="ghost" href={publicHref} target="_blank">
+                      <EyeIcon size={14} /> View live listing
+                    </LinkButton>
+                    <Button variant="ghost" onClick={() => copyPublicLink(kind, listing.id)}>
+                      <ShareIcon size={14} /> Share
+                    </Button>
+                  </>
+                )}
                 <Button variant="ghost" onClick={onPauseResume}>
                   {listing.status === "paused" ? (
                     <>
@@ -221,8 +233,13 @@ function ListingsTable({
   onDuplicate: (id: string) => void;
 }) {
   const copyPublicLink = useCopyPublicLink();
+  // HC-QA-059 — same rule as the single-listing card: while venue pages are
+  // gated an approved listing isn't publicly visible, and has no public link.
+  const gatedLabel = (status: string) => (!VENUE_PAGES_PUBLIC && status === "approved" ? VENUE_NOT_PUBLIC_LABEL : undefined);
+  const anyApproved = rows.some((r) => r.status === "approved" || r.status === "paused");
   return (
     <>
+      {!VENUE_PAGES_PUBLIC && anyApproved && <p style={{ margin: "0 0 12px", fontSize: 12.5, color: colors.mutedLight }}>{VENUE_NOT_PUBLIC_HELP}</p>}
       {/* Vendor Experience Polish — mobile card fallback. Only "Manage"
           (→ the full editor) surfaces here; Share/Pause/Duplicate/Delete stay
           reachable from inside the editor rather than five icon-only tap
@@ -239,7 +256,7 @@ function ListingsTable({
               <div style={{ minWidth: 0, flex: 1 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                   <span style={{ fontWeight: 700, fontSize: 14 }}>{r.name}</span>
-                  <StatusBadge status={r.status} />
+                  <StatusBadge status={r.status} label={gatedLabel(r.status)} />
                 </div>
                 <div style={{ fontSize: 11.5, color: colors.mutedLight }}>
                   {kind === "centre" ? "Centre" : "Club"} · {r.area}, {r.county}
@@ -283,7 +300,7 @@ function ListingsTable({
               <td style={tdStyle}>
                 <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                   <span style={{ fontWeight: 700 }}>{r.name}</span>
-                  <StatusBadge status={r.status} />
+                  <StatusBadge status={r.status} label={gatedLabel(r.status)} />
                 </div>
               </td>
               <td style={tdStyle}>
@@ -298,9 +315,11 @@ function ListingsTable({
                   </Button>
                   {(r.status === "approved" || r.status === "paused") && (
                     <>
-                      <Button variant="ghost" onClick={() => copyPublicLink(kind, r.id)}>
-                        <ShareIcon size={13} />
-                      </Button>
+                      {VENUE_PAGES_PUBLIC && (
+                        <Button variant="ghost" onClick={() => copyPublicLink(kind, r.id)} aria-label={`Share ${r.name}`}>
+                          <ShareIcon size={13} />
+                        </Button>
+                      )}
                       <Button variant="ghost" onClick={() => onPauseResume(r.id)}>
                         {r.status === "paused" ? <PlayIcon size={13} /> : <PauseIcon size={13} />}
                       </Button>

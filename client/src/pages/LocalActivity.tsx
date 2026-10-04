@@ -1,3 +1,4 @@
+import { usePageTitle } from "../pageTitle";
 import { useEffect, useState } from "react";
 import { Navigate, useParams } from "react-router-dom";
 import { fetchLocalActivity, type LocalActivityFeed } from "../api/public";
@@ -30,6 +31,7 @@ export function LocalActivity() {
   // check, kept independent since this guard is cheap/static and doesn't
   // need a DB round trip the way the OG-tag injection does).
   const countyName = Object.keys(IRISH_COUNTY_COORDS).find((c) => c.toLowerCase() === county.toLowerCase());
+  usePageTitle(countyName ? `${titleCase(activity.replace(/-/g, " "))} in ${countyName}` : null);
 
   useEffect(() => {
     if (!countyName) return;

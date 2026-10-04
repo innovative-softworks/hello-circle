@@ -1,3 +1,4 @@
+import { usePageTitle } from "../pageTitle";
 import { useEffect, useRef, useState } from "react";
 import { useConfirm } from "../components/ConfirmProvider";
 import { joinCircleConfirm } from "../confirmCopy";
@@ -149,6 +150,7 @@ export function CircleDetail() {
   const navigate = useNavigate();
   const { resident } = useGuest();
   const [circle, setCircle] = useState<Circle | null>(null);
+  usePageTitle(circle?.name);
   const [upcoming, setUpcoming] = useState<CirclePlanPreview[]>([]);
   const [isMember, setIsMember] = useState(false);
   const [role, setRole] = useState<string | null>(null);
@@ -598,7 +600,7 @@ export function CircleDetail() {
           {circle.area ? ` · ${circle.area}` : ""}
           {circle.joinMode === "approval" && circle.county ? `, ${circle.county}` : ""}
         </p>
-        {circle.about && <p style={{ fontSize: 15, lineHeight: 1.6, color: "#3B423C", marginBottom: 28 }}>{circle.about}</p>}
+        {circle.about && <p style={{ fontSize: 15, lineHeight: 1.6, color: colors.textSoft, marginBottom: 28 }}>{circle.about}</p>}
         <div style={{ maxWidth: 380 }}>
           <CircleJoinCard
             circle={circle}

@@ -520,7 +520,7 @@ export function BrowseLayout({ config }: { config: BrowseConfig }) {
                 <button
                   className="games-filter-trigger"
                   onClick={() => setFiltersOpen(true)}
-                  style={{ display: "inline-flex", alignItems: "center", gap: 6, border: `1.5px solid ${colors.borderStrong}`, background: "#fff", color: "#3B423C", borderRadius: 20, padding: "8px 14px", fontSize: 14, fontWeight: 600 }}
+                  style={{ display: "inline-flex", alignItems: "center", gap: 6, border: `1.5px solid ${colors.borderStrong}`, background: "#fff", color: colors.textSoft, borderRadius: 20, padding: "8px 14px", fontSize: 14, fontWeight: 600 }}
                 >
                   Filters{activeCount > 0 ? ` (${activeCount})` : ""}
                 </button>

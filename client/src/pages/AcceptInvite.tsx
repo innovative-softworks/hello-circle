@@ -98,7 +98,7 @@ export function AcceptInvite() {
           <AuthEditorialHeader
             eyebrow="Team invite"
             accent="orange"
-            headline={<>Join<br /><span style={{ color: colors.orange }}>{invite.orgName}.</span></>}
+            headline={<>Join<br /><span style={{ color: colors.orangeDark }}>{invite.orgName}.</span></>}
             subtitle={<>You've been invited as <strong>{invite.platformRole.replace(/_/g, " ")}</strong> — signing in as {invite.email}.</>}
           />
           <form onSubmit={(e: FormEvent) => { e.preventDefault(); submit(); }}>

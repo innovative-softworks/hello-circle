@@ -107,3 +107,15 @@ Implemented locally (not deployed). Each was failing before and passing after, v
 **Residual (not in scope):**
 - A revoked invitee keeps the original in-app "X invited you" notification in their inbox. Opening it leads to the invite-only teaser or a 404, with no details.
 - The cancel controls sit under My Life's "View full activity" section, alongside the existing hall-booking Cancel, rather than on the hub cards.
+
+## Phase 12 — MVP hardening (2026-10-03)
+
+| Item | Outcome |
+|---|---|
+| What vendors are told while venues are gated (HC-QA-059) | **Implemented:** "Not publicly visible" plus helper text, no dead public links; publication state unchanged |
+| Sitemap / indexing of gated venue pages (HC-QA-060) | **Implemented:** excluded from the sitemap and served noindex while gated |
+| Revoked invitation notification | **Implemented:** the recipient's invite notification becomes a non-actionable "Invitation withdrawn" (no activity details, no link, no new notification, no email); idempotent |
+| Notify participants when one programme session is cancelled | **Implemented (decision applied):** in-app notice to residents with a live enrolment, upcoming sessions only, once per cancellation. Guests without an account have no in-app inbox (email out of scope) |
+| Sign in with Apple placeholder | **Hidden** everywhere (`APPLE_SIGN_IN_ENABLED = false`); code retained for a future integration |
+| Pagination (HC-QA-073) | **Implemented** (keyset); see HC-QA-073 |
+| Unsigned Stripe webhooks in dev | **Fail-safe:** refused unless `ALLOW_UNSIGNED_STRIPE_WEBHOOKS=true`, never in production/staging |

@@ -1,5 +1,7 @@
 import { lazy, Suspense, useEffect, useRef } from "react";
 import { AppUpdateBoundary } from "./components/AppUpdateBoundary";
+import { VENUE_PAGES_PUBLIC } from "./venueLaunch";
+import { RouteTitleManager } from "./pageTitle";
 import { Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { AuthProvider } from "./AuthContext";
 import { ConfirmProvider } from "./components/ConfirmProvider";
@@ -160,6 +162,7 @@ function isExemptFromLaunchGate(pathname: string): boolean {
 // Only checked when the main gate is already open (see `gated ||
 // venueGated` below) — while it's closed this is redundant with it.
 function isVenueGatedPath(pathname: string): boolean {
+  if (VENUE_PAGES_PUBLIC) return false;
   return (
     pathname === "/browse/centres" ||
     pathname === "/browse/clubs" ||
@@ -277,15 +280,27 @@ export function App() {
 
   return (
     <ThemeProvider><AuthProvider><ConfirmProvider><ToastProvider>
+      <RouteTitleManager />
       <NativeShellSync />
       <BottomChromeSync />
       <GuestProvider>
         <NativePushSync />
         <MyStuffProvider>
           <DashboardNavProvider>
+            {/* HC-QA-083 — first keyboard stop on every page: bypass the header. */}
+            <a
+              href="#main-content"
+              className="skip-link"
+              onClick={(e) => {
+                e.preventDefault();
+                mainRef.current?.focus();
+              }}
+            >
+              Skip to main content
+            </a>
             <SessionExpiryBanner />
             {!hideHeader && <Header />}
-            <main ref={mainRef} className={hideTabBar ? undefined : "mobile-tab-bar-space"} style={isStandaloneLanding || isComingSoon ? undefined : { minHeight: "70vh" }}>
+            <main ref={mainRef} id="main-content" tabIndex={-1} className={hideTabBar ? undefined : "mobile-tab-bar-space"} style={isStandaloneLanding || isComingSoon ? undefined : { minHeight: "70vh" }}>
               {gated || venueGated ? (
                 <Routes>
                   <Route path="/coming-soon" element={<ComingSoon />} />

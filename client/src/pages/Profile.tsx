@@ -17,7 +17,7 @@ import {
   fetchMyRoutines,
   fetchReceipts,
   fetchResidentFull,
-  fetchResidentNotifications,
+  fetchResidentNotificationsPage,
   fetchRoutineSuggestions,
   linkGoogleAccount,
   markResidentNotificationRead,
@@ -70,7 +70,7 @@ import { ManageShell } from "../components/ManageShell";
 import { PaymentMethodsPanel } from "../components/PaymentMethodsPanel";
 import { Photo } from "../components/Photo";
 import { SearchAlertsPanel } from "../components/SearchAlertsPanel";
-import { Avatar, Button, ConfirmDialog, EmptyState, RowSkeleton, Switch, inputStyle, labelStyle } from "../components/ui";
+import { Avatar, Button, ConfirmDialog, EmptyState, LoadErrorState, LoadMoreControl, RowSkeleton, Switch, inputStyle, labelStyle } from "../components/ui";
 import { signInHref } from "../authRedirect";
 import { euro } from "../euro";
 import { favouriteDetailHref } from "../favouriteLink";
@@ -526,15 +526,38 @@ function NotificationInboxPanel() {
   const navigate = useNavigate();
   const [notifications, setNotifications] = useState<ResidentNotification[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadFailed, setLoadFailed] = useState(false);
+  // HC-QA-073 — server-paginated inbox (newest first) with "Load more".
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [loadMoreFailed, setLoadMoreFailed] = useState(false);
 
   const load = () => {
     setLoading(true);
-    fetchResidentNotifications()
-      .then(setNotifications)
+    setLoadFailed(false);
+    fetchResidentNotificationsPage()
+      .then((page) => {
+        setNotifications(page.items);
+        setNextCursor(page.nextCursor);
+      })
+      .catch(() => setLoadFailed(true))
       .finally(() => setLoading(false));
   };
 
   useEffect(load, []);
+
+  const loadMore = () => {
+    if (!nextCursor || loadingMore) return;
+    setLoadingMore(true);
+    setLoadMoreFailed(false);
+    fetchResidentNotificationsPage(nextCursor)
+      .then((page) => {
+        setNotifications((prev) => { const ids = new Set(prev.map((n) => n.id)); return [...prev, ...page.items.filter((n) => !ids.has(n.id))]; });
+        setNextCursor(page.nextCursor);
+      })
+      .catch(() => setLoadMoreFailed(true))
+      .finally(() => setLoadingMore(false));
+  };
 
   const handleRead = async (id: number) => {
     await markResidentNotificationRead(id);
@@ -552,28 +575,38 @@ function NotificationInboxPanel() {
   };
 
   if (loading) return <RowSkeleton />;
+  if (loadFailed) return <LoadErrorState title="We couldn't load your notifications." onRetry={load} />;
   if (notifications.length === 0) {
     return <EmptyState icon={<ChevronRightIcon size={20} />} title="Nothing yet" subtitle="Bookings, registrations, waitlist offers and session updates will show up here." />;
   }
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-      {notifications.map((n) => (
-        <div
-          key={n.id}
-          onClick={() => handleClick(n)}
-          style={{
-            background: n.read ? colors.surface : colors.greenBg,
-            border: `1px solid ${colors.border}`,
-            borderRadius: 14,
-            padding: "14px 18px",
-            cursor: notificationHref(n) || !n.read ? "pointer" : "default",
-          }}
-        >
-          <div style={{ fontWeight: 700, fontSize: 14.5 }}>{n.title}</div>
-          <div style={{ fontSize: 13.5, color: colors.mutedLight, marginTop: 2 }}>{n.body}</div>
-        </div>
-      ))}
+      <ul aria-label="Notifications" style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: 10 }}>
+        {notifications.map((n) => {
+          const actionable = !!notificationHref(n) || !n.read;
+          const body = (
+            <>
+              <div style={{ fontWeight: 700, fontSize: 14.5 }}>{n.title}</div>
+              <div style={{ fontSize: 13.5, color: colors.mutedLight, marginTop: 2 }}>{n.body}</div>
+            </>
+          );
+          const boxStyle = { display: "block", width: "100%", textAlign: "left" as const, background: n.read ? colors.surface : colors.greenBg, border: `1px solid ${colors.border}`, borderRadius: 14, padding: "14px 18px" };
+          return (
+            <li key={n.id}>
+              {actionable ? (
+                // A real button: reachable and operable from the keyboard.
+                <button type="button" className="btn-reset" onClick={() => handleClick(n)} style={{ ...boxStyle, cursor: "pointer" }}>
+                  {body}
+                </button>
+              ) : (
+                <div style={boxStyle}>{body}</div>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+      {nextCursor && <LoadMoreControl loadingMore={loadingMore} failed={loadMoreFailed} onLoadMore={loadMore} />}
     </div>
   );
 }
@@ -639,7 +672,7 @@ function RoutinesPanel() {
     <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
       {visibleSuggestions.length > 0 && (
         <div>
-          <h4 style={{ fontSize: 13, fontWeight: 700, color: colors.muted, margin: "0 0 10px", letterSpacing: ".02em" }}>SUGGESTED</h4>
+          <h3 style={{ fontSize: 13, fontWeight: 700, color: colors.muted, margin: "0 0 10px", letterSpacing: ".02em" }}>SUGGESTED</h3>
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             {visibleSuggestions.map((s) => {
               const key = `${s.activityLabel}::${s.dayOfWeek}`;
@@ -663,7 +696,7 @@ function RoutinesPanel() {
       )}
 
       <div>
-        <h4 style={{ fontSize: 13, fontWeight: 700, color: colors.muted, margin: "0 0 10px", letterSpacing: ".02em" }}>YOUR ROUTINES</h4>
+        <h3 style={{ fontSize: 13, fontWeight: 700, color: colors.muted, margin: "0 0 10px", letterSpacing: ".02em" }}>YOUR ROUTINES</h3>
         {routines.length === 0 ? (
           <EmptyState icon={<ChevronRightIcon size={20} />} title="No routines yet" subtitle="Keep showing up to the same activity and we'll suggest making it a routine." />
         ) : (
@@ -779,9 +812,9 @@ function SettingsSection({ title, children, last }: { title?: string; children: 
   return (
     <div style={{ marginBottom: last ? 0 : 44 }}>
       {title && (
-        <h3 style={{ fontSize: 12, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".05em", color: colors.faint, margin: "0 0 4px" }}>
+        <h2 style={{ fontSize: 12, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".05em", color: colors.faint, margin: "0 0 4px" }}>
           {title}
-        </h3>
+        </h2>
       )}
       {children}
     </div>
@@ -1719,6 +1752,7 @@ export function Profile() {
       onNavChange={setSection}
       pageTitle={NAV_OPTIONS.find((o) => o.key === section)?.label}
       banner={<ProfileIdentityBanner onEdit={() => setSection("account")} />}
+      bannerHasHeading={false}
       showNavLogo={false}
     >
       {section === "account" && <AccountDetailsPanel />}

@@ -355,6 +355,7 @@ export function HostGamePage() {
             </Card>
           ) : step === 1 ? (
             <GuidedFlow
+              headingLevel={1}
               title={gameId ? "Edit your session." : "Host a session."}
               subtitle="The basics — what, where, and when."
               stepLabels={STEP_LABELS}
@@ -497,6 +498,7 @@ export function HostGamePage() {
             </GuidedFlow>
           ) : (
             <GuidedFlow
+              headingLevel={1}
               title="A few more details."
               subtitle="All optional — post now, or add more to help people know what to expect."
               stepLabels={STEP_LABELS}

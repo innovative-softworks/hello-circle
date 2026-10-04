@@ -273,7 +273,7 @@ export function DiscoverCard({ item, isToday }: { item: ActivitySummary; isToday
               </span>
             )}
             {item.hostVerified && (
-              <span title="Verified" style={{ display: "inline-flex", alignItems: "center", gap: 2, color: colors.green, fontWeight: 700, fontSize: 11, flexShrink: 0 }}>
+              <span title="Verified" style={{ display: "inline-flex", alignItems: "center", gap: 2, color: colors.greenText, fontWeight: 700, fontSize: 11, flexShrink: 0 }}>
                 <AwardIcon size={11} /> Verified
               </span>
             )}

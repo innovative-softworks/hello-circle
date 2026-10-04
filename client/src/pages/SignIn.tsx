@@ -175,14 +175,14 @@ export function SignIn() {
           <AuthEditorialHeader
             eyebrow="Sign in"
             accent="green"
-            headline={<>Welcome back.<br /><span style={{ color: colors.green }}>Your life, all in one place.</span></>}
+            headline={<>Welcome back.<br /><span style={{ color: colors.greenText }}>Your life, all in one place.</span></>}
             subtitle={intentContext ? "Log in to continue." : "Log in to continue to your plans, Circles and the things you keep coming back to."}
           />
           <LoginForm onSuccess={handleSuccess} onForgotPassword={() => setForgotMode(true)} />
 
           <p style={{ margin: "20px 0 0", fontSize: 14 }}>
             Don't have an account?{" "}
-            <Link to={`/signin/create${siblingSearch}`} style={{ color: colors.green, fontWeight: 700, textDecoration: "none" }}>Create account</Link>
+            <Link to={`/signin/create${siblingSearch}`} style={{ color: colors.greenText, fontWeight: 700, textDecoration: "none" }}>Create account</Link>
           </p>
           <p style={{ margin: "10px 0 0", fontSize: 14 }}>
             Prefer not to use a password?{" "}

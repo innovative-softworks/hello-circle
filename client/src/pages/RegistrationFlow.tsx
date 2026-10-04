@@ -249,7 +249,7 @@ export function RegistrationFlow() {
       <div style={{ animation: "fadeUp .3s ease backwards" }}>
         <section className="section-pad" style={{ maxWidth: 640, margin: "0 auto", padding: "56px 24px 80px", textAlign: "center" }}>
           <div
-            style={{ width: 74, height: 74, borderRadius: "50%", background: colors.orangeBg, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 22px", fontSize: 34, color: colors.orange }}
+            style={{ width: 74, height: 74, borderRadius: "50%", background: colors.orangeBg, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 22px", fontSize: 34, color: colors.orangeDark }}
           >
             <CheckIcon size={32} />
           </div>

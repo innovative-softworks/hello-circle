@@ -1,3 +1,4 @@
+import { usePageTitle } from "../pageTitle";
 import { useEffect, useState, type ReactNode } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { fetchProviderProfile } from "../api";
@@ -117,6 +118,7 @@ export function ProviderProfilePage() {
   const [profile, setProfile] = useState<ProviderProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
+  usePageTitle(notFound ? "Provider not found" : profile?.name);
 
   useEffect(() => {
     if (!id) return;

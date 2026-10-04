@@ -1,3 +1,4 @@
+import { VENUE_NOT_PUBLIC_LABEL, VENUE_PAGES_PUBLIC } from "../venueLaunch";
 import { AwardIcon, CalendarIcon, EyeIcon, StarIcon } from "./icons";
 import { ManageCard as Card, KpiHero, KpiStrip, StatTile } from "./ui";
 import { colors } from "../theme";
@@ -19,7 +20,7 @@ export function VendorListingPerformance({ summary }: { summary: VendorListingSu
       >
         <StatTile icon={<EyeIcon size={19} />} value={summary.views} label="Views" sublabel="All time" sublabelColor={colors.mutedLight} />
         <StatTile icon={<StarIcon size={19} />} value={summary.rating ? summary.rating.toFixed(1) : "—"} label="Rating" sublabel={`${summary.reviews} review${summary.reviews === 1 ? "" : "s"}`} sublabelColor={colors.mutedLight} />
-        <StatTile icon={<AwardIcon size={19} />} value={summary.status === "approved" ? "Live" : summary.status} label="Status" sublabel="Current" sublabelColor={colors.mutedLight} />
+        <StatTile icon={<AwardIcon size={19} />} value={summary.status === "approved" ? (VENUE_PAGES_PUBLIC ? "Live" : VENUE_NOT_PUBLIC_LABEL) : summary.status} label="Status" sublabel="Current" sublabelColor={colors.mutedLight} />
       </KpiStrip>
     </Card>
   );

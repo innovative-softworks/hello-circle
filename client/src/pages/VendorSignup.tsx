@@ -281,6 +281,7 @@ export function VendorSignup() {
       {step === 1 ? (
         <form onSubmit={(e: FormEvent) => { e.preventDefault(); step1Continue(); }}>
         <GuidedFlow
+          headingLevel={1}
           title="Create your account."
           subtitle="You'll use this to log in and manage your listings."
           stepLabels={STEP_LABELS}
@@ -555,7 +556,7 @@ export function VendorSignup() {
       {step === 1 && (
         <p style={{ textAlign: "center", color: colors.muted, fontSize: 14, marginTop: 18 }}>
           Already have an account?{" "}
-          <Link to="/login" className="link-accent" style={{ textDecoration: "none", color: colors.orange, fontWeight: 700 }}>
+          <Link to="/login" className="link-accent" style={{ textDecoration: "none", color: colors.orangeDark, fontWeight: 700 }}>
             Log in
           </Link>
         </p>

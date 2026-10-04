@@ -12,6 +12,8 @@ import { generateSlug } from "../slugify.js";
 import { getShareData, type ShareEntityType } from "./sharing.js";
 import { isMember, isOrganiser } from "./circleHelpers.js";
 import { writeAudit } from "../audit.js";
+import { PaginationError, parsePageParams, setNextCursor } from "../pagination.js";
+import { withdrawInviteNotifications } from "./invitations.js";
 import { discoverableGameSql, filterViewable, GAME_VISIBILITY_COLUMNS } from "../gameVisibility.js";
 
 export const circlesRouter = Router();
@@ -271,15 +273,45 @@ async function toCircleTeaserJson(row: CircleRow, viewerId: string | null) {
 // nextPlan/activePlan/hostName/hostVerified/members for every restricted
 // Circle to any anonymous request. Same teaser fallback already
 // established for GET /:id, not a new privacy policy.
+// HC-QA-073 — keyset-paginated (pagination.ts): order name, id. Filters the
+// Circles page used to apply only client-side are applied in the query:
+// q (name / activity / area / county), county, activity. The per-row privacy
+// rule is unchanged — full JSON only where canViewCircleFull allows,
+// otherwise the strict teaser.
 circlesRouter.get("/", async (req, res) => {
-  const county = typeof req.query.county === "string" ? req.query.county : undefined;
-  const rows = (county
-    ? await db.prepare(`SELECT * FROM circles WHERE county = ? AND status = 'active' ORDER BY name`).all(county)
-    : await db.prepare(`SELECT * FROM circles WHERE status = 'active' ORDER BY name`).all()) as CircleRow[];
+  let page;
+  try {
+    page = parsePageParams<[string, string]>(req.query as Record<string, unknown>, ["string", "string"]);
+  } catch (e) {
+    if (e instanceof PaginationError) return res.status(400).json({ error: e.message });
+    throw e;
+  }
+  const q = req.query as Record<string, string | undefined>;
+  const where: string[] = ["status = 'active'"];
+  const params: unknown[] = [];
+  if (q.county) { where.push("county = ?"); params.push(q.county); }
+  if (q.activity) { where.push("activity_label = ?"); params.push(q.activity); }
+  if (q.q && q.q.trim()) {
+    const like = `%${q.q.trim().toLowerCase().replace(/[\\%_]/g, (m) => `\\${m}`)}%`;
+    where.push("(LOWER(name) LIKE ? OR LOWER(activity_label) LIKE ? OR LOWER(COALESCE(area, '')) LIKE ? OR LOWER(COALESCE(county, '')) LIKE ?)");
+    params.push(like, like, like, like);
+  }
+  if (page.after) {
+    const [name, id] = page.after;
+    where.push("(name > ? OR (name = ? AND id > ?))");
+    params.push(name, name, id);
+  }
+  const rows = (await db
+    .prepare(`SELECT * FROM circles WHERE ${where.join(" AND ")} ORDER BY name, id LIMIT ${page.limit + 1}`)
+    .all(...params)) as CircleRow[];
+  const more = rows.length > page.limit;
+  const pageRows = more ? rows.slice(0, page.limit) : rows;
+  const last = pageRows[pageRows.length - 1];
+  setNextCursor(res, more && last ? [String(last.name), String(last.id)] : null);
   const viewerId = req.resident?.id ?? null;
   res.json(
     await Promise.all(
-      rows.map(async (row) => ((await canViewCircleFull(row.id, row.join_mode, viewerId)) ? toCircleJson(row, viewerId) : toCircleTeaserJson(row, viewerId)))
+      pageRows.map(async (row) => ((await canViewCircleFull(row.id, row.join_mode, viewerId)) ? toCircleJson(row, viewerId) : toCircleTeaserJson(row, viewerId)))
     )
   );
 });
@@ -1373,14 +1405,15 @@ circlesRouter.get("/:id/invitations", requireResident, async (req, res) => {
 circlesRouter.post("/:id/invitations/:inviteId/revoke", requireResident, async (req, res) => {
   if (!(await isOrganiser(req.params.id, req.resident!.id))) return res.status(403).json({ error: "Only an organiser can revoke invitations" });
   const invite = (await db
-    .prepare(`SELECT status, initiated_by as initiatedBy FROM circle_invites WHERE id = ? AND circle_id = ?`)
-    .get(req.params.inviteId, req.params.id)) as { status: string; initiatedBy: string } | undefined;
+    .prepare(`SELECT status, initiated_by as initiatedBy, resident_id as residentId FROM circle_invites WHERE id = ? AND circle_id = ?`)
+    .get(req.params.inviteId, req.params.id)) as { status: string; initiatedBy: string; residentId: string } | undefined;
   // Wrong Circle and nonexistent look identical.
   if (!invite || invite.initiatedBy !== "organiser") return res.status(404).json({ error: "Invitation not found" });
   const result = await db
     .prepare(`UPDATE circle_invites SET status = 'revoked' WHERE id = ? AND circle_id = ? AND initiated_by = 'organiser' AND status = 'pending'`)
     .run(req.params.inviteId, req.params.id);
   if (result.changes === 1) {
+    await withdrawInviteNotifications(invite.residentId, "circle", req.params.id, "Invited:");
     await writeAudit({ actorUserId: req.resident!.id, action: "circle_invite.revoked", objectType: "circle_invite", objectId: req.params.inviteId, previousValue: { status: "pending" }, newValue: { status: "revoked", circleId: req.params.id } });
     void logEvent("circle_invite_revoked", { residentId: req.resident!.id, metadata: { circleId: req.params.id } });
     return res.json({ ok: true, status: "revoked" });

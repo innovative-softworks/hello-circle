@@ -22,7 +22,7 @@ export function MyLifeRhythm({ entries }: { entries: ParticipationEntry[] }) {
 
   return (
     <div style={{ border: `1px solid ${colors.border}`, borderRadius: 12, padding: "16px 18px", background: colors.surface }}>
-      <h3 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 15, margin: "0 0 4px" }}>Your rhythm</h3>
+      <h2 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 15, margin: "0 0 4px" }}>Your rhythm</h2>
       <p style={{ margin: "0 0 12px", fontSize: 13, color: colors.mutedLight }}>
         {weekBuckets.size} active week{weekBuckets.size === 1 ? "" : "s"} in the last {WEEKS_WINDOW}
       </p>

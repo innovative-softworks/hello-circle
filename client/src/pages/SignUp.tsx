@@ -56,14 +56,14 @@ export function SignUp() {
       <AuthEditorialHeader
         eyebrow="Create account"
         accent="green"
-        headline={<>Be active. Meet people.<br /><span style={{ color: colors.green }}>Do more together.</span></>}
+        headline={<>Be active. Meet people.<br /><span style={{ color: colors.greenText }}>Do more together.</span></>}
         subtitle={intentContext ? "Create an account to continue." : "Find things to do, join local Circles and meet people around you."}
       />
       <SignupForm onSuccess={handleSuccess} />
 
       <p style={{ margin: "20px 0 0", fontSize: 14 }}>
         Already have an account?{" "}
-        <Link to={`/signin${siblingSearch}`} style={{ color: colors.green, fontWeight: 700, textDecoration: "none" }}>Log in</Link>
+        <Link to={`/signin${siblingSearch}`} style={{ color: colors.greenText, fontWeight: 700, textDecoration: "none" }}>Log in</Link>
       </p>
     </AuthEditorialShell>
   );

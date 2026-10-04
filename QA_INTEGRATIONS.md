@@ -1,6 +1,21 @@
 # HelloCircle — External integrations
 
-## Phase 11A update — 2026-10-03 (current)
+## Phase 12 update — 2026-10-03 (current)
+
+**Pre-consent third-party requests (privacy review — not a legal compliance claim):**
+
+| Domain | Resource | Why | Essential? | Before consent? | Phase 12 |
+|---|---|---|---|---|---|
+| fonts.googleapis.com / fonts.gstatic.com | Bricolage Grotesque + Hanken Grotesk | App typography | No (can be self-hosted) | **Yes**, every page | **Removed.** Self-hosted via `@fontsource-variable/*` 5.3.0 (OFL-1.1); 0 Google Fonts requests (verified, PART-13-FONTS) |
+| images.unsplash.com | 12 hot-linked photos (auth screens, Home hero, venue marketing, Header mega-menu, `placeholderImage.ts`) | Editorial imagery | No | **Yes**, on those pages | **Unchanged, documented.** Self-hosting needs each image's rights confirmed; not copied without that |
+| www.googletagmanager.com | GTM | Analytics | No | No (consent-gated; `VITE_GTM_CONTAINER_ID`) | Unchanged |
+| api.mapbox.com | Map tiles | Maps | Only on map views | Only when a map is shown | Unchanged |
+
+Remaining concern: Unsplash hot-links still disclose visitor IP and referrer to Unsplash before consent. Recommendation: serve product imagery from HelloCircle-controlled media (R2) once rights are confirmed. `client/public/design-system.html`, an internal static design reference, still links Google Fonts.
+
+**Stripe webhook policy:** signature verification is the default everywhere. Unsigned events are accepted only with `ALLOW_UNSIGNED_STRIPE_WEBHOOKS=true` in local development; never when `NODE_ENV=production` or `APP_ENV` is staging or production. A clear startup warning appears when the unsafe mode is on. Covered by `server/src/stripeWebhookPolicy.test.ts`.
+
+## Phase 11A update — 2026-10-03
 
 - **Stripe refunds (HC-QA-091, Policy A):** fixed. External full refunds reconcile without a second refund; partial refunds are refused safely. Verified with real TEST payments across all 5 models (`stripe-refund-external` batch).
 - **Stripe gate intermittency:** see HC-QA-095.

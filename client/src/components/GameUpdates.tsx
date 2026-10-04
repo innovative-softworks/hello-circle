@@ -63,7 +63,7 @@ export function GameUpdates({ game, isHost }: { game: Game; isHost: boolean }) {
           {updates.map((u) => (
             <div key={u.id} style={{ background: colors.orangeBg, borderRadius: 12, padding: "12px 14px" }}>
               <div style={{ fontSize: 12, fontWeight: 700, color: colors.orangeDark, marginBottom: 4 }}>{relativeTime(u.createdAt)}</div>
-              <div style={{ fontSize: 14, color: "#3B423C", lineHeight: 1.5 }}>{u.message}</div>
+              <div style={{ fontSize: 14, color: colors.textSoft, lineHeight: 1.5 }}>{u.message}</div>
             </div>
           ))}
         </div>

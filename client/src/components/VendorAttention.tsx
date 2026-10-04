@@ -102,7 +102,7 @@ export function VendorAttentionPanel({
     <Card>
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14 }}>
         <BellIcon size={16} style={{ color: colors.orangeDark }} />
-        <h4 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 16, margin: 0 }}>Needs your attention</h4>
+        <h3 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 16, margin: 0 }}>Needs your attention</h3>
       </div>
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         {items.map((item) => (

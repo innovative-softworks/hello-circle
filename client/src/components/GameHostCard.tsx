@@ -51,7 +51,7 @@ export function GameHostCard({ game }: { game: Game }) {
               )}
             </div>
           )}
-          {profile?.bio && <p style={{ margin: "8px 0 0", fontSize: 13.5, color: "#3B423C", lineHeight: 1.5 }}>{profile.bio}</p>}
+          {profile?.bio && <p style={{ margin: "8px 0 0", fontSize: 13.5, color: colors.textSoft, lineHeight: 1.5 }}>{profile.bio}</p>}
           {game.hostVerified && (
             <Link
               to={`/host/${game.hostResidentId}`}

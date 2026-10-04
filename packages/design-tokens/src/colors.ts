@@ -18,7 +18,7 @@ export const lightColors = {
   textSoft: "#3b423c",
   border: "#e7e4dc",
   borderStrong: "#d8d4cb",
-  inputBorder: "#d8d4cb",
+  inputBorder: "#8a857a",
   panel: "#f0eee8",
   footerBg: "#f6f4ef",
 
@@ -55,7 +55,7 @@ export const darkColors = {
   textSoft: "#c7cdc0",
   border: "#2b302d",
   borderStrong: "#3b423d",
-  inputBorder: "#3b423d",
+  inputBorder: "#6b736d",
   panel: "#1d2220",
   footerBg: "#1a1e1c",
 

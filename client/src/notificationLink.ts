@@ -25,6 +25,8 @@ const DETAIL_PATH_BY_LISTING_TYPE: Partial<Record<ResidentNotification["listingT
 };
 
 export function notificationHref(n: Pick<ResidentNotification, "kind" | "listingType" | "listingId" | "ref">): string | null {
+  // Phase 12 — a withdrawn invitation is informational only: no link.
+  if (n.kind === "invite_withdrawn") return null;
   if (n.kind === "booking" || n.kind === "registration" || n.kind === "program" || n.kind === "experience") {
     return `/bookings?ref=${n.ref}`;
   }

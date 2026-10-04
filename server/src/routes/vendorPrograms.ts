@@ -7,7 +7,8 @@ import { writeAudit } from "../audit.js";
 import { refundPaidOnce } from "../checkoutService.js";
 import { db } from "../db/index.js";
 import { orgFeatureFlags } from "../db/queries.js";
-import { notifyCancellation, notifyRefund } from "../notifications.js";
+import { notifyCancellation, notifyRefund, notifyResident } from "../notifications.js";
+import { irelandTodayIso } from "../irelandTime.js";
 import { inClause, ownsListing } from "./vendorHelpers.js";
 import { notifyCentreFollowers, notifyVendorFollowers } from "./follows.js";
 import { toProgramJson, type ProgramRow } from "./programs.js";
@@ -215,9 +216,39 @@ vendorProgramsRouter.delete("/programs/:programId/sessions/:sessionId", async (r
   const { owns, requiredRole } = await programOwnership(req.vendorIds!, req.params.programId);
   if (!owns) return res.status(403).json({ error: "Not your program" });
   if (!assertPlatformRole(req, res, requiredRole!)) return;
-  await db.prepare(`UPDATE program_sessions SET status = 'cancelled' WHERE id = ? AND program_id = ?`).run(req.params.sessionId, req.params.programId);
+  // Phase 12 (Part 11) — conditional transition: only the request that
+  // actually cancels the session notifies; a retry/repeat is a silent no-op.
+  const result = await db
+    .prepare(`UPDATE program_sessions SET status = 'cancelled' WHERE id = ? AND program_id = ? AND status != 'cancelled'`)
+    .run(req.params.sessionId, req.params.programId);
+  if (result.changes === 1) await notifySessionCancelled(req.params.programId, req.params.sessionId);
   res.json({ ok: true });
 });
+
+/** In-app notice to residents with a live (paid, not cancelled) enrolment in
+ * the programme, for an upcoming session only. Names the programme and the
+ * date; nothing about other participants. Guests without a resident account
+ * have no in-app inbox (email isn't part of this flow — out of scope). */
+async function notifySessionCancelled(programId: string, sessionId: string) {
+  const session = (await db
+    .prepare(`SELECT ps.date, ps.time, p.title FROM program_sessions ps JOIN programs p ON p.id = ps.program_id WHERE ps.id = ? AND ps.program_id = ?`)
+    .get(sessionId, programId)) as { date: string; time: string | null; title: string } | undefined;
+  if (!session || session.date < irelandTodayIso()) return;
+  const residents = (await db
+    .prepare(`SELECT DISTINCT resident_id as residentId FROM program_enrollments WHERE program_id = ? AND resident_id IS NOT NULL AND status != 'cancelled' AND payment_status = 'paid'`)
+    .all(programId)) as { residentId: string }[];
+  for (const r of residents) {
+    await notifyResident({
+      residentId: r.residentId,
+      kind: "program",
+      title: `Session cancelled: ${session.title}`,
+      body: `The ${session.title} session on ${session.date}${session.time ? ` at ${session.time}` : ""} has been cancelled. Your enrolment for the other sessions is unchanged.`,
+      listingType: "program",
+      listingId: programId,
+      ref: sessionId,
+    }).catch((e) => console.error("[notifications] programme session cancellation notify failed:", e));
+  }
+}
 
 vendorProgramsRouter.get("/programs/:id/enrollments", async (req, res) => {
   const { owns } = await programOwnership(req.vendorIds!, req.params.id);

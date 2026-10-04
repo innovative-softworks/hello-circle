@@ -269,7 +269,7 @@ export function BookingFlow() {
     return (
       <div style={{ animation: "fadeUp .3s ease backwards" }}>
         <section className="section-pad" style={{ maxWidth: 640, margin: "0 auto", padding: "56px 24px 80px", textAlign: "center" }}>
-          <div style={{ width: 74, height: 74, borderRadius: "50%", background: colors.greenBg, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 22px", fontSize: 34, color: colors.green }}>
+          <div style={{ width: 74, height: 74, borderRadius: "50%", background: colors.greenBg, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 22px", fontSize: 34, color: colors.greenText }}>
             <CheckIcon size={32} />
           </div>
           <PageTitle>Booking confirmed!</PageTitle>

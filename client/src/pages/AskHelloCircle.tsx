@@ -54,7 +54,7 @@ export function AskHelloCircle() {
     <div style={{ animation: "fadeUp .35s ease backwards" }}>
       <section className="section-pad" style={{ maxWidth: 720, margin: "0 auto", padding: "26px 24px 100px" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
-          <ChatIcon size={22} style={{ color: colors.green }} />
+          <ChatIcon size={22} style={{ color: colors.greenText }} />
           <PageTitle style={{ margin: 0 }}>Ask HelloCircle</PageTitle>
         </div>
         <p style={{ color: colors.mutedLight, fontSize: 15, margin: "0 0 24px" }}>

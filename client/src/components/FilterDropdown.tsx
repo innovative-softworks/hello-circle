@@ -46,7 +46,7 @@ export function FilterDropdown({
           gap: 6,
           border: `1.5px solid ${active ? accentColor : colors.borderStrong}`,
           background: active ? accentColor : "#fff",
-          color: active ? "#fff" : "#3B423C",
+          color: active ? "#fff" : colors.textSoft,
           borderRadius: 20,
           padding: "8px 14px",
           fontSize: 14,
@@ -97,7 +97,7 @@ export function DropdownOption({ label, active, onClick }: { label: ReactNode; a
         padding: "8px 10px",
         fontSize: 14,
         fontWeight: active ? 700 : 500,
-        color: active ? colors.greenText : "#3B423C",
+        color: active ? colors.greenText : colors.textSoft,
         cursor: "pointer",
       }}
     >
@@ -110,7 +110,7 @@ export function DropdownOption({ label, active, onClick }: { label: ReactNode; a
  * amenities/accessibility — every checked box must match, AND not OR). */
 export function DropdownCheckbox({ label, checked, onChange }: { label: ReactNode; checked: boolean; onChange: () => void }) {
   return (
-    <label style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 10px", fontSize: 13.5, color: "#3B423C", cursor: "pointer", borderRadius: 8 }}>
+    <label style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 10px", fontSize: 13.5, color: colors.textSoft, cursor: "pointer", borderRadius: 8 }}>
       <input type="checkbox" checked={checked} onChange={onChange} />
       {label}
     </label>

@@ -1,3 +1,4 @@
+import { VENUE_PAGES_PUBLIC } from "../venueLaunch";
 import { BallIcon, BuildingIcon, CalendarIcon, ChatIcon, CheckIcon, EyeIcon, LightbulbIcon } from "./icons";
 import { OpportunitiesCard } from "./OpportunitiesCard";
 import { VendorChatsCard } from "./HostChatButton";
@@ -28,12 +29,12 @@ function TipsPanel() {
           <div style={{ width: 34, height: 34, borderRadius: radius.control, background: "#FFF3D6", color: "#9A6B00", display: "flex", alignItems: "center", justifyContent: "center", flex: "none" }}>
             <LightbulbIcon size={17} />
           </div>
-          <h4 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 16, margin: 0 }}>Tips to get more bookings</h4>
+          <h3 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 16, margin: 0 }}>Tips to get more bookings</h3>
         </div>
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
           {TIPS.map((t) => (
             <div key={t.title} style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
-              <div style={{ width: 20, height: 20, borderRadius: "50%", background: colors.greenBg, color: colors.green, display: "flex", alignItems: "center", justifyContent: "center", flex: "none", marginTop: 1 }}>
+              <div style={{ width: 20, height: 20, borderRadius: "50%", background: colors.greenBg, color: colors.greenText, display: "flex", alignItems: "center", justifyContent: "center", flex: "none", marginTop: 1 }}>
                 <CheckIcon size={12} />
               </div>
               <div>
@@ -98,7 +99,7 @@ export function VendorOverviewTab({
           <VendorNextUpHero item={nextItem} onManage={() => onNavigateTab(manageTargetFor(nextItem))} />
           {restItems.length > 0 && (
             <div>
-              <h4 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 15, margin: "0 0 10px" }}>Coming up</h4>
+              <h3 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 15, margin: "0 0 10px" }}>Coming up</h3>
               <VendorUpcomingList items={restItems.slice(0, 8)} onManage={(item) => onNavigateTab(manageTargetFor(item))} />
             </div>
           )}
@@ -126,8 +127,8 @@ export function VendorOverviewTab({
           <KpiHero icon={<CalendarIcon size={19} />} value={stats.totalBookings} label="Total bookings" sublabel="All time" sublabelColor={colors.mutedLight} />
         }
       >
-        <StatTile icon={<BuildingIcon size={19} />} value={stats.centresLive} label="Community centres" sublabel="Live listings" sublabelColor={colors.greenText} />
-        <StatTile icon={<BallIcon size={19} />} value={stats.clubsLive} label="Sports clubs" sublabel="Live listings" sublabelColor={colors.orangeDark} />
+        <StatTile icon={<BuildingIcon size={19} />} value={stats.centresLive} label="Community centres" sublabel={VENUE_PAGES_PUBLIC ? "Live listings" : "Approved · not public yet"} sublabelColor={colors.greenText} />
+        <StatTile icon={<BallIcon size={19} />} value={stats.clubsLive} label="Sports clubs" sublabel={VENUE_PAGES_PUBLIC ? "Live listings" : "Approved · not public yet"} sublabelColor={colors.orangeDark} />
         <StatTile icon={<EyeIcon size={19} />} value={stats.totalViews} label="Total views" sublabel="All time" sublabelColor={colors.mutedLight} />
         <StatTile icon={<ChatIcon size={19} />} value={unreadCount} label="Unread messages" sublabel="From users" sublabelColor={colors.mutedLight} />
       </KpiStrip>

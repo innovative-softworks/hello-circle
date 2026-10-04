@@ -1,3 +1,4 @@
+import { usePageTitle } from "../pageTitle";
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { enrollInProgram, fetchProgram, fetchProgramBrowse, quoteProgram, type PriceQuote } from "../api";
@@ -80,6 +81,7 @@ export function ProgramDetail() {
   const navigate = useNavigate();
   const { resident } = useGuest();
   const [program, setProgram] = useState<Program | null>(null);
+  usePageTitle(program?.title);
   const [loading, setLoading] = useState(true);
   const [similar, setSimilar] = useState<ProgramSummary[]>([]);
   const [form, setForm] = useState({ participantName: "", participantDob: "", email: resident?.email ?? "", phone: "" });

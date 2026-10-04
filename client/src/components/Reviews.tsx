@@ -114,7 +114,7 @@ export function Reviews({ listingType, listingId, accent, onReviewPosted }: Prop
                 <span style={{ color: colors.faint, fontSize: 12, whiteSpace: "nowrap" }}>{timeAgo(r.createdAt)}</span>
               </div>
               <StarDisplay rating={r.rating} />
-              {r.comment && <p style={{ fontSize: 14, color: "#3B423C", margin: "6px 0 0", lineHeight: 1.5 }}>{r.comment}</p>}
+              {r.comment && <p style={{ fontSize: 14, color: colors.textSoft, margin: "6px 0 0", lineHeight: 1.5 }}>{r.comment}</p>}
               {r.vendorReply && (
                 <div style={{ marginTop: 10, background: colors.bg, borderRadius: 10, padding: "10px 12px" }}>
                   <div style={{ fontSize: 11, fontWeight: 700, color: colors.mutedLight, marginBottom: 3 }}>
@@ -126,7 +126,7 @@ export function Reviews({ listingType, listingId, accent, onReviewPosted }: Prop
                           ? "RESPONSE FROM THE CLUB"
                           : "RESPONSE FROM THE ORGANISER"}
                   </div>
-                  <div style={{ fontSize: 13.5, color: "#3B423C" }}>{r.vendorReply}</div>
+                  <div style={{ fontSize: 13.5, color: colors.textSoft }}>{r.vendorReply}</div>
                 </div>
               )}
               <div style={{ marginTop: 8, textAlign: "right" }}>

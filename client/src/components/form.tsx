@@ -378,9 +378,9 @@ export function SettingsSection({
     <div style={{ borderTop: `1px solid ${colors.border}`, padding: "18px 0" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 16 }}>
         <div style={{ minWidth: 0, flex: 1 }}>
-          <h4 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 13, letterSpacing: ".04em", textTransform: "uppercase", color: colors.muted, margin: "0 0 8px" }}>
+          <h2 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 13, letterSpacing: ".04em", textTransform: "uppercase", color: colors.muted, margin: "0 0 8px" }}>
             {title}
-          </h4>
+          </h2>
           {!open && <div style={{ fontSize: 14, color: colors.text, lineHeight: 1.5 }}>{summary}</div>}
         </div>
         <button

@@ -49,7 +49,7 @@ export function WhyRecommended({ reasons, label: serverLabel }: { reasons: reado
         <ul id={listId} style={{ listStyle: "none", margin: "6px 0 0", padding: 0, display: "flex", flexDirection: "column", gap: 3 }}>
           {reasons.map((r) => (
             <li key={r} style={{ display: "flex", alignItems: "flex-start", gap: 5, fontSize: 12, color: colors.muted, lineHeight: 1.35 }}>
-              <CheckIcon size={12} style={{ color: colors.green, flexShrink: 0, marginTop: 1 }} />
+              <CheckIcon size={12} style={{ color: colors.greenText, flexShrink: 0, marginTop: 1 }} />
               {r}
             </li>
           ))}

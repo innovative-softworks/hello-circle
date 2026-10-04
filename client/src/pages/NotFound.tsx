@@ -1,3 +1,4 @@
+import { usePageTitle } from "../pageTitle";
 import { useNavigate } from "react-router-dom";
 import { Button } from "../components/ui";
 import { SearchIcon } from "../components/icons";
@@ -8,6 +9,7 @@ import { colors, fonts } from "../theme";
 // a mistyped URL bounced the visitor home with no explanation. This gives
 // a real not-found state with recovery actions instead of a dead end.
 export function NotFound() {
+  usePageTitle("Page not found");
   const navigate = useNavigate();
 
   return (

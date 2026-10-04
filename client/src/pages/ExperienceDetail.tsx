@@ -1,3 +1,4 @@
+import { usePageTitle } from "../pageTitle";
 import { useEffect, useMemo, useState } from "react";
 import { OfficialCircleLink } from "../components/OfficialCircleLink";
 import { ParticipationBlock } from "../components/ParticipationBlock";
@@ -134,6 +135,7 @@ export function ExperienceDetail() {
   const location = useLocation();
   const { resident } = useGuest();
   const [experience, setExperience] = useState<Experience | null>(null);
+  usePageTitle(experience?.title);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
   const [similar, setSimilar] = useState<Experience[]>([]);

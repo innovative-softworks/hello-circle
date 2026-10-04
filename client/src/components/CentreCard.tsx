@@ -43,7 +43,7 @@ export function CentreCard({ centre }: { centre: Centre }) {
             padding: "4px 9px",
             fontSize: 12,
             fontWeight: 700,
-            color: colors.green,
+            color: colors.greenText,
             transition: "background-color .2s ease, color .2s ease",
           }}
         >

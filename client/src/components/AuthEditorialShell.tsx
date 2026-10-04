@@ -83,9 +83,10 @@ export function AuthEditorialShell({
               background: "linear-gradient(180deg, rgba(6,8,6,0) 0px, rgba(6,8,6,.82) 90px, rgba(6,8,6,.82) 100%)",
             }}
           >
-            <h2 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(22px,2.2vw,28px)", lineHeight: 1.15, letterSpacing: "-.01em", color: "#fff", margin: 0 }}>
+            {/* HC-QA-083 — decorative marketing caption over the photo, not part of the page outline. */}
+            <p style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(22px,2.2vw,28px)", lineHeight: 1.15, letterSpacing: "-.01em", color: "#fff", margin: 0 }}>
               {caption.heading}
-            </h2>
+            </p>
             {caption.avatarCaption && avatarSeeds.length > 0 && (
               <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 18 }}>
                 <div style={{ display: "flex" }}>

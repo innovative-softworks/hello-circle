@@ -143,6 +143,12 @@ export function PasswordField({
   );
 }
 
+// Phase 12 (Part 12) — Sign in with Apple has no OAuth integration yet, so
+// no Apple control is shown anywhere (login, signup, vendor signup). The
+// button and its handler stay in place for when the integration exists:
+// flip this only together with a real provider implementation.
+export const APPLE_SIGN_IN_ENABLED = false;
+
 export function OAuthDivider({
   onGoogle,
   googleBusy,
@@ -179,14 +185,14 @@ export function OAuthDivider({
         >
           <GoogleIcon size={16} /> {googleBusy ? "Signing in…" : googleLabel}
         </button>
-        <button
+        {APPLE_SIGN_IN_ENABLED && <button
           type="button"
           className="auth-plain-btn"
           onClick={onApple}
           style={{ flex: 1, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8, padding: "10px 12px", border: `1px solid ${colors.inputBorder}`, borderRadius: 11, background: colors.surface, fontSize: 13.5, fontWeight: 700, color: colors.text, cursor: "pointer" }}
         >
           <AppleIcon size={16} /> Apple
-        </button>
+        </button>}
       </div>
     </div>
   );
@@ -526,7 +532,7 @@ export function EmailLinkForm({ returnTo }: { returnTo?: string } = {}) {
           We've sent a secure sign-in link to <strong>{email.trim()}</strong>. Open it to continue to HelloCircle.
         </p>
         <div style={{ display: "flex", flexDirection: "column", gap: 8, alignItems: "flex-start" }}>
-          <button type="button" className="auth-plain-btn" onClick={submit} disabled={busy} style={{ background: "none", border: "none", padding: 0, fontSize: 13, fontWeight: 700, color: colors.green, cursor: "pointer" }}>
+          <button type="button" className="auth-plain-btn" onClick={submit} disabled={busy} style={{ background: "none", border: "none", padding: 0, fontSize: 13, fontWeight: 700, color: colors.greenText, cursor: "pointer" }}>
             {busy ? "Sending…" : "Resend email"}
           </button>
           <button type="button" className="auth-plain-btn" onClick={() => setSent(false)} style={{ background: "none", border: "none", padding: 0, fontSize: 13, fontWeight: 700, color: colors.mutedLight, cursor: "pointer" }}>

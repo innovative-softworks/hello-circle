@@ -64,7 +64,7 @@ export function CircleOrganiserCard({ circle }: { circle: Circle }) {
             )}
           </div>
         )}
-        {profile?.bio && <p style={{ margin: "0 0 14px", fontSize: 14.5, color: "#3B423C", lineHeight: 1.6, maxWidth: 480 }}>{profile.bio}</p>}
+        {profile?.bio && <p style={{ margin: "0 0 14px", fontSize: 14.5, color: colors.textSoft, lineHeight: 1.6, maxWidth: 480 }}>{profile.bio}</p>}
         {circle.hostVerified && (
           <Link
             to={`/host/${circle.createdByResidentId}`}

@@ -70,7 +70,7 @@ export function SaveButton({ saved, onToggle, position = "top" }: { saved: boole
         alignItems: "center",
         justifyContent: "center",
         cursor: "pointer",
-        color: saved ? colors.orange : "#8A928B",
+        color: saved ? colors.orange : colors.faint,
         transition: "transform .15s ease",
       }}
     >

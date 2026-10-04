@@ -49,7 +49,7 @@ import type {
   WaitlistPosition,
 } from "../types";
 import { getClientId } from "../clientId";
-import { downloadIcs, downloadJson, request } from "./core";
+import { downloadIcs, downloadJson, queryString, request, requestPage, type Page } from "./core";
 import { authorizeAndFinalize } from "./media";
 
 // Resident/guest-facing account features — magic-link session, identity,
@@ -227,6 +227,12 @@ export function exportMyData(): Promise<void> {
 
 export function fetchResidentNotifications(): Promise<ResidentNotification[]> {
   return request(`/residents/me/notifications`);
+}
+
+/** HC-QA-073 — paginated notifications (newest first) + the true unread total. */
+export async function fetchResidentNotificationsPage(cursor?: string | null, limit?: number): Promise<Page<ResidentNotification> & { unread: number }> {
+  const page = await requestPage<ResidentNotification>(`/residents/me/notifications${queryString({ cursor, limit })}`);
+  return { ...page, unread: Number(page.headers.get("X-Unread-Count") ?? page.items.filter((n) => !n.read).length) };
 }
 
 export function markResidentNotificationRead(id: number): Promise<{ ok: boolean }> {
@@ -415,6 +421,17 @@ export function leaveClubWaitlist(clubId: string): Promise<{ ok: boolean }> {
 
 export function fetchGames(county?: string): Promise<Game[]> {
   return request(`/games${county ? `?county=${encodeURIComponent(county)}` : ""}`);
+}
+
+/** HC-QA-073 — server-side filters for the paginated activity list. */
+export interface GameListFilters {
+  q?: string; county?: string; category?: string; dateFrom?: string; dateTo?: string;
+  timeFrom?: string; weekend?: boolean; priceMin?: number; priceMax?: number; skill?: string; limit?: number;
+}
+
+export function fetchGamesPage(filters: GameListFilters = {}, cursor?: string | null): Promise<Page<Game>> {
+  const { weekend, ...rest } = filters;
+  return requestPage<Game>(`/games${queryString({ ...rest, weekend: weekend ? 1 : undefined, cursor })}`);
 }
 
 export function fetchGame(id: string): Promise<Game> {
@@ -666,6 +683,11 @@ export function fetchNextSteps(kind: NextStepsKind, ref: string): Promise<GameNe
 
 export function fetchCircles(county?: string): Promise<Circle[]> {
   return request(`/circles${county ? `?county=${encodeURIComponent(county)}` : ""}`);
+}
+
+/** HC-QA-073 — paginated Circles list with server-side q / county / activity. */
+export function fetchCirclesPage(filters: { q?: string; county?: string; activity?: string; limit?: number } = {}, cursor?: string | null): Promise<Page<Circle>> {
+  return requestPage<Circle>(`/circles${queryString({ ...filters, cursor })}`);
 }
 
 export function fetchCircle(id: string): Promise<Circle> {

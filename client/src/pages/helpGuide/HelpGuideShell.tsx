@@ -38,7 +38,7 @@ export function HelpGuideShell({
         </button>
 
         <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: ".09em", textTransform: "uppercase", color: colors.mutedLight, marginBottom: 10 }}>
-          <span style={{ color: colors.orange }}>/</span> {eyebrow}
+          <span style={{ color: colors.orangeDark }}>/</span> {eyebrow}
         </div>
         <h1 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(28px, 5vw, 40px)", margin: "0 0 12px", letterSpacing: "-.02em" }}>
           {title}

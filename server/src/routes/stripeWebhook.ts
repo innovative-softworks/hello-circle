@@ -12,6 +12,7 @@ import { endPendingHold, gameSeatSql, holdIsLive, occupiesCapacitySql } from "..
 import { writeAudit } from "../audit.js";
 import { bookingEndHour, hoursOverlap } from "../util.js";
 import { CLIENT_URL, STRIPE_WEBHOOK_SECRET, stripe } from "../stripe.js";
+import { unsignedStripeWebhooksAllowed } from "../stripeWebhookPolicy.js";
 import type Stripe from "stripe";
 
 interface BookingForNotify {
@@ -433,15 +434,16 @@ export async function stripeWebhookHandler(req: Request, res: Response) {
       console.error("[stripe] webhook signature verification failed:", e instanceof Error ? e.message : e);
       return res.status(400).send("Invalid signature");
     }
-  } else if (process.env.NODE_ENV === "production") {
+  } else if (!unsignedStripeWebhooksAllowed()) {
     // Without signature verification, anyone who finds this URL could POST a
     // forged checkout.session.completed and get a booking marked paid for
-    // free — never accept unverified events once real money is on the line.
-    console.error("[stripe] STRIPE_WEBHOOK_SECRET is not set — refusing to process unverified webhook in production");
+    // free. Fail-safe default (Phase 12): refused unless explicitly opted in
+    // for local development (never production/staging).
+    console.error("[stripe] webhook refused: STRIPE_WEBHOOK_SECRET is not set and unsigned events are not allowed");
     return res.status(503).send("Webhook not configured");
   } else {
-    // No webhook secret configured — accept unverified for local/dev testing only.
-    console.warn("[stripe] STRIPE_WEBHOOK_SECRET not set — accepting webhook without signature verification (dev only, do not run this way in production)");
+    // Explicit local-development opt-in (ALLOW_UNSIGNED_STRIPE_WEBHOOKS=true).
+    console.warn("[stripe] accepting UNSIGNED webhook (ALLOW_UNSIGNED_STRIPE_WEBHOOKS=true, local development only)");
     event = JSON.parse(req.body.toString("utf8"));
   }
 

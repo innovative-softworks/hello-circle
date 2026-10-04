@@ -61,7 +61,7 @@ export function ForgotPassword() {
           <AuthEditorialHeader
             eyebrow="Reset password"
             accent="orange"
-            headline={<>Forgotten something?<br /><span style={{ color: colors.orange }}>Let's get you back in.</span></>}
+            headline={<>Forgotten something?<br /><span style={{ color: colors.orangeDark }}>Let's get you back in.</span></>}
             subtitle="Enter the email on your vendor or admin account."
           />
           <form onSubmit={(e: FormEvent) => { e.preventDefault(); submit(); }}>

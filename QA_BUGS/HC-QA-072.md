@@ -1,6 +1,6 @@
 # HC-QA-072 — Dark-mode text contrast failures and theme-bypassing hard-coded colors
 
-Severity: P2. Category: ACCESSIBILITY. Status: OPEN — not fixed (Phase 10 findings inventory only).
+Severity: P2. Category: ACCESSIBILITY. Status: FIXED LOCALLY — NOT DEPLOYED (Phase 12, 2026-10-03). Originally recorded in Phase 10.
 Found in Phase 10 (complete product quality QA, 2026-10-02/03). Environment: Isolated local exploration stack (throwaway tmpfs MySQL :13307, local Mailpit SMTP sink, backend :4411 with outbound blocked except DB/SMTP, Vite :4478), Chromium (Playwright 1.63, headless) unless stated. Regression gates ran separately against the guarded QA environment.
 
 - **Screen:** Dark theme across app; restricted Circle page; footer; vendor signup tiles
@@ -16,3 +16,18 @@ Found in Phase 10 (complete product quality QA, 2026-10-02/03). Environment: Iso
 - **Evidence:** contrast.py output; screenshots dark-390-circles_78d9…png; pages/CircleDetail.tsx:568; components/Footer.tsx:71.
 - **Root cause (if known):** Dark tokens reuse light brand colors for text; inline literals.
 - **Regression status:** New in Phase 10. No existing gate covers it; HC-QA-001..051 gates re-ran green (see QA_REPORT.md). Screenshot/script evidence was kept in the session scratchpad (not committed; no credentials).
+
+## Phase 12 remediation
+
+- **Fix (tokens first, no blanket brightening):**
+
+| Change | Before | After |
+|---|---|---|
+| Green text (26 usages) → existing `greenText` token | dark 3.35 | dark 9.99, light 7.35 |
+| Orange text (14 usages) → `orangeDark` | dark 3.44–3.80, light 4.49 | dark 8.04, light 5.60 |
+| New `dangerSolid` for filled danger buttons | white on `#e37272` 3.04 | white on `#b3261e` 6.54 |
+| 24 hard-coded `#3B423C` / `#8A928B` → `textSoft` / `faint` | restricted Circle description 1.72 in dark, footer tagline 2.91 | follow the theme |
+| Wordmark in dark theme → `BrandLogo` picks `Logo-dark.svg` | 1.11 | 14.9 |
+
+  Brand colours as backgrounds are unchanged.
+- **Regression:** `product-a11y-e.spec.ts` checks the `greenText`, `orangeDark`, `textSoft`, `faint`, `mutedLight` and `danger` tokens against the background, white on `dangerSolid`, and the themed logo. It fails before and passes after.

@@ -1,3 +1,4 @@
+import { venuePagesPublic, isVenuePath } from "./venueLaunch.js";
 import { db } from "./db/index.js";
 import { irelandTodayIso } from "./irelandTime.js";
 import { getShareData } from "./routes/sharing.js";
@@ -186,7 +187,13 @@ const STATIC_DISCOVERY_PAGES: Record<string, { title: string; description: strin
 export function resolveStaticDiscoveryOgMeta(pathName: string): OgMeta | null {
   const page = STATIC_DISCOVERY_PAGES[pathName];
   if (!page) return null;
-  return { title: page.title, description: page.description, url: `${CLIENT_URL}${pathName}`, robots: "index, follow" };
+  // HC-QA-060 — gated venue pages are never indexable.
+  return { title: page.title, description: page.description, url: `${CLIENT_URL}${pathName}`, robots: venueGatedRobots(pathName) ?? "index, follow" };
+}
+
+/** HC-QA-060 — "noindex" for venue pages while they're behind the launch gate. */
+function venueGatedRobots(pathName: string): "noindex, nofollow" | null {
+  return !venuePagesPublic() && isVenuePath(pathName) ? "noindex, nofollow" : null;
 }
 
 // Plural ogMeta route kind -> singular getShareData/ShareEntityType kind —
@@ -228,6 +235,12 @@ export function isEntityDetailRoute(pathName: string): boolean {
 }
 
 export async function resolveOgMeta(pathName: string, viewerResidentId: string | null = null): Promise<OgMeta | null> {
+  const meta = await resolveOgMetaInner(pathName, viewerResidentId);
+  const gated = venueGatedRobots(pathName);
+  return meta && gated ? { ...meta, robots: gated } : meta;
+}
+
+async function resolveOgMetaInner(pathName: string, viewerResidentId: string | null): Promise<OgMeta | null> {
   const match = pathName.match(ROUTE_PATTERN);
   if (!match) return resolveLocalLandingOgMeta(pathName);
   const [, kind, idOrSlug] = match;
@@ -562,7 +575,8 @@ function slugifyActivity(label: string): string {
 }
 
 export async function generateSitemapUrls(): Promise<string[]> {
-  const urls = STATIC_SITEMAP_PATHS.map((p) => `${CLIENT_URL}${p}`);
+  // HC-QA-060 — only publicly reachable pages: venue pages are left out while gated.
+  const urls = STATIC_SITEMAP_PATHS.filter((p) => venuePagesPublic() || !isVenuePath(p)).map((p) => `${CLIENT_URL}${p}`);
 
   const todayIso = irelandTodayIso();
   const [centres, clubs, circles, experiences, programs, hosts, providers, games, localPages] = await Promise.all([
@@ -593,8 +607,10 @@ export async function generateSitemapUrls(): Promise<string[]> {
       .all(todayIso) as Promise<{ county: string; activityLabel: string }[]>,
   ]);
 
-  for (const c of centres) urls.push(`${CLIENT_URL}/centres/${c.slug}`);
-  for (const c of clubs) urls.push(`${CLIENT_URL}/clubs/${c.slug}`);
+  if (venuePagesPublic()) {
+    for (const c of centres) urls.push(`${CLIENT_URL}/centres/${c.slug}`);
+    for (const c of clubs) urls.push(`${CLIENT_URL}/clubs/${c.slug}`);
+  }
   for (const c of circles) urls.push(`${CLIENT_URL}/circles/${c.slug}`);
   for (const e of experiences) urls.push(`${CLIENT_URL}/experiences/${e.slug}`);
   for (const p of programs) urls.push(`${CLIENT_URL}/programs/${p.id}`);

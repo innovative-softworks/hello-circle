@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react"
 import { useToast } from "../components/Toast";
 import { createPortal } from "react-dom";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { fetchGames, fetchMyGames, joinGame, joinGameWaitlist, subscribeGameNotifyMe } from "../api";
+import { fetchGamesPage, fetchMyGames, joinGame, joinGameWaitlist, subscribeGameNotifyMe } from "../api";
 import { openCheckout } from "../native";
 import { signInHref } from "../authRedirect";
 import { ArrowRightIcon, AwardIcon, BallIcon, CalendarIcon, ClockIcon, CloseIcon, LightbulbIcon, PinIcon, PlusIcon, SearchIcon, UsersIcon } from "../components/icons";
@@ -10,7 +10,8 @@ import { Chip } from "../components/Chip";
 import { DropdownCheckbox, DropdownOption, FilterDropdown } from "../components/FilterDropdown";
 import { IntentCaptureForm } from "../components/IntentCaptureForm";
 import { Photo } from "../components/Photo";
-import { Button, Card, CardLink, CardSkeleton, ConfirmDialog, Drawer, EmptyState, LoadErrorState, inputStyle, useDialogFocus } from "../components/ui";
+import { Button, Card, CardLink, CardSkeleton, ConfirmDialog, Drawer, EmptyState, LoadErrorState, LoadMoreControl, inputStyle, useDialogFocus } from "../components/ui";
+import type { GameListFilters } from "../api/resident";
 import { PageTitle } from "../components/PageTitle";
 import { AuthContextCard } from "../components/AuthShell";
 import { SignInPanel } from "../components/SignInPanel";
@@ -588,16 +589,13 @@ export function Games() {
 
   // HC-QA-063 — a failed load is an error state, never "0 games".
   const [loadFailed, setLoadFailed] = useState(false);
-  const load = () => {
-    setLoading(true);
-    setLoadFailed(false);
-    fetchGames()
-      .then(setGames)
-      .catch(() => setLoadFailed(true))
-      .finally(() => setLoading(false));
-  };
-
-  useEffect(load, []);
+  // HC-QA-073 — server-paginated (cursor) list; filters that map to SQL are
+  // sent to the server so a page never hides matches. See loadFirstPage below.
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [loadMoreFailed, setLoadMoreFailed] = useState(false);
+  const [seenGames, setSeenGames] = useState<Map<string, Game>>(new Map());
+  const requestSeq = useRef(0);
 
   const loadMyGames = () => {
     if (!resident) {
@@ -661,14 +659,15 @@ export function Games() {
     setQuery("");
   };
 
-  const countyOptions = useMemo(() => uniqueSorted(games.map((g) => g.county)), [games]);
+  const optionGames = useMemo(() => Array.from(seenGames.values()), [seenGames]);
+  const countyOptions = useMemo(() => uniqueSorted(optionGames.map((g) => g.county)), [optionGames]);
   const topCategories = useMemo(() => {
     const counts = new Map<string, number>();
-    games.forEach((g) => counts.set(g.activityLabel, (counts.get(g.activityLabel) ?? 0) + 1));
+    optionGames.forEach((g) => counts.set(g.activityLabel, (counts.get(g.activityLabel) ?? 0) + 1));
     return Array.from(counts.entries())
       .sort((a, b) => b[1] - a[1])
       .map(([label]) => label);
-  }, [games]);
+  }, [optionGames]);
   const chipCategories = useMemo(() => {
     const base = category !== "All" && !topCategories.slice(0, CATEGORY_CHIP_LIMIT).includes(category)
       ? [category, ...topCategories]
@@ -682,6 +681,67 @@ export function Games() {
 
   const parsedQuery = useMemo(() => parseQuery(query), [query]);
   const effectiveWhen: WhenFilter = when !== "any" ? when : parsedQuery.when ?? "any";
+
+  // HC-QA-073 — the same filters, expressed for the server query.
+  const [debouncedText, setDebouncedText] = useState(parsedQuery.text);
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedText(parsedQuery.text), 250);
+    return () => clearTimeout(t);
+  }, [parsedQuery.text]);
+  const serverFilters = useMemo<GameListFilters>(() => {
+    const f: GameListFilters = { q: debouncedText || undefined, county: county !== "All" ? county : undefined, category: category !== "All" ? category : undefined, skill: skill !== "any" ? skill : undefined };
+    const day = (offset: number) => { const d = new Date(); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() + offset); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
+    if (effectiveWhen === "today") { f.dateFrom = day(0); f.dateTo = day(0); }
+    if (effectiveWhen === "tonight") { f.dateFrom = day(0); f.dateTo = day(0); f.timeFrom = "17:00"; }
+    if (effectiveWhen === "tomorrow") { f.dateFrom = day(1); f.dateTo = day(1); }
+    if (effectiveWhen === "weekend") { f.dateFrom = day(0); f.dateTo = day(7); f.weekend = true; }
+    if (effectiveWhen === "next7") { f.dateFrom = day(0); f.dateTo = day(7); }
+    if (effectiveWhen === "date" && whenDate) { f.dateFrom = whenDate; f.dateTo = whenDate; }
+    if (price === "free") f.priceMax = 0;
+    if (price === "under10") { f.priceMin = 1; f.priceMax = 999; }
+    if (price === "10to20") { f.priceMin = 1000; f.priceMax = 2000; }
+    if (price === "over20") f.priceMin = 2001;
+    return f;
+  }, [debouncedText, county, category, skill, effectiveWhen, whenDate, price]);
+  const filterKey = JSON.stringify(serverFilters);
+
+  const remember = (rows: Game[]) => setSeenGames((m) => { const n = new Map(m); rows.forEach((g) => n.set(g.id, g)); return n; });
+  const load = () => {
+    const seq = ++requestSeq.current;
+    setLoading(true);
+    setLoadFailed(false);
+    setLoadMoreFailed(false);
+    fetchGamesPage(serverFilters)
+      .then((page) => {
+        if (seq !== requestSeq.current) return;
+        setGames(page.items);
+        setNextCursor(page.nextCursor);
+        remember(page.items);
+      })
+      .catch(() => { if (seq === requestSeq.current) setLoadFailed(true); })
+      .finally(() => { if (seq === requestSeq.current) setLoading(false); });
+  };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(load, [filterKey]);
+
+  const loadMore = () => {
+    if (!nextCursor || loadingMore) return;
+    const seq = requestSeq.current;
+    setLoadingMore(true);
+    setLoadMoreFailed(false);
+    fetchGamesPage(serverFilters, nextCursor)
+      .then((page) => {
+        if (seq !== requestSeq.current) return;
+        // Keyset pages can't overlap, but de-duplicate defensively by id.
+        setGames((prev) => { const ids = new Set(prev.map((g) => g.id)); return [...prev, ...page.items.filter((g) => !ids.has(g.id))]; });
+        setNextCursor(page.nextCursor);
+        remember(page.items);
+        setVisibleCount((v) => v + PAGE_SIZE);
+      })
+      // Page 1 (and every loaded page) stays visible; only "load more" shows an error.
+      .catch(() => { if (seq === requestSeq.current) setLoadMoreFailed(true); })
+      .finally(() => setLoadingMore(false));
+  };
 
   const filtered = useMemo(() => {
     return games.filter((g) => {
@@ -950,11 +1010,11 @@ export function Games() {
                   <>
                     {sorted.length > 0 && (
                       <div style={{ fontSize: 12, color: colors.faint, marginBottom: 2 }}>
-                        Showing 1-{Math.min(visibleCount, sorted.length)} of {sorted.length}
+                        Showing 1-{Math.min(visibleCount, sorted.length)} of {sorted.length}{nextCursor ? "+" : ""}
                       </div>
                     )}
                     <div style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 20, letterSpacing: "-.01em" }}>
-                      {sorted.length}{" "}
+                      {sorted.length}{nextCursor ? "+" : ""}{" "}
                       <span style={{ fontFamily: fonts.body, fontWeight: 600, fontSize: 15, color: colors.mutedLight }}>
                         game{sorted.length === 1 ? "" : "s"} & sessions nearby
                       </span>
@@ -970,7 +1030,7 @@ export function Games() {
                 <button
                   className="games-filter-trigger"
                   onClick={() => setFiltersOpen(true)}
-                  style={{ display: "inline-flex", alignItems: "center", gap: 6, border: `1.5px solid ${colors.borderStrong}`, background: "#fff", color: "#3B423C", borderRadius: 20, padding: "8px 14px", fontSize: 14, fontWeight: 600 }}
+                  style={{ display: "inline-flex", alignItems: "center", gap: 6, border: `1.5px solid ${colors.borderStrong}`, background: colors.surface, color: colors.textSoft, borderRadius: 20, padding: "8px 14px", fontSize: 14, fontWeight: 600 }}
                 >
                   Filters{activeCount > 0 ? ` (${activeCount})` : ""}
                 </button>
@@ -1018,6 +1078,11 @@ export function Games() {
               </div>
             ) : loadFailed ? (
               <LoadErrorState title="We couldn't load sessions right now." onRetry={load} />
+            ) : sorted.length === 0 && nextCursor ? (
+              <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 12, padding: "28px 0" }}>
+                <p style={{ margin: 0, color: colors.mutedLight, fontSize: 14 }}>No matches in the sessions loaded so far — there are more to check.</p>
+                <LoadMoreControl loadingMore={loadingMore} failed={loadMoreFailed} onLoadMore={loadMore} />
+              </div>
             ) : sorted.length === 0 ? (
               <EmptyState
                 icon={<UsersIcon size={22} />}
@@ -1058,12 +1123,18 @@ export function Games() {
                     />
                   ))}
                 </div>
-                {visibleCount < sorted.length && (
+                {visibleCount < sorted.length ? (
                   <div style={{ display: "flex", justifyContent: "center", marginTop: 28 }}>
                     <Button variant="ghost" onClick={() => setVisibleCount((v) => v + PAGE_SIZE)}>
                       Show more ({sorted.length - visibleCount} more)
                     </Button>
                   </div>
+                ) : nextCursor ? (
+                  <div style={{ display: "flex", justifyContent: "center", marginTop: 28 }}>
+                    <LoadMoreControl loadingMore={loadingMore} failed={loadMoreFailed} onLoadMore={loadMore} />
+                  </div>
+                ) : (
+                  sorted.length > PAGE_SIZE && <p role="status" style={{ textAlign: "center", color: colors.faint, fontSize: 13, marginTop: 24 }}>You've reached the end of the list.</p>
                 )}
               </>
             )}

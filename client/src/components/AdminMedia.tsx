@@ -97,7 +97,7 @@ export function AdminMediaTab() {
       </p>
 
       <Card>
-        <h4 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 16, margin: "0 0 4px" }}>Uploads</h4>
+        <h3 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 16, margin: "0 0 4px" }}>Uploads</h3>
         {uploadsEnabled === null || !cloudinaryState ? (
           <span style={{ fontSize: 12, color: colors.faint }}>Loading…</span>
         ) : (
@@ -129,7 +129,7 @@ export function AdminMediaTab() {
       </Card>
 
       <Card>
-        <h4 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 16, margin: "0 0 4px" }}>Usage (application-measured)</h4>
+        <h3 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 16, margin: "0 0 4px" }}>Usage (application-measured)</h3>
         {!usage ? (
           <span style={{ fontSize: 12, color: colors.faint }}>Loading…</span>
         ) : (
@@ -157,7 +157,7 @@ export function AdminMediaTab() {
       </Card>
 
       <Card>
-        <h4 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 16, margin: "0 0 4px" }}>Editorial collection</h4>
+        <h3 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 16, margin: "0 0 4px" }}>Editorial collection</h3>
         <p style={{ fontSize: 12, color: colors.mutedLight, margin: "0 0 12px" }}>
           A small set of platform/editorial images (e.g. county guides, homepage features) — not tied to any listing.
           JPEG/PNG/WebP, up to 8MB.

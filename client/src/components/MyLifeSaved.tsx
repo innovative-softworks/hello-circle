@@ -60,7 +60,7 @@ export function MyLifeSaved({ favourites }: { favourites: Favourite[] }) {
               alt={title}
               ph={colors.panel}
               style={{ width: 44, height: 44, borderRadius: 8, overflow: "hidden", flex: "none" }}
-              icon={!f.imageUrl ? <HeartIcon size={14} filled style={{ color: colors.orange }} /> : undefined}
+              icon={!f.imageUrl ? <HeartIcon size={14} filled style={{ color: colors.orangeDark }} /> : undefined}
             />
             <div style={{ minWidth: 0, flex: 1 }}>
               <div style={{ fontSize: 13.5, fontWeight: 700, color: colors.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>

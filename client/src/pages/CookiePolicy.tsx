@@ -47,7 +47,7 @@ const ITEMS: StorageItem[] = [
 ];
 
 const h2Style: React.CSSProperties = { fontFamily: fonts.display, fontWeight: 700, fontSize: 19, margin: "0 0 10px", letterSpacing: "-.01em" };
-const pStyle: React.CSSProperties = { color: "#3B423C", fontSize: 15, lineHeight: 1.65, margin: "0 0 10px" };
+const pStyle: React.CSSProperties = { color: colors.textSoft, fontSize: 15, lineHeight: 1.65, margin: "0 0 10px" };
 
 export function CookiePolicy() {
   const navigate = useNavigate();
@@ -115,7 +115,7 @@ export function CookiePolicy() {
                   <tr key={item.name} style={{ borderBottom: `1px solid ${colors.border}`, verticalAlign: "top" }}>
                     <td style={{ padding: "10px 10px 10px 0", fontFamily: "monospace", fontSize: 12.5, whiteSpace: "nowrap" }}>{item.name}</td>
                     <td style={{ padding: "10px", whiteSpace: "nowrap" }}>{item.type}</td>
-                    <td style={{ padding: "10px", color: "#3B423C" }}>{item.purpose}</td>
+                    <td style={{ padding: "10px", color: colors.textSoft }}>{item.purpose}</td>
                     <td style={{ padding: "10px 0 10px 10px", color: colors.mutedLight, whiteSpace: "nowrap" }}>{item.duration}</td>
                   </tr>
                 ))}

@@ -1,3 +1,4 @@
+import { usePageTitle } from "../pageTitle";
 import { useEffect, useState } from "react";
 import { useToast } from "../components/Toast";
 import { dateLabel } from "../euro";
@@ -31,6 +32,7 @@ export function CentreDetail() {
   const navigate = useNavigate();
   const { resident } = useGuest();
   const [centre, setCentre] = useState<Centre | null>(null);
+  usePageTitle(centre?.name);
   const [favourited, setFavourited] = useState(false);
   const [games, setGames] = useState<Game[]>([]);
   const [joiningId, setJoiningId] = useState<string | null>(null);
@@ -180,7 +182,7 @@ export function CentreDetail() {
           <div className="grid-responsive" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px 24px", marginBottom: 32 }}>
             {centre.amenities.map((a) => (
               <div key={a} style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 15, color: colors.textSoft }}>
-                <CheckIcon size={16} style={{ color: colors.green }} />
+                <CheckIcon size={16} style={{ color: colors.greenText }} />
                 {a}
               </div>
             ))}
@@ -194,7 +196,7 @@ export function CentreDetail() {
               <div className="grid-responsive" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px 24px", marginBottom: 32 }}>
                 {centre.accessibility.map((a) => (
                   <div key={a} style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 15, color: colors.textSoft }}>
-                    <WheelchairIcon size={16} style={{ color: colors.green }} />
+                    <WheelchairIcon size={16} style={{ color: colors.greenText }} />
                     {a}
                   </div>
                 ))}
@@ -327,14 +329,14 @@ export function CentreDetail() {
           )}
           <div style={{ display: "flex", flexDirection: "column", gap: 9, marginTop: 16, fontSize: 14, color: colors.muted }}>
             <div style={{ display: "flex", gap: 10 }}>
-              <ClockIcon size={16} style={{ color: colors.green }} /> Instant online confirmation
+              <ClockIcon size={16} style={{ color: colors.greenText }} /> Instant online confirmation
             </div>
             <div style={{ display: "flex", gap: 10 }}>
-              <RepeatIcon size={16} style={{ color: colors.green }} /> Free cancellation up to 48h before
+              <RepeatIcon size={16} style={{ color: colors.greenText }} /> Free cancellation up to 48h before
             </div>
             {centre.accessibility.length > 0 && (
               <div style={{ display: "flex", gap: 10 }}>
-                <WheelchairIcon size={16} style={{ color: colors.green }} /> {centre.accessibility[0]}
+                <WheelchairIcon size={16} style={{ color: colors.greenText }} /> {centre.accessibility[0]}
                 {centre.accessibility.length > 1 ? ` +${centre.accessibility.length - 1} more` : ""}
               </div>
             )}

@@ -1,5 +1,18 @@
 # HelloCircle — Performance QA (Phase 10)
 
+## Phase 12 — HC-QA-073 server-side pagination, before/after (2026-10-03, current)
+
+Measured by `server/src/routes/paginationPerf.test.ts`, run in the isolated server-test profile against the pre-Phase-12 commit (`d414266`) and then the Phase 12 code. Same machine and same dataset: 2,000 public activities, 300 Circles, 2,000 notifications for one resident. Median of repeated requests. "Queries" counts `db.prepare()` calls (an approximation of DB round-trips). These are lab numbers, not field data.
+
+| Endpoint | Records/request | Payload | Median response | Queries |
+|---|---|---|---|---|
+| `GET /api/games` | 2,000 → **50** | 1,958,891 → **48,972 B** | 329 → **18 ms** | 4,001 → **101** |
+| `GET /api/circles` | 300 → **50** | 147,381 → **24,583 B** | 244 → **42 ms** | 2,101 → **351** |
+| `GET /api/residents/me/notifications` | 2,000 → **50** | 319,784 → **8,051 B** | 4 → **2 ms** | 1 → **2** (+ unread count) |
+
+The per-row lookups when serialising activities and Circles (HC-QA-074/075) are not rewritten; pagination bounds them to the page size. No speculative rewrite was done. Client: Games, Circles and the Profile inbox render one server page at a time (default 50) with "Load more".
+
+
 Measured first; nothing was optimised.
 
 **Environment**

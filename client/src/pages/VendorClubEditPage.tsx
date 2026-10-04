@@ -90,7 +90,7 @@ export function VendorClubEditPage() {
         ) : (
           <>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap", margin: "0 0 18px" }}>
-              <h2 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 24, margin: 0, letterSpacing: "-.01em" }}>{title}</h2>
+              <h1 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 24, margin: 0, letterSpacing: "-.01em" }}>{title}</h1>
               {clubId !== "new" && <HostChatButton scopeType="club" scopeId={clubId} title={club?.name ?? "Club chat"} label="Members chat" style={{ border: `1px solid ${colors.borderStrong}`, borderRadius: radius.pill, padding: "8px 14px", fontSize: 13.5, color: colors.text, background: colors.surface }} />}
             </div>
             <div style={{ marginBottom: 22 }}>

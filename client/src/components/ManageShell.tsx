@@ -27,6 +27,7 @@ export function ManageShell<T extends string>({
   pageTitle,
   headerActions,
   showNavLogo = true,
+  bannerHasHeading = true,
   children,
 }: {
   /** NavSidebar's own header text, e.g. "Vendor dashboard". */
@@ -52,10 +53,16 @@ export function ManageShell<T extends string>({
    * sit under the app's own header, where a second logo repeats the brand
    * mark with nothing new to say. */
   showNavLogo?: boolean;
+  /** HC-QA-083 — false when the banner is decorative (no H1 inside it), so
+   * the title row stays the page's H1. */
+  bannerHasHeading?: boolean;
   children: ReactNode;
 }) {
   const [navOpen, setNavOpen] = useState(false);
   const { setOpenNav } = useDashboardNav();
+  // HC-QA-083 — the banner (DashboardTopPanel) carries the page's H1 when
+  // shown (overview tabs); otherwise this title row IS the page heading.
+  const TitleTag = banner && bannerHasHeading ? "h2" : "h1";
 
   // Registers the Header.tsx burger's click handler while this page is
   // mounted — see DashboardNavContext.
@@ -82,7 +89,7 @@ export function ManageShell<T extends string>({
                     {contextLabel}
                   </div>
                 )}
-                <h2 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 26, margin: 0, letterSpacing: "-.02em" }}>{pageTitle}</h2>
+                <TitleTag style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 26, margin: 0, letterSpacing: "-.02em" }}>{pageTitle}</TitleTag>
               </div>
               {headerActions}
             </div>

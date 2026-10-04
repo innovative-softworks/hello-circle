@@ -28,7 +28,7 @@ export function Stepper({ labels, current, accent = "green" }: StepperProps) {
           const done = n < current;
           const active = n === current;
           const dotBg = done || active ? accentColor : "#fff";
-          const dotFg = done || active ? "#fff" : "#8A928B";
+          const dotFg = done || active ? "#fff" : colors.faint;
           const dotBorder = done || active ? accentColor : colors.borderStrong;
           const labelColor = done || active ? colors.text : colors.faint;
           const lineColor = done ? accentColor : "#E2DFD6";

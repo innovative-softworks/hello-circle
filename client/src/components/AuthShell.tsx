@@ -1,3 +1,4 @@
+import { BrandLogo } from "./BrandLogo";
 import type { AuthIntentContext } from "../authRedirect";
 import { colors } from "../theme";
 
@@ -14,7 +15,7 @@ import { colors } from "../theme";
 export function AuthBrand() {
   return (
     <div style={{ marginBottom: 40 }}>
-      <img src="/illustrations/Logo.svg" alt="HelloCircle" style={{ height: 34, display: "block" }} />
+      <BrandLogo alt="HelloCircle" style={{ height: 34, display: "block" }} />
     </div>
   );
 }

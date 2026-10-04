@@ -1,6 +1,21 @@
 # HelloCircle — Accessibility (practical WCAG 2.2 AA)
 
-## Phase 11 recheck — 2026-10-03 (current)
+## Phase 12 — 2026-10-03 (current)
+
+Fixed locally, not deployed. These are **WCAG-oriented automated and keyboard checks**, not a full WCAG 2.2 AA conformance claim. No manual screen-reader pass was done.
+
+| ID | Fix | Regression (fails before, passes after) |
+|---|---|---|
+| 065 Page titles | `RouteTitleManager` gives every route a title in a layout effect; `usePageTitle()` gives loaded entities their real name; format "Name \| HelloCircle"; 404 "Page not found"; private names never used | `product-a11y-c` HC-QA-065: direct load, client nav, Back/Forward, loading → loaded, 404, private activity |
+| 070 Nav semantics | `aria-expanded` + `aria-controls` on every header disclosure; `aria-current="page"` across header, mobile tab bar (plus sheet triggers) and dashboard sidebar; Escape closes header menus and returns focus (HC-QA-098) | `product-a11y-c` HC-QA-070 (desktop + mobile), `product-a11y-d` sidebar |
+| 071 Form control borders | `--color-input-border`: light `#8a857a` (3.52:1 on bg), dark `#6b736d` (3.65:1) | `product-a11y-e` measures the rendered border, light + dark |
+| 072 Dark-theme text | `greenText` / `orangeDark` for text (dark 9.99 / 8.04), new `dangerSolid` (white 6.54:1 dark), hard-coded hexes → tokens, theme-aware logo | `product-a11y-e` LIGHT + DARK |
+| 083 Headings + skip link | Skip link as first Tab stop → `<main id="main-content">`; one H1 and no level skips across 28 audited routes | `product-a11y-c` PUBLIC/RESIDENT/SKIP, `product-a11y-d` BUSINESS |
+| 099 Inbox rows | Profile notification rows are buttons in a labelled list | `product-p12-b` HC-QA-073-NOTIFICATIONS |
+
+Still open (P3, unchanged): live-region announcement of every inline form error; 24 px targets on some small inline text links; no manual NVDA/VoiceOver pass. WebKit's Tab key only moves between form controls by default (BRW-2), so its skip-link test uses Alt+Tab, Safari's "every element" shortcut.
+
+## Phase 11 recheck — 2026-10-03
 
 On the **production build**, the Phase 10A accessibility regressions (052, 066, 067, 068, 069, 088) pass in Chromium, Firefox and WebKit. The Firefox TABLET timeout passed on rerun. WebKit's one failure is the known BRW-2 Safari Tab convention in the older consent test. On the map, provider failure is announced as text and the list alternative stays usable.
 

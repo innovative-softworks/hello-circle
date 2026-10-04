@@ -621,7 +621,8 @@ export function Home() {
                   color: colors.text,
                 }}
               >
-                Make things happen
+                {/* HC-QA-083 — explicit space so the accessible name reads "happen near", not "happennear". */}
+                Make things happen{" "}
                 <br />
                 near you.
               </RevealText>

@@ -492,7 +492,7 @@ export interface Favourite {
 
 export interface ResidentNotification {
   id: number;
-  kind: "booking" | "registration" | "program" | "experience" | "waitlist" | "game" | "intent_match" | "circle";
+  kind: "booking" | "registration" | "program" | "experience" | "waitlist" | "game" | "intent_match" | "circle" | "invite" | "invite_withdrawn";
   title: string;
   body: string;
   /** Platform Pre-Launch Polish — Changeset 2. Widened to match the

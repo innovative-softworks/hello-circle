@@ -61,7 +61,7 @@ export function HostChatButton({
           setOpen(true);
         }}
         aria-label={unread > 0 ? `${label}, ${unread} unread` : label}
-        style={{ display: "inline-flex", alignItems: "center", gap: 5, background: "none", border: "none", padding: 0, cursor: "pointer", color: colors.green, fontSize: 12.5, fontWeight: 700, ...style }}
+        style={{ display: "inline-flex", alignItems: "center", gap: 5, background: "none", border: "none", padding: 0, cursor: "pointer", color: colors.greenText, fontSize: 12.5, fontWeight: 700, ...style }}
       >
         <ChatIcon size={14} /> {label}
         {unread > 0 && (
@@ -105,7 +105,7 @@ export function VendorChatsCard() {
           <ChatIcon size={17} /> Group chats
           {unread > 0 && <span style={{ fontSize: 11, fontWeight: 800, color: "#fff", background: colors.orange, borderRadius: radius.pill, padding: "2px 8px" }}>{unread} unread</span>}
         </div>
-        <button onClick={() => navigate("/chats")} style={{ background: "none", border: "none", padding: 0, cursor: "pointer", color: colors.green, fontSize: 13, fontWeight: 700 }}>
+        <button onClick={() => navigate("/chats")} style={{ background: "none", border: "none", padding: 0, cursor: "pointer", color: colors.greenText, fontSize: 13, fontWeight: 700 }}>
           All chats →
         </button>
       </div>

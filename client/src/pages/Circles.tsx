@@ -6,8 +6,8 @@ import { signInHref } from "../authRedirect";
 import {
   createCircle,
   fetchCircleSuggestions,
-  fetchCircles,
-  fetchGames,
+  fetchCirclesPage,
+  fetchGamesPage,
   fetchMyCircleInvitations,
   fetchMyCircles,
   joinCircle,
@@ -23,7 +23,7 @@ import { DropdownOption, FilterDropdown } from "../components/FilterDropdown";
 import { SectionHeader } from "../components/SectionHeader";
 import { IntentCaptureForm } from "../components/IntentCaptureForm";
 import { Photo } from "../components/Photo";
-import { Button, CardSkeleton, EmptyState, LoadErrorState } from "../components/ui";
+import { Button, CardSkeleton, EmptyState, LoadErrorState, LoadMoreControl } from "../components/ui";
 import { useGuest } from "../GuestContext";
 import { cardImageRatio, colors, fonts, maxWidth, placeholderStripes, radius } from "../theme";
 import type { Circle, CircleInvitation, CircleSuggestion, Game } from "../types";
@@ -159,18 +159,61 @@ export function Circles() {
 
   // HC-QA-063 — a failed load is an error state, never "No Circles yet".
   const [loadFailed, setLoadFailed] = useState(false);
+  // HC-QA-073 — server-paginated (cursor) Circles; q / county / activity are
+  // applied by the server so a page never hides matches.
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [loadMoreFailed, setLoadMoreFailed] = useState(false);
+  const [seenCircles, setSeenCircles] = useState<Map<string, Circle>>(new Map());
+  const requestSeq = useRef(0);
+  const [debouncedQuery, setDebouncedQuery] = useState("");
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedQuery(query.trim()), 250);
+    return () => clearTimeout(t);
+  }, [query]);
+  const serverFilters = useMemo(
+    () => ({ q: debouncedQuery || undefined, county: county !== "All" ? county : undefined, activity: activity !== "All" ? activity : undefined }),
+    [debouncedQuery, county, activity]
+  );
+  const filterKey = JSON.stringify(serverFilters);
+  const remember = (rows: Circle[]) => setSeenCircles((m) => { const n = new Map(m); rows.forEach((c) => n.set(c.id, c)); return n; });
   const load = () => {
+    const seq = ++requestSeq.current;
     setLoading(true);
     setLoadFailed(false);
-    fetchCircles()
-      .then(setCircles)
-      .catch(() => setLoadFailed(true))
-      .finally(() => setLoading(false));
+    setLoadMoreFailed(false);
+    fetchCirclesPage(serverFilters)
+      .then((page) => {
+        if (seq !== requestSeq.current) return;
+        setCircles(page.items);
+        setNextCursor(page.nextCursor);
+        remember(page.items);
+      })
+      .catch(() => { if (seq === requestSeq.current) setLoadFailed(true); })
+      .finally(() => { if (seq === requestSeq.current) setLoading(false); });
   };
-
-  useEffect(load, []);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(load, [filterKey]);
+  const loadMore = () => {
+    if (!nextCursor || loadingMore) return;
+    const seq = requestSeq.current;
+    setLoadingMore(true);
+    setLoadMoreFailed(false);
+    fetchCirclesPage(serverFilters, nextCursor)
+      .then((page) => {
+        if (seq !== requestSeq.current) return;
+        setCircles((prev) => { const ids = new Set(prev.map((c) => c.id)); return [...prev, ...page.items.filter((c) => !ids.has(c.id))]; });
+        setNextCursor(page.nextCursor);
+        remember(page.items);
+        setVisibleCount((v) => v + PAGE_SIZE);
+      })
+      .catch(() => { if (seq === requestSeq.current) setLoadMoreFailed(true); })
+      .finally(() => setLoadingMore(false));
+  };
   useEffect(() => {
-    fetchGames().then(setGames).catch(() => setGames([]));
+    // "This week" stats: bounded to the next 7 days (not the whole list).
+    const day = (offset: number) => { const d = new Date(); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() + offset); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
+    fetchGamesPage({ dateFrom: day(0), dateTo: day(7), limit: 100 }).then((p) => setGames(p.items)).catch(() => setGames([]));
   }, []);
   useEffect(() => {
     if (resident) fetchMyCircles().then((rows) => setJoinedIds(new Set(rows.map((c) => c.id)))).catch(() => {});
@@ -243,8 +286,9 @@ export function Circles() {
     }
   };
 
-  const countyOptions = useMemo(() => uniqueSorted(circles.map((c) => c.county)), [circles]);
-  const activityOptions = useMemo(() => uniqueSorted(circles.map((c) => c.activityLabel)), [circles]);
+  const optionCircles = useMemo(() => Array.from(seenCircles.values()), [seenCircles]);
+  const countyOptions = useMemo(() => uniqueSorted(optionCircles.map((c) => c.county)), [optionCircles]);
+  const activityOptions = useMemo(() => uniqueSorted(optionCircles.map((c) => c.activityLabel)), [optionCircles]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -466,6 +510,11 @@ export function Circles() {
           </div>
         ) : loadFailed ? (
           <div style={{ marginBottom: 40 }}><LoadErrorState title="We couldn't load Circles right now." onRetry={load} /></div>
+        ) : sorted.length === 0 && nextCursor ? (
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 12, padding: "28px 0", marginBottom: 40 }}>
+            <p style={{ margin: 0, color: colors.mutedLight, fontSize: 14 }}>No matches in the Circles loaded so far — there are more to check.</p>
+            <LoadMoreControl loadingMore={loadingMore} failed={loadMoreFailed} onLoadMore={loadMore} label="Load more Circles" />
+          </div>
         ) : sorted.length === 0 ? (
           <EmptyState
             icon={<UsersIcon size={22} />}
@@ -498,13 +547,19 @@ export function Circles() {
                 />
               ))}
             </div>
-            {visibleCount < sorted.length && (
+            {visibleCount < sorted.length ? (
               <div style={{ display: "flex", justifyContent: "center", marginBottom: 48 }}>
                 <Button variant="ghost" onClick={() => setVisibleCount((v) => v + PAGE_SIZE)}>
                   Show more Circles ({sorted.length - visibleCount} more)
                 </Button>
               </div>
-            )}
+            ) : nextCursor ? (
+              <div style={{ display: "flex", justifyContent: "center", marginBottom: 48 }}>
+                <LoadMoreControl loadingMore={loadingMore} failed={loadMoreFailed} onLoadMore={loadMore} label="Load more Circles" />
+              </div>
+            ) : sorted.length > PAGE_SIZE ? (
+              <p role="status" style={{ textAlign: "center", color: colors.faint, fontSize: 13, marginBottom: 48 }}>You've reached the end of the list.</p>
+            ) : null}
           </>
         )}
 

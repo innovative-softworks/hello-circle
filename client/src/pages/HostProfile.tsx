@@ -1,3 +1,4 @@
+import { usePageTitle } from "../pageTitle";
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { fetchHostProfile } from "../api";
@@ -25,6 +26,7 @@ export function HostProfilePage() {
   const [profile, setProfile] = useState<HostProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
+  usePageTitle(notFound ? "Host not found" : profile?.name);
 
   useEffect(() => {
     if (!id) return;
@@ -38,6 +40,7 @@ export function HostProfilePage() {
   if (notFound || !profile) {
     return (
       <section className="section-pad" style={{ maxWidth: 640, margin: "0 auto", padding: "60px 24px", textAlign: "center" }}>
+        <h1 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 20, margin: "0 0 8px" }}>Host profile not available</h1>
         <p style={{ color: colors.mutedLight }}>This host profile isn't available.</p>
       </section>
     );
@@ -72,7 +75,7 @@ export function HostProfilePage() {
               <FollowButton followedType="host" followedId={profile.id} initialFollowing={profile.isFollowing} initialLevel={profile.followNotificationLevel} followerCount={profile.followerCount} />
             </div>
           </div>
-          {profile.bio && <p style={{ margin: "16px 0 0", color: "#3B423C", fontSize: 15, lineHeight: 1.55 }}>{profile.bio}</p>}
+          {profile.bio && <p style={{ margin: "16px 0 0", color: colors.textSoft, fontSize: 15, lineHeight: 1.55 }}>{profile.bio}</p>}
         </Card>
 
         <h4 style={{ display: "flex", alignItems: "center", gap: 6, fontFamily: fonts.display, fontWeight: 700, fontSize: 15, margin: "0 0 12px" }}>

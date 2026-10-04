@@ -44,6 +44,8 @@ export const colors = {
   border: "var(--color-border)",
   borderStrong: "var(--color-border-strong)",
   inputBorder: "var(--color-input-border)",
+  /** HC-QA-072 — filled danger surfaces (white text): readable in both themes. */
+  dangerSolid: "var(--color-danger-solid)",
   panel: "var(--color-panel)",
   footerBg: "var(--color-footer-bg)",
 

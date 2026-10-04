@@ -1,6 +1,7 @@
+import { BrandLogo } from "./BrandLogo";
 import { useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { fetchAdminPendingListings, fetchChatInbox, fetchManageWorkspaces, fetchMyGames, fetchResidentNotifications, fetchVendorListings, guestLogout, logout, markResidentNotificationRead, switchWorkspace } from "../api";
+import { fetchAdminPendingListings, fetchChatInbox, fetchManageWorkspaces, fetchMyGames, fetchResidentNotificationsPage, fetchVendorListings, guestLogout, logout, markResidentNotificationRead, switchWorkspace } from "../api";
 import type { ManageWorkspaces } from "../api/manage";
 import { useAuth } from "../AuthContext";
 import { signInHref, signUpHref } from "../authRedirect";
@@ -54,7 +55,9 @@ export function Header() {
   const [residentNotifs, setResidentNotifs] = useState<ResidentNotification[]>([]);
   const [notifOpen, setNotifOpen] = useState(false);
   const notifRef = useRef<HTMLDivElement>(null);
-  const unreadNotifs = residentNotifs.filter((n) => !n.read).length;
+  // HC-QA-073 — the badge uses the server's true unread total, not a count of
+  // the (paginated) recent list.
+  const [unreadNotifs, setUnreadNotifs] = useState(0);
 
   // Unread group-chat messages across every conversation this session can
   // see — the resident's own, or (vendor-only session) the host inbox.
@@ -72,7 +75,7 @@ export function Header() {
   }, [resident?.id, hostOnly, location.pathname]);
 
   const loadResidentNotifs = () => {
-    if (resident) fetchResidentNotifications().then(setResidentNotifs).catch(() => {});
+    if (resident) fetchResidentNotificationsPage(null, 20).then((page) => { setResidentNotifs(page.items); setUnreadNotifs(page.unread); }).catch(() => {});
   };
 
   // HelloCircle Manage (Phase 1) — a resident who has linked a vendor account
@@ -168,6 +171,7 @@ export function Header() {
   const handleNotifRead = async (id: number) => {
     await markResidentNotificationRead(id);
     setResidentNotifs((rows) => rows.map((n) => (n.id === id ? { ...n, read: 1 } : n)));
+    setUnreadNotifs((n) => Math.max(0, n - 1));
   };
 
   // Close the two header dropdowns on an outside click — they're popovers,
@@ -182,6 +186,30 @@ export function Header() {
     document.addEventListener("mousedown", onDocClick);
     return () => document.removeEventListener("mousedown", onDocClick);
   }, []);
+
+  // HC-QA-070 — Escape closes whichever header disclosure is open and returns
+  // focus to its trigger (found via its aria-controls). Dialogs handle their
+  // own Escape, so this stays out of the way while one is open.
+  useEffect(() => {
+    const open: [boolean, () => void, string][] = [
+      [exploreMenuOpen, () => setExploreMenuOpen(false), "hc-explore-menu"],
+      [createMenuOpen, () => setCreateMenuOpen(false), "hc-start-menu"],
+      [notifOpen, () => setNotifOpen(false), "hc-notifications-panel"],
+      [accountMenuOpen, () => setAccountMenuOpen(false), "hc-account-menu"],
+      [menuOpen, () => setMenuOpen(false), "hc-mobile-menu"],
+    ];
+    if (!open.some(([isOpen]) => isOpen)) return;
+    function onKey(e: KeyboardEvent) {
+      if (e.key !== "Escape" || document.querySelector('[role="dialog"][aria-modal="true"], [role="alertdialog"]')) return;
+      for (const [isOpen, close, id] of open) {
+        if (!isOpen) continue;
+        close();
+        document.querySelector<HTMLElement>(`[aria-controls="${id}"]`)?.focus();
+      }
+    }
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [exploreMenuOpen, createMenuOpen, notifOpen, accountMenuOpen, menuOpen]);
 
   useEffect(() => {
     if (user?.role === "admin") {
@@ -247,7 +275,7 @@ export function Header() {
     borderRadius: radius.control,
     fontSize: 15,
     fontWeight: 500,
-    color: "#3B423C",
+    color: colors.textSoft,
     cursor: "pointer",
   };
   const mobileNavBtn: React.CSSProperties = {
@@ -358,7 +386,7 @@ export function Header() {
   const megaColLabelStyle: React.CSSProperties = {
     fontSize: 12.5,
     fontWeight: 700,
-    color: colors.orange,
+    color: colors.orangeDark,
     letterSpacing: ".09em",
     marginBottom: 22,
     display: "flex",
@@ -459,10 +487,10 @@ export function Header() {
           </button>
         )}
         <div
-          onClick={() => go("/")}
+          onClick={() => go("/")} aria-current={location.pathname === "/" ? "page" : undefined}
           style={{ display: "flex", alignItems: "center", gap: 9, cursor: "pointer" }}
         >
-          <img src="/illustrations/Logo.svg" alt="Hello Circle" style={{ height: 36, flex: "none" }} />
+          <BrandLogo alt="Hello Circle" style={{ height: 36, flex: "none" }} />
         </div>
         <nav className="desktop-nav" style={{ display: "flex", alignItems: "center", gap: 2, marginLeft: 8 }}>
           <div ref={exploreMenuRef} style={{ position: "relative" }}>
@@ -474,28 +502,30 @@ export function Header() {
                   : { ...navBtn, display: "inline-flex", alignItems: "center", gap: 4 }
               }
               onClick={() => setExploreMenuOpen((o) => !o)}
+              aria-expanded={exploreMenuOpen}
+              aria-controls="hc-explore-menu"
             >
               Explore <ChevronDownIcon size={13} style={{ transform: exploreMenuOpen ? "rotate(180deg)" : "none", transition: "transform .15s ease" }} />
             </button>
             {exploreMenuOpen && (
-              <div className="pop-in" style={megaMenuStyle}>
+              <div className="pop-in" id="hc-explore-menu" style={megaMenuStyle}>
                 <div style={megaColStyle}>
                   <div style={megaColLabelStyle}><span style={{ opacity: .6 }}>/</span> ACTIVITIES</div>
-                  <button style={megaItemStyle} onClick={() => go("/games")}>
+                  <button style={megaItemStyle} onClick={() => go("/games")} aria-current={location.pathname === "/games" ? "page" : undefined}>
                     <span style={megaIconWrapStyle}><RepeatIcon size={19} style={{ color: colors.text }} /></span>
                     <span>
                       <span style={megaItemTitleStyle}>Join a session</span>
                       <span style={megaItemDescStyle}>Ad-hoc pickup sessions &amp; one-off classes</span>
                     </span>
                   </button>
-                  <button style={megaItemStyle} onClick={() => go("/adventures")}>
+                  <button style={megaItemStyle} onClick={() => go("/adventures")} aria-current={location.pathname === "/adventures" ? "page" : undefined}>
                     <span style={megaIconWrapStyle}><TreeIconSmall size={19} style={{ color: colors.text }} /></span>
                     <span>
                       <span style={megaItemTitleStyle}>Adventures</span>
                       <span style={megaItemDescStyle}>Guided hikes, kayaking &amp; outdoor trips</span>
                     </span>
                   </button>
-                  <button style={megaItemStyle} onClick={() => go("/experiences")}>
+                  <button style={megaItemStyle} onClick={() => go("/experiences")} aria-current={location.pathname === "/experiences" ? "page" : undefined}>
                     <span style={megaIconWrapStyle}><TreeIconSmall size={19} style={{ color: colors.text }} /></span>
                     <span>
                       <span style={megaItemTitleStyle}>Experiences</span>
@@ -504,7 +534,7 @@ export function Header() {
                   </button>
                   {/* Programs has its own browse page (/programs) — it used
                       to land on Explore's mixed "Things to do" results. */}
-                  <button style={{ ...megaItemStyle, borderBottom: `1px solid ${colors.border}` }} onClick={() => go("/programs")}>
+                  <button style={{ ...megaItemStyle, borderBottom: `1px solid ${colors.border}` }} onClick={() => go("/programs")} aria-current={location.pathname === "/programs" ? "page" : undefined}>
                     <span style={megaIconWrapStyle}><GridIcon size={19} style={{ color: colors.text }} /></span>
                     <span>
                       <span style={megaItemTitleStyle}>Programs</span>
@@ -520,14 +550,14 @@ export function Header() {
                       the item label below ("Community centres") still names
                       the actual entity/listing type. */}
                   <div style={megaColLabelStyle}><span style={{ opacity: .6 }}>/</span> PLACES</div>
-                  <button style={megaItemStyle} onClick={() => go("/browse/centres")}>
+                  <button style={megaItemStyle} onClick={() => go("/browse/centres")} aria-current={location.pathname === "/browse/centres" ? "page" : undefined}>
                     <span style={megaIconWrapStyle}><BuildingIcon size={19} style={{ color: colors.text }} /></span>
                     <span>
                       <span style={megaItemTitleStyle}>Community centres</span>
                       <span style={megaItemDescStyle}>Book a hall or room, real-time</span>
                     </span>
                   </button>
-                  <button style={{ ...megaItemStyle, borderBottom: `1px solid ${colors.border}` }} onClick={() => go("/browse/clubs")}>
+                  <button style={{ ...megaItemStyle, borderBottom: `1px solid ${colors.border}` }} onClick={() => go("/browse/clubs")} aria-current={location.pathname === "/browse/clubs" ? "page" : undefined}>
                     <span style={megaIconWrapStyle}><BallIcon size={19} style={{ color: colors.text }} /></span>
                     <span>
                       <span style={megaItemTitleStyle}>Sports clubs</span>
@@ -542,14 +572,14 @@ export function Header() {
                     <div style={megaItemDescStyle}>See what's on nearby.</div>
                     <div style={{ fontSize: 11.5, fontWeight: 700, color: colors.greenText, letterSpacing: ".06em", marginTop: 12 }}>SEE WHAT'S ON &rarr;</div>
                   </button>
-                  <button style={megaFeaturedTileStyle(colors.orangeBg)} onClick={() => go("/become-a-host")}>
+                  <button style={megaFeaturedTileStyle(colors.orangeBg)} onClick={() => go("/become-a-host")} aria-current={location.pathname === "/become-a-host" ? "page" : undefined}>
                     <div style={megaItemTitleStyle}>Become a Host</div>
                     <div style={megaItemDescStyle}>Run a session or Circle, free.</div>
                     <div style={{ fontSize: 11.5, fontWeight: 700, color: colors.orangeDark, letterSpacing: ".06em", marginTop: 12 }}>GET STARTED &rarr;</div>
                   </button>
                 </div>
                 <button
-                  onClick={() => go("/explore")}
+                  onClick={() => go("/explore")} aria-current={location.pathname === "/explore" ? "page" : undefined}
                   style={{ position: "relative", display: "block", width: "100%", height: "100%", minHeight: 260, overflow: "hidden", background: colors.greenBg, border: "none", padding: 0, cursor: "pointer" }}
                 >
                   <img
@@ -570,14 +600,14 @@ export function Header() {
           <button
             className="tab-btn"
             style={isActive(["/circles"]) ? { ...navBtn, background: colors.greenBg, color: colors.greenText, fontWeight: 700 } : navBtn}
-            onClick={() => go("/circles")}
+            onClick={() => go("/circles")} aria-current={location.pathname === "/circles" ? "page" : undefined}
           >
             Circles
           </button>
           <button
             className="tab-btn"
-            style={isActive(["/bookings"]) ? { ...navBtn, background: colors.greenBg, color: colors.greenText, fontWeight: 700 } : navBtn}
-            onClick={() => go("/bookings")}
+            style={isActive(["/bookings", "/my-life"]) ? { ...navBtn, background: colors.greenBg, color: colors.greenText, fontWeight: 700 } : navBtn}
+            onClick={() => go("/bookings")} aria-current={(location.pathname === "/bookings" || location.pathname === "/my-life") ? "page" : undefined}
           >
             My Life
           </button>
@@ -589,34 +619,36 @@ export function Header() {
                   : startBtnStyle
               }
               onClick={() => setCreateMenuOpen((o) => !o)}
+              aria-expanded={createMenuOpen}
+              aria-controls="hc-start-menu"
             >
               Start <ChevronDownIcon size={13} style={{ transform: createMenuOpen ? "rotate(180deg)" : "none", transition: "transform .15s ease" }} />
             </button>
             {createMenuOpen && (
-              <div className="pop-in" style={createMegaMenuStyle}>
+              <div className="pop-in" id="hc-start-menu" style={createMegaMenuStyle}>
                 <div style={megaColStyle}>
-                  <button style={{ ...megaItemStyle, borderTop: "none" }} onClick={() => go("/browse/centres")}>
+                  <button style={{ ...megaItemStyle, borderTop: "none" }} onClick={() => go("/browse/centres")} aria-current={location.pathname === "/browse/centres" ? "page" : undefined}>
                     <span style={megaIconWrapStyle}><BuildingIcon size={19} style={{ color: colors.text }} /></span>
                     <span>
                       <span style={megaItemTitleStyle}>Book a place</span>
                       <span style={megaItemDescStyle}>List a hall or room to hire out</span>
                     </span>
                   </button>
-                  <button style={megaItemStyle} onClick={() => go("/games")}>
+                  <button style={megaItemStyle} onClick={() => go("/games")} aria-current={location.pathname === "/games" ? "page" : undefined}>
                     <span style={megaIconWrapStyle}><RepeatIcon size={19} style={{ color: colors.text }} /></span>
                     <span>
                       <span style={megaItemTitleStyle}>Start a session</span>
                       <span style={megaItemDescStyle}>Post a pickup session or class</span>
                     </span>
                   </button>
-                  <button style={megaItemStyle} onClick={() => go("/make-it-happen")}>
+                  <button style={megaItemStyle} onClick={() => go("/make-it-happen")} aria-current={location.pathname === "/make-it-happen" ? "page" : undefined}>
                     <span style={megaIconWrapStyle}><LightbulbIcon size={19} style={{ color: colors.text }} /></span>
                     <span>
                       <span style={megaItemTitleStyle}>Make It Happen</span>
                       <span style={megaItemDescStyle}>Pitch an idea, rally people to it</span>
                     </span>
                   </button>
-                  <button style={megaItemStyle} onClick={() => go("/suggest-place")}>
+                  <button style={megaItemStyle} onClick={() => go("/suggest-place")} aria-current={location.pathname === "/suggest-place" ? "page" : undefined}>
                     <span style={megaIconWrapStyle}><PinIcon size={19} style={{ color: colors.text }} /></span>
                     <span>
                       <span style={megaItemTitleStyle}>Suggest a place</span>
@@ -649,12 +681,12 @@ export function Header() {
           </button>
           <button
             className="btn btn-ghost hide-tablet"
-            onClick={() => go("/free-time")}
+            onClick={() => go("/free-time")} aria-current={location.pathname === "/free-time" ? "page" : undefined}
             aria-label="Free Time Mode"
             title="Free Time Mode"
             style={isActive(["/free-time"]) ? { ...circleBtnStyle, background: colors.orangeBg, borderColor: colors.orange } : circleBtnStyle}
           >
-            <LightbulbIcon size={17} style={{ color: colors.orange }} />
+            <LightbulbIcon size={17} style={{ color: colors.orangeDark }} />
           </button>
 
           {/* A resident session also gets its own bell just below — when both
@@ -699,7 +731,7 @@ export function Header() {
           {(resident || hostOnly) && (
             <button
               className="btn btn-ghost"
-              onClick={() => go("/chats")}
+              onClick={() => go("/chats")} aria-current={location.pathname === "/chats" ? "page" : undefined}
               aria-label={chatUnread > 0 ? `Chats, ${chatUnread} unread` : "Chats"}
               title="Chats"
               style={isActive(["/chats"]) ? { ...circleBtnStyle, position: "relative", background: colors.greenBg, borderColor: colors.green } : { ...circleBtnStyle, position: "relative" }}
@@ -736,6 +768,8 @@ export function Header() {
                 className="btn btn-ghost"
                 onClick={() => setNotifOpen((o) => !o)}
                 aria-label="Notifications"
+                aria-expanded={notifOpen}
+                aria-controls="hc-notifications-panel"
                 style={circleBtnStyle}
               >
                 <BellIcon size={17} />
@@ -763,7 +797,7 @@ export function Header() {
                 )}
               </button>
               {notifOpen && (
-                <div className="pop-in" style={{ ...dropdownStyle, minWidth: 300, maxHeight: 360, overflowY: "auto" }}>
+                <div className="pop-in" id="hc-notifications-panel" style={{ ...dropdownStyle, minWidth: 300, maxHeight: 360, overflowY: "auto" }}>
                   <div style={dropdownLabelStyle}>Notifications</div>
                   {user && (user.role === "admin" || user.role === "vendor") && (
                     <button
@@ -816,6 +850,8 @@ export function Header() {
               className="btn btn-ghost"
               onClick={() => setAccountMenuOpen((o) => !o)}
               aria-label="Menu"
+              aria-expanded={accountMenuOpen}
+              aria-controls="hc-account-menu"
               style={
                 user
                   ? { display: "flex", alignItems: "center", gap: 4, border: "none", background: "none", cursor: "pointer", padding: 0 }
@@ -837,7 +873,7 @@ export function Header() {
               )}
             </button>
             {accountMenuOpen && (
-              <div className="pop-in" style={{ ...dropdownStyle, minWidth: 240 }}>
+              <div className="pop-in" id="hc-account-menu" style={{ ...dropdownStyle, minWidth: 240 }}>
                 {!user && guestEmail && <div style={dropdownLabelStyle}>Signed in as {guestEmail}</div>}
                 <button
                   className="dropdown-item"
@@ -1023,6 +1059,8 @@ export function Header() {
           className="mobile-menu-btn btn btn-ghost"
           onClick={() => setMenuOpen((o) => !o)}
           aria-label="Toggle menu"
+          aria-expanded={menuOpen}
+          aria-controls="hc-mobile-menu"
           style={{
             marginLeft: "auto",
             width: 40,
@@ -1041,6 +1079,7 @@ export function Header() {
 
       {menuOpen && (
         <div
+          id="hc-mobile-menu"
           className="pop-in"
           style={{
             borderTop: `1px solid ${colors.border}`,
@@ -1098,7 +1137,7 @@ export function Header() {
                   </div>
                 ))}
               {(hasHostedGames || !!workspaces?.circlesOrganising.length) && (
-                <button style={{ ...mobileNavBtn, display: "flex", alignItems: "center", gap: 8 }} onClick={() => go("/manage")}>
+                <button style={{ ...mobileNavBtn, display: "flex", alignItems: "center", gap: 8 }} onClick={() => go("/manage")} aria-current={location.pathname === "/manage" ? "page" : undefined}>
                   Manage hosting
                 </button>
               )}
@@ -1119,18 +1158,18 @@ export function Header() {
           <button style={{ ...mobileNavBtn, display: "flex", alignItems: "center", gap: 8 }} onClick={() => go("/explore?focus=1")}>
             <SearchIcon size={16} /> Search
           </button>
-          <button style={{ ...mobileNavBtn, display: "flex", alignItems: "center", gap: 8 }} onClick={() => go("/free-time")}>
+          <button style={{ ...mobileNavBtn, display: "flex", alignItems: "center", gap: 8 }} onClick={() => go("/free-time")} aria-current={location.pathname === "/free-time" ? "page" : undefined}>
             <LightbulbIcon size={16} /> Free Time Mode
           </button>
 
           <div style={{ ...dropdownLabelStyle, padding: "10px 6px 2px" }}>You</div>
           {(resident || hostOnly) && (
-            <button style={{ ...mobileNavBtn, display: "flex", alignItems: "center", gap: 8 }} onClick={() => go("/chats")}>
+            <button style={{ ...mobileNavBtn, display: "flex", alignItems: "center", gap: 8 }} onClick={() => go("/chats")} aria-current={location.pathname === "/chats" ? "page" : undefined}>
               <ChatIcon size={16} /> Chats{chatUnread > 0 ? ` (${chatUnread})` : ""}
             </button>
           )}
           {resident && (
-            <button style={{ ...mobileNavBtn, display: "flex", alignItems: "center", gap: 8 }} onClick={() => go("/bookings")}>
+            <button style={{ ...mobileNavBtn, display: "flex", alignItems: "center", gap: 8 }} onClick={() => go("/bookings")} aria-current={(location.pathname === "/bookings" || location.pathname === "/my-life") ? "page" : undefined}>
               <BellIcon size={16} /> Notifications{unreadNotifs > 0 ? ` (${unreadNotifs})` : ""}
             </button>
           )}
@@ -1164,7 +1203,7 @@ export function Header() {
               <button style={mobileNavBtn} onClick={() => setConfirmingLogout("guest")}>
                 Sign out
               </button>
-              <button style={mobileNavBtn} onClick={() => go("/for-venues")}>
+              <button style={mobileNavBtn} onClick={() => go("/for-venues")} aria-current={location.pathname === "/for-venues" ? "page" : undefined}>
                 For venues & organisers
               </button>
             </>
@@ -1176,7 +1215,7 @@ export function Header() {
               <button style={mobileNavBtn} onClick={() => go(signUpHref())}>
                 Join HelloCircle
               </button>
-              <button style={mobileNavBtn} onClick={() => go("/for-venues")}>
+              <button style={mobileNavBtn} onClick={() => go("/for-venues")} aria-current={location.pathname === "/for-venues" ? "page" : undefined}>
                 For venues & organisers
               </button>
             </>

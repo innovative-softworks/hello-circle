@@ -1,3 +1,4 @@
+import { BrandLogo } from "./BrandLogo";
 import { useNavigate } from "react-router-dom";
 import { colors, fonts, maxWidth } from "../theme";
 
@@ -66,9 +67,9 @@ export function Footer() {
         <div className="grid-responsive" style={{ display: "grid", gridTemplateColumns: "1.2fr repeat(4, 1fr)", gap: 32, marginBottom: 32 }}>
           <div>
             <div style={{ display: "flex", alignItems: "center", gap: 9, cursor: "pointer", marginBottom: 10 }} onClick={() => navigate("/")}>
-              <img src="/illustrations/Logo.svg" alt="Hello Circle" style={{ height: 38 }} />
+              <BrandLogo alt="Hello Circle" style={{ height: 38 }} />
             </div>
-            <p style={{ margin: 0, color: "#8A928B", fontSize: 14, maxWidth: 320 }}>
+            <p style={{ margin: 0, color: colors.faint, fontSize: 14, maxWidth: 320 }}>
               Local community spaces & sports clubs across Ireland. A concept prototype — not affiliated with any council
               or governing body.
             </p>

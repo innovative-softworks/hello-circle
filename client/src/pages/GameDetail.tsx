@@ -1,3 +1,4 @@
+import { usePageTitle } from "../pageTitle";
 import { useEffect, useState } from "react";
 import { useToast } from "../components/Toast";
 import { ParticipationBlock } from "../components/ParticipationBlock";
@@ -123,6 +124,7 @@ export function GameDetail() {
   const navigate = useNavigate();
   const { resident } = useGuest();
   const [game, setGame] = useState<Game | null>(null);
+  usePageTitle(game?.activityLabel);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -315,7 +317,7 @@ export function GameDetail() {
             {game.description && (
               <div style={{ marginBottom: 28 }}>
                 <h2 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 18, margin: "0 0 10px" }}>About this plan</h2>
-                <p style={{ margin: 0, fontSize: 15, color: "#3B423C", lineHeight: 1.6 }}>{game.description}</p>
+                <p style={{ margin: 0, fontSize: 15, color: colors.textSoft, lineHeight: 1.6 }}>{game.description}</p>
               </div>
             )}
 

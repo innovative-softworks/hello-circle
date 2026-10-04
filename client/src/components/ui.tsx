@@ -1,3 +1,4 @@
+import { BrandLogo } from "./BrandLogo";
 import { Fragment, useEffect, useId, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { Link, useNavigate } from "react-router-dom";
@@ -280,8 +281,9 @@ const statusStyles: Record<ListingStatus, { bg: string; fg: string; label: strin
   archived: { bg: colors.panel, fg: colors.muted, label: "Archived" },
 };
 
-export function StatusBadge({ status }: { status: string }) {
-  const s = statusStyles[status as ListingStatus] ?? statusStyles.deleted;
+export function StatusBadge({ status, label }: { status: string; label?: string }) {
+  const base = statusStyles[status as ListingStatus] ?? statusStyles.deleted;
+  const s = label ? { ...base, label } : base;
   return (
     <span
       className={status === "pending" ? "badge-dot-pending" : undefined}
@@ -588,6 +590,24 @@ export function LoadErrorState({ title, detail, onRetry, retryLabel = "Try again
       <div style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 17, marginBottom: 6 }}>{title}</div>
       <div style={{ fontSize: 14, color: colors.mutedLight, marginBottom: onRetry ? 16 : 0 }}>{detail ?? "Check your connection and try again."}</div>
       {onRetry && <Button variant="ghost" onClick={onRetry}>{retryLabel}</Button>}
+    </div>
+  );
+}
+
+/** HC-QA-073 — "Load more" for server-paginated lists: idle → loading →
+ * end (caller hides it) / error with retry. Already-loaded items are never
+ * replaced; only this control reports the failure. */
+export function LoadMoreControl({ loadingMore, failed, onLoadMore, label = "Load more" }: { loadingMore: boolean; failed: boolean; onLoadMore: () => void; label?: string }) {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8 }}>
+      {failed && (
+        <div role="alert" style={{ fontSize: 13, color: colors.danger, fontWeight: 600 }}>
+          Couldn't load more — check your connection and try again.
+        </div>
+      )}
+      <Button variant="ghost" onClick={onLoadMore} disabled={loadingMore} aria-busy={loadingMore || undefined}>
+        {loadingMore ? "Loading more…" : failed ? "Try again" : label}
+      </Button>
     </div>
   );
 }
@@ -1560,7 +1580,7 @@ export function ConfirmDialog({
           <Button variant="ghost" onClick={onCancel} disabled={busy}>
             {cancelLabel}
           </Button>
-          <Button variant="dark" onClick={onConfirm} disabled={busy || confirmDisabled} style={tone === "danger" ? { background: colors.danger } : undefined}>
+          <Button variant="dark" onClick={onConfirm} disabled={busy || confirmDisabled} style={tone === "danger" ? { background: colors.dangerSolid } : undefined}>
             {busy ? "…" : confirmLabel}
           </Button>
         </div>
@@ -1624,6 +1644,9 @@ function NavOptionButtons<T extends string>({
               </div>
             )}
             <button
+              type="button"
+              // HC-QA-070 — the dashboard section currently shown.
+              aria-current={active ? "page" : undefined}
               onClick={() => {
                 onChange(o.key);
                 onSelect?.();
@@ -1691,7 +1714,7 @@ export function NavRail<T extends string>({
           marginBottom: 10,
         }}
       >
-        {showLogo && <img src="/illustrations/Logo.svg" alt="" aria-hidden="true" style={{ height: 20, flex: "none" }} />}
+        {showLogo && <BrandLogo decorative style={{ height: 20, flex: "none" }} />}
         <span
           style={{
             fontFamily: 'ui-monospace, "SF Mono", "Roboto Mono", Menlo, monospace',

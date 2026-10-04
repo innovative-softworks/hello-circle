@@ -14,7 +14,7 @@ export function GuideStep({ n, title, children }: { n: string; title: string; ch
       </div>
       <div style={{ flex: 1, minWidth: 0 }}>
         <h3 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 18, margin: "0 0 8px", letterSpacing: "-.01em" }}>{title}</h3>
-        <div style={{ color: "#3B423C", fontSize: 15, lineHeight: 1.65 }}>{children}</div>
+        <div style={{ color: colors.textSoft, fontSize: 15, lineHeight: 1.65 }}>{children}</div>
       </div>
     </div>
   );

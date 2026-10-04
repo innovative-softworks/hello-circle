@@ -202,7 +202,7 @@ export function ProgramManager({ programId, onChanged }: { programId: string; on
         <VendorParticipationEditor type="program" id={programId} />
       </div>
 
-      <h4 style={{ fontSize: 13, fontWeight: 700, color: colors.muted, margin: "0 0 10px" }}>SESSIONS</h4>
+      <h3 style={{ fontSize: 13, fontWeight: 700, color: colors.muted, margin: "0 0 10px" }}>SESSIONS</h3>
       <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 16 }}>
         {program.sessions.map((s) => (
           <div key={s.id} style={{ border: `1px solid ${colors.border}`, borderRadius: 12, padding: 12 }}>
@@ -213,10 +213,10 @@ export function ProgramManager({ programId, onChanged }: { programId: string; on
                 {s.roomName && <span style={{ fontWeight: 400, color: colors.mutedLight }}> · {s.roomName}</span>}
               </span>
               <div style={{ display: "flex", gap: 8 }}>
-                <button onClick={() => setCheckingInSession({ id: s.id, date: s.date, time: s.time })} style={{ background: "none", border: "none", cursor: "pointer", color: colors.green, fontSize: 12.5, fontWeight: 700 }}>
+                <button onClick={() => setCheckingInSession({ id: s.id, date: s.date, time: s.time })} style={{ background: "none", border: "none", cursor: "pointer", color: colors.greenText, fontSize: 12.5, fontWeight: 700 }}>
                   Check-in
                 </button>
-                <button onClick={() => loadAttendance(s.id)} style={{ background: "none", border: "none", cursor: "pointer", color: colors.green, fontSize: 12.5, fontWeight: 700 }}>
+                <button onClick={() => loadAttendance(s.id)} style={{ background: "none", border: "none", cursor: "pointer", color: colors.greenText, fontSize: 12.5, fontWeight: 700 }}>
                   Attendance
                 </button>
                 <button onClick={() => setConfirmingSessionId(s.id)} style={{ background: "none", border: "none", cursor: "pointer", color: colors.faint }}>

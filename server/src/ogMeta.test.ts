@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { db } from "./db/index.js";
 import { defaultOgMeta, generateSitemapUrls, isEntityDetailRoute, resolveMarketingOgMeta, resolveOgMeta, resolveStaticDiscoveryOgMeta } from "./ogMeta.js";
 
@@ -108,7 +108,18 @@ afterAll(async () => {
   await db.prepare(`DELETE FROM users WHERE id = ?`).run(orgId);
 });
 
+// HC-QA-060 — centre/club pages are gated by default (VENUE_PAGES_PUBLIC
+// unset). The indexable-venue assertions below describe the LAUNCHED state,
+// so those blocks run with the switch on; the gated default is covered by
+// "venue launch gate" at the end of this file.
+function withVenuesLaunched() {
+  let prev: string | undefined;
+  beforeEach(() => { prev = process.env.VENUE_PAGES_PUBLIC; process.env.VENUE_PAGES_PUBLIC = "true"; });
+  afterEach(() => { if (prev === undefined) delete process.env.VENUE_PAGES_PUBLIC; else process.env.VENUE_PAGES_PUBLIC = prev; });
+}
+
 describe("resolveOgMeta — real entity-kind coverage", () => {
+  withVenuesLaunched();
   it("Centre: real dynamic title/description, LocalBusiness JSON-LD, indexable", async () => {
     const meta = await resolveOgMeta(`/centres/${centreId}`);
     expect(meta?.title).toContain("OG Test Centre");
@@ -256,6 +267,7 @@ describe("canonical URL — SEO Phase 7, slug-vs-id duplicate content", () => {
 });
 
 describe("robots regression — every real, launch-policy-public page must resolve as indexable", () => {
+  withVenuesLaunched();
   // injectOgTags() defaults an omitted `robots` field to "noindex, nofollow"
   // (fail-closed). A prior version of resolveOgMeta's per-kind branches
   // never set `robots` explicitly at all, so every real Centre/Club/
@@ -318,6 +330,7 @@ describe("generateSitemapUrls — SEO audit's 'Programs never appear in the site
 });
 
 describe("resolveStaticDiscoveryOgMeta — the core browse/discovery pages must be indexable", () => {
+  withVenuesLaunched();
   // Every STATIC_SITEMAP_PATHS entry (generateSitemapUrls) is submitted to
   // Google post-launch as a real, high-value page — before this resolver
   // existed, none of them matched resolveOgMeta's ROUTE_PATTERN or
@@ -371,5 +384,35 @@ describe("defaultOgMeta / resolveMarketingOgMeta", () => {
 
   it("unknown paths get no marketing meta", () => {
     expect(resolveMarketingOgMeta("/not-a-marketing-page")).toBeNull();
+  });
+});
+
+describe("venue launch gate (HC-QA-059/060) — default, VENUE_PAGES_PUBLIC unset", () => {
+  let prev: string | undefined;
+  beforeEach(() => { prev = process.env.VENUE_PAGES_PUBLIC; delete process.env.VENUE_PAGES_PUBLIC; });
+  afterEach(() => { if (prev !== undefined) process.env.VENUE_PAGES_PUBLIC = prev; });
+
+  it("centre and club pages, and the venue browse pages, are noindex while gated", async () => {
+    expect((await resolveOgMeta(`/centres/${centreId}`))?.robots).toBe("noindex, nofollow");
+    expect((await resolveOgMeta(`/clubs/${clubId}`))?.robots).toBe("noindex, nofollow");
+    for (const path of ["/browse/centres", "/browse/clubs"]) expect(resolveStaticDiscoveryOgMeta(path)?.robots).toBe("noindex, nofollow");
+  });
+
+  it("non-venue public pages stay indexable while venues are gated", async () => {
+    for (const path of [`/experiences/${experienceId}`, `/programs/${programId}`, `/games/${publicGameId}`, `/circles/${openCircleId}`, `/host/${hostId}`]) {
+      expect((await resolveOgMeta(path))?.robots, path).toBe("index, follow");
+    }
+    for (const path of ["/home", "/explore", "/games", "/circles", "/adventures", "/experiences"]) expect(resolveStaticDiscoveryOgMeta(path)?.robots, path).toBe("index, follow");
+  });
+
+  it("the sitemap omits every venue URL while gated, and lists them once launched", async () => {
+    const isVenue = (u: string) => /\/(centres|clubs)\/|\/browse\/(centres|clubs)$/.test(u);
+    const gated = await generateSitemapUrls();
+    expect(gated.filter(isVenue)).toEqual([]);
+    expect(gated.some((u) => u.endsWith(`/programs/${programId}`))).toBe(true);
+    process.env.VENUE_PAGES_PUBLIC = "true";
+    const launched = await generateSitemapUrls();
+    expect(launched.some((u) => u.endsWith(`/centres/${centreId}`) || u.includes("/centres/"))).toBe(true);
+    expect(launched.some((u) => u.endsWith("/browse/centres"))).toBe(true);
   });
 });

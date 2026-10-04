@@ -164,7 +164,7 @@ export function Login() {
 
       <p style={{ textAlign: "center", color: colors.muted, fontSize: 14, marginTop: 24 }}>
         New to HelloCircle as an organiser?{" "}
-        <Link to="/vendor/signup" className="link-accent" style={{ textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 5, color: colors.orange, fontWeight: 700 }}>
+        <Link to="/vendor/signup" className="link-accent" style={{ textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 5, color: colors.orangeDark, fontWeight: 700 }}>
           Create a business account <ArrowRightIcon size={14} />
         </Link>
       </p>

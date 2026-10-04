@@ -75,7 +75,7 @@ export function SignInPanel({ onSuccess }: { onSuccess: () => void | Promise<voi
         <SignupForm onSuccess={onSuccess} />
         <p style={{ margin: "16px 0 0", fontSize: 13 }}>
           Already have an account?{" "}
-          <button onClick={() => setMode("login")} style={{ background: "none", border: "none", padding: 0, font: "inherit", fontWeight: 700, color: colors.green, cursor: "pointer" }}>Log in</button>
+          <button onClick={() => setMode("login")} style={{ background: "none", border: "none", padding: 0, font: "inherit", fontWeight: 700, color: colors.greenText, cursor: "pointer" }}>Log in</button>
         </p>
       </div>
     );
@@ -98,7 +98,7 @@ export function SignInPanel({ onSuccess }: { onSuccess: () => void | Promise<voi
       <LoginForm onSuccess={onSuccess} onForgotPassword={() => setMode("forgot")} />
       <p style={{ margin: "16px 0 0", fontSize: 13 }}>
         Don't have an account?{" "}
-        <button onClick={() => setMode("signup")} style={{ background: "none", border: "none", padding: 0, font: "inherit", fontWeight: 700, color: colors.green, cursor: "pointer" }}>Create account</button>
+        <button onClick={() => setMode("signup")} style={{ background: "none", border: "none", padding: 0, font: "inherit", fontWeight: 700, color: colors.greenText, cursor: "pointer" }}>Create account</button>
       </p>
       <p style={{ margin: "6px 0 0", fontSize: 13 }}>
         Prefer not to use a password?{" "}

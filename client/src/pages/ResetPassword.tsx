@@ -54,7 +54,7 @@ export function ResetPassword() {
           <AuthEditorialHeader
             eyebrow="Reset password"
             accent="orange"
-            headline={<>Set a new<br /><span style={{ color: colors.orange }}>password.</span></>}
+            headline={<>Set a new<br /><span style={{ color: colors.orangeDark }}>password.</span></>}
             subtitle="Choose a strong password for your HelloCircle account."
           />
           <form onSubmit={(e: FormEvent) => { e.preventDefault(); submit(); }}>

@@ -7,7 +7,7 @@
    pass). */
 
 .lc-page {
-  font-family: "Hanken Grotesk", "Segoe UI", sans-serif;
+  font-family: "Hanken Grotesk Variable", "Hanken Grotesk", "Segoe UI", sans-serif;
   -webkit-font-smoothing: antialiased;
 }
 
@@ -15,7 +15,7 @@
 .lc-page h2,
 .lc-page h3,
 .lc-page h4 {
-  font-family: "Bricolage Grotesque", "Segoe UI", sans-serif;
+  font-family: "Bricolage Grotesque Variable", "Bricolage Grotesque", "Segoe UI", sans-serif;
   margin: 0;
   text-wrap: balance;
 }

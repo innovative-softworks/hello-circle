@@ -1,3 +1,4 @@
+import { PaginationError, parsePageParams, setNextCursor } from "../pagination.js";
 import { discoverableGameSql } from "../gameVisibility.js";
 import crypto from "node:crypto";
 import fs from "node:fs";
@@ -1024,14 +1025,43 @@ residentsRouter.get("/me/receipts", requireResident, async (req, res) => {
 // (routes/vendor.ts GET /notifications, POST /notifications/:id/read) —
 // same table, just scoped by resident_id instead of recipient_id.
 
+// HC-QA-073 — keyset-paginated per authenticated resident (pagination.ts):
+// newest first, (created_at DESC, id DESC) with id as the unique tie-breaker.
+// The cursor only ever narrows THIS resident's rows (resident_id is always
+// in the WHERE), so it can't reach anyone else's. X-Unread-Count carries the
+// true unread total for the header badge, independent of the page size.
+const toSqlDateTime = (v: unknown) => (v instanceof Date ? v.toISOString().slice(0, 19).replace("T", " ") : String(v));
+
 residentsRouter.get("/me/notifications", requireResident, async (req, res) => {
-  const rows = await db
+  let page;
+  try {
+    page = parsePageParams<[string, number]>(req.query as Record<string, unknown>, ["string", "number"]);
+  } catch (e) {
+    if (e instanceof PaginationError) return res.status(400).json({ error: e.message });
+    throw e;
+  }
+  const params: unknown[] = [req.resident!.id];
+  let keyset = "";
+  if (page.after) {
+    const [createdAt, id] = page.after;
+    if (!/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(createdAt)) return res.status(400).json({ error: "Invalid cursor" });
+    keyset = " AND (created_at < ? OR (created_at = ? AND id < ?))";
+    params.push(createdAt, createdAt, id);
+  }
+  const rows = (await db
     .prepare(
       `SELECT id, kind, title, body, listing_type as listingType, listing_id as listingId, ref, \`read\`, created_at as createdAt
-       FROM notifications WHERE resident_id = ? ORDER BY created_at DESC, id DESC`
+       FROM notifications WHERE resident_id = ?${keyset} ORDER BY created_at DESC, id DESC LIMIT ${page.limit + 1}`
     )
-    .all(req.resident!.id);
-  res.json(rows);
+    .all(...params)) as { id: number; createdAt: unknown }[];
+  const more = rows.length > page.limit;
+  const pageRows = more ? rows.slice(0, page.limit) : rows;
+  const last = pageRows[pageRows.length - 1];
+  setNextCursor(res, more && last ? [toSqlDateTime(last.createdAt), Number(last.id)] : null);
+  const unread = (await db.prepare(`SELECT COUNT(*) as n FROM notifications WHERE resident_id = ? AND \`read\` = 0`).get(req.resident!.id)) as { n: number };
+  res.setHeader("X-Unread-Count", String(Number(unread.n)));
+  res.setHeader("Access-Control-Expose-Headers", "X-Next-Cursor, X-Unread-Count");
+  res.json(pageRows);
 });
 
 residentsRouter.post("/me/notifications/:id/read", requireResident, async (req, res) => {

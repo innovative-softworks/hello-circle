@@ -1,6 +1,35 @@
 # HelloCircle QA Execution Report
 
-## Phase 11B — MVP product gaps: cancellation & invitation control — 2026-10-03 (current)
+## Phase 12 — MVP hardening: accessibility, pagination, product cleanup — 2026-10-03 (current)
+
+Local only. Nothing deployed, no staging provisioned, production untouched, Stripe test mode / stub only, synthetic QA identities, isolated databases.
+
+**Fixed:** HC-QA-059, 060, 065, 070, 071, 072, 073 and 083, plus new findings **HC-QA-098** (Escape didn't close header menus, P3) and **HC-QA-099** (inbox rows were mouse-only, P3). Details and before/after evidence are in each `QA_BUGS/` file, `QA_ACCESSIBILITY.md`, `QA_PERFORMANCE.md`, `QA_PRODUCT_GAPS.md` and `QA_INTEGRATIONS.md`.
+
+**Also done:**
+- A revoked invitation becomes a non-actionable "Invitation withdrawn" notice.
+- Cancelling a programme session notifies residents with a live enrolment, in-app, once.
+- Sign in with Apple is hidden.
+- Google Fonts are self-hosted, so there's no pre-consent request to Google.
+- Unsigned Stripe webhooks are refused unless explicitly opted in locally (never in production or staging).
+
+**Fail-before:** 16 new browser regressions, plus the pagination and webhook-policy server tests, were run against the pre-Phase-12 application code (files checked out from `d414266`, then restored and verified by checksum, 91/91). Every new browser test failed and 7 server tests failed. All pass on the Phase 12 code.
+
+| Gate | Result |
+|---|---|
+| Safety | 97/97 |
+| Client unit | 91/91 |
+| Server unit (isolated) | 496 passed, 23 skipped (51 files). Four older `ogMeta` assertions that venue pages are indexable now run with `VENUE_PAGES_PUBLIC=true` (the launched state they describe); 3 new tests cover the gated default |
+| Typecheck server/client/tests, build | Pass |
+| Auth / Authorization / Security / Lifecycle | 20 / 83 / 39 / 52 |
+| Booking | 38 passed, 2 skipped (unchanged) |
+| Stripe / Smoke | 34/34 / 14/14 |
+| Product (incl. a11y c/d/e, p12 a/b) | 67/67 |
+| Browsers, production build | Chromium 74/74; Firefox 73/74 (LC-UI-DESKTOP-PARTICIPANT timed out in the full batch, then passed 2/2 in isolation: flaky under load); WebKit 70 passed, 1 skipped, 1 failed (known BRW-2 Safari Tab convention in HC-QA-001-CONSENT) |
+
+**Not claimed:** full WCAG 2.2 AA. The checks are WCAG-oriented automated and keyboard checks, with no manual screen-reader pass. **Remaining:** Unsplash hot-links before consent (rights review needed); availability filter and non-date sorts work on loaded pages only; per-row serialisation queries bounded by page size, not removed.
+
+## Phase 11B — MVP product gaps: cancellation & invitation control — 2026-10-03
 
 Implemented locally, uncommitted and not deployed. Only isolated QA/test databases were used.
 

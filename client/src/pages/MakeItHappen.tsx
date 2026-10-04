@@ -113,7 +113,7 @@ export function MakeItHappen() {
   if (!resident) {
     return (
       <section className="section-pad" style={{ maxWidth: 640, margin: "0 auto", padding: "60px 24px", textAlign: "center" }}>
-        <HandshakeIcon size={28} style={{ color: colors.orange, marginBottom: 12 }} />
+        <HandshakeIcon size={28} style={{ color: colors.orangeDark, marginBottom: 12 }} />
         <PageTitle level="section" style={{ margin: "0 0 10px" }}>Make It Happen</PageTitle>
         <p style={{ color: colors.mutedLight, marginBottom: 20 }}>
           Sign in to have HelloCircle find a venue, book it, and recruit the rest of your group.
@@ -133,7 +133,7 @@ export function MakeItHappen() {
         )}
 
         <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
-          <HandshakeIcon size={22} style={{ color: colors.orange }} />
+          <HandshakeIcon size={22} style={{ color: colors.orangeDark }} />
           <PageTitle style={{ margin: 0 }}>Make It Happen</PageTitle>
         </div>
         <p style={{ color: colors.mutedLight, fontSize: 15, margin: "0 0 24px" }}>
