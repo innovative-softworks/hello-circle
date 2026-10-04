@@ -1,6 +1,34 @@
 # HelloCircle QA Execution Report
 
-## Phase 13 — Staging provisioning & integration QA — 2026-10-04 (current)
+## Phase 13A — Staging infrastructure provisioned — 2026-10-04 (current)
+
+Staging is running at **https://staging.hellocircle.ie**. It's on the **production VPS**, an owner-approved deviation (see `QA_STAGING_ENVIRONMENT.md`): its own user, directory, service, database, DB user, nginx site, certificate and backups. Production files, service, database, nginx site and certificate were not modified. The only host-wide changes were the owner-approved firewall (allow 22/80/443) and a 2 GB swapfile.
+
+- **Deployed:** `919c2b7` on `release/staging-phase11a`. Typecheck and build pass on the server (peak memory 2.1 GB of 3.9 GB).
+- **Migration:** explicit migration 0 → 76 tables / 777 columns, fingerprint `b2c8cc9049ad664b`. The internal and a separate second run changed nothing. Pre-migration backup taken.
+- **Isolation (proven):**
+  - the staging DB user can't read `hello_circle` (ERROR 1142);
+  - staging listens on `127.0.0.1:3002` only;
+  - `:3001`, `:3002` and `:3306` are unreachable from the internet;
+  - the browser contacts only the staging host plus Unsplash images, with no production host and no GTM.
+- **nginx:**
+  - HTTP→HTTPS redirect; 401 without the Basic Auth password;
+  - public `robots.txt` with `Disallow: /`; `X-Robots-Tag: noindex, nofollow`;
+  - nosniff, Referrer-Policy, X-Frame-Options SAMEORIGIN, CSP `frame-ancestors 'self'`, HSTS for the staging hostname only;
+  - hashed assets immutable, HTML no-cache, missing assets 404;
+  - `X-Forwarded-For` overwritten (single trusted hop); the Basic credential is never forwarded to the app.
+- **TLS:** Let's Encrypt certificate valid to 2027-01-02; renewal dry run succeeded.
+- **Production sitemap:** contains no staging URLs.
+- **Smoke (Chromium, Firefox, WebKit):** home, SPA navigation, refresh, login, signup, Explore, 404 title and title format all OK.
+- **HC-QA-090 on real staging (all three engines):** serving build A (`bfc1fcd`), then deploying build B (`919c2b7`) under an open tab: old chunk 404 → **exactly 1** recovery reload → build B rendered. No blank page, no prompt.
+- **Logs:** 2,218 lines reviewed. The three staging secret values: 0 occurrences each. Key, token, password and Basic-header patterns: 0.
+- **systemd:** after a SIGKILL, staging auto-restarted in about 5 s; the production PID was unchanged.
+- **New findings:**
+  - HC-QA-103 (P1, production): Node `:3001` public with a trusted `X-Forwarded-For`. Mitigated now by the firewall; code fix `HOST` in `919c2b7` for production's next deploy.
+  - HC-QA-104 (P2, production): Cloudflare edge IP used as every client's IP. Documented; production nginx change deferred.
+  - HC-QA-105 (P3): WebKit unhandled fetch rejection on Home.
+
+## Phase 13 — Staging provisioning & integration QA — 2026-10-04
 
 **Staging was not provisioned and nothing was pushed or deployed.** Both depend on owner actions that can't be done safely from this environment (see "Owner actions" below). Production untouched. Stripe TEST mode only. Synthetic identities. Isolated databases.
 

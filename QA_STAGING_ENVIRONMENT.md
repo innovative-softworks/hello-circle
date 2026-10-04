@@ -1,5 +1,48 @@
 # HelloCircle — Staging environment safety checkpoint (Phase 11)
 
+## Phase 13A — staging PROVISIONED on the shared production VPS (2026-10-04, current)
+
+**The owner explicitly approved** hosting staging on the existing production VPS, with guardrails:
+- no system-wide upgrade;
+- no SSH changes;
+- only additive nginx, database and service changes;
+- no load testing.
+
+This deliberately deviates from the Phase 11A "separate VPS" recommendation. A separate VPS is still recommended before public launch, because the shared host means shared CPU, memory and kernel.
+
+| Item | Staging | Production (untouched except the firewall) |
+|---|---|---|
+| URL | https://staging.hellocircle.ie (DNS-only A record → VPS; HTTP Basic Auth; noindex) | https://hellocircle.ie (Cloudflare-proxied) |
+| App | `/var/www/hellocircle-staging/app`, a git clone of `release/staging-phase11a` (HTTPS, public repo, no credential on disk) | `/opt/hello-circle` (not a git checkout) |
+| Process | `hellocircle-staging.service`, user `hellocircle` (no login shell), `127.0.0.1:3002`, `MemoryMax=1G`, sandboxed, `Restart=on-failure` | `hello-circle.service`, user root, `*:3001` |
+| Database | `hello_circle_staging`, user `hc_staging_app@localhost`; grants on that DB only, and reading `hello_circle` is denied (proven) | `hello_circle` / `hello_circle@localhost` |
+| Config | `/var/www/hellocircle-staging/shared/server.env` (600, hellocircle), symlinked as `app/server/.env`; client build values in `app/client/.env.production.local` | `/opt/hello-circle/server/.env` |
+| nginx | `/etc/nginx/sites-available/hellocircle-staging` (separate file) | `/etc/nginx/sites-available/hello-circle`, checksum verified unchanged |
+| TLS | Let's Encrypt `staging.hellocircle.ie`, webroot `/var/www/letsencrypt`, renewal hook reloads nginx | `hellocircle.ie` certificate |
+| Backups | `/usr/local/sbin/hellocircle-staging-backup` → `/var/backups/hellocircle-staging` (root 700); nightly at 03:15 (`/etc/cron.d/hellocircle-staging-backup`); 14-day retention; staging credentials only | not touched |
+| Secrets | DB password, admin password and Basic Auth password generated on the server, never printed. The owner-readable copy is `/root/hellocircle-staging-admin.txt` (600) | n/a |
+
+**Host-wide changes (approved):**
+- `ufw` enabled: allow 22, 80 and 443 only. This closes HC-QA-103's public `:3001`, plus `:3002`.
+- A 2 GB swapfile with `vm.swappiness=10`.
+- No packages installed.
+
+**Deploy (staging):**
+1. `cd /var/www/hellocircle-staging/app`, then as `hellocircle`: `git fetch && git checkout <commit> && npm ci`.
+2. `nice -n 19 npm run build`.
+3. `/usr/local/sbin/hellocircle-staging-backup pre-<commit>`.
+4. `npm run migrate --workspace server`. It must print `target database=hello_circle_staging`.
+5. `systemctl restart hellocircle-staging`, then `curl http://127.0.0.1:3002/api/health`.
+6. If several restarts are needed within 5 minutes, run `systemctl reset-failed hellocircle-staging` first (start limit 5/300 s).
+
+**Restore (staging only; overwrites staging data):**
+`gunzip -c /var/backups/hellocircle-staging/<file>.sql.gz | mysql --defaults-extra-file=/root/.hellocircle-staging-backup.cnf hello_circle_staging`. There's no down-migration, so restoring the pre-migration backup *is* the schema rollback.
+
+**Rollback (application):** check out the previous commit, then build and restart (steps 1, 2 and 5). The HC-QA-090 recovery covers open tabs: exactly one reload was verified on staging.
+
+**Not configured yet (Phase 13B):** Stripe TEST, SMTP, Firebase, R2/Cloudinary, Mapbox (`VITE_MAPBOX_ENABLED=false`) and GTM (`VITE_GTM_CONTAINER_ID=off`). The Stripe webhook's nginx location is prepared but **commented out** (it must bypass Basic Auth).
+
+
 > **Phase 11A update (2026-10-03):** The approved architecture is a **separate staging VPS**. The full provisioning spec (host, DB users and grants, backups, nginx/TLS/noindex, proxy topology, deployment and rollback) is in **`QA_STAGING_PROVISIONING.md`**. Name-only environment templates are in `deploy/staging/`. Staging is still **NOT PROVISIONED**, and the owner actions listed there are outstanding. Analytics isolation now exists in code: `VITE_GTM_CONTAINER_ID=off` (HC-QA-093). The schema rollback limitation is unchanged: there is no down-migration, so rolling back the schema means restoring the pre-migration backup.
 
 Date: 2026-10-03. This is an inventory and classification of what exists. Configured values were classified locally without being printed.
