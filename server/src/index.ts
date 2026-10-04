@@ -416,6 +416,11 @@ app.use((err: unknown, req: express.Request, res: express.Response, _next: expre
 });
 
 const port = Number(process.env.PORT) || 3001;
-app.listen(port, () => {
-  console.log(`Hello Circle server listening on http://localhost:${port}`);
-});
+// HC-QA-103 — HOST picks the listen address. Behind nginx set HOST=127.0.0.1
+// so Node is reachable only through the proxy (TRUST_PROXY_HOPS trusts the
+// forwarded client IP, which is only safe when no one can reach Node
+// directly). Unset keeps the previous behaviour (all interfaces).
+const host = process.env.HOST?.trim() || undefined;
+const onListening = () => console.log(`Hello Circle server listening on http://${host ?? "localhost"}:${port}`);
+if (host) app.listen(port, host, onListening);
+else app.listen(port, onListening);
