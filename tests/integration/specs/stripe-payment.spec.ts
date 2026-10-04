@@ -3,7 +3,7 @@ import { expect, env } from "../fixtures";
 import { evidence } from "../authorization-fixture";
 import { test, withActors, rows } from "../lifecycle-fixture";
 import { synthCoupon } from "../booking-fixture";
-import { deliver, payOnHostedCheckout, sessionFor, stripe, stripeProfile, stripeUiActor } from "../stripe-fixture";
+import { deliver, payOnHostedCheckout, sessionFor, stripe, stripeProfile, stripeUiActor, expectCheckoutCreated } from "../stripe-fixture";
 import { checkout, guests, localRow, MODELS, paidResource, sleep, TABLE, type Model } from "../stripe-models";
 
 // Phase 9 §12-§15/§17/§19/§28 — real TEST-mode payments on Stripe-hosted
@@ -37,7 +37,7 @@ for (const model of MODELS) {
         const { listing } = await paidResource(f, model);
         const coupon = await synthCoupon(f, { kind: "percent", amount: 10, maxUses: 1 });
         const res = await checkout(model, listing, actor, g.email, { couponCode: coupon });
-        expect(res.status()).toBe(201);
+        await expectCheckoutCreated(res, `${model} paid checkout`);
         const { ref, url, totalEuro } = await res.json();
         f.track("audit_log", "object_id", ref);
         const pending = await localRow(f, model, ref);
@@ -87,7 +87,7 @@ test("STRIPE-DECLINE: a declined test card never confirms; expiry then releases 
       await sleep(500);
       expect(await localRow(f, "experience", ref), "pending experience hold removed").toBeUndefined();
       const rb = await checkout("experience", listing, b.ctx, b.email);
-      expect(rb.status(), "capacity released").toBe(201);
+      await expectCheckoutCreated(rb, "capacity released");
       f.track("audit_log", "object_id", (await rb.json()).ref);
       await evidence("stripe-decline", { providerPaymentStatus: declined.session.payment_status, local: "pending→removed", released: true });
     } finally { for (const x of opened) await x.dispose(); }
@@ -109,7 +109,7 @@ test("STRIPE-LATE-SUCCESS: payment completing after the hold lapsed and the plac
       // Safe control: age THIS row past the 30-minute hold (equivalent of a webhook delivered late).
       await f.connection.execute("UPDATE program_enrollments SET created_at = NOW() - INTERVAL 31 MINUTE WHERE ref = ?", [ref]);
       const rb = await checkout("programme", listing, b.ctx, b.email);
-      expect(rb.status(), "lapsed hold no longer blocks").toBe(201);
+      await expectCheckoutCreated(rb, "lapsed hold no longer blocks");
       const refB = (await rb.json()).ref;
       f.track("audit_log", "object_id", refB);
       expect((await deliver(a.ctx, "checkout.session.completed", paid.session)).status).toBe(200);

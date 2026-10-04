@@ -19,6 +19,7 @@ import { CardSkeleton, Drawer, EmptyState } from "../components/ui";
 import { useGuest } from "../GuestContext";
 import { colors, fonts, maxWidth, placeholderStripes, radius } from "../theme";
 import type { Centre, Circle, Club, DiscoverFeed, DiscoverItem, Experience, SearchResult } from "../types";
+import { irelandToday } from "../irelandDate";
 
 const FOLLOW_FEED_KIND_TO_ENTITY: Record<string, EntityKind> = {
   experience: "experience",
@@ -466,7 +467,7 @@ export function Explore() {
 
   const filteredActivities = useMemo(() => {
     let items = baseActivities;
-    if (qParam.trim() && (when === "today" || when === "tonight")) items = items.filter((i) => i.date === new Date().toISOString().slice(0, 10));
+    if (qParam.trim() && (when === "today" || when === "tonight")) items = items.filter((i) => i.date === irelandToday());
     if (qParam.trim() && when === "weekend") items = items.filter((i) => isWeekendDate(i.date));
     if (needsPeopleOnly) items = items.filter(needsPeopleGame);
     return sortActivities(items, sort);
@@ -776,7 +777,7 @@ export function Explore() {
                     <div style={{ fontSize: 13, fontWeight: 700, color: colors.muted, marginBottom: 12 }}>THINGS TO DO</div>
                     <div style={{ display: "flex", flexWrap: "wrap", gap: 18 }}>
                       {visibleActivities.map((a) => (
-                        <DiscoverCard key={`${a.kind}-${a.id}`} item={a} isToday={a.date === new Date().toISOString().slice(0, 10)} />
+                        <DiscoverCard key={`${a.kind}-${a.id}`} item={a} isToday={a.date === irelandToday()} />
                       ))}
                     </div>
                   </div>
@@ -888,7 +889,7 @@ export function Explore() {
                     ) : (
                       <div style={{ display: "flex", flexWrap: "wrap", gap: 18 }}>
                         {shown.map((a) => (
-                          <DiscoverCard key={`${a.kind}-${a.id}`} item={a} isToday={a.date === new Date().toISOString().slice(0, 10)} />
+                          <DiscoverCard key={`${a.kind}-${a.id}`} item={a} isToday={a.date === irelandToday()} />
                         ))}
                       </div>
                     );

@@ -23,6 +23,7 @@ import { programToBrowseItem } from "./Programs";
 import { cardImageRatio, colors, fonts, maxWidth, photoOverlay, radius } from "../theme";
 import { isValidEmail } from "../validate";
 import type { Program, ProgramSession, ProgramSummary } from "../types";
+import { irelandToday } from "../irelandDate";
 
 // Resident-facing Program detail — the "8-week course, one sign-up"
 // counterpart to Experience detail, laid out the same way (ExperienceDetail
@@ -64,10 +65,6 @@ function InfoBlock({ heading, body }: { heading: string; body: string | null | u
   );
 }
 
-function todayIso(): string {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-}
 
 function formatDuration(minutes: number): string {
   if (minutes < 60) return `${minutes} min`;
@@ -122,7 +119,7 @@ export function ProgramDetail() {
     if (resident?.email) setForm((f) => ({ ...f, email: resident.email }));
   }, [resident]);
 
-  const today = todayIso();
+  const today = irelandToday();
   const upcoming = useMemo<ProgramSession[]>(() => (program?.sessions ?? []).filter((s) => s.date >= today), [program, today]);
   const past = useMemo<ProgramSession[]>(() => (program?.sessions ?? []).filter((s) => s.date < today), [program, today]);
 

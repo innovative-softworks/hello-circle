@@ -47,9 +47,9 @@ export function focused(page: Page): Promise<FocusInfo> {
 }
 
 /** A real browser session logged in as a vendor/admin (req.user) persona. */
-export async function businessUiActor(browser: Browser, role: string, viewport: keyof typeof VIEWPORTS) {
+export async function businessUiActor(browser: Browser, role: string, viewport: keyof typeof VIEWPORTS, opts: { timezoneId?: string } = {}) {
   const mobile = viewport === "mobile";
-  const context: BrowserContext = await browser.newContext({ baseURL: env.E2E_BASE_URL, viewport: VIEWPORTS[viewport], isMobile: mobile && browser.browserType().name() !== "firefox", hasTouch: mobile, serviceWorkers: "block" });
+  const context: BrowserContext = await browser.newContext({ baseURL: env.E2E_BASE_URL, viewport: VIEWPORTS[viewport], isMobile: mobile && browser.browserType().name() !== "firefox", hasTouch: mobile, serviceWorkers: "block", ...(opts.timezoneId ? { timezoneId: opts.timezoneId } : {}) });
   await context.route("**/*", async (route) => {
     if (new URL(route.request().url()).origin === env.E2E_BASE_URL) await route.continue();
     else await route.abort("blockedbyclient");

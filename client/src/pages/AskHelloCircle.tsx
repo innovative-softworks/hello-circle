@@ -11,6 +11,7 @@ import { Spinner } from "../components/ui";
 import { colors, fonts, radius } from "../theme";
 import { fallbackCopy } from "../copy";
 import { ExperienceSearchCard } from "../components/ExperienceSearchCard";
+import { irelandToday } from "../irelandDate";
 
 // Ask HelloCircle (implementation plan Phase 12) — a chat-style front door
 // onto the exact same structured search the /search page already runs
@@ -70,7 +71,7 @@ export function AskHelloCircle() {
                   {t.result.activities.length > 0 && (
                     <div style={{ display: "flex", gap: 14, overflowX: "auto", paddingBottom: 6, marginBottom: 10 }}>
                       {t.result.activities.map((a) => (
-                        <DiscoverCard key={`${a.kind}-${a.id}`} item={a} isToday={a.date === new Date().toISOString().slice(0, 10)} />
+                        <DiscoverCard key={`${a.kind}-${a.id}`} item={a} isToday={a.date === irelandToday()} />
                       ))}
                     </div>
                   )}

@@ -21,6 +21,7 @@ import { MultiImageUpload } from "./VendorImageUpload";
 import { colors, fonts, radius } from "../theme";
 import type { Experience, ExperienceSessionRow, VendorExperienceBooking, VendorExperienceSummary } from "../types";
 import { formatPrice } from "../formatters";
+import { irelandToday } from "../irelandDate";
 
 // Adventures & Experiences — vendor create/edit form + session/booking
 // management, split out the same way VendorPrograms.tsx is (see CLAUDE.md).
@@ -490,7 +491,7 @@ function ExperienceAttendance({ status, onMark }: { status: string | null; onMar
 
 export function BookingsPanel({ experienceId }: { experienceId: string }) {
   const [bookings, setBookings] = useState<VendorExperienceBooking[] | null>(null);
-  const today = new Date().toISOString().slice(0, 10);
+  const today = irelandToday();
 
   useEffect(() => {
     fetchVendorExperienceBookings(experienceId).then(setBookings).catch(() => setBookings([]));

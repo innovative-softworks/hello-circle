@@ -1,6 +1,60 @@
 # HelloCircle QA Execution Report
 
-## Phase 12 — MVP hardening: accessibility, pagination, product cleanup — 2026-10-03 (current)
+## Phase 13 — Staging provisioning & integration QA — 2026-10-04 (current)
+
+**Staging was not provisioned and nothing was pushed or deployed.** Both depend on owner actions that can't be done safely from this environment (see "Owner actions" below). Production untouched. Stripe TEST mode only. Synthetic identities. Isolated databases.
+
+**Git credential safety (Phase A):**
+- Remote: `https` / `github.com` / `innovative-softworks/hello-circle` (**public repository**).
+- The exposed token was removed from `.git/config`: the remote is now credential-free HTTPS. It **remains valid until the owner revokes it** on GitHub.
+- The token value is not in any tracked or ignored repo file, not in git history (0 commits), and not in git config. It does appear in **one line of the owner's `~/.zsh_history`**, outside the repo and untouched.
+- No safe push auth is available: the local SSH key isn't registered on GitHub (`Permission denied (publickey)`), and the keychain's GitHub credential is an OAuth token with **pull-only** access.
+- Secret scans:
+  - 947 tracked files: only known non-secrets (Firebase client config already public on the remote; synthetic test fixtures).
+  - 7 unpushed commits: 25,890 added lines, no real credential.
+- CI (`mobile-ci.yml`) triggers only on `main` and pull requests, so pushing the release branch wouldn't deploy anything.
+
+**Locally fixable items done (Phases G6, Q, R):**
+- **HC-QA-100 (new, P1, fixed):** activities and programme sessions created in Irish summer time were stored one day early. Reproduced in a real Europe/Dublin browser, then fixed with a shared calendar module.
+- **HC-QA-077 (fixed):** "today" follows the Ireland date. 27 UTC sites plus device-local helpers now use `client/src/irelandDate.ts`, and a guard test blocks the pattern from returning.
+- **HC-QA-101 (new, P2, fixed):** a Phase 12 regression where pages filtered only the first page of activities/Circles. Fixed with a server `centreId` filter and small server-filtered requests.
+- **HC-QA-075 (fixed):** CLS 0.218 → 0 (mobile), 0.225 → 0.002 (desktop) on the local production build.
+- **HC-QA-074 (fixed/bounded):** concurrent identical GETs coalesced; duplicates removed on activity detail, Home, My Life and Profile.
+- **HC-QA-095:** structured, secret-free provider-failure diagnostics. Stripe TEST gate 3/3 runs at 34/34; not reproduced, still OPEN (UNKNOWN).
+- **HC-QA-102 (new, P3):** Firefox long journeys flaky in the full batch.
+
+**Local regression (Phase 13 code):**
+
+| Gate | Result |
+|---|---|
+| Safety | 97/97 |
+| Client unit | 105/105 (16 files; +14: Ireland date, guard, coalescing) |
+| Server unit (isolated) | 502 passed, 23 skipped (52 files; +6: diagnostics, HC-QA-101) |
+| Typecheck server/client/tests, build | Pass |
+| Auth / Authorization / Security / Lifecycle | 20 / 83 / 39 / 52 |
+| Booking | 38 passed, 2 skipped (unchanged) |
+| Stripe (TEST) | 34/34 in 4 separate runs |
+| Smoke | 14/14 |
+| Product | 68 passed, 1 skipped (the perf measurement runs only on production builds); exit 0 |
+| Browsers, production build | Chromium **76/76**, exit 0. Firefox 70 passed, 2 failed in the full batch (LC-UI-MOBILE timeout, HC-QA-057 desktop), both passing in isolation (HC-QA-102). WebKit 71 passed, 1 failed (known BRW-2 Tab convention), 2 skipped |
+
+**HC-QA-067 note:** the CLS layout change made this keyboard regression intermittent in Chromium. The cause was a key pressed during the browser's own focus-scroll animation, and the test now waits for the focused control to come to rest. The assertion is unchanged, and it passes 8/8. Full analysis is in `QA_BUGS/HC-QA-067.md`.
+
+**Blocked on staging (not done):** HTTPS/nginx/systemd, the staging DB and migration, the real Stripe HTTPS webhook / retry / expiry / refund, Firebase, R2, email, Mapbox, staging browser and mobile smoke, the HC-QA-076 load test, backup/restore and rollback rehearsals.
+
+**Owner actions (manual, not doable from here):**
+1. Revoke the exposed GitHub token on GitHub (Settings → Developer settings → Personal access tokens) and delete its line from `~/.zsh_history`.
+2. Give this machine push access without a token in the URL: register `~/.ssh/id_ed25519.pub` on the GitHub account (or a deploy key with write access), **or** sign in with a credential manager (`gh auth login`) as a user with push rights.
+3. Supply and approve a separate staging VPS (2 vCPU / 4 GB / 40–60 GB, Ubuntu LTS), the `staging.hellocircle.ie` DNS record, and the access method (SSH key).
+4. Provide staging-only credentials, never in chat:
+   - Stripe TEST secret key, and a TEST webhook endpoint secret created for the staging URL;
+   - a staging Firebase project;
+   - a rotated, staging-scoped R2 token and bucket;
+   - an SMTP sandbox;
+   - a URL-restricted Mapbox token.
+5. Explicit authorisation to push `release/staging-phase11a` once (2) is done.
+
+## Phase 12 — MVP hardening: accessibility, pagination, product cleanup — 2026-10-03
 
 Local only. Nothing deployed, no staging provisioned, production untouched, Stripe test mode / stub only, synthetic QA identities, isolated databases.
 

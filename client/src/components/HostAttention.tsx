@@ -5,6 +5,7 @@ import { BellIcon, CalendarIcon, UsersIcon } from "./icons";
 import { Button, ManageCard as Card } from "./ui";
 import { colors, fonts, radius } from "../theme";
 import type { Game } from "../types";
+import { irelandDaysFromToday, irelandToday } from "../irelandDate";
 
 // "Needs your attention" (Host Manage spec §4), the resident-Host
 // counterpart to VendorAttention.tsx — same "lead straight into the
@@ -60,8 +61,8 @@ export function HostAttentionPanel({ residentId, onGoToActivities }: { residentI
 
   if (games === null) return null;
 
-  const todayIso = new Date().toISOString().slice(0, 10);
-  const windowEndIso = new Date(Date.now() + NEARLY_FULL_WINDOW_DAYS * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const todayIso = irelandToday();
+  const windowEndIso = irelandDaysFromToday(NEARLY_FULL_WINDOW_DAYS);
 
   const nearlyFull = games.filter(
     (g) => g.status === "open" && g.date >= todayIso && g.date <= windowEndIso && g.spotsLeft > 0 && g.spotsLeft <= NEARLY_FULL_SPOTS_LEFT

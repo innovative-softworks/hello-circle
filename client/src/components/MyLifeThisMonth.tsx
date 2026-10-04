@@ -1,5 +1,6 @@
 import { colors, fonts } from "../theme";
 import type { ParticipationEntry } from "../types";
+import { irelandMonthStart, irelandToday } from "../irelandDate";
 
 const WEEKDAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
@@ -24,9 +25,8 @@ function personalInsight(entries: ParticipationEntry[], monthEntries: Participat
 }
 
 export function MyLifeThisMonth({ entries }: { entries: ParticipationEntry[] }) {
-  const now = new Date();
-  const today = now.toISOString().slice(0, 10);
-  const monthStart = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`;
+  const today = irelandToday();
+  const monthStart = irelandMonthStart();
 
   const monthEntries = entries.filter((e) => e.date >= monthStart && e.date <= today && e.status !== "cancelled");
   if (monthEntries.length === 0) return null;

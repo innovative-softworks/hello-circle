@@ -19,6 +19,7 @@ import { DemandSignalsView } from "./DemandSignals";
 import { MonthCalendar } from "./MonthCalendar";
 import { colors, fonts, radius } from "../theme";
 import type { DemandRow, MyRegistration, VendorBookingRow } from "../types";
+import { irelandToday } from "../irelandDate";
 
 // Bookings/registrations visibility (with manual check-in) + demand
 // intelligence — split out of the original single VendorDashboard.tsx (see
@@ -470,7 +471,7 @@ export function BookingsTab({ centreId, clubId }: { centreId?: string; clubId?: 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [centreId, clubId]);
 
-  const today = new Date().toISOString().slice(0, 10);
+  const today = irelandToday();
 
   const filteredBookings = useMemo(
     () =>

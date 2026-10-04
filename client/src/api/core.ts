@@ -63,7 +63,19 @@ function reportIfSessionExpired(path: string, status: number): void {
   sessionExpiredHandler(VENDOR_SCOPED_PREFIXES.some((p) => path.startsWith(p)) ? "vendor" : "resident", path);
 }
 
-export async function request<T>(path: string, init?: RequestInit): Promise<T> {
+// HC-QA-074 — identical GETs issued at the same moment (sibling components
+// fetching the same resource on mount: a join card and a participant list, the
+// session context and a page) share ONE network request. Each caller gets its
+// own copy of the result, and nothing is kept once the response settles, so a
+// later call always goes to the network — this coalesces, it never caches.
+type Settled = { ok: boolean; status: number; body: unknown };
+const inflight = new Map<string, Promise<Settled>>();
+
+function coalescible(init?: RequestInit): boolean {
+  return !init || ((!init.method || init.method.toUpperCase() === "GET") && init.body == null && !init.headers && !init.signal);
+}
+
+async function send(path: string, init?: RequestInit): Promise<Settled> {
   const res = await fetch(`/api${path}`, {
     ...init,
     credentials: "include",
@@ -76,9 +88,28 @@ export async function request<T>(path: string, init?: RequestInit): Promise<T> {
   if (!res.ok) {
     const body = await res.json().catch(() => ({ error: res.statusText }));
     reportIfSessionExpired(path, res.status);
-    throw new ApiError(body.error || `Request failed: ${res.status}`, body, res.status);
+    return { ok: false, status: res.status, body };
   }
-  return res.json() as Promise<T>;
+  return { ok: true, status: res.status, body: await res.json() };
+}
+
+export async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  let pending: Promise<Settled>;
+  if (coalescible(init)) {
+    const existing = inflight.get(path);
+    if (existing) pending = existing;
+    else {
+      pending = send(path, init).finally(() => inflight.delete(path));
+      inflight.set(path, pending);
+    }
+  } else pending = send(path, init);
+  const settled = await pending;
+  const body = structuredClone(settled.body);
+  if (!settled.ok) {
+    const b = body as Record<string, unknown>;
+    throw new ApiError((b.error as string) || `Request failed: ${settled.status}`, b, settled.status);
+  }
+  return body as T;
 }
 
 /** HC-QA-073 — one page of a keyset-paginated list endpoint: the body is the

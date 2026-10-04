@@ -1,6 +1,24 @@
 # HelloCircle — Performance QA (Phase 10)
 
-## Phase 12 — HC-QA-073 server-side pagination, before/after (2026-10-03, current)
+## Phase 13 — CLS and duplicate requests, before/after (2026-10-04, current)
+
+Staging isn't provisioned, so this was measured on the **local production build**: `tests/integration/specs/perf-p13.spec.ts`, Chromium, 4× CPU and 150 ms latency (Phase 10's throttling), each route loaded cold. Before = committed `bfc1fcd`; after = Phase 13 working tree.
+
+| Route | CLS mobile before → after | CLS desktop before → after | API requests before → after |
+|---|---|---|---|
+| /home | 0.218 → 0 | 0.225 → 0.002 | 12 → 11 |
+| /explore | 0.218 → 0 | 0.074 → 0.002 | 5 → 5 |
+| /games | 0.218 → 0 | 0.176 → 0.002 | 4 → 4 |
+| activity detail | 0.218 → 0 | 0.150 → 0.002 | 10 → 9 |
+| /circles | 0 → 0 | 0.152 → 0.002 | 5 → 5 |
+| /my-life | 0.112 → 0 | 0.003 → 0.003 | 23 → 21 |
+| /profile | 0 → 0 | 0.054 → 0.003 | 10 → 9 |
+
+- **HC-QA-075:** the footer was the only significant shift source; `main` now fills the viewport.
+- **HC-QA-074:** concurrent identical GETs are coalesced in `request()`; related lists and the centre page ask for small server-filtered sets (HC-QA-101).
+- **HC-QA-076 (throughput):** **not re-measured.** The brief asks for a controlled load test on staging, and no staging host exists. A local laptop number wouldn't answer the capacity question.
+
+## Phase 12 — HC-QA-073 server-side pagination, before/after (2026-10-03)
 
 Measured by `server/src/routes/paginationPerf.test.ts`, run in the isolated server-test profile against the pre-Phase-12 commit (`d414266`) and then the Phase 12 code. Same machine and same dataset: 2,000 public activities, 300 Circles, 2,000 notifications for one resident. Median of repeated requests. "Queries" counts `db.prepare()` calls (an approximation of DB round-trips). These are lab numbers, not field data.
 

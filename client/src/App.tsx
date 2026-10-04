@@ -300,7 +300,11 @@ export function App() {
             </a>
             <SessionExpiryBanner />
             {!hideHeader && <Header />}
-            <main ref={mainRef} id="main-content" tabIndex={-1} className={hideTabBar ? undefined : "mobile-tab-bar-space"} style={isStandaloneLanding || isComingSoon ? undefined : { minHeight: "70vh" }}>
+            {/* HC-QA-075 — main fills at least the viewport, so the footer starts
+                below the fold. While a route's chunk and data load, the footer
+                moves only off-screen, which isn't a visible layout shift (it
+                was ~0.22 CLS on most routes at 70vh). */}
+            <main ref={mainRef} id="main-content" tabIndex={-1} className={hideTabBar ? undefined : "mobile-tab-bar-space"} style={isStandaloneLanding || isComingSoon ? undefined : { minHeight: "100vh" }}>
               {gated || venueGated ? (
                 <Routes>
                   <Route path="/coming-soon" element={<ComingSoon />} />

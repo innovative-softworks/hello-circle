@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { deriveActivityStatus } from "./activityStatus";
 
 // Host Experience Polish — the derived-status priority order matters (a
@@ -35,5 +35,21 @@ describe("deriveActivityStatus", () => {
     expect(deriveActivityStatus({ status: "open", date: "2099-01-01", spotsLeft: 0, capacity: 10, effectiveLifecycle: "coming_soon" }).label).toBe("Coming soon");
     expect(deriveActivityStatus({ status: "open", date: "2099-01-01", spotsLeft: 0, capacity: 10, effectiveLifecycle: "paused" }).label).toBe("Paused");
     expect(deriveActivityStatus({ status: "open", date: "2020-01-01", spotsLeft: 0, capacity: 10, effectiveLifecycle: "archived" }).label).toBe("Archived");
+  });
+});
+
+// HC-QA-077 — "Completed" is decided by the Ireland date, not the UTC date.
+describe("deriveActivityStatus — Ireland day boundary", () => {
+  afterEach(() => { vi.useRealTimers(); });
+  const game = { status: "open" as const, date: "2027-07-14", spotsLeft: 5, capacity: 10, effectiveLifecycle: "active" as const };
+
+  it("at 00:30 Irish summer time (23:30 UTC the day before) yesterday's activity is Completed", () => {
+    vi.useFakeTimers(); vi.setSystemTime(new Date("2027-07-14T23:30:00Z"));
+    expect(deriveActivityStatus(game).label).toBe("Completed");
+  });
+
+  it("at 23:30 Irish summer time the same-day activity is still Open", () => {
+    vi.useFakeTimers(); vi.setSystemTime(new Date("2027-07-14T22:30:00Z"));
+    expect(deriveActivityStatus(game).label).toBe("Open");
   });
 });

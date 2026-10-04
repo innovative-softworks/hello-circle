@@ -16,6 +16,7 @@ import { colors, fonts, radius } from "../theme";
 import { fallbackCopy } from "../copy";
 import type { Centre, Room } from "../types";
 import { isValidEmail } from "../validate";
+import { irelandToday } from "../irelandDate";
 
 interface BookingForm {
   date: string | null;
@@ -115,7 +116,7 @@ export function BookingFlow() {
   const isCash = room?.paymentMethod === "cash";
 
   useEffect(() => {
-    if (centreId && roomId) fetchAvailabilityRange(centreId, roomId, toIso(new Date()), 62).then((r) => setClosedDates(new Set(r.closedDates)));
+    if (centreId && roomId) fetchAvailabilityRange(centreId, roomId, irelandToday(), 62).then((r) => setClosedDates(new Set(r.closedDates)));
   }, [centreId, roomId]);
 
   useEffect(() => {

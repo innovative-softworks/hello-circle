@@ -224,7 +224,8 @@ async function toGameJson(row: GameRow) {
 //   q (activity / centre / location / area), county, category (exact
 //   activity), dateFrom/dateTo (ISO), timeFrom (HH:MM), weekend=1,
 //   priceMin/priceMax (cents), skill (matches like the UI: unset/"All levels"
-//   always match). Order: date, time, id (total, stable).
+//   always match), centreId (a venue's own activities — HC-QA-101).
+//   Order: date, time, id (total, stable).
 gamesRouter.get("/", async (req, res) => {
   let page;
   try {
@@ -238,6 +239,7 @@ gamesRouter.get("/", async (req, res) => {
   const where: string[] = ["g.status = 'open'", discoverableGameSql("g"), "g.date >= ?"];
   const params: unknown[] = [irelandTodayIso()];
   if (q.county) { where.push("c.county = ?"); params.push(q.county); }
+  if (q.centreId) { where.push("g.centre_id = ?"); params.push(q.centreId); }
   if (q.category) { where.push("g.activity_label = ?"); params.push(q.category); }
   if (q.q && q.q.trim()) {
     const like = `%${q.q.trim().toLowerCase().replace(/[\\%_]/g, (m) => `\\${m}`)}%`;

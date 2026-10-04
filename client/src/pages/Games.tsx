@@ -23,6 +23,7 @@ import { useGuest } from "../GuestContext";
 import { cardImageRatio, colors, fonts, maxWidth, photoOverlay, placeholderStripes, radius } from "../theme";
 import { SKILL_LEVELS } from "../constants";
 import type { Game } from "../types";
+import { daysBetween, irelandDaysFromToday, irelandToday, weekdayOf } from "../irelandDate";
 
 // "Join a Game" (MVP) — the lightweight, participation-first counterpart to
 // booking a whole venue: see plan doc "Book vs Join". v1 is deliberately
@@ -264,15 +265,12 @@ function priceMatches(game: Game, tier: PriceTier): boolean {
 
 function dateWhenMatches(game: Game, when: WhenFilter, whenDate: string): boolean {
   if (when === "any") return true;
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const d = new Date(`${game.date}T00:00:00`);
-  const diffDays = Math.round((d.getTime() - today.getTime()) / 86400000);
+  const diffDays = daysBetween(irelandToday(), game.date);
   if (when === "today") return diffDays === 0;
   if (when === "tonight") return diffDays === 0 && game.time >= "17:00";
   if (when === "tomorrow") return diffDays === 1;
   if (when === "weekend") {
-    const day = d.getDay();
+    const day = weekdayOf(game.date);
     return diffDays >= 0 && diffDays <= 7 && (day === 0 || day === 6);
   }
   if (when === "next7") return diffDays >= 0 && diffDays <= 7;
@@ -690,7 +688,7 @@ export function Games() {
   }, [parsedQuery.text]);
   const serverFilters = useMemo<GameListFilters>(() => {
     const f: GameListFilters = { q: debouncedText || undefined, county: county !== "All" ? county : undefined, category: category !== "All" ? category : undefined, skill: skill !== "any" ? skill : undefined };
-    const day = (offset: number) => { const d = new Date(); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() + offset); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
+    const day = irelandDaysFromToday;
     if (effectiveWhen === "today") { f.dateFrom = day(0); f.dateTo = day(0); }
     if (effectiveWhen === "tonight") { f.dateFrom = day(0); f.dateTo = day(0); f.timeFrom = "17:00"; }
     if (effectiveWhen === "tomorrow") { f.dateFrom = day(1); f.dateTo = day(1); }

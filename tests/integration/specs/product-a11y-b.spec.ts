@@ -20,6 +20,16 @@ test("HC-QA-067: the activity cover 'Add photo' control is reachable and operabl
       const add = await tabTo(page, (x) => x.tag === "BUTTON" && /add photo/i.test(x.name), { max: 80 });
       expect(add, "Add photo reachable by Tab as a button").not.toBeNull();
       expect(add!.focusVisible).toBe(true);
+      // Phase 13 — focusing a control near the viewport edge starts the
+      // browser's animated focus scroll (scroll-padding-bottom); a key pressed
+      // mid-animation intermittently lost the activation in Chromium. Act once
+      // the focused control has come to rest, as a person would.
+      await expect.poll(async () => {
+        const a = await page.evaluate(() => Math.round((document.activeElement as HTMLElement).getBoundingClientRect().top));
+        await page.waitForTimeout(150);
+        const b = await page.evaluate(() => Math.round((document.activeElement as HTMLElement).getBoundingClientRect().top));
+        return a === b;
+      }, { message: "focused control at rest" }).toBe(true);
       for (const key of ["Enter", "Space"]) {
         const chooser = page.waitForEvent("filechooser", { timeout: 3_000 });
         await page.keyboard.press(key);

@@ -88,6 +88,16 @@ async function main() {
         response.end(JSON.stringify(sentMail.filter((m) => m.to === to)));
         return true;
       }
+      // HC-QA-095 — classified provider failures (category/type/code/status/
+      // request id only; never messages or keys) so a failed checkout in the
+      // Stripe TEST gate records WHY, not just "400".
+      if (request.url === "/api/__qa/stripe-failures") {
+        import("../../server/src/stripeDiagnostics").then(({ recentStripeFailures }) => {
+          response.setHeader("Content-Type", "application/json");
+          response.end(JSON.stringify(recentStripeFailures()));
+        });
+        return true;
+      }
       if (request.url === "/api/__qa/identity") {
         response.setHeader("Content-Type", "application/json");
         response.end(JSON.stringify({ ...identity, runId: checked.manifest.runId }));

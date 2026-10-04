@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import Stripe from "stripe";
-import type { APIRequestContext, Browser, BrowserContext, Page } from "@playwright/test";
+import type { APIRequestContext, APIResponse, Browser, BrowserContext, Page } from "@playwright/test";
+import { evidence } from "./authorization-fixture";
 import { expect, env, personas } from "./fixtures";
 import { isStripeBrowserHost, QA_WEBHOOK_SECRET_PATTERN } from "../support/integration-safety";
 
@@ -69,4 +70,20 @@ export async function payOnHostedCheckout(page: Page, card = "4242424242424242")
   const postal = page.locator("#billingPostalCode");
   if (await postal.isVisible().catch(() => false)) await postal.fill("D01 F5P2");
   await page.locator('[data-testid="hosted-payment-submit-button"]').click();
+}
+
+/** HC-QA-095 — asserts a Stripe Checkout was created (201). On failure it
+ * records the server's CLASSIFIED provider failure (category / Stripe error
+ * type and code / provider HTTP status / request id — never messages, keys or
+ * payment details), so an intermittent failure says why instead of "400". */
+export async function expectCheckoutCreated(res: APIResponse, label: string) {
+  if (res.status() === 201) return;
+  type Failure = { operation: string; category: string; type: string | null; code: string | null; statusCode: number | null; requestId: string | null };
+  const failures: Failure[] = await fetch(`${new URL(env.E2E_API_URL).origin}/api/__qa/stripe-failures`).then((r) => r.json()).catch(() => []);
+  const last = failures.at(-1);
+  await evidence(`hc-qa-095-${label.replace(/[^a-z0-9]+/gi, "-").toLowerCase()}`, {
+    status: res.status(), operation: last?.operation ?? "none-recorded", category: last?.category ?? "none-recorded",
+    type: last?.type ?? "-", code: last?.code ?? "-", providerStatus: last?.statusCode ?? 0, requestId: last?.requestId ?? "-",
+  });
+  expect(res.status(), `${label}: provider failure category=${last?.category ?? "none recorded"} code=${last?.code ?? "-"} request_id=${last?.requestId ?? "-"}`).toBe(201);
 }

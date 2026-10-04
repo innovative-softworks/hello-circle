@@ -60,6 +60,7 @@ import { getMediaUrl } from "../media";
 import { colors, fonts, radius } from "../theme";
 import { describeAvailability } from "../participationVocab";
 import type { Circle, Favourite, Game, MyBooking, MyExperienceBooking, MyIntent, MyProgramEnrollment, MyRegistration, NeedsAttentionItem, ParticipationEntry, ResidentFull, RoutineSuggestion, WaitlistOfferStatus } from "../types";
+import { irelandDaysFromToday, irelandToday } from "../irelandDate";
 
 // My Life — participation-first home (IA redesign). One purpose: "what am
 // I doing next, what else is coming, what's worth doing again, who/what am
@@ -618,8 +619,8 @@ export function MyBookings() {
     programEnrollments.length === 0 &&
     experienceBookings.length === 0;
 
-  const today = new Date().toISOString().slice(0, 10);
-  const tomorrow = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
+  const today = irelandToday();
+  const tomorrow = irelandDaysFromToday(1);
   const timelineRows: { date: string; el: JSX.Element }[] = [
     ...bookings.map((b) => ({
       date: b.date,

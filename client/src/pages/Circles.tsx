@@ -27,6 +27,7 @@ import { Button, CardSkeleton, EmptyState, LoadErrorState, LoadMoreControl } fro
 import { useGuest } from "../GuestContext";
 import { cardImageRatio, colors, fonts, maxWidth, placeholderStripes, radius } from "../theme";
 import type { Circle, CircleInvitation, CircleSuggestion, Game } from "../types";
+import { irelandDaysFromToday } from "../irelandDate";
 
 // Circles discovery redesign — was a plain database-style list (name, "X
 // members", Join button). This rebuilds it as a discovery landing page per
@@ -212,7 +213,7 @@ export function Circles() {
   };
   useEffect(() => {
     // "This week" stats: bounded to the next 7 days (not the whole list).
-    const day = (offset: number) => { const d = new Date(); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() + offset); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
+    const day = irelandDaysFromToday;
     fetchGamesPage({ dateFrom: day(0), dateTo: day(7), limit: 100 }).then((p) => setGames(p.items)).catch(() => setGames([]));
   }, []);
   useEffect(() => {

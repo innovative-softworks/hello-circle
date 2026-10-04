@@ -12,6 +12,7 @@ import { dateLabel } from "../euro";
 import { formatAvailability, formatDateTime, formatPrice } from "../formatters";
 import { cardImageRatio, colors, fonts, maxWidth, radius } from "../theme";
 import type { MapMarkerType } from "../types";
+import { daysBetween, irelandToday, weekdayOf } from "../irelandDate";
 
 // Shared browse layout for the "book a spot on something" listing pages —
 // Adventures, Experiences, Volunteer (ExperienceKindBrowse.tsx) and
@@ -132,14 +133,11 @@ function dateWhenMatches(e: BrowseItem, when: WhenFilter, whenDate: string): boo
   if (when === "any") return true;
   const session = e.next;
   if (!session) return false;
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const d = new Date(`${session.date}T00:00:00`);
-  const diffDays = Math.round((d.getTime() - today.getTime()) / 86400000);
+  const diffDays = daysBetween(irelandToday(), session.date);
   if (when === "today") return diffDays === 0;
   if (when === "tomorrow") return diffDays === 1;
   if (when === "weekend") {
-    const day = d.getDay();
+    const day = weekdayOf(session.date);
     return diffDays >= 0 && diffDays <= 7 && (day === 0 || day === 6);
   }
   if (when === "next7") return diffDays >= 0 && diffDays <= 7;

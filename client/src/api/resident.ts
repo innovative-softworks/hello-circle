@@ -426,7 +426,7 @@ export function fetchGames(county?: string): Promise<Game[]> {
 /** HC-QA-073 — server-side filters for the paginated activity list. */
 export interface GameListFilters {
   q?: string; county?: string; category?: string; dateFrom?: string; dateTo?: string;
-  timeFrom?: string; weekend?: boolean; priceMin?: number; priceMax?: number; skill?: string; limit?: number;
+  timeFrom?: string; weekend?: boolean; priceMin?: number; priceMax?: number; skill?: string; centreId?: string; limit?: number;
 }
 
 export function fetchGamesPage(filters: GameListFilters = {}, cursor?: string | null): Promise<Page<Game>> {

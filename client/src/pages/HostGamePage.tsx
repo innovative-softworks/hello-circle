@@ -14,6 +14,7 @@ import { useGuest } from "../GuestContext";
 import { colors, radius } from "../theme";
 import { SKILL_LEVELS } from "../constants";
 import type { Centre } from "../types";
+import { occurrenceDates } from "../irelandDate";
 
 // ISO UTC -> the local wall-clock string a datetime-local input expects —
 // the reverse of handleSubmit's `new Date(form.confirmationDeadline).toISOString()`.
@@ -245,12 +246,10 @@ export function HostGamePage() {
       }
       const count = repeat === "none" ? 1 : Math.max(1, Math.min(52, occurrences));
       let firstGame: { id: string; lifecycle?: string } | null = null;
-      for (let i = 0; i < count; i++) {
-        const d = new Date(`${form.date}T00:00:00`);
-        if (repeat === "weekly") d.setDate(d.getDate() + 7 * i);
-        else if (repeat === "biweekly") d.setDate(d.getDate() + 14 * i);
-        else if (repeat === "monthly") d.setMonth(d.getMonth() + i);
-        const occurrenceDate = d.toISOString().slice(0, 10);
+      // HC-QA-100 — calendar arithmetic on the picked date; never via local midnight.
+      const dates = occurrenceDates(form.date, repeat, count);
+      for (let i = 0; i < dates.length; i++) {
+        const occurrenceDate = dates[i];
         const game = await createGame({ ...baseInput, date: occurrenceDate });
         if (i === 0) firstGame = game;
       }

@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from "react";
 import { ChevronLeftIcon, ChevronRightIcon } from "./icons";
 import { colors, fonts, radius } from "../theme";
+import { irelandToday } from "../irelandDate";
 
 // My Life calendar grid view (IA spec §9) — a real month grid over whatever
 // dated rows the caller already has (bookings/games today; nothing new is
@@ -19,7 +20,7 @@ export function MonthCalendar({ items }: { items: { date: string; el: ReactNode 
   const firstDow = viewMonth.getDay();
   const daysInMonth = new Date(viewMonth.getFullYear(), viewMonth.getMonth() + 1, 0).getDate();
   const monthKey = `${viewMonth.getFullYear()}-${String(viewMonth.getMonth() + 1).padStart(2, "0")}`;
-  const todayStr = new Date().toISOString().slice(0, 10);
+  const todayStr = irelandToday();
 
   const byDate = new Map<string, number>();
   for (const item of items) byDate.set(item.date, (byDate.get(item.date) ?? 0) + 1);

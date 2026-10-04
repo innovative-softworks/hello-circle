@@ -2,6 +2,7 @@ import { useNavigate } from "react-router-dom";
 import { BallIcon, CalendarIcon, CheckCircleIcon, RepeatIcon, TagIcon } from "./icons";
 import { colors, fonts } from "../theme";
 import type { ParticipationEntry } from "../types";
+import { irelandToday } from "../irelandDate";
 
 // "Recent activity" (My Life redesign §15) — a chronological ledger, not a
 // social feed. Built entirely from the existing fetchMyParticipation()
@@ -64,7 +65,7 @@ export function MyLifeRecentActivity({ entries, onViewFull }: { entries: Partici
   const navigate = useNavigate();
   if (entries.length === 0) return null;
 
-  const today = new Date().toISOString().slice(0, 10);
+  const today = irelandToday();
   const visible = entries.slice(0, VISIBLE_LIMIT);
   const groups = GROUP_ORDER.map((g) => ({ g, rows: visible.filter((e) => groupKey(e.date, today) === g) })).filter((s) => s.rows.length > 0);
 

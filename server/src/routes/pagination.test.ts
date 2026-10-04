@@ -142,6 +142,19 @@ describe("activities", () => {
     expect(new Set(free.ids).size).toBe(free.ids.length);
   }, 120_000);
 
+  it("HC-QA-101: centreId filters in the query — a venue's activities are found even behind 2,000 earlier ones, and a hidden one never leaks", async () => {
+    viewer = null;
+    const centre = `${TAG}-centre`;
+    const mine = publicIds.filter((_, i) => i % 40 === 39).slice(0, 3); // the latest dates in the set
+    const draft = hiddenIds.find((id) => id.includes("-draft-"))!;
+    await db.prepare(`UPDATE games SET centre_id = ? WHERE id IN (?, ?, ?, ?)`).run(centre, ...mine, draft);
+    const res = await fetch(`${base}/games?centreId=${encodeURIComponent(centre)}`);
+    expect(res.status).toBe(200);
+    const ids = ((await res.json()) as { id: string }[]).map((g) => g.id);
+    expect(new Set(ids)).toEqual(new Set(mine));
+    expect(res.headers.get("x-next-cursor"), "single short page").toBeNull();
+  });
+
   it("an activity inserted between page requests causes no duplicate or skip", async () => {
     viewer = null;
     const first = await fetch(`${base}/games?q=${TAG}&limit=100`);

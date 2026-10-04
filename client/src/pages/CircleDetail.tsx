@@ -16,7 +16,7 @@ import {
   fetchCirclePolls,
   fetchCircleRecentActivity,
   fetchCircleUpcoming,
-  fetchCircles,
+  fetchCirclesPage,
   fetchGame,
   fetchMyCircles,
   fetchMyReports,
@@ -264,11 +264,12 @@ export function CircleDetail() {
   }, [circle?.id, circle?.restricted]);
   useEffect(() => {
     if (!circle || circle.restricted) return;
-    fetchCircles(circle.county ?? undefined)
-      .then(async (rows) => {
+    // HC-QA-074 — three are shown, so ask for a handful, not the whole list.
+    fetchCirclesPage({ county: circle.county ?? undefined, limit: 4 })
+      .then(async ({ items: rows }) => {
         let others = rows.filter((c) => c.id !== circle.id);
         if (others.length < 3) {
-          const all = await fetchCircles().catch(() => []);
+          const all = await fetchCirclesPage({ limit: 8 }).then((p) => p.items).catch(() => []);
           const seen = new Set(others.map((c) => c.id));
           for (const c of all) {
             if (c.id === circle.id || seen.has(c.id)) continue;

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { fetchGames } from "../api";
+import { fetchGamesPage } from "../api";
 import { BallIcon } from "./icons";
 import { Photo } from "./Photo";
 import { dateLabel } from "../euro";
@@ -59,9 +59,17 @@ export function GameRelated({ game }: { game: Game }) {
   const [related, setRelated] = useState<Game[]>([]);
 
   useEffect(() => {
-    fetchGames()
-      .then((rows) => setRelated(rankRelated(rows, game).slice(0, 4)))
-      .catch(() => setRelated([]));
+    // HC-QA-074/101 — two small server-filtered candidate sets (same
+    // activity, then same county) instead of the whole public list.
+    let live = true;
+    (async () => {
+      const same = await fetchGamesPage({ category: game.activityLabel, limit: 12 }).then((p) => p.items).catch(() => [] as Game[]);
+      const others = same.filter((g) => g.id !== game.id);
+      const nearby = others.length >= 4 || !game.county ? [] : await fetchGamesPage({ county: game.county, limit: 12 }).then((p) => p.items).catch(() => [] as Game[]);
+      const merged = [...new Map([...same, ...nearby].map((g) => [g.id, g])).values()];
+      if (live) setRelated(rankRelated(merged, game).slice(0, 4));
+    })();
+    return () => { live = false; };
   }, [game.id, game.activityLabel, game.county]);
 
   if (related.length === 0) return null;

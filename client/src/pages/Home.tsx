@@ -51,6 +51,7 @@ import { haversineDistanceKm, nearestCounty } from "../irishCounties";
 import { colors, fonts, maxWidth, radius } from "../theme";
 import type { Centre, Circle, Club, DiscoverFeed, DiscoverItem, Experience, Game, LocalMomentumSignal, MyBooking, RoutineSuggestion } from "../types";
 import { RevealText } from "../components/RevealText";
+import { irelandToday } from "../irelandDate";
 
 // Home's intent selector (IA spec §3) — reuses discover.ts's existing mood
 // keyword filter (built for Free Time Mode) rather than a new taxonomy.
@@ -434,7 +435,7 @@ export function Home() {
   // bookings and cancelled games are excluded; today's own date still
   // counts (a same-day game/booking is still "next").
   const nextPlan = useMemo(() => {
-    const today = new Date().toISOString().slice(0, 10);
+    const today = irelandToday();
     const nextGame = myGames
       .filter((g) => g.status !== "cancelled" && g.date >= today)
       .sort((a, b) => a.date.localeCompare(b.date) || a.time.localeCompare(b.time))[0];
@@ -455,7 +456,7 @@ export function Home() {
   // games for a real upcoming occurrence — shown only when one actually
   // exists, never a fabricated "next Wednesday" guess.
   const doItAgain = useMemo(() => {
-    const today = new Date().toISOString().slice(0, 10);
+    const today = irelandToday();
     for (const s of routineSuggestions) {
       const match = openGames.find((g) => g.activityLabel === s.activityLabel && g.status !== "cancelled" && g.date >= today);
       if (match) return { suggestion: s, game: match };
@@ -471,7 +472,7 @@ export function Home() {
   // soonest upcoming one in the same county. Returns null when there's
   // genuinely no match — the card falls back to member count only.
   const circleNextActivity = useMemo(() => {
-    const today = new Date().toISOString().slice(0, 10);
+    const today = irelandToday();
     const byActivity = new Map<string, Game>();
     for (const g of openGames) {
       if (g.status === "cancelled" || g.date < today) continue;
@@ -950,7 +951,7 @@ export function Home() {
             <SectionHeader eyebrow={accentEyebrow("For you")} title="Matches for you" subtitle="Ranked from what's on, your routines, and your Circles — no filters needed." />
             <div style={{ display: "flex", gap: 14, overflowX: "auto", paddingBottom: 6 }}>
               {nextBest.map((item) => (
-                <DiscoverCard key={`${item.kind}-${item.id}`} item={item} isToday={item.date === new Date().toISOString().slice(0, 10)} />
+                <DiscoverCard key={`${item.kind}-${item.id}`} item={item} isToday={item.date === irelandToday()} />
               ))}
               <button
                 onClick={() => navigate("/explore")}

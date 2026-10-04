@@ -28,6 +28,7 @@ import { formatScheduleCount, formatScheduleWhen, manageTargetFor, scheduleItemD
 import { colors, fonts, radius } from "../theme";
 import type { AttendanceStatus, Program, ProgramStatus, Room, VendorProgramSummary, VendorScheduleItem } from "../types";
 import { formatPrice } from "../formatters";
+import { occurrenceDates } from "../irelandDate";
 
 const ATTENDANCE_STATUS_COLORS: Record<AttendanceStatus, { fg: string; bg: string }> = {
   present: { fg: colors.greenText, bg: colors.greenBg },
@@ -93,12 +94,10 @@ export function ProgramManager({ programId, onChanged }: { programId: string; on
     setError(null);
     try {
       const count = repeat === "none" ? 1 : Math.max(1, Math.min(52, occurrences));
-      for (let i = 0; i < count; i++) {
-        const d = new Date(`${date}T00:00:00`);
-        if (repeat === "weekly") d.setDate(d.getDate() + 7 * i);
-        else if (repeat === "biweekly") d.setDate(d.getDate() + 14 * i);
-        else if (repeat === "monthly") d.setMonth(d.getMonth() + i);
-        const occurrenceDate = d.toISOString().slice(0, 10);
+      // HC-QA-100 — calendar arithmetic on the picked date; never via local midnight.
+      const dates = occurrenceDates(date, repeat, count);
+      for (let i = 0; i < dates.length; i++) {
+        const occurrenceDate = dates[i];
         await addProgramSession(programId, {
           date: occurrenceDate,
           time,
@@ -294,6 +293,7 @@ export function ProgramManager({ programId, onChanged }: { programId: string; on
               max={52}
               value={occurrences}
               onChange={(e) => setOccurrences(Number(e.target.value))}
+              aria-label="Number of sessions"
               placeholder="Times"
               style={{ ...inputStyle, width: 80 }}
             />

@@ -1,4 +1,5 @@
 import type { HostOpportunity } from "./types";
+import { addDays, irelandDateKey, weekdayOf } from "./irelandDate";
 
 // Create-from-demand prefill (community participation upgrade, Release 6) —
 // turns an aggregate demand cluster into the query string each existing
@@ -13,9 +14,9 @@ export function suggestedDate(o: Pick<HostOpportunity, "preferredDays">, today =
   const day = o.preferredDays.find((d) => d in DAY_INDEX);
   if (!day) return "";
   const target = DAY_INDEX[day];
-  const d = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate() + 1));
-  while (d.getUTCDay() !== target) d.setUTCDate(d.getUTCDate() + 1);
-  return d.toISOString().slice(0, 10);
+  let iso = addDays(irelandDateKey(today), 1);
+  while (weekdayOf(iso) !== target) iso = addDays(iso, 1);
+  return iso;
 }
 
 export function suggestedTime(o: Pick<HostOpportunity, "preferredTime">): string {

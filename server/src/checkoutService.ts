@@ -4,6 +4,7 @@ import { writeAudit } from "./audit.js";
 import { db } from "./db/index.js";
 import { CLIENT_URL, stripe } from "./stripe.js";
 import { PENDING_HOLD_MINUTES } from "./bookingIntegrity.js";
+import { recordStripeFailure } from "./stripeDiagnostics.js";
 
 /** Phase 8 QA seam: a deterministic, network-free provider stand-in so the
  * internal pending → success/failure/expiry state machine can be proven
@@ -98,7 +99,7 @@ async function resolveStripeCustomer(residentId: string | null, email: string): 
       return customer.id;
     });
   } catch (e) {
-    console.error("[stripe] customer creation failed:", e instanceof Error ? e.message : e);
+    recordStripeFailure("customer.create", e);
     return null;
   }
 }
@@ -175,7 +176,7 @@ export async function createCheckoutSession(params: {
     void logEvent("booking_started", { residentId: params.residentId ?? null, metadata: { type: params.type, ref: params.ref } });
     return { ok: true, session };
   } catch (e) {
-    console.error(`[stripe] ${params.type} checkout session creation failed:`, e instanceof Error ? e.message : e);
+    recordStripeFailure(`checkout.create.${params.type}`, e);
     return { ok: false, status: 400, error: "Couldn't start checkout — please try again" };
   }
 }
@@ -231,7 +232,7 @@ export async function issueStripeRefund(stripeSessionId: string): Promise<Stripe
         if (late) return late;
       } catch { /* fall through to the generic provider failure */ }
     }
-    console.error("[stripe] refund failed:", e instanceof Error ? e.message : e);
+    recordStripeFailure("refund", e);
     return { ok: false, kind: "provider", error: "The refund couldn't be completed — please try again" };
   }
 }

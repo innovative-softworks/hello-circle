@@ -20,6 +20,7 @@ import { Button, ManageCard as Card, DashboardTopPanel, PageSpinner } from "../c
 import { greeting } from "../greeting";
 import { colors, fonts } from "../theme";
 import type { Game, HostStatus } from "../types";
+import { irelandDaysFromToday, irelandToday } from "../irelandDate";
 
 // HelloCircle Manage — resident (Host) dashboard. One page with local tab
 // state (Overview/Activities/Circles), the same shape as VendorDashboard.tsx
@@ -84,7 +85,7 @@ export function ManageHome() {
   useEffect(() => {
     if (!resident) return;
     fetchMyGames({ hostedOnly: true }).then((games) => {
-      const todayIso = new Date().toISOString().slice(0, 10);
+      const todayIso = irelandToday();
       setUpcomingGames(
         games.filter((g) => g.status !== "cancelled" && g.date >= todayIso).sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time))
       );
@@ -106,7 +107,7 @@ export function ManageHome() {
   const statusColor = status.tone === "green" ? colors.greenText : status.tone === "orange" ? colors.orangeDark : colors.mutedLight;
 
   const firstName = resident.name.split(" ")[0];
-  const weekAheadIso = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const weekAheadIso = irelandDaysFromToday(7);
   const thisWeekCount = (upcomingGames ?? []).filter((g) => g.date <= weekAheadIso).length;
   const overviewSubtitle =
     upcomingGames === null

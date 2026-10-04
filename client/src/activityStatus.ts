@@ -1,6 +1,7 @@
 import { availabilityFromSpots } from "./components/ui";
 import { colors } from "./theme";
 import type { Game } from "./types";
+import { irelandToday } from "./irelandDate";
 
 // Host Experience Polish — a consistent human-language status label across
 // every Host surface (Activities list, Overview's Next Up/upcoming cards),
@@ -27,7 +28,7 @@ export function deriveActivityStatus(game: Pick<Game, "status" | "date" | "spots
   if (game.effectiveLifecycle === "paused") return { label: "Paused", bg: colors.panel, fg: colors.orangeDark };
   if (game.effectiveLifecycle === "archived") return { label: "Archived", bg: colors.panel, fg: colors.muted };
 
-  const todayIso = new Date().toISOString().slice(0, 10);
+  const todayIso = irelandToday();
   if (game.date < todayIso) return { label: "Completed", bg: colors.panel, fg: colors.mutedLight };
 
   if (game.status === "pending_participants") return { label: "Needs players", bg: colors.orangeBg, fg: colors.logoMarkText };

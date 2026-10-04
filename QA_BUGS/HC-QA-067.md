@@ -24,3 +24,17 @@ Found in Phase 10 (complete product quality QA, 2026-10-02/03). Environment: Iso
 - **Regression (original kept, FAIL before → PASS after):** `HC-QA-067` FAIL before → PASS: Add photo reachable by Tab with visible focus, Enter and Space both open the file chooser, invalid upload error announced. `-VENDOR`: gallery Add photo is a native tabbable button and opens the chooser. Suite: `npm run qa:product` (tests/integration/specs/product-*.spec.ts).
 - **Adjacent checks:** Profile avatar already used a button (unchanged).
 - **Status:** FIXED LOCALLY — NOT DEPLOYED. Existing HC-QA-001..051 gates re-run green after the change (QA_REPORT.md, Phase 10A).
+
+## Phase 13 — test synchronisation after the HC-QA-075 layout change (2026-10-04)
+
+- **Observed:** after `main` became `min-height: 100vh` (HC-QA-075), this regression became intermittent on the Chromium production build.
+  - Bisect: with only that change reverted, 6/6 passed; with it, 4 failures in 14 runs. Committed code: 5/5. Coalescing reverted alone: still 2/6 failures.
+- **Diagnosed** with a temporary diagnostic spec (removed afterwards), 44 attempts:
+  - Focus was **on the button** every time.
+  - Fonts were already loaded (font-swap hypothesis rejected).
+  - Tab-focusing the button, which sits within the 16 px `scroll-padding-bottom` of the viewport edge, starts Chromium's animated focus scroll of about 7 px.
+  - Both observed failures were an Enter pressed **while that animation was still running**; Space, a moment later, always worked.
+  - Why the taller `main` makes this window reachable when the old layout never hit it isn't fully explained.
+- **Change (test only):** after tabbing to the control, the test waits until the focused control is at rest (position unchanged for 150 ms), then presses keys. The assertion is unchanged: Enter **and** Space must each open the file chooser, and the upload error must be announced.
+- **Result:** 8/8 Chromium, plus Firefox and WebKit pass on the production build.
+- **User impact assessment:** a person can't press Enter within the ~100 ms focus-scroll animation after a Tab; keyboard operation of the control is unchanged.

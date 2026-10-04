@@ -10,6 +10,7 @@ import { ShareButton } from "./ShareButton";
 import { Avatar, Button, Card, ConfirmDialog, EmptyState, Modal, PageSpinner, ProgressBar } from "./ui";
 import { colors, fonts, radius } from "../theme";
 import type { Game, ManageParticipant, WaitlistEntry } from "../types";
+import { irelandToday } from "../irelandDate";
 
 // HelloCircle Manage — Activities tab body, extracted from the standalone
 // /manage/activities page (Phase 3, Host MVP) so it can render as one tab of
@@ -342,7 +343,7 @@ function ActivityRow({ game, onChanged, onManage, onCheckIn }: { game: Game; onC
   };
 
   const isLive = game.status !== "cancelled";
-  const isPast = game.date < new Date().toISOString().slice(0, 10);
+  const isPast = game.date < irelandToday();
 
   return (
     <Card>
@@ -447,7 +448,7 @@ export function ActivitiesTab() {
 
   useEffect(reload, []);
 
-  const today = new Date().toISOString().slice(0, 10);
+  const today = irelandToday();
   const q = search.trim().toLowerCase();
   const filtered = games.filter((g) => {
     if (statusFilter !== "all" && g.status !== statusFilter) return false;

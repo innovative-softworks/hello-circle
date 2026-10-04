@@ -8,6 +8,7 @@ import { BackLink } from "../components/BackLink";
 import { colors, fonts } from "../theme";
 import { fallbackCopy } from "../copy";
 import type { DiscoverItem } from "../types";
+import { irelandToday } from "../irelandDate";
 
 // Free Time Mode (implementation plan Phase 9) — a new discovery entry
 // point for "I have some free time, surprise me" rather than "I already
@@ -304,7 +305,7 @@ export function FreeTimeMode() {
               <>
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))", gap: 16 }}>
                   {options.map((item) => (
-                    <DiscoverCard key={`${item.kind}-${item.id}`} item={item} isToday={item.date === new Date().toISOString().slice(0, 10)} />
+                    <DiscoverCard key={`${item.kind}-${item.id}`} item={item} isToday={item.date === irelandToday()} />
                   ))}
                 </div>
                 <div style={{ marginTop: 32 }}>

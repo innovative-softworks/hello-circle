@@ -9,6 +9,7 @@ import { PageTitle } from "../components/PageTitle";
 import { CardSkeleton, EmptyState } from "../components/ui";
 import { IRISH_COUNTY_COORDS } from "../irishCounties";
 import { colors, fonts, maxWidth } from "../theme";
+import { irelandToday } from "../irelandDate";
 
 // Local SEO landing pages (participation-intent plan Phase 3) — a thin,
 // county+activity-pinned front door onto the same discover pool every other
@@ -62,7 +63,7 @@ export function LocalActivity() {
         ) : feed && feed.items.length > 0 ? (
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 18 }}>
             {feed.items.map((item) => (
-              <DiscoverCard key={`${item.kind}-${item.id}`} item={item} isToday={item.date === new Date().toISOString().slice(0, 10)} />
+              <DiscoverCard key={`${item.kind}-${item.id}`} item={item} isToday={item.date === irelandToday()} />
             ))}
           </div>
         ) : (

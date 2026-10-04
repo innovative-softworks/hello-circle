@@ -5,7 +5,7 @@ import { dateLabel } from "../euro";
 import { joinGameConfirm } from "../confirmCopy";
 import { useConfirm } from "../components/ConfirmProvider";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { addFavourite, fetchCentre, fetchFavourites, fetchGames, fetchPrograms, joinGame, removeFavourite } from "../api";
+import { addFavourite, fetchCentre, fetchFavourites, fetchGamesPage, fetchPrograms, joinGame, removeFavourite } from "../api";
 import { openCheckout } from "../native";
 import { BackLink } from "../components/BackLink";
 import { ClaimListingCTA } from "../components/ClaimListingCTA";
@@ -55,7 +55,9 @@ export function CentreDetail() {
   // "Join a Game" CTA (MVP — Book vs Join) — open games hosted at this venue.
   useEffect(() => {
     if (!centre) return;
-    fetchGames().then((rows) => setGames(rows.filter((g) => g.centreId === centre.id)));
+    // HC-QA-101 — filtered by the server; the public list is paginated, so
+    // filtering its first page here would miss most of a venue's activities.
+    fetchGamesPage({ centreId: centre.id, limit: 100 }).then((p) => setGames(p.items)).catch(() => setGames([]));
   }, [centre]);
 
   // Programs (Phase B) — multi-session activities run at this centre.

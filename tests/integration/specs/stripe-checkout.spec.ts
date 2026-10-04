@@ -3,7 +3,7 @@ import { expect } from "../fixtures";
 import { evidence } from "../authorization-fixture";
 import { test, withActors, rows, createActivity } from "../lifecycle-fixture";
 import { bookableClub, registrationBody, synthCoupon, expectedTotal } from "../booking-fixture";
-import { deliver, sessionFor, stripe, stripeProfile } from "../stripe-fixture";
+import { deliver, sessionFor, stripe, stripeProfile, expectCheckoutCreated } from "../stripe-fixture";
 import { checkout, guests, localRow, MODELS, paidResource, providerSessionsSince, sleep, TABLE, type Model } from "../stripe-models";
 
 // Phase 9 §9/§10/§11/§16/§18/§30 — real TEST-mode Checkout Session creation:
@@ -32,8 +32,7 @@ test("STRIPE-CHECKOUT-AMOUNTS: every paid model — quote = server = database = 
         const quoted = await quoteFor(actor, model, listing, coupon);
         const res = await checkout(model, listing, actor, g.email, { couponCode: coupon });
         const body = await res.json();
-        if (res.status() !== 201) await evidence("stripe-checkout-error", { model, status: res.status(), error: String(body.error ?? "").slice(0, 120) });
-        expect(res.status(), `${model} checkout`).toBe(201);
+        await expectCheckoutCreated(res, `${model} checkout`);
         expect(body.url, `${model} gets a hosted Checkout URL`).toMatch(/^https:\/\/checkout\.stripe\.com\//);
         const row = await localRow(f, model, body.ref);
         f.track("audit_log", "object_id", body.ref);
@@ -86,7 +85,7 @@ test("STRIPE-EXPIRY: real provider expiry → signed expired event → hold rele
       expect((await localRow(f, "club", ra.ref))!.payment_status).toBe("failed");
       expect((await rows(f, "SELECT used_count FROM coupons WHERE code = ?", [coupon]))[0].used_count, "coupon untouched by expiry").toBe(0);
       const rb = await b.ctx.post("/api/registrations/checkout", { data: registrationBody(club, b.email) });
-      expect(rb.status(), "capacity released by provider expiry").toBe(201);
+      await expectCheckoutCreated(rb, "capacity released by provider expiry");
       f.track("audit_log", "object_id", (await rb.json()).ref);
       await evidence("stripe-expiry", { providerStatus: String(expired.status), local: "failed", released: true, replay: "noop" });
     } finally { for (const x of opened) await x.dispose(); }
@@ -151,7 +150,7 @@ test("STRIPE-PROVIDER-ERROR: a provider-rejected Checkout (below Stripe's minimu
       const prices = await rows(f, "SELECT price FROM clubs WHERE id = ?", [club]);
       await f.connection.execute("UPDATE clubs SET price = 30 WHERE id = ?", [club]);
       const rb = await b.ctx.post("/api/registrations/checkout", { data: registrationBody(club, b.email) });
-      expect(rb.status(), "capacity not leaked").toBe(201);
+      await expectCheckoutCreated(rb, "capacity not leaked");
       f.track("audit_log", "object_id", (await rb.json()).ref);
       await evidence("stripe-provider-error", { status: ra.status(), originalPrice: prices[0].price, partialRows: 0, couponUse: 0, capacityLeak: false });
     } finally { for (const x of opened) await x.dispose(); }
