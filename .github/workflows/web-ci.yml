@@ -1,0 +1,38 @@
+name: Web CI
+
+# Guards main and staging: every pull request into them must build and pass
+# the client + server test suites before it can be merged (the
+# "protect-main-and-staging" ruleset requires the `checks` job below).
+
+on:
+  pull_request:
+    branches: [main, staging]
+  push:
+    branches: [main, staging]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: web-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Build (server tsc, client tsc + vite)
+        run: npm run build
+      - name: Client tests
+        run: npm run test --workspace client
+      # Runs in a disposable mysql:8.0 Docker container with a scrubbed env
+      # (server/TESTING.md, HC-QA-092) — no secrets are needed or available here.
+      - name: Server tests
+        run: npm run test --workspace server
