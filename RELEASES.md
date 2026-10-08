@@ -32,9 +32,22 @@ feature/... fix/... chore/...  →  staging  →  main
 3. **PR `staging` → `main`** titled `release: vX.Y.Z`, and merge it once Web CI is green.
 4. **Tag the release** on the merged `main` commit and push the tag:
    `git tag -a vX.Y.Z -m "vX.Y.Z" && git push origin vX.Y.Z`
-5. **Deploy exactly that tag to production**, never a newer commit. Set `APP_COMMIT` to the tag's
+5. **Back up production first:** `ssh root@<server> hellocircle-prod-backup pre-vX.Y.Z`, then
+   **deploy exactly that tag to production**, never a newer commit. Set `APP_COMMIT` to the tag's
    short commit in production's `server/.env`, because production is not a git checkout.
-6. If something breaks, roll back by redeploying the previous tag.
+6. If something breaks, roll back by redeploying the previous tag. If the deploy changed the database,
+   also restore the `pre-vX.Y.Z` backup (there are no down-migrations, so the backup *is* the rollback).
+
+## Production backups
+
+- **Nightly at 03:00 UTC**: database `hello_circle` plus the `uploads` folder, kept for 14 days in
+  `/var/backups/hellocircle-prod` on the server (`/usr/local/sbin/hellocircle-prod-backup`, cron
+  `/etc/cron.d/hellocircle-prod-backup`, errors in `/var/log/hellocircle-prod-backup.log`).
+- Uses a **read-only** MySQL account (`hc_backup`), so a backup can never change live data.
+- **Restore** (overwrites the live database, so only on purpose, with the site stopped):
+  `systemctl stop hello-circle && gunzip -c /var/backups/hellocircle-prod/db-<stamp>.sql.gz | mysql hello_circle && systemctl start hello-circle`
+- **Restore drill**: load a backup into a throwaway database and compare table and row counts with live.
+  The first drill (2026-10-08) matched exactly: 68 tables, 406 rows.
 
 ## Changelog
 
