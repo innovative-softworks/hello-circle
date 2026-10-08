@@ -1,6 +1,7 @@
 {
   "name": "hello-circle",
   "private": true,
+  "version": "0.9.0",
   "workspaces": [
     "client",
     "server",
