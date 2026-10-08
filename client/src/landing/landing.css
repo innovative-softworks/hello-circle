@@ -1,13 +1,13 @@
 /* Styles for the standalone marketing landing page only. Every rule is
    scoped under .lc-* class names (never a bare element selector) so this
    can never bleed into the rest of the app. Typography now shares the
-   app-wide Bricolage Grotesque/Hanken Grotesk pairing (already loaded
+   app-wide Bricolage Grotesque/Figtree pairing (already loaded
    globally by index.html) — see theme.ts's own comment on why the old
    separate Manrope/Inter load was removed (design-system unification
    pass). */
 
 .lc-page {
-  font-family: "Hanken Grotesk Variable", "Hanken Grotesk", "Segoe UI", sans-serif;
+  font-family: "Figtree Variable", "Figtree", "Segoe UI", sans-serif;
   -webkit-font-smoothing: antialiased;
 }
 

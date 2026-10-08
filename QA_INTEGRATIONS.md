@@ -6,7 +6,7 @@
 
 | Domain | Resource | Why | Essential? | Before consent? | Phase 12 |
 |---|---|---|---|---|---|
-| fonts.googleapis.com / fonts.gstatic.com | Bricolage Grotesque + Hanken Grotesk | App typography | No (can be self-hosted) | **Yes**, every page | **Removed.** Self-hosted via `@fontsource-variable/*` 5.3.0 (OFL-1.1); 0 Google Fonts requests (verified, PART-13-FONTS) |
+| fonts.googleapis.com / fonts.gstatic.com | Bricolage Grotesque + Figtree | App typography | No (can be self-hosted) | **Yes**, every page | **Removed.** Self-hosted via `@fontsource-variable/*` 5.3.0 (OFL-1.1); 0 Google Fonts requests (verified, PART-13-FONTS) |
 | images.unsplash.com | 12 hot-linked photos (auth screens, Home hero, venue marketing, Header mega-menu, `placeholderImage.ts`) | Editorial imagery | No | **Yes**, on those pages | **Unchanged, documented.** Self-hosting needs each image's rights confirmed; not copied without that |
 | www.googletagmanager.com | GTM | Analytics | No | No (consent-gated; `VITE_GTM_CONTAINER_ID`) | Unchanged |
 | api.mapbox.com | Map tiles | Maps | Only on map views | Only when a map is shown | Unchanged |

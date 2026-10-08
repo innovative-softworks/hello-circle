@@ -253,7 +253,7 @@ body {
 body {
   background: var(--color-bg);
   color: var(--color-text);
-  font-family: "Hanken Grotesk Variable", "Hanken Grotesk", system-ui, sans-serif;
+  font-family: "Figtree Variable", "Figtree", system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
 }
 input,

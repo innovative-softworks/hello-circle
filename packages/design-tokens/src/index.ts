@@ -8,7 +8,7 @@ export const fonts = {
   // Phase 12 (privacy) — self-hosted via @fontsource-variable (OFL-1.1), no
   // Google Fonts request; the plain family names remain as fallbacks.
   display: "'Bricolage Grotesque Variable', 'Bricolage Grotesque', system-ui, sans-serif",
-  body: "'Hanken Grotesk Variable', 'Hanken Grotesk', system-ui, sans-serif",
+  body: "'Figtree Variable', 'Figtree', system-ui, sans-serif",
 };
 
 export const maxWidth = 1440;
