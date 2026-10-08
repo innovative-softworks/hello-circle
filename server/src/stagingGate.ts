@@ -150,7 +150,7 @@ function loginPage({ next, username = "", error = false }: { next: string; usern
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="robots" content="noindex, nofollow">
-<title>Hello Circle staging · iSoftworks</title>
+<title>HelloCircle staging · iSoftworks</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns=%22http://www.w3.org/2000/svg%22%20viewBox=%220%200%2062.24%2062.24%22%20fill=%22%23ee4826%22%3E%3Cpath%20d=%22Layer_2%22/%3E%3Cpath%20d=%22Layer_1-2%22/%3E%3Cpath%20d=%22M17.68,40.76c.39-.39.39-1.01,0-1.4l-3.07-3.07c-2.27-2.46-5.11-4.3-8.22-5.44-.68-.25-.86-1.11-.36-1.62l6.56-6.56c.51-.51,1.37-.32,1.62.36,1.15,3.12,2.96,5.97,5.33,8.34l3.07,3.07c.39.39,1.01.39,1.4,0l10.03-10.03c.39-.39.39-1.01,0-1.4l-3.07-3.07c-2.26-2.46-5.11-4.3-8.22-5.44-.68-.25-.86-1.11-.36-1.62l6.58-6.58c.51-.51,1.36-.32,1.62.35,1.17,3.1,2.99,5.96,5.36,8.32l3.07,3.07c.39.39,1.01.39,1.4,0l9.86-9.86c.39-.39.39-1.01,0-1.4l-.79-.79s-.08-.07-.13-.11C37.18-2.92,20.08-1.85,9.11,9.11-2.13,20.36-2.97,38.07,6.6,50.28c.37.47,1.06.51,1.48.09l9.61-9.61Z%22/%3E%3Cpath%20d=%22M56.24,12.77h0c-.39-.39-1.01-.39-1.4,0l-9.86,9.86c-.39.39-.39,1.01,0,1.4l2.28,2.28c2.37,2.37,5.21,4.16,8.33,5.35.67.25.85,1.11.35,1.62l-6.59,6.59c-.51.51-1.37.32-1.62-.35-1.17-3.14-2.97-5.96-5.44-8.23l-2.28-2.28c-.39-.39-1.01-.39-1.4,0l-10.03,10.03c-.39.39-.39,1.01,0,1.4l2.28,2.28c2.37,2.37,5.2,4.16,8.35,5.32.67.25.86,1.11.35,1.62l-6.57,6.57c-.51.51-1.37.32-1.62-.35-1.17-3.14-2.97-5.96-5.44-8.23l-2.28-2.28c-.39-.39-1.01-.39-1.4,0l-9.49,9.49c-.43.43-.37,1.14.12,1.5,12.17,8.82,29.27,7.75,40.24-3.22,10.96-10.96,12.04-28.07,3.22-40.23-.03-.04-.07-.09-.11-.13Z%22/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=Hanken+Grotesk:wght@400;500;600;700&display=swap">
@@ -169,13 +169,14 @@ function loginPage({ next, username = "", error = false }: { next: string; usern
          display: flex; flex-direction: column; min-height: 100vh; min-height: 100dvh; }
   .top { display: flex; justify-content: space-between; align-items: center; gap: 12px; width: 100%; max-width: var(--wide); margin: 0 auto;
          padding: calc(22px + env(safe-area-inset-top, 0px)) 28px 12px; }
-  .isw { width: 128px; height: auto; color: var(--navy); display: block; }
+  .isw { width: 192px; height: auto; color: var(--navy); display: block; }
   .stg { font: 700 10px/1 var(--body); letter-spacing: .14em; text-transform: uppercase; padding: 6px 10px; border-radius: 999px; color: #c23310; background: #FFE6DF; }
   main { flex: 1; width: 100%; max-width: var(--wide); margin: 0 auto; padding: 32px 28px 40px;
          display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 400px); gap: 72px; align-items: center; }
   .about { display: grid; gap: 18px; min-width: 0; }
   .eyebrow { font: 700 12px/1 var(--body); letter-spacing: .14em; text-transform: uppercase; color: var(--violet); }
-  .about h1 { margin: 0; font: 700 clamp(34px, 4vw, 48px)/1.05 var(--display); letter-spacing: -.02em; }
+  .about h1 { margin: 0; font: 700 clamp(34px, 4vw, 48px)/1.05 var(--display); letter-spacing: -.02em; display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+  .beta { font: 700 12px/1 var(--body); letter-spacing: .12em; text-transform: uppercase; color: #fff; background: var(--violet); padding: 7px 10px; border-radius: 999px; }
   .lead { margin: 0; font-size: 18px; line-height: 1.55; color: #2c3142; max-width: 48ch; }
   .points { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; font-size: 16px; max-width: 52ch; }
   .points li { display: grid; grid-template-columns: 20px 1fr; gap: 10px; align-items: baseline; }
@@ -213,7 +214,7 @@ function loginPage({ next, username = "", error = false }: { next: string; usern
     .about h1 { font-size: 26px; }
     .lead { font-size: 15px; }
     .top, footer { padding-inline: 16px; }
-    .isw { width: 112px; }
+    .isw { width: 168px; }
   }
   @media (prefers-reduced-motion: no-preference) { button { transition: background .15s ease; } }
 </style>
@@ -226,7 +227,7 @@ function loginPage({ next, username = "", error = false }: { next: string; usern
 <main>
   <section class="about" aria-labelledby="about-title">
     <span class="eyebrow">An iSoftworks product</span>
-    <h1 id="about-title">Hello Circle</h1>
+    <h1 id="about-title">HelloCircle <span class="beta">Beta</span></h1>
     <p class="lead">One place for Ireland's community centres, sports clubs and local activity. People find what's on near them, book a hall or a session, join a game or a circle, and pay online.</p>
     <ul class="points">
       <li><span><b>Residents</b> book rooms, register kids for clubs and join games and circles.</span></li>
@@ -248,12 +249,12 @@ function loginPage({ next, username = "", error = false }: { next: string; usern
     <label for="password">Password
       <input id="password" name="password" type="password" autocomplete="current-password" required ${username ? "autofocus" : ""}>
     </label>
-    <button type="submit">Sign in to Hello Circle</button>
+    <button type="submit">Sign in to HelloCircle</button>
     <p class="help">Need access? Ask the iSoftworks team.</p>
   </form>
 </main>
 <footer>
-  <div class="family"><span class="lbl">iSoftworks products</span><span class="pp on">Hello Circle</span></div>
+  <div class="family"><span class="lbl">iSoftworks products</span><span class="pp on">HelloCircle</span></div>
   ${version ? `<span class="ver" title="Release version and code build running on staging">${esc(version)}</span>` : ""}
 </footer>
 </body>
