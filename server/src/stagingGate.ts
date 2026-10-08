@@ -153,39 +153,41 @@ function loginPage({ next, username = "", error = false }: { next: string; usern
 <title>Hello Circle staging · iSoftworks</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns=%22http://www.w3.org/2000/svg%22%20viewBox=%220%200%2062.24%2062.24%22%20fill=%22%23ee4826%22%3E%3Cpath%20d=%22Layer_2%22/%3E%3Cpath%20d=%22Layer_1-2%22/%3E%3Cpath%20d=%22M17.68,40.76c.39-.39.39-1.01,0-1.4l-3.07-3.07c-2.27-2.46-5.11-4.3-8.22-5.44-.68-.25-.86-1.11-.36-1.62l6.56-6.56c.51-.51,1.37-.32,1.62.36,1.15,3.12,2.96,5.97,5.33,8.34l3.07,3.07c.39.39,1.01.39,1.4,0l10.03-10.03c.39-.39.39-1.01,0-1.4l-3.07-3.07c-2.26-2.46-5.11-4.3-8.22-5.44-.68-.25-.86-1.11-.36-1.62l6.58-6.58c.51-.51,1.36-.32,1.62.35,1.17,3.1,2.99,5.96,5.36,8.32l3.07,3.07c.39.39,1.01.39,1.4,0l9.86-9.86c.39-.39.39-1.01,0-1.4l-.79-.79s-.08-.07-.13-.11C37.18-2.92,20.08-1.85,9.11,9.11-2.13,20.36-2.97,38.07,6.6,50.28c.37.47,1.06.51,1.48.09l9.61-9.61Z%22/%3E%3Cpath%20d=%22M56.24,12.77h0c-.39-.39-1.01-.39-1.4,0l-9.86,9.86c-.39.39-.39,1.01,0,1.4l2.28,2.28c2.37,2.37,5.21,4.16,8.33,5.35.67.25.85,1.11.35,1.62l-6.59,6.59c-.51.51-1.37.32-1.62-.35-1.17-3.14-2.97-5.96-5.44-8.23l-2.28-2.28c-.39-.39-1.01-.39-1.4,0l-10.03,10.03c-.39.39-.39,1.01,0,1.4l2.28,2.28c2.37,2.37,5.2,4.16,8.35,5.32.67.25.86,1.11.35,1.62l-6.57,6.57c-.51.51-1.37.32-1.62-.35-1.17-3.14-2.97-5.96-5.44-8.23l-2.28-2.28c-.39-.39-1.01-.39-1.4,0l-9.49,9.49c-.43.43-.37,1.14.12,1.5,12.17,8.82,29.27,7.75,40.24-3.22,10.96-10.96,12.04-28.07,3.22-40.23-.03-.04-.07-.09-.11-.13Z%22/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Mona+Sans:wght@400;500;600;700&family=Unbounded:wght@600;700&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=Hanken+Grotesk:wght@400;500;600;700&display=swap">
 <style>
   :root {
     --navy: #111729; --violet: #7135E5; --orange: #FD4B23; --hc: #ee4826; --hc-bg: #fdece7;
     --ground: #F6F5F3; --ink: #111729; --soft: #555a6b; --line: #e6e4ee; --field: #b9bccb; --card: #ffffff;
     --danger: #b00020; --danger-bg: #fdecee;
-    --display: "Unbounded", "Mona Sans", system-ui, sans-serif;
-    --body: "Mona Sans", "Helvetica Neue", Helvetica, Arial, sans-serif;
+    --display: "Bricolage Grotesque", "Hanken Grotesk", system-ui, sans-serif;
+    --body: "Hanken Grotesk", system-ui, -apple-system, "Segoe UI", sans-serif;
+    --wide: 1160px;
     color-scheme: light;
   }
   * { box-sizing: border-box; }
   body { margin: 0; color: var(--ink); font: 15px/1.55 var(--body); background: var(--ground) url("${HC_PATTERN}") repeat;
          display: flex; flex-direction: column; min-height: 100vh; min-height: 100dvh; }
-  .top { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: calc(20px + env(safe-area-inset-top, 0px)) 28px 12px; }
+  .top { display: flex; justify-content: space-between; align-items: center; gap: 12px; width: 100%; max-width: var(--wide); margin: 0 auto;
+         padding: calc(22px + env(safe-area-inset-top, 0px)) 28px 12px; }
   .isw { width: 128px; height: auto; color: var(--navy); display: block; }
   .stg { font: 700 10px/1 var(--body); letter-spacing: .14em; text-transform: uppercase; padding: 6px 10px; border-radius: 999px; color: #c23310; background: #FFE6DF; }
-  main { flex: 1; width: 100%; padding: 24px 28px 32px;
-         display: grid; grid-template-columns: minmax(0, 600px) minmax(0, 420px); justify-content: space-between; gap: 56px; align-items: center; }
+  main { flex: 1; width: 100%; max-width: var(--wide); margin: 0 auto; padding: 32px 28px 40px;
+         display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 400px); gap: 72px; align-items: center; }
   .about { display: grid; gap: 18px; min-width: 0; }
-  .eyebrow { font: 600 11px/1 var(--body); letter-spacing: .16em; text-transform: uppercase; color: var(--violet); }
-  .about h1 { margin: 0; font: 700 clamp(30px, 4.2vw, 44px)/1.05 var(--display); letter-spacing: -.02em; }
-  .lead { margin: 0; font-size: 17px; color: #2c3142; max-width: 46ch; }
-  .points { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+  .eyebrow { font: 700 12px/1 var(--body); letter-spacing: .14em; text-transform: uppercase; color: var(--violet); }
+  .about h1 { margin: 0; font: 700 clamp(34px, 4vw, 48px)/1.05 var(--display); letter-spacing: -.02em; }
+  .lead { margin: 0; font-size: 18px; line-height: 1.55; color: #2c3142; max-width: 48ch; }
+  .points { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; font-size: 16px; max-width: 52ch; }
   .points li { display: grid; grid-template-columns: 20px 1fr; gap: 10px; align-items: baseline; }
   .points li::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--hc); transform: translate(5px, -1px); }
   .points b { font-weight: 600; }
-  .note { margin: 0; font-size: 13px; color: var(--soft); border-left: 3px solid var(--orange); padding-left: 12px; max-width: 46ch; }
+  .note { margin: 0; font-size: 14px; color: var(--soft); border-left: 3px solid var(--orange); padding-left: 12px; max-width: 46ch; }
   form { width: 100%; background: var(--card); border: 1px solid var(--line); border-radius: 18px; padding: 26px; display: grid; gap: 18px;
          box-shadow: 0 1px 2px rgba(17,23,41,.04), 0 18px 44px rgba(17,23,41,.08); }
   .prod { display: flex; gap: 14px; align-items: center; padding-bottom: 18px; border-bottom: 1px solid #efeef3; }
   .tile { width: 52px; height: 52px; border-radius: 14px; background: var(--hc-bg); display: grid; place-items: center; flex: none; }
   .tile .hc { width: 30px; height: 30px; fill: var(--hc); }
-  .name { font: 700 19px/1.15 var(--display); letter-spacing: -.01em; }
+  .name { font: 700 20px/1.15 var(--display); letter-spacing: -.01em; }
   .by { font-size: 13px; color: var(--soft); }
   .by b { color: var(--violet); font-weight: 600; }
   label { display: grid; gap: 6px; font-size: 13px; font-weight: 600; }
@@ -197,13 +199,13 @@ function loginPage({ next, username = "", error = false }: { next: string; usern
   .error { padding: 10px 12px; border-radius: 10px; background: var(--danger-bg); color: var(--danger); font-size: 14px; }
   .help { margin: -4px 0 0; font-size: 13px; color: var(--soft); text-align: center; }
   footer { display: flex; justify-content: space-between; align-items: center; gap: 12px 20px; flex-wrap: wrap;
-           width: 100%; padding: 16px 28px calc(22px + env(safe-area-inset-bottom, 0px));
+           width: 100%; max-width: var(--wide); margin: 0 auto; padding: 16px 28px calc(22px + env(safe-area-inset-bottom, 0px));
            font-size: 12px; color: var(--soft); border-top: 1px solid var(--line); }
   .family { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
   .family .lbl { font-weight: 600; font-size: 10px; letter-spacing: .14em; text-transform: uppercase; }
   .pp { padding: 5px 10px; border-radius: 999px; border: 1px solid var(--line); background: #fff; color: var(--soft); }
   .pp.on { border-color: var(--hc); color: #b8321a; background: var(--hc-bg); font-weight: 600; }
-  .ver { font-variant-numeric: tabular-nums; font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 11.5px; }
+  .ver { font-variant-numeric: tabular-nums; font-size: 12px; }
   @media (max-width: 860px) {
     main { grid-template-columns: 1fr; gap: 28px; padding: 12px 16px 28px; }
     form { order: -1; }
