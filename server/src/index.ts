@@ -63,6 +63,7 @@ import { stripeWebhookHandler } from "./routes/stripeWebhook.js";
 import { mediaRouter } from "./routes/media.js";
 import { uploadsRouter } from "./routes/uploads.js";
 import { vendorRouter } from "./routes/vendor.js";
+import { stagingGate } from "./stagingGate.js";
 import { sweepExpiredWaitlistOffers } from "./waitlist.js";
 
 // MySQL access is async, so the schema/seed must finish before the server
@@ -128,6 +129,11 @@ app.use(
 app.post("/api/stripe/webhook", express.raw({ type: "application/json" }), stripeWebhookHandler);
 app.use(express.json());
 app.use(cookieParser());
+// Staging-only tester login screen in front of everything below (off unless
+// STAGING_GATE_USERS_FILE is set — see stagingGate.ts). The Stripe webhook
+// above stays reachable.
+const gate = stagingGate();
+if (gate) app.use(gate);
 app.use(attachUser);
 app.use(attachGuestEmail);
 app.use(attachResident);

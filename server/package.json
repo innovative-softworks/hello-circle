@@ -11,6 +11,7 @@
     "seed-big": "tsx src/scripts/seedBig.ts",
     "migrate-legacy-uploads": "tsx src/scripts/migrateLegacyUploads.ts",
     "media-cleanup": "tsx src/scripts/mediaCleanup.ts",
+    "tester": "tsx src/scripts/tester.ts",
     "test": "tsx src/scripts/testIsolated.ts"
   },
   "dependencies": {
