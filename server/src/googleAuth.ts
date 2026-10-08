@@ -8,7 +8,7 @@ export interface VerifiedGoogleIdentity {
   picture: string | null;
 }
 
-/** Thrown when FIREBASE_PROJECT_ID/CLIENT_EMAIL/PRIVATE_KEY aren't set —
+/** Thrown when FIREBASE_PROJECT_ID isn't set —
  * callers turn this into a 503, same posture as Stripe/media routes when
  * their own provider isn't configured. */
 export class GoogleAuthNotConfigured extends Error {}

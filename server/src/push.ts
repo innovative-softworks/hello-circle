@@ -1,12 +1,12 @@
 import { getMessaging } from "firebase-admin/messaging";
 import { db } from "./db/index.js";
-import { getFirebaseApp } from "./firebaseApp.js";
+import { getFirebasePushApp } from "./firebaseApp.js";
 
 // Same "unconfigured = log and skip, never throw" contract as email.ts's
 // nodemailer transporter — a booking/waitlist/game notification must never
 // fail because push isn't set up (or a token is stale/revoked). App init
 // itself now lives in firebaseApp.ts, shared with googleAuth.ts.
-const app = getFirebaseApp();
+const app = getFirebasePushApp();
 
 export interface PushMessage {
   title: string;
