@@ -115,7 +115,7 @@ function buildCardTree(data: ShareData, imageDataUri: string | null) {
         justifyContent: "space-between",
         position: "relative",
         background: imageDataUri ? BRAND.dark : `linear-gradient(135deg, ${BRAND.green} 0%, ${BRAND.greenDark} 100%)`,
-        fontFamily: "Hanken Grotesk",
+        fontFamily: "Figtree",
       },
     },
     // Background photo, absolutely filled, with a bottom-weighted dark tint
@@ -199,8 +199,8 @@ export async function renderShareCardPng(data: ShareData, dataDir: string): Prom
     width: WIDTH,
     height: HEIGHT,
     fonts: [
-      { name: "Hanken Grotesk", data: loadFont("HankenGrotesk-Regular.ttf"), weight: 400, style: "normal" },
-      { name: "Hanken Grotesk", data: loadFont("HankenGrotesk-Bold.ttf"), weight: 700, style: "normal" },
+      { name: "Figtree", data: loadFont("Figtree-Regular.ttf"), weight: 400, style: "normal" },
+      { name: "Figtree", data: loadFont("Figtree-Bold.ttf"), weight: 700, style: "normal" },
       { name: "Bricolage Grotesque", data: loadFont("BricolageGrotesque-Bold.ttf"), weight: 700, style: "normal" },
       { name: "Bricolage Grotesque", data: loadFont("BricolageGrotesque-ExtraBold.ttf"), weight: 800, style: "normal" },
     ],
