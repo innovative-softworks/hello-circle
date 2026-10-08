@@ -169,12 +169,11 @@ function loginPage({ next, username = "", error = false }: { next: string; usern
   .top { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: calc(20px + env(safe-area-inset-top, 0px)) 28px 12px; }
   .isw { width: 128px; height: auto; color: var(--navy); display: block; }
   .stg { font: 700 10px/1 var(--body); letter-spacing: .14em; text-transform: uppercase; padding: 6px 10px; border-radius: 999px; color: #c23310; background: #FFE6DF; }
-  main { flex: 1; width: 100%; max-width: 1040px; margin: 0 auto; padding: 24px 28px 32px;
-         display: grid; grid-template-columns: 1.05fr minmax(0, 420px); gap: 56px; align-items: center; }
+  main { flex: 1; width: 100%; padding: 24px 28px 32px;
+         display: grid; grid-template-columns: minmax(0, 600px) minmax(0, 420px); justify-content: space-between; gap: 56px; align-items: center; }
   .about { display: grid; gap: 18px; min-width: 0; }
   .eyebrow { font: 600 11px/1 var(--body); letter-spacing: .16em; text-transform: uppercase; color: var(--violet); }
-  .about h1 { display: flex; align-items: center; gap: 14px; margin: 0; font: 700 clamp(30px, 4.2vw, 44px)/1.05 var(--display); letter-spacing: -.02em; }
-  .about h1 .hc { width: 1.05em; height: 1.05em; fill: var(--hc); flex: none; }
+  .about h1 { margin: 0; font: 700 clamp(30px, 4.2vw, 44px)/1.05 var(--display); letter-spacing: -.02em; }
   .lead { margin: 0; font-size: 17px; color: #2c3142; max-width: 46ch; }
   .points { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
   .points li { display: grid; grid-template-columns: 20px 1fr; gap: 10px; align-items: baseline; }
@@ -198,7 +197,7 @@ function loginPage({ next, username = "", error = false }: { next: string; usern
   .error { padding: 10px 12px; border-radius: 10px; background: var(--danger-bg); color: var(--danger); font-size: 14px; }
   .help { margin: -4px 0 0; font-size: 13px; color: var(--soft); text-align: center; }
   footer { display: flex; justify-content: space-between; align-items: center; gap: 12px 20px; flex-wrap: wrap;
-           width: 100%; max-width: 1040px; margin: 0 auto; padding: 16px 28px calc(22px + env(safe-area-inset-bottom, 0px));
+           width: 100%; padding: 16px 28px calc(22px + env(safe-area-inset-bottom, 0px));
            font-size: 12px; color: var(--soft); border-top: 1px solid var(--line); }
   .family { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
   .family .lbl { font-weight: 600; font-size: 10px; letter-spacing: .14em; text-transform: uppercase; }
@@ -206,7 +205,7 @@ function loginPage({ next, username = "", error = false }: { next: string; usern
   .pp.on { border-color: var(--hc); color: #b8321a; background: var(--hc-bg); font-weight: 600; }
   .ver { font-variant-numeric: tabular-nums; font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 11.5px; }
   @media (max-width: 860px) {
-    main { grid-template-columns: 1fr; gap: 28px; padding: 12px 16px 28px; max-width: 480px; }
+    main { grid-template-columns: 1fr; gap: 28px; padding: 12px 16px 28px; }
     form { order: -1; }
     .about { gap: 14px; }
     .about h1 { font-size: 26px; }
@@ -225,7 +224,7 @@ function loginPage({ next, username = "", error = false }: { next: string; usern
 <main>
   <section class="about" aria-labelledby="about-title">
     <span class="eyebrow">An iSoftworks product</span>
-    <h1 id="about-title">${HC_SYMBOL}Hello Circle</h1>
+    <h1 id="about-title">Hello Circle</h1>
     <p class="lead">One place for Ireland's community centres, sports clubs and local activity. People find what's on near them, book a hall or a session, join a game or a circle, and pay online.</p>
     <ul class="points">
       <li><span><b>Residents</b> book rooms, register kids for clubs and join games and circles.</span></li>
@@ -237,7 +236,7 @@ function loginPage({ next, username = "", error = false }: { next: string; usern
   <form method="post" action="/__gate/login" autocomplete="on">
     <div class="prod">
       <div class="tile">${HC_SYMBOL}</div>
-      <div><div class="name">Hello Circle</div><div class="by">Test environment · by <b>iSoftworks</b></div></div>
+      <div><div class="name">Tester sign-in</div><div class="by">Test environment · by <b>iSoftworks</b></div></div>
     </div>
     ${error ? `<div class="error" role="alert">That username or password isn't right. Check for typos, or ask the iSoftworks team for a new password.</div>` : ""}
     <input type="hidden" name="next" value="${esc(next)}">
@@ -252,7 +251,7 @@ function loginPage({ next, username = "", error = false }: { next: string; usern
   </form>
 </main>
 <footer>
-  <div class="family"><span class="lbl">iSoftworks products</span><span class="pp on">Hello Circle</span><span class="pp">More coming soon</span></div>
+  <div class="family"><span class="lbl">iSoftworks products</span><span class="pp on">Hello Circle</span></div>
   ${version ? `<span class="ver" title="Release version and code build running on staging">${esc(version)}</span>` : ""}
 </footer>
 </body>
