@@ -4,7 +4,7 @@ import { DEFAULT_WEIGHTS, getRecommendationWeights, setRecommendationWeights, va
 import { Router } from "express";
 import { sendMail } from "../email.js";
 import { CLIENT_URL } from "../stripe.js";
-import { requireAdmin } from "../auth.js";
+import { ADMIN_ROLES, requireAdmin, requireAdminRole } from "../auth.js";
 import { writeAudit } from "../audit.js";
 import { approximateCoords, db, getSetting, setSetting } from "../db/index.js";
 import { FEATURE_FLAG_KEYS, getAnalyticsFunnel, getCentre, getClub, getDemandSignals, getIntentClusters, getLiquidityScores, getMarketCategories, getParticipationStats, getReferralAttribution, getSupplyOverview, MARKET_CATEGORIES, orgFeatureFlagsById, type MarketCategory } from "../db/queries.js";
@@ -19,7 +19,44 @@ import { generateSlug } from "../slugify.js";
 export const adminRouter = Router();
 adminRouter.use(requireAdmin);
 // Commerce Engine Phase 1 — versioned commercial rules, switches, audit.
-adminRouter.use("/commerce", adminCommerceRouter);
+adminRouter.use("/commerce", requireAdminRole("finance"), adminCommerceRouter);
+// Coupons move money (HelloCircle-funded discounts) — finance only (Stage 2a).
+adminRouter.use("/coupons", requireAdminRole("finance"));
+
+// --- admin sub-roles (Revenue & Connect Stage 2a, risk P1-1) -------------------
+// Only a super admin assigns roles; nobody changes their own role, and the
+// last super admin can't be demoted (so the platform can't lock itself out).
+adminRouter.get("/admins", requireAdminRole(), async (_req, res) => {
+  const rows = await db
+    .prepare(`SELECT id, email, name, COALESCE(admin_role, 'super') as adminRole, created_at as createdAt FROM users WHERE role = 'admin' ORDER BY created_at`)
+    .all();
+  res.json(rows);
+});
+
+adminRouter.put("/admins/:id/role", requireAdminRole(), async (req, res) => {
+  const { adminRole, reason } = req.body as { adminRole?: string; reason?: string };
+  if (!adminRole || !(ADMIN_ROLES as readonly string[]).includes(adminRole)) return res.status(400).json({ error: `adminRole must be one of ${ADMIN_ROLES.join(", ")}` });
+  if (typeof reason !== "string" || reason.trim().length < 5) return res.status(400).json({ error: "A reason (at least 5 characters) is required" });
+  if (req.params.id === req.user!.id) return res.status(403).json({ error: "You can't change your own admin role" });
+  try {
+    const before = await db.transaction(async (tx) => {
+      const target = (await tx.prepare(`SELECT COALESCE(admin_role, 'super') as role FROM users WHERE id = ? AND role = 'admin' FOR UPDATE`).get(req.params.id)) as { role: string } | undefined;
+      if (!target) throw new Error("NOT_FOUND");
+      if (target.role === "super" && adminRole !== "super") {
+        const { n } = (await tx.prepare(`SELECT COUNT(*) as n FROM users WHERE role = 'admin' AND COALESCE(admin_role, 'super') = 'super' FOR UPDATE`).get()) as { n: number };
+        if (Number(n) <= 1) throw new Error("LAST_SUPER");
+      }
+      await tx.prepare(`UPDATE users SET admin_role = ? WHERE id = ?`).run(adminRole, req.params.id);
+      return target.role;
+    });
+    await writeAudit({ actorUserId: req.user!.id, actorKind: "user", action: "admin.role_changed", objectType: "user", objectId: req.params.id, previousValue: { adminRole: before }, newValue: { adminRole }, reason: reason.trim() });
+    res.json({ id: req.params.id, adminRole });
+  } catch (e) {
+    if (e instanceof Error && e.message === "NOT_FOUND") return res.status(404).json({ error: "Admin not found" });
+    if (e instanceof Error && e.message === "LAST_SUPER") return res.status(409).json({ error: "At least one super admin must remain" });
+    throw e;
+  }
+});
 
 // --- platform stats ----------------------------------------------------
 

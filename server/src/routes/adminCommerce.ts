@@ -1,6 +1,8 @@
 import crypto from "node:crypto";
 import { Router, type Request, type Response } from "express";
 import { db, getSetting, setSetting } from "../db/index.js";
+import { writeAudit } from "../audit.js";
+import { assignPlan, createCampaign, currentPlanFor, enrollInCampaign, proBreakEvenMinor, type PartnerKey } from "../commerce/plans.js";
 import { CATEGORIES, COMMERCE_SWITCHES, RULE_KEYS, SCENARIOS, type ScopeType } from "../commerce/catalog.js";
 import {
   RuleError,
@@ -17,7 +19,9 @@ import {
   previewDraft,
   publishDraft,
   resolveRule,
+  retireVersion,
   rollbackTo,
+  submitForReview,
   secondApproverRequired,
   updateDraft,
   type Actor,
@@ -30,7 +34,7 @@ import {
 export const adminCommerceRouter = Router();
 
 function actorOf(req: Request): Actor {
-  return { userId: req.user!.id, correlationId: crypto.randomUUID() };
+  return { userId: req.user!.id, correlationId: crypto.randomUUID(), role: req.user!.adminRole ?? "super" };
 }
 
 function idParam(req: Request): number {
@@ -92,6 +96,8 @@ adminCommerceRouter.post("/rules/drafts", (req, res) =>
 
 adminCommerceRouter.put("/rules/:id", (req, res) => handle(res, () => updateDraft(idParam(req), req.body ?? {}, actorOf(req))));
 adminCommerceRouter.post("/rules/:id/discard", (req, res) => handle(res, () => discardDraft(idParam(req), req.body ?? {}, actorOf(req))));
+adminCommerceRouter.post("/rules/:id/review", (req, res) => handle(res, () => submitForReview(idParam(req), req.body ?? {}, actorOf(req))));
+adminCommerceRouter.post("/rules/:id/retire", (req, res) => handle(res, () => retireVersion(idParam(req), req.body ?? {}, actorOf(req))));
 adminCommerceRouter.post("/rules/:id/approve", (req, res) => handle(res, () => approveDraft(idParam(req), req.body ?? {}, actorOf(req))));
 adminCommerceRouter.post("/rules/:id/publish", (req, res) => handle(res, () => publishDraft(idParam(req), req.body ?? {}, actorOf(req))));
 adminCommerceRouter.post("/rules/:id/end", (req, res) => handle(res, () => endOverride(idParam(req), req.body ?? {}, actorOf(req))));
@@ -189,3 +195,109 @@ adminCommerceRouter.get("/shadow", async (_req, res) => {
     }),
   });
 });
+
+// --- Stage 2a: plans, plan assignments, promotions ------------------------------
+// Finance-gated (adminRouter mounts this router behind requireAdminRole("finance")).
+
+const PARTNER_KINDS = ["org", "vendor", "host"] as const;
+function partnerParam(req: Request): PartnerKey {
+  const kind = req.params.kind as PartnerKey["kind"];
+  if (!(PARTNER_KINDS as readonly string[]).includes(kind)) throw new RuleError("Partner kind must be org, vendor or host", 400);
+  return { kind, id: req.params.id };
+}
+function optionalDate(v: unknown, label: string): Date | undefined {
+  if (v === undefined || v === null || v === "") return undefined;
+  const d = new Date(String(v));
+  if (Number.isNaN(d.getTime())) throw new RuleError(`${label} isn't a valid date`);
+  return d;
+}
+
+adminCommerceRouter.get("/plans", (_req, res) =>
+  handle(res, async () => {
+    const plans = (await db.prepare(`SELECT plan_key as planKey, name, status FROM pricing_plans ORDER BY sort_order`).all()) as { planKey: string; name: string; status: string }[];
+    const free = await resolveRule("plan_free");
+    const pro = await resolveRule("plan_pro");
+    const breakEvenMinor = proBreakEvenMinor(Number(free.values.successFeeBps), Number(pro.values.successFeeBps), Number(pro.values.subscriptionMonthlyMinor));
+    return { plans, free: free.values, pro: pro.values, proBreakEvenMonthlyGmvMinor: breakEvenMinor };
+  })
+);
+
+adminCommerceRouter.get("/partners/:kind/:id/plan", (req, res) =>
+  handle(res, async () => {
+    const partner = partnerParam(req);
+    const history = await db
+      .prepare(
+        `SELECT id, plan_key as planKey, fee_plan_key as feePlanKey, source, source_ref as sourceRef, effective_from as effectiveFrom, effective_to as effectiveTo, created_by as createdBy, reason
+         FROM partner_plan_assignments WHERE partner_kind = ? AND partner_id = ? ORDER BY effective_from DESC, id DESC`
+      )
+      .all(partner.kind, partner.id);
+    return { current: await currentPlanFor(partner), history };
+  })
+);
+
+adminCommerceRouter.post("/partners/:kind/:id/plan", (req, res) =>
+  handle(res, async () => {
+    const partner = partnerParam(req);
+    const b = req.body as { planKey?: string; feePlanKey?: string | null; effectiveFrom?: string; effectiveTo?: string; reason?: string };
+    const assignmentId = await assignPlan({
+      partner,
+      planKey: String(b.planKey ?? ""),
+      feePlanKey: b.feePlanKey ?? null,
+      source: "admin",
+      effectiveFrom: optionalDate(b.effectiveFrom, "Start"),
+      effectiveTo: optionalDate(b.effectiveTo, "End") ?? null,
+      reason: String(b.reason ?? ""),
+      actorId: req.user!.id,
+    });
+    await writeAudit({ actorUserId: req.user!.id, actorKind: "user", action: "plan.assigned", objectType: `partner_${partner.kind}`, objectId: partner.id, newValue: { assignmentId, planKey: b.planKey, feePlanKey: b.feePlanKey ?? null, effectiveFrom: b.effectiveFrom ?? "now", effectiveTo: b.effectiveTo ?? null }, reason: b.reason });
+    return { assignmentId, current: await currentPlanFor(partner) };
+  })
+);
+
+adminCommerceRouter.get("/campaigns", async (_req, res) => {
+  const rows = await db
+    .prepare(
+      `SELECT c.id, c.campaign_key as campaignKey, c.plan_key as planKey, c.commission_plan_key as commissionPlanKey, c.benefit_days as benefitDays,
+              c.max_enrollments as maxEnrollments, c.starts_at as startsAt, c.ends_at as endsAt, c.status, c.terms,
+              (SELECT COUNT(*) FROM promotion_enrollments e WHERE e.campaign_id = c.id) as enrolled
+       FROM promotion_campaigns c ORDER BY c.created_at DESC`
+    )
+    .all() as Record<string, unknown>[];
+  res.json(rows.map((r) => ({ ...r, enrolled: Number(r.enrolled) })));
+});
+
+adminCommerceRouter.post("/campaigns", (req, res) =>
+  handle(res, async () => {
+    const b = req.body as Record<string, unknown>;
+    const reason = typeof b.reason === "string" ? b.reason.trim() : "";
+    if (reason.length < 5) throw new RuleError("A reason (at least 5 characters) is required");
+    const id = await createCampaign(
+      {
+        campaignKey: String(b.campaignKey ?? ""),
+        planKey: String(b.planKey ?? "pro"),
+        commissionPlanKey: String(b.commissionPlanKey ?? "free"),
+        benefitDays: Number(b.benefitDays),
+        maxEnrollments: Number(b.maxEnrollments),
+        startsAt: optionalDate(b.startsAt, "Start") ?? new Date(),
+        endsAt: optionalDate(b.endsAt, "End") ?? new Date(NaN),
+        terms: String(b.terms ?? ""),
+      },
+      req.user!.id
+    );
+    await writeAudit({ actorUserId: req.user!.id, actorKind: "user", action: "promotion.created", objectType: "promotion_campaign", objectId: String(b.campaignKey), newValue: b, reason });
+    return { id };
+  })
+);
+
+adminCommerceRouter.post("/campaigns/:id/enroll", (req, res) =>
+  handle(res, async () => {
+    const b = req.body as { partnerKind?: string; partnerId?: string; reason?: string };
+    if (!b.partnerKind || !(PARTNER_KINDS as readonly string[]).includes(b.partnerKind) || !b.partnerId) throw new RuleError("partnerKind and partnerId are required");
+    const reason = typeof b.reason === "string" ? b.reason.trim() : "";
+    if (reason.length < 5) throw new RuleError("A reason (at least 5 characters) is required");
+    const partner: PartnerKey = { kind: b.partnerKind as PartnerKey["kind"], id: b.partnerId };
+    const result = await enrollInCampaign(Number(req.params.id), partner, req.user!.id, reason);
+    await writeAudit({ actorUserId: req.user!.id, actorKind: "user", action: "promotion.enrolled", objectType: `partner_${partner.kind}`, objectId: partner.id, newValue: { campaignId: Number(req.params.id), ...result }, reason });
+    return result;
+  })
+);

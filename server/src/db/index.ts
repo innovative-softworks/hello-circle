@@ -3,7 +3,7 @@ import mysql from "mysql2/promise";
 import type { Pool, PoolConnection } from "mysql2/promise";
 import { normalizeAvailability, normalizeGoals } from "../participationVocab.js";
 import { normalizeDemand } from "../demandNormalize.js";
-import { RULE_KEYS, TARGET_MODEL_DRAFT, canonicalHash } from "../commerce/catalog.js";
+import { RULE_KEYS, canonicalHash } from "../commerce/catalog.js";
 
 const pool = mysql.createPool({
   host: process.env.DB_HOST || "127.0.0.1",
@@ -2444,12 +2444,84 @@ async function initCommerceSchema(
       )
       .run(spec.key, JSON.stringify(spec.v1), canonicalHash(spec.v1), "Seeded at Commerce Engine Phase 1: reproduces the live pricing/checkout/cancellation behaviour at that time.");
   }
-  await db
-    .prepare(
-      `INSERT IGNORE INTO commerce_rule_versions (rule_key, scope_type, scope_id, version, status, payload, payload_hash, previous_version_id, created_by, change_reason)
-       SELECT ?, 'global', '', 2, 'draft', ?, ?, id, 'system', ? FROM commerce_rule_versions WHERE rule_key = ? AND scope_type = 'global' AND version = 1`
+  // Decision B11 (docs/revenue-connect/07) — the earlier brief's target-model
+  // draft (customer fee 0 / 7% success / VAT included) is superseded by the
+  // Free/Pro plan rules. It is no longer seeded, and any copy still sitting
+  // as a system draft is discarded (kept for the record, never deleted).
+  await db.exec(`
+    UPDATE commerce_rule_versions SET status = 'discarded'
+    WHERE rule_key = 'pricing' AND created_by = 'system' AND status = 'draft'
+  `);
+
+  // Revenue & Connect Stage 2a — configuration workflow gains a review step
+  // and a retired state (statuses are strings; only reviewed_by is new).
+  await ensureColumn("commerce_rule_versions", "reviewed_by", "reviewed_by VARCHAR(191) NULL");
+
+  // Admin sub-roles (risk P1-1): super | finance | support | legal. Existing
+  // admins become super so nobody loses access on upgrade.
+  await ensureColumn("users", "admin_role", "admin_role VARCHAR(20) NULL");
+  await db.exec(`UPDATE users SET admin_role = 'super' WHERE role = 'admin' AND admin_role IS NULL`);
+  await ensureColumn("audit_log", "actor_role", "actor_role VARCHAR(30) NULL");
+
+  // Plans: identity + availability only; prices, fees and entitlements are
+  // versioned rules (plan_free / plan_pro / entitlements_*).
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS pricing_plans (
+      plan_key VARCHAR(30) PRIMARY KEY,
+      name VARCHAR(100) NOT NULL,
+      status VARCHAR(20) NOT NULL,
+      sort_order INT NOT NULL DEFAULT 0
+    );
+
+    CREATE TABLE IF NOT EXISTS partner_plan_assignments (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      partner_kind VARCHAR(10) NOT NULL,
+      partner_id VARCHAR(191) NOT NULL,
+      plan_key VARCHAR(30) NOT NULL,
+      fee_plan_key VARCHAR(30) NULL,
+      source VARCHAR(20) NOT NULL,
+      source_ref VARCHAR(191) NULL,
+      effective_from DATETIME NOT NULL,
+      effective_to DATETIME NULL,
+      created_by VARCHAR(191) NOT NULL,
+      reason TEXT NOT NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS promotion_campaigns (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      campaign_key VARCHAR(60) NOT NULL UNIQUE,
+      kind VARCHAR(30) NOT NULL,
+      plan_key VARCHAR(30) NOT NULL,
+      commission_plan_key VARCHAR(30) NOT NULL,
+      benefit_days INT NOT NULL,
+      max_enrollments INT NOT NULL,
+      starts_at DATETIME NOT NULL,
+      ends_at DATETIME NOT NULL,
+      status VARCHAR(20) NOT NULL,
+      terms TEXT NOT NULL,
+      created_by VARCHAR(191) NOT NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS promotion_enrollments (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      campaign_id INT NOT NULL,
+      partner_kind VARCHAR(10) NOT NULL,
+      partner_id VARCHAR(191) NOT NULL,
+      assignment_id INT NOT NULL,
+      enrolled_by VARCHAR(191) NOT NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE KEY uniq_campaign_partner (campaign_id, partner_kind, partner_id)
     )
-    .run(TARGET_MODEL_DRAFT.key, JSON.stringify(TARGET_MODEL_DRAFT.payload), canonicalHash(TARGET_MODEL_DRAFT.payload), TARGET_MODEL_DRAFT.reason, TARGET_MODEL_DRAFT.key);
+  `);
+  await ensureIndex("partner_plan_assignments", "idx_plan_assignment_partner", "(partner_kind, partner_id, effective_from)");
+  await db.exec(`
+    INSERT IGNORE INTO pricing_plans (plan_key, name, status, sort_order) VALUES
+      ('free', 'Free', 'active', 1),
+      ('pro', 'Pro', 'active', 2),
+      ('enterprise', 'Enterprise', 'disabled', 3)
+  `);
 }
 
 export const COUNTY_CENTROIDS: Record<string, { lat: number; lng: number }> = {

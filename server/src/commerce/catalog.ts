@@ -32,6 +32,10 @@ export type Scenario = (typeof SCENARIOS)[number];
 export const CATEGORIES = ["booking", "registration", "game", "program", "pass", "experience"] as const;
 export type Category = (typeof CATEGORIES)[number];
 
+/** Plan entitlements are on/off; kept as an enum so every rule value stays a
+ * string or integer (and the generic admin editor needs no new field type). */
+const ENTITLEMENT_VALUES = ["included", "not_included"] as const;
+
 export type FieldSpec =
   | { kind: "bps"; label: string; help?: string; min: number; max: number }
   | { kind: "minor"; label: string; help?: string; min: number; max: number }
@@ -102,10 +106,176 @@ export const RULE_KEYS: Record<string, RuleKeySpec> = {
     },
     v1: { cancellationHours: 48, bookingWindowDays: 90 },
   },
+
+  // --- Revenue & Connect programme, Stage 2a (docs/revenue-connect/07) -------
+  // Values below are SEEDS for version 1 of each rule (the brief's defaults);
+  // every runtime read resolves the published version. None of them is read
+  // by a live checkout until the pe-2 engine is switched on per type.
+  plan_free: {
+    key: "plan_free",
+    label: "Free plan",
+    description: "Free partner plan: no subscription, higher success fee, minimum fee per paid order.",
+    scopes: ["global", "partner"],
+    fields: {
+      successFeeBps: { kind: "bps", label: "Success fee (excl. VAT)", help: "Charged on the fee base of each completed paid order.", min: 0, max: 5000 },
+      minFeeMinor: { kind: "minor", label: "Minimum platform fee per paid order", min: 0, max: 10_000 },
+      subscriptionMonthlyMinor: { kind: "minor", label: "Subscription price per month (excl. VAT)", min: 0, max: 100_000 },
+      freeEventFee: { kind: "enum", label: "Fee on free events", values: ["none"], help: "Free events never carry a platform fee." },
+    },
+    v1: { successFeeBps: 900, minFeeMinor: 75, subscriptionMonthlyMinor: 0, freeEventFee: "none" },
+  },
+  plan_pro: {
+    key: "plan_pro",
+    label: "Pro plan",
+    description: "Optional partner subscription with a lower success fee.",
+    scopes: ["global", "partner"],
+    fields: {
+      successFeeBps: { kind: "bps", label: "Success fee (excl. VAT)", help: "Charged on the fee base of each completed paid order.", min: 0, max: 5000 },
+      minFeeMinor: { kind: "minor", label: "Minimum platform fee per paid order", min: 0, max: 10_000 },
+      subscriptionMonthlyMinor: { kind: "minor", label: "Subscription price per month (excl. VAT)", min: 0, max: 100_000 },
+      freeEventFee: { kind: "enum", label: "Fee on free events", values: ["none"], help: "Free events never carry a platform fee." },
+    },
+    v1: { successFeeBps: 700, minFeeMinor: 50, subscriptionMonthlyMinor: 2_900, freeEventFee: "none" },
+  },
+  plan_rules: {
+    key: "plan_rules",
+    label: "Plan changes",
+    description: "When plan changes take effect and how long a failed Pro payment keeps Pro rates.",
+    scopes: ["global"],
+    fields: {
+      upgradeTakesEffect: { kind: "enum", label: "Upgrade takes effect", values: ["next_booking", "immediately"] },
+      downgradeTakesEffect: { kind: "enum", label: "Downgrade takes effect", values: ["end_of_billing_period"] },
+      graceDays: { kind: "int", label: "Grace period after a failed payment", unit: "days", min: 0, max: 30 },
+    },
+    v1: { upgradeTakesEffect: "next_booking", downgradeTakesEffect: "end_of_billing_period", graceDays: 7 },
+  },
+  entitlements_free: {
+    key: "entitlements_free",
+    label: "Free plan features",
+    description: "Features available on the Free plan. Never switch off a feature partners use today without notice.",
+    scopes: ["global"],
+    fields: {
+      advancedAnalytics: { kind: "enum", label: "Advanced analytics", values: ENTITLEMENT_VALUES },
+      reducedSuccessFee: { kind: "enum", label: "Lower booking fee", values: ENTITLEMENT_VALUES },
+      promotionalCampaigns: { kind: "enum", label: "Promotional campaigns", values: ENTITLEMENT_VALUES },
+      customerCrm: { kind: "enum", label: "Customer CRM tools", values: ENTITLEMENT_VALUES },
+      prioritySupport: { kind: "enum", label: "Priority support", values: ENTITLEMENT_VALUES },
+      enhancedMedia: { kind: "enum", label: "Enhanced listing media", values: ENTITLEMENT_VALUES },
+      recurringActivities: { kind: "enum", label: "Recurring activities", values: ENTITLEMENT_VALUES },
+      waitlists: { kind: "enum", label: "Waitlists", values: ENTITLEMENT_VALUES },
+      teamMembers: { kind: "enum", label: "Team members", values: ENTITLEMENT_VALUES },
+      advancedReports: { kind: "enum", label: "Advanced reports", values: ENTITLEMENT_VALUES },
+      priorityPlacement: { kind: "enum", label: "Priority marketplace placement (labelled)", values: ENTITLEMENT_VALUES },
+    },
+    v1: { advancedAnalytics: "not_included", reducedSuccessFee: "not_included", promotionalCampaigns: "not_included", customerCrm: "not_included", prioritySupport: "not_included", enhancedMedia: "not_included", recurringActivities: "included", waitlists: "included", teamMembers: "included", advancedReports: "not_included", priorityPlacement: "not_included" },
+  },
+  entitlements_pro: {
+    key: "entitlements_pro",
+    label: "Pro plan features",
+    description: "Features available on the Pro plan.",
+    scopes: ["global"],
+    fields: {
+      advancedAnalytics: { kind: "enum", label: "Advanced analytics", values: ENTITLEMENT_VALUES },
+      reducedSuccessFee: { kind: "enum", label: "Lower booking fee", values: ENTITLEMENT_VALUES },
+      promotionalCampaigns: { kind: "enum", label: "Promotional campaigns", values: ENTITLEMENT_VALUES },
+      customerCrm: { kind: "enum", label: "Customer CRM tools", values: ENTITLEMENT_VALUES },
+      prioritySupport: { kind: "enum", label: "Priority support", values: ENTITLEMENT_VALUES },
+      enhancedMedia: { kind: "enum", label: "Enhanced listing media", values: ENTITLEMENT_VALUES },
+      recurringActivities: { kind: "enum", label: "Recurring activities", values: ENTITLEMENT_VALUES },
+      waitlists: { kind: "enum", label: "Waitlists", values: ENTITLEMENT_VALUES },
+      teamMembers: { kind: "enum", label: "Team members", values: ENTITLEMENT_VALUES },
+      advancedReports: { kind: "enum", label: "Advanced reports", values: ENTITLEMENT_VALUES },
+      priorityPlacement: { kind: "enum", label: "Priority marketplace placement (labelled)", values: ENTITLEMENT_VALUES },
+    },
+    v1: { advancedAnalytics: "included", reducedSuccessFee: "included", promotionalCampaigns: "included", customerCrm: "included", prioritySupport: "included", enhancedMedia: "included", recurringActivities: "included", waitlists: "included", teamMembers: "included", advancedReports: "included", priorityPlacement: "included" },
+  },
+  tax_vat: {
+    key: "tax_vat",
+    label: "VAT on HelloCircle fees",
+    description: "VAT on HelloCircle's own platform fee and subscription. The activity's own VAT is the partner's and is kept separate. Confirm with an Irish accountant before relying on it.",
+    scopes: ["global", "partner"],
+    fields: {
+      vatBps: { kind: "bps", label: "VAT rate", min: 0, max: 5000 },
+      vatMode: { kind: "enum", label: "VAT treatment", values: ["standard", "exempt", "reverse_charge"], help: "Reverse charge or exempt sets the fee VAT to zero for that partner." },
+      feeDisplay: { kind: "enum", label: "Fees shown to partners", values: ["exclusive_of_vat", "inclusive_of_vat"] },
+    },
+    v1: { vatBps: 2_300, vatMode: "standard", feeDisplay: "exclusive_of_vat" },
+  },
+  payment_costs: {
+    key: "payment_costs",
+    label: "Payment cost estimates",
+    description: "HelloCircle's own estimates of Stripe costs, used for contribution and margin warnings. Actual Stripe fees replace them through reconciliation.",
+    scopes: ["global"],
+    fields: {
+      cardBps: { kind: "bps", label: "Card processing (%)", min: 0, max: 1000 },
+      cardFixedMinor: { kind: "minor", label: "Card processing (fixed)", min: 0, max: 500 },
+      payoutBps: { kind: "bps", label: "Connect payout (%)", min: 0, max: 500 },
+      payoutFixedMinor: { kind: "minor", label: "Connect payout (fixed)", min: 0, max: 500 },
+      activeAccountMonthlyMinor: { kind: "minor", label: "Connect active account (per month)", min: 0, max: 2_000 },
+      instantPayoutBps: { kind: "bps", label: "Instant payout price to partners (%)", min: 0, max: 1000 },
+      instantPayoutMinMinor: { kind: "minor", label: "Instant payout minimum", min: 0, max: 1_000 },
+      fxCost: { kind: "enum", label: "Currency conversion cost", values: ["pass_through"] },
+      crossBorderCost: { kind: "enum", label: "Cross-border payout cost", values: ["pass_through"] },
+    },
+    v1: { cardBps: 150, cardFixedMinor: 25, payoutBps: 25, payoutFixedMinor: 10, activeAccountMonthlyMinor: 200, instantPayoutBps: 125, instantPayoutMinMinor: 75, fxCost: "pass_through", crossBorderCost: "pass_through" },
+  },
+  settlement: {
+    key: "settlement",
+    label: "Settlement and payouts",
+    description: "Transfer eligibility begins after the activity is completed and the review period has passed.",
+    scopes: ["global", "partner"],
+    fields: {
+      reviewHours: { kind: "int", label: "Review period after completion", unit: "hours", min: 0, max: 720 },
+      payoutSchedule: { kind: "enum", label: "Standard payout schedule", values: ["weekly"] },
+      payoutWeekday: { kind: "enum", label: "Weekly payout day", values: ["monday", "tuesday", "wednesday", "thursday", "friday"] },
+      minPayoutMinor: { kind: "minor", label: "Minimum payout", help: "Smaller balances carry forward.", min: 0, max: 100_000 },
+      refundReserveBps: { kind: "bps", label: "Refund reserve", min: 0, max: 5000 },
+      disputeReserveBps: { kind: "bps", label: "Dispute reserve", min: 0, max: 5000 },
+      marginWarningMinor: { kind: "minor", label: "Warn when contribution per order is below", min: 0, max: 10_000 },
+    },
+    v1: { reviewHours: 48, payoutSchedule: "weekly", payoutWeekday: "monday", minPayoutMinor: 2_500, refundReserveBps: 0, disputeReserveBps: 0, marginWarningMinor: 0 },
+  },
+  rewards: {
+    key: "rewards",
+    label: "Partner reward points",
+    description: "Points earned on settled GMV, redeemable for a free Pro month. Points are not cash and not transferable.",
+    scopes: ["global"],
+    fields: {
+      pointsPerEuro: { kind: "int", label: "Points per €1 of settled GMV", unit: "points", min: 0, max: 100 },
+      redemptionPoints: { kind: "int", label: "Points for one free Pro month", unit: "points", min: 1, max: 1_000_000 },
+      expiryMonths: { kind: "int", label: "Points expire after", unit: "months", min: 1, max: 60 },
+      maxFreeMonthsPerRedemption: { kind: "int", label: "Free months per redemption", unit: "months", min: 1, max: 1 },
+    },
+    v1: { pointsPerEuro: 1, redemptionPoints: 10_000, expiryMonths: 18, maxFreeMonthsPerRedemption: 1 },
+  },
+  credits: {
+    key: "credits",
+    label: "Customer credits",
+    description: "Credits are liabilities with a named funding owner. Not convertible to cash.",
+    scopes: ["global"],
+    fields: {
+      defaultExpiryMonths: { kind: "int", label: "Default credit expiry", unit: "months", min: 1, max: 60 },
+      refundCreditExpiryMonths: { kind: "int", label: "Refund credit expiry", unit: "months", min: 1, max: 60 },
+      cashOut: { kind: "enum", label: "Cash value", values: ["not_supported"] },
+    },
+    v1: { defaultExpiryMonths: 12, refundCreditExpiryMonths: 24, cashOut: "not_supported" },
+  },
+  availability: {
+    key: "availability",
+    label: "Countries and currencies",
+    description: "Where partners can be paid. MVP: Ireland and EUR only.",
+    scopes: ["global"],
+    fields: {
+      partnerCountry: { kind: "enum", label: "Partner country", values: ["IE"] },
+      currency: { kind: "enum", label: "Currency", values: ["EUR"] },
+    },
+    v1: { partnerCountry: "IE", currency: "EUR" },
+  },
 };
 
-/** The master prompt's target model (§3), seeded as a DRAFT only — publishing
- * it changes every customer price, so it waits for decisions D1/D2. */
+/** The earlier Commerce Engine brief's target model. No longer seeded —
+ * superseded by the Free/Pro plan rules (decision B11, docs/revenue-connect/07);
+ * kept only as a fixed reference payload for tests of the generic engine. */
 export const TARGET_MODEL_DRAFT: { key: string; payload: Record<string, number | string>; reason: string } = {
   key: "pricing",
   payload: { ...RULE_KEYS.pricing.v1, customerFeeBps: 0, successFeeBps: 700, vatMode: "included_in_price" },

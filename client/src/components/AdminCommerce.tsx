@@ -97,6 +97,8 @@ const LIFECYCLE_STYLE: Record<string, { bg: string; fg: string; label: string }>
   superseded: { bg: colors.panel, fg: colors.mutedLight, label: "Superseded" },
   ended: { bg: colors.panel, fg: colors.mutedLight, label: "Ended" },
   discarded: { bg: colors.panel, fg: colors.mutedLight, label: "Discarded" },
+  review: { bg: colors.orangeBg, fg: colors.orangeDark, label: "In review" },
+  retired: { bg: colors.panel, fg: colors.mutedLight, label: "Retired" },
 };
 
 function LifecycleBadge({ lifecycle }: { lifecycle: string }) {
@@ -117,6 +119,8 @@ const ACTION_COPY: Record<CommerceRuleAction, { title: string; button: string; d
   discard: { title: "Discard this draft", button: "Discard", note: "The draft is kept for the record but can never be published." },
   end: { title: "End this override", button: "End override", dateLabel: "Ends at (leave empty for now)", note: "Quotes then fall back to the wider rule. The override stays in history." },
   rollback: { title: "Roll back to this version", button: "Roll back", note: "Creates a new version with these values. Nothing in history is rewritten." },
+  review: { title: "Send for review", button: "Send for review", note: "Marks this draft as ready for another admin to review and approve." },
+  retire: { title: "Retire this version", button: "Retire", note: "A retired version never applies again. An override in force ends now; the global version in force can't be retired." },
 };
 
 function ActionDialog({ pending, onClose, onDone }: { pending: PendingAction | null; onClose: () => void; onDone: () => void }) {
@@ -343,7 +347,7 @@ function DetailsModal({ version, spec, onClose }: { version: CommerceRuleVersion
     setError(null);
     if (!version) return;
     fetchCommerceRule(version.id).then((r) => setVsPrevious(r.changesFromPrevious)).catch(() => setVsPrevious([]));
-    if (version.status === "draft" || version.status === "approved") {
+    if (version.status === "draft" || version.status === "review" || version.status === "approved") {
       previewCommerceRule(version.id).then(setPreview).catch((e) => setError(e instanceof Error ? e.message : "Preview failed"));
     }
   }, [version]);
@@ -362,7 +366,7 @@ function DetailsModal({ version, spec, onClose }: { version: CommerceRuleVersion
       </div>
       <h5 style={{ ...h3, fontSize: 14 }}>Compared with the version before it</h5>
       {vsPrevious ? <ChangesTable spec={spec} changes={vsPrevious} /> : <p style={hint}>Loading…</p>}
-      {(version.status === "draft" || version.status === "approved") && (
+      {(version.status === "draft" || version.status === "review" || version.status === "approved") && (
         <>
           <h5 style={{ ...h3, fontSize: 14, marginTop: 18 }}>Impact if published now</h5>
           {error && <p style={{ color: colors.danger, fontSize: 13 }}>{error}</p>}
@@ -446,7 +450,7 @@ function RuleCard({
   const global = versions.find((v) => v.scopeType === "global" && v.inForce);
   const base = global?.payload ?? spec.v1;
   const [showHistory, setShowHistory] = useState(false);
-  const visible = showHistory ? versions : versions.filter((v) => !["superseded", "ended", "discarded"].includes(v.lifecycle));
+  const visible = showHistory ? versions : versions.filter((v) => !["superseded", "ended", "discarded", "retired"].includes(v.lifecycle));
   return (
     <Card style={{ padding: 22 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, flexWrap: "wrap" }}>
@@ -478,7 +482,7 @@ function RuleCard({
           </thead>
           <tbody>
             {visible.map((v) => {
-              const editable = v.status === "draft" || v.status === "approved";
+              const editable = v.status === "draft" || v.status === "review" || v.status === "approved";
               return (
                 <tr key={v.id}>
                   <td style={tdStyle}>v{v.version}</td>
@@ -493,13 +497,15 @@ function RuleCard({
                     <div style={{ display: "flex", gap: 6, justifyContent: "flex-end", flexWrap: "wrap" }}>
                       <Button variant="ghost" onClick={() => onDetails(v)}>{editable ? "Preview" : "View"}</Button>
                       {editable && <Button variant="ghost" onClick={() => onEdit(v, base)}>Edit</Button>}
-                      {v.status === "draft" && secondApprover && <Button variant="ghost" onClick={() => onAction(v, "approve")}>Approve</Button>}
+                      {v.status === "draft" && <Button variant="ghost" onClick={() => onAction(v, "review")}>Send for review</Button>}
+                      {(v.status === "draft" || v.status === "review") && secondApprover && <Button variant="ghost" onClick={() => onAction(v, "approve")}>Approve</Button>}
                       {editable && <Button onClick={() => onAction(v, "publish")}>Publish</Button>}
                       {editable && <Button variant="ghost" onClick={() => onAction(v, "discard")}>Discard</Button>}
                       {v.status === "published" && v.scopeType !== "global" && (v.lifecycle === "active" || v.lifecycle === "scheduled") && (
                         <Button variant="ghost" onClick={() => onAction(v, "end")}>End</Button>
                       )}
                       {v.status === "published" && !v.inForce && v.lifecycle !== "scheduled" && <Button variant="ghost" onClick={() => onAction(v, "rollback")}>Roll back to this</Button>}
+                      {v.status === "published" && !(v.scopeType === "global" && v.inForce) && <Button variant="ghost" onClick={() => onAction(v, "retire")}>Retire</Button>}
                     </div>
                   </td>
                 </tr>

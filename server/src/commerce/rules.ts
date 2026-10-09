@@ -22,7 +22,7 @@ import { priceBreakdown, type PricingValues } from "./money.js";
 
 type Tx = Pick<typeof db, "prepare">;
 
-export type RuleStatus = "draft" | "approved" | "published" | "discarded";
+export type RuleStatus = "draft" | "review" | "approved" | "published" | "retired" | "discarded";
 
 export interface RuleVersionRow {
   id: number;
@@ -38,6 +38,7 @@ export interface RuleVersionRow {
   payloadHash: string;
   previousVersionId: number | null;
   createdBy: string;
+  reviewedBy: string | null;
   approvedBy: string | null;
   publishedBy: string | null;
   publishedAt: string | null;
@@ -71,7 +72,7 @@ export interface ResolvedRule {
 
 const SELECT_COLUMNS = `id, rule_key as ruleKey, scope_type as scopeType, scope_id as scopeId, version, status,
   effective_from as effectiveFrom, effective_to as effectiveTo, currency, payload, payload_hash as payloadHash,
-  previous_version_id as previousVersionId, created_by as createdBy, approved_by as approvedBy, published_by as publishedBy,
+  previous_version_id as previousVersionId, created_by as createdBy, reviewed_by as reviewedBy, approved_by as approvedBy, published_by as publishedBy,
   published_at as publishedAt, change_reason as changeReason, created_at as createdAt`;
 
 function toRow(raw: Record<string, unknown>): RuleVersionRow {
@@ -146,16 +147,19 @@ export async function resolveRule(key: string, ctx: ResolveContext = {}, at: Dat
 export interface Actor {
   userId: string;
   correlationId: string;
+  /** Admin sub-role at the time of the change (audit_log.actor_role). */
+  role?: string | null;
 }
 
 async function auditTx(tx: Tx, actor: Actor, action: string, objectId: string, previousValue: unknown, newValue: unknown, reason: string) {
   await tx
     .prepare(
-      `INSERT INTO audit_log (actor_user_id, actor_kind, action, object_type, object_id, previous_value, new_value, reason, correlation_id, environment)
-       VALUES (?, 'user', ?, 'commerce_rule', ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO audit_log (actor_user_id, actor_kind, actor_role, action, object_type, object_id, previous_value, new_value, reason, correlation_id, environment)
+       VALUES (?, 'user', ?, ?, 'commerce_rule', ?, ?, ?, ?, ?, ?)`
     )
     .run(
       actor.userId,
+      actor.role ?? null,
       action,
       objectId,
       previousValue === undefined ? null : JSON.stringify(previousValue),
@@ -262,13 +266,13 @@ export async function updateDraft(id: number, input: { payload: unknown; reason:
   const reason = requireReason(input.reason);
   return db.transaction(async (tx) => {
     const row = await lockRow(tx, id);
-    if (row.status !== "draft" && row.status !== "approved") throw new RuleError("Only a draft can be edited — create a new version instead", 409);
+    if (!EDITABLE.includes(row.status)) throw new RuleError("Only a draft can be edited — create a new version instead", 409);
     const check = validatePayload(row.ruleKey, row.scopeType, input.payload);
     if (!check.ok) throw new RuleError(check.errors.join("; "));
     const payload = input.payload as Record<string, number | string>;
     // Editing an approved draft voids the approval — the approver approved the old values.
     await tx
-      .prepare(`UPDATE commerce_rule_versions SET payload = ?, payload_hash = ?, status = 'draft', approved_by = NULL, change_reason = ? WHERE id = ?`)
+      .prepare(`UPDATE commerce_rule_versions SET payload = ?, payload_hash = ?, status = 'draft', reviewed_by = NULL, approved_by = NULL, change_reason = ? WHERE id = ?`)
       .run(JSON.stringify(payload), canonicalHash(payload), reason, id);
     await auditTx(tx, actor, "commerce_rule.draft_updated", String(id), row.payload, payload, reason);
     return lockRow(tx, id);
@@ -279,9 +283,47 @@ export async function discardDraft(id: number, input: { reason: unknown }, actor
   const reason = requireReason(input.reason);
   return db.transaction(async (tx) => {
     const row = await lockRow(tx, id);
-    if (row.status !== "draft" && row.status !== "approved") throw new RuleError("Only a draft can be discarded", 409);
+    if (!EDITABLE.includes(row.status)) throw new RuleError("Only a draft can be discarded", 409);
     await tx.prepare(`UPDATE commerce_rule_versions SET status = 'discarded' WHERE id = ?`).run(id);
     await auditTx(tx, actor, "commerce_rule.draft_discarded", String(id), { status: row.status }, { status: "discarded" }, reason);
+    return lockRow(tx, id);
+  });
+}
+
+/** Statuses a version can still be edited/discarded/published from. */
+const EDITABLE: RuleStatus[] = ["draft", "review", "approved"];
+
+/** Draft → review: the author asks for review (brief §17 step 2). Any admin
+ * can review; recording who reviewed is separate from who approves. */
+export async function submitForReview(id: number, input: { reason: unknown }, actor: Actor): Promise<RuleVersionRow> {
+  const reason = requireReason(input.reason);
+  return db.transaction(async (tx) => {
+    const row = await lockRow(tx, id);
+    if (row.status !== "draft") throw new RuleError("Only a draft can be sent for review", 409);
+    await tx.prepare(`UPDATE commerce_rule_versions SET status = 'review' WHERE id = ?`).run(id);
+    await auditTx(tx, actor, "commerce_rule.submitted_for_review", String(id), { status: "draft" }, { status: "review" }, reason);
+    return lockRow(tx, id);
+  });
+}
+
+/** Published → retired (brief §17 step 6). A retired version never resolves
+ * again. The global version in force can't be retired (publish a
+ * replacement); an override in force is ended at the same moment. */
+export async function retireVersion(id: number, input: { reason: unknown }, actor: Actor): Promise<RuleVersionRow> {
+  const reason = requireReason(input.reason);
+  const now = new Date();
+  return db.transaction(async (tx) => {
+    const row = await lockRow(tx, id);
+    if (row.status !== "published") throw new RuleError("Only a published version can be retired", 409);
+    const current = await inForce(tx, row.ruleKey, row.scopeType, row.scopeId, now);
+    if (row.scopeType === "global" && current?.id === row.id) throw new RuleError("The global version in force can't be retired — publish a replacement first", 409);
+    if (row.effectiveFrom && new Date(row.effectiveFrom) > now) {
+      // A scheduled version that never took effect: retiring it simply cancels it.
+    } else if (current?.id === row.id && !row.effectiveTo) {
+      await tx.prepare(`UPDATE commerce_rule_versions SET effective_to = ? WHERE id = ?`).run(sqlTime(now), id);
+    }
+    await tx.prepare(`UPDATE commerce_rule_versions SET status = 'retired' WHERE id = ?`).run(id);
+    await auditTx(tx, actor, "commerce_rule.retired", String(id), { status: "published" }, { status: "retired" }, reason);
     return lockRow(tx, id);
   });
 }
@@ -290,10 +332,10 @@ export async function approveDraft(id: number, input: { reason: unknown }, actor
   const reason = requireReason(input.reason);
   return db.transaction(async (tx) => {
     const row = await lockRow(tx, id);
-    if (row.status !== "draft") throw new RuleError("Only a draft can be approved", 409);
+    if (row.status !== "draft" && row.status !== "review") throw new RuleError("Only a draft or a version in review can be approved", 409);
     if (row.createdBy === actor.userId) throw new RuleError("A different admin must approve this change", 403);
     await tx.prepare(`UPDATE commerce_rule_versions SET status = 'approved', approved_by = ? WHERE id = ?`).run(actor.userId, id);
-    await auditTx(tx, actor, "commerce_rule.approved", String(id), { status: "draft" }, { status: "approved", payloadHash: row.payloadHash }, reason);
+    await auditTx(tx, actor, "commerce_rule.approved", String(id), { status: row.status }, { status: "approved", payloadHash: row.payloadHash }, reason);
     return lockRow(tx, id);
   });
 }
@@ -313,7 +355,7 @@ export async function publishDraft(id: number, input: { reason: unknown; effecti
   const needsSecond = await secondApproverRequired();
   return db.transaction(async (tx) => {
     const row = await lockRow(tx, id);
-    if (row.status !== "draft" && row.status !== "approved") throw new RuleError("Only a draft can be published", 409);
+    if (!EDITABLE.includes(row.status)) throw new RuleError("Only a draft can be published", 409);
     if (needsSecond && (row.status !== "approved" || !row.approvedBy || row.approvedBy === row.createdBy)) {
       throw new RuleError("This change needs approval from a second admin before it can be published", 403);
     }

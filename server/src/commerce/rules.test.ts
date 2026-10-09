@@ -84,11 +84,10 @@ describe("seeded state", () => {
       expect(r.sources[0]).toMatchObject({ scopeType: "global", version: 1 });
     }
   });
-  it("the target model exists only as an unpublished draft", async () => {
+  it("the earlier brief's target-model draft is no longer seeded, and any system copy is discarded (decision B11)", async () => {
     const { body } = await call("GET", "/rules?key=pricing");
-    const v2 = body.find((r: any) => r.scopeType === "global" && r.version === 2);
-    expect(v2).toMatchObject({ status: "draft", lifecycle: "draft" });
-    expect(v2.payload).toEqual(TARGET_MODEL_DRAFT.payload);
+    const systemDrafts = body.filter((r: any) => r.createdBy === "system" && r.status !== "published");
+    for (const d of systemDrafts) expect(d.status).toBe("discarded");
   });
 });
 
@@ -195,9 +194,13 @@ describe("rollback", () => {
   it("diff lists exactly the changed fields", async () => {
     const { body } = await call("GET", "/rules?key=pricing");
     const g1 = body.find((r: any) => r.scopeType === "global" && r.version === 1);
-    const g2 = body.find((r: any) => r.scopeType === "global" && r.version === 2);
-    const d = await call("GET", `/rules/${g1.id}/diff/${g2.id}`);
-    expect(d.body.changes.map((c: any) => c.field).sort()).toEqual(["customerFeeBps", "successFeeBps", "vatMode"]);
+    const target = await draft("global", "", TARGET_MODEL_DRAFT.payload, "diff test draft (target model)");
+    try {
+      const d = await call("GET", `/rules/${g1.id}/diff/${target.body.id}`);
+      expect(d.body.changes.map((c: any) => c.field).sort()).toEqual(["customerFeeBps", "successFeeBps", "vatMode"]);
+    } finally {
+      await call("POST", `/rules/${target.body.id}/discard`, { reason: "cleanup diff test" });
+    }
   });
 });
 
@@ -222,10 +225,10 @@ describe("two-person approval", () => {
 });
 
 describe("preview and audit", () => {
-  it("previews the target draft's money impact on sample prices", async () => {
-    const { body } = await call("GET", "/rules?key=pricing");
-    const g2 = body.find((r: any) => r.scopeType === "global" && r.version === 2);
-    const p = await call("GET", `/rules/${g2.id}/preview`);
+  it("previews a draft's money impact on sample prices", async () => {
+    const g2 = await draft("global", "", TARGET_MODEL_DRAFT.payload, "preview test draft (target model)");
+    const p = await call("GET", `/rules/${g2.body.id}/preview`);
+    await call("POST", `/rules/${g2.body.id}/discard`, { reason: "cleanup preview test" });
     expect(p.status).toBe(200);
     const s = p.body.samples.find((x: any) => x.listMinor === 10_000);
     expect(s.current.customerPaidMinor).toBe(12_800); // today: +23% VAT +5% fee

@@ -489,7 +489,7 @@ export interface CommerceRuleVersion {
   scopeType: CommerceScopeType;
   scopeId: string;
   version: number;
-  status: "draft" | "approved" | "published" | "discarded";
+  status: "draft" | "review" | "approved" | "published" | "retired" | "discarded";
   lifecycle: string;
   inForce: boolean;
   effectiveFrom: string | null;
@@ -574,7 +574,7 @@ export function updateCommerceDraft(id: number, input: { payload: Record<string,
   return request(`/admin/commerce/rules/${id}`, { method: "PUT", body: JSON.stringify(input) });
 }
 
-export type CommerceRuleAction = "publish" | "approve" | "discard" | "end" | "rollback";
+export type CommerceRuleAction = "publish" | "approve" | "discard" | "end" | "rollback" | "review" | "retire";
 
 export function commerceRuleAction(id: number, action: CommerceRuleAction, input: { reason: string; effectiveFrom?: string; effectiveTo?: string }): Promise<CommerceRuleVersion> {
   return request(`/admin/commerce/rules/${id}/${action}`, { method: "POST", body: JSON.stringify(input) });
