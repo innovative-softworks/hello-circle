@@ -3,6 +3,7 @@ import mysql from "mysql2/promise";
 import type { Pool, PoolConnection } from "mysql2/promise";
 import { normalizeAvailability, normalizeGoals } from "../participationVocab.js";
 import { normalizeDemand } from "../demandNormalize.js";
+import { RULE_KEYS, TARGET_MODEL_DRAFT, canonicalHash } from "../commerce/catalog.js";
 
 const pool = mysql.createPool({
   host: process.env.DB_HOST || "127.0.0.1",
@@ -2245,6 +2246,68 @@ export async function initSchema() {
       .prepare(`UPDATE participation_intents SET cluster_key = ?, category = ?, preferred_days = CASE WHEN preferred_days = '' THEN ? ELSE preferred_days END WHERE id = ?`)
       .run(n.clusterKey || row.activity_label.toLowerCase(), n.category, n.days.join(","), row.id);
   }
+
+  await initCommerceSchema(ensureColumn, ensureIndex);
+}
+
+/** Commerce Engine Phase 1 — versioned commercial rules (commerce/rules.ts,
+ * commerce/catalog.ts, docs/commerce-config-catalog.md). Additive only.
+ * A version row is created as a draft and published with an effective_from
+ * that is never in the past; published rows only ever gain effective_to. */
+async function initCommerceSchema(
+  ensureColumn: (table: string, column: string, ddl: string) => Promise<void>,
+  ensureIndex: (table: string, name: string, columns: string) => Promise<void>
+) {
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS commerce_rule_versions (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      rule_key VARCHAR(50) NOT NULL,
+      scope_type VARCHAR(20) NOT NULL,
+      scope_id VARCHAR(191) NOT NULL DEFAULT '',
+      version INT NOT NULL,
+      status VARCHAR(20) NOT NULL DEFAULT 'draft',
+      effective_from DATETIME NULL,
+      effective_to DATETIME NULL,
+      currency CHAR(3) NOT NULL DEFAULT 'EUR',
+      payload TEXT NOT NULL,
+      payload_hash CHAR(64) NOT NULL,
+      previous_version_id INT NULL,
+      created_by VARCHAR(191) NOT NULL,
+      approved_by VARCHAR(191) NULL,
+      published_by VARCHAR(191) NULL,
+      published_at DATETIME NULL,
+      change_reason TEXT NOT NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE KEY uniq_rule_scope_version (rule_key, scope_type, scope_id, version)
+    )
+  `);
+  await ensureIndex("commerce_rule_versions", "idx_rule_resolve", "(rule_key, scope_type, scope_id, status, effective_from)");
+
+  // Audit trail for commercial changes: who (kind), why, which request, where.
+  // TEXT columns stay nullable with no DEFAULT (MySQL rejects DEFAULT on TEXT).
+  await ensureColumn("audit_log", "actor_kind", "actor_kind VARCHAR(20) NULL");
+  await ensureColumn("audit_log", "reason", "reason TEXT NULL");
+  await ensureColumn("audit_log", "correlation_id", "correlation_id VARCHAR(64) NULL");
+  await ensureColumn("audit_log", "environment", "environment VARCHAR(20) NULL");
+
+  // Seed version 1 of every rule = today's live behaviour, plus the target
+  // model as an unpublished pricing draft. INSERT IGNORE on the unique
+  // (rule_key, scope_type, scope_id, version) key makes this a no-op on
+  // every boot after the first; a discarded draft is never re-created.
+  for (const spec of Object.values(RULE_KEYS)) {
+    await db
+      .prepare(
+        `INSERT IGNORE INTO commerce_rule_versions (rule_key, scope_type, scope_id, version, status, effective_from, payload, payload_hash, created_by, approved_by, published_by, published_at, change_reason)
+         VALUES (?, 'global', '', 1, 'published', '2000-01-01 00:00:00', ?, ?, 'system', 'system', 'system', NOW(), ?)`
+      )
+      .run(spec.key, JSON.stringify(spec.v1), canonicalHash(spec.v1), "Seeded at Commerce Engine Phase 1: reproduces the live pricing/checkout/cancellation behaviour at that time.");
+  }
+  await db
+    .prepare(
+      `INSERT IGNORE INTO commerce_rule_versions (rule_key, scope_type, scope_id, version, status, payload, payload_hash, previous_version_id, created_by, change_reason)
+       SELECT ?, 'global', '', 2, 'draft', ?, ?, id, 'system', ? FROM commerce_rule_versions WHERE rule_key = ? AND scope_type = 'global' AND version = 1`
+    )
+    .run(TARGET_MODEL_DRAFT.key, JSON.stringify(TARGET_MODEL_DRAFT.payload), canonicalHash(TARGET_MODEL_DRAFT.payload), TARGET_MODEL_DRAFT.reason, TARGET_MODEL_DRAFT.key);
 }
 
 export const COUNTY_CENTROIDS: Record<string, { lat: number; lng: number }> = {

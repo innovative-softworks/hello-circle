@@ -424,3 +424,145 @@ export function fetchRecommendationWeights(): Promise<{ weights: RecommendationW
 export function saveRecommendationWeights(weights: RecommendationWeights): Promise<{ weights: RecommendationWeights }> {
   return request(`/admin/recommendation-weights`, { method: "PUT", body: JSON.stringify({ weights }) });
 }
+
+// --- Commerce Engine (Phase 1): versioned commercial rules -----------------
+// Mirrors server/src/commerce/catalog.ts + rules.ts + routes/adminCommerce.ts.
+
+export type CommerceScopeType = "global" | "scenario" | "category" | "partner";
+
+export type CommerceFieldSpec =
+  | { kind: "bps"; label: string; help?: string; min: number; max: number }
+  | { kind: "minor"; label: string; help?: string; min: number; max: number }
+  | { kind: "int"; label: string; help?: string; unit: string; min: number; max: number }
+  | { kind: "enum"; label: string; help?: string; values: string[] };
+
+export interface CommerceRuleKeySpec {
+  key: string;
+  label: string;
+  description: string;
+  scopes: CommerceScopeType[];
+  fields: Record<string, CommerceFieldSpec>;
+  v1: Record<string, number | string>;
+}
+
+export interface CommerceSwitchState {
+  key: string;
+  label: string;
+  description: string;
+  defaultValue: boolean;
+  activeFromPhase: number | null;
+  enabled: boolean;
+}
+
+export interface CommerceCatalog {
+  ruleKeys: CommerceRuleKeySpec[];
+  scenarios: string[];
+  categories: string[];
+  switches: CommerceSwitchState[];
+  secondApproverRequired: boolean;
+}
+
+export interface CommerceRuleVersion {
+  id: number;
+  ruleKey: string;
+  scopeType: CommerceScopeType;
+  scopeId: string;
+  version: number;
+  status: "draft" | "approved" | "published" | "discarded";
+  lifecycle: string;
+  inForce: boolean;
+  effectiveFrom: string | null;
+  effectiveTo: string | null;
+  payload: Record<string, number | string>;
+  payloadHash: string;
+  previousVersionId: number | null;
+  createdBy: string;
+  approvedBy: string | null;
+  publishedBy: string | null;
+  publishedAt: string | null;
+  changeReason: string;
+  createdAt: string;
+}
+
+export interface CommerceFieldDiff {
+  field: string;
+  label: string;
+  from: number | string | null;
+  to: number | string | null;
+}
+
+export interface CommercePriceBreakdown {
+  listMinor: number;
+  discountMinor: number;
+  goodsGrossMinor: number;
+  vatMinor: number;
+  customerFeeMinor: number;
+  depositMinor: number;
+  customerPaidMinor: number;
+  partnerGrossMinor: number;
+  successFeeMinor: number;
+  paymentCostMinor: number;
+  partnerPayoutMinor: number;
+  platformRevenueMinor: number;
+  platformContributionMinor: number;
+}
+
+export interface CommercePreview {
+  ruleKey: string;
+  changes: CommerceFieldDiff[];
+  samples: { listMinor: number; current: CommercePriceBreakdown; proposed: CommercePriceBreakdown }[];
+  recentOrders: { kind: string; ref: string; chargedMinor: number; proposedCustomerPaidMinor: number; proposedPartnerPayoutMinor: number; proposedPlatformRevenueMinor: number }[];
+}
+
+export interface CommerceAuditEntry {
+  id: number;
+  actorUserId: string | null;
+  actorEmail: string | null;
+  action: string;
+  objectType: string;
+  objectId: string;
+  previousValue: string | null;
+  newValue: string | null;
+  reason: string | null;
+  correlationId: string | null;
+  environment: string | null;
+  createdAt: string;
+}
+
+export function fetchCommerceCatalog(): Promise<CommerceCatalog> {
+  return request(`/admin/commerce/catalog`);
+}
+
+export function fetchCommerceRules(key?: string): Promise<CommerceRuleVersion[]> {
+  return request(`/admin/commerce/rules${key ? `?key=${encodeURIComponent(key)}` : ""}`);
+}
+
+export function fetchCommerceRule(id: number): Promise<{ version: CommerceRuleVersion; previous: CommerceRuleVersion | null; changesFromPrevious: CommerceFieldDiff[] }> {
+  return request(`/admin/commerce/rules/${id}`);
+}
+
+export function previewCommerceRule(id: number): Promise<CommercePreview> {
+  return request(`/admin/commerce/rules/${id}/preview`);
+}
+
+export function createCommerceDraft(input: { key: string; scopeType: CommerceScopeType; scopeId: string; payload: Record<string, number | string>; reason: string }): Promise<CommerceRuleVersion> {
+  return request(`/admin/commerce/rules/drafts`, { method: "POST", body: JSON.stringify(input) });
+}
+
+export function updateCommerceDraft(id: number, input: { payload: Record<string, number | string>; reason: string }): Promise<CommerceRuleVersion> {
+  return request(`/admin/commerce/rules/${id}`, { method: "PUT", body: JSON.stringify(input) });
+}
+
+export type CommerceRuleAction = "publish" | "approve" | "discard" | "end" | "rollback";
+
+export function commerceRuleAction(id: number, action: CommerceRuleAction, input: { reason: string; effectiveFrom?: string; effectiveTo?: string }): Promise<CommerceRuleVersion> {
+  return request(`/admin/commerce/rules/${id}/${action}`, { method: "POST", body: JSON.stringify(input) });
+}
+
+export function setCommerceSwitch(key: string, enabled: boolean, reason: string): Promise<{ key: string; enabled: boolean }> {
+  return request(`/admin/commerce/switches/${encodeURIComponent(key)}`, { method: "PUT", body: JSON.stringify({ enabled, reason }) });
+}
+
+export function fetchCommerceAudit(): Promise<CommerceAuditEntry[]> {
+  return request(`/admin/commerce/audit`);
+}

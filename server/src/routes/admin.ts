@@ -10,6 +10,7 @@ import { approximateCoords, db, getSetting, setSetting } from "../db/index.js";
 import { FEATURE_FLAG_KEYS, getAnalyticsFunnel, getCentre, getClub, getDemandSignals, getIntentClusters, getLiquidityScores, getMarketCategories, getParticipationStats, getReferralAttribution, getSupplyOverview, MARKET_CATEGORIES, orgFeatureFlagsById, type MarketCategory } from "../db/queries.js";
 import { endOfIrelandDay } from "../irelandTime.js";
 import { couponAmountError } from "../pricing.js";
+import { adminCommerceRouter } from "./adminCommerce.js";
 import { NOTIFICATION_TEMPLATE_KEYS } from "../notificationTemplates.js";
 import { notifyResident } from "../notifications.js";
 import { notifyVendorFollowers } from "./follows.js";
@@ -17,6 +18,8 @@ import { generateSlug } from "../slugify.js";
 
 export const adminRouter = Router();
 adminRouter.use(requireAdmin);
+// Commerce Engine Phase 1 — versioned commercial rules, switches, audit.
+adminRouter.use("/commerce", adminCommerceRouter);
 
 // --- platform stats ----------------------------------------------------
 
