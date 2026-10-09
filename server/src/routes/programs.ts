@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { shadowLegacy } from "../commerce/engine.js";
 import { createCheckoutSession, pricingLineItems } from "../checkoutService.js";
 import { logEvent, logView } from "../analytics.js";
 import { db } from "../db/index.js";
@@ -247,6 +248,7 @@ programsRouter.post("/:id/enroll", async (req, res) => {
     couponCode = result.code!;
   }
   const pricing = computePricing(program.price_cents, 0, discountCents, couponCode);
+  shadowLegacy("program", ref, { vendorUserId: program.vendor_id }, pricing);
   const isFree = pricing.totalCents === 0;
 
   try {

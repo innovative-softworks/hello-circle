@@ -14,6 +14,8 @@ import { bookingEndHour, hoursOverlap } from "../util.js";
 import { CLIENT_URL, STRIPE_WEBHOOK_SECRET, stripe } from "../stripe.js";
 import { unsignedStripeWebhooksAllowed } from "../stripeWebhookPolicy.js";
 import type Stripe from "stripe";
+import type { CheckoutType } from "../checkoutService.js";
+import { SOURCE_TABLES, syncOrderFromSource } from "../commerce/engine.js";
 
 interface BookingForNotify {
   ref: string;
@@ -409,6 +411,14 @@ async function markFailed(metadata: Stripe.Metadata | null | undefined) {
   else if (metadata.type === "pass") await db.prepare(`DELETE FROM passes WHERE ref = ? AND payment_status = 'pending'`).run(metadata.ref);
   else if (metadata.type === "program") await endPendingHold("program_enrollments", metadata.ref, "delete");
   else if (metadata.type === "experience") await endPendingHold("experience_bookings", metadata.ref, "delete");
+  await syncOrder(metadata);
+}
+
+/** Commerce Engine Phase 2 — mirror the participation row onto its commerce
+ * order (if the engine priced it). A no-op for every legacy-priced row. */
+async function syncOrder(metadata: Stripe.Metadata | null | undefined) {
+  const { type, ref } = metadata ?? {};
+  if (ref && type && type in SOURCE_TABLES) await syncOrderFromSource(type as CheckoutType, ref);
 }
 
 /** Registered with express.raw() (not express.json()) — Stripe's signature
@@ -492,4 +502,5 @@ async function confirmByType(metadata: Stripe.Metadata | null | undefined) {
   else if (type === "pass") await confirmPass(ref);
   else if (type === "program") await confirmProgramEnrollment(ref);
   else if (type === "experience") await confirmExperienceBooking(ref);
+  await syncOrder(metadata);
 }

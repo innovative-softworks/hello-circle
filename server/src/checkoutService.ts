@@ -5,6 +5,7 @@ import { db } from "./db/index.js";
 import { CLIENT_URL, stripe } from "./stripe.js";
 import { PENDING_HOLD_MINUTES } from "./bookingIntegrity.js";
 import { recordStripeFailure } from "./stripeDiagnostics.js";
+import { syncOrderFromSource } from "./commerce/engine.js";
 
 /** Phase 8 QA seam: a deterministic, network-free provider stand-in so the
  * internal pending → success/failure/expiry state machine can be proven
@@ -239,6 +240,14 @@ export async function issueStripeRefund(stripeSessionId: string): Promise<Stripe
 
 type RefundTable = "bookings" | "registrations" | "program_enrollments" | "experience_bookings" | "game_participants";
 
+const REFUND_SOURCE_TYPE: Record<RefundTable, CheckoutType> = {
+  bookings: "booking",
+  registrations: "registration",
+  program_enrollments: "program",
+  experience_bookings: "experience",
+  game_participants: "game",
+};
+
 /** Who/what a refund attempt is about — used for the operational audit row
  * when a provider state can't be reconciled safely (HC-QA-091). */
 export interface RefundAuditContext { actorUserId: string | null; objectType: string; objectId: string }
@@ -263,7 +272,12 @@ export async function refundPaidOnce(table: RefundTable, where: string, params: 
       const result = await issueStripeRefund(stripeSessionId);
       if (!result.ok) throw new ProviderRefundError(result.error, result.kind === "unsupported");
       await tx.prepare(`UPDATE ${table} SET payment_status = 'refunded' WHERE ${where} AND payment_status = 'paid'`).run(...params);
-      return { ok: true as const, amountCents: result.amountCents, reconciled: result.reconciled };
+      const refRow = (await tx.prepare(`SELECT ref FROM ${table} WHERE ${where}`).get(...params)) as { ref: string | null } | undefined;
+      return { ok: true as const, amountCents: result.amountCents, reconciled: result.reconciled, ref: refRow?.ref ?? null };
+    }).then(async (r) => {
+      // Commerce Engine Phase 2 — mirror the refund onto the commerce order.
+      if (r.ok && r.ref) await syncOrderFromSource(REFUND_SOURCE_TYPE[table], r.ref);
+      return r.ok ? { ok: true as const, amountCents: r.amountCents, reconciled: r.reconciled } : r;
     });
   } catch (e) {
     if (e instanceof ProviderRefundError && e.unsupported) {

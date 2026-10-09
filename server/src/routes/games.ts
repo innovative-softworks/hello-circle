@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { shadowLegacy } from "../commerce/engine.js";
 import { Router } from "express";
 import { logEvent, logView } from "../analytics.js";
 import { computeCapacity } from "../capacity.js";
@@ -1611,6 +1612,7 @@ gamesRouter.post("/:id/join", requireResident, async (req, res) => {
 
   const row = checkoutRow as GameRow;
   const pricing = computePricing(row.price_cents!, 0, discountCents, appliedCouponCode);
+  shadowLegacy("game", insertedRef, { hostResidentId: row.host_resident_id }, pricing);
   const result = await createCheckoutSession({
     ref: insertedRef,
     type: "game",

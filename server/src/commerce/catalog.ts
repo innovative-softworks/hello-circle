@@ -170,8 +170,9 @@ export interface CommerceSwitch {
 export const COMMERCE_SWITCHES: CommerceSwitch[] = [
   { key: "commerce.require_second_approver", label: "Two-person approval for rule changes", description: "A different admin must approve a rule version before it can be published.", defaultValue: false, activeFromPhase: null },
   { key: "commerce.paid_games_require_verified_host", label: "Paid activities need a verified host", description: "Only residents with host status 'verified' can put a price on an activity.", defaultValue: true, activeFromPhase: null },
-  { key: "commerce.shadow_pricing", label: "Shadow pricing (PRICING_RULES_V2)", description: "Price every checkout with the rules engine too and log differences, without changing what the customer is charged.", defaultValue: false, activeFromPhase: 2 },
-  { key: "commerce.engine_v2", label: "Commerce engine (COMMERCE_ENGINE_V2)", description: "Quotes and orders from the commerce engine for enabled resource types.", defaultValue: false, activeFromPhase: 2 },
+  { key: "commerce.shadow_pricing", label: "Shadow pricing (PRICING_RULES_V2)", description: "Price every checkout with the rules engine too and log differences, without changing what the customer is charged.", defaultValue: false, activeFromPhase: null },
+  { key: "commerce.engine_v2", label: "Commerce engine (COMMERCE_ENGINE_V2)", description: "Master switch: quotes, orders and pricing snapshots from the commerce engine for the resource types switched on below.", defaultValue: false, activeFromPhase: null },
+  { key: "commerce.engine_v2_experience", label: "Commerce engine — Experiences", description: "Experience bookings are priced by the published rules and recorded as commerce orders (needs the master switch too).", defaultValue: false, activeFromPhase: null },
   { key: "commerce.coupons_v2", label: "Coupons v2 (COUPONS_V2)", description: "Funding-aware coupon reservation and reversal.", defaultValue: false, activeFromPhase: 3 },
   { key: "commerce.settlement_ledger", label: "Settlement ledger (SETTLEMENT_LEDGER)", description: "Append-only ledger postings and payout allocations.", defaultValue: false, activeFromPhase: 4 },
   { key: "commerce.circle_credits", label: "Circle Credits (CIRCLE_CREDITS)", description: "Partner reward points on settled GMV.", defaultValue: false, activeFromPhase: 5 },

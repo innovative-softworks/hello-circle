@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { syncOrderFromSource } from "../commerce/engine.js";
 import { matchExperienceSupply } from "../participationIntents.js";
 import { Router } from "express";
 import { requirePlatformRole } from "../auth.js";
@@ -400,6 +401,7 @@ vendorExperiencesRouter.delete("/experiences/:id/sessions/:sessionId", requirePl
     await tx.prepare(`UPDATE experience_bookings SET payment_status = 'failed' WHERE session_id = ? AND payment_status = 'pending'`).run(session.id);
     return { session, rows };
   });
+  for (const b of affected.rows) await syncOrderFromSource("experience", b.ref);
   if (affected.session && affected.rows.length) {
     const exp = (await db.prepare(`SELECT title, vendor_id as vendorId FROM experiences WHERE id = ?`).get(req.params.id)) as { title: string; vendorId: string };
     await writeAudit({
@@ -456,6 +458,7 @@ vendorExperiencesRouter.post("/experiences/:id/bookings/:bookingId/cancel", requ
   // runs the side effects (capacity release, audit, notifications, promotion).
   const flipped = await db.prepare(`UPDATE experience_bookings SET status = 'cancelled' WHERE ref = ? AND status != 'cancelled'`).run(row.ref);
   if (flipped.changes !== 1) return res.status(409).json({ error: "This booking is already cancelled" });
+  await syncOrderFromSource("experience", row.ref);
 
   await writeAudit({
     actorUserId: req.user!.id,

@@ -137,3 +137,55 @@ adminCommerceRouter.get("/audit", async (_req, res) => {
     .all();
   res.json(rows);
 });
+
+// --- Phase 2: orders + shadow pricing -------------------------------------------
+
+/** Engine-priced orders, newest first, searchable by order id, legacy ref,
+ * Stripe session id or partner id. Full snapshot (internal allocations
+ * included) — admin only. */
+adminCommerceRouter.get("/orders", async (req, res) => {
+  const q = typeof req.query.q === "string" ? req.query.q.trim() : "";
+  const where = q ? `WHERE o.id = ? OR o.source_ref = ? OR o.stripe_session_id = ? OR o.partner_id = ?` : "";
+  const rows = (await db
+    .prepare(
+      `SELECT o.id, o.source_type as sourceType, o.source_ref as sourceRef, o.scenario, o.partner_kind as partnerKind, o.partner_id as partnerId,
+              o.order_status as orderStatus, o.payment_status as paymentStatus, o.fulfilment_status as fulfilmentStatus, o.payout_status as payoutStatus,
+              o.currency, o.created_at as createdAt, o.rule_hash as ruleHash,
+              s.list_minor as listMinor, s.discount_minor as discountMinor, s.vat_minor as vatMinor, s.customer_fee_minor as customerFeeMinor,
+              s.customer_paid_minor as customerPaidMinor, s.success_fee_minor as successFeeMinor, s.partner_payout_minor as partnerPayoutMinor,
+              s.platform_revenue_minor as platformRevenueMinor, s.engine_version as engineVersion, s.rule_sources as ruleSources
+       FROM commerce_orders o JOIN pricing_snapshots s ON s.order_id = o.id ${where}
+       ORDER BY o.created_at DESC LIMIT 100`
+    )
+    .all(...(q ? [q, q, q, q] : []))) as Record<string, any>[];
+  res.json(
+    rows.map((r) => ({
+      ...r,
+      ruleSources: JSON.parse(r.ruleSources),
+      ...Object.fromEntries(["listMinor", "discountMinor", "vatMinor", "customerFeeMinor", "customerPaidMinor", "successFeeMinor", "partnerPayoutMinor", "platformRevenueMinor"].map((k) => [k, Number(r[k])])),
+    }))
+  );
+});
+
+/** Shadow-pricing results: per resource type, how many legacy checkouts the
+ * rules engine priced identically, plus the most recent mismatches. The
+ * Phase 2 go-live gate is "zero unexplained mismatches" for a type. */
+adminCommerceRouter.get("/shadow", async (_req, res) => {
+  const summary = (await db
+    .prepare(
+      `SELECT source_type as sourceType, SUM(matched = 1) as matched, SUM(matched = 0) as mismatched, MAX(created_at) as lastSeen
+       FROM commerce_shadow_diffs WHERE created_at > NOW() - INTERVAL 30 DAY GROUP BY source_type ORDER BY source_type`
+    )
+    .all()) as { sourceType: string; matched: number | string; mismatched: number | string; lastSeen: string }[];
+  const mismatches = (await db
+    .prepare(`SELECT id, source_type as sourceType, source_ref as sourceRef, diff_fields as diffFields, legacy, engine, created_at as createdAt FROM commerce_shadow_diffs WHERE matched = 0 ORDER BY id DESC LIMIT 50`)
+    .all()) as Record<string, any>[];
+  res.json({
+    summary: summary.map((s) => ({ ...s, matched: Number(s.matched), mismatched: Number(s.mismatched) })),
+    mismatches: mismatches.map((m) => {
+      const legacy = JSON.parse(m.legacy);
+      const engine = JSON.parse(m.engine);
+      return { id: m.id, sourceType: m.sourceType, sourceRef: m.sourceRef, diffFields: m.diffFields, createdAt: m.createdAt, legacyTotalMinor: legacy.totalCents, engineTotalMinor: engine.customerPaidMinor };
+    }),
+  });
+});

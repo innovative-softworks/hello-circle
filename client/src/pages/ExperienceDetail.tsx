@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { OfficialCircleLink } from "../components/OfficialCircleLink";
 import { ParticipationBlock } from "../components/ParticipationBlock";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
-import { addFavourite, bookExperienceSession, downloadExperienceBookingIcs, fetchExperience, fetchExperiences, fetchFavourites, quoteExperienceSession, removeFavourite, type BookingQuote } from "../api";
+import { ApiError, addFavourite, bookExperienceSession, downloadExperienceBookingIcs, fetchExperience, fetchExperiences, fetchFavourites, quoteExperienceSession, removeFavourite, type BookingQuote } from "../api";
 import { openCheckout } from "../native";
 import { ListingChatButton } from "../components/ListingChats";
 import { BackLink } from "../components/BackLink";
@@ -227,7 +227,10 @@ export function ExperienceDetail() {
     setError(null);
     setSubmitting(true);
     try {
-      const res = await bookExperienceSession(experience.id, selectedSession.id, form);
+      // Commerce Engine Phase 2 — hand back the quote the customer was shown;
+      // the server refuses (409) rather than charging a price that moved.
+      const quoteId = quote && quote.partySize === form.partySize ? quote.quoteId : undefined;
+      const res = await bookExperienceSession(experience.id, selectedSession.id, { ...form, quoteId });
       if (res.url) {
         openCheckout(res.url);
         return;
@@ -236,6 +239,12 @@ export function ExperienceDetail() {
       setConfirmed({ ref: res.ref });
     } catch (e) {
       setError(e instanceof Error ? e.message : "Couldn't complete booking");
+      // The price moved or the quote went stale: show the current total so
+      // the customer can review it and try again.
+      const code = e instanceof ApiError ? e.body.code : undefined;
+      if (typeof code === "string" && (code.startsWith("quote_") || code === "price_changed")) {
+        quoteExperienceSession(experience.id, selectedSession.id, { partySize: form.partySize }).then(setQuote).catch(() => setQuote(null));
+      }
     } finally {
       setSubmitting(false);
     }
@@ -449,7 +458,9 @@ export function ExperienceDetail() {
         <div style={{ fontSize: 12, color: colors.mutedLight }}>
           {bookingTotalCents
             ? quote && quotedTotal !== null
-              ? `${form.partySize} × €${(experience.priceCents / 100).toFixed(2)} + VAT €${(quote.vatCents / 100).toFixed(2)} + fee €${(quote.platformFeeCents / 100).toFixed(2)}`
+              ? quote.vatIncluded
+                ? `${form.partySize} × €${(experience.priceCents / 100).toFixed(2)} · incl. VAT €${(quote.vatCents / 100).toFixed(2)}${quote.platformFeeCents ? ` + fee €${(quote.platformFeeCents / 100).toFixed(2)}` : ""}`
+                : `${form.partySize} × €${(experience.priceCents / 100).toFixed(2)} + VAT €${(quote.vatCents / 100).toFixed(2)} + fee €${(quote.platformFeeCents / 100).toFixed(2)}`
               : "Calculating total…"
             : "No payment required"}
         </div>

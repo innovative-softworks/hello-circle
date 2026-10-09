@@ -2290,6 +2290,115 @@ async function initCommerceSchema(
   await ensureColumn("audit_log", "correlation_id", "correlation_id VARCHAR(64) NULL");
   await ensureColumn("audit_log", "environment", "environment VARCHAR(20) NULL");
 
+  // Phase 2 — quotes, orders, immutable pricing snapshots, shadow diffs.
+  // Money is BIGINT minor units plus an explicit currency; nothing here is
+  // ever recomputed after insert. commerce_orders wraps (never replaces) the
+  // existing participation row identified by (source_type, source_ref).
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS commerce_quotes (
+      id CHAR(36) PRIMARY KEY,
+      source_type VARCHAR(20) NOT NULL,
+      resource_id VARCHAR(191) NOT NULL,
+      session_id VARCHAR(191) NULL,
+      quantity INT NOT NULL,
+      coupon_code VARCHAR(191) NULL,
+      client_id VARCHAR(191) NULL,
+      resident_id VARCHAR(191) NULL,
+      currency CHAR(3) NOT NULL,
+      customer_paid_minor BIGINT NOT NULL,
+      rule_hash CHAR(64) NOT NULL,
+      breakdown TEXT NOT NULL,
+      expires_at DATETIME NOT NULL,
+      used_at DATETIME NULL,
+      order_id CHAR(36) NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS commerce_orders (
+      id CHAR(36) PRIMARY KEY,
+      source_type VARCHAR(20) NOT NULL,
+      source_ref VARCHAR(191) NOT NULL,
+      scenario VARCHAR(30) NOT NULL,
+      category VARCHAR(20) NOT NULL,
+      customer_client_id VARCHAR(191) NULL,
+      customer_resident_id VARCHAR(191) NULL,
+      partner_kind VARCHAR(10) NOT NULL,
+      partner_id VARCHAR(191) NOT NULL,
+      vendor_user_id VARCHAR(191) NULL,
+      host_resident_id VARCHAR(191) NULL,
+      currency CHAR(3) NOT NULL,
+      order_status VARCHAR(20) NOT NULL,
+      payment_status VARCHAR(20) NOT NULL,
+      fulfilment_status VARCHAR(20) NOT NULL DEFAULT 'scheduled',
+      payout_status VARCHAR(20) NOT NULL DEFAULT 'not_tracked',
+      customer_paid_minor BIGINT NOT NULL,
+      stripe_session_id VARCHAR(255) NULL,
+      stripe_payment_intent_id VARCHAR(255) NULL,
+      quote_id CHAR(36) NULL,
+      rule_hash CHAR(64) NOT NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      UNIQUE KEY uniq_order_source (source_type, source_ref)
+    );
+
+    CREATE TABLE IF NOT EXISTS commerce_order_lines (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      order_id CHAR(36) NOT NULL,
+      item_type VARCHAR(30) NOT NULL,
+      item_id VARCHAR(191) NOT NULL,
+      quantity INT NOT NULL,
+      unit_minor BIGINT NOT NULL,
+      line_subtotal_minor BIGINT NOT NULL,
+      discount_minor BIGINT NOT NULL,
+      tax_minor BIGINT NOT NULL,
+      final_minor BIGINT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS pricing_snapshots (
+      order_id CHAR(36) PRIMARY KEY,
+      engine_version VARCHAR(20) NOT NULL,
+      rule_hash CHAR(64) NOT NULL,
+      rule_sources TEXT NOT NULL,
+      rule_values TEXT NOT NULL,
+      currency CHAR(3) NOT NULL,
+      list_minor BIGINT NOT NULL,
+      discount_minor BIGINT NOT NULL,
+      coupon_code VARCHAR(191) NULL,
+      goods_gross_minor BIGINT NOT NULL,
+      vat_minor BIGINT NOT NULL,
+      customer_fee_minor BIGINT NOT NULL,
+      deposit_minor BIGINT NOT NULL,
+      customer_paid_minor BIGINT NOT NULL,
+      partner_gross_minor BIGINT NOT NULL,
+      success_fee_minor BIGINT NOT NULL,
+      payment_cost_minor BIGINT NOT NULL,
+      partner_payment_cost_minor BIGINT NOT NULL,
+      partner_payout_minor BIGINT NOT NULL,
+      platform_revenue_minor BIGINT NOT NULL,
+      platform_contribution_minor BIGINT NOT NULL,
+      platform_funded_discount_minor BIGINT NOT NULL DEFAULT 0,
+      reward_liability_minor BIGINT NOT NULL DEFAULT 0,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS commerce_shadow_diffs (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      source_type VARCHAR(20) NOT NULL,
+      source_ref VARCHAR(191) NOT NULL,
+      matched TINYINT NOT NULL,
+      diff_fields VARCHAR(255) NOT NULL DEFAULT '',
+      legacy TEXT NOT NULL,
+      engine TEXT NOT NULL,
+      rule_hash CHAR(64) NOT NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+  await ensureIndex("commerce_orders", "idx_order_stripe_session", "(stripe_session_id)");
+  await ensureIndex("commerce_orders", "idx_order_partner", "(partner_kind, partner_id, created_at)");
+  await ensureIndex("commerce_order_lines", "idx_order_lines_order", "(order_id)");
+  await ensureIndex("commerce_quotes", "idx_quote_expiry", "(expires_at)");
+  await ensureIndex("commerce_shadow_diffs", "idx_shadow_matched", "(matched, created_at)");
+
   // Seed version 1 of every rule = today's live behaviour, plus the target
   // model as an unpublished pricing draft. INSERT IGNORE on the unique
   // (rule_key, scope_type, scope_id, version) key makes this a no-op on

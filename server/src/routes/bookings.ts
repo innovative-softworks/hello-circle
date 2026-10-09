@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { shadowLegacy } from "../commerce/engine.js";
 import { Router } from "express";
 import { createCheckoutSession, pricingLineItems } from "../checkoutService.js";
 import { logEvent } from "../analytics.js";
@@ -204,6 +205,7 @@ export async function createBookingInternal(input: CreateBookingInternalInput): 
   // Cash bookings skip the refundable deposit too — there's no online charge to hold it against.
   const pricing = computePricing(subtotalCents, isCash ? 0 : DEPOSIT_CENTS, discountCents, couponCode);
   const ref = generateRef("HB");
+  shadowLegacy("booking", ref, { vendorUserId: centreVendorRow?.vendor_id }, pricing);
 
   // The availability check and the insert must be atomic against concurrent
   // checkouts for the same room — otherwise two guests can both pass the

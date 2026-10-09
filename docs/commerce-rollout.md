@@ -164,3 +164,130 @@ tables yet.
 Before going live it needs D1/D2 (the target price model and VAT treatment). The preview makes the impact
 concrete: under the target model a €10 list price nets the partner €7.56 (instead of €10 today) unless partners
 re-price.
+
+---
+
+## Phase 2 — Quotes, orders, snapshots, shadow mode (Experiences first)
+
+**1. Inspected.**
+- The Experiences quote and checkout paths (`quoteExperience`, the row-locked booking transaction).
+- Every transition point for an experience booking: webhook confirm, expiry, failure, resident cancel, vendor
+  cancel, session cancel and refund.
+- The QA provider stub seam.
+- The other five flows' pricing sites, for shadow hooks.
+
+**2–3. Changed / files.**
+- New: `server/src/commerce/engine.ts`, which covers:
+  - rule-based pricing
+  - venue day-rate parity
+  - Stripe line items that always sum to the total
+  - single-use quotes
+  - creating an order with its snapshot
+  - `syncOrderFromSource()`
+  - shadow pricing
+- New: `server/src/routes/commerce.ts` (`/api/commerce`).
+- Edited:
+  - `routes/experiences.ts`: engine quote and checkout behind switches, exported `storedExperienceQuote`
+  - `routes/stripeWebhook.ts`: order sync after confirm and fail dispatch
+  - `checkoutService.ts`: order sync after a refund
+  - `routes/vendorExperiences.ts`: order sync after a cancel
+  - `routes/{bookings,registrations,programs,games,passes}.ts`: one shadow call each
+  - `routes/adminCommerce.ts`: `/orders` and `/shadow`
+  - `rateLimit.ts`: `commerceQuoteLimiter`
+  - `db/index.ts`: schema
+  - `commerce/catalog.ts`: switches
+- Client: `api/public.ts` (`quoteId`, `vatIncluded`), `pages/ExperienceDetail.tsx` (sends the quote back,
+  VAT-inclusive display, re-quotes after a 409), `api/admin.ts` and `components/AdminCommerce.tsx` (Shadow
+  pricing and Orders cards).
+
+**4. Database changes (additive).**
+- New tables: `commerce_quotes`, `commerce_orders` (unique `(source_type, source_ref)`, indexed on Stripe session
+  and partner), `commerce_order_lines`, `pricing_snapshots` (never updated after insert) and
+  `commerce_shadow_diffs`.
+- Money columns are `BIGINT` minor units plus `currency`.
+
+**5. APIs.**
+- New:
+  - `POST /api/commerce/quotes` (experiences only, otherwise 409 `engine_not_enabled`, rate-limited)
+  - `GET /api/commerce/orders/:id` (owner only; customer-visible fields only)
+  - `GET /api/admin/commerce/orders?q=`
+  - `GET /api/admin/commerce/shadow`
+- Changed:
+  - The experience quote endpoint adds `vatIncluded` and, when the engine is on, `quoteId` and `quoteExpiresAt`.
+    It is now rate-limited at 120 requests per 15 minutes.
+  - Experience checkout accepts `quoteId` and can return 409 with `code` set to `quote_used`, `quote_mismatch`,
+    `quote_expired`, `quote_not_found` or `price_changed`.
+
+**6. UI.**
+- Admin → Commercial rules gains **Shadow pricing** (matched/mismatched per type over 30 days, plus recent
+  mismatches) and **Orders** (searchable, with customer paid, partner payout, HelloCircle revenue and the rule
+  versions used).
+- The Experience booking form shows "incl. VAT" when the rule says VAT is included, and refreshes the total if
+  the price moved.
+
+**Switches.**
+- `commerce.shadow_pricing` is now active.
+- `commerce.engine_v2` (master) and `commerce.engine_v2_experience` (per type) are new and active.
+- All default to **off**. With them off, checkout is the pre-engine code path, which a test proves.
+
+**7–9. Tests.** `commerce/engine.test.ts` (20 tests):
+- line items sum to the total for v1 and the target model
+- v1 line layout identical to today's
+- the target model shows one VAT-inclusive line
+- the venue day rate matches legacy `hireCost()` for every rate from €1 to €300 and every duration from 1 to 12
+  hours
+- shadow records a match under v1 and a mismatch under an override, without changing the charge
+- quote → order → snapshot equals the stored charge
+- single-use quotes; mismatch, expiry and price-changed refusals
+- historical snapshots unchanged after a rule change
+- checkout without a quote
+- cancel mirrors onto the order
+- a failed payment page fails the order and frees the quote
+- the provider-stub webhook confirms exactly once; an expired session fails the order
+- the customer order view hides internal fields and is scoped to its owner
+- switching the engine off returns to the legacy path
+
+Results:
+- Full server suite: **57 files, 580 passed, 23 skipped**.
+- Client: 105 passed.
+- `tsc` and `npm run build` clean.
+
+Browser check (throwaway loopback MySQL, no credentials):
+- With the engine on, the Experience form showed the engine quote (€32.00, identical to today).
+- The booking went through with the quote id; the order and snapshot were recorded (customer €32, partner €25,
+  HelloCircle €1.25, global v1).
+- Both new admin cards render.
+
+**10. Security.**
+- The order view returns nothing internal (payout, success fee, cost estimates, identity) and returns 404 to
+  non-owners.
+- Quotes are single-use, bound to identity, resource, party size and coupon, and checked against the rule hash
+  and total under a row lock, so a replayed or duplicated checkout can't create a second order from one quote.
+- Quote creation is rate-limited.
+
+**11. Data-migration impact.** Additive only. Engine orders exist only for experience bookings made while both
+engine switches are on. Shadow rows are written only while the shadow switch is on.
+
+**12. Remaining risks / limitations.**
+- Phase 2 still reads the hold duration (`PENDING_HOLD_MINUTES`) and cancellation defaults from code. The rules
+  for them exist, but switching the SQL predicates is deferred to the per-type migrations (Phase 8).
+- `syncOrderFromSource` reads the `status` column, which `passes` doesn't have. Passes must add one, or get a
+  special case, before they move to the engine (Phase 8).
+- Shadow pricing compares the pricing rule only. A booking's list price (venue day rate) is shadowed through the
+  legacy list price, with parity proven separately in unit tests.
+- New risk **R28**: vendor session cancel (`vendorExperiences.ts` DELETE session) marks pending holds `failed`
+  without `releaseCoupon`, so a reserved coupon use can leak. This is pre-existing and not fixed here; flagged for
+  the Phase 3 coupon work.
+- Quotes accumulate rows; a cleanup of expired, unused quotes belongs with the Phase 4 operations jobs.
+
+**13. Rollback.**
+- Turn off `commerce.engine_v2` (or `commerce.engine_v2_experience`) in Admin → Commercial rules → Switches. New
+  experience bookings immediately go back to legacy pricing, with no deploy.
+- Existing orders and snapshots stay as a record. They are never consulted by legacy code.
+- Code revert is safe because the tables are additive.
+
+**14. Recommended next.**
+1. Turn on **shadow pricing in staging** and collect real comparisons for every type.
+2. Decide **D1/D2**.
+3. Then either keep Experiences on rule v1 under the engine (zero customer change, but every order gets a
+   snapshot), or start Phase 3 (coupon normalisation and funding, which also fixes R28).

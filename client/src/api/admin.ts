@@ -566,3 +566,44 @@ export function setCommerceSwitch(key: string, enabled: boolean, reason: string)
 export function fetchCommerceAudit(): Promise<CommerceAuditEntry[]> {
   return request(`/admin/commerce/audit`);
 }
+
+// --- Commerce Engine (Phase 2): orders + shadow pricing ---------------------
+
+export interface CommerceOrderRow {
+  id: string;
+  sourceType: string;
+  sourceRef: string;
+  scenario: string;
+  partnerKind: string;
+  partnerId: string;
+  orderStatus: string;
+  paymentStatus: string;
+  fulfilmentStatus: string;
+  payoutStatus: string;
+  currency: string;
+  createdAt: string;
+  ruleHash: string;
+  listMinor: number;
+  discountMinor: number;
+  vatMinor: number;
+  customerFeeMinor: number;
+  customerPaidMinor: number;
+  successFeeMinor: number;
+  partnerPayoutMinor: number;
+  platformRevenueMinor: number;
+  engineVersion: string;
+  ruleSources: { id: number; scopeType: string; scopeId: string; version: number }[];
+}
+
+export interface CommerceShadowReport {
+  summary: { sourceType: string; matched: number; mismatched: number; lastSeen: string }[];
+  mismatches: { id: number; sourceType: string; sourceRef: string; diffFields: string; createdAt: string; legacyTotalMinor: number; engineTotalMinor: number }[];
+}
+
+export function fetchCommerceOrders(q?: string): Promise<CommerceOrderRow[]> {
+  return request(`/admin/commerce/orders${q ? `?q=${encodeURIComponent(q)}` : ""}`);
+}
+
+export function fetchCommerceShadow(): Promise<CommerceShadowReport> {
+  return request(`/admin/commerce/shadow`);
+}

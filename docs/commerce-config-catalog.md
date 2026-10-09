@@ -80,8 +80,9 @@ An organisation's own `org_policies` row still wins for that organisation (uncha
 |---|---|---|---|
 | `commerce.require_second_approver` | off | Phase 1 (`rules.ts`) | A second admin must approve before publish |
 | `commerce.paid_games_require_verified_host` | **on** | Phase 0.5 (`games.ts`) | Pricing an activity needs `host_status='verified'` |
-| `commerce.shadow_pricing` | off | Phase 2 | Shadow-price every checkout and log diffs |
-| `commerce.engine_v2` | off | Phase 2 | Engine quotes/orders for enabled types |
+| `commerce.shadow_pricing` | off | Phase 2 (all six checkout flows) | Shadow-price every checkout and log diffs |
+| `commerce.engine_v2` | off | Phase 2 | Master switch for engine quotes/orders |
+| `commerce.engine_v2_experience` | off | Phase 2 (`experiences.ts`) | Experiences priced by rules and recorded as orders |
 | `commerce.coupons_v2` | off | Phase 3 | Funding-aware coupons |
 | `commerce.settlement_ledger` | off | Phase 4 | Ledger and payout allocations |
 | `commerce.circle_credits` | off | Phase 5 | Partner reward points |

@@ -37,6 +37,8 @@ items marked *(verify)* should be reproduced in the isolated QA DB before being 
 | R26 | Med | yes | **Open Booking can charge for the same booking twice.** The booker pays in full and joiners pay their shares as new revenue, with no credit back to the booker. This conflicts with "one transparent price" and with the Venue + Host single-fee rule. | `pricing.ts:29-41` | Decision **D9**. |
 | R27 | Low | **done (1)**: column omitted | **The rule-scope "environment" column adds nothing here.** Environments (dev, staging, prod) already use separate databases, so an `environment` column on rules adds risk (a rule copied with the wrong value) and no isolation. | `CLAUDE.md` DB section | Omit it. Record the environment in audit rows only (**D11**). |
 
+| R28 | Med | yes (found in Phase 2) | **Cancelling a session can leak coupon uses.** A vendor cancelling an experience session marks its pending holds `failed` directly, without `releaseCoupon`, so a coupon use reserved by an abandoned checkout is never given back. | `vendorExperiences.ts` DELETE `/experiences/:id/sessions/:sessionId` | Phase 3: route it through `endPendingHold` (or release in the same transaction). |
+
 ## Areas that must remain untouched by the Commerce Engine work
 
 - Circle code (`circles.ts`, `circleHelpers.ts`, `circle_*` tables) — no commerce surface; frozen.

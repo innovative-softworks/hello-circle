@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { shadowLegacy } from "../commerce/engine.js";
 import { computeCapacity } from "../capacity.js";
 import { createCheckoutSession, paymentsAvailable, pricingLineItems } from "../checkoutService.js";
 import { VENDOR_SUSPENDED_ERROR, consumeCoupon, endPendingHold, occupiesCapacitySql, vendorSuspended } from "../bookingIntegrity.js";
@@ -297,6 +298,7 @@ registrationsRouter.post("/checkout", async (req, res) => {
     couponCode = result.code!;
   }
   const pricing = computePricing(subtotalCents, 0, discountCents, couponCode);
+  shadowLegacy("registration", ref, { vendorUserId: clubOwner?.vendor_id }, pricing);
   // Free trial registrations need no payment, and cash-mode clubs skip
   // Stripe entirely — both confirm immediately, no redirect.
   const isCash = club.paymentMethod === "cash" && pricing.totalCents > 0;

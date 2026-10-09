@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { shadowLegacy } from "../commerce/engine.js";
 import { createCheckoutSession, pricingLineItems } from "../checkoutService.js";
 import { db } from "../db/index.js";
 import { VENDOR_SUSPENDED_ERROR, isPositiveInt, vendorSuspended } from "../bookingIntegrity.js";
@@ -55,6 +56,7 @@ passesRouter.post("/checkout", requireResident, async (req, res) => {
   const subtotalCents = club.price * 100 * b.creditsTotal;
   const pricing = computePricing(subtotalCents, 0, 0, null);
   const ref = generateRef("PS");
+  shadowLegacy("pass", ref, { vendorUserId: club.vendor_id }, pricing);
 
   await db
     .prepare(`INSERT INTO passes (ref, resident_id, listing_type, listing_id, credits_total, purchased_cents, payment_status) VALUES (?, ?, 'club', ?, ?, ?, 'pending')`)

@@ -3,6 +3,8 @@ import {
   commerceRuleAction,
   createCommerceDraft,
   fetchCommerceAudit,
+  fetchCommerceOrders,
+  fetchCommerceShadow,
   fetchCommerceCatalog,
   fetchCommerceRule,
   fetchCommerceRules,
@@ -10,6 +12,8 @@ import {
   setCommerceSwitch,
   updateCommerceDraft,
   type CommerceAuditEntry,
+  type CommerceOrderRow,
+  type CommerceShadowReport,
   type CommerceCatalog,
   type CommerceFieldDiff,
   type CommerceFieldSpec,
@@ -602,6 +606,119 @@ function AuditCard({ entries }: { entries: CommerceAuditEntry[] }) {
   );
 }
 
+// --- Phase 2: shadow pricing + orders ------------------------------------------------------
+
+function ShadowCard({ report }: { report: CommerceShadowReport | null }) {
+  return (
+    <Card style={{ padding: 22 }}>
+      <h3 style={h3}>Shadow pricing</h3>
+      <p style={hint}>
+        With the shadow switch on, every checkout is also priced by the published rules and compared with what the customer was actually charged.
+        A resource type is ready for the engine only once it shows zero unexplained mismatches. Last 30 days:
+      </p>
+      {!report || report.summary.length === 0 ? (
+        <p style={hint}>No shadow comparisons yet. Turn on "Shadow pricing" in Switches above to start collecting them (types already on the engine aren't shadowed).</p>
+      ) : (
+        <div style={{ overflowX: "auto" }}>
+          <table style={tableStyle}>
+            <thead><tr><th style={thStyle}>Type</th><th style={thStyle}>Matched</th><th style={thStyle}>Mismatched</th><th style={thStyle}>Last checkout</th></tr></thead>
+            <tbody>
+              {report.summary.map((s) => (
+                <tr key={s.sourceType}>
+                  <td style={tdStyle}>{s.sourceType}</td>
+                  <td style={tdStyle}>{s.matched}</td>
+                  <td style={{ ...tdStyle, fontWeight: 700, color: s.mismatched ? colors.danger : colors.greenText }}>{s.mismatched}</td>
+                  <td style={{ ...tdStyle, fontSize: 12.5 }}>{when(s.lastSeen)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {report && report.mismatches.length > 0 && (
+        <>
+          <p style={{ ...hint, marginTop: 14 }}>Most recent mismatches (an expected result if a rule was deliberately changed for that type):</p>
+          <div style={{ overflowX: "auto" }}>
+            <table style={tableStyle}>
+              <thead><tr><th style={thStyle}>When</th><th style={thStyle}>Order</th><th style={thStyle}>Differs in</th><th style={thStyle}>Charged</th><th style={thStyle}>Rules would charge</th></tr></thead>
+              <tbody>
+                {report.mismatches.map((x) => (
+                  <tr key={x.id}>
+                    <td style={{ ...tdStyle, fontSize: 12.5 }}>{when(x.createdAt)}</td>
+                    <td style={tdStyle}>{x.sourceType} · {x.sourceRef}</td>
+                    <td style={tdStyle}>{x.diffFields}</td>
+                    <td style={tdStyle}>{m(x.legacyTotalMinor)}</td>
+                    <td style={{ ...tdStyle, fontWeight: 700 }}>{m(x.engineTotalMinor)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+    </Card>
+  );
+}
+
+function OrdersCard() {
+  const [orders, setOrders] = useState<CommerceOrderRow[] | null>(null);
+  const [q, setQ] = useState("");
+  const load = (query?: string) => fetchCommerceOrders(query).then(setOrders).catch(() => setOrders([]));
+  useEffect(() => {
+    load();
+  }, []);
+  return (
+    <Card style={{ padding: 22 }}>
+      <h3 style={h3}>Orders</h3>
+      <p style={hint}>Orders priced by the commerce engine, each with its frozen pricing snapshot. Search by order id, booking reference, Stripe session or partner id.</p>
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          load(q.trim() || undefined);
+        }}
+        style={{ display: "flex", gap: 8, marginBottom: 12 }}
+      >
+        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search…" style={inputStyle} />
+        <Button type="submit" variant="ghost">Search</Button>
+      </form>
+      {!orders ? (
+        <p style={hint}>Loading…</p>
+      ) : orders.length === 0 ? (
+        <p style={hint}>No engine-priced orders yet. They appear once the engine is switched on for a resource type.</p>
+      ) : (
+        <div style={{ overflowX: "auto" }}>
+          <table style={tableStyle}>
+            <thead>
+              <tr>
+                <th style={thStyle}>When</th>
+                <th style={thStyle}>Booking</th>
+                <th style={thStyle}>Status</th>
+                <th style={thStyle}>Customer paid</th>
+                <th style={thStyle}>Partner payout</th>
+                <th style={thStyle}>HelloCircle revenue</th>
+                <th style={thStyle}>Rule versions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {orders.map((o) => (
+                <tr key={o.id}>
+                  <td style={{ ...tdStyle, fontSize: 12.5, whiteSpace: "nowrap" }}>{when(o.createdAt)}</td>
+                  <td style={tdStyle}>{o.sourceType} · {o.sourceRef}</td>
+                  <td style={{ ...tdStyle, fontSize: 12.5 }}>{o.orderStatus.replace(/_/g, " ")} · {o.paymentStatus.replace(/_/g, " ")}</td>
+                  <td style={{ ...tdStyle, fontWeight: 700 }}>{m(o.customerPaidMinor)}</td>
+                  <td style={tdStyle}>{m(o.partnerPayoutMinor)}</td>
+                  <td style={tdStyle}>{m(o.platformRevenueMinor)}</td>
+                  <td style={{ ...tdStyle, fontSize: 12 }}>{o.ruleSources.map((r) => `${r.scopeType === "global" ? "global" : r.scopeId} v${r.version}`).join(", ")}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </Card>
+  );
+}
+
 // --- the tab -----------------------------------------------------------------------------
 
 export function AdminCommerceTab() {
@@ -612,8 +729,10 @@ export function AdminCommerceTab() {
   const [editor, setEditor] = useState<EditorState | null>(null);
   const [action, setAction] = useState<PendingAction | null>(null);
   const [details, setDetails] = useState<CommerceRuleVersion | null>(null);
+  const [shadow, setShadow] = useState<CommerceShadowReport | null>(null);
 
   const load = () => {
+    fetchCommerceShadow().then(setShadow).catch(() => setShadow(null));
     Promise.all([fetchCommerceCatalog(), fetchCommerceRules(), fetchCommerceAudit()])
       .then(([c, r, a]) => {
         setCatalog(c);
@@ -665,6 +784,8 @@ export function AdminCommerceTab() {
         />
       ))}
       <SwitchesCard catalog={catalog} onChanged={load} />
+      <ShadowCard report={shadow} />
+      <OrdersCard />
       <AuditCard entries={audit} />
       <VersionEditor state={editor} catalog={catalog} onClose={() => setEditor(null)} onSaved={done} />
       <ActionDialog pending={action} onClose={() => setAction(null)} onDone={done} />

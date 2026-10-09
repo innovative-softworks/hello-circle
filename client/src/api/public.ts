@@ -527,7 +527,7 @@ export function fetchExperience(id: string): Promise<Experience> {
 export function bookExperienceSession(
   experienceId: string,
   sessionId: string,
-  input: { participantName: string; email: string; phone?: string; partySize?: number; couponCode?: string }
+  input: { participantName: string; email: string; phone?: string; partySize?: number; couponCode?: string; quoteId?: string }
 ): Promise<{ ref: string; url?: string; totalEuro: number }> {
   return request(`/experiences/${experienceId}/sessions/${sessionId}/checkout`, { method: "POST", body: JSON.stringify(input) });
 }
@@ -544,6 +544,13 @@ export interface BookingQuote {
   totalCents: number;
   couponCode: string | null;
   currency: "EUR";
+  /** Commerce Engine Phase 2 — true when the published pricing rule shows one
+   * VAT-inclusive price (VAT is inside totalCents, not added on top). */
+  vatIncluded?: boolean;
+  /** Present when the commerce engine priced this quote; sent back at
+   * checkout so a price change in between is detected, not charged. */
+  quoteId?: string;
+  quoteExpiresAt?: string;
 }
 export function quoteExperienceSession(experienceId: string, sessionId: string, input: { partySize: number; couponCode?: string }): Promise<BookingQuote> {
   return request(`/experiences/${experienceId}/sessions/${sessionId}/quote`, { method: "POST", body: JSON.stringify(input) });
