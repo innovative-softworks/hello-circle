@@ -1,4 +1,5 @@
 import { PaginationError, parsePageParams, setNextCursor } from "../pagination.js";
+import { paymentProvider } from "../payments/provider.js";
 import { discoverableGameSql } from "../gameVisibility.js";
 import crypto from "node:crypto";
 import fs from "node:fs";
@@ -18,7 +19,7 @@ import { sendMail } from "../email.js";
 import { GoogleAuthNotConfigured, verifyGoogleIdToken } from "../googleAuth.js";
 import { deleteObject, objectKeyFromUrl } from "../media/mediaService.js";
 import { googleAuthLimiter, magicLinkLimiter, passwordLoginLimiter } from "../rateLimit.js";
-import { CLIENT_URL, stripe } from "../stripe.js";
+import { CLIENT_URL } from "../stripe.js";
 import { TERMS_VERSION } from "../terms.js";
 import { BadRequestError, clientIdFrom } from "../util.js";
 
@@ -1156,55 +1157,41 @@ residentsRouter.get("/search", requireResident, async (req, res) => {
 // unconfigured — never a hard crash.
 
 residentsRouter.get("/me/payment-methods", requireResident, async (req, res) => {
-  if (!stripe) return res.status(503).json({ error: "Payments aren't configured yet" });
+  const provider = paymentProvider();
+  if (!provider) return res.status(503).json({ error: "Payments aren't configured yet" });
   const row = (await db.prepare(`SELECT stripe_customer_id as stripeCustomerId FROM residents WHERE id = ?`).get(req.resident!.id)) as
     | { stripeCustomerId: string | null }
     | undefined;
   if (!row?.stripeCustomerId) return res.json({ methods: [], defaultMethodId: null });
-
-  const [methods, customer] = await Promise.all([
-    stripe.paymentMethods.list({ customer: row.stripeCustomerId, type: "card" }),
-    stripe.customers.retrieve(row.stripeCustomerId),
-  ]);
-  const defaultMethodId =
-    !customer.deleted && typeof customer.invoice_settings?.default_payment_method === "string"
-      ? customer.invoice_settings.default_payment_method
-      : null;
-
-  res.json({
-    methods: methods.data.map((m) => ({
-      id: m.id,
-      brand: m.card?.brand ?? "card",
-      last4: m.card?.last4 ?? "????",
-      expMonth: m.card?.exp_month ?? 0,
-      expYear: m.card?.exp_year ?? 0,
-    })),
-    defaultMethodId,
-  });
+  const { cards, defaultId } = await provider.listCards(row.stripeCustomerId);
+  res.json({ methods: cards, defaultMethodId: defaultId });
 });
 
-residentsRouter.put("/me/payment-methods/:id/default", requireResident, async (req, res) => {
-  if (!stripe) return res.status(503).json({ error: "Payments aren't configured yet" });
-  const row = (await db.prepare(`SELECT stripe_customer_id as stripeCustomerId FROM residents WHERE id = ?`).get(req.resident!.id)) as
+/** The saved card must belong to this resident's customer before it can be
+ * changed — one resident can't act on another's card by guessing its id. */
+async function ownCustomerFor(residentId: string, paymentMethodId: string, provider: NonNullable<ReturnType<typeof paymentProvider>>): Promise<{ status: number; error: string } | { customerId: string }> {
+  const row = (await db.prepare(`SELECT stripe_customer_id as stripeCustomerId FROM residents WHERE id = ?`).get(residentId)) as
     | { stripeCustomerId: string | null }
     | undefined;
-  if (!row?.stripeCustomerId) return res.status(404).json({ error: "No saved payment methods" });
-  await stripe.customers.update(row.stripeCustomerId, { invoice_settings: { default_payment_method: req.params.id } });
+  if (!row?.stripeCustomerId) return { status: 404, error: "No saved payment methods" };
+  if ((await provider.cardOwner(paymentMethodId)) !== row.stripeCustomerId) return { status: 403, error: "Not your payment method" };
+  return { customerId: row.stripeCustomerId };
+}
+
+residentsRouter.put("/me/payment-methods/:id/default", requireResident, async (req, res) => {
+  const provider = paymentProvider();
+  if (!provider) return res.status(503).json({ error: "Payments aren't configured yet" });
+  const own = await ownCustomerFor(req.resident!.id, req.params.id, provider);
+  if ("error" in own) return res.status(own.status).json({ error: own.error });
+  await provider.setDefaultCard(own.customerId, req.params.id);
   res.json({ ok: true });
 });
 
 residentsRouter.delete("/me/payment-methods/:id", requireResident, async (req, res) => {
-  if (!stripe) return res.status(503).json({ error: "Payments aren't configured yet" });
-  // detach() takes no customer id — the payment_method id alone identifies
-  // it, but only after confirming it actually belongs to this resident's
-  // customer, so one resident can't detach another's saved card by guessing
-  // a payment_method id.
-  const row = (await db.prepare(`SELECT stripe_customer_id as stripeCustomerId FROM residents WHERE id = ?`).get(req.resident!.id)) as
-    | { stripeCustomerId: string | null }
-    | undefined;
-  if (!row?.stripeCustomerId) return res.status(404).json({ error: "No saved payment methods" });
-  const method = await stripe.paymentMethods.retrieve(req.params.id);
-  if (method.customer !== row.stripeCustomerId) return res.status(403).json({ error: "Not your payment method" });
-  await stripe.paymentMethods.detach(req.params.id);
+  const provider = paymentProvider();
+  if (!provider) return res.status(503).json({ error: "Payments aren't configured yet" });
+  const own = await ownCustomerFor(req.resident!.id, req.params.id, provider);
+  if ("error" in own) return res.status(own.status).json({ error: own.error });
+  await provider.detachCard(req.params.id);
   res.json({ ok: true });
 });

@@ -24,3 +24,17 @@ export function stripeWebhookModeNotice(env: NodeJS.ProcessEnv = process.env): s
   }
   return "[stripe] STRIPE_WEBHOOK_SECRET not set — webhook events will be refused (set the secret, or ALLOW_UNSIGNED_STRIPE_WEBHOOKS=true for local development only)";
 }
+
+/** Revenue & Connect Stage 2b (brief rule 10) — a LIVE Stripe key is refused
+ * everywhere except a production deployment. Production is NODE_ENV=production
+ * with APP_ENV unset or "production"; staging, development and test always
+ * refuse live keys, so a copied production env can never charge real cards
+ * from a non-production box. Test keys are always allowed. */
+export function stripeKeyRefusal(key: string | undefined, env: NodeJS.ProcessEnv = process.env): string | null {
+  if (!key) return null;
+  const live = /^(sk|rk)_live_/.test(key);
+  if (!live) return null;
+  const appEnv = (env.APP_ENV ?? "").toLowerCase();
+  const production = env.NODE_ENV === "production" && (appEnv === "" || appEnv === "production");
+  return production ? null : "[stripe] REFUSED a live Stripe key outside production (NODE_ENV/APP_ENV) — payments are disabled; use a test-mode key";
+}

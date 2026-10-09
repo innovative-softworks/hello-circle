@@ -89,3 +89,84 @@ be set back to `super` by setting `users.admin_role = NULL` (it resolves to supe
 **14. Next.** Stage 2b: the `pe-2` calculation engine (fee base, minimum fee, fee VAT, partner pool, splits,
 coupon funding types, credits, reserves, margin warnings) as golden tests on test vectors T1–T7, plus the
 `PaymentProvider` interface (Stripe and Stub).
+
+## Stage 2b — Calculation engine (pe-2) and payment-provider layer
+
+**1. Inspected.**
+- Every direct Stripe call: `checkoutService.ts` (checkout, customers, refunds) and `routes/residents.ts` (saved
+  cards).
+- The refund test's Stripe fake.
+- The QA stub seam.
+- The brief's §6–§8 formulas and §7 vectors.
+
+**2–3. Changed / files.**
+- **New:**
+  - `commerce/calc.ts`: pure pe-2 engine (fee base, minimum fee, fee VAT, partner pool, five discount funders,
+    credits, refunded amount, four split rules, card/payout estimates, reward and risk reserves, margin warning,
+    blocking rules), plus `monthlyPlanCost`
+  - `commerce/calcContext.ts`: resolves the published rules for a partner (plan, partner overrides, VAT, costs,
+    settlement, rewards) and returns the rule versions used
+  - `commerce/planCompare.ts`: neutral Free vs Pro comparison
+  - `payments/provider.ts`: `PaymentProvider` interface, `StripeProvider`, deterministic `StubProvider`
+  - `routes/pricingPublic.ts`: public `/api/pricing/plans|estimate|compare`
+  - Tests: `commerce/calc.test.ts`, `payments/provider.test.ts`, `routes/pricingPublic.test.ts`
+- **Edited:**
+  - `checkoutService.ts`: checkout, customers and refunds via the provider; `issueStripeRefund` gains optional
+    `amountMinor` and `idempotencyKey` for partial refunds
+  - `routes/residents.ts`: saved cards via the provider, plus an ownership check on set-default
+  - `stripe.ts` / `stripeWebhookPolicy.ts`: live-key refusal
+  - `routes/adminCommerce.ts`: `/simulate`, `/simulate/plans`
+  - `index.ts`: mount
+
+**4. Database.** None.
+
+**5. APIs.**
+- **New:**
+  - `GET /api/pricing/plans`
+  - `POST /api/pricing/estimate` (rate-limited, partner-agnostic, no margin warning)
+  - `POST /api/pricing/compare`
+  - `POST /api/admin/commerce/simulate` (finance; partner-aware; margin warning; rule versions)
+  - `POST /api/admin/commerce/simulate/plans`
+- **Changed:** `PUT /api/residents/me/payment-methods/:id/default` now returns 403 for a card that isn't the
+  resident's. Before, the check was left to Stripe.
+
+**6. UI.** None (calculators and simulator screens are Stage 3).
+
+**7–9. Tests.**
+- `calc.test.ts` (23): **T1–T7 to the cent** using the seeded rule values; shared-coupon remainder; host- and
+  venue-funded discounts; HelloCircle credit vs vendor credit; percentage, fixed-host and custom splits; refunded
+  amount; free orders; reverse-charge and exempt; reward reserve ≈ 0.29%; every blocking rule; a reconciliation
+  property sweep (`customer + HC subsidy = pool + fee + VAT`, allocations = pool, pool ≥ 0); Free vs Pro at
+  €1,450; minimum fee per order.
+- `provider.test.ts`: stub selection guarded; refund and transfer idempotency; over-refund refused; full refund
+  once then reconcile; partial refund amount and key; unknown payment; live-key matrix.
+- `pricingPublic.test.ts`: public plans, estimate (T1, warning hidden), partner ids ignored, validation,
+  comparison; simulator finance-gated; partner plan and partner-specific override resolution; T5 through the API.
+- The existing refund tests (HC-QA-091) pass unchanged through the provider.
+
+Results:
+- Full server suite: **62 files, 654 passed, 23 skipped**.
+- Client: 105 passed.
+- Build clean.
+
+**10. Security.**
+- Live Stripe keys are refused unless `NODE_ENV=production` and `APP_ENV` is unset or `production`. Staging, dev
+  and test can never charge real cards, and prod behaviour is unchanged.
+- Card set-default now checks ownership.
+- The public estimator is rate-limited, accepts no partner ids and hides internal warnings.
+
+**11. Data-migration impact.** None. No live checkout uses pe-2 yet. Existing Stripe behaviour is unchanged
+(same session, refund and customer calls).
+
+**12. Remaining risks.**
+- Payout estimates assume one payout per order. Weekly batching lowers the real cost, which reconciliation
+  replaces with actuals in 2c/2d.
+- `StripeProvider` refuses transfers until Stage 5.
+- Card-mix and FX costs aren't modelled yet; that comes with the admin simulator UI in Stage 3.
+
+**13. Rollback.** Revert the commit. There's no schema change, and the provider wraps the same Stripe calls one to
+one.
+
+**14. Next.** Stage 2c: append-only double-entry ledger, `webhook_events` store with replay and a manual-review
+queue, handlers for the non-Connect events (`charge.refunded`, `charge.dispute.*`, `payment_intent.*`),
+`refunds` and `disputes` tables, and partial refunds wired to allocation reversal.

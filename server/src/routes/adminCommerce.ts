@@ -2,6 +2,8 @@ import crypto from "node:crypto";
 import { Router, type Request, type Response } from "express";
 import { db, getSetting, setSetting } from "../db/index.js";
 import { writeAudit } from "../audit.js";
+import { estimate, parseEstimateBody } from "../commerce/calcContext.js";
+import { comparePlans } from "../commerce/planCompare.js";
 import { assignPlan, createCampaign, currentPlanFor, enrollInCampaign, proBreakEvenMinor, type PartnerKey } from "../commerce/plans.js";
 import { CATEGORIES, COMMERCE_SWITCHES, RULE_KEYS, SCENARIOS, type ScopeType } from "../commerce/catalog.js";
 import {
@@ -299,5 +301,21 @@ adminCommerceRouter.post("/campaigns/:id/enroll", (req, res) =>
     const result = await enrollInCampaign(Number(req.params.id), partner, req.user!.id, reason);
     await writeAudit({ actorUserId: req.user!.id, actorKind: "user", action: "promotion.enrolled", objectType: `partner_${partner.kind}`, objectId: partner.id, newValue: { campaignId: Number(req.params.id), ...result }, reason });
     return result;
+  })
+);
+
+// --- Stage 2b: admin calculation simulator ----------------------------------------
+// Any price, plan or partner through the same pe-2 engine checkout will use,
+// with the rule versions it resolved. Full detail, margin warning included.
+
+adminCommerceRouter.post("/simulate", (req, res) => handle(res, () => estimate(parseEstimateBody(req.body ?? {}, { allowPartner: true }))));
+
+adminCommerceRouter.post("/simulate/plans", (req, res) =>
+  handle(res, async () => {
+    const b = req.body as { monthlyGmvMinor?: unknown; orders?: unknown };
+    const gmv = Number(b.monthlyGmvMinor);
+    const orders = Number(b.orders);
+    if (!Number.isInteger(gmv) || gmv < 0 || !Number.isInteger(orders) || orders < 0 || orders > 100_000) throw new RuleError("monthlyGmvMinor and orders must be whole numbers");
+    return comparePlans(gmv, orders);
   })
 );
