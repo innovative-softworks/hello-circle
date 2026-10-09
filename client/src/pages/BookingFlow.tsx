@@ -180,7 +180,7 @@ export function BookingFlow() {
     setCouponChecking(true);
     setCouponError(null);
     try {
-      const res = await validateCoupon(couponInput.trim(), hireCents);
+      const res = await validateCoupon(couponInput.trim(), hireCents, centreId ? { listingType: "centre", listingId: centreId } : undefined);
       setCoupon({ code: res.code, discountCents: res.discountCents });
     } catch (e) {
       setCoupon(null);

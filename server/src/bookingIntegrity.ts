@@ -90,3 +90,14 @@ export function startIsInFuture(date: string, time: string): boolean {
   const start = irelandWallTimeToUtc(date, h, m || 0);
   return !Number.isNaN(start.getTime()) && start.getTime() > Date.now();
 }
+
+/** Commerce audit R14 — suspending a vendor only changes users.status; their
+ * approved listings stay visible. Every paid/free checkout refuses to take a
+ * new order for a listing whose owning vendor is suspended. */
+export async function vendorSuspended(vendorId: string | null | undefined): Promise<boolean> {
+  if (!vendorId) return false;
+  const row = (await db.prepare(`SELECT status FROM users WHERE id = ?`).get(vendorId)) as { status: string } | undefined;
+  return row?.status === "suspended";
+}
+
+export const VENDOR_SUSPENDED_ERROR = "This listing isn't taking bookings right now";

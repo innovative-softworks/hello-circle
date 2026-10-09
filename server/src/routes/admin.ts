@@ -9,6 +9,7 @@ import { writeAudit } from "../audit.js";
 import { approximateCoords, db, getSetting, setSetting } from "../db/index.js";
 import { FEATURE_FLAG_KEYS, getAnalyticsFunnel, getCentre, getClub, getDemandSignals, getIntentClusters, getLiquidityScores, getMarketCategories, getParticipationStats, getReferralAttribution, getSupplyOverview, MARKET_CATEGORIES, orgFeatureFlagsById, type MarketCategory } from "../db/queries.js";
 import { endOfIrelandDay } from "../irelandTime.js";
+import { couponAmountError } from "../pricing.js";
 import { NOTIFICATION_TEMPLATE_KEYS } from "../notificationTemplates.js";
 import { notifyResident } from "../notifications.js";
 import { notifyVendorFollowers } from "./follows.js";
@@ -479,8 +480,8 @@ adminRouter.get("/coupons", async (_req, res) => {
 adminRouter.post("/coupons", async (req, res) => {
   const b = req.body as CouponInput;
   if (!b.code || !b.kind || !b.amount) return res.status(400).json({ error: "code, kind and amount are required" });
-  if (!["percent", "fixed"].includes(b.kind)) return res.status(400).json({ error: "kind must be percent or fixed" });
-  if (b.kind === "percent" && (b.amount <= 0 || b.amount > 100)) return res.status(400).json({ error: "Percent amount must be 1-100" });
+  const amountError = couponAmountError(b.kind, b.amount);
+  if (amountError) return res.status(400).json({ error: amountError });
 
   const code = b.code.trim().toUpperCase();
   // The admin picks a plain calendar date ("expires 25 Dec") — that should

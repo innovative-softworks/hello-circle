@@ -11,7 +11,7 @@ import { experienceCancelBlock, refundStateOf } from "../selfCancel.js";
 import { notifyCancellation, notifyNewBookingOrRegistration } from "../notifications.js";
 import { computePricing, evaluateCoupon } from "../pricing.js";
 import { BadRequestError, ConflictError, clientIdFrom, generateRef, isValidEmail } from "../util.js";
-import { consumeCoupon, endPendingHold, isPositiveInt, occupiesCapacitySql, startIsInFuture } from "../bookingIntegrity.js";
+import { VENDOR_SUSPENDED_ERROR, consumeCoupon, endPendingHold, isPositiveInt, occupiesCapacitySql, startIsInFuture, vendorSuspended } from "../bookingIntegrity.js";
 
 // Adventures & Experiences — a standalone third listing type alongside
 // centres/clubs (not nested under either), added post-IA-spec-audit. Same
@@ -255,6 +255,7 @@ experiencesRouter.post("/:id/sessions/:sessionId/checkout", async (req, res) => 
   const experience = (await db.prepare(`SELECT * FROM experiences WHERE id = ?`).get(req.params.id)) as ExperienceRow | undefined;
   if (!experience) return res.status(404).json({ error: "Experience not found" });
   if (experience.status !== "approved") return res.status(409).json({ error: "This listing is no longer open for booking" });
+  if (await vendorSuspended(experience.vendor_id)) return res.status(409).json({ error: VENDOR_SUSPENDED_ERROR });
 
   const session = (await db
     .prepare(`SELECT id, capacity, status, date, time FROM experience_sessions WHERE id = ? AND experience_id = ?`)

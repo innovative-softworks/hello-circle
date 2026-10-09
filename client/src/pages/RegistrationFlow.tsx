@@ -143,7 +143,7 @@ export function RegistrationFlow() {
     setCouponChecking(true);
     setCouponError(null);
     try {
-      const res = await validateCoupon(couponInput.trim(), subtotalCents);
+      const res = await validateCoupon(couponInput.trim(), subtotalCents, clubId ? { listingType: "club", listingId: clubId } : undefined);
       setCoupon({ code: res.code, discountCents: res.discountCents });
     } catch (e) {
       setCoupon(null);

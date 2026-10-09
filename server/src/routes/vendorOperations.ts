@@ -9,6 +9,7 @@ import { sendMail } from "../email.js";
 import { notifyCancellation, notifyRefund, resendConfirmationEmail } from "../notifications.js";
 import { inClause, ownsCentre, ownsClub } from "./vendorHelpers.js";
 import { irelandTodayIso, irelandWallTimeToUtc } from "../irelandTime.js";
+import { couponAmountError } from "../pricing.js";
 import { ASSUMED_DURATION_MINUTES } from "../db/queries.js";
 import { offerToWaitlistEntry, promoteNextWaitlistEntry } from "../waitlist.js";
 
@@ -891,6 +892,8 @@ vendorOperationsRouter.get("/coupons", async (req, res) => {
 vendorOperationsRouter.post("/coupons", requirePlatformRole("finance"), async (req, res) => {
   const b = req.body as VendorCouponInput;
   if (!b.code?.trim() || !b.kind || !b.amount) return res.status(400).json({ error: "code, kind and amount are required" });
+  const amountError = couponAmountError(b.kind, b.amount);
+  if (amountError) return res.status(400).json({ error: amountError });
   // Must be both-or-neither: evaluateCoupon() in pricing.ts only checks
   // eligible_listing_type/id when eligible_listing_id is actually set, so a
   // row with a type but no id would skip that check entirely and become

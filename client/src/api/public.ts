@@ -291,8 +291,14 @@ export function cancelRegistration(ref: string, email?: string): Promise<{ ok: b
 export const VAT_RATE = 0.23;
 export const PLATFORM_FEE_RATE = 0.05;
 
-export function validateCoupon(code: string, subtotalCents: number): Promise<{ code: string; discountCents: number }> {
-  return request(`/coupons/validate`, { method: "POST", body: JSON.stringify({ code, subtotalCents }) });
+/** `listing` lets the server check a listing-/org-scoped code the same way
+ * checkout will; checkout still re-validates regardless. */
+export function validateCoupon(
+  code: string,
+  subtotalCents: number,
+  listing?: { listingType: "centre" | "club" | "program" | "experience" | "game"; listingId: string }
+): Promise<{ code: string; discountCents: number }> {
+  return request(`/coupons/validate`, { method: "POST", body: JSON.stringify({ code, subtotalCents, ...listing }) });
 }
 
 // --- search (FUTURE, best-effort) -------------------------------------------

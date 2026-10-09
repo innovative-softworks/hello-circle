@@ -2,7 +2,7 @@ import { Router } from "express";
 import { createCheckoutSession, pricingLineItems } from "../checkoutService.js";
 import { logEvent, logView } from "../analytics.js";
 import { db } from "../db/index.js";
-import { consumeCoupon, endPendingHold, occupiesCapacitySql } from "../bookingIntegrity.js";
+import { VENDOR_SUSPENDED_ERROR, consumeCoupon, endPendingHold, occupiesCapacitySql, vendorSuspended } from "../bookingIntegrity.js";
 import { getListingAttributes, officialCircleSummary } from "../listingAttributes.js";
 import { programmeCancelBlock, refundStateOf } from "../selfCancel.js";
 import { irelandTodayIso } from "../irelandTime.js";
@@ -224,6 +224,7 @@ programsRouter.post("/:id/enroll", async (req, res) => {
   const program = (await db.prepare(`SELECT * FROM programs WHERE id = ?`).get(req.params.id)) as ProgramRow | undefined;
   if (!program) return res.status(404).json({ error: "Program not found" });
   if (program.status !== "published") return res.status(409).json({ error: "This program is no longer open for enrollment" });
+  if (await vendorSuspended(program.vendor_id)) return res.status(409).json({ error: VENDOR_SUSPENDED_ERROR });
 
   const ref = generateRef("PR");
   // Resident Experience Polish — Changeset 3. EnrollBody.couponCode was

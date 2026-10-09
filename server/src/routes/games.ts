@@ -4,6 +4,7 @@ import { logEvent, logView } from "../analytics.js";
 import { computeCapacity } from "../capacity.js";
 import { createCheckoutSession, refundPaidOnce, pricingLineItems } from "../checkoutService.js";
 import { db } from "../db/index.js";
+import { commerceSwitch } from "../commerce/switches.js";
 import { countFamiliarCoParticipants } from "../db/queries.js";
 import { isOrganiser as isCircleOrganiser } from "./circleHelpers.js";
 import { upgradeFavouriteStatus } from "./favourites.js";
@@ -15,7 +16,7 @@ import { sendMail } from "../email.js";
 import { writeAudit } from "../audit.js";
 import { CLIENT_URL } from "../stripe.js";
 import { matchParticipationIntentsForGame } from "../participationIntents.js";
-import { computePricing, evaluateCoupon } from "../pricing.js";
+import { computePricing, couponAmountError, evaluateCoupon } from "../pricing.js";
 import { requireResident } from "../residents.js";
 import { matchSearchAlertsForGame } from "../searchAlerts.js";
 import { PaginationError, parsePageParams, setNextCursor } from "../pagination.js";
@@ -62,6 +63,18 @@ async function notifyCircleMembersOfPlan(row: GameRow) {
 }
 
 export const gamesRouter = Router();
+
+// Commerce audit R3 — every paid Game's money is collected into the
+// platform's own Stripe account, so charging for one is limited to residents
+// an admin has verified as hosts. Admin kill switch: app_settings
+// 'commerce.paid_games_require_verified_host' = 'false' restores the old
+// open behaviour without a deploy.
+const PAID_HOST_ERROR = "Charging for an activity is available to verified hosts — apply to host from your profile, or make this one free";
+async function mayHostPaid(residentId: string): Promise<boolean> {
+  if (!(await commerceSwitch("commerce.paid_games_require_verified_host"))) return true;
+  const row = (await db.prepare(`SELECT host_status FROM residents WHERE id = ?`).get(residentId)) as { host_status: string } | undefined;
+  return row?.host_status === "verified";
+}
 
 interface GameRow {
   id: string;
@@ -430,6 +443,8 @@ gamesRouter.get("/coupons", requireResident, async (req, res) => {
 gamesRouter.post("/coupons", requireResident, async (req, res) => {
   const b = req.body as { code?: string; kind?: "percent" | "fixed"; amount?: number; maxUses?: number; expiresAt?: string; gameId?: string };
   if (!b.code?.trim() || !b.kind || !b.amount || !b.gameId) return res.status(400).json({ error: "code, kind, amount and gameId are required" });
+  const amountError = couponAmountError(b.kind, b.amount);
+  if (amountError) return res.status(400).json({ error: amountError });
   const game = (await db.prepare(`SELECT host_resident_id FROM games WHERE id = ?`).get(b.gameId)) as { host_resident_id: string } | undefined;
   if (!game || game.host_resident_id !== req.resident!.id) return res.status(403).json({ error: "Not your session" });
   try {
@@ -945,6 +960,11 @@ gamesRouter.put("/:id", requireResident, async (req, res) => {
     .prepare(`SELECT COUNT(*) as n FROM game_participants WHERE game_id = ? AND resident_id != ? AND status IN ('joined', 'pending_payment')`)
     .get(req.params.id, req.resident!.id)) as { n: number };
   const priceCents = othersJoined > 0 ? row.price_cents : b.priceCents ?? null;
+  // Commerce audit R3 — only newly *introducing* or changing a price is gated;
+  // an already-priced game keeps working for its host.
+  if (priceCents && priceCents > 0 && priceCents !== row.price_cents && !(await mayHostPaid(req.resident!.id))) {
+    return res.status(403).json({ error: PAID_HOST_ERROR });
+  }
 
   await db
     .prepare(
@@ -1299,6 +1319,9 @@ gamesRouter.post("/", requireResident, async (req, res) => {
   }
   if (b.visibility !== undefined && !["public", "circle", "invite"].includes(b.visibility)) {
     return res.status(400).json({ error: "Visibility must be public, circle, or invite" });
+  }
+  if (b.priceCents && b.priceCents > 0 && !(await mayHostPaid(req.resident!.id))) {
+    return res.status(403).json({ error: PAID_HOST_ERROR });
   }
   // HC-QA-032 — a new activity cannot start in the past (Ireland calendar
   // date). Editing an existing past activity is handled separately in PUT.

@@ -1,11 +1,14 @@
 import { Router } from "express";
 import { createCheckoutSession, pricingLineItems } from "../checkoutService.js";
 import { db } from "../db/index.js";
+import { VENDOR_SUSPENDED_ERROR, isPositiveInt, vendorSuspended } from "../bookingIntegrity.js";
 import { computePricing } from "../pricing.js";
 import { requireResident } from "../residents.js";
 import { generateRef } from "../util.js";
 
 export const passesRouter = Router();
+
+export const MAX_PASS_CREDITS = 50;
 
 // Credit-pack passes (NEXT) — a resident buys N credits up front for a
 // specific club, redeemable one-per-registration instead of paying each
@@ -34,9 +37,17 @@ interface PassCheckoutInput {
 passesRouter.post("/checkout", requireResident, async (req, res) => {
   const b = req.body as PassCheckoutInput;
   if (!b.listingId || !b.creditsTotal || b.creditsTotal < 1) return res.status(400).json({ error: "listingId and creditsTotal are required" });
+  // Commerce audit R10 — a whole number of credits within a sane pack size.
+  if (!isPositiveInt(b.creditsTotal, MAX_PASS_CREDITS)) return res.status(400).json({ error: `A pass can hold between 1 and ${MAX_PASS_CREDITS} sessions` });
 
-  const club = (await db.prepare(`SELECT name, price FROM clubs WHERE id = ?`).get(b.listingId)) as { name: string; price: number } | undefined;
-  if (!club) return res.status(404).json({ error: "Club not found" });
+  // Commerce audit R10/R14 — same listing gates every other checkout applies:
+  // only an approved club whose vendor isn't suspended can sell a pass.
+  const club = (await db.prepare(`SELECT name, price, status, vendor_id FROM clubs WHERE id = ?`).get(b.listingId)) as
+    | { name: string; price: number; status: string; vendor_id: string | null }
+    | undefined;
+  if (!club || club.status !== "approved") return res.status(404).json({ error: "Club not found" });
+  if (await vendorSuspended(club.vendor_id)) return res.status(409).json({ error: VENDOR_SUSPENDED_ERROR });
+  if (!(club.price > 0)) return res.status(400).json({ error: "This club doesn't sell passes" });
 
   // Simple bulk pricing: credits at the club's per-registration price, no
   // discount logic — a real pass product would want tiered pricing, out of

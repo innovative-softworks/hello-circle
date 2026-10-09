@@ -12,7 +12,7 @@ import { notifyCancellation, notifyNewBookingOrRegistration } from "../notificat
 import { computePricing, evaluateCoupon, splitCostPerPerson } from "../pricing.js";
 import { lookupLimiter } from "../rateLimit.js";
 import { BadRequestError, ConflictError, bookingEndHour, clientIdFrom, generateRef, hoursOverlap, isValidEmail } from "../util.js";
-import { consumeCoupon, endPendingHold, isPositiveInt, occupiesCapacitySql, startIsInFuture, validateFutureDate } from "../bookingIntegrity.js";
+import { VENDOR_SUSPENDED_ERROR, consumeCoupon, endPendingHold, isPositiveInt, occupiesCapacitySql, startIsInFuture, validateFutureDate, vendorSuspended } from "../bookingIntegrity.js";
 
 export const bookingsRouter = Router();
 
@@ -176,6 +176,7 @@ export async function createBookingInternal(input: CreateBookingInternalInput): 
   }
 
   const centreVendorRow = (await db.prepare(`SELECT vendor_id FROM centres WHERE id = ?`).get(input.centreId)) as { vendor_id: string | null } | undefined;
+  if (await vendorSuspended(centreVendorRow?.vendor_id)) return { ok: false, status: 409, error: VENDOR_SUSPENDED_ERROR };
   const { bookingWindowDays } = await orgPoliciesForVendor(centreVendorRow?.vendor_id ?? null);
   const eventStart = irelandWallTimeToUtc(input.date, startHour);
   if (eventStart.getTime() - Date.now() > bookingWindowDays * 24 * 60 * 60 * 1000) {

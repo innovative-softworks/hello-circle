@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { computeCapacity } from "../capacity.js";
 import { createCheckoutSession, paymentsAvailable, pricingLineItems } from "../checkoutService.js";
-import { consumeCoupon, endPendingHold, occupiesCapacitySql } from "../bookingIntegrity.js";
+import { VENDOR_SUSPENDED_ERROR, consumeCoupon, endPendingHold, occupiesCapacitySql, vendorSuspended } from "../bookingIntegrity.js";
 import { logEvent } from "../analytics.js";
 import { db } from "../db/index.js";
 import { getClub } from "../db/queries.js";
@@ -232,6 +232,8 @@ registrationsRouter.post("/checkout", async (req, res) => {
 
   const club = await getClub(body.clubId);
   if (!club) return res.status(404).json({ error: "Club not found" });
+  const clubOwner = (await db.prepare(`SELECT vendor_id FROM clubs WHERE id = ?`).get(body.clubId)) as { vendor_id: string | null } | undefined;
+  if (await vendorSuspended(clubOwner?.vendor_id)) return res.status(409).json({ error: VENDOR_SUSPENDED_ERROR });
 
   if (body.sessionId) {
     const session = await db.prepare(`SELECT id FROM club_sessions WHERE id = ? AND club_id = ? AND active = 1`).get(body.sessionId, body.clubId);

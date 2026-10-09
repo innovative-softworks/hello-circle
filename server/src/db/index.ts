@@ -129,6 +129,25 @@ export const db = {
   },
 };
 
+/** Payment tracking (payment_status/stripe_session_id) predates this UTC
+ * instant — only rows older than it can be legacy "confirmed on submit" rows
+ * that the boot backfill in initSchema() may mark paid (commerce audit R8). */
+export const LEGACY_PAYMENT_BACKFILL_BEFORE = "2026-07-24 00:00:00";
+
+/** Backfill: rows created before payment tracking existed were confirmed on
+ * submit (the old flow) — treat them as already paid. Commerce audit R8 —
+ * bounded to rows that predate payment tracking: this runs on every boot, and
+ * a live checkout row is briefly pending with no stripe_session_id (between
+ * its INSERT and the session-id UPDATE), so a crash in that window used to
+ * turn an unpaid booking into 'paid' on the next restart. */
+export async function backfillLegacyPaymentStatus() {
+  for (const table of ["bookings", "registrations"]) {
+    await db
+      .prepare(`UPDATE ${table} SET payment_status = 'paid' WHERE payment_status = 'pending' AND stripe_session_id IS NULL AND created_at < ?`)
+      .run(LEGACY_PAYMENT_BACKFILL_BEFORE);
+  }
+}
+
 export async function initSchema() {
   await db.exec(`
     CREATE TABLE IF NOT EXISTS centres (
@@ -1384,12 +1403,7 @@ export async function initSchema() {
   // computePricing() regardless, this column just makes the applied code
   // visible/auditable, same as bookings/registrations/experience_bookings.
   await ensureColumn("program_enrollments", "coupon_code", "coupon_code VARCHAR(191)");
-  // Backfill: rows created before payment tracking existed were confirmed
-  // on submit (the old flow) — treat them as already paid.
-  await db.exec(`
-    UPDATE bookings SET payment_status = 'paid' WHERE payment_status = 'pending' AND stripe_session_id IS NULL;
-    UPDATE registrations SET payment_status = 'paid' WHERE payment_status = 'pending' AND stripe_session_id IS NULL;
-  `);
+  await backfillLegacyPaymentStatus();
 
   // Guest-facing cancellation. Deliberately separate from payment_status
   // (which tracks the Stripe payment lifecycle: pending/paid/failed) so

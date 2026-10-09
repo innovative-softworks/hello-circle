@@ -97,12 +97,10 @@ function PlanRecap({ game, couponCode }: { game: Game; couponCode?: string | nul
 }
 
 // Vendor-parity pass, Phase 25 — a host can scope a coupon to one priced
-// session (games.ts's POST /coupons). This preview uses the generic
-// /coupons/validate endpoint, which has no listing context (see pricing.ts's
-// own documented limit on that endpoint) — real enforcement/rejection for a
-// code that doesn't apply to this specific game happens at the actual join
-// call below, same never-trust-the-preview contract BookingFlow.tsx uses.
-function GameCouponField({ subtotalCents, onApplied }: { subtotalCents: number; onApplied: (code: string | null) => void }) {
+// session (games.ts's POST /coupons). The preview passes this game as listing
+// context so a code for another session is rejected here too; the join call
+// below still re-validates (never-trust-the-preview, same as BookingFlow.tsx).
+function GameCouponField({ gameId, subtotalCents, onApplied }: { gameId: string; subtotalCents: number; onApplied: (code: string | null) => void }) {
   const [input, setInput] = useState("");
   const [applied, setApplied] = useState<{ code: string; discountCents: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -113,7 +111,7 @@ function GameCouponField({ subtotalCents, onApplied }: { subtotalCents: number; 
     setChecking(true);
     setError(null);
     try {
-      const res = await validateCoupon(input.trim(), subtotalCents);
+      const res = await validateCoupon(input.trim(), subtotalCents, { listingType: "game", listingId: gameId });
       setApplied({ code: res.code, discountCents: res.discountCents });
       onApplied(res.code);
     } catch (e) {
@@ -415,7 +413,7 @@ export function GameJoinCard({ game, resident, isHost, onRefresh }: JoinCardProp
         message={
           <>
             <PlanRecap game={game} couponCode={couponCode} />
-            {!!game.priceCents && <GameCouponField subtotalCents={game.priceCents} onApplied={setCouponCode} />}
+            {!!game.priceCents && <GameCouponField gameId={game.id} subtotalCents={game.priceCents} onApplied={setCouponCode} />}
           </>
         }
         confirmLabel={game.priceCents ? "Continue to payment" : "Confirm I'm in"}
@@ -523,7 +521,7 @@ export function MobileJoinBar({ game, resident, isHost, onRefresh }: JoinCardPro
         message={
           <>
             <PlanRecap game={game} couponCode={couponCode} />
-            {!!game.priceCents && <GameCouponField subtotalCents={game.priceCents} onApplied={setCouponCode} />}
+            {!!game.priceCents && <GameCouponField gameId={game.id} subtotalCents={game.priceCents} onApplied={setCouponCode} />}
           </>
         }
         confirmLabel={game.priceCents ? "Continue to payment" : "Confirm I'm in"}

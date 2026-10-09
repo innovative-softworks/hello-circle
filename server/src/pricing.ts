@@ -51,6 +51,38 @@ interface CouponRow {
   active: number;
   eligible_listing_type: string | null;
   eligible_listing_id: string | null;
+  created_by_vendor_id: string | null;
+  created_by_resident_id: string | null;
+}
+
+/** Commerce audit R4 — server-side bounds for any coupon a partner or admin
+ * creates. Returns an error message, or null when the shape is valid. */
+export function couponAmountError(kind: unknown, amount: unknown): string | null {
+  if (kind !== "percent" && kind !== "fixed") return "kind must be percent or fixed";
+  if (typeof amount !== "number" || !Number.isInteger(amount) || amount < 1) return "Amount must be a whole number of at least 1";
+  if (kind === "percent" && amount > 100) return "Percent amount must be 1-100";
+  return null;
+}
+
+const LISTING_OWNER_SQL: Record<string, string> = {
+  centre: `SELECT vendor_id FROM centres WHERE id = ?`,
+  club: `SELECT vendor_id FROM clubs WHERE id = ?`,
+  program: `SELECT vendor_id FROM programs WHERE id = ?`,
+  experience: `SELECT vendor_id FROM experiences WHERE id = ?`,
+};
+
+/** True when the listing belongs to any vendor in the coupon creator's org —
+ * the same org scope orgVendorIds() gives the vendor dashboard. */
+async function listingInCreatorOrg(creatorVendorId: string, ctx: CouponListingContext): Promise<boolean> {
+  const sql = LISTING_OWNER_SQL[ctx.listingType];
+  if (!sql) return false;
+  const listing = (await db.prepare(sql).get(ctx.listingId)) as { vendor_id: string | null } | undefined;
+  if (!listing?.vendor_id) return false;
+  if (listing.vendor_id === creatorVendorId) return true;
+  const row = (await db
+    .prepare(`SELECT 1 as ok FROM users a JOIN users b ON a.org_id = b.org_id WHERE a.id = ? AND b.id = ? AND a.org_id IS NOT NULL`)
+    .get(creatorVendorId, listing.vendor_id)) as { ok: number } | undefined;
+  return !!row;
 }
 
 export interface CouponResult {
@@ -85,9 +117,23 @@ export async function evaluateCoupon(rawCode: string, subtotalCents: number, lis
   if (!row || !row.active) return { valid: false, error: "That code isn't valid" };
   if (row.expires_at && new Date(row.expires_at) < new Date()) return { valid: false, error: "That code has expired" };
   if (row.max_uses !== null && row.used_count >= row.max_uses) return { valid: false, error: "That code has been fully redeemed" };
+  // Commerce audit R4 — a malformed row (e.g. created before partner-route
+  // validation existed) never applies, rather than producing a negative or
+  // >100% discount.
+  if (couponAmountError(row.kind, row.amount)) return { valid: false, error: "That code isn't valid" };
   if (row.eligible_listing_id) {
     const matches = listingContext && row.eligible_listing_type === listingContext.listingType && row.eligible_listing_id === listingContext.listingId;
     if (!matches) return { valid: false, error: "That code isn't valid for this listing" };
+  } else if (row.created_by_resident_id) {
+    // Host coupons are always game-scoped at creation; one without a game
+    // must never fall through to "valid everywhere".
+    return { valid: false, error: "That code isn't valid for this listing" };
+  } else if (row.created_by_vendor_id && listingContext) {
+    // Commerce audit R4 — a vendor coupon with no single listing means "all
+    // of this vendor's org's listings", never every listing platform-wide.
+    // Without listing context (the standalone preview) it can't be checked;
+    // checkout always calls again with context.
+    if (!(await listingInCreatorOrg(row.created_by_vendor_id, listingContext))) return { valid: false, error: "That code isn't valid for this listing" };
   }
 
   const discountCents = row.kind === "percent" ? Math.round((subtotalCents * row.amount) / 100) : Math.min(row.amount, subtotalCents);
