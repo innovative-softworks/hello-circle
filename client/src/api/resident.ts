@@ -1114,3 +1114,9 @@ export function deleteSearchAlert(id: string): Promise<{ ok: boolean }> {
 export function fetchHostOpportunities(): Promise<{ opportunities: HostOpportunity[]; counties: string[] }> {
   return request(`/games/host/opportunities`);
 }
+
+// --- Revenue & Connect Stage 3: host ledger balances -----------------------
+
+export function fetchHostBalances(): Promise<import("./vendor").PartnerEarnings> {
+  return request(`/games/host/earnings`);
+}

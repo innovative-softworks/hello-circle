@@ -62,6 +62,7 @@ const Experiences = lazy(() => import("./pages/Experiences").then((m) => ({ defa
 const Explore = lazy(() => import("./pages/Explore").then((m) => ({ default: m.Explore })));
 const ForgotPassword = lazy(() => import("./pages/ForgotPassword").then((m) => ({ default: m.ForgotPassword })));
 const ForVenues = lazy(() => import("./pages/ForVenues").then((m) => ({ default: m.ForVenues })));
+const Pricing = lazy(() => import("./pages/Pricing").then((m) => ({ default: m.Pricing })));
 const BecomeAHost = lazy(() => import("./pages/BecomeAHost").then((m) => ({ default: m.BecomeAHost })));
 const FreeTimeMode = lazy(() => import("./pages/FreeTimeMode").then((m) => ({ default: m.FreeTimeMode })));
 const GameDetail = lazy(() => import("./pages/GameDetail").then((m) => ({ default: m.GameDetail })));
@@ -131,7 +132,7 @@ const LAUNCH_GATE_ENABLED = import.meta.env.VITE_LAUNCH_MODE !== "public";
 // surfaces this gate exists for, and neither detail page is reachable without
 // already holding an id.
 function isExemptFromLaunchGate(pathname: string): boolean {
-  if (pathname === "/" || pathname === "/for-venues" || pathname === "/become-a-host" || pathname === "/coming-soon") return true;
+  if (pathname === "/" || pathname === "/for-venues" || pathname === "/pricing" || pathname === "/become-a-host" || pathname === "/coming-soon") return true;
   if (pathname === "/login" || pathname === "/forgot-password" || pathname === "/reset-password" || pathname === "/accept-invite") return true;
   if (pathname === "/privacy" || pathname === "/cookies") return true;
   if (pathname.startsWith("/vendor") || pathname.startsWith("/admin")) return true;
@@ -379,6 +380,7 @@ export function App() {
                 <Route path="/manage/link-confirm" element={<ManageLinkConfirm />} />
                 <Route path="/i/:token" element={<InvitationLanding />} />
                 <Route path="/for-venues" element={<ForVenues />} />
+                <Route path="/pricing" element={<Pricing />} />
                 <Route path="/become-a-host" element={<BecomeAHost />} />
                 <Route path="/vendor/signup" element={<VendorSignup />} />
                 <Route path="/vendor/centres/:id" element={<VendorCentreEditPage />} />

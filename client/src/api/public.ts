@@ -589,3 +589,80 @@ export function fetchProviderProfile(vendorId: string): Promise<ProviderProfile>
 export function joinLaunchWaitlist(input: { email: string; name?: string; county?: string }): Promise<{ ok: true }> {
   return request(`/launch-signups`, { method: "POST", body: JSON.stringify(input) });
 }
+
+// --- Revenue & Connect Stage 3: public pricing + field help ----------------
+// Server-authoritative (server/src/routes/pricingPublic.ts, routes/help.ts):
+// the client only displays what the published rules produce.
+
+export interface PlanTerms { successFeeBps: number; minFeeMinor: number; subscriptionMonthlyMinor: number }
+export interface PublicPlans { currency: "EUR"; vatBps: number; feesExclusiveOfVat: boolean; free: PlanTerms; pro: PlanTerms; proBreakEvenMonthlyGmvMinor: number | null }
+
+export interface EstimateInput {
+  priceMinor: number;
+  quantity?: number;
+  planKey?: "free" | "pro";
+  discounts?: { funder: "vendor" | "host" | "venue" | "helloCircle" | "shared"; amountMinor: number; platformShareBps?: number }[];
+  split?: { mode: "single"; recipient: "vendor" | "host" | "venue" } | { mode: "fixed_venue"; venueMinor: number } | { mode: "fixed_host"; hostMinor: number } | { mode: "percentage"; venueBps: number };
+}
+
+export interface PriceEstimate {
+  planKey: string;
+  ok: boolean;
+  blockedReason: string | null;
+  serviceSubtotalMinor: number;
+  partnerFundedDiscountMinor: number;
+  helloCircleFundedDiscountMinor: number;
+  feeBaseMinor: number;
+  percentageFeeMinor: number;
+  minimumFeeApplied: boolean;
+  platformFeeNetMinor: number;
+  platformFeeVatMinor: number;
+  partnerPoolMinor: number;
+  allocations: { recipient: "vendor" | "host" | "venue"; amountMinor: number; payoutEstimateMinor: number }[];
+  customerChargeMinor: number;
+  cardEstimateMinor: number;
+  payoutEstimateMinor: number;
+  contributionBeforeReservesMinor: number;
+  contributionMinor: number;
+  /** Admin simulator only — never returned by the public estimator. */
+  marginWarning?: boolean;
+}
+
+export interface PlanComparison {
+  monthlyGmvMinor: number;
+  orders: number;
+  free: { feesMinor: number; feeVatMinor: number; subscriptionMinor: number; subscriptionVatMinor: number; totalMinor: number };
+  pro: { feesMinor: number; feeVatMinor: number; subscriptionMinor: number; subscriptionVatMinor: number; totalMinor: number };
+  proMonthlySavingMinor: number;
+  proBreakEvenMonthlyGmvMinor: number | null;
+  cheaperPlan: "free" | "pro";
+}
+
+export interface FieldHelpEntry {
+  helpKey: string;
+  version: number;
+  name: string;
+  definition: string;
+  formula: string;
+  example: string;
+  whoPays: string;
+  whenCharged: string;
+  refundBehaviour: string;
+  policyKey: string;
+}
+
+export function fetchPricingPlans(): Promise<PublicPlans> {
+  return request(`/pricing/plans`);
+}
+
+export function estimatePrice(input: EstimateInput): Promise<PriceEstimate> {
+  return request(`/pricing/estimate`, { method: "POST", body: JSON.stringify(input) });
+}
+
+export function comparePlans(monthlyGmvMinor: number, orders: number): Promise<PlanComparison> {
+  return request(`/pricing/compare`, { method: "POST", body: JSON.stringify({ monthlyGmvMinor, orders }) });
+}
+
+export function fetchFieldHelp(keys?: string[]): Promise<FieldHelpEntry[]> {
+  return request(`/help/fields${keys?.length ? `?keys=${encodeURIComponent(keys.join(","))}` : ""}`);
+}

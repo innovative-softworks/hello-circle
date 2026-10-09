@@ -12,6 +12,7 @@ import { endOfIrelandDay } from "../irelandTime.js";
 import { couponAmountError, parseCouponLimits } from "../pricing.js";
 import { adminCommerceRouter } from "./adminCommerce.js";
 import { adminFinanceRouter } from "./adminFinance.js";
+import { adminHelpRouter } from "./help.js";
 import { NOTIFICATION_TEMPLATE_KEYS } from "../notificationTemplates.js";
 import { notifyResident } from "../notifications.js";
 import { notifyVendorFollowers } from "./follows.js";
@@ -23,6 +24,8 @@ adminRouter.use(requireAdmin);
 adminRouter.use("/commerce", requireAdminRole("finance"), adminCommerceRouter);
 // Revenue & Connect Stage 2c — finance operations (webhooks, refunds, disputes, ledger).
 adminRouter.use("/finance", requireAdminRole("finance"), adminFinanceRouter);
+// Revenue & Connect Stage 3 — editable field help (legal/content admins).
+adminRouter.use("/help", requireAdminRole("legal"), adminHelpRouter);
 // Coupons move money (HelloCircle-funded discounts) — finance only (Stage 2a).
 adminRouter.use("/coupons", requireAdminRole("finance"));
 

@@ -2696,6 +2696,214 @@ async function initCommerceSchema(
     )
   `);
   await ensureColumn("disputes", "responsible", "responsible VARCHAR(20) NULL");
+
+  // Revenue & Connect Stage 3 — editable financial field help (brief §19D).
+  // Versioned: an edit adds a new version; the latest version is shown. Seeded
+  // once (INSERT IGNORE on key + version 1); policy_key links to the Policy
+  // Centre document that explains the rule in full.
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS help_entries (
+      help_key VARCHAR(60) NOT NULL,
+      version INT NOT NULL,
+      name VARCHAR(120) NOT NULL,
+      definition TEXT NOT NULL,
+      formula TEXT NOT NULL,
+      example TEXT NOT NULL,
+      who_pays VARCHAR(200) NOT NULL,
+      when_charged VARCHAR(200) NOT NULL,
+      refund_behaviour TEXT NOT NULL,
+      policy_key VARCHAR(60) NOT NULL,
+      created_by VARCHAR(191) NOT NULL DEFAULT 'system',
+      reason TEXT NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (help_key, version)
+    )
+  `);
+  // Seeded once per key as version 1 (parameterised: help text may contain
+  // punctuation that the multi-statement exec splitter would mangle).
+  const HELP_SEED: string[][] = [
+  [
+    "customer_price",
+    "Customer price",
+    "The amount the customer pays for the booking — the price you list, with no HelloCircle fee added.",
+    "Listed price × quantity − any discount",
+    "€100 listed → customer pays €100",
+    "The customer",
+    "At checkout",
+    "A refund returns all or part of it to the customer's card.",
+    "payments-fees-payouts"
+  ],
+  [
+    "platform_fee",
+    "HelloCircle fee",
+    "HelloCircle's success fee on each completed paid order. It is a percentage of the fee base, with a minimum per paid order. Free events carry no fee.",
+    "max(fee base × plan rate, plan minimum)",
+    "Free plan, €100 → 9% = €9.00; €5 → minimum €0.75",
+    "The partner (deducted from the payout)",
+    "When the order is paid; earned when it completes",
+    "Recalculated on the refunded amount; a full refund removes it.",
+    "payments-fees-payouts"
+  ],
+  [
+    "platform_fee_vat",
+    "VAT on the HelloCircle fee",
+    "VAT charged on HelloCircle's fee — not on your activity. Your own activity's VAT is yours and is kept separate.",
+    "HelloCircle fee × VAT rate",
+    "€9.00 × 23% = €2.07",
+    "The partner (deducted from the payout)",
+    "With the fee",
+    "Reversed with the fee on refunds.",
+    "payments-fees-payouts"
+  ],
+  [
+    "fee_base",
+    "Fee base",
+    "The amount the fee is calculated on: the service price after any discount you fund, minus anything refunded.",
+    "Service subtotal − partner-funded discount − refunded amount",
+    "€100 with your €10 coupon → €90",
+    "—",
+    "—",
+    "Falls when a refund is made.",
+    "payments-fees-payouts"
+  ],
+  [
+    "partner_payout",
+    "Your payout",
+    "What you receive for the order once it completes and the review period passes.",
+    "Fee base − HelloCircle fee − VAT on the fee",
+    "€100 → €100 − €9.00 − €2.07 = €88.93",
+    "—",
+    "Transferred in the weekly payout after completion + review period",
+    "Reduced by refunds and by disputes you are responsible for.",
+    "payments-fees-payouts"
+  ],
+  [
+    "venue_allocation",
+    "Venue share",
+    "For a venue-and-host event, the part of the partner payout that goes to the venue under the agreed split.",
+    "Fixed amount, percentage, or agreed custom split of the partner payout",
+    "€88.93 payout, venue fixed €35.00",
+    "—",
+    "With the payout",
+    "Reduced in proportion to refunds.",
+    "payments-fees-payouts"
+  ],
+  [
+    "host_allocation",
+    "Host share",
+    "For a venue-and-host event, the rest of the partner payout after the venue's share.",
+    "Partner payout − venue share",
+    "€88.93 − €35.00 = €53.93",
+    "—",
+    "With the payout",
+    "Reduced in proportion to refunds.",
+    "payments-fees-payouts"
+  ],
+  [
+    "hellocircle_discount",
+    "HelloCircle-funded discount",
+    "A discount HelloCircle pays for. It lowers what the customer pays but not what you earn.",
+    "Customer pays fee base − HelloCircle discount; your payout is unchanged",
+    "€100 with a €10 HelloCircle coupon → customer pays €90, your payout stays €88.93",
+    "HelloCircle",
+    "At checkout",
+    "If the order is refunded, the customer gets back what they paid.",
+    "coupons-promotions"
+  ],
+  [
+    "partner_discount",
+    "Discount you fund",
+    "A coupon or discount you offer. It lowers both the customer price and the fee base.",
+    "Fee base = price − your discount",
+    "€100 − €10 = €90 fee base; fee €8.10",
+    "You",
+    "At checkout",
+    "Refunds are calculated on what the customer paid.",
+    "coupons-promotions"
+  ],
+  [
+    "pending_balance",
+    "Pending",
+    "Money from paid orders whose activity hasn't finished yet (plus the review period).",
+    "Paid orders not yet completed",
+    "—",
+    "—",
+    "—",
+    "Refunds reduce it.",
+    "payments-fees-payouts"
+  ],
+  [
+    "available_balance",
+    "Available",
+    "Money from completed orders, ready for the next weekly payout once it reaches the minimum.",
+    "Completed orders − refunds − recovered disputes",
+    "—",
+    "—",
+    "—",
+    "Refunds after completion reduce it (it can go below zero and is netted later).",
+    "payments-fees-payouts"
+  ],
+  [
+    "settled_due",
+    "Settled — payout due",
+    "Amounts included in a weekly settlement and due to be paid out to you.",
+    "Sum of your settlements not yet paid out",
+    "—",
+    "—",
+    "Paid out on the weekly schedule",
+    "—",
+    "payments-fees-payouts"
+  ],
+  [
+    "review_period",
+    "Review period",
+    "Time after an activity ends before its money becomes available, so issues can be raised first.",
+    "Activity end + review period",
+    "Ends Saturday 18:00 + 48h → available Monday 18:00",
+    "—",
+    "—",
+    "—",
+    "payments-fees-payouts"
+  ],
+  [
+    "minimum_payout",
+    "Minimum payout",
+    "Balances below this carry forward to the next week.",
+    "—",
+    "€25",
+    "—",
+    "—",
+    "—",
+    "payments-fees-payouts"
+  ],
+  [
+    "pro_break_even",
+    "Pro break-even",
+    "The monthly sales at which Pro's lower fee pays for its subscription.",
+    "Pro price ÷ (Free rate − Pro rate)",
+    "€29 ÷ 2% = €1,450 per month",
+    "—",
+    "—",
+    "—",
+    "pro-subscription"
+  ],
+  [
+    "hellocircle_contribution",
+    "HelloCircle contribution (estimate)",
+    "What HelloCircle keeps from the fee after its estimated payment costs and any HelloCircle-funded discount. An estimate — actual Stripe costs replace it later.",
+    "Fee − card cost estimate − payout cost estimate − HelloCircle-funded discount",
+    "€100 Free → €9.00 − €1.75 − €0.32 = €6.93",
+    "—",
+    "—",
+    "—",
+    "payments-fees-payouts"
+  ]
+];
+  for (const [key, ...v] of HELP_SEED) {
+    await db
+      .prepare(`INSERT IGNORE INTO help_entries (help_key, version, name, definition, formula, example, who_pays, when_charged, refund_behaviour, policy_key) VALUES (?, 1, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      .run(key, ...v);
+  }
   await db.exec(`
     INSERT IGNORE INTO ledger_accounts (code, name, account_type) VALUES
       ('partner_available', 'Partner balance available for settlement', 'liability'),

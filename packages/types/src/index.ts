@@ -369,6 +369,8 @@ export interface AuthUser {
   description: string;
   orgId: string | null;
   platformRole: string | null;
+  /** Admin sub-role (Revenue & Connect Stage 2a); null for non-admins. */
+  adminRole?: "super" | "finance" | "support" | "legal" | null;
   invitedStaff: boolean;
   providerTier: "standard" | "verified" | "featured";
   createdAt: string;

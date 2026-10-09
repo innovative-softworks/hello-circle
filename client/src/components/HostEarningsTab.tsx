@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { fetchHostGameEarnings } from "../api";
+import { fetchHostBalances, fetchHostGameEarnings } from "../api";
+import { EarningsSummary } from "./EarningsSummary";
 import type { HostGameEarning } from "../api";
 import { CardIcon } from "./icons";
 import { ManageCard as Card, EmptyState, PageSpinner, tableStyle, thStyle, tdStyle } from "./ui";
@@ -21,9 +22,11 @@ export function HostEarningsTab() {
   const totalCents = rows.reduce((sum, r) => sum + (r.amountCents ?? 0), 0);
 
   return (
+    <>
+    <EarningsSummary load={fetchHostBalances} />
     <Card>
       <div style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 22, marginBottom: 4 }}>€{(totalCents / 100).toFixed(2)}</div>
-      <div style={{ fontSize: 12.5, color: colors.mutedLight, marginBottom: 18 }}>Total received from paid players across your sessions</div>
+      <div style={{ fontSize: 12.5, color: colors.mutedLight, marginBottom: 18 }}>Paid by players across your sessions (what customers paid — your balance above shows what you earn)</div>
       {rows.length === 0 ? (
         <EmptyState icon={<CardIcon size={22} />} title="No paid sessions yet" subtitle="Once someone pays to join one of your priced sessions, it'll show up here." />
       ) : (
@@ -51,5 +54,6 @@ export function HostEarningsTab() {
         </div>
       )}
     </Card>
+    </>
   );
 }

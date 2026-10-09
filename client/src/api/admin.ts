@@ -1,3 +1,4 @@
+import type { EstimateInput, FieldHelpEntry, PlanComparison, PriceEstimate } from "./public";
 import type {
   AdminOrganisation,
   AnalyticsFunnelRow,
@@ -627,4 +628,103 @@ export function fetchCommerceOrders(q?: string): Promise<CommerceOrderRow[]> {
 
 export function fetchCommerceShadow(): Promise<CommerceShadowReport> {
   return request(`/admin/commerce/shadow`);
+}
+
+// --- Revenue & Connect Stage 3: finance, simulator, plans, roles, help ------
+
+
+export interface SimulationResult {
+  result: PriceEstimate;
+  planKey: string;
+  feePlanKey: string;
+  rules: { key: string; hash: string; sources: { id: number; scopeType: string; scopeId: string; version: number }[] }[];
+  resolvedAt: string;
+}
+
+export function simulatePrice(input: EstimateInput & { partnerKind?: string; partnerId?: string; credits?: { funder: "helloCircle" | "vendor"; amountMinor: number }[] }): Promise<SimulationResult> {
+  return request(`/admin/commerce/simulate`, { method: "POST", body: JSON.stringify(input) });
+}
+
+export function simulatePlans(monthlyGmvMinor: number, orders: number): Promise<PlanComparison> {
+  return request(`/admin/commerce/simulate/plans`, { method: "POST", body: JSON.stringify({ monthlyGmvMinor, orders }) });
+}
+
+export interface LedgerBalance { account: string; name: string; accountType: string; currency: string; balanceMinor: number }
+export function fetchLedgerBalances(): Promise<{ balanced: boolean; accounts: LedgerBalance[] }> {
+  return request(`/admin/finance/ledger/balances`);
+}
+
+export interface SettlementRunResult {
+  runId: number;
+  dryRun: boolean;
+  released: { type: string; ref: string; amountMinor: number; partyType: string; partyId: string }[];
+  settled: { partyType: string; partyId: string; netMinor: number; settlementId: number | null }[];
+  carried: { partyType: string; partyId: string; netMinor: number }[];
+}
+export function runSettlementApi(input: { runKey: string; dryRun: boolean; reason: string }): Promise<SettlementRunResult> {
+  return request(`/admin/finance/settlements/run`, { method: "POST", body: JSON.stringify(input) });
+}
+export function fetchSettlements(): Promise<{ id: number; runKey: string; partyType: string; partyId: string; netMinor: number; status: string; transferId: string | null; createdAt: string }[]> {
+  return request(`/admin/finance/settlements`);
+}
+
+export interface WebhookEventRow { id: number; provider: string; eventId: string; eventType: string; status: string; attempts: number; lastError: string | null; summary: Record<string, unknown>; receivedAt: string; processedAt: string | null }
+export function fetchWebhookEvents(status?: string): Promise<WebhookEventRow[]> {
+  return request(`/admin/finance/webhooks${status ? `?status=${encodeURIComponent(status)}` : ""}`);
+}
+export function replayWebhookEvent(id: number, reason: string): Promise<{ ok: boolean; outcome: string }> {
+  return request(`/admin/finance/webhooks/${id}/replay`, { method: "POST", body: JSON.stringify({ reason }) });
+}
+
+export interface RefundRow { id: number; source_type: string; source_ref: string; amount_minor: number; kind: string; origin: string; responsible: string; reason: string; status: string; created_at: string }
+export function fetchRefunds(): Promise<RefundRow[]> {
+  return request(`/admin/finance/refunds`);
+}
+export function issueAdminRefund(input: { sourceType: string; ref: string; amountMinor?: number; reason: string; responsible: "customer" | "partner" | "platform" }): Promise<{ refundId: number; amountMinor: number; full: boolean }> {
+  return request(`/admin/finance/refunds`, { method: "POST", body: JSON.stringify(input) });
+}
+
+export interface DisputeRow { id: number; provider_dispute_id: string; source_type: string | null; source_ref: string | null; amount_minor: number; reason: string; status: string; recovery_status: string; responsible: string | null; evidence_due_by: string | null }
+export function fetchDisputes(): Promise<DisputeRow[]> {
+  return request(`/admin/finance/disputes`);
+}
+export function decideDisputeRecovery(id: number, responsible: "partner" | "platform", reason: string): Promise<{ recovered: number }> {
+  return request(`/admin/finance/disputes/${id}/recovery`, { method: "POST", body: JSON.stringify({ responsible, reason }) });
+}
+export function reconcileFees(): Promise<{ reconciled: number; skipped: number }> {
+  return request(`/admin/finance/fees/reconcile`, { method: "POST", body: "{}" });
+}
+
+export interface PlansOverview { plans: { planKey: string; name: string; status: string }[]; free: Record<string, number | string>; pro: Record<string, number | string>; proBreakEvenMonthlyGmvMinor: number | null }
+export function fetchPlansOverview(): Promise<PlansOverview> {
+  return request(`/admin/commerce/plans`);
+}
+export function fetchPartnerPlan(kind: string, id: string): Promise<{ current: { planKey: string; feePlanKey: string; source: string; effectiveFrom: string | null; effectiveTo: string | null }; history: Record<string, unknown>[] }> {
+  return request(`/admin/commerce/partners/${encodeURIComponent(kind)}/${encodeURIComponent(id)}/plan`);
+}
+export function assignPartnerPlan(kind: string, id: string, input: { planKey: string; feePlanKey?: string | null; effectiveFrom?: string; reason: string }) {
+  return request(`/admin/commerce/partners/${encodeURIComponent(kind)}/${encodeURIComponent(id)}/plan`, { method: "POST", body: JSON.stringify(input) });
+}
+
+export interface CampaignRow { id: number; campaignKey: string; planKey: string; commissionPlanKey: string; benefitDays: number; maxEnrollments: number; startsAt: string; endsAt: string; status: string; terms: string; enrolled: number }
+export function fetchCampaigns(): Promise<CampaignRow[]> {
+  return request(`/admin/commerce/campaigns`);
+}
+export function createCampaign(input: { campaignKey: string; planKey: string; commissionPlanKey: string; benefitDays: number; maxEnrollments: number; startsAt: string; endsAt: string; terms: string; reason: string }): Promise<{ id: number }> {
+  return request(`/admin/commerce/campaigns`, { method: "POST", body: JSON.stringify(input) });
+}
+export function enrollInCampaign(id: number, input: { partnerKind: string; partnerId: string; reason: string }) {
+  return request(`/admin/commerce/campaigns/${id}/enroll`, { method: "POST", body: JSON.stringify(input) });
+}
+
+export interface AdminAccount { id: string; email: string; name: string; adminRole: "super" | "finance" | "support" | "legal"; createdAt: string }
+export function fetchAdmins(): Promise<AdminAccount[]> {
+  return request(`/admin/admins`);
+}
+export function setAdminRole(id: string, adminRole: string, reason: string) {
+  return request(`/admin/admins/${encodeURIComponent(id)}/role`, { method: "PUT", body: JSON.stringify({ adminRole, reason }) });
+}
+
+export function updateFieldHelp(key: string, input: Omit<FieldHelpEntry, "helpKey" | "version"> & { reason: string }) {
+  return request(`/admin/help/${encodeURIComponent(key)}`, { method: "PUT", body: JSON.stringify(input) });
 }

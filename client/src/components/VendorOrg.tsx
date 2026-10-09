@@ -1,3 +1,4 @@
+import { EarningsSummary } from "./EarningsSummary";
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../AuthContext";
@@ -11,6 +12,7 @@ import {
   fetchParticipants,
   fetchVendorInsights,
   fetchVendorPayments,
+  fetchVendorEarnings,
   inviteStaff,
   linkVendorGoogleAccount,
   requestManageLink,
@@ -669,6 +671,8 @@ export function PaymentsPanel() {
   const filteredTransactions = data.transactions.filter((t) => filter === "all" || t.paymentStatus === filter);
 
   return (
+    <>
+    <EarningsSummary load={fetchVendorEarnings} />
     <Card>
       <div style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 22, marginBottom: 4 }}>€{(data.totalPaidCents / 100).toFixed(2)}</div>
       {/* Vendor Experience Polish — totalPaidCents is now a true SUM across
@@ -676,7 +680,7 @@ export function PaymentsPanel() {
           derived from the transactions list below (which stays capped for
           display) — the old "last 200 transactions" caption was actively
           misleading about what the total represented, so it's dropped. */}
-      <div style={{ fontSize: 12.5, color: colors.mutedLight, marginBottom: 18 }}>Total paid, all time</div>
+      <div style={{ fontSize: 12.5, color: colors.mutedLight, marginBottom: 18 }}>Customer payments, all time (including VAT, fees and deposits — not your earnings; see your balance above)</div>
       {data.transactions.length === 0 ? (
         <EmptyState icon={<UsersIcon size={22} />} title="No transactions yet" />
       ) : (
@@ -754,6 +758,7 @@ export function PaymentsPanel() {
         </>
       )}
     </Card>
+    </>
   );
 }
 

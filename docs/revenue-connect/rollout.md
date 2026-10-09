@@ -320,3 +320,48 @@ reconciliation, and the legacy-order snapshot backfill (dry run first). Still no
 Full suite: **64 files, 679 passed**. The ledger still nets to zero.
 
 **Remaining.** Transfers and payouts (Stage 5). Settlements are recorded as **due**, and no money moves.
+
+## Stage 3 — Pricing, calculators, earnings views, admin finance UI, field help
+
+**Built.**
+- **Public `/pricing` page** (footer link "Pricing for partners"):
+  - Free and Pro plan cards plus the Pro break-even, all read from `/api/pricing/plans`. No rate is hard-coded in
+    the client.
+  - Two live calculators, debounced, with no submit button and `aria-live` results. The order calculator covers
+    plan, price, places, venue split (fixed or %) and who funds a coupon. The Free-vs-Pro month comparison is
+    neutral: it reports the cheaper plan and the break-even.
+- **Field help (§19D).** A versioned `help_entries` table holds 16 seeded financial fields (definition, formula,
+  example, who pays, when, refund behaviour, policy link).
+  - `GET /api/help/fields` is public.
+  - `PUT /api/admin/help/:key` (legal/super, reason required) adds a version; it never overwrites.
+  - `<FieldHelp>` is an accessible ⓘ disclosure used on the pricing page and in earnings views.
+- **Partner earnings.** The vendor Earnings tab and the host Earnings tab now lead with ledger balances: pending,
+  available, settled and due, plus recent settlements, each with field help and an "Estimate an order"
+  calculator. The old "Total paid" figure is relabelled as customer payments, since it includes VAT and fees and
+  isn't earnings.
+- **Admin → Finance tab** (sections shown by admin sub-role; the server enforces the same gates):
+  - ledger balances and the balanced check, plus actual card-fee reconciliation
+  - calculation simulator (partner-aware, shows the rule versions used and the margin warning)
+  - weekly settlement (dry-run preview, then run)
+  - payment events (needs review / failed, replay)
+  - refunds (full, partial or remaining)
+  - disputes (recover from partner or HelloCircle absorbs)
+  - plans and promotions (partner plan look-up and change, campaign create and enrol)
+  - field help editor
+  - admin roles (super only)
+
+  Every write asks for an audited reason.
+
+**Tests.** `help.test.ts` (4): seeded fields with the €88.93 example; key filter rejects junk; only legal/super can
+edit; an edit adds a version and keeps the old one. The client's Ireland-date guard caught a UTC
+`toISOString()` run-key default, which is now fixed to use `irelandToday()`.
+- Server: **65 files, 683 passed**. Client: **16 files, 105 passed**. Build OK.
+- HTTP smoke test on a throwaway MySQL (the browser extension wasn't connected, so this was checked over HTTP, not
+  by clicking):
+  - `/pricing` served
+  - finance, admin and help endpoints return 200 for super
+  - the simulator returns T1 (pool €88.93, venue €35 / host €53.93)
+  - settlement refuses while the ledger switch is off, and previews once it's on
+  - a help edit creates v2
+
+**Not done in Stage 3.** A visual click-through in a browser is still owed.

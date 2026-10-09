@@ -645,3 +645,22 @@ export function bookingsReportCsvUrl(): string {
 export function fetchVendorOpportunities(): Promise<{ opportunities: HostOpportunity[]; counties: string[] }> {
   return request(`/vendor/opportunities`);
 }
+
+// --- Revenue & Connect Stage 3: ledger-backed earnings ---------------------
+
+export interface PartnerEarnings {
+  party?: { partyType: string; partyId: string };
+  pendingMinor: number;
+  availableMinor: number;
+  settledDueMinor: number;
+  settlements: { id: number; runKey: string; netMinor: number; status: string; createdAt: string }[];
+}
+
+export function fetchVendorEarnings(): Promise<PartnerEarnings> {
+  return request(`/vendor/earnings`);
+}
+
+/** Partial (or remaining) refund of one of the organisation's own online orders. */
+export function issueVendorRefund(input: { sourceType: "booking" | "registration" | "program" | "experience"; ref: string; amountMinor?: number; reason: string }): Promise<{ refundId: number; amountMinor: number; full: boolean }> {
+  return request(`/vendor/refunds`, { method: "POST", body: JSON.stringify(input) });
+}
