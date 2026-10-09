@@ -7,9 +7,12 @@
 // (stripe.webhooks.constructEvent) is verification, not a call, and stays in
 // routes/stripeWebhook.ts.
 //
-// Connect methods are declared now so Stage 2c/2d code is written against the
-// final interface; the Stripe implementation refuses them until Stage 5 (it
-// needs Connect enabled in test mode and the owner's go-ahead, decision B2).
+// Connect (Stage 5a): Express connected accounts with Stripe-hosted
+// onboarding (Account Links), separate charges and transfers, explicit
+// transfer reversals. Every Connect code path is additionally gated by the
+// commerce.connect_v1 switch in payments/connect.ts, and live keys are still
+// refused outside production (stripe.ts), so in development this can only
+// ever reach a Stripe test-mode account.
 
 import type Stripe from "stripe";
 import { stripe } from "../stripe.js";
@@ -46,6 +49,18 @@ export interface CardSummary {
   expYear: number;
 }
 
+export interface ConnectedAccountStatus {
+  id: string;
+  country: string | null;
+  detailsSubmitted: boolean;
+  chargesEnabled: boolean;
+  payoutsEnabled: boolean;
+  /** "active" | "inactive" | "pending" — the transfers capability. */
+  transfersCapability: string;
+  requirementsDue: string[];
+  disabledReason: string | null;
+}
+
 export interface PaymentProvider {
   readonly name: "stripe" | "stub";
   createCheckoutSession(p: CheckoutSessionParams): Promise<{ id: string; url: string | null }>;
@@ -64,7 +79,13 @@ export interface PaymentProvider {
   paymentFee(paymentIntentId: string): Promise<number | null>;
   /** Re-fetch a webhook event by id (admin replay; never trust a stored copy). */
   retrieveEvent(eventId: string): Promise<import("./webhookEvents.js").IncomingEvent | null>;
-  // Connect (Stage 5).
+  // Connect (Stage 5a).
+  createConnectedAccount(p: { country: string; email: string; idempotencyKey: string; metadata: Record<string, string> }): Promise<{ id: string }>;
+  retrieveConnectedAccount(accountId: string): Promise<ConnectedAccountStatus>;
+  /** Stripe-hosted onboarding / update link (single use, short-lived). */
+  createOnboardingLink(p: { accountId: string; refreshUrl: string; returnUrl: string }): Promise<{ url: string }>;
+  /** One-time login link to the partner's Express dashboard (payouts, bank details). */
+  createDashboardLink(accountId: string): Promise<{ url: string }>;
   createTransfer(p: { amountMinor: number; currency: string; destinationAccountId: string; transferGroup: string; sourceTransactionId?: string; idempotencyKey: string; metadata: Record<string, string> }): Promise<{ id: string }>;
   reverseTransfer(p: { transferId: string; amountMinor?: number; idempotencyKey: string; metadata: Record<string, string> }): Promise<{ id: string; amountMinor: number }>;
 }
@@ -151,13 +172,76 @@ class StripeProvider implements PaymentProvider {
     return { id: e.id, type: e.type, created: e.created, livemode: e.livemode, account: e.account ?? null, data: { object: e.data.object as unknown as Record<string, any> } };
   }
 
-  async createTransfer(): Promise<{ id: string }> {
-    throw new ProviderNotEnabledError("Transfers to connected accounts");
+  // Express dashboard + platform-managed pricing + platform-owned negative
+  // balance liability (the recommended configuration, docs 05). No
+  // application_fee_amount anywhere: with separate charges and transfers
+  // HelloCircle keeps the charge minus what it transfers.
+  async createConnectedAccount(p: { country: string; email: string; idempotencyKey: string; metadata: Record<string, string> }) {
+    const a = await this.client.accounts.create(
+      {
+        country: p.country,
+        email: p.email,
+        controller: {
+          fees: { payer: "application" },
+          losses: { payments: "application" },
+          stripe_dashboard: { type: "express" },
+          requirement_collection: "stripe",
+        },
+        capabilities: { transfers: { requested: true } },
+        metadata: p.metadata,
+      },
+      { idempotencyKey: p.idempotencyKey }
+    );
+    return { id: a.id };
   }
 
-  async reverseTransfer(): Promise<{ id: string; amountMinor: number }> {
-    throw new ProviderNotEnabledError("Transfer reversals");
+  async retrieveConnectedAccount(accountId: string): Promise<ConnectedAccountStatus> {
+    return accountStatusFrom(await this.client.accounts.retrieve(accountId));
   }
+
+  async createOnboardingLink(p: { accountId: string; refreshUrl: string; returnUrl: string }) {
+    const link = await this.client.accountLinks.create({ account: p.accountId, refresh_url: p.refreshUrl, return_url: p.returnUrl, type: "account_onboarding" });
+    return { url: link.url };
+  }
+
+  async createDashboardLink(accountId: string) {
+    const link = await this.client.accounts.createLoginLink(accountId);
+    return { url: link.url };
+  }
+
+  async createTransfer(p: { amountMinor: number; currency: string; destinationAccountId: string; transferGroup: string; sourceTransactionId?: string; idempotencyKey: string; metadata: Record<string, string> }) {
+    const t = await this.client.transfers.create(
+      {
+        amount: p.amountMinor,
+        currency: p.currency.toLowerCase(),
+        destination: p.destinationAccountId,
+        transfer_group: p.transferGroup,
+        ...(p.sourceTransactionId ? { source_transaction: p.sourceTransactionId } : {}),
+        metadata: p.metadata,
+      },
+      { idempotencyKey: p.idempotencyKey }
+    );
+    return { id: t.id };
+  }
+
+  async reverseTransfer(p: { transferId: string; amountMinor?: number; idempotencyKey: string; metadata: Record<string, string> }) {
+    const r = await this.client.transfers.createReversal(p.transferId, { ...(p.amountMinor ? { amount: p.amountMinor } : {}), metadata: p.metadata }, { idempotencyKey: p.idempotencyKey });
+    return { id: r.id, amountMinor: r.amount };
+  }
+}
+
+/** Maps a Stripe account object (API response or account.updated webhook payload). */
+export function accountStatusFrom(a: Pick<Stripe.Account, "id" | "country" | "details_submitted" | "charges_enabled" | "payouts_enabled" | "capabilities" | "requirements">): ConnectedAccountStatus {
+  return {
+    id: a.id,
+    country: a.country ?? null,
+    detailsSubmitted: !!a.details_submitted,
+    chargesEnabled: !!a.charges_enabled,
+    payoutsEnabled: !!a.payouts_enabled,
+    transfersCapability: String(a.capabilities?.transfers ?? "inactive"),
+    requirementsDue: [...(a.requirements?.currently_due ?? []), ...(a.requirements?.past_due ?? [])].filter((x, i, arr) => arr.indexOf(x) === i),
+    disabledReason: a.requirements?.disabled_reason ?? null,
+  };
 }
 
 // --- Stub (tests, offline QA) -------------------------------------------------
@@ -173,6 +257,11 @@ export class StubProvider implements PaymentProvider {
   private refundsByKey = new Map<string, { id: string; amountMinor: number }>();
   private transfersByKey = new Map<string, { id: string; amountMinor: number }>();
   private events = new Map<string, import("./webhookEvents.js").IncomingEvent>();
+  private accounts = new Map<string, ConnectedAccountStatus>();
+  private accountsByKey = new Map<string, string>();
+  private reversalsByKey = new Map<string, { id: string; amountMinor: number }>();
+  /** Test hook: the next createTransfer throws this (then clears). */
+  failNextTransfer: (Error & { code?: string; type?: string }) | null = null;
 
   /** Test helper: make an event retrievable (as the provider would). */
   publishEvent(event: import("./webhookEvents.js").IncomingEvent) {
@@ -198,6 +287,10 @@ export class StubProvider implements PaymentProvider {
     this.refundsByKey.clear();
     this.transfersByKey.clear();
     this.events.clear();
+    this.accounts.clear();
+    this.accountsByKey.clear();
+    this.reversalsByKey.clear();
+    this.failNextTransfer = null;
   }
 
   /** Test helper: record that a session was paid for `amountMinor`. */
@@ -257,10 +350,49 @@ export class StubProvider implements PaymentProvider {
   async setDefaultCard() {}
   async detachCard() {}
 
+  async createConnectedAccount(p: { country: string; email: string; idempotencyKey: string; metadata: Record<string, string> }) {
+    this.record("createConnectedAccount", p);
+    const prior = this.accountsByKey.get(p.idempotencyKey);
+    if (prior) return { id: prior };
+    const id = `acct_stub_${++this.seq}`;
+    this.accountsByKey.set(p.idempotencyKey, id);
+    this.accounts.set(id, { id, country: p.country, detailsSubmitted: false, chargesEnabled: false, payoutsEnabled: false, transfersCapability: "inactive", requirementsDue: ["external_account", "individual.verification.document"], disabledReason: "requirements.past_due" });
+    return { id };
+  }
+
+  async retrieveConnectedAccount(accountId: string) {
+    this.record("retrieveConnectedAccount", { accountId });
+    const a = this.accounts.get(accountId);
+    if (!a) throw Object.assign(new Error("No such account"), { code: "resource_missing" });
+    return { ...a, requirementsDue: [...a.requirementsDue] };
+  }
+
+  async createOnboardingLink(p: { accountId: string; refreshUrl: string; returnUrl: string }) {
+    this.record("createOnboardingLink", p);
+    return { url: `https://connect.stub.invalid/onboarding/${p.accountId}` };
+  }
+
+  async createDashboardLink(accountId: string) {
+    this.record("createDashboardLink", { accountId });
+    return { url: `https://connect.stub.invalid/express/${accountId}` };
+  }
+
+  /** Test helper: finish (or break) onboarding for an account. */
+  setAccount(accountId: string, patch: Partial<ConnectedAccountStatus>) {
+    const a = this.accounts.get(accountId);
+    if (!a) throw new Error(`No stub account ${accountId}`);
+    this.accounts.set(accountId, { ...a, ...patch });
+  }
+
   async createTransfer(p: { amountMinor: number; idempotencyKey: string; destinationAccountId: string; transferGroup: string; currency: string; metadata: Record<string, string> }) {
     this.record("createTransfer", p);
     const prior = this.transfersByKey.get(p.idempotencyKey);
     if (prior) return { id: prior.id };
+    if (this.failNextTransfer) {
+      const e = this.failNextTransfer;
+      this.failNextTransfer = null;
+      throw e;
+    }
     const t = { id: `tr_stub_${++this.seq}`, amountMinor: p.amountMinor };
     this.transfersByKey.set(p.idempotencyKey, t);
     return { id: t.id };
@@ -268,9 +400,13 @@ export class StubProvider implements PaymentProvider {
 
   async reverseTransfer(p: { transferId: string; amountMinor?: number; idempotencyKey: string; metadata: Record<string, string> }) {
     this.record("reverseTransfer", p);
+    const prior = this.reversalsByKey.get(p.idempotencyKey);
+    if (prior) return prior;
     const t = [...this.transfersByKey.values()].find((x) => x.id === p.transferId);
     if (!t) throw Object.assign(new Error("No such transfer"), { code: "resource_missing" });
-    return { id: `trr_stub_${++this.seq}`, amountMinor: p.amountMinor ?? t.amountMinor };
+    const r = { id: `trr_stub_${++this.seq}`, amountMinor: p.amountMinor ?? t.amountMinor };
+    this.reversalsByKey.set(p.idempotencyKey, r);
+    return r;
   }
 }
 

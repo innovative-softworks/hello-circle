@@ -11,7 +11,8 @@ import { claimWaitlistOffer } from "../waitlist.js";
 import { endPendingHold, gameSeatSql, holdIsLive, occupiesCapacitySql } from "../bookingIntegrity.js";
 import { writeAudit } from "../audit.js";
 import { bookingEndHour, hoursOverlap } from "../util.js";
-import { CLIENT_URL, STRIPE_WEBHOOK_SECRET, stripe } from "../stripe.js";
+import { CLIENT_URL, STRIPE_CONNECT_WEBHOOK_SECRET, STRIPE_WEBHOOK_SECRET, stripe } from "../stripe.js";
+import { CONNECT_EVENT_TYPES, processConnectEvent } from "../payments/connect.js";
 import { unsignedStripeWebhooksAllowed } from "../stripeWebhookPolicy.js";
 import type Stripe from "stripe";
 import type { CheckoutType } from "../checkoutService.js";
@@ -443,8 +444,20 @@ export async function stripeWebhookHandler(req: Request, res: Response) {
     try {
       event = stripe.webhooks.constructEvent(req.body, signature, STRIPE_WEBHOOK_SECRET);
     } catch (e) {
-      console.error("[stripe] webhook signature verification failed:", e instanceof Error ? e.message : e);
-      return res.status(400).send("Invalid signature");
+      // Stage 5a — events from connected accounts are signed with the Connect endpoint's own secret.
+      let connectEvent: Stripe.Event | null = null;
+      if (STRIPE_CONNECT_WEBHOOK_SECRET) {
+        try {
+          connectEvent = stripe.webhooks.constructEvent(req.body, signature, STRIPE_CONNECT_WEBHOOK_SECRET);
+        } catch {
+          connectEvent = null;
+        }
+      }
+      if (!connectEvent) {
+        console.error("[stripe] webhook signature verification failed:", e instanceof Error ? e.message : e);
+        return res.status(400).send("Invalid signature");
+      }
+      event = connectEvent;
     }
   } else if (!unsignedStripeWebhooksAllowed()) {
     // Without signature verification, anyone who finds this URL could POST a
@@ -528,6 +541,8 @@ export async function processStripeEvent(event: IncomingEvent): Promise<"process
       });
       return "processed";
     default:
+      // Stage 5a — connected-account status, payouts and reversals.
+      if (CONNECT_EVENT_TYPES.has(event.type)) return processConnectEvent(event);
       // payment_intent.* and everything else: Checkout events are the
       // authoritative confirmation; these are stored for the record only.
       return "ignored";

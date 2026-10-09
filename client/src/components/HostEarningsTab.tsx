@@ -24,7 +24,7 @@ export function HostEarningsTab() {
 
   return (
     <>
-    <EarningsSummary load={fetchHostBalances} />
+    <EarningsSummary load={fetchHostBalances} scope="host" />
     <div style={{ marginBottom: 16 }}>
       <TraderProfileForm scope="host" defaultEntity="individual" />
     </div>

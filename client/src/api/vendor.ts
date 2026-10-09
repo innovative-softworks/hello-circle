@@ -664,3 +664,26 @@ export function fetchVendorEarnings(): Promise<PartnerEarnings> {
 export function issueVendorRefund(input: { sourceType: "booking" | "registration" | "program" | "experience"; ref: string; amountMinor?: number; reason: string }): Promise<{ refundId: number; amountMinor: number; full: boolean }> {
   return request(`/vendor/refunds`, { method: "POST", body: JSON.stringify(input) });
 }
+
+// --- Revenue & Connect Stage 5a: payout account (Stripe Connect) -------------
+
+export interface PayoutsOverview {
+  enabled: boolean;
+  account: { detailsSubmitted: boolean; payoutsEnabled: boolean; transfersActive: boolean; requirementsDue: string[]; disabledReason: string | null } | null;
+  readiness: string[];
+  transfers: { id: number; settlementId: number; amountMinor: number; reversedMinor: number; status: string; createdAt: string }[];
+  payouts: { id: string; amountMinor: number; currency: string; status: string; arrivalDate: string | null; failureMessage: string | null }[];
+}
+/** scope "vendor" = the signed-in vendor's organisation; "host" = the signed-in resident as a host. */
+export function fetchPayouts(scope: "vendor" | "host"): Promise<PayoutsOverview> {
+  return request(`/${scope}/payouts`);
+}
+export function startPayoutOnboarding(scope: "vendor" | "host"): Promise<{ url: string }> {
+  return request(`/${scope}/payouts/onboarding`, { method: "POST", body: JSON.stringify({ country: "IE" }) });
+}
+export function refreshPayoutAccount(scope: "vendor" | "host"): Promise<PayoutsOverview> {
+  return request(`/${scope}/payouts/refresh`, { method: "POST", body: "{}" });
+}
+export function payoutDashboardLink(scope: "vendor" | "host"): Promise<{ url: string }> {
+  return request(`/${scope}/payouts/dashboard`, { method: "POST", body: "{}" });
+}

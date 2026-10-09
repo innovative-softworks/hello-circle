@@ -88,6 +88,8 @@ Verified against all seven test vectors in the brief, to the cent:
 | B11 | Earlier brief's commercial defaults (customer fee, 7% success, Circle Credits) | **Superseded** by this brief. Infrastructure reused | Earlier target-model draft gets discarded and replaced by Free/Pro plans |
 | B12 | Founding-partner commission. §29 says "commission is not waived"; §28 says "9% commission remains active" while Pro is waived | The campaign carries a **commission plan**, default **Free (9%)**, with Pro features and no subscription for 90 days. Set it to Pro to give 7% instead | Partners get Pro features. HelloCircle keeps the 9% rate during the waiver |
 | B13 | When is a club registration "completed"? Club sessions are weekly and recurring, with no end date | Completed at payment, then the review period (48h) | Club partners can settle about 2 days after payment |
+| B14 | Transfer shape: one transfer per order (with `source_transaction`), or one per weekly settlement? | **One net transfer per settlement** (`transfer_group = settlement:<id>`, no `source_transaction`). A settlement nets refunds and recoveries, which a per-charge transfer can't represent. Transfers only run 48h+ after completion, so the funds are normally available; an "insufficient balance" refusal is recorded and retried with a new attempt | Platform balance must cover each run. Monitor the failed-transfer list |
+| B15 | Embedded onboarding components (`@stripe/connect-js`) or Stripe-hosted onboarding? | **Hosted** (Account Links + Express dashboard login link) for now; this avoids adding a client dependency without approval. Embedded components can replace it later without server changes | Partners briefly leave the site to finish onboarding |
 
 ## Exact files expected to change
 

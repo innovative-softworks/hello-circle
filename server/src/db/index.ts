@@ -2698,6 +2698,88 @@ async function initCommerceSchema(
   `);
   await ensureColumn("disputes", "responsible", "responsible VARCHAR(20) NULL");
 
+  // Revenue & Connect Stage 5a — Stripe Connect. One Express account per
+  // selling party (org / vendor / host); status mirrored from the provider
+  // (refresh + account.updated). transfers: one per settlement, idempotency
+  // key settlement:<id>:<attempt>; "unknown" means the provider call's
+  // outcome wasn't seen (retried with the SAME key, so it can't double-pay).
+  // connected_payouts mirrors payout.* events from the connected accounts.
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS connected_accounts (
+      party_type VARCHAR(10) NOT NULL,
+      party_id VARCHAR(191) NOT NULL,
+      provider VARCHAR(20) NOT NULL,
+      account_id VARCHAR(255) NOT NULL,
+      country CHAR(2) NOT NULL,
+      details_submitted TINYINT NOT NULL DEFAULT 0,
+      charges_enabled TINYINT NOT NULL DEFAULT 0,
+      payouts_enabled TINYINT NOT NULL DEFAULT 0,
+      transfers_capability VARCHAR(20) NOT NULL DEFAULT 'inactive',
+      requirements_due TEXT NULL,
+      disabled_reason VARCHAR(120) NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      PRIMARY KEY (party_type, party_id),
+      UNIQUE KEY uq_connected_account (account_id)
+    )
+  `);
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS transfers (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      settlement_id INT NOT NULL,
+      attempt INT NOT NULL DEFAULT 1,
+      idempotency_key VARCHAR(120) NOT NULL,
+      party_type VARCHAR(10) NOT NULL,
+      party_id VARCHAR(191) NOT NULL,
+      destination_account VARCHAR(255) NOT NULL,
+      amount_minor BIGINT NOT NULL,
+      currency CHAR(3) NOT NULL,
+      transfer_group VARCHAR(120) NOT NULL,
+      provider_transfer_id VARCHAR(255) NULL,
+      status VARCHAR(20) NOT NULL,
+      reversed_minor BIGINT NOT NULL DEFAULT 0,
+      error TEXT NULL,
+      ledger_group_id CHAR(36) NULL,
+      created_by VARCHAR(191) NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      UNIQUE KEY uq_transfer_key (idempotency_key),
+      UNIQUE KEY uq_transfer_attempt (settlement_id, attempt),
+      KEY idx_transfer_party (party_type, party_id)
+    )
+  `);
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS transfer_reversals (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      transfer_id INT NOT NULL,
+      idempotency_key VARCHAR(120) NOT NULL,
+      provider_reversal_id VARCHAR(255) NULL,
+      amount_minor BIGINT NOT NULL,
+      reason VARCHAR(40) NOT NULL,
+      note TEXT NULL,
+      status VARCHAR(20) NOT NULL,
+      ledger_group_id CHAR(36) NULL,
+      created_by VARCHAR(191) NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE KEY uq_reversal_key (idempotency_key)
+    )
+  `);
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS connected_payouts (
+      provider_payout_id VARCHAR(255) PRIMARY KEY,
+      account_id VARCHAR(255) NOT NULL,
+      amount_minor BIGINT NOT NULL,
+      currency CHAR(3) NOT NULL,
+      status VARCHAR(20) NOT NULL,
+      arrival_date DATETIME NULL,
+      failure_code VARCHAR(80) NULL,
+      failure_message TEXT NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      KEY idx_payout_account (account_id, created_at)
+    )
+  `);
+
   // Revenue & Connect Stage 4 — policy CMS (brief §20). Documents are
   // seeded once from policy/drafts.ts as version-1 drafts. A version moves
   // draft, review, approved, published, retired; published_body is the

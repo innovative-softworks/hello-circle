@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { PartnerEarnings } from "../api";
 import { colors, fonts, radius } from "../theme";
 import { FieldHelp } from "./FieldHelp";
+import { PayoutAccountCard } from "./PayoutAccountCard";
 import { PricingCalculator } from "./PricingCalculator";
 import { ManageCard as Card, tableStyle, tdStyle, thStyle } from "./ui";
 
@@ -24,7 +25,7 @@ function Tile({ label, value, help }: { label: string; value: number; help: stri
   );
 }
 
-export function EarningsSummary({ load }: { load: () => Promise<PartnerEarnings> }) {
+export function EarningsSummary({ load, scope }: { load: () => Promise<PartnerEarnings>; scope: "vendor" | "host" }) {
   const [data, setData] = useState<PartnerEarnings | null>(null);
   const [error, setError] = useState(false);
   useEffect(() => {
@@ -34,6 +35,7 @@ export function EarningsSummary({ load }: { load: () => Promise<PartnerEarnings>
   if (!data) return null;
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16, marginBottom: 16 }}>
+      <PayoutAccountCard scope={scope} />
       <Card style={{ padding: 20 }}>
         <h3 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 17, margin: "0 0 4px" }}>Your balance</h3>
         <p style={{ fontSize: 12.5, color: colors.mutedLight, margin: "0 0 14px" }}>Transfer eligibility begins after the activity is completed and the review period has passed. Payouts are weekly.</p>

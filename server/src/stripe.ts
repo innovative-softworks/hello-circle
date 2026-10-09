@@ -3,6 +3,9 @@ import { stripeKeyRefusal, stripeWebhookModeNotice } from "./stripeWebhookPolicy
 
 const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY;
 export const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET;
+/** Revenue & Connect Stage 5a — the Connect endpoint (events from connected
+ * accounts) has its own signing secret in Stripe; both are accepted here. */
+export const STRIPE_CONNECT_WEBHOOK_SECRET = process.env.STRIPE_CONNECT_WEBHOOK_SECRET;
 export const CLIENT_URL = process.env.CLIENT_URL || "http://localhost:5173";
 
 const keyRefusal = stripeKeyRefusal(STRIPE_SECRET_KEY);

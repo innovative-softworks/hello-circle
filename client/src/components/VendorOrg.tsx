@@ -673,7 +673,7 @@ export function PaymentsPanel() {
 
   return (
     <>
-    <EarningsSummary load={fetchVendorEarnings} />
+    <EarningsSummary load={fetchVendorEarnings} scope="vendor" />
     <Card>
       <div style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 22, marginBottom: 4 }}>€{(data.totalPaidCents / 100).toFixed(2)}</div>
       {/* Vendor Experience Polish — totalPaidCents is now a true SUM across

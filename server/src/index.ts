@@ -38,6 +38,7 @@ import { helpRouter } from "./routes/help.js";
 import { policiesRouter } from "./routes/policies.js";
 import { complaintsRouter } from "./routes/complaints.js";
 import { hostTraderRouter, publicTraderRouter, vendorTraderRouter } from "./routes/traders.js";
+import { hostPayoutsRouter, vendorPayoutsRouter } from "./routes/payouts.js";
 import { discoverRouter } from "./routes/discover.js";
 import { experiencesRouter } from "./routes/experiences.js";
 import { favouritesRouter } from "./routes/favourites.js";
@@ -192,6 +193,9 @@ app.use("/api/complaints", complaintsRouter);
 app.use("/api/traders", publicTraderRouter);
 app.use("/api/vendor/trader-profile", vendorTraderRouter);
 app.use("/api/host/trader-profile", hostTraderRouter);
+// Revenue & Connect Stage 5a — partner payout accounts (Stripe Connect).
+app.use("/api/vendor/payouts", vendorPayoutsRouter);
+app.use("/api/host/payouts", hostPayoutsRouter);
 app.use("/api/reviews", reviewsRouter);
 app.use("/api/uploads", uploadsRouter);
 app.use("/api/media", mediaRouter);

@@ -774,3 +774,21 @@ export function fetchAdminTraders(status?: string): Promise<AdminTrader[]> {
 export function verifyTrader(type: string, id: string, status: "verified" | "rejected" | "unverified", note: string) {
   return request(`/admin/traders/${encodeURIComponent(type)}/${encodeURIComponent(id)}/verification`, { method: "PUT", body: JSON.stringify({ status, note }) });
 }
+
+// --- Revenue & Connect Stage 5a: Connect accounts, transfers, recovery -------
+
+export interface AdminConnectedAccount { partyType: string; partyId: string; accountId: string; country: string; detailsSubmitted: number; payoutsEnabled: number; transfersCapability: string; requirementsDue: string | null; disabledReason: string | null; updatedAt: string; readiness: string[] }
+export function fetchConnectedAccounts(): Promise<AdminConnectedAccount[]> {
+  return request(`/admin/finance/connect/accounts`);
+}
+export interface AdminTransfer { id: number; settlementId: number; attempt: number; partyType: string; partyId: string; amountMinor: number; reversedMinor: number; status: string; providerTransferId: string | null; error: string | null; createdAt: string }
+export function fetchTransfers(): Promise<AdminTransfer[]> {
+  return request(`/admin/finance/transfers`);
+}
+export interface TransferRunResult { dryRun: boolean; transferred: { settlementId: number; amountMinor: number; transferId?: string }[]; held: { settlementId: number; reasons: string[] }[]; failed: { settlementId: number; status: string; error: string }[] }
+export function runTransfersApi(input: { dryRun: boolean; reason: string }): Promise<TransferRunResult> {
+  return request(`/admin/finance/transfers/run`, { method: "POST", body: JSON.stringify(input) });
+}
+export function recoverPartnerBalance(kind: string, id: string, reason: string): Promise<{ recoveredMinor: number; unrecoveredMinor: number; reversals: { reversalId: number; amountMinor: number; status: string; error?: string }[] }> {
+  return request(`/admin/finance/partners/${encodeURIComponent(kind)}/${encodeURIComponent(id)}/recover`, { method: "POST", body: JSON.stringify({ reason }) });
+}

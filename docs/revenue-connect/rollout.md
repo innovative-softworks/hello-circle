@@ -439,3 +439,64 @@ draft** for a solicitor to complete.
   so it's scheduled with Stage 5's Connect onboarding gate.
 - DAC7 annual report generation is a later stage, as the register says.
 - Publication waits on B1 (entity details) and a solicitor.
+
+## Stage 5a — Stripe Connect: accounts, transfers, reversal recovery, payouts (against the stub)
+
+**No Stripe API call was made.** Everything ran against the deterministic stub provider. Sandbox verification
+needs B1 (the Stripe account country / legal entity) and B2 (a **test** key in `server/.env`, never in chat).
+
+**Built.**
+- **Provider:**
+  - `createConnectedAccount` creates an Express account (`controller`: fees paid by the application, losses paid by
+    the application, Express dashboard, Stripe collects requirements; `transfers` capability; idempotent per
+    party).
+  - Also new: `retrieveConnectedAccount`, `createOnboardingLink` (hosted Account Link), `createDashboardLink`
+    (Express login), `createTransfer`, `reverseTransfer`, and `accountStatusFrom()` for API and webhook payloads.
+  - No `application_fee_amount` anywhere.
+  - The stub supports `setAccount` and `failNextTransfer`.
+- **`payments/connect.ts`**, gated by the new `commerce.connect_v1` switch (default **off**):
+  - **Onboarding:** country limited by the `availability` rule (IE).
+  - **Readiness:** the account's transfers capability is active, payouts are enabled, and trader details are
+    self-certified and not rejected. This is where the Stage 4 trader check is now **enforced** for being paid.
+  - **`runTransfers`:** dry run by default; transfers each due settlement once, with key
+    `settlement:<id>:<attempt>`.
+    - A definitive refusal marks the attempt failed, and the next run opens a new attempt.
+    - An outcome we didn't see is marked `unknown` and retried with the **same** key, so it can't double-pay.
+    - Ledger: `transfer:<id>` debits `settlement_payable` and credits `stripe_clearing`. The settlement moves to
+      `transferred`.
+  - **`recoverByReversal`:** explicit (finance, with a reason), runs under a per-party lock and counts reversals
+    already in flight. It reverses the newest transfers first, up to what's owed, and posts `reversal:<id>`
+    (debit `stripe_clearing`, credit `partner_available`).
+  - **Webhooks:**
+    - `account.updated` mirrors the account status.
+    - `payout.*` from known connected accounts is mirrored into `connected_payouts`.
+    - `transfer.reversed` made outside HelloCircle goes to manual review.
+    - The Connect endpoint secret `STRIPE_CONNECT_WEBHOOK_SECRET` is accepted alongside the account secret.
+- **APIs:**
+  - `/api/vendor/payouts` (owner or finance staff) and `/api/host/payouts`: GET, plus POST `onboarding`,
+    `refresh` and `dashboard`.
+  - Admin: `GET /api/admin/finance/connect/accounts`, `GET /transfers`, `POST /transfers/run`,
+    `POST /partners/:kind/:id/recover`.
+- **UI:**
+  - "Payout account" card on the vendor and host Earnings tabs: what blocks payouts, a "Set up payouts with Stripe"
+    or "Bank details and payouts" button, transfers received and bank payouts. It's hidden while the switch is
+    off.
+  - Admin → Finance → **Transfers**: preview and send, held/failed reasons, recent transfers, connected accounts,
+    and "Recover balance…".
+- **Schema:** `connected_accounts`, `transfers`, `transfer_reversals`, `connected_payouts`.
+- **Decisions:** B14 (one net transfer per settlement) and B15 (hosted onboarding) are recorded in 07.
+
+**Tests.** `connect.test.ts` (9):
+- switch off → 409
+- one account per organisation, non-IE refused, idempotent link
+- readiness via `account.updated` and trader details
+- dry run, then the real run: exact amount, group and key; ledger balanced; the second run sends nothing
+- failed (new key) vs unknown (same key)
+- role and reason required
+- €30 dispute recovered as €25 + €5 reversals, newest first, ledger balanced, nothing left to recover
+- Dashboard reversal → manual review
+- payout mirroring, ignoring unknown accounts
+
+Full: **67 files, 703 passed**. Client: 108 passed. Build OK.
+
+**Next: Stage 5b.** Pro subscriptions on Stripe Billing, rewards, credits.

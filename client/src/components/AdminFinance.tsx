@@ -5,6 +5,13 @@ import {
   decideDisputeRecovery,
   enrollInCampaign,
   fetchAdmins,
+  fetchConnectedAccounts,
+  fetchTransfers,
+  recoverPartnerBalance,
+  runTransfersApi,
+  type AdminConnectedAccount,
+  type AdminTransfer,
+  type TransferRunResult,
   fetchCampaigns,
   fetchDisputes,
   fetchFieldHelp,
@@ -297,6 +304,111 @@ function SettlementsSection() {
           }}
         />
       )}
+    </Card>
+  );
+}
+
+// --- Stage 5a: transfers and connected accounts -----------------------------------------
+
+function TransfersSection() {
+  const [rows, setRows] = useState<AdminTransfer[]>([]);
+  const [accounts, setAccounts] = useState<AdminConnectedAccount[]>([]);
+  const [result, setResult] = useState<TransferRunResult | null>(null);
+  const [dialog, setDialog] = useState<null | "preview" | "run" | { kind: string; id: string }>(null);
+  const [message, setMessage] = useState<string | null>(null);
+  const load = () => {
+    fetchTransfers().then(setRows).catch(() => setRows([]));
+    fetchConnectedAccounts().then(setAccounts).catch(() => setAccounts([]));
+  };
+  useEffect(load, []);
+  return (
+    <Card style={{ padding: 22 }}>
+      <h3 style={h3}>Transfers to partners (Stripe Connect)</h3>
+      <p style={hint}>
+        Sends each "due" settlement to the partner's Stripe account. A partner is held until their payout account is verified and their trader details are self-certified. Turn on "Stripe Connect payouts" in Commercial rules → Switches first. Preview
+        before running.
+      </p>
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+        <Button variant="ghost" onClick={() => setDialog("preview")}>Preview transfers</Button>
+        <Button disabled={!result?.dryRun || result.transferred.length === 0} onClick={() => setDialog("run")}>Send transfers</Button>
+      </div>
+      {result && (
+        <div style={{ fontSize: 13.5, margin: "12px 0 0" }} aria-live="polite">
+          {result.dryRun ? "Preview" : "Done"}: {result.transferred.length} transfer(s), {euro(result.transferred.reduce((a, t) => a + t.amountMinor, 0))} · {result.held.length} held · {result.failed.length} failed
+          {result.held.length > 0 && (
+            <ul style={{ margin: "6px 0 0", paddingLeft: 18, fontSize: 12.5, color: colors.textSoft }}>
+              {result.held.slice(0, 10).map((h) => <li key={h.settlementId}>Settlement {h.settlementId}: {h.reasons.join("; ")}</li>)}
+            </ul>
+          )}
+          {result.failed.length > 0 && (
+            <ul style={{ margin: "6px 0 0", paddingLeft: 18, fontSize: 12.5, color: colors.danger }}>
+              {result.failed.map((f) => <li key={f.settlementId}>Settlement {f.settlementId}: {f.status === "unknown" ? "outcome not confirmed — run again to retry safely" : f.error}</li>)}
+            </ul>
+          )}
+        </div>
+      )}
+      {message && <p style={{ fontSize: 13, margin: "10px 0 0" }}>{message}</p>}
+      <h4 style={{ margin: "18px 0 8px", fontSize: 14 }}>Recent transfers</h4>
+      <div style={{ overflowX: "auto" }}>
+        <table style={tableStyle}>
+          <thead><tr><th style={thStyle}>Settlement</th><th style={thStyle}>Partner</th><th style={thStyle}>Amount</th><th style={thStyle}>Status</th><th style={thStyle}>When</th></tr></thead>
+          <tbody>
+            {rows.map((t) => (
+              <tr key={t.id}>
+                <td style={tdStyle}>#{t.settlementId} (try {t.attempt})</td>
+                <td style={tdStyle}>{t.partyType}:{t.partyId}</td>
+                <td style={{ ...tdStyle, fontWeight: 600 }}>{euro(t.amountMinor)}{Number(t.reversedMinor) > 0 ? ` (−${euro(t.reversedMinor)})` : ""}</td>
+                <td style={{ ...tdStyle, color: t.status === "failed" || t.status === "unknown" ? colors.danger : colors.text }}>{t.status}{t.error ? ` — ${t.error}` : ""}</td>
+                <td style={{ ...tdStyle, fontSize: 12.5 }}>{when(t.createdAt)}</td>
+              </tr>
+            ))}
+            {rows.length === 0 && <tr><td style={tdStyle} colSpan={5}>No transfers yet.</td></tr>}
+          </tbody>
+        </table>
+      </div>
+      <h4 style={{ margin: "18px 0 8px", fontSize: 14 }}>Connected accounts</h4>
+      <div style={{ overflowX: "auto" }}>
+        <table style={tableStyle}>
+          <thead><tr><th style={thStyle}>Partner</th><th style={thStyle}>Stripe account</th><th style={thStyle}>Status</th><th style={thStyle} /></tr></thead>
+          <tbody>
+            {accounts.map((a) => (
+              <tr key={a.accountId}>
+                <td style={tdStyle}>{a.partyType}:{a.partyId}</td>
+                <td style={{ ...tdStyle, fontSize: 12.5 }}>{a.accountId} · {a.country}</td>
+                <td style={{ ...tdStyle, fontSize: 12.5 }}>{a.readiness.length ? a.readiness.join("; ") : "Ready"}</td>
+                <td style={tdStyle}><Button variant="ghost" onClick={() => setDialog({ kind: a.partyType, id: a.partyId })}>Recover balance…</Button></td>
+              </tr>
+            ))}
+            {accounts.length === 0 && <tr><td style={tdStyle} colSpan={4}>No partner has connected a payout account yet.</td></tr>}
+          </tbody>
+        </table>
+      </div>
+      {dialog === "preview" || dialog === "run" ? (
+        <ReasonDialog
+          title={dialog === "preview" ? "Preview transfers" : "Send transfers"}
+          note={dialog === "run" ? "Moves real money in Stripe (test mode until go-live). Each settlement is transferred at most once." : "Shows what would be sent and what is held. Nothing moves."}
+          confirm={dialog === "preview" ? "Preview" : "Send"}
+          danger={dialog === "run"}
+          onClose={() => setDialog(null)}
+          onConfirm={async (reason) => {
+            setResult(await runTransfersApi({ dryRun: dialog === "preview", reason }));
+            load();
+          }}
+        />
+      ) : dialog ? (
+        <ReasonDialog
+          title={`Recover ${dialog.kind}:${dialog.id}'s negative balance`}
+          note="Reverses this partner's most recent transfers, up to what they owe (after a refund or a lost dispute they're responsible for). Audited."
+          confirm="Reverse transfers"
+          danger
+          onClose={() => setDialog(null)}
+          onConfirm={async (reason) => {
+            const r = await recoverPartnerBalance(dialog.kind, dialog.id, reason);
+            setMessage(`Recovered ${euro(r.recoveredMinor)}${r.unrecoveredMinor > 0 ? `; ${euro(r.unrecoveredMinor)} still owed (recovered from future settlements)` : ""}.`);
+            load();
+          }}
+        />
+      ) : null}
     </Card>
   );
 }
@@ -618,6 +730,7 @@ const SECTIONS = [
   { key: "overview", label: "Overview", roles: ["super", "finance"] },
   { key: "simulator", label: "Simulator", roles: ["super", "finance"] },
   { key: "settlements", label: "Settlements", roles: ["super", "finance"] },
+  { key: "transfers", label: "Transfers", roles: ["super", "finance"] },
   { key: "events", label: "Payment events", roles: ["super", "finance"] },
   { key: "refunds", label: "Refunds", roles: ["super", "finance"] },
   { key: "disputes", label: "Disputes", roles: ["super", "finance"] },
@@ -650,6 +763,7 @@ export function AdminFinanceTab() {
       {section === "overview" && <OverviewSection />}
       {section === "simulator" && <SimulatorSection />}
       {section === "settlements" && <SettlementsSection />}
+      {section === "transfers" && <TransfersSection />}
       {section === "events" && <WebhooksSection />}
       {section === "refunds" && <RefundsSection />}
       {section === "disputes" && <DisputesSection />}

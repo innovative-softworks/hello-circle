@@ -9,6 +9,7 @@ import { RuleError } from "../commerce/rules.js";
 import { partnerBalances, reconcilePaymentFees, resolveDisputeRecovery, runSettlement } from "../commerce/settlement.js";
 import { failEvent, finishEvent, reopenForReplay } from "../payments/webhookEvents.js";
 import { processStripeEvent } from "./stripeWebhook.js";
+import { ConnectError, payoutReadiness, recoverByReversal, runTransfers, type Party } from "../payments/connect.js";
 
 // Revenue & Connect Stage 2c — finance operations: webhook queue + replay,
 // payments, refunds (incl. partial), disputes, ledger. Mounted from admin.ts
@@ -173,4 +174,55 @@ adminFinanceRouter.post("/fees/reconcile", async (_req, res) => {
 
 adminFinanceRouter.get("/partners/:kind/:id/balances", async (req, res) => {
   res.json(await partnerBalances({ partyType: req.params.kind, partyId: req.params.id }));
+});
+
+// --- Revenue & Connect Stage 5a: Connect accounts, transfers, recovery -------------
+
+function handleConnect(res: Response, e: unknown) {
+  if (e instanceof ConnectError) return res.status(e.status).json({ error: e.message });
+  throw e;
+}
+
+const PARTY_TYPES = ["org", "vendor", "host"];
+
+adminFinanceRouter.get("/connect/accounts", async (_req, res) => {
+  const rows = (await db
+    .prepare(
+      `SELECT party_type as partyType, party_id as partyId, account_id as accountId, country, details_submitted as detailsSubmitted, payouts_enabled as payoutsEnabled,
+        transfers_capability as transfersCapability, requirements_due as requirementsDue, disabled_reason as disabledReason, updated_at as updatedAt
+       FROM connected_accounts ORDER BY updated_at DESC LIMIT 200`
+    )
+    .all()) as (Party & Record<string, unknown>)[];
+  res.json(await Promise.all(rows.map(async (r) => ({ ...r, readiness: await payoutReadiness(r) }))));
+});
+
+adminFinanceRouter.get("/transfers", async (_req, res) => {
+  res.json(
+    await db
+      .prepare(
+        `SELECT t.id, t.settlement_id as settlementId, t.attempt, t.party_type as partyType, t.party_id as partyId, t.amount_minor as amountMinor, t.reversed_minor as reversedMinor,
+          t.status, t.provider_transfer_id as providerTransferId, t.error, t.created_at as createdAt
+         FROM transfers t ORDER BY t.id DESC LIMIT 200`
+      )
+      .all()
+  );
+});
+
+adminFinanceRouter.post("/transfers/run", async (req, res) => {
+  try {
+    const { dryRun, reason, limit } = (req.body ?? {}) as { dryRun?: boolean; reason?: string; limit?: number };
+    res.json(await runTransfers({ dryRun: dryRun !== false, actorId: req.user!.id, reason: String(reason ?? ""), limit }));
+  } catch (e) {
+    handleConnect(res, e);
+  }
+});
+
+adminFinanceRouter.post("/partners/:kind/:id/recover", async (req, res) => {
+  if (!PARTY_TYPES.includes(req.params.kind)) return res.status(400).json({ error: "Unknown partner kind" });
+  try {
+    const { reason, maxMinor } = (req.body ?? {}) as { reason?: string; maxMinor?: number };
+    res.json(await recoverByReversal({ partyType: req.params.kind as Party["partyType"], partyId: req.params.id }, { actorId: req.user!.id, reason: String(reason ?? ""), maxMinor: maxMinor === undefined ? undefined : Number(maxMinor) }));
+  } catch (e) {
+    handleConnect(res, e);
+  }
 });
