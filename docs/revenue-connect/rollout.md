@@ -269,3 +269,54 @@ Results:
 **14. Next.** Stage 2d: completion (session end + 48h), weekly settlement runs with the €25 threshold and
 carry-forward, settlement allocations per vendor/venue/host, dispute recovery against pending payables, actual-fee
 reconciliation, and the legacy-order snapshot backfill (dry run first). Still no transfers.
+
+## Stage 2d — Completion, settlement, dispute recovery, fee reconciliation, backfill
+
+**Built.**
+- **Completion.** An order is complete at service end + `settlement.reviewHours`, resolved per partner. Service end
+  depends on the type:
+  - booking: date, time and duration
+  - experience: session plus the experience's duration
+  - game: session plus duration (default 120 minutes)
+  - programme: end of the last session
+  - registration: at payment (B13)
+  - passes: excluded (B8)
+
+  An order isn't released while it's cancelled with money held, or while a dispute is open. Release moves the
+  order's net pending share to `partner_available` (`release:<type>:<ref>`), recorded once in
+  `order_completions`.
+- **Weekly settlement runs** (`runSettlement`):
+  - The dry run is the default and previews exactly what the real run would release and settle.
+  - Each run key completes once.
+  - Payees at or above `minPayoutMinor` get a settlement (`settlement:<id>`: available → `settlement_payable`) with
+    its items. Anything below the minimum, or negative, carries forward.
+- **Refunds after completion** debit `partner_available`, so a balance can go negative and is netted later.
+- **Lost disputes.** Finance decides who bears each one: the partner (recovered from available) or HelloCircle
+  (absorbed).
+- **Fee reconciliation.** Estimated card fees are accrued, then reversed and replaced by the provider's actual fee.
+  The `estimate` and `actual` bases are reported separately.
+- **Legacy backfill** (`commerce/backfill.ts`, `scripts/backfillLegacySnapshots.ts`): dry run by default,
+  idempotent, refuses the prod database without approval, lists any unrecoverable rows.
+- **APIs:**
+  - `POST /api/admin/finance/settlements/run`, `GET /settlements[/:id]`
+  - `POST /disputes/:id/recovery`, `POST /fees/reconcile`, `GET /partners/:kind/:id/balances`
+  - `GET /api/vendor/earnings` (finance or analyst role)
+  - `GET /api/games/host/earnings`
+- **Schema:** `order_completions`, `settlement_runs`, `settlements` (row_version), `settlement_items` (unique per
+  ledger group), `fee_reconciliations`, `disputes.responsible`, plus the `partner_available` and
+  `settlement_payable` accounts. The provider gains `paymentFee()`, and `reverseGroup` gains `accountMap`.
+
+**Tests.** `settlement.test.ts` (9):
+- service end in Ireland time
+- nothing settles before completion + 48h
+- the dry run matches the real run; a run key settles once; an empty week settles nothing
+- threshold override carries forward
+- a 20% refund after completion takes exactly €10 from available
+- an open dispute blocks release; partner recovery takes €64 and the decision is final
+- fees: estimate nets to 0 and actual is €1.15
+- backfill: dry run, then apply once
+- vendor earnings view
+
+Full suite: **64 files, 679 passed**. The ledger still nets to zero.
+
+**Remaining.** Transfers and payouts (Stage 5). Settlements are recorded as **due**, and no money moves.

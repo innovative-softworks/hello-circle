@@ -89,7 +89,17 @@ export async function groupLines(tx: Tx, groupId: string): Promise<(LedgerLine &
 export async function reverseGroup(
   tx: Tx,
   groupId: string,
-  opts: { idempotencyKey: string; sourceType: string; sourceId: string; description: string; ratio?: { numerator: number; denominator: number }; createdBy?: string | null }
+  opts: {
+    idempotencyKey: string;
+    sourceType: string;
+    sourceId: string;
+    description: string;
+    ratio?: { numerator: number; denominator: number };
+    createdBy?: string | null;
+    /** Post a reversed line to a different account (e.g. a refund after
+     * completion comes out of the partner's available balance). */
+    accountMap?: Record<string, string>;
+  }
 ): Promise<{ groupId: string; created: boolean }> {
   const group = (await tx.prepare(`SELECT currency, basis FROM ledger_entry_groups WHERE id = ?`).get(groupId)) as { currency: string; basis: "actual" | "estimate" } | undefined;
   if (!group) throw new LedgerError(`No ledger group ${groupId}`);
@@ -121,7 +131,7 @@ export async function reverseGroup(
     description: opts.description,
     basis: group.basis,
     currency: group.currency,
-    lines: reversed.map(({ account, amountMinor, partyType, partyId, memo }) => ({ account, amountMinor, partyType, partyId, memo: memo ? `reversal: ${memo}` : "reversal" })),
+    lines: reversed.map(({ account, amountMinor, partyType, partyId, memo }) => ({ account: opts.accountMap?.[account] ?? account, amountMinor, partyType, partyId, memo: memo ? `reversal: ${memo}` : "reversal" })),
     reversesGroupId: groupId,
     createdBy: opts.createdBy,
   });

@@ -2,6 +2,7 @@ import { Router } from "express";
 import { logEvent } from "../analytics.js";
 import { getOpportunities } from "../participationIntents.js";
 import { requirePlatformRole } from "../auth.js";
+import { partnerBalances } from "../commerce/settlement.js";
 import { db } from "../db/index.js";
 import { getDemandSignals } from "../db/queries.js";
 import { inClause } from "./vendorHelpers.js";
@@ -146,6 +147,15 @@ vendorInsightsRouter.get("/reports/bookings.csv", requirePlatformRole("finance",
 // the previous version only ever summed bookings+registrations, so a
 // vendor with paid Program/Experience revenue was undercounted regardless
 // of row count.
+
+// Revenue & Connect Stage 2d — the organisation's money view from the ledger:
+// pending (not yet completed), available (completed, review period passed),
+// settled and due, plus recent settlements. Finance role, like /payments.
+vendorInsightsRouter.get("/earnings", requirePlatformRole("finance", "read_only_analyst"), async (req, res) => {
+  const user = req.user!;
+  const party = user.orgId ? { partyType: "org", partyId: user.orgId } : { partyType: "vendor", partyId: user.id };
+  res.json({ party, ...(await partnerBalances(party)) });
+});
 
 vendorInsightsRouter.get("/payments", requirePlatformRole("finance"), async (req, res) => {
   const ids = req.vendorIds!;

@@ -175,7 +175,12 @@ export async function postRefund(tx: Tx, type: string, ref: string, refundId: nu
   if (!(await ledgerEnabled())) return;
   const groupId = await paymentGroupId(tx, type, ref);
   if (!groupId) return; // paid before the ledger existed — reconciliation picks it up
+  // After completion the partner's share has moved to "available": the
+  // refund comes out of that balance (it may go negative and is netted
+  // against later settlements).
+  const released = !!(await tx.prepare(`SELECT id FROM order_completions WHERE source_type = ? AND source_ref = ?`).get(type, ref));
   await reverseGroup(tx, groupId, {
+    accountMap: released ? { partner_payable: "partner_available", host_payable: "partner_available" } : undefined,
     idempotencyKey: `refund:${refundId}`,
     sourceType: "refund",
     sourceId: String(refundId),

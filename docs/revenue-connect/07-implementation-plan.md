@@ -87,6 +87,7 @@ Verified against all seven test vectors in the brief, to the cent:
 | B10 | Foreign keys on legacy tables | No. FKs only among new finance tables | Avoids failing migrations on historical orphans |
 | B11 | Earlier brief's commercial defaults (customer fee, 7% success, Circle Credits) | **Superseded** by this brief. Infrastructure reused | Earlier target-model draft gets discarded and replaced by Free/Pro plans |
 | B12 | Founding-partner commission. §29 says "commission is not waived"; §28 says "9% commission remains active" while Pro is waived | The campaign carries a **commission plan**, default **Free (9%)**, with Pro features and no subscription for 90 days. Set it to Pro to give 7% instead | Partners get Pro features. HelloCircle keeps the 9% rate during the waiver |
+| B13 | When is a club registration "completed"? Club sessions are weekly and recurring, with no end date | Completed at payment, then the review period (48h) | Club partners can settle about 2 days after payment |
 
 ## Exact files expected to change
 

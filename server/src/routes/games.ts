@@ -6,6 +6,7 @@ import { computeCapacity } from "../capacity.js";
 import { createCheckoutSession, refundPaidOnce, pricingLineItems } from "../checkoutService.js";
 import { db } from "../db/index.js";
 import { commerceSwitch } from "../commerce/switches.js";
+import { partnerBalances } from "../commerce/settlement.js";
 import { countFamiliarCoParticipants } from "../db/queries.js";
 import { isOrganiser as isCircleOrganiser } from "./circleHelpers.js";
 import { upgradeFavouriteStatus } from "./favourites.js";
@@ -431,6 +432,11 @@ gamesRouter.get("/host/insights", requireResident, async (req, res) => {
 // system-wide, not just this host's own, since evaluateCoupon has no
 // concept of "creator". Requiring a specific, ownership-checked game id is
 // the only safe shape given that existing shared function's behaviour.
+// Revenue & Connect Stage 2d — a host's own earnings from the ledger.
+gamesRouter.get("/host/earnings", requireResident, async (req, res) => {
+  res.json(await partnerBalances({ partyType: "host", partyId: req.resident!.id }));
+});
+
 gamesRouter.get("/coupons", requireResident, async (req, res) => {
   const rows = await db
     .prepare(

@@ -5,6 +5,8 @@ import type { CheckoutType } from "../checkoutService.js";
 import { balances, groupLines, ledgerIsBalanced } from "../commerce/ledger.js";
 import { NeedsReviewError, RefundError, refundInApp } from "../commerce/payments.js";
 import { paymentProvider } from "../payments/provider.js";
+import { RuleError } from "../commerce/rules.js";
+import { partnerBalances, reconcilePaymentFees, resolveDisputeRecovery, runSettlement } from "../commerce/settlement.js";
 import { failEvent, finishEvent, reopenForReplay } from "../payments/webhookEvents.js";
 import { processStripeEvent } from "./stripeWebhook.js";
 
@@ -108,4 +110,67 @@ adminFinanceRouter.get("/ledger/groups", async (req, res) => {
 adminFinanceRouter.get("/ledger/balances", async (req, res) => {
   const q = req.query as Record<string, string | undefined>;
   res.json({ balanced: await ledgerIsBalanced(), accounts: await balances({ partyType: q.partyType, partyId: q.partyId, basis: q.basis === "estimate" ? "estimate" : q.basis === "actual" ? "actual" : undefined }) });
+});
+
+// --- Stage 2d: settlement ---------------------------------------------------------
+
+function handleRule(res: Response, e: unknown) {
+  if (e instanceof RuleError) return res.status(e.status).json({ error: e.message });
+  throw e;
+}
+
+/** Runs (or dry-runs) a weekly settlement: releases completed orders, then
+ * creates settlements for payees at or above the minimum payout. */
+adminFinanceRouter.post("/settlements/run", async (req, res) => {
+  const b = req.body as { runKey?: string; dryRun?: boolean };
+  const reason = reasonOf(req);
+  if (!reason) return res.status(400).json({ error: "A reason (at least 5 characters) is required" });
+  try {
+    const result = await runSettlement({ runKey: String(b.runKey ?? ""), dryRun: b.dryRun !== false, actorId: req.user!.id, reason });
+    if (!result.dryRun) await writeAudit({ actorUserId: req.user!.id, actorKind: "user", action: "settlement.run", objectType: "settlement_run", objectId: String(result.runId), newValue: { runKey: b.runKey, settled: result.settled.length, carried: result.carried.length }, reason });
+    res.json(result);
+  } catch (e) {
+    handleRule(res, e);
+  }
+});
+
+adminFinanceRouter.get("/settlements", async (_req, res) => {
+  res.json(
+    await db
+      .prepare(`SELECT s.id, r.run_key as runKey, s.party_type as partyType, s.party_id as partyId, s.net_minor as netMinor, s.status, s.transfer_id as transferId, s.created_at as createdAt FROM settlements s JOIN settlement_runs r ON r.id = s.run_id ORDER BY s.id DESC LIMIT 200`)
+      .all()
+  );
+});
+
+adminFinanceRouter.get("/settlements/:id", async (req, res) => {
+  const s = await db.prepare(`SELECT * FROM settlements WHERE id = ?`).get(req.params.id);
+  if (!s) return res.status(404).json({ error: "Settlement not found" });
+  const items = await db.prepare(`SELECT ledger_group_id as groupId, description, amount_minor as amountMinor FROM settlement_items WHERE settlement_id = ? ORDER BY id`).all(req.params.id);
+  res.json({ settlement: s, items });
+});
+
+adminFinanceRouter.post("/disputes/:id/recovery", async (req, res) => {
+  const reason = reasonOf(req);
+  if (!reason) return res.status(400).json({ error: "A reason (at least 5 characters) is required" });
+  const responsible = (req.body as { responsible?: string }).responsible;
+  if (responsible !== "partner" && responsible !== "platform") return res.status(400).json({ error: "responsible must be partner or platform" });
+  try {
+    const r = await resolveDisputeRecovery({ disputeId: Number(req.params.id), responsible, actorId: req.user!.id, reason });
+    await writeAudit({ actorUserId: req.user!.id, actorKind: "user", action: "dispute.recovery_decided", objectType: "dispute", objectId: req.params.id, newValue: { responsible, ...r }, reason });
+    res.json(r);
+  } catch (e) {
+    handleRule(res, e);
+  }
+});
+
+adminFinanceRouter.post("/fees/reconcile", async (_req, res) => {
+  try {
+    res.json(await reconcilePaymentFees());
+  } catch (e) {
+    handleRule(res, e);
+  }
+});
+
+adminFinanceRouter.get("/partners/:kind/:id/balances", async (req, res) => {
+  res.json(await partnerBalances({ partyType: req.params.kind, partyId: req.params.id }));
 });

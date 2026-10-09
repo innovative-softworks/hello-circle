@@ -2630,6 +2630,77 @@ async function initCommerceSchema(
       CONSTRAINT fk_ledger_entry_account FOREIGN KEY (account_code) REFERENCES ledger_accounts (code)
     )
   `);
+  // Revenue & Connect Stage 2d — completion, settlements, fee reconciliation.
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS order_completions (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      source_type VARCHAR(20) NOT NULL,
+      source_ref VARCHAR(191) NOT NULL,
+      party_type VARCHAR(10) NOT NULL,
+      party_id VARCHAR(191) NOT NULL,
+      service_ends_at DATETIME NOT NULL,
+      eligible_at DATETIME NOT NULL,
+      released_minor BIGINT NOT NULL,
+      released_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE KEY uniq_completion_source (source_type, source_ref)
+    );
+
+    CREATE TABLE IF NOT EXISTS settlement_runs (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      run_key VARCHAR(60) NOT NULL,
+      dry_run TINYINT NOT NULL,
+      status VARCHAR(20) NOT NULL,
+      released_count INT NOT NULL DEFAULT 0,
+      settlement_count INT NOT NULL DEFAULT 0,
+      carried_forward_count INT NOT NULL DEFAULT 0,
+      summary TEXT NULL,
+      started_by VARCHAR(191) NOT NULL,
+      reason TEXT NOT NULL,
+      started_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      finished_at DATETIME NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS settlements (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      run_id INT NOT NULL,
+      party_type VARCHAR(10) NOT NULL,
+      party_id VARCHAR(191) NOT NULL,
+      currency CHAR(3) NOT NULL,
+      net_minor BIGINT NOT NULL,
+      status VARCHAR(20) NOT NULL,
+      ledger_group_id CHAR(36) NULL,
+      transfer_id VARCHAR(255) NULL,
+      paid_reference VARCHAR(255) NULL,
+      row_version INT NOT NULL DEFAULT 0,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      UNIQUE KEY uniq_settlement_run_party (run_id, party_type, party_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS settlement_items (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      settlement_id INT NOT NULL,
+      ledger_group_id CHAR(36) NOT NULL,
+      description VARCHAR(255) NOT NULL,
+      amount_minor BIGINT NOT NULL,
+      UNIQUE KEY uniq_settlement_item_group (ledger_group_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS fee_reconciliations (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      payment_record_id INT NOT NULL,
+      estimate_minor BIGINT NOT NULL,
+      actual_minor BIGINT NOT NULL,
+      reconciled_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE KEY uniq_fee_payment (payment_record_id)
+    )
+  `);
+  await ensureColumn("disputes", "responsible", "responsible VARCHAR(20) NULL");
+  await db.exec(`
+    INSERT IGNORE INTO ledger_accounts (code, name, account_type) VALUES
+      ('partner_available', 'Partner balance available for settlement', 'liability'),
+      ('settlement_payable', 'Settlements due to partners', 'liability')
+  `);
   await ensureIndex("payment_records", "idx_payment_intent", "(payment_intent_id)");
   await ensureIndex("payment_records", "idx_payment_session", "(checkout_session_id)");
   await ensureIndex("refunds", "idx_refund_source", "(source_type, source_ref)");

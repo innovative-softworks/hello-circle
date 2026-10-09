@@ -60,6 +60,8 @@ export interface PaymentProvider {
   cardOwner(paymentMethodId: string): Promise<string | null>;
   setDefaultCard(customerId: string, paymentMethodId: string): Promise<void>;
   detachCard(paymentMethodId: string): Promise<void>;
+  /** The provider's actual processing fee for a payment, or null if not yet known. */
+  paymentFee(paymentIntentId: string): Promise<number | null>;
   /** Re-fetch a webhook event by id (admin replay; never trust a stored copy). */
   retrieveEvent(eventId: string): Promise<import("./webhookEvents.js").IncomingEvent | null>;
   // Connect (Stage 5).
@@ -137,6 +139,13 @@ class StripeProvider implements PaymentProvider {
     await this.client.paymentMethods.detach(paymentMethodId);
   }
 
+  async paymentFee(paymentIntentId: string) {
+    const pi = await this.client.paymentIntents.retrieve(paymentIntentId, { expand: ["latest_charge.balance_transaction"] });
+    const charge = pi.latest_charge && typeof pi.latest_charge !== "string" ? pi.latest_charge : null;
+    const bt = charge?.balance_transaction && typeof charge.balance_transaction !== "string" ? charge.balance_transaction : null;
+    return bt ? bt.fee : null;
+  }
+
   async retrieveEvent(eventId: string) {
     const e = await this.client.events.retrieve(eventId);
     return { id: e.id, type: e.type, created: e.created, livemode: e.livemode, account: e.account ?? null, data: { object: e.data.object as unknown as Record<string, any> } };
@@ -168,6 +177,13 @@ export class StubProvider implements PaymentProvider {
   /** Test helper: make an event retrievable (as the provider would). */
   publishEvent(event: import("./webhookEvents.js").IncomingEvent) {
     this.events.set(event.id, event);
+  }
+
+  /** Deterministic "actual" fee: 1.4% + €0.25 (deliberately ≠ the 1.5% estimate). */
+  async paymentFee(paymentIntentId: string) {
+    this.record("paymentFee", { paymentIntentId });
+    const c = this.charges.get(paymentIntentId);
+    return c ? Math.floor((c.amountMinor * 140 + 5_000) / 10_000) + 25 : null;
   }
 
   async retrieveEvent(eventId: string) {
