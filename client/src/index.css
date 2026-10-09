@@ -1201,3 +1201,13 @@ textarea:focus {
 }
 /* The <main> landmark receives programmatic focus from the skip link only. */
 main#main-content:focus { outline: none; }
+
+/* Revenue & Connect Stage 4 — printable policy pages (Policy Centre "Print"). */
+@media print {
+  .no-print,
+  header,
+  footer,
+  nav {
+    display: none !important;
+  }
+}

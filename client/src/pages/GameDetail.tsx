@@ -1,5 +1,6 @@
 import { usePageTitle } from "../pageTitle";
 import { useEffect, useState } from "react";
+import { TraderInfo } from "../components/TraderInfo";
 import { useToast } from "../components/Toast";
 import { ParticipationBlock } from "../components/ParticipationBlock";
 import { useNavigate, useParams } from "react-router-dom";
@@ -429,6 +430,12 @@ export function GameDetail() {
             </div>
             <IntentCaptureForm activityLabel={game.activityLabel} county={game.county ?? ""} />
           </div>
+        </section>
+      )}
+
+      {(game.priceCents ?? 0) > 0 && (
+        <section className="section-pad" style={{ maxWidth: 960, margin: "0 auto", padding: "0 24px 32px" }}>
+          <TraderInfo type="game" id={game.id} />
         </section>
       )}
 

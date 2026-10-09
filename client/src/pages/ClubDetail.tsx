@@ -1,5 +1,6 @@
 import { usePageTitle } from "../pageTitle";
 import { useEffect, useState } from "react";
+import { TraderInfo } from "../components/TraderInfo";
 import { useToast } from "../components/Toast";
 import { OfficialCircleLink } from "../components/OfficialCircleLink";
 import { ParticipationBlock } from "../components/ParticipationBlock";
@@ -312,6 +313,9 @@ export function ClubDetail() {
       </section>
       <section className="section-pad" style={{ maxWidth, margin: "0 auto", padding: "0 24px 40px" }}>
         <Reviews listingType="club" listingId={club.id} accent="orange" onReviewPosted={reloadRating} />
+        <div style={{ marginTop: 20 }}>
+          <TraderInfo type="club" id={club.id} />
+        </div>
       </section>
       <section className="section-pad" style={{ maxWidth, margin: "0 auto", padding: "0 24px 80px" }}>
         <ClaimListingCTA listingType="club" listingId={club.id} claimed={club.claimed} />

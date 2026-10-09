@@ -311,7 +311,7 @@ export function fetchReportCase(id: number): Promise<ReportCase> {
 // Trust & Safety (IA spec §16) — 'suspended' also acts on the underlying
 // target (closes the circle / hides the review — see routes/admin.ts).
 // `notes` can be saved on its own (status omitted) as an investigation log.
-export function resolveReport(id: number, input: { status?: "dismissed" | "actioned" | "suspended"; notes?: string }): Promise<{ ok: boolean; suspendedAction: string | null }> {
+export function resolveReport(id: number, input: { status?: "dismissed" | "actioned" | "suspended"; notes?: string; statementOfReasons?: string }): Promise<{ ok: boolean; suspendedAction: string | null }> {
   return request(`/admin/reports/${id}`, { method: "PUT", body: JSON.stringify(input) });
 }
 
@@ -727,4 +727,50 @@ export function setAdminRole(id: string, adminRole: string, reason: string) {
 
 export function updateFieldHelp(key: string, input: Omit<FieldHelpEntry, "helpKey" | "version"> & { reason: string }) {
   return request(`/admin/help/${encodeURIComponent(key)}`, { method: "PUT", body: JSON.stringify(input) });
+}
+
+// --- Revenue & Connect Stage 4: policy CMS, complaints, traders -------------
+
+export interface AdminPolicyDoc { docKey: string; title: string; audience: string; acceptanceAudience: string | null; latestVersion: number; latestStatus: string; publishedVersion: number | null; publishedAt: string | null }
+export interface AdminPolicyOverview { documents: AdminPolicyDoc[]; placeholders: { placeholder: string; value: string | null }[]; extraValues: { placeholder: string; value: string }[] }
+export interface AdminPolicyVersion { id: number; docKey: string; version: number; status: string; body: string; publishedBody: string | null; contentHash: string | null; changeSummary: string | null; material: number; effectiveFrom: string | null; createdBy: string; approvedBy: string | null; legalReviewerName: string | null; legalReviewedAt: string | null; publishedAt: string | null; retiredAt: string | null; rowVersion: number; createdAt: string }
+export interface AdminPolicyPreview extends AdminPolicyVersion { rendered: string; blockers: { placeholders: string[]; notes: string[]; legalReview: boolean } }
+
+export function fetchAdminPolicies(): Promise<AdminPolicyOverview> {
+  return request(`/admin/policies`);
+}
+export function fetchPolicyVersions(docKey: string): Promise<AdminPolicyVersion[]> {
+  return request(`/admin/policies/${encodeURIComponent(docKey)}/versions`);
+}
+export function previewPolicyVersion(id: number): Promise<AdminPolicyPreview> {
+  return request(`/admin/policies/versions/${id}/preview`);
+}
+export function createPolicyDraft(docKey: string, input: { changeSummary?: string; reason: string }): Promise<{ id: number }> {
+  return request(`/admin/policies/${encodeURIComponent(docKey)}/drafts`, { method: "POST", body: JSON.stringify(input) });
+}
+export function savePolicyDraft(id: number, input: { body: string; changeSummary?: string; material?: boolean; rowVersion: number }) {
+  return request(`/admin/policies/versions/${id}`, { method: "PUT", body: JSON.stringify(input) });
+}
+export type PolicyAction = "submit" | "approve" | "reject" | "legal_signoff" | "publish" | "discard";
+export function policyTransition(id: number, action: PolicyAction, input: { reason: string; reviewerName?: string; effectiveFrom?: string; material?: boolean }): Promise<{ status: string }> {
+  return request(`/admin/policies/versions/${id}/${action}`, { method: "POST", body: JSON.stringify(input) });
+}
+export function setPolicyPlaceholder(name: string, value: string, reason: string) {
+  return request(`/admin/policies/placeholders/${encodeURIComponent(name)}`, { method: "PUT", body: JSON.stringify({ value, reason }) });
+}
+
+export interface AdminComplaint { id: number; kind: string; subjectType: string; subjectRef: string | null; body: string; status: string; decision: string | null; statementOfReasons: string | null; decidedAt: string | null; createdAt: string; reportId: number | null; submitterType: string; submitterId: string | null; email: string; decidedBy: string | null }
+export function fetchAdminComplaints(status?: string): Promise<AdminComplaint[]> {
+  return request(`/admin/complaints${status ? `?status=${status}` : ""}`);
+}
+export function decideComplaint(id: number, input: { status: "in_review" } | { status: "closed"; decision: "upheld" | "rejected" | "resolved"; statementOfReasons: string }) {
+  return request(`/admin/complaints/${id}`, { method: "PUT", body: JSON.stringify(input) });
+}
+
+export interface AdminTrader { partyType: string; partyId: string; legalName: string; tradingName: string | null; address: string; country: string; email: string; phone: string; companyNumber: string | null; vatNumber: string | null; selfCertifiedAt: string | null; verificationStatus: string; entityType: string; tin: string | null; hasTin: boolean; dateOfBirth: string | null; insuranceExpiresAt: string | null; verificationNote: string | null; updatedAt: string }
+export function fetchAdminTraders(status?: string): Promise<AdminTrader[]> {
+  return request(`/admin/traders${status ? `?status=${status}` : ""}`);
+}
+export function verifyTrader(type: string, id: string, status: "verified" | "rejected" | "unverified", note: string) {
+  return request(`/admin/traders/${encodeURIComponent(type)}/${encodeURIComponent(id)}/verification`, { method: "PUT", body: JSON.stringify({ status, note }) });
 }

@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import mysql from "mysql2/promise";
+import { POLICY_SEEDS } from "../policy/drafts.js";
 import type { Pool, PoolConnection } from "mysql2/promise";
 import { normalizeAvailability, normalizeGoals } from "../participationVocab.js";
 import { normalizeDemand } from "../demandNormalize.js";
@@ -2696,6 +2697,144 @@ async function initCommerceSchema(
     )
   `);
   await ensureColumn("disputes", "responsible", "responsible VARCHAR(20) NULL");
+
+  // Revenue & Connect Stage 4 — policy CMS (brief §20). Documents are
+  // seeded once from policy/drafts.ts as version-1 drafts. A version moves
+  // draft, review, approved, published, retired; published_body is the
+  // placeholder-substituted snapshot frozen at publish (content_hash is its
+  // SHA-256), so a later placeholder-value edit never alters a published
+  // version. Acceptances are per (document, version, subject).
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS policy_documents (
+      doc_key VARCHAR(60) PRIMARY KEY,
+      title VARCHAR(160) NOT NULL,
+      audience VARCHAR(20) NOT NULL,
+      acceptance_audience VARCHAR(20) NULL,
+      sort_order INT NOT NULL DEFAULT 0,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS policy_versions (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      doc_key VARCHAR(60) NOT NULL,
+      version INT NOT NULL,
+      status VARCHAR(20) NOT NULL,
+      body MEDIUMTEXT NOT NULL,
+      published_body MEDIUMTEXT NULL,
+      content_hash CHAR(64) NULL,
+      change_summary TEXT NULL,
+      material TINYINT NOT NULL DEFAULT 0,
+      effective_from DATETIME NULL,
+      created_by VARCHAR(191) NOT NULL,
+      submitted_by VARCHAR(191) NULL,
+      approved_by VARCHAR(191) NULL,
+      approved_at DATETIME NULL,
+      legal_reviewer_name VARCHAR(160) NULL,
+      legal_reviewed_by VARCHAR(191) NULL,
+      legal_reviewed_at DATETIME NULL,
+      published_by VARCHAR(191) NULL,
+      published_at DATETIME NULL,
+      retired_at DATETIME NULL,
+      row_version INT NOT NULL DEFAULT 0,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      UNIQUE KEY uq_policy_version (doc_key, version),
+      KEY idx_policy_status (doc_key, status)
+    )
+  `);
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS policy_values (
+      placeholder VARCHAR(60) PRIMARY KEY,
+      value TEXT NOT NULL,
+      updated_by VARCHAR(191) NOT NULL,
+      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    )
+  `);
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS policy_acceptances (
+      id BIGINT AUTO_INCREMENT PRIMARY KEY,
+      doc_key VARCHAR(60) NOT NULL,
+      version INT NOT NULL,
+      subject_type VARCHAR(20) NOT NULL,
+      subject_id VARCHAR(191) NOT NULL,
+      context VARCHAR(40) NOT NULL,
+      accepted_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE KEY uq_policy_acceptance (doc_key, version, subject_type, subject_id),
+      KEY idx_policy_acceptance_subject (subject_type, subject_id)
+    )
+  `);
+  {
+    for (const d of POLICY_SEEDS) {
+      await db
+        .prepare(`INSERT IGNORE INTO policy_documents (doc_key, title, audience, acceptance_audience, sort_order) VALUES (?, ?, ?, ?, ?)`)
+        .run(d.key, d.title, d.audience, d.acceptance, d.sort);
+      await db
+        .prepare(`INSERT IGNORE INTO policy_versions (doc_key, version, status, body, change_summary, material, created_by) VALUES (?, 1, 'draft', ?, 'Initial structured draft', 1, 'system')`)
+        .run(d.key, d.body);
+    }
+  }
+
+  // Stage 4 — complaints, notices and appeals (DSA notice and action,
+  // internal complaint handling). A decision to resolve or reject needs a
+  // statement of reasons. report_id links an appeal to the moderation report
+  // whose decision it challenges.
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS complaints (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      kind VARCHAR(20) NOT NULL,
+      subject_type VARCHAR(30) NOT NULL,
+      subject_ref VARCHAR(191) NULL,
+      report_id INT NULL,
+      submitter_type VARCHAR(20) NOT NULL,
+      submitter_id VARCHAR(191) NULL,
+      email VARCHAR(191) NOT NULL,
+      body TEXT NOT NULL,
+      status VARCHAR(20) NOT NULL DEFAULT 'open',
+      decision VARCHAR(20) NULL,
+      statement_of_reasons TEXT NULL,
+      decided_by VARCHAR(191) NULL,
+      decided_at DATETIME NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      KEY idx_complaints_status (status, created_at),
+      KEY idx_complaints_submitter (submitter_type, submitter_id)
+    )
+  `);
+  // Moderation statements of reasons (DSA art. 17) — recorded with the decision.
+  await ensureColumn("reports", "statement_of_reasons", "statement_of_reasons TEXT NULL");
+  await ensureColumn("reports", "decided_by", "decided_by VARCHAR(191) NULL");
+  await ensureColumn("reports", "decided_at", "decided_at DATETIME NULL");
+
+  // Stage 4 — trader profiles (DSA art. 30 traceability + DAC7 seller data).
+  // party_type org (vendor organisation) or host (resident). TIN is stored
+  // but only ever returned masked. Public display is limited to the art. 30
+  // fields and only once the trader has self-certified.
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS trader_profiles (
+      party_type VARCHAR(10) NOT NULL,
+      party_id VARCHAR(191) NOT NULL,
+      entity_type VARCHAR(20) NOT NULL,
+      legal_name VARCHAR(200) NOT NULL,
+      trading_name VARCHAR(200) NULL,
+      address TEXT NOT NULL,
+      country CHAR(2) NOT NULL,
+      email VARCHAR(191) NOT NULL,
+      phone VARCHAR(40) NOT NULL,
+      company_number VARCHAR(60) NULL,
+      vat_number VARCHAR(40) NULL,
+      tin VARCHAR(60) NULL,
+      date_of_birth DATE NULL,
+      insurance_expires_at DATE NULL,
+      self_certified_at DATETIME NULL,
+      verification_status VARCHAR(20) NOT NULL DEFAULT 'unverified',
+      verification_note TEXT NULL,
+      verified_by VARCHAR(191) NULL,
+      verified_at DATETIME NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      PRIMARY KEY (party_type, party_id)
+    )
+  `);
 
   // Revenue & Connect Stage 3 — editable financial field help (brief §19D).
   // Versioned: an edit adds a new version; the latest version is shown. Seeded

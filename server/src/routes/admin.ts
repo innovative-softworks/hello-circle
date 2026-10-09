@@ -13,6 +13,9 @@ import { couponAmountError, parseCouponLimits } from "../pricing.js";
 import { adminCommerceRouter } from "./adminCommerce.js";
 import { adminFinanceRouter } from "./adminFinance.js";
 import { adminHelpRouter } from "./help.js";
+import { adminPoliciesRouter } from "./policies.js";
+import { adminComplaintsRouter } from "./complaints.js";
+import { adminTraderRouter } from "./traders.js";
 import { NOTIFICATION_TEMPLATE_KEYS } from "../notificationTemplates.js";
 import { notifyResident } from "../notifications.js";
 import { notifyVendorFollowers } from "./follows.js";
@@ -26,6 +29,10 @@ adminRouter.use("/commerce", requireAdminRole("finance"), adminCommerceRouter);
 adminRouter.use("/finance", requireAdminRole("finance"), adminFinanceRouter);
 // Revenue & Connect Stage 3 — editable field help (legal/content admins).
 adminRouter.use("/help", requireAdminRole("legal"), adminHelpRouter);
+// Revenue & Connect Stage 4 — policy CMS (legal), complaints/appeals (support), trader verification (legal or support).
+adminRouter.use("/policies", requireAdminRole("legal"), adminPoliciesRouter);
+adminRouter.use("/complaints", requireAdminRole("support"), adminComplaintsRouter);
+adminRouter.use("/traders", requireAdminRole("legal", "support"), adminTraderRouter);
 // Coupons move money (HelloCircle-funded discounts) — finance only (Stage 2a).
 adminRouter.use("/coupons", requireAdminRole("finance"));
 
@@ -845,7 +852,7 @@ adminRouter.get("/reports/:id/case", async (req, res) => {
 });
 
 adminRouter.put("/reports/:id", async (req, res) => {
-  const { status, notes } = req.body as { status?: string; notes?: string };
+  const { status, notes, statementOfReasons } = req.body as { status?: string; notes?: string; statementOfReasons?: string };
   if (status && !["dismissed", "actioned", "suspended"].includes(status)) {
     return res.status(400).json({ error: "status must be dismissed, actioned or suspended" });
   }
@@ -868,8 +875,12 @@ adminRouter.put("/reports/:id", async (req, res) => {
   }
 
   const info = await db
-    .prepare(`UPDATE reports SET status = COALESCE(?, status), admin_notes = COALESCE(?, admin_notes) WHERE id = ?`)
-    .run(status, notes, req.params.id);
+    .prepare(
+      `UPDATE reports SET status = COALESCE(?, status), admin_notes = COALESCE(?, admin_notes),
+        statement_of_reasons = COALESCE(?, statement_of_reasons), decided_by = IF(? IS NULL, decided_by, ?), decided_at = IF(? IS NULL, decided_at, NOW()) WHERE id = ?`
+    )
+    // Stage 4 — the statement of reasons (DSA art. 17) and decider are kept with the decision; the decider can't later decide an appeal of it.
+    .run(status, notes, typeof statementOfReasons === "string" && statementOfReasons.trim() ? statementOfReasons.trim().slice(0, 5000) : null, status ?? null, req.user!.id, status ?? null, req.params.id);
   if (info.changes === 0) return res.status(404).json({ error: "Report not found" });
   res.json({ ok: true, suspendedAction });
 });

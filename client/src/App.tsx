@@ -10,6 +10,7 @@ import { BottomChromeSync } from "./components/BottomChromeSync";
 import { useCardTilt } from "./useCardTilt";
 import { logReferralLand } from "./api/public";
 import { AccountSetupGate } from "./components/AccountSetupGate";
+import { PolicyAcceptanceGate } from "./components/PolicyAcceptanceGate";
 import { CookieNotice } from "./components/CookieNotice";
 import { PageSpinner } from "./components/ui";
 import { DashboardNavProvider } from "./DashboardNavContext";
@@ -80,6 +81,11 @@ const MyBookings = lazy(() => import("./pages/MyBookings").then((m) => ({ defaul
 const PaymentCancel = lazy(() => import("./pages/PaymentCancel").then((m) => ({ default: m.PaymentCancel })));
 const PaymentSuccess = lazy(() => import("./pages/PaymentSuccess").then((m) => ({ default: m.PaymentSuccess })));
 const PrivacyPolicy = lazy(() => import("./pages/PrivacyPolicy").then((m) => ({ default: m.PrivacyPolicy })));
+const PolicyIndex = lazy(() => import("./pages/Policies").then((m) => ({ default: m.PolicyIndex })));
+const PolicyPage = lazy(() => import("./pages/Policies").then((m) => ({ default: m.PolicyPage })));
+const CmsPolicy = lazy(() => import("./pages/Policies").then((m) => ({ default: m.CmsPolicy })));
+const CookieChoiceControl = lazy(() => import("./pages/CookiePolicy").then((m) => ({ default: m.CookieChoiceControl })));
+const Complaints = lazy(() => import("./pages/Complaints").then((m) => ({ default: m.Complaints })));
 const Chats = lazy(() => import("./pages/Chats").then((m) => ({ default: m.Chats })));
 const Profile = lazy(() => import("./pages/Profile").then((m) => ({ default: m.Profile })));
 const SuggestPlacePage = lazy(() => import("./pages/SuggestPlace").then((m) => ({ default: m.SuggestPlacePage })));
@@ -403,8 +409,12 @@ export function App() {
                 <Route path="/manage/circles/:id" element={<ManageCircle />} />
                 <Route path="/vendor" element={<VendorDashboard />} />
                 <Route path="/admin" element={<AdminDashboard />} />
-                <Route path="/privacy" element={<PrivacyPolicy />} />
-                <Route path="/cookies" element={<CookiePolicy />} />
+                {/* Revenue & Connect Stage 4 — CMS-published versions once they exist; the existing pages until then. */}
+                <Route path="/privacy" element={<CmsPolicy docKey="privacy-policy" fallback={<PrivacyPolicy />} />} />
+                <Route path="/cookies" element={<CmsPolicy docKey="cookie-policy" fallback={<CookiePolicy />} extra={<CookieChoiceControl />} />} />
+                <Route path="/policies" element={<PolicyIndex />} />
+                <Route path="/policies/:key" element={<PolicyPage />} />
+                <Route path="/complaints" element={<Complaints />} />
                 <Route path="/help-guide" element={<HelpGuideIndex />} />
                 <Route path="/help-guide/explore" element={<HelpGuideExplore />} />
                 <Route path="/help-guide/circles" element={<HelpGuideCircles />} />
@@ -423,6 +433,7 @@ export function App() {
             </main>
             {!isStandaloneLanding && !isAuthPage && !isComingSoon && <Footer />}
             <AccountSetupGate />
+            <PolicyAcceptanceGate />
             <CookieNotice />
             {!hideTabBar && <MobileTabBar />}
           </DashboardNavProvider>

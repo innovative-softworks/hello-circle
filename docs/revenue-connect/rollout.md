@@ -365,3 +365,77 @@ edit; an edit adds a version and keeps the old one. The client's Ireland-date gu
   - a help edit creates v2
 
 **Not done in Stage 3.** A visual click-through in a browser is still owed.
+
+## Stage 4 — Policy CMS, acceptance, complaints and appeals, trader profiles
+
+Nothing here is legal advice, and building this doesn't make HelloCircle compliant. Every document is a **structured
+draft** for a solicitor to complete.
+
+**Built.**
+- **Policy CMS** (`server/src/policy/cms.ts`; tables `policy_documents`, `policy_versions`, `policy_values`,
+  `policy_acceptances`):
+  - All 18 documents are seeded idempotently as version-1 drafts (`policy/drafts.ts`). They use the mandatory
+    placeholders and contain no rates: fee clauses link to `/pricing`, so a policy can't contradict the configured
+    rules.
+  - Workflow: draft → review → approved → **named legal sign-off** (legal/super only) → published → retired. With
+    `require_second_approver` on, the author can't approve their own version.
+  - **Publication is refused** while any `[[PLACEHOLDER]]` has no value, while editorial notes in square brackets
+    remain, or before legal sign-off.
+  - The published text is frozen with placeholders filled in and a SHA-256 fingerprint, so editing a value later
+    never changes a published version.
+  - Only one version per document can be in progress at a time. Drafts are edited with optimistic locking
+    (`row_version`).
+  - Admin UI: Admin → **Policies & trust**. It shows the "Draft — legal review required" banner, a source and
+    preview editor, a blocker checklist and version history.
+- **Public Policy Centre:**
+  - `/policies` and `/policies/:key` show published versions only, with print support, version history,
+    links to retired versions and the content fingerprint.
+  - `/privacy` and `/cookies` show the CMS version once published, and the existing pages until then. The
+    cookie-choice control stays either way.
+  - Footer links: "Terms & policies" and "Complaints & appeals".
+- **Acceptance and re-acceptance:**
+  - Each document has an acceptance audience (partner, host or resident).
+  - `GET /api/policies/acceptance/pending` and `POST /api/policies/:key/accept` (the version must be the current
+    one).
+  - The first publication, or any **material** version, asks people to accept again; a non-material fix doesn't.
+  - `PolicyAcceptanceGate` is a modal for signed-in partners and residents. Policy, complaints, privacy and cookie
+    pages stay reachable; closing the modal hides it only until the next page.
+  - Nothing is published yet, so the gate is currently invisible.
+- **Complaints, notices and appeals** (`complaints` table, public `/complaints` page):
+  - Anyone can submit (rate-limited); signed-in people see their own requests and our reasons.
+  - Support admins decide. Closing a request needs a **statement of reasons** of at least 20 characters.
+  - An appeal of a moderation decision is refused if the same admin made the original decision.
+  - Moderation reports now store a `statement_of_reasons`, `decided_by` and `decided_at`, entered in the existing
+    Reports UI.
+- **Trader profiles** (`trader_profiles`):
+  - Vendor organisations (owner or finance staff) and hosts store DSA Art. 30 and DAC7 details.
+  - The TIN is only ever returned masked; sending the masked value back keeps the stored TIN.
+  - Changing the legal name, address or company number resets verification.
+  - Self-certification is required before the "Seller information" panel appears on centre, club, experience and
+    paid game pages. It never shows the TIN or date of birth.
+  - Admins verify or request changes with a note (legal/support).
+
+**Tests.**
+- `policies.test.ts` (11): 18 drafts seeded; notes vs links; role gate; every publication block in order; frozen
+  text and hash; acceptance, non-material and material re-acceptance plus history; one version in progress;
+  complaint reasons and finality; appeal by a different admin; TIN masking and kept TIN; public trader view only
+  after self-cert; verification role and note.
+- `policyMarkdown.test.ts` (3): the renderer never injects HTML and refuses `javascript:` and `//` links.
+- **Results:**
+  - Server: **66 files, 694 passed** in two consecutive full runs. An earlier run had 9 failures in `manage.test.ts`
+    that didn't reproduce, either alone or in two more full runs. The cause wasn't identified, but that file
+    doesn't touch anything Stage 4 changed. Flagged as possibly flaky.
+  - Client: **17 files, 108 passed**. Build OK.
+- **HTTP smoke test** on a throwaway MySQL:
+  - 18 drafts, none public
+  - `/privacy` and `/cookies` still serve the old pages
+  - all new routes return 200
+  - a complaint is accepted and listed for the admin
+  - the privacy draft's blockers name its 4 missing placeholders plus legal review
+  - a restart leaves exactly 18 documents and versions (idempotent)
+
+**Not done, deliberately.**
+- Trader verification is recorded but **not yet enforced at checkout**. Enforcing it touches all five payment paths,
+  so it's scheduled with Stage 5's Connect onboarding gate.
+- DAC7 annual report generation is a later stage, as the register says.
+- Publication waits on B1 (entity details) and a solicitor.

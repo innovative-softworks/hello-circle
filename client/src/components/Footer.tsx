@@ -1,5 +1,5 @@
 import { BrandLogo } from "./BrandLogo";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { colors, fonts, maxWidth } from "../theme";
 
 // Footer upgrade (Game Detail redesign §32) — every link below resolves to
@@ -110,6 +110,13 @@ export function Footer() {
           <span className="link-accent" style={{ cursor: "pointer" }} onClick={() => navigate("/cookies")}>
             Cookies
           </span>
+          {/* Revenue & Connect Stage 4 — real links (keyboard-reachable) to the Policy Centre and complaints/appeals. */}
+          <Link className="link-accent" to="/policies" style={{ color: "inherit", textDecoration: "none" }}>
+            Terms & policies
+          </Link>
+          <Link className="link-accent" to="/complaints" style={{ color: "inherit", textDecoration: "none" }}>
+            Complaints & appeals
+          </Link>
         </div>
       </div>
     </footer>

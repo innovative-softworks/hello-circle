@@ -1,4 +1,5 @@
 import { EarningsSummary } from "./EarningsSummary";
+import { TraderProfileForm } from "./TraderProfileForm";
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../AuthContext";
@@ -764,7 +765,7 @@ export function PaymentsPanel() {
 
 export function VendorOrgTab() {
   const [profile, setProfile] = useState<OrgProfile | null>(null);
-  const [subTab, setSubTab] = useState<"settings" | "staff" | "participants" | "insights">("settings");
+  const [subTab, setSubTab] = useState<"settings" | "trader" | "staff" | "participants" | "insights">("settings");
 
   const load = () => fetchOrgProfile().then(setProfile);
   useEffect(() => {
@@ -781,6 +782,7 @@ export function VendorOrgTab() {
           onChange={setSubTab}
           options={[
             { key: "settings", label: "Settings" },
+            { key: "trader", label: "Trader details" },
             { key: "staff", label: "Staff & roles" },
             { key: "participants", label: "Participants" },
             { key: "insights", label: "Insights", icon: <TrendUpIcon size={13} /> },
@@ -788,6 +790,7 @@ export function VendorOrgTab() {
         />
       </div>
       {subTab === "settings" && <SettingsPanel profile={profile} reload={load} />}
+      {subTab === "trader" && <TraderProfileForm scope="vendor" />}
       {subTab === "staff" && <StaffPanel profile={profile} reload={load} />}
       {subTab === "participants" && <ParticipantsPanel />}
       {subTab === "insights" && <InsightsPanel />}

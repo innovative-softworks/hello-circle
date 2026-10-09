@@ -1,5 +1,6 @@
 import { usePageTitle } from "../pageTitle";
 import { useEffect, useState } from "react";
+import { TraderInfo } from "../components/TraderInfo";
 import { useToast } from "../components/Toast";
 import { dateLabel } from "../euro";
 import { joinGameConfirm } from "../confirmCopy";
@@ -354,6 +355,9 @@ export function CentreDetail() {
       </section>
       <section className="section-pad" style={{ maxWidth, margin: "0 auto", padding: "0 24px 40px" }}>
         <Reviews listingType="centre" listingId={centre.id} accent="green" onReviewPosted={reloadRating} />
+        <div style={{ marginTop: 20 }}>
+          <TraderInfo type="centre" id={centre.id} />
+        </div>
       </section>
       <section className="section-pad" style={{ maxWidth, margin: "0 auto", padding: "0 24px 80px" }}>
         <ClaimListingCTA listingType="centre" listingId={centre.id} claimed={centre.claimed} />

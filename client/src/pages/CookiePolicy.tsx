@@ -172,3 +172,28 @@ export function CookiePolicy() {
     </div>
   );
 }
+
+/** Stage 4 — the analytics-choice control, reused under the CMS-published
+ * Cookie Policy so publishing it never removes the way to change consent. */
+export function CookieChoiceControl() {
+  const [consent, setConsent] = useState<ReturnType<typeof getStoredConsent>>(null);
+  useEffect(() => {
+    setConsent(getStoredConsent());
+  }, []);
+  return (
+    <div style={{ margin: "8px 0 0" }}>
+      <p style={pStyle}>
+        Your analytics choice is currently: <strong>{consent === "accepted" ? "accepted" : consent === "rejected" ? "declined" : "not yet set"}</strong>.
+      </p>
+      <button
+        onClick={() => {
+          localStorage.removeItem(CONSENT_KEY);
+          window.location.reload();
+        }}
+        style={{ background: "none", border: `1px solid ${colors.border}`, borderRadius: 10, padding: "9px 16px", fontSize: 13.5, fontWeight: 700, color: colors.text, cursor: "pointer" }}
+      >
+        Change my cookie choice
+      </button>
+    </div>
+  );
+}

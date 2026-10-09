@@ -666,3 +666,74 @@ export function comparePlans(monthlyGmvMinor: number, orders: number): Promise<P
 export function fetchFieldHelp(keys?: string[]): Promise<FieldHelpEntry[]> {
   return request(`/help/fields${keys?.length ? `?keys=${encodeURIComponent(keys.join(","))}` : ""}`);
 }
+
+// --- Revenue & Connect Stage 4: Policy Centre, complaints, trader info -----
+
+export interface PolicySummary { docKey: string; title: string; audience: string; publishedVersion: number | null; publishedAt: string | null }
+export interface PublishedPolicy {
+  version: number;
+  status: "published" | "retired";
+  body: string;
+  contentHash: string;
+  changeSummary: string | null;
+  effectiveFrom: string | null;
+  publishedAt: string;
+  retiredAt: string | null;
+  history: { version: number; status: string; changeSummary: string | null; publishedAt: string; retiredAt: string | null }[];
+}
+export interface PolicyDocument { docKey: string; title: string; audience: string; published: PublishedPolicy | null }
+export interface PendingPolicy { docKey: string; title: string; version: number; effectiveFrom: string | null; changeSummary: string | null }
+
+export function fetchPolicies(): Promise<PolicySummary[]> {
+  return request(`/policies`);
+}
+export function fetchPolicy(docKey: string, version?: number): Promise<PolicyDocument> {
+  return request(`/policies/${encodeURIComponent(docKey)}${version ? `?version=${version}` : ""}`);
+}
+export function fetchPendingPolicies(): Promise<{ user: PendingPolicy[]; resident: PendingPolicy[] }> {
+  return request(`/policies/acceptance/pending`);
+}
+export function acceptPolicy(docKey: string, version: number, as: "user" | "resident"): Promise<{ docKey: string; version: number }> {
+  return request(`/policies/${encodeURIComponent(docKey)}/accept`, { method: "POST", body: JSON.stringify({ version, as, context: "gate" }) });
+}
+
+export type ComplaintKind = "complaint" | "notice" | "appeal";
+export interface ComplaintRow { id: number; kind: ComplaintKind; subjectType: string; subjectRef: string | null; body: string; status: string; decision: string | null; statementOfReasons: string | null; decidedAt: string | null; createdAt: string }
+export function submitComplaint(input: { kind: ComplaintKind; subjectType: string; subjectRef?: string; email?: string; body: string }): Promise<{ id: number; status: string }> {
+  return request(`/complaints`, { method: "POST", body: JSON.stringify(input) });
+}
+export function fetchMyComplaints(): Promise<ComplaintRow[]> {
+  return request(`/complaints/mine`);
+}
+
+export interface PublicTrader { legalName: string; tradingName: string | null; address: string; country: string; email: string; phone: string; companyNumber: string | null; vatNumber: string | null; selfCertifiedAt: string; verificationStatus: string }
+export function fetchListingTrader(type: "centre" | "club" | "experience" | "game", id: string): Promise<PublicTrader | null> {
+  return request(`/traders/listing/${type}/${encodeURIComponent(id)}`);
+}
+
+export interface TraderProfile {
+  entityType: "individual" | "company";
+  legalName: string;
+  tradingName: string | null;
+  address: string;
+  country: string;
+  email: string;
+  phone: string;
+  companyNumber: string | null;
+  vatNumber: string | null;
+  tin: string | null;
+  hasTin?: boolean;
+  dateOfBirth: string | null;
+  insuranceExpiresAt: string | null;
+  selfCertifiedAt: string | null;
+  verificationStatus: string;
+  verificationNote: string | null;
+}
+export type TraderProfileInput = Omit<TraderProfile, "selfCertifiedAt" | "verificationStatus" | "verificationNote" | "hasTin"> & { selfCertify: boolean };
+/** scope "vendor" = the signed-in vendor's organisation; "host" = the signed-in resident as a host. */
+export function fetchTraderProfile(scope: "vendor" | "host"): Promise<TraderProfile | null> {
+  return request(`/${scope}/trader-profile`);
+}
+export function saveTraderProfile(scope: "vendor" | "host", input: TraderProfileInput): Promise<TraderProfile> {
+  return request(`/${scope}/trader-profile`, { method: "PUT", body: JSON.stringify(input) });
+}

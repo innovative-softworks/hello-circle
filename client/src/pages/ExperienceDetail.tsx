@@ -1,5 +1,6 @@
 import { usePageTitle } from "../pageTitle";
 import { useEffect, useMemo, useState } from "react";
+import { TraderInfo } from "../components/TraderInfo";
 import { OfficialCircleLink } from "../components/OfficialCircleLink";
 import { ParticipationBlock } from "../components/ParticipationBlock";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
@@ -756,6 +757,9 @@ export function ExperienceDetail() {
                 listing (server-checked in reviews.ts, not just hidden UI). */}
             <div style={{ marginBottom: 28 }}>
               <Reviews listingType="experience" listingId={experience.id} accent={experience.kind === "adventure" ? "green" : "orange"} />
+              <div style={{ marginTop: 20 }}>
+                <TraderInfo type="experience" id={experience.id} />
+              </div>
             </div>
 
             {/* Related listings */}

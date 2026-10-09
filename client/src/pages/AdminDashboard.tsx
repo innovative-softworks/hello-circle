@@ -62,6 +62,7 @@ import { Avatar, BadgedIcon, Button, ConfirmDialog, DashboardTopPanel, EmptyStat
 import { AdminMediaTab } from "../components/AdminMedia";
 import { AdminCommerceTab } from "../components/AdminCommerce";
 import { AdminFinanceTab } from "../components/AdminFinance";
+import { AdminPolicyTab } from "../components/AdminPolicy";
 import { DemandSignalsView, IntentClusterView } from "../components/DemandSignals";
 import { MarketplaceHealthView } from "../components/MarketplaceHealth";
 import { MarketConfig } from "../components/MarketConfig";
@@ -862,8 +863,11 @@ function ReportsSection() {
     load();
   };
 
+  // Revenue & Connect Stage 4 — the statement of reasons kept with the decision (DSA art. 17).
+  const [reasons, setReasons] = useState("");
   const resolve = async (id: number, status: "dismissed" | "actioned" | "suspended") => {
-    await resolveReport(id, { status });
+    await resolveReport(id, { status, statementOfReasons: reasons.trim() || undefined });
+    setReasons("");
     setExpandedId(null);
     setCaseData(null);
     load();
@@ -935,6 +939,8 @@ function ReportsSection() {
                     <label style={labelStyle}>Investigation notes</label>
                     <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} style={{ ...inputStyle, resize: "vertical", marginBottom: 8 }} />
                     <Button variant="ghost" onClick={() => saveNotes(r.id)}>Save notes</Button>
+                    <label style={{ ...labelStyle, marginTop: 12, display: "block" }}>Statement of reasons (kept with the decision; the affected person can appeal it)</label>
+                    <textarea value={reasons} onChange={(e) => setReasons(e.target.value)} rows={3} style={{ ...inputStyle, resize: "vertical" }} placeholder="What was decided, the facts, and the rule relied on." />
                   </>
                 )}
               </div>
@@ -1739,7 +1745,7 @@ function AdminMarketplaceHealthTab() {
   );
 }
 
-type AdminTab = "overview" | "vendors" | "pending" | "listings" | "claims" | "hostApplications" | "placeSuggestions" | "reviews" | "coupons" | "commerce" | "finance" | "organisations" | "demand" | "marketplaceHealth" | "audit" | "support" | "notificationTemplates" | "media";
+type AdminTab = "overview" | "vendors" | "pending" | "listings" | "claims" | "hostApplications" | "placeSuggestions" | "reviews" | "coupons" | "commerce" | "finance" | "policies" | "organisations" | "demand" | "marketplaceHealth" | "audit" | "support" | "notificationTemplates" | "media";
 
 const ADMIN_TABS: { key: AdminTab; label: string; icon: ReactNode }[] = [
   { key: "overview", label: "Overview", icon: <EyeIcon size={15} /> },
@@ -1753,6 +1759,7 @@ const ADMIN_TABS: { key: AdminTab; label: string; icon: ReactNode }[] = [
   { key: "coupons", label: "Coupons", icon: <TagIcon size={15} /> },
   { key: "commerce", label: "Commercial rules", icon: <TagIcon size={15} /> },
   { key: "finance", label: "Finance", icon: <TrendUpIcon size={15} /> },
+  { key: "policies", label: "Policies & trust", icon: <ClipboardIcon size={15} /> },
   { key: "organisations", label: "Organisations", icon: <BuildingIcon size={15} /> },
   { key: "demand", label: "Demand", icon: <TrendUpIcon size={15} /> },
   { key: "marketplaceHealth", label: "Marketplace health", icon: <GridIcon size={15} /> },
@@ -1891,6 +1898,7 @@ export function AdminDashboard() {
       {tab === "coupons" && <CouponsTab />}
       {tab === "commerce" && <AdminCommerceTab />}
       {tab === "finance" && <AdminFinanceTab />}
+      {tab === "policies" && <AdminPolicyTab />}
       {tab === "organisations" && (
         <OrganisationsTab onOpenVendor={(vendorId) => { setOpenVendorRequest(vendorId); setTab("vendors"); }} />
       )}

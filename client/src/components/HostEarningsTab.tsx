@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { fetchHostBalances, fetchHostGameEarnings } from "../api";
 import { EarningsSummary } from "./EarningsSummary";
+import { TraderProfileForm } from "./TraderProfileForm";
 import type { HostGameEarning } from "../api";
 import { CardIcon } from "./icons";
 import { ManageCard as Card, EmptyState, PageSpinner, tableStyle, thStyle, tdStyle } from "./ui";
@@ -24,6 +25,9 @@ export function HostEarningsTab() {
   return (
     <>
     <EarningsSummary load={fetchHostBalances} />
+    <div style={{ marginBottom: 16 }}>
+      <TraderProfileForm scope="host" defaultEntity="individual" />
+    </div>
     <Card>
       <div style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 22, marginBottom: 4 }}>€{(totalCents / 100).toFixed(2)}</div>
       <div style={{ fontSize: 12.5, color: colors.mutedLight, marginBottom: 18 }}>Paid by players across your sessions (what customers paid — your balance above shows what you earn)</div>
