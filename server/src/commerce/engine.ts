@@ -13,6 +13,7 @@
 // changes what the customer sees or pays, and never throws into checkout.
 
 import crypto from "node:crypto";
+import { syncCreditUses } from "./credits.js";
 import type { CheckoutLineItem, CheckoutType } from "../checkoutService.js";
 import { db } from "../db/index.js";
 import { BPS, divRoundHalfUp, priceBreakdown, type PriceBreakdown, type PricingValues } from "./money.js";
@@ -370,6 +371,8 @@ async function syncRedemption(sourceType: CheckoutType, ref: string, row: { stat
   await db
     .prepare(`UPDATE coupon_redemptions SET status = ? WHERE source_type = ? AND source_ref = ? AND status IN (${from.map(() => "?").join(", ")})`)
     .run(to, sourceType, ref, ...from);
+  // Stage 5b — customer credit uses follow the same lifecycle.
+  await syncCreditUses(db, sourceType, ref, to as "confirmed" | "released" | "reversed", from);
 }
 
 // --- shadow pricing -------------------------------------------------------------

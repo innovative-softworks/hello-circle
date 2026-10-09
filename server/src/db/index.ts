@@ -2780,6 +2780,82 @@ async function initCommerceSchema(
     )
   `);
 
+  // Revenue & Connect Stage 5b — Pro on Stripe Billing, partner reward
+  // points (FIFO lots with expiry), customer credits (FIFO lots; uses follow
+  // the coupon redemption lifecycle: reserved → confirmed / released).
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS partner_subscriptions (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      party_type VARCHAR(10) NOT NULL,
+      party_id VARCHAR(191) NOT NULL,
+      checkout_session_id VARCHAR(255) NULL,
+      provider_subscription_id VARCHAR(255) NULL,
+      status VARCHAR(20) NOT NULL,
+      gross_minor BIGINT NOT NULL,
+      current_period_end DATETIME NULL,
+      cancel_at_period_end TINYINT NOT NULL DEFAULT 0,
+      grace_until DATETIME NULL,
+      created_by VARCHAR(191) NOT NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      UNIQUE KEY uq_sub_checkout (checkout_session_id),
+      UNIQUE KEY uq_sub_provider (provider_subscription_id),
+      KEY idx_sub_party (party_type, party_id, status)
+    )
+  `);
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS reward_lots (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      party_type VARCHAR(10) NOT NULL,
+      party_id VARCHAR(191) NOT NULL,
+      source_ref VARCHAR(120) NOT NULL,
+      points_earned INT NOT NULL,
+      points_remaining INT NOT NULL,
+      expires_at DATETIME NOT NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE KEY uq_reward_source (source_ref),
+      KEY idx_reward_party (party_type, party_id, expires_at)
+    )
+  `);
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS reward_redemptions (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      party_type VARCHAR(10) NOT NULL,
+      party_id VARCHAR(191) NOT NULL,
+      points INT NOT NULL,
+      plan_assignment_id INT NULL,
+      created_by VARCHAR(191) NOT NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS credit_lots (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      resident_id VARCHAR(191) NOT NULL,
+      kind VARCHAR(20) NOT NULL,
+      amount_minor BIGINT NOT NULL,
+      remaining_minor BIGINT NOT NULL,
+      reason TEXT NOT NULL,
+      expires_at DATETIME NOT NULL,
+      created_by VARCHAR(191) NOT NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      KEY idx_credit_resident (resident_id, expires_at)
+    )
+  `);
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS credit_uses (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      lot_id INT NOT NULL,
+      resident_id VARCHAR(191) NOT NULL,
+      source_type VARCHAR(20) NOT NULL,
+      source_ref VARCHAR(191) NOT NULL,
+      amount_minor BIGINT NOT NULL,
+      status VARCHAR(20) NOT NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      KEY idx_credit_use_source (source_type, source_ref)
+    )
+  `);
+
   // Revenue & Connect Stage 4 — policy CMS (brief §20). Documents are
   // seeded once from policy/drafts.ts as version-1 drafts. A version moves
   // draft, review, approved, published, retired; published_body is the

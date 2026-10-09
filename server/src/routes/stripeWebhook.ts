@@ -1,5 +1,6 @@
 import type { Request, Response } from "express";
 import { createGameFromOpenBooking } from "./bookings.js";
+import { applySubscriptionCheckout, applySubscriptionDeleted, applySubscriptionUpdate, recordInvoicePaid } from "../commerce/subscriptions.js";
 import { upgradeFavouriteStatus } from "./favourites.js";
 import { checkMinParticipantsThreshold } from "./games.js";
 import { logEvent } from "../analytics.js";
@@ -498,6 +499,8 @@ export async function processStripeEvent(event: IncomingEvent): Promise<"process
     case "checkout.session.completed":
     case "checkout.session.async_payment_succeeded":
     case "checkout.session.async_payment_failed": {
+      // Stage 5b — a Pro subscription checkout, not a booking.
+      if (o.metadata?.type === "subscription") return event.type === "checkout.session.async_payment_failed" ? "ignored" : applySubscriptionCheckout(o as never);
       // A delayed payment method (SEPA/Bacs Direct Debit) fires `completed`
       // with payment_status "unpaid" before the debit settles — confirming
       // then would mark the booking paid before money moved. Only
@@ -519,8 +522,23 @@ export async function processStripeEvent(event: IncomingEvent): Promise<"process
       return "processed";
     }
     case "checkout.session.expired":
+      if (o.metadata?.type === "subscription") {
+        await db.prepare(`UPDATE partner_subscriptions SET status = 'abandoned' WHERE checkout_session_id = ? AND status = 'checkout'`).run(o.id);
+        return "processed";
+      }
       await markFailed(o.metadata);
       return "processed";
+    // Stage 5b — HelloCircle Pro (Stripe Billing).
+    case "customer.subscription.updated":
+      return applySubscriptionUpdate(o as never);
+    case "customer.subscription.deleted":
+      return applySubscriptionDeleted(o as never);
+    case "invoice.paid":
+      return recordInvoicePaid(o as never);
+    case "invoice.payment_failed": {
+      const subId = typeof o.subscription === "string" ? o.subscription : o.subscription?.id ?? o.parent?.subscription_details?.subscription ?? null;
+      return subId ? applySubscriptionUpdate({ id: subId, status: "past_due" }) : "ignored";
+    }
     case "charge.refunded": {
       const pi = typeof o.payment_intent === "string" ? o.payment_intent : o.payment_intent?.id;
       if (!pi) throw new NeedsReviewError(`Refunded charge ${o.id} has no payment intent`);

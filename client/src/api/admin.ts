@@ -792,3 +792,19 @@ export function runTransfersApi(input: { dryRun: boolean; reason: string }): Pro
 export function recoverPartnerBalance(kind: string, id: string, reason: string): Promise<{ recoveredMinor: number; unrecoveredMinor: number; reversals: { reversalId: number; amountMinor: number; status: string; error?: string }[] }> {
   return request(`/admin/finance/partners/${encodeURIComponent(kind)}/${encodeURIComponent(id)}/recover`, { method: "POST", body: JSON.stringify({ reason }) });
 }
+
+// --- Revenue & Connect Stage 5b: customer credits, Pro subscriptions ----------
+
+export function grantResidentCredit(input: { email: string; amountMinor: number; kind: "goodwill" | "promotional" | "refund"; reason: string }): Promise<{ id: number; expiresAt: string }> {
+  return request(`/admin/finance/credits`, { method: "POST", body: JSON.stringify(input) });
+}
+export function fetchResidentCredits(email: string): Promise<{ residentId: string; enabled: boolean; balanceMinor: number; lots: { id: number; kind: string; amountMinor: number; remainingMinor: number; expiresAt: string; createdAt: string }[] }> {
+  return request(`/admin/finance/credits?email=${encodeURIComponent(email)}`);
+}
+export interface AdminSubscription { id: number; partyType: string; partyId: string; subscriptionId: string | null; status: string; grossMinor: number; currentPeriodEnd: string | null; cancelAtPeriodEnd: number; graceUntil: string | null; createdAt: string }
+export function fetchSubscriptions(): Promise<AdminSubscription[]> {
+  return request(`/admin/finance/subscriptions`);
+}
+export function sweepSubscriptionsApi(): Promise<{ ended: number }> {
+  return request(`/admin/finance/subscriptions/sweep`, { method: "POST", body: "{}" });
+}

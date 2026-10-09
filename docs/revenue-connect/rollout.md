@@ -500,3 +500,68 @@ needs B1 (the Stripe account country / legal entity) and B2 (a **test** key in `
 Full: **67 files, 703 passed**. Client: 108 passed. Build OK.
 
 **Next: Stage 5b.** Pro subscriptions on Stripe Billing, rewards, credits.
+
+## Stage 5b — Pro on Stripe Billing, partner reward points, customer credits (against the stub)
+
+**Built.** Each feature is behind its own switch, all **off** by default.
+- **Pro subscriptions** (`commerce/subscriptions.ts`, `commerce.pro_subscriptions`):
+  - Checkout uses `mode=subscription`. The price is the published `plan_pro` price plus VAT from `tax_vat` (€29.00 +
+    €6.67 = €35.67/month).
+  - Webhook routing carries a new `type: "subscription"` in metadata (`stripeWebhook.ts` updated in lockstep).
+  - Pro starts only on a **paid** checkout; replays are no-ops.
+  - `invoice.paid` posts `stripe_clearing` / `subscription_revenue` / `subscription_vat_payable`.
+  - A failed payment means `past_due` plus a **7-day grace**. An hourly in-process sweep (and an admin button)
+    cancels at Stripe and returns the partner to Free.
+  - Cancelling is at period end; "Keep Pro" undoes it. `customer.subscription.deleted` returns the partner to Free.
+  - Only Pro granted by *that* subscription is ended; a promotion or admin plan is left alone.
+- **Reward points** (`commerce/rewards.ts`, `commerce.circle_credits`):
+  - Awarded once per settlement (when it's created) on the settled GMV: what customers paid for the released
+    orders, less refunds, × `pointsPerEuro`.
+  - Each award is a lot that expires after `expiryMonths`.
+  - Redeeming `redemptionPoints` (oldest lots first) gives one month of Pro. If Pro is already running, the month
+    starts when it ends. Redeeming is refused while on a paid subscription.
+- **Customer credits** (`commerce/credits.ts`, `commerce.customer_credits`):
+  - Finance grants credit with a reason and an expiry from the `credits` rule.
+  - A resident can apply it on **engine-priced** experience bookings: "Use my HelloCircle credit" on the booking
+    form, applied to both the quote and checkout.
+  - It works as a HelloCircle-funded discount: the partner's payout is unchanged, and the ledger books it to
+    `coupon_expense` through the order snapshot.
+  - Uses follow the coupon lifecycle: reserved → confirmed on payment, or released/reversed (credit restored) on
+    failure or refund. No cash value.
+- **UI:**
+  - Plan card on the vendor and host Earnings tabs: plan, price incl. VAT, Upgrade / Cancel / Keep Pro, grace
+    warning, reward points and Redeem.
+  - Credit checkbox on experience booking.
+  - Admin → Finance → **Credits & Pro**: grant and look up credit, subscriptions list, grace check.
+- **Schema:** `partner_subscriptions`, `reward_lots`, `reward_redemptions`, `credit_lots`, `credit_uses`.
+
+**Tests.** `billingRewardsCredits.test.ts` (11):
+- switch off
+- exact price, and Pro only after a paid checkout (replay-safe)
+- invoice ledger 3,567 / −2,900 / −667, balanced
+- grace: nothing ends before day 7, Free after, cancelled at Stripe
+- cancel at period end, then deleted → Free
+- 123 points for €123.45 GMV, awarded once
+- redemption refused short of points, then a month of Pro with 23 points left
+- credit grant requires a reason
+- credit quote and checkout reserve €10, snapshot funds €10, confirmed on payment, ledger balanced
+- failed checkout restores the credit
+- no credit without opting in, or with the switch off
+
+Full: **68 files, 714 passed**. Client: 108 passed. Build OK.
+
+**Known limits (deliberate).**
+- Credits apply only to engine-priced bookings (experiences today). Legacy paths ignore `useCredits`.
+- Points aren't clawed back when an order is refunded after its settlement.
+- Points can't be redeemed during a paid subscription; applying them as a Stripe invoice credit is a follow-up.
+
+## Stages 6–8 — not started (need you)
+
+The code side of Stages 2–5 is complete, local and unpushed. What remains needs people or production access:
+
+| Stage | What it needs | Blocked on |
+|---|---|---|
+| 5 sandbox check | Run the Connect, Billing and webhook flows against a **Stripe test account** | B1 (entity / Stripe country), B2 (test key + Connect enabled + both webhook secrets in `server/.env`, never in chat) |
+| 6 Staging | Push the branch, deploy to staging.hellocircle.ie, five test partners, reconciliation, UAT | Your explicit push/deploy instruction |
+| 7 Pilot | Live keys, a few real partners, switches on one by one | Solicitor sign-off on the 18 policies (+ B1 placeholder values), tax advice (VAT, DAC7), Stripe live review |
+| 8 General release | All switches on, legacy pricing retired | Pilot results |

@@ -10,6 +10,8 @@ import { partnerBalances, reconcilePaymentFees, resolveDisputeRecovery, runSettl
 import { failEvent, finishEvent, reopenForReplay } from "../payments/webhookEvents.js";
 import { processStripeEvent } from "./stripeWebhook.js";
 import { ConnectError, payoutReadiness, recoverByReversal, runTransfers, type Party } from "../payments/connect.js";
+import { CreditError, grantCredit, residentCredits } from "../commerce/credits.js";
+import { sweepSubscriptions } from "../commerce/subscriptions.js";
 
 // Revenue & Connect Stage 2c — finance operations: webhook queue + replay,
 // payments, refunds (incl. partial), disputes, ledger. Mounted from admin.ts
@@ -225,4 +227,50 @@ adminFinanceRouter.post("/partners/:kind/:id/recover", async (req, res) => {
   } catch (e) {
     handleConnect(res, e);
   }
+});
+
+// --- Revenue & Connect Stage 5b: customer credits, Pro subscriptions ------------------
+
+async function residentIdFrom(body: { residentId?: string; email?: string }): Promise<string | null> {
+  if (body.residentId) return body.residentId;
+  if (!body.email) return null;
+  const r = (await db.prepare(`SELECT id FROM residents WHERE email = ?`).get(String(body.email).trim().toLowerCase())) as { id: string } | undefined;
+  return r?.id ?? null;
+}
+
+adminFinanceRouter.get("/credits", async (req, res) => {
+  const id = await residentIdFrom({ residentId: typeof req.query.residentId === "string" ? req.query.residentId : undefined, email: typeof req.query.email === "string" ? req.query.email : undefined });
+  if (!id) return res.status(404).json({ error: "No resident with that email" });
+  res.json({ residentId: id, ...(await residentCredits(id)) });
+});
+
+adminFinanceRouter.post("/credits", async (req, res) => {
+  const b = (req.body ?? {}) as { residentId?: string; email?: string; amountMinor?: number; kind?: string; reason?: string };
+  const id = await residentIdFrom(b);
+  if (!id) return res.status(404).json({ error: "No resident with that email" });
+  const kind = b.kind === "promotional" || b.kind === "refund" ? b.kind : "goodwill";
+  try {
+    res.json(await grantCredit({ residentId: id, amountMinor: Number(b.amountMinor), kind, reason: String(b.reason ?? ""), actorId: req.user!.id }));
+  } catch (e) {
+    if (e instanceof CreditError) return res.status(e.status).json({ error: e.message });
+    throw e;
+  }
+});
+
+adminFinanceRouter.get("/subscriptions", async (_req, res) => {
+  res.json(
+    await db
+      .prepare(
+        `SELECT id, party_type as partyType, party_id as partyId, provider_subscription_id as subscriptionId, status, gross_minor as grossMinor, current_period_end as currentPeriodEnd,
+          cancel_at_period_end as cancelAtPeriodEnd, grace_until as graceUntil, created_at as createdAt
+         FROM partner_subscriptions WHERE status <> 'abandoned' ORDER BY id DESC LIMIT 200`
+      )
+      .all()
+  );
+});
+
+adminFinanceRouter.post("/subscriptions/sweep", async (req, res) => {
+  const r = await sweepSubscriptions();
+  await writeAudit({ actorUserId: req.user!.id, action: "subscriptions.swept", objectType: "subscriptions", objectId: new Date().toISOString(), newValue: r });
+  res.json(r);
 });

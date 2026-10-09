@@ -687,3 +687,28 @@ export function refreshPayoutAccount(scope: "vendor" | "host"): Promise<PayoutsO
 export function payoutDashboardLink(scope: "vendor" | "host"): Promise<{ url: string }> {
   return request(`/${scope}/payouts/dashboard`, { method: "POST", body: "{}" });
 }
+
+// --- Revenue & Connect Stage 5b: plan (Pro on Stripe Billing) + reward points --
+
+export interface PartnerPlanOverview {
+  enabled: boolean;
+  plan: { planKey: "free" | "pro" | "enterprise"; source: string; effectiveTo: string | null };
+  subscription: { status: string; currentPeriodEnd: string | null; cancelAtPeriodEnd: boolean; graceUntil: string | null } | null;
+  price: { netMinor: number; vatMinor: number; grossMinor: number; vatBps: number };
+  rewards: { enabled: boolean; points: number; nextExpiry: string | null; redemptionPoints: number; pointsPerEuro: number };
+}
+export function fetchMyPlan(scope: "vendor" | "host"): Promise<PartnerPlanOverview> {
+  return request(`/${scope}/plan`);
+}
+export function startProCheckout(scope: "vendor" | "host"): Promise<{ id: string; url: string | null }> {
+  return request(`/${scope}/plan/pro/checkout`, { method: "POST", body: "{}" });
+}
+export function cancelProSubscription(scope: "vendor" | "host"): Promise<{ ok: boolean }> {
+  return request(`/${scope}/plan/pro/cancel`, { method: "POST", body: "{}" });
+}
+export function resumeProSubscription(scope: "vendor" | "host"): Promise<{ ok: boolean }> {
+  return request(`/${scope}/plan/pro/resume`, { method: "POST", body: "{}" });
+}
+export function redeemRewardPoints(scope: "vendor" | "host"): Promise<{ redemptionId: number; proFrom: string; proUntil: string }> {
+  return request(`/${scope}/plan/rewards/redeem`, { method: "POST", body: "{}" });
+}

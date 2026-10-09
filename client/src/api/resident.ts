@@ -1120,3 +1120,10 @@ export function fetchHostOpportunities(): Promise<{ opportunities: HostOpportuni
 export function fetchHostBalances(): Promise<import("./vendor").PartnerEarnings> {
   return request(`/games/host/earnings`);
 }
+
+// --- Revenue & Connect Stage 5b: customer credits ------------------------------
+
+export interface MyCredits { enabled: boolean; balanceMinor: number; lots: { id: number; kind: string; amountMinor: number; remainingMinor: number; expiresAt: string; createdAt: string }[] }
+export function fetchMyCredits(): Promise<MyCredits> {
+  return request(`/credits/me`);
+}

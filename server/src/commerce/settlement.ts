@@ -14,6 +14,7 @@
 // settlement is an amount due; transfers/payouts are Stage 5.
 
 import { db } from "../db/index.js";
+import { awardForSettlement } from "./rewards.js";
 import { irelandWallTimeToUtc } from "../irelandTime.js";
 import type { CheckoutType } from "../checkoutService.js";
 import { applyBps } from "./money.js";
@@ -232,6 +233,12 @@ export async function runSettlement(input: { runKey: string; dryRun: boolean; ac
       return id;
     });
     settled.push({ partyType: p.partyType, partyId: p.partyId, netMinor: p.netMinor, settlementId });
+  }
+  // Stage 5b — reward points on the settled GMV (no-op while the switch is off; idempotent per settlement).
+  if (!input.dryRun) {
+    for (const st of settled) {
+      if (st.settlementId) await awardForSettlement(st.settlementId).catch((e) => console.error(`[rewards] award failed for settlement ${st.settlementId}:`, e));
+    }
   }
   const summary = { released, settled, carried };
   await db

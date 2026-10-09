@@ -87,6 +87,11 @@ export interface PaymentProvider {
   /** One-time login link to the partner's Express dashboard (payouts, bank details). */
   createDashboardLink(accountId: string): Promise<{ url: string }>;
   createTransfer(p: { amountMinor: number; currency: string; destinationAccountId: string; transferGroup: string; sourceTransactionId?: string; idempotencyKey: string; metadata: Record<string, string> }): Promise<{ id: string }>;
+  // Billing (Stage 5b) — HelloCircle Pro, a monthly subscription paid by the partner.
+  createSubscriptionCheckout(p: { customerEmail: string; productName: string; unitAmountMinor: number; currency: string; successUrl: string; cancelUrl: string; metadata: Record<string, string> }): Promise<{ id: string; url: string | null }>;
+  /** atPeriodEnd: stop renewing (Pro continues to the end of the paid month); otherwise end now. */
+  cancelSubscription(p: { subscriptionId: string; atPeriodEnd: boolean }): Promise<void>;
+  resumeSubscription(subscriptionId: string): Promise<void>;
   reverseTransfer(p: { transferId: string; amountMinor?: number; idempotencyKey: string; metadata: Record<string, string> }): Promise<{ id: string; amountMinor: number }>;
 }
 
@@ -222,6 +227,28 @@ class StripeProvider implements PaymentProvider {
       { idempotencyKey: p.idempotencyKey }
     );
     return { id: t.id };
+  }
+
+  async createSubscriptionCheckout(p: { customerEmail: string; productName: string; unitAmountMinor: number; currency: string; successUrl: string; cancelUrl: string; metadata: Record<string, string> }) {
+    const session = await this.client.checkout.sessions.create({
+      mode: "subscription",
+      customer_email: p.customerEmail,
+      line_items: [{ quantity: 1, price_data: { currency: p.currency.toLowerCase(), unit_amount: p.unitAmountMinor, recurring: { interval: "month" }, product_data: { name: p.productName } } }],
+      success_url: p.successUrl,
+      cancel_url: p.cancelUrl,
+      metadata: p.metadata,
+      subscription_data: { metadata: p.metadata },
+    });
+    return { id: session.id, url: session.url };
+  }
+
+  async cancelSubscription(p: { subscriptionId: string; atPeriodEnd: boolean }) {
+    if (p.atPeriodEnd) await this.client.subscriptions.update(p.subscriptionId, { cancel_at_period_end: true });
+    else await this.client.subscriptions.cancel(p.subscriptionId);
+  }
+
+  async resumeSubscription(subscriptionId: string) {
+    await this.client.subscriptions.update(subscriptionId, { cancel_at_period_end: false });
   }
 
   async reverseTransfer(p: { transferId: string; amountMinor?: number; idempotencyKey: string; metadata: Record<string, string> }) {
@@ -375,6 +402,19 @@ export class StubProvider implements PaymentProvider {
   async createDashboardLink(accountId: string) {
     this.record("createDashboardLink", { accountId });
     return { url: `https://connect.stub.invalid/express/${accountId}` };
+  }
+
+  async createSubscriptionCheckout(p: { customerEmail: string; productName: string; unitAmountMinor: number; currency: string; successUrl: string; cancelUrl: string; metadata: Record<string, string> }) {
+    this.record("createSubscriptionCheckout", p);
+    return { id: `cs_sub_stub_${++this.seq}`, url: null };
+  }
+
+  async cancelSubscription(p: { subscriptionId: string; atPeriodEnd: boolean }) {
+    this.record("cancelSubscription", p);
+  }
+
+  async resumeSubscription(subscriptionId: string) {
+    this.record("resumeSubscription", { subscriptionId });
   }
 
   /** Test helper: finish (or break) onboarding for an account. */

@@ -4,7 +4,7 @@ import { TraderInfo } from "../components/TraderInfo";
 import { OfficialCircleLink } from "../components/OfficialCircleLink";
 import { ParticipationBlock } from "../components/ParticipationBlock";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
-import { ApiError, addFavourite, bookExperienceSession, downloadExperienceBookingIcs, fetchExperience, fetchExperiences, fetchFavourites, quoteExperienceSession, removeFavourite, type BookingQuote } from "../api";
+import { ApiError, addFavourite, bookExperienceSession, fetchMyCredits, downloadExperienceBookingIcs, fetchExperience, fetchExperiences, fetchFavourites, quoteExperienceSession, removeFavourite, type BookingQuote } from "../api";
 import { openCheckout } from "../native";
 import { ListingChatButton } from "../components/ListingChats";
 import { BackLink } from "../components/BackLink";
@@ -148,6 +148,9 @@ export function ExperienceDetail() {
   // HC-QA-042 — the amount shown before confirming is the server's own quote
   // (VAT + platform fee included), not a client-side price × party guess.
   const [quote, setQuote] = useState<BookingQuote | null>(null);
+  // Stage 5b — the signed-in resident's HelloCircle credit (0 when none / switched off).
+  const [creditMinor, setCreditMinor] = useState(0);
+  const [useCredits, setUseCredits] = useState(false);
   const [form, setForm] = useState({ participantName: "", email: resident?.email ?? "", phone: "", partySize: 1 });
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -198,13 +201,20 @@ export function ExperienceDetail() {
       return;
     }
     let live = true;
-    quoteExperienceSession(experience.id, selectedSession.id, { partySize: form.partySize })
+    quoteExperienceSession(experience.id, selectedSession.id, { partySize: form.partySize, useCredits })
       .then((q) => live && setQuote(q))
       .catch(() => live && setQuote(null));
     return () => {
       live = false;
     };
-  }, [experience, selectedSession, form.partySize]);
+  }, [experience, selectedSession, form.partySize, useCredits]);
+
+  useEffect(() => {
+    if (!resident) return setCreditMinor(0);
+    fetchMyCredits()
+      .then((c) => setCreditMinor(c.enabled ? c.balanceMinor : 0))
+      .catch(() => setCreditMinor(0));
+  }, [resident]);
 
   const handleToggleSave = async () => {
     if (!experience) return;
@@ -231,7 +241,7 @@ export function ExperienceDetail() {
       // Commerce Engine Phase 2 — hand back the quote the customer was shown;
       // the server refuses (409) rather than charging a price that moved.
       const quoteId = quote && quote.partySize === form.partySize ? quote.quoteId : undefined;
-      const res = await bookExperienceSession(experience.id, selectedSession.id, { ...form, quoteId });
+      const res = await bookExperienceSession(experience.id, selectedSession.id, { ...form, quoteId, useCredits });
       if (res.url) {
         openCheckout(res.url);
         return;
@@ -244,7 +254,7 @@ export function ExperienceDetail() {
       // the customer can review it and try again.
       const code = e instanceof ApiError ? e.body.code : undefined;
       if (typeof code === "string" && (code.startsWith("quote_") || code === "price_changed")) {
-        quoteExperienceSession(experience.id, selectedSession.id, { partySize: form.partySize }).then(setQuote).catch(() => setQuote(null));
+        quoteExperienceSession(experience.id, selectedSession.id, { partySize: form.partySize, useCredits }).then(setQuote).catch(() => setQuote(null));
       }
     } finally {
       setSubmitting(false);
@@ -442,6 +452,15 @@ export function ExperienceDetail() {
           <input type="tel" autoComplete="tel" inputMode="tel" value={form.phone} onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))} style={inputStyle} />
         </div>
       </div>
+      {creditMinor > 0 && !!experience?.priceCents && (
+        <label style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 14, marginTop: 14 }}>
+          <input type="checkbox" checked={useCredits} onChange={(e) => setUseCredits(e.target.checked)} />
+          <span>
+            Use my HelloCircle credit (€{(creditMinor / 100).toFixed(2)} available)
+            {useCredits && quote?.creditCents ? <strong> — €{(quote.creditCents / 100).toFixed(2)} off</strong> : null}
+          </span>
+        </label>
+      )}
       {error && (
         <p role="alert" style={{ color: colors.danger, fontSize: 13, margin: "14px 0 0" }}>
           {error}

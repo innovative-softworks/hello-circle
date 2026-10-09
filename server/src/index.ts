@@ -1,5 +1,6 @@
 import "dotenv/config";
 import cookieParser from "cookie-parser";
+import { sweepSubscriptions } from "./commerce/subscriptions.js";
 import cors from "cors";
 import { createIndexHtmlReader, mountClient } from "./clientAssets.js";
 import express from "express";
@@ -39,6 +40,7 @@ import { policiesRouter } from "./routes/policies.js";
 import { complaintsRouter } from "./routes/complaints.js";
 import { hostTraderRouter, publicTraderRouter, vendorTraderRouter } from "./routes/traders.js";
 import { hostPayoutsRouter, vendorPayoutsRouter } from "./routes/payouts.js";
+import { hostPlanRouter, residentCreditsRouter, vendorPlanRouter } from "./routes/partnerPlan.js";
 import { discoverRouter } from "./routes/discover.js";
 import { experiencesRouter } from "./routes/experiences.js";
 import { favouritesRouter } from "./routes/favourites.js";
@@ -101,6 +103,8 @@ process.on("unhandledRejection", (reason) => {
 // the simplest thing that works at current scale.
 sweepExpiredWaitlistOffers();
 setInterval(sweepExpiredWaitlistOffers, 15 * 60 * 1000);
+// Revenue & Connect Stage 5b — end Pro for subscriptions still unpaid after the grace period (hourly; a no-op when none are).
+setInterval(() => void sweepSubscriptions().catch((e) => console.error("[subscriptions] sweep failed:", e)), 60 * 60 * 1000);
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -196,6 +200,10 @@ app.use("/api/host/trader-profile", hostTraderRouter);
 // Revenue & Connect Stage 5a — partner payout accounts (Stripe Connect).
 app.use("/api/vendor/payouts", vendorPayoutsRouter);
 app.use("/api/host/payouts", hostPayoutsRouter);
+// Revenue & Connect Stage 5b — Pro subscription, reward points, customer credits.
+app.use("/api/vendor/plan", vendorPlanRouter);
+app.use("/api/host/plan", hostPlanRouter);
+app.use("/api/credits", residentCreditsRouter);
 app.use("/api/reviews", reviewsRouter);
 app.use("/api/uploads", uploadsRouter);
 app.use("/api/media", mediaRouter);

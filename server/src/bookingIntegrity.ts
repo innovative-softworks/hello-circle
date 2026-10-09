@@ -1,5 +1,6 @@
 import { db } from "./db/index.js";
 import { irelandTodayIso, irelandWallTimeToUtc } from "./irelandTime.js";
+import { syncCreditUses } from "./commerce/credits.js";
 import { ConflictError } from "./util.js";
 import { commerceSwitch } from "./commerce/switches.js";
 import { allocate } from "./commerce/money.js";
@@ -100,6 +101,8 @@ export async function releaseRedemption(tx: Tx, table: string, ref: string) {
   const sourceType = REDEMPTION_SOURCE[table];
   if (!sourceType) return;
   await tx.prepare(`UPDATE coupon_redemptions SET status = 'released' WHERE source_type = ? AND source_ref = ? AND status = 'reserved'`).run(sourceType, ref);
+  // Stage 5b — a reserved customer credit goes back to the resident too.
+  await syncCreditUses(tx, sourceType, ref, "released", ["reserved"]);
 }
 
 /** HC-QA-050 — hand back one reserved coupon use (never below zero). */

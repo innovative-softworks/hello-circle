@@ -527,7 +527,7 @@ export function fetchExperience(id: string): Promise<Experience> {
 export function bookExperienceSession(
   experienceId: string,
   sessionId: string,
-  input: { participantName: string; email: string; phone?: string; partySize?: number; couponCode?: string; quoteId?: string }
+  input: { participantName: string; email: string; phone?: string; partySize?: number; couponCode?: string; quoteId?: string; useCredits?: boolean }
 ): Promise<{ ref: string; url?: string; totalEuro: number }> {
   return request(`/experiences/${experienceId}/sessions/${sessionId}/checkout`, { method: "POST", body: JSON.stringify(input) });
 }
@@ -551,8 +551,10 @@ export interface BookingQuote {
    * checkout so a price change in between is detected, not charged. */
   quoteId?: string;
   quoteExpiresAt?: string;
+  /** Stage 5b — HelloCircle credit applied (engine-priced quotes only). */
+  creditCents?: number;
 }
-export function quoteExperienceSession(experienceId: string, sessionId: string, input: { partySize: number; couponCode?: string }): Promise<BookingQuote> {
+export function quoteExperienceSession(experienceId: string, sessionId: string, input: { partySize: number; couponCode?: string; useCredits?: boolean }): Promise<BookingQuote> {
   return request(`/experiences/${experienceId}/sessions/${sessionId}/quote`, { method: "POST", body: JSON.stringify(input) });
 }
 

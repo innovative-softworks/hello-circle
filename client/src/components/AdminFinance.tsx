@@ -6,6 +6,11 @@ import {
   enrollInCampaign,
   fetchAdmins,
   fetchConnectedAccounts,
+  fetchResidentCredits,
+  fetchSubscriptions,
+  grantResidentCredit,
+  sweepSubscriptionsApi,
+  type AdminSubscription,
   fetchTransfers,
   recoverPartnerBalance,
   runTransfersApi,
@@ -413,6 +418,75 @@ function TransfersSection() {
   );
 }
 
+// --- Stage 5b: customer credits and Pro subscriptions ------------------------------------
+
+function CreditsProSection() {
+  const [email, setEmail] = useState("");
+  const [amount, setAmount] = useState("10");
+  const [kind, setKind] = useState<"goodwill" | "promotional" | "refund">("goodwill");
+  const [lookup, setLookup] = useState<Awaited<ReturnType<typeof fetchResidentCredits>> | null>(null);
+  const [subs, setSubs] = useState<AdminSubscription[]>([]);
+  const [dialog, setDialog] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+  const loadSubs = () => fetchSubscriptions().then(setSubs).catch(() => setSubs([]));
+  useEffect(() => {
+    loadSubs();
+  }, []);
+  return (
+    <Card style={{ padding: 22 }}>
+      <h3 style={h3}>Customer credits</h3>
+      <p style={hint}>HelloCircle-funded credit a resident can use at checkout (engine-priced bookings). No cash value; expires as set in Commercial rules → Customer credits. Turn on "Customer credits" in Switches first.</p>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: 10, alignItems: "end" }}>
+        <Field label="Resident email"><input type="email" value={email} onChange={(e) => setEmail(e.target.value.trim())} style={inputStyle} /></Field>
+        <Field label="Amount (€)"><input value={amount} onChange={(e) => setAmount(e.target.value)} style={inputStyle} inputMode="decimal" /></Field>
+        <Field label="Kind">
+          <select value={kind} onChange={(e) => setKind(e.target.value as "goodwill")} style={inputStyle}>
+            <option value="goodwill">Goodwill</option>
+            <option value="promotional">Promotional</option>
+            <option value="refund">Refund as credit</option>
+          </select>
+        </Field>
+        <Button variant="ghost" disabled={!email} onClick={() => fetchResidentCredits(email).then(setLookup).catch((e) => setMessage(e instanceof Error ? e.message : "Not found"))}>Look up</Button>
+        <Button disabled={!email || toMinor(amount) === null} onClick={() => setDialog(true)}>Grant credit…</Button>
+      </div>
+      {lookup && <p style={{ fontSize: 13.5, margin: "10px 0 0" }}>Balance {euro(lookup.balanceMinor)} across {lookup.lots.length} grant(s).</p>}
+      {message && <p style={{ fontSize: 13, margin: "10px 0 0" }}>{message}</p>}
+      {dialog && (
+        <ReasonDialog
+          title={`Grant ${amount} euro of credit to ${email}`}
+          confirm="Grant"
+          onClose={() => setDialog(false)}
+          onConfirm={async (reason) => {
+            const r = await grantResidentCredit({ email, amountMinor: toMinor(amount) ?? 0, kind, reason });
+            setMessage(`Granted. Expires ${when(r.expiresAt)}.`);
+            setLookup(await fetchResidentCredits(email));
+          }}
+        />
+      )}
+      <h3 style={{ ...h3, marginTop: 24 }}>Pro subscriptions</h3>
+      <p style={hint}>Stripe Billing subscriptions. A failed payment gets a 7-day grace before Pro ends (checked hourly — or now with the button).</p>
+      <Button variant="ghost" onClick={() => sweepSubscriptionsApi().then((r) => { setMessage(`Grace check: ${r.ended} subscription(s) ended.`); loadSubs(); })}>Run grace check now</Button>
+      <div style={{ overflowX: "auto", marginTop: 12 }}>
+        <table style={tableStyle}>
+          <thead><tr><th style={thStyle}>Partner</th><th style={thStyle}>Status</th><th style={thStyle}>Price</th><th style={thStyle}>Period ends</th><th style={thStyle}>Grace until</th></tr></thead>
+          <tbody>
+            {subs.map((x) => (
+              <tr key={x.id}>
+                <td style={tdStyle}>{x.partyType}:{x.partyId}</td>
+                <td style={{ ...tdStyle, color: x.status === "past_due" ? colors.danger : colors.text }}>{x.status}{x.cancelAtPeriodEnd ? " (cancelling)" : ""}</td>
+                <td style={tdStyle}>{euro(x.grossMinor)}</td>
+                <td style={{ ...tdStyle, fontSize: 12.5 }}>{when(x.currentPeriodEnd)}</td>
+                <td style={{ ...tdStyle, fontSize: 12.5 }}>{when(x.graceUntil)}</td>
+              </tr>
+            ))}
+            {subs.length === 0 && <tr><td style={tdStyle} colSpan={5}>No subscriptions yet.</td></tr>}
+          </tbody>
+        </table>
+      </div>
+    </Card>
+  );
+}
+
 // --- webhooks / refunds / disputes ---------------------------------------------------
 
 function WebhooksSection() {
@@ -731,6 +805,7 @@ const SECTIONS = [
   { key: "simulator", label: "Simulator", roles: ["super", "finance"] },
   { key: "settlements", label: "Settlements", roles: ["super", "finance"] },
   { key: "transfers", label: "Transfers", roles: ["super", "finance"] },
+  { key: "credits", label: "Credits & Pro", roles: ["super", "finance"] },
   { key: "events", label: "Payment events", roles: ["super", "finance"] },
   { key: "refunds", label: "Refunds", roles: ["super", "finance"] },
   { key: "disputes", label: "Disputes", roles: ["super", "finance"] },
@@ -764,6 +839,7 @@ export function AdminFinanceTab() {
       {section === "simulator" && <SimulatorSection />}
       {section === "settlements" && <SettlementsSection />}
       {section === "transfers" && <TransfersSection />}
+      {section === "credits" && <CreditsProSection />}
       {section === "events" && <WebhooksSection />}
       {section === "refunds" && <RefundsSection />}
       {section === "disputes" && <DisputesSection />}

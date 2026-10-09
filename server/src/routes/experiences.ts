@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { allocate } from "../commerce/money.js";
+import { creditForCheckout, reserveCredit } from "../commerce/credits.js";
 import { commerceQuoteLimiter } from "../rateLimit.js";
 import { createCheckoutSession, pricingLineItems } from "../checkoutService.js";
 import { logEvent, logView } from "../analytics.js";
@@ -207,6 +208,8 @@ interface BookBody {
    * without it checkout still prices server-side, it just can't detect that
    * the price moved since the form was rendered). */
   quoteId?: string;
+  /** Stage 5b — apply the signed-in resident's HelloCircle credit (engine-priced only). */
+  useCredits?: boolean;
 }
 
 // Books ONE session (a specific departure) — party_size spots on it, not a
@@ -231,7 +234,7 @@ async function quoteExperience(experience: ExperienceRow, partySize: number, raw
 /** Commerce Engine Phase 2 — the same experience price, from the published
  * pricing rules instead of pricing.ts. Used only while the engine is switched
  * on for experiences; coupon evaluation is unchanged. */
-async function engineQuoteExperience(experience: ExperienceRow, partySize: number, rawCoupon: string | undefined) {
+async function engineQuoteExperience(experience: ExperienceRow, partySize: number, rawCoupon: string | undefined, availableCreditMinor = 0) {
   const listMinor = experience.price_cents * partySize;
   let discountMinor = 0;
   let platformShareBps = 0;
@@ -246,16 +249,23 @@ async function engineQuoteExperience(experience: ExperienceRow, partySize: numbe
   // Phase 3 — the coupon's funding decides who absorbs the discount; the
   // split is exact (largest remainder), recorded in the order snapshot.
   const platformFundedDiscountMinor = discountMinor > 0 && platformShareBps > 0 ? allocate(discountMinor, [platformShareBps, 10_000 - platformShareBps])[0] : 0;
+  // Stage 5b — customer credit is a HelloCircle-funded discount on what's left after the coupon.
+  const creditMinor = Math.min(Math.max(0, availableCreditMinor), listMinor - discountMinor);
   const partner = await vendorPartner(experience.vendor_id);
-  const price = await priceWithRules("experience", partner, { listMinor, discountMinor, depositMinor: 0, platformFundedDiscountMinor });
-  return { ok: true as const, price, partner, couponCode };
+  const price = await priceWithRules("experience", partner, {
+    listMinor,
+    discountMinor: discountMinor + creditMinor,
+    depositMinor: 0,
+    platformFundedDiscountMinor: platformFundedDiscountMinor + creditMinor,
+  });
+  return { ok: true as const, price, partner, couponCode, couponDiscountMinor: discountMinor, creditMinor };
 }
 
 /** Commerce Engine Phase 2 — prices with the published rules and stores a
  * single-use quote. Shared by this router's quote endpoint and the generic
  * POST /api/commerce/quotes (routes/commerce.ts). */
-export async function storedExperienceQuote(experience: ExperienceRow, sessionId: string, partySize: number, rawCoupon: string | undefined, clientId: string | null, residentId: string | null) {
-  const q = await engineQuoteExperience(experience, partySize, rawCoupon);
+export async function storedExperienceQuote(experience: ExperienceRow, sessionId: string, partySize: number, rawCoupon: string | undefined, clientId: string | null, residentId: string | null, useCredits = false) {
+  const q = await engineQuoteExperience(experience, partySize, rawCoupon, await creditForCheckout(residentId, useCredits, Number.MAX_SAFE_INTEGER));
   if (!q.ok) return { status: 400, body: { error: q.error } };
   const stored = await createQuote({ sourceType: "experience", resourceId: experience.id, sessionId, quantity: partySize, couponCode: q.couponCode, clientId, residentId }, q.price);
   const b = q.price.breakdown;
@@ -270,6 +280,7 @@ export async function storedExperienceQuote(experience: ExperienceRow, sessionId
       platformFeeCents: b.customerFeeMinor,
       totalCents: b.customerPaidMinor,
       couponCode: q.couponCode,
+      creditCents: q.creditMinor,
       currency: "EUR",
       vatIncluded: q.price.values.vatMode === "included_in_price",
       quoteId: stored.id,
@@ -289,7 +300,7 @@ export async function loadQuotableExperience(experienceId: string, sessionId: st
 
 /** Authoritative price quote for the booking form (no reservation made). */
 experiencesRouter.post("/:id/sessions/:sessionId/quote", commerceQuoteLimiter, async (req, res) => {
-  const body = req.body as { partySize?: unknown; couponCode?: string };
+  const body = req.body as { partySize?: unknown; couponCode?: string; useCredits?: boolean };
   if (body.partySize !== undefined && !isPositiveInt(body.partySize)) return res.status(400).json({ error: "Party size must be a whole number of at least 1" });
   const partySize = (body.partySize as number | undefined) ?? 1;
   const experience = (await db.prepare(`SELECT * FROM experiences WHERE id = ? AND status = 'approved'`).get(req.params.id)) as ExperienceRow | undefined;
@@ -303,7 +314,7 @@ experiencesRouter.post("/:id/sessions/:sessionId/quote", commerceQuoteLimiter, a
     } catch {
       clientId = null;
     }
-    const r = await storedExperienceQuote(experience, req.params.sessionId, partySize, body.couponCode, clientId, req.resident?.id ?? null);
+    const r = await storedExperienceQuote(experience, req.params.sessionId, partySize, body.couponCode, clientId, req.resident?.id ?? null, body.useCredits === true);
     return res.status(r.status).json(r.body);
   }
   const quote = await quoteExperience(experience, partySize, body.couponCode);
@@ -353,7 +364,7 @@ experiencesRouter.post("/:id/sessions/:sessionId/checkout", async (req, res) => 
   let engine: (Awaited<ReturnType<typeof engineQuoteExperience>> & { ok: true }) | null = null;
   let legacyPricing: ReturnType<typeof computePricing> | null = null;
   if (useEngine) {
-    const q = await engineQuoteExperience(experience, partySize, body.couponCode);
+    const q = await engineQuoteExperience(experience, partySize, body.couponCode, await creditForCheckout(req.resident?.id, body.useCredits === true, Number.MAX_SAFE_INTEGER));
     if (!q.ok) return res.status(400).json({ error: q.error });
     engine = q;
     couponCode = q.couponCode;
@@ -390,9 +401,18 @@ experiencesRouter.post("/:id/sessions/:sessionId/checkout", async (req, res) => 
       // HC-QA-037/050 — the coupon use is reserved with the order (confirmed or pending).
       if (couponCode) {
         try {
-          await consumeCoupon(tx, couponCode, { sourceType: "experience", ref, customerKey: customerKeyOf(req.resident?.id, clientId), discountMinor: pricing.discountCents, confirmed: confirmsNow });
+          await consumeCoupon(tx, couponCode, { sourceType: "experience", ref, customerKey: customerKeyOf(req.resident?.id, clientId), discountMinor: engine ? engine.couponDiscountMinor : pricing.discountCents, confirmed: confirmsNow });
         } catch (e) {
           throw new BadRequestError(e instanceof Error ? e.message : "That code has been fully redeemed");
+        }
+      }
+
+      // Stage 5b — reserve the credit with the order (confirmed now if nothing is left to pay).
+      if (engine && engine.creditMinor > 0 && req.resident?.id) {
+        try {
+          await reserveCredit(tx, { residentId: req.resident.id, sourceType: "experience", ref, amountMinor: engine.creditMinor, confirmed: confirmsNow });
+        } catch (e) {
+          throw new ConflictError(e instanceof Error ? e.message : "Your credit balance changed");
         }
       }
 
