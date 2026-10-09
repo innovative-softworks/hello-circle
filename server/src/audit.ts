@@ -11,17 +11,23 @@ export async function writeAudit(params: {
   objectId: string;
   previousValue?: unknown;
   newValue?: unknown;
+  /** Commerce Engine — why the change was made (audit_log.reason). */
+  reason?: string;
+  actorKind?: "user" | "resident" | "system";
 }) {
   try {
     await db
-      .prepare(`INSERT INTO audit_log (actor_user_id, action, object_type, object_id, previous_value, new_value) VALUES (?, ?, ?, ?, ?, ?)`)
+      .prepare(`INSERT INTO audit_log (actor_user_id, action, object_type, object_id, previous_value, new_value, reason, actor_kind, environment) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
       .run(
         params.actorUserId,
         params.action,
         params.objectType,
         params.objectId,
         params.previousValue === undefined ? null : JSON.stringify(params.previousValue),
-        params.newValue === undefined ? null : JSON.stringify(params.newValue)
+        params.newValue === undefined ? null : JSON.stringify(params.newValue),
+        params.reason ?? null,
+        params.actorKind ?? null,
+        (process.env.APP_ENV || process.env.NODE_ENV || "development").slice(0, 20)
       );
   } catch (e) {
     console.error("[audit] write failed:", e);

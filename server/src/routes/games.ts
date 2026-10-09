@@ -17,7 +17,7 @@ import { sendMail } from "../email.js";
 import { writeAudit } from "../audit.js";
 import { CLIENT_URL } from "../stripe.js";
 import { matchParticipationIntentsForGame } from "../participationIntents.js";
-import { computePricing, couponAmountError, evaluateCoupon } from "../pricing.js";
+import { computePricing, couponAmountError, evaluateCoupon, parseCouponLimits } from "../pricing.js";
 import { requireResident } from "../residents.js";
 import { matchSearchAlertsForGame } from "../searchAlerts.js";
 import { PaginationError, parsePageParams, setNextCursor } from "../pagination.js";
@@ -27,7 +27,7 @@ import { getListingAttributes, setListingAttributes } from "../listingAttributes
 import { getNextSteps } from "../nextSteps.js";
 import { getOpportunities } from "../participationIntents.js";
 import { BadRequestError, ConflictError, generateRef } from "../util.js";
-import { consumeCoupon, endPendingHold, gameSeatSql, holdIsLive } from "../bookingIntegrity.js";
+import { consumeCoupon, customerKeyOf, endPendingHold, gameSeatSql, holdIsLive } from "../bookingIntegrity.js";
 import { getEffectiveAvailability, getEffectiveLifecycle, getPublicLifecycleLabel, validateLifecycleTransition, type Lifecycle } from "../lifecycle.js";
 import { notifyGameNotifyMeSubscribers, subscribeNotifyMe, unsubscribeNotifyMe } from "../notifyMe.js";
 import { activeOfferedCount, claimWaitlistOffer, hasActiveOffer, offerToWaitlistEntry, promoteNextWaitlistEntry } from "../waitlist.js";
@@ -448,13 +448,18 @@ gamesRouter.post("/coupons", requireResident, async (req, res) => {
   if (amountError) return res.status(400).json({ error: amountError });
   const game = (await db.prepare(`SELECT host_resident_id FROM games WHERE id = ?`).get(b.gameId)) as { host_resident_id: string } | undefined;
   if (!game || game.host_resident_id !== req.resident!.id) return res.status(403).json({ error: "Not your session" });
+  // Commerce Engine Phase 3 — host coupons are partner-funded; optional limits.
+  const limits = parseCouponLimits(req.body as Record<string, unknown>);
+  if (!limits.ok) return res.status(400).json({ error: limits.error });
   try {
     await db
       .prepare(
-        `INSERT INTO coupons (code, kind, amount, max_uses, expires_at, created_by_resident_id, eligible_listing_type, eligible_listing_id)
-         VALUES (?, ?, ?, ?, ?, ?, 'game', ?)`
+        `INSERT INTO coupons (code, kind, amount, max_uses, expires_at, created_by_resident_id, eligible_listing_type, eligible_listing_id,
+                              funding, platform_share_bps, min_spend_cents, max_discount_cents, per_customer_limit, starts_at)
+         VALUES (?, ?, ?, ?, ?, ?, 'game', ?, 'partner', 0, ?, ?, ?, ?)`
       )
-      .run(b.code.trim().toUpperCase(), b.kind, b.amount, b.maxUses ?? null, b.expiresAt ?? null, req.resident!.id, b.gameId);
+      .run(b.code.trim().toUpperCase(), b.kind, b.amount, b.maxUses ?? null, b.expiresAt ?? null, req.resident!.id, b.gameId,
+        limits.limits.minSpendCents, limits.limits.maxDiscountCents, limits.limits.perCustomerLimit, limits.limits.startsAt);
     res.status(201).json({ ok: true });
   } catch (e) {
     res.status(409).json({ error: e instanceof Error && e.message.includes("Duplicate") ? "That code is already in use" : "Couldn't create the coupon" });
@@ -1536,9 +1541,9 @@ gamesRouter.post("/:id/join", requireResident, async (req, res) => {
         const ref = generateRef("GJ");
         // HC-QA-050 — reserve the coupon use with the seat hold (released if it fails/expires).
         try {
-          await consumeCoupon(tx, appliedCouponCode);
-        } catch {
-          throw new BadRequestError("That code has been fully redeemed");
+          await consumeCoupon(tx, appliedCouponCode, { sourceType: "game", ref, customerKey: customerKeyOf(req.resident!.id, null), discountMinor: discountCents, confirmed: false });
+        } catch (e) {
+          throw new BadRequestError(e instanceof Error ? e.message : "That code has been fully redeemed");
         }
         if (existing) {
           await tx

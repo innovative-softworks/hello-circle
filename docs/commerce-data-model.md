@@ -76,6 +76,23 @@ No code path updates this table.
 One row per legacy checkout while `commerce.shadow_pricing` is on. It records `matched`, `diff_fields` (`total`,
 `vat`, `fee`, `discount`), both price JSONs and the rule hash.
 
+## `coupons` additions and `coupon_redemptions` (Phase 3)
+
+`coupons` gains:
+- `funding` (`platform` | `split` | `partner`) and `platform_share_bps`
+- `min_spend_cents`, `max_discount_cents`, `per_customer_limit` and `starts_at`, all nullable (null = no limit)
+- `archived_at` (archive replaces delete)
+
+Partner-created rows are always `partner`/0.
+
+`coupon_redemptions` holds one row per order that used a coupon, unique on `(source_type, source_ref)`:
+- `coupon_id`, `code` and `customer_key` (`r:<resident>` or `c:<client>`)
+- `discount_minor` and `platform_funded_minor` (exact split)
+- `status`: `reserved` → `confirmed` | `released` | `reversed`
+
+It's written in the same transaction as the `used_count` increment, while `commerce.coupons_v2` is on. Status
+moves only forward, through `endPendingHold` and `syncOrderFromSource`.
+
 ## Legacy columns kept as they are
 
 The participation tables keep writing `subtotal_cents` (post-discount, see R12), `discount_cents`, `vat_cents`,

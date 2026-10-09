@@ -9,7 +9,7 @@ import { sendMail } from "../email.js";
 import { notifyCancellation, notifyRefund, resendConfirmationEmail } from "../notifications.js";
 import { inClause, ownsCentre, ownsClub } from "./vendorHelpers.js";
 import { irelandTodayIso, irelandWallTimeToUtc } from "../irelandTime.js";
-import { couponAmountError } from "../pricing.js";
+import { couponAmountError, parseCouponLimits } from "../pricing.js";
 import { ASSUMED_DURATION_MINUTES } from "../db/queries.js";
 import { offerToWaitlistEntry, promoteNextWaitlistEntry } from "../waitlist.js";
 
@@ -908,13 +908,19 @@ vendorOperationsRouter.post("/coupons", requirePlatformRole("finance"), async (r
     const owns = b.eligibleListingType === "centre" ? await ownsCentre(req.vendorIds!, b.eligibleListingId) : await ownsClub(req.vendorIds!, b.eligibleListingId);
     if (!owns) return res.status(403).json({ error: "Not your listing" });
   }
+  // Commerce Engine Phase 3 — partner coupons are always partner-funded;
+  // optional limits as for admin coupons.
+  const limits = parseCouponLimits(req.body as Record<string, unknown>);
+  if (!limits.ok) return res.status(400).json({ error: limits.error });
   try {
     await db
       .prepare(
-        `INSERT INTO coupons (code, kind, amount, max_uses, expires_at, created_by_vendor_id, eligible_listing_type, eligible_listing_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO coupons (code, kind, amount, max_uses, expires_at, created_by_vendor_id, eligible_listing_type, eligible_listing_id,
+                              funding, platform_share_bps, min_spend_cents, max_discount_cents, per_customer_limit, starts_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'partner', 0, ?, ?, ?, ?)`
       )
-      .run(b.code.trim().toUpperCase(), b.kind, b.amount, b.maxUses ?? null, b.expiresAt ?? null, req.user!.id, b.eligibleListingType ?? null, b.eligibleListingId ?? null);
+      .run(b.code.trim().toUpperCase(), b.kind, b.amount, b.maxUses ?? null, b.expiresAt ?? null, req.user!.id, b.eligibleListingType ?? null, b.eligibleListingId ?? null,
+        limits.limits.minSpendCents, limits.limits.maxDiscountCents, limits.limits.perCustomerLimit, limits.limits.startsAt);
     res.status(201).json({ ok: true });
   } catch (e) {
     res.status(409).json({ error: e instanceof Error && e.message.includes("Duplicate") ? "That code is already in use" : "Couldn't create the coupon" });

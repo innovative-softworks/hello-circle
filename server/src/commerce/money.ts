@@ -74,6 +74,9 @@ export interface PriceInput {
   discountMinor: number;
   /** Refundable deposit — not a supply, so no VAT/fees on it. */
   depositMinor: number;
+  /** Part of the discount HelloCircle funds (Phase 3 coupon funding); the
+   * partner is made whole for it. 0 when the partner funds the discount. */
+  platformFundedDiscountMinor?: number;
 }
 
 export interface PriceBreakdown {
@@ -96,13 +99,15 @@ export interface PriceBreakdown {
   partnerPayoutMinor: number;
   platformRevenueMinor: number;
   platformContributionMinor: number;
+  platformFundedDiscountMinor: number;
   engineVersion: string;
 }
 
 /**
- * One customer price, every allocation derived from it. Invariant (tested):
- *   customerPaid = partnerPayout + successFee + partnerPaymentCost
- *                + customerFee + vat + deposit
+ * One customer price, every allocation derived from it. Invariant (tested;
+ * master prompt §21):
+ *   customerPaid + platformFundedDiscount
+ *     = partnerPayout + successFee + partnerPaymentCost + customerFee + vat + deposit
  * With today's rule v1 (customer fee 5%, VAT 23% added on top, success fee
  * 0) customerPaid equals legacy computePricing().totalCents exactly.
  */
@@ -112,6 +117,8 @@ export function priceBreakdown(input: PriceInput, v: PricingValues): PriceBreakd
   assertMinor(input.depositMinor, "depositMinor");
   const discountedMinor = Math.max(0, input.listMinor - input.discountMinor);
   const discountMinor = input.listMinor - discountedMinor; // never more than the list price
+  const platformFundedDiscountMinor = Math.min(Math.max(0, input.platformFundedDiscountMinor ?? 0), discountMinor);
+  assertMinor(platformFundedDiscountMinor, "platformFundedDiscountMinor");
 
   let vatMinor: number;
   let goodsGrossMinor: number;
@@ -130,9 +137,9 @@ export function priceBreakdown(input: PriceInput, v: PricingValues): PriceBreakd
   const chargeable = customerPaidMinor > 0;
   const paymentCostMinor = chargeable ? applyBps(customerPaidMinor, v.paymentCostBps) + v.paymentCostFixedMinor : 0;
   const partnerPaymentCostMinor = v.paymentCostBearer === "partner" ? paymentCostMinor : 0;
-  const partnerPayoutMinor = partnerGrossMinor - successFeeMinor - partnerPaymentCostMinor;
+  const partnerPayoutMinor = partnerGrossMinor - successFeeMinor - partnerPaymentCostMinor + platformFundedDiscountMinor;
   const platformRevenueMinor = customerFeeMinor + successFeeMinor;
-  const platformContributionMinor = platformRevenueMinor - (v.paymentCostBearer === "platform" ? paymentCostMinor : 0);
+  const platformContributionMinor = platformRevenueMinor - (v.paymentCostBearer === "platform" ? paymentCostMinor : 0) - platformFundedDiscountMinor;
 
   return {
     listMinor: input.listMinor,
@@ -150,6 +157,7 @@ export function priceBreakdown(input: PriceInput, v: PricingValues): PriceBreakd
     partnerPayoutMinor,
     platformRevenueMinor,
     platformContributionMinor,
+    platformFundedDiscountMinor,
     engineVersion: PRICING_ENGINE_VERSION,
   };
 }

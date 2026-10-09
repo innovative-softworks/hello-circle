@@ -53,6 +53,13 @@ interface CouponRow {
   eligible_listing_id: string | null;
   created_by_vendor_id: string | null;
   created_by_resident_id: string | null;
+  funding: "partner" | "platform" | "split";
+  platform_share_bps: number;
+  min_spend_cents: number | null;
+  max_discount_cents: number | null;
+  per_customer_limit: number | null;
+  starts_at: string | null;
+  archived_at: string | null;
 }
 
 /** Commerce audit R4 — server-side bounds for any coupon a partner or admin
@@ -90,6 +97,12 @@ export interface CouponResult {
   error?: string;
   discountCents?: number;
   code?: string;
+  /** Commerce Engine Phase 3 — who pays for the discount. */
+  couponId?: number;
+  funding?: "partner" | "platform" | "split";
+  /** Share of the discount HelloCircle funds, in basis points (0 = partner pays all). */
+  platformShareBps?: number;
+  perCustomerLimit?: number | null;
 }
 
 /** Host Manage spec §17 — a vendor-created coupon may be scoped to one
@@ -114,8 +127,12 @@ export async function evaluateCoupon(rawCode: string, subtotalCents: number, lis
   if (!code) return { valid: false, error: "Enter a code" };
 
   const row = (await db.prepare(`SELECT * FROM coupons WHERE code = ?`).get(code)) as CouponRow | undefined;
-  if (!row || !row.active) return { valid: false, error: "That code isn't valid" };
+  if (!row || !row.active || row.archived_at) return { valid: false, error: "That code isn't valid" };
+  if (row.starts_at && new Date(row.starts_at) > new Date()) return { valid: false, error: "That code isn't active yet" };
   if (row.expires_at && new Date(row.expires_at) < new Date()) return { valid: false, error: "That code has expired" };
+  if (row.min_spend_cents !== null && row.min_spend_cents !== undefined && subtotalCents < row.min_spend_cents) {
+    return { valid: false, error: `That code needs a minimum spend of €${(row.min_spend_cents / 100).toFixed(2)}` };
+  }
   if (row.max_uses !== null && row.used_count >= row.max_uses) return { valid: false, error: "That code has been fully redeemed" };
   // Commerce audit R4 — a malformed row (e.g. created before partner-route
   // validation existed) never applies, rather than producing a negative or
@@ -136,8 +153,13 @@ export async function evaluateCoupon(rawCode: string, subtotalCents: number, lis
     if (!(await listingInCreatorOrg(row.created_by_vendor_id, listingContext))) return { valid: false, error: "That code isn't valid for this listing" };
   }
 
-  const discountCents = row.kind === "percent" ? Math.round((subtotalCents * row.amount) / 100) : Math.min(row.amount, subtotalCents);
-  return { valid: true, discountCents, code: row.code };
+  let discountCents = row.kind === "percent" ? Math.round((subtotalCents * row.amount) / 100) : Math.min(row.amount, subtotalCents);
+  if (row.max_discount_cents !== null && row.max_discount_cents !== undefined) discountCents = Math.min(discountCents, row.max_discount_cents);
+  // Partner-created coupons are partner-funded whatever the stored value says.
+  const partnerOwned = !!(row.created_by_vendor_id || row.created_by_resident_id);
+  const funding = partnerOwned ? "partner" : (row.funding ?? "platform");
+  const platformShareBps = funding === "partner" ? 0 : funding === "platform" ? 10_000 : Math.max(0, Math.min(10_000, Number(row.platform_share_bps ?? 10_000)));
+  return { valid: true, discountCents, code: row.code, couponId: row.id, funding, platformShareBps, perCustomerLimit: row.per_customer_limit ?? null };
 }
 
 /** Called from stripeWebhook.ts's confirm* functions, after payment has
@@ -157,4 +179,35 @@ export async function recordCouponUse(code: string) {
   if (info.changes === 0) {
     console.error(`[coupons] recordCouponUse: "${normalized}" was already at max_uses when this paid order tried to record its use — needs manual review`);
   }
+}
+
+export interface CouponLimits {
+  minSpendCents: number | null;
+  maxDiscountCents: number | null;
+  perCustomerLimit: number | null;
+  startsAt: string | null;
+}
+
+/** Commerce Engine Phase 3 — the optional per-coupon limits any creator
+ * (admin, vendor, host) may set. Absent/null means "no limit" — exactly the
+ * pre-Phase-3 behaviour. Dates are taken as given (ISO) and stored UTC. */
+export function parseCouponLimits(b: Record<string, unknown>): { ok: true; limits: CouponLimits } | { ok: false; error: string } {
+  const intOrNull = (v: unknown, min: number, label: string): number | null | string => {
+    if (v === undefined || v === null || v === "") return null;
+    if (typeof v !== "number" || !Number.isInteger(v) || v < min) return `${label} must be a whole number of at least ${min}`;
+    return v;
+  };
+  const minSpend = intOrNull(b.minSpendCents, 0, "Minimum spend");
+  if (typeof minSpend === "string") return { ok: false, error: minSpend };
+  const maxDiscount = intOrNull(b.maxDiscountCents, 1, "Maximum discount");
+  if (typeof maxDiscount === "string") return { ok: false, error: maxDiscount };
+  const perCustomer = intOrNull(b.perCustomerLimit, 1, "Uses per customer");
+  if (typeof perCustomer === "string") return { ok: false, error: perCustomer };
+  let startsAt: string | null = null;
+  if (b.startsAt !== undefined && b.startsAt !== null && b.startsAt !== "") {
+    const d = new Date(String(b.startsAt));
+    if (Number.isNaN(d.getTime())) return { ok: false, error: "Start date isn't a valid date" };
+    startsAt = d.toISOString().slice(0, 19).replace("T", " ");
+  }
+  return { ok: true, limits: { minSpendCents: minSpend, maxDiscountCents: maxDiscount, perCustomerLimit: perCustomer, startsAt } };
 }

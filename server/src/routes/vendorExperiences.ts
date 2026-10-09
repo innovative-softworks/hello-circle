@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { releaseCoupon, releaseRedemption } from "../bookingIntegrity.js";
 import { syncOrderFromSource } from "../commerce/engine.js";
 import { matchExperienceSupply } from "../participationIntents.js";
 import { Router } from "express";
@@ -398,7 +399,16 @@ vendorExperiencesRouter.delete("/experiences/:id/sessions/:sessionId", requirePl
       .prepare(`SELECT ref, participant_name as participantName, email, resident_id as residentId FROM experience_bookings WHERE session_id = ? AND status != 'cancelled' AND payment_status IN ('paid', 'pending')`)
       .all(session.id)) as { ref: string; participantName: string; email: string; residentId: string | null }[];
     await tx.prepare(`UPDATE experience_bookings SET status = 'cancelled' WHERE session_id = ? AND status != 'cancelled' AND payment_status IN ('paid', 'pending')`).run(session.id);
+    // Commerce audit R28 — pending holds end here, so hand back the coupon use
+    // each one reserved (endPendingHold's rule), in this same transaction.
+    const pending = (await tx
+      .prepare(`SELECT ref, coupon_code as couponCode FROM experience_bookings WHERE session_id = ? AND payment_status = 'pending' FOR UPDATE`)
+      .all(session.id)) as { ref: string; couponCode: string | null }[];
     await tx.prepare(`UPDATE experience_bookings SET payment_status = 'failed' WHERE session_id = ? AND payment_status = 'pending'`).run(session.id);
+    for (const p of pending) {
+      await releaseCoupon(tx, p.couponCode);
+      await releaseRedemption(tx, "experience_bookings", p.ref);
+    }
     return { session, rows };
   });
   for (const b of affected.rows) await syncOrderFromSource("experience", b.ref);

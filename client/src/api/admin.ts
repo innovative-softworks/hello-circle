@@ -249,6 +249,18 @@ export interface AdminCoupon {
   expiresAt: string | null;
   active: number;
   createdAt: string;
+  /** Commerce Engine Phase 3 — who pays for the discount. */
+  funding: "platform" | "split" | "partner";
+  platformShareBps: number;
+  minSpendCents: number | null;
+  maxDiscountCents: number | null;
+  perCustomerLimit: number | null;
+  startsAt: string | null;
+  archivedAt: string | null;
+  createdByVendorId: string | null;
+  createdByResidentId: string | null;
+  confirmedRedemptions: number;
+  platformFundedMinor: number;
 }
 
 export interface CouponInput {
@@ -257,6 +269,14 @@ export interface CouponInput {
   amount: number;
   maxUses?: number | null;
   expiresAt?: string | null;
+  funding?: "platform" | "split";
+  platformShareBps?: number;
+  minSpendCents?: number | null;
+  maxDiscountCents?: number | null;
+  perCustomerLimit?: number | null;
+  startsAt?: string | null;
+  /** Required: every admin coupon change is audited with a reason. */
+  reason: string;
 }
 
 export function fetchAdminCoupons(): Promise<AdminCoupon[]> {
@@ -267,12 +287,13 @@ export function createAdminCoupon(input: CouponInput): Promise<{ ok: boolean }> 
   return request(`/admin/coupons`, { method: "POST", body: JSON.stringify(input) });
 }
 
-export function setAdminCouponActive(id: number, active: boolean): Promise<{ ok: boolean }> {
-  return request(`/admin/coupons/${id}/active`, { method: "PUT", body: JSON.stringify({ active }) });
+export function setAdminCouponActive(id: number, active: boolean, reason: string): Promise<{ ok: boolean }> {
+  return request(`/admin/coupons/${id}/active`, { method: "PUT", body: JSON.stringify({ active, reason }) });
 }
 
-export function deleteAdminCoupon(id: number): Promise<{ ok: boolean }> {
-  return request(`/admin/coupons/${id}`, { method: "DELETE" });
+/** Archives (never hard-deletes) a coupon. */
+export function archiveAdminCoupon(id: number, reason: string): Promise<{ ok: boolean }> {
+  return request(`/admin/coupons/${id}`, { method: "DELETE", body: JSON.stringify({ reason }) });
 }
 
 // --- moderation, audit, support (folded in from the former Platform Admin

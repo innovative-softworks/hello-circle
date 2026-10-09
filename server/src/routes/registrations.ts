@@ -2,7 +2,7 @@ import { Router } from "express";
 import { shadowLegacy } from "../commerce/engine.js";
 import { computeCapacity } from "../capacity.js";
 import { createCheckoutSession, paymentsAvailable, pricingLineItems } from "../checkoutService.js";
-import { VENDOR_SUSPENDED_ERROR, consumeCoupon, endPendingHold, occupiesCapacitySql, vendorSuspended } from "../bookingIntegrity.js";
+import { VENDOR_SUSPENDED_ERROR, consumeCoupon, customerKeyOf, endPendingHold, occupiesCapacitySql, vendorSuspended } from "../bookingIntegrity.js";
 import { logEvent } from "../analytics.js";
 import { db } from "../db/index.js";
 import { getClub } from "../db/queries.js";
@@ -178,9 +178,9 @@ async function reserveRegistration(
     // HC-QA-050 — reserve the coupon use with the registration, paid or pending.
     {
       try {
-        await consumeCoupon(tx, pricing.couponCode);
-      } catch {
-        throw new CouponExhaustedError("That code has been fully redeemed");
+        await consumeCoupon(tx, pricing.couponCode, { sourceType: "registration", ref, customerKey: customerKeyOf(residentId, clientId), discountMinor: pricing.discountCents, confirmed: status === "paid" });
+      } catch (e) {
+        throw new CouponExhaustedError(e instanceof Error ? e.message : "That code has been fully redeemed");
       }
     }
     await insertRegistration(ref, clientId, residentId, body, pricing, status, passId, tx);

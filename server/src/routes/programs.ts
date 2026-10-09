@@ -3,7 +3,7 @@ import { shadowLegacy } from "../commerce/engine.js";
 import { createCheckoutSession, pricingLineItems } from "../checkoutService.js";
 import { logEvent, logView } from "../analytics.js";
 import { db } from "../db/index.js";
-import { VENDOR_SUSPENDED_ERROR, consumeCoupon, endPendingHold, occupiesCapacitySql, vendorSuspended } from "../bookingIntegrity.js";
+import { VENDOR_SUSPENDED_ERROR, consumeCoupon, customerKeyOf, endPendingHold, occupiesCapacitySql, vendorSuspended } from "../bookingIntegrity.js";
 import { getListingAttributes, officialCircleSummary } from "../listingAttributes.js";
 import { programmeCancelBlock, refundStateOf } from "../selfCancel.js";
 import { irelandTodayIso } from "../irelandTime.js";
@@ -271,7 +271,9 @@ programsRouter.post("/:id/enroll", async (req, res) => {
         if (Number(enrolled) >= program.capacity) throw new Error("PROGRAM_FULL");
       }
       // HC-QA-037/050 — the coupon use is reserved with the enrolment (free or pending).
-      await consumeCoupon(tx, couponCode).catch(() => { throw new Error("COUPON_EXHAUSTED"); });
+      await consumeCoupon(tx, couponCode, { sourceType: "program", ref, customerKey: customerKeyOf(req.resident?.id, clientId), discountMinor: pricing.discountCents, confirmed: isFree }).catch((e) => {
+        throw new Error(`COUPON_EXHAUSTED:${e instanceof Error ? e.message : ""}`);
+      });
       await tx
         .prepare(
           `INSERT INTO program_enrollments (ref, program_id, resident_id, client_id, participant_name, participant_dob, email, phone, total_cents, coupon_code, payment_status, status)
@@ -282,7 +284,7 @@ programsRouter.post("/:id/enroll", async (req, res) => {
   } catch (e) {
     if (e instanceof Error && e.message === "PROGRAM_FULL") return res.status(409).json({ error: "This program is full" });
     if (e instanceof Error && e.message === "PROGRAM_DUPLICATE") return res.status(409).json({ error: "This participant is already enrolled", duplicate: true });
-    if (e instanceof Error && e.message === "COUPON_EXHAUSTED") return res.status(400).json({ error: "That code has been fully redeemed" });
+    if (e instanceof Error && e.message.startsWith("COUPON_EXHAUSTED")) return res.status(400).json({ error: e.message.slice("COUPON_EXHAUSTED:".length) || "That code has been fully redeemed" });
     throw e;
   }
 

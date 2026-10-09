@@ -83,7 +83,7 @@ An organisation's own `org_policies` row still wins for that organisation (uncha
 | `commerce.shadow_pricing` | off | Phase 2 (all six checkout flows) | Shadow-price every checkout and log diffs |
 | `commerce.engine_v2` | off | Phase 2 | Master switch for engine quotes/orders |
 | `commerce.engine_v2_experience` | off | Phase 2 (`experiences.ts`) | Experiences priced by rules and recorded as orders |
-| `commerce.coupons_v2` | off | Phase 3 | Funding-aware coupons |
+| `commerce.coupons_v2` | off | Phase 3 (`bookingIntegrity.ts`) | Coupon redemption ledger + uses-per-customer limit |
 | `commerce.settlement_ledger` | off | Phase 4 | Ledger and payout allocations |
 | `commerce.circle_credits` | off | Phase 5 | Partner reward points |
 | `commerce.pro_subscriptions` | off | Phase 6 | HelloCircle Pro |
@@ -102,7 +102,7 @@ An organisation's own `org_policies` row still wins for that organisation (uncha
 
 ## Not yet configurable (net-new, later phases)
 
-- Coupon policy (funding, min spend, max discount, per-customer limit): Phase 3
+- Coupon funding and limits are per-coupon fields (Phase 3), not a global rule — see `docs/commerce-data-model.md`.
 - Payout timing and refund policy: Phase 4
 - Reward programme: Phase 5
 - Subscription plan price and Stripe price mapping per environment: Phase 6

@@ -9,7 +9,7 @@ import { writeAudit } from "../audit.js";
 import { approximateCoords, db, getSetting, setSetting } from "../db/index.js";
 import { FEATURE_FLAG_KEYS, getAnalyticsFunnel, getCentre, getClub, getDemandSignals, getIntentClusters, getLiquidityScores, getMarketCategories, getParticipationStats, getReferralAttribution, getSupplyOverview, MARKET_CATEGORIES, orgFeatureFlagsById, type MarketCategory } from "../db/queries.js";
 import { endOfIrelandDay } from "../irelandTime.js";
-import { couponAmountError } from "../pricing.js";
+import { couponAmountError, parseCouponLimits } from "../pricing.js";
 import { adminCommerceRouter } from "./adminCommerce.js";
 import { NOTIFICATION_TEMPLATE_KEYS } from "../notificationTemplates.js";
 import { notifyResident } from "../notifications.js";
@@ -470,46 +470,95 @@ interface CouponInput {
 }
 
 adminRouter.get("/coupons", async (_req, res) => {
-  const rows = await db
+  const rows = (await db
     .prepare(
-      `SELECT id, code, kind, amount, max_uses as maxUses, used_count as usedCount,
-              expires_at as expiresAt, active, created_at as createdAt
-       FROM coupons ORDER BY created_at DESC`
+      `SELECT c.id, c.code, c.kind, c.amount, c.max_uses as maxUses, c.used_count as usedCount,
+              c.expires_at as expiresAt, c.active, c.created_at as createdAt,
+              c.funding, c.platform_share_bps as platformShareBps, c.min_spend_cents as minSpendCents, c.max_discount_cents as maxDiscountCents,
+              c.per_customer_limit as perCustomerLimit, c.starts_at as startsAt, c.archived_at as archivedAt,
+              c.created_by_vendor_id as createdByVendorId, c.created_by_resident_id as createdByResidentId,
+              (SELECT COUNT(*) FROM coupon_redemptions r WHERE r.coupon_id = c.id AND r.status = 'confirmed') as confirmedRedemptions,
+              (SELECT COALESCE(SUM(r.platform_funded_minor), 0) FROM coupon_redemptions r WHERE r.coupon_id = c.id AND r.status = 'confirmed') as platformFundedMinor
+       FROM coupons c ORDER BY c.created_at DESC`
     )
-    .all();
-  res.json(rows);
+    .all()) as Record<string, any>[];
+  res.json(rows.map((r) => ({ ...r, confirmedRedemptions: Number(r.confirmedRedemptions), platformFundedMinor: Number(r.platformFundedMinor) })));
 });
 
+/** Commerce Engine Phase 3 — every admin coupon change carries a reason. */
+function couponReason(body: unknown): string | null {
+  const reason = (body as { reason?: unknown } | undefined)?.reason;
+  return typeof reason === "string" && reason.trim().length >= 5 ? reason.trim().slice(0, 2000) : null;
+}
+
 adminRouter.post("/coupons", async (req, res) => {
-  const b = req.body as CouponInput;
+  const b = req.body as CouponInput & { funding?: string; platformShareBps?: unknown; reason?: unknown } & Record<string, unknown>;
   if (!b.code || !b.kind || !b.amount) return res.status(400).json({ error: "code, kind and amount are required" });
   const amountError = couponAmountError(b.kind, b.amount);
   if (amountError) return res.status(400).json({ error: amountError });
+  const reason = couponReason(b);
+  if (!reason) return res.status(400).json({ error: "A reason (at least 5 characters) is required" });
+  // Admin coupons are HelloCircle-funded, or split with the partner. A
+  // partner-funded coupon is created by the partner themselves (vendor/host
+  // routes), never on their behalf.
+  const funding = b.funding ?? "platform";
+  if (funding !== "platform" && funding !== "split") return res.status(400).json({ error: "Admin coupons are HelloCircle-funded or split-funded" });
+  let platformShareBps = 10_000;
+  if (funding === "split") {
+    if (typeof b.platformShareBps !== "number" || !Number.isInteger(b.platformShareBps) || b.platformShareBps < 1 || b.platformShareBps > 9_999) {
+      return res.status(400).json({ error: "A split coupon needs HelloCircle's share between 0.01% and 99.99%" });
+    }
+    platformShareBps = b.platformShareBps;
+  }
+  const limits = parseCouponLimits(b);
+  if (!limits.ok) return res.status(400).json({ error: limits.error });
 
   const code = b.code.trim().toUpperCase();
   // The admin picks a plain calendar date ("expires 25 Dec") — that should
   // mean valid through the end of that day in Ireland, not midnight UTC.
   const expiresAt = b.expiresAt ? endOfIrelandDay(b.expiresAt) : null;
   try {
-    await db.prepare(
-      `INSERT INTO coupons (code, kind, amount, max_uses, expires_at) VALUES (?, ?, ?, ?, ?)`
-    ).run(code, b.kind, b.amount, b.maxUses ?? null, expiresAt);
+    await db
+      .prepare(
+        `INSERT INTO coupons (code, kind, amount, max_uses, expires_at, funding, platform_share_bps, min_spend_cents, max_discount_cents, per_customer_limit, starts_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      )
+      .run(code, b.kind, b.amount, b.maxUses ?? null, expiresAt, funding, platformShareBps, limits.limits.minSpendCents, limits.limits.maxDiscountCents, limits.limits.perCustomerLimit, limits.limits.startsAt);
   } catch {
     return res.status(409).json({ error: "That code already exists" });
   }
+  await writeAudit({
+    actorUserId: req.user!.id,
+    actorKind: "user",
+    action: "coupon.created",
+    objectType: "coupon",
+    objectId: code,
+    newValue: { kind: b.kind, amount: b.amount, maxUses: b.maxUses ?? null, expiresAt, funding, platformShareBps, ...limits.limits },
+    reason,
+  });
   res.status(201).json({ ok: true });
 });
 
 adminRouter.put("/coupons/:id/active", async (req, res) => {
   const { active } = req.body as { active?: boolean };
-  const info = await db.prepare(`UPDATE coupons SET active = ? WHERE id = ?`).run(active ? 1 : 0, req.params.id);
-  if (info.changes === 0) return res.status(404).json({ error: "Coupon not found" });
+  const reason = couponReason(req.body);
+  if (!reason) return res.status(400).json({ error: "A reason (at least 5 characters) is required" });
+  const before = (await db.prepare(`SELECT code, active FROM coupons WHERE id = ? AND archived_at IS NULL`).get(req.params.id)) as { code: string; active: number } | undefined;
+  if (!before) return res.status(404).json({ error: "Coupon not found" });
+  await db.prepare(`UPDATE coupons SET active = ? WHERE id = ?`).run(active ? 1 : 0, req.params.id);
+  await writeAudit({ actorUserId: req.user!.id, actorKind: "user", action: active ? "coupon.resumed" : "coupon.paused", objectType: "coupon", objectId: before.code, previousValue: { active: !!before.active }, newValue: { active: !!active }, reason });
   res.json({ ok: true });
 });
 
+/** Archive, never hard-delete (commerce audit R6): historical orders keep a
+ * coupon_code with no foreign key, so the row must stay resolvable. */
 adminRouter.delete("/coupons/:id", async (req, res) => {
-  const info = await db.prepare(`DELETE FROM coupons WHERE id = ?`).run(req.params.id);
-  if (info.changes === 0) return res.status(404).json({ error: "Coupon not found" });
+  const reason = couponReason(req.body);
+  if (!reason) return res.status(400).json({ error: "A reason (at least 5 characters) is required" });
+  const before = (await db.prepare(`SELECT code FROM coupons WHERE id = ? AND archived_at IS NULL`).get(req.params.id)) as { code: string } | undefined;
+  if (!before) return res.status(404).json({ error: "Coupon not found" });
+  await db.prepare(`UPDATE coupons SET active = 0, archived_at = NOW() WHERE id = ?`).run(req.params.id);
+  await writeAudit({ actorUserId: req.user!.id, actorKind: "user", action: "coupon.archived", objectType: "coupon", objectId: before.code, newValue: { archived: true }, reason });
   res.json({ ok: true });
 });
 

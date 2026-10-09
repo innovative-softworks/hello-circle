@@ -13,7 +13,7 @@ import { notifyCancellation, notifyNewBookingOrRegistration } from "../notificat
 import { computePricing, evaluateCoupon, splitCostPerPerson } from "../pricing.js";
 import { lookupLimiter } from "../rateLimit.js";
 import { BadRequestError, ConflictError, bookingEndHour, clientIdFrom, generateRef, hoursOverlap, isValidEmail } from "../util.js";
-import { VENDOR_SUSPENDED_ERROR, consumeCoupon, endPendingHold, isPositiveInt, occupiesCapacitySql, startIsInFuture, validateFutureDate, vendorSuspended } from "../bookingIntegrity.js";
+import { VENDOR_SUSPENDED_ERROR, consumeCoupon, customerKeyOf, endPendingHold, isPositiveInt, occupiesCapacitySql, startIsInFuture, validateFutureDate, vendorSuspended } from "../bookingIntegrity.js";
 
 export const bookingsRouter = Router();
 
@@ -247,9 +247,9 @@ export async function createBookingInternal(input: CreateBookingInternalInput): 
       // or online); a pending online hold that fails/expires hands it back.
       if (couponCode) {
         try {
-          await consumeCoupon(tx, couponCode);
-        } catch {
-          throw new BadRequestError("That code has been fully redeemed");
+          await consumeCoupon(tx, couponCode, { sourceType: "booking", ref, customerKey: customerKeyOf(input.residentId, input.clientId), discountMinor: discountCents, confirmed: isCash });
+        } catch (e) {
+          throw new BadRequestError(e instanceof Error ? e.message : "That code has been fully redeemed");
         }
       }
 

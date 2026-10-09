@@ -96,7 +96,7 @@ export interface EnginePrice {
 export async function priceWithRules(
   type: CheckoutType,
   partner: PartnerRef | null,
-  input: { listMinor: number; discountMinor: number; depositMinor: number },
+  input: { listMinor: number; discountMinor: number; depositMinor: number; platformFundedDiscountMinor?: number },
   at: Date = new Date()
 ): Promise<EnginePrice> {
   const resolved = await resolveRule("pricing", { scenario: SCENARIO_OF[type], category: CATEGORY_OF[type], orgId: partner?.orgId ?? null, hostResidentId: partner?.hostResidentId ?? null }, at);
@@ -273,8 +273,8 @@ export async function createOrder(tx: Tx, input: OrderInput): Promise<string> {
     .prepare(
       `INSERT INTO pricing_snapshots (order_id, engine_version, rule_hash, rule_sources, rule_values, currency, list_minor, discount_minor, coupon_code,
          goods_gross_minor, vat_minor, customer_fee_minor, deposit_minor, customer_paid_minor, partner_gross_minor, success_fee_minor,
-         payment_cost_minor, partner_payment_cost_minor, partner_payout_minor, platform_revenue_minor, platform_contribution_minor)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+         payment_cost_minor, partner_payment_cost_minor, partner_payout_minor, platform_revenue_minor, platform_contribution_minor, platform_funded_discount_minor)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .run(
       id,
@@ -297,26 +297,31 @@ export async function createOrder(tx: Tx, input: OrderInput): Promise<string> {
       b.partnerPaymentCostMinor,
       b.partnerPayoutMinor,
       b.platformRevenueMinor,
-      b.platformContributionMinor
+      b.platformContributionMinor,
+      b.platformFundedDiscountMinor
     );
   if (input.quoteId) await tx.prepare(`UPDATE commerce_quotes SET order_id = ? WHERE id = ?`).run(id, input.quoteId);
   return id;
 }
 
-/** Mirrors the participation row's state onto its order (if it has one).
- * Idempotent and safe to call after any transition; a no-op for rows that
- * were never priced by the engine. A deleted pending row (expired/failed
- * checkout, the legacy convention for several tables) ends the order failed. */
+/** Mirrors the participation row's state onto its commerce order (if the
+ * engine priced it) and its coupon redemption (if one was recorded).
+ * Idempotent and safe to call after any transition; a no-op for rows with
+ * neither. A deleted pending row (expired/failed checkout, the legacy
+ * convention for several tables) ends the order failed. */
 export async function syncOrderFromSource(sourceType: CheckoutType, ref: string): Promise<void> {
   try {
-    const order = (await db.prepare(`SELECT id, customer_paid_minor as paid FROM commerce_orders WHERE source_type = ? AND source_ref = ?`).get(sourceType, ref)) as
-      | { id: string; paid: number }
-      | undefined;
-    if (!order) return;
+    if (sourceType === "pass") return; // passes carry no status column and no coupons (Phase 8)
     const table = SOURCE_TABLES[sourceType];
     const row = (await db.prepare(`SELECT status, payment_status as paymentStatus, stripe_session_id as stripeSessionId FROM ${table} WHERE ref = ?`).get(ref)) as
       | { status: string; paymentStatus: string; stripeSessionId: string | null }
       | undefined;
+    await syncRedemption(sourceType, ref, row);
+
+    const order = (await db.prepare(`SELECT id, customer_paid_minor as paid FROM commerce_orders WHERE source_type = ? AND source_ref = ?`).get(sourceType, ref)) as
+      | { id: string; paid: number }
+      | undefined;
+    if (!order) return;
     let orderStatus: string;
     let paymentStatus: string;
     let fulfilment = "scheduled";
@@ -339,10 +344,32 @@ export async function syncOrderFromSource(sourceType: CheckoutType, ref: string)
       .prepare(`UPDATE commerce_orders SET order_status = ?, payment_status = ?, fulfilment_status = ?, stripe_session_id = COALESCE(?, stripe_session_id) WHERE id = ?`)
       .run(orderStatus, paymentStatus, fulfilment, row?.stripeSessionId ?? null, order.id);
   } catch (e) {
-    // Never fail the legacy transition because the order mirror couldn't update;
-    // the reconciliation view (Phase 4) re-derives it from the source row.
-    console.error(`[commerce] order sync failed for ${sourceType} ${ref}:`, e);
+    // Never fail the legacy transition because a mirror couldn't update; the
+    // reconciliation view (Phase 4) re-derives both from the source row.
+    console.error(`[commerce] order/redemption sync failed for ${sourceType} ${ref}:`, e);
   }
+}
+
+/** Coupon redemption lifecycle (Phase 3): reserved → confirmed when paid,
+ * → released when the hold ended unpaid, confirmed → reversed on refund.
+ * Only forward transitions; replays are no-ops. */
+async function syncRedemption(sourceType: CheckoutType, ref: string, row: { status: string; paymentStatus: string } | undefined) {
+  let to: string | null = null;
+  let from: string[] = [];
+  if (!row || row.paymentStatus === "failed") {
+    to = "released";
+    from = ["reserved"];
+  } else if (row.paymentStatus === "refunded") {
+    to = "reversed";
+    from = ["reserved", "confirmed"];
+  } else if (row.paymentStatus === "paid") {
+    to = "confirmed";
+    from = ["reserved"];
+  }
+  if (!to) return;
+  await db
+    .prepare(`UPDATE coupon_redemptions SET status = ? WHERE source_type = ? AND source_ref = ? AND status IN (${from.map(() => "?").join(", ")})`)
+    .run(to, sourceType, ref, ...from);
 }
 
 // --- shadow pricing -------------------------------------------------------------

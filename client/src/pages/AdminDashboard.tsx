@@ -6,7 +6,7 @@ import {
   adminDeleteClub,
   createAdminCoupon,
   createAdminOrganisation,
-  deleteAdminCoupon,
+  archiveAdminCoupon,
   fetchActivityOverview,
   fetchAdminCoupons,
   fetchAdminDemand,
@@ -1371,11 +1371,27 @@ function SupportTab() {
   );
 }
 
+// Commerce Engine Phase 3 — admin coupons carry a funding source
+// (HelloCircle-funded, or split with the partner), optional limits, and a
+// mandatory reason on every change (audited server-side). Remove = archive.
+const EMPTY_COUPON_FORM = { code: "", kind: "percent" as "percent" | "fixed", amount: "", maxUses: "", expiresAt: "", funding: "platform" as "platform" | "split", sharePct: "50", minSpend: "", maxDiscount: "", perCustomer: "", startsAt: "", reason: "" };
+
+const euroToCents = (v: string) => (v.trim() === "" ? null : Math.round(Number(v) * 100));
+const intOrNull = (v: string) => (v.trim() === "" ? null : Number(v));
+
+function couponFundingLabel(c: AdminCoupon): string {
+  if (c.createdByVendorId || c.createdByResidentId || c.funding === "partner") return c.createdByResidentId ? "Host-funded" : "Vendor-funded";
+  if (c.funding === "split") return `Split · HelloCircle ${(c.platformShareBps / 100).toFixed(0)}%`;
+  return "HelloCircle-funded";
+}
+
 function CouponsTab() {
   const [coupons, setCoupons] = useState<AdminCoupon[]>([]);
-  const [form, setForm] = useState({ code: "", kind: "percent" as "percent" | "fixed", amount: "", maxUses: "", expiresAt: "" });
+  const [form, setForm] = useState(EMPTY_COUPON_FORM);
   const [error, setError] = useState<string | null>(null);
-  const [confirmingId, setConfirmingId] = useState<number | null>(null);
+  const [action, setAction] = useState<{ coupon: AdminCoupon; kind: "pause" | "resume" | "archive" } | null>(null);
+  const [actionReason, setActionReason] = useState("");
+  const [actionError, setActionError] = useState<string | null>(null);
   const load = () => fetchAdminCoupons().then(setCoupons);
   useEffect(() => { load(); }, []);
 
@@ -1386,92 +1402,140 @@ function CouponsTab() {
       await createAdminCoupon({
         code: form.code.trim(),
         kind: form.kind,
-        amount: Number(form.amount),
-        maxUses: form.maxUses ? Number(form.maxUses) : null,
+        amount: form.kind === "fixed" ? Math.round(Number(form.amount) * 100) : Number(form.amount),
+        maxUses: intOrNull(form.maxUses),
         expiresAt: form.expiresAt || null,
+        funding: form.funding,
+        platformShareBps: form.funding === "split" ? Math.round(Number(form.sharePct) * 100) : undefined,
+        minSpendCents: euroToCents(form.minSpend),
+        maxDiscountCents: euroToCents(form.maxDiscount),
+        perCustomerLimit: intOrNull(form.perCustomer),
+        startsAt: form.startsAt ? new Date(`${form.startsAt}T00:00:00`).toISOString() : null,
+        reason: form.reason,
       });
-      setForm({ code: "", kind: "percent", amount: "", maxUses: "", expiresAt: "" });
+      setForm(EMPTY_COUPON_FORM);
       load();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Couldn't create that coupon");
     }
   };
 
+  const runAction = async () => {
+    if (!action) return;
+    setActionError(null);
+    try {
+      if (action.kind === "archive") await archiveAdminCoupon(action.coupon.id, actionReason);
+      else await setAdminCouponActive(action.coupon.id, action.kind === "resume", actionReason);
+      setAction(null);
+      setActionReason("");
+      load();
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : "That didn't work");
+    }
+  };
+
+  const visible = coupons.filter((c) => !c.archivedAt);
+  const field = (label: string, input: ReactNode) => (
+    <div>
+      <label style={labelStyle}>{label}</label>
+      {input}
+    </div>
+  );
+
   return (
     <div className="fade-panel" style={{ display: "flex", flexDirection: "column", gap: 24 }}>
       <Card>
         <h3 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 16, margin: "0 0 14px" }}>New coupon</h3>
-        <div className="grid-responsive" style={{ display: "grid", gridTemplateColumns: "1.1fr 0.8fr 0.8fr 1fr 1.1fr auto", gap: 8, alignItems: "end" }}>
-          <div>
-            <label style={labelStyle}>Code</label>
-            <input placeholder="WELCOME10" value={form.code} onChange={(e) => setForm((f) => ({ ...f, code: e.target.value.toUpperCase() }))} style={{ ...inputStyle, textTransform: "uppercase" }} />
-          </div>
-          <div>
-            <label style={labelStyle}>Type</label>
+        <div className="grid-responsive" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: 10, alignItems: "end" }}>
+          {field("Code", <input placeholder="WELCOME10" value={form.code} onChange={(e) => setForm((f) => ({ ...f, code: e.target.value.toUpperCase() }))} style={{ ...inputStyle, textTransform: "uppercase" }} />)}
+          {field("Type", (
             <select value={form.kind} onChange={(e) => setForm((f) => ({ ...f, kind: e.target.value as "percent" | "fixed" }))} style={inputStyle}>
               <option value="percent">% off</option>
               <option value="fixed">€ off</option>
             </select>
+          ))}
+          {field(form.kind === "percent" ? "Amount (%)" : "Amount (€)", <input type="number" placeholder={form.kind === "percent" ? "10" : "5.00"} value={form.amount} onChange={(e) => setForm((f) => ({ ...f, amount: e.target.value }))} style={inputStyle} />)}
+          {field("Funded by", (
+            <select value={form.funding} onChange={(e) => setForm((f) => ({ ...f, funding: e.target.value as "platform" | "split" }))} style={inputStyle}>
+              <option value="platform">HelloCircle</option>
+              <option value="split">Split with partner</option>
+            </select>
+          ))}
+          {form.funding === "split" && field("HelloCircle share (%)", <input type="number" min={1} max={99} value={form.sharePct} onChange={(e) => setForm((f) => ({ ...f, sharePct: e.target.value }))} style={inputStyle} />)}
+          {field("Max uses (optional)", <input type="number" placeholder="Unlimited" value={form.maxUses} onChange={(e) => setForm((f) => ({ ...f, maxUses: e.target.value }))} style={inputStyle} />)}
+          {field("Uses per customer", <input type="number" placeholder="Unlimited" value={form.perCustomer} onChange={(e) => setForm((f) => ({ ...f, perCustomer: e.target.value }))} style={inputStyle} />)}
+          {field("Minimum spend (€)", <input type="number" placeholder="None" value={form.minSpend} onChange={(e) => setForm((f) => ({ ...f, minSpend: e.target.value }))} style={inputStyle} />)}
+          {field("Maximum discount (€)", <input type="number" placeholder="None" value={form.maxDiscount} onChange={(e) => setForm((f) => ({ ...f, maxDiscount: e.target.value }))} style={inputStyle} />)}
+          {field("Starts (optional)", <input type="date" value={form.startsAt} onChange={(e) => setForm((f) => ({ ...f, startsAt: e.target.value }))} style={inputStyle} />)}
+          {field("Expires (optional)", <input type="date" value={form.expiresAt} onChange={(e) => setForm((f) => ({ ...f, expiresAt: e.target.value }))} style={inputStyle} />)}
+        </div>
+        <div style={{ display: "flex", gap: 10, alignItems: "end", marginTop: 12, flexWrap: "wrap" }}>
+          <div style={{ flex: 1, minWidth: 220 }}>
+            <label style={labelStyle}>Reason (required, audited)</label>
+            <input placeholder="e.g. Autumn launch campaign" value={form.reason} onChange={(e) => setForm((f) => ({ ...f, reason: e.target.value }))} style={inputStyle} />
           </div>
-          <div>
-            <label style={labelStyle}>Amount</label>
-            <input type="number" placeholder={form.kind === "percent" ? "10" : "500"} value={form.amount} onChange={(e) => setForm((f) => ({ ...f, amount: e.target.value }))} style={inputStyle} />
-          </div>
-          <div>
-            <label style={labelStyle}>Max uses (optional)</label>
-            <input type="number" placeholder="Unlimited" value={form.maxUses} onChange={(e) => setForm((f) => ({ ...f, maxUses: e.target.value }))} style={inputStyle} />
-          </div>
-          <div>
-            <label style={labelStyle}>Expires (optional)</label>
-            <input type="date" value={form.expiresAt} onChange={(e) => setForm((f) => ({ ...f, expiresAt: e.target.value }))} style={inputStyle} />
-          </div>
-          <Button onClick={create}>Create</Button>
+          <Button onClick={create} disabled={form.reason.trim().length < 5}>Create</Button>
         </div>
         <p style={{ fontSize: 12, color: colors.mutedLight, margin: "10px 0 0" }}>
-          "€ off" amounts are in cents (e.g. 500 = €5.00). Applies to the pre-VAT/fee subtotal on any booking or registration.
+          Applies to the pre-VAT/fee subtotal. HelloCircle-funded discounts are paid back to the partner, so partners keep their full price. Partners create their own (partner-funded) coupons from their dashboards.
         </p>
         {error && <p className="pop-in" style={{ color: colors.danger, fontSize: 13, margin: "12px 0 0", background: colors.dangerBg, padding: "9px 12px", borderRadius: radius.control }}>{error}</p>}
       </Card>
 
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-        {coupons.map((c) => (
+        {visible.map((c) => (
           <Card key={c.id} hover style={{ padding: 15, display: "flex", flexWrap: "wrap", gap: 10, justifyContent: "space-between", alignItems: "center" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
               <div style={{ width: 36, height: 36, borderRadius: "50%", background: colors.greenBg, color: colors.greenText, display: "flex", alignItems: "center", justifyContent: "center", flex: "none" }}>
                 <TagIcon size={16} />
               </div>
               <div>
-                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
                   <span style={{ fontWeight: 700, fontSize: 14, fontFamily: "monospace" }}>{c.code}</span>
-                  <StatusBadge status={c.active ? "approved" : "suspended"} />
+                  <StatusBadge status={c.active ? "approved" : "paused"} label={c.active ? "Active" : "Paused"} />
+                  <span style={{ fontSize: 11.5, color: colors.muted }}>{couponFundingLabel(c)}</span>
                 </div>
                 <div style={{ fontSize: 12, color: colors.mutedLight }}>
                   {c.kind === "percent" ? `${c.amount}% off` : `€${(c.amount / 100).toFixed(2)} off`} · used {c.usedCount}
-                  {c.maxUses ? `/${c.maxUses}` : ""} times{c.expiresAt ? ` · expires ${c.expiresAt}` : ""}
+                  {c.maxUses ? `/${c.maxUses}` : ""} times
+                  {c.perCustomerLimit ? ` · ${c.perCustomerLimit} per customer` : ""}
+                  {c.minSpendCents ? ` · min spend €${(c.minSpendCents / 100).toFixed(2)}` : ""}
+                  {c.maxDiscountCents ? ` · max €${(c.maxDiscountCents / 100).toFixed(2)} off` : ""}
+                  {c.startsAt ? ` · from ${c.startsAt.slice(0, 10)}` : ""}
+                  {c.expiresAt ? ` · expires ${c.expiresAt}` : ""}
+                  {c.platformFundedMinor ? ` · HelloCircle has funded €${(c.platformFundedMinor / 100).toFixed(2)}` : ""}
                 </div>
               </div>
             </div>
             <div style={{ display: "flex", gap: 8 }}>
-              {c.active ? (
-                <Button variant="ghost" onClick={() => setAdminCouponActive(c.id, false).then(load)}>Deactivate</Button>
-              ) : (
-                <Button variant="dark" onClick={() => setAdminCouponActive(c.id, true).then(load)}>Activate</Button>
-              )}
-              <Button variant="danger" onClick={() => setConfirmingId(c.id)}>Delete</Button>
+              <Button variant={c.active ? "ghost" : "dark"} onClick={() => { setAction({ coupon: c, kind: c.active ? "pause" : "resume" }); setActionReason(""); setActionError(null); }}>
+                {c.active ? "Pause" : "Resume"}
+              </Button>
+              <Button variant="danger" onClick={() => { setAction({ coupon: c, kind: "archive" }); setActionReason(""); setActionError(null); }}>Archive</Button>
             </div>
           </Card>
         ))}
-        {coupons.length === 0 && <EmptyState icon={<TagIcon size={26} />} title="No coupons yet" subtitle="Create one above." />}
+        {visible.length === 0 && <EmptyState icon={<TagIcon size={26} />} title="No coupons yet" subtitle="Create one above." />}
       </div>
 
-      <ConfirmDialog
-        open={confirmingId !== null}
-        title="Delete this coupon?"
-        message="This permanently deletes the coupon — it can't be undone. Consider Deactivate instead if you might want it again."
-        confirmLabel="Delete"
-        onConfirm={() => { if (confirmingId !== null) deleteAdminCoupon(confirmingId).then(load); setConfirmingId(null); }}
-        onCancel={() => setConfirmingId(null)}
-      />
+      {action && (
+        <Modal
+          open
+          onClose={() => setAction(null)}
+          title={`${action.kind === "archive" ? "Archive" : action.kind === "pause" ? "Pause" : "Resume"} ${action.coupon.code}`}
+          subtitle={action.kind === "archive" ? "The code stops working and is hidden here; past orders keep their record." : undefined}
+          footer={
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+              <Button variant="ghost" onClick={() => setAction(null)}>Cancel</Button>
+              <Button variant={action.kind === "archive" ? "danger" : "primary"} disabled={actionReason.trim().length < 5} onClick={runAction}>Confirm</Button>
+            </div>
+          }
+        >
+          <label style={labelStyle}>Reason (required, audited)</label>
+          <textarea rows={3} value={actionReason} onChange={(e) => setActionReason(e.target.value)} style={{ ...inputStyle, resize: "vertical" }} />
+          {actionError && <p style={{ color: colors.danger, fontSize: 13, marginTop: 10 }}>{actionError}</p>}
+        </Modal>
+      )}
     </div>
   );
 }

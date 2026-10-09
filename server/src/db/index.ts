@@ -2399,6 +2399,39 @@ async function initCommerceSchema(
   await ensureIndex("commerce_quotes", "idx_quote_expiry", "(expires_at)");
   await ensureIndex("commerce_shadow_diffs", "idx_shadow_matched", "(matched, created_at)");
 
+  // Phase 3 — coupon funding + optional limits (all nullable: a coupon that
+  // doesn't set them behaves exactly as before) and the redemption ledger.
+  await ensureColumn("coupons", "funding", "funding VARCHAR(20) NOT NULL DEFAULT 'platform'");
+  await ensureColumn("coupons", "platform_share_bps", "platform_share_bps INT NOT NULL DEFAULT 10000");
+  await ensureColumn("coupons", "min_spend_cents", "min_spend_cents INT NULL");
+  await ensureColumn("coupons", "max_discount_cents", "max_discount_cents INT NULL");
+  await ensureColumn("coupons", "per_customer_limit", "per_customer_limit INT NULL");
+  await ensureColumn("coupons", "starts_at", "starts_at DATETIME NULL");
+  await ensureColumn("coupons", "archived_at", "archived_at DATETIME NULL");
+  // Partner-created coupons are always partner-funded (a partner can never
+  // spend HelloCircle money). Idempotent: only rows still marked otherwise.
+  await db.exec(`
+    UPDATE coupons SET funding = 'partner', platform_share_bps = 0
+    WHERE (created_by_vendor_id IS NOT NULL OR created_by_resident_id IS NOT NULL) AND (funding <> 'partner' OR platform_share_bps <> 0)
+  `);
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS coupon_redemptions (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      coupon_id INT NOT NULL,
+      code VARCHAR(191) NOT NULL,
+      source_type VARCHAR(20) NOT NULL,
+      source_ref VARCHAR(191) NOT NULL,
+      customer_key VARCHAR(200) NOT NULL,
+      discount_minor BIGINT NOT NULL,
+      platform_funded_minor BIGINT NOT NULL,
+      status VARCHAR(20) NOT NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      UNIQUE KEY uniq_redemption_source (source_type, source_ref)
+    )
+  `);
+  await ensureIndex("coupon_redemptions", "idx_redemption_customer", "(coupon_id, customer_key, status)");
+
   // Seed version 1 of every rule = today's live behaviour, plus the target
   // model as an unpublished pricing draft. INSERT IGNORE on the unique
   // (rule_key, scope_type, scope_id, version) key makes this a no-op on

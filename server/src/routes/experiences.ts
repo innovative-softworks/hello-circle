@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { allocate } from "../commerce/money.js";
 import { commerceQuoteLimiter } from "../rateLimit.js";
 import { createCheckoutSession, pricingLineItems } from "../checkoutService.js";
 import { logEvent, logView } from "../analytics.js";
@@ -13,7 +14,7 @@ import { notifyCancellation, notifyNewBookingOrRegistration } from "../notificat
 import { computePricing, evaluateCoupon } from "../pricing.js";
 import { QuoteError, consumeQuote, createOrder, createQuote, engineEnabledFor, engineLineItems, legacyColumns, priceWithRules, releaseQuote, shadowPrice, syncOrderFromSource, vendorPartner } from "../commerce/engine.js";
 import { BadRequestError, ConflictError, clientIdFrom, generateRef, isValidEmail } from "../util.js";
-import { VENDOR_SUSPENDED_ERROR, consumeCoupon, endPendingHold, isPositiveInt, occupiesCapacitySql, startIsInFuture, vendorSuspended } from "../bookingIntegrity.js";
+import { VENDOR_SUSPENDED_ERROR, consumeCoupon, customerKeyOf, endPendingHold, isPositiveInt, occupiesCapacitySql, startIsInFuture, vendorSuspended } from "../bookingIntegrity.js";
 
 // Adventures & Experiences — a standalone third listing type alongside
 // centres/clubs (not nested under either), added post-IA-spec-audit. Same
@@ -233,15 +234,20 @@ async function quoteExperience(experience: ExperienceRow, partySize: number, raw
 async function engineQuoteExperience(experience: ExperienceRow, partySize: number, rawCoupon: string | undefined) {
   const listMinor = experience.price_cents * partySize;
   let discountMinor = 0;
+  let platformShareBps = 0;
   let couponCode: string | null = null;
   if (rawCoupon) {
     const result = await evaluateCoupon(rawCoupon, listMinor, { listingType: "experience", listingId: experience.id });
     if (!result.valid) return { ok: false as const, error: result.error! };
-    discountMinor = result.discountCents!;
+    discountMinor = Math.min(result.discountCents!, listMinor);
+    platformShareBps = result.platformShareBps ?? 0;
     couponCode = result.code!;
   }
+  // Phase 3 — the coupon's funding decides who absorbs the discount; the
+  // split is exact (largest remainder), recorded in the order snapshot.
+  const platformFundedDiscountMinor = discountMinor > 0 && platformShareBps > 0 ? allocate(discountMinor, [platformShareBps, 10_000 - platformShareBps])[0] : 0;
   const partner = await vendorPartner(experience.vendor_id);
-  const price = await priceWithRules("experience", partner, { listMinor, discountMinor: Math.min(discountMinor, listMinor), depositMinor: 0 });
+  const price = await priceWithRules("experience", partner, { listMinor, discountMinor, depositMinor: 0, platformFundedDiscountMinor });
   return { ok: true as const, price, partner, couponCode };
 }
 
@@ -384,9 +390,9 @@ experiencesRouter.post("/:id/sessions/:sessionId/checkout", async (req, res) => 
       // HC-QA-037/050 — the coupon use is reserved with the order (confirmed or pending).
       if (couponCode) {
         try {
-          await consumeCoupon(tx, couponCode);
-        } catch {
-          throw new BadRequestError("That code has been fully redeemed");
+          await consumeCoupon(tx, couponCode, { sourceType: "experience", ref, customerKey: customerKeyOf(req.resident?.id, clientId), discountMinor: pricing.discountCents, confirmed: confirmsNow });
+        } catch (e) {
+          throw new BadRequestError(e instanceof Error ? e.message : "That code has been fully redeemed");
         }
       }
 
