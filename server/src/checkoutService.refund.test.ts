@@ -24,8 +24,8 @@ beforeEach(() => {
 describe("issueStripeRefund — provider-state reconciliation (HC-QA-091)", () => {
   it("refunds once, idempotently, when nothing has been refunded yet", async () => {
     fake.paymentIntents.retrieve.mockResolvedValue(charge(2000, 0));
-    fake.refunds.create.mockResolvedValue({ amount: 2000 });
-    expect(await issueStripeRefund("cs_qa_1")).toEqual({ ok: true, amountCents: 2000, reconciled: false });
+    fake.refunds.create.mockResolvedValue({ id: "re_qa_1", amount: 2000 });
+    expect(await issueStripeRefund("cs_qa_1")).toEqual({ ok: true, amountCents: 2000, reconciled: false, refundId: "re_qa_1" });
     expect(fake.refunds.create).toHaveBeenCalledTimes(1);
     expect(fake.refunds.create.mock.calls[0][1]).toEqual({ idempotencyKey: "hc-refund-cs_qa_1" });
   });

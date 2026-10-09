@@ -60,7 +60,7 @@ describe("issueStripeRefund through the provider", () => {
 
   it("full refund once; a second request reconciles instead of refunding again", async () => {
     stubProvider.markPaid("cs_full", 3_000);
-    expect(await issueStripeRefund("cs_full")).toEqual({ ok: true, amountCents: 3_000, reconciled: false });
+    expect(await issueStripeRefund("cs_full")).toEqual({ ok: true, amountCents: 3_000, reconciled: false, refundId: "re_stub_1" });
     expect(await issueStripeRefund("cs_full")).toEqual({ ok: true, amountCents: 3_000, reconciled: true });
     expect(stubProvider.calls.filter((c) => c.method === "createRefund")).toHaveLength(1);
   });
@@ -68,7 +68,7 @@ describe("issueStripeRefund through the provider", () => {
   it("partial refunds use their own idempotency key and the exact amount", async () => {
     stubProvider.markPaid("cs_part", 12_800);
     const r = await issueStripeRefund("cs_part", { amountMinor: 10_000, idempotencyKey: "hc-refund-cs_part-deposit" });
-    expect(r).toEqual({ ok: true, amountCents: 10_000, reconciled: false });
+    expect(r).toEqual({ ok: true, amountCents: 10_000, reconciled: false, refundId: "re_stub_1" });
     expect((await stubProvider.chargeState("pi_stub_cs_part")).refundedMinor).toBe(10_000);
   });
 

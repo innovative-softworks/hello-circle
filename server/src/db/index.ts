@@ -2516,6 +2516,152 @@ async function initCommerceSchema(
     )
   `);
   await ensureIndex("partner_plan_assignments", "idx_plan_assignment_partner", "(partner_kind, partner_id, effective_from)");
+
+  // Revenue & Connect Stage 2c — webhook event store, payment records,
+  // refunds, disputes and the append-only double-entry ledger.
+  // webhook_events keeps a minimal summary (never the full payload: replay
+  // re-fetches the event from the provider). Ledger rows are never updated or
+  // deleted by application code; corrections are reversing groups.
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS webhook_events (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      provider VARCHAR(20) NOT NULL,
+      event_id VARCHAR(255) NOT NULL,
+      event_type VARCHAR(100) NOT NULL,
+      connected_account VARCHAR(255) NULL,
+      livemode TINYINT NOT NULL DEFAULT 0,
+      object_id VARCHAR(255) NULL,
+      summary TEXT NOT NULL,
+      payload_sha256 CHAR(64) NOT NULL,
+      status VARCHAR(20) NOT NULL,
+      attempts INT NOT NULL DEFAULT 0,
+      last_error VARCHAR(500) NULL,
+      provider_created_at DATETIME NULL,
+      received_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      processed_at DATETIME NULL,
+      UNIQUE KEY uniq_webhook_event (provider, event_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS payment_records (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      source_type VARCHAR(20) NOT NULL,
+      source_ref VARCHAR(191) NOT NULL,
+      provider VARCHAR(20) NOT NULL,
+      checkout_session_id VARCHAR(255) NULL,
+      payment_intent_id VARCHAR(255) NULL,
+      amount_minor BIGINT NOT NULL,
+      currency CHAR(3) NOT NULL,
+      status VARCHAR(20) NOT NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      UNIQUE KEY uniq_payment_source (source_type, source_ref)
+    );
+
+    CREATE TABLE IF NOT EXISTS refunds (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      source_type VARCHAR(20) NOT NULL,
+      source_ref VARCHAR(191) NOT NULL,
+      payment_record_id INT NULL,
+      provider_refund_id VARCHAR(255) NULL,
+      idempotency_key VARCHAR(255) NOT NULL,
+      amount_minor BIGINT NOT NULL,
+      currency CHAR(3) NOT NULL,
+      kind VARCHAR(20) NOT NULL,
+      origin VARCHAR(20) NOT NULL,
+      responsible VARCHAR(20) NOT NULL,
+      reason TEXT NOT NULL,
+      status VARCHAR(20) NOT NULL,
+      initiated_by VARCHAR(191) NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      UNIQUE KEY uniq_refund_key (idempotency_key)
+    );
+
+    CREATE TABLE IF NOT EXISTS disputes (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      provider_dispute_id VARCHAR(255) NOT NULL,
+      source_type VARCHAR(20) NULL,
+      source_ref VARCHAR(191) NULL,
+      payment_intent_id VARCHAR(255) NULL,
+      amount_minor BIGINT NOT NULL,
+      currency CHAR(3) NOT NULL,
+      reason VARCHAR(100) NOT NULL,
+      status VARCHAR(40) NOT NULL,
+      evidence_due_by DATETIME NULL,
+      recovery_status VARCHAR(20) NOT NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      UNIQUE KEY uniq_dispute (provider_dispute_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS ledger_accounts (
+      code VARCHAR(40) PRIMARY KEY,
+      name VARCHAR(120) NOT NULL,
+      account_type VARCHAR(20) NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS ledger_entry_groups (
+      id CHAR(36) PRIMARY KEY,
+      idempotency_key VARCHAR(255) NOT NULL,
+      source_type VARCHAR(30) NOT NULL,
+      source_id VARCHAR(191) NOT NULL,
+      description VARCHAR(255) NOT NULL,
+      basis VARCHAR(10) NOT NULL,
+      reverses_group_id CHAR(36) NULL,
+      currency CHAR(3) NOT NULL,
+      created_by VARCHAR(191) NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE KEY uniq_ledger_group_key (idempotency_key)
+    );
+
+    CREATE TABLE IF NOT EXISTS ledger_entries (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      group_id CHAR(36) NOT NULL,
+      line_no INT NOT NULL,
+      account_code VARCHAR(40) NOT NULL,
+      party_type VARCHAR(10) NULL,
+      party_id VARCHAR(191) NULL,
+      amount_minor BIGINT NOT NULL,
+      currency CHAR(3) NOT NULL,
+      memo VARCHAR(255) NOT NULL DEFAULT '',
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE KEY uniq_ledger_line (group_id, line_no),
+      CONSTRAINT fk_ledger_entry_group FOREIGN KEY (group_id) REFERENCES ledger_entry_groups (id),
+      CONSTRAINT fk_ledger_entry_account FOREIGN KEY (account_code) REFERENCES ledger_accounts (code)
+    )
+  `);
+  await ensureIndex("payment_records", "idx_payment_intent", "(payment_intent_id)");
+  await ensureIndex("payment_records", "idx_payment_session", "(checkout_session_id)");
+  await ensureIndex("refunds", "idx_refund_source", "(source_type, source_ref)");
+  await ensureIndex("refunds", "idx_refund_provider_id", "(provider_refund_id)");
+  await ensureIndex("webhook_events", "idx_webhook_status", "(status, received_at)");
+  await ensureIndex("ledger_entry_groups", "idx_ledger_source", "(source_type, source_id)");
+  await ensureIndex("ledger_entries", "idx_ledger_account_party", "(account_code, party_type, party_id)");
+  await db.exec(`
+    INSERT IGNORE INTO ledger_accounts (code, name, account_type) VALUES
+      ('stripe_clearing', 'Stripe clearing', 'asset'),
+      ('cash_bank', 'Cash / bank balance', 'asset'),
+      ('dispute_reserve', 'Funds held for disputes', 'asset'),
+      ('partner_recovery', 'Recoverable from partners', 'asset'),
+      ('partner_payable', 'Partner payable (vendor)', 'liability'),
+      ('venue_payable', 'Venue payable', 'liability'),
+      ('host_payable', 'Host payable', 'liability'),
+      ('platform_fee_vat_payable', 'VAT payable on platform fees', 'liability'),
+      ('underlying_tax_payable', 'Tax collected on activities', 'liability'),
+      ('subscription_vat_payable', 'VAT payable on subscriptions', 'liability'),
+      ('customer_credit_liability', 'Customer credit liability', 'liability'),
+      ('gift_credit_liability', 'Gift credit liability', 'liability'),
+      ('reward_liability', 'Reward points liability', 'liability'),
+      ('refund_liability', 'Refundable deposits and refunds owed', 'liability'),
+      ('accrued_payment_costs', 'Accrued payment costs (estimates)', 'liability'),
+      ('platform_fee_revenue', 'Platform fee revenue', 'revenue'),
+      ('subscription_revenue', 'Subscription revenue', 'revenue'),
+      ('processing_fee_expense', 'Card processing expense', 'expense'),
+      ('connect_fee_expense', 'Connect account expense', 'expense'),
+      ('payout_fee_expense', 'Payout expense', 'expense'),
+      ('coupon_expense', 'HelloCircle-funded coupons', 'expense'),
+      ('chargeback_loss', 'Chargeback losses', 'expense')
+  `);
   await db.exec(`
     INSERT IGNORE INTO pricing_plans (plan_key, name, status, sort_order) VALUES
       ('free', 'Free', 'active', 1),

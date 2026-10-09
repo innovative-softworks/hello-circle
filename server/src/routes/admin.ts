@@ -11,6 +11,7 @@ import { FEATURE_FLAG_KEYS, getAnalyticsFunnel, getCentre, getClub, getDemandSig
 import { endOfIrelandDay } from "../irelandTime.js";
 import { couponAmountError, parseCouponLimits } from "../pricing.js";
 import { adminCommerceRouter } from "./adminCommerce.js";
+import { adminFinanceRouter } from "./adminFinance.js";
 import { NOTIFICATION_TEMPLATE_KEYS } from "../notificationTemplates.js";
 import { notifyResident } from "../notifications.js";
 import { notifyVendorFollowers } from "./follows.js";
@@ -20,6 +21,8 @@ export const adminRouter = Router();
 adminRouter.use(requireAdmin);
 // Commerce Engine Phase 1 — versioned commercial rules, switches, audit.
 adminRouter.use("/commerce", requireAdminRole("finance"), adminCommerceRouter);
+// Revenue & Connect Stage 2c — finance operations (webhooks, refunds, disputes, ledger).
+adminRouter.use("/finance", requireAdminRole("finance"), adminFinanceRouter);
 // Coupons move money (HelloCircle-funded discounts) — finance only (Stage 2a).
 adminRouter.use("/coupons", requireAdminRole("finance"));
 

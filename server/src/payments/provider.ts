@@ -60,6 +60,8 @@ export interface PaymentProvider {
   cardOwner(paymentMethodId: string): Promise<string | null>;
   setDefaultCard(customerId: string, paymentMethodId: string): Promise<void>;
   detachCard(paymentMethodId: string): Promise<void>;
+  /** Re-fetch a webhook event by id (admin replay; never trust a stored copy). */
+  retrieveEvent(eventId: string): Promise<import("./webhookEvents.js").IncomingEvent | null>;
   // Connect (Stage 5).
   createTransfer(p: { amountMinor: number; currency: string; destinationAccountId: string; transferGroup: string; sourceTransactionId?: string; idempotencyKey: string; metadata: Record<string, string> }): Promise<{ id: string }>;
   reverseTransfer(p: { transferId: string; amountMinor?: number; idempotencyKey: string; metadata: Record<string, string> }): Promise<{ id: string; amountMinor: number }>;
@@ -135,6 +137,11 @@ class StripeProvider implements PaymentProvider {
     await this.client.paymentMethods.detach(paymentMethodId);
   }
 
+  async retrieveEvent(eventId: string) {
+    const e = await this.client.events.retrieve(eventId);
+    return { id: e.id, type: e.type, created: e.created, livemode: e.livemode, account: e.account ?? null, data: { object: e.data.object as unknown as Record<string, any> } };
+  }
+
   async createTransfer(): Promise<{ id: string }> {
     throw new ProviderNotEnabledError("Transfers to connected accounts");
   }
@@ -156,6 +163,17 @@ export class StubProvider implements PaymentProvider {
   private charges = new Map<string, ChargeState>();
   private refundsByKey = new Map<string, { id: string; amountMinor: number }>();
   private transfersByKey = new Map<string, { id: string; amountMinor: number }>();
+  private events = new Map<string, import("./webhookEvents.js").IncomingEvent>();
+
+  /** Test helper: make an event retrievable (as the provider would). */
+  publishEvent(event: import("./webhookEvents.js").IncomingEvent) {
+    this.events.set(event.id, event);
+  }
+
+  async retrieveEvent(eventId: string) {
+    this.record("retrieveEvent", { eventId });
+    return this.events.get(eventId) ?? null;
+  }
 
   reset() {
     this.calls.length = 0;
@@ -163,6 +181,7 @@ export class StubProvider implements PaymentProvider {
     this.charges.clear();
     this.refundsByKey.clear();
     this.transfersByKey.clear();
+    this.events.clear();
   }
 
   /** Test helper: record that a session was paid for `amountMinor`. */

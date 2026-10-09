@@ -10,6 +10,7 @@ import { notifyCancellation, notifyRefund, resendConfirmationEmail } from "../no
 import { inClause, ownsCentre, ownsClub } from "./vendorHelpers.js";
 import { irelandTodayIso, irelandWallTimeToUtc } from "../irelandTime.js";
 import { couponAmountError, parseCouponLimits } from "../pricing.js";
+import { RefundError, refundInApp } from "../commerce/payments.js";
 import { ASSUMED_DURATION_MINUTES } from "../db/queries.js";
 import { offerToWaitlistEntry, promoteNextWaitlistEntry } from "../waitlist.js";
 
@@ -301,6 +302,34 @@ vendorOperationsRouter.post("/bookings/:ref/refund", requirePlatformRole("financ
   }).catch((e) => console.error("[notifications] booking refund notify failed:", e));
 
   res.json({ ok: true });
+});
+
+// Revenue & Connect Stage 2c — partial (or remaining) refunds for any of the
+// vendor's own online orders, e.g. returning a venue deposit after the event.
+// Ownership is the listing's vendor within this organisation; the refund is
+// recorded, proportionally reverses the ledger posting, and only a refund of
+// the whole remaining amount marks the order refunded.
+const VENDOR_REFUND_OWNER_SQL: Record<string, string> = {
+  booking: `SELECT c.vendor_id as v FROM bookings x JOIN centres c ON c.id = x.centre_id WHERE x.ref = ?`,
+  registration: `SELECT c.vendor_id as v FROM registrations x JOIN clubs c ON c.id = x.club_id WHERE x.ref = ?`,
+  program: `SELECT p.vendor_id as v FROM program_enrollments x JOIN programs p ON p.id = x.program_id WHERE x.ref = ?`,
+  experience: `SELECT e.vendor_id as v FROM experience_bookings x JOIN experiences e ON e.id = x.experience_id WHERE x.ref = ?`,
+};
+
+vendorOperationsRouter.post("/refunds", requirePlatformRole("finance"), async (req, res) => {
+  const b = req.body as { sourceType?: string; ref?: string; amountMinor?: number; reason?: string };
+  if (!b.sourceType || !VENDOR_REFUND_OWNER_SQL[b.sourceType] || !b.ref) return res.status(400).json({ error: "sourceType (booking, registration, program or experience) and ref are required" });
+  if (b.amountMinor !== undefined && (!Number.isInteger(b.amountMinor) || b.amountMinor < 1)) return res.status(400).json({ error: "amountMinor must be a whole number of cents" });
+  const owner = (await db.prepare(VENDOR_REFUND_OWNER_SQL[b.sourceType]).get(b.ref)) as { v: string | null } | undefined;
+  if (!owner || !owner.v || !req.vendorIds!.includes(owner.v)) return res.status(404).json({ error: "Order not found" });
+  try {
+    const r = await refundInApp({ type: b.sourceType as "booking", ref: b.ref, amountMinor: b.amountMinor, reason: String(b.reason ?? ""), responsible: "partner", actorId: req.user!.id });
+    await writeAudit({ actorUserId: req.user!.id, actorKind: "user", action: "refund.issued_by_vendor", objectType: b.sourceType, objectId: b.ref, newValue: r, reason: b.reason });
+    res.json(r);
+  } catch (e) {
+    if (e instanceof RefundError) return res.status(e.status).json({ error: e.message });
+    throw e;
+  }
 });
 
 vendorOperationsRouter.post("/registrations/:ref/refund", requirePlatformRole("finance"), async (req, res) => {

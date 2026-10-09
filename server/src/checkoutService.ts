@@ -7,6 +7,7 @@ import { paymentProvider, qaProviderStubEnabled } from "./payments/provider.js";
 import { PENDING_HOLD_MINUTES } from "./bookingIntegrity.js";
 import { recordStripeFailure } from "./stripeDiagnostics.js";
 import { syncOrderFromSource } from "./commerce/engine.js";
+import { postRefund, refundedSoFar } from "./commerce/payments.js";
 
 /** Phase 8 QA seam: a deterministic, network-free provider stand-in so the
  * internal pending → success/failure/expiry state machine can be proven
@@ -168,7 +169,7 @@ export async function createCheckoutSession(params: {
 }
 
 export type StripeRefundResult =
-  | { ok: true; amountCents: number; reconciled: boolean }
+  | { ok: true; amountCents: number; reconciled: boolean; refundId?: string | null }
   | { ok: false; kind: "provider" | "unsupported"; error: string };
 
 /** Shared by every vendor-issued refund route (bookings/registrations in
@@ -210,7 +211,7 @@ export async function issueStripeRefund(stripeSessionId: string, opts: { amountM
       idempotencyKey: opts.idempotencyKey ?? `hc-refund-${stripeSessionId}`,
       metadata: { hc_checkout_session: stripeSessionId },
     });
-    return { ok: true, amountCents: refund.amountMinor ?? session.amountTotalMinor ?? 0, reconciled: false };
+    return { ok: true, amountCents: refund.amountMinor ?? session.amountTotalMinor ?? 0, reconciled: false, refundId: refund.id };
   } catch (e) {
     // Race: refunded at the provider between the state check and our request.
     if (paymentIntentId && opts.amountMinor === undefined && (e as { code?: string })?.code === "charge_already_refunded") {
@@ -251,14 +252,40 @@ export async function refundPaidOnce(table: RefundTable, where: string, params: 
   }
   try {
     return await db.transaction(async (tx) => {
-      const row = (await tx.prepare(`SELECT payment_status FROM ${table} WHERE ${where} FOR UPDATE`).get(...params)) as { payment_status: string } | undefined;
+      const row = (await tx.prepare(`SELECT payment_status, ref, total_cents FROM ${table} WHERE ${where} FOR UPDATE`).get(...params)) as
+        | { payment_status: string; ref: string | null; total_cents: number | null }
+        | undefined;
       if (!row) return { ok: false as const, status: 404, error: "Not found" };
       if (row.payment_status === "refunded") return { ok: false as const, status: 409, error: alreadyMessage };
       if (row.payment_status !== "paid") return { ok: false as const, status: 400, error: "Only a paid booking can be refunded" };
-      const result = await issueStripeRefund(stripeSessionId);
+      // Revenue & Connect Stage 2c — after an in-app partial refund, "refund"
+      // means "refund the rest": the remaining amount, under its own key. A
+      // first full refund keeps the historical HC-QA-051 key and reconciliation.
+      const type = REFUND_SOURCE_TYPE[table];
+      const paidTotal = Number(row.total_cents ?? 0);
+      const already = row.ref ? await refundedSoFar(tx, type, row.ref) : 0;
+      const result =
+        already > 0
+          ? await issueStripeRefund(stripeSessionId, { amountMinor: paidTotal - already, idempotencyKey: `hc-refund-${stripeSessionId}-rest-${already}` })
+          : await issueStripeRefund(stripeSessionId);
       if (!result.ok) throw new ProviderRefundError(result.error, result.kind === "unsupported");
       await tx.prepare(`UPDATE ${table} SET payment_status = 'refunded' WHERE ${where} AND payment_status = 'paid'`).run(...params);
-      const refRow = (await tx.prepare(`SELECT ref FROM ${table} WHERE ${where}`).get(...params)) as { ref: string | null } | undefined;
+      const refRow = { ref: row.ref };
+      // The refund is recorded (and, with the ledger on, reverses the payment
+      // posting) in this same transaction, under the same row lock a
+      // charge.refunded webhook takes — so it is never counted twice.
+      if (row.ref) {
+        const amount = already > 0 ? paidTotal - already : result.amountCents;
+        if (amount > 0) {
+          const info = await tx
+            .prepare(
+              `INSERT INTO refunds (source_type, source_ref, payment_record_id, provider_refund_id, idempotency_key, amount_minor, currency, kind, origin, responsible, reason, status, initiated_by)
+               VALUES (?, ?, (SELECT id FROM payment_records WHERE source_type = ? AND source_ref = ?), ?, ?, ?, 'EUR', ?, ?, 'partner', 'Refund issued by the partner', ?, ?)`
+            )
+            .run(type, row.ref, type, row.ref, result.refundId ?? null, already > 0 ? `hc-refund-${stripeSessionId}-rest-${already}` : `hc-refund-${stripeSessionId}`, amount, already > 0 ? "partial" : "full", result.reconciled ? "provider" : "in_app", result.reconciled ? "reconciled" : "succeeded", audit?.actorUserId ?? null);
+          await postRefund(tx, type, row.ref, Number(info.lastInsertRowid), amount, paidTotal || amount, audit?.actorUserId ?? null);
+        }
+      }
       return { ok: true as const, amountCents: result.amountCents, reconciled: result.reconciled, ref: refRow?.ref ?? null };
     }).then(async (r) => {
       // Commerce Engine Phase 2 — mirror the refund onto the commerce order.

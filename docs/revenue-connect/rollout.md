@@ -170,3 +170,102 @@ one.
 **14. Next.** Stage 2c: append-only double-entry ledger, `webhook_events` store with replay and a manual-review
 queue, handlers for the non-Connect events (`charge.refunded`, `charge.dispute.*`, `payment_intent.*`),
 `refunds` and `disputes` tables, and partial refunds wired to allocation reversal.
+
+## Stage 2c — Ledger, webhook event store, refunds and disputes
+
+**1. Inspected.**
+- The webhook handler and its policy test.
+- Every refund path: `refundPaidOnce` (used by bookings, registrations, programmes, experiences and games) and
+  `issueStripeRefund`.
+- The QA provider seam.
+- The legacy rows' stored breakdowns: bookings, registrations and experiences have them; programmes, games and
+  passes store only a total.
+
+**2–3. Changed / files.**
+- **New:**
+  - `commerce/ledger.ts`: balanced, idempotent group posting; full and proportional reversal; balances; whole-ledger
+    zero check
+  - `commerce/payments.ts`: payment records; payment posting from the snapshot or the legacy breakdown (exact
+    recovery from the total where none is stored); `refundInApp` (full, partial, remaining); `recordProviderRefunds`
+    (delta, locked); `recordDispute`
+  - `payments/webhookEvents.ts`: store, claim, finish, fail and park, replay
+  - `routes/adminFinance.ts`
+  - `commerce/finance.test.ts`
+- **Edited:**
+  - `routes/stripeWebhook.ts`: event store, `processStripeEvent` (adds `charge.refunded` and
+    `charge.dispute.created|updated|closed`; `payment_intent.*` stored but ignored), payment recording after confirm
+  - `checkoutService.ts`: `refundPaidOnce` records the refund and ledger reversal under its row lock, refunds only
+    the remainder after a partial, returns the provider refund id
+  - `payments/provider.ts`: `retrieveEvent`
+  - `routes/vendorOperations.ts`: `POST /api/vendor/refunds`
+  - `routes/admin.ts`: `/finance` mount
+  - `commerce/catalog.ts`: ledger switch active
+  - Two refund tests now also assert the returned `refundId`
+
+**4. Database (additive).**
+- New tables: `webhook_events` (unique provider + event id, summary only), `payment_records` (unique source,
+  indexed by payment intent and session), `refunds` (unique idempotency key), `disputes` (unique dispute id).
+- Ledger: `ledger_accounts` (22 accounts seeded), `ledger_entry_groups` (unique idempotency key), `ledger_entries`.
+  **Foreign keys** link entries to groups and accounts (new tables only, B10).
+
+**5. APIs.**
+- **Finance admin, under `/api/admin/finance`:**
+  - `GET /webhooks?status`, `POST /webhooks/:id/replay` (reason)
+  - `GET /payments?ref`, `GET /refunds`, `POST /refunds` (any source, partial or remaining, reason, responsible party)
+  - `GET /disputes`, `GET /ledger/groups`, `GET /ledger/balances`
+- **Vendor finance role:** `POST /api/vendor/refunds` (own organisation's online orders only).
+- **Webhook responses:**
+  - duplicate delivery → 200 `duplicate`
+  - concurrent delivery → 409 (the provider retries)
+  - handler failure → 500 (retry), and after 5 attempts or an unmatchable event → 200 `parked` plus manual review
+
+**6. UI.** None (finance screens are Stage 3).
+
+**7–9. Tests.** `finance.test.ts` (16):
+- unbalanced groups refused; idempotent posting; exact proportional reversal; ledger nets to zero
+- legacy breakdown recovery across a range
+- payment recorded once and posted (clearing 6400 = partner 5000 + VAT 1150 + fee 250, with partner party)
+- partial €10 then remaining €54: the order stays paid until the end, and clearing and partner payable net to zero
+- over-refund refused; cross-organisation vendor refund refused
+- `refundPaidOnce` records and reverses
+- `charge.refunded` doesn't double-count our own refund but records a Dashboard refund once, including when the
+  event is replayed
+- unknown payment → manual review
+- dispute opened → lost: loss posted, recovery pending, late out-of-order update can't reopen it
+- event store: duplicate and busy; summary carries no personal data; retry → park after 5; admin replay with a
+  reason re-fetches from the provider
+
+Results:
+- Full server suite: **63 files, 670 passed, 23 skipped**.
+- Client: 105 passed.
+- Build clean.
+
+**10. Security.**
+- Events are stored without payloads or personal data. Replay re-fetches the event from the provider rather than
+  trusting a stored copy.
+- Processing claims are atomic.
+- Refunds are row-locked end to end, so an in-app refund and a provider refund are never counted twice.
+- Vendor refunds are limited to the organisation's own orders and the finance role.
+- Every admin or vendor refund and every replay is audited with a reason.
+
+**11. Data-migration impact.**
+- Additive. Payment records start with payments confirmed after deploy; older payments have none, so a refund
+  arriving from Stripe for one of them goes to manual review instead of guessing.
+- The ledger is off by default (switch), so no postings happen until finance turns it on.
+
+**12. Remaining risks.**
+- Actual Stripe fees (balance transactions) aren't yet reconciled against estimates. That belongs with settlement
+  (2d).
+- A lost dispute is recorded as a loss with recovery **pending**. Recovering it from the partner happens in
+  settlement (2d) or by transfer reversal (Stage 5).
+- Host partial refunds for games (host route) aren't exposed yet; admin finance can refund any type.
+- Pass refunds aren't supported (P2-6).
+
+**13. Rollback.**
+- Turn off `commerce.settlement_ledger` to stop new postings. Records and the event store keep working; they are
+  additive and harmless.
+- Code revert: the new tables are ignored by older code.
+
+**14. Next.** Stage 2d: completion (session end + 48h), weekly settlement runs with the €25 threshold and
+carry-forward, settlement allocations per vendor/venue/host, dispute recovery against pending payables, actual-fee
+reconciliation, and the legacy-order snapshot backfill (dry run first). Still no transfers.

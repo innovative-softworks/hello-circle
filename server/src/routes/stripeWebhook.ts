@@ -16,6 +16,8 @@ import { unsignedStripeWebhooksAllowed } from "../stripeWebhookPolicy.js";
 import type Stripe from "stripe";
 import type { CheckoutType } from "../checkoutService.js";
 import { SOURCE_TABLES, syncOrderFromSource } from "../commerce/engine.js";
+import { NeedsReviewError, recordDispute, recordPaymentConfirmed, recordProviderRefunds } from "../commerce/payments.js";
+import { beginEvent, failEvent, finishEvent, type IncomingEvent } from "../payments/webhookEvents.js";
 
 interface BookingForNotify {
   ref: string;
@@ -457,40 +459,115 @@ export async function stripeWebhookHandler(req: Request, res: Response) {
     event = JSON.parse(req.body.toString("utf8"));
   }
 
-  if (
-    event.type === "checkout.session.completed" ||
-    event.type === "checkout.session.async_payment_succeeded" ||
-    event.type === "checkout.session.async_payment_failed"
-  ) {
-    const session = event.data.object as Stripe.Checkout.Session;
-    // A delayed payment method (SEPA/Bacs Direct Debit — never explicitly
-    // restricted in checkoutService.ts's createCheckoutSession, so available
-    // whenever "automatic payment methods" is on in the Stripe Dashboard)
-    // fires `completed` immediately with payment_status "unpaid", before the
-    // debit has actually settled — confirming here would mark the booking
-    // paid before money has moved, with no later event to revert it if the
-    // debit then fails. Only `async_payment_succeeded` (and a `completed`
-    // whose payment_status is already "paid", the common synchronous-method
-    // case) should confirm; `async_payment_failed` mirrors `expired`.
-    if (event.type === "checkout.session.async_payment_failed") {
-      await markFailed(session.metadata);
-    } else if (session.payment_status === "paid") {
-      await confirmByType(session.metadata);
-    }
-  } else if (event.type === "checkout.session.expired") {
-    const session = event.data.object as Stripe.Checkout.Session;
-    await markFailed(session.metadata);
+  // Revenue & Connect Stage 2c — store once, claim, process, record outcome.
+  const begin = await beginEvent("stripe", event as unknown as IncomingEvent, req.body);
+  if (begin.action === "duplicate") return res.json({ received: true, duplicate: true });
+  if (begin.action === "busy") return res.status(409).send("Event is already being processed");
+  try {
+    const outcome = await processStripeEvent(event as unknown as IncomingEvent);
+    await finishEvent(begin.rowId, outcome);
+    res.json({ received: true });
+  } catch (e) {
+    const retry = await failEvent(begin.rowId, e, { needsReview: e instanceof NeedsReviewError });
+    console.error(`[stripe] webhook ${event.id} (${event.type}) failed${retry ? " — will retry" : " — parked for manual review"}:`, e instanceof Error ? e.message : e);
+    // 500 asks the provider to retry; once parked, acknowledge so it stops.
+    if (retry) return res.status(500).send("Processing failed");
+    res.json({ received: true, parked: true });
   }
+}
 
-  res.json({ received: true });
+/** Applies one verified provider event. Shared by the live webhook, admin
+ * replay and tests. Returns "ignored" for events HelloCircle doesn't act on
+ * (still stored, so the history is complete). */
+export async function processStripeEvent(event: IncomingEvent): Promise<"processed" | "ignored"> {
+  const o = event.data.object;
+  switch (event.type) {
+    case "checkout.session.completed":
+    case "checkout.session.async_payment_succeeded":
+    case "checkout.session.async_payment_failed": {
+      // A delayed payment method (SEPA/Bacs Direct Debit) fires `completed`
+      // with payment_status "unpaid" before the debit settles — confirming
+      // then would mark the booking paid before money moved. Only
+      // `async_payment_succeeded` (or a `completed` already "paid") confirms;
+      // `async_payment_failed` mirrors `expired`.
+      if (event.type === "checkout.session.async_payment_failed") {
+        await markFailed(o.metadata);
+        return "processed";
+      }
+      if (o.payment_status !== "paid") return "ignored";
+      await confirmByType(o.metadata);
+      await afterPaid(o.metadata, {
+        checkoutSessionId: o.id ?? null,
+        paymentIntentId: typeof o.payment_intent === "string" ? o.payment_intent : o.payment_intent?.id ?? null,
+        amountMinor: typeof o.amount_total === "number" ? o.amount_total : null,
+        currency: o.currency ?? "eur",
+        provider: "stripe",
+      });
+      return "processed";
+    }
+    case "checkout.session.expired":
+      await markFailed(o.metadata);
+      return "processed";
+    case "charge.refunded": {
+      const pi = typeof o.payment_intent === "string" ? o.payment_intent : o.payment_intent?.id;
+      if (!pi) throw new NeedsReviewError(`Refunded charge ${o.id} has no payment intent`);
+      await recordProviderRefunds({ paymentIntentId: pi, chargeId: o.id, amountRefundedMinor: Number(o.amount_refunded ?? 0), amountMinor: Number(o.amount ?? 0), currency: o.currency ?? "eur" });
+      return "processed";
+    }
+    case "charge.dispute.created":
+    case "charge.dispute.updated":
+    case "charge.dispute.closed":
+      await recordDispute({
+        disputeId: o.id,
+        paymentIntentId: typeof o.payment_intent === "string" ? o.payment_intent : o.payment_intent?.id ?? null,
+        amountMinor: Number(o.amount ?? 0),
+        currency: o.currency ?? "eur",
+        reason: String(o.reason ?? "unknown"),
+        status: String(o.status ?? "needs_response"),
+        evidenceDueBy: o.evidence_details?.due_by ? new Date(o.evidence_details.due_by * 1000) : null,
+      });
+      return "processed";
+    default:
+      // payment_intent.* and everything else: Checkout events are the
+      // authoritative confirmation; these are stored for the record only.
+      return "ignored";
+  }
+}
+
+/** Records the confirmed payment (payment_records + ledger) when the row is
+ * now paid. Missing provider details are read back from the row (QA seam). */
+async function afterPaid(
+  metadata: { type?: string; ref?: string } | null | undefined,
+  details: { checkoutSessionId: string | null; paymentIntentId: string | null; amountMinor: number | null; currency: string; provider: "stripe" | "stub" }
+) {
+  const { type, ref } = metadata ?? {};
+  if (!type || !ref || !(type in SOURCE_TABLES)) return;
+  const table = SOURCE_TABLES[type as CheckoutType];
+  const totalCol = type === "pass" ? "purchased_cents" : "total_cents";
+  const row = (await db.prepare(`SELECT payment_status as ps, stripe_session_id as sid, ${totalCol} as total FROM ${table} WHERE ref = ?`).get(ref)) as
+    | { ps: string; sid: string | null; total: number | null }
+    | undefined;
+  if (!row || row.ps !== "paid") return;
+  const sessionId = details.checkoutSessionId ?? row.sid;
+  await recordPaymentConfirmed({
+    type: type as CheckoutType,
+    ref,
+    checkoutSessionId: sessionId,
+    paymentIntentId: details.paymentIntentId ?? (details.provider === "stub" && sessionId ? `pi_stub_${sessionId}` : null),
+    amountMinor: details.amountMinor ?? Number(row.total ?? 0),
+    currency: details.currency,
+    provider: details.provider,
+  });
 }
 
 /** Provider-independent outcome entry point (Phase 8). The webhook handler
  * maps provider events onto these; the QA provider seam calls it directly.
  * success → confirm (idempotent); failure/expired → release the hold. */
 export async function processProviderOutcome(type: string, ref: string, outcome: "success" | "failure" | "expired") {
-  if (outcome === "success") await confirmByType({ type, ref });
-  else await markFailed({ type, ref });
+  if (outcome === "success") {
+    await confirmByType({ type, ref });
+    await afterPaid({ type, ref }, { checkoutSessionId: null, paymentIntentId: null, amountMinor: null, currency: "eur", provider: "stub" });
+  } else await markFailed({ type, ref });
 }
 
 async function confirmByType(metadata: Stripe.Metadata | null | undefined) {
