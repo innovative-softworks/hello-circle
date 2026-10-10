@@ -565,3 +565,218 @@ The code side of Stages 2–5 is complete, local and unpushed. What remains need
 | 6 Staging | Push the branch, deploy to staging.hellocircle.ie, five test partners, reconciliation, UAT | Your explicit push/deploy instruction |
 | 7 Pilot | Live keys, a few real partners, switches on one by one | Solicitor sign-off on the 18 policies (+ B1 placeholder values), tax advice (VAT, DAC7), Stripe live review |
 | 8 General release | All switches on, legacy pricing retired | Pilot results |
+
+## Stage 5c — Pre-staging hardening
+
+Commits (local, unpushed): `ef10e09` (1/3), `3640b1a` (2/3), `f26a569` (3/3), `1f8cdaf` (soak fix).
+
+**No Stripe API call, no `git push`, no deployment.**
+- All server tests run in disposable Docker MySQL containers on the network-free stub provider.
+- All browser tests run in the guarded QA harness (isolated Docker MySQL) on the same stub. Revenue batches never
+  receive the Stripe test key; it is loaded only in the separate `qa:stripe` mode, which was not run.
+
+### What changed, by requirement
+
+1. **Reward points reversed after settlement.**
+   - Each awarded order is recorded in `reward_awards` (GMV, refunds at the time of award, points).
+   - A refund (`postRefund`, every refund path) or a lost dispute (`recordDispute`) re-derives
+     `reversed = floor(points × min(gmv, refunds since award + lost disputes) / gmv)` and reverses only the
+     difference. Replays are no-ops.
+   - Points come out of the order's own lot first, then other unexpired lots oldest-first. Points already redeemed
+     become a points debt (`reward_debts`).
+   - While a debt is open, redemption is refused ("N points are owed…"), and new awards repay the debt before
+     adding spendable points.
+2. **Pro stored excluding VAT.**
+   - `plan_pro.subscriptionMonthlyMinor` (€29.00) is the net price.
+   - VAT comes from the versioned `tax_vat` rule resolved for this partner. A partner scope can set
+     `vatMode = exempt | reverse_charge`, which means no VAT.
+   - Net, VAT, rate, mode and both rule hashes are frozen on `partner_subscriptions`.
+   - Stripe gets the net price plus an exclusive tax rate. €35.67 is only the IE standard-rate example, not a
+     universal charge.
+   - Invoice ledger postings use the VAT Stripe reports on the invoice, else the rate frozen on the subscription,
+     never today's rule.
+3. **Processing-fee estimates preserved.**
+   - The estimate is fixed when the payment is confirmed (`payment_records.fee_estimate_minor` + the
+     `payment_costs` rule hash) and accrued then (`fee:estimate:` group). It is never reversed or rewritten.
+   - Reconciliation clears the accrual at the estimate (`fee:actual:`) and posts `actual − estimate` as a separate
+     variance group (`fee:variance:`, account `processing_fee_variance`).
+   - `fee_reconciliations` keeps the estimate, actual, variance and estimate source (`at_payment` / `late` for
+     payments recorded before this change).
+   - Booking pricing snapshots are not touched.
+4. **Transfers separated from bank payouts.**
+   - Data: `transfers` (HelloCircle → the partner's Stripe account; ours) and `connected_payouts` (Stripe → bank;
+     mirrored only).
+   - API: `/api/{vendor,host}/payout-account` returns `transfers` and `bankPayouts` separately.
+     `partnerBalances` now returns `transferDueMinor` and `transferredMinor` (it was `settledDueMinor`).
+   - Help texts get v2 entries ("Settled — transfer due", "Minimum weekly transfer", "Your earnings").
+   - UI: the pricing page, partner cards and the calculator ("Partner earnings") say *transfer* and *bank payout*,
+     never "payout" for both.
+5. **Per-booking allocations.**
+   - When a transfer is created, `transfer_allocations` gets one immutable row per settlement item: kind
+     `booking`, `refund` or `adjustment`, plus the booking's source.
+   - The rows must sum to the transfer amount, or the transfer's bookkeeping is refused.
+   - Reversals are recorded beside allocations (`transfer_allocation_reversals`), never by editing them.
+   - Partial reversal of one allocation: `POST /api/admin/finance/allocations/:id/reverse`.
+6. **Partner debt** (`commerce/debts.ts`, `partner_debts`):
+   - An admin opens a debt (reason ≥ 10 characters; one open debt per partner) for what the partner owes, which is
+     their negative available balance.
+   - This **freezes** their earnings: settlement runs carry them forward with `frozenByDebtId`, and the transfer
+     run holds them.
+   - It then **attempts reversal** of the partner's *own* newest allocations. Recovered and unrecovered amounts are
+     recorded, and a refused reversal leaves the debt open (retry: `POST /debts/:id/retry`).
+   - Whatever isn't recovered is **offset** by the partner's own future earnings: when their available balance is
+     back to ≥ 0 at a settlement run, the debt closes as `offset` and the freeze lifts.
+   - Every query is scoped to the debt's own party, and tests assert that no reversal touches another partner's
+     transfer.
+   - This replaces the 5a "recover balance" action.
+7. **Separate consents.** `consent_records` is an append-only log with one purpose per row: `privacy_notice_ack`,
+   `marketing_email`, `analytics_cookies`, `advertising_cookies`. Contractual acceptance stays in
+   `policy_acceptances`.
+   - **Marketing:** recorded at every sign-up path and only when it actually changes in settings. It is removed
+     from the notification-preferences JSON. `residentAllows(…, "marketing")` used to default to *on* and now
+     requires an opt-in record.
+   - **Privacy notice:** acknowledged, not accepted (`policy_documents.acceptance_kind = 'acknowledge'`). The gate
+     shows two sections with two checkboxes. Accepting the notice is refused, and contracts can't be
+     "acknowledged".
+   - **Cookies:** the banner offers Necessary only / Choose… (analytics and advertising separately) / Accept all.
+     Google Consent Mode v2 defaults everything to denied. Old stored choices migrate ("accepted" → analytics only).
+     Choices are recorded server-side per browser and per signed-in person.
+8. **`manage.test.ts` flake.** See the diagnosis below.
+9. **Browser tests.** `npm run qa:revenue`: 14 journeys × desktop and mobile = 28 tests in the guarded harness.
+10. **Negative paths.** See the mapping table below.
+11. **Docs.** This section, plus 07 (decisions B16–B21, blockers).
+
+### Bugs found and fixed during 5c
+
+- **`ledger_entries` declared database foreign keys** (Stage 2c).
+  - This breaks the codebase's no-foreign-keys rule, and schema setup fails for a database user without the
+    `REFERENCES` privilege. The QA harness user has no such privilege, and the production user may not either,
+    which would have failed the first boot after deploy.
+  - Constraints removed; `postGroup` refuses unknown accounts before writing anything.
+  - The table has never shipped (unpushed), so its CREATE block was corrected in place.
+- **`GET /api/games/host/earnings` was registered twice** (Stage 2d). Hosts never received their ledger balances,
+  and their earnings card crashed. Balances moved to `/host/balances`, with a regression test. A scan of all
+  routers found no other duplicates.
+- **Migration order:** a 5c column was being added to `policy_documents` before the table was created on a fresh
+  database. Moved after creation; caught by the isolated server tests.
+- **Mobile:** the admin policy versions table widened the whole page on phones. Now wrapped in a scroll container.
+- **Cross-file test-order dependency**, found by the shuffled soak (seed `1456911154`). Each test file's stub
+  provider numbered Connect accounts from 1, so two files both created `acct_stub_1`, and one cleaned up payouts
+  under a guessed id. Stub Connect ids now carry a per-process tag, and cleanup uses the real account. That seed
+  passes now. Test-only issue; production ids come from Stripe.
+
+### Files changed (56 code and test files in `9097bd9..1f8cdaf`, plus these two docs)
+
+- **New, server:**
+  - modules: `commerce/debts.ts`, `consent.ts`, `routes/consents.ts`
+  - tests: `commerce/negativePaths.test.ts`, `routes/consents.test.ts`
+- **Changed, server:**
+  - commerce: `commerce/{payments,rewards,settlement,subscriptions,ledger}.ts`
+  - payments: `payments/{connect,provider}.ts`
+  - policy: `policy/{cms,drafts}.ts`
+  - routes: `routes/{adminFinance,games,policies,residents,auth,manage}.ts`
+  - other: `residents.ts`, `notifications.ts`, `index.ts`, `db/index.ts`
+  - tests: `commerce/{billingRewardsCredits,settlement,finance}.test.ts`, `payments/connect.test.ts`,
+    `routes/{games,manage}.test.ts`
+- **New, client:** `cookieConsent.ts` (+ test)
+- **Changed, client:**
+  - components: `CookieNotice`, `PolicyAcceptanceGate`, `AdminFinance`, `AdminPolicy`, `EarningsSummary`,
+    `PayoutAccountCard`, `PlanCard`, `PricingCalculator`
+  - pages: `CookiePolicy`, `Pricing`, `AdminDashboard`
+  - API: `api/{admin,public,resident,vendor}.ts`
+- **QA harness:**
+  - new: `revenue-fixture.ts`, `specs/revenue-{public,partner,resident,admin,admin-b}.spec.ts`
+  - changed: `run.ts` (`revenue` mode), `reporter.ts`, root `package.json` (`qa:revenue`)
+- **Docs:** this file and `07-implementation-plan.md` (B16–B21)
+
+### Migrations (all additive, idempotent, in `initSchema()`; no down path)
+
+| Change | Kind |
+|---|---|
+| `payment_records.fee_estimate_minor`, `fee_estimate_rule_hash`, `fee_estimated_at`; `fee_reconciliations.variance_minor`, `estimate_source` | ensureColumn |
+| ledger account `processing_fee_variance` | INSERT IGNORE |
+| `partner_subscriptions.net_minor`, `vat_minor`, `vat_bps`, `vat_mode`, `plan_rule_hash`, `tax_rule_hash` | ensureColumn |
+| `reward_awards`, `reward_reversals`, `reward_debts` | CREATE TABLE IF NOT EXISTS |
+| `transfer_allocations`, `transfer_allocation_reversals`, `partner_debts`; `transfer_reversals.debt_id` | CREATE TABLE / ensureColumn |
+| `consent_records`; `policy_documents.acceptance_kind` (+ privacy notice set to `acknowledge`, audience `all`) | CREATE TABLE / ensureColumn / UPDATE |
+| `help_entries` v2 rows for 4 terminology entries | INSERT IGNORE |
+| `ledger_entries`: foreign keys removed, index on `account_code` | edit of an unshipped CREATE block |
+
+### Calculations
+
+- **Fee variance:** `variance = actual − estimate`. The estimate is fixed at payment as
+  `applyBps(amount, cardBps) + cardFixedMinor`.
+  - Example (test): €64 → estimate 121, stub actual 115 (1.4% + 25), variance −6.
+  - The `stripe_clearing` total equals the actual fee.
+- **Pro VAT:** `vat = applyBps(net, vatBps)` when `vatMode = standard`, otherwise 0.
+  - IE standard: 2,900 + 667 = 3,567.
+  - Invoice split: `net = amount_paid − reported tax`, else `divRoundHalfUp(gross × 10,000, 10,000 + frozen vatBps)`.
+- **Reward reversal:** `floor(points × min(gmv, refunds since award + lost disputes) / gmv) − already reversed`.
+  - Example: a 123-point award with half refunded (6,172 / 12,345) reverses 61; the rest refunded reverses 62 more.
+- **Allocations:** Σ allocation amounts = transfer amount, otherwise the transfer's bookkeeping is refused.
+  - Reversible room per allocation = amount − its in-flight or created reversals, capped by the transfer's room
+    (amount − reversed − in flight).
+- **Debt:** `outstanding = opened − recovered − offset`.
+  - At settlement, a frozen partner with net ≥ 0 closes the debt as offset (`offset = opened − recovered`).
+  - Example (test): €4.00 owed, €1.50 recovered by reversing one booking's allocation, €2.50 offset by €10 of new
+    earnings → €7.50 carried (below the €25 minimum).
+
+### Test evidence
+
+- **Server:** 70 files, **740 passed** (23 skipped, pre-existing); 26 new tests in 5c.
+- **Client:** 18 files, **110 passed**.
+- **Build:** OK.
+- **Browser (`qa:revenue`):** **28 / 28 passed in one run**: public 6, partner 6, resident 6, admin 4, admin-b 6.
+  - Covers pricing and calculators, cookie choices, Policy Centre and complaints, the gate (accept vs
+    acknowledge), vendor balances, payout onboarding, plan card, trader details, Pro upgrade, host earnings, credit
+    at checkout, admin simulator, transfer preview, debts, credits, policies and trust, settlement preview, payment
+    events, refunds, disputes, plans, roles, opening a debt (refused reversal), allocations, and field-help editing.
+  - Checked at 1440×900 and 390×844, with no horizontal overflow.
+
+| Negative path | Test |
+|---|---|
+| Duplicate weekly run | `negativePaths.test.ts` "duplicate weekly run"; `settlement.test.ts` |
+| Duplicate webhook | `negativePaths.test.ts` "duplicate webhook" |
+| Out-of-order webhook | `negativePaths.test.ts` (dispute stays lost; subscription update after deletion ignored) |
+| Partial refund | `finance.test.ts` "partial then remaining refund…"; points: `billingRewardsCredits.test.ts` |
+| Refund after transfer | `negativePaths.test.ts`; `connect.test.ts` allocation partial reversal; browser `REV-ADMIN-B-DEBT-*` |
+| Reversal failure | `negativePaths.test.ts`; `connect.test.ts`; browser `REV-ADMIN-B-DEBT-*` |
+| Negative partner balance | `negativePaths.test.ts` (carried, never settled; debt needs a reason) |
+| Failed payout | `negativePaths.test.ts` (mirrored with reason, shown to partner) |
+| Failed Pro renewal | `negativePaths.test.ts`; `billingRewardsCredits.test.ts` |
+| Points redeemed before refund | `negativePaths.test.ts`; `billingRewardsCredits.test.ts` |
+| Policy material change | `policies.test.ts` (re-accept only after a material version) |
+| Expired credit | `negativePaths.test.ts` |
+| Insufficient credit | `negativePaths.test.ts` (nothing half-reserved) |
+| Incomplete seller verification | `negativePaths.test.ts`; browser `REV-VENDOR-EARNINGS-*` |
+
+### `manage.test.ts` flake — diagnosis
+
+- **Observed once** (Stage 4): 9 of its 10 tests failed together. The only one that passed is the only test that
+  makes no HTTP request. The error text wasn't kept, because my filter printed only test names.
+- **Ruled out:**
+  - Shared module state (e.g. the in-memory, IP-keyed `magicLinkLimiter`): vitest 4 isolates every test file
+    (`isolate: true` default, confirmed in its source).
+  - A commit race in `/link/request`: the token is written before the response.
+  - A database outage: the test server doesn't load `express-async-errors`, so a failing query would *hang* to the
+    15 s timeout, but the failures took 1–8 ms.
+- **Not reproduced** in 3 normal and 10 file-shuffled full runs before the fix, nor in the soak below.
+- **Remaining explanation:** environmental. Requests got fast, unexpected HTTP answers during one run, most likely
+  a local Docker/port-forward hiccup.
+- **Hardening:** every status assertion in `manage.test.ts` now prints the URL, the actual status and the response
+  body (`expectStatus`), so any recurrence identifies itself.
+- **Requirement — 20 consecutive clean runs with randomised order:** **20 / 20 consecutive clean full-suite runs** at `1f8cdaf` (740 passed, 23 skipped, 0 failed each), from a frozen worktree with file order shuffled; seeds 153057334, 1892028422, 2649614846, 2061921752, 1810818249, 238411027, 150916117, 2580317822, 2629520853, 1288912768, 81608872, 3001522733, 675029194, 1749713411, 103916557, 419012132, 49173989, 1693419682, 608822214, 15615500. An earlier soak attempt at `f26a569` failed on its first run; that failure was a real cross-file order bug (stub id collision, see "Bugs found"), fixed in `1f8cdaf` before this clean series was started. `manage.test.ts` passed in all 20 runs. Vitest shuffles the *order
+  of test files* with a recorded seed. Tests *within* a file aren't shuffled, because many files are deliberately
+  sequential (request → confirm, award → refund → redeem). That's the "where supported" limit.
+
+### Unresolved blockers (unchanged by 5c unless noted)
+
+- **B1:** legal entity, registered address and Stripe account country. These block policy publication (all
+  placeholders) and any live Connect use.
+- **B2:** a Stripe **test** sandbox check of Connect, Billing and both webhook endpoints, which needs the owner's
+  go-ahead. The harness's `qa:stripe` key exists locally but was deliberately not used.
+- Solicitor sign-off on the 18 policy drafts and on the new consent wording; tax advice on Pro VAT for non-IE or
+  B2B partners (reverse charge is configurable per partner, but not decided) and on DAC7.
+- **New (B19):** confirm whether the production DB user may hold `REFERENCES`. 5c removed the need, so this is
+  informational now.
+- Stages 6–8 need an explicit push/deploy instruction.
