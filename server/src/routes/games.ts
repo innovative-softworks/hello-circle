@@ -433,7 +433,9 @@ gamesRouter.get("/host/insights", requireResident, async (req, res) => {
 // concept of "creator". Requiring a specific, ownership-checked game id is
 // the only safe shape given that existing shared function's behaviour.
 // Revenue & Connect Stage 2d — a host's own earnings from the ledger.
-gamesRouter.get("/host/earnings", requireResident, async (req, res) => {
+// (Stage 5c: was also mounted at /host/earnings, where the paid-players list
+// above already answers first — so hosts never got their balances.)
+gamesRouter.get("/host/balances", requireResident, async (req, res) => {
   res.json(await partnerBalances({ partyType: "host", partyId: req.resident!.id }));
 });
 

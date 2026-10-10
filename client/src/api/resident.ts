@@ -1118,7 +1118,7 @@ export function fetchHostOpportunities(): Promise<{ opportunities: HostOpportuni
 // --- Revenue & Connect Stage 3: host ledger balances -----------------------
 
 export function fetchHostBalances(): Promise<import("./vendor").PartnerEarnings> {
-  return request(`/games/host/earnings`);
+  return request(`/games/host/balances`);
 }
 
 // --- Revenue & Connect Stage 5b: customer credits ------------------------------

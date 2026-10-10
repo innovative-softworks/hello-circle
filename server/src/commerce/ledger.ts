@@ -48,6 +48,13 @@ export async function postGroup(tx: Tx, input: PostInput): Promise<{ groupId: st
   }
   const sum = lines.reduce((a, l) => a + l.amountMinor, 0);
   if (sum !== 0) throw new LedgerError(`Ledger group ${input.idempotencyKey} doesn't balance (off by ${sum})`);
+  // Stage 5c — no database foreign keys in this schema (house rule; the QA and
+  // production DB users have no REFERENCES privilege): the account codes are
+  // checked here instead, before anything is written for the group.
+  const codes = [...new Set(lines.map((l) => l.account))];
+  const known = (await tx.prepare(`SELECT code FROM ledger_accounts WHERE code IN (${codes.map(() => "?").join(",")})`).all(...codes)) as { code: string }[];
+  const missing = codes.filter((c) => !known.some((k) => k.code === c));
+  if (missing.length) throw new LedgerError(`Unknown ledger account(s): ${missing.join(", ")}`);
 
   const existing = (await tx.prepare(`SELECT id FROM ledger_entry_groups WHERE idempotency_key = ?`).get(input.idempotencyKey)) as { id: string } | undefined;
   if (existing) return { groupId: existing.id, created: false };

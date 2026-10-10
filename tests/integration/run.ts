@@ -17,7 +17,9 @@ async function main() {
   const stripeMode = args[0] === "stripe";
   const product = args[0] === "product";
   const browsers = args[0] === "browsers";
-  if (authorization || gate || lifecycle || booking || stripeMode || product || browsers) args.shift();
+  // Revenue & Connect Stage 5c — Stage 3–5 journeys (desktop + mobile), provider stub only.
+  const revenue = args[0] === "revenue";
+  if (authorization || gate || lifecycle || booking || stripeMode || product || browsers || revenue) args.shift();
   // Phase 10A — cross-browser critical journeys. Only these three engine
   // names are accepted; anything else falls back to Chromium.
   const qaBrowser = ["firefox", "webkit"].includes(process.env.QA_BROWSER ?? "") ? process.env.QA_BROWSER! : "chromium";
@@ -67,7 +69,14 @@ async function main() {
     // Phase 7 product-lifecycle suites: same guards, one fresh backend per
     // file so each batch stays within the real 10-login password limiter.
     // Phase 8 booking-integrity suites (no payment provider), same guards.
-    const batches = browsers ? [
+    const batches = revenue ? [
+      // Network-free provider stub for every revenue batch; never a Stripe key.
+      ["revenue-public", "revenue-public\\.spec\\.ts$"],
+      ["revenue-partner", "revenue-partner\\.spec\\.ts$"],
+      ["revenue-resident", "revenue-resident\\.spec\\.ts$"],
+      ["revenue-admin", "revenue-admin\\.spec\\.ts$"],
+      ["revenue-admin-b", "revenue-admin-b\\.spec\\.ts$"],
+    ] : browsers ? [
       // Critical journeys, re-run per engine (no Stripe financial batches).
       ["core", "(auth|passwordless-security)\\.spec\\.ts$"],
       ["product-vendor-signup", "product-vendor-signup\\.spec\\.ts$"],
@@ -246,7 +255,7 @@ async function main() {
       console.log(`Real auth batch: ${batch}`);
       const code = await new Promise<number>((resolve, reject) => {
         const child = spawn(process.execPath, ["node_modules/@playwright/test/cli.js", "test", "--config", "tests/integration/playwright.config.ts", ...(args.length ? ["--pass-with-no-tests"] : []), files, ...args], {
-          cwd: repositoryRoot, env: { ...childEnvironment(current.env, current.manifest), QA_AUTH_BATCH: batch, QA_BROWSER: qaBrowser, ...(prodBuild ? { QA_PROD_BUILD: "1" } : {}), ...(batch === "booking-provider" ? { QA_PAYMENT_PROVIDER_STUB: "1" } : {}), ...stripeEnv }, stdio: "inherit",
+          cwd: repositoryRoot, env: { ...childEnvironment(current.env, current.manifest), QA_AUTH_BATCH: batch, QA_BROWSER: qaBrowser, ...(prodBuild ? { QA_PROD_BUILD: "1" } : {}), ...(batch === "booking-provider" || batch.startsWith("revenue-") ? { QA_PAYMENT_PROVIDER_STUB: "1" } : {}), ...stripeEnv }, stdio: "inherit",
         });
         child.once("error", reject);
         child.once("exit", (status) => resolve(status ?? 1));

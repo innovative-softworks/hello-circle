@@ -2627,8 +2627,7 @@ async function initCommerceSchema(
       memo VARCHAR(255) NOT NULL DEFAULT '',
       created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
       UNIQUE KEY uniq_ledger_line (group_id, line_no),
-      CONSTRAINT fk_ledger_entry_group FOREIGN KEY (group_id) REFERENCES ledger_entry_groups (id),
-      CONSTRAINT fk_ledger_entry_account FOREIGN KEY (account_code) REFERENCES ledger_accounts (code)
+      KEY idx_ledger_entry_account (account_code)
     )
   `);
   // Revenue & Connect Stage 2d — completion, settlements, fee reconciliation.

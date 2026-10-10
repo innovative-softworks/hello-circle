@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { useConfirm } from "../components/ConfirmProvider";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import {
   adminDeleteCentre,
   adminDeleteClub,
@@ -1822,7 +1822,10 @@ function AdminOverviewTab({ stats }: { stats: AdminStats }) {
 export function AdminDashboard() {
   const { user, loading } = useAuth();
   const navigate = useNavigate();
-  const [tab, setTab] = useState<AdminTab>("overview");
+  // Deep link (?tab=finance etc.), same convention as the vendor dashboard.
+  const [searchParams] = useSearchParams();
+  const initialTab = searchParams.get("tab");
+  const [tab, setTab] = useState<AdminTab>(ADMIN_TABS.some((t) => t.key === initialTab) ? (initialTab as AdminTab) : "overview");
   const [stats, setStats] = useState<AdminStats | null>(null);
   // Lets VendorDetailModal's listing links jump to the Listings tab with that
   // listing's own detail popup already open, instead of just switching tabs.

@@ -230,20 +230,23 @@ function DocumentsSection({ overview, reload }: { overview: AdminPolicyOverview;
               </Button>
             )}
           </div>
-          <table style={{ ...tableStyle, marginTop: 8 }}>
-            <thead><tr><th style={thStyle}>Version</th><th style={thStyle}>Status</th><th style={thStyle}>Changes</th><th style={thStyle}>Legal sign-off</th><th style={thStyle} /></tr></thead>
-            <tbody>
-              {versions.map((x) => (
-                <tr key={x.id}>
-                  <td style={tdStyle}>v{x.version}{x.material ? " · material" : ""}</td>
-                  <td style={{ ...tdStyle, color: STATUS_TONE[x.status], fontWeight: 600 }}>{x.status}</td>
-                  <td style={{ ...tdStyle, fontSize: 12.5 }}>{x.changeSummary ?? ""}</td>
-                  <td style={{ ...tdStyle, fontSize: 12.5 }}>{x.legalReviewerName ? `${x.legalReviewerName}, ${when(x.legalReviewedAt)}` : "—"}</td>
-                  <td style={tdStyle}><Button variant="ghost" onClick={() => setEditing(x.id)}>Open</Button></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          {/* Wrapped so a narrow (phone) screen scrolls the table, not the whole page. */}
+          <div style={{ overflowX: "auto", marginTop: 8 }}>
+            <table style={tableStyle}>
+              <thead><tr><th style={thStyle}>Version</th><th style={thStyle}>Status</th><th style={thStyle}>Changes</th><th style={thStyle}>Legal sign-off</th><th style={thStyle} /></tr></thead>
+              <tbody>
+                {versions.map((x) => (
+                  <tr key={x.id}>
+                    <td style={tdStyle}>v{x.version}{x.material ? " · material" : ""}</td>
+                    <td style={{ ...tdStyle, color: STATUS_TONE[x.status], fontWeight: 600 }}>{x.status}</td>
+                    <td style={{ ...tdStyle, fontSize: 12.5 }}>{x.changeSummary ?? ""}</td>
+                    <td style={{ ...tdStyle, fontSize: 12.5 }}>{x.legalReviewerName ? `${x.legalReviewerName}, ${when(x.legalReviewedAt)}` : "—"}</td>
+                    <td style={tdStyle}><Button variant="ghost" onClick={() => setEditing(x.id)}>Open</Button></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
           {error && <p role="alert" style={errStyle}>{error}</p>}
         </div>
       )}

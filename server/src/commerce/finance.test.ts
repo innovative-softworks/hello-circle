@@ -135,6 +135,12 @@ describe("ledger primitives", () => {
     expect(b).toEqual({ groupId: a.groupId, created: false });
   });
 
+  it("refuses an unknown account before writing anything (no DB foreign keys — Stage 5c)", async () => {
+    const key = `t-${run}-unknown`;
+    await expect(db.transaction((tx) => postGroup(tx, { idempotencyKey: key, sourceType: "test", sourceId: `t-${run}`, description: "x", basis: "actual", currency: "EUR", lines: [{ account: "stripe_clearing", amountMinor: 100 }, { account: "no_such_account", amountMinor: -100 }] }))).rejects.toThrow(/Unknown ledger account\(s\): no_such_account/);
+    expect(await db.prepare(`SELECT id FROM ledger_entry_groups WHERE idempotency_key = ?`).get(key)).toBeUndefined();
+  });
+
   it("proportional reversal balances exactly even with awkward ratios", async () => {
     const g = await db.transaction((tx) =>
       postGroup(tx, {

@@ -146,6 +146,23 @@ describe("DELETE /:id/join — paid leave notifies the host", () => {
 // Host Experience Polish — GET /host/insights. Dedicated host/resident/game
 // fixtures (not the shared testHostId above) so this suite's totals aren't
 // perturbed by, or don't perturb, the capacity-race/paid-leave tests above.
+describe("GET /host/earnings vs /host/balances (Stage 5c regression)", () => {
+  const hostId = `test-balances-host-${crypto.randomUUID()}`;
+  beforeAll(async () => {
+    await db.prepare(`INSERT INTO residents (id, email, name) VALUES (?, ?, 'Balances Host')`).run(hostId, `${hostId}@example.test`);
+  });
+  afterAll(async () => {
+    await db.prepare(`DELETE FROM residents WHERE id = ?`).run(hostId);
+  });
+
+  it("serves the paid-players list and the ledger balances on separate paths", async () => {
+    const list = await fetch(`${baseUrl}/host/earnings`, { headers: { "X-Test-Resident-Id": hostId } });
+    expect(Array.isArray(await list.json())).toBe(true);
+    const balances = await (await fetch(`${baseUrl}/host/balances`, { headers: { "X-Test-Resident-Id": hostId } })).json();
+    expect(balances).toMatchObject({ pendingMinor: 0, availableMinor: 0, transferDueMinor: 0, transferredMinor: 0, settlements: [] });
+  });
+});
+
 describe("GET /host/insights", () => {
   const insightsHostId = `test-insights-host-${crypto.randomUUID()}`;
   const participantAId = `test-insights-a-${crypto.randomUUID()}`;
