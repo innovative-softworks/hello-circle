@@ -80,7 +80,8 @@ test("SANDBOX-CONNECT-A: Accounts v2 company vendor + individual host — creati
         const minted = ui.page.waitForResponse((r) => r.url().endsWith("/api/host/payout-account/onboarding") && r.request().method() === "POST");
         await ui.page.goto("/manage?tab=earnings&payouts=refresh");
         expect((await minted).status(), "refresh → new onboarding link").toBe(200);
-        await ui.page.waitForURL(/connect\.stripe\.com/, { timeout: 30_000 });
+        // Only the navigation to Stripe matters; its page load waits on third-party scripts the harness blocks.
+        await ui.page.waitForURL(/connect\.stripe\.com/, { timeout: 30_000, waitUntil: "commit" });
         const page2 = await ui.context.newPage();
         const returned = page2.waitForResponse((r) => r.url().endsWith("/api/host/payout-account/refresh"));
         await page2.goto("/manage?tab=earnings&payouts=return");
