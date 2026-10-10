@@ -25,7 +25,6 @@ const org = `neg-org-${run}`;
 const vendorId = `neg-vendor-${run}`;
 const adminId = `neg-admin-${run}`;
 const residentId = `neg-res-${run}`;
-const account = `acct_neg_${run}`;
 const party = { partyType: "org" as const, partyId: org };
 const reason = "negative path test";
 let seq = 0;
@@ -56,7 +55,8 @@ afterAll(async () => {
   await db.prepare(`DELETE FROM transfers WHERE party_id = ?`).run(org);
   await db.prepare(`DELETE FROM partner_debts WHERE party_id = ?`).run(org);
   await db.prepare(`DELETE FROM settlements WHERE party_id = ?`).run(org);
-  await db.prepare(`DELETE FROM connected_payouts WHERE account_id = ?`).run(account);
+  // By the account the stub actually created (not a guessed id), before the account row itself goes.
+  await db.prepare(`DELETE FROM connected_payouts WHERE account_id IN (SELECT account_id FROM connected_accounts WHERE party_id = ?)`).run(org);
   await db.prepare(`DELETE FROM connected_accounts WHERE party_id = ?`).run(org);
   await db.prepare(`DELETE FROM trader_profiles WHERE party_id = ?`).run(org);
   await db.prepare(`DELETE FROM reward_reversals WHERE award_id IN (SELECT id FROM reward_awards WHERE party_id = ?)`).run(org);

@@ -296,6 +296,11 @@ export class StubProvider implements PaymentProvider {
   readonly name = "stub" as const;
   readonly calls: { method: string; args: unknown }[] = [];
   private seq = 0;
+  /** Stage 5c — Connect objects are stored under globally unique keys
+   * (connected_accounts.account_id, …), and every test file runs in its own
+   * process with its own counter: a per-process tag keeps "acct_stub_1" from
+   * one file colliding with another's in the shared test database. */
+  private readonly tag = `${Math.random().toString(36).slice(2, 8)}_`;
   private charges = new Map<string, ChargeState>();
   private refundsByKey = new Map<string, { id: string; amountMinor: number }>();
   private transfersByKey = new Map<string, { id: string; amountMinor: number }>();
@@ -400,7 +405,7 @@ export class StubProvider implements PaymentProvider {
     this.record("createConnectedAccount", p);
     const prior = this.accountsByKey.get(p.idempotencyKey);
     if (prior) return { id: prior };
-    const id = `acct_stub_${++this.seq}`;
+    const id = `acct_stub_${this.tag}${++this.seq}`;
     this.accountsByKey.set(p.idempotencyKey, id);
     this.accounts.set(id, { id, country: p.country, detailsSubmitted: false, chargesEnabled: false, payoutsEnabled: false, transfersCapability: "inactive", requirementsDue: ["external_account", "individual.verification.document"], disabledReason: "requirements.past_due" });
     return { id };
@@ -425,7 +430,7 @@ export class StubProvider implements PaymentProvider {
 
   async createSubscriptionCheckout(p: { customerEmail: string; productName: string; netAmountMinor: number; vatBps: number; currency: string; successUrl: string; cancelUrl: string; metadata: Record<string, string> }) {
     this.record("createSubscriptionCheckout", p);
-    return { id: `cs_sub_stub_${++this.seq}`, url: null };
+    return { id: `cs_sub_stub_${this.tag}${++this.seq}`, url: null };
   }
 
   async cancelSubscription(p: { subscriptionId: string; atPeriodEnd: boolean }) {
@@ -452,7 +457,7 @@ export class StubProvider implements PaymentProvider {
       this.failNextTransfer = null;
       throw e;
     }
-    const t = { id: `tr_stub_${++this.seq}`, amountMinor: p.amountMinor };
+    const t = { id: `tr_stub_${this.tag}${++this.seq}`, amountMinor: p.amountMinor };
     this.transfersByKey.set(p.idempotencyKey, t);
     return { id: t.id };
   }
@@ -468,7 +473,7 @@ export class StubProvider implements PaymentProvider {
     }
     const t = [...this.transfersByKey.values()].find((x) => x.id === p.transferId);
     if (!t) throw Object.assign(new Error("No such transfer"), { code: "resource_missing" });
-    const r = { id: `trr_stub_${++this.seq}`, amountMinor: p.amountMinor ?? t.amountMinor };
+    const r = { id: `trr_stub_${this.tag}${++this.seq}`, amountMinor: p.amountMinor ?? t.amountMinor };
     this.reversalsByKey.set(p.idempotencyKey, r);
     return r;
   }
