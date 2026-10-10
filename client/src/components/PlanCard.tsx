@@ -57,7 +57,7 @@ export function PlanCard({ scope }: { scope: "vendor" | "host" }) {
           {sub ? (
             <>
               <p style={{ margin: "0 0 10px" }}>
-                Pro subscription, {euro(data.price.grossMinor)}/month incl. VAT.{" "}
+                Pro subscription, {euro(data.price.netMinor)}/month + {data.price.vatMinor > 0 ? `VAT ${euro(data.price.vatMinor)}` : `no VAT (${data.price.vatMode.replace("_", " ")})`}.{" "}
                 {sub.cancelAtPeriodEnd ? `Ends on ${day(sub.currentPeriodEnd)} — you'll move to Free then.` : sub.currentPeriodEnd ? `Renews on ${day(sub.currentPeriodEnd)}.` : ""}
               </p>
               {sub.cancelAtPeriodEnd ? (
@@ -69,7 +69,8 @@ export function PlanCard({ scope }: { scope: "vendor" | "host" }) {
           ) : (
             <>
               <p style={{ margin: "0 0 10px", color: colors.textSoft }}>
-                Pro is {euro(data.price.netMinor)}/month + VAT ({euro(data.price.grossMinor)} total) for a lower success fee.
+                Pro is {euro(data.price.netMinor)}/month excluding VAT
+                {data.price.vatMinor > 0 ? ` (+ VAT ${euro(data.price.vatMinor)} for you)` : ` (no VAT charged to you: ${data.price.vatMode.replace("_", " ")})`} for a lower success fee.
                 <FieldHelp helpKey="pro_break_even" />
               </p>
               {!isPro && (
@@ -94,10 +95,15 @@ export function PlanCard({ scope }: { scope: "vendor" | "host" }) {
         <div style={{ marginTop: 16, paddingTop: 14, borderTop: `1px solid ${colors.border}`, fontSize: 14 }}>
           <strong>{data.rewards.points.toLocaleString("en-IE")} reward points</strong>
           <span style={{ color: colors.mutedLight }}> · {data.rewards.pointsPerEuro} point per €1 of settled sales{data.rewards.nextExpiry ? ` · some expire on ${day(data.rewards.nextExpiry)}` : ""}</span>
+          {data.rewards.debtPoints > 0 && (
+            <p style={{ fontSize: 13, color: colors.danger, margin: "6px 0 0" }}>
+              {data.rewards.debtPoints.toLocaleString("en-IE")} points are owed from refunded or disputed bookings; they're repaid from your next points before you can redeem.
+            </p>
+          )}
           <div style={{ marginTop: 8 }}>
             <Button
               variant="ghost"
-              disabled={busy || data.rewards.points < data.rewards.redemptionPoints || !!sub}
+              disabled={busy || data.rewards.debtPoints > 0 || data.rewards.points < data.rewards.redemptionPoints || !!sub}
               onClick={() => act(() => redeemRewardPoints(scope), "Redeemed — enjoy a month of Pro.")}
             >
               Redeem {data.rewards.redemptionPoints.toLocaleString("en-IE")} points for a month of Pro

@@ -652,7 +652,10 @@ export interface PartnerEarnings {
   party?: { partyType: string; partyId: string };
   pendingMinor: number;
   availableMinor: number;
-  settledDueMinor: number;
+  /** Settled, not yet transferred to the partner's Stripe account. */
+  transferDueMinor: number;
+  /** Transferred to the partner's Stripe account (bank payouts are separate). */
+  transferredMinor: number;
   settlements: { id: number; runKey: string; netMinor: number; status: string; createdAt: string }[];
 }
 
@@ -671,21 +674,24 @@ export interface PayoutsOverview {
   enabled: boolean;
   account: { detailsSubmitted: boolean; payoutsEnabled: boolean; transfersActive: boolean; requirementsDue: string[]; disabledReason: string | null } | null;
   readiness: string[];
-  transfers: { id: number; settlementId: number; amountMinor: number; reversedMinor: number; status: string; createdAt: string }[];
-  payouts: { id: string; amountMinor: number; currency: string; status: string; arrivalDate: string | null; failureMessage: string | null }[];
+  /** HelloCircle → the partner's Stripe account (weekly settlement transfers). */
+  transfers: { id: number; settlementId: number; amountMinor: number; reversedMinor: number; status: string; createdAt: string; bookings: number }[];
+  /** The partner's Stripe account → their bank (made by Stripe, mirrored here). */
+  bankPayouts: { id: string; amountMinor: number; currency: string; status: string; arrivalDate: string | null; failureMessage: string | null }[];
+  openDebt: { id: number; outstandingMinor: number; openedAt: string } | null;
 }
 /** scope "vendor" = the signed-in vendor's organisation; "host" = the signed-in resident as a host. */
 export function fetchPayouts(scope: "vendor" | "host"): Promise<PayoutsOverview> {
-  return request(`/${scope}/payouts`);
+  return request(`/${scope}/payout-account`);
 }
 export function startPayoutOnboarding(scope: "vendor" | "host"): Promise<{ url: string }> {
-  return request(`/${scope}/payouts/onboarding`, { method: "POST", body: JSON.stringify({ country: "IE" }) });
+  return request(`/${scope}/payout-account/onboarding`, { method: "POST", body: JSON.stringify({ country: "IE" }) });
 }
 export function refreshPayoutAccount(scope: "vendor" | "host"): Promise<PayoutsOverview> {
-  return request(`/${scope}/payouts/refresh`, { method: "POST", body: "{}" });
+  return request(`/${scope}/payout-account/refresh`, { method: "POST", body: "{}" });
 }
 export function payoutDashboardLink(scope: "vendor" | "host"): Promise<{ url: string }> {
-  return request(`/${scope}/payouts/dashboard`, { method: "POST", body: "{}" });
+  return request(`/${scope}/payout-account/dashboard`, { method: "POST", body: "{}" });
 }
 
 // --- Revenue & Connect Stage 5b: plan (Pro on Stripe Billing) + reward points --
@@ -694,8 +700,8 @@ export interface PartnerPlanOverview {
   enabled: boolean;
   plan: { planKey: "free" | "pro" | "enterprise"; source: string; effectiveTo: string | null };
   subscription: { status: string; currentPeriodEnd: string | null; cancelAtPeriodEnd: boolean; graceUntil: string | null } | null;
-  price: { netMinor: number; vatMinor: number; grossMinor: number; vatBps: number };
-  rewards: { enabled: boolean; points: number; nextExpiry: string | null; redemptionPoints: number; pointsPerEuro: number };
+  price: { netMinor: number; vatMinor: number; grossMinor: number; vatBps: number; vatMode: string };
+  rewards: { enabled: boolean; points: number; availablePoints: number; debtPoints: number; nextExpiry: string | null; redemptionPoints: number; pointsPerEuro: number };
 }
 export function fetchMyPlan(scope: "vendor" | "host"): Promise<PartnerPlanOverview> {
   return request(`/${scope}/plan`);

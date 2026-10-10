@@ -18,8 +18,12 @@ import { commerceSwitch } from "./switches.js";
 //   partner cancels              → renews no more; Pro until the period ends,
 //                                  customer.subscription.deleted → Free
 //
-// The price is the published plan_pro subscription price plus VAT at the
-// published rate (tax_vat), so the rules stay the single source of truth.
+// Pricing (Stage 5c): Pro is the published plan_pro price *excluding* VAT.
+// The VAT that applies is resolved per partner from the versioned tax_vat
+// rule (standard rate, or none for an exempt / reverse-charge partner) and
+// frozen on the subscription with both rule hashes. Stripe gets the net
+// price plus an exclusive tax rate, so the invoice shows VAT separately.
+// There is no single "Pro price incl. VAT" — it depends on the partner.
 
 export class SubscriptionError extends Error {
   constructor(message: string, readonly status: number = 400) {
@@ -30,12 +34,16 @@ export class SubscriptionError extends Error {
 export const GRACE_DAYS = 7;
 const LIVE = ["checkout", "active", "past_due"];
 
-export async function proPrice(at: Date = new Date()) {
-  const [plan, tax] = await Promise.all([resolveRule("plan_pro", {}, at), resolveRule("tax_vat", {}, at)]);
+const ctxOf = (partner?: PartnerKey) => ({ orgId: partner?.kind === "org" ? partner.id : null, hostResidentId: partner?.kind === "host" ? partner.id : null });
+
+/** The Pro price for this partner: net (ex-VAT) from plan_pro, VAT from the partner's tax_vat rule. */
+export async function proPrice(partner?: PartnerKey, at: Date = new Date()) {
+  const [plan, tax] = await Promise.all([resolveRule("plan_pro", ctxOf(partner), at), resolveRule("tax_vat", ctxOf(partner), at)]);
   const netMinor = Number(plan.values.subscriptionMonthlyMinor);
-  const vatBps = Number(tax.values.vatBps);
+  const vatMode = String(tax.values.vatMode ?? "standard");
+  const vatBps = vatMode === "standard" ? Number(tax.values.vatBps) : 0;
   const vatMinor = applyBps(netMinor, vatBps);
-  return { netMinor, vatMinor, grossMinor: netMinor + vatMinor, vatBps };
+  return { netMinor, vatMinor, grossMinor: netMinor + vatMinor, vatBps, vatMode, planRuleHash: plan.hash, taxRuleHash: tax.hash };
 }
 
 const SUB_FIELDS = `id, party_type as partyType, party_id as partyId, provider_subscription_id as subscriptionId, status, gross_minor as grossMinor,
@@ -55,12 +63,13 @@ export async function startProCheckout(partner: PartnerKey, input: { email: stri
   if (!provider) throw new SubscriptionError("Payments aren't configured on this server", 503);
   const existing = await liveSubscription(partner);
   if (existing && existing.status !== "checkout") throw new SubscriptionError("You already have a Pro subscription", 409);
-  const price = await proPrice();
+  const price = await proPrice(partner);
   const sep = input.returnPath.includes("?") ? "&" : "?";
   const session = await provider.createSubscriptionCheckout({
     customerEmail: input.email,
-    productName: "HelloCircle Pro — monthly (incl. VAT)",
-    unitAmountMinor: price.grossMinor,
+    productName: "HelloCircle Pro — monthly",
+    netAmountMinor: price.netMinor,
+    vatBps: price.vatBps,
     currency: "EUR",
     successUrl: `${CLIENT_URL}${input.returnPath}${sep}pro=success`,
     cancelUrl: `${CLIENT_URL}${input.returnPath}${sep}pro=cancelled`,
@@ -70,8 +79,11 @@ export async function startProCheckout(partner: PartnerKey, input: { email: stri
   // An abandoned earlier checkout is superseded by this one.
   await db.prepare(`UPDATE partner_subscriptions SET status = 'abandoned' WHERE party_type = ? AND party_id = ? AND status = 'checkout'`).run(partner.kind, partner.id);
   await db
-    .prepare(`INSERT INTO partner_subscriptions (party_type, party_id, checkout_session_id, status, gross_minor, created_by) VALUES (?, ?, ?, 'checkout', ?, ?)`)
-    .run(partner.kind, partner.id, session.id, price.grossMinor, input.actorId);
+    .prepare(
+      `INSERT INTO partner_subscriptions (party_type, party_id, checkout_session_id, status, gross_minor, net_minor, vat_minor, vat_bps, vat_mode, plan_rule_hash, tax_rule_hash, created_by)
+       VALUES (?, ?, ?, 'checkout', ?, ?, ?, ?, ?, ?, ?, ?)`
+    )
+    .run(partner.kind, partner.id, session.id, price.grossMinor, price.netMinor, price.vatMinor, price.vatBps, price.vatMode, price.planRuleHash, price.taxRuleHash, input.actorId);
   return { id: session.id, url: session.url };
 }
 
@@ -132,15 +144,25 @@ export async function applySubscriptionDeleted(sub: { id: string }) {
 }
 
 /** invoice.paid — subscription revenue and its VAT. */
-export async function recordInvoicePaid(inv: { id: string; amount_paid?: number; currency?: string; subscription?: string | { id: string } | null; parent?: { subscription_details?: { subscription?: string } } }) {
+export async function recordInvoicePaid(inv: {
+  id: string;
+  amount_paid?: number;
+  currency?: string;
+  tax?: number | null;
+  total_taxes?: { amount: number }[] | null;
+  subscription?: string | { id: string } | null;
+  parent?: { subscription_details?: { subscription?: string } };
+}) {
   const subId = typeof inv.subscription === "string" ? inv.subscription : inv.subscription?.id ?? inv.parent?.subscription_details?.subscription ?? null;
   if (!subId) return "ignored" as const;
-  const known = await db.prepare(`SELECT 1 FROM partner_subscriptions WHERE provider_subscription_id = ?`).get(subId);
+  const known = (await db.prepare(`SELECT vat_bps as vatBps FROM partner_subscriptions WHERE provider_subscription_id = ?`).get(subId)) as { vatBps: number | null } | undefined;
   if (!known) return "ignored" as const;
   const gross = Number(inv.amount_paid ?? 0);
   if (gross <= 0 || !(await ledgerEnabled())) return "processed" as const;
-  const { vatBps } = await proPrice();
-  const net = divRoundHalfUp(gross * 10_000, 10_000 + vatBps);
+  // The VAT Stripe actually charged on this invoice; else the rate frozen on
+  // the subscription (never today's rule — a rate change doesn't rewrite history).
+  const reportedTax = typeof inv.tax === "number" ? inv.tax : Array.isArray(inv.total_taxes) ? inv.total_taxes.reduce((a, t) => a + Number(t.amount ?? 0), 0) : null;
+  const net = reportedTax !== null ? gross - reportedTax : divRoundHalfUp(gross * 10_000, 10_000 + Number(known.vatBps ?? 0));
   await db.transaction((tx) =>
     postGroup(tx, {
       idempotencyKey: `invoice:${inv.id}`,
@@ -201,7 +223,7 @@ export async function sweepSubscriptions(now: Date = new Date()) {
 }
 
 export async function subscriptionOverview(partner: PartnerKey) {
-  const [enabled, plan, sub, price] = await Promise.all([commerceSwitch("commerce.pro_subscriptions"), currentPlanFor(partner), liveSubscription(partner), proPrice()]);
+  const [enabled, plan, sub, price] = await Promise.all([commerceSwitch("commerce.pro_subscriptions"), currentPlanFor(partner), liveSubscription(partner), proPrice(partner)]);
   return {
     enabled,
     plan: { planKey: plan.planKey, source: plan.source, effectiveTo: plan.effectiveTo },

@@ -789,8 +789,24 @@ export interface TransferRunResult { dryRun: boolean; transferred: { settlementI
 export function runTransfersApi(input: { dryRun: boolean; reason: string }): Promise<TransferRunResult> {
   return request(`/admin/finance/transfers/run`, { method: "POST", body: JSON.stringify(input) });
 }
-export function recoverPartnerBalance(kind: string, id: string, reason: string): Promise<{ recoveredMinor: number; unrecoveredMinor: number; reversals: { reversalId: number; amountMinor: number; status: string; error?: string }[] }> {
-  return request(`/admin/finance/partners/${encodeURIComponent(kind)}/${encodeURIComponent(id)}/recover`, { method: "POST", body: JSON.stringify({ reason }) });
+// Stage 5c — partner debts and per-booking transfer allocations.
+export interface DebtRecoveryResult { debtId: number; recoveredMinor: number; unrecoveredMinor: number; status: string; reversals: { reversalId: number; amountMinor: number; status: string; error?: string; allocations: { allocationId: number; amount: number }[] }[] }
+export interface PartnerDebt { id: number; partyType: string; partyId: string; status: "open" | "recovered" | "offset"; openedMinor: number; recoveredMinor: number; offsetMinor: number; outstandingMinor: number; reason: string; openedBy: string; openedAt: string; closedAt: string | null }
+export function fetchPartnerDebts(status?: string): Promise<PartnerDebt[]> {
+  return request(`/admin/finance/debts${status ? `?status=${status}` : ""}`);
+}
+export function openPartnerDebt(kind: string, id: string, reason: string): Promise<DebtRecoveryResult> {
+  return request(`/admin/finance/partners/${encodeURIComponent(kind)}/${encodeURIComponent(id)}/debts`, { method: "POST", body: JSON.stringify({ reason }) });
+}
+export function retryPartnerDebt(debtId: number, reason: string): Promise<DebtRecoveryResult> {
+  return request(`/admin/finance/debts/${debtId}/retry`, { method: "POST", body: JSON.stringify({ reason }) });
+}
+export interface TransferAllocation { id: number; kind: string; sourceType: string | null; sourceRef: string | null; amountMinor: number; reversedMinor: number }
+export function fetchTransferAllocations(transferId: number): Promise<TransferAllocation[]> {
+  return request(`/admin/finance/transfers/${transferId}/allocations`);
+}
+export function reverseTransferAllocation(allocationId: number, amountMinor: number, reason: string): Promise<DebtRecoveryResult> {
+  return request(`/admin/finance/allocations/${allocationId}/reverse`, { method: "POST", body: JSON.stringify({ amountMinor, reason }) });
 }
 
 // --- Revenue & Connect Stage 5b: customer credits, Pro subscriptions ----------

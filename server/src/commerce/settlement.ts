@@ -11,9 +11,11 @@
 //
 // "Transfer eligibility begins after the activity is completed and the
 // configured review period has passed." Nothing here moves money: a
-// settlement is an amount due; transfers/payouts are Stage 5.
+// settlement is an amount due; the transfer to the partner's Stripe account is
+// payments/connect.ts (and the bank payout after that is Stripe's).
 
 import { db } from "../db/index.js";
+import { debtGate } from "./debts.js";
 import { awardForSettlement } from "./rewards.js";
 import { irelandWallTimeToUtc } from "../irelandTime.js";
 import type { CheckoutType } from "../checkoutService.js";
@@ -197,8 +199,15 @@ export async function runSettlement(input: { runKey: string; dryRun: boolean; ac
     }
   }
   const settled: { partyType: string; partyId: string; netMinor: number; settlementId: number | null }[] = [];
-  const carried: { partyType: string; partyId: string; netMinor: number }[] = [];
+  const carried: { partyType: string; partyId: string; netMinor: number; frozenByDebtId?: number }[] = [];
   for (const p of parties) {
+    // Stage 5c — an open partner debt freezes the partner's earnings until
+    // their own balance covers it (then it closes as offset).
+    const gate = await debtGate(p, p.netMinor, input.dryRun);
+    if (gate.frozen) {
+      carried.push({ partyType: p.partyType, partyId: p.partyId, netMinor: p.netMinor, frozenByDebtId: gate.debtId });
+      continue;
+    }
     const rule = await resolveRule("settlement", { orgId: p.partyType === "org" ? p.partyId : null, hostResidentId: p.partyType === "host" ? p.partyId : null }, now);
     if (p.netMinor < Number(rule.values.minPayoutMinor) || p.netMinor <= 0) {
       carried.push({ partyType: p.partyType, partyId: p.partyId, netMinor: p.netMinor });
@@ -283,13 +292,13 @@ export async function reconcilePaymentFees(opts: { limit?: number } = {}): Promi
   if (!(await ledgerEnabled())) throw new RuleError("Turn on the financial ledger switch first", 409);
   const provider = paymentProvider();
   if (!provider) throw new RuleError("Payments aren't configured on this server", 503);
-  const costs = await resolveRule("payment_costs");
   const rows = (await db
     .prepare(
-      `SELECT p.id, p.source_type as type, p.source_ref as ref, p.payment_intent_id as pi, p.amount_minor as amount FROM payment_records p
-       LEFT JOIN fee_reconciliations f ON f.payment_record_id = p.id WHERE f.id IS NULL AND p.payment_intent_id IS NOT NULL ORDER BY p.id LIMIT ?`
+      `SELECT p.id, p.source_type as type, p.source_ref as ref, p.payment_intent_id as pi, p.amount_minor as amount, p.currency, p.fee_estimate_minor as estimate
+       FROM payment_records p LEFT JOIN fee_reconciliations f ON f.payment_record_id = p.id
+       WHERE f.id IS NULL AND p.payment_intent_id IS NOT NULL ORDER BY p.id LIMIT ?`
     )
-    .all(opts.limit ?? 200)) as { id: number; type: string; ref: string; pi: string; amount: number | string }[];
+    .all(opts.limit ?? 200)) as { id: number; type: string; ref: string; pi: string; amount: number | string; currency: string; estimate: number | string | null }[];
   let reconciled = 0;
   let skipped = 0;
   for (const r of rows) {
@@ -298,47 +307,61 @@ export async function reconcilePaymentFees(opts: { limit?: number } = {}): Promi
       skipped++;
       continue;
     }
-    const estimate = applyBps(Number(r.amount), Number(costs.values.cardBps)) + Number(costs.values.cardFixedMinor);
     await db.transaction(async (tx) => {
-      const est = await postGroup(tx, {
-        idempotencyKey: `fee:estimate:${r.type}:${r.ref}`,
-        sourceType: "payment_fee",
-        sourceId: `${r.type}:${r.ref}`,
-        description: `Estimated card fee ${r.type} ${r.ref}`,
-        basis: "estimate",
-        currency: "EUR",
-        lines: [
-          { account: "processing_fee_expense", amountMinor: estimate, memo: "estimate" },
-          { account: "accrued_payment_costs", amountMinor: -estimate, memo: "estimate" },
-        ],
-      });
-      // Actual replaces the estimate: reverse the accrual, post the real fee.
-      await postGroup(tx, {
-        idempotencyKey: `fee:estimate-reversal:${r.type}:${r.ref}`,
-        sourceType: "payment_fee",
-        sourceId: `${r.type}:${r.ref}`,
-        description: `Estimate replaced by actual ${r.type} ${r.ref}`,
-        basis: "estimate",
-        currency: "EUR",
-        reversesGroupId: est.groupId,
-        lines: [
-          { account: "processing_fee_expense", amountMinor: -estimate, memo: "estimate reversed" },
-          { account: "accrued_payment_costs", amountMinor: estimate, memo: "estimate reversed" },
-        ],
-      });
+      // Stage 5c — the estimate is the one fixed at payment time. Payments
+      // recorded before that existed get a late estimate (labelled as such);
+      // either way the estimate is never reversed or rewritten.
+      let estimate = r.estimate === null ? null : Number(r.estimate);
+      let source = "at_payment";
+      if (estimate === null) {
+        const costs = await resolveRule("payment_costs", {}, new Date(), { tx });
+        estimate = applyBps(Number(r.amount), Number(costs.values.cardBps)) + Number(costs.values.cardFixedMinor);
+        source = "late";
+        await postGroup(tx, {
+          idempotencyKey: `fee:estimate:${r.type}:${r.ref}`,
+          sourceType: "payment_fee",
+          sourceId: `${r.type}:${r.ref}`,
+          description: `Estimated card fee ${r.type} ${r.ref} (estimated late)`,
+          basis: "estimate",
+          currency: r.currency,
+          lines: [
+            { account: "processing_fee_expense", amountMinor: estimate, memo: "estimate (late)" },
+            { account: "accrued_payment_costs", amountMinor: -estimate, memo: "estimate (late)" },
+          ],
+        });
+      }
+      // The provider deducted the actual fee: clear the accrual at the estimate…
       await postGroup(tx, {
         idempotencyKey: `fee:actual:${r.type}:${r.ref}`,
         sourceType: "payment_fee",
         sourceId: `${r.type}:${r.ref}`,
-        description: `Actual card fee ${r.type} ${r.ref}`,
+        description: `Card fee settled by provider ${r.type} ${r.ref}`,
         basis: "actual",
-        currency: "EUR",
+        currency: r.currency,
         lines: [
-          { account: "processing_fee_expense", amountMinor: actual, memo: "actual (provider)" },
-          { account: "stripe_clearing", amountMinor: -actual, memo: "fee deducted by provider" },
+          { account: "accrued_payment_costs", amountMinor: estimate, memo: "accrual cleared" },
+          { account: "stripe_clearing", amountMinor: -estimate, memo: "fee deducted by provider (estimated part)" },
         ],
       });
-      await tx.prepare(`INSERT IGNORE INTO fee_reconciliations (payment_record_id, estimate_minor, actual_minor) VALUES (?, ?, ?)`).run(r.id, estimate, actual);
+      // …and book the difference as a separate variance entry.
+      const variance = actual - estimate;
+      if (variance !== 0) {
+        await postGroup(tx, {
+          idempotencyKey: `fee:variance:${r.type}:${r.ref}`,
+          sourceType: "payment_fee",
+          sourceId: `${r.type}:${r.ref}`,
+          description: `Card fee variance ${r.type} ${r.ref} (actual ${actual} − estimate ${estimate})`,
+          basis: "actual",
+          currency: r.currency,
+          lines: [
+            { account: "processing_fee_variance", amountMinor: variance, memo: "actual − estimate" },
+            { account: "stripe_clearing", amountMinor: -variance, memo: "fee deducted by provider (variance)" },
+          ],
+        });
+      }
+      await tx
+        .prepare(`INSERT IGNORE INTO fee_reconciliations (payment_record_id, estimate_minor, actual_minor, variance_minor, estimate_source) VALUES (?, ?, ?, ?, ?)`)
+        .run(r.id, estimate, actual, variance, source);
     });
     reconciled++;
   }
@@ -362,7 +385,14 @@ export async function partnerBalances(party: { partyType: string; partyId: strin
   return {
     pendingMinor: get("partner_payable") + get("host_payable"),
     availableMinor: get("partner_available"),
-    settledDueMinor: get("settlement_payable"),
+    /** Settled, not yet transferred to the partner's Stripe account. */
+    transferDueMinor: get("settlement_payable"),
+    /** Transferred to the partner's Stripe account (net of reversals). Bank payouts are separate. */
+    transferredMinor: Number(
+      ((await db
+        .prepare(`SELECT COALESCE(SUM(amount_minor - reversed_minor), 0) as s FROM transfers WHERE party_type = ? AND party_id = ? AND status IN ('created','partially_reversed','reversed')`)
+        .get(party.partyType, party.partyId)) as { s: number | string }).s
+    ),
     settlements,
   };
 }

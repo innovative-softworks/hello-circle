@@ -3,7 +3,7 @@ import { db } from "../db/index.js";
 import { postGroup } from "../commerce/ledger.js";
 import { NeedsReviewError, ledgerEnabled } from "../commerce/payments.js";
 import { resolveRule } from "../commerce/rules.js";
-import { partnerBalances } from "../commerce/settlement.js";
+import { DebtError, createDebt, getDebt, openDebtFor, outstandingMinor, recordRecovered, type DebtRow } from "../commerce/debts.js";
 import { commerceSwitch } from "../commerce/switches.js";
 import { CLIENT_URL } from "../stripe.js";
 import { accountStatusFrom, paymentProvider, type ConnectedAccountStatus, type PaymentProvider } from "./provider.js";
@@ -15,10 +15,21 @@ import type { IncomingEvent } from "./webhookEvents.js";
 // account; after an order completes and its review period passes it is
 // released (Stage 2d), weekly settlement makes it "due", and only then does
 // a finance admin's transfer run move the settled net to the partner's
-// Express account. Stripe pays it out to their bank on its own schedule
-// (mirrored from payout.* events). A negative partner balance (a refund
-// after transfer, or a lost dispute the partner is responsible for) is
-// recovered by explicitly reversing earlier transfers — never automatically.
+// Express account.
+//
+// Terminology (Stage 5c), kept apart everywhere — data, API and UI:
+//   transfer    HelloCircle → the partner's Stripe account (we make these:
+//               table `transfers`, one per settlement, split into immutable
+//               per-booking `transfer_allocations`)
+//   bank payout the partner's Stripe account → their bank (Stripe makes
+//               these on its own schedule; we only mirror payout.* events
+//               into `connected_payouts`)
+//
+// A negative partner balance (a refund after transfer, or a lost dispute the
+// partner is responsible for) becomes a partner debt (commerce/debts.ts):
+// opened by an admin with a reason, it freezes that partner's earnings and
+// is recovered by reversing *their own* transfer allocations, newest first —
+// never automatically and never from anyone else's money.
 //
 // Wording rule: delayed transfer isn't escrow and funds aren't safeguarded;
 // nothing here (or in the UI copy it feeds) says otherwise.
@@ -130,6 +141,9 @@ export async function payoutReadiness(party: Party): Promise<string[]> {
     if (account.transfersCapability !== "active") reasons.push("Payout account can't receive transfers yet (verification incomplete)");
     if (!account.payoutsEnabled) reasons.push("Payouts to the bank account aren't enabled yet");
   }
+  // Stage 5c — an open partner debt freezes transfers to that partner.
+  const debt = await openDebtFor(party);
+  if (debt) reasons.push(`Earnings frozen: open partner debt #${debt.id}`);
   // Trader details (DSA art. 30 / DAC7) are a precondition for being paid.
   if (party.partyType === "vendor") reasons.push("Account isn't linked to an organisation");
   else {
@@ -210,6 +224,7 @@ async function transferOne(provider: PaymentProvider, s: DueSettlement, actorId:
           })
         : null;
       await tx.prepare(`UPDATE transfers SET status = 'created', provider_transfer_id = ?, error = NULL, ledger_group_id = ? WHERE id = ?`).run(t.id, g?.groupId ?? null, claim.rowId);
+      await writeAllocations(tx, claim.rowId, s);
       await tx.prepare(`UPDATE settlements SET status = 'transferred', transfer_id = ?, row_version = row_version + 1 WHERE id = ? AND status = 'due'`).run(t.id, s.id);
     });
     return { status: "created", transferId: t.id };
@@ -219,6 +234,42 @@ async function transferOne(provider: PaymentProvider, s: DueSettlement, actorId:
     await db.prepare(`UPDATE transfers SET status = ?, error = ? WHERE id = ?`).run(status, message.slice(0, 2000), claim.rowId);
     return { status, error: message };
   }
+}
+
+/** Stage 5c — splits a transfer into immutable per-booking allocation rows,
+ * one per settlement item. A released booking is kind "booking" (its
+ * source_type/ref name the booking); a refund adjustment names the booking it
+ * refunded; anything else (a recovery, a reversal) is "adjustment". The rows
+ * always sum to the transfer amount. */
+async function writeAllocations(tx: Pick<typeof db, "prepare">, transferRowId: number, s: DueSettlement) {
+  const items = (await tx
+    .prepare(
+      `SELECT i.id, i.ledger_group_id as groupId, i.amount_minor as amount, g.idempotency_key as k, g.source_type as st, g.source_id as sid
+       FROM settlement_items i JOIN ledger_entry_groups g ON g.id = i.ledger_group_id WHERE i.settlement_id = ? ORDER BY i.id`
+    )
+    .all(s.id)) as { id: number; groupId: string; amount: number | string; k: string; st: string; sid: string }[];
+  let total = 0;
+  for (const it of items) {
+    let kind = "adjustment";
+    let sourceType: string | null = null;
+    let sourceRef: string | null = null;
+    if (it.k.startsWith("release:")) {
+      const [, type, ref] = it.k.split(":");
+      kind = "booking";
+      sourceType = type;
+      sourceRef = ref;
+    } else if (it.st === "refund") {
+      const r = (await tx.prepare(`SELECT source_type as t, source_ref as ref FROM refunds WHERE id = ?`).get(Number(it.sid))) as { t: string; ref: string } | undefined;
+      kind = "refund";
+      sourceType = r?.t ?? null;
+      sourceRef = r?.ref ?? null;
+    }
+    await tx
+      .prepare(`INSERT INTO transfer_allocations (transfer_id, settlement_item_id, ledger_group_id, kind, source_type, source_ref, party_type, party_id, amount_minor) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      .run(transferRowId, it.id, it.groupId, kind, sourceType, sourceRef, s.partyType, s.partyId, Number(it.amount));
+    total += Number(it.amount);
+  }
+  if (total !== s.netMinor) throw new Error(`Transfer allocations for settlement ${s.id} sum to ${total}, not ${s.netMinor}`);
 }
 
 /** Transfers every "due" settlement whose partner is ready. Dry run (the
@@ -254,64 +305,106 @@ export async function runTransfers(input: { dryRun: boolean; actorId: string; re
   return out;
 }
 
-// --- recovery by transfer reversal ---------------------------------------------------
+// --- partner debts: recovery by reversing the partner's own transfer allocations -------
 
-/** Recovers a negative partner balance (refund after transfer, or a lost
- * dispute the partner is responsible for) by reversing their most recent
- * transfers, up to the amount owed. Explicit and audited — never automatic. */
-export async function recoverByReversal(party: Party, input: { actorId: string; reason: string; maxMinor?: number }) {
-  if (typeof input.reason !== "string" || input.reason.trim().length < 5) throw new ConnectError("A reason (at least 5 characters) is required");
-  const provider = await requireConnect();
-  if (!(await ledgerEnabled())) throw new ConnectError("Turn on the financial ledger switch first", 409);
+interface AllocationRoom {
+  allocationId: number;
+  transferRowId: number;
+  providerTransferId: string;
+  room: number;
+}
 
-  // Plan under a per-party lock, counting reversals already in flight.
-  const plan = await db.transaction(async (tx) => {
-    const acct = await tx.prepare(`SELECT account_id FROM connected_accounts WHERE party_type = ? AND party_id = ? FOR UPDATE`).get(party.partyType, party.partyId);
-    if (!acct) throw new ConnectError("This partner has no payout account", 404);
-    const available = (await partnerBalances(party)).availableMinor;
-    const inFlight = (await tx
-      .prepare(`SELECT COALESCE(SUM(r.amount_minor), 0) as s FROM transfer_reversals r JOIN transfers t ON t.id = r.transfer_id WHERE t.party_type = ? AND t.party_id = ? AND r.status IN ('pending','unknown')`)
-      .get(party.partyType, party.partyId)) as { s: number | string };
-    let owed = -available - Number(inFlight.s);
-    if (input.maxMinor !== undefined) owed = Math.min(owed, Math.floor(input.maxMinor));
-    if (owed <= 0) throw new ConnectError("This partner doesn't owe anything to recover", 409);
-    const transfers = (await tx
-      .prepare(`SELECT id, provider_transfer_id as providerId, amount_minor as amount, reversed_minor as reversed FROM transfers WHERE party_type = ? AND party_id = ? AND status IN ('created','partially_reversed') ORDER BY id DESC`)
-      .all(party.partyType, party.partyId)) as { id: number; providerId: string; amount: number | string; reversed: number | string }[];
-    const steps: { reversalId: number; transferRowId: number; providerTransferId: string; amountMinor: number; key: string }[] = [];
-    for (const t of transfers) {
-      if (owed <= 0) break;
-      const room = Number(t.amount) - Number(t.reversed);
-      if (room <= 0) continue;
-      const amt = Math.min(room, owed);
-      const n = ((await tx.prepare(`SELECT COUNT(*) as n FROM transfer_reversals WHERE transfer_id = ?`).get(t.id)) as { n: number }).n;
-      const key = `reversal:${t.id}:${Number(n) + 1}`;
-      const r = await tx
-        .prepare(`INSERT INTO transfer_reversals (transfer_id, idempotency_key, amount_minor, reason, note, status, created_by) VALUES (?, ?, ?, 'recovery', ?, 'pending', ?)`)
-        .run(t.id, key, amt, input.reason.trim().slice(0, 2000), input.actorId);
-      steps.push({ reversalId: Number(r.lastInsertRowid), transferRowId: t.id, providerTransferId: t.providerId, amountMinor: amt, key });
-      owed -= amt;
+/** Positive allocations of this party's own transfers that can still be reversed, newest first. */
+async function reversibleAllocations(tx: Pick<typeof db, "prepare">, party: { partyType: string; partyId: string }, onlyAllocationId?: number): Promise<AllocationRoom[]> {
+  const rows = (await tx
+    .prepare(
+      `SELECT a.id, a.transfer_id as transferRowId, t.provider_transfer_id as providerTransferId, a.amount_minor as amount, t.amount_minor as transferAmount, t.reversed_minor as transferReversed,
+         (SELECT COALESCE(SUM(r2.amount_minor), 0) FROM transfer_reversals r2 WHERE r2.transfer_id = t.id AND r2.status IN ('pending','unknown')) as transferPending,
+         (SELECT COALESCE(SUM(ar.amount_minor), 0) FROM transfer_allocation_reversals ar JOIN transfer_reversals r ON r.id = ar.reversal_id WHERE ar.allocation_id = a.id AND r.status IN ('pending','unknown','created')) as allocReversed
+       FROM transfer_allocations a JOIN transfers t ON t.id = a.transfer_id
+       WHERE a.party_type = ? AND a.party_id = ? AND t.party_type = a.party_type AND t.party_id = a.party_id
+         AND t.status IN ('created','partially_reversed') AND a.amount_minor > 0 ${onlyAllocationId ? "AND a.id = ?" : ""}
+       ORDER BY a.transfer_id DESC, a.id DESC FOR UPDATE`
+    )
+    .all(party.partyType, party.partyId, ...(onlyAllocationId ? [onlyAllocationId] : []))) as {
+    id: number;
+    transferRowId: number;
+    providerTransferId: string;
+    amount: number | string;
+    transferAmount: number | string;
+    transferReversed: number | string;
+    transferPending: number | string;
+    allocReversed: number | string;
+  }[];
+  const transferRoom = new Map<number, number>();
+  const out: AllocationRoom[] = [];
+  for (const r of rows) {
+    if (!transferRoom.has(r.transferRowId)) transferRoom.set(r.transferRowId, Number(r.transferAmount) - Number(r.transferReversed) - Number(r.transferPending));
+    const room = Math.min(Number(r.amount) - Number(r.allocReversed), transferRoom.get(r.transferRowId)!);
+    if (room <= 0) continue;
+    transferRoom.set(r.transferRowId, transferRoom.get(r.transferRowId)! - room);
+    out.push({ allocationId: r.id, transferRowId: r.transferRowId, providerTransferId: r.providerTransferId, room });
+  }
+  return out;
+}
+
+/** Plans and executes reversals for a debt, up to `limitMinor` (the debt's outstanding amount by default). */
+async function reverseForDebt(provider: PaymentProvider, debt: DebtRow, input: { actorId: string; reason: string; limitMinor?: number; allocationId?: number }) {
+  const party = { partyType: debt.partyType, partyId: debt.partyId };
+  // Plan under the debt's party lock, counting reversals already in flight for this debt.
+  const steps = await db.transaction(async (tx) => {
+    await tx.prepare(`SELECT id FROM partner_debts WHERE id = ? FOR UPDATE`).get(debt.id);
+    const fresh = (await getDebt(debt.id, tx))!;
+    if (fresh.status !== "open") throw new ConnectError("This debt is already closed", 409);
+    const inFlight = (await tx.prepare(`SELECT COALESCE(SUM(amount_minor), 0) as s FROM transfer_reversals WHERE debt_id = ? AND status IN ('pending','unknown')`).get(debt.id)) as { s: number | string };
+    let want = outstandingMinor(fresh) - Number(inFlight.s);
+    if (input.limitMinor !== undefined) want = Math.min(want, Math.floor(input.limitMinor));
+    if (want <= 0) throw new ConnectError("Nothing left to recover on this debt", 409);
+    const allocations = await reversibleAllocations(tx, party, input.allocationId);
+    if (input.allocationId && !allocations.length) throw new ConnectError("That allocation can't be reversed (not this partner's, not positive, or already fully reversed)", 409);
+    // Group the allocation slices by transfer: one provider reversal per transfer.
+    const byTransfer = new Map<number, { providerTransferId: string; parts: { allocationId: number; amount: number }[] }>();
+    for (const a of allocations) {
+      if (want <= 0) break;
+      const take = Math.min(a.room, want);
+      const entry = byTransfer.get(a.transferRowId) ?? { providerTransferId: a.providerTransferId, parts: [] };
+      entry.parts.push({ allocationId: a.allocationId, amount: take });
+      byTransfer.set(a.transferRowId, entry);
+      want -= take;
     }
-    if (!steps.length) throw new ConnectError("There are no transfers left to reverse — recover from future settlements instead", 409);
-    return { steps, unrecovered: owed };
+    const planned: { reversalId: number; transferRowId: number; providerTransferId: string; amountMinor: number; key: string; parts: { allocationId: number; amount: number }[] }[] = [];
+    for (const [transferRowId, e] of byTransfer) {
+      const amount = e.parts.reduce((x, p) => x + p.amount, 0);
+      const n = ((await tx.prepare(`SELECT COUNT(*) as n FROM transfer_reversals WHERE transfer_id = ?`).get(transferRowId)) as { n: number }).n;
+      const key = `reversal:${transferRowId}:${Number(n) + 1}`;
+      const r = await tx
+        .prepare(`INSERT INTO transfer_reversals (transfer_id, idempotency_key, amount_minor, reason, note, status, created_by, debt_id) VALUES (?, ?, ?, 'recovery', ?, 'pending', ?, ?)`)
+        .run(transferRowId, key, amount, input.reason.trim().slice(0, 2000), input.actorId, debt.id);
+      const reversalId = Number(r.lastInsertRowid);
+      for (const part of e.parts) {
+        await tx.prepare(`INSERT INTO transfer_allocation_reversals (allocation_id, reversal_id, amount_minor) VALUES (?, ?, ?)`).run(part.allocationId, reversalId, part.amount);
+      }
+      planned.push({ reversalId, transferRowId, providerTransferId: e.providerTransferId, amountMinor: amount, key, parts: e.parts });
+    }
+    return planned;
   });
 
   let recovered = 0;
-  const results: { reversalId: number; amountMinor: number; status: string; error?: string }[] = [];
-  for (const st of plan.steps) {
+  const results: { reversalId: number; amountMinor: number; status: string; allocations: { allocationId: number; amount: number }[]; error?: string }[] = [];
+  for (const st of steps) {
     try {
-      const r = await provider.reverseTransfer({ transferId: st.providerTransferId, amountMinor: st.amountMinor, idempotencyKey: st.key, metadata: { reason: "recovery", party_type: party.partyType, party_id: party.partyId } });
+      const r = await provider.reverseTransfer({ transferId: st.providerTransferId, amountMinor: st.amountMinor, idempotencyKey: st.key, metadata: { reason: "recovery", debt_id: String(debt.id), party_type: party.partyType, party_id: party.partyId } });
       await db.transaction(async (tx) => {
         const g = await postGroup(tx, {
           idempotencyKey: `reversal:${st.reversalId}`,
           sourceType: "transfer_reversal",
           sourceId: String(st.reversalId),
-          description: `Transfer reversal recovering ${party.partyType} ${party.partyId} balance`,
+          description: `Transfer reversal recovering debt #${debt.id} (${party.partyType} ${party.partyId})`,
           basis: "actual",
           currency: "EUR",
           lines: [
             { account: "stripe_clearing", amountMinor: st.amountMinor, memo: `reversal ${r.id}` },
-            { account: "partner_available", amountMinor: -st.amountMinor, partyType: party.partyType, partyId: party.partyId, memo: "recovered by transfer reversal" },
+            { account: "partner_available", amountMinor: -st.amountMinor, partyType: party.partyType, partyId: party.partyId, memo: `recovered for debt #${debt.id}` },
           ],
           createdBy: input.actorId,
         });
@@ -319,18 +412,65 @@ export async function recoverByReversal(party: Party, input: { actorId: string; 
         await tx
           .prepare(`UPDATE transfers SET reversed_minor = reversed_minor + ?, status = IF(reversed_minor >= amount_minor, 'reversed', 'partially_reversed') WHERE id = ?`)
           .run(st.amountMinor, st.transferRowId);
+        await recordRecovered(tx, debt.id, st.amountMinor);
       });
       recovered += st.amountMinor;
-      results.push({ reversalId: st.reversalId, amountMinor: st.amountMinor, status: "created" });
+      results.push({ reversalId: st.reversalId, amountMinor: st.amountMinor, status: "created", allocations: st.parts });
     } catch (e) {
+      // A refusal frees the planned allocations again; an unseen outcome keeps them reserved (retried with the same key).
       const status = isDefinitive(e) ? "failed" : "unknown";
       const message = e instanceof Error ? e.message : String(e);
       await db.prepare(`UPDATE transfer_reversals SET status = ?, note = CONCAT(COALESCE(note, ''), ?) WHERE id = ?`).run(status, ` — ${message}`.slice(0, 1000), st.reversalId);
-      results.push({ reversalId: st.reversalId, amountMinor: st.amountMinor, status, error: message });
+      results.push({ reversalId: st.reversalId, amountMinor: st.amountMinor, status, allocations: st.parts, error: message });
     }
   }
-  await writeAudit({ actorUserId: input.actorId, action: "connect.recovered_by_reversal", objectType: `connect_${party.partyType}`, objectId: party.partyId, newValue: { recovered, unrecovered: plan.unrecovered }, reason: input.reason.trim() });
-  return { recoveredMinor: recovered, unrecoveredMinor: plan.unrecovered, reversals: results };
+  const after = (await getDebt(debt.id))!;
+  return { debtId: debt.id, recoveredMinor: recovered, unrecoveredMinor: outstandingMinor(after), status: after.status, reversals: results };
+}
+
+function debtError(e: unknown): never {
+  if (e instanceof DebtError) throw new ConnectError(e.message, e.status);
+  throw e;
+}
+
+/** Opens a partner debt (freezing their earnings) and immediately tries to
+ * recover it by reversing their own transfers. What can't be recovered stays
+ * open and is offset against their future earnings. */
+export async function openPartnerDebt(party: Party, input: { actorId: string; reason: string }) {
+  const provider = await requireConnect();
+  if (!(await ledgerEnabled())) throw new ConnectError("Turn on the financial ledger switch first", 409);
+  const debt = await createDebt(party, input).catch(debtError);
+  const hasTransfers = await db.prepare(`SELECT 1 FROM transfers WHERE party_type = ? AND party_id = ? AND status IN ('created','partially_reversed') LIMIT 1`).get(party.partyType, party.partyId);
+  const result = hasTransfers ? await reverseForDebt(provider, debt, input) : { debtId: debt.id, recoveredMinor: 0, unrecoveredMinor: outstandingMinor(debt), status: debt.status, reversals: [] };
+  await writeAudit({ actorUserId: input.actorId, action: "partner_debt.recovery_attempted", objectType: `partner_${party.partyType}`, objectId: party.partyId, newValue: { debtId: debt.id, recovered: result.recoveredMinor, unrecovered: result.unrecoveredMinor }, reason: input.reason.trim() });
+  return result;
+}
+
+/** Tries again to recover an open debt (e.g. after a failed reversal). */
+export async function retryDebtRecovery(debtId: number, input: { actorId: string; reason: string }) {
+  if (typeof input.reason !== "string" || input.reason.trim().length < 5) throw new ConnectError("A reason (at least 5 characters) is required");
+  const provider = await requireConnect();
+  const debt = await getDebt(debtId);
+  if (!debt) throw new ConnectError("Debt not found", 404);
+  if (debt.status !== "open") throw new ConnectError("This debt is already closed", 409);
+  const result = await reverseForDebt(provider, debt, input);
+  await writeAudit({ actorUserId: input.actorId, action: "partner_debt.recovery_attempted", objectType: `partner_${debt.partyType}`, objectId: debt.partyId, newValue: { debtId, recovered: result.recoveredMinor, unrecovered: result.unrecoveredMinor }, reason: input.reason.trim() });
+  return result;
+}
+
+/** Partial reversal of one booking's allocation, towards that partner's open debt. */
+export async function reverseAllocation(allocationId: number, input: { actorId: string; reason: string; amountMinor: number }) {
+  if (typeof input.reason !== "string" || input.reason.trim().length < 5) throw new ConnectError("A reason (at least 5 characters) is required");
+  if (!Number.isSafeInteger(input.amountMinor) || input.amountMinor <= 0) throw new ConnectError("Amount must be a positive number of cents");
+  const provider = await requireConnect();
+  const a = (await db.prepare(`SELECT party_type as partyType, party_id as partyId FROM transfer_allocations WHERE id = ?`).get(allocationId)) as { partyType: string; partyId: string } | undefined;
+  if (!a) throw new ConnectError("Allocation not found", 404);
+  const debt = await openDebtFor(a);
+  if (!debt) throw new ConnectError("Open a partner debt first — an allocation is only reversed to recover what this partner owes", 409);
+  if (input.amountMinor > outstandingMinor(debt)) throw new ConnectError("That's more than this partner owes", 409);
+  const result = await reverseForDebt(provider, debt, { ...input, limitMinor: input.amountMinor, allocationId });
+  await writeAudit({ actorUserId: input.actorId, action: "transfer_allocation.reversed", objectType: "transfer_allocation", objectId: String(allocationId), newValue: { debtId: debt.id, amountMinor: result.recoveredMinor }, reason: input.reason.trim() });
+  return result;
 }
 
 // --- webhook events from connected accounts ---------------------------------------------
@@ -379,7 +519,11 @@ export async function payoutsOverview(party: Party) {
   const [readiness, transfers, payouts] = await Promise.all([
     payoutReadiness(party),
     db
-      .prepare(`SELECT id, settlement_id as settlementId, amount_minor as amountMinor, reversed_minor as reversedMinor, status, created_at as createdAt FROM transfers WHERE party_type = ? AND party_id = ? AND status IN ('created','partially_reversed','reversed') ORDER BY id DESC LIMIT 20`)
+      .prepare(
+        `SELECT t.id, t.settlement_id as settlementId, t.amount_minor as amountMinor, t.reversed_minor as reversedMinor, t.status, t.created_at as createdAt,
+           (SELECT COUNT(*) FROM transfer_allocations a WHERE a.transfer_id = t.id AND a.kind = 'booking') as bookings
+         FROM transfers t WHERE t.party_type = ? AND t.party_id = ? AND t.status IN ('created','partially_reversed','reversed') ORDER BY t.id DESC LIMIT 20`
+      )
       .all(party.partyType, party.partyId),
     account
       ? db.prepare(`SELECT provider_payout_id as id, amount_minor as amountMinor, currency, status, arrival_date as arrivalDate, failure_message as failureMessage FROM connected_payouts WHERE account_id = ? ORDER BY created_at DESC LIMIT 20`).all(account.accountId)
@@ -397,7 +541,10 @@ export async function payoutsOverview(party: Party) {
         }
       : null,
     readiness,
+    /** HelloCircle → the partner's Stripe account (settlement transfers). */
     transfers,
-    payouts,
+    /** The partner's Stripe account → their bank (made by Stripe; mirrored). */
+    bankPayouts: payouts,
+    openDebt: await openDebtFor(party).then((d) => (d ? { id: d.id, outstandingMinor: outstandingMinor(d), openedAt: d.openedAt } : null)),
   };
 }

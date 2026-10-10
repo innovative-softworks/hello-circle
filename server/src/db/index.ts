@@ -2698,6 +2698,20 @@ async function initCommerceSchema(
   `);
   await ensureColumn("disputes", "responsible", "responsible VARCHAR(20) NULL");
 
+  // Stage 5c — processing-fee estimates are captured when the payment is
+  // confirmed (with the payment_costs rule hash that produced them) and are
+  // never rewritten; the provider's actual fee is stored beside them and the
+  // difference is posted as its own variance entry.
+  await ensureColumn("payment_records", "fee_estimate_minor", "fee_estimate_minor BIGINT NULL");
+  await ensureColumn("payment_records", "fee_estimate_rule_hash", "fee_estimate_rule_hash CHAR(64) NULL");
+  await ensureColumn("payment_records", "fee_estimated_at", "fee_estimated_at DATETIME NULL");
+  await ensureColumn("fee_reconciliations", "variance_minor", "variance_minor BIGINT NULL");
+  await ensureColumn("fee_reconciliations", "estimate_source", "estimate_source VARCHAR(20) NULL");
+  await db.exec(`
+    INSERT IGNORE INTO ledger_accounts (code, name, account_type) VALUES
+      ('processing_fee_variance', 'Card processing: actual minus estimate', 'expense')
+  `);
+
   // Revenue & Connect Stage 5a — Stripe Connect. One Express account per
   // selling party (org / vendor / host); status mirrored from the provider
   // (refresh + account.updated). transfers: one per settlement, idempotency
@@ -2855,6 +2869,117 @@ async function initCommerceSchema(
       KEY idx_credit_use_source (source_type, source_ref)
     )
   `);
+
+  // Stage 5c — every settlement transfer is split into immutable per-booking
+  // allocation rows (one per settlement item: a released booking, or a
+  // negative adjustment such as a refund after completion). Reversals are
+  // recorded against an allocation in a separate table, never by editing it.
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS transfer_allocations (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      transfer_id INT NOT NULL,
+      settlement_item_id INT NOT NULL,
+      ledger_group_id CHAR(36) NOT NULL,
+      kind VARCHAR(20) NOT NULL,
+      source_type VARCHAR(20) NULL,
+      source_ref VARCHAR(191) NULL,
+      party_type VARCHAR(10) NOT NULL,
+      party_id VARCHAR(191) NOT NULL,
+      amount_minor BIGINT NOT NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE KEY uq_alloc_item (transfer_id, settlement_item_id),
+      KEY idx_alloc_source (source_type, source_ref),
+      KEY idx_alloc_party (party_type, party_id)
+    )
+  `);
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS transfer_allocation_reversals (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      allocation_id INT NOT NULL,
+      reversal_id INT NOT NULL,
+      amount_minor BIGINT NOT NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      KEY idx_alloc_rev_alloc (allocation_id),
+      KEY idx_alloc_rev_reversal (reversal_id)
+    )
+  `);
+  await ensureColumn("transfer_reversals", "debt_id", "debt_id INT NULL");
+  // Stage 5c — partner debts: what a partner owes back (refund after
+  // transfer, partner-caused lost dispute). Opening one needs an admin
+  // reason and freezes that partner's earnings (no settlement, no transfer)
+  // until it is recovered by reversing their own transfers or offset by
+  // their own future earnings.
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS partner_debts (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      party_type VARCHAR(10) NOT NULL,
+      party_id VARCHAR(191) NOT NULL,
+      status VARCHAR(20) NOT NULL,
+      opened_minor BIGINT NOT NULL,
+      recovered_minor BIGINT NOT NULL DEFAULT 0,
+      offset_minor BIGINT NOT NULL DEFAULT 0,
+      reason TEXT NOT NULL,
+      opened_by VARCHAR(191) NOT NULL,
+      opened_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      closed_at DATETIME NULL,
+      KEY idx_debt_party (party_type, party_id, status)
+    )
+  `);
+
+  // Stage 5c — reward points per order, so a refund or lost dispute after
+  // settlement reverses that order's points proportionally. Points already
+  // spent become a debt (reward_debts) that blocks redemption and is repaid
+  // from future awards first.
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS reward_awards (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      settlement_id INT NOT NULL,
+      party_type VARCHAR(10) NOT NULL,
+      party_id VARCHAR(191) NOT NULL,
+      source_type VARCHAR(20) NOT NULL,
+      source_ref VARCHAR(191) NOT NULL,
+      gmv_minor BIGINT NOT NULL,
+      refunded_at_award_minor BIGINT NOT NULL,
+      points INT NOT NULL,
+      reversed_points INT NOT NULL DEFAULT 0,
+      lot_id INT NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE KEY uq_reward_award_order (source_type, source_ref),
+      KEY idx_reward_award_settlement (settlement_id)
+    )
+  `);
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS reward_reversals (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      award_id INT NOT NULL,
+      points INT NOT NULL,
+      from_lots INT NOT NULL,
+      to_debt INT NOT NULL,
+      reason VARCHAR(40) NOT NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      KEY idx_reward_reversal_award (award_id)
+    )
+  `);
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS reward_debts (
+      party_type VARCHAR(10) NOT NULL,
+      party_id VARCHAR(191) NOT NULL,
+      points_owed INT NOT NULL DEFAULT 0,
+      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      PRIMARY KEY (party_type, party_id)
+    )
+  `);
+
+  // Stage 5c — Pro is priced net of VAT; the VAT that applies to this
+  // partner comes from the versioned tax_vat rule (partner-scoped, so exempt
+  // or reverse-charge partners get none) and is frozen on the subscription
+  // with the rule hashes that produced it.
+  await ensureColumn("partner_subscriptions", "net_minor", "net_minor BIGINT NULL");
+  await ensureColumn("partner_subscriptions", "vat_minor", "vat_minor BIGINT NULL");
+  await ensureColumn("partner_subscriptions", "vat_bps", "vat_bps INT NULL");
+  await ensureColumn("partner_subscriptions", "vat_mode", "vat_mode VARCHAR(20) NULL");
+  await ensureColumn("partner_subscriptions", "plan_rule_hash", "plan_rule_hash CHAR(64) NULL");
+  await ensureColumn("partner_subscriptions", "tax_rule_hash", "tax_rule_hash CHAR(64) NULL");
 
   // Revenue & Connect Stage 4 — policy CMS (brief §20). Documents are
   // seeded once from policy/drafts.ts as version-1 drafts. A version moves
@@ -3199,6 +3324,63 @@ async function initCommerceSchema(
   for (const [key, ...v] of HELP_SEED) {
     await db
       .prepare(`INSERT IGNORE INTO help_entries (help_key, version, name, definition, formula, example, who_pays, when_charged, refund_behaviour, policy_key) VALUES (?, 1, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      .run(key, ...v);
+  }
+  // Stage 5c — terminology: a *transfer* (HelloCircle → your Stripe account)
+  // is not a *bank payout* (Stripe → your bank). Added as version 2 so the
+  // v1 wording stays in the history; skipped if an admin already wrote v2.
+  const HELP_SEED_V2: string[][] = [
+  [
+    "partner_payout",
+    "Your earnings",
+    "What you earn on the order once it completes and the review period passes. Earnings are paid to you in two steps: a weekly transfer to your Stripe account, then Stripe's payout to your bank.",
+    "Fee base − HelloCircle fee − VAT on the fee",
+    "€100 → €100 − €9.00 − €2.07 = €88.93",
+    "—",
+    "Included in the weekly transfer after completion + review period",
+    "Reduced by refunds and by disputes you are responsible for.",
+    "payments-fees-payouts"
+  ],
+  [
+    "available_balance",
+    "Available",
+    "Earnings from completed orders, ready to be included in the next weekly transfer once they reach the minimum.",
+    "Completed orders − refunds − recovered disputes",
+    "—",
+    "—",
+    "—",
+    "Refunds after completion reduce it (it can go below zero and is then recovered — see Payments policy).",
+    "payments-fees-payouts"
+  ],
+  [
+    "settled_due",
+    "Settled — transfer due",
+    "Amounts included in a weekly settlement and due to be transferred from HelloCircle to your Stripe account. This is not yet a bank payout: Stripe pays your Stripe balance out to your bank on its own schedule.",
+    "Sum of your settlements not yet transferred",
+    "—",
+    "—",
+    "Transferred in the weekly transfer run",
+    "—",
+    "payments-fees-payouts"
+  ],
+  [
+    "minimum_payout",
+    "Minimum weekly transfer",
+    "Weekly settlements below this amount carry forward to the next week instead of being transferred.",
+    "—",
+    "€25",
+    "—",
+    "—",
+    "—",
+    "payments-fees-payouts"
+  ]
+];
+  for (const [key, ...v] of HELP_SEED_V2) {
+    await db
+      .prepare(
+        `INSERT IGNORE INTO help_entries (help_key, version, name, definition, formula, example, who_pays, when_charged, refund_behaviour, policy_key, reason)
+         VALUES (?, 2, ?, ?, ?, ?, ?, ?, ?, ?, 'Stage 5c: transfers and bank payouts named separately')`
+      )
       .run(key, ...v);
   }
   await db.exec(`

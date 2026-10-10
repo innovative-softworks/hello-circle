@@ -16,6 +16,7 @@ import { issueStripeRefund, type CheckoutType } from "../checkoutService.js";
 import { applyBps } from "./money.js";
 import { postGroup, reverseGroup, type LedgerLine } from "./ledger.js";
 import { resolveRule } from "./rules.js";
+import { reverseRewardsForOrder } from "./rewards.js";
 import { commerceSwitch } from "./switches.js";
 import { SOURCE_TABLES, syncOrderFromSource } from "./engine.js";
 
@@ -146,9 +147,29 @@ export async function recordPaymentConfirmed(input: { type: CheckoutType; ref: s
         .prepare(`UPDATE payment_records SET payment_intent_id = COALESCE(payment_intent_id, ?), checkout_session_id = COALESCE(checkout_session_id, ?) WHERE id = ?`)
         .run(input.paymentIntentId, input.checkoutSessionId, existing.id);
     } else {
+      // Stage 5c — the processing-fee estimate is fixed now, from the rule in force now, and never rewritten.
+      const costs = await resolveRule("payment_costs", {}, new Date(), { tx });
+      const feeEstimate = applyBps(input.amountMinor, Number(costs.values.cardBps)) + Number(costs.values.cardFixedMinor);
       await tx
-        .prepare(`INSERT INTO payment_records (source_type, source_ref, provider, checkout_session_id, payment_intent_id, amount_minor, currency, status) VALUES (?, ?, ?, ?, ?, ?, ?, 'paid')`)
-        .run(input.type, input.ref, input.provider, input.checkoutSessionId, input.paymentIntentId, input.amountMinor, input.currency.toUpperCase());
+        .prepare(
+          `INSERT INTO payment_records (source_type, source_ref, provider, checkout_session_id, payment_intent_id, amount_minor, currency, status, fee_estimate_minor, fee_estimate_rule_hash, fee_estimated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, 'paid', ?, ?, NOW())`
+        )
+        .run(input.type, input.ref, input.provider, input.checkoutSessionId, input.paymentIntentId, input.amountMinor, input.currency.toUpperCase(), feeEstimate, costs.hash);
+      if (await ledgerEnabled()) {
+        await postGroup(tx, {
+          idempotencyKey: `fee:estimate:${input.type}:${input.ref}`,
+          sourceType: "payment_fee",
+          sourceId: `${input.type}:${input.ref}`,
+          description: `Estimated card fee ${input.type} ${input.ref}`,
+          basis: "estimate",
+          currency: input.currency.toUpperCase(),
+          lines: [
+            { account: "processing_fee_expense", amountMinor: feeEstimate, memo: "estimate at payment" },
+            { account: "accrued_payment_costs", amountMinor: -feeEstimate, memo: "estimate at payment" },
+          ],
+        });
+      }
     }
     if (!(await ledgerEnabled())) return;
     const lines = await paymentLines(tx, input.type, input.ref, input.amountMinor, new Date());
@@ -172,6 +193,8 @@ async function paymentGroupId(tx: Tx, type: string, ref: string): Promise<string
 /** Posts a refund as a proportional reversal of the original payment (when
  * the payment itself was posted). */
 export async function postRefund(tx: Tx, type: string, ref: string, refundId: number, amountMinor: number, paidMinor: number, actor: string | null) {
+  // Stage 5c — a refund after settlement reverses that order's reward points proportionally (ledger or not).
+  await reverseRewardsForOrder(tx, type, ref, "refund");
   if (!(await ledgerEnabled())) return;
   const groupId = await paymentGroupId(tx, type, ref);
   if (!groupId) return; // paid before the ledger existed — reconciliation picks it up
@@ -307,6 +330,8 @@ export async function recordDispute(input: { disputeId: string; paymentIntentId:
         .run(input.disputeId, payment?.type ?? null, payment?.ref ?? null, input.paymentIntentId, input.amountMinor, input.currency.toUpperCase(), input.reason.slice(0, 100), input.status, input.evidenceDueBy ? input.evidenceDueBy.toISOString().slice(0, 19).replace("T", " ") : null, payment ? "not_started" : "unmatched");
     }
     if (closed) await tx.prepare(`UPDATE disputes SET recovery_status = ? WHERE provider_dispute_id = ? AND recovery_status IN ('not_started', 'unmatched')`).run(input.status === "lost" ? "pending" : "not_applicable", input.disputeId);
+    // Stage 5c — a lost dispute reverses the order's reward points proportionally (no-op if none were awarded).
+    if (input.status === "lost" && payment) await reverseRewardsForOrder(tx, payment.type, payment.ref, "dispute_lost");
     if (!(await ledgerEnabled())) return;
     const currency = input.currency.toUpperCase();
     const base = { sourceType: "dispute", sourceId: input.disputeId, basis: "actual" as const, currency };

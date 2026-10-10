@@ -71,6 +71,15 @@ afterAll(async () => {
   await db.prepare(`DELETE FROM residents WHERE id IN (?, ?, ?)`).run(residentId, otherResidentId, unlinkedResidentId);
 });
 
+/** Stage 5c (flake diagnosis) — on failure, say what the server actually
+ * answered instead of only "expected 200, received 500". */
+async function expectStatus(res: Response, status: number) {
+  if (res.status !== status) {
+    const body = await res.clone().text().catch(() => "<unreadable body>");
+    expect.fail(`${res.url} → HTTP ${res.status} (expected ${status}): ${body.slice(0, 500)}`);
+  }
+}
+
 async function getToken(userId: string, email: string): Promise<string> {
   const row = (await db.prepare(`SELECT token FROM manage_link_tokens WHERE user_id = ? AND resident_email = ? ORDER BY expires_at DESC LIMIT 1`).get(userId, email)) as
     | { token: string }
@@ -86,7 +95,7 @@ describe("Account linking — request + confirm", () => {
       headers: { "Content-Type": "application/json", "X-Test-User-Id": vendorId },
       body: JSON.stringify({ residentEmail }),
     });
-    expect(res.status).toBe(200);
+    await expectStatus(res, 200);
     const token = await getToken(vendorId, residentEmail);
     expect(token).toBeTruthy();
   });
@@ -97,7 +106,7 @@ describe("Account linking — request + confirm", () => {
       headers: { "Content-Type": "application/json", "X-Test-User-Id": vendorId },
       body: JSON.stringify({ residentEmail: `nobody-${crypto.randomUUID()}@example.test` }),
     });
-    expect(res.status).toBe(404);
+    await expectStatus(res, 404);
   });
 
   it("an invalid token is rejected", async () => {
@@ -106,7 +115,7 @@ describe("Account linking — request + confirm", () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ token: "not-a-real-token" }),
     });
-    expect(res.status).toBe(400);
+    await expectStatus(res, 400);
     const row = await db.prepare(`SELECT resident_id FROM users WHERE id = ?`).get(vendorId);
     expect((row as { resident_id: string | null }).resident_id).toBeNull();
   });
@@ -119,7 +128,7 @@ describe("Account linking — request + confirm", () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ token: expiredToken }),
     });
-    expect(res.status).toBe(400);
+    await expectStatus(res, 400);
     const row = await db.prepare(`SELECT resident_id FROM users WHERE id = ?`).get(vendorId);
     expect((row as { resident_id: string | null }).resident_id).toBeNull();
   });
@@ -131,7 +140,7 @@ describe("Account linking — request + confirm", () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ token }),
     });
-    expect(res.status).toBe(200);
+    await expectStatus(res, 200);
 
     const row = (await db.prepare(`SELECT resident_id as residentId FROM users WHERE id = ?`).get(vendorId)) as { residentId: string | null };
     expect(row.residentId).toBe(residentId);
@@ -150,10 +159,10 @@ describe("Account linking — request + confirm", () => {
     });
     const token = await getToken(otherVendorId, `${otherResidentId}@example.test`);
     const first = await fetch(`${baseUrl}/manage/link/confirm`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token }) });
-    expect(first.status).toBe(200);
+    await expectStatus(first, 200);
 
     const replay = await fetch(`${baseUrl}/manage/link/confirm`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token }) });
-    expect(replay.status).toBe(400);
+    await expectStatus(replay, 400);
   });
 });
 
@@ -184,7 +193,7 @@ describe("Workspace switch cannot mint an arbitrary session", () => {
       headers: { "Content-Type": "application/json", "X-Test-Resident-Id": unlinkedResidentId },
       body: JSON.stringify({ to: "vendor" }),
     });
-    expect(res.status).toBe(404);
+    await expectStatus(res, 404);
   });
 
   it("switching to 'resident' only works for the vendor's own linked account", async () => {
@@ -197,6 +206,6 @@ describe("Workspace switch cannot mint an arbitrary session", () => {
     // so this reflects the real, already-linked resident_id — confirms the
     // route resolves strictly from the caller's own identity, never a
     // client-supplied resident id (the request body only ever carries `to`).
-    expect(res.status).toBe(200);
+    await expectStatus(res, 200);
   });
 });

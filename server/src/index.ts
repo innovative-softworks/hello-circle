@@ -198,8 +198,9 @@ app.use("/api/traders", publicTraderRouter);
 app.use("/api/vendor/trader-profile", vendorTraderRouter);
 app.use("/api/host/trader-profile", hostTraderRouter);
 // Revenue & Connect Stage 5a — partner payout accounts (Stripe Connect).
-app.use("/api/vendor/payouts", vendorPayoutsRouter);
-app.use("/api/host/payouts", hostPayoutsRouter);
+// (Stage 5c: "payout account" — transfers in and bank payouts out are reported separately.)
+app.use("/api/vendor/payout-account", vendorPayoutsRouter);
+app.use("/api/host/payout-account", hostPayoutsRouter);
 // Revenue & Connect Stage 5b — Pro subscription, reward points, customer credits.
 app.use("/api/vendor/plan", vendorPlanRouter);
 app.use("/api/host/plan", hostPlanRouter);

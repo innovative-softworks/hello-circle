@@ -152,7 +152,7 @@ describe("weekly settlement", () => {
     const real = await runSettlement({ runKey: `w1-${run}`, dryRun: false, actorId: adminId, reason: "weekly settlement", now: later(15) });
     const mine = real.settled.find((s) => s.partyId === org)!;
     expect(mine.netMinor).toBe(5_000);
-    expect(await partnerBalances(party)).toMatchObject({ pendingMinor: 0, availableMinor: 0, settledDueMinor: 5_000 });
+    expect(await partnerBalances(party)).toMatchObject({ pendingMinor: 0, availableMinor: 0, transferDueMinor: 5_000 });
     await expect(runSettlement({ runKey: `w1-${run}`, dryRun: false, actorId: adminId, reason: "run it twice", now: later(15) })).rejects.toThrow(/already/);
     const again = await runSettlement({ runKey: `w2-${run}`, dryRun: false, actorId: adminId, reason: "next week, nothing new", now: later(15) });
     expect(again.settled.find((s) => s.partyId === org)).toBeUndefined();
@@ -199,17 +199,34 @@ describe("weekly settlement", () => {
 });
 
 describe("fee reconciliation", () => {
-  it("actual fees replace estimates; both stay reportable", async () => {
+  it("keeps the estimate fixed at payment, stores the actual fee beside it, and posts only the variance", async () => {
+    const { id, ref, est, hash } = (await db
+      .prepare(`SELECT id, source_ref as ref, fee_estimate_minor as est, fee_estimate_rule_hash as hash FROM payment_records WHERE source_type = 'experience' AND source_ref LIKE 'EX-%' ORDER BY id DESC LIMIT 1`)
+      .get()) as { id: number; ref: string; est: number; hash: string };
+    expect(Number(est)).toBe(121); // 1.5% + €0.25 of €64, fixed when the payment was confirmed
+    expect(hash).toMatch(/^[0-9a-f]{64}$/);
     const r = await call("POST", "/admin/finance/fees/reconcile", {}, "admin");
     expect(r.status).toBe(200);
     expect(r.body.reconciled).toBeGreaterThan(0);
-    const { ref } = (await db.prepare(`SELECT source_ref as ref FROM payment_records WHERE source_type = 'experience' AND source_ref LIKE 'EX-%' ORDER BY id DESC LIMIT 1`).get()) as { ref: string };
-    const sum = async (basis: string) =>
-      Number(((await db.prepare(`SELECT COALESCE(SUM(e.amount_minor), 0) as s FROM ledger_entries e JOIN ledger_entry_groups g ON g.id = e.group_id WHERE g.source_type = 'payment_fee' AND g.source_id = ? AND g.basis = ? AND e.account_code = 'processing_fee_expense'`).get(`experience:${ref}`, basis)) as { s: number | string }).s);
-    expect(await sum("estimate")).toBe(0); // accrued 121, reversed 121
-    expect(await sum("actual")).toBe(115); // 1.4% + €0.25 of €64 from the provider stub
+    const sum = async (account: string, basis?: string) =>
+      Number(
+        ((await db
+          .prepare(
+            `SELECT COALESCE(SUM(e.amount_minor), 0) as s FROM ledger_entries e JOIN ledger_entry_groups g ON g.id = e.group_id
+             WHERE g.source_type = 'payment_fee' AND g.source_id = ? AND e.account_code = ? ${basis ? "AND g.basis = ?" : ""}`
+          )
+          .get(`experience:${ref}`, account, ...(basis ? [basis] : []))) as { s: number | string }).s
+      );
+    expect(await sum("processing_fee_expense", "estimate")).toBe(121); // the estimate is never reversed
+    expect(await sum("processing_fee_variance")).toBe(-6); // actual 115 (1.4% + €0.25 from the stub) − 121
+    expect(await sum("accrued_payment_costs")).toBe(0); // accrual cleared at the estimate
+    expect(await sum("stripe_clearing")).toBe(-115); // what the provider actually took
+    const rec = (await db.prepare(`SELECT estimate_minor as e, actual_minor as a, variance_minor as v, estimate_source as src FROM fee_reconciliations WHERE payment_record_id = ?`).get(id)) as Record<string, number | string>;
+    expect([Number(rec.e), Number(rec.a), Number(rec.v), rec.src]).toEqual([121, 115, -6, "at_payment"]);
+    expect(Number(((await db.prepare(`SELECT fee_estimate_minor as e FROM payment_records WHERE id = ?`).get(id)) as { e: number }).e)).toBe(121);
     const again = await call("POST", "/admin/finance/fees/reconcile", {}, "admin");
     expect(again.body.reconciled).toBe(0);
+    expect(await ledgerIsBalanced()).toBe(true);
   });
 });
 
@@ -239,7 +256,7 @@ describe("partner earnings view", () => {
     const r = await call("GET", "/vendor/earnings", undefined, "vendor");
     expect(r.status).toBe(200);
     expect(r.body.party).toEqual({ partyType: "org", partyId: org });
-    expect(r.body.settledDueMinor).toBe(5_000);
+    expect(r.body.transferDueMinor).toBe(5_000);
     expect(r.body.settlements.length).toBeGreaterThan(0);
   });
 });

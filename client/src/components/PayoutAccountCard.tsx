@@ -69,17 +69,27 @@ export function PayoutAccountCard({ scope }: { scope: "vendor" | "host" }) {
         )}
       </div>
       {error && <p role="alert" style={{ color: colors.danger, background: colors.dangerBg, padding: "8px 12px", borderRadius: radius.control, fontSize: 13, marginTop: 10 }}>{error}</p>}
-      {(data.transfers.length > 0 || data.payouts.length > 0) && (
+      {data.openDebt && (
+        <p role="alert" style={{ background: colors.dangerBg, color: colors.danger, padding: "8px 12px", borderRadius: radius.control, fontSize: 13, marginTop: 10 }}>
+          €{(data.openDebt.outstandingMinor / 100).toFixed(2)} is owed back to HelloCircle (a refund or chargeback after a transfer). Your earnings are held until it's recovered from earlier transfers or offset by new earnings.
+          See the <a href="/policies/payments-fees-payouts" style={{ color: colors.danger, fontWeight: 700 }}>Payments policy</a>.
+        </p>
+      )}
+      {(data.transfers.length > 0 || data.bankPayouts.length > 0) && (
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 16, marginTop: 16 }}>
           <div style={{ overflowX: "auto" }}>
-            <div style={{ fontSize: 12, fontWeight: 700, color: colors.muted, marginBottom: 6 }}>TRANSFERS TO YOUR STRIPE ACCOUNT</div>
+            <div style={{ fontSize: 12, fontWeight: 700, color: colors.muted, marginBottom: 6 }}>TRANSFERS — HELLOCIRCLE → YOUR STRIPE ACCOUNT</div>
             <table style={tableStyle}>
               <thead><tr><th style={thStyle}>Date</th><th style={thStyle}>Amount</th><th style={thStyle}>Status</th></tr></thead>
               <tbody>
                 {data.transfers.map((t) => (
                   <tr key={t.id}>
                     <td style={tdStyle}>{day(t.createdAt)}</td>
-                    <td style={{ ...tdStyle, fontWeight: 600 }}>{euro(t.amountMinor)}{Number(t.reversedMinor) > 0 ? ` (−${euro(t.reversedMinor)} recovered)` : ""}</td>
+                    <td style={{ ...tdStyle, fontWeight: 600 }}>
+                      {euro(t.amountMinor)}
+                      {Number(t.reversedMinor) > 0 ? ` (−${euro(t.reversedMinor)} recovered)` : ""}
+                      <div style={{ fontSize: 11.5, fontWeight: 400, color: colors.mutedLight }}>{t.bookings} booking{Number(t.bookings) === 1 ? "" : "s"}</div>
+                    </td>
                     <td style={tdStyle}>{t.status === "created" ? "Sent" : t.status === "reversed" ? "Recovered" : "Partly recovered"}</td>
                   </tr>
                 ))}
@@ -87,18 +97,18 @@ export function PayoutAccountCard({ scope }: { scope: "vendor" | "host" }) {
             </table>
           </div>
           <div style={{ overflowX: "auto" }}>
-            <div style={{ fontSize: 12, fontWeight: 700, color: colors.muted, marginBottom: 6 }}>PAYOUTS TO YOUR BANK</div>
+            <div style={{ fontSize: 12, fontWeight: 700, color: colors.muted, marginBottom: 6 }}>BANK PAYOUTS — STRIPE → YOUR BANK</div>
             <table style={tableStyle}>
               <thead><tr><th style={thStyle}>Arrives</th><th style={thStyle}>Amount</th><th style={thStyle}>Status</th></tr></thead>
               <tbody>
-                {data.payouts.map((p) => (
+                {data.bankPayouts.map((p) => (
                   <tr key={p.id}>
                     <td style={tdStyle}>{day(p.arrivalDate)}</td>
                     <td style={{ ...tdStyle, fontWeight: 600 }}>{euro(p.amountMinor)}</td>
                     <td style={tdStyle}>{p.status}{p.failureMessage ? ` — ${p.failureMessage}` : ""}</td>
                   </tr>
                 ))}
-                {data.payouts.length === 0 && <tr><td style={tdStyle} colSpan={3}>None yet</td></tr>}
+                {data.bankPayouts.length === 0 && <tr><td style={tdStyle} colSpan={3}>None yet</td></tr>}
               </tbody>
             </table>
           </div>

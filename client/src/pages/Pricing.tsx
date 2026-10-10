@@ -27,7 +27,7 @@ function PlanCard({ title, terms, vatBps, highlight }: { title: string; terms: P
         </li>
         <li>Minimum {euro(terms.minFeeMinor)} + VAT per paid booking</li>
         <li>No fee on free events</li>
-        <li>Free listing, standard weekly payouts included</li>
+        <li>Free listing; weekly transfers to your Stripe account and standard bank payouts included</li>
         <li style={{ color: colors.mutedLight }}>VAT on HelloCircle fees is charged at {pct(vatBps)}</li>
       </ul>
     </Card>
@@ -47,7 +47,7 @@ export function Pricing() {
       <p style={{ fontSize: 12.5, fontWeight: 700, color: colors.orangeDark, letterSpacing: ".04em", textTransform: "uppercase", margin: 0 }}>For venues, clubs and hosts</p>
       <h1 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(28px, 5vw, 42px)", margin: "6px 0 10px", letterSpacing: "-.02em" }}>Simple pricing. No booking fee for your customers.</h1>
       <p style={{ fontSize: 16, color: colors.textSoft, maxWidth: 680, margin: "0 0 26px", lineHeight: 1.55 }}>
-        Your customers pay the price you list. HelloCircle takes a success fee only when a paid booking completes, and pays you weekly.
+        Your customers pay the price you list. HelloCircle takes a success fee only when a paid booking completes, and transfers your earnings to your Stripe account weekly — Stripe then pays them out to your bank.
       </p>
       {error ? (
         <p style={{ color: colors.danger }}>Pricing isn't available right now — please try again shortly.</p>
@@ -70,7 +70,7 @@ export function Pricing() {
             <PlanComparisonCalculator />
           </div>
           <p style={{ fontSize: 13, color: colors.mutedLight, margin: "26px 0 0", lineHeight: 1.6 }}>
-            Card processing and standard payouts are included. Instant payouts, currency conversion and cross-border payouts are charged at cost where offered.
+            Card processing and standard bank payouts are included. Instant payouts, currency conversion and cross-border payouts are charged at cost where offered.
             Transfer eligibility begins after the activity is completed and the review period has passed. See the{" "}
             <a href="/policies/payments-fees-payouts" style={{ color: colors.greenText, fontWeight: 600 }}>Payments, Fees and Payout Policy</a> for full terms.
           </p>

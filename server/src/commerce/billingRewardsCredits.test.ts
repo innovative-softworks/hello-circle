@@ -12,6 +12,7 @@ import { creditBalance } from "./credits.js";
 import { groupLines, ledgerIsBalanced, postGroup } from "./ledger.js";
 import { currentPlanFor } from "./plans.js";
 import { awardForSettlement, rewardBalance } from "./rewards.js";
+import { postRefund, recordDispute } from "./payments.js";
 import { GRACE_DAYS, proPrice, sweepSubscriptions } from "./subscriptions.js";
 
 // Revenue & Connect Stage 5b — Pro on Stripe Billing (checkout → active →
@@ -73,7 +74,7 @@ afterAll(async () => {
   delete process.env.QA_PAYMENT_PROVIDER_STUB;
   for (const k of SWITCHES) await setSetting(k, "false");
   const refs = ((await db.prepare(`SELECT ref FROM experience_bookings WHERE experience_id = ?`).all(exp)) as { ref: string }[]).map((r) => r.ref);
-  const keys = [`invoice:in_brc_${run}`, ...refs.map((r) => `payment:experience:${r}`), `brc-release:${run}`];
+  const keys = [`invoice:in_brc_${run}`, ...refs.map((r) => `payment:experience:${r}`), `brc-release:${run}`, `brc-releaseB:${run}`];
   for (const k of keys) {
     const g = (await db.prepare(`SELECT id FROM ledger_entry_groups WHERE idempotency_key = ?`).get(k)) as { id: string } | undefined;
     if (!g) continue;
@@ -99,6 +100,15 @@ afterAll(async () => {
   await db.prepare(`DELETE FROM experiences WHERE id = ?`).run(exp);
   await db.prepare(`DELETE FROM credit_uses WHERE resident_id = ?`).run(residentId);
   await db.prepare(`DELETE FROM credit_lots WHERE resident_id = ?`).run(residentId);
+  await db.prepare(`DELETE FROM reward_reversals WHERE award_id IN (SELECT id FROM reward_awards WHERE party_id = ?)`).run(org);
+  await db.prepare(`DELETE FROM reward_awards WHERE party_id = ?`).run(org);
+  await db.prepare(`DELETE FROM reward_debts WHERE party_id = ?`).run(org);
+  await db.prepare(`DELETE FROM refunds WHERE idempotency_key LIKE ?`).run(`brc-rf%-${run}`);
+  await db.prepare(`DELETE FROM disputes WHERE provider_dispute_id = ?`).run(`dp_brc_${run}`);
+  await db.prepare(`DELETE FROM payment_records WHERE source_ref = ?`).run(`brc-payB-${run}`);
+  await db.prepare(`DELETE FROM settlement_items WHERE settlement_id IN (SELECT id FROM settlements WHERE party_id = ?)`).run(org);
+  await db.prepare(`DELETE FROM commerce_rule_versions WHERE created_by = ?`).run(adminId);
+  await db.prepare(`DELETE FROM settlement_runs WHERE run_key = ?`).run(`brc-${run}-b`);
   await db.prepare(`DELETE FROM reward_redemptions WHERE party_id = ?`).run(org);
   await db.prepare(`DELETE FROM reward_lots WHERE party_id = ?`).run(org);
   await db.prepare(`DELETE FROM settlements WHERE party_id = ?`).run(org);
@@ -132,7 +142,12 @@ describe("Pro on Stripe Billing", () => {
     const r = await call("POST", "/vendor/plan/pro/checkout", {}, asVendor);
     expect(r.status).toBe(200);
     const sent = stubProvider.calls.filter((c) => c.method === "createSubscriptionCheckout").at(-1)!.args as Record<string, any>;
-    expect(sent).toMatchObject({ unitAmountMinor: 3_567, currency: "EUR", metadata: { type: "subscription", party_type: "org", party_id: org } });
+    // Stage 5c — Stripe gets the net price and the VAT rate separately (an exclusive tax rate), never one gross figure.
+    expect(sent).toMatchObject({ netAmountMinor: 2_900, vatBps: 2_300, currency: "EUR", metadata: { type: "subscription", party_type: "org", party_id: org } });
+    expect(sent.unitAmountMinor).toBeUndefined();
+    const row = (await db.prepare(`SELECT net_minor as n, vat_minor as v, gross_minor as g, vat_mode as m, tax_rule_hash as h FROM partner_subscriptions WHERE checkout_session_id = ?`).get(r.body.id)) as Record<string, string | number>;
+    expect([Number(row.n), Number(row.v), Number(row.g), row.m]).toEqual([2_900, 667, 3_567, "standard"]);
+    expect(String(row.h)).toMatch(/^[0-9a-f]{64}$/);
     expect((await currentPlanFor(partner)).planKey).toBe("free");
 
     const completed = { id: `evt_brc_${run}_c`, type: "checkout.session.completed", created: 0, livemode: false, data: { object: { id: r.body.id, mode: "subscription", payment_status: "paid", subscription: subId, metadata: { type: "subscription" } } } };
@@ -142,7 +157,19 @@ describe("Pro on Stripe Billing", () => {
     expect((await call("POST", "/vendor/plan/pro/checkout", {}, asVendor)).status).toBe(409);
   });
 
+  it("a partner on reverse charge (partner-scoped tax rule) is charged no VAT; the net price is unchanged", async () => {
+    const d = await call("POST", "/admin/commerce/rules/drafts", { key: "tax_vat", scopeType: "partner", scopeId: `org:${org}`, payload: { vatMode: "reverse_charge" }, reason: "EU B2B reverse charge (test)" }, asAdmin);
+    expect(d.status).toBe(200);
+    await call("POST", `/admin/commerce/rules/${d.body.id}/publish`, { reason: "publish tax override" }, asAdmin);
+    expect(await proPrice({ kind: "org", id: org })).toMatchObject({ netMinor: 2_900, vatMinor: 0, grossMinor: 2_900, vatMode: "reverse_charge" });
+    expect(await proPrice()).toMatchObject({ netMinor: 2_900, vatMinor: 667 }); // everyone else unchanged
+    const overview = await call("GET", "/vendor/plan", undefined, asVendor);
+    expect(overview.body.price).toMatchObject({ netMinor: 2_900, vatMinor: 0 });
+    await call("POST", `/admin/commerce/rules/${d.body.id}/retire`, { reason: "back to standard" }, asAdmin);
+  });
+
   it("books each paid invoice as subscription revenue plus VAT", async () => {
+    // The VAT Stripe reports on the invoice is what's booked (here none reported → the rate frozen on the subscription).
     expect(await processStripeEvent({ id: `evt_brc_${run}_i`, type: "invoice.paid", created: 0, livemode: false, data: { object: { id: `in_brc_${run}`, amount_paid: 3_567, currency: "eur", subscription: subId } } })).toBe("processed");
     const g = (await db.prepare(`SELECT id FROM ledger_entry_groups WHERE idempotency_key = ?`).get(`invoice:in_brc_${run}`)) as { id: string };
     const lines = (await groupLines(db, g.id)).map((l) => [l.account, Number(l.amountMinor)]);
@@ -206,11 +233,23 @@ describe("partner reward points", () => {
     await db.prepare(`UPDATE ledger_entry_groups SET idempotency_key = ? WHERE id = ?`).run(`brc-release:${run}`, g.groupId);
   });
 
+  it("a refund after settlement reverses that order's points proportionally", async () => {
+    const ref = `brc-pay-${run}`;
+    await db.transaction(async (tx) => {
+      const rf = await tx.prepare(`INSERT INTO refunds (source_type, source_ref, amount_minor, currency, kind, origin, responsible, reason, status, idempotency_key) VALUES ('experience', ?, 6172, 'EUR', 'partial', 'admin', 'partner', 'half refunded', 'succeeded', ?)`).run(ref, `brc-rf1-${run}`);
+      await postRefund(tx, "experience", ref, Number(rf.lastInsertRowid), 6_172, 12_345, adminId);
+    });
+    // floor(123 × 6,172 / 12,345) = 61 points reversed from the order's own lot.
+    expect((await rewardBalance(partner)).points).toBe(62);
+    const rev = (await db.prepare(`SELECT r.points, r.from_lots as l, r.to_debt as d, r.reason FROM reward_reversals r JOIN reward_awards a ON a.id = r.award_id WHERE a.source_ref = ?`).all(ref)) as Record<string, number | string>[];
+    expect(rev.map((x) => [Number(x.points), Number(x.l), Number(x.d), x.reason])).toEqual([[61, 61, 0, "refund"]]);
+  });
+
   it("redeems the published points (oldest first) for one month of Pro, and refuses too few", async () => {
     const short = await call("POST", "/vendor/plan/rewards/redeem", {}, asVendor);
     expect(short.status).toBe(409);
     expect(short.body.error).toMatch(/10,000 points/);
-    await db.prepare(`INSERT INTO reward_lots (party_type, party_id, source_ref, points_earned, points_remaining, expires_at) VALUES ('org', ?, ?, 9900, 9900, ?)`).run(org, `test:${run}:a`, new Date(Date.now() + 30 * 864e5));
+    await db.prepare(`INSERT INTO reward_lots (party_type, party_id, source_ref, points_earned, points_remaining, expires_at) VALUES ('org', ?, ?, 9940, 9940, ?)`).run(org, `test:${run}:a`, new Date(Date.now() + 30 * 864e5));
     const r = await call("POST", "/vendor/plan/rewards/redeem", {}, asVendor);
     expect(r.status).toBe(200);
     const cur = await currentPlanFor(partner);
@@ -218,7 +257,53 @@ describe("partner reward points", () => {
     const days = (new Date(cur.effectiveTo!).getTime() - Date.now()) / 864e5;
     expect(days).toBeGreaterThan(27);
     expect(days).toBeLessThan(32);
-    expect((await rewardBalance(partner)).points).toBe(23); // 123 + 9,900 − 10,000
+    expect((await rewardBalance(partner)).points).toBe(2); // 62 + 9,940 − 10,000
+  });
+
+  it("points already redeemed when the rest is refunded become a points debt that blocks redemption and is repaid first", async () => {
+    const ref = `brc-pay-${run}`;
+    await db.transaction(async (tx) => {
+      const rf = await tx.prepare(`INSERT INTO refunds (source_type, source_ref, amount_minor, currency, kind, origin, responsible, reason, status, idempotency_key) VALUES ('experience', ?, 6173, 'EUR', 'remaining', 'admin', 'partner', 'rest refunded', 'succeeded', ?)`).run(ref, `brc-rf2-${run}`);
+      await postRefund(tx, "experience", ref, Number(rf.lastInsertRowid), 6_173, 12_345, adminId);
+    });
+    // Fully refunded → all 123 reversed: 62 more, of which only 2 were still unspent.
+    expect(await rewardBalance(partner)).toMatchObject({ availablePoints: 0, debtPoints: 60, points: -60 });
+    await db.prepare(`INSERT INTO reward_lots (party_type, party_id, source_ref, points_earned, points_remaining, expires_at) VALUES ('org', ?, ?, 20000, 20000, ?)`).run(org, `test:${run}:b`, new Date(Date.now() + 30 * 864e5));
+    const blocked = await call("POST", "/vendor/plan/rewards/redeem", {}, asVendor);
+    expect(blocked.status).toBe(409);
+    expect(blocked.body.error).toMatch(/60 points are owed/);
+    await db.prepare(`UPDATE reward_lots SET points_remaining = 0 WHERE source_ref = ?`).run(`test:${run}:b`);
+  });
+
+  it("new awards repay the debt first; a lost dispute reverses points too", async () => {
+    // A second settled order of €50 → 50 points, all of which repay the 60-point debt.
+    const refB = `brc-payB-${run}`;
+    await db.prepare(`INSERT INTO payment_records (source_type, source_ref, provider, payment_intent_id, amount_minor, currency, status) VALUES ('experience', ?, 'stub', ?, 5000, 'EUR', 'succeeded')`).run(refB, `pi_brc_${run}`);
+    const g = await db.transaction((tx) =>
+      postGroup(tx, {
+        idempotencyKey: `release:experience:${refB}`,
+        sourceType: "experience",
+        sourceId: refB,
+        description: "test release B",
+        basis: "actual",
+        currency: "EUR",
+        lines: [
+          { account: "partner_payable", amountMinor: 100, partyType: "org", partyId: org },
+          { account: "partner_available", amountMinor: -100, partyType: "org", partyId: org },
+        ],
+      })
+    );
+    const r2 = await db.prepare(`INSERT INTO settlement_runs (run_key, dry_run, status, started_by, reason) VALUES (?, 0, 'completed', ?, 'rewards test B')`).run(`brc-${run}-b`, adminId);
+    const st = await db.prepare(`INSERT INTO settlements (run_id, party_type, party_id, currency, net_minor, status) VALUES (?, 'org', ?, 'EUR', 100, 'due')`).run(Number(r2.lastInsertRowid), org);
+    await db.prepare(`INSERT INTO settlement_items (settlement_id, ledger_group_id, description, amount_minor) VALUES (?, ?, 'release B', 100)`).run(Number(st.lastInsertRowid), g.groupId);
+    expect(await awardForSettlement(Number(st.lastInsertRowid))).toBe(50);
+    expect(await rewardBalance(partner)).toMatchObject({ availablePoints: 0, debtPoints: 10 });
+    // The customer wins a chargeback on order B: its 50 points are reversed (none left to take → debt).
+    await recordDispute({ disputeId: `dp_brc_${run}`, paymentIntentId: `pi_brc_${run}`, amountMinor: 5_000, currency: "eur", reason: "product_not_received", status: "needs_response", evidenceDueBy: null });
+    await recordDispute({ disputeId: `dp_brc_${run}`, paymentIntentId: `pi_brc_${run}`, amountMinor: 5_000, currency: "eur", reason: "product_not_received", status: "lost", evidenceDueBy: null });
+    await recordDispute({ disputeId: `dp_brc_${run}`, paymentIntentId: `pi_brc_${run}`, amountMinor: 5_000, currency: "eur", reason: "product_not_received", status: "lost", evidenceDueBy: null }); // replay
+    expect(await rewardBalance(partner)).toMatchObject({ availablePoints: 0, debtPoints: 60 });
+    await db.prepare(`UPDATE ledger_entry_groups SET idempotency_key = ? WHERE id = ?`).run(`brc-releaseB:${run}`, g.groupId);
   });
 });
 

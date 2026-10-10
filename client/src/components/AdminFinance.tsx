@@ -12,7 +12,13 @@ import {
   sweepSubscriptionsApi,
   type AdminSubscription,
   fetchTransfers,
-  recoverPartnerBalance,
+  fetchPartnerDebts,
+  fetchTransferAllocations,
+  openPartnerDebt,
+  retryPartnerDebt,
+  reverseTransferAllocation,
+  type PartnerDebt,
+  type TransferAllocation,
   runTransfersApi,
   type AdminConnectedAccount,
   type AdminTransfer,
@@ -320,6 +326,7 @@ function TransfersSection() {
   const [accounts, setAccounts] = useState<AdminConnectedAccount[]>([]);
   const [result, setResult] = useState<TransferRunResult | null>(null);
   const [dialog, setDialog] = useState<null | "preview" | "run" | { kind: string; id: string }>(null);
+  const [allocFor, setAllocFor] = useState<AdminTransfer | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const load = () => {
     fetchTransfers().then(setRows).catch(() => setRows([]));
@@ -356,7 +363,7 @@ function TransfersSection() {
       <h4 style={{ margin: "18px 0 8px", fontSize: 14 }}>Recent transfers</h4>
       <div style={{ overflowX: "auto" }}>
         <table style={tableStyle}>
-          <thead><tr><th style={thStyle}>Settlement</th><th style={thStyle}>Partner</th><th style={thStyle}>Amount</th><th style={thStyle}>Status</th><th style={thStyle}>When</th></tr></thead>
+          <thead><tr><th style={thStyle}>Settlement</th><th style={thStyle}>Partner</th><th style={thStyle}>Amount</th><th style={thStyle}>Status</th><th style={thStyle}>When</th><th style={thStyle} /></tr></thead>
           <tbody>
             {rows.map((t) => (
               <tr key={t.id}>
@@ -365,9 +372,10 @@ function TransfersSection() {
                 <td style={{ ...tdStyle, fontWeight: 600 }}>{euro(t.amountMinor)}{Number(t.reversedMinor) > 0 ? ` (−${euro(t.reversedMinor)})` : ""}</td>
                 <td style={{ ...tdStyle, color: t.status === "failed" || t.status === "unknown" ? colors.danger : colors.text }}>{t.status}{t.error ? ` — ${t.error}` : ""}</td>
                 <td style={{ ...tdStyle, fontSize: 12.5 }}>{when(t.createdAt)}</td>
+                <td style={tdStyle}>{t.providerTransferId && <Button variant="ghost" onClick={() => setAllocFor(t)}>Bookings…</Button>}</td>
               </tr>
             ))}
-            {rows.length === 0 && <tr><td style={tdStyle} colSpan={5}>No transfers yet.</td></tr>}
+            {rows.length === 0 && <tr><td style={tdStyle} colSpan={6}>No transfers yet.</td></tr>}
           </tbody>
         </table>
       </div>
@@ -381,7 +389,7 @@ function TransfersSection() {
                 <td style={tdStyle}>{a.partyType}:{a.partyId}</td>
                 <td style={{ ...tdStyle, fontSize: 12.5 }}>{a.accountId} · {a.country}</td>
                 <td style={{ ...tdStyle, fontSize: 12.5 }}>{a.readiness.length ? a.readiness.join("; ") : "Ready"}</td>
-                <td style={tdStyle}><Button variant="ghost" onClick={() => setDialog({ kind: a.partyType, id: a.partyId })}>Recover balance…</Button></td>
+                <td style={tdStyle}><Button variant="ghost" onClick={() => setDialog({ kind: a.partyType, id: a.partyId })}>Open partner debt…</Button></td>
               </tr>
             ))}
             {accounts.length === 0 && <tr><td style={tdStyle} colSpan={4}>No partner has connected a payout account yet.</td></tr>}
@@ -402,18 +410,127 @@ function TransfersSection() {
         />
       ) : dialog ? (
         <ReasonDialog
-          title={`Recover ${dialog.kind}:${dialog.id}'s negative balance`}
-          note="Reverses this partner's most recent transfers, up to what they owe (after a refund or a lost dispute they're responsible for). Audited."
-          confirm="Reverse transfers"
+          title={`Open a debt for ${dialog.kind}:${dialog.id}`}
+          note="For what this partner owes back (a refund after transfer, or a lost dispute they're responsible for). Their earnings are frozen, their own most recent transfer allocations are reversed up to the amount owed, and anything not recovered is offset against their future earnings. Never another partner's money. Audited (reason at least 10 characters)."
+          confirm="Open debt and recover"
           danger
           onClose={() => setDialog(null)}
           onConfirm={async (reason) => {
-            const r = await recoverPartnerBalance(dialog.kind, dialog.id, reason);
-            setMessage(`Recovered ${euro(r.recoveredMinor)}${r.unrecoveredMinor > 0 ? `; ${euro(r.unrecoveredMinor)} still owed (recovered from future settlements)` : ""}.`);
+            const r = await openPartnerDebt(dialog.kind, dialog.id, reason);
+            setMessage(`Debt #${r.debtId}: recovered ${euro(r.recoveredMinor)}${r.unrecoveredMinor > 0 ? `; ${euro(r.unrecoveredMinor)} still owed (frozen until recovered or offset)` : " — fully recovered"}.`);
             load();
           }}
         />
       ) : null}
+      {allocFor && <AllocationsDialog transfer={allocFor} onClose={() => { setAllocFor(null); load(); }} />}
+    </Card>
+  );
+}
+
+/** Stage 5c — a transfer's immutable per-booking allocations, with partial reversal towards an open debt. */
+function AllocationsDialog({ transfer, onClose }: { transfer: AdminTransfer; onClose: () => void }) {
+  const [rows, setRows] = useState<TransferAllocation[]>([]);
+  const [rev, setRev] = useState<TransferAllocation | null>(null);
+  const [amount, setAmount] = useState("");
+  const [message, setMessage] = useState<string | null>(null);
+  const load = () => fetchTransferAllocations(transfer.id).then(setRows).catch(() => setRows([]));
+  useEffect(() => {
+    load();
+  }, [transfer.id]);
+  return (
+    <Modal open size="wide" onClose={onClose} title={`Transfer for settlement #${transfer.settlementId}`} subtitle={`${transfer.partyType}:${transfer.partyId} · ${euro(transfer.amountMinor)} · allocation rows are never edited; reversals are recorded beside them`}>
+      <div style={{ overflowX: "auto" }}>
+        <table style={tableStyle}>
+          <thead><tr><th style={thStyle}>Kind</th><th style={thStyle}>Booking</th><th style={thStyle}>Amount</th><th style={thStyle}>Reversed</th><th style={thStyle} /></tr></thead>
+          <tbody>
+            {rows.map((a) => (
+              <tr key={a.id}>
+                <td style={tdStyle}>{a.kind}</td>
+                <td style={{ ...tdStyle, fontSize: 12.5 }}>{a.sourceType ? `${a.sourceType} ${a.sourceRef}` : "—"}</td>
+                <td style={{ ...tdStyle, fontWeight: 600 }}>{euro(a.amountMinor)}</td>
+                <td style={tdStyle}>{euro(a.reversedMinor)}</td>
+                <td style={tdStyle}>{Number(a.amountMinor) > Number(a.reversedMinor) && Number(a.amountMinor) > 0 && <Button variant="ghost" onClick={() => { setRev(a); setAmount(""); }}>Reverse part…</Button>}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {rev && (
+        <div style={{ marginTop: 12 }}>
+          <Field label={`Amount to reverse from ${rev.sourceRef ?? "this allocation"} (€) — only towards this partner's open debt`}>
+            <input value={amount} onChange={(e) => setAmount(e.target.value)} style={{ ...inputStyle, maxWidth: 200 }} inputMode="decimal" />
+          </Field>
+          <ReasonInline
+            onSave={async (reason) => {
+              const r = await reverseTransferAllocation(rev.id, toMinor(amount) ?? 0, reason);
+              setMessage(`Recovered ${euro(r.recoveredMinor)}; still owed ${euro(r.unrecoveredMinor)}.`);
+              setRev(null);
+              load();
+            }}
+          />
+        </div>
+      )}
+      {message && <p style={{ fontSize: 13 }}>{message}</p>}
+    </Modal>
+  );
+}
+
+function DebtsSection() {
+  const [status, setStatus] = useState("open");
+  const [rows, setRows] = useState<PartnerDebt[]>([]);
+  const [retry, setRetry] = useState<PartnerDebt | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+  const load = () => fetchPartnerDebts(status || undefined).then(setRows).catch(() => setRows([]));
+  useEffect(() => {
+    load();
+  }, [status]);
+  return (
+    <Card style={{ padding: 22 }}>
+      <h3 style={h3}>Partner debts</h3>
+      <p style={hint}>
+        What partners owe back after a refund or chargeback that came after their transfer. While a debt is open the partner's earnings are frozen. It closes when recovered by reversing that partner's own transfers, or offset by their own new earnings.
+      </p>
+      <Field label="Show">
+        <select value={status} onChange={(e) => setStatus(e.target.value)} style={{ ...inputStyle, maxWidth: 220 }}>
+          <option value="open">Open</option>
+          <option value="recovered">Recovered</option>
+          <option value="offset">Offset by earnings</option>
+          <option value="">All</option>
+        </select>
+      </Field>
+      <div style={{ overflowX: "auto", marginTop: 12 }}>
+        <table style={tableStyle}>
+          <thead><tr><th style={thStyle}>Debt</th><th style={thStyle}>Partner</th><th style={thStyle}>Owed</th><th style={thStyle}>Recovered</th><th style={thStyle}>Offset</th><th style={thStyle}>Outstanding</th><th style={thStyle}>Reason</th><th style={thStyle} /></tr></thead>
+          <tbody>
+            {rows.map((d) => (
+              <tr key={d.id}>
+                <td style={tdStyle}>#{d.id} · {d.status}</td>
+                <td style={tdStyle}>{d.partyType}:{d.partyId}</td>
+                <td style={tdStyle}>{euro(d.openedMinor)}</td>
+                <td style={tdStyle}>{euro(d.recoveredMinor)}</td>
+                <td style={tdStyle}>{euro(d.offsetMinor)}</td>
+                <td style={{ ...tdStyle, fontWeight: 700, color: d.outstandingMinor > 0 ? colors.danger : colors.text }}>{euro(d.outstandingMinor)}</td>
+                <td style={{ ...tdStyle, fontSize: 12.5, maxWidth: 260 }}>{d.reason}</td>
+                <td style={tdStyle}>{d.status === "open" && <Button variant="ghost" onClick={() => setRetry(d)}>Retry recovery…</Button>}</td>
+              </tr>
+            ))}
+            {rows.length === 0 && <tr><td style={tdStyle} colSpan={8}>Nothing here.</td></tr>}
+          </tbody>
+        </table>
+      </div>
+      {message && <p style={{ fontSize: 13, margin: "10px 0 0" }}>{message}</p>}
+      {retry && (
+        <ReasonDialog
+          title={`Retry recovery of debt #${retry.id}`}
+          confirm="Retry"
+          onClose={() => setRetry(null)}
+          onConfirm={async (reason) => {
+            const r = await retryPartnerDebt(retry.id, reason);
+            setMessage(`Recovered ${euro(r.recoveredMinor)}; still owed ${euro(r.unrecoveredMinor)}.`);
+            load();
+          }}
+        />
+      )}
     </Card>
   );
 }
@@ -805,6 +922,7 @@ const SECTIONS = [
   { key: "simulator", label: "Simulator", roles: ["super", "finance"] },
   { key: "settlements", label: "Settlements", roles: ["super", "finance"] },
   { key: "transfers", label: "Transfers", roles: ["super", "finance"] },
+  { key: "debts", label: "Partner debts", roles: ["super", "finance"] },
   { key: "credits", label: "Credits & Pro", roles: ["super", "finance"] },
   { key: "events", label: "Payment events", roles: ["super", "finance"] },
   { key: "refunds", label: "Refunds", roles: ["super", "finance"] },
@@ -839,6 +957,7 @@ export function AdminFinanceTab() {
       {section === "simulator" && <SimulatorSection />}
       {section === "settlements" && <SettlementsSection />}
       {section === "transfers" && <TransfersSection />}
+      {section === "debts" && <DebtsSection />}
       {section === "credits" && <CreditsProSection />}
       {section === "events" && <WebhooksSection />}
       {section === "refunds" && <RefundsSection />}

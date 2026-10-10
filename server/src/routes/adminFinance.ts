@@ -9,7 +9,8 @@ import { RuleError } from "../commerce/rules.js";
 import { partnerBalances, reconcilePaymentFees, resolveDisputeRecovery, runSettlement } from "../commerce/settlement.js";
 import { failEvent, finishEvent, reopenForReplay } from "../payments/webhookEvents.js";
 import { processStripeEvent } from "./stripeWebhook.js";
-import { ConnectError, payoutReadiness, recoverByReversal, runTransfers, type Party } from "../payments/connect.js";
+import { ConnectError, openPartnerDebt, payoutReadiness, retryDebtRecovery, reverseAllocation, runTransfers, type Party } from "../payments/connect.js";
+import { listDebts } from "../commerce/debts.js";
 import { CreditError, grantCredit, residentCredits } from "../commerce/credits.js";
 import { sweepSubscriptions } from "../commerce/subscriptions.js";
 
@@ -219,11 +220,44 @@ adminFinanceRouter.post("/transfers/run", async (req, res) => {
   }
 });
 
-adminFinanceRouter.post("/partners/:kind/:id/recover", async (req, res) => {
+// Stage 5c — partner debts (replace the 5a "recover balance" action).
+adminFinanceRouter.get("/debts", async (req, res) => {
+  const status = typeof req.query.status === "string" && ["open", "recovered", "offset"].includes(req.query.status) ? req.query.status : undefined;
+  res.json(await listDebts(status));
+});
+
+adminFinanceRouter.post("/partners/:kind/:id/debts", async (req, res) => {
   if (!PARTY_TYPES.includes(req.params.kind)) return res.status(400).json({ error: "Unknown partner kind" });
   try {
-    const { reason, maxMinor } = (req.body ?? {}) as { reason?: string; maxMinor?: number };
-    res.json(await recoverByReversal({ partyType: req.params.kind as Party["partyType"], partyId: req.params.id }, { actorId: req.user!.id, reason: String(reason ?? ""), maxMinor: maxMinor === undefined ? undefined : Number(maxMinor) }));
+    res.json(await openPartnerDebt({ partyType: req.params.kind as Party["partyType"], partyId: req.params.id }, { actorId: req.user!.id, reason: String(req.body?.reason ?? "") }));
+  } catch (e) {
+    handleConnect(res, e);
+  }
+});
+
+adminFinanceRouter.post("/debts/:id/retry", async (req, res) => {
+  try {
+    res.json(await retryDebtRecovery(Number(req.params.id), { actorId: req.user!.id, reason: String(req.body?.reason ?? "") }));
+  } catch (e) {
+    handleConnect(res, e);
+  }
+});
+
+adminFinanceRouter.get("/transfers/:id/allocations", async (req, res) => {
+  res.json(
+    await db
+      .prepare(
+        `SELECT a.id, a.kind, a.source_type as sourceType, a.source_ref as sourceRef, a.amount_minor as amountMinor,
+           (SELECT COALESCE(SUM(ar.amount_minor), 0) FROM transfer_allocation_reversals ar JOIN transfer_reversals r ON r.id = ar.reversal_id WHERE ar.allocation_id = a.id AND r.status = 'created') as reversedMinor
+         FROM transfer_allocations a WHERE a.transfer_id = ? ORDER BY a.id`
+      )
+      .all(Number(req.params.id))
+  );
+});
+
+adminFinanceRouter.post("/allocations/:id/reverse", async (req, res) => {
+  try {
+    res.json(await reverseAllocation(Number(req.params.id), { actorId: req.user!.id, reason: String(req.body?.reason ?? ""), amountMinor: Number(req.body?.amountMinor) }));
   } catch (e) {
     handleConnect(res, e);
   }

@@ -158,7 +158,7 @@ export function PricingCalculator({ variant = "public", initialPlan = "free" }: 
             <Row label="Fee base" value={euro(result.feeBaseMinor)} help="fee_base" />
             <Row label={`HelloCircle fee${result.minimumFeeApplied ? " (minimum applies)" : ""}`} value={`−${euro(result.platformFeeNetMinor)}`} help="platform_fee" />
             <Row label="VAT on HelloCircle fee" value={`−${euro(result.platformFeeVatMinor)}`} help="platform_fee_vat" />
-            <Row label="Partner payout" value={euro(result.partnerPoolMinor)} help="partner_payout" strong />
+            <Row label="Partner earnings" value={euro(result.partnerPoolMinor)} help="partner_payout" strong />
             {result.allocations.length > 1 &&
               result.allocations.map((a) => (
                 <Row key={a.recipient} label={a.recipient === "venue" ? "  Venue receives" : "  Host receives"} value={euro(a.amountMinor)} help={a.recipient === "venue" ? "venue_allocation" : "host_allocation"} />

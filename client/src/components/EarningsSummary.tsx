@@ -40,11 +40,14 @@ export function EarningsSummary({ load, scope }: { load: () => Promise<PartnerEa
       <PlanCard scope={scope} />
       <Card style={{ padding: 20 }}>
         <h3 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 17, margin: "0 0 4px" }}>Your balance</h3>
-        <p style={{ fontSize: 12.5, color: colors.mutedLight, margin: "0 0 14px" }}>Transfer eligibility begins after the activity is completed and the review period has passed. Payouts are weekly.</p>
+        <p style={{ fontSize: 12.5, color: colors.mutedLight, margin: "0 0 14px" }}>
+          Transfer eligibility begins after the activity is completed and the review period has passed. Settled earnings are transferred weekly to your Stripe account; Stripe then pays out to your bank.
+        </p>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
           <Tile label="Pending" value={data.pendingMinor} help="pending_balance" />
           <Tile label="Available" value={data.availableMinor} help="available_balance" />
-          <Tile label="Settled — payout due" value={data.settledDueMinor} help="settled_due" />
+          <Tile label="Settled — transfer due" value={data.transferDueMinor} help="settled_due" />
+          <Tile label="Transferred to your Stripe account" value={data.transferredMinor} help="settled_due" />
         </div>
         {data.settlements.length > 0 && (
           <div style={{ overflowX: "auto", marginTop: 16 }}>
@@ -61,7 +64,7 @@ export function EarningsSummary({ load, scope }: { load: () => Promise<PartnerEa
                   <tr key={s.id}>
                     <td style={tdStyle}>{s.runKey}</td>
                     <td style={{ ...tdStyle, fontWeight: 700 }}>{euro(Number(s.netMinor))}</td>
-                    <td style={tdStyle}>{s.status === "due" ? "Payout due" : s.status}</td>
+                    <td style={tdStyle}>{s.status === "due" ? "Transfer due" : s.status === "transferred" ? "Transferred" : s.status}</td>
                   </tr>
                 ))}
               </tbody>

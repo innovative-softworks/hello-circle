@@ -88,7 +88,8 @@ export interface PaymentProvider {
   createDashboardLink(accountId: string): Promise<{ url: string }>;
   createTransfer(p: { amountMinor: number; currency: string; destinationAccountId: string; transferGroup: string; sourceTransactionId?: string; idempotencyKey: string; metadata: Record<string, string> }): Promise<{ id: string }>;
   // Billing (Stage 5b) — HelloCircle Pro, a monthly subscription paid by the partner.
-  createSubscriptionCheckout(p: { customerEmail: string; productName: string; unitAmountMinor: number; currency: string; successUrl: string; cancelUrl: string; metadata: Record<string, string> }): Promise<{ id: string; url: string | null }>;
+  /** Net (ex-VAT) monthly price; VAT is added at `vatBps` when > 0 (exclusive tax rate), never baked into the price. */
+  createSubscriptionCheckout(p: { customerEmail: string; productName: string; netAmountMinor: number; vatBps: number; currency: string; successUrl: string; cancelUrl: string; metadata: Record<string, string> }): Promise<{ id: string; url: string | null }>;
   /** atPeriodEnd: stop renewing (Pro continues to the end of the paid month); otherwise end now. */
   cancelSubscription(p: { subscriptionId: string; atPeriodEnd: boolean }): Promise<void>;
   resumeSubscription(subscriptionId: string): Promise<void>;
@@ -229,11 +230,26 @@ class StripeProvider implements PaymentProvider {
     return { id: t.id };
   }
 
-  async createSubscriptionCheckout(p: { customerEmail: string; productName: string; unitAmountMinor: number; currency: string; successUrl: string; cancelUrl: string; metadata: Record<string, string> }) {
+  private taxRateIds = new Map<number, string>();
+
+  /** An exclusive Irish VAT tax rate at `bps` (reused if one already exists). */
+  private async vatTaxRate(bps: number): Promise<string> {
+    const cached = this.taxRateIds.get(bps);
+    if (cached) return cached;
+    const pct = bps / 100;
+    const existing = await this.client.taxRates.list({ active: true, inclusive: false, limit: 100 });
+    const hit = existing.data.find((t) => t.percentage === pct && t.country === "IE" && t.display_name === "VAT" && t.metadata?.hellocircle === "pro");
+    const id = hit?.id ?? (await this.client.taxRates.create({ display_name: "VAT", percentage: pct, inclusive: false, country: "IE", tax_type: "vat", metadata: { hellocircle: "pro" } })).id;
+    this.taxRateIds.set(bps, id);
+    return id;
+  }
+
+  async createSubscriptionCheckout(p: { customerEmail: string; productName: string; netAmountMinor: number; vatBps: number; currency: string; successUrl: string; cancelUrl: string; metadata: Record<string, string> }) {
+    const taxRates = p.vatBps > 0 ? [await this.vatTaxRate(p.vatBps)] : undefined;
     const session = await this.client.checkout.sessions.create({
       mode: "subscription",
       customer_email: p.customerEmail,
-      line_items: [{ quantity: 1, price_data: { currency: p.currency.toLowerCase(), unit_amount: p.unitAmountMinor, recurring: { interval: "month" }, product_data: { name: p.productName } } }],
+      line_items: [{ quantity: 1, price_data: { currency: p.currency.toLowerCase(), unit_amount: p.netAmountMinor, recurring: { interval: "month" }, product_data: { name: p.productName } }, ...(taxRates ? { tax_rates: taxRates } : {}) }],
       success_url: p.successUrl,
       cancel_url: p.cancelUrl,
       metadata: p.metadata,
@@ -289,6 +305,8 @@ export class StubProvider implements PaymentProvider {
   private reversalsByKey = new Map<string, { id: string; amountMinor: number }>();
   /** Test hook: the next createTransfer throws this (then clears). */
   failNextTransfer: (Error & { code?: string; type?: string }) | null = null;
+  /** Test hook: the next reverseTransfer throws this (then clears). */
+  failNextReversal: (Error & { code?: string; type?: string }) | null = null;
 
   /** Test helper: make an event retrievable (as the provider would). */
   publishEvent(event: import("./webhookEvents.js").IncomingEvent) {
@@ -318,6 +336,7 @@ export class StubProvider implements PaymentProvider {
     this.accountsByKey.clear();
     this.reversalsByKey.clear();
     this.failNextTransfer = null;
+    this.failNextReversal = null;
   }
 
   /** Test helper: record that a session was paid for `amountMinor`. */
@@ -404,7 +423,7 @@ export class StubProvider implements PaymentProvider {
     return { url: `https://connect.stub.invalid/express/${accountId}` };
   }
 
-  async createSubscriptionCheckout(p: { customerEmail: string; productName: string; unitAmountMinor: number; currency: string; successUrl: string; cancelUrl: string; metadata: Record<string, string> }) {
+  async createSubscriptionCheckout(p: { customerEmail: string; productName: string; netAmountMinor: number; vatBps: number; currency: string; successUrl: string; cancelUrl: string; metadata: Record<string, string> }) {
     this.record("createSubscriptionCheckout", p);
     return { id: `cs_sub_stub_${++this.seq}`, url: null };
   }
@@ -442,6 +461,11 @@ export class StubProvider implements PaymentProvider {
     this.record("reverseTransfer", p);
     const prior = this.reversalsByKey.get(p.idempotencyKey);
     if (prior) return prior;
+    if (this.failNextReversal) {
+      const e = this.failNextReversal;
+      this.failNextReversal = null;
+      throw e;
+    }
     const t = [...this.transfersByKey.values()].find((x) => x.id === p.transferId);
     if (!t) throw Object.assign(new Error("No such transfer"), { code: "resource_missing" });
     const r = { id: `trr_stub_${++this.seq}`, amountMinor: p.amountMinor ?? t.amountMinor };
