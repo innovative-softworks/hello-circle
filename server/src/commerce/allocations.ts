@@ -106,7 +106,10 @@ export async function agreementsForGame(gameId: string): Promise<SplitAgreement[
 
 export async function agreementsForVenue(party: { partyType: string; partyId: string }): Promise<(SplitAgreement & { gameTitle: string | null })[]> {
   return ((await db
-    .prepare(`SELECT ${FIELDS.split(", ").map((f) => `a.${f.trim()}`).join(", ")}, g.title as gameTitle FROM venue_split_agreements a LEFT JOIN games g ON g.id = a.game_id WHERE a.venue_party_type = ? AND a.venue_party_id = ? ORDER BY a.id DESC LIMIT 100`)
+    .prepare(
+      `SELECT x.*, g.activity_label as gameTitle FROM (SELECT ${FIELDS} FROM venue_split_agreements WHERE venue_party_type = ? AND venue_party_id = ? ORDER BY id DESC LIMIT 100) x
+       LEFT JOIN games g ON g.id = x.gameId ORDER BY x.id DESC`
+    )
     .all(party.partyType, party.partyId)) as (SplitAgreement & { gameTitle: string | null })[]).map((a) => ({ ...normalize(a), gameTitle: a.gameTitle }));
 }
 

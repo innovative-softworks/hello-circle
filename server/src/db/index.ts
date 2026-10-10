@@ -3346,7 +3346,17 @@ async function initCommerceSchema(
     "—",
     "—",
     "payments-fees-payouts"
-  ]
+  ],
+  // Stage 5e — payout-account states, transfer vs bank payout, venue/host split.
+    ["connect_state_not_started", "Payout account: not started", "You haven't set up a payout account yet. HelloCircle pays your earnings into a Stripe account in your name; Stripe then pays them to your bank.", "—", "—", "—", "—", "—", "payments-fees-payouts"],
+    ["connect_state_onboarding_incomplete", "Payout account: setup not finished", "Stripe still needs some details before it can accept transfers for you (for example identity, address or bank account). Continue setup — it takes you back to Stripe's secure page.", "—", "—", "—", "—", "—", "payments-fees-payouts"],
+    ["connect_state_under_review", "Payout account: under review", "You've given Stripe everything it asked for and it is checking your details. Nothing to do now; this usually finishes within a few days.", "—", "—", "—", "—", "—", "payments-fees-payouts"],
+    ["connect_state_more_information_required", "Payout account: more information needed", "Stripe has asked for more information to keep your account active. Until you provide it, transfers or bank payouts may be paused.", "—", "—", "—", "—", "—", "payments-fees-payouts"],
+    ["connect_state_transfers_unavailable", "Payout account: can't receive transfers", "Stripe isn't currently allowing transfers into your account. Settled earnings stay with HelloCircle until this is resolved — check your Stripe dashboard or contact support.", "—", "—", "—", "—", "—", "payments-fees-payouts"],
+    ["connect_state_payouts_unavailable", "Payout account: bank payouts paused", "Transfers from HelloCircle can reach your Stripe balance, but Stripe can't pay out to your bank yet (for example the bank account needs attention). Money stays in your Stripe balance until it can.", "—", "—", "—", "—", "—", "payments-fees-payouts"],
+    ["connect_state_enabled", "Payout account: ready", "Your account can receive transfers and Stripe can pay out to your bank.", "—", "—", "—", "—", "—", "payments-fees-payouts"],
+    ["connect_transfer_vs_payout", "Transfer vs bank payout", "A transfer is HelloCircle moving your settled earnings to your Stripe account (weekly). A bank payout is Stripe then paying your Stripe balance to your bank, on Stripe's schedule. A transfer having been sent doesn't mean the money has reached your bank yet.", "—", "Transfer on Monday → Stripe balance → bank payout a few days later (Stripe's schedule).", "HelloCircle sends transfers; Stripe makes bank payouts.", "Weekly, after completion and the review period.", "A refund or chargeback after a transfer can be recovered by reversing that transfer.", "payments-fees-payouts"],
+    ["venue_split", "Venue / host split", "When a host runs a paid game at a partner venue, the partner share of each booking is divided between the venue and the host as agreed (a percentage or a fixed amount). The split in force when the booking is paid is fixed for that booking.", "venue = ⌊partner share × venue % ⌋; host = ⌊partner share × host %⌋; any 1-cent remainder goes to the party set in the venue/host split rule.", "€40.00 partner share at 66.67% venue: venue €26.67 (incl. 1c rounding), host €13.33.", "Each partner receives only their own share; refunds and chargebacks are taken only from the responsible partner's share.", "Each share is released and settled separately, 48 hours after the game ends.", "A refund reduces both shares in proportion; a recovery after a transfer reverses only that partner's own transfer.", "payments-fees-payouts"]
 ];
   for (const [key, ...v] of HELP_SEED) {
     await db

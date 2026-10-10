@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { lstatSync, readFileSync } from "node:fs";
 import os from "node:os";
@@ -44,13 +44,30 @@ async function main() {
     if (issues.length) throw new Error(`QA STRIPE INVALID: ${issues.join(" ")}`);
     // Stage 5d — a second per-run local secret for Connect events (the handler accepts either),
     // and a run tag written into the metadata of every Stripe object the run creates.
+    // Stage 5e — when the Stripe CLI is installed, the run signs and verifies
+    // webhooks with the CLI's TEST-mode secret (fetched here with the test key
+    // in the CLI's environment only; never printed), so one spec can receive
+    // real Stripe-delivered events through `stripe listen`. Otherwise every
+    // secret is a fresh per-run local one, as before.
+    let cliSecret: string | null = null;
+    try {
+      const r = spawnSync("stripe", ["listen", "--print-secret", "--skip-update"], { env: { PATH: process.env.PATH, HOME: process.env.HOME, STRIPE_API_KEY: String(cfg.STRIPE_SECRET_KEY) }, encoding: "utf8", timeout: 60_000 });
+      const out = (r.stdout ?? "").trim();
+      if (r.status === 0 && /^whsec_[A-Za-z0-9]{20,80}$/.test(out)) cliSecret = out;
+    } catch {
+      cliSecret = null;
+    }
+    const local = () => `whsec_qa_${randomBytes(32).toString("hex")}`;
     stripeEnv = {
       STRIPE_SECRET_KEY: String(cfg.STRIPE_SECRET_KEY),
-      STRIPE_WEBHOOK_SECRET: `whsec_qa_${randomBytes(32).toString("hex")}`,
-      STRIPE_CONNECT_WEBHOOK_SECRET: `whsec_qa_${randomBytes(32).toString("hex")}`,
+      STRIPE_WEBHOOK_SECRET: cliSecret ?? local(),
+      STRIPE_CONNECT_WEBHOOK_SECRET: cliSecret ?? local(),
+      STRIPE_V2_WEBHOOK_SECRET: cliSecret ?? local(),
+      QA_STRIPE_WEBHOOK_SOURCE: cliSecret ? "stripe-cli" : "local",
       HC_QA_STRIPE_RUN: `qa_stripe_${randomBytes(8).toString("hex")}`,
       QA_STRIPE_TEST_PROFILE: "1",
     };
+    console.log(`Stripe webhook signing: ${cliSecret ? "Stripe CLI test-mode session (real delivery available)" : "per-run local secrets (Stripe CLI not available)"}`);
   }
   for (let index = 0; index < args.length; index++) {
     if (args[index] === "--list") continue;
@@ -84,6 +101,7 @@ async function main() {
       ["revenue-resident", "revenue-resident\\.spec\\.ts$"],
       ["revenue-admin", "revenue-admin\\.spec\\.ts$"],
       ["revenue-admin-b", "revenue-admin-b\\.spec\\.ts$"],
+      ["revenue-split", "revenue-split\\.spec\\.ts$"],
     ] : browsers ? [
       // Critical journeys, re-run per engine (no Stripe financial batches).
       ["core", "(auth|passwordless-security)\\.spec\\.ts$"],
@@ -149,6 +167,8 @@ async function main() {
       ["stripe-sandbox-disputes", "stripe-sandbox-disputes\\.spec\\.ts$"],
       ["stripe-sandbox-billing", "stripe-sandbox-billing\\.spec\\.ts$"],
       ["stripe-sandbox-webhooks", "stripe-sandbox-webhooks\\.spec\\.ts$"],
+      ["stripe-sandbox-split", "stripe-sandbox-split\\.spec\\.ts$"],
+      ["stripe-sandbox-delivery", "stripe-sandbox-delivery\\.spec\\.ts$"],
       ["stripe-sandbox-reconcile", "stripe-sandbox-reconcile\\.spec\\.ts$"],
     ] : booking ? [
       ["booking-centre", "booking-centre\\.spec\\.ts$"],

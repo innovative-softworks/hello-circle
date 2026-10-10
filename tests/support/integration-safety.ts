@@ -95,6 +95,14 @@ export function stripeTestProfileIssues(cfg: Record<string, unknown>): string[] 
 
 /** Locally generated per-run webhook signing secret shape (never a Dashboard secret). */
 export const QA_WEBHOOK_SECRET_PATTERN = /^whsec_qa_[a-f0-9]{64}$/;
+/** Stage 5e — the Stripe CLI's test-mode signing secret, fetched by the harness itself
+ * (`stripe listen --print-secret` with the QA test key); accepted only with
+ * QA_STRIPE_WEBHOOK_SOURCE=stripe-cli. Never printed. */
+export const QA_CLI_WEBHOOK_SECRET_PATTERN = /^whsec_[A-Za-z0-9]{20,80}$/;
+export function qaWebhookSecretOk(secret: string | undefined): boolean {
+  if (!secret) return false;
+  return QA_WEBHOOK_SECRET_PATTERN.test(secret) || (process.env.QA_STRIPE_WEBHOOK_SOURCE === "stripe-cli" && QA_CLI_WEBHOOK_SECRET_PATTERN.test(secret));
+}
 
 /** Browser hosts Stripe-hosted Checkout needs in the Stripe test profile only. */
 export function isStripeBrowserHost(hostname: string): boolean {

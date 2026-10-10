@@ -1127,3 +1127,11 @@ export interface MyCredits { enabled: boolean; balanceMinor: number; lots: { id:
 export function fetchMyCredits(): Promise<MyCredits> {
   return request(`/credits/me`);
 }
+
+// --- Revenue & Connect Stage 5e: venue/host split (host side) ---------------
+export function fetchGameSplits(gameId: string): Promise<import("./vendor").VenueSplitAgreement[]> {
+  return request(`/host/game-splits/${encodeURIComponent(gameId)}`);
+}
+export function proposeGameSplit(gameId: string, terms: { mode: "percentage" | "fixed_venue" | "fixed_host"; venueBps?: number; venueFixedMinor?: number; hostFixedMinor?: number }): Promise<import("./vendor").VenueSplitAgreement> {
+  return request(`/host/game-splits/${encodeURIComponent(gameId)}`, { method: "POST", body: JSON.stringify(terms) });
+}

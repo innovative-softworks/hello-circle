@@ -431,6 +431,9 @@ async function syncOrder(metadata: Stripe.Metadata | null | undefined) {
  * booking/registration is ever marked 'paid' — never on the client's say-so. */
 export async function stripeWebhookHandler(req: Request, res: Response) {
   if (!stripe) return res.status(503).send("Payments not configured");
+  // Stage 5e — a v2 event notification (e.g. forwarded by the Stripe CLI to
+  // this one URL) goes to the v2 handler, which verifies it with its own secret.
+  if (Buffer.isBuffer(req.body) && req.body.length < 65_536 && /"object"\s*:\s*"v2\.core\.event"/.test(req.body.toString("utf8"))) return stripeThinWebhookHandler(req, res);
 
   let event: Stripe.Event;
   const signature = req.headers["stripe-signature"];

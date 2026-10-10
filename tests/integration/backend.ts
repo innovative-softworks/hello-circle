@@ -1,6 +1,7 @@
 import net from "node:net";
 import http from "node:http";
 import { connectedPreflight } from "./runtime";
+import { qaWebhookSecretOk } from "../support/integration-safety";
 
 async function main() {
   const checked = await connectedPreflight();
@@ -44,9 +45,10 @@ async function main() {
   });
   const { stripe } = await import("../../server/src/stripe");
   if (stripeProfile) {
-    if (!stripe || !/^(sk|rk)_test_/.test(process.env.STRIPE_SECRET_KEY ?? "") || !/^whsec_qa_[a-f0-9]{64}$/.test(process.env.STRIPE_WEBHOOK_SECRET ?? "")) throw new Error("QA SAFETY ABORT: Stripe test profile misconfigured.");
+    if (!stripe || !/^(sk|rk)_test_/.test(process.env.STRIPE_SECRET_KEY ?? "") || !qaWebhookSecretOk(process.env.STRIPE_WEBHOOK_SECRET)) throw new Error("QA SAFETY ABORT: Stripe test profile misconfigured.");
     // Stage 5d — the Connect secret, when present, must also be a per-run local one; the run tag must be well-formed.
-    if (process.env.STRIPE_CONNECT_WEBHOOK_SECRET && !/^whsec_qa_[a-f0-9]{64}$/.test(process.env.STRIPE_CONNECT_WEBHOOK_SECRET)) throw new Error("QA SAFETY ABORT: Connect webhook secret must be a per-run local secret.");
+    if (process.env.STRIPE_CONNECT_WEBHOOK_SECRET && !qaWebhookSecretOk(process.env.STRIPE_CONNECT_WEBHOOK_SECRET)) throw new Error("QA SAFETY ABORT: Connect webhook secret must be a per-run local or Stripe CLI test secret.");
+    if (process.env.STRIPE_V2_WEBHOOK_SECRET && !qaWebhookSecretOk(process.env.STRIPE_V2_WEBHOOK_SECRET)) throw new Error("QA SAFETY ABORT: v2 webhook secret must be a per-run local or Stripe CLI test secret.");
     if (process.env.HC_QA_STRIPE_RUN && !/^qa_stripe_[a-f0-9]{16}$/.test(process.env.HC_QA_STRIPE_RUN)) throw new Error("QA SAFETY ABORT: malformed Stripe run tag.");
     // Prove TEST mode with the provider itself before any app traffic.
     const balance = await stripe.balance.retrieve();

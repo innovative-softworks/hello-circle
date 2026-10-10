@@ -84,6 +84,17 @@ test("SANDBOX-BILLING-F: Pro €29 net + IE 23% VAT, exempt partner, renewal, fa
       await f.connection.execute("UPDATE partner_subscriptions SET status = 'abandoned' WHERE checkout_session_id = ?", [exS.id]);
       await f.actors.QA_ADMIN.post(`/api/admin/commerce/rules/${ruleId}/retire`, { data: { reason } });
       await record("billing-f2", { sessionId: exS.id, expected: { net: 2900, vat: 0, gross: 2900 }, actual: { net: exS.amount_subtotal, vat: exS.total_details?.amount_tax, gross: exS.amount_total } });
+      // Stage 5e — F2b: reverse charge (partner-scoped rule, where configured): €29.00, VAT 0, same as exempt.
+      const rcD = await f.actors.QA_ADMIN.post("/api/admin/commerce/rules/drafts", { data: { key: "tax_vat", scopeType: "partner", scopeId: `org:${orgB}`, payload: { vatMode: "reverse_charge" }, reason } });
+      const rcId = (await rcD.json()).id;
+      await f.actors.QA_ADMIN.post(`/api/admin/commerce/rules/${rcId}/publish`, { data: { reason } });
+      const rc = await f.actors.QA_VENDOR_B.post("/api/vendor/plan/pro/checkout");
+      const rcS = await stripe.checkout.sessions.retrieve((await rc.json()).id, { expand: ["line_items.data.taxes"] });
+      expect([rcS.amount_subtotal, rcS.total_details?.amount_tax, rcS.amount_total], "reverse charge: no VAT charged").toEqual([2900, 0, 2900]);
+      await stripe.checkout.sessions.expire(rcS.id);
+      await f.connection.execute("UPDATE partner_subscriptions SET status = 'abandoned' WHERE checkout_session_id = ?", [rcS.id]);
+      await f.actors.QA_ADMIN.post(`/api/admin/commerce/rules/${rcId}/retire`, { data: { reason } });
+      await record("billing-f2b", { sessionId: rcS.id, vatMode: "reverse_charge", expected: { net: 2900, vat: 0, gross: 2900 }, actual: { net: rcS.amount_subtotal, vat: rcS.total_details?.amount_tax, gross: rcS.amount_total } }, "stage5e");
 
       // Test-clock subscriptions for org B (same price, tax rate and metadata contract as the app's).
       const product = await stripe.products.create({ name: "HelloCircle Pro (QA sandbox)", metadata: tagged() });

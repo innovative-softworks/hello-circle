@@ -24,14 +24,14 @@ export function assertSandbox(o: { livemode?: boolean | null } | null | undefine
   expect(o?.livemode, `${what} is a test-mode object`).toBe(false);
 }
 
-/** Appends safe facts to this run's Stage 5d evidence file (object ids, amounts, statuses). */
-export async function record(section: string, facts: Record<string, unknown>) {
+/** Appends safe facts to this run's evidence file (object ids, amounts, statuses). */
+export async function record(section: string, facts: Record<string, unknown>, stage: "stage5d" | "stage5e" = "stage5d") {
   if (!/^[a-z0-9-]+$/.test(section)) throw new Error("bad section");
   const checked = await connectedPreflight();
   await checked.connection.end();
   const dir = path.join(checked.manifest.dataDir, "evidence");
   mkdirSync(dir, { recursive: true, mode: 0o700 });
-  const file = path.join(dir, `stage5d-${RUN}.json`);
+  const file = path.join(dir, `${stage}-${RUN}.json`);
   const all = existsSync(file) ? JSON.parse(readFileSync(file, "utf8")) : {};
   const text = JSON.stringify(facts);
   if (/(sk|rk)_(test|live)_|whsec_/.test(text)) throw new Error("QA SAFETY ABORT: secret-looking value in evidence");
@@ -120,3 +120,78 @@ export async function ageSession(f: Scope, sessionId: string, daysAgo = 5) {
 }
 
 export const runKey = (label: string) => `qa5d-${label}-${randomUUID().slice(0, 6)}`;
+
+// --- Stage 5e: Accounts v2 test doubles, v2 events, split bookings ----------------------
+
+export const v2core = () => (stripe as unknown as { v2: { core: { accounts: any; accountLinks: any; events: any } } }).v2.core;
+const IE_ADDRESS = { line1: "address_full_match", city: "Dublin", state: "Co. Dublin", postal_code: "D02 X285", country: "ie" };
+export const IBAN = { ok: "IE29AIBK93115212345678", closed: "IE89370400440532013002" };
+
+/**
+ * A *verified* Accounts v2 recipient for money-movement tests. Express
+ * onboarding can't be completed by automation (Stripe's hosted page shows an
+ * hCaptcha challenge even in test mode), so this double differs from the
+ * app's accounts in exactly two settings — dashboard "none" and
+ * requirements collected by the platform — which let the harness accept the
+ * test ToS and supply Stripe's documented test identity. Transfers,
+ * reversals and bank payouts behave the same. Labelled stage5e-test-double.
+ */
+export async function createVerifiedRecipient(entity: "company" | "individual", label: string, iban = IBAN.ok): Promise<string> {
+  const now = new Date().toISOString();
+  const a = await v2core().accounts.create({
+    contact_email: `qa.${label}.${RUN}@example.test`, display_name: `QA ${label} ${RUN.slice(-6)}`, dashboard: "none",
+    identity: entity === "company"
+      ? { country: "ie", entity_type: "company", attestations: { terms_of_service: { account: { date: now, ip: "127.0.0.1" } }, persons_provided: { owners: true, directors: true, executives: true } },
+          business_details: { registered_name: `QA ${label} Ltd`, phone: "+35310000000", address: IE_ADDRESS, id_numbers: [{ type: "ie_crn", value: "123456" }] } }
+      : { country: "ie", entity_type: "individual", attestations: { terms_of_service: { account: { date: now, ip: "127.0.0.1" } } },
+          individual: { given_name: "Jenny", surname: "Rosen", email: `qa.${label}.${RUN}@example.test`, date_of_birth: { day: 1, month: 1, year: 1901 }, address: IE_ADDRESS } },
+    configuration: { recipient: { capabilities: { stripe_balance: { stripe_transfers: { requested: true } } } } },
+    defaults: { currency: "eur", profile: { business_url: "https://hellocircle.ie", product_description: "Community activities" }, responsibilities: { fees_collector: "application", losses_collector: "application" } },
+    metadata: tagged({ purpose: "stage5e-test-double", label }),
+  }, { idempotencyKey: `qa5e:${RUN}:${label}` });
+  expect(a.livemode, "test-mode account").toBe(false);
+  if (entity === "company") {
+    await v2core().accounts.persons.create(a.id, {
+      given_name: "Jenny", surname: "Rosen", email: `qa.rep.${label}.${RUN}@example.test`, phone: "+35310000000", date_of_birth: { day: 1, month: 1, year: 1901 }, address: IE_ADDRESS,
+      relationship: { representative: true, owner: true, director: true, executive: true, percent_ownership: "100", title: "Director" }, metadata: tagged(),
+    });
+  }
+  // Accounts v1 compatibility (CONNECT_V1_COMPAT): bank account + manual payout schedule, harness only.
+  await stripe.accounts.createExternalAccount(a.id, { external_account: { object: "bank_account", country: "IE", currency: "eur", account_number: iban } as any, metadata: tagged() });
+  await stripe.accounts.update(a.id, { settings: { payouts: { schedule: { interval: "manual" } } } });
+  for (let i = 0; i < 20; i++) {
+    const x = await v2core().accounts.retrieve(a.id, { include: ["configuration.recipient"] });
+    if (x.configuration?.recipient?.capabilities?.stripe_balance?.stripe_transfers?.status === "active") return a.id as string;
+    await sleep(2_000);
+  }
+  throw new Error(`test double ${label} never became able to receive transfers`);
+}
+
+/** Links a test double to a QA partner in the disposable database (as a completed creation). */
+export async function attachAccount(f: Scope, party: { partyType: string; partyId: string }, accountId: string, businessType: "company" | "individual") {
+  await f.connection.execute("DELETE FROM connected_accounts WHERE party_type = ? AND party_id = ?", [party.partyType, party.partyId]);
+  await f.connection.execute("DELETE FROM connected_account_creations WHERE party_type = ? AND party_id = ?", [party.partyType, party.partyId]);
+  const key = `qa-double:${RUN}:${party.partyType}:${party.partyId}`;
+  await f.connection.execute("INSERT INTO connected_account_creations (party_type, party_id, idempotency_key, api_model, status, account_id, attempts) VALUES (?, ?, ?, 'v2', 'created', ?, 1)", [party.partyType, party.partyId, key, accountId]);
+  await f.connection.execute("INSERT INTO connected_accounts (party_type, party_id, provider, account_id, country, api_model, business_type, creation_key, onboarding_state, onboarding_completed_at) VALUES (?, ?, 'stripe', ?, 'IE', 'v2', ?, ?, 'onboarding_incomplete', NOW())", [party.partyType, party.partyId, accountId, businessType, key]);
+}
+
+/** Real v2 events Stripe recorded for an object (newest first). */
+export async function realThinEvents(objectId: string, types: string[] = [], tries = 15): Promise<{ id: string; type: string; created: string }[]> {
+  for (let i = 0; i < tries; i++) {
+    const list = await v2core().events.list({ object_id: objectId, limit: 50 });
+    const mine = (list.data as any[]).filter((e) => !types.length || types.includes(e.type));
+    if (mine.length) return mine.map((e) => ({ id: e.id, type: e.type, created: e.created }));
+    await sleep(2_000);
+  }
+  return [];
+}
+
+/** Delivers a v2 event notification for a REAL v2 event id, signed with the run's secret (the app re-fetches it). */
+export async function deliverThin(actor: APIRequestContext, e: { id: string; type: string; created: string }, relatedId: string, opts: { invalid?: boolean } = {}) {
+  const payload = JSON.stringify({ id: e.id, object: "v2.core.event", type: e.type, created: e.created, livemode: false, related_object: { id: relatedId, type: "v2.core.account", url: `/v2/core/accounts/${relatedId}` } });
+  const secret = opts.invalid ? `whsec_qa_${"0".repeat(64)}` : process.env.STRIPE_V2_WEBHOOK_SECRET!;
+  const header = stripe.webhooks.generateTestHeaderString({ payload, secret });
+  const res = await actor.post("/api/stripe/webhook/v2", { headers: { "Content-Type": "application/json", "Stripe-Signature": header }, data: Buffer.from(payload) });
+  return { status: res.status(), body: (await res.json().catch(() => ({}))) as Record<string, unknown> };
+}

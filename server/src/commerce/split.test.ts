@@ -3,7 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { db, setSetting } from "../db/index.js";
 import { getConnectedAccount, openPartnerDebt, runTransfers, startOnboarding, syncConnectedAccount } from "../payments/connect.js";
 import { stubProvider } from "../payments/provider.js";
-import { decideSplit, proposeSplit, splitWithRounding } from "./allocations.js";
+import { agreementsForVenue, decideSplit, proposeSplit, splitWithRounding } from "./allocations.js";
 import { ledgerIsBalanced } from "./ledger.js";
 import { recordDispute, recordPaymentConfirmed, recordProviderRefunds } from "./payments.js";
 import { resolveDisputeRecovery, runSettlement } from "./settlement.js";
@@ -128,6 +128,8 @@ describe("venue/host split end to end (stub provider)", () => {
     // Before acceptance, a payment is still single-partner (the host).
     const single = await paidBooking();
     expect((await lines(`payment:game:${single.ref}`)).filter((l) => l[0] === "host_payable" || l[0] === "partner_payable")).toEqual([["host_payable", host, -4000]]);
+    const listed = await agreementsForVenue(venue);
+    expect(listed.map((a) => [a.id, a.status, a.gameTitle])).toEqual([[p.id, "proposed", "Split Badminton"]]);
     const accepted = await decideSplit({ agreementId: p.id, venue, accept: true, actorId: vendorId });
     expect(accepted.status).toBe("accepted");
     main = await paidBooking();
@@ -185,6 +187,32 @@ describe("venue/host split end to end (stub provider)", () => {
     const rev = (await db.prepare(`SELECT a.source_ref as ref, ar.amount_minor as m FROM transfer_allocation_reversals ar JOIN transfer_allocations a ON a.id = ar.allocation_id WHERE a.party_id = ?`).all(org)) as { ref: string; m: number | string }[];
     expect(rev.map((x) => [x.ref, Number(x.m)])).toEqual([[main.ref, 667]]);
     expect(await available(hostParty), "the host's earnings are never used for the venue's debt").toBe(before);
+    expect(await ledgerIsBalanced()).toBe(true);
+  });
+
+  it("a HelloCircle-funded coupon keeps both partners whole; a partner-funded one is shared; refunds reverse each line exactly", async () => {
+    // €10 off a €40 game, funded by HelloCircle: customer pays 3000 + 690 VAT + 150 fee = 3840.
+    const coupon = async (funded: number) => {
+      const ref = `GJ-SP${run}-${++seq}`;
+      const pi = `pi_sp_${run}_${seq}`;
+      await db.prepare(`INSERT INTO game_participants (game_id, resident_id, ref, status, payment_status, total_cents) VALUES (?, ?, ?, 'joined', 'paid', 3840)`).run(gameId, `${player}-${seq}`, ref);
+      await db.prepare(`INSERT INTO coupon_redemptions (coupon_id, code, source_type, source_ref, customer_key, discount_minor, platform_funded_minor, status) VALUES (0, 'QA10', 'game', ?, ?, 1000, ?, 'confirmed')`).run(ref, `ck-${seq}`, funded);
+      await recordPaymentConfirmed({ type: "game", ref, checkoutSessionId: `cs_sp_${run}_${seq}`, paymentIntentId: pi, amountMinor: 3840, currency: "EUR", provider: "stub" });
+      return { ref, pi };
+    };
+    const hc = await coupon(1000);
+    const snapHc = (await db.prepare(`SELECT * FROM allocation_snapshots WHERE source_ref = ?`).get(hc.ref)) as Record<string, any>;
+    expect([snapHc.discount_minor, snapHc.discount_funder, snapHc.platform_funded_discount_minor, snapHc.platform_retained_minor, snapHc.partner_pool_minor].map(Number).map((x, i) => (i === 1 ? snapHc.discount_funder : x))).toEqual([1000, "helloCircle", 1000, -850, 4000]);
+    expect((await lines(`payment:game:${hc.ref}`)).filter((l) => l[1] === org || l[1] === host || l[0] === "coupon_expense")).toEqual(expect.arrayContaining([["coupon_expense", null, 1000], ["partner_payable", org, -2667], ["host_payable", host, -1333]]));
+    // Full refund: every line reversed, the coupon cost comes back too.
+    await recordProviderRefunds({ paymentIntentId: hc.pi, chargeId: `ch_hc_${run}`, amountRefundedMinor: 3840, amountMinor: 3840, currency: "eur" });
+    const refundKey = ((await db.prepare(`SELECT g.idempotency_key as k FROM ledger_entry_groups g JOIN refunds r ON g.source_id = CAST(r.id AS CHAR) AND g.source_type = 'refund' WHERE r.source_ref = ?`).get(hc.ref)) as { k: string }).k;
+    expect((await lines(refundKey)).filter((l) => l[1] === org || l[1] === host || l[0] === "coupon_expense")).toEqual(expect.arrayContaining([["coupon_expense", null, -1000], ["partner_payable", org, 2667], ["host_payable", host, 1333]]));
+    // Partner-funded: the partner pool is the discounted price (3000) → venue 2001 (incl. 1c), host 999.
+    const pf = await coupon(0);
+    const linesPf = (await db.prepare(`SELECT role, amount_minor as m FROM allocation_lines l JOIN allocation_snapshots s ON s.id = l.snapshot_id WHERE s.source_ref = ? ORDER BY l.id`).all(pf.ref)) as { role: string; m: number | string }[];
+    expect(linesPf.map((l) => [l.role, Number(l.m)])).toEqual([["platform", 150], ["venue", 2001], ["host", 999], ["tax", 690], ["deposit", 0]]);
+    expect(((await db.prepare(`SELECT discount_funder as f FROM allocation_snapshots WHERE source_ref = ?`).get(pf.ref)) as { f: string }).f).toBe("partner");
     expect(await ledgerIsBalanced()).toBe(true);
   });
 

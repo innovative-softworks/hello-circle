@@ -670,9 +670,26 @@ export function issueVendorRefund(input: { sourceType: "booking" | "registration
 
 // --- Revenue & Connect Stage 5a: payout account (Stripe Connect) -------------
 
+/** Stage 5e — the partner-facing payout-account states (wording: help entries connect_state_<state>). */
+export type PayoutAccountState = "not_started" | "onboarding_incomplete" | "under_review" | "more_information_required" | "transfers_unavailable" | "payouts_unavailable" | "enabled";
 export interface PayoutsOverview {
   enabled: boolean;
-  account: { detailsSubmitted: boolean; payoutsEnabled: boolean; transfersActive: boolean; requirementsDue: string[]; disabledReason: string | null } | null;
+  state: PayoutAccountState;
+  account: {
+    apiModel: "v1" | "v2";
+    businessType: string | null;
+    detailsSubmitted: boolean;
+    payoutsEnabled: boolean;
+    transfersActive: boolean;
+    transfersCapability: string;
+    payoutsCapability: string;
+    requirementsDue: string[];
+    requirementsPastDue: string[];
+    requirementsPending: string[];
+    disabledReason: string | null;
+    onboardingCompleted: boolean;
+    lastSyncedAt: string | null;
+  } | null;
   readiness: string[];
   /** HelloCircle → the partner's Stripe account (weekly settlement transfers). */
   transfers: { id: number; settlementId: number; amountMinor: number; reversedMinor: number; status: string; createdAt: string; bookings: number }[];
@@ -684,11 +701,38 @@ export interface PayoutsOverview {
 export function fetchPayouts(scope: "vendor" | "host"): Promise<PayoutsOverview> {
   return request(`/${scope}/payout-account`);
 }
-export function startPayoutOnboarding(scope: "vendor" | "host"): Promise<{ url: string }> {
+export function startPayoutOnboarding(scope: "vendor" | "host"): Promise<{ url: string; expiresAt: string | null; purpose: "onboarding" | "update" }> {
   return request(`/${scope}/payout-account/onboarding`, { method: "POST", body: JSON.stringify({ country: "IE" }) });
 }
-export function refreshPayoutAccount(scope: "vendor" | "host"): Promise<PayoutsOverview> {
-  return request(`/${scope}/payout-account/refresh`, { method: "POST", body: "{}" });
+export function refreshPayoutAccount(scope: "vendor" | "host", source: "api" | "return" = "api"): Promise<PayoutsOverview> {
+  return request(`/${scope}/payout-account/refresh`, { method: "POST", body: JSON.stringify({ source }) });
+}
+
+// --- Revenue & Connect Stage 5e: venue/host split agreements -----------------
+
+export interface VenueSplitAgreement {
+  id: number;
+  gameId: string;
+  gameTitle?: string | null;
+  version: number;
+  venuePartyType: string;
+  venuePartyId: string;
+  hostResidentId: string;
+  mode: "percentage" | "fixed_venue" | "fixed_host";
+  venueBps: number | null;
+  venueFixedMinor: number | null;
+  hostFixedMinor: number | null;
+  status: "proposed" | "accepted" | "declined" | "withdrawn" | "superseded";
+  proposedAt: string;
+  decidedAt: string | null;
+  decisionReason: string | null;
+}
+/** The venue's organisation: splits proposed by hosts for games at its venues. */
+export function fetchVenueSplits(): Promise<VenueSplitAgreement[]> {
+  return request(`/vendor/splits`);
+}
+export function decideVenueSplit(id: number, accept: boolean, reason?: string): Promise<VenueSplitAgreement> {
+  return request(`/vendor/splits/${id}/decision`, { method: "POST", body: JSON.stringify({ accept, reason }) });
 }
 export function payoutDashboardLink(scope: "vendor" | "host"): Promise<{ url: string }> {
   return request(`/${scope}/payout-account/dashboard`, { method: "POST", body: "{}" });

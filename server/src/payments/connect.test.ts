@@ -150,7 +150,7 @@ describe("onboarding and readiness", () => {
     expect(Number(rows.n)).toBe(1);
     const created = stubProvider.calls.filter((c) => c.method === "createConnectedAccount");
     // Stage 5e — one reservation per partner; its key is reused on every retry.
-    expect(created.at(-1)?.args).toMatchObject({ country: "IE", idempotencyKey: `hc-acct-v2:org:${org}` });
+    expect(created.at(-1)?.args).toMatchObject({ country: "IE", idempotencyKey: expect.stringMatching(new RegExp(`^hc-acct-v2:org:${org}:[0-9a-f]{8}$`)) });
     expect(created).toHaveLength(1);
   });
 

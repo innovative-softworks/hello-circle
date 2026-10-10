@@ -2,7 +2,7 @@ import type Stripe from "stripe";
 import { expect } from "../fixtures";
 import { rows, test, withActors } from "../lifecycle-fixture";
 import { stripe, stripeProfile } from "../stripe-fixture";
-import { ledgerBalanced, record } from "../stripe-sandbox-fixture";
+import { ledgerBalanced, record, RUN, v2core } from "../stripe-sandbox-fixture";
 
 // Revenue & Connect Stage 5d — reconciliation: every payment in the QA
 // database whose Stripe PaymentIntent carries a Stage 5d run tag is compared,
@@ -85,8 +85,60 @@ test("SANDBOX-RECONCILE: local records match Stripe to the cent", async ({ playw
       check(`invoice ${g.id}`, [cash, vat], [i.amount_paid, tax]);
       inv.push({ invoice: g.id, paid: i.amount_paid, tax, ledgerCash: cash, ledgerVat: vat });
     }
+    // Stage 5e — transfers ↔ settlements ↔ allocations ↔ reversals ↔ debts, against Stripe.
+    const transfers = await rows(f, "SELECT id, settlement_id AS sid, provider_transfer_id AS tid, amount_minor AS amount, reversed_minor AS reversed, status FROM transfers WHERE provider_transfer_id LIKE 'tr_%'", []);
+    const transferReport: Record<string, unknown>[] = [];
+    for (const t of transfers) {
+      let st: Stripe.Transfer;
+      try {
+        st = await stripe.transfers.retrieve(t.tid);
+      } catch {
+        mismatches.push({ what: `transfer ${t.tid}: not found at Stripe`, local: Number(t.amount), stripe: null });
+        continue;
+      }
+      check(`transfer ${t.tid}: amount`, Number(t.amount), st.amount);
+      check(`transfer ${t.tid}: reversed`, Number(t.reversed), st.amount_reversed);
+      const [{ s: alloc }] = await rows(f, "SELECT COALESCE(SUM(amount_minor), 0) AS s FROM transfer_allocations WHERE transfer_id = ?", [t.id]);
+      check(`transfer ${t.tid}: allocations sum`, Number(alloc), Number(t.amount));
+      const [settlement] = await rows(f, "SELECT net_minor AS n, transfer_id AS tid FROM settlements WHERE id = ?", [t.sid]);
+      if (t.status !== "failed") check(`transfer ${t.tid}: settlement net`, Number(settlement?.n), Number(t.amount));
+      const localRevs = await rows(f, "SELECT provider_reversal_id AS id, amount_minor AS a FROM transfer_reversals WHERE transfer_id = ? AND status = 'created'", [t.id]);
+      const stripeRevs = (await stripe.transfers.listReversals(t.tid, { limit: 100 })).data;
+      check(`transfer ${t.tid}: reversal ids`, localRevs.map((r: any) => r.id).sort(), stripeRevs.map((r) => r.id).sort());
+      transferReport.push({ transfer: t.tid, amount: st.amount, reversed: st.amount_reversed, allocations: Number(alloc), settlement: Number(settlement?.n), reversals: stripeRevs.map((r) => [r.id, r.amount]) });
+    }
+    const debts = await rows(f, "SELECT id, recovered_minor AS rec FROM partner_debts", []);
+    for (const d of debts) {
+      const [{ s: rev }] = await rows(f, "SELECT COALESCE(SUM(amount_minor), 0) AS s FROM transfer_reversals WHERE debt_id = ? AND status = 'created'", [d.id]);
+      check(`debt #${d.id}: recovered = its reversals`, Number(d.rec), Number(rev));
+    }
+    // Every succeeded Stripe payment tagged for THIS run is represented locally (or explained).
+    const tagged: Stripe.PaymentIntent[] = [];
+    for await (const pi of stripe.paymentIntents.search({ query: `metadata['hc_qa_run']:'${RUN}' AND status:'succeeded'`, limit: 100 })) tagged.push(pi);
+    const unexplained: string[] = [];
+    const explained: Record<string, unknown>[] = [];
+    for (const pi of tagged) {
+      const [local] = await rows(f, "SELECT id FROM payment_records WHERE payment_intent_id = ?", [pi.id]);
+      if (local) continue;
+      const charge = pi.latest_charge ? await stripe.charges.retrieve(String(pi.latest_charge)) : null;
+      if (charge && charge.amount_refunded === charge.amount) explained.push({ paymentIntent: pi.id, reason: "paid after its hold lapsed (STRIPE-LATE-SUCCESS) and fully refunded" });
+      else unexplained.push(pi.id);
+    }
+    check("tagged Stripe payments without a local record", unexplained, []);
+    // Every connected account tagged for this run is the app's (linked) or a labelled test double / probe.
+    const accts: string[] = [];
+    for await (const a of v2core().accounts.list({ limit: 20, applied_configurations: ["recipient"] }) as AsyncIterable<any>) {
+      if (a.metadata?.hc_qa_run === RUN) accts.push(a.id);
+    }
+    const accountReport: Record<string, unknown>[] = [];
+    for (const id of accts) {
+      const a = await v2core().accounts.retrieve(id);
+      const purpose = a.metadata?.purpose ?? (a.metadata?.party_type ? "app-created (Express, onboarding via Stripe-hosted page)" : "unexplained");
+      if (purpose === "unexplained") mismatches.push({ what: `account ${id}: no purpose`, local: null, stripe: a.metadata });
+      accountReport.push({ account: id, dashboard: a.dashboard, purpose });
+    }
     await ledgerBalanced(f);
-    await record("reconcile", { paymentsChecked: checked, mismatches, flaggedExceptions, payments: report, invoices: inv });
+    await record("reconcile", { paymentsChecked: checked, mismatches, flaggedExceptions, explainedStripePayments: explained, taggedPayments: tagged.length, payments: report, invoices: inv, transfers: transferReport, debtsChecked: debts.length, accounts: accountReport }, "stage5e");
     expect(mismatches, "local records = Stripe, to the cent").toEqual([]);
   });
 });

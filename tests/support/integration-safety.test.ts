@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { authIntegrationConfigIssues, authIntegrationPreflight, authQaPersonas, stripeTestProfileIssues, isStripeBrowserHost, QA_WEBHOOK_SECRET_PATTERN } from "./integration-safety";
+import { authIntegrationConfigIssues, authIntegrationPreflight, authQaPersonas, stripeTestProfileIssues, isStripeBrowserHost, QA_WEBHOOK_SECRET_PATTERN, qaWebhookSecretOk } from "./integration-safety";
 
 const root = path.resolve(".");
 function validConfig(): Record<string, string | undefined> {
@@ -102,5 +102,13 @@ describe("Phase 9 Stripe TEST-mode profile", () => {
   it("per-run webhook secrets have the local QA shape", () => {
     expect(QA_WEBHOOK_SECRET_PATTERN.test("whsec_qa_" + "0".repeat(64))).toBe(true);
     expect(QA_WEBHOOK_SECRET_PATTERN.test("whsec_" + "0".repeat(32))).toBe(false);
+    // Stage 5e — the Stripe CLI's test secret only when the harness itself fetched it.
+    const before = process.env.QA_STRIPE_WEBHOOK_SOURCE;
+    delete process.env.QA_STRIPE_WEBHOOK_SOURCE;
+    expect(qaWebhookSecretOk("whsec_" + "a".repeat(40))).toBe(false);
+    process.env.QA_STRIPE_WEBHOOK_SOURCE = "stripe-cli";
+    expect(qaWebhookSecretOk("whsec_" + "a".repeat(40))).toBe(true);
+    expect(qaWebhookSecretOk("sk_test_" + "a".repeat(40))).toBe(false);
+    if (before === undefined) delete process.env.QA_STRIPE_WEBHOOK_SOURCE; else process.env.QA_STRIPE_WEBHOOK_SOURCE = before;
   });
 });

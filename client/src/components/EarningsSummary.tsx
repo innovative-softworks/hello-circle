@@ -3,6 +3,7 @@ import type { PartnerEarnings } from "../api";
 import { colors, fonts, radius } from "../theme";
 import { FieldHelp } from "./FieldHelp";
 import { PayoutAccountCard } from "./PayoutAccountCard";
+import { VenueSplitsCard } from "./VenueSplitsCard";
 import { PlanCard } from "./PlanCard";
 import { PricingCalculator } from "./PricingCalculator";
 import { ManageCard as Card, tableStyle, tdStyle, thStyle } from "./ui";
@@ -37,6 +38,7 @@ export function EarningsSummary({ load, scope }: { load: () => Promise<PartnerEa
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16, marginBottom: 16 }}>
       <PayoutAccountCard scope={scope} />
+      <VenueSplitsCard scope={scope} />
       <PlanCard scope={scope} />
       <Card style={{ padding: 20 }}>
         <h3 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 17, margin: "0 0 4px" }}>Your balance</h3>

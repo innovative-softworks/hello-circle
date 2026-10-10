@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import { writeAudit } from "../audit.js";
 import { db } from "../db/index.js";
 import { postGroup } from "../commerce/ledger.js";
@@ -190,7 +191,10 @@ async function partyDisplayName(party: Party): Promise<string> {
 async function ensureAccount(provider: PaymentProvider, party: Party, input: { email: string; country: string; actorId: string }): Promise<ConnectedAccountRow> {
   const existing = await getConnectedAccount(party);
   if (existing) return existing;
-  const key = `hc-acct-v2:${party.partyType}:${party.partyId}`;
+  // Fixed when the reservation is first written and reused on every retry; the
+  // random part means a reservation recreated later never collides with an
+  // older key still inside Stripe's idempotency window.
+  const key = `hc-acct-v2:${party.partyType}:${party.partyId}:${crypto.randomUUID().slice(0, 8)}`;
   await db
     .prepare(`INSERT IGNORE INTO connected_account_creations (party_type, party_id, idempotency_key, api_model, status) VALUES (?, ?, ?, 'v2', 'pending')`)
     .run(party.partyType, party.partyId, key);
@@ -200,7 +204,14 @@ async function ensureAccount(provider: PaymentProvider, party: Party, input: { e
       | { status: string; accountId: string | null; k: string }
       | undefined;
     if (!res) throw new ConnectError("Couldn't reserve the payout account", 500);
-    if (res.status === "created" && res.accountId) return { id: res.accountId, fresh: false, error: null };
+    if (res.status === "created" && res.accountId) {
+      // The local account row is missing (removed by hand) but Stripe already has
+      // the account: re-link it rather than creating a second one.
+      const relinked = await tx
+        .prepare(`INSERT IGNORE INTO connected_accounts (party_type, party_id, provider, account_id, country, api_model, creation_key, onboarding_state) VALUES (?, ?, ?, ?, ?, 'v2', ?, 'onboarding_incomplete')`)
+        .run(party.partyType, party.partyId, provider.name, res.accountId, input.country, res.k);
+      return { id: res.accountId, fresh: relinked.changes > 0, error: null };
+    }
     const trader = (await tx.prepare(`SELECT entity_type as t FROM trader_profiles WHERE party_type = ? AND party_id = ?`).get(party.partyType, party.partyId)) as { t: string } | undefined;
     const businessType = trader?.t === "company" || trader?.t === "individual" ? (trader.t as "company" | "individual") : party.partyType === "host" ? "individual" : undefined;
     let account: { id: string; apiModel: ConnectApiModel };

@@ -27,12 +27,15 @@ for (const viewport of ["desktop", "mobile"] as const) {
         // The card = the innermost div holding both its heading and its action (the heading sits in a header row).
         const card = page.locator("div").filter({ has: page.getByRole("heading", { name: "Payout account" }) }).filter({ has: page.getByRole("button", { name: "Set up payouts with Stripe" }) }).last();
         await expect(card.getByText("No payout account connected")).toBeVisible();
+        // Stage 5e — the explicit account state, named by editable help content.
+        await expect(card.getByTestId("payout-state")).toHaveAttribute("data-state", "not_started");
+        await expect(card.getByTestId("payout-state")).toHaveText(/not started/i);
         await expect(card.getByText(/Trader details not completed/)).toBeVisible();
         const redirect = page.waitForRequest((r) => r.url().startsWith("https://connect.stub.invalid/onboarding/"));
         await card.getByRole("button", { name: "Set up payouts with Stripe" }).click();
         await redirect;
-        const [acct] = await rows(f, "SELECT provider, country, transfers_capability FROM connected_accounts WHERE party_type = 'org' AND party_id = ?", [orgId]);
-        expect(acct).toEqual({ provider: "stub", country: "IE", transfers_capability: "inactive" });
+        const [acct] = await rows(f, "SELECT provider, country, transfers_capability, api_model, configuration_type, dashboard_type, onboarding_state FROM connected_accounts WHERE party_type = 'org' AND party_id = ?", [orgId]);
+        expect(acct).toEqual({ provider: "stub", country: "IE", transfers_capability: "restricted", api_model: "v2", configuration_type: "recipient", dashboard_type: "express", onboarding_state: "onboarding_incomplete" });
         // Plan card: Pro is the net price; this partner's VAT is shown separately.
         // (A fresh page in the same session: the first one was sent to the blocked Stripe-hosted URL.)
         const plan = await ui.context.newPage();
@@ -46,6 +49,7 @@ for (const viewport of ["desktop", "mobile"] as const) {
       } finally {
         await ui.close();
         await f.connection.execute("DELETE FROM connected_accounts WHERE party_type = 'org' AND party_id = ?", [orgId]);
+        await f.connection.execute("DELETE FROM connected_account_creations WHERE party_type = 'org' AND party_id = ?", [orgId]);
         await restore();
       }
     });

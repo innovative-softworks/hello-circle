@@ -109,7 +109,7 @@ describe("idempotent creation", () => {
     expect(b.url).toBe(a.url);
     const row = (await getConnectedAccount({ partyType: "host", partyId: hosts[0] }))!;
     expect([row.apiModel, row.configurationType, row.dashboardType, row.businessType, row.onboardingState]).toEqual(["v2", "recipient", "express", "individual", "onboarding_incomplete"]);
-    expect(stubProvider.calls.filter((c) => c.method === "createConnectedAccount" && (c.args as any).idempotencyKey === `hc-acct-v2:host:${hosts[0]}`)).toHaveLength(1);
+    expect(stubProvider.calls.filter((c) => c.method === "createConnectedAccount" && String((c.args as any).idempotencyKey).startsWith(`hc-acct-v2:host:${hosts[0]}:`))).toHaveLength(1);
   });
 
   it("a timeout after Stripe accepted the request doesn't create a second account", async () => {
@@ -118,8 +118,9 @@ describe("idempotent creation", () => {
     const res = (await db.prepare(`SELECT status, attempts FROM connected_account_creations WHERE party_id = ?`).get(hosts[1])) as { status: string; attempts: number };
     expect([res.status, Number(res.attempts)]).toEqual(["pending", 1]);
     await onboard(hosts[1]);
-    const calls = stubProvider.calls.filter((c) => c.method === "createConnectedAccount" && (c.args as any).idempotencyKey === `hc-acct-v2:host:${hosts[1]}`);
-    expect(calls).toHaveLength(2); // the retry reused the same key…
+    const calls = stubProvider.calls.filter((c) => c.method === "createConnectedAccount" && String((c.args as any).idempotencyKey).startsWith(`hc-acct-v2:host:${hosts[1]}:`));
+    expect(calls).toHaveLength(2);
+    expect((calls[1].args as any).idempotencyKey).toBe((calls[0].args as any).idempotencyKey); // the retry reused the same key…
     const n = (await db.prepare(`SELECT COUNT(*) as n FROM connected_accounts WHERE party_id = ?`).get(hosts[1])) as { n: number };
     expect(Number(n.n)).toBe(1); // …so the provider returned the same account
   });

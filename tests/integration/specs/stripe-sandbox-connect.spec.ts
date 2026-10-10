@@ -1,78 +1,106 @@
-import type Stripe from "stripe";
 import { expect, personas } from "../fixtures";
 import { rows, test, withActors } from "../lifecycle-fixture";
 import { stripe, stripeProfile, stripeUiActor } from "../stripe-fixture";
-import { deliverReal, record, setSwitch, tagged } from "../stripe-sandbox-fixture";
+import { deliverThin, realThinEvents, record, RUN, setSwitch, sleep, v2core } from "../stripe-sandbox-fixture";
 
-// Revenue & Connect Stage 5d — A: connected accounts through the APP's own
-// onboarding (Express, Stripe-hosted). If the sandbox refuses Accounts v1
-// creation (Stripe's default for new platforms), the test records the exact
-// blocker plus proof that the v2 path works, and is reported as SKIPPED
-// (blocked) — never as passed.
+// Revenue & Connect Stage 5e — A: connected accounts through the APP's own
+// onboarding, on Stripe Accounts v2 (Express dashboard, recipient
+// configuration, Stripe-hosted onboarding). Completing the hosted form needs a
+// person (Stripe shows an hCaptcha challenge even in test mode), so this spec
+// covers everything up to it; verified accounts for money movement are the
+// labelled test doubles used by the split spec.
 
-test("SANDBOX-CONNECT-A: Irish company vendor and individual host onboarding through the app", async ({ playwright, browser }) => {
+test("SANDBOX-CONNECT-A: Accounts v2 company vendor + individual host — creation, idempotency, concurrency, state, v2 events, hosted links", async ({ playwright, browser }) => {
   test.skip(!stripeProfile, "qa:stripe only");
-  test.setTimeout(300_000);
+  test.setTimeout(420_000);
   await withActors(playwright, ["QA_VENDOR", "QA_HOST"], async (f) => {
     const restore = await setSwitch(f, { "commerce.connect_v1": true });
     const [{ org_id: orgId }] = await rows(f, "SELECT org_id FROM users WHERE id = ?", [personas.QA_VENDOR.id]);
-    let blocked: string | null = null;
+    const parties = [["org", orgId], ["host", personas.QA_HOST.id]] as const;
+    const clean = async () => {
+      for (const [t, id] of parties) {
+        await f.connection.execute("DELETE FROM connected_account_syncs WHERE account_id IN (SELECT account_id FROM connected_accounts WHERE party_type = ? AND party_id = ?)", [t, id]);
+        await f.connection.execute("DELETE FROM connected_accounts WHERE party_type = ? AND party_id = ?", [t, id]);
+        await f.connection.execute("DELETE FROM connected_account_creations WHERE party_type = ? AND party_id = ?", [t, id]);
+      }
+    };
+    await clean();
     try {
       await f.connection.execute("INSERT INTO trader_profiles (party_type, party_id, entity_type, legal_name, address, country, email, phone, company_number, self_certified_at) VALUES ('org', ?, 'company', 'QA Sandbox Ltd', '1 QA St, Dublin', 'IE', 'qa.vendor@example.test', '0000000000', '123456', NOW()) ON DUPLICATE KEY UPDATE entity_type = 'company'", [orgId]);
-      const vendor = await f.actors.QA_VENDOR.post("/api/vendor/payout-account/onboarding", { data: { country: "IE" } });
-      if (vendor.status() === 502) {
-        const appError = (await vendor.json()).error as string;
-        // Same call the provider makes, made directly to read Stripe's reason.
-        let v1Reason = "";
-        try {
-          await stripe.accounts.create({ country: "IE", email: "qa.v1check@example.test", controller: { fees: { payer: "application" }, losses: { payments: "application" }, stripe_dashboard: { type: "express" }, requirement_collection: "stripe" }, capabilities: { transfers: { requested: true } }, metadata: tagged() });
-        } catch (e) {
-          v1Reason = /Accounts v1/i.test(String((e as Error).message)) ? "accounts_v1_creation_disabled_for_this_platform" : `${(e as { code?: string }).code ?? (e as { type?: string }).type}`;
-        }
-        // The v2 path works in this sandbox (recipient configuration, Express dashboard, hosted onboarding).
-        const v2 = await (stripe as any).v2.core.accounts.create({
-          contact_email: "qa.v2@example.test", display_name: "QA v2 check", dashboard: "express",
-          identity: { country: "ie", entity_type: "company" },
-          configuration: { recipient: { capabilities: { stripe_balance: { stripe_transfers: { requested: true } } } } },
-          defaults: { currency: "eur", responsibilities: { fees_collector: "application", losses_collector: "application" } },
-          metadata: tagged(), include: ["configuration.recipient"],
-        });
-        const link = await (stripe as any).v2.core.accountLinks.create({ account: v2.id, use_case: { type: "account_onboarding", account_onboarding: { configurations: ["recipient"], refresh_url: "http://127.0.0.1:4178/vendor?tab=earnings&payouts=refresh", return_url: "http://127.0.0.1:4178/vendor?tab=earnings&payouts=return" } } });
-        blocked = v1Reason;
-        await record("connect-a", { appStatus: 502, appError, v1Reason, v2AccountId: v2.id, v2Livemode: v2.livemode, v2Transfers: v2.configuration?.recipient?.capabilities?.stripe_balance?.stripe_transfers?.status ?? null, v2LinkHost: new URL(link.url).host });
-        return;
-      }
-      expect(vendor.status()).toBe(200);
-      expect(new URL((await vendor.json()).url).host).toBe("connect.stripe.com");
-      const [row] = await rows(f, "SELECT account_id AS id, transfers_capability AS t FROM connected_accounts WHERE party_type = 'org' AND party_id = ?", [orgId]);
-      const acct = await stripe.accounts.retrieve(row.id);
-      expect([acct.country, acct.business_type, acct.metadata?.hc_qa_run]).toEqual(["IE", "company", process.env.HC_QA_STRIPE_RUN]);
-      expect(acct.id.startsWith("acct_")).toBe(true); // created with the run's TEST key (preflight proved livemode:false)
-      // Incomplete onboarding: not ready, requirements listed.
-      const overview = await (await f.actors.QA_VENDOR.get("/api/vendor/payout-account")).json();
-      expect(overview.readiness.join(" ")).toMatch(/can't receive transfers|Payouts to the bank/);
-      // account.updated (real object) via the Connect secret.
-      const ev = { id: `evt_qa5d_${Date.now()}`, object: "event", type: "account.updated", livemode: false, created: Math.floor(Date.now() / 1000), account: acct.id, data: { object: acct } } as unknown as Stripe.Event;
-      expect((await deliverReal(f.actors.QA_VENDOR, ev, { connect: true })).status).toBe(200);
-      // Individual host.
-      const host = await f.actors.QA_HOST.post("/api/host/payout-account/onboarding", { data: { country: "IE" } });
-      expect(host.status()).toBe(200);
-      const [hrow] = await rows(f, "SELECT account_id AS id FROM connected_accounts WHERE party_type = 'host' AND party_id = ?", [personas.QA_HOST.id]);
-      expect((await stripe.accounts.retrieve(hrow.id)).business_type).toBe("individual");
-      // Hosted onboarding return/refresh links in the browser.
+
+      // Company vendor: one Accounts v2 Express recipient account.
+      const v1 = await f.actors.QA_VENDOR.post("/api/vendor/payout-account/onboarding", { data: { country: "IE" } });
+      expect(v1.status(), "onboarding link created").toBe(200);
+      const link = await v1.json();
+      expect([new URL(link.url).host, link.purpose]).toEqual(["connect.stripe.com", "onboarding"]);
+      expect(new Date(link.expiresAt).getTime()).toBeGreaterThan(Date.now());
+      const [row] = await rows(f, "SELECT account_id AS id, api_model AS m, configuration_type AS c, dashboard_type AS d, business_type AS b, onboarding_state AS s, requirements_past_due AS pd, creation_key AS k FROM connected_accounts WHERE party_type = 'org' AND party_id = ?", [orgId]);
+      const acct = await v2core().accounts.retrieve(row.id, { include: ["configuration.recipient", "requirements", "identity", "defaults"] });
+      expect(acct.livemode, "test-mode account").toBe(false);
+      expect([acct.dashboard, String(acct.identity?.country).toUpperCase(), acct.identity?.entity_type, acct.defaults?.responsibilities?.requirements_collector]).toEqual(["express", "IE", "company", "stripe"]);
+      expect(Object.keys(acct.configuration?.recipient?.capabilities?.stripe_balance ?? {}).sort(), "only the transfers capability requested (payouts is Stripe's)").toEqual(["payouts", "stripe_transfers"]);
+      expect(acct.configuration?.merchant, "no merchant configuration — HelloCircle is the merchant").toBeFalsy();
+      expect([acct.defaults?.responsibilities?.fees_collector, acct.defaults?.responsibilities?.losses_collector]).toEqual(["application", "application"]);
+      expect(acct.metadata).toMatchObject({ hc_qa_run: RUN, party_type: "org", party_id: orgId, hc_creation_key: row.k });
+      expect([row.m, row.c, row.d, row.b, row.s]).toEqual(["v2", "recipient", "express", "company", "onboarding_incomplete"]);
+      expect(JSON.parse(row.pd).length, "real requirements from Stripe").toBeGreaterThan(0);
+      // Retry: the same account (and a fresh single-use link).
+      const v2 = await (await f.actors.QA_VENDOR.post("/api/vendor/payout-account/onboarding", { data: { country: "IE" } })).json();
+      expect(new URL(v2.url).host).toBe("connect.stripe.com");
+      expect((await rows(f, "SELECT COUNT(*) AS n FROM connected_accounts WHERE party_type = 'org' AND party_id = ?", [orgId]))[0].n).toBe(1);
+      // Overview: incomplete onboarding, transfers and bank payouts not yet available.
+      const ov = await (await f.actors.QA_VENDOR.get("/api/vendor/payout-account")).json();
+      expect([ov.state, ov.account.transfersCapability, ov.account.payoutsCapability]).toEqual(["onboarding_incomplete", "restricted", "restricted"]);
+      expect(ov.readiness.join(" ")).toMatch(/can't receive transfers/);
+      expect((await f.actors.QA_VENDOR.post("/api/vendor/payout-account/dashboard", { data: {} })).status(), "no dashboard before onboarding").toBe(409);
+
+      // Individual host, three concurrent requests → one account.
+      const concurrent = await Promise.all([1, 2, 3].map(() => f.actors.QA_HOST.post("/api/host/payout-account/onboarding", { data: { country: "IE" } })));
+      expect(concurrent.map((r) => r.status())).toEqual([200, 200, 200]);
+      const hostRows = await rows(f, "SELECT account_id AS id, business_type AS b FROM connected_accounts WHERE party_type = 'host' AND party_id = ?", [personas.QA_HOST.id]);
+      expect(hostRows.length, "one account for concurrent requests").toBe(1);
+      const hostAcct = await v2core().accounts.retrieve(hostRows[0].id, { include: ["identity"] });
+      expect([hostAcct.livemode, hostAcct.identity?.entity_type, hostAcct.metadata?.hc_qa_run]).toEqual([false, "individual", RUN]);
+
+      // Real v2 events for the vendor's account: signature, store once, re-fetch, sync.
+      const events = await realThinEvents(row.id);
+      expect(events.length, "Stripe recorded v2 events for the account").toBeGreaterThan(0);
+      const ev = events[0];
+      expect((await deliverThin(f.actors.QA_VENDOR, ev, row.id, { invalid: true })).status, "invalid signature").toBe(400);
+      expect((await deliverThin(f.actors.QA_VENDOR, ev, row.id)).status).toBe(200);
+      expect((await deliverThin(f.actors.QA_VENDOR, ev, row.id)).body.duplicate, "duplicate").toBe(true);
+      const [stored] = await rows(f, "SELECT status FROM webhook_events WHERE provider = 'stripe_v2' AND event_id = ?", [ev.id]);
+      expect(stored.status).toBe("processed");
+      const syncs = await rows(f, "SELECT normalized_type AS t FROM connected_account_syncs WHERE provider_event_id = ?", [ev.id]);
+      expect(syncs.map((s: any) => s.t)).toEqual(["connect.account.changed"]);
+
+      // Hosted links in the browser: refresh mints a new link; return re-syncs.
       const ui = await stripeUiActor(browser, "QA_HOST", "desktop");
       try {
+        const minted = ui.page.waitForResponse((r) => r.url().endsWith("/api/host/payout-account/onboarding") && r.request().method() === "POST");
         await ui.page.goto("/manage?tab=earnings&payouts=refresh");
+        expect((await minted).status(), "refresh → new onboarding link").toBe(200);
         await ui.page.waitForURL(/connect\.stripe\.com/, { timeout: 30_000 });
+        const page2 = await ui.context.newPage();
+        const returned = page2.waitForResponse((r) => r.url().endsWith("/api/host/payout-account/refresh"));
+        await page2.goto("/manage?tab=earnings&payouts=return");
+        expect((await returned).status()).toBe(200);
+        await expect(page2.getByTestId("payout-state")).toHaveAttribute("data-state", "onboarding_incomplete");
       } finally {
         await ui.close();
       }
-      await record("connect-a", { vendorAccount: acct.id, hostAccount: hrow.id });
+      await sleep(500);
+      const ret = await rows(f, "SELECT normalized_type AS t, source FROM connected_account_syncs WHERE account_id = ? AND source = 'return'", [hostRows[0].id]);
+      expect(ret.length, "return re-synced from Stripe").toBeGreaterThan(0);
+      await record("connect-a", {
+        vendorAccount: row.id, hostAccount: hostRows[0].id, apiModel: "v2", dashboard: acct.dashboard, configuration: "recipient", entityTypes: ["company", "individual"],
+        vendorState: ov.state, pastDueCount: JSON.parse(row.pd).length, concurrentRequests: 3, accountsCreatedForHost: hostRows.length, v2EventDelivered: ev.id, v2EventType: ev.type,
+        hostedLinkHost: "connect.stripe.com", hostedOnboardingCompletion: "not automatable: Stripe shows an hCaptcha challenge in test mode",
+      }, "stage5e");
     } finally {
-      await f.connection.execute("DELETE FROM connected_accounts WHERE (party_type = 'org' AND party_id = ?) OR (party_type = 'host' AND party_id = ?)", [orgId, personas.QA_HOST.id]);
+      await clean();
       await f.connection.execute("DELETE FROM trader_profiles WHERE party_type = 'org' AND party_id = ? AND legal_name = 'QA Sandbox Ltd'", [orgId]);
       await restore();
-      test.skip(!!blocked, `BLOCKED: ${blocked} — the app's Express onboarding uses Accounts v1, which this sandbox refuses; the v2 path was verified to work (see evidence)`);
     }
   });
 });

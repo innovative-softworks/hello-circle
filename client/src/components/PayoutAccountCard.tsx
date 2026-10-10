@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { fetchPayouts, payoutDashboardLink, refreshPayoutAccount, startPayoutOnboarding, type PayoutsOverview } from "../api";
+import { fetchFieldHelp, fetchPayouts, payoutDashboardLink, refreshPayoutAccount, startPayoutOnboarding, type FieldHelpEntry, type PayoutAccountState, type PayoutsOverview } from "../api";
 import { colors, fonts, radius } from "../theme";
 import { Button, ManageCard as Card, tableStyle, tdStyle, thStyle } from "./ui";
 
@@ -8,6 +8,22 @@ import { Button, ManageCard as Card, tableStyle, tdStyle, thStyle } from "./ui";
 // Stripe-hosted onboarding). Shows what still blocks payouts, transfers
 // received, and payouts to the bank. Hidden entirely until finance switches
 // Connect on. Copy rule: never "escrow" / "held safely".
+//
+// Stage 5e — one explicit account state (server-derived from Stripe), named
+// and explained by editable help entries (connect_state_<state>); a transfer
+// (HelloCircle → Stripe balance) and a bank payout (Stripe → bank) are shown
+// as two separate things, never as one.
+
+const STATE_TONE: Record<PayoutAccountState, "ok" | "wait" | "act" | "stop"> = {
+  not_started: "act",
+  onboarding_incomplete: "act",
+  under_review: "wait",
+  more_information_required: "act",
+  transfers_unavailable: "stop",
+  payouts_unavailable: "wait",
+  enabled: "ok",
+};
+const STATE_KEYS = (Object.keys(STATE_TONE) as PayoutAccountState[]).map((s) => `connect_state_${s}`);
 
 const euro = (minor: number) => `€${(Number(minor) / 100).toFixed(2)}`;
 const day = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString("en-IE", { timeZone: "Europe/Dublin", day: "numeric", month: "short" }) : "—");
@@ -16,6 +32,7 @@ export function PayoutAccountCard({ scope }: { scope: "vendor" | "host" }) {
   const [data, setData] = useState<PayoutsOverview | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [help, setHelp] = useState<Record<string, FieldHelpEntry>>({});
   const [params] = useSearchParams();
   const returning = params.get("payouts");
 
@@ -29,9 +46,15 @@ export function PayoutAccountCard({ scope }: { scope: "vendor" | "host" }) {
       return;
     }
     // Coming back from Stripe (return_url): re-read the account status straight away.
-    const load = returning === "return" ? refreshPayoutAccount(scope).catch(() => fetchPayouts(scope)) : fetchPayouts(scope);
+    const load = returning === "return" ? refreshPayoutAccount(scope, "return").catch(() => fetchPayouts(scope)) : fetchPayouts(scope);
     load.then(setData).catch(() => setData(null));
   }, [scope, returning]);
+
+  useEffect(() => {
+    fetchFieldHelp([...STATE_KEYS, "connect_transfer_vs_payout"])
+      .then((rows) => setHelp(Object.fromEntries(rows.map((r) => [r.helpKey, r]))))
+      .catch(() => setHelp({}));
+  }, []);
 
   if (!data || !data.enabled) return null;
 
@@ -47,15 +70,39 @@ export function PayoutAccountCard({ scope }: { scope: "vendor" | "host" }) {
     }
   };
   const ready = data.readiness.length === 0;
+  const state: PayoutAccountState = data.state ?? (data.account ? "onboarding_incomplete" : "not_started");
+  const tone = STATE_TONE[state];
+  const stateHelp = help[`connect_state_${state}`];
+  const stateName = stateHelp?.name.replace(/^Payout account:\s*/i, "") ?? state.replace(/_/g, " ");
+  const toneColor = tone === "ok" ? colors.greenText : tone === "stop" ? colors.danger : colors.orangeDark;
+  const a = data.account;
+  const needsStripe = state === "not_started" || state === "onboarding_incomplete" || state === "more_information_required";
+  const onStripeLabel = state === "not_started" ? "Set up payouts with Stripe" : state === "more_information_required" ? "Give Stripe the information it needs" : "Continue setup with Stripe";
+  const capability = (c: string | undefined) => (c === "active" ? "Active" : c === "pending" ? "Being checked" : "Not yet");
 
   return (
     <Card style={{ padding: 20, marginBottom: 16 }}>
       <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
         <h3 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 17, margin: 0 }}>Payout account</h3>
-        <span style={{ fontSize: 12.5, fontWeight: 700, color: ready ? colors.greenText : colors.orangeDark }}>{ready ? "Ready for payouts" : "Action needed"}</span>
+        <span data-testid="payout-state" data-state={state} style={{ fontSize: 12.5, fontWeight: 700, color: toneColor }}>{stateName}</span>
       </div>
+      {stateHelp && <p style={{ fontSize: 13.5, margin: "8px 0 4px", lineHeight: 1.5 }}>{stateHelp.definition}</p>}
+      {a && (
+        <dl style={{ display: "grid", gridTemplateColumns: "auto 1fr", gap: "2px 12px", fontSize: 13, margin: "8px 0" }}>
+          <dt style={{ color: colors.muted }}>Transfers from HelloCircle</dt>
+          <dd style={{ margin: 0, fontWeight: 600 }} data-testid="transfers-capability">{capability(a.transfersCapability)}</dd>
+          <dt style={{ color: colors.muted }}>Bank payouts by Stripe</dt>
+          <dd style={{ margin: 0, fontWeight: 600 }} data-testid="payouts-capability">{capability(a.payoutsCapability)}</dd>
+          {a.requirementsDue.length + a.requirementsPastDue.length > 0 && (
+            <>
+              <dt style={{ color: colors.muted }}>Stripe needs</dt>
+              <dd style={{ margin: 0 }}>{a.requirementsDue.length + a.requirementsPastDue.length} item{a.requirementsDue.length + a.requirementsPastDue.length === 1 ? "" : "s"}</dd>
+            </>
+          )}
+        </dl>
+      )}
       <p style={{ fontSize: 12.5, color: colors.mutedLight, margin: "6px 0 12px", lineHeight: 1.5 }}>
-        Payouts are made through Stripe. Transfer eligibility begins after the activity is completed and the review period has passed; settled amounts are transferred weekly and Stripe pays them to your bank.
+        {help.connect_transfer_vs_payout?.definition ?? "Payouts are made through Stripe. Settled amounts are transferred to your Stripe account weekly, and Stripe pays them to your bank."}
       </p>
       {!ready && (
         <ul style={{ margin: "0 0 12px", paddingLeft: 18, fontSize: 13.5, lineHeight: 1.6 }}>
@@ -65,12 +112,12 @@ export function PayoutAccountCard({ scope }: { scope: "vendor" | "host" }) {
         </ul>
       )}
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-        {(!data.account || !data.account.detailsSubmitted || data.account.requirementsDue.length > 0) && (
+        {needsStripe && (
           <Button disabled={busy} onClick={() => go(() => startPayoutOnboarding(scope))}>
-            {data.account ? "Continue setup with Stripe" : "Set up payouts with Stripe"}
+            {onStripeLabel}
           </Button>
         )}
-        {data.account?.detailsSubmitted && (
+        {a && (a.onboardingCompleted || a.detailsSubmitted) && (
           <Button variant="ghost" disabled={busy} onClick={() => go(() => payoutDashboardLink(scope))}>
             Bank details and payouts (Stripe)
           </Button>
