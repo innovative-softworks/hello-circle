@@ -17,6 +17,16 @@
 import type Stripe from "stripe";
 import { stripe } from "../stripe.js";
 
+/** Stage 5d — in the QA Stripe sandbox profile only, every object this
+ * provider creates carries the run's id (metadata hc_qa_run), so a sandbox
+ * run can prove what it created and never touch anything else. Empty (no
+ * change to production metadata) outside that profile. */
+export function qaRunMetadata(): Record<string, string> {
+  const tag = process.env.HC_QA_STRIPE_RUN ?? "";
+  if (process.env.NODE_ENV !== "test" || process.env.QA_E2E_ENABLED !== "true" || process.env.QA_STRIPE_TEST_PROFILE !== "1" || !/^qa_stripe_[a-z0-9]{8,32}$/.test(tag)) return {};
+  return { hc_qa_run: tag };
+}
+
 export class ProviderNotEnabledError extends Error {
   constructor(what: string) {
     super(`${what} isn't enabled yet (Stripe Connect is switched on in Stage 5)`);
@@ -80,7 +90,7 @@ export interface PaymentProvider {
   /** Re-fetch a webhook event by id (admin replay; never trust a stored copy). */
   retrieveEvent(eventId: string): Promise<import("./webhookEvents.js").IncomingEvent | null>;
   // Connect (Stage 5a).
-  createConnectedAccount(p: { country: string; email: string; idempotencyKey: string; metadata: Record<string, string> }): Promise<{ id: string }>;
+  createConnectedAccount(p: { country: string; email: string; businessType?: "individual" | "company"; idempotencyKey: string; metadata: Record<string, string> }): Promise<{ id: string }>;
   retrieveConnectedAccount(accountId: string): Promise<ConnectedAccountStatus>;
   /** Stripe-hosted onboarding / update link (single use, short-lived). */
   createOnboardingLink(p: { accountId: string; refreshUrl: string; returnUrl: string }): Promise<{ url: string }>;
@@ -114,14 +124,17 @@ class StripeProvider implements PaymentProvider {
       ...(p.customerId && p.savePaymentMethod ? { saved_payment_method_options: { payment_method_save: "enabled" as const } } : {}),
       success_url: p.successUrl,
       cancel_url: p.cancelUrl,
-      metadata: p.metadata,
+      metadata: { ...p.metadata, ...qaRunMetadata() },
+      // Stage 5d — the same {type, ref} on the PaymentIntent (and so its charge,
+      // refunds and disputes), so a dispute can always be traced to the booking.
+      payment_intent_data: { metadata: { ...p.metadata, ...qaRunMetadata() } },
       expires_at: p.expiresAt,
     });
     return { id: session.id, url: session.url ?? null };
   }
 
   async createCustomer(email: string) {
-    return (await this.client.customers.create({ email })).id;
+    return (await this.client.customers.create({ email, metadata: qaRunMetadata() })).id;
   }
 
   async sessionPaymentIntent(sessionId: string) {
@@ -138,7 +151,7 @@ class StripeProvider implements PaymentProvider {
 
   async createRefund(p: { paymentIntentId: string; amountMinor?: number; idempotencyKey: string; metadata: Record<string, string> }) {
     const refund = await this.client.refunds.create(
-      { payment_intent: p.paymentIntentId, ...(p.amountMinor !== undefined ? { amount: p.amountMinor } : {}), metadata: p.metadata },
+      { payment_intent: p.paymentIntentId, ...(p.amountMinor !== undefined ? { amount: p.amountMinor } : {}), metadata: { ...p.metadata, ...qaRunMetadata() } },
       { idempotencyKey: p.idempotencyKey }
     );
     return { id: refund.id ?? null, amountMinor: refund.amount ?? null };
@@ -182,11 +195,12 @@ class StripeProvider implements PaymentProvider {
   // balance liability (the recommended configuration, docs 05). No
   // application_fee_amount anywhere: with separate charges and transfers
   // HelloCircle keeps the charge minus what it transfers.
-  async createConnectedAccount(p: { country: string; email: string; idempotencyKey: string; metadata: Record<string, string> }) {
+  async createConnectedAccount(p: { country: string; email: string; businessType?: "individual" | "company"; idempotencyKey: string; metadata: Record<string, string> }) {
     const a = await this.client.accounts.create(
       {
         country: p.country,
         email: p.email,
+        ...(p.businessType ? { business_type: p.businessType } : {}),
         controller: {
           fees: { payer: "application" },
           losses: { payments: "application" },
@@ -194,7 +208,7 @@ class StripeProvider implements PaymentProvider {
           requirement_collection: "stripe",
         },
         capabilities: { transfers: { requested: true } },
-        metadata: p.metadata,
+        metadata: { ...p.metadata, ...qaRunMetadata() },
       },
       { idempotencyKey: p.idempotencyKey }
     );
@@ -223,7 +237,7 @@ class StripeProvider implements PaymentProvider {
         destination: p.destinationAccountId,
         transfer_group: p.transferGroup,
         ...(p.sourceTransactionId ? { source_transaction: p.sourceTransactionId } : {}),
-        metadata: p.metadata,
+        metadata: { ...p.metadata, ...qaRunMetadata() },
       },
       { idempotencyKey: p.idempotencyKey }
     );
@@ -239,7 +253,7 @@ class StripeProvider implements PaymentProvider {
     const pct = bps / 100;
     const existing = await this.client.taxRates.list({ active: true, inclusive: false, limit: 100 });
     const hit = existing.data.find((t) => t.percentage === pct && t.country === "IE" && t.display_name === "VAT" && t.metadata?.hellocircle === "pro");
-    const id = hit?.id ?? (await this.client.taxRates.create({ display_name: "VAT", percentage: pct, inclusive: false, country: "IE", tax_type: "vat", metadata: { hellocircle: "pro" } })).id;
+    const id = hit?.id ?? (await this.client.taxRates.create({ display_name: "VAT", percentage: pct, inclusive: false, country: "IE", tax_type: "vat", metadata: { hellocircle: "pro", ...qaRunMetadata() } })).id;
     this.taxRateIds.set(bps, id);
     return id;
   }
@@ -252,8 +266,8 @@ class StripeProvider implements PaymentProvider {
       line_items: [{ quantity: 1, price_data: { currency: p.currency.toLowerCase(), unit_amount: p.netAmountMinor, recurring: { interval: "month" }, product_data: { name: p.productName } }, ...(taxRates ? { tax_rates: taxRates } : {}) }],
       success_url: p.successUrl,
       cancel_url: p.cancelUrl,
-      metadata: p.metadata,
-      subscription_data: { metadata: p.metadata },
+      metadata: { ...p.metadata, ...qaRunMetadata() },
+      subscription_data: { metadata: { ...p.metadata, ...qaRunMetadata() } },
     });
     return { id: session.id, url: session.url };
   }
@@ -268,7 +282,7 @@ class StripeProvider implements PaymentProvider {
   }
 
   async reverseTransfer(p: { transferId: string; amountMinor?: number; idempotencyKey: string; metadata: Record<string, string> }) {
-    const r = await this.client.transfers.createReversal(p.transferId, { ...(p.amountMinor ? { amount: p.amountMinor } : {}), metadata: p.metadata }, { idempotencyKey: p.idempotencyKey });
+    const r = await this.client.transfers.createReversal(p.transferId, { ...(p.amountMinor ? { amount: p.amountMinor } : {}), metadata: { ...p.metadata, ...qaRunMetadata() } }, { idempotencyKey: p.idempotencyKey });
     return { id: r.id, amountMinor: r.amount };
   }
 }

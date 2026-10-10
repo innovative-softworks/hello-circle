@@ -45,6 +45,9 @@ async function main() {
   const { stripe } = await import("../../server/src/stripe");
   if (stripeProfile) {
     if (!stripe || !/^(sk|rk)_test_/.test(process.env.STRIPE_SECRET_KEY ?? "") || !/^whsec_qa_[a-f0-9]{64}$/.test(process.env.STRIPE_WEBHOOK_SECRET ?? "")) throw new Error("QA SAFETY ABORT: Stripe test profile misconfigured.");
+    // Stage 5d — the Connect secret, when present, must also be a per-run local one; the run tag must be well-formed.
+    if (process.env.STRIPE_CONNECT_WEBHOOK_SECRET && !/^whsec_qa_[a-f0-9]{64}$/.test(process.env.STRIPE_CONNECT_WEBHOOK_SECRET)) throw new Error("QA SAFETY ABORT: Connect webhook secret must be a per-run local secret.");
+    if (process.env.HC_QA_STRIPE_RUN && !/^qa_stripe_[a-f0-9]{16}$/.test(process.env.HC_QA_STRIPE_RUN)) throw new Error("QA SAFETY ABORT: malformed Stripe run tag.");
     // Prove TEST mode with the provider itself before any app traffic.
     const balance = await stripe.balance.retrieve();
     if (balance.livemode !== false) throw new Error("QA SAFETY ABORT: Live-mode Stripe account refused.");

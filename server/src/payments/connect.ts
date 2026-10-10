@@ -95,12 +95,25 @@ export async function startOnboarding(party: Party, input: { email: string; coun
 
   let account = await getConnectedAccount(party);
   if (!account) {
-    const created = await provider.createConnectedAccount({
-      country: input.country,
-      email: input.email,
-      idempotencyKey: `acct:${party.partyType}:${party.partyId}`,
-      metadata: { party_type: party.partyType, party_id: party.partyId },
-    });
+    // Stage 5d — prefill the business type Stripe will ask for: the trader
+    // profile's entity type when known, otherwise individual for hosts.
+    const trader = (await db.prepare(`SELECT entity_type as t FROM trader_profiles WHERE party_type = ? AND party_id = ?`).get(party.partyType, party.partyId)) as { t: string } | undefined;
+    const businessType = trader?.t === "company" || trader?.t === "individual" ? (trader.t as "company" | "individual") : party.partyType === "host" ? "individual" : undefined;
+    let created: { id: string };
+    try {
+      created = await provider.createConnectedAccount({
+        country: input.country,
+        email: input.email,
+        businessType,
+        idempotencyKey: `acct:${party.partyType}:${party.partyId}`,
+        metadata: { party_type: party.partyType, party_id: party.partyId },
+      });
+    } catch (e) {
+      // Stage 5d — a provider refusal (e.g. the platform isn't allowed to create
+      // this kind of account) is a clear 502 with Stripe's code, not a bare 500.
+      const err = e as { type?: string; code?: string };
+      throw new ConnectError(`Stripe couldn't create the payout account (${err.code ?? err.type ?? "provider error"}). Please try again later.`, 502);
+    }
     await db
       .prepare(`INSERT IGNORE INTO connected_accounts (party_type, party_id, provider, account_id, country) VALUES (?, ?, ?, ?, ?)`)
       .run(party.partyType, party.partyId, provider.name, created.id, input.country);

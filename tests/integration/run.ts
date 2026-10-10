@@ -42,7 +42,15 @@ async function main() {
     try { cfg = JSON.parse(readFileSync(file, "utf8")); } catch { throw new Error("QA STRIPE INVALID: stripe-test.json is not valid JSON."); }
     const issues = stripeTestProfileIssues(cfg);
     if (issues.length) throw new Error(`QA STRIPE INVALID: ${issues.join(" ")}`);
-    stripeEnv = { STRIPE_SECRET_KEY: String(cfg.STRIPE_SECRET_KEY), STRIPE_WEBHOOK_SECRET: `whsec_qa_${randomBytes(32).toString("hex")}`, QA_STRIPE_TEST_PROFILE: "1" };
+    // Stage 5d — a second per-run local secret for Connect events (the handler accepts either),
+    // and a run tag written into the metadata of every Stripe object the run creates.
+    stripeEnv = {
+      STRIPE_SECRET_KEY: String(cfg.STRIPE_SECRET_KEY),
+      STRIPE_WEBHOOK_SECRET: `whsec_qa_${randomBytes(32).toString("hex")}`,
+      STRIPE_CONNECT_WEBHOOK_SECRET: `whsec_qa_${randomBytes(32).toString("hex")}`,
+      HC_QA_STRIPE_RUN: `qa_stripe_${randomBytes(8).toString("hex")}`,
+      QA_STRIPE_TEST_PROFILE: "1",
+    };
   }
   for (let index = 0; index < args.length; index++) {
     if (args[index] === "--list") continue;
@@ -135,6 +143,12 @@ async function main() {
       ["stripe-selfcancel", "stripe-selfcancel\\.spec\\.ts$"],
       ["stripe-browser", "stripe-browser\\.spec\\.ts$"],
       ["stripe-findings", "stripe-findings\\.spec\\.ts$"],
+      // Stage 5d — local Stripe sandbox validation (Connect, money, disputes, Billing, webhooks, settlement).
+      ["stripe-sandbox-connect", "stripe-sandbox-connect\\.spec\\.ts$"],
+      ["stripe-sandbox-money", "stripe-sandbox-money\\.spec\\.ts$"],
+      ["stripe-sandbox-disputes", "stripe-sandbox-disputes\\.spec\\.ts$"],
+      ["stripe-sandbox-billing", "stripe-sandbox-billing\\.spec\\.ts$"],
+      ["stripe-sandbox-webhooks", "stripe-sandbox-webhooks\\.spec\\.ts$"],
     ] : booking ? [
       ["booking-centre", "booking-centre\\.spec\\.ts$"],
       ["booking-club", "booking-club\\.spec\\.ts$"],

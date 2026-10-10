@@ -20,8 +20,16 @@ export function PayoutAccountCard({ scope }: { scope: "vendor" | "host" }) {
   const returning = params.get("payouts");
 
   useEffect(() => {
-    // Coming back from Stripe: re-read the account status straight away.
-    const load = returning && returning !== "refresh" ? refreshPayoutAccount(scope).catch(() => fetchPayouts(scope)) : fetchPayouts(scope);
+    // Stripe's refresh_url means the onboarding link expired or was reused:
+    // mint a fresh link and continue straight back to Stripe (Stage 5d).
+    if (returning === "refresh") {
+      startPayoutOnboarding(scope)
+        .then(({ url }) => window.location.assign(url))
+        .catch(() => fetchPayouts(scope).then(setData).catch(() => setData(null)));
+      return;
+    }
+    // Coming back from Stripe (return_url): re-read the account status straight away.
+    const load = returning === "return" ? refreshPayoutAccount(scope).catch(() => fetchPayouts(scope)) : fetchPayouts(scope);
     load.then(setData).catch(() => setData(null));
   }, [scope, returning]);
 
