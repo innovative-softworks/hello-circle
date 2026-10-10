@@ -1,4 +1,5 @@
-import { expect } from "../fixtures";
+import { randomUUID } from "node:crypto";
+import { expect, personas } from "../fixtures";
 import { createActivity, rows, test, withActors } from "../lifecycle-fixture";
 import { uiActor } from "../lifecycle-ui-fixture";
 import { businessUiActor } from "../product-fixture";
@@ -62,6 +63,17 @@ for (const viewport of ["desktop", "mobile"] as const) {
         const { ref } = await join.json();
         expect((await f.actors.QA_USER.post("/api/__qa/provider", { data: { type: "game", ref, outcome: "success" } })).status()).toBe(200);
         await f.connection.execute("UPDATE games SET date = DATE_SUB(CURDATE(), INTERVAL 5 DAY) WHERE id = ?", [game.id]);
+        // A combined run leaves these partners with real balances from the Stripe suites (e.g. a lost chargeback
+        // netted against the venue). Neutralise them with labelled synthetic groups (kept: the settlement sweeps them in).
+        const [{ org_id: venueOrg }] = await rows(f, "SELECT org_id FROM users WHERE id = ?", [personas.QA_VENDOR.id]);
+        for (const [pt, pid] of [["org", venueOrg], ["host", personas.QA_HOST.id]]) {
+          const [{ s: prior }] = await rows(f, "SELECT COALESCE(SUM(amount_minor), 0) AS s FROM ledger_entries WHERE account_code = 'partner_available' AND party_type = ? AND party_id = ?", [pt, pid]);
+          if (Number(prior) === 0) continue;
+          const gid = randomUUID();
+          await f.connection.execute("INSERT INTO ledger_entry_groups (id, idempotency_key, source_type, source_id, description, basis, currency) VALUES (?, ?, 'test', ?, 'QA neutralise prior balance', 'actual', 'EUR')", [gid, `qa-neutral-${gid}`, gid]);
+          await f.connection.execute("INSERT INTO ledger_entries (group_id, line_no, account_code, party_type, party_id, amount_minor, currency) VALUES (?, 1, 'partner_available', ?, ?, ?, 'EUR'), (?, 2, 'refund_liability', NULL, NULL, ?, 'EUR')", [gid, pt, pid, -Number(prior), gid, Number(prior)]);
+          await f.connection.execute("DELETE FROM partner_debts WHERE party_type = ? AND party_id = ? AND status = 'open'", [pt, pid]);
+        }
         const run = await f.actors.QA_ADMIN.post("/api/admin/finance/settlements/run", { data: { runKey: `rev-split-${viewport}-${ref}`, dryRun: false, reason: "split points journey" } });
         expect(run.status()).toBe(200);
         const awards = await rows(f, "SELECT party_type AS t, points, eligible_minor AS e FROM reward_split_awards WHERE source_ref = ? ORDER BY party_type DESC", [ref]);

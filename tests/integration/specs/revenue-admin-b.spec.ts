@@ -59,6 +59,14 @@ for (const viewport of ["desktop", "mobile"] as const) {
       const restore = await setSwitches(f.connection, { "commerce.settlement_ledger": true, "commerce.connect_v1": true });
       const [{ org_id: orgId }] = await rows(f, "SELECT org_id FROM users WHERE id = ?", [personas.QA_VENDOR.id]);
       const tag = randomUUID().slice(0, 8);
+      // A combined run leaves this org with real balances from the Stripe suites (e.g. a lost chargeback).
+      // Neutralise them with a labelled synthetic group (removed in finally) so this test's €12 is exact.
+      const neutralId = randomUUID();
+      const [{ s: priorSum }] = await rows(f, "SELECT COALESCE(SUM(amount_minor), 0) AS s FROM ledger_entries WHERE account_code = 'partner_available' AND party_type = 'org' AND party_id = ?", [orgId]);
+      if (Number(priorSum) !== 0) {
+        await f.connection.execute("INSERT INTO ledger_entry_groups (id, idempotency_key, source_type, source_id, description, basis, currency) VALUES (?, ?, 'test', ?, 'QA neutralise prior balance', 'actual', 'EUR')", [neutralId, `qa-neutral-${tag}`, `qa-neutral-${tag}`]);
+        await f.connection.execute("INSERT INTO ledger_entries (group_id, line_no, account_code, party_type, party_id, amount_minor, currency) VALUES (?, 1, 'partner_available', 'org', ?, ?, 'EUR'), (?, 2, 'refund_liability', NULL, NULL, ?, 'EUR')", [neutralId, orgId, -Number(priorSum), neutralId, Number(priorSum)]);
+      }
       // Synthetic state: a connected account, one transfer of €40 with its booking allocation, then a €12 refund after transfer.
       await f.connection.execute("INSERT INTO connected_accounts (party_type, party_id, provider, account_id, country, details_submitted, payouts_enabled, transfers_capability) VALUES ('org', ?, 'stub', ?, 'IE', 1, 1, 'active')", [orgId, `acct_qa_${tag}`]);
       const [t] = await f.connection.execute<any>("INSERT INTO transfers (settlement_id, attempt, idempotency_key, party_type, party_id, destination_account, amount_minor, currency, transfer_group, provider_transfer_id, status) VALUES (0, 1, ?, 'org', ?, ?, 4000, 'EUR', 'qa', ?, 'created')", [`qa-${tag}`, orgId, `acct_qa_${tag}`, `tr_qa_${tag}`]);
@@ -101,8 +109,8 @@ for (const viewport of ["desktop", "mobile"] as const) {
         await f.connection.execute("DELETE FROM transfer_allocations WHERE transfer_id = ?", [transferId]);
         await f.connection.execute("DELETE FROM transfers WHERE id = ?", [transferId]);
         await f.connection.execute("DELETE FROM partner_debts WHERE party_type = 'org' AND party_id = ?", [orgId]);
-        await f.connection.execute("DELETE FROM ledger_entries WHERE group_id = ?", [groupId]);
-        await f.connection.execute("DELETE FROM ledger_entry_groups WHERE id = ?", [groupId]);
+        await f.connection.execute("DELETE FROM ledger_entries WHERE group_id IN (?, ?)", [groupId, neutralId]);
+        await f.connection.execute("DELETE FROM ledger_entry_groups WHERE id IN (?, ?)", [groupId, neutralId]);
         await f.connection.execute("DELETE FROM connected_accounts WHERE account_id = ?", [`acct_qa_${tag}`]);
         await f.connection.execute("DELETE FROM audit_log WHERE object_id = ? AND action LIKE 'partner_debt.%'", [orgId]);
         await restore();

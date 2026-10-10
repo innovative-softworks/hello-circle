@@ -102,13 +102,13 @@ for (const viewport of ["desktop", "mobile"] as const) {
         await upgrade.evaluate((el) => el.scrollIntoView({ block: "center" }));
         await upgrade.click();
         // The provider stub returns no hosted URL, so the page stays; the checkout is recorded at the net price + this partner's VAT.
-        await expect.poll(async () => (await rows(f, "SELECT status, net_minor, vat_minor, gross_minor FROM partner_subscriptions WHERE party_type = 'org' AND party_id = ?", [orgId]))[0]).toEqual({ status: "checkout", net_minor: 2900, vat_minor: 667, gross_minor: 3567 });
+        await expect.poll(async () => (await rows(f, "SELECT status, net_minor, vat_minor, gross_minor FROM partner_subscriptions WHERE party_type = 'org' AND party_id = ? ORDER BY id DESC LIMIT 1", [orgId]))[0]).toEqual({ status: "checkout", net_minor: 2900, vat_minor: 667, gross_minor: 3567 });
         await expect(page.getByRole("heading", { name: "Your plan: Free" })).toBeVisible(); // Pro starts only when the payment is confirmed
         await expect(page.getByRole("button", { name: /Redeem 10,000 points/ })).toBeDisabled();
         await fitsViewport(page);
       } finally {
         await ui.close();
-        await f.connection.execute("DELETE FROM partner_subscriptions WHERE party_type = 'org' AND party_id = ?", [orgId]);
+        await f.connection.execute("DELETE FROM partner_subscriptions WHERE party_type = 'org' AND party_id = ? ORDER BY id DESC LIMIT 1", [orgId]);
         await restore();
       }
     });
