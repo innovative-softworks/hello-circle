@@ -684,7 +684,7 @@ export interface PublishedPolicy {
   history: { version: number; status: string; changeSummary: string | null; publishedAt: string; retiredAt: string | null }[];
 }
 export interface PolicyDocument { docKey: string; title: string; audience: string; published: PublishedPolicy | null }
-export interface PendingPolicy { docKey: string; title: string; version: number; effectiveFrom: string | null; changeSummary: string | null }
+export interface PendingPolicy { docKey: string; title: string; kind: "accept" | "acknowledge"; version: number; effectiveFrom: string | null; changeSummary: string | null }
 
 export function fetchPolicies(): Promise<PolicySummary[]> {
   return request(`/policies`);
@@ -738,4 +738,13 @@ export function fetchTraderProfile(scope: "vendor" | "host"): Promise<TraderProf
 }
 export function saveTraderProfile(scope: "vendor" | "host", input: TraderProfileInput): Promise<TraderProfile> {
   return request(`/${scope}/trader-profile`, { method: "PUT", body: JSON.stringify(input) });
+}
+
+// --- Revenue & Connect Stage 5c: separate consents ------------------------------
+
+export function recordCookieConsent(input: { analytics: boolean; advertising: boolean; policyVersion?: number }): Promise<{ ok: boolean }> {
+  return request(`/consents/cookies`, { method: "POST", body: JSON.stringify(input) });
+}
+export function acknowledgePolicy(docKey: string, version: number, as: "user" | "resident"): Promise<{ docKey: string; version: number }> {
+  return request(`/policies/${encodeURIComponent(docKey)}/acknowledge`, { method: "POST", body: JSON.stringify({ version, as }) });
 }

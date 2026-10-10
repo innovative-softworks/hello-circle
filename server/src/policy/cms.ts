@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import { writeAudit } from "../audit.js";
 import { db } from "../db/index.js";
 import { secondApproverRequired } from "../commerce/rules.js";
+import { recordConsent } from "../consent.js";
 
 // Revenue & Connect Stage 4 — policy CMS workflow (brief §20).
 //
@@ -300,27 +301,47 @@ export type Subject = { type: "user" | "resident"; id: string };
  * they haven't accepted (accepting a later version also counts). */
 export async function pendingAcceptances(subject: Subject, audiences: string[]) {
   if (!audiences.length) return [];
+  audiences = [...audiences, "all"];
   const rows = (await db
     .prepare(
-      `SELECT d.doc_key as docKey, d.title, p.version, p.effective_from as effectiveFrom, p.change_summary as changeSummary,
+      `SELECT d.doc_key as docKey, d.title, d.acceptance_kind as kind, p.version, p.effective_from as effectiveFrom, p.change_summary as changeSummary,
         (SELECT MAX(m.version) FROM policy_versions m WHERE m.doc_key = d.doc_key AND m.status IN ('published','retired') AND m.material = 1) as requiredVersion
        FROM policy_documents d JOIN policy_versions p ON p.doc_key = d.doc_key AND p.status = 'published'
        WHERE d.acceptance_audience IN (${audiences.map(() => "?").join(",")})
        ORDER BY d.sort_order`
     )
-    .all(...audiences)) as { docKey: string; title: string; version: number; effectiveFrom: string | null; changeSummary: string | null; requiredVersion: number | null }[];
+    .all(...audiences)) as { docKey: string; title: string; kind: string; version: number; effectiveFrom: string | null; changeSummary: string | null; requiredVersion: number | null }[];
   const out = [];
   for (const r of rows) {
     const need = Number(r.requiredVersion ?? r.version);
-    const accepted = await db
-      .prepare(`SELECT id FROM policy_acceptances WHERE doc_key = ? AND subject_type = ? AND subject_id = ? AND version >= ? LIMIT 1`)
-      .get(r.docKey, subject.type, subject.id, need);
-    if (!accepted) out.push({ docKey: r.docKey, title: r.title, version: Number(r.version), effectiveFrom: r.effectiveFrom, changeSummary: r.changeSummary });
+    // Stage 5c — a contract is accepted (policy_acceptances); the privacy notice
+    // is acknowledged (consent_records privacy_notice_ack). Neither counts as the other.
+    const done =
+      r.kind === "acknowledge"
+        ? await db
+            .prepare(`SELECT id FROM consent_records WHERE subject_type = ? AND subject_id = ? AND purpose = 'privacy_notice_ack' AND granted = 1 AND policy_doc_key = ? AND policy_version >= ? LIMIT 1`)
+            .get(subject.type, subject.id, r.docKey, need)
+        : await db.prepare(`SELECT id FROM policy_acceptances WHERE doc_key = ? AND subject_type = ? AND subject_id = ? AND version >= ? LIMIT 1`).get(r.docKey, subject.type, subject.id, need);
+    if (!done) out.push({ docKey: r.docKey, title: r.title, kind: r.kind === "acknowledge" ? ("acknowledge" as const) : ("accept" as const), version: Number(r.version), effectiveFrom: r.effectiveFrom, changeSummary: r.changeSummary });
   }
   return out;
 }
 
+/** Stage 5c — records that the subject has read the current privacy notice (an acknowledgement, not consent or acceptance). */
+export async function acknowledge(subject: Subject, docKey: string, version: number, source: string) {
+  const doc = (await db.prepare(`SELECT acceptance_kind as kind FROM policy_documents WHERE doc_key = ?`).get(docKey)) as { kind: string } | undefined;
+  if (!doc) throw new PolicyError("Unknown policy", 404);
+  if (doc.kind !== "acknowledge") throw new PolicyError("This document is accepted, not acknowledged", 400);
+  const current = (await db.prepare(`SELECT version FROM policy_versions WHERE doc_key = ? AND status = 'published'`).get(docKey)) as { version: number } | undefined;
+  if (!current) throw new PolicyError("That policy isn't published", 404);
+  if (Number(current.version) !== Number(version)) throw new PolicyError("That version has been replaced — please read the current version", 409);
+  await recordConsent(subject, "privacy_notice_ack", true, source, { docKey, version: Number(version) });
+  return { docKey, version: Number(version) };
+}
+
 export async function accept(subject: Subject, docKey: string, version: number, context: string) {
+  const kind = (await db.prepare(`SELECT acceptance_kind as kind FROM policy_documents WHERE doc_key = ?`).get(docKey)) as { kind: string } | undefined;
+  if (kind?.kind === "acknowledge") throw new PolicyError("The privacy notice is acknowledged, not accepted — use acknowledge", 400);
   const current = (await db.prepare(`SELECT version FROM policy_versions WHERE doc_key = ? AND status = 'published'`).get(docKey)) as { version: number } | undefined;
   if (!current) throw new PolicyError("That policy isn't published", 404);
   if (Number(current.version) !== Number(version)) throw new PolicyError("That version has been replaced — please review the current version", 409);

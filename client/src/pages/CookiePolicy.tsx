@@ -35,7 +35,7 @@ const ITEMS: StorageItem[] = [
   {
     name: "hello_circle_cookie_consent",
     type: "Local storage",
-    purpose: "Remembers whether you accepted or declined analytics cookies, so we don't ask again every visit.",
+    purpose: "Remembers your analytics and advertising cookie choices (each separately), so we don't ask again every visit.",
     duration: "Until you clear your browser's site data",
   },
   {
@@ -44,7 +44,19 @@ const ITEMS: StorageItem[] = [
     purpose: "Google Analytics — anonymized statistics on how the site is used (pages visited, rough traffic sources). Only set if you accept analytics below.",
     duration: "Up to 2 years",
   },
+  {
+    name: "Advertising cookies (e.g. _gcl_*)",
+    type: "Cookie",
+    purpose: "Advertising measurement and personalisation through Google Tag Manager. Only set if you accept advertising cookies — a separate choice from analytics.",
+    duration: "Up to 90 days",
+  },
 ];
+
+/** Stage 5c — analytics and advertising are separate choices. */
+function describeChoice(c: ReturnType<typeof getStoredConsent>): string {
+  if (!c) return "not yet set";
+  return `analytics ${c.analytics ? "on" : "off"}, advertising ${c.advertising ? "on" : "off"}`;
+}
 
 const h2Style: React.CSSProperties = { fontFamily: fonts.display, fontWeight: 700, fontSize: 19, margin: "0 0 10px", letterSpacing: "-.01em" };
 const pStyle: React.CSSProperties = { color: colors.textSoft, fontSize: 15, lineHeight: 1.65, margin: "0 0 10px" };
@@ -140,9 +152,8 @@ export function CookiePolicy() {
         <div>
           <h2 style={h2Style}>Managing storage</h2>
           <p style={pStyle}>
-            Everything except analytics is strictly necessary for booking/login features to work. Your analytics
-            choice is currently:{" "}
-            <strong>{consent === "accepted" ? "accepted" : consent === "rejected" ? "declined" : "not yet set"}</strong>.
+            Everything except analytics and advertising is strictly necessary for booking/login features to work. Your
+            current choices: <strong>{describeChoice(consent)}</strong>.
           </p>
           <button
             onClick={() => {
@@ -183,7 +194,7 @@ export function CookieChoiceControl() {
   return (
     <div style={{ margin: "8px 0 0" }}>
       <p style={pStyle}>
-        Your analytics choice is currently: <strong>{consent === "accepted" ? "accepted" : consent === "rejected" ? "declined" : "not yet set"}</strong>.
+        Your current choices: <strong>{describeChoice(consent)}</strong>.
       </p>
       <button
         onClick={() => {

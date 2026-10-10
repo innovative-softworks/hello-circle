@@ -396,9 +396,13 @@ Contact [[PRIVACY_EMAIL]] to use any of these rights. You can also complain to t
 
 See our [Cookie Policy](/cookies).
 
-## 9. Changes
+## 9. Marketing
 
-If this policy changes materially, we'll tell you before the change takes effect.`,
+We send marketing emails only if you opt in, and you can opt out at any time in your notification settings. Accepting our Terms or reading this notice doesn't opt you in.
+
+## 10. Changes
+
+If this notice changes materially, we'll tell you before the change takes effect and ask you to read the new version.`,
   },
   {
     key: "cookie-policy",
@@ -408,7 +412,7 @@ If this policy changes materially, we'll tell you before the change takes effect
     sort: 12,
     body: `# Cookie Policy
 
-Most of what we store is strictly necessary to run the site. The one exception is analytics, which only runs if you accept it in the cookie banner. We use no advertising cookies.
+Most of what we store is strictly necessary to run the site. Analytics cookies and advertising cookies are two separate choices: each is used only if you turn it on in the cookie banner, and choosing one never turns on the other.
 
 ## What we store, and why
 
@@ -418,6 +422,7 @@ Most of what we store is strictly necessary to run the site. The one exception i
 - **hello_circle_favorites** (local storage): remembers your saved venues and clubs. Kept until you clear site data.
 - **hello_circle_cookie_consent** (local storage): remembers your analytics choice. Kept until you clear site data.
 - **_ga, _ga_\\*** (cookie): Google Analytics statistics. Only set if you accept analytics. Lasts up to 2 years.
+- **Advertising cookies (e.g. _gcl_\\*)** (cookie): advertising measurement and personalisation. Only set if you accept advertising. Lasts up to 90 days.
 
 ## Third parties
 
@@ -425,7 +430,7 @@ At checkout, Stripe may set its own cookies, governed by [Stripe's privacy polic
 
 ## Managing storage
 
-Everything except analytics is strictly necessary. You can change your analytics choice below, or clear site data in your browser settings. Clearing it signs you out and resets your choices.
+Everything except analytics and advertising is strictly necessary. You can change either choice below, or clear site data in your browser settings. Clearing it signs you out and resets your choices.
 
 Questions: [[PRIVACY_EMAIL]].`,
   },

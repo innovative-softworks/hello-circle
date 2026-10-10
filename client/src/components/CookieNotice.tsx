@@ -1,35 +1,39 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { loadGoogleTagManager } from "../analytics";
+import { recordCookieConsent } from "../api";
+import { CONSENT_KEY, applyConsentMode, readChoice, saveChoice, setConsentDefaults, type CookieChoice } from "../cookieConsent";
 import { colors, fonts, radius, zIndex } from "../theme";
 
-export const CONSENT_KEY = "hello_circle_cookie_consent";
-type Consent = "accepted" | "rejected";
+export { CONSENT_KEY };
 
-/** Reads the stored consent choice, if any — used by CookieNotice on mount
- * (to load GA for a returning visitor who already accepted, without
- * re-showing the banner) and available for a future "manage preferences"
- * entry point if one gets built. */
-export function getStoredConsent(): Consent | null {
-  const v = localStorage.getItem(CONSENT_KEY);
-  return v === "accepted" || v === "rejected" ? v : null;
+/** The stored cookie choice, if any (Stage 5c: analytics and advertising are separate). */
+export function getStoredConsent(): CookieChoice | null {
+  return readChoice();
 }
 
 // Everything else this app stores is strictly necessary (session cookie,
-// guest booking ID, favourites — see CookiePolicy.tsx); Google Tag Manager
-// (which loads GA4 itself via its own "GA4 - Config" tag, not a direct
-// install here) is the one non-essential/optional cookie source, so this is
-// a real Accept/Reject choice, not a one-button acknowledgement — GTM never
-// loads until "Accept" is actually clicked (or was on a previous visit).
+// guest booking ID, favourites — see CookiePolicy.tsx). Google Tag Manager
+// is the one optional source, and since Stage 5c it is governed by two
+// separate opt-ins — analytics and advertising — passed to its tags through
+// Google Consent Mode v2 (denied by default). GTM loads only after at least
+// one of them is granted (now or on a previous visit).
 export function CookieNotice() {
   const navigate = useNavigate();
-  const [consent, setConsent] = useState<Consent | null>("accepted");
+  const [consent, setConsent] = useState<CookieChoice | null | "pending">("pending");
+  const [choosing, setChoosing] = useState(false);
+  const [analytics, setAnalytics] = useState(false);
+  const [advertising, setAdvertising] = useState(false);
   const bannerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const stored = getStoredConsent();
+    setConsentDefaults();
+    const stored = readChoice();
     setConsent(stored);
-    if (stored === "accepted") loadGoogleTagManager();
+    if (stored) {
+      applyConsentMode(stored);
+      if (stored.analytics || stored.advertising) loadGoogleTagManager();
+    }
   }, []);
 
   // The banner is position:fixed, so it used to sit on top of whatever was at
@@ -60,11 +64,25 @@ export function CookieNotice() {
 
   if (consent !== null) return null;
 
-  const decide = (value: Consent) => {
-    localStorage.setItem(CONSENT_KEY, value);
-    setConsent(value);
-    if (value === "accepted") loadGoogleTagManager();
+  const decide = (a: boolean, ad: boolean) => {
+    const choice = saveChoice(a, ad);
+    setConsent(choice);
+    applyConsentMode(choice);
+    if (a || ad) loadGoogleTagManager();
+    // Kept as a consent record too (best effort — the choice already applies in this browser).
+    recordCookieConsent({ analytics: a, advertising: ad }).catch(() => undefined);
   };
+  const ghost = {
+    background: "transparent",
+    color: "#fff",
+    border: "1px solid rgba(255,255,255,.4)",
+    borderRadius: radius.control,
+    padding: "9px 16px",
+    fontSize: 13.5,
+    fontWeight: 700,
+    fontFamily: fonts.body,
+    cursor: "pointer",
+  } as const;
 
   return (
     <div
@@ -98,8 +116,9 @@ export function CookieNotice() {
       }}
     >
       <p style={{ margin: 0, fontSize: 13.5, lineHeight: 1.5, flex: "1 1 320px" }}>
-        We use strictly necessary cookies/local storage to run this site, and — only if you accept — Google
-        Analytics (via Google Tag Manager) to understand how it's used.{" "}
+        We use strictly necessary cookies and local storage to run this site. With your permission we'd also use{" "}
+        <strong>analytics</strong> cookies (Google Analytics, to understand how the site is used) and, separately,{" "}
+        <strong>advertising</strong> cookies (to measure and personalise ads). You can choose each one.{" "}
         <a
           href="/cookies"
           onClick={(e) => {
@@ -111,26 +130,35 @@ export function CookieNotice() {
           Learn more
         </a>
       </p>
-      <div style={{ display: "flex", gap: 8, flex: "none" }}>
-        <button
-          onClick={() => decide("rejected")}
-          className="btn"
-          style={{
-            background: "transparent",
-            color: "#fff",
-            border: "1px solid rgba(255,255,255,.4)",
-            borderRadius: radius.control,
-            padding: "9px 16px",
-            fontSize: 13.5,
-            fontWeight: 700,
-            fontFamily: fonts.body,
-            cursor: "pointer",
-          }}
-        >
+      {choosing && (
+        <fieldset style={{ border: 0, margin: 0, padding: 0, flex: "1 1 100%", display: "grid", gap: 8 }}>
+          <legend style={{ fontSize: 13, fontWeight: 700, marginBottom: 6 }}>Choose cookies</legend>
+          <label style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 13.5 }}>
+            <input type="checkbox" checked disabled /> Strictly necessary (always on)
+          </label>
+          <label style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 13.5 }}>
+            <input type="checkbox" checked={analytics} onChange={(e) => setAnalytics(e.target.checked)} /> Analytics
+          </label>
+          <label style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 13.5 }}>
+            <input type="checkbox" checked={advertising} onChange={(e) => setAdvertising(e.target.checked)} /> Advertising
+          </label>
+        </fieldset>
+      )}
+      <div style={{ display: "flex", gap: 8, flex: "none", flexWrap: "wrap" }}>
+        <button onClick={() => decide(false, false)} className="btn" style={ghost}>
           Necessary only
         </button>
+        {choosing ? (
+          <button onClick={() => decide(analytics, advertising)} className="btn" style={ghost}>
+            Save my choices
+          </button>
+        ) : (
+          <button onClick={() => setChoosing(true)} className="btn" style={ghost}>
+            Choose…
+          </button>
+        )}
         <button
-          onClick={() => decide("accepted")}
+          onClick={() => decide(true, true)}
           className="btn"
           style={{
             background: "#fff",
@@ -144,7 +172,7 @@ export function CookieNotice() {
             cursor: "pointer",
           }}
         >
-          Accept
+          Accept all
         </button>
       </div>
     </div>

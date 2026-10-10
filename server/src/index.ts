@@ -37,6 +37,7 @@ import { commerceRouter } from "./routes/commerce.js";
 import { pricingPublicRouter } from "./routes/pricingPublic.js";
 import { helpRouter } from "./routes/help.js";
 import { policiesRouter } from "./routes/policies.js";
+import { consentsRouter } from "./routes/consents.js";
 import { complaintsRouter } from "./routes/complaints.js";
 import { hostTraderRouter, publicTraderRouter, vendorTraderRouter } from "./routes/traders.js";
 import { hostPayoutsRouter, vendorPayoutsRouter } from "./routes/payouts.js";
@@ -193,6 +194,8 @@ app.use("/api/pricing", pricingPublicRouter);
 app.use("/api/help", helpRouter);
 // Revenue & Connect Stage 4 — Policy Centre, complaints/appeals, trader profiles.
 app.use("/api/policies", policiesRouter);
+// Stage 5c — separate consent records (marketing, privacy acknowledgement, analytics/advertising cookies).
+app.use("/api/consents", consentsRouter);
 app.use("/api/complaints", complaintsRouter);
 app.use("/api/traders", publicTraderRouter);
 app.use("/api/vendor/trader-profile", vendorTraderRouter);

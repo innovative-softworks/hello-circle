@@ -1,5 +1,6 @@
 import { PaginationError, parsePageParams, setNextCursor } from "../pagination.js";
 import { paymentProvider } from "../payments/provider.js";
+import { marketingAllowed, recordConsent } from "../consent.js";
 import { discoverableGameSql } from "../gameVisibility.js";
 import crypto from "node:crypto";
 import fs from "node:fs";
@@ -388,7 +389,8 @@ residentsRouter.get("/me", async (req, res) => {
       interests: row.interests ? row.interests.split(",").filter(Boolean) : [],
       availability: row.availability ? row.availability.split(",").filter(Boolean) : [],
       onboardingCompleted: !!row.onboardingCompleted,
-      notificationPrefs: row.notificationPrefs ? JSON.parse(row.notificationPrefs) : null,
+      // Stage 5c — the marketing toggle shows the marketing consent record, not the prefs JSON.
+      notificationPrefs: { ...(row.notificationPrefs ? JSON.parse(row.notificationPrefs) : {}), marketing: await marketingAllowed(req.resident.id) },
       accessibilityPrefs: row.accessibilityPrefs ? JSON.parse(row.accessibilityPrefs) : [],
       searchRadiusKm: row.searchRadiusKm,
       hostStatus: row.hostStatus,
@@ -932,7 +934,14 @@ residentsRouter.post("/me/onboarding/skip", requireResident, async (req, res) =>
 // --- preferences (Phase A) ----------------------------------------------
 
 residentsRouter.put("/me/notification-prefs", requireResident, async (req, res) => {
-  await db.prepare(`UPDATE residents SET notification_prefs = ? WHERE id = ?`).run(JSON.stringify(req.body ?? {}), req.resident!.id);
+  // Stage 5c — "marketing" is a consent, not a notification preference: it is
+  // recorded (with its own history) only when it actually changes, and is not
+  // stored in the prefs JSON at all.
+  const { marketing, ...prefs } = (req.body ?? {}) as Record<string, unknown>;
+  await db.prepare(`UPDATE residents SET notification_prefs = ? WHERE id = ?`).run(JSON.stringify(prefs), req.resident!.id);
+  if (typeof marketing === "boolean" && marketing !== (await marketingAllowed(req.resident!.id))) {
+    await recordConsent({ type: "resident", id: req.resident!.id }, "marketing_email", marketing, "notification_settings");
+  }
   res.json({ ok: true });
 });
 

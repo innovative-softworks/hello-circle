@@ -4,6 +4,7 @@ import {
   MANDATORY_PLACEHOLDERS,
   PolicyError,
   accept,
+  acknowledge,
   createDraft,
   getDocument,
   getVersion,
@@ -60,6 +61,20 @@ policiesRouter.post("/:key/accept", async (req, res) => {
   if (!subject) return res.status(401).json({ error: "Sign in to accept" });
   try {
     res.json(await accept(subject, req.params.key, Number(version), typeof context === "string" ? context : "gate"));
+  } catch (e) {
+    handle(res, e);
+  }
+});
+
+policiesRouter.post("/:key/acknowledge", async (req, res) => {
+  const { version, as } = req.body as { version?: number; as?: string };
+  if (!KEY_RE.test(req.params.key) || !Number.isInteger(Number(version))) return res.status(400).json({ error: "Policy and version are required" });
+  let subject: Subject | null = null;
+  if (as === "user" && req.user?.role === "vendor") subject = { type: "user", id: req.user.id };
+  if (as === "resident" && req.resident) subject = { type: "resident", id: req.resident.id };
+  if (!subject) return res.status(401).json({ error: "Sign in to continue" });
+  try {
+    res.json(await acknowledge(subject, req.params.key, Number(version), "policy_gate"));
   } catch (e) {
     handle(res, e);
   }

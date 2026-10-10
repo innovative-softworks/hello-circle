@@ -2870,6 +2870,30 @@ async function initCommerceSchema(
     )
   `);
 
+  // Stage 5c — five separate records, never inferred from one another:
+  //   contractual acceptance   policy_acceptances (Terms, agreements)
+  //   privacy acknowledgement  consent_records purpose privacy_notice_ack
+  //                            (reading the notice is not consent)
+  //   marketing consent        consent_records purpose marketing_email
+  //                            (+ residents/users.marketing_consent mirror)
+  //   analytics cookies        consent_records purpose analytics_cookies
+  //   advertising cookies      consent_records purpose advertising_cookies
+  // Append-only: the latest row per (subject, purpose) is the current state.
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS consent_records (
+      id BIGINT AUTO_INCREMENT PRIMARY KEY,
+      subject_type VARCHAR(20) NOT NULL,
+      subject_id VARCHAR(191) NOT NULL,
+      purpose VARCHAR(40) NOT NULL,
+      granted TINYINT NOT NULL,
+      policy_doc_key VARCHAR(60) NULL,
+      policy_version INT NULL,
+      source VARCHAR(30) NOT NULL,
+      created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+      KEY idx_consent_subject (subject_type, subject_id, purpose, id)
+    )
+  `);
+
   // Stage 5c — every settlement transfer is split into immutable per-booking
   // allocation rows (one per settlement item: a released booking, or a
   // negative adjustment such as a refund after completion). Reversals are
@@ -3057,6 +3081,9 @@ async function initCommerceSchema(
         .run(d.key, d.body);
     }
   }
+  // Stage 5c — the privacy notice is acknowledged, not accepted; "all" = residents and partners.
+  await ensureColumn("policy_documents", "acceptance_kind", "acceptance_kind VARCHAR(20) NOT NULL DEFAULT 'contract'");
+  await db.exec(`UPDATE policy_documents SET acceptance_kind = 'acknowledge', acceptance_audience = 'all' WHERE doc_key = 'privacy-policy' AND acceptance_kind <> 'acknowledge'`);
 
   // Stage 4 — complaints, notices and appeals (DSA notice and action,
   // internal complaint handling). A decision to resolve or reject needs a
