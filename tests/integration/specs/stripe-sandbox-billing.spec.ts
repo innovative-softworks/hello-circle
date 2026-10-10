@@ -136,9 +136,10 @@ test("SANDBOX-BILLING-F: Pro €29 net + IE 23% VAT, exempt partner, renewal, fa
       const [payFailed] = await realEvents(failedInv.id!, ["invoice.payment_failed"], B.start);
       expect(payFailed, "Stripe emitted invoice.payment_failed").toBeTruthy();
       expect((await deliverReal(f.actors.QA_VENDOR_B, payFailed)).status).toBe(200);
-      const [ps] = await rows(f, "SELECT status, grace_until AS g FROM partner_subscriptions WHERE provider_subscription_id = ?", [B.sub.id]);
+      // Times are stored in UTC; compare in the database, not via this machine's local timezone.
+      const [ps] = await rows(f, "SELECT status, TIMESTAMPDIFF(SECOND, UTC_TIMESTAMP(), grace_until) AS secs FROM partner_subscriptions WHERE provider_subscription_id = ?", [B.sub.id]);
       expect(ps.status).toBe("past_due");
-      const graceDays = (new Date(ps.g).getTime() - Date.now()) / 86_400_000;
+      const graceDays = Number(ps.secs) / 86_400;
       expect(graceDays).toBeGreaterThan(6.9);
       expect(graceDays).toBeLessThan(7.1);
       expect(await planOf(f, orgB), "Pro kept during grace").toBe("pro");

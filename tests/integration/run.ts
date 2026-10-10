@@ -149,6 +149,7 @@ async function main() {
       ["stripe-sandbox-disputes", "stripe-sandbox-disputes\\.spec\\.ts$"],
       ["stripe-sandbox-billing", "stripe-sandbox-billing\\.spec\\.ts$"],
       ["stripe-sandbox-webhooks", "stripe-sandbox-webhooks\\.spec\\.ts$"],
+      ["stripe-sandbox-reconcile", "stripe-sandbox-reconcile\\.spec\\.ts$"],
     ] : booking ? [
       ["booking-centre", "booking-centre\\.spec\\.ts$"],
       ["booking-club", "booking-club\\.spec\\.ts$"],

@@ -48,7 +48,7 @@ test("STRIPE-CHECKOUT-AMOUNTS: every paid model — quote = server = database = 
         expect(lineSum, `${model}: line items sum`).toBe(s.amount_total);
         expect(s.currency).toBe("eur");
         expect(s.mode).toBe("payment");
-        expect(s.metadata).toEqual({ type: TABLE[model].type, ref: body.ref });
+        expect(s.metadata).toEqual({ type: TABLE[model].type, ref: body.ref, hc_qa_run: process.env.HC_QA_STRIPE_RUN }); // Stage 5d run tag on every object
         expect(s.expires_at! - s.created, `${model}: provider session lives exactly the hold window`).toBeGreaterThanOrEqual(29 * 60);
         expect(s.expires_at! - s.created).toBeLessThanOrEqual(30 * 60 + 5);
         expect(s.success_url).toContain(`/payment/success?ref=${body.ref}`);

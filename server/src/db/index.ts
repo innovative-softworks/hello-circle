@@ -2708,7 +2708,8 @@ async function initCommerceSchema(
   await ensureColumn("fee_reconciliations", "estimate_source", "estimate_source VARCHAR(20) NULL");
   await db.exec(`
     INSERT IGNORE INTO ledger_accounts (code, name, account_type) VALUES
-      ('processing_fee_variance', 'Card processing: actual minus estimate', 'expense')
+      ('processing_fee_variance', 'Card processing: actual minus estimate', 'expense'),
+      ('dispute_fee_expense', 'Provider dispute fees', 'expense')
   `);
 
   // Revenue & Connect Stage 5a — Stripe Connect. One Express account per

@@ -26,7 +26,13 @@ async function disputeFor(paymentIntentId: string): Promise<Stripe.Dispute> {
 }
 
 async function closeDispute(id: string, evidence: "winning_evidence" | "losing_evidence") {
-  await stripe.disputes.update(id, { evidence: { uncategorized_text: evidence }, metadata: { hc_qa_run: process.env.HC_QA_STRIPE_RUN! } });
+  try {
+    await stripe.disputes.update(id, { evidence: { uncategorized_text: evidence }, metadata: { hc_qa_run: process.env.HC_QA_STRIPE_RUN! } });
+  } catch (e) {
+    const err = e as { type?: string; code?: string; param?: string; message?: string };
+    await record("disputes-e-error", { disputeId: id, type: err.type ?? "", code: err.code ?? "", param: err.param ?? "", message: String(err.message ?? "").slice(0, 300) });
+    throw e;
+  }
   for (let i = 0; i < 60; i++) {
     const d = await stripe.disputes.retrieve(id);
     if (d.status === "won" || d.status === "lost") return d;
@@ -86,8 +92,14 @@ test("SANDBOX-DISPUTES-E: created → earnings frozen → won; delayed dispute a
       expect((await deliverReal(l.guest.ctx, closedL)).body.duplicate, "duplicate dispute webhook").toBe(true);
       const [disp] = await rows(f, "SELECT id, status, recovery_status AS rs, amount_minor AS a FROM disputes WHERE provider_dispute_id = ?", [dl.id]);
       expect([disp.status, disp.rs, Number(disp.a)]).toEqual(["lost", "pending", lost.amount]);
-      const [aw2] = await rows(f, "SELECT points, reversed_points AS r FROM reward_awards WHERE source_ref = ?", [l.ref]);
-      expect(Number(aw2.r), "all points reversed (full chargeback)").toBe(Number(aw2.points));
+      const [aw2] = await rows(f, "SELECT points, reversed_points AS r, gmv_minor AS gmv FROM reward_awards WHERE source_ref = ?", [l.ref]);
+      // Stripe may dispute less than the full charge: points are reversed in proportion to the disputed amount.
+      const expectedPoints = Math.floor((Number(aw2.points) * Math.min(Number(aw2.gmv), lost.amount)) / Number(aw2.gmv));
+      expect(Number(aw2.r), "points reversed in proportion to the disputed amount").toBe(expectedPoints);
+      // Stripe's dispute fee is in the ledger exactly once.
+      const stripeFee = (await stripe.disputes.retrieve(dl.id)).balance_transactions.reduce((a, b) => a + b.fee, 0);
+      const [lf] = await rows(f, "SELECT SUM(e.amount_minor) AS s FROM ledger_entries e JOIN ledger_entry_groups g ON g.id = e.group_id WHERE g.source_id = ? AND e.account_code = 'dispute_fee_expense'", [dl.id]);
+      expect(Number(lf.s), "dispute fee = Stripe's").toBe(stripeFee);
       // Partner responsible → recovered from their available balance → negative → partner debt.
       const dec = await f.actors.QA_ADMIN.post(`/api/admin/finance/disputes/${disp.id}/recovery`, { data: { responsible: "partner", reason } });
       expect(dec.status()).toBe(200);
@@ -102,7 +114,7 @@ test("SANDBOX-DISPUTES-E: created → earnings frozen → won; delayed dispute a
       await ledgerBalanced(f);
       await record("disputes-e", {
         won: { disputeId: dw.id, paymentIntentId: w.paymentIntentId, amount: wonDispute.amount, events: [created.id, closedW.id] },
-        lost: { disputeId: dl.id, paymentIntentId: l.paymentIntentId, expectedAmount: l.session.amount_total, actualAmount: lost.amount, events: [createdL.id, closedL.id], pointsReversed: Number(aw2.r), debt: { id: debtBody.debtId, recovered: 0, unrecovered: debtBody.unrecoveredMinor } },
+        lost: { disputeId: dl.id, paymentIntentId: l.paymentIntentId, charged: l.session.amount_total, disputedAmount: lost.amount, events: [createdL.id, closedL.id], pointsAwarded: Number(aw2.points), pointsExpected: expectedPoints, pointsReversed: Number(aw2.r), disputeFeeStripe: stripeFee, disputeFeeLedger: Number(lf.s), debt: { id: debtBody.debtId, recovered: 0, unrecovered: debtBody.unrecoveredMinor } },
         settlementForDelayed: settled.settled?.find((s: any) => s.partyId === orgId)?.settlementId ?? null,
       });
     } finally {

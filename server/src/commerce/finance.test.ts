@@ -268,6 +268,22 @@ describe("disputes", () => {
   });
 });
 
+describe("dispute fee (Stage 5d)", () => {
+  it("posts the provider's dispute fee once, and keeps it when the dispute is won", async () => {
+    const { sessionId } = await paidBooking();
+    const id = `dp_${run}_fee`;
+    const ev = (status: string, type: string, n: string): IncomingEvent => ({ id: `evt_${run}_fee_${n}`, type, created: 0, livemode: false, data: { object: { id, payment_intent: `pi_stub_${sessionId}`, amount: 6_000, currency: "eur", reason: "fraudulent", status, balance_transactions: [{ amount: -6_000, fee: 2_460 }] } } });
+    await processStripeEvent(ev("needs_response", "charge.dispute.created", "1"));
+    await processStripeEvent(ev("needs_response", "charge.dispute.updated", "2"));
+    await processStripeEvent(ev("won", "charge.dispute.closed", "3"));
+    const fee = (await db.prepare(`SELECT SUM(e.amount_minor) AS s FROM ledger_entries e JOIN ledger_entry_groups g ON g.id = e.group_id WHERE g.source_id = ? AND e.account_code = 'dispute_fee_expense'`).get(id)) as { s: number | string };
+    expect(Number(fee.s)).toBe(2_460);
+    const cash = (await db.prepare(`SELECT SUM(e.amount_minor) AS s FROM ledger_entries e JOIN ledger_entry_groups g ON g.id = e.group_id WHERE g.source_id = ? AND e.account_code = 'stripe_clearing'`).get(id)) as { s: number | string };
+    expect(Number(cash.s), "after a win only the fee has left the balance (as at Stripe)").toBe(-2_460);
+    expect(await ledgerIsBalanced()).toBe(true);
+  });
+});
+
 describe("webhook event store", () => {
   const ev = (id: string): IncomingEvent => ({ id, type: "payment_intent.succeeded", created: 1_700_000_000, livemode: false, data: { object: { id: "pi_1", object: "payment_intent", amount: 100, currency: "eur", metadata: { type: "booking", ref: "X" }, customer_email: "secret@example.test" } } });
 

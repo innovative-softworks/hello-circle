@@ -188,9 +188,15 @@ export async function issueStripeRefund(stripeSessionId: string, opts: { amountM
   const provider = paymentProvider();
   if (!provider) return { ok: false, kind: "provider", error: "Payments aren't configured on this server" };
   let paymentIntentId: string | null = null;
-  const reconcile = (state: { amountMinor: number; refundedMinor: number }): StripeRefundResult | null => {
+  const reconcile = async (state: { amountMinor: number; refundedMinor: number; chargeId?: string | null }): Promise<StripeRefundResult | null> => {
     if (state.refundedMinor <= 0) return null;
-    if (state.amountMinor > 0 && state.refundedMinor >= state.amountMinor) return { ok: true, amountCents: state.refundedMinor, reconciled: true };
+    if (state.amountMinor > 0 && state.refundedMinor >= state.amountMinor) {
+      // Stage 5d — keep the provider's refund id when one refund accounts for it all.
+      const list = state.chargeId ? await provider.chargeRefunds(state.chargeId).catch(() => []) : [];
+      const done = list.filter((r) => r.status === "succeeded" || r.status === "pending");
+      const refundId = done.length === 1 && done[0].amountMinor === state.refundedMinor ? done[0].id : undefined;
+      return { ok: true, amountCents: state.refundedMinor, reconciled: true, ...(refundId ? { refundId } : {}) };
+    }
     return { ok: false, kind: "unsupported", error: "This payment was partly refunded outside HelloCircle, so it can't be refunded here. Please contact support to reconcile it." };
   };
   try {
@@ -200,7 +206,7 @@ export async function issueStripeRefund(stripeSessionId: string, opts: { amountM
     // A partial refund (Stage 2c) carries its own key and skips the
     // "already refunded elsewhere" reconciliation, which is full-refund logic.
     if (opts.amountMinor === undefined) {
-      const already = reconcile(await provider.chargeState(paymentIntentId));
+      const already = await reconcile(await provider.chargeState(paymentIntentId));
       if (already) return already;
     }
     // HC-QA-051 — one refund per paid session, even if a retry reaches the
@@ -216,7 +222,7 @@ export async function issueStripeRefund(stripeSessionId: string, opts: { amountM
     // Race: refunded at the provider between the state check and our request.
     if (paymentIntentId && opts.amountMinor === undefined && (e as { code?: string })?.code === "charge_already_refunded") {
       try {
-        const late = reconcile(await provider.chargeState(paymentIntentId));
+        const late = await reconcile(await provider.chargeState(paymentIntentId));
         if (late) return late;
       } catch { /* fall through to the generic provider failure */ }
     }

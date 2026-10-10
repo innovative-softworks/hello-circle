@@ -278,7 +278,7 @@ export async function refundInApp(input: {
  * already know about (a Dashboard refund, or the provider side of our own).
  * Takes the same source-row lock as refundInApp, so an in-flight in-app
  * refund is counted once. */
-export async function recordProviderRefunds(input: { paymentIntentId: string; chargeId: string; amountRefundedMinor: number; amountMinor: number; currency: string }): Promise<{ recordedMinor: number }> {
+export async function recordProviderRefunds(input: { paymentIntentId: string; chargeId: string; amountRefundedMinor: number; amountMinor: number; currency: string; providerRefunds?: { id: string; amountMinor: number; status: string }[] }): Promise<{ recordedMinor: number }> {
   const payment = (await db.prepare(`SELECT id, source_type as type, source_ref as ref, amount_minor as amount FROM payment_records WHERE payment_intent_id = ?`).get(input.paymentIntentId)) as
     | { id: number; type: CheckoutType; ref: string; amount: number }
     | undefined;
@@ -291,14 +291,24 @@ export async function recordProviderRefunds(input: { paymentIntentId: string; ch
     const delta = input.amountRefundedMinor - already;
     if (delta <= 0) return { recordedMinor: 0 };
     const full = input.amountRefundedMinor >= Number(payment.amount);
-    const info = await tx
-      .prepare(
-        `INSERT INTO refunds (source_type, source_ref, payment_record_id, idempotency_key, amount_minor, currency, kind, origin, responsible, reason, status)
-         VALUES (?, ?, ?, ?, ?, ?, ?, 'provider', 'platform', 'Refunded at the payment provider', 'reconciled')`
-      )
-      .run(payment.type, payment.ref, payment.id, `provider:${input.chargeId}:${input.amountRefundedMinor}`, delta, input.currency.toUpperCase(), full && already === 0 ? "full" : "partial");
+    // Stage 5d — record each new provider refund under its own id when the
+    // provider's list accounts for exactly the new amount; otherwise one
+    // amount-based record (as before) so nothing is missed or double-counted.
+    const known = new Set(((await tx.prepare(`SELECT provider_refund_id as id FROM refunds WHERE payment_record_id = ? AND provider_refund_id IS NOT NULL`).all(payment.id)) as { id: string }[]).map((r) => r.id));
+    const unknown = (input.providerRefunds ?? []).filter((r) => !known.has(r.id) && (r.status === "succeeded" || r.status === "pending"));
+    const parts = unknown.reduce((a, r) => a + r.amountMinor, 0) === delta && unknown.length ? unknown : [{ id: null as string | null, amountMinor: delta }];
+    let refundedAfter = already;
+    for (const part of parts) {
+      refundedAfter += part.amountMinor;
+      const info = await tx
+        .prepare(
+          `INSERT INTO refunds (source_type, source_ref, payment_record_id, provider_refund_id, idempotency_key, amount_minor, currency, kind, origin, responsible, reason, status)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'provider', 'platform', 'Refunded at the payment provider', 'reconciled')`
+        )
+        .run(payment.type, payment.ref, payment.id, part.id, part.id ? `provider-refund:${part.id}` : `provider:${input.chargeId}:${input.amountRefundedMinor}`, part.amountMinor, input.currency.toUpperCase(), refundedAfter >= Number(payment.amount) && already === 0 && parts.length === 1 ? "full" : "partial");
+      await postRefund(tx, payment.type, payment.ref, Number(info.lastInsertRowid), part.amountMinor, Number(payment.amount), null);
+    }
     if (full) await tx.prepare(`UPDATE ${table} SET payment_status = 'refunded' WHERE ref = ? AND payment_status = 'paid'`).run(payment.ref);
-    await postRefund(tx, payment.type, payment.ref, Number(info.lastInsertRowid), delta, Number(payment.amount), null);
     return { recordedMinor: delta };
   });
   await syncOrderFromSource(payment.type, payment.ref);
@@ -309,7 +319,7 @@ export async function recordProviderRefunds(input: { paymentIntentId: string; ch
  * a dispute opens and come back if it is won; a lost dispute is a loss to
  * recover from the responsible partner (recovery_status "pending" until the
  * settlement/transfer stages act on it). */
-export async function recordDispute(input: { disputeId: string; paymentIntentId: string | null; amountMinor: number; currency: string; reason: string; status: string; evidenceDueBy: Date | null }): Promise<void> {
+export async function recordDispute(input: { disputeId: string; paymentIntentId: string | null; amountMinor: number; currency: string; reason: string; status: string; evidenceDueBy: Date | null; feeMinor?: number }): Promise<void> {
   const payment = input.paymentIntentId
     ? ((await db.prepare(`SELECT source_type as type, source_ref as ref FROM payment_records WHERE payment_intent_id = ?`).get(input.paymentIntentId)) as { type: string; ref: string } | undefined)
     : undefined;
@@ -335,6 +345,14 @@ export async function recordDispute(input: { disputeId: string; paymentIntentId:
     if (!(await ledgerEnabled())) return;
     const currency = input.currency.toUpperCase();
     const base = { sourceType: "dispute", sourceId: input.disputeId, basis: "actual" as const, currency };
+    // Stage 5d — the provider's dispute fee, once per dispute: HelloCircle's
+    // expense (kept even when the dispute is won; Stripe doesn't return it).
+    if ((input.feeMinor ?? 0) > 0) {
+      await postGroup(tx, { ...base, idempotencyKey: `dispute:${input.disputeId}:fee`, description: `Dispute fee ${input.disputeId}`, lines: [
+        { account: "dispute_fee_expense", amountMinor: input.feeMinor!, memo: "provider dispute fee" },
+        { account: "stripe_clearing", amountMinor: -input.feeMinor!, memo: "dispute fee deducted" },
+      ] });
+    }
     await postGroup(tx, { ...base, idempotencyKey: `dispute:${input.disputeId}:opened`, description: `Dispute opened ${input.disputeId}`, lines: [
       { account: "dispute_reserve", amountMinor: input.amountMinor, memo: "funds withdrawn for dispute" },
       { account: "stripe_clearing", amountMinor: -input.amountMinor, memo: "dispute debit" },

@@ -49,6 +49,8 @@ export interface CheckoutSessionParams {
 export interface ChargeState {
   amountMinor: number;
   refundedMinor: number;
+  /** Stage 5d — the charge id, when known, so a reconciled refund can carry the provider's refund id. */
+  chargeId?: string | null;
 }
 
 export interface CardSummary {
@@ -85,6 +87,8 @@ export interface PaymentProvider {
   cardOwner(paymentMethodId: string): Promise<string | null>;
   setDefaultCard(customerId: string, paymentMethodId: string): Promise<void>;
   detachCard(paymentMethodId: string): Promise<void>;
+  /** Stage 5d — the refunds on a charge (newest first), so refunds made at the provider are recorded under their own ids. */
+  chargeRefunds(chargeId: string): Promise<{ id: string; amountMinor: number; status: string }[]>;
   /** The provider's actual processing fee for a payment, or null if not yet known. */
   paymentFee(paymentIntentId: string): Promise<number | null>;
   /** Re-fetch a webhook event by id (admin replay; never trust a stored copy). */
@@ -146,7 +150,7 @@ class StripeProvider implements PaymentProvider {
   async chargeState(paymentIntentId: string) {
     const pi = await this.client.paymentIntents.retrieve(paymentIntentId, { expand: ["latest_charge"] });
     const charge = pi.latest_charge && typeof pi.latest_charge !== "string" ? pi.latest_charge : null;
-    return { amountMinor: charge?.amount ?? pi.amount_received ?? 0, refundedMinor: charge?.amount_refunded ?? 0 };
+    return { amountMinor: charge?.amount ?? pi.amount_received ?? 0, refundedMinor: charge?.amount_refunded ?? 0, chargeId: charge?.id ?? null };
   }
 
   async createRefund(p: { paymentIntentId: string; amountMinor?: number; idempotencyKey: string; metadata: Record<string, string> }) {
@@ -177,6 +181,11 @@ class StripeProvider implements PaymentProvider {
 
   async detachCard(paymentMethodId: string) {
     await this.client.paymentMethods.detach(paymentMethodId);
+  }
+
+  async chargeRefunds(chargeId: string) {
+    const list = await this.client.refunds.list({ charge: chargeId, limit: 100 });
+    return list.data.map((r) => ({ id: r.id, amountMinor: r.amount, status: String(r.status) }));
   }
 
   async paymentFee(paymentIntentId: string) {
@@ -330,6 +339,10 @@ export class StubProvider implements PaymentProvider {
   /** Test helper: make an event retrievable (as the provider would). */
   publishEvent(event: import("./webhookEvents.js").IncomingEvent) {
     this.events.set(event.id, event);
+  }
+
+  async chargeRefunds() {
+    return []; // the stub keeps no per-charge refund list: callers fall back to the amount-based record
   }
 
   /** Deterministic "actual" fee: 1.4% + €0.25 (deliberately ≠ the 1.5% estimate). */

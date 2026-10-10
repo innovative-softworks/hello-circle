@@ -780,3 +780,140 @@ Commits (local, unpushed): `ef10e09` (1/3), `3640b1a` (2/3), `f26a569` (3/3), `1
 - **New (B19):** confirm whether the production DB user may hold `REFERENCES`. 5c removed the need, so this is
   informational now.
 - Stages 6–8 need an explicit push/deploy instruction.
+
+## Stage 5d — Local Stripe sandbox validation (2026-10-10)
+
+Run with `npm run qa:stripe` against a disposable QA MySQL container only. The test key was read from
+`~/.config/hellocircle-qa/stripe-test.json` and never printed, logged or written. No push, no deploy, and no
+`hello_circle_dev` / `hello_circle` access. Evidence (secret-scanned: 0 matches) is in
+`.qa-data/<run>/evidence/stage5d-<tag>.json`; the primary clean run is tag `qa_stripe_3f975b6211a391a3`.
+
+### 1. Account country and test mode
+- Platform `acct_1UJMiOCJ5YFf911E` ("HelloCircle sandbox"): **country IE**, default currency EUR.
+- `balance.livemode === false`, checked by the preflight and again by the backend before any Stripe object is created.
+  A live key is refused by `stripeTestProfileIssues`.
+- Webhook secrets are generated locally for each run (`whsec_qa_<64 hex>` for platform and Connect). No webhook
+  endpoint is registered at Stripe: real Stripe events are fetched by id, re-signed locally and POSTed to
+  `/api/stripe/webhook`.
+- Outbound traffic: the backend socket guard allows only `api.stripe.com:443` plus the QA MySQL port. Browser
+  contexts may reach only the local origin and Stripe hosts.
+- Every created object carries `metadata.hc_qa_run = qa_stripe_<16 hex>` (`qaRunMetadata()`, active only in the
+  QA Stripe profile). This covers checkout sessions and their PaymentIntents, refunds, customers, tax rates,
+  subscriptions, dispute evidence updates and account probes. Test clocks have no metadata field, so their *name*
+  carries the tag.
+
+### 2. Scenarios
+| Flow | Result |
+|---|---|
+| A — connected accounts | **BLOCKED** (reported as skipped, not passed): this sandbox refuses Accounts v1 creation; the v2 path was proven to work (see 8) |
+| B — direct vendor booking | PASS: payment, fee snapshot = charge, actual fee reconciled from Stripe's balance transaction, not released before 48 h, settled; transfer **held** ("No payout account connected"); bank payout event blocked by A |
+| C — venue/host split | **NOT IMPLEMENTED**: only the pricing calculation supports a split; there is no split checkout, allocation or transfer path to test |
+| D — refunds | PASS before transfer: full, partial, proportional points reversal after settlement, credit restored. Refunds after a transfer, and reversal recovery, are blocked by A |
+| E — disputes | PASS: created, earnings frozen, won and released; a delayed dispute after settlement, lost, points reversed proportionally, partner debt left fully unrecovered (no transfer to reverse), partner frozen; duplicate webhook is a no-op. Transfer reversal is blocked by A |
+| F — Pro | PASS: €29 net + 23% IE VAT = €35.67; exempt partner → €29.00; renewal via test clock; failed renewal → past_due with a 7-day grace → sweep cancels; cancel at period end; free month for 10k points; points debt blocks redemption |
+| G — webhooks | PASS: valid, invalid and missing signatures; duplicate; out of order (`charge.refunded` before payment → `manual_review` → admin replay → processed); delayed redelivery; unknown type stored as ignored; no duplicate ledger groups |
+| H — weekly settlement | PASS: preview settles nothing, execute, rerun of the same key → 409, two bookings combined, items = settlement net, €10 booking carried below €25, frozen partner excluded. Failed transfer and "verification becomes incomplete" are blocked by A |
+
+The 33 pre-existing Stripe specs (checkout amounts, payments for all five models, declines, refunds, external
+refunds, concurrency, browser checkout) also passed with the run tag in place.
+
+### 3. Stripe objects created (primary run; all tagged and in test mode)
+- Payments: `pi_3UOyB6CJ5YFf911E1x7aIRSL`, `pi_3UOyBICJ5YFf911E0Ztlj0Zx` (B), `pi_3UOyDFCJ5YFf911E0mqxLcTq`,
+  `pi_3UOyDaCJ5YFf911E0ssCh6Yc` (E), `pi_3UOyFQCJ5YFf911E0V8L4HrU` (G), plus each pre-existing spec's checkout sessions.
+- Refunds: `re_3UOyC1CJ5YFf911E1goQvLdJ` (full), `re_3UOyCICJ5YFf911E0FhUFq6g` (partial), `re_3UOyFQCJ5YFf911E0eI7s7nL` (G).
+- Disputes: `du_1UOyDHCJ5YFf911Eczm3cfjH` (won), `du_1UOyDcCJ5YFf911EOsycNwIa` (lost).
+- Billing: tax rate `txr_1UOwhlCJ5YFf911Ec1LSYDOR` (reused across runs); subscriptions `sub_1UOyE6CJ5YFf911EOnplLm9W`,
+  `sub_1UOyEGCJ5YFf911EuaOEtguG`, `sub_1UOyEgCJ5YFf911E9K0b2emg`; test clocks `clock_1UOyEFCJ5YFf911EK0mISf1W`,
+  `clock_1UOyEfCJ5YFf911EeAKHdWtR` (deleted on cleanup); customer `cus_VPnqXWsyjNDLwV`.
+- Accounts v2 probes: `acct_1UOwLnCJ5YrB9U72`, `acct_1UOwVXCJ5YeStQA6`, `acct_1UOyAkCJ5YKgbg5Q` (recipient, Express,
+  IE, transfers `restricted` until onboarding). One probe per Connect run; they're inert and tagged. **Not deleted**,
+  per "do not delete objects"; delete them in the Dashboard if wanted.
+- Nothing pre-existing was read beyond the account itself, and nothing pre-existing was modified or deleted.
+  Cleanup touched only this run's own subscriptions and test clocks.
+
+### 4. Expected vs actual (cents)
+| Item | Expected | Stripe / actual |
+|---|---|---|
+| B booking 1: charge / partner share / VAT / customer fee | 5120 / 4000 / 920 / 200 | 5120 / 4000 / 920 / 200 |
+| B booking 2 | 3200 / 2500 / 575 / 125 | 3200 / 2500 / 575 / 125 |
+| B card fee: estimate → Stripe actual | 102 / 73 | 229 / 155 (variance 127 / 82 recorded; the test card is non-EEA, so international pricing applies) |
+| H settlement net (2 bookings) | 6500 | 6500, 2 items |
+| H points awarded | ⌊5120/100⌋ + ⌊3200/100⌋ = 83 | 83 |
+| H €10 booking carried | 1000 | 1000 carried, not settled |
+| D full refund / partial refund | 3840 / 1234 | 3840 / 1234 |
+| D points reversed after €10 refund of a 51-point order | 9 | 9 |
+| D credit used → restored | 700 → 700 | 700 → 700 |
+| E dispute won | 4308 | 4308, released after win |
+| E dispute lost: disputed amount (Stripe disputes 5538 of the 5760 charge) | 5538 | 5538 |
+| E points reversed: ⌊57 × 5538 / 5760⌋ | 54 | 54 |
+| E dispute fee | 2460 | 2460 (ledger), kept after a win as at Stripe |
+| E partner debt | 5538 unrecovered | 5538 unrecovered, recovered 0 |
+| F Pro net / VAT / gross | 2900 / 667 / 3567 | 2900 / 667 / 3567 (4 invoices) |
+| F exempt partner | 2900 / 0 / 2900 | 2900 / 0 / 2900 |
+| F failed renewal grace | 7 days | 7 days |
+
+### 5. Webhook results
+Valid signature → 200; invalid → 400; missing → 400 (nothing stored); Connect secret → 200; unknown type →
+stored `ignored`; duplicate → `duplicate: true` with no side effects. An out-of-order `charge.refunded` parks as
+`manual_review` (acknowledged with 200 so Stripe stops retrying); after the payment confirms, admin replay
+re-fetches the event from Stripe → `processed`, 2 attempts, refund recorded once. Further replays and
+redeliveries change nothing. A delayed `checkout.session.completed` redelivery and duplicate dispute events
+are no-ops, and the ledger has no duplicate groups.
+
+### 6. Reconciliation
+`SANDBOX-RECONCILE` (new) compares every Stage 5d-tagged payment in the QA database with Stripe, cent for cent:
+charge, total refunded, refund ids, actual card fee, dispute status, amount and fee, and Pro invoice cash and
+VAT against the ledger.
+- Latest run: **41 payments and 8 invoices, 0 unexplained mismatches.**
+- One known exception is reported, not hidden: HC-QA-091-PARTIAL makes a €1 refund directly at Stripe and
+  deliberately withholds its webhook, to prove the app refuses to guess. That refund is now labelled at Stripe
+  (`hc_qa_purpose: webhook-withheld`) and listed under `flaggedExceptions`.
+- The clean run before that fix shows the same item as a mismatch, because its refund predates the label.
+- Every ledger transaction balances (`ledgerBalanced` after each flow).
+- Reruns: the same flows were run repeatedly on a database that already held earlier runs' data, and the
+  assertions are delta-based. Rerunning a settlement key → 409. Webhooks are duplicate-safe.
+
+### 7. Bugs fixed
+1. **Stripe-side refunds recorded without their Stripe id.** `charge.refunded` now lists the charge's refunds and
+   records each new one under its own `re_…` id; if amounts don't match exactly, it falls back to the old
+   amount-based row. HelloCircle refunds that reconcile against an already-refunded charge now also keep Stripe's
+   refund id (`issueStripeRefund` → `chargeRefunds`).
+2. **Dispute fee missing from the ledger.** Stripe's dispute fee (€24.60 here) is now posted once per dispute to
+   `dispute_fee_expense`. It's kept when the dispute is won, matching Stripe. New ledger account; new unit test.
+3. **Onboarding refusal surfaced as a bare 500.** It's now a 502 with Stripe's error class and a clear message.
+4. **Run tag and connected-account type.** The run tag is added to every Stripe object in the QA profile, and
+   PaymentIntents now carry the checkout metadata, so disputes trace back to their booking. Onboarding passes
+   `business_type` (company or individual) from the trader profile. A `payouts=refresh` return now mints a new
+   onboarding link instead of a dead end.
+5. Test-side: grace window compared in UTC; dispute points expectation made proportional to the disputed amount;
+   settlement and carry assertions made rerun-safe; pre-existing specs expect the run tag.
+
+### 8. Blockers
+- **B1 — Accounts v1 disabled for this platform.** `accounts.create` is refused, and Stripe requires Accounts v2
+  for new Connect platforms. This blocks A, and every transfer, payout, transfer-reversal, failed-transfer and
+  verification-incomplete path in B, D, E and H. Proven alternative: a v2 recipient account (identity IE,
+  Express dashboard, fees and losses collected by the application, `stripe_balance.stripe_transfers` requested)
+  plus a v2 hosted onboarding link that accepts our local return and refresh URLs.
+  **Owner decision:** migrate `createConnectedAccount` and account links to v2 (recommended), or enable
+  "Accounts v1 support" in the sandbox Dashboard.
+- **Flow C** (venue/host split) is not implemented.
+- **Final end-to-end rerun interrupted.** The last consolidated rerun (with the reconciliation label fix) was cut
+  off because the Mac was on battery and kept entering maintenance sleep. Each flow has passed on a clean
+  database (run `qa_stripe_3f975b6211a391a3`), and the reconciliation fix passed on its own. Repeat
+  `npm run qa:db:reset && npm run qa:db:seed && npm run qa:stripe && npm run qa:revenue` on mains power before
+  relying on a single all-green run.
+
+### 9. Files and migrations
+- Server: `payments/provider.ts`, `payments/connect.ts`, `commerce/payments.ts`, `checkoutService.ts`,
+  `routes/stripeWebhook.ts`, `db/index.ts`, `commerce/finance.test.ts`; client: `PayoutAccountCard.tsx`.
+- Harness: `run.ts` (sandbox batches, per-run Connect secret and run tag), `backend.ts` (secret and tag validation),
+  `stripe-sandbox-preflight.ts`, `stripe-sandbox-fixture.ts`, specs `stripe-sandbox-{connect,money,disputes,billing,webhooks,reconcile}.spec.ts`;
+  pre-existing `stripe-{checkout,payment,refund-external}.spec.ts` updated for the run tag.
+- Migration (additive, idempotent, in `initSchema()`): ledger account `dispute_fee_expense` (expense). No other schema change.
+- Tests: server 741 passed / 23 skipped; client 110 passed; build clean; harness type-check clean.
+
+### 10. Confirmation
+No live Stripe call (live keys refused; `livemode:false` checked before any object), no push, no deployment,
+no access to `hello_circle_dev` or `hello_circle`, no production feature flags. Every run used only the
+disposable QA container; feature switches were set and restored inside it. No secret value appears in code,
+logs, evidence or this document. Not proceeding to staging.

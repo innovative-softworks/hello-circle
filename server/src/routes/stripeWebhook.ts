@@ -14,6 +14,7 @@ import { writeAudit } from "../audit.js";
 import { bookingEndHour, hoursOverlap } from "../util.js";
 import { CLIENT_URL, STRIPE_CONNECT_WEBHOOK_SECRET, STRIPE_WEBHOOK_SECRET, stripe } from "../stripe.js";
 import { CONNECT_EVENT_TYPES, processConnectEvent } from "../payments/connect.js";
+import { paymentProvider } from "../payments/provider.js";
 import { unsignedStripeWebhooksAllowed } from "../stripeWebhookPolicy.js";
 import type Stripe from "stripe";
 import type { CheckoutType } from "../checkoutService.js";
@@ -542,7 +543,9 @@ export async function processStripeEvent(event: IncomingEvent): Promise<"process
     case "charge.refunded": {
       const pi = typeof o.payment_intent === "string" ? o.payment_intent : o.payment_intent?.id;
       if (!pi) throw new NeedsReviewError(`Refunded charge ${o.id} has no payment intent`);
-      await recordProviderRefunds({ paymentIntentId: pi, chargeId: o.id, amountRefundedMinor: Number(o.amount_refunded ?? 0), amountMinor: Number(o.amount ?? 0), currency: o.currency ?? "eur" });
+      // Stage 5d — the charge's refunds (by id) from the provider, so each is recorded under its own id.
+      const providerRefunds = await paymentProvider()?.chargeRefunds(o.id).catch(() => []) ?? [];
+      await recordProviderRefunds({ paymentIntentId: pi, chargeId: o.id, amountRefundedMinor: Number(o.amount_refunded ?? 0), amountMinor: Number(o.amount ?? 0), currency: o.currency ?? "eur", providerRefunds });
       return "processed";
     }
     case "charge.dispute.created":
@@ -556,6 +559,8 @@ export async function processStripeEvent(event: IncomingEvent): Promise<"process
         reason: String(o.reason ?? "unknown"),
         status: String(o.status ?? "needs_response"),
         evidenceDueBy: o.evidence_details?.due_by ? new Date(o.evidence_details.due_by * 1000) : null,
+        // Stage 5d — Stripe's dispute fee (it is not returned when a dispute is won).
+        feeMinor: (o.balance_transactions ?? []).reduce((a: number, b: { fee?: number }) => a + Number(b.fee ?? 0), 0),
       });
       return "processed";
     default:
