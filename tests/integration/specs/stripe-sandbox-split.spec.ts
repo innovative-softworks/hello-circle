@@ -7,7 +7,8 @@ import { deliver, stripe, stripeProfile } from "../stripe-fixture";
 import { attachAccount, createVerifiedRecipient, deliverReal, IBAN, ledgerBalanced, payHosted, realEvents, record, RUN, runKey, setSwitch, sleep } from "../stripe-sandbox-fixture";
 
 // Revenue & Connect Stage 5e — B/C/D/E/H on real Stripe TEST money with two
-// connected accounts: a company venue (QA_VENDOR's organisation) and an
+// connected accounts: a company venue (QA_VENDOR_B's organisation — QA_VENDOR's
+// carries earlier specs' chargeback balance in a combined run) and an
 // individual host (QA_HOST), both verified Accounts v2 test doubles (see
 // createVerifiedRecipient). Reward points are on (each partner earns on its own
 // settled allocation). Each booking is a €40 game at the venue hosted
@@ -21,9 +22,9 @@ const ev5e = (section: string, facts: Record<string, unknown>) => record(section
 test("SANDBOX-SPLIT: venue/host split — snapshot, independent settlement and transfers, refunds and dispute after transfer, bank payouts", async ({ playwright, browser }) => {
   test.skip(!stripeProfile, "qa:stripe only");
   test.setTimeout(1_500_000);
-  await withActors(playwright, ["QA_ADMIN", "QA_VENDOR", "QA_HOST", "QA_USER", "QA_USER_B"], async (f) => {
+  await withActors(playwright, ["QA_ADMIN", "QA_VENDOR_B", "QA_HOST", "QA_USER", "QA_USER_B"], async (f) => {
     const restore = await setSwitch(f, SWITCHES);
-    const [{ org_id: orgId }] = await rows(f, "SELECT org_id FROM users WHERE id = ?", [personas.QA_VENDOR.id]);
+    const [{ org_id: orgId }] = await rows(f, "SELECT org_id FROM users WHERE id = ?", [personas.QA_VENDOR_B.id]);
     const venue = { partyType: "org", partyId: orgId as string };
     const host = { partyType: "host", partyId: personas.QA_HOST.id };
     const admin = (path: string, data: Record<string, unknown>) => f.actors.QA_ADMIN.post(`/api/admin/finance${path}`, { data: { reason, ...data } }).then(async (r) => ({ status: r.status(), body: await r.json() }));
@@ -45,19 +46,19 @@ test("SANDBOX-SPLIT: venue/host split — snapshot, independent settlement and t
       await attachAccount(f, host, hostAcct, "individual");
       const states: Record<string, string> = {};
       for (let i = 0; i < 15; i++) {
-        states.venue = (await (await f.actors.QA_VENDOR.post("/api/vendor/payout-account/refresh", { data: {} })).json()).state;
+        states.venue = (await (await f.actors.QA_VENDOR_B.post("/api/vendor/payout-account/refresh", { data: {} })).json()).state;
         states.host = (await (await f.actors.QA_HOST.post("/api/host/payout-account/refresh", { data: {} })).json()).state;
         if (states.venue === "enabled" && states.host === "enabled") break;
         await sleep(3_000);
       }
-      const ov = await (await f.actors.QA_VENDOR.get("/api/vendor/payout-account")).json();
+      const ov = await (await f.actors.QA_VENDOR_B.get("/api/vendor/payout-account")).json();
       expect(ov.account.transfersCapability, "venue can receive transfers").toBe("active");
       // Trader details: the venue's are self-certified; the host's aren't yet (holds the host only).
       await f.connection.execute("INSERT INTO trader_profiles (party_type, party_id, entity_type, legal_name, address, country, email, phone, company_number, self_certified_at) VALUES ('org', ?, 'company', 'QA Venue Ltd', '1 QA St, Dublin', 'IE', 'qa.venue@example.test', '0', '123456', NOW()) ON DUPLICATE KEY UPDATE self_certified_at = NOW()", [orgId]);
       await f.connection.execute("DELETE FROM trader_profiles WHERE party_type = 'host' AND party_id = ?", [host.partyId]);
 
       // --- split bookings --------------------------------------------------------------
-      const centre = await bookableCentre(f, { rate: 20, cap: 20, payment: "online" });
+      const centre = await bookableCentre(f, { rate: 20, cap: 20, payment: "online", owner: "QA_VENDOR_B" });
       const bookings: Record<string, { ref: string; game: string; session: Stripe.Checkout.Session; pi: string; snapshot: any; lines: any[] }> = {};
       const splitBooking = async (label: string, payer: "QA_USER" | "QA_USER_B", card?: string) => {
         const game = await createActivity(f, "QA_HOST", { capacity: 3, priceCents: 4000 });
@@ -65,7 +66,7 @@ test("SANDBOX-SPLIT: venue/host split — snapshot, independent settlement and t
         const proposed = await f.actors.QA_HOST.post(`/api/host/game-splits/${game.id}`, { data: { mode: "percentage", venueBps: 6667 } });
         expect(proposed.status(), "host proposes").toBe(201);
         const agreement = await proposed.json();
-        expect((await f.actors.QA_VENDOR.post(`/api/vendor/splits/${agreement.id}/decision`, { data: { accept: true } })).status(), "venue accepts").toBe(200);
+        expect((await f.actors.QA_VENDOR_B.post(`/api/vendor/splits/${agreement.id}/decision`, { data: { accept: true } })).status(), "venue accepts").toBe(200);
         const join = await f.actors[payer].post(`/api/games/${game.id}/join`, { data: {} });
         expect(join.status(), "paid join").toBe(201);
         const { ref, url } = await join.json();
@@ -96,23 +97,38 @@ test("SANDBOX-SPLIT: venue/host split — snapshot, independent settlement and t
       // --- H: weekly settlement + transfers; host held, venue paid --------------------
       age("B1");
       age("B2");
+      // Balances from earlier specs in the same run (e.g. a carried amount) are netted in; compare against them.
+      const priorVenue = await available(venue);
+      const priorHost = await available(host);
       const prev1 = await admin("/settlements/run", { runKey: runKey("s1p"), dryRun: true });
       const s1Key = runKey("s1x");
       const s1 = await admin("/settlements/run", { runKey: s1Key, dryRun: false });
       expect(s1.status).toBe(200);
       const vS1 = s1.body.settled.find((s: any) => s.partyId === venue.partyId);
       const hS1 = s1.body.settled.find((s: any) => s.partyId === host.partyId);
-      expect([vS1?.netMinor, hS1?.netMinor], "each partner settled separately").toEqual([5334, 2666]);
-      expect(prev1.body.settled.find((s: any) => s.partyId === venue.partyId)?.netMinor, "preview = execution").toBe(5334);
+      // Each partner's settlement holds this test's per-booking release items (exact cents) and nets to its items
+      // (a combined run may add other earlier items for the same partner).
+      const itemsOf = async (settlementId: number) => rows(f, "SELECT g.idempotency_key AS k, i.amount_minor AS m FROM settlement_items i JOIN ledger_entry_groups g ON g.id = i.ledger_group_id WHERE i.settlement_id = ?", [settlementId]);
+      const vItems = await itemsOf(vS1.settlementId);
+      const hItems = await itemsOf(hS1.settlementId);
+      for (const b of [bookings.B1, bookings.B2]) {
+        expect(Number(vItems.find((i: any) => i.k === `release:game:${b.ref}:org:${venue.partyId}`)?.m), `venue item ${b.ref}`).toBe(2667);
+        expect(Number(hItems.find((i: any) => i.k === `release:game:${b.ref}:host:${host.partyId}`)?.m), `host item ${b.ref}`).toBe(1333);
+      }
+      expect([vS1.netMinor, hS1.netMinor], "settlement = Σ its items").toEqual([vItems.reduce((a: number, i: any) => a + Number(i.m), 0), hItems.reduce((a: number, i: any) => a + Number(i.m), 0)]);
+      void priorVenue;
+      void priorHost;
+      expect(prev1.body.settled.find((s: any) => s.partyId === venue.partyId)?.netMinor, "preview = execution").toBe(vS1.netMinor);
       expect((await admin("/settlements/run", { runKey: s1Key, dryRun: false })).status, "same run key refused").toBe(409);
       const t1 = await admin("/transfers/run", { dryRun: false });
       const vT1 = t1.body.transferred.find((t: any) => t.settlementId === vS1.settlementId);
-      expect(vT1?.amountMinor, "venue transferred").toBe(5334);
+      expect(vT1?.amountMinor, "venue transferred").toBe(vS1.netMinor);
       expect(t1.body.held.find((h: any) => h.settlementId === hS1.settlementId)?.reasons.join(" "), "unverified host held — venue not blocked").toMatch(/Trader details/);
       const stripeT1 = await stripe.transfers.retrieve(vT1.transferId);
-      expect([stripeT1.amount, stripeT1.destination, stripeT1.metadata.hc_qa_run, stripeT1.metadata.settlement_id, stripeT1.transfer_group]).toEqual([5334, venueAcct, RUN, String(vS1.settlementId), `settlement:${vS1.settlementId}`]);
+      expect([stripeT1.amount, stripeT1.destination, stripeT1.metadata.hc_qa_run, stripeT1.metadata.settlement_id, stripeT1.transfer_group]).toEqual([vS1.netMinor, venueAcct, RUN, String(vS1.settlementId), `settlement:${vS1.settlementId}`]);
       const allocT1 = await rows(f, "SELECT a.source_ref AS ref, a.amount_minor AS m FROM transfer_allocations a JOIN transfers t ON t.id = a.transfer_id WHERE t.provider_transfer_id = ? ORDER BY a.id", [vT1.transferId]);
-      expect(allocT1.map((a: any) => [a.ref, Number(a.m)]).sort()).toEqual([[bookings.B1.ref, 2667], [bookings.B2.ref, 2667]].sort());
+      expect(allocT1.filter((a: any) => [bookings.B1.ref, bookings.B2.ref].includes(a.ref)).map((a: any) => [a.ref, Number(a.m)]).sort(), "per-booking allocations").toEqual([[bookings.B1.ref, 2667], [bookings.B2.ref, 2667]].sort());
+      expect(allocT1.reduce((a: number, x: any) => a + Number(x.m), 0), "allocations add up to the transfer").toBe(vS1.netMinor);
       expect((await admin("/transfers/run", { dryRun: false })).body.transferred.length, "re-run transfers nothing twice").toBe(0);
       // Points after settlement: each partner on its own allocation; together ⌊4000 × 1/€⌋ = 40 per booking.
       const splitPoints = async (label: string) =>
@@ -155,7 +171,7 @@ test("SANDBOX-SPLIT: venue/host split — snapshot, independent settlement and t
       const t2 = await admin("/transfers/run", { dryRun: false });
       const hT1 = t2.body.transferred.find((t: any) => t.settlementId === hS1.settlementId);
       const vT2 = t2.body.transferred.find((t: any) => t.settlementId === vS2.settlementId);
-      expect([hT1?.amountMinor, vT2?.amountMinor], "host's earlier settlement now transferred; venue's new one too").toEqual([2666, 2667]);
+      expect([hT1?.amountMinor, vT2?.amountMinor], "host's earlier settlement now transferred; venue's new one too").toEqual([hS1.netMinor, 2667]);
       expect((await stripe.transfers.retrieve(hT1.transferId)).destination).toBe(hostAcct);
 
       // --- D: full refund of B2 after BOTH partners were transferred -------------------
@@ -238,7 +254,7 @@ test("SANDBOX-SPLIT: venue/host split — snapshot, independent settlement and t
         }
         expect(final, `${label} payout settled at Stripe`).toBeTruthy();
         const created = (await stripe.events.list({ types: ["payout.created"], limit: 20 }, { stripeAccount: acctId })).data.find((e) => (e.data.object as Stripe.Payout).id === payouts[label].id);
-        const actor = label === "venue" ? f.actors.QA_VENDOR : f.actors.QA_HOST;
+        const actor = label === "venue" ? f.actors.QA_VENDOR_B : f.actors.QA_HOST;
         // Out of order: the final event first, then the older "created".
         expect((await deliverReal(actor, { ...final!, account: acctId } as Stripe.Event, { connect: true })).status).toBe(200);
         if (created) expect((await deliverReal(actor, { ...created, account: acctId } as Stripe.Event, { connect: true })).status).toBe(200);

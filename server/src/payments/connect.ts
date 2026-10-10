@@ -343,7 +343,10 @@ async function transferOne(provider: PaymentProvider, s: DueSettlement, actorId:
     if (last && (last.status === "unknown" || last.status === "pending")) return { rowId: last.id, key: last.k };
     if (last?.status === "created") return null;
     const attempt = (last?.attempt ?? 0) + 1;
-    const key = `settlement:${s.id}:${attempt}`;
+    // Stage 5e — the random part keeps the key unique across database resets/restores and
+    // across environments sharing a Stripe account (row ids repeat; Stripe keeps keys 24 h).
+    // Stored on the row and reused for every retry of this attempt.
+    const key = `settlement:${s.id}:${attempt}:${crypto.randomUUID().slice(0, 8)}`;
     const r = await tx
       .prepare(
         `INSERT INTO transfers (settlement_id, attempt, idempotency_key, party_type, party_id, destination_account, amount_minor, currency, transfer_group, status, created_by)
@@ -534,7 +537,7 @@ async function reverseForDebt(provider: PaymentProvider, debt: DebtRow, input: {
     for (const [transferRowId, e] of byTransfer) {
       const amount = e.parts.reduce((x, p) => x + p.amount, 0);
       const n = ((await tx.prepare(`SELECT COUNT(*) as n FROM transfer_reversals WHERE transfer_id = ?`).get(transferRowId)) as { n: number }).n;
-      const key = `reversal:${transferRowId}:${Number(n) + 1}`;
+      const key = `reversal:${transferRowId}:${Number(n) + 1}:${crypto.randomUUID().slice(0, 8)}`; // unique across resets/environments (Stage 5e)
       const r = await tx
         .prepare(`INSERT INTO transfer_reversals (transfer_id, idempotency_key, amount_minor, reason, note, status, created_by, debt_id) VALUES (?, ?, ?, 'recovery', ?, 'pending', ?, ?)`)
         .run(transferRowId, key, amount, input.reason.trim().slice(0, 2000), input.actorId, debt.id);

@@ -191,7 +191,7 @@ describe("transfers", () => {
     const real = await call("POST", "/admin/finance/transfers/run", { reason, dryRun: false }, "admin");
     expect(real.body.transferred).toEqual([{ settlementId: id, amountMinor: 8_893, transferId: expect.stringMatching(/^tr_stub_/) }]);
     const sent = stubProvider.calls.filter((c) => c.method === "createTransfer").at(-1)!.args as Record<string, unknown>;
-    expect(sent).toMatchObject({ amountMinor: 8_893, currency: "EUR", transferGroup: `settlement:${id}`, idempotencyKey: `settlement:${id}:1` });
+    expect(sent).toMatchObject({ amountMinor: 8_893, currency: "EUR", transferGroup: `settlement:${id}`, idempotencyKey: expect.stringMatching(new RegExp(`^settlement:${id}:1:[0-9a-f]{8}$`)) });
 
     const s = (await db.prepare(`SELECT status, transfer_id as t FROM settlements WHERE id = ?`).get(id)) as { status: string; t: string };
     expect(s.status).toBe("transferred");
@@ -218,9 +218,12 @@ describe("transfers", () => {
     expect(r3.transferred).toHaveLength(1);
     const attempts = (await db.prepare(`SELECT attempt, status, idempotency_key as k FROM transfers WHERE settlement_id = ? ORDER BY attempt`).all(id)) as { attempt: number; status: string; k: string }[];
     expect(attempts).toEqual([
-      { attempt: 1, status: "failed", k: `settlement:${id}:1` },
-      { attempt: 2, status: "created", k: `settlement:${id}:2` },
+      { attempt: 1, status: "failed", k: expect.stringMatching(new RegExp(`^settlement:${id}:1:[0-9a-f]{8}$`)) },
+      { attempt: 2, status: "created", k: expect.stringMatching(new RegExp(`^settlement:${id}:2:[0-9a-f]{8}$`)) },
     ]);
+    // The unseen outcome (attempt 2) was retried with exactly the same key.
+    const sends = stubProvider.calls.filter((c) => c.method === "createTransfer" && String((c.args as any).idempotencyKey).startsWith(`settlement:${id}:`)).map((c) => (c.args as any).idempotencyKey);
+    expect(sends.slice(-2)).toEqual([attempts[1].k, attempts[1].k]);
   });
 
   it("needs the finance role and a reason", async () => {
