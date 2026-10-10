@@ -227,10 +227,10 @@ async function paymentGroupId(tx: Tx, type: string, ref: string): Promise<string
  * the payment itself was posted). */
 export async function postRefund(tx: Tx, type: string, ref: string, refundId: number, amountMinor: number, paidMinor: number, actor: string | null) {
   // Stage 5c — a refund after settlement reverses that order's reward points proportionally (ledger or not).
-  await reverseRewardsForOrder(tx, type, ref, "refund");
-  if (!(await ledgerEnabled())) return;
+  // Stage 5e — after the refund is posted, so a split booking's per-partner refunded share is known.
+  if (!(await ledgerEnabled())) return void (await reverseRewardsForOrder(tx, type, ref, "refund"));
   const groupId = await paymentGroupId(tx, type, ref);
-  if (!groupId) return; // paid before the ledger existed — reconciliation picks it up
+  if (!groupId) return void (await reverseRewardsForOrder(tx, type, ref, "refund")); // paid before the ledger existed — reconciliation picks it up
   // After completion the partner's share has moved to "available": the
   // refund comes out of that balance (it may go negative and is netted
   // against later settlements).
@@ -244,6 +244,7 @@ export async function postRefund(tx: Tx, type: string, ref: string, refundId: nu
     ratio: { numerator: amountMinor, denominator: paidMinor },
     createdBy: actor,
   });
+  await reverseRewardsForOrder(tx, type, ref, "refund");
 }
 
 export async function refundedSoFar(tx: Tx, type: string, ref: string): Promise<number> {

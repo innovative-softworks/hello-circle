@@ -69,8 +69,19 @@ pool 4000. Venue ⌊4000×6667/10000⌋ = 2666, host ⌊4000×3333/10000⌋ = 13
 | €10 coupon funded by HelloCircle | 2667 | 1333 | −850 | Customer pays 3840; partners whole; `coupon_expense` 1000 |
 | €10 coupon funded by the partner | 2001 | 999 | 150 | Pool is the discounted 3000 |
 
-Each share is released, settled (each with its own €25 minimum and carry), frozen and transferred independently. Reward
-points for a split booking go to the host (one award per order); the venue's share earns none.
+Each share is released, settled (each with its own €25 minimum and carry), frozen and transferred independently.
+
+**Reward points on a split booking** (rule `split_rewards`, rate from `rewards.pointsPerEuro`):
+- Both partners earn, each only on its own settled eligible allocation, issued at that partner's settlement.
+- Eligible means the partner's allocation minus its share of HelloCircle-funded coupons and customer credits, minus what
+  refunds took from it, minus its share of lost disputes. VAT, HelloCircle fees and Stripe fees are never part of a
+  partner allocation.
+- The booking's points are ⌊Σ eligible × rate ÷ 100⌋, divided by largest remainder, so the partners together never earn
+  more than the booking would. Examples:
+  - €40 at 66.67%: venue 2667, host 1333 → 40 points → venue 27, host 13.
+  - After a ¼ refund: eligible 2000 / 1000 → 30 points → reversal of 7 (venue) and 3 (host).
+- Each partner's points are re-derived and reversed separately after refunds or disputes. A reversal the partner can't
+  cover becomes that partner's own points debt.
 
 ## 5. Refund and dispute responsibility
 

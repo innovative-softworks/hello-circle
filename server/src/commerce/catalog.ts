@@ -246,6 +246,29 @@ export const RULE_KEYS: Record<string, RuleKeySpec> = {
     },
     v1: { roundingOwner: "venue", maxVenueBps: 9_000 },
   },
+  split_rewards: {
+    key: "split_rewards",
+    label: "Reward points on venue/host split bookings",
+    description: "Both partners earn points, each only on their own settled eligible allocation, after settlement. The rate is the reward points rule's points per €1.",
+    scopes: ["global"],
+    fields: {
+      basis: { kind: "enum", label: "Points are earned on", values: ["eligible_allocation"], help: "The partner's own allocation, excluding VAT, HelloCircle fees, Stripe fees, HelloCircle-funded coupons, customer credits, refunded amounts and disputed amounts." },
+      rounding: { kind: "enum", label: "Rounding", values: ["floor_total_largest_remainder"], help: "Points for the booking = ⌊total eligible × rate⌋, divided between the partners by largest remainder, so the partners together never earn more than the booking would." },
+      timing: { kind: "enum", label: "When points are issued", values: ["after_settlement"] },
+    },
+    v1: { basis: "eligible_allocation", rounding: "floor_total_largest_remainder", timing: "after_settlement" },
+  },
+  vat_treatment: {
+    key: "vat_treatment",
+    label: "VAT treatment of bookings (record only)",
+    description: "Who owns the VAT liability on a customer booking, as recorded on its allocation snapshot. Recording only — no VAT amounts are calculated from this. Provisional until confirmed by Irish tax advice.",
+    scopes: ["global"],
+    fields: {
+      liabilityOwner: { kind: "enum", label: "VAT liability owner", values: ["helloCircle", "partner"], help: "HelloCircle is the merchant of record for online bookings (separate charges and transfers)." },
+      status: { kind: "enum", label: "Status", values: ["provisional_pending_irish_tax_review", "confirmed_by_tax_adviser"] },
+    },
+    v1: { liabilityOwner: "helloCircle", status: "provisional_pending_irish_tax_review" },
+  },
   rewards: {
     key: "rewards",
     label: "Partner reward points",

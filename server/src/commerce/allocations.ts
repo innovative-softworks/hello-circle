@@ -251,6 +251,11 @@ export async function freezeAllocation(
       input.plan?.remainder ?? 0, input.plan?.roundingOwner ?? "none", input.pricingRuleHash, input.plan?.splitRuleHash ?? null, input.plan?.agreement?.id ?? null, input.plan?.agreement?.version ?? null
     );
   const id = Number(info.lastInsertRowid);
+  // Who owns the VAT liability (record only; provisional pending Irish tax review).
+  const vatRule = await resolveRule("vat_treatment", {}, new Date(), { tx });
+  await tx
+    .prepare(`UPDATE allocation_snapshots SET vat_liability_owner = ?, vat_treatment_status = ?, vat_rule_hash = ? WHERE id = ?`)
+    .run(String(vatRule.values.liabilityOwner), String(vatRule.values.status), vatRule.hash, id);
   const rows: { role: string; partyType: string | null; partyId: string | null; amount: number }[] = [
     { role: "platform", partyType: null, partyId: null, amount: retained },
     ...partners,

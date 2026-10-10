@@ -9,7 +9,8 @@ import { attachAccount, createVerifiedRecipient, deliverReal, IBAN, ledgerBalanc
 // Revenue & Connect Stage 5e — B/C/D/E/H on real Stripe TEST money with two
 // connected accounts: a company venue (QA_VENDOR's organisation) and an
 // individual host (QA_HOST), both verified Accounts v2 test doubles (see
-// createVerifiedRecipient). Each booking is a €40 game at the venue hosted
+// createVerifiedRecipient). Reward points are on (each partner earns on its own
+// settled allocation). Each booking is a €40 game at the venue hosted
 // by the host, with an accepted 66.67 % venue split:
 //   charge 5120 = HelloCircle 200 + venue 2667 (incl. 1c rounding) + host 1333 + VAT 920.
 
@@ -113,11 +114,21 @@ test("SANDBOX-SPLIT: venue/host split — snapshot, independent settlement and t
       const allocT1 = await rows(f, "SELECT a.source_ref AS ref, a.amount_minor AS m FROM transfer_allocations a JOIN transfers t ON t.id = a.transfer_id WHERE t.provider_transfer_id = ? ORDER BY a.id", [vT1.transferId]);
       expect(allocT1.map((a: any) => [a.ref, Number(a.m)]).sort()).toEqual([[bookings.B1.ref, 2667], [bookings.B2.ref, 2667]].sort());
       expect((await admin("/transfers/run", { dryRun: false })).body.transferred.length, "re-run transfers nothing twice").toBe(0);
+      // Points after settlement: each partner on its own allocation; together ⌊4000 × 1/€⌋ = 40 per booking.
+      const splitPoints = async (label: string) =>
+        Object.fromEntries((await rows(f, "SELECT party_type AS t, points, reversed_points AS r, eligible_minor AS e FROM reward_split_awards WHERE source_ref = ?", [bookings[label].ref])).map((x: any) => [x.t === "host" ? "host" : "venue", { points: Number(x.points), reversed: Number(x.r), eligible: Number(x.e) }]));
+      for (const label of ["B1", "B2"]) {
+        const p = await splitPoints(label);
+        expect([p.venue?.points, p.host?.points, p.venue?.eligible, p.host?.eligible], `${label} points per partner`).toEqual([27, 13, 2667, 1333]);
+        expect(await rows(f, "SELECT id FROM reward_awards WHERE source_ref = ?", [bookings[label].ref]), "no whole-booking award").toEqual([]);
+      }
 
       // --- D: partial refund of B1 after only the venue was transferred ----------------
       const r1 = await admin("/refunds", { sourceType: "game", ref: bookings.B1.ref, amountMinor: 1280, responsible: "partner" });
       expect(r1.status).toBe(200);
       expect([await available(venue), await available(host)], "¼ refund: venue 667, host 333 (exact cents)").toEqual([-667, -333]);
+      const pB1 = await splitPoints("B1");
+      expect([pB1.venue.reversed, pB1.host.reversed], "points re-derived on 2000/1000 → 20/10").toEqual([7, 3]);
       const vDebt1 = await admin(`/partners/org/${venue.partyId}/debts`, { reason: "Refund after transfer (split booking B1)", sourceType: "game", sourceRef: bookings.B1.ref });
       expect([vDebt1.status, vDebt1.body.recoveredMinor, vDebt1.body.unrecoveredMinor, vDebt1.body.status]).toEqual([200, 667, 0, "recovered"]);
       const trr1 = vDebt1.body.reversals[0];
@@ -157,6 +168,8 @@ test("SANDBOX-SPLIT: venue/host split — snapshot, independent settlement and t
       const revB2 = await rows(f, "SELECT a.party_id AS p, a.source_ref AS ref, ar.amount_minor AS m FROM transfer_allocation_reversals ar JOIN transfer_allocations a ON a.id = ar.allocation_id JOIN transfer_reversals r ON r.id = ar.reversal_id WHERE r.debt_id IN (?, ?)", [vDebt2.body.debtId, hDebt2.body.debtId]);
       expect(revB2.map((x: any) => [x.p, x.ref, Number(x.m)]).sort(), "each partner's own B2 allocation reversed").toEqual([[host.partyId, bookings.B2.ref, 333], [venue.partyId, bookings.B2.ref, 2667]].sort());
       expect((await stripe.transfers.listReversals(hT1.transferId)).data.map((r) => r.amount)).toEqual([333]);
+      const pB2 = await splitPoints("B2");
+      expect([pB2.venue.reversed, pB2.host.reversed], "full refund: all points reversed, per partner").toEqual([27, 13]);
 
       // --- E: lost dispute after settlement on a split booking -------------------------
       const since = Math.floor(Date.now() / 1000);
@@ -200,7 +213,15 @@ test("SANDBOX-SPLIT: venue/host split — snapshot, independent settlement and t
       expect(Number(fee.s), "Stripe's actual dispute fee").toBe(stripeFee);
       const vDebt3 = await admin(`/partners/org/${venue.partyId}/debts`, { reason: "Lost chargeback after transfer (split booking B4)", sourceType: "game", sourceRef: bookings.B4.ref });
       expect(vDebt3.status).toBe(200);
-      const [awardB4] = await rows(f, "SELECT points, reversed_points AS r FROM reward_awards WHERE source_ref = ?", [bookings.B4.ref]);
+      const pB4 = await splitPoints("B4");
+      // Venue settled B4 before the dispute (27 points); lost 4923 of 5120 leaves eligible 103 / 51 → ⌊154/100⌋ = 1 → venue keeps 1.
+      const lr = (total: number, w: number[]) => { const sum = w.reduce((a, b) => a + b, 0); const base = w.map((x) => Math.floor((total * x) / sum)); let left = total - base.reduce((a, b) => a + b, 0); w.map((x, i) => ({ i, r: (total * x) % sum })).sort((a, b) => b.r - a.r || a.i - b.i).forEach(({ i }) => { if (left-- > 0) base[i]++; }); return base; };
+      const [dv, dh] = lr(lost.amount, [2667, 1333, 5120 - 4000]);
+      const eligibleB4 = [2667 - dv, 1333 - dh];
+      const keepB4 = Math.floor((eligibleB4[0] + eligibleB4[1]) / 100);
+      const venueKeeps = keepB4 > 0 ? lr(keepB4, eligibleB4)[0] : 0;
+      expect([pB4.venue?.points, pB4.venue?.reversed, pB4.host], "dispute reverses the venue's points proportionally; host not yet awarded").toEqual([27, 27 - venueKeeps, undefined]);
+      const awardB4 = pB4;
 
       // --- B: bank payouts are Stripe's, separate from transfers ------------------------
       const payouts: Record<string, Stripe.Payout> = {};
@@ -240,7 +261,8 @@ test("SANDBOX-SPLIT: venue/host split — snapshot, independent settlement and t
         refundB1Partial: { amount: 1280, venuePart: 667, hostPart: 333, venueReversal: { id: stripeRev1[0]?.id, amount: 667 }, hostDebt: { id: hDebt1.body.debtId, unrecovered: 333, then: "offset by own earnings" } },
         settlement2: { venue: vS2.netMinor, hostCarried: hC2.netMinor }, transfer2: { host: hT1.transferId, hostAmount: hT1.amountMinor, venue: vT2.transferId, venueAmount: vT2.amountMinor },
         refundB2Full: { venueRecovered: 2667, hostRecovered: 333, reversals: revB2.map((x: any) => [x.p === host.partyId ? "host" : "venue", Number(x.m)]) },
-        disputeB4: { id: lost.id, charged: Number(bookings.B4.snapshot.gross_minor), disputed: lost.amount, recovery: recMap, stripeFee, ledgerFee: Number(fee.s), venueDebt: { id: vDebt3.body.debtId, recovered: vDebt3.body.recoveredMinor, unrecovered: vDebt3.body.unrecoveredMinor }, hostPointsAward: awardB4 ?? null },
+        points: { B1: await splitPoints("B1"), B2: await splitPoints("B2"), B3: await splitPoints("B3"), B4: pB4 },
+        disputeB4: { id: lost.id, charged: Number(bookings.B4.snapshot.gross_minor), disputed: lost.amount, recovery: recMap, stripeFee, ledgerFee: Number(fee.s), venueDebt: { id: vDebt3.body.debtId, recovered: vDebt3.body.recoveredMinor, unrecovered: vDebt3.body.unrecoveredMinor }, pointsB4: awardB4 },
         bankPayouts: { venue: { id: payouts.venue.id, outcome: payoutOutcome.venue }, host: { id: payouts.host.id, outcome: payoutOutcome.host } },
       });
     } finally {

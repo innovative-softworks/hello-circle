@@ -3603,6 +3603,43 @@ async function initCommerceSchema(
       UNIQUE KEY uq_dispute_role (dispute_id, role)
     )
   `);
+  // Stage 5e — split-booking reward points: one award per partner per booking,
+  // on that partner's own eligible allocation (rule split_rewards).
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS reward_split_awards (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      settlement_id INT NOT NULL,
+      party_type VARCHAR(10) NOT NULL,
+      party_id VARCHAR(191) NOT NULL,
+      source_type VARCHAR(20) NOT NULL,
+      source_ref VARCHAR(191) NOT NULL,
+      eligible_minor BIGINT NOT NULL,
+      points INT NOT NULL,
+      reversed_points INT NOT NULL DEFAULT 0,
+      lot_id INT NULL,
+      rule_hash CHAR(64) NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE KEY uq_split_award (source_type, source_ref, party_type, party_id),
+      KEY idx_split_award_settlement (settlement_id)
+    )
+  `);
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS reward_split_reversals (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      split_award_id INT NOT NULL,
+      points INT NOT NULL,
+      from_lots INT NOT NULL,
+      to_debt INT NOT NULL,
+      reason VARCHAR(30) NOT NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      KEY idx_split_reversal_award (split_award_id)
+    )
+  `);
+  // Stage 5e — who owns the VAT liability on a booking (rule vat_treatment);
+  // provisional pending Irish tax review. Recorded only; no VAT calculation changes.
+  await ensureColumn("allocation_snapshots", "vat_liability_owner", "vat_liability_owner VARCHAR(20) NULL");
+  await ensureColumn("allocation_snapshots", "vat_treatment_status", "vat_treatment_status VARCHAR(50) NULL");
+  await ensureColumn("allocation_snapshots", "vat_rule_hash", "vat_rule_hash CHAR(64) NULL");
   await db.exec(`
     INSERT IGNORE INTO pricing_plans (plan_key, name, status, sort_order) VALUES
       ('free', 'Free', 'active', 1),

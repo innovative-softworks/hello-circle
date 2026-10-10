@@ -1,6 +1,7 @@
 import { writeAudit } from "../audit.js";
 import { db } from "../db/index.js";
-import { isSplitOrder } from "./allocations.js";
+import { allocationPartners, isSplitOrder } from "./allocations.js";
+import { allocate } from "./money.js";
 import { assignPlan, currentPlanFor, type PartnerKey } from "./plans.js";
 import { resolveRule } from "./rules.js";
 import { commerceSwitch } from "./switches.js";
@@ -54,6 +55,7 @@ export async function awardForSettlement(settlementId: number): Promise<number> 
   if (!s || s.kind === "vendor") return 0;
   const rule = await resolveRule("rewards", ctxOf(s.kind, s.pid));
   const perEuro = Number(rule.values.pointsPerEuro);
+  const splitRule = await resolveRule("split_rewards");
   // The orders released into this settlement: release:<type>:<ref> groups.
   const items = (await db
     .prepare(`SELECT g.idempotency_key as k FROM settlement_items i JOIN ledger_entry_groups g ON g.id = i.ledger_group_id WHERE i.settlement_id = ? AND g.idempotency_key LIKE 'release:%'`)
@@ -61,20 +63,37 @@ export async function awardForSettlement(settlementId: number): Promise<number> 
   return db.transaction(async (tx) => {
     if (await tx.prepare(`SELECT id FROM reward_awards WHERE settlement_id = ? LIMIT 1`).get(settlementId)) return 0;
     const orders: { type: string; ref: string; gmv: number; refunded: number; points: number }[] = [];
+    const splitParts: { type: string; ref: string }[] = [];
     for (const { k } of items) {
       const [, type, ref] = k.split(":");
       if (await tx.prepare(`SELECT id FROM reward_awards WHERE source_type = ? AND source_ref = ?`).get(type, ref)) continue;
-      // Stage 5e — a venue/host split earns points once, for the host who sold the
-      // booking (points are per order); the venue's share earns none.
-      if (s.kind !== "host" && (await isSplitOrder(tx, type, ref))) continue;
+      // Stage 5e — a venue/host split booking: each partner earns on its own
+      // eligible allocation (rule split_rewards), recorded per partner below.
+      if (await isSplitOrder(tx, type, ref)) {
+        const [, , , pt, pid] = k.split(":");
+        if (pt === s.kind && pid === s.pid) splitParts.push({ type, ref });
+        continue;
+      }
       const paid = (await tx.prepare(`SELECT amount_minor as a FROM payment_records WHERE source_type = ? AND source_ref = ?`).get(type, ref)) as { a: number | string } | undefined;
       if (!paid) continue;
       const refunded = await refundedFor(tx, type, ref);
       const gmv = Math.max(0, Number(paid.a) - refunded);
       orders.push({ type, ref, gmv, refunded, points: Math.floor((gmv * perEuro) / 100) });
     }
-    const total = orders.reduce((a, o) => a + o.points, 0);
-    if (total <= 0) return 0;
+    const splitAwards: { type: string; ref: string; eligible: number; points: number }[] = [];
+    for (const sp of splitParts) {
+      if (await tx.prepare(`SELECT id FROM reward_split_awards WHERE source_type = ? AND source_ref = ? AND party_type = ? AND party_id = ?`).get(sp.type, sp.ref, s.kind, s.pid)) continue;
+      const t = (await splitTargets(tx, sp.type, sp.ref, perEuro))?.find((x) => x.partyType === s.kind && x.partyId === s.pid);
+      if (t) splitAwards.push({ type: sp.type, ref: sp.ref, eligible: t.eligibleMinor, points: t.points });
+    }
+    const total = orders.reduce((a, o) => a + o.points, 0) + splitAwards.reduce((a, o) => a + o.points, 0);
+    if (total <= 0) {
+      // Still record zero-point split awards so a later reversal has nothing to undo twice.
+      for (const sa of splitAwards) {
+        await tx.prepare(`INSERT IGNORE INTO reward_split_awards (settlement_id, party_type, party_id, source_type, source_ref, eligible_minor, points, lot_id, rule_hash) VALUES (?, ?, ?, ?, ?, ?, 0, NULL, ?)`).run(settlementId, s.kind, s.pid, sa.type, sa.ref, sa.eligible, splitRule.hash);
+      }
+      return 0;
+    }
     // Repay any points debt first.
     const debt = await lockDebt(tx, s.kind, s.pid);
     const repay = Math.min(debt, total);
@@ -89,6 +108,11 @@ export async function awardForSettlement(settlementId: number): Promise<number> 
         .prepare(`INSERT INTO reward_awards (settlement_id, party_type, party_id, source_type, source_ref, gmv_minor, refunded_at_award_minor, points, lot_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
         .run(settlementId, s.kind, s.pid, o.type, o.ref, o.gmv, o.refunded, o.points, lotId);
     }
+    for (const sa of splitAwards) {
+      await tx
+        .prepare(`INSERT INTO reward_split_awards (settlement_id, party_type, party_id, source_type, source_ref, eligible_minor, points, lot_id, rule_hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+        .run(settlementId, s.kind, s.pid, sa.type, sa.ref, sa.eligible, sa.points, lotId, splitRule.hash);
+    }
     return total;
   });
 }
@@ -96,7 +120,94 @@ export async function awardForSettlement(settlementId: number): Promise<number> 
 /** Re-derives how many of an order's points should be reversed (refunds
  * since the award + lost disputes) and reverses the difference. Safe to call
  * after every refund / dispute change; a no-op for orders never awarded. */
+/** Takes points back from a partner: their own lots (the awarding lot first),
+ * then a points debt for the rest. */
+async function deductPoints(tx: Tx, kind: string, pid: string, lotId: number | null, delta: number): Promise<{ fromLots: number; toDebt: number }> {
+  let need = delta;
+  const lots = (await tx
+    .prepare(
+      `SELECT id, points_remaining as r FROM reward_lots WHERE party_type = ? AND party_id = ? AND expires_at > ? AND points_remaining > 0
+       ORDER BY (id = ?) DESC, expires_at, id FOR UPDATE`
+    )
+    .all(kind, pid, new Date(), lotId ?? 0)) as { id: number; r: number }[];
+  for (const l of lots) {
+    if (need <= 0) break;
+    const take = Math.min(Number(l.r), need);
+    await tx.prepare(`UPDATE reward_lots SET points_remaining = points_remaining - ? WHERE id = ?`).run(take, l.id);
+    need -= take;
+  }
+  if (need > 0) {
+    await lockDebt(tx, kind, pid);
+    await tx.prepare(`UPDATE reward_debts SET points_owed = points_owed + ? WHERE party_type = ? AND party_id = ?`).run(need, kind, pid);
+  }
+  return { fromLots: delta - need, toDebt: need };
+}
+
+/**
+ * Stage 5e — the points each partner of a venue/host split booking should hold
+ * now (rule split_rewards). Eligible = the partner's own frozen allocation
+ * minus its share of HelloCircle-funded discounts and customer credits, minus
+ * what refunds took from it (from the ledger), minus its share of lost
+ * disputes. VAT, HelloCircle fees and Stripe fees are never in a partner
+ * allocation. The booking's points = ⌊Σ eligible × rate / 100⌋, divided by
+ * largest remainder — so the partners together never exceed the booking.
+ */
+export async function splitTargets(tx: Tx, type: string, ref: string, perEuro: number): Promise<{ partyType: string; partyId: string; eligibleMinor: number; points: number }[] | null> {
+  const partners = (await allocationPartners(tx, type, ref)).filter((p) => p.role === "venue" || p.role === "host");
+  if (partners.length < 2) return null;
+  const snap = (await tx.prepare(`SELECT gross_minor as g, platform_funded_discount_minor as f, credits_used_minor as c FROM allocation_snapshots WHERE source_type = ? AND source_ref = ?`).get(type, ref)) as
+    | { g: number | string; f: number | string; c: number | string }
+    | undefined;
+  if (!snap) return null;
+  const allocs = partners.map((p) => Math.max(0, p.amountMinor));
+  const allocSum = allocs.reduce((a, b) => a + b, 0);
+  if (allocSum === 0) return partners.map((p) => ({ partyType: p.partyType, partyId: p.partyId, eligibleMinor: 0, points: 0 }));
+  const funded = allocate(Math.min(allocSum, Number(snap.f) + Number(snap.c)), allocs);
+  const gross = Number(snap.g);
+  const lost = Number(((await tx.prepare(`SELECT COALESCE(SUM(amount_minor), 0) as s FROM disputes WHERE source_type = ? AND source_ref = ? AND status = 'lost'`).get(type, ref)) as { s: number | string }).s);
+  const disputed = lost > 0 && gross > 0 ? allocate(Math.min(lost, gross), [...allocs, Math.max(0, gross - allocSum)]).slice(0, allocs.length) : allocs.map(() => 0);
+  const eligible: number[] = [];
+  for (let i = 0; i < partners.length; i++) {
+    const p = partners[i];
+    const r = (await tx
+      .prepare(
+        `SELECT COALESCE(SUM(e.amount_minor), 0) as s FROM ledger_entries e JOIN ledger_entry_groups g ON g.id = e.group_id
+         WHERE g.source_type = 'refund' AND g.source_id IN (SELECT CAST(id AS CHAR) FROM refunds WHERE source_type = ? AND source_ref = ?)
+           AND e.party_type = ? AND e.party_id = ? AND e.account_code IN ('partner_payable', 'host_payable', 'partner_available')`
+      )
+      .get(type, ref, p.partyType, p.partyId)) as { s: number | string };
+    eligible.push(Math.max(0, allocs[i] - funded[i] - Math.max(0, Number(r.s)) - disputed[i]));
+  }
+  const totalEligible = eligible.reduce((a, b) => a + b, 0);
+  const totalPoints = Math.floor((totalEligible * perEuro) / 100);
+  const pts = totalEligible > 0 && totalPoints > 0 ? allocate(totalPoints, eligible) : eligible.map(() => 0);
+  return partners.map((p, i) => ({ partyType: p.partyType, partyId: p.partyId, eligibleMinor: eligible[i], points: pts[i] }));
+}
+
+/** Stage 5e — re-derives each split partner's points and reverses only the excess, per partner. */
+async function reverseSplitRewards(tx: Tx, type: string, ref: string, reason: "refund" | "dispute_lost"): Promise<number> {
+  const awards = (await tx
+    .prepare(`SELECT id, party_type as kind, party_id as pid, points, reversed_points as reversed, lot_id as lotId FROM reward_split_awards WHERE source_type = ? AND source_ref = ? FOR UPDATE`)
+    .all(type, ref)) as { id: number; kind: string; pid: string; points: number; reversed: number; lotId: number | null }[];
+  if (!awards.length) return 0;
+  const rule = await resolveRule("rewards", {}, new Date(), { tx });
+  const targets = (await splitTargets(tx, type, ref, Number(rule.values.pointsPerEuro))) ?? [];
+  let total = 0;
+  for (const a of awards) {
+    const target = targets.find((t) => t.partyType === a.kind && t.partyId === a.pid)?.points ?? 0;
+    const shouldBeReversed = Math.max(0, Number(a.points) - target);
+    const delta = shouldBeReversed - Number(a.reversed);
+    if (delta <= 0) continue;
+    const d = await deductPoints(tx, a.kind, a.pid, a.lotId, delta);
+    await tx.prepare(`UPDATE reward_split_awards SET reversed_points = ? WHERE id = ?`).run(shouldBeReversed, a.id);
+    await tx.prepare(`INSERT INTO reward_split_reversals (split_award_id, points, from_lots, to_debt, reason) VALUES (?, ?, ?, ?, ?)`).run(a.id, delta, d.fromLots, d.toDebt, reason);
+    total += delta;
+  }
+  return total;
+}
+
 export async function reverseRewardsForOrder(tx: Tx, type: string, ref: string, reason: "refund" | "dispute_lost"): Promise<number> {
+  if (await isSplitOrder(tx, type, ref)) return reverseSplitRewards(tx, type, ref, reason);
   const award = (await tx
     .prepare(`SELECT id, party_type as kind, party_id as pid, gmv_minor as gmv, refunded_at_award_minor as refundedAtAward, points, reversed_points as reversed, lot_id as lotId FROM reward_awards WHERE source_type = ? AND source_ref = ? FOR UPDATE`)
     .get(type, ref)) as { id: number; kind: string; pid: string; gmv: number | string; refundedAtAward: number | string; points: number; reversed: number; lotId: number | null } | undefined;
@@ -107,27 +218,9 @@ export async function reverseRewardsForOrder(tx: Tx, type: string, ref: string, 
   const delta = target - award.reversed;
   if (delta <= 0) return 0;
 
-  let need = delta;
-  const now = new Date();
-  const lots = (await tx
-    .prepare(
-      `SELECT id, points_remaining as r FROM reward_lots WHERE party_type = ? AND party_id = ? AND expires_at > ? AND points_remaining > 0
-       ORDER BY (id = ?) DESC, expires_at, id FOR UPDATE`
-    )
-    .all(award.kind, award.pid, now, award.lotId ?? 0)) as { id: number; r: number }[];
-  for (const l of lots) {
-    if (need <= 0) break;
-    const take = Math.min(Number(l.r), need);
-    await tx.prepare(`UPDATE reward_lots SET points_remaining = points_remaining - ? WHERE id = ?`).run(take, l.id);
-    need -= take;
-  }
-  const fromLots = delta - need;
-  if (need > 0) {
-    await lockDebt(tx, award.kind, award.pid);
-    await tx.prepare(`UPDATE reward_debts SET points_owed = points_owed + ? WHERE party_type = ? AND party_id = ?`).run(need, award.kind, award.pid);
-  }
+  const d = await deductPoints(tx, award.kind, award.pid, award.lotId, delta);
   await tx.prepare(`UPDATE reward_awards SET reversed_points = ? WHERE id = ?`).run(target, award.id);
-  await tx.prepare(`INSERT INTO reward_reversals (award_id, points, from_lots, to_debt, reason) VALUES (?, ?, ?, ?, ?)`).run(award.id, delta, fromLots, need, reason);
+  await tx.prepare(`INSERT INTO reward_reversals (award_id, points, from_lots, to_debt, reason) VALUES (?, ?, ?, ?, ?)`).run(award.id, delta, d.fromLots, d.toDebt, reason);
   return delta;
 }
 

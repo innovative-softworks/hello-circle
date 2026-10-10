@@ -5,6 +5,7 @@ import { getConnectedAccount, openPartnerDebt, runTransfers, startOnboarding, sy
 import { stubProvider } from "../payments/provider.js";
 import { agreementsForVenue, decideSplit, proposeSplit, splitWithRounding } from "./allocations.js";
 import { ledgerIsBalanced } from "./ledger.js";
+import { splitTargets } from "./rewards.js";
 import { recordDispute, recordPaymentConfirmed, recordProviderRefunds } from "./payments.js";
 import { resolveDisputeRecovery, runSettlement } from "./settlement.js";
 
@@ -44,6 +45,7 @@ beforeAll(async () => {
   process.env.QA_PAYMENT_PROVIDER_STUB = "1";
   await setSetting("commerce.settlement_ledger", "true");
   await setSetting("commerce.connect_v1", "true");
+  await setSetting("commerce.circle_credits", "true");
   await db.prepare(`INSERT INTO organisations (id, name) VALUES (?, 'Split Venue Ltd')`).run(org);
   await db.prepare(`INSERT INTO users (id, email, password_hash, role, status, name, org_id) VALUES (?, ?, 'x', 'vendor', 'approved', 'V', ?)`).run(vendorId, `${vendorId}@example.test`, org);
   await db.prepare(`INSERT INTO users (id, email, password_hash, role, status, name, admin_role) VALUES (?, ?, 'x', 'admin', 'approved', 'A', 'finance')`).run(adminId, `${adminId}@example.test`);
@@ -58,7 +60,13 @@ beforeAll(async () => {
 afterAll(async () => {
   await setSetting("commerce.settlement_ledger", "false");
   await setSetting("commerce.connect_v1", "false");
+  await setSetting("commerce.circle_credits", "false");
   for (const party of [org, host]) {
+    await db.prepare(`DELETE FROM reward_split_reversals WHERE split_award_id IN (SELECT id FROM reward_split_awards WHERE party_id = ?)`).run(party);
+    await db.prepare(`DELETE FROM reward_split_awards WHERE party_id = ?`).run(party);
+    await db.prepare(`DELETE FROM reward_reversals WHERE award_id IN (SELECT id FROM reward_awards WHERE party_id = ?)`).run(party);
+    await db.prepare(`DELETE FROM reward_lots WHERE party_id = ?`).run(party);
+    await db.prepare(`DELETE FROM reward_debts WHERE party_id = ?`).run(party);
     const groups = (await db.prepare(`SELECT DISTINCT group_id as id FROM ledger_entries WHERE party_id = ?`).all(party)) as { id: string }[];
     for (const g of groups) {
       await db.prepare(`DELETE FROM ledger_entries WHERE group_id = ?`).run(g.id);
@@ -137,6 +145,7 @@ describe("venue/host split end to end (stub provider)", () => {
       expect.arrayContaining([["stripe_clearing", null, 5120], ["partner_payable", org, -2667], ["host_payable", host, -1333], ["platform_fee_revenue", null, -200], ["underlying_tax_payable", null, -920]])
     );
     const snap = (await db.prepare(`SELECT * FROM allocation_snapshots WHERE source_type = 'game' AND source_ref = ?`).get(main.ref)) as Record<string, any>;
+    expect([snap.vat_liability_owner, snap.vat_treatment_status], "VAT liability recorded, provisional").toEqual(["helloCircle", "provisional_pending_irish_tax_review"]);
     expect([snap.gross_minor, snap.vat_minor, snap.platform_retained_minor, snap.partner_pool_minor, snap.rounding_adjustment_minor, snap.rounding_owner, snap.split_agreement_id, snap.split_agreement_version].map((x) => (typeof x === "string" && /^\d+$/.test(x) ? Number(x) : x))).toEqual([5120, 920, 200, 4000, 1, "venue", p.id, 1]);
     const al = (await db.prepare(`SELECT role, party_id as p, amount_minor as m FROM allocation_lines WHERE snapshot_id = ? ORDER BY id`).all(snap.id)) as { role: string; p: string | null; m: number | string }[];
     expect(al.map((l) => [l.role, l.p, Number(l.m)])).toEqual([["platform", null, 200], ["venue", org, 2667], ["host", host, 1333], ["tax", null, 920], ["deposit", null, 0]]);
@@ -158,6 +167,11 @@ describe("venue/host split end to end (stub provider)", () => {
     expect(releases.map((x) => [x.t, Number(x.m)])).toEqual([["host", 1333], ["org", 2667]]);
     expect(await lines(`release:game:${main.ref}:org:${org}`)).toEqual([["partner_payable", org, 2667], ["partner_available", org, -2667]]);
     expect(await lines(`release:game:${main.ref}:host:${host}`)).toEqual([["host_payable", host, 1333], ["partner_available", host, -1333]]);
+    // Points: both partners earn, each on its own settled allocation; together = ⌊4000 × 1 point/€⌋ = 40.
+    const sa = (await db.prepare(`SELECT party_id as p, eligible_minor as e, points FROM reward_split_awards WHERE source_ref = ? ORDER BY party_type DESC`).all(main.ref)) as { p: string; e: number | string; points: number }[];
+    expect(sa.map((x) => [x.p, Number(x.e), Number(x.points)])).toEqual([[org, 2667, 27], [host, 1333, 13]]);
+    expect(sa.reduce((a, x) => a + Number(x.points), 0), "partners together = points on the total eligible allocation").toBe(Math.floor(4000 / 100));
+    expect(await db.prepare(`SELECT id FROM reward_awards WHERE source_ref = ?`).get(main.ref), "no whole-booking award for a split").toBeUndefined();
     const again = await runSettlement({ runKey: `sp-${run}-1`, dryRun: false, actorId: adminId, reason: "split weekly run" }).catch((e) => e);
     expect(again.status).toBe(409);
   });
@@ -176,11 +190,18 @@ describe("venue/host split end to end (stub provider)", () => {
   });
 
   it("a partial refund after only the venue was paid is split exactly; the venue's debt is recovered from its own allocation for this booking", async () => {
+    // The host has already spent its points: its reversal becomes a points debt (the venue's isn't affected).
+    await db.prepare(`UPDATE reward_lots SET points_remaining = 0 WHERE party_type = 'host' AND party_id = ?`).run(host);
     // 1280 of 5120 = ¼: venue 666.75 → 667, host 333.25 → 333 (largest remainder), fee 50, VAT 230.
     await recordProviderRefunds({ paymentIntentId: main.pi, chargeId: `ch_sp_${run}`, amountRefundedMinor: 1280, amountMinor: 5120, currency: "eur" });
     const refundGroup = ((await db.prepare(`SELECT g.idempotency_key as k FROM ledger_entry_groups g JOIN refunds r ON g.source_id = CAST(r.id AS CHAR) AND g.source_type = 'refund' WHERE r.source_ref = ?`).get(main.ref)) as { k: string }).k;
     expect((await lines(refundGroup)).filter((l) => l[1] === org || l[1] === host)).toEqual(expect.arrayContaining([["partner_available", org, 667], ["partner_available", host, 333]]));
     expect(await available(venue)).toBe(-667);
+    // Points re-derived: eligible 2000 / 1000 → ⌊3000/100⌋ = 30 → 20 / 10; reversed 7 (venue, from its lots) and 3 (host, to its debt).
+    const pointsRev = (await db.prepare(`SELECT a.party_id as p, r.points, r.from_lots as fl, r.to_debt as td FROM reward_split_reversals r JOIN reward_split_awards a ON a.id = r.split_award_id WHERE a.source_ref = ? ORDER BY a.party_type DESC`).all(main.ref)) as { p: string; points: number; fl: number; td: number }[];
+    expect(pointsRev.map((x) => [x.p, Number(x.points), Number(x.fl), Number(x.td)])).toEqual([[org, 7, 7, 0], [host, 3, 0, 3]]);
+    expect(Number(((await db.prepare(`SELECT points_owed as p FROM reward_debts WHERE party_type = 'host' AND party_id = ?`).get(host)) as { p: number }).p)).toBe(3);
+    expect(await db.prepare(`SELECT points_owed as p FROM reward_debts WHERE party_type = 'org' AND party_id = ? AND points_owed > 0`).get(org), "the venue owes no points").toBeUndefined();
     const before = await available(hostParty);
     const r = await openPartnerDebt(venue, { actorId: adminId, reason: "Refund after transfer (split booking)", prefer: { sourceType: "game", sourceRef: main.ref } });
     expect([r.recoveredMinor, r.unrecoveredMinor, r.status]).toEqual([667, 0, "recovered"]);
@@ -204,6 +225,9 @@ describe("venue/host split end to end (stub provider)", () => {
     const snapHc = (await db.prepare(`SELECT * FROM allocation_snapshots WHERE source_ref = ?`).get(hc.ref)) as Record<string, any>;
     expect([snapHc.discount_minor, snapHc.discount_funder, snapHc.platform_funded_discount_minor, snapHc.platform_retained_minor, snapHc.partner_pool_minor].map(Number).map((x, i) => (i === 1 ? snapHc.discount_funder : x))).toEqual([1000, "helloCircle", 1000, -850, 4000]);
     expect((await lines(`payment:game:${hc.ref}`)).filter((l) => l[1] === org || l[1] === host || l[0] === "coupon_expense")).toEqual(expect.arrayContaining([["coupon_expense", null, 1000], ["partner_payable", org, -2667], ["host_payable", host, -1333]]));
+    // Points exclude the HelloCircle-funded €10 (allocated 667/333): eligible 2000/1000 → 30 → 20/10.
+    const t = await db.transaction((tx) => splitTargets(tx, "game", hc.ref, 1));
+    expect(t!.map((x) => [x.partyId, x.eligibleMinor, x.points])).toEqual([[org, 2000, 20], [host, 1000, 10]]);
     // Full refund: every line reversed, the coupon cost comes back too.
     await recordProviderRefunds({ paymentIntentId: hc.pi, chargeId: `ch_hc_${run}`, amountRefundedMinor: 3840, amountMinor: 3840, currency: "eur" });
     const refundKey = ((await db.prepare(`SELECT g.idempotency_key as k FROM ledger_entry_groups g JOIN refunds r ON g.source_id = CAST(r.id AS CHAR) AND g.source_type = 'refund' WHERE r.source_ref = ?`).get(hc.ref)) as { k: string }).k;
@@ -220,6 +244,8 @@ describe("venue/host split end to end (stub provider)", () => {
     const d = await paidBooking();
     await recordDispute({ disputeId: `du_sp_${run}`, paymentIntentId: d.pi, amountMinor: 5120, currency: "eur", reason: "fraudulent", status: "lost", evidenceDueBy: null, feeMinor: 1500 });
     const disp = (await db.prepare(`SELECT id FROM disputes WHERE provider_dispute_id = ?`).get(`du_sp_${run}`)) as { id: number };
+    // A fully lost dispute leaves nothing eligible for points.
+    expect((await db.transaction((tx) => splitTargets(tx, "game", d.ref, 1)))!.map((x) => [x.eligibleMinor, x.points])).toEqual([[0, 0], [0, 0]]);
     await expect(resolveDisputeRecovery({ disputeId: disp.id, responsible: "venue", actorId: adminId, reason: "x" })).rejects.toMatchObject({ status: 400 });
     const res = await resolveDisputeRecovery({ disputeId: disp.id, responsible: "partner", actorId: adminId, reason: "Activity not delivered" });
     // 5120 × 2667/4000 = 3413.76 → 3414; × 1333/4000 = 1706.24 → 1706.
