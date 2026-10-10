@@ -1129,6 +1129,9 @@ export function fetchMyCredits(): Promise<MyCredits> {
 }
 
 // --- Revenue & Connect Stage 5e: venue/host split (host side) ---------------
+export function fetchSplitStatus(): Promise<{ enabled: boolean }> {
+  return request(`/host/game-splits/-/status`);
+}
 export function fetchGameSplits(gameId: string): Promise<import("./vendor").VenueSplitAgreement[]> {
   return request(`/host/game-splits/${encodeURIComponent(gameId)}`);
 }

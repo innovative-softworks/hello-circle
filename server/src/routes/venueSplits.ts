@@ -1,6 +1,6 @@
 import { Router, type Response } from "express";
 import { requirePlatformRole, requireVendor } from "../auth.js";
-import { agreementsForGame, agreementsForVenue, decideSplit, proposeSplit, type SplitMode } from "../commerce/allocations.js";
+import { agreementsForGame, agreementsForVenue, decideSplit, proposeSplit, splitEnabled, type SplitMode } from "../commerce/allocations.js";
 import { RuleError } from "../commerce/rules.js";
 import { requireResident } from "../residents.js";
 
@@ -18,6 +18,8 @@ const int = (v: unknown) => (v === undefined || v === null || v === "" ? null : 
 
 export const hostSplitsRouter = Router();
 hostSplitsRouter.use(requireResident);
+/** Whether venue/host splits are switched on (the host card is hidden when not). */
+hostSplitsRouter.get("/-/status", async (_req, res) => res.json({ enabled: await splitEnabled() }));
 hostSplitsRouter.get("/:gameId", async (req, res) => {
   const all = await agreementsForGame(req.params.gameId);
   res.json(all.filter((a) => a.hostResidentId === req.resident!.id));

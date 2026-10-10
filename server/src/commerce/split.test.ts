@@ -46,6 +46,7 @@ beforeAll(async () => {
   await setSetting("commerce.settlement_ledger", "true");
   await setSetting("commerce.connect_v1", "true");
   await setSetting("commerce.circle_credits", "true");
+  await setSetting("commerce.venue_host_split_payout", "true");
   await db.prepare(`INSERT INTO organisations (id, name) VALUES (?, 'Split Venue Ltd')`).run(org);
   await db.prepare(`INSERT INTO users (id, email, password_hash, role, status, name, org_id) VALUES (?, ?, 'x', 'vendor', 'approved', 'V', ?)`).run(vendorId, `${vendorId}@example.test`, org);
   await db.prepare(`INSERT INTO users (id, email, password_hash, role, status, name, admin_role) VALUES (?, ?, 'x', 'admin', 'approved', 'A', 'finance')`).run(adminId, `${adminId}@example.test`);
@@ -61,6 +62,7 @@ afterAll(async () => {
   await setSetting("commerce.settlement_ledger", "false");
   await setSetting("commerce.connect_v1", "false");
   await setSetting("commerce.circle_credits", "false");
+  await setSetting("commerce.venue_host_split_payout", "false");
   for (const party of [org, host]) {
     await db.prepare(`DELETE FROM reward_split_reversals WHERE split_award_id IN (SELECT id FROM reward_split_awards WHERE party_id = ?)`).run(party);
     await db.prepare(`DELETE FROM reward_split_awards WHERE party_id = ?`).run(party);
@@ -238,6 +240,18 @@ describe("venue/host split end to end (stub provider)", () => {
     expect(linesPf.map((l) => [l.role, Number(l.m)])).toEqual([["platform", 150], ["venue", 2001], ["host", 999], ["tax", 690], ["deposit", 0]]);
     expect(((await db.prepare(`SELECT discount_funder as f FROM allocation_snapshots WHERE source_ref = ?`).get(pf.ref)) as { f: string }).f).toBe("partner");
     expect(await ledgerIsBalanced()).toBe(true);
+  });
+
+  it("with the venue_host_split_payout switch off, no proposals and no split is applied (host paid alone)", async () => {
+    await setSetting("commerce.venue_host_split_payout", "false");
+    await new Promise((r) => setTimeout(r, 50));
+    try {
+      await expect(proposeSplit({ gameId, hostResidentId: host, terms: { mode: "percentage", venueBps: 5000, venueFixedMinor: null, hostFixedMinor: null } })).rejects.toMatchObject({ status: 409 });
+      const b = await paidBooking();
+      expect((await lines(`payment:game:${b.ref}`)).filter((l) => l[0] === "host_payable" || l[0] === "partner_payable")).toEqual([["host_payable", host, -4000]]);
+    } finally {
+      await setSetting("commerce.venue_host_split_payout", "true");
+    }
   });
 
   it("a lost dispute is recovered from the responsible partner(s) only, in proportion when both", async () => {

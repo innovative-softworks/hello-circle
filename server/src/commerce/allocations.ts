@@ -20,6 +20,7 @@ import { writeAudit } from "../audit.js";
 import { db } from "../db/index.js";
 import type { LedgerLine } from "./ledger.js";
 import { resolveRule, RuleError } from "./rules.js";
+import { commerceSwitch } from "./switches.js";
 
 type Tx = Pick<typeof db, "prepare">;
 
@@ -114,7 +115,12 @@ export async function agreementsForVenue(party: { partyType: string; partyId: st
 }
 
 /** The host proposes (or re-proposes) a split for their own game at a venue. */
+export async function splitEnabled(): Promise<boolean> {
+  return commerceSwitch("commerce.venue_host_split_payout");
+}
+
 export async function proposeSplit(input: { gameId: string; hostResidentId: string; terms: SplitTerms }): Promise<SplitAgreement> {
+  if (!(await splitEnabled())) throw new RuleError("Venue/host split payouts aren't switched on yet", 409);
   const game = (await db.prepare(`SELECT host_resident_id as host, centre_id as centre, price_cents as price FROM games WHERE id = ?`).get(input.gameId)) as
     | { host: string; centre: string | null; price: number | null }
     | undefined;
@@ -150,6 +156,7 @@ export async function proposeSplit(input: { gameId: string; hostResidentId: stri
 
 /** The venue accepts or declines. Accepting supersedes the previously accepted version (future payments only). */
 export async function decideSplit(input: { agreementId: number; venue: { partyType: string; partyId: string }; accept: boolean; actorId: string; reason?: string }): Promise<SplitAgreement> {
+  if (!(await splitEnabled())) throw new RuleError("Venue/host split payouts aren't switched on yet", 409);
   const reason = (input.reason ?? "").trim();
   if (!input.accept && reason.length < 5) throw new RuleError("A reason (at least 5 characters) is required to decline");
   return db.transaction(async (tx) => {
@@ -182,6 +189,8 @@ export interface AllocationPlan {
  * `poolMinor`. Null when the order isn't a split (single partner as before). */
 export async function planSplit(tx: Tx, type: string, ref: string, poolMinor: number, at: Date): Promise<AllocationPlan | null> {
   if (type !== "game") return null;
+  // Switch off → single partner (the host), even if an agreement was accepted.
+  if (!(await splitEnabled())) return null;
   const g = (await tx.prepare(`SELECT p.game_id as gameId, g.host_resident_id as host FROM game_participants p JOIN games g ON g.id = p.game_id WHERE p.ref = ?`).get(ref)) as
     | { gameId: string; host: string }
     | undefined;

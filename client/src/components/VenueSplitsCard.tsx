@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { decideVenueSplit, fetchFieldHelp, fetchGameSplits, fetchMyGames, fetchVenueSplits, proposeGameSplit, type FieldHelpEntry, type VenueSplitAgreement } from "../api";
+import { decideVenueSplit, fetchFieldHelp, fetchGameSplits, fetchMyGames, fetchSplitStatus, fetchVenueSplits, proposeGameSplit, type FieldHelpEntry, type VenueSplitAgreement } from "../api";
 import type { Game } from "../types";
 import { colors, fonts, radius } from "../theme";
 import { Button, inputStyle, ManageCard as Card, tableStyle, tdStyle, thStyle } from "./ui";
@@ -85,7 +85,8 @@ function HostSide() {
   const [error, setError] = useState<string | null>(null);
   const help = useSplitHelp();
   useEffect(() => {
-    fetchMyGames({ hostedOnly: true })
+    fetchSplitStatus()
+      .then(({ enabled }) => (enabled ? fetchMyGames({ hostedOnly: true }) : []))
       .then(async (all) => {
         const eligible = all.filter((g) => g.centreId && Number(g.priceCents ?? 0) > 0);
         setGames(eligible);

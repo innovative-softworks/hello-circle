@@ -384,5 +384,5 @@ export const COMMERCE_SWITCHES: CommerceSwitch[] = [
   { key: "commerce.pro_subscriptions", label: "HelloCircle Pro (PRO_SUBSCRIPTIONS)", description: "Partners can subscribe to Pro through Stripe Billing (monthly, VAT added). 7-day grace after a failed payment; cancelling ends Pro at the end of the paid month.", defaultValue: false, activeFromPhase: null },
   { key: "commerce.customer_credits", label: "Customer credits (CUSTOMER_CREDITS)", description: "Finance can grant HelloCircle-funded credits to residents, who can apply them at checkout (engine-priced bookings). No cash value.", defaultValue: false, activeFromPhase: null },
   { key: "commerce.boost_vouchers", label: "Boost vouchers (BOOST_VOUCHERS)", description: "Promotional visibility credits.", defaultValue: false, activeFromPhase: 7 },
-  { key: "commerce.venue_host_split_payout", label: "Venue + Host split payout (VENUE_HOST_SPLIT_PAYOUT)", description: "One platform fee, payout split between venue and host.", defaultValue: false, activeFromPhase: 8 },
+  { key: "commerce.venue_host_split_payout", label: "Venue + Host split payout (VENUE_HOST_SPLIT_PAYOUT)", description: "One platform fee, payout split between venue and host. Off: hosts can't propose splits and every booking pays the host alone (accepted agreements are kept but not applied).", defaultValue: false, activeFromPhase: null },
 ];

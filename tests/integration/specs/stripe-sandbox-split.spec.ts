@@ -14,7 +14,7 @@ import { attachAccount, createVerifiedRecipient, deliverReal, IBAN, ledgerBalanc
 // by the host, with an accepted 66.67 % venue split:
 //   charge 5120 = HelloCircle 200 + venue 2667 (incl. 1c rounding) + host 1333 + VAT 920.
 
-const SWITCHES = { "commerce.settlement_ledger": true, "commerce.connect_v1": true, "commerce.circle_credits": true };
+const SWITCHES = { "commerce.settlement_ledger": true, "commerce.connect_v1": true, "commerce.circle_credits": true, "commerce.venue_host_split_payout": true };
 const reason = "Stage 5e split sandbox validation";
 const ev5e = (section: string, facts: Record<string, unknown>) => record(section, facts, "stage5e");
 

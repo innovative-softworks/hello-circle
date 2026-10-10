@@ -121,6 +121,7 @@ HC-QA-091-PARTIAL test withholds one webhook on purpose and is reported under `f
 | `commerce.connect_v1` | No onboarding, no transfer runs, no debt recovery. Ledger and settlements keep accruing |
 | `commerce.settlement_ledger` | No postings or settlements (Connect needs it) |
 | `commerce.circle_credits` | No reward points |
+| `commerce.venue_host_split_payout` | No split proposals or decisions; every game booking pays the host alone (accepted agreements are kept but not applied) |
 
 All default **off**; nothing in Stage 5e turns any on. Rolling back code: schema changes are additive (new nullable
 columns and new tables only), so an older build ignores them. Accounts created as v2 stay valid at Stripe. Disable

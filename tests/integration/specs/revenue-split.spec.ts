@@ -19,7 +19,7 @@ for (const viewport of ["desktop", "mobile"] as const) {
     test.setTimeout(180_000);
     // Sign-ins are rate limited (10 per 15 min per IP): the two browser sessions double as the host and vendor API actors.
     await withActors(playwright, ["QA_USER", "QA_ADMIN"], async (f) => {
-      const restore = await setSwitches(f.connection, { "commerce.connect_v1": true, "commerce.settlement_ledger": true, "commerce.circle_credits": true, "commerce.pro_subscriptions": true });
+      const restore = await setSwitches(f.connection, { "commerce.connect_v1": true, "commerce.settlement_ledger": true, "commerce.circle_credits": true, "commerce.pro_subscriptions": true, "commerce.venue_host_split_payout": true });
       const host = await uiActor(browser, "QA_HOST", viewport);
       const venue = await businessUiActor(browser, "QA_VENDOR", viewport);
       f.actors.QA_HOST = host.context.request;
