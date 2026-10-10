@@ -5,7 +5,7 @@ import { writeAudit } from "../audit.js";
 import { estimate, parseEstimateBody } from "../commerce/calcContext.js";
 import { comparePlans } from "../commerce/planCompare.js";
 import { assignPlan, createCampaign, currentPlanFor, enrollInCampaign, proBreakEvenMinor, type PartnerKey } from "../commerce/plans.js";
-import { CATEGORIES, COMMERCE_SWITCHES, RULE_KEYS, SCENARIOS, type ScopeType } from "../commerce/catalog.js";
+import { CATEGORIES, COMMERCE_SWITCHES, SWITCH_DEPENDENCIES, switchChangeProblem, RULE_KEYS, SCENARIOS, type ScopeType } from "../commerce/catalog.js";
 import {
   RuleError,
   RuleResolutionError,
@@ -59,7 +59,7 @@ adminCommerceRouter.get("/catalog", async (_req, res) => {
   const switches = await Promise.all(
     COMMERCE_SWITCHES.map(async (s) => ({ ...s, enabled: (await getSetting(s.key, s.defaultValue ? "true" : "false")) === "true" }))
   );
-  res.json({ ruleKeys: Object.values(RULE_KEYS), scenarios: SCENARIOS, categories: CATEGORIES, switches, secondApproverRequired: await secondApproverRequired() });
+  res.json({ ruleKeys: Object.values(RULE_KEYS), scenarios: SCENARIOS, categories: CATEGORIES, switches, switchDependencies: SWITCH_DEPENDENCIES, secondApproverRequired: await secondApproverRequired() });
 });
 
 adminCommerceRouter.get("/rules", async (req, res) => {
@@ -123,6 +123,11 @@ adminCommerceRouter.put("/switches/:key", async (req, res) => {
   if (typeof enabled !== "boolean") return res.status(400).json({ error: "enabled must be true or false" });
   if (typeof reason !== "string" || reason.trim().length < 5) return res.status(400).json({ error: "A change reason (at least 5 characters) is required" });
   const before = (await getSetting(spec.key, spec.defaultValue ? "true" : "false")) === "true";
+  // Stage 5f — refuse invalid combinations (e.g. reward points without the settlement ledger).
+  const current: Record<string, boolean> = {};
+  for (const sw of COMMERCE_SWITCHES) current[sw.key] = (await getSetting(sw.key, sw.defaultValue ? "true" : "false")) === "true";
+  const problem = switchChangeProblem(spec.key, enabled, current);
+  if (problem) return res.status(409).json({ error: problem, code: "switch_dependency" });
   await setSetting(spec.key, enabled ? "true" : "false");
   await db
     .prepare(

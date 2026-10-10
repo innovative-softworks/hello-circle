@@ -1,5 +1,15 @@
 import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
 import {
+  adjustPartnerPoints,
+  fetchAdminRewardHistory,
+  fetchAdminRewards,
+  fetchBankPayouts,
+  fetchCouponUsage,
+  fetchCreditSummary,
+  type AdminBankPayout,
+  type AdminCouponUsage,
+  type AdminCreditSummary,
+  type AdminRewardRow,
   assignPartnerPlan,
   createCampaign,
   decideDisputeRecovery,
@@ -541,13 +551,19 @@ function CreditsProSection() {
   const [email, setEmail] = useState("");
   const [amount, setAmount] = useState("10");
   const [kind, setKind] = useState<"goodwill" | "promotional" | "refund">("goodwill");
+  const [funding, setFunding] = useState<"helloCircle" | "partner">("helloCircle");
+  const [expiry, setExpiry] = useState("");
+  const [grantKey, setGrantKey] = useState("");
+  const [summary, setSummary] = useState<AdminCreditSummary | null>(null);
   const [lookup, setLookup] = useState<Awaited<ReturnType<typeof fetchResidentCredits>> | null>(null);
   const [subs, setSubs] = useState<AdminSubscription[]>([]);
   const [dialog, setDialog] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const loadSubs = () => fetchSubscriptions().then(setSubs).catch(() => setSubs([]));
+  const loadSummary = () => fetchCreditSummary().then(setSummary).catch(() => setSummary(null));
   useEffect(() => {
     loadSubs();
+    loadSummary();
   }, []);
   return (
     <Card style={{ padding: 22 }}>
@@ -556,32 +572,66 @@ function CreditsProSection() {
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: 10, alignItems: "end" }}>
         <Field label="Resident email"><input type="email" value={email} onChange={(e) => setEmail(e.target.value.trim())} style={inputStyle} /></Field>
         <Field label="Amount (€)"><input value={amount} onChange={(e) => setAmount(e.target.value)} style={inputStyle} inputMode="decimal" /></Field>
-        <Field label="Kind">
+        <Field label="Currency"><input value="EUR" readOnly aria-readonly style={inputStyle} /></Field>
+        <Field label="Credit type">
           <select value={kind} onChange={(e) => setKind(e.target.value as "goodwill")} style={inputStyle}>
             <option value="goodwill">Goodwill</option>
             <option value="promotional">Promotional</option>
             <option value="refund">Refund as credit</option>
           </select>
         </Field>
+        <Field label="Funded by">
+          <select value={funding} onChange={(e) => setFunding(e.target.value as "helloCircle")} style={inputStyle}>
+            <option value="helloCircle">HelloCircle</option>
+            <option value="partner">Partner</option>
+          </select>
+        </Field>
+        <Field label="Expires (optional)"><input type="date" value={expiry} onChange={(e) => setExpiry(e.target.value)} style={inputStyle} /></Field>
         <Button variant="ghost" disabled={!email} onClick={() => fetchResidentCredits(email).then(setLookup).catch((e) => setMessage(e instanceof Error ? e.message : "Not found"))}>Look up</Button>
-        <Button disabled={!email || toMinor(amount) === null} onClick={() => setDialog(true)}>Grant credit…</Button>
+        <Button disabled={!email || toMinor(amount) === null} onClick={() => { setGrantKey(`grant-${crypto.randomUUID()}`); setDialog(true); }}>Grant credit…</Button>
       </div>
       {lookup && <p style={{ fontSize: 13.5, margin: "10px 0 0" }}>Balance {euro(lookup.balanceMinor)} across {lookup.lots.length} grant(s).</p>}
       {message && <p style={{ fontSize: 13, margin: "10px 0 0" }}>{message}</p>}
       {dialog && (
         <ReasonDialog
-          title={`Grant ${amount} euro of credit to ${email}`}
+          title={`Grant €${amount} of ${kind} credit to ${email}, funded by ${funding === "helloCircle" ? "HelloCircle" : "the partner"}${expiry ? `, expiring ${expiry}` : ""}`}
           confirm="Grant"
           onClose={() => setDialog(false)}
           onConfirm={async (reason) => {
-            const r = await grantResidentCredit({ email, amountMinor: toMinor(amount) ?? 0, kind, reason });
-            setMessage(`Granted. Expires ${when(r.expiresAt)}.`);
+            // One idempotency key per dialog: a double submit grants once.
+            const r = await grantResidentCredit({ email, amountMinor: toMinor(amount) ?? 0, kind, reason, fundingOwner: funding, expiresAt: expiry ? new Date(`${expiry}T23:59:59Z`).toISOString() : null, idempotencyKey: grantKey });
+            setMessage(r.duplicate ? "Already granted (duplicate submission ignored)." : `Granted. Expires ${when(r.expiresAt)}.`);
             setLookup(await fetchResidentCredits(email));
+            loadSummary();
           }}
         />
       )}
+      {summary && (
+        <>
+          <h3 style={{ ...h3, marginTop: 24 }}>Credit outstanding</h3>
+          <p style={{ fontSize: 13.5, margin: "0 0 8px" }} data-testid="credit-outstanding">{euro(summary.outstandingMinor)} across {summary.residents} resident(s).</p>
+          <div style={{ overflowX: "auto" }}>
+            <table style={tableStyle}>
+              <thead><tr><th style={thStyle}>Resident</th><th style={thStyle}>Type</th><th style={thStyle}>Funded by</th><th style={thStyle}>Granted</th><th style={thStyle}>Left</th><th style={thStyle}>Expires</th></tr></thead>
+              <tbody>
+                {summary.grants.slice(0, 20).map((g) => (
+                  <tr key={g.id}>
+                    <td style={tdStyle}>{g.email ?? "—"}</td>
+                    <td style={tdStyle}>{g.kind}</td>
+                    <td style={tdStyle}>{g.fundingOwner === "partner" ? "Partner" : "HelloCircle"}</td>
+                    <td style={tdStyle}>{euro(g.amountMinor)} {g.currency}</td>
+                    <td style={tdStyle}>{euro(g.remainingMinor)}</td>
+                    <td style={{ ...tdStyle, fontSize: 12.5 }}>{when(g.expiresAt)}</td>
+                  </tr>
+                ))}
+                {summary.grants.length === 0 && <tr><td style={tdStyle} colSpan={6}>No credit granted yet.</td></tr>}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
       <h3 style={{ ...h3, marginTop: 24 }}>Pro subscriptions</h3>
-      <p style={hint}>Stripe Billing subscriptions. A failed payment gets a 7-day grace before Pro ends (checked hourly — or now with the button).</p>
+      <p style={hint}>Stripe Billing subscriptions. A failed payment gets the grace period set in Commercial rules → Pro pricing before Pro ends (checked hourly — or now with the button). "duplicate" = a second checkout cancelled on arrival; refund its first payment if one was taken.</p>
       <Button variant="ghost" onClick={() => sweepSubscriptionsApi().then((r) => { setMessage(`Grace check: ${r.ended} subscription(s) ended.`); loadSubs(); })}>Run grace check now</Button>
       <div style={{ overflowX: "auto", marginTop: 12 }}>
         <table style={tableStyle}>
@@ -597,6 +647,145 @@ function CreditsProSection() {
               </tr>
             ))}
             {subs.length === 0 && <tr><td style={tdStyle} colSpan={5}>No subscriptions yet.</td></tr>}
+          </tbody>
+        </table>
+      </div>
+    </Card>
+  );
+}
+
+// --- Stage 5f: reward points, coupons, bank payouts -----------------------------------
+
+function RewardsSection() {
+  const [rows, setRows] = useState<AdminRewardRow[] | null>(null);
+  const [open, setOpen] = useState<AdminRewardRow | null>(null);
+  const [history, setHistory] = useState<Awaited<ReturnType<typeof fetchAdminRewardHistory>>>([]);
+  const [points, setPoints] = useState("");
+  const [adjustKey, setAdjustKey] = useState("");
+  const [dialog, setDialog] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+  const load = () => fetchAdminRewards().then(setRows).catch(() => setRows([]));
+  useEffect(() => {
+    load();
+  }, []);
+  const show = (r: AdminRewardRow) => {
+    setOpen(r);
+    setMessage(null);
+    fetchAdminRewardHistory(r.partyType, r.partyId).then(setHistory).catch(() => setHistory([]));
+  };
+  return (
+    <Card style={{ padding: 22 }}>
+      <h3 style={h3}>Partner reward points</h3>
+      <p style={hint}>Points partners earn on settled sales (not customer credit). Adjustments need a reason and are audited.</p>
+      <div style={{ overflowX: "auto" }}>
+        <table style={tableStyle}>
+          <thead><tr><th style={thStyle}>Partner</th><th style={thStyle}>Available</th><th style={thStyle}>Debt</th><th style={thStyle}>Earned</th><th style={thStyle}>Redeemed</th><th style={thStyle}></th></tr></thead>
+          <tbody>
+            {(rows ?? []).map((r) => (
+              <tr key={`${r.partyType}:${r.partyId}`}>
+                <td style={tdStyle}>{r.partyType}:{r.partyId}</td>
+                <td style={tdStyle}>{r.available.toLocaleString("en-IE")}</td>
+                <td style={{ ...tdStyle, color: r.debt > 0 ? colors.danger : colors.text }}>{r.debt.toLocaleString("en-IE")}</td>
+                <td style={tdStyle}>{r.earned.toLocaleString("en-IE")}</td>
+                <td style={tdStyle}>{r.redeemed.toLocaleString("en-IE")}</td>
+                <td style={tdStyle}><Button variant="ghost" onClick={() => show(r)}>History…</Button></td>
+              </tr>
+            ))}
+            {rows && rows.length === 0 && <tr><td style={tdStyle} colSpan={6}>No points yet.</td></tr>}
+          </tbody>
+        </table>
+      </div>
+      {open && (
+        <div style={{ marginTop: 16 }}>
+          <h3 style={h3}>{open.partyType}:{open.partyId}</h3>
+          <div style={{ display: "flex", gap: 10, alignItems: "end", flexWrap: "wrap" }}>
+            <Field label="Adjust points (+/−)"><input value={points} onChange={(e) => setPoints(e.target.value)} inputMode="numeric" style={inputStyle} /></Field>
+            <Button disabled={!/^-?\d+$/.test(points) || Number(points) === 0} onClick={() => { setAdjustKey(`adj-${crypto.randomUUID()}`); setDialog(true); }}>Adjust…</Button>
+          </div>
+          {message && <p style={{ fontSize: 13 }}>{message}</p>}
+          <ul style={{ listStyle: "none", padding: 0, fontSize: 13.5 }}>
+            {history.map((e) => (
+              <li key={e.id} style={{ display: "flex", justifyContent: "space-between", borderBottom: `1px solid ${colors.border}`, padding: "4px 0" }}>
+                <span>{when(e.at)} · {e.kind}{e.sourceRef ? ` · ${e.sourceRef}` : ""}{e.note ? ` · ${e.note}` : ""}</span>
+                <strong>{e.points > 0 ? `+${e.points}` : e.points}</strong>
+              </li>
+            ))}
+          </ul>
+          {dialog && (
+            <ReasonDialog
+              title={`Adjust ${open.partyType}:${open.partyId} by ${points} points`}
+              confirm="Adjust"
+              onClose={() => setDialog(false)}
+              onConfirm={async (reason) => {
+                const r = await adjustPartnerPoints(open.partyType, open.partyId, { points: Number(points), reason, idempotencyKey: adjustKey });
+                setMessage(r.duplicate ? "Already applied (duplicate ignored)." : "Adjusted.");
+                setPoints("");
+                load();
+                show(open);
+              }}
+            />
+          )}
+        </div>
+      )}
+    </Card>
+  );
+}
+
+function CouponsUsageSection() {
+  const [rows, setRows] = useState<AdminCouponUsage[] | null>(null);
+  useEffect(() => {
+    fetchCouponUsage().then(setRows).catch(() => setRows([]));
+  }, []);
+  return (
+    <Card style={{ padding: 22 }}>
+      <h3 style={h3}>Coupon usage</h3>
+      <p style={hint}>From the redemption ledger. "Returned" = released after an unpaid checkout or reversed on refund.</p>
+      <div style={{ overflowX: "auto" }}>
+        <table style={tableStyle}>
+          <thead><tr><th style={thStyle}>Code</th><th style={thStyle}>Uses</th><th style={thStyle}>Confirmed</th><th style={thStyle}>Returned</th><th style={thStyle}>Discount given</th><th style={thStyle}>HelloCircle-funded</th><th style={thStyle}>Last used</th></tr></thead>
+          <tbody>
+            {(rows ?? []).map((r) => (
+              <tr key={r.code}>
+                <td style={tdStyle}>{r.code}</td>
+                <td style={tdStyle}>{r.uses}</td>
+                <td style={tdStyle}>{r.confirmed}</td>
+                <td style={tdStyle}>{r.returned}</td>
+                <td style={tdStyle}>{euro(r.discountMinor)}</td>
+                <td style={tdStyle}>{euro(r.platformFundedMinor)}</td>
+                <td style={{ ...tdStyle, fontSize: 12.5 }}>{when(r.lastUsedAt)}</td>
+              </tr>
+            ))}
+            {rows && rows.length === 0 && <tr><td style={tdStyle} colSpan={7}>No coupon use yet.</td></tr>}
+          </tbody>
+        </table>
+      </div>
+    </Card>
+  );
+}
+
+function BankPayoutsSection() {
+  const [rows, setRows] = useState<AdminBankPayout[] | null>(null);
+  useEffect(() => {
+    fetchBankPayouts().then(setRows).catch(() => setRows([]));
+  }, []);
+  return (
+    <Card style={{ padding: 22 }}>
+      <h3 style={h3}>Bank payouts</h3>
+      <p style={hint}>Stripe paying a partner's Stripe balance to their bank (Stripe's schedule) — separate from HelloCircle's transfers.</p>
+      <div style={{ overflowX: "auto" }}>
+        <table style={tableStyle}>
+          <thead><tr><th style={thStyle}>Payout</th><th style={thStyle}>Partner</th><th style={thStyle}>Amount</th><th style={thStyle}>Status</th><th style={thStyle}>Arrives</th></tr></thead>
+          <tbody>
+            {(rows ?? []).map((r) => (
+              <tr key={r.id}>
+                <td style={{ ...tdStyle, fontSize: 12.5 }}>{r.id}</td>
+                <td style={tdStyle}>{r.partyType ? `${r.partyType}:${r.partyId}` : r.accountId}</td>
+                <td style={tdStyle}>{euro(r.amountMinor)}</td>
+                <td style={{ ...tdStyle, color: r.status === "failed" ? colors.danger : colors.text }}>{r.status}{r.failureCode ? ` (${r.failureCode})` : ""}</td>
+                <td style={{ ...tdStyle, fontSize: 12.5 }}>{when(r.arrivalDate)}</td>
+              </tr>
+            ))}
+            {rows && rows.length === 0 && <tr><td style={tdStyle} colSpan={5}>No bank payouts yet.</td></tr>}
           </tbody>
         </table>
       </div>
@@ -924,6 +1113,9 @@ const SECTIONS = [
   { key: "transfers", label: "Transfers", roles: ["super", "finance"] },
   { key: "debts", label: "Partner debts", roles: ["super", "finance"] },
   { key: "credits", label: "Credits & Pro", roles: ["super", "finance"] },
+  { key: "rewards", label: "Reward points", roles: ["super", "finance"] },
+  { key: "coupons", label: "Coupons", roles: ["super", "finance"] },
+  { key: "payouts", label: "Bank payouts", roles: ["super", "finance"] },
   { key: "events", label: "Payment events", roles: ["super", "finance"] },
   { key: "refunds", label: "Refunds", roles: ["super", "finance"] },
   { key: "disputes", label: "Disputes", roles: ["super", "finance"] },
@@ -959,6 +1151,9 @@ export function AdminFinanceTab() {
       {section === "transfers" && <TransfersSection />}
       {section === "debts" && <DebtsSection />}
       {section === "credits" && <CreditsProSection />}
+      {section === "rewards" && <RewardsSection />}
+      {section === "coupons" && <CouponsUsageSection />}
+      {section === "payouts" && <BankPayoutsSection />}
       {section === "events" && <WebhooksSection />}
       {section === "refunds" && <RefundsSection />}
       {section === "disputes" && <DisputesSection />}

@@ -391,9 +391,37 @@ export const COMMERCE_SWITCHES: CommerceSwitch[] = [
   { key: "commerce.coupons_v2", label: "Coupons v2 (COUPONS_V2)", description: "Record every coupon use in the redemption ledger (reserved → confirmed → released/reversed) and enforce per-customer limits. Funding, minimum spend, maximum discount and start dates apply whenever a coupon sets them.", defaultValue: false, activeFromPhase: null },
   { key: "commerce.settlement_ledger", label: "Financial ledger (SETTLEMENT_LEDGER)", description: "Post confirmed payments, refunds and disputes to the append-only double-entry ledger. Payment, refund and dispute records are kept either way.", defaultValue: false, activeFromPhase: null },
   { key: "commerce.connect_v1", label: "Stripe Connect payouts (CONNECT_V1)", description: "Partners connect a Stripe Express account; settled amounts are transferred to it (separate charges and transfers). Transfers only run when a finance admin runs them. Test mode only until go-live is approved.", defaultValue: false, activeFromPhase: null },
-  { key: "commerce.circle_credits", label: "Partner reward points (CIRCLE_CREDITS)", description: "Partners earn points on settled sales (awarded when a settlement is created) and can redeem them for a free month of Pro.", defaultValue: false, activeFromPhase: null },
+  { key: "commerce.circle_credits", label: "Partner reward points", description: "Partners earn points on settled sales (awarded when a settlement is created) and can redeem them for a free month of Pro.", defaultValue: false, activeFromPhase: null },
   { key: "commerce.pro_subscriptions", label: "HelloCircle Pro (PRO_SUBSCRIPTIONS)", description: "Partners can subscribe to Pro through Stripe Billing (monthly, VAT added). 7-day grace after a failed payment; cancelling ends Pro at the end of the paid month.", defaultValue: false, activeFromPhase: null },
   { key: "commerce.customer_credits", label: "Customer credits (CUSTOMER_CREDITS)", description: "Finance can grant HelloCircle-funded credits to residents, who can apply them at checkout (engine-priced bookings). No cash value.", defaultValue: false, activeFromPhase: null },
   { key: "commerce.boost_vouchers", label: "Boost vouchers (BOOST_VOUCHERS)", description: "Promotional visibility credits.", defaultValue: false, activeFromPhase: 7 },
   { key: "commerce.venue_host_split_payout", label: "Venue + Host split payout (VENUE_HOST_SPLIT_PAYOUT)", description: "One platform fee, payout split between venue and host. Off: hosts can't propose splits and every booking pays the host alone (accepted agreements are kept but not applied).", defaultValue: false, activeFromPhase: null },
 ];
+
+/**
+ * Stage 5f — switches that only work with others on. Enabling one whose
+ * prerequisites are off is refused, and so is turning off a prerequisite
+ * while a switch that needs it is on (routes/adminCommerce.ts).
+ */
+export const SWITCH_DEPENDENCIES: Record<string, string[]> = {
+  "commerce.circle_credits": ["commerce.settlement_ledger"],
+  "commerce.connect_v1": ["commerce.settlement_ledger"],
+  "commerce.venue_host_split_payout": ["commerce.settlement_ledger", "commerce.connect_v1"],
+  "commerce.customer_credits": ["commerce.engine_v2", "commerce.engine_v2_experience"],
+  "commerce.engine_v2_experience": ["commerce.engine_v2"],
+};
+
+/** Why a switch change would leave an invalid combination (null = allowed). */
+export function switchChangeProblem(key: string, enabled: boolean, current: Record<string, boolean>): string | null {
+  const label = (k: string) => COMMERCE_SWITCHES.find((x) => x.key === k)?.label ?? k;
+  if (enabled) {
+    const missing = (SWITCH_DEPENDENCIES[key] ?? []).filter((d) => !current[d]);
+    if (missing.length) return `Turn on ${missing.map(label).join(" and ")} first`;
+    return null;
+  }
+  const needing = Object.entries(SWITCH_DEPENDENCIES)
+    .filter(([k, deps]) => current[k] && deps.includes(key))
+    .map(([k]) => label(k));
+  if (needing.length) return `Turn off ${needing.join(" and ")} first — it needs this switch`;
+  return null;
+}

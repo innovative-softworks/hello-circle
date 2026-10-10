@@ -481,6 +481,8 @@ export interface CommerceCatalog {
   scenarios: string[];
   categories: string[];
   switches: CommerceSwitchState[];
+  /** Stage 5f — switch → switches it needs on. */
+  switchDependencies?: Record<string, string[]>;
   secondApproverRequired: boolean;
 }
 
@@ -811,8 +813,43 @@ export function reverseTransferAllocation(allocationId: number, amountMinor: num
 
 // --- Revenue & Connect Stage 5b: customer credits, Pro subscriptions ----------
 
-export function grantResidentCredit(input: { email: string; amountMinor: number; kind: "goodwill" | "promotional" | "refund"; reason: string }): Promise<{ id: number; expiresAt: string }> {
+export function grantResidentCredit(input: {
+  email: string;
+  amountMinor: number;
+  kind: "goodwill" | "promotional" | "refund";
+  reason: string;
+  fundingOwner?: "helloCircle" | "partner";
+  expiresAt?: string | null;
+  idempotencyKey?: string;
+}): Promise<{ id: number; expiresAt: string; duplicate?: boolean }> {
   return request(`/admin/finance/credits`, { method: "POST", body: JSON.stringify(input) });
+}
+// --- Stage 5f: finance views for rewards, credit, coupons, bank payouts --------
+export interface AdminRewardRow { partyType: string; partyId: string; available: number; debt: number; earned: number; redeemed: number }
+export function fetchAdminRewards(): Promise<AdminRewardRow[]> {
+  return request(`/admin/finance/rewards`);
+}
+export function fetchAdminRewardHistory(kind: string, id: string): Promise<import("./vendor").RewardHistoryEntry[]> {
+  return request(`/admin/finance/rewards/${encodeURIComponent(kind)}/${encodeURIComponent(id)}/history`);
+}
+export function adjustPartnerPoints(kind: string, id: string, input: { points: number; reason: string; idempotencyKey: string }): Promise<{ id: number; duplicate: boolean }> {
+  return request(`/admin/finance/rewards/${encodeURIComponent(kind)}/${encodeURIComponent(id)}/adjust`, { method: "POST", body: JSON.stringify(input) });
+}
+export interface AdminCreditSummary {
+  outstandingMinor: number;
+  residents: number;
+  grants: { id: number; email: string | null; kind: string; amountMinor: number; remainingMinor: number; currency: string; fundingOwner: string; expiresAt: string; createdAt: string; createdBy: string }[];
+}
+export function fetchCreditSummary(): Promise<AdminCreditSummary> {
+  return request(`/admin/finance/credits/summary`);
+}
+export interface AdminCouponUsage { code: string; uses: number; confirmed: number; returned: number; discountMinor: number; platformFundedMinor: number; lastUsedAt: string }
+export function fetchCouponUsage(): Promise<AdminCouponUsage[]> {
+  return request(`/admin/finance/coupons/usage`);
+}
+export interface AdminBankPayout { id: string; accountId: string; partyType: string | null; partyId: string | null; amountMinor: number; currency: string; status: string; arrivalDate: string | null; failureCode: string | null; createdAt: string }
+export function fetchBankPayouts(): Promise<AdminBankPayout[]> {
+  return request(`/admin/finance/payouts`);
 }
 export function fetchResidentCredits(email: string): Promise<{ residentId: string; enabled: boolean; balanceMinor: number; lots: { id: number; kind: string; amountMinor: number; remainingMinor: number; expiresAt: string; createdAt: string }[] }> {
   return request(`/admin/finance/credits?email=${encodeURIComponent(email)}`);

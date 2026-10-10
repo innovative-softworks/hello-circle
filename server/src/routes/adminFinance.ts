@@ -1,5 +1,6 @@
 import { Router, type Request, type Response } from "express";
 import { db } from "../db/index.js";
+import { RewardError, adjustPoints, rewardHistory } from "../commerce/rewards.js";
 import { writeAudit } from "../audit.js";
 import type { CheckoutType } from "../checkoutService.js";
 import { balances, groupLines, ledgerIsBalanced } from "../commerce/ledger.js";
@@ -320,6 +321,77 @@ adminFinanceRouter.post("/credits", async (req, res) => {
     if (e instanceof CreditError) return res.status(e.status).json({ error: e.message });
     throw e;
   }
+});
+
+/** Stage 5f — partner reward points: balances and debts per partner. */
+adminFinanceRouter.get("/rewards", async (_req, res) => {
+  const rows = await db
+    .prepare(
+      `SELECT p.party_type as partyType, p.party_id as partyId,
+         (SELECT COALESCE(SUM(points_remaining), 0) FROM reward_lots l WHERE l.party_type = p.party_type AND l.party_id = p.party_id AND l.expires_at > NOW()) as available,
+         (SELECT COALESCE(points_owed, 0) FROM reward_debts d WHERE d.party_type = p.party_type AND d.party_id = p.party_id) as debt,
+         (SELECT COALESCE(SUM(points_earned), 0) FROM reward_lots l WHERE l.party_type = p.party_type AND l.party_id = p.party_id) as earned,
+         (SELECT COALESCE(SUM(points), 0) FROM reward_redemptions r WHERE r.party_type = p.party_type AND r.party_id = p.party_id) as redeemed
+       FROM (SELECT party_type, party_id FROM reward_lots UNION SELECT party_type, party_id FROM reward_debts) p
+       ORDER BY available DESC LIMIT 500`
+    )
+    .all();
+  res.json((rows as Record<string, unknown>[]).map((r) => ({ ...r, available: Number(r.available), debt: Number(r.debt ?? 0), earned: Number(r.earned), redeemed: Number(r.redeemed) })));
+});
+
+adminFinanceRouter.get("/rewards/:kind/:id/history", async (req, res) => {
+  if (!["org", "host", "vendor"].includes(req.params.kind)) return res.status(400).json({ error: "Unknown partner kind" });
+  res.json(await rewardHistory({ kind: req.params.kind as "org" | "host" | "vendor", id: req.params.id }, { limit: 200 }));
+});
+
+/** Stage 5f — manual points adjustment (reason, idempotency key, audit). */
+adminFinanceRouter.post("/rewards/:kind/:id/adjust", async (req, res) => {
+  if (!["org", "host"].includes(req.params.kind)) return res.status(400).json({ error: "Points apply to organisations and hosts" });
+  const b = (req.body ?? {}) as { points?: number; reason?: string; idempotencyKey?: string };
+  try {
+    res.json(await adjustPoints({ partner: { kind: req.params.kind as "org" | "host", id: req.params.id }, points: Number(b.points), reason: String(b.reason ?? ""), idempotencyKey: String(b.idempotencyKey ?? ""), actorId: req.user!.id }));
+  } catch (e) {
+    if (e instanceof RewardError) return res.status(e.status).json({ error: e.message });
+    throw e;
+  }
+});
+
+/** Stage 5f — coupon usage (redemption ledger). */
+adminFinanceRouter.get("/coupons/usage", async (_req, res) => {
+  const rows = await db
+    .prepare(
+      `SELECT code, COUNT(*) as uses, SUM(CASE WHEN status = 'confirmed' THEN 1 ELSE 0 END) as confirmed, SUM(CASE WHEN status IN ('released','reversed') THEN 1 ELSE 0 END) as returned,
+         COALESCE(SUM(CASE WHEN status = 'confirmed' THEN discount_minor ELSE 0 END), 0) as discountMinor,
+         COALESCE(SUM(CASE WHEN status = 'confirmed' THEN platform_funded_minor ELSE 0 END), 0) as platformFundedMinor, MAX(created_at) as lastUsedAt
+       FROM coupon_redemptions GROUP BY code ORDER BY lastUsedAt DESC LIMIT 200`
+    )
+    .all();
+  res.json((rows as Record<string, unknown>[]).map((r) => ({ ...r, uses: Number(r.uses), confirmed: Number(r.confirmed), returned: Number(r.returned), discountMinor: Number(r.discountMinor), platformFundedMinor: Number(r.platformFundedMinor) })));
+});
+
+/** Stage 5f — customer credit outstanding (liability) and recent grants. */
+adminFinanceRouter.get("/credits/summary", async (_req, res) => {
+  const total = (await db.prepare(`SELECT COALESCE(SUM(remaining_minor), 0) as s, COUNT(DISTINCT resident_id) as n FROM credit_lots WHERE expires_at > NOW() AND remaining_minor > 0`).get()) as { s: number | string; n: number | string };
+  const grants = await db
+    .prepare(
+      `SELECT l.id, r.email, l.kind, l.amount_minor as amountMinor, l.remaining_minor as remainingMinor, l.currency, l.funding_owner as fundingOwner, l.expires_at as expiresAt, l.created_at as createdAt, l.created_by as createdBy
+       FROM credit_lots l LEFT JOIN residents r ON r.id = l.resident_id ORDER BY l.id DESC LIMIT 100`
+    )
+    .all();
+  res.json({ outstandingMinor: Number(total.s), residents: Number(total.n), grants });
+});
+
+/** Stage 5f — bank payouts (Stripe → partner's bank), mirrored from payout.* events. */
+adminFinanceRouter.get("/payouts", async (_req, res) => {
+  res.json(
+    await db
+      .prepare(
+        `SELECT p.provider_payout_id as id, p.account_id as accountId, a.party_type as partyType, a.party_id as partyId, p.amount_minor as amountMinor, p.currency, p.status,
+           p.arrival_date as arrivalDate, p.failure_code as failureCode, p.created_at as createdAt
+         FROM connected_payouts p LEFT JOIN connected_accounts a ON a.account_id = p.account_id ORDER BY p.created_at DESC LIMIT 200`
+      )
+      .all()
+  );
 });
 
 adminFinanceRouter.get("/subscriptions", async (_req, res) => {

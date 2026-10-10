@@ -551,6 +551,11 @@ function SwitchesCard({ catalog, onChanged }: { catalog: CommerceCatalog; onChan
               {s.description}
               {s.activeFromPhase !== null && <> · <em>no effect until Phase {s.activeFromPhase}</em></>}
             </div>
+            {(catalog.switchDependencies?.[s.key] ?? []).length > 0 && (
+              <div style={{ fontSize: 12, marginTop: 2 }} data-testid={`switch-needs-${s.key}`}>
+                Needs: {(catalog.switchDependencies?.[s.key] ?? []).map((d) => catalog.switches.find((x) => x.key === d)?.label ?? d).join(", ")}
+              </div>
+            )}
           </div>
           <input
             type="checkbox"
@@ -727,6 +732,19 @@ function OrdersCard() {
 
 // --- the tab -----------------------------------------------------------------------------
 
+// Stage 5f — Admin → Commercial rules sections (keys not listed fall into "Checkout, settlement and payouts").
+const SECTIONS: { id: string; title: string; keys?: string[]; note?: string }[] = [
+  { id: "switches", title: "Feature switches", note: "Each change needs a reason and is audited. Switches that depend on others can't be turned on (or their prerequisites off) in an invalid combination." },
+  { id: "pro", title: "Pro pricing", keys: ["plan_free", "plan_pro", "plan_rules", "entitlements_free", "entitlements_pro", "subscription_policy"] },
+  { id: "rewards", title: "Reward points", keys: ["rewards", "split_rewards"], note: "Partner reward points (not customer credit)." },
+  { id: "credit", title: "Customer credit", keys: ["credits"], note: "Customer credit is granted in Admin → Finance → Credits & Pro." },
+  { id: "coupons", title: "Coupons", note: "Coupon codes, limits and funding are managed in Admin → Coupons; usage is in Admin → Finance → Coupons." },
+  { id: "tax", title: "VAT and tax", keys: ["tax_vat", "vat_treatment"], note: "VAT treatment is provisional pending Irish tax review." },
+  { id: "help", title: "Help content", note: "Explanations shown to partners and customers are edited in Admin → Finance → Field help (versioned)." },
+  { id: "other", title: "Checkout, settlement and payouts", keys: ["pricing", "checkout", "cancellation", "payment_costs", "settlement", "venue_split", "availability"] },
+  { id: "history", title: "Version history", note: "Every rule and switch change, with who, when and why." },
+];
+
 export function AdminCommerceTab() {
   const [catalog, setCatalog] = useState<CommerceCatalog | null>(null);
   const [rules, setRules] = useState<CommerceRuleVersion[]>([]);
@@ -777,22 +795,58 @@ export function AdminCommerceTab() {
           {" "}These rules don't price live checkouts yet. Version 1 mirrors today's pricing exactly, and the engine is switched on per resource type in a later phase.
         </p>
       </Card>
-      {catalog.ruleKeys.map((spec) => (
-        <RuleCard
-          key={spec.key}
-          spec={spec}
-          versions={byKey.get(spec.key) ?? []}
-          secondApprover={catalog.secondApproverRequired}
-          onNew={(base) => setEditor({ spec, base })}
-          onEdit={(v, base) => setEditor({ spec, draft: v, base })}
-          onAction={(v, a) => setAction({ version: v, action: a })}
-          onDetails={setDetails}
-        />
+      {/* Stage 5f — clearly separated sections, with an in-page index. */}
+      <nav aria-label="Commercial rules sections" style={{ display: "flex", gap: 14, flexWrap: "wrap", fontSize: 13.5 }}>
+        {SECTIONS.map((sec) => (
+          <a key={sec.id} href={`#cr-${sec.id}`} style={{ color: colors.text, fontWeight: 700 }}>
+            {sec.title}
+          </a>
+        ))}
+      </nav>
+      {SECTIONS.map((sec) => (
+        <section key={sec.id} id={`cr-${sec.id}`} aria-labelledby={`cr-h-${sec.id}`} style={{ display: "flex", flexDirection: "column", gap: 16, scrollMarginTop: 80 }}>
+          <h3 id={`cr-h-${sec.id}`} style={{ ...h3, fontSize: 19, margin: "8px 0 0" }}>{sec.title}</h3>
+          {sec.note && <p style={{ ...hint, margin: 0 }}>{sec.note}</p>}
+          {sec.id === "switches" && <SwitchesCard catalog={catalog} onChanged={load} />}
+          {sec.id === "history" && <AuditCard entries={audit} />}
+          {(sec.keys ?? [])
+            .map((k) => catalog.ruleKeys.find((r) => r.key === k))
+            .filter((spec): spec is CommerceRuleKeySpec => !!spec)
+            .map((spec) => (
+              <RuleCard
+                key={spec.key}
+                spec={spec}
+                versions={byKey.get(spec.key) ?? []}
+                secondApprover={catalog.secondApproverRequired}
+                onNew={(base) => setEditor({ spec, base })}
+                onEdit={(v, base) => setEditor({ spec, draft: v, base })}
+                onAction={(v, a) => setAction({ version: v, action: a })}
+                onDetails={setDetails}
+              />
+            ))}
+          {sec.id === "other" &&
+            catalog.ruleKeys
+              .filter((spec) => !SECTIONS.some((x) => x.id !== "other" && (x.keys ?? []).includes(spec.key)) && !(SECTIONS.find((x) => x.id === "other")?.keys ?? []).includes(spec.key))
+              .map((spec) => (
+                <RuleCard
+                  key={spec.key}
+                  spec={spec}
+                  versions={byKey.get(spec.key) ?? []}
+                  secondApprover={catalog.secondApproverRequired}
+                  onNew={(base) => setEditor({ spec, base })}
+                  onEdit={(v, base) => setEditor({ spec, draft: v, base })}
+                  onAction={(v, a) => setAction({ version: v, action: a })}
+                  onDetails={setDetails}
+                />
+              ))}
+          {sec.id === "other" && (
+            <>
+              <ShadowCard report={shadow} />
+              <OrdersCard />
+            </>
+          )}
+        </section>
       ))}
-      <SwitchesCard catalog={catalog} onChanged={load} />
-      <ShadowCard report={shadow} />
-      <OrdersCard />
-      <AuditCard entries={audit} />
       <VersionEditor state={editor} catalog={catalog} onClose={() => setEditor(null)} onSaved={done} />
       <ActionDialog pending={action} onClose={() => setAction(null)} onDone={done} />
       <DetailsModal version={details} spec={details ? specOf(details.ruleKey) : undefined} onClose={() => setDetails(null)} />
