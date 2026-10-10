@@ -24,7 +24,7 @@ function mount(router: Router, partyOf: (req: Request) => Party, emailOf: (req: 
   });
   router.post("/refresh", async (req, res) => {
     try {
-      await refreshAccount(partyOf(req));
+      await refreshAccount(partyOf(req), req.body?.source === "return" ? "return" : "api");
       res.json(await payoutsOverview(partyOf(req)));
     } catch (e) {
       handle(res, e);

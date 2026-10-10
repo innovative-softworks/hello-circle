@@ -8,6 +8,7 @@ import { paymentProvider } from "../payments/provider.js";
 import { RuleError } from "../commerce/rules.js";
 import { partnerBalances, reconcilePaymentFees, resolveDisputeRecovery, runSettlement } from "../commerce/settlement.js";
 import { failEvent, finishEvent, reopenForReplay } from "../payments/webhookEvents.js";
+import { processThinConnectEvent } from "../payments/connect.js";
 import { processStripeEvent } from "./stripeWebhook.js";
 import { ConnectError, openPartnerDebt, payoutReadiness, retryDebtRecovery, reverseAllocation, runTransfers, type Party } from "../payments/connect.js";
 import { listDebts } from "../commerce/debts.js";
@@ -46,12 +47,14 @@ adminFinanceRouter.post("/webhooks/:id/replay", async (req: Request, res: Respon
   if (!provider) return res.status(503).json({ error: "Payments aren't configured on this server" });
   const target = await reopenForReplay(Number(req.params.id));
   if (!target) return res.status(409).json({ error: "Only a failed or parked event can be replayed" });
-  const event = await provider.retrieveEvent(target.eventId);
-  if (!event) return res.status(404).json({ error: "The provider no longer has this event" });
+  // Stage 5e — v2 (thin) events are re-fetched inside processThinConnectEvent.
+  const isThin = target.provider === "stripe_v2";
+  const event = isThin ? null : await provider.retrieveEvent(target.eventId);
+  if (!isThin && !event) return res.status(404).json({ error: "The provider no longer has this event" });
   const claim = await db.prepare(`UPDATE webhook_events SET status = 'processing', attempts = attempts + 1 WHERE id = ? AND status = 'failed'`).run(Number(req.params.id));
   if (claim.changes !== 1) return res.status(409).json({ error: "This event is already being processed" });
   try {
-    const outcome = await processStripeEvent(event);
+    const outcome = isThin ? await processThinConnectEvent(target.eventId) : await processStripeEvent(event!);
     await finishEvent(Number(req.params.id), outcome);
     await writeAudit({ actorUserId: req.user!.id, actorKind: "user", action: "webhook.replayed", objectType: "webhook_event", objectId: target.eventId, newValue: { outcome }, reason });
     res.json({ ok: true, outcome });
@@ -59,6 +62,20 @@ adminFinanceRouter.post("/webhooks/:id/replay", async (req: Request, res: Respon
     await failEvent(Number(req.params.id), e, { needsReview: true });
     res.status(e instanceof NeedsReviewError ? 409 : 500).json({ error: e instanceof Error ? e.message : "Replay failed" });
   }
+});
+
+/** Stage 5e — a booking's frozen allocation snapshot (and its split agreement). */
+adminFinanceRouter.get("/allocations/:type/:ref", async (req, res) => {
+  const snap = (await db.prepare(`SELECT * FROM allocation_snapshots WHERE source_type = ? AND source_ref = ?`).get(req.params.type, req.params.ref)) as Record<string, unknown> | undefined;
+  if (!snap) return res.status(404).json({ error: "No allocation frozen for this booking" });
+  const lines = await db.prepare(`SELECT role, party_type as partyType, party_id as partyId, amount_minor as amountMinor FROM allocation_lines WHERE snapshot_id = ? ORDER BY id`).all(snap.id);
+  const releases = await db.prepare(`SELECT party_type as partyType, party_id as partyId, released_minor as releasedMinor, released_at as releasedAt FROM order_party_releases WHERE source_type = ? AND source_ref = ?`).all(req.params.type, req.params.ref);
+  res.json({ snapshot: snap, lines, releases });
+});
+
+adminFinanceRouter.get("/splits", async (req, res) => {
+  const gameId = typeof req.query.gameId === "string" ? req.query.gameId : null;
+  res.json(await db.prepare(`SELECT * FROM venue_split_agreements ${gameId ? "WHERE game_id = ?" : ""} ORDER BY id DESC LIMIT 200`).all(...(gameId ? [gameId] : [])));
 });
 
 adminFinanceRouter.get("/payments", async (req, res) => {
@@ -157,7 +174,7 @@ adminFinanceRouter.post("/disputes/:id/recovery", async (req, res) => {
   const reason = reasonOf(req);
   if (!reason) return res.status(400).json({ error: "A reason (at least 5 characters) is required" });
   const responsible = (req.body as { responsible?: string }).responsible;
-  if (responsible !== "partner" && responsible !== "platform") return res.status(400).json({ error: "responsible must be partner or platform" });
+  if (responsible !== "partner" && responsible !== "platform" && responsible !== "venue" && responsible !== "host") return res.status(400).json({ error: "responsible must be partner, venue, host or platform" });
   try {
     const r = await resolveDisputeRecovery({ disputeId: Number(req.params.id), responsible, actorId: req.user!.id, reason });
     await writeAudit({ actorUserId: req.user!.id, actorKind: "user", action: "dispute.recovery_decided", objectType: "dispute", objectId: req.params.id, newValue: { responsible, ...r }, reason });
@@ -229,7 +246,10 @@ adminFinanceRouter.get("/debts", async (req, res) => {
 adminFinanceRouter.post("/partners/:kind/:id/debts", async (req, res) => {
   if (!PARTY_TYPES.includes(req.params.kind)) return res.status(400).json({ error: "Unknown partner kind" });
   try {
-    res.json(await openPartnerDebt({ partyType: req.params.kind as Party["partyType"], partyId: req.params.id }, { actorId: req.user!.id, reason: String(req.body?.reason ?? "") }));
+    // Stage 5e — optionally reverse a specific booking's allocation first (e.g. the refunded one).
+    const st = typeof req.body?.sourceType === "string" && /^[a-z]{3,20}$/.test(req.body.sourceType) ? req.body.sourceType : null;
+    const sr = typeof req.body?.sourceRef === "string" && /^[\w-]{3,191}$/.test(req.body.sourceRef) ? req.body.sourceRef : null;
+    res.json(await openPartnerDebt({ partyType: req.params.kind as Party["partyType"], partyId: req.params.id }, { actorId: req.user!.id, reason: String(req.body?.reason ?? ""), prefer: st && sr ? { sourceType: st, sourceRef: sr } : undefined }));
   } catch (e) {
     handleConnect(res, e);
   }

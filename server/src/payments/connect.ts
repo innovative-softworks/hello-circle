@@ -6,7 +6,7 @@ import { resolveRule } from "../commerce/rules.js";
 import { DebtError, createDebt, getDebt, openDebtFor, outstandingMinor, recordRecovered, type DebtRow } from "../commerce/debts.js";
 import { commerceSwitch } from "../commerce/switches.js";
 import { CLIENT_URL } from "../stripe.js";
-import { accountStatusFrom, paymentProvider, type ConnectedAccountStatus, type PaymentProvider } from "./provider.js";
+import { paymentProvider, type ConnectApiModel, type ConnectedAccountStatus, type PaymentProvider } from "./provider.js";
 import type { IncomingEvent } from "./webhookEvents.js";
 
 // Revenue & Connect Stage 5a — Stripe Connect money movement.
@@ -44,7 +44,11 @@ export type Party = { partyType: "org" | "vendor" | "host"; partyId: string };
 
 const ACCOUNT_FIELDS = `party_type as partyType, party_id as partyId, provider, account_id as accountId, country, details_submitted as detailsSubmitted,
   charges_enabled as chargesEnabled, payouts_enabled as payoutsEnabled, transfers_capability as transfersCapability,
-  requirements_due as requirementsDue, disabled_reason as disabledReason, updated_at as updatedAt`;
+  requirements_due as requirementsDue, disabled_reason as disabledReason, updated_at as updatedAt,
+  api_model as apiModel, configuration_type as configurationType, dashboard_type as dashboardType, business_type as businessType,
+  onboarding_state as onboardingState, charges_capability as chargesCapability, payouts_capability as payoutsCapability,
+  requirements_past_due as requirementsPastDue, requirements_pending as requirementsPending, onboarding_completed_at as onboardingCompletedAt,
+  last_synced_at as lastSyncedAt, last_event_id as lastEventId, creation_key as creationKey`;
 
 export interface ConnectedAccountRow {
   partyType: string;
@@ -59,6 +63,43 @@ export interface ConnectedAccountRow {
   requirementsDue: string | null;
   disabledReason: string | null;
   updatedAt: string;
+  apiModel: ConnectApiModel;
+  configurationType: string | null;
+  dashboardType: string | null;
+  businessType: string | null;
+  onboardingState: OnboardingState;
+  chargesCapability: string | null;
+  payoutsCapability: string | null;
+  requirementsPastDue: string | null;
+  requirementsPending: string | null;
+  onboardingCompletedAt: string | null;
+  lastSyncedAt: string | null;
+  lastEventId: string | null;
+  creationKey: string | null;
+}
+
+/** Stage 5e — the partner-facing account states (the UI names each one; the
+ * wording lives in editable help content, keys connect_state_<state>). */
+export type OnboardingState =
+  | "not_started"
+  | "onboarding_incomplete"
+  | "under_review"
+  | "more_information_required"
+  | "transfers_unavailable"
+  | "payouts_unavailable"
+  | "enabled";
+
+const REVIEW_CODES = new Set(["requirements_pending_verification", "determining_status"]);
+
+/** Pure: the partner-facing state from the provider's state. "Completed
+ * before" separates first onboarding from Stripe asking for more later. */
+export function deriveOnboardingState(st: Pick<ConnectedAccountStatus, "transfersCapability" | "payoutsCapability" | "requirementsDue" | "requirementsPastDue" | "requirementsPending" | "disabledReason">, completedBefore: boolean): OnboardingState {
+  const userAction = st.requirementsDue.length + st.requirementsPastDue.length > 0;
+  if (st.transfersCapability === "active" && st.payoutsCapability === "active" && !userAction) return "enabled";
+  if (userAction) return completedBefore ? "more_information_required" : "onboarding_incomplete";
+  if (st.requirementsPending.length > 0 || (st.disabledReason && REVIEW_CODES.has(st.disabledReason)) || st.transfersCapability === "pending") return "under_review";
+  if (st.transfersCapability !== "active") return "transfers_unavailable";
+  return "payouts_unavailable";
 }
 
 export const connectEnabled = () => commerceSwitch("commerce.connect_v1");
@@ -74,66 +115,158 @@ export async function getConnectedAccount(party: Party): Promise<ConnectedAccoun
   return (await db.prepare(`SELECT ${ACCOUNT_FIELDS} FROM connected_accounts WHERE party_type = ? AND party_id = ?`).get(party.partyType, party.partyId)) as ConnectedAccountRow | undefined;
 }
 
-async function applyStatus(s: ConnectedAccountStatus): Promise<boolean> {
-  const r = await db
-    .prepare(
-      `UPDATE connected_accounts SET details_submitted = ?, charges_enabled = ?, payouts_enabled = ?, transfers_capability = ?, requirements_due = ?, disabled_reason = ?
-       WHERE account_id = ?`
-    )
-    .run(s.detailsSubmitted ? 1 : 0, s.chargesEnabled ? 1 : 0, s.payoutsEnabled ? 1 : 0, s.transfersCapability.slice(0, 20), JSON.stringify(s.requirementsDue).slice(0, 4000), s.disabledReason?.slice(0, 120) ?? null, s.id);
-  return r.changes > 0;
+export async function getConnectedAccountById(accountId: string): Promise<ConnectedAccountRow | undefined> {
+  return (await db.prepare(`SELECT ${ACCOUNT_FIELDS} FROM connected_accounts WHERE account_id = ?`).get(accountId)) as ConnectedAccountRow | undefined;
 }
 
-/** Creates the party's Express account on first use, then returns a
- * Stripe-hosted onboarding link (single use) back to `returnPath`. */
+const list = (xs: string[]) => JSON.stringify(xs).slice(0, 4000);
+
+/**
+ * Stage 5e — the only way connected-account state changes locally: fetch the
+ * account from the provider *now* and store it, unless a newer fetch already
+ * landed (last_synced_at is the fetch start time, so a slow, older fetch can
+ * never overwrite a newer one). Webhook payloads are never trusted for state —
+ * an event only triggers this fetch — so an old event arriving late cannot
+ * downgrade anything. Every attempt is logged in connected_account_syncs.
+ */
+export async function syncConnectedAccount(
+  accountId: string,
+  ctx: { source: "create" | "api" | "return" | "refresh" | "webhook"; normalizedType?: string; eventId?: string | null; eventType?: string | null; eventCreated?: Date | null; provider?: PaymentProvider }
+): Promise<{ applied: boolean; state: OnboardingState | null }> {
+  const provider = ctx.provider ?? paymentProvider();
+  const row = await getConnectedAccountById(accountId);
+  if (!row || !provider) return { applied: false, state: null };
+  const fetchedAt = new Date();
+  const st = await provider.retrieveConnectedAccount(accountId, row.apiModel ?? "v1");
+  const completedBefore = !!row.onboardingCompletedAt;
+  const state = deriveOnboardingState(st, completedBefore);
+  // Onboarding counts as completed the first time Stripe needs nothing more from the partner.
+  const completedNow = !completedBefore && st.requirementsDue.length + st.requirementsPastDue.length === 0;
+  const r = await db
+    .prepare(
+      `UPDATE connected_accounts SET details_submitted = ?, charges_enabled = ?, payouts_enabled = ?, transfers_capability = ?, requirements_due = ?, disabled_reason = ?,
+         configuration_type = ?, dashboard_type = ?, business_type = COALESCE(?, business_type), onboarding_state = ?, charges_capability = ?, payouts_capability = ?,
+         requirements_past_due = ?, requirements_pending = ?, onboarding_completed_at = IF(? = 1 AND onboarding_completed_at IS NULL, ?, onboarding_completed_at),
+         last_synced_at = ?, last_event_id = COALESCE(?, last_event_id), last_event_created_at = GREATEST(COALESCE(last_event_created_at, '1970-01-01'), COALESCE(?, '1970-01-01'))
+       WHERE account_id = ? AND (last_synced_at IS NULL OR last_synced_at <= ?)`
+    )
+    .run(
+      st.detailsSubmitted ? 1 : 0, st.chargesEnabled ? 1 : 0, st.payoutsEnabled ? 1 : 0, st.transfersCapability.slice(0, 20), list(st.requirementsDue), st.disabledReason?.slice(0, 120) ?? null,
+      st.configurationType, st.dashboardType, st.businessType, state, st.chargesCapability.slice(0, 20), st.payoutsCapability.slice(0, 20),
+      list(st.requirementsPastDue), list(st.requirementsPending), completedNow ? 1 : 0, fetchedAt,
+      fetchedAt, ctx.eventId ?? null, ctx.eventCreated ?? null, accountId, fetchedAt
+    );
+  const applied = r.changes > 0;
+  await db
+    .prepare(
+      `INSERT INTO connected_account_syncs (account_id, source, normalized_type, provider_event_id, provider_event_type, provider_event_created_at, before_state, after_state, applied, note)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    )
+    .run(accountId, ctx.source, ctx.normalizedType ?? "connect.account.refreshed", ctx.eventId ?? null, ctx.eventType ?? null, ctx.eventCreated ?? null, row.onboardingState, state, applied ? 1 : 0, applied ? null : "a newer sync already applied");
+  return { applied, state: applied ? state : row.onboardingState };
+}
+
+/** The display name Stripe shows the partner on its hosted pages. */
+async function partyDisplayName(party: Party): Promise<string> {
+  if (party.partyType === "org") {
+    const o = (await db.prepare(`SELECT name FROM organisations WHERE id = ?`).get(party.partyId).catch(() => undefined)) as { name: string } | undefined;
+    if (o?.name) return o.name;
+  }
+  if (party.partyType === "host") {
+    const r = (await db.prepare(`SELECT name FROM residents WHERE id = ?`).get(party.partyId).catch(() => undefined)) as { name: string } | undefined;
+    if (r?.name) return r.name;
+  }
+  return "HelloCircle partner";
+}
+
+/**
+ * Stage 5e — creates the party's Accounts v2 account exactly once. A
+ * reservation row (primary key = the party) is claimed first, so concurrent
+ * requests for the same partner serialise on it; the provider call carries the
+ * reservation's idempotency key, so a retry after a timeout — even one where
+ * Stripe accepted the first request — returns the same account. A reservation
+ * left "pending" (outcome never seen) is retried with the same key.
+ */
+async function ensureAccount(provider: PaymentProvider, party: Party, input: { email: string; country: string; actorId: string }): Promise<ConnectedAccountRow> {
+  const existing = await getConnectedAccount(party);
+  if (existing) return existing;
+  const key = `hc-acct-v2:${party.partyType}:${party.partyId}`;
+  await db
+    .prepare(`INSERT IGNORE INTO connected_account_creations (party_type, party_id, idempotency_key, api_model, status) VALUES (?, ?, ?, 'v2', 'pending')`)
+    .run(party.partyType, party.partyId, key);
+  // Serialise concurrent creators for this party on the reservation row.
+  const created = await db.transaction(async (tx) => {
+    const res = (await tx.prepare(`SELECT status, account_id as accountId, idempotency_key as k FROM connected_account_creations WHERE party_type = ? AND party_id = ? FOR UPDATE`).get(party.partyType, party.partyId)) as
+      | { status: string; accountId: string | null; k: string }
+      | undefined;
+    if (!res) throw new ConnectError("Couldn't reserve the payout account", 500);
+    if (res.status === "created" && res.accountId) return { id: res.accountId, fresh: false, error: null };
+    const trader = (await tx.prepare(`SELECT entity_type as t FROM trader_profiles WHERE party_type = ? AND party_id = ?`).get(party.partyType, party.partyId)) as { t: string } | undefined;
+    const businessType = trader?.t === "company" || trader?.t === "individual" ? (trader.t as "company" | "individual") : party.partyType === "host" ? "individual" : undefined;
+    let account: { id: string; apiModel: ConnectApiModel };
+    try {
+      account = await provider.createConnectedAccount({
+        country: input.country,
+        email: input.email,
+        displayName: await partyDisplayName(party),
+        businessType,
+        idempotencyKey: res.k,
+        metadata: { party_type: party.partyType, party_id: party.partyId, hc_creation_key: res.k },
+      });
+    } catch (e) {
+      // Recorded after this transaction releases the reservation lock (below).
+      return { id: null, fresh: false, error: e as { type?: string; code?: string; message?: string } };
+    }
+    await tx.prepare(`UPDATE connected_account_creations SET status = 'created', account_id = ?, attempts = attempts + 1, last_error = NULL WHERE party_type = ? AND party_id = ?`).run(account.id, party.partyType, party.partyId);
+    await tx
+      .prepare(`INSERT IGNORE INTO connected_accounts (party_type, party_id, provider, account_id, country, api_model, business_type, creation_key, onboarding_state) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'onboarding_incomplete')`)
+      .run(party.partyType, party.partyId, provider.name, account.id, input.country, account.apiModel, businessType ?? null, res.k);
+    return { id: account.id, fresh: true, error: null };
+  });
+  if (created.error || !created.id) {
+    const err = created.error ?? {};
+    await db.prepare(`UPDATE connected_account_creations SET attempts = attempts + 1, last_error = ? WHERE party_type = ? AND party_id = ?`).run(String(err.code ?? err.type ?? err.message ?? "error").slice(0, 500), party.partyType, party.partyId);
+    // Stage 5d — a provider refusal is a clear 502 with Stripe's code, not a bare 500.
+    // The reservation stays pending, so a retry reuses the same idempotency key.
+    throw new ConnectError(`Stripe couldn't create the payout account (${err.code ?? err.type ?? "provider error"}). Please try again.`, 502);
+  }
+  if (created.fresh) {
+    await syncConnectedAccount(created.id, { source: "create", normalizedType: "connect.account.created", provider });
+    await writeAudit({ actorUserId: input.actorId, action: "connect.account_created", objectType: `connect_${party.partyType}`, objectId: party.partyId, newValue: { accountId: created.id, apiModel: "v2" } });
+  }
+  const row = await getConnectedAccount(party);
+  if (!row) throw new ConnectError("Payout account was created but couldn't be recorded — please try again", 500);
+  return row;
+}
+
+/** Creates the party's account on first use, then returns a Stripe-hosted
+ * link back to `returnPath`: onboarding the first time, an update link when
+ * Stripe asks an already-onboarded partner for more information. Links are
+ * single use and expire; the refresh URL mints a new one. */
 export async function startOnboarding(party: Party, input: { email: string; country: string; returnPath: string; actorId: string }) {
   const provider = await requireConnect();
   if (!/^\/[\w\-/?=&]*$/.test(input.returnPath)) throw new ConnectError("Invalid return path");
   const availability = await resolveRule("availability");
   const allowed = String(availability.values.partnerCountry ?? "IE");
   if (input.country !== allowed) throw new ConnectError(`Payouts are only available to partners in ${allowed} at the moment`, 409);
-
-  let account = await getConnectedAccount(party);
-  if (!account) {
-    // Stage 5d — prefill the business type Stripe will ask for: the trader
-    // profile's entity type when known, otherwise individual for hosts.
-    const trader = (await db.prepare(`SELECT entity_type as t FROM trader_profiles WHERE party_type = ? AND party_id = ?`).get(party.partyType, party.partyId)) as { t: string } | undefined;
-    const businessType = trader?.t === "company" || trader?.t === "individual" ? (trader.t as "company" | "individual") : party.partyType === "host" ? "individual" : undefined;
-    let created: { id: string };
-    try {
-      created = await provider.createConnectedAccount({
-        country: input.country,
-        email: input.email,
-        businessType,
-        idempotencyKey: `acct:${party.partyType}:${party.partyId}`,
-        metadata: { party_type: party.partyType, party_id: party.partyId },
-      });
-    } catch (e) {
-      // Stage 5d — a provider refusal (e.g. the platform isn't allowed to create
-      // this kind of account) is a clear 502 with Stripe's code, not a bare 500.
-      const err = e as { type?: string; code?: string };
-      throw new ConnectError(`Stripe couldn't create the payout account (${err.code ?? err.type ?? "provider error"}). Please try again later.`, 502);
-    }
-    await db
-      .prepare(`INSERT IGNORE INTO connected_accounts (party_type, party_id, provider, account_id, country) VALUES (?, ?, ?, ?, ?)`)
-      .run(party.partyType, party.partyId, provider.name, created.id, input.country);
-    await applyStatus(await provider.retrieveConnectedAccount(created.id));
-    await writeAudit({ actorUserId: input.actorId, action: "connect.account_created", objectType: `connect_${party.partyType}`, objectId: party.partyId, newValue: { accountId: created.id } });
-    account = await getConnectedAccount(party);
-  }
+  const account = await ensureAccount(provider, party, input);
   const sep = input.returnPath.includes("?") ? "&" : "?";
-  return provider.createOnboardingLink({
-    accountId: account!.accountId,
+  const purpose = account.onboardingCompletedAt ? "update" : "onboarding";
+  const link = await provider.createOnboardingLink({
+    accountId: account.accountId,
+    apiModel: account.apiModel,
+    purpose,
     refreshUrl: `${CLIENT_URL}${input.returnPath}${sep}payouts=refresh`,
     returnUrl: `${CLIENT_URL}${input.returnPath}${sep}payouts=return`,
   });
+  return { url: link.url, expiresAt: link.expiresAt, purpose };
 }
 
-export async function refreshAccount(party: Party) {
+export async function refreshAccount(party: Party, source: "api" | "return" = "api") {
   const provider = await requireConnect();
   const account = await getConnectedAccount(party);
   if (!account) throw new ConnectError("No payout account yet", 404);
-  await applyStatus(await provider.retrieveConnectedAccount(account.accountId));
+  await syncConnectedAccount(account.accountId, { source, normalizedType: source === "return" ? "connect.onboarding.returned" : "connect.account.refreshed", provider });
   return getConnectedAccount(party);
 }
 
@@ -141,19 +274,18 @@ export async function dashboardLink(party: Party) {
   const provider = await requireConnect();
   const account = await getConnectedAccount(party);
   if (!account) throw new ConnectError("No payout account yet", 404);
-  if (!account.detailsSubmitted) throw new ConnectError("Finish setting up payouts first", 409);
+  if (!account.onboardingCompletedAt && !account.detailsSubmitted) throw new ConnectError("Finish setting up payouts first", 409);
   return provider.createDashboardLink(account.accountId);
 }
 
-/** Why a party can't receive a transfer yet (empty = ready). */
+/** Why a party can't receive a *transfer* yet (empty = ready). Bank payouts
+ * being unavailable does not block a transfer — the money waits in the
+ * partner's Stripe balance — so it's reported separately (payoutNotes). */
 export async function payoutReadiness(party: Party): Promise<string[]> {
   const reasons: string[] = [];
   const account = await getConnectedAccount(party);
   if (!account) reasons.push("No payout account connected");
-  else {
-    if (account.transfersCapability !== "active") reasons.push("Payout account can't receive transfers yet (verification incomplete)");
-    if (!account.payoutsEnabled) reasons.push("Payouts to the bank account aren't enabled yet");
-  }
+  else if (account.transfersCapability !== "active") reasons.push("Payout account can't receive transfers yet (verification incomplete)");
   // Stage 5c — an open partner debt freezes transfers to that partner.
   const debt = await openDebtFor(party);
   if (debt) reasons.push(`Earnings frozen: open partner debt #${debt.id}`);
@@ -327,8 +459,10 @@ interface AllocationRoom {
   room: number;
 }
 
-/** Positive allocations of this party's own transfers that can still be reversed, newest first. */
-async function reversibleAllocations(tx: Pick<typeof db, "prepare">, party: { partyType: string; partyId: string }, onlyAllocationId?: number): Promise<AllocationRoom[]> {
+/** Positive allocations of this party's own transfers that can still be
+ * reversed, newest first — Stage 5e: the booking that caused the debt (a
+ * refund or dispute after transfer) first, when given. Only ever this party's. */
+async function reversibleAllocations(tx: Pick<typeof db, "prepare">, party: { partyType: string; partyId: string }, onlyAllocationId?: number, prefer?: { sourceType: string; sourceRef: string }): Promise<AllocationRoom[]> {
   const rows = (await tx
     .prepare(
       `SELECT a.id, a.transfer_id as transferRowId, t.provider_transfer_id as providerTransferId, a.amount_minor as amount, t.amount_minor as transferAmount, t.reversed_minor as transferReversed,
@@ -337,9 +471,9 @@ async function reversibleAllocations(tx: Pick<typeof db, "prepare">, party: { pa
        FROM transfer_allocations a JOIN transfers t ON t.id = a.transfer_id
        WHERE a.party_type = ? AND a.party_id = ? AND t.party_type = a.party_type AND t.party_id = a.party_id
          AND t.status IN ('created','partially_reversed') AND a.amount_minor > 0 ${onlyAllocationId ? "AND a.id = ?" : ""}
-       ORDER BY a.transfer_id DESC, a.id DESC FOR UPDATE`
+       ORDER BY (a.source_type = ? AND a.source_ref = ?) DESC, a.transfer_id DESC, a.id DESC FOR UPDATE`
     )
-    .all(party.partyType, party.partyId, ...(onlyAllocationId ? [onlyAllocationId] : []))) as {
+    .all(party.partyType, party.partyId, ...(onlyAllocationId ? [onlyAllocationId] : []), prefer?.sourceType ?? "", prefer?.sourceRef ?? "")) as {
     id: number;
     transferRowId: number;
     providerTransferId: string;
@@ -362,7 +496,7 @@ async function reversibleAllocations(tx: Pick<typeof db, "prepare">, party: { pa
 }
 
 /** Plans and executes reversals for a debt, up to `limitMinor` (the debt's outstanding amount by default). */
-async function reverseForDebt(provider: PaymentProvider, debt: DebtRow, input: { actorId: string; reason: string; limitMinor?: number; allocationId?: number }) {
+async function reverseForDebt(provider: PaymentProvider, debt: DebtRow, input: { actorId: string; reason: string; limitMinor?: number; allocationId?: number; prefer?: { sourceType: string; sourceRef: string } }) {
   const party = { partyType: debt.partyType, partyId: debt.partyId };
   // Plan under the debt's party lock, counting reversals already in flight for this debt.
   const steps = await db.transaction(async (tx) => {
@@ -373,7 +507,7 @@ async function reverseForDebt(provider: PaymentProvider, debt: DebtRow, input: {
     let want = outstandingMinor(fresh) - Number(inFlight.s);
     if (input.limitMinor !== undefined) want = Math.min(want, Math.floor(input.limitMinor));
     if (want <= 0) throw new ConnectError("Nothing left to recover on this debt", 409);
-    const allocations = await reversibleAllocations(tx, party, input.allocationId);
+    const allocations = await reversibleAllocations(tx, party, input.allocationId, input.prefer);
     if (input.allocationId && !allocations.length) throw new ConnectError("That allocation can't be reversed (not this partner's, not positive, or already fully reversed)", 409);
     // Group the allocation slices by transfer: one provider reversal per transfer.
     const byTransfer = new Map<number, { providerTransferId: string; parts: { allocationId: number; amount: number }[] }>();
@@ -449,7 +583,7 @@ function debtError(e: unknown): never {
 /** Opens a partner debt (freezing their earnings) and immediately tries to
  * recover it by reversing their own transfers. What can't be recovered stays
  * open and is offset against their future earnings. */
-export async function openPartnerDebt(party: Party, input: { actorId: string; reason: string }) {
+export async function openPartnerDebt(party: Party, input: { actorId: string; reason: string; prefer?: { sourceType: string; sourceRef: string } }) {
   const provider = await requireConnect();
   if (!(await ledgerEnabled())) throw new ConnectError("Turn on the financial ledger switch first", 409);
   const debt = await createDebt(party, input).catch(debtError);
@@ -488,16 +622,43 @@ export async function reverseAllocation(allocationId: number, input: { actorId: 
 
 // --- webhook events from connected accounts ---------------------------------------------
 
+/**
+ * Stage 5e — normalized internal Connect events. Provider event names (v1
+ * snapshot events and v2 thin events, which name the same thing differently)
+ * map onto these; nothing outside this file depends on Stripe's naming.
+ */
+export type NormalizedConnectEvent =
+  | "connect.account.changed"
+  | "connect.onboarding.returned"
+  | "connect.bank_payout.changed"
+  | "connect.transfer.reversed_externally"
+  | "connect.ignored";
+
+export function normalizeConnectEvent(providerType: string): NormalizedConnectEvent {
+  if (providerType === "account.updated" || providerType === "capability.updated" || providerType === "account.external_account.updated") return "connect.account.changed";
+  if (/^v2\.core\.account(\[[a-z_.]+\])?\.(created|updated|capability_status_updated|closed)$/.test(providerType)) return "connect.account.changed";
+  if (providerType === "v2.core.account_link.returned") return "connect.onboarding.returned";
+  if (/^payout\.(created|updated|paid|failed|canceled)$/.test(providerType)) return "connect.bank_payout.changed";
+  if (providerType === "transfer.reversed") return "connect.transfer.reversed_externally";
+  return "connect.ignored";
+}
+
+// A payout's status only moves forward; a late, older event can't move it back
+// (paid → failed is a real Stripe transition and is allowed).
+const PAYOUT_RANK = `CASE %s WHEN 'pending' THEN 1 WHEN 'in_transit' THEN 2 WHEN 'paid' THEN 3 WHEN 'failed' THEN 4 WHEN 'canceled' THEN 4 ELSE 0 END`;
+
 export async function processConnectEvent(event: IncomingEvent): Promise<"processed" | "ignored"> {
   const o = event.data.object;
-  switch (event.type) {
-    case "account.updated":
-      return (await applyStatus(accountStatusFrom(o as never))) ? "processed" : "ignored";
-    case "payout.created":
-    case "payout.updated":
-    case "payout.paid":
-    case "payout.failed":
-    case "payout.canceled": {
+  const normalized = normalizeConnectEvent(event.type);
+  switch (normalized) {
+    case "connect.account.changed": {
+      // The payload is a hint only: the account is re-fetched now.
+      const accountId = event.type.startsWith("account.") ? String(o.id) : event.account ?? String(o.id ?? "");
+      if (!accountId || !(await getConnectedAccountById(accountId))) return "ignored";
+      await syncConnectedAccount(accountId, { source: "webhook", normalizedType: normalized, eventId: event.id, eventType: event.type, eventCreated: event.created ? new Date(event.created * 1000) : null });
+      return "processed";
+    }
+    case "connect.bank_payout.changed": {
       if (!event.account) return "ignored";
       const known = await db.prepare(`SELECT 1 FROM connected_accounts WHERE account_id = ?`).get(event.account);
       if (!known) return "ignored";
@@ -505,12 +666,16 @@ export async function processConnectEvent(event: IncomingEvent): Promise<"proces
         .prepare(
           `INSERT INTO connected_payouts (provider_payout_id, account_id, amount_minor, currency, status, arrival_date, failure_code, failure_message)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-           ON DUPLICATE KEY UPDATE amount_minor = VALUES(amount_minor), status = VALUES(status), arrival_date = VALUES(arrival_date), failure_code = VALUES(failure_code), failure_message = VALUES(failure_message)`
+           ON DUPLICATE KEY UPDATE
+             amount_minor = VALUES(amount_minor), arrival_date = VALUES(arrival_date),
+             failure_code = IF(${PAYOUT_RANK.replace("%s", "VALUES(status)")} >= ${PAYOUT_RANK.replace("%s", "status")}, VALUES(failure_code), failure_code),
+             failure_message = IF(${PAYOUT_RANK.replace("%s", "VALUES(status)")} >= ${PAYOUT_RANK.replace("%s", "status")}, VALUES(failure_message), failure_message),
+             status = IF(${PAYOUT_RANK.replace("%s", "VALUES(status)")} >= ${PAYOUT_RANK.replace("%s", "status")}, VALUES(status), status)`
         )
         .run(o.id, event.account, Number(o.amount ?? 0), String(o.currency ?? "eur").toUpperCase(), String(o.status ?? "pending"), o.arrival_date ? new Date(o.arrival_date * 1000) : null, o.failure_code ?? null, o.failure_message ?? null);
       return "processed";
     }
-    case "transfer.reversed": {
+    case "connect.transfer.reversed_externally": {
       // Reversals we made are already recorded; one made in the Stripe Dashboard needs a person.
       const ids: string[] = (o.reversals?.data ?? []).map((r: { id: string }) => r.id);
       if (!ids.length) return "ignored";
@@ -523,7 +688,22 @@ export async function processConnectEvent(event: IncomingEvent): Promise<"proces
   }
 }
 
-export const CONNECT_EVENT_TYPES = new Set(["account.updated", "payout.created", "payout.updated", "payout.paid", "payout.failed", "payout.canceled", "transfer.reversed"]);
+/** Stage 5e — a verified v2 thin event: re-fetched from Stripe by id (never
+ * trusted as delivered), then routed through the same normalized handling. */
+export async function processThinConnectEvent(eventId: string): Promise<"processed" | "ignored"> {
+  const provider = paymentProvider();
+  if (!provider) return "ignored";
+  const e = await provider.retrieveThinEvent(eventId);
+  if (!e) throw new NeedsReviewError(`v2 event ${eventId} couldn't be retrieved from the provider`);
+  if (e.livemode && process.env.NODE_ENV !== "production") return "ignored";
+  const normalized = normalizeConnectEvent(e.type);
+  if (normalized !== "connect.account.changed" && normalized !== "connect.onboarding.returned") return "ignored";
+  if (!e.relatedObjectId || !(await getConnectedAccountById(e.relatedObjectId))) return "ignored";
+  await syncConnectedAccount(e.relatedObjectId, { source: "webhook", normalizedType: normalized, eventId: e.id, eventType: e.type, eventCreated: new Date(e.created), provider });
+  return "processed";
+}
+
+export const CONNECT_EVENT_TYPES = new Set(["account.updated", "capability.updated", "account.external_account.updated", "payout.created", "payout.updated", "payout.paid", "payout.failed", "payout.canceled", "transfer.reversed"]);
 
 // --- partner view ---------------------------------------------------------------------
 
@@ -544,13 +724,23 @@ export async function payoutsOverview(party: Party) {
   ]);
   return {
     enabled: await connectEnabled(),
+    /** Stage 5e — one of the OnboardingState values ("not_started" when there's no account). */
+    state: (account?.onboardingState ?? "not_started") as OnboardingState,
     account: account
       ? {
+          apiModel: account.apiModel,
+          businessType: account.businessType,
           detailsSubmitted: !!account.detailsSubmitted,
           payoutsEnabled: !!account.payoutsEnabled,
           transfersActive: account.transfersCapability === "active",
+          transfersCapability: account.transfersCapability,
+          payoutsCapability: account.payoutsCapability ?? (account.payoutsEnabled ? "active" : "restricted"),
           requirementsDue: account.requirementsDue ? (JSON.parse(account.requirementsDue) as string[]) : [],
+          requirementsPastDue: account.requirementsPastDue ? (JSON.parse(account.requirementsPastDue) as string[]) : [],
+          requirementsPending: account.requirementsPending ? (JSON.parse(account.requirementsPending) as string[]) : [],
           disabledReason: account.disabledReason,
+          onboardingCompleted: !!account.onboardingCompletedAt,
+          lastSyncedAt: account.lastSyncedAt,
         }
       : null,
     readiness,

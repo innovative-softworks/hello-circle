@@ -1,5 +1,6 @@
 import { writeAudit } from "../audit.js";
 import { db } from "../db/index.js";
+import { isSplitOrder } from "./allocations.js";
 import { assignPlan, currentPlanFor, type PartnerKey } from "./plans.js";
 import { resolveRule } from "./rules.js";
 import { commerceSwitch } from "./switches.js";
@@ -63,6 +64,9 @@ export async function awardForSettlement(settlementId: number): Promise<number> 
     for (const { k } of items) {
       const [, type, ref] = k.split(":");
       if (await tx.prepare(`SELECT id FROM reward_awards WHERE source_type = ? AND source_ref = ?`).get(type, ref)) continue;
+      // Stage 5e — a venue/host split earns points once, for the host who sold the
+      // booking (points are per order); the venue's share earns none.
+      if (s.kind !== "host" && (await isSplitOrder(tx, type, ref))) continue;
       const paid = (await tx.prepare(`SELECT amount_minor as a FROM payment_records WHERE source_type = ? AND source_ref = ?`).get(type, ref)) as { a: number | string } | undefined;
       if (!paid) continue;
       const refunded = await refundedFor(tx, type, ref);

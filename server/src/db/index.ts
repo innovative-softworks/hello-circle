@@ -3447,6 +3447,152 @@ async function initCommerceSchema(
       ('coupon_expense', 'HelloCircle-funded coupons', 'expense'),
       ('chargeback_loss', 'Chargeback losses', 'expense')
   `);
+  // Stage 5e — Stripe Accounts v2 (docs/revenue-connect/adr-accounts-v2.md).
+  // Additive only: rows created before 5e keep api_model 'v1' and stay readable.
+  // Capability and verification state is always refreshed from Stripe, never set
+  // locally; last_synced_at guards against an older fetch overwriting a newer one.
+  await ensureColumn("connected_accounts", "api_model", "api_model VARCHAR(8) NOT NULL DEFAULT 'v1'");
+  await ensureColumn("connected_accounts", "configuration_type", "configuration_type VARCHAR(20) NULL");
+  await ensureColumn("connected_accounts", "dashboard_type", "dashboard_type VARCHAR(10) NULL");
+  await ensureColumn("connected_accounts", "business_type", "business_type VARCHAR(12) NULL");
+  await ensureColumn("connected_accounts", "onboarding_state", "onboarding_state VARCHAR(32) NOT NULL DEFAULT 'onboarding_incomplete'");
+  await ensureColumn("connected_accounts", "charges_capability", "charges_capability VARCHAR(20) NULL");
+  await ensureColumn("connected_accounts", "payouts_capability", "payouts_capability VARCHAR(20) NULL");
+  await ensureColumn("connected_accounts", "requirements_past_due", "requirements_past_due TEXT NULL");
+  await ensureColumn("connected_accounts", "requirements_pending", "requirements_pending TEXT NULL");
+  await ensureColumn("connected_accounts", "onboarding_completed_at", "onboarding_completed_at DATETIME NULL");
+  await ensureColumn("connected_accounts", "last_synced_at", "last_synced_at DATETIME(3) NULL");
+  await ensureColumn("connected_accounts", "last_event_id", "last_event_id VARCHAR(255) NULL");
+  await ensureColumn("connected_accounts", "last_event_created_at", "last_event_created_at DATETIME NULL");
+  await ensureColumn("connected_accounts", "creation_key", "creation_key VARCHAR(160) NULL");
+  {
+    const has = (await db.prepare(`SELECT 1 FROM INFORMATION_SCHEMA.STATISTICS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'connected_accounts' AND INDEX_NAME = 'uq_connected_creation_key' LIMIT 1`).all()) as unknown[];
+    if (!has.length) {
+      try {
+        await db.exec(`CREATE UNIQUE INDEX uq_connected_creation_key ON connected_accounts (creation_key)`);
+      } catch (e) {
+        if ((e as { code?: string }).code !== "ER_DUP_KEYNAME") throw e;
+      }
+    }
+  }
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS connected_account_creations (
+      party_type VARCHAR(10) NOT NULL,
+      party_id VARCHAR(191) NOT NULL,
+      idempotency_key VARCHAR(160) NOT NULL,
+      api_model VARCHAR(8) NOT NULL,
+      status VARCHAR(12) NOT NULL,
+      account_id VARCHAR(255) NULL,
+      attempts INT NOT NULL DEFAULT 0,
+      last_error VARCHAR(500) NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      PRIMARY KEY (party_type, party_id),
+      UNIQUE KEY uq_account_creation_key (idempotency_key)
+    )
+  `);
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS connected_account_syncs (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      account_id VARCHAR(255) NOT NULL,
+      source VARCHAR(20) NOT NULL,
+      normalized_type VARCHAR(60) NOT NULL,
+      provider_event_id VARCHAR(255) NULL,
+      provider_event_type VARCHAR(120) NULL,
+      provider_event_created_at DATETIME NULL,
+      before_state VARCHAR(40) NULL,
+      after_state VARCHAR(40) NULL,
+      applied TINYINT NOT NULL,
+      note VARCHAR(500) NULL,
+      created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+      KEY idx_account_sync (account_id, id)
+    )
+  `);
+  // Stage 5e — venue/host split (flow C): a host's paid game at a partner venue.
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS venue_split_agreements (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      game_id VARCHAR(191) NOT NULL,
+      version INT NOT NULL,
+      venue_party_type VARCHAR(10) NOT NULL,
+      venue_party_id VARCHAR(191) NOT NULL,
+      host_resident_id VARCHAR(191) NOT NULL,
+      mode VARCHAR(20) NOT NULL,
+      venue_bps INT NULL,
+      venue_fixed_minor BIGINT NULL,
+      host_fixed_minor BIGINT NULL,
+      status VARCHAR(12) NOT NULL,
+      proposed_by VARCHAR(191) NOT NULL,
+      proposed_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      decided_by VARCHAR(191) NULL,
+      decided_at DATETIME NULL,
+      decision_reason VARCHAR(500) NULL,
+      UNIQUE KEY uq_split_game_version (game_id, version),
+      KEY idx_split_venue (venue_party_type, venue_party_id, status)
+    )
+  `);
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS allocation_snapshots (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      source_type VARCHAR(20) NOT NULL,
+      source_ref VARCHAR(191) NOT NULL,
+      currency CHAR(3) NOT NULL,
+      gross_minor BIGINT NOT NULL,
+      vat_minor BIGINT NOT NULL,
+      credits_used_minor BIGINT NOT NULL,
+      discount_minor BIGINT NOT NULL,
+      discount_funder VARCHAR(20) NOT NULL,
+      platform_funded_discount_minor BIGINT NOT NULL,
+      customer_fee_minor BIGINT NOT NULL,
+      success_fee_minor BIGINT NOT NULL,
+      est_processing_fee_minor BIGINT NOT NULL,
+      deposit_minor BIGINT NOT NULL,
+      platform_retained_minor BIGINT NOT NULL,
+      partner_pool_minor BIGINT NOT NULL,
+      rounding_adjustment_minor BIGINT NOT NULL,
+      rounding_owner VARCHAR(10) NOT NULL,
+      pricing_rule_hash CHAR(64) NULL,
+      split_rule_hash CHAR(64) NULL,
+      split_agreement_id INT NULL,
+      split_agreement_version INT NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE KEY uq_allocation_source (source_type, source_ref)
+    )
+  `);
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS allocation_lines (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      snapshot_id INT NOT NULL,
+      role VARCHAR(10) NOT NULL,
+      party_type VARCHAR(10) NULL,
+      party_id VARCHAR(191) NULL,
+      amount_minor BIGINT NOT NULL,
+      UNIQUE KEY uq_allocation_role (snapshot_id, role)
+    )
+  `);
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS order_party_releases (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      source_type VARCHAR(20) NOT NULL,
+      source_ref VARCHAR(191) NOT NULL,
+      party_type VARCHAR(10) NOT NULL,
+      party_id VARCHAR(191) NOT NULL,
+      released_minor BIGINT NOT NULL,
+      released_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE KEY uq_party_release (source_type, source_ref, party_type, party_id)
+    )
+  `);
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS dispute_recovery_allocations (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      dispute_id INT NOT NULL,
+      role VARCHAR(10) NOT NULL,
+      party_type VARCHAR(10) NULL,
+      party_id VARCHAR(191) NULL,
+      amount_minor BIGINT NOT NULL,
+      UNIQUE KEY uq_dispute_role (dispute_id, role)
+    )
+  `);
   await db.exec(`
     INSERT IGNORE INTO pricing_plans (plan_key, name, status, sort_order) VALUES
       ('free', 'Free', 'active', 1),

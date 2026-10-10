@@ -19,12 +19,13 @@ import { debtGate } from "./debts.js";
 import { awardForSettlement } from "./rewards.js";
 import { irelandWallTimeToUtc } from "../irelandTime.js";
 import type { CheckoutType } from "../checkoutService.js";
-import { applyBps } from "./money.js";
+import { allocate, applyBps } from "./money.js";
 import { postGroup, type LedgerLine } from "./ledger.js";
 import { ledgerEnabled, sourceOwner } from "./payments.js";
 import { resolveRule, RuleError } from "./rules.js";
 import { SOURCE_TABLES } from "./engine.js";
 import { paymentProvider } from "../payments/provider.js";
+import { allocationPartners } from "./allocations.js";
 
 type Tx = Pick<typeof db, "prepare">;
 
@@ -112,6 +113,43 @@ export async function releaseCompleted(now: Date = new Date(), opts: { dryRun?: 
     if (!row) continue;
     // A cancelled order with money still held waits for its refund decision.
     if (row.status === "cancelled" && row.ps === "paid") continue;
+    // Stage 5e — a venue/host split releases each partner's own share separately.
+    const split = (await allocationPartners(db, c.type, c.ref)).filter((p) => p.role === "venue" || p.role === "host");
+    if (split.length > 1) {
+      if (opts.dryRun) {
+        for (const p of split) released.push({ type: c.type, ref: c.ref, amountMinor: await pendingShare(db, c.type, c.ref, p), partyType: p.partyType, partyId: p.partyId });
+        continue;
+      }
+      const parts = await db.transaction(async (tx) => {
+        if (await isReleased(tx, c.type, c.ref)) return null;
+        const out: { partyType: string; partyId: string; amount: number }[] = [];
+        for (const p of split) {
+          const amount = await pendingShare(tx, c.type, c.ref, p);
+          await tx.prepare(`INSERT INTO order_party_releases (source_type, source_ref, party_type, party_id, released_minor) VALUES (?, ?, ?, ?, ?)`).run(c.type, c.ref, p.partyType, p.partyId, amount);
+          if (amount !== 0) {
+            await postGroup(tx, {
+              idempotencyKey: `release:${c.type}:${c.ref}:${p.partyType}:${p.partyId}`,
+              sourceType: c.type,
+              sourceId: c.ref,
+              description: `Completed — ${p.role} share available for settlement (${c.type} ${c.ref})`,
+              basis: "actual",
+              currency: "EUR",
+              lines: [
+                { account: p.role === "host" ? "host_payable" : "partner_payable", amountMinor: amount, partyType: p.partyType, partyId: p.partyId, memo: "released from pending" },
+                { account: "partner_available", amountMinor: -amount, partyType: p.partyType, partyId: p.partyId, memo: "available for settlement" },
+              ],
+            });
+          }
+          out.push({ partyType: p.partyType, partyId: p.partyId, amount });
+        }
+        await tx
+          .prepare(`INSERT INTO order_completions (source_type, source_ref, party_type, party_id, service_ends_at, eligible_at, released_minor) VALUES (?, ?, ?, ?, ?, ?, ?)`)
+          .run(c.type, c.ref, owner.partyType, owner.partyId, at(ends), at(eligibleAt), out.reduce((a, o) => a + o.amount, 0));
+        return out;
+      });
+      for (const p of parts ?? []) released.push({ type: c.type, ref: c.ref, amountMinor: p.amount, partyType: p.partyType, partyId: p.partyId });
+      continue;
+    }
     if (opts.dryRun) {
       released.push({ type: c.type, ref: c.ref, amountMinor: await pendingShare(db, c.type, c.ref, owner), partyType: owner.partyType, partyId: owner.partyId });
       continue;
@@ -259,29 +297,51 @@ export async function runSettlement(input: { runKey: string; dryRun: boolean; ac
 /** Finance decides who bears a lost dispute. Partner-caused losses are
  * recovered from the partner's available balance (which may go negative and
  * is netted against future settlements); platform-caused losses are absorbed. */
-export async function resolveDisputeRecovery(input: { disputeId: number; responsible: "partner" | "platform"; actorId: string; reason: string }) {
+export async function resolveDisputeRecovery(input: { disputeId: number; responsible: "partner" | "venue" | "host" | "platform"; actorId: string; reason: string }) {
   if (typeof input.reason !== "string" || input.reason.trim().length < 5) throw new RuleError("A reason (at least 5 characters) is required");
+  if (!["partner", "venue", "host", "platform"].includes(input.responsible)) throw new RuleError("Responsible must be partner, venue, host or platform");
   return db.transaction(async (tx) => {
     const d = (await tx.prepare(`SELECT * FROM disputes WHERE id = ? FOR UPDATE`).get(input.disputeId)) as Record<string, any> | undefined;
     if (!d) throw new RuleError("Dispute not found", 404);
     if (d.status !== "lost" || d.recovery_status !== "pending") throw new RuleError("Only a lost dispute awaiting a recovery decision can be resolved", 409);
+    const amount = Number(d.amount_minor);
     if (input.responsible === "platform") {
+      await tx.prepare(`INSERT IGNORE INTO dispute_recovery_allocations (dispute_id, role, amount_minor) VALUES (?, 'platform', ?)`).run(input.disputeId, amount);
       await tx.prepare(`UPDATE disputes SET recovery_status = 'absorbed', responsible = 'platform' WHERE id = ?`).run(input.disputeId);
-      return { recovered: 0 };
+      return { recovered: 0, allocations: [{ role: "platform", amountMinor: amount }] };
     }
     if (!d.source_type || !d.source_ref) throw new RuleError("This dispute isn't matched to an order, so it can't be recovered from a partner", 409);
-    const owner = await sourceOwner(d.source_type, d.source_ref, tx);
-    if (!owner) throw new RuleError("No partner found for this order", 409);
-    const amount = Number(d.amount_minor);
+    // Stage 5e — a split booking: recover from the responsible partner(s) only,
+    // in proportion to their frozen allocations when both are responsible.
+    const split = (await allocationPartners(tx, d.source_type, d.source_ref)).filter((p) => p.role === "venue" || p.role === "host");
+    let parts: { role: string; partyType: string; partyId: string; amountMinor: number }[];
+    if (split.length > 1) {
+      if (input.responsible === "partner") {
+        const shares = allocate(amount, split.map((p) => Math.max(p.amountMinor, 0)));
+        parts = split.map((p, i) => ({ role: p.role, partyType: p.partyType, partyId: p.partyId, amountMinor: shares[i] }));
+      } else {
+        const p = split.find((x) => x.role === input.responsible);
+        if (!p) throw new RuleError(`This booking has no ${input.responsible}`, 409);
+        parts = [{ role: p.role, partyType: p.partyType, partyId: p.partyId, amountMinor: amount }];
+      }
+    } else {
+      if (input.responsible === "venue" || input.responsible === "host") throw new RuleError("This booking isn't a venue/host split — use partner or platform", 409);
+      const owner = await sourceOwner(d.source_type, d.source_ref, tx);
+      if (!owner) throw new RuleError("No partner found for this order", 409);
+      parts = [{ role: owner.partyType === "host" ? "host" : "vendor", partyType: owner.partyType, partyId: owner.partyId, amountMinor: amount }];
+    }
     const lines: LedgerLine[] = [
-      { account: "partner_available", amountMinor: amount, partyType: owner.partyType, partyId: owner.partyId, memo: "dispute recovered from partner" },
+      ...parts.filter((p) => p.amountMinor > 0).map((p) => ({ account: "partner_available", amountMinor: p.amountMinor, partyType: p.partyType, partyId: p.partyId, memo: `dispute recovered from ${p.role}` })),
       { account: "chargeback_loss", amountMinor: -amount, memo: "loss recovered" },
     ];
     if (await ledgerEnabled()) {
       await postGroup(tx, { idempotencyKey: `dispute_recovery:${d.provider_dispute_id}`, sourceType: "dispute", sourceId: d.provider_dispute_id, description: `Dispute recovery ${d.provider_dispute_id}`, basis: "actual", currency: d.currency, lines, createdBy: input.actorId });
     }
-    await tx.prepare(`UPDATE disputes SET recovery_status = 'recovered', responsible = 'partner' WHERE id = ?`).run(input.disputeId);
-    return { recovered: amount };
+    for (const p of parts) {
+      await tx.prepare(`INSERT IGNORE INTO dispute_recovery_allocations (dispute_id, role, party_type, party_id, amount_minor) VALUES (?, ?, ?, ?, ?)`).run(input.disputeId, p.role, p.partyType, p.partyId, p.amountMinor);
+    }
+    await tx.prepare(`UPDATE disputes SET recovery_status = 'recovered', responsible = ? WHERE id = ?`).run(input.responsible === "partner" ? "partner" : input.responsible, input.disputeId);
+    return { recovered: amount, allocations: parts.map((p) => ({ role: p.role, partyType: p.partyType, partyId: p.partyId, amountMinor: p.amountMinor })) };
   });
 }
 

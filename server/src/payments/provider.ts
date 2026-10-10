@@ -7,9 +7,13 @@
 // (stripe.webhooks.constructEvent) is verification, not a call, and stays in
 // routes/stripeWebhook.ts.
 //
-// Connect (Stage 5a): Express connected accounts with Stripe-hosted
-// onboarding (Account Links), separate charges and transfers, explicit
-// transfer reversals. Every Connect code path is additionally gated by the
+// Connect (Stage 5a; Accounts v2 since Stage 5e): Express-dashboard
+// connected accounts created through Stripe Accounts v2 (recipient
+// configuration), Stripe-hosted onboarding (v2 Account Links), separate
+// charges and transfers, explicit transfer reversals. A small number of
+// operations still go through documented Accounts v1 endpoints with the v2
+// account id; they are listed in CONNECT_V1_COMPAT below and nowhere else
+// may know which API generation performed an operation. Every Connect code path is additionally gated by the
 // commerce.connect_v1 switch in payments/connect.ts, and live keys are still
 // refused outside production (stripe.ts), so in development this can only
 // ever reach a Stripe test-mode account.
@@ -61,17 +65,50 @@ export interface CardSummary {
   expYear: number;
 }
 
+export type ConnectApiModel = "v1" | "v2";
+
+/** Model-neutral connected-account state, always read from the provider. */
 export interface ConnectedAccountStatus {
   id: string;
+  apiModel: ConnectApiModel;
   country: string | null;
+  /** "recipient" for v2 (receives transfers into its Stripe balance); null for v1. */
+  configurationType: string | null;
+  dashboardType: string | null;
+  businessType: "company" | "individual" | null;
   detailsSubmitted: boolean;
   chargesEnabled: boolean;
   payoutsEnabled: boolean;
-  /** "active" | "inactive" | "pending" — the transfers capability. */
+  /** "not_requested" for a recipient account — HelloCircle is the merchant. */
+  chargesCapability: string;
+  /** "active" | "pending" | "restricted" | "unsupported" | "inactive" — receiving transfers. */
   transfersCapability: string;
+  /** Same values — Stripe paying the partner's Stripe balance out to their bank. */
+  payoutsCapability: string;
+  /** Requirements the partner must provide now. */
   requirementsDue: string[];
+  /** Requirements already overdue (capabilities restricted until provided). */
+  requirementsPastDue: string[];
+  /** Requirements waiting on Stripe (verification under review). */
+  requirementsPending: string[];
   disabledReason: string | null;
 }
+
+/**
+ * Stage 5e — every Accounts v1 endpoint still used for an Accounts v2
+ * account. Stripe documents these as the supported way to do these things
+ * for v2 accounts (there is no v2 equivalent in the API or in stripe-node
+ * 22.x). Each entry names its removal test: when Stripe ships a v2
+ * equivalent, the named test is switched to the v2 call and this entry goes.
+ * docs/revenue-connect/adr-accounts-v2.md has the full inventory.
+ */
+export const CONNECT_V1_COMPAT = [
+  { endpoint: "POST /v1/transfers", use: "platform → connected-account transfer (separate charges and transfers)", reason: "Accounts v2 has no transfers API; Stripe accepts a v2 account id as destination when configuration.recipient stripe_balance.stripe_transfers is active", doc: "https://docs.stripe.com/connect/accounts-v2/api", detect: "SANDBOX-SPLIT-C transfer leg" },
+  { endpoint: "POST /v1/transfers/:id/reversals", use: "partial/full transfer reversal (debt recovery)", reason: "no v2 reversal API", doc: "https://docs.stripe.com/connect/separate-charges-and-transfers", detect: "SANDBOX-SPLIT-D reversal leg" },
+  { endpoint: "POST /v1/accounts/:id/login_links", use: "one-time link to the partner's Express dashboard", reason: "no v2 login-link API; v2 Express-dashboard accounts use the v1 endpoint", doc: "https://docs.stripe.com/connect/express-dashboard", detect: "connect.test dashboard link" },
+  { endpoint: "GET /v1/payouts (Stripe-Account)", use: "reading bank payouts on the connected account (reconciliation)", reason: "payouts are v1 objects on the connected account", doc: "https://docs.stripe.com/connect/payouts-connected-accounts", detect: "SANDBOX-PAYOUTS" },
+  { endpoint: "POST /v1/accounts/:id (settings.payouts)", use: "payout schedule (QA harness only — the app never changes it)", reason: "Accounts v2 does not expose payout settings", doc: "https://docs.stripe.com/connect/manage-payout-schedule", detect: "SANDBOX-PAYOUTS setup" },
+] as const;
 
 export interface PaymentProvider {
   readonly name: "stripe" | "stub";
@@ -93,11 +130,17 @@ export interface PaymentProvider {
   paymentFee(paymentIntentId: string): Promise<number | null>;
   /** Re-fetch a webhook event by id (admin replay; never trust a stored copy). */
   retrieveEvent(eventId: string): Promise<import("./webhookEvents.js").IncomingEvent | null>;
-  // Connect (Stage 5a).
-  createConnectedAccount(p: { country: string; email: string; businessType?: "individual" | "company"; idempotencyKey: string; metadata: Record<string, string> }): Promise<{ id: string }>;
-  retrieveConnectedAccount(accountId: string): Promise<ConnectedAccountStatus>;
-  /** Stripe-hosted onboarding / update link (single use, short-lived). */
-  createOnboardingLink(p: { accountId: string; refreshUrl: string; returnUrl: string }): Promise<{ url: string }>;
+  // Connect (Stage 5a; Accounts v2 since Stage 5e).
+  /** Always creates an Accounts v2 recipient account (Express dashboard). Idempotent by key. */
+  createConnectedAccount(p: { country: string; email: string; displayName: string; businessType?: "individual" | "company"; idempotencyKey: string; metadata: Record<string, string> }): Promise<{ id: string; apiModel: ConnectApiModel }>;
+  /** The account's current state from the provider (v1 rows created before 5e are read with v1). */
+  retrieveConnectedAccount(accountId: string, apiModel?: ConnectApiModel): Promise<ConnectedAccountStatus>;
+  /** Stripe-hosted onboarding (first time) or update (more information) link — single use, short-lived. */
+  createOnboardingLink(p: { accountId: string; apiModel?: ConnectApiModel; refreshUrl: string; returnUrl: string; purpose?: "onboarding" | "update" }): Promise<{ url: string; expiresAt: string | null }>;
+  /** Stage 5e — verifies a v2 ("thin") event notification and returns its id; throws on a bad signature. */
+  parseThinEvent(rawBody: Buffer | string, signature: string, secret: string): { id: string; type: string; relatedObjectId: string | null; created: string };
+  /** Re-fetches a v2 event by id (the payload is never trusted). */
+  retrieveThinEvent(eventId: string): Promise<{ id: string; type: string; relatedObjectId: string | null; created: string; livemode: boolean } | null>;
   /** One-time login link to the partner's Express dashboard (payouts, bank details). */
   createDashboardLink(accountId: string): Promise<{ url: string }>;
   createTransfer(p: { amountMinor: number; currency: string; destinationAccountId: string; transferGroup: string; sourceTransactionId?: string; idempotencyKey: string; metadata: Record<string, string> }): Promise<{ id: string }>;
@@ -200,42 +243,73 @@ class StripeProvider implements PaymentProvider {
     return { id: e.id, type: e.type, created: e.created, livemode: e.livemode, account: e.account ?? null, data: { object: e.data.object as unknown as Record<string, any> } };
   }
 
-  // Express dashboard + platform-managed pricing + platform-owned negative
-  // balance liability (the recommended configuration, docs 05). No
-  // application_fee_amount anywhere: with separate charges and transfers
-  // HelloCircle keeps the charge minus what it transfers.
-  async createConnectedAccount(p: { country: string; email: string; businessType?: "individual" | "company"; idempotencyKey: string; metadata: Record<string, string> }) {
-    const a = await this.client.accounts.create(
+  // Stage 5e — Accounts v2 (docs/revenue-connect/adr-accounts-v2.md):
+  //   dashboard "express"            the partner's Express dashboard
+  //   fees/losses_collector "application"  HelloCircle owns pricing and the
+  //                                  negative-balance liability
+  //   configuration.recipient        receive transfers into the Stripe balance —
+  //                                  the only capability requested; HelloCircle
+  //                                  stays the merchant (separate charges and
+  //                                  transfers; no merchant/card capabilities)
+  // Requirement collection is Stripe's (Express): identity is collected on the
+  // Stripe-hosted onboarding page, never by HelloCircle.
+  private get v2() {
+    return (this.client as unknown as { v2: { core: { accounts: any; accountLinks: any; events: any } } }).v2.core;
+  }
+
+  async createConnectedAccount(p: { country: string; email: string; displayName: string; businessType?: "individual" | "company"; idempotencyKey: string; metadata: Record<string, string> }) {
+    const a = await this.v2.accounts.create(
       {
-        country: p.country,
-        email: p.email,
-        ...(p.businessType ? { business_type: p.businessType } : {}),
-        controller: {
-          fees: { payer: "application" },
-          losses: { payments: "application" },
-          stripe_dashboard: { type: "express" },
-          requirement_collection: "stripe",
-        },
-        capabilities: { transfers: { requested: true } },
+        contact_email: p.email,
+        display_name: p.displayName.slice(0, 100),
+        dashboard: "express",
+        identity: { country: p.country.toLowerCase(), ...(p.businessType ? { entity_type: p.businessType } : {}) },
+        configuration: { recipient: { capabilities: { stripe_balance: { stripe_transfers: { requested: true } } } } },
+        defaults: { currency: "eur", responsibilities: { fees_collector: "application", losses_collector: "application" } },
         metadata: { ...p.metadata, ...qaRunMetadata() },
       },
       { idempotencyKey: p.idempotencyKey }
     );
-    return { id: a.id };
+    return { id: a.id as string, apiModel: "v2" as const };
   }
 
-  async retrieveConnectedAccount(accountId: string): Promise<ConnectedAccountStatus> {
-    return accountStatusFrom(await this.client.accounts.retrieve(accountId));
+  async retrieveConnectedAccount(accountId: string, apiModel: ConnectApiModel = "v2"): Promise<ConnectedAccountStatus> {
+    if (apiModel === "v1") return accountStatusFrom(await this.client.accounts.retrieve(accountId));
+    return accountStatusFromV2(await this.v2.accounts.retrieve(accountId, { include: ["configuration.recipient", "requirements", "identity"] }));
   }
 
-  async createOnboardingLink(p: { accountId: string; refreshUrl: string; returnUrl: string }) {
-    const link = await this.client.accountLinks.create({ account: p.accountId, refresh_url: p.refreshUrl, return_url: p.returnUrl, type: "account_onboarding" });
-    return { url: link.url };
+  async createOnboardingLink(p: { accountId: string; apiModel?: ConnectApiModel; refreshUrl: string; returnUrl: string; purpose?: "onboarding" | "update" }) {
+    if (p.apiModel === "v1") {
+      const link = await this.client.accountLinks.create({ account: p.accountId, refresh_url: p.refreshUrl, return_url: p.returnUrl, type: p.purpose === "update" ? "account_update" : "account_onboarding" });
+      return { url: link.url, expiresAt: new Date(link.expires_at * 1000).toISOString() };
+    }
+    const type = p.purpose === "update" ? "account_update" : "account_onboarding";
+    const link = await this.v2.accountLinks.create({
+      account: p.accountId,
+      use_case: { type, [type]: { configurations: ["recipient"], refresh_url: p.refreshUrl, return_url: p.returnUrl } },
+    });
+    return { url: link.url as string, expiresAt: (link.expires_at as string) ?? null };
   }
 
+  /** Accounts v1 compatibility (CONNECT_V1_COMPAT): no v2 login-link API. */
   async createDashboardLink(accountId: string) {
     const link = await this.client.accounts.createLoginLink(accountId);
     return { url: link.url };
+  }
+
+  parseThinEvent(rawBody: Buffer | string, signature: string, secret: string) {
+    const n = (this.client as unknown as { parseEventNotification: (b: Buffer | string, s: string, k: string) => any }).parseEventNotification(rawBody, signature, secret);
+    return { id: String(n.id), type: String(n.type), relatedObjectId: n.related_object?.id ?? null, created: String(n.created) };
+  }
+
+  async retrieveThinEvent(eventId: string) {
+    try {
+      const e = await this.v2.events.retrieve(eventId);
+      return { id: String(e.id), type: String(e.type), relatedObjectId: e.related_object?.id ?? null, created: String(e.created), livemode: !!e.livemode };
+    } catch (err) {
+      if ((err as { statusCode?: number }).statusCode === 404) return null;
+      throw err;
+    }
   }
 
   async createTransfer(p: { amountMinor: number; currency: string; destinationAccountId: string; transferGroup: string; sourceTransactionId?: string; idempotencyKey: string; metadata: Record<string, string> }) {
@@ -296,17 +370,60 @@ class StripeProvider implements PaymentProvider {
   }
 }
 
-/** Maps a Stripe account object (API response or account.updated webhook payload). */
-export function accountStatusFrom(a: Pick<Stripe.Account, "id" | "country" | "details_submitted" | "charges_enabled" | "payouts_enabled" | "capabilities" | "requirements">): ConnectedAccountStatus {
+/** Maps an Accounts v1 account object (accounts created before Stage 5e). */
+export function accountStatusFrom(a: Pick<Stripe.Account, "id" | "country" | "details_submitted" | "charges_enabled" | "payouts_enabled" | "capabilities" | "requirements"> & { business_type?: string | null }): ConnectedAccountStatus {
+  const pastDue = a.requirements?.past_due ?? [];
   return {
     id: a.id,
+    apiModel: "v1",
     country: a.country ?? null,
+    configurationType: null,
+    dashboardType: "express",
+    businessType: a.business_type === "company" || a.business_type === "individual" ? a.business_type : null,
     detailsSubmitted: !!a.details_submitted,
     chargesEnabled: !!a.charges_enabled,
     payoutsEnabled: !!a.payouts_enabled,
+    chargesCapability: String(a.capabilities?.card_payments ?? "not_requested"),
     transfersCapability: String(a.capabilities?.transfers ?? "inactive"),
-    requirementsDue: [...(a.requirements?.currently_due ?? []), ...(a.requirements?.past_due ?? [])].filter((x, i, arr) => arr.indexOf(x) === i),
+    payoutsCapability: a.payouts_enabled ? "active" : "restricted",
+    requirementsDue: (a.requirements?.currently_due ?? []).filter((x) => !pastDue.includes(x)),
+    requirementsPastDue: [...pastDue],
+    requirementsPending: [...(a.requirements?.pending_verification ?? [])],
     disabledReason: a.requirements?.disabled_reason ?? null,
+  };
+}
+
+/** Stage 5e — maps an Accounts v2 account (retrieved with configuration.recipient,
+ * requirements and identity included). Requirements are split by who must act:
+ * the partner (due / past due) or Stripe (pending review). */
+export function accountStatusFromV2(a: any): ConnectedAccountStatus {
+  const caps = a?.configuration?.recipient?.capabilities?.stripe_balance ?? {};
+  const transfers = String(caps.stripe_transfers?.status ?? "inactive");
+  const payouts = String(caps.payouts?.status ?? "inactive");
+  const entries: any[] = a?.requirements?.entries ?? [];
+  const user = entries.filter((e) => e.awaiting_action_from === "user");
+  const pastDue = user.filter((e) => e.minimum_deadline?.status === "past_due").map((e) => String(e.description));
+  const due = user.filter((e) => e.minimum_deadline?.status === "currently_due").map((e) => String(e.description));
+  const pending = entries.filter((e) => e.awaiting_action_from === "stripe").map((e) => String(e.description));
+  const detail = (c: any) => (c?.status && c.status !== "active" ? c.status_details?.[0]?.code ?? c.status : null);
+  const entity = a?.identity?.entity_type;
+  return {
+    id: String(a.id),
+    apiModel: "v2",
+    country: a?.identity?.country ? String(a.identity.country).toUpperCase() : null,
+    configurationType: (a?.applied_configurations ?? []).includes("recipient") || a?.configuration?.recipient ? "recipient" : null,
+    dashboardType: a?.dashboard ?? null,
+    businessType: entity === "company" || entity === "individual" ? entity : null,
+    detailsSubmitted: pastDue.length === 0 && due.length === 0,
+    chargesEnabled: false,
+    payoutsEnabled: payouts === "active",
+    chargesCapability: "not_requested",
+    transfersCapability: transfers,
+    payoutsCapability: payouts,
+    requirementsDue: due,
+    requirementsPastDue: pastDue,
+    requirementsPending: pending,
+    disabledReason: detail(caps.stripe_transfers) ?? detail(caps.payouts),
   };
 }
 
@@ -428,26 +545,54 @@ export class StubProvider implements PaymentProvider {
   async setDefaultCard() {}
   async detachCard() {}
 
-  async createConnectedAccount(p: { country: string; email: string; idempotencyKey: string; metadata: Record<string, string> }) {
+  /** Test hook: the next createConnectedAccount throws this AFTER creating the account (a timeout once the provider accepted it). */
+  timeoutAfterNextCreate = false;
+
+  async createConnectedAccount(p: { country: string; email: string; displayName: string; businessType?: "individual" | "company"; idempotencyKey: string; metadata: Record<string, string> }) {
     this.record("createConnectedAccount", p);
     const prior = this.accountsByKey.get(p.idempotencyKey);
-    if (prior) return { id: prior };
+    if (prior) return { id: prior, apiModel: "v2" as const };
     const id = `acct_stub_${this.tag}${++this.seq}`;
     this.accountsByKey.set(p.idempotencyKey, id);
-    this.accounts.set(id, { id, country: p.country, detailsSubmitted: false, chargesEnabled: false, payoutsEnabled: false, transfersCapability: "inactive", requirementsDue: ["external_account", "individual.verification.document"], disabledReason: "requirements.past_due" });
-    return { id };
+    this.accounts.set(id, {
+      id, apiModel: "v2", country: p.country, configurationType: "recipient", dashboardType: "express", businessType: p.businessType ?? null,
+      detailsSubmitted: false, chargesEnabled: false, payoutsEnabled: false, chargesCapability: "not_requested", transfersCapability: "restricted", payoutsCapability: "restricted",
+      requirementsDue: [], requirementsPastDue: ["external_account", "identity.attestations.terms_of_service.account.date"], requirementsPending: [], disabledReason: "requirements_past_due",
+    });
+    if (this.timeoutAfterNextCreate) {
+      this.timeoutAfterNextCreate = false;
+      throw Object.assign(new Error("Request timed out"), { type: "StripeConnectionError" });
+    }
+    return { id, apiModel: "v2" as const };
   }
 
   async retrieveConnectedAccount(accountId: string) {
     this.record("retrieveConnectedAccount", { accountId });
     const a = this.accounts.get(accountId);
     if (!a) throw Object.assign(new Error("No such account"), { code: "resource_missing" });
-    return { ...a, requirementsDue: [...a.requirementsDue] };
+    return { ...a, requirementsDue: [...a.requirementsDue], requirementsPastDue: [...a.requirementsPastDue], requirementsPending: [...a.requirementsPending] };
   }
 
-  async createOnboardingLink(p: { accountId: string; refreshUrl: string; returnUrl: string }) {
+  async createOnboardingLink(p: { accountId: string; refreshUrl: string; returnUrl: string; purpose?: "onboarding" | "update" }) {
     this.record("createOnboardingLink", p);
-    return { url: `https://connect.stub.invalid/onboarding/${p.accountId}` };
+    return { url: `https://connect.stub.invalid/${p.purpose === "update" ? "update" : "onboarding"}/${p.accountId}`, expiresAt: new Date(Date.now() + 5 * 60_000).toISOString() };
+  }
+
+  parseThinEvent(rawBody: Buffer | string, signature: string, secret: string) {
+    // Stub signature: "stub=<secret>" — enough for route tests; real verification is Stripe's.
+    if (signature !== `stub=${secret}`) throw Object.assign(new Error("No signatures found matching the expected signature"), { type: "StripeSignatureVerificationError" });
+    const n = JSON.parse(String(rawBody));
+    return { id: String(n.id), type: String(n.type), relatedObjectId: n.related_object?.id ?? null, created: String(n.created) };
+  }
+
+  private thinEvents = new Map<string, { id: string; type: string; relatedObjectId: string | null; created: string; livemode: boolean }>();
+  /** Test helper: make a v2 event retrievable. */
+  publishThinEvent(e: { id: string; type: string; relatedObjectId: string | null; created: string }) {
+    this.thinEvents.set(e.id, { ...e, livemode: false });
+  }
+  async retrieveThinEvent(eventId: string) {
+    this.record("retrieveThinEvent", { eventId });
+    return this.thinEvents.get(eventId) ?? null;
   }
 
   async createDashboardLink(accountId: string) {
@@ -472,7 +617,12 @@ export class StubProvider implements PaymentProvider {
   setAccount(accountId: string, patch: Partial<ConnectedAccountStatus>) {
     const a = this.accounts.get(accountId);
     if (!a) throw new Error(`No stub account ${accountId}`);
-    this.accounts.set(accountId, { ...a, ...patch });
+    // Pre-5e tests set the v1-era fields; keep the v2 fields consistent with them.
+    const derived: Partial<ConnectedAccountStatus> = {};
+    if (patch.payoutsEnabled !== undefined && patch.payoutsCapability === undefined) derived.payoutsCapability = patch.payoutsEnabled ? "active" : "restricted";
+    if (patch.requirementsDue !== undefined && patch.requirementsPastDue === undefined && patch.requirementsDue.length === 0) derived.requirementsPastDue = [];
+    if (patch.transfersCapability === "active" && patch.disabledReason === undefined) derived.disabledReason = null;
+    this.accounts.set(accountId, { ...a, ...derived, ...patch });
   }
 
   async createTransfer(p: { amountMinor: number; idempotencyKey: string; destinationAccountId: string; transferGroup: string; currency: string; metadata: Record<string, string> }) {

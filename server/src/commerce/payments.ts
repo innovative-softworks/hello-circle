@@ -19,6 +19,7 @@ import { resolveRule } from "./rules.js";
 import { reverseRewardsForOrder } from "./rewards.js";
 import { commerceSwitch } from "./switches.js";
 import { SOURCE_TABLES, syncOrderFromSource } from "./engine.js";
+import { freezeAllocation, planSplit, type AllocationPlan } from "./allocations.js";
 
 type Tx = Pick<typeof db, "prepare">;
 
@@ -70,7 +71,28 @@ export function legacyBreakdownFromTotal(totalMinor: number, vatBps: number, fee
   return null;
 }
 
-async function paymentLines(tx: Tx, type: CheckoutType, ref: string, totalMinor: number, at: Date): Promise<LedgerLine[]> {
+interface PaymentPosting {
+  lines: LedgerLine[];
+  plan: AllocationPlan | null;
+  customerFeeMinor: number;
+  successFeeMinor: number;
+  pricingRuleHash: string | null;
+}
+
+/** Stage 5e — replaces the single partner line with the venue and host lines
+ * of an accepted split (and moves a platform-owned rounding cent to revenue). */
+function applySplit(lines: LedgerLine[], plan: AllocationPlan | null): LedgerLine[] {
+  if (!plan) return lines;
+  const out: LedgerLine[] = [];
+  for (const l of lines) {
+    if ((l.account === "partner_payable" || l.account === "host_payable") && l.partyId) out.push(...plan.partnerLines);
+    else if (l.account === "platform_fee_revenue") out.push({ ...l, amountMinor: l.amountMinor - plan.platformRoundingMinor });
+    else out.push(l);
+  }
+  return out;
+}
+
+async function paymentLines(tx: Tx, type: CheckoutType, ref: string, totalMinor: number, at: Date): Promise<PaymentPosting> {
   const owner = await sourceOwner(type, ref, tx);
   if (!owner) throw new NeedsReviewError(`No partner found for ${type} ${ref}`);
   const party = { partyType: owner.partyType, partyId: owner.partyId };
@@ -80,14 +102,15 @@ async function paymentLines(tx: Tx, type: CheckoutType, ref: string, totalMinor:
     .prepare(
       `SELECT s.customer_paid_minor as paid, s.vat_minor as vat, s.customer_fee_minor as customerFee, s.success_fee_minor as successFee,
               s.partner_payout_minor as payout, s.partner_payment_cost_minor as partnerCost, s.deposit_minor as deposit,
-              s.platform_funded_discount_minor as funded
+              s.platform_funded_discount_minor as funded, s.rule_hash as ruleHash
        FROM pricing_snapshots s JOIN commerce_orders o ON o.id = s.order_id WHERE o.source_type = ? AND o.source_ref = ?`
     )
     .get(type, ref)) as Record<string, number | string> | undefined;
   if (snap) {
     const n = (k: string) => Number(snap[k]);
     if (n("paid") !== totalMinor) throw new NeedsReviewError(`Snapshot total ${n("paid")} ≠ charged ${totalMinor} for ${type} ${ref}`);
-    return [
+    const plan = await planSplit(tx, type, ref, n("payout"), at);
+    const lines: LedgerLine[] = [
       { account: "stripe_clearing", amountMinor: n("paid"), memo: "customer payment" },
       { account: "coupon_expense", amountMinor: n("funded"), memo: "HelloCircle-funded discount" },
       { account: owner.account, amountMinor: -n("payout"), ...party, memo: "partner share" },
@@ -96,6 +119,7 @@ async function paymentLines(tx: Tx, type: CheckoutType, ref: string, totalMinor:
       { account: "accrued_payment_costs", amountMinor: -n("partnerCost"), memo: "partner-borne payment cost" },
       { account: "refund_liability", amountMinor: -n("deposit"), memo: "refundable deposit" },
     ];
+    return { lines: applySplit(lines, plan), plan, customerFeeMinor: n("customerFee"), successFeeMinor: n("successFee"), pricingRuleHash: String(snap.ruleHash ?? "") || null };
   }
 
   // Legacy (pe-1) row: stored breakdown where the table has one, else derived.
@@ -123,7 +147,8 @@ async function paymentLines(tx: Tx, type: CheckoutType, ref: string, totalMinor:
     .prepare(`SELECT COALESCE(SUM(platform_funded_minor), 0) as f FROM coupon_redemptions WHERE source_type = ? AND source_ref = ? AND status IN ('reserved', 'confirmed')`)
     .get(type, ref)) as { f: number | string };
   const platformFunded = Number(funded.f);
-  return [
+  const plan = await planSplit(tx, type, ref, taxable + platformFunded, at);
+  const lines: LedgerLine[] = [
     { account: "stripe_clearing", amountMinor: totalMinor, memo: "customer payment" },
     { account: "coupon_expense", amountMinor: platformFunded, memo: "HelloCircle-funded discount" },
     { account: owner.account, amountMinor: -(taxable + platformFunded), ...party, memo: "partner share (legacy pricing)" },
@@ -131,6 +156,7 @@ async function paymentLines(tx: Tx, type: CheckoutType, ref: string, totalMinor:
     { account: "underlying_tax_payable", amountMinor: -vat, memo: "VAT collected (legacy)" },
     { account: "refund_liability", amountMinor: -deposit, memo: "refundable deposit" },
   ];
+  return { lines: applySplit(lines, plan), plan, customerFeeMinor: fee, successFeeMinor: 0, pricingRuleHash: pricing.hash };
 }
 
 export async function ledgerEnabled(): Promise<boolean> {
@@ -172,7 +198,14 @@ export async function recordPaymentConfirmed(input: { type: CheckoutType; ref: s
       }
     }
     if (!(await ledgerEnabled())) return;
-    const lines = await paymentLines(tx, input.type, input.ref, input.amountMinor, new Date());
+    const posting = await paymentLines(tx, input.type, input.ref, input.amountMinor, new Date());
+    const lines = posting.lines;
+    // Stage 5e — the booking's immutable allocation, frozen from this exact posting.
+    const est = (await tx.prepare(`SELECT fee_estimate_minor as f FROM payment_records WHERE source_type = ? AND source_ref = ?`).get(input.type, input.ref)) as { f: number | string | null } | undefined;
+    await freezeAllocation(tx, {
+      type: input.type, ref: input.ref, currency: input.currency, lines, customerFeeMinor: posting.customerFeeMinor, successFeeMinor: posting.successFeeMinor,
+      estProcessingFeeMinor: Number(est?.f ?? 0), pricingRuleHash: posting.pricingRuleHash, plan: posting.plan,
+    });
     await postGroup(tx, {
       idempotencyKey: `payment:${input.type}:${input.ref}`,
       sourceType: input.type,

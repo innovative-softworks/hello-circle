@@ -235,6 +235,17 @@ export const RULE_KEYS: Record<string, RuleKeySpec> = {
     },
     v1: { reviewHours: 48, payoutSchedule: "weekly", payoutWeekday: "monday", minPayoutMinor: 2_500, refundReserveBps: 0, disputeReserveBps: 0, marginWarningMinor: 0 },
   },
+  venue_split: {
+    key: "venue_split",
+    label: "Venue / host split",
+    description: "How the partner share of a host's paid game at a partner venue is divided. The agreed split is frozen into each booking at payment; changing this rule only affects later payments.",
+    scopes: ["global"],
+    fields: {
+      roundingOwner: { kind: "enum", label: "Rounding remainder goes to", values: ["venue", "host", "platform"], help: "A percentage split can leave one cent that can't be divided exactly; it is given to this party and recorded on the booking's allocation." },
+      maxVenueBps: { kind: "bps", label: "Largest venue share allowed", help: "Upper limit on the venue's percentage in a proposed split.", min: 0, max: 10_000 },
+    },
+    v1: { roundingOwner: "venue", maxVenueBps: 9_000 },
+  },
   rewards: {
     key: "rewards",
     label: "Partner reward points",

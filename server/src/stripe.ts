@@ -6,6 +6,8 @@ export const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET;
 /** Revenue & Connect Stage 5a — the Connect endpoint (events from connected
  * accounts) has its own signing secret in Stripe; both are accepted here. */
 export const STRIPE_CONNECT_WEBHOOK_SECRET = process.env.STRIPE_CONNECT_WEBHOOK_SECRET;
+/** Stage 5e — signing secret of the event destination that delivers Accounts v2 ("thin") events. */
+export const STRIPE_V2_WEBHOOK_SECRET = process.env.STRIPE_V2_WEBHOOK_SECRET;
 export const CLIENT_URL = process.env.CLIENT_URL || "http://localhost:5173";
 
 const keyRefusal = stripeKeyRefusal(STRIPE_SECRET_KEY);

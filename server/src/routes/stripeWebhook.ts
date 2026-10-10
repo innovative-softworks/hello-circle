@@ -12,8 +12,8 @@ import { claimWaitlistOffer } from "../waitlist.js";
 import { endPendingHold, gameSeatSql, holdIsLive, occupiesCapacitySql } from "../bookingIntegrity.js";
 import { writeAudit } from "../audit.js";
 import { bookingEndHour, hoursOverlap } from "../util.js";
-import { CLIENT_URL, STRIPE_CONNECT_WEBHOOK_SECRET, STRIPE_WEBHOOK_SECRET, stripe } from "../stripe.js";
-import { CONNECT_EVENT_TYPES, processConnectEvent } from "../payments/connect.js";
+import { CLIENT_URL, STRIPE_CONNECT_WEBHOOK_SECRET, STRIPE_V2_WEBHOOK_SECRET, STRIPE_WEBHOOK_SECRET, stripe } from "../stripe.js";
+import { CONNECT_EVENT_TYPES, processConnectEvent, processThinConnectEvent } from "../payments/connect.js";
 import { paymentProvider } from "../payments/provider.js";
 import { unsignedStripeWebhooksAllowed } from "../stripeWebhookPolicy.js";
 import type Stripe from "stripe";
@@ -486,6 +486,39 @@ export async function stripeWebhookHandler(req: Request, res: Response) {
     const retry = await failEvent(begin.rowId, e, { needsReview: e instanceof NeedsReviewError });
     console.error(`[stripe] webhook ${event.id} (${event.type}) failed${retry ? " — will retry" : " — parked for manual review"}:`, e instanceof Error ? e.message : e);
     // 500 asks the provider to retry; once parked, acknowledge so it stops.
+    if (retry) return res.status(500).send("Processing failed");
+    res.json({ received: true, parked: true });
+  }
+}
+
+/**
+ * Stage 5e — Accounts v2 ("thin") events from the event destination
+ * (POST /api/stripe/webhook/v2). The notification carries only an id: after
+ * the signature check it is stored once (duplicates refused), then the event
+ * and the account it names are re-fetched from Stripe — never trusted as sent.
+ */
+export async function stripeThinWebhookHandler(req: Request, res: Response) {
+  const provider = paymentProvider();
+  if (!provider) return res.status(503).send("Payments not configured");
+  const secret = process.env.STRIPE_V2_WEBHOOK_SECRET ?? STRIPE_V2_WEBHOOK_SECRET;
+  if (!secret) return res.status(503).send("Webhook not configured");
+  const signature = req.headers["stripe-signature"];
+  if (typeof signature !== "string" || !signature) return res.status(400).send("Missing signature");
+  let note: { id: string; type: string; relatedObjectId: string | null; created: string };
+  try {
+    note = provider.parseThinEvent(req.body, signature, secret);
+  } catch {
+    return res.status(400).send("Invalid signature");
+  }
+  const incoming: IncomingEvent = { id: note.id, type: note.type, created: Math.floor(new Date(note.created).getTime() / 1000) || 0, livemode: false, account: note.relatedObjectId, data: { object: { id: note.relatedObjectId } } };
+  const begin = await beginEvent("stripe_v2", incoming, req.body);
+  if (begin.action === "duplicate") return res.json({ received: true, duplicate: true });
+  if (begin.action === "busy") return res.status(409).send("Event is already being processed");
+  try {
+    await finishEvent(begin.rowId, await processThinConnectEvent(note.id));
+    res.json({ received: true });
+  } catch (e) {
+    const retry = await failEvent(begin.rowId, e, { needsReview: e instanceof NeedsReviewError });
     if (retry) return res.status(500).send("Processing failed");
     res.json({ received: true, parked: true });
   }

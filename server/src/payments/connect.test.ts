@@ -149,7 +149,9 @@ describe("onboarding and readiness", () => {
     const rows = (await db.prepare(`SELECT COUNT(*) as n FROM connected_accounts WHERE party_id = ?`).get(org)) as { n: number };
     expect(Number(rows.n)).toBe(1);
     const created = stubProvider.calls.filter((c) => c.method === "createConnectedAccount");
-    expect(created.at(-1)?.args).toMatchObject({ country: "IE", idempotencyKey: `acct:org:${org}` });
+    // Stage 5e — one reservation per partner; its key is reused on every retry.
+    expect(created.at(-1)?.args).toMatchObject({ country: "IE", idempotencyKey: `hc-acct-v2:org:${org}` });
+    expect(created).toHaveLength(1);
   });
 
   it("holds transfers until the account is verified and trader details are self-certified", async () => {
@@ -157,14 +159,16 @@ describe("onboarding and readiness", () => {
     expect(reasons).toEqual(expect.arrayContaining([expect.stringMatching(/can't receive transfers/), expect.stringMatching(/Trader details/)]));
 
     const acct = (await db.prepare(`SELECT account_id as id FROM connected_accounts WHERE party_id = ?`).get(org)) as { id: string };
-    // account.updated from Stripe flips the mirrored status.
+    // Stage 5e — the account changes at Stripe; account.updated only triggers a
+    // re-fetch (its payload is never trusted for state).
+    stubProvider.setAccount(acct.id, { detailsSubmitted: true, payoutsEnabled: true, transfersCapability: "active", requirementsDue: [], disabledReason: null });
     await processStripeEvent({
       id: `evt_cx_${run}_acct`,
       type: "account.updated",
       created: 0,
       livemode: false,
       account: acct.id,
-      data: { object: { id: acct.id, country: "IE", details_submitted: true, charges_enabled: false, payouts_enabled: true, capabilities: { transfers: "active" }, requirements: { currently_due: [], past_due: [], disabled_reason: null } } },
+      data: { object: { id: acct.id, country: "IE", details_submitted: false, charges_enabled: false, payouts_enabled: false, capabilities: { transfers: "inactive" }, requirements: { currently_due: ["stale"], past_due: [], disabled_reason: null } } },
     });
     expect(await payoutReadiness(party)).toEqual([expect.stringMatching(/Trader details/)]);
     await db

@@ -41,6 +41,7 @@ import { consentsRouter } from "./routes/consents.js";
 import { complaintsRouter } from "./routes/complaints.js";
 import { hostTraderRouter, publicTraderRouter, vendorTraderRouter } from "./routes/traders.js";
 import { hostPayoutsRouter, vendorPayoutsRouter } from "./routes/payouts.js";
+import { hostSplitsRouter, vendorSplitsRouter } from "./routes/venueSplits.js";
 import { hostPlanRouter, residentCreditsRouter, vendorPlanRouter } from "./routes/partnerPlan.js";
 import { discoverRouter } from "./routes/discover.js";
 import { experiencesRouter } from "./routes/experiences.js";
@@ -69,7 +70,7 @@ import { reviewsRouter } from "./routes/reviews.js";
 import { searchRouter } from "./routes/search.js";
 import { sharingRouter } from "./routes/sharing.js";
 import { askRouter } from "./routes/ask.js";
-import { stripeWebhookHandler } from "./routes/stripeWebhook.js";
+import { stripeThinWebhookHandler, stripeWebhookHandler } from "./routes/stripeWebhook.js";
 import { mediaRouter } from "./routes/media.js";
 import { uploadsRouter } from "./routes/uploads.js";
 import { vendorRouter } from "./routes/vendor.js";
@@ -138,6 +139,7 @@ app.use(
 // Stripe's signature check needs the exact raw body bytes, so this must be
 // registered before express.json() parses (and thereby mangles) the body —
 // and only for this one path, everything else still wants JSON.
+app.post("/api/stripe/webhook/v2", express.raw({ type: "application/json" }), stripeThinWebhookHandler);
 app.post("/api/stripe/webhook", express.raw({ type: "application/json" }), stripeWebhookHandler);
 app.use(express.json());
 app.use(cookieParser());
@@ -204,6 +206,8 @@ app.use("/api/host/trader-profile", hostTraderRouter);
 // (Stage 5c: "payout account" — transfers in and bank payouts out are reported separately.)
 app.use("/api/vendor/payout-account", vendorPayoutsRouter);
 app.use("/api/host/payout-account", hostPayoutsRouter);
+app.use("/api/host/game-splits", hostSplitsRouter);
+app.use("/api/vendor/splits", vendorSplitsRouter);
 // Revenue & Connect Stage 5b — Pro subscription, reward points, customer credits.
 app.use("/api/vendor/plan", vendorPlanRouter);
 app.use("/api/host/plan", hostPlanRouter);

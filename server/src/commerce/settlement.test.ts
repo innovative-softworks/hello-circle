@@ -191,7 +191,7 @@ describe("weekly settlement", () => {
     expect((await call("POST", `/admin/finance/disputes/${d.id}/recovery`, { responsible: "partner" }, "admin")).status).toBe(400);
     const before = (await partnerBalances(party)).availableMinor;
     const rec = await call("POST", `/admin/finance/disputes/${d.id}/recovery`, { responsible: "partner", reason: "service not delivered by partner" }, "admin");
-    expect(rec.body).toEqual({ recovered: 6_400 });
+    expect(rec.body).toEqual({ recovered: 6_400, allocations: [{ role: "vendor", partyType: "org", partyId: org, amountMinor: 6_400 }] }); // Stage 5e breakdown
     expect((await partnerBalances(party)).availableMinor).toBe(before - 6_400);
     expect((await call("POST", `/admin/finance/disputes/${d.id}/recovery`, { responsible: "platform", reason: "decide twice" }, "admin")).status).toBe(409);
     expect(await ledgerIsBalanced()).toBe(true);
