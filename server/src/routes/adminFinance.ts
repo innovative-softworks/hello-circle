@@ -299,12 +299,23 @@ adminFinanceRouter.get("/credits", async (req, res) => {
 });
 
 adminFinanceRouter.post("/credits", async (req, res) => {
-  const b = (req.body ?? {}) as { residentId?: string; email?: string; amountMinor?: number; kind?: string; reason?: string };
+  const b = (req.body ?? {}) as { residentId?: string; email?: string; amountMinor?: number; kind?: string; reason?: string; fundingOwner?: string; expiresAt?: string | null; idempotencyKey?: string };
   const id = await residentIdFrom(b);
   if (!id) return res.status(404).json({ error: "No resident with that email" });
   const kind = b.kind === "promotional" || b.kind === "refund" ? b.kind : "goodwill";
   try {
-    res.json(await grantCredit({ residentId: id, amountMinor: Number(b.amountMinor), kind, reason: String(b.reason ?? ""), actorId: req.user!.id }));
+    res.json(
+      await grantCredit({
+        residentId: id,
+        amountMinor: Number(b.amountMinor),
+        kind,
+        reason: String(b.reason ?? ""),
+        actorId: req.user!.id,
+        fundingOwner: b.fundingOwner === "partner" ? "partner" : "helloCircle",
+        expiresAt: typeof b.expiresAt === "string" && b.expiresAt ? b.expiresAt : null,
+        idempotencyKey: typeof b.idempotencyKey === "string" ? b.idempotencyKey : null,
+      })
+    );
   } catch (e) {
     if (e instanceof CreditError) return res.status(e.status).json({ error: e.message });
     throw e;

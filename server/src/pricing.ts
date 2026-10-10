@@ -92,9 +92,12 @@ async function listingInCreatorOrg(creatorVendorId: string, ctx: CouponListingCo
   return !!row;
 }
 
+export type CouponRejection = "invalid" | "not_yet_active" | "expired" | "min_spend" | "limit" | "not_applicable";
 export interface CouponResult {
   valid: boolean;
   error?: string;
+  /** Stage 5f — machine-readable reason for a rejected code (the UI picks its own wording). */
+  reason?: CouponRejection;
   discountCents?: number;
   code?: string;
   /** Commerce Engine Phase 3 — who pays for the discount. */
@@ -124,33 +127,33 @@ export interface CouponListingContext {
  * — never trusts a client-supplied discount amount. */
 export async function evaluateCoupon(rawCode: string, subtotalCents: number, listingContext?: CouponListingContext): Promise<CouponResult> {
   const code = rawCode.trim().toUpperCase();
-  if (!code) return { valid: false, error: "Enter a code" };
+  if (!code) return { valid: false, error: "Enter a code", reason: "invalid" };
 
   const row = (await db.prepare(`SELECT * FROM coupons WHERE code = ?`).get(code)) as CouponRow | undefined;
-  if (!row || !row.active || row.archived_at) return { valid: false, error: "That code isn't valid" };
-  if (row.starts_at && new Date(row.starts_at) > new Date()) return { valid: false, error: "That code isn't active yet" };
-  if (row.expires_at && new Date(row.expires_at) < new Date()) return { valid: false, error: "That code has expired" };
+  if (!row || !row.active || row.archived_at) return { valid: false, error: "That code isn't valid", reason: "invalid" };
+  if (row.starts_at && new Date(row.starts_at) > new Date()) return { valid: false, error: "That code isn't active yet", reason: "not_yet_active" };
+  if (row.expires_at && new Date(row.expires_at) < new Date()) return { valid: false, error: "That code has expired", reason: "expired" };
   if (row.min_spend_cents !== null && row.min_spend_cents !== undefined && subtotalCents < row.min_spend_cents) {
-    return { valid: false, error: `That code needs a minimum spend of €${(row.min_spend_cents / 100).toFixed(2)}` };
+    return { valid: false, error: `That code needs a minimum spend of €${(row.min_spend_cents / 100).toFixed(2)}`, reason: "min_spend" };
   }
-  if (row.max_uses !== null && row.used_count >= row.max_uses) return { valid: false, error: "That code has been fully redeemed" };
+  if (row.max_uses !== null && row.used_count >= row.max_uses) return { valid: false, error: "That code has been fully redeemed", reason: "limit" };
   // Commerce audit R4 — a malformed row (e.g. created before partner-route
   // validation existed) never applies, rather than producing a negative or
   // >100% discount.
-  if (couponAmountError(row.kind, row.amount)) return { valid: false, error: "That code isn't valid" };
+  if (couponAmountError(row.kind, row.amount)) return { valid: false, error: "That code isn't valid", reason: "invalid" };
   if (row.eligible_listing_id) {
     const matches = listingContext && row.eligible_listing_type === listingContext.listingType && row.eligible_listing_id === listingContext.listingId;
-    if (!matches) return { valid: false, error: "That code isn't valid for this listing" };
+    if (!matches) return { valid: false, error: "That code isn't valid for this listing", reason: "not_applicable" };
   } else if (row.created_by_resident_id) {
     // Host coupons are always game-scoped at creation; one without a game
     // must never fall through to "valid everywhere".
-    return { valid: false, error: "That code isn't valid for this listing" };
+    return { valid: false, error: "That code isn't valid for this listing", reason: "not_applicable" };
   } else if (row.created_by_vendor_id && listingContext) {
     // Commerce audit R4 — a vendor coupon with no single listing means "all
     // of this vendor's org's listings", never every listing platform-wide.
     // Without listing context (the standalone preview) it can't be checked;
     // checkout always calls again with context.
-    if (!(await listingInCreatorOrg(row.created_by_vendor_id, listingContext))) return { valid: false, error: "That code isn't valid for this listing" };
+    if (!(await listingInCreatorOrg(row.created_by_vendor_id, listingContext))) return { valid: false, error: "That code isn't valid for this listing", reason: "not_applicable" };
   }
 
   let discountCents = row.kind === "percent" ? Math.round((subtotalCents * row.amount) / 100) : Math.min(row.amount, subtotalCents);

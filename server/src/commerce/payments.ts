@@ -20,6 +20,7 @@ import { reverseRewardsForOrder } from "./rewards.js";
 import { commerceSwitch } from "./switches.js";
 import { SOURCE_TABLES, syncOrderFromSource } from "./engine.js";
 import { freezeAllocation, planSplit, type AllocationPlan } from "./allocations.js";
+import { restoreCreditForRefund } from "./credits.js";
 
 type Tx = Pick<typeof db, "prepare">;
 
@@ -226,6 +227,8 @@ async function paymentGroupId(tx: Tx, type: string, ref: string): Promise<string
 /** Posts a refund as a proportional reversal of the original payment (when
  * the payment itself was posted). */
 export async function postRefund(tx: Tx, type: string, ref: string, refundId: number, amountMinor: number, paidMinor: number, actor: string | null) {
+  // Stage 5f — decision D1: credit used on this order comes back in proportion to what's refunded.
+  await restoreCreditForRefund(tx, type, ref, await refundedSoFar(tx, type, ref), paidMinor);
   // Stage 5c — a refund after settlement reverses that order's reward points proportionally (ledger or not).
   // Stage 5e — after the refund is posted, so a split booking's per-partner refunded share is known.
   if (!(await ledgerEnabled())) return void (await reverseRewardsForOrder(tx, type, ref, "refund"));

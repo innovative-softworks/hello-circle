@@ -3696,6 +3696,8 @@ async function initCommerceSchema(
       KEY idx_reward_adjustment_party (party_type, party_id)
     )
   `);
+  // Stage 5f — when a credit use was released/restored (for the customer's history).
+  await ensureColumn("credit_uses", "status_changed_at", "status_changed_at DATETIME NULL");
   // Stage 5f — credit grants: currency, funding owner, idempotency.
   await ensureColumn("credit_lots", "currency", "currency CHAR(3) NOT NULL DEFAULT 'EUR'");
   await ensureColumn("credit_lots", "funding_owner", "funding_owner VARCHAR(20) NOT NULL DEFAULT 'helloCircle'");

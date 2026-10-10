@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ChangeEvent, type CSSProperties, type ReactNode } from "react";
+import { CreditWallet } from "../components/CreditWallet";
 import { useConfirm } from "../components/ConfirmProvider";
 import { useNavigate } from "react-router-dom";
 import {
@@ -1698,7 +1699,7 @@ function HelpSupportPanel() {
 // --- Page shell --------------------------------------------------------
 
 type ProfileSection =
-  | "account" | "notificationPrefs" | "preferences" | "privacy" | "payment"
+  | "account" | "notificationPrefs" | "preferences" | "privacy" | "payment" | "credit"
   | "household" | "favourites" | "following" | "routines" | "passes" | "receipts" | "inbox"
   | "hosting"
   | "safety" | "help";
@@ -1709,6 +1710,7 @@ const NAV_OPTIONS: { key: ProfileSection; label: string; icon: ReactNode; group:
   { key: "preferences", label: "Interests & Discovery", icon: <LightbulbIcon size={15} />, group: "Account" },
   { key: "privacy", label: "Privacy & accessibility", icon: <EyeOffIcon size={15} />, group: "Account" },
   { key: "payment", label: "Payment methods", icon: <CardIcon size={15} />, group: "Account" },
+  { key: "credit", label: "HelloCircle credit", icon: <TagIcon size={15} />, group: "Account" },
 
   { key: "household", label: "Household", icon: <UsersIcon size={15} />, group: "Household & plans" },
   { key: "favourites", label: "Saved", icon: <HeartIcon size={15} />, group: "Household & plans" },
@@ -1760,6 +1762,7 @@ export function Profile() {
       {section === "preferences" && <ParticipationPreferencesPanel />}
       {section === "privacy" && <PrivacyAccessibilityPanel />}
       {section === "payment" && <PaymentMethodsPanel />}
+      {section === "credit" && <CreditWallet />}
       {section === "household" && <HouseholdPanel />}
       {section === "favourites" && <FavouritesPanel />}
       {section === "following" && <FollowingPanel />}

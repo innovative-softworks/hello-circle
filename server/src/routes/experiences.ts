@@ -241,7 +241,7 @@ async function engineQuoteExperience(experience: ExperienceRow, partySize: numbe
   let couponCode: string | null = null;
   if (rawCoupon) {
     const result = await evaluateCoupon(rawCoupon, listMinor, { listingType: "experience", listingId: experience.id });
-    if (!result.valid) return { ok: false as const, error: result.error! };
+    if (!result.valid) return { ok: false as const, error: result.error!, reason: result.reason ?? "invalid" };
     discountMinor = Math.min(result.discountCents!, listMinor);
     platformShareBps = result.platformShareBps ?? 0;
     couponCode = result.code!;
@@ -266,7 +266,7 @@ async function engineQuoteExperience(experience: ExperienceRow, partySize: numbe
  * POST /api/commerce/quotes (routes/commerce.ts). */
 export async function storedExperienceQuote(experience: ExperienceRow, sessionId: string, partySize: number, rawCoupon: string | undefined, clientId: string | null, residentId: string | null, useCredits = false) {
   const q = await engineQuoteExperience(experience, partySize, rawCoupon, await creditForCheckout(residentId, useCredits, Number.MAX_SAFE_INTEGER));
-  if (!q.ok) return { status: 400, body: { error: q.error } };
+  if (!q.ok) return { status: 400, body: { error: q.error, code: `coupon_${q.reason}` } };
   const stored = await createQuote({ sourceType: "experience", resourceId: experience.id, sessionId, quantity: partySize, couponCode: q.couponCode, clientId, residentId }, q.price);
   const b = q.price.breakdown;
   return {

@@ -1123,9 +1123,29 @@ export function fetchHostBalances(): Promise<import("./vendor").PartnerEarnings>
 
 // --- Revenue & Connect Stage 5b: customer credits ------------------------------
 
-export interface MyCredits { enabled: boolean; balanceMinor: number; lots: { id: number; kind: string; amountMinor: number; remainingMinor: number; expiresAt: string; createdAt: string }[] }
+export interface MyCredits {
+  enabled: boolean;
+  balanceMinor: number;
+  /** Stage 5f — credit held for a checkout that isn't paid yet (released if it isn't). */
+  reservedMinor?: number;
+  nextExpiry?: string | null;
+  lots: { id: number; kind: string; amountMinor: number; remainingMinor: number; expiresAt: string; createdAt: string; currency?: string }[];
+}
 export function fetchMyCredits(): Promise<MyCredits> {
   return request(`/credits/me`);
+}
+/** Stage 5f — the resident's own credit history. */
+export interface CreditHistoryEntry {
+  kind: "granted" | "used" | "reserved" | "restored" | "released" | "expired";
+  amountMinor: number;
+  at: string;
+  creditType: "goodwill" | "promotional" | "refund" | null;
+  sourceType: string | null;
+  sourceRef: string | null;
+  expiresAt: string | null;
+}
+export function fetchMyCreditHistory(): Promise<CreditHistoryEntry[]> {
+  return request(`/credits/me/history`);
 }
 
 // --- Revenue & Connect Stage 5e: venue/host split (host side) ---------------

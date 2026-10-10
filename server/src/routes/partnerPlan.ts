@@ -2,7 +2,7 @@ import { Router, type Request, type Response } from "express";
 import { requirePlatformRole, requireVendor } from "../auth.js";
 import { RewardError, redeemForProMonth, rewardHistory, rewardSummary } from "../commerce/rewards.js";
 import { SubscriptionError, billingPortalLink, cancelPro, resumePro, startProCheckout, subscriptionOverview } from "../commerce/subscriptions.js";
-import { creditsEnabled, residentCredits } from "../commerce/credits.js";
+import { creditsEnabled, residentCreditHistory, residentCredits } from "../commerce/credits.js";
 import type { PartnerKey } from "../commerce/plans.js";
 import { requireResident } from "../residents.js";
 
@@ -103,6 +103,10 @@ hostPlanRouter.use(requireResident);
 mount(hostPlanRouter, (req) => ({ kind: "host", id: req.resident!.id }), (req) => req.resident!.email, "/manage?tab=earnings", () => true);
 
 export const residentCreditsRouter = Router();
+residentCreditsRouter.get("/me/history", requireResident, async (req, res) => {
+  if (!(await creditsEnabled())) return res.json([]);
+  res.json(await residentCreditHistory(req.resident!.id));
+});
 residentCreditsRouter.get("/me", requireResident, async (req, res) => {
   if (!(await creditsEnabled())) return res.json({ enabled: false, balanceMinor: 0, lots: [] });
   res.json(await residentCredits(req.resident!.id));

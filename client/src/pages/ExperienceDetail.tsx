@@ -4,6 +4,8 @@ import { TraderInfo } from "../components/TraderInfo";
 import { OfficialCircleLink } from "../components/OfficialCircleLink";
 import { ParticipationBlock } from "../components/ParticipationBlock";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
+import { CheckoutBreakdown } from "../components/CheckoutBreakdown";
+import { AnalyticsEvent, trackTypedEvent } from "../analyticsEvents";
 import { ApiError, addFavourite, bookExperienceSession, fetchMyCredits, downloadExperienceBookingIcs, fetchExperience, fetchExperiences, fetchFavourites, quoteExperienceSession, removeFavourite, type BookingQuote } from "../api";
 import { openCheckout } from "../native";
 import { ListingChatButton } from "../components/ListingChats";
@@ -151,6 +153,10 @@ export function ExperienceDetail() {
   // Stage 5b — the signed-in resident's HelloCircle credit (0 when none / switched off).
   const [creditMinor, setCreditMinor] = useState(0);
   const [useCredits, setUseCredits] = useState(false);
+  // Stage 5f — coupon at experience checkout (validated by the server quote).
+  const [couponInput, setCouponInput] = useState("");
+  const [appliedCoupon, setAppliedCoupon] = useState<string | null>(null);
+  const [couponError, setCouponError] = useState<string | null>(null);
   const [form, setForm] = useState({ participantName: "", email: resident?.email ?? "", phone: "", partySize: 1 });
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -201,13 +207,39 @@ export function ExperienceDetail() {
       return;
     }
     let live = true;
-    quoteExperienceSession(experience.id, selectedSession.id, { partySize: form.partySize, useCredits })
+    quoteExperienceSession(experience.id, selectedSession.id, { partySize: form.partySize, useCredits, couponCode: appliedCoupon ?? undefined })
       .then((q) => live && setQuote(q))
-      .catch(() => live && setQuote(null));
+      .catch((e) => {
+        if (!live) return;
+        setQuote(null);
+        // A coupon that stopped applying (e.g. party size below its minimum spend) is dropped, with the reason.
+        if (appliedCoupon && e instanceof ApiError && String(e.body.code ?? "").startsWith("coupon_")) {
+          setAppliedCoupon(null);
+          setCouponError(couponMessage(String(e.body.code), e.message));
+        }
+      });
     return () => {
       live = false;
     };
-  }, [experience, selectedSession, form.partySize, useCredits]);
+  }, [experience, selectedSession, form.partySize, useCredits, appliedCoupon]);
+
+  const applyCoupon = async () => {
+    if (!experience || !selectedSession) return;
+    const code = couponInput.trim();
+    if (!code) return;
+    setCouponError(null);
+    try {
+      const q = await quoteExperienceSession(experience.id, selectedSession.id, { partySize: form.partySize, useCredits, couponCode: code });
+      setAppliedCoupon(q.couponCode ?? code);
+      setQuote(q);
+      trackTypedEvent(AnalyticsEvent.CouponApplied);
+    } catch (e) {
+      const code2 = e instanceof ApiError ? String(e.body.code ?? "") : "";
+      setCouponError(couponMessage(code2, e instanceof Error ? e.message : "That code couldn't be applied"));
+      const reason = code2.replace("coupon_", "");
+      trackTypedEvent(AnalyticsEvent.CouponRejected, { reason: reason === "invalid" || reason === "expired" || reason === "limit" || reason === "not_applicable" ? reason : "other" });
+    }
+  };
 
   useEffect(() => {
     if (!resident) return setCreditMinor(0);
@@ -241,7 +273,8 @@ export function ExperienceDetail() {
       // Commerce Engine Phase 2 — hand back the quote the customer was shown;
       // the server refuses (409) rather than charging a price that moved.
       const quoteId = quote && quote.partySize === form.partySize ? quote.quoteId : undefined;
-      const res = await bookExperienceSession(experience.id, selectedSession.id, { ...form, quoteId, useCredits });
+      const res = await bookExperienceSession(experience.id, selectedSession.id, { ...form, quoteId, useCredits, couponCode: appliedCoupon ?? undefined });
+      if (useCredits && quote?.creditCents) trackTypedEvent(AnalyticsEvent.CreditApplied, { coversAll: quote.totalCents === 0 });
       if (res.url) {
         openCheckout(res.url);
         return;
@@ -254,7 +287,7 @@ export function ExperienceDetail() {
       // the customer can review it and try again.
       const code = e instanceof ApiError ? e.body.code : undefined;
       if (typeof code === "string" && (code.startsWith("quote_") || code === "price_changed")) {
-        quoteExperienceSession(experience.id, selectedSession.id, { partySize: form.partySize, useCredits }).then(setQuote).catch(() => setQuote(null));
+        quoteExperienceSession(experience.id, selectedSession.id, { partySize: form.partySize, useCredits, couponCode: appliedCoupon ?? undefined }).then(setQuote).catch(() => setQuote(null));
       }
     } finally {
       setSubmitting(false);
@@ -452,15 +485,36 @@ export function ExperienceDetail() {
           <input type="tel" autoComplete="tel" inputMode="tel" value={form.phone} onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))} style={inputStyle} />
         </div>
       </div>
+      {!!experience?.priceCents && (
+        <div style={{ marginTop: 14 }}>
+          <label htmlFor="exp-coupon" style={labelStyle}>Coupon code (optional)</label>
+          <div style={{ display: "flex", gap: 8 }}>
+            <input
+              id="exp-coupon"
+              value={appliedCoupon ?? couponInput}
+              disabled={!!appliedCoupon}
+              onChange={(e) => setCouponInput(e.target.value.toUpperCase())}
+              onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), applyCoupon())}
+              style={{ ...inputStyle, flex: 1, minWidth: 0 }}
+              aria-describedby={couponError ? "exp-coupon-error" : undefined}
+              aria-invalid={!!couponError}
+            />
+            {appliedCoupon ? (
+              <Button variant="ghost" onClick={() => { setAppliedCoupon(null); setCouponInput(""); }}>Remove</Button>
+            ) : (
+              <Button variant="ghost" onClick={applyCoupon} disabled={!couponInput.trim() || !selectedSession}>Apply</Button>
+            )}
+          </div>
+          {couponError && <p id="exp-coupon-error" role="alert" style={{ color: colors.danger, fontSize: 13, margin: "6px 0 0" }} data-testid="coupon-error">{couponError}</p>}
+        </div>
+      )}
       {creditMinor > 0 && !!experience?.priceCents && (
         <label style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 14, marginTop: 14 }}>
           <input type="checkbox" checked={useCredits} onChange={(e) => setUseCredits(e.target.checked)} />
-          <span>
-            Use my HelloCircle credit (€{(creditMinor / 100).toFixed(2)} available)
-            {useCredits && quote?.creditCents ? <strong> — €{(quote.creditCents / 100).toFixed(2)} off</strong> : null}
-          </span>
+          <span>Use my HelloCircle credit (€{(creditMinor / 100).toFixed(2)} available)</span>
         </label>
       )}
+      {quote && !!experience?.priceCents && <CheckoutBreakdown quote={quote} unitPriceCents={experience.priceCents} creditAvailableMinor={creditMinor} />}
       {error && (
         <p role="alert" style={{ color: colors.danger, fontSize: 13, margin: "14px 0 0" }}>
           {error}
@@ -486,7 +540,7 @@ export function ExperienceDetail() {
         </div>
       </div>
       <Button onClick={submit} disabled={submitting} style={{ flex: "none" }}>
-        {submitting ? "Please wait…" : bookingTotalCents ? "Continue to pay" : submitVerb}
+        {submitting ? "Please wait…" : bookingTotalCents && quotedTotal !== 0 ? "Continue to pay" : submitVerb}
       </Button>
     </div>
   ) : undefined;
@@ -887,4 +941,24 @@ export function ExperienceDetail() {
       )}
     </div>
   );
+}
+
+/** Stage 5f — a coupon rejection, in the customer's words (reason code from the server). */
+function couponMessage(code: string, fallback: string): string {
+  switch (code) {
+    case "coupon_expired":
+      return "That code has expired.";
+    case "coupon_limit":
+      return "That code has already been used as many times as allowed.";
+    case "coupon_not_applicable":
+      return "That code can't be used for this activity.";
+    case "coupon_not_yet_active":
+      return "That code isn't active yet.";
+    case "coupon_min_spend":
+      return fallback;
+    case "coupon_invalid":
+      return "That code isn't valid.";
+    default:
+      return fallback;
+  }
 }
