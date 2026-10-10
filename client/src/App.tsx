@@ -106,6 +106,11 @@ const VendorClubEditPage = lazy(() => import("./pages/VendorClubEditPage").then(
 const VendorProgramEditPage = lazy(() => import("./pages/VendorProgramEditPage").then((m) => ({ default: m.VendorProgramEditPage })));
 const VendorExperienceEditPage = lazy(() => import("./pages/VendorExperienceEditPage").then((m) => ({ default: m.VendorExperienceEditPage })));
 const HostGamePage = lazy(() => import("./pages/HostGamePage").then((m) => ({ default: m.HostGamePage })));
+// Stage 5f — Pro details and reward history (one shared page per concept, scope by route).
+const VendorProPage = lazy(() => import("./pages/ProDetailsPage").then((m) => ({ default: m.VendorProPage })));
+const HostProPage = lazy(() => import("./pages/ProDetailsPage").then((m) => ({ default: m.HostProPage })));
+const VendorRewardsPage = lazy(() => import("./pages/RewardsHistoryPage").then((m) => ({ default: m.VendorRewardsPage })));
+const HostRewardsPage = lazy(() => import("./pages/RewardsHistoryPage").then((m) => ({ default: m.HostRewardsPage })));
 const ManageCircle = lazy(() => import("./pages/ManageCircle").then((m) => ({ default: m.ManageCircle })));
 const ManageHome = lazy(() => import("./pages/ManageHome").then((m) => ({ default: m.ManageHome })));
 const StartCirclePage = lazy(() => import("./pages/StartCirclePage").then((m) => ({ default: m.StartCirclePage })));
@@ -405,9 +410,13 @@ export function App() {
                     per-entity, the same way a vendor's centre/club editor
                     is its own route rather than a Listings sub-tab. */}
                 <Route path="/manage" element={<ManageHome />} />
+                <Route path="/manage/pro" element={<HostProPage />} />
+                <Route path="/manage/rewards" element={<HostRewardsPage />} />
                 <Route path="/manage/activities" element={<Navigate to="/manage?tab=activities" replace />} />
                 <Route path="/manage/circles/:id" element={<ManageCircle />} />
                 <Route path="/vendor" element={<VendorDashboard />} />
+                <Route path="/vendor/pro" element={<VendorProPage />} />
+                <Route path="/vendor/rewards" element={<VendorRewardsPage />} />
                 <Route path="/admin" element={<AdminDashboard />} />
                 {/* Revenue & Connect Stage 4 — CMS-published versions once they exist; the existing pages until then. */}
                 <Route path="/privacy" element={<CmsPolicy docKey="privacy-policy" fallback={<PrivacyPolicy />} />} />

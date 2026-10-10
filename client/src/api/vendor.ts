@@ -740,24 +740,61 @@ export function payoutDashboardLink(scope: "vendor" | "host"): Promise<{ url: st
 
 // --- Revenue & Connect Stage 5b: plan (Pro on Stripe Billing) + reward points --
 
+/** Stage 5f — server-derived plan state (the UI never infers it). */
+export type PlanState = "unavailable" | "free" | "processing" | "paid_active" | "cancelling" | "payment_failed" | "reward_active" | "pro_granted";
+export type RedemptionState = "available" | "not_enough" | "debt" | "paid_active" | "cancelling_active" | "disabled";
+export type RewardHistoryKind = "earned" | "venue_share" | "host_share" | "refund_reversal" | "dispute_reversal" | "debt_repayment" | "redemption" | "adjustment";
+export interface RewardHistoryEntry { id: string; kind: RewardHistoryKind; points: number; at: string; sourceType: string | null; sourceRef: string | null; note: string | null }
 export interface PartnerPlanOverview {
   enabled: boolean;
-  plan: { planKey: "free" | "pro" | "enterprise"; source: string; effectiveTo: string | null };
-  subscription: { status: string; currentPeriodEnd: string | null; cancelAtPeriodEnd: boolean; graceUntil: string | null } | null;
-  price: { netMinor: number; vatMinor: number; grossMinor: number; vatBps: number; vatMode: string };
-  rewards: { enabled: boolean; points: number; availablePoints: number; debtPoints: number; nextExpiry: string | null; redemptionPoints: number; pointsPerEuro: number };
+  rewardsEnabled: boolean;
+  state: PlanState;
+  canManage: boolean;
+  testMode: boolean;
+  plan: { planKey: "free" | "pro" | "enterprise"; source: string; effectiveFrom: string | null; effectiveTo: string | null; rewardFunded: boolean };
+  subscription: { status: string; currentPeriodEnd: string | null; cancelAtPeriodEnd: boolean; graceUntil: string | null; graceDays: number | null; graceDaysRemaining: number | null; billingStartsAt: string | null } | null;
+  pendingCheckout: boolean;
+  price: { netMinor: number; vatMinor: number; grossMinor: number; vatBps: number; vatMode: string; taxLabel: string };
+  graceDaysPolicy: number;
+  rewards: {
+    enabled: boolean;
+    points: number;
+    availablePoints: number;
+    debtPoints: number;
+    nextExpiry: string | null;
+    redemptionPoints: number;
+    pointsPerEuro: number;
+    pendingPoints: number;
+    earnedThisMonth: number;
+    progressBps: number;
+    recent: RewardHistoryEntry[];
+    redemption: RedemptionState;
+  };
 }
 export function fetchMyPlan(scope: "vendor" | "host"): Promise<PartnerPlanOverview> {
   return request(`/${scope}/plan`);
 }
-export function startProCheckout(scope: "vendor" | "host"): Promise<{ id: string; url: string | null }> {
-  return request(`/${scope}/plan/pro/checkout`, { method: "POST", body: "{}" });
+export function fetchCheckoutStatus(scope: "vendor" | "host"): Promise<{ state: PlanState; pendingCheckout: boolean }> {
+  return request(`/${scope}/plan/checkout-status`);
+}
+export function startProCheckout(scope: "vendor" | "host", termsAccepted: boolean): Promise<{ id: string; url: string | null; reused: boolean; billingStartsAt?: string | null }> {
+  return request(`/${scope}/plan/pro/checkout`, { method: "POST", body: JSON.stringify({ termsAccepted }) });
 }
 export function cancelProSubscription(scope: "vendor" | "host"): Promise<{ ok: boolean }> {
   return request(`/${scope}/plan/pro/cancel`, { method: "POST", body: "{}" });
 }
 export function resumeProSubscription(scope: "vendor" | "host"): Promise<{ ok: boolean }> {
   return request(`/${scope}/plan/pro/resume`, { method: "POST", body: "{}" });
+}
+export function openBillingPortal(scope: "vendor" | "host"): Promise<{ url: string }> {
+  return request(`/${scope}/plan/billing-portal`, { method: "POST", body: "{}" });
+}
+export function fetchRewardHistory(scope: "vendor" | "host", opts: { limit?: number; before?: string; beforeId?: string } = {}): Promise<RewardHistoryEntry[]> {
+  const q = new URLSearchParams();
+  if (opts.limit) q.set("limit", String(opts.limit));
+  if (opts.before) q.set("before", opts.before);
+  if (opts.beforeId) q.set("beforeId", opts.beforeId);
+  return request(`/${scope}/plan/rewards/history${q.toString() ? `?${q}` : ""}`);
 }
 export function redeemRewardPoints(scope: "vendor" | "host"): Promise<{ redemptionId: number; proFrom: string; proUntil: string }> {
   return request(`/${scope}/plan/rewards/redeem`, { method: "POST", body: "{}" });

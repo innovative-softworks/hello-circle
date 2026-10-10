@@ -147,10 +147,18 @@ export interface PaymentProvider {
   createTransfer(p: { amountMinor: number; currency: string; destinationAccountId: string; transferGroup: string; sourceTransactionId?: string; idempotencyKey: string; metadata: Record<string, string> }): Promise<{ id: string }>;
   // Billing (Stage 5b) — HelloCircle Pro, a monthly subscription paid by the partner.
   /** Net (ex-VAT) monthly price; VAT is added at `vatBps` when > 0 (exclusive tax rate), never baked into the price. */
-  createSubscriptionCheckout(p: { customerEmail: string; productName: string; netAmountMinor: number; vatBps: number; currency: string; successUrl: string; cancelUrl: string; metadata: Record<string, string> }): Promise<{ id: string; url: string | null }>;
+  createSubscriptionCheckout(p: { customerEmail: string; productName: string; netAmountMinor: number; vatBps: number; currency: string; successUrl: string; cancelUrl: string; metadata: Record<string, string>; trialEndSec?: number | null }): Promise<{ id: string; url: string | null }>;
   /** atPeriodEnd: stop renewing (Pro continues to the end of the paid month); otherwise end now. */
   cancelSubscription(p: { subscriptionId: string; atPeriodEnd: boolean }): Promise<void>;
   resumeSubscription(subscriptionId: string): Promise<void>;
+  /** Stage 5f — expires an open Checkout session (a superseded Pro checkout). */
+  expireCheckoutSession(sessionId: string): Promise<void>;
+  /** Stage 5f — "open" | "complete" | "expired" (complete = paid at Stripe, webhook may still be on its way). */
+  checkoutSessionStatus(sessionId: string): Promise<"open" | "complete" | "expired">;
+  /** Stage 5f — Stripe's billing portal for this subscription's customer (update card, invoices). */
+  createBillingPortalSession(p: { subscriptionId: string; returnUrl: string }): Promise<{ url: string }>;
+  /** Stage 5f — true for the stub and for Stripe test-mode keys (test-card hints are shown only then). */
+  readonly testMode: boolean;
   reverseTransfer(p: { transferId: string; amountMinor?: number; idempotencyKey: string; metadata: Record<string, string> }): Promise<{ id: string; amountMinor: number }>;
 }
 
@@ -342,7 +350,7 @@ class StripeProvider implements PaymentProvider {
     return id;
   }
 
-  async createSubscriptionCheckout(p: { customerEmail: string; productName: string; netAmountMinor: number; vatBps: number; currency: string; successUrl: string; cancelUrl: string; metadata: Record<string, string> }) {
+  async createSubscriptionCheckout(p: { customerEmail: string; productName: string; netAmountMinor: number; vatBps: number; currency: string; successUrl: string; cancelUrl: string; metadata: Record<string, string>; trialEndSec?: number | null }) {
     const taxRates = p.vatBps > 0 ? [await this.vatTaxRate(p.vatBps)] : undefined;
     const session = await this.client.checkout.sessions.create({
       mode: "subscription",
@@ -351,9 +359,52 @@ class StripeProvider implements PaymentProvider {
       success_url: p.successUrl,
       cancel_url: p.cancelUrl,
       metadata: { ...p.metadata, ...qaRunMetadata() },
-      subscription_data: { metadata: { ...p.metadata, ...qaRunMetadata() } },
+      subscription_data: { metadata: { ...p.metadata, ...qaRunMetadata() }, ...(p.trialEndSec ? { trial_end: p.trialEndSec } : {}) },
     });
     return { id: session.id, url: session.url };
+  }
+
+  get testMode() {
+    return /^(sk|rk)_test_/.test(process.env.STRIPE_SECRET_KEY ?? "");
+  }
+
+  async checkoutSessionStatus(sessionId: string) {
+    const s = await this.client.checkout.sessions.retrieve(sessionId);
+    return (s.status ?? "open") as "open" | "complete" | "expired";
+  }
+
+  async expireCheckoutSession(sessionId: string) {
+    try {
+      await this.client.checkout.sessions.expire(sessionId);
+    } catch (e) {
+      // Already completed or expired — nothing to do.
+      if ((e as { code?: string }).code !== "resource_missing" && !/can only expire|not open|status/i.test(String((e as Error).message))) throw e;
+    }
+  }
+
+  private portalConfigId: string | null = null;
+
+  /** The billing-portal configuration HelloCircle uses (card update + invoices; cancellation stays in-app). */
+  private async portalConfiguration(): Promise<string> {
+    if (this.portalConfigId) return this.portalConfigId;
+    const list = await this.client.billingPortal.configurations.list({ active: true, limit: 100 });
+    const hit = list.data.find((c) => c.metadata?.hellocircle === "pro");
+    this.portalConfigId =
+      hit?.id ??
+      (
+        await this.client.billingPortal.configurations.create({
+          features: { payment_method_update: { enabled: true }, invoice_history: { enabled: true }, subscription_cancel: { enabled: false } },
+          metadata: { hellocircle: "pro", ...qaRunMetadata() },
+        })
+      ).id;
+    return this.portalConfigId;
+  }
+
+  async createBillingPortalSession(p: { subscriptionId: string; returnUrl: string }) {
+    const sub = await this.client.subscriptions.retrieve(p.subscriptionId);
+    const customer = typeof sub.customer === "string" ? sub.customer : sub.customer.id;
+    const session = await this.client.billingPortal.sessions.create({ customer, return_url: p.returnUrl, configuration: await this.portalConfiguration() });
+    return { url: session.url };
   }
 
   async cancelSubscription(p: { subscriptionId: string; atPeriodEnd: boolean }) {
@@ -601,9 +652,28 @@ export class StubProvider implements PaymentProvider {
     return { url: `https://connect.stub.invalid/express/${accountId}` };
   }
 
-  async createSubscriptionCheckout(p: { customerEmail: string; productName: string; netAmountMinor: number; vatBps: number; currency: string; successUrl: string; cancelUrl: string; metadata: Record<string, string> }) {
+  async createSubscriptionCheckout(p: { customerEmail: string; productName: string; netAmountMinor: number; vatBps: number; currency: string; successUrl: string; cancelUrl: string; metadata: Record<string, string>; trialEndSec?: number | null }) {
     this.record("createSubscriptionCheckout", p);
     return { id: `cs_sub_stub_${this.tag}${++this.seq}`, url: null };
+  }
+
+  readonly testMode = true;
+
+  /** Test hook: what checkoutSessionStatus reports for a session (default "open"). */
+  readonly checkoutStatuses = new Map<string, "open" | "complete" | "expired">();
+
+  async expireCheckoutSession(sessionId: string) {
+    this.record("expireCheckoutSession", { sessionId });
+    if (this.checkoutStatuses.get(sessionId) !== "complete") this.checkoutStatuses.set(sessionId, "expired");
+  }
+
+  async checkoutSessionStatus(sessionId: string) {
+    return this.checkoutStatuses.get(sessionId) ?? "open";
+  }
+
+  async createBillingPortalSession(p: { subscriptionId: string; returnUrl: string }) {
+    this.record("createBillingPortalSession", p);
+    return { url: `https://billing.stub.invalid/portal/${p.subscriptionId}` };
   }
 
   async cancelSubscription(p: { subscriptionId: string; atPeriodEnd: boolean }) {

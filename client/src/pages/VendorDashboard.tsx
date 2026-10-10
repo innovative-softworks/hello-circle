@@ -1,4 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
+import { PlanRewardsPanel } from "../components/PlanRewardsPanel";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { fetchOrgProfile, fetchVendorListings, fetchVendorNotifications, fetchVendorScheduleItems, fetchVendorStats } from "../api";
 import { useAuth } from "../AuthContext";
@@ -258,6 +259,11 @@ export function VendorDashboard() {
       }
     >
       {tab === "overview" && <VendorSetupChecklist variant="approved" />}
+      {tab === "overview" && (
+        <div style={{ marginBottom: 16 }}>
+          <PlanRewardsPanel scope="vendor" variant="compact" />
+        </div>
+      )}
       {tab === "overview" && stats && (
         <VendorOverviewTab
           stats={stats}

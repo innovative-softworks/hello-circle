@@ -137,6 +137,10 @@ export async function resolveRule(key: string, ctx: ResolveContext = {}, at: Dat
     Object.assign(values, row.payload);
     sources.push({ id: row.id, scopeType: row.scopeType, scopeId: row.scopeId, version: row.version });
   }
+  // Stage 5f — a field added to a rule after its versions were published takes the
+  // catalog's v1 default until a version sets it (rules with every field are unchanged).
+  const spec = RULE_KEYS[key];
+  for (const f of Object.keys(spec.fields)) if (!(f in values) && spec.v1[f] !== undefined) values[f] = spec.v1[f];
   const check = validatePayload(key, "global", values);
   if (!check.ok) throw new RuleResolutionError(`Resolved "${key}" rule is invalid: ${check.errors.join("; ")}`);
   return { key, values, sources, hash: canonicalHash(values), resolvedAt: at.toISOString() };

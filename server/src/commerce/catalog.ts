@@ -246,6 +246,16 @@ export const RULE_KEYS: Record<string, RuleKeySpec> = {
     },
     v1: { roundingOwner: "venue", maxVenueBps: 9_000 },
   },
+  subscription_policy: {
+    key: "subscription_policy",
+    label: "Pro subscription policy",
+    description: "Grace period after a failed Pro payment (Pro continues meanwhile). The value in force when a payment fails is frozen on that subscription.",
+    scopes: ["global"],
+    fields: {
+      graceDays: { kind: "int", label: "Grace period after a failed payment", unit: "days", min: 1, max: 30 },
+    },
+    v1: { graceDays: 7 },
+  },
   split_rewards: {
     key: "split_rewards",
     label: "Reward points on venue/host split bookings",
@@ -291,8 +301,9 @@ export const RULE_KEYS: Record<string, RuleKeySpec> = {
       defaultExpiryMonths: { kind: "int", label: "Default credit expiry", unit: "months", min: 1, max: 60 },
       refundCreditExpiryMonths: { kind: "int", label: "Refund credit expiry", unit: "months", min: 1, max: 60 },
       cashOut: { kind: "enum", label: "Cash value", values: ["not_supported"] },
+      maxGrantMinor: { kind: "minor", label: "Largest single credit grant", min: 100, max: 1_000_000 },
     },
-    v1: { defaultExpiryMonths: 12, refundCreditExpiryMonths: 24, cashOut: "not_supported" },
+    v1: { defaultExpiryMonths: 12, refundCreditExpiryMonths: 24, cashOut: "not_supported", maxGrantMinor: 50_000 },
   },
   availability: {
     key: "availability",

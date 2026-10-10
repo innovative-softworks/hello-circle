@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { PlanRewardsPanel } from "../components/PlanRewardsPanel";
 import { OpportunitiesCard } from "../components/OpportunitiesCard";
 import { Navigate, useNavigate, useSearchParams } from "react-router-dom";
 import { fetchMyGames, fetchResidentFull } from "../api";
@@ -155,6 +156,7 @@ export function ManageHome() {
       {tab === "overview" && (
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
           <HostAttentionPanel residentId={resident.id} onGoToActivities={() => setTab("activities")} />
+          {hostStatus === "verified" && <PlanRewardsPanel scope="host" variant="compact" />}
           {hostStatus === "verified" && <OpportunitiesCard audience="host" />}
 
           <Card>

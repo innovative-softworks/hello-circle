@@ -3356,7 +3356,27 @@ async function initCommerceSchema(
     ["connect_state_payouts_unavailable", "Payout account: bank payouts paused", "Transfers from HelloCircle can reach your Stripe balance, but Stripe can't pay out to your bank yet (for example the bank account needs attention). Money stays in your Stripe balance until it can.", "—", "—", "—", "—", "—", "payments-fees-payouts"],
     ["connect_state_enabled", "Payout account: ready", "Your account can receive transfers and Stripe can pay out to your bank.", "—", "—", "—", "—", "—", "payments-fees-payouts"],
     ["connect_transfer_vs_payout", "Transfer vs bank payout", "A transfer is HelloCircle moving your settled earnings to your Stripe account (weekly). A bank payout is Stripe then paying your Stripe balance to your bank, on Stripe's schedule. A transfer having been sent doesn't mean the money has reached your bank yet.", "—", "Transfer on Monday → Stripe balance → bank payout a few days later (Stripe's schedule).", "HelloCircle sends transfers; Stripe makes bank payouts.", "Weekly, after completion and the review period.", "A refund or chargeback after a transfer can be recovered by reversing that transfer.", "payments-fees-payouts"],
-    ["venue_split", "Venue / host split", "When a host runs a paid game at a partner venue, the partner share of each booking is divided between the venue and the host as agreed (a percentage or a fixed amount). The split in force when the booking is paid is fixed for that booking.", "venue = ⌊partner share × venue % ⌋; host = ⌊partner share × host %⌋; any 1-cent remainder goes to the party set in the venue/host split rule.", "€40.00 partner share at 66.67% venue: venue €26.67 (incl. 1c rounding), host €13.33.", "Each partner receives only their own share; refunds and chargebacks are taken only from the responsible partner's share.", "Each share is released and settled separately, 48 hours after the game ends.", "A refund reduces both shares in proportion; a recovery after a transfer reverses only that partner's own transfer.", "payments-fees-payouts"]
+    ["venue_split", "Venue / host split", "When a host runs a paid game at a partner venue, the partner share of each booking is divided between the venue and the host as agreed (a percentage or a fixed amount). The split in force when the booking is paid is fixed for that booking.", "venue = ⌊partner share × venue % ⌋; host = ⌊partner share × host %⌋; any 1-cent remainder goes to the party set in the venue/host split rule.", "€40.00 partner share at 66.67% venue: venue €26.67 (incl. 1c rounding), host €13.33.", "Each partner receives only their own share; refunds and chargebacks are taken only from the responsible partner's share.", "Each share is released and settled separately, 48 hours after the game ends.", "A refund reduces both shares in proportion; a recovery after a transfer reverses only that partner's own transfer.", "payments-fees-payouts"],
+  // Stage 5f — plan, Pro, reward points and customer credit.
+    ["pro_benefit_1", "Lower success fee", "Pro lowers the success fee HelloCircle keeps on each completed paid booking.", "—", "—", "—", "—", "—", "payments-fees-payouts"],
+    ["pro_benefit_2", "Lower minimum fee", "Pro lowers the minimum platform fee per paid booking, which matters most for low-priced activities.", "—", "—", "—", "—", "—", "payments-fees-payouts"],
+    ["pro_benefit_3", "Free months with reward points", "Your reward points can pay for a whole month of Pro, so busy partners may never pay for it.", "—", "—", "—", "—", "—", "payments-fees-payouts"],
+    ["pro_price", "Pro subscription price", "Pro is a monthly subscription. The price shown is before tax; any tax that applies to you is added on top and shown separately.", "—", "—", "You", "Monthly, from the day you subscribe", "Not refunded for a partly used month", "—"],
+    ["pro_vat", "Tax on your Pro subscription", "The tax row depends on your trader details: standard Irish VAT is added, or no VAT where reverse charge or an exemption applies to you.", "—", "—", "You", "—", "—", "—"],
+    ["pro_reverse_charge", "Reverse charge", "If you're a VAT-registered business that accounts for VAT under the reverse-charge rules, HelloCircle doesn't charge VAT on Pro; you account for it yourself.", "—", "—", "—", "—", "—", "—"],
+    ["pro_cancellation", "Cancelling Pro", "Cancelling stops the next renewal. You keep Pro until the end of the month you've paid for, and you can choose 'Keep Pro' before then.", "—", "—", "—", "—", "—", "—"],
+    ["pro_failed_payment", "When a Pro payment fails", "If a renewal payment fails you keep Pro during a grace period. Update your payment method before it ends; otherwise your plan returns to Free.", "—", "—", "—", "—", "—", "—"],
+    ["pro_faq_cancel", "Can I cancel at any time?", "Yes. Pro stays active until the end of the paid month, then your plan returns to Free. Nothing else changes.", "—", "—", "—", "—", "—", "—"],
+    ["pro_faq_refund_points", "What happens to points after a refund?", "Points are only earned on what was actually settled. If a booking is refunded or a chargeback is lost, the matching points are taken back.", "—", "—", "—", "—", "—", "—"],
+    ["pro_faq_reward_month", "What if I subscribe during a free reward month?", "Your free month continues and billing starts when it ends — you're never charged twice for the same days.", "—", "—", "—", "—", "—", "—"],
+    ["points_earning", "How reward points are earned", "You earn points on settled sales: when your earnings are settled after an activity, points are added at the published rate. Points aren't cash and can't be transferred.", "—", "—", "—", "At settlement", "—", "—"],
+    ["points_pending", "Pending vs available points", "Pending points are an estimate for paid bookings that haven't been settled yet. They become available — and can be redeemed — only after settlement.", "—", "—", "—", "—", "—", "—"],
+    ["points_split", "Points on shared bookings", "When a venue and a host share a booking, each earns points only on their own share. Together they never earn more than the booking would.", "—", "—", "—", "—", "—", "—"],
+    ["points_debt", "Points debt", "If a refund or lost chargeback takes back points you've already used, the difference becomes a points debt. It's repaid automatically from your next points, and you can't redeem until it's cleared. It isn't money you owe.", "—", "—", "—", "—", "—", "—"],
+    ["points_redeem", "Redeeming a free Pro month", "Once you have enough points you can exchange them for one month of Pro. No paid subscription is created and nothing renews automatically.", "—", "—", "—", "—", "—", "—"],
+    ["credit_customer", "HelloCircle credit", "Credit is money HelloCircle has given you to spend on bookings. It's used before your card at checkout, has an expiry date, and can't be exchanged for cash.", "—", "—", "—", "—", "—", "—"],
+    ["credit_coupons", "Coupons and credit together", "A coupon is applied first, then your credit; your card pays whatever is left. If the credit covers everything, no card payment is needed.", "—", "—", "—", "—", "—", "—"],
+    ["credit_refund_restoration", "Credit after a refund", "If a booking paid partly with credit is refunded, the credit share comes back to your HelloCircle credit and the card share goes back to your card, in proportion to what's refunded.", "—", "—", "—", "—", "—", "—"]
 ];
   for (const [key, ...v] of HELP_SEED) {
     await db
@@ -3640,6 +3660,56 @@ async function initCommerceSchema(
   await ensureColumn("allocation_snapshots", "vat_liability_owner", "vat_liability_owner VARCHAR(20) NULL");
   await ensureColumn("allocation_snapshots", "vat_treatment_status", "vat_treatment_status VARCHAR(50) NULL");
   await ensureColumn("allocation_snapshots", "vat_rule_hash", "vat_rule_hash CHAR(64) NULL");
+  // Stage 5f — Pro checkout reuse (no second subscription), terms acknowledgement,
+  // deferred billing after a reward month, and the grace period frozen when a payment fails.
+  await ensureColumn("partner_subscriptions", "checkout_url", "checkout_url VARCHAR(1000) NULL");
+  await ensureColumn("partner_subscriptions", "terms_accepted_at", "terms_accepted_at DATETIME NULL");
+  await ensureColumn("partner_subscriptions", "billing_starts_at", "billing_starts_at DATETIME NULL");
+  await ensureColumn("partner_subscriptions", "grace_days", "grace_days INT NULL");
+  // Stage 5f — split points use the rate frozen when they were awarded; debt repayments are recorded.
+  await ensureColumn("reward_split_awards", "rate_per_euro", "rate_per_euro INT NULL");
+  await ensureColumn("reward_split_awards", "rewards_rule_hash", "rewards_rule_hash CHAR(64) NULL");
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS reward_debt_repayments (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      party_type VARCHAR(10) NOT NULL,
+      party_id VARCHAR(191) NOT NULL,
+      settlement_id INT NULL,
+      points INT NOT NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      KEY idx_debt_repay_party (party_type, party_id)
+    )
+  `);
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS reward_adjustments (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      party_type VARCHAR(10) NOT NULL,
+      party_id VARCHAR(191) NOT NULL,
+      points INT NOT NULL,
+      lot_id INT NULL,
+      to_debt INT NOT NULL DEFAULT 0,
+      reason VARCHAR(2000) NOT NULL,
+      idempotency_key VARCHAR(120) NOT NULL,
+      created_by VARCHAR(191) NOT NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE KEY uq_reward_adjustment_key (idempotency_key),
+      KEY idx_reward_adjustment_party (party_type, party_id)
+    )
+  `);
+  // Stage 5f — credit grants: currency, funding owner, idempotency.
+  await ensureColumn("credit_lots", "currency", "currency CHAR(3) NOT NULL DEFAULT 'EUR'");
+  await ensureColumn("credit_lots", "funding_owner", "funding_owner VARCHAR(20) NOT NULL DEFAULT 'helloCircle'");
+  await ensureColumn("credit_lots", "idempotency_key", "idempotency_key VARCHAR(120) NULL");
+  {
+    const has = (await db.prepare(`SELECT 1 FROM INFORMATION_SCHEMA.STATISTICS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'credit_lots' AND INDEX_NAME = 'uq_credit_lot_key' LIMIT 1`).all()) as unknown[];
+    if (!has.length) {
+      try {
+        await db.exec(`CREATE UNIQUE INDEX uq_credit_lot_key ON credit_lots (idempotency_key)`);
+      } catch (e) {
+        if ((e as { code?: string }).code !== "ER_DUP_KEYNAME") throw e;
+      }
+    }
+  }
   await db.exec(`
     INSERT IGNORE INTO pricing_plans (plan_key, name, status, sort_order) VALUES
       ('free', 'Free', 'active', 1),

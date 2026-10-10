@@ -13,7 +13,7 @@ import { groupLines, ledgerIsBalanced, postGroup } from "./ledger.js";
 import { currentPlanFor } from "./plans.js";
 import { awardForSettlement, rewardBalance } from "./rewards.js";
 import { postRefund, recordDispute } from "./payments.js";
-import { GRACE_DAYS, proPrice, sweepSubscriptions } from "./subscriptions.js";
+import { graceDays, proPrice, sweepSubscriptions } from "./subscriptions.js";
 
 // Revenue & Connect Stage 5b — Pro on Stripe Billing (checkout → active →
 // invoice revenue + VAT → failed payment grace → downgrade; cancel at period
@@ -131,7 +131,7 @@ const subId = `sub_brc_${run}`;
 describe("Pro on Stripe Billing", () => {
   it("is unavailable while the switch is off", async () => {
     await setSetting("commerce.pro_subscriptions", "false");
-    expect((await call("POST", "/vendor/plan/pro/checkout", {}, asVendor)).status).toBe(409);
+    expect((await call("POST", "/vendor/plan/pro/checkout", { termsAccepted: true }, asVendor)).status).toBe(409);
   });
 
   it("charges the published price plus VAT, and Pro starts only when the checkout is paid", async () => {
@@ -139,7 +139,7 @@ describe("Pro on Stripe Billing", () => {
     await setSetting("commerce.settlement_ledger", "true");
     const price = await proPrice();
     expect(price).toMatchObject({ netMinor: 2_900, vatMinor: 667, grossMinor: 3_567 });
-    const r = await call("POST", "/vendor/plan/pro/checkout", {}, asVendor);
+    const r = await call("POST", "/vendor/plan/pro/checkout", { termsAccepted: true }, asVendor);
     expect(r.status).toBe(200);
     const sent = stubProvider.calls.filter((c) => c.method === "createSubscriptionCheckout").at(-1)!.args as Record<string, any>;
     // Stage 5c — Stripe gets the net price and the VAT rate separately (an exclusive tax rate), never one gross figure.
@@ -154,7 +154,7 @@ describe("Pro on Stripe Billing", () => {
     expect(await processStripeEvent(completed)).toBe("processed");
     expect(await processStripeEvent(completed)).toBe("processed"); // replay is a no-op
     expect(await currentPlanFor(partner)).toMatchObject({ planKey: "pro", source: "subscription", sourceRef: subId });
-    expect((await call("POST", "/vendor/plan/pro/checkout", {}, asVendor)).status).toBe(409);
+    expect((await call("POST", "/vendor/plan/pro/checkout", { termsAccepted: true }, asVendor)).status).toBe(409);
   });
 
   it("a partner on reverse charge (partner-scoped tax rule) is charged no VAT; the net price is unchanged", async () => {
@@ -183,13 +183,13 @@ describe("Pro on Stripe Billing", () => {
     expect(row.status).toBe("past_due");
     expect((await sweepSubscriptions(new Date())).ended).toBe(0);
     expect((await currentPlanFor(partner)).planKey).toBe("pro");
-    expect((await sweepSubscriptions(new Date(Date.now() + (GRACE_DAYS + 1) * 864e5))).ended).toBe(1);
+    expect((await sweepSubscriptions(new Date(Date.now() + ((await graceDays()) + 1) * 864e5))).ended).toBe(1);
     expect((await currentPlanFor(partner)).planKey).toBe("free");
     expect(stubProvider.calls.filter((c) => c.method === "cancelSubscription").at(-1)!.args).toEqual({ subscriptionId: subId, atPeriodEnd: false });
   });
 
   it("cancelling stops renewal; Pro lasts until Stripe ends the subscription", async () => {
-    const r = await call("POST", "/vendor/plan/pro/checkout", {}, asVendor);
+    const r = await call("POST", "/vendor/plan/pro/checkout", { termsAccepted: true }, asVendor);
     const sub2 = `${subId}_2`;
     await processStripeEvent({ id: `evt_brc_${run}_c2`, type: "checkout.session.completed", created: 0, livemode: false, data: { object: { id: r.body.id, payment_status: "paid", subscription: sub2, metadata: { type: "subscription" } } } });
     expect((await call("POST", "/vendor/plan/pro/cancel", {}, asVendor)).status).toBe(200);

@@ -90,14 +90,18 @@ export async function awardForSettlement(settlementId: number): Promise<number> 
     if (total <= 0) {
       // Still record zero-point split awards so a later reversal has nothing to undo twice.
       for (const sa of splitAwards) {
-        await tx.prepare(`INSERT IGNORE INTO reward_split_awards (settlement_id, party_type, party_id, source_type, source_ref, eligible_minor, points, lot_id, rule_hash) VALUES (?, ?, ?, ?, ?, ?, 0, NULL, ?)`).run(settlementId, s.kind, s.pid, sa.type, sa.ref, sa.eligible, splitRule.hash);
+        await tx.prepare(`INSERT IGNORE INTO reward_split_awards (settlement_id, party_type, party_id, source_type, source_ref, eligible_minor, points, lot_id, rule_hash, rate_per_euro, rewards_rule_hash) VALUES (?, ?, ?, ?, ?, ?, 0, NULL, ?, ?, ?)`).run(settlementId, s.kind, s.pid, sa.type, sa.ref, sa.eligible, splitRule.hash, perEuro, rule.hash);
       }
       return 0;
     }
     // Repay any points debt first.
     const debt = await lockDebt(tx, s.kind, s.pid);
     const repay = Math.min(debt, total);
-    if (repay > 0) await tx.prepare(`UPDATE reward_debts SET points_owed = points_owed - ? WHERE party_type = ? AND party_id = ?`).run(repay, s.kind, s.pid);
+    if (repay > 0) {
+      await tx.prepare(`UPDATE reward_debts SET points_owed = points_owed - ? WHERE party_type = ? AND party_id = ?`).run(repay, s.kind, s.pid);
+      // Stage 5f — recorded so the partner's history shows the repayment.
+      await tx.prepare(`INSERT INTO reward_debt_repayments (party_type, party_id, settlement_id, points) VALUES (?, ?, ?, ?)`).run(s.kind, s.pid, settlementId, repay);
+    }
     const spendable = total - repay;
     const lot = await tx
       .prepare(`INSERT INTO reward_lots (party_type, party_id, source_ref, points_earned, points_remaining, expires_at) VALUES (?, ?, ?, ?, ?, ?)`)
@@ -110,8 +114,8 @@ export async function awardForSettlement(settlementId: number): Promise<number> 
     }
     for (const sa of splitAwards) {
       await tx
-        .prepare(`INSERT INTO reward_split_awards (settlement_id, party_type, party_id, source_type, source_ref, eligible_minor, points, lot_id, rule_hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-        .run(settlementId, s.kind, s.pid, sa.type, sa.ref, sa.eligible, sa.points, lotId, splitRule.hash);
+        .prepare(`INSERT INTO reward_split_awards (settlement_id, party_type, party_id, source_type, source_ref, eligible_minor, points, lot_id, rule_hash, rate_per_euro, rewards_rule_hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+        .run(settlementId, s.kind, s.pid, sa.type, sa.ref, sa.eligible, sa.points, lotId, splitRule.hash, perEuro, rule.hash);
     }
     return total;
   });
@@ -187,11 +191,13 @@ export async function splitTargets(tx: Tx, type: string, ref: string, perEuro: n
 /** Stage 5e — re-derives each split partner's points and reverses only the excess, per partner. */
 async function reverseSplitRewards(tx: Tx, type: string, ref: string, reason: "refund" | "dispute_lost"): Promise<number> {
   const awards = (await tx
-    .prepare(`SELECT id, party_type as kind, party_id as pid, points, reversed_points as reversed, lot_id as lotId FROM reward_split_awards WHERE source_type = ? AND source_ref = ? FOR UPDATE`)
-    .all(type, ref)) as { id: number; kind: string; pid: string; points: number; reversed: number; lotId: number | null }[];
+    .prepare(`SELECT id, party_type as kind, party_id as pid, points, reversed_points as reversed, lot_id as lotId, rate_per_euro as rate FROM reward_split_awards WHERE source_type = ? AND source_ref = ? FOR UPDATE`)
+    .all(type, ref)) as { id: number; kind: string; pid: string; points: number; reversed: number; lotId: number | null; rate: number | null }[];
   if (!awards.length) return 0;
-  const rule = await resolveRule("rewards", {}, new Date(), { tx });
-  const targets = (await splitTargets(tx, type, ref, Number(rule.values.pointsPerEuro))) ?? [];
+  // Stage 5f — the rate frozen when the points were awarded; never today's rule.
+  const frozen = awards.find((a) => a.rate !== null)?.rate;
+  const rate = frozen !== undefined && frozen !== null ? Number(frozen) : Number((await resolveRule("rewards", {}, new Date(), { tx })).values.pointsPerEuro);
+  const targets = (await splitTargets(tx, type, ref, rate)) ?? [];
   let total = 0;
   for (const a of awards) {
     const target = targets.find((t) => t.partyType === a.kind && t.partyId === a.pid)?.points ?? 0;
@@ -277,4 +283,125 @@ export async function redeemForProMonth(partner: PartnerKey, actorId: string) {
   });
   await writeAudit({ actorUserId: actorId, action: "rewards.redeemed", objectType: `partner_${partner.kind}`, objectId: partner.id, newValue: result });
   return result;
+}
+
+// --- Stage 5f: summary, history, adjustments ---------------------------------------------
+
+/** Points the partner should receive at settlement for bookings paid but not yet settled
+ * (an estimate with the same per-booking rules; final points are fixed at settlement). */
+async function pendingPoints(partner: PartnerKey, perEuro: number): Promise<number> {
+  if (partner.kind === "vendor" || perEuro <= 0) return 0;
+  const orders = (await db
+    .prepare(
+      `SELECT DISTINCT g.source_type as t, g.source_id as ref FROM ledger_entries e JOIN ledger_entry_groups g ON g.id = e.group_id
+       WHERE e.party_type = ? AND e.party_id = ? AND e.account_code IN ('partner_payable', 'host_payable') AND g.idempotency_key LIKE 'payment:%'
+       ORDER BY g.source_id DESC LIMIT 300`
+    )
+    .all(partner.kind, partner.id)) as { t: string; ref: string }[];
+  let total = 0;
+  for (const o of orders) {
+    if (await isSplitOrder(db, o.t, o.ref)) {
+      if (await db.prepare(`SELECT id FROM reward_split_awards WHERE source_type = ? AND source_ref = ? AND party_type = ? AND party_id = ?`).get(o.t, o.ref, partner.kind, partner.id)) continue;
+      total += (await splitTargets(db, o.t, o.ref, perEuro))?.find((x) => x.partyType === partner.kind && x.partyId === partner.id)?.points ?? 0;
+      continue;
+    }
+    if (await db.prepare(`SELECT id FROM reward_awards WHERE source_type = ? AND source_ref = ?`).get(o.t, o.ref)) continue;
+    const paid = (await db.prepare(`SELECT amount_minor as a FROM payment_records WHERE source_type = ? AND source_ref = ?`).get(o.t, o.ref)) as { a: number | string } | undefined;
+    if (!paid) continue;
+    const lost = (await db.prepare(`SELECT COALESCE(SUM(amount_minor), 0) as s FROM disputes WHERE source_type = ? AND source_ref = ? AND status = 'lost'`).get(o.t, o.ref)) as { s: number | string };
+    const gmv = Math.max(0, Number(paid.a) - (await refundedFor(db, o.t, o.ref)) - Number(lost.s));
+    total += Math.floor((gmv * perEuro) / 100);
+  }
+  return total;
+}
+
+export type RewardHistoryKind = "earned" | "venue_share" | "host_share" | "refund_reversal" | "dispute_reversal" | "debt_repayment" | "redemption" | "adjustment";
+export interface RewardHistoryEntry {
+  id: string;
+  kind: RewardHistoryKind;
+  points: number;
+  at: string;
+  sourceType: string | null;
+  sourceRef: string | null;
+  note: string | null;
+}
+
+/** The partner's full points history, newest first. */
+export async function rewardHistory(partner: PartnerKey, opts: { limit?: number; before?: string | null; beforeId?: string | null } = {}): Promise<RewardHistoryEntry[]> {
+  const k = partner.kind;
+  const id = partner.id;
+  const iso = (d: unknown) => new Date(d as string).toISOString();
+  const out: RewardHistoryEntry[] = [];
+  for (const r of (await db.prepare(`SELECT id, source_type as t, source_ref as ref, points, created_at as at FROM reward_awards WHERE party_type = ? AND party_id = ?`).all(k, id)) as any[]) {
+    out.push({ id: `a${r.id}`, kind: "earned", points: Number(r.points), at: iso(r.at), sourceType: r.t, sourceRef: r.ref, note: null });
+  }
+  for (const r of (await db.prepare(`SELECT id, source_type as t, source_ref as ref, points, eligible_minor as e, created_at as at FROM reward_split_awards WHERE party_type = ? AND party_id = ?`).all(k, id)) as any[]) {
+    out.push({ id: `s${r.id}`, kind: k === "host" ? "host_share" : "venue_share", points: Number(r.points), at: iso(r.at), sourceType: r.t, sourceRef: r.ref, note: `on your share of €${(Number(r.e) / 100).toFixed(2)}` });
+  }
+  for (const r of (await db
+    .prepare(`SELECT r.id, r.points, r.reason, r.to_debt as td, r.created_at as at, a.source_type as t, a.source_ref as ref FROM reward_reversals r JOIN reward_awards a ON a.id = r.award_id WHERE a.party_type = ? AND a.party_id = ?`)
+    .all(k, id)) as any[]) {
+    out.push({ id: `r${r.id}`, kind: r.reason === "dispute_lost" ? "dispute_reversal" : "refund_reversal", points: -Number(r.points), at: iso(r.at), sourceType: r.t, sourceRef: r.ref, note: Number(r.td) > 0 ? `${r.td} added to points debt` : null });
+  }
+  for (const r of (await db
+    .prepare(`SELECT r.id, r.points, r.reason, r.to_debt as td, r.created_at as at, a.source_type as t, a.source_ref as ref FROM reward_split_reversals r JOIN reward_split_awards a ON a.id = r.split_award_id WHERE a.party_type = ? AND a.party_id = ?`)
+    .all(k, id)) as any[]) {
+    out.push({ id: `x${r.id}`, kind: r.reason === "dispute_lost" ? "dispute_reversal" : "refund_reversal", points: -Number(r.points), at: iso(r.at), sourceType: r.t, sourceRef: r.ref, note: Number(r.td) > 0 ? `${r.td} added to points debt` : null });
+  }
+  for (const r of (await db.prepare(`SELECT id, points, created_at as at FROM reward_debt_repayments WHERE party_type = ? AND party_id = ?`).all(k, id)) as any[]) {
+    out.push({ id: `d${r.id}`, kind: "debt_repayment", points: -Number(r.points), at: iso(r.at), sourceType: null, sourceRef: null, note: "repaid from new points" });
+  }
+  for (const r of (await db.prepare(`SELECT id, points, created_at as at FROM reward_redemptions WHERE party_type = ? AND party_id = ?`).all(k, id)) as any[]) {
+    out.push({ id: `p${r.id}`, kind: "redemption", points: -Number(r.points), at: iso(r.at), sourceType: null, sourceRef: null, note: "one month of Pro" });
+  }
+  for (const r of (await db.prepare(`SELECT id, points, reason, created_at as at FROM reward_adjustments WHERE party_type = ? AND party_id = ?`).all(k, id)) as any[]) {
+    out.push({ id: `j${r.id}`, kind: "adjustment", points: Number(r.points), at: iso(r.at), sourceType: null, sourceRef: null, note: String(r.reason).slice(0, 200) });
+  }
+  out.sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : a.id < b.id ? 1 : -1));
+  const before = opts.before ? new Date(opts.before).toISOString() : null;
+  // Cursor = (timestamp, id) of the last entry shown, so entries in the same second aren't skipped.
+  const after = (e: RewardHistoryEntry) => !before || e.at < before || (e.at === before && !!opts.beforeId && e.id < opts.beforeId);
+  return out.filter(after).slice(0, Math.min(Math.max(Number(opts.limit) || 50, 1), 200));
+}
+
+/** Stage 5f — the partner's points at a glance (dashboard and Earnings). */
+export async function rewardSummary(partner: PartnerKey) {
+  const bal = await rewardBalance(partner);
+  const monthStart = new Date();
+  monthStart.setUTCDate(1);
+  monthStart.setUTCHours(0, 0, 0, 0);
+  const month = (await db.prepare(`SELECT COALESCE(SUM(points_earned), 0) as p FROM reward_lots WHERE party_type = ? AND party_id = ? AND created_at >= ? AND source_ref LIKE 'settlement:%'`).get(partner.kind, partner.id, monthStart)) as {
+    p: number | string;
+  };
+  const pending = await pendingPoints(partner, bal.pointsPerEuro);
+  const progressBps = bal.redemptionPoints > 0 ? Math.max(0, Math.min(10_000, Math.floor((Math.max(0, bal.points) * 10_000) / bal.redemptionPoints))) : 0;
+  return { ...bal, pendingPoints: pending, earnedThisMonth: Number(month.p), progressBps, recent: await rewardHistory(partner, { limit: 3 }) };
+}
+
+/** Stage 5f — a finance admin's manual points adjustment (positive: a new lot; negative: from lots, then debt). Idempotent by key. */
+export async function adjustPoints(input: { partner: PartnerKey; points: number; reason: string; idempotencyKey: string; actorId: string }) {
+  if (!Number.isSafeInteger(input.points) || input.points === 0 || Math.abs(input.points) > 1_000_000) throw new RewardError("Points must be a non-zero whole number");
+  if (typeof input.reason !== "string" || input.reason.trim().length < 5) throw new RewardError("A reason (at least 5 characters) is required");
+  if (!/^[\w:-]{8,120}$/.test(input.idempotencyKey)) throw new RewardError("A request key is required");
+  const prior = await db.prepare(`SELECT id FROM reward_adjustments WHERE idempotency_key = ?`).get(input.idempotencyKey);
+  if (prior) return { id: (prior as { id: number }).id, duplicate: true };
+  const rule = await resolveRule("rewards", ctxOf(input.partner.kind, input.partner.id));
+  const id = await db.transaction(async (tx) => {
+    let lotId: number | null = null;
+    let toDebt = 0;
+    if (input.points > 0) {
+      const lot = await tx
+        .prepare(`INSERT INTO reward_lots (party_type, party_id, source_ref, points_earned, points_remaining, expires_at) VALUES (?, ?, ?, ?, ?, ?)`)
+        .run(input.partner.kind, input.partner.id, `adjustment:${input.idempotencyKey}`, input.points, input.points, addMonths(new Date(), Number(rule.values.expiryMonths)));
+      lotId = Number(lot.lastInsertRowid);
+    } else {
+      toDebt = (await deductPoints(tx, input.partner.kind, input.partner.id, null, -input.points)).toDebt;
+    }
+    const r = await tx
+      .prepare(`INSERT INTO reward_adjustments (party_type, party_id, points, lot_id, to_debt, reason, idempotency_key, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
+      .run(input.partner.kind, input.partner.id, input.points, lotId, toDebt, input.reason.trim().slice(0, 2000), input.idempotencyKey, input.actorId);
+    return Number(r.lastInsertRowid);
+  });
+  await writeAudit({ actorUserId: input.actorId, action: "rewards.adjusted", objectType: `partner_${input.partner.kind}`, objectId: input.partner.id, newValue: { points: input.points, adjustmentId: id }, reason: input.reason.trim() });
+  return { id, duplicate: false };
 }

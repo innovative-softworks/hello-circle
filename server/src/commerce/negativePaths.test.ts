@@ -11,7 +11,7 @@ import { postRefund, recordDispute } from "./payments.js";
 import { assignPlan, currentPlanFor } from "./plans.js";
 import { redeemForProMonth, rewardBalance } from "./rewards.js";
 import { partnerBalances, runSettlement } from "./settlement.js";
-import { GRACE_DAYS, sweepSubscriptions } from "./subscriptions.js";
+import { graceDays, sweepSubscriptions } from "./subscriptions.js";
 
 // Revenue & Connect Stage 5c — the brief's negative paths, one focused test
 // each (stub provider only). Two are covered where their feature lives and
@@ -214,11 +214,11 @@ describe("failed Pro renewal", () => {
     expect((await currentPlanFor({ kind: "org", id: org })).planKey).toBe("pro");
     // The retry succeeds → active again, grace cleared, and the sweep ends nothing.
     await processStripeEvent({ id: `evt_neg_${run}_ok`, type: "customer.subscription.updated", created: 0, livemode: false, data: { object: { id: sub, status: "active" } } });
-    expect((await sweepSubscriptions(new Date(Date.now() + (GRACE_DAYS + 1) * 864e5))).ended).toBe(0);
+    expect((await sweepSubscriptions(new Date(Date.now() + ((await graceDays()) + 1) * 864e5))).ended).toBe(0);
     expect((await currentPlanFor({ kind: "org", id: org })).planKey).toBe("pro");
     // Fails again and stays unpaid past the grace → Free.
     await processStripeEvent({ id: `evt_neg_${run}_pf2`, type: "invoice.payment_failed", created: 0, livemode: false, data: { object: { id: "in_neg_2", subscription: sub } } });
-    expect((await sweepSubscriptions(new Date(Date.now() + (GRACE_DAYS + 1) * 864e5))).ended).toBe(1);
+    expect((await sweepSubscriptions(new Date(Date.now() + ((await graceDays()) + 1) * 864e5))).ended).toBe(1);
     expect((await currentPlanFor({ kind: "org", id: org })).planKey).toBe("free");
   });
 });
