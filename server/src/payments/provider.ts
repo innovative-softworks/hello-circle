@@ -103,11 +103,12 @@ export interface ConnectedAccountStatus {
  * docs/revenue-connect/adr-accounts-v2.md has the full inventory.
  */
 export const CONNECT_V1_COMPAT = [
-  { endpoint: "POST /v1/transfers", use: "platform → connected-account transfer (separate charges and transfers)", reason: "Accounts v2 has no transfers API; Stripe accepts a v2 account id as destination when configuration.recipient stripe_balance.stripe_transfers is active", doc: "https://docs.stripe.com/connect/accounts-v2/api", detect: "SANDBOX-SPLIT-C transfer leg" },
-  { endpoint: "POST /v1/transfers/:id/reversals", use: "partial/full transfer reversal (debt recovery)", reason: "no v2 reversal API", doc: "https://docs.stripe.com/connect/separate-charges-and-transfers", detect: "SANDBOX-SPLIT-D reversal leg" },
+  { endpoint: "POST /v1/transfers", use: "platform → connected-account transfer (separate charges and transfers)", reason: "Accounts v2 has no transfers API; Stripe accepts a v2 account id as destination when configuration.recipient stripe_balance.stripe_transfers is active", doc: "https://docs.stripe.com/connect/accounts-v2/api", detect: "SANDBOX-SPLIT transfer legs" },
+  { endpoint: "POST /v1/transfers/:id/reversals", use: "partial/full transfer reversal (debt recovery)", reason: "no v2 reversal API", doc: "https://docs.stripe.com/connect/separate-charges-and-transfers", detect: "SANDBOX-SPLIT refund and dispute legs" },
   { endpoint: "POST /v1/accounts/:id/login_links", use: "one-time link to the partner's Express dashboard", reason: "no v2 login-link API; v2 Express-dashboard accounts use the v1 endpoint", doc: "https://docs.stripe.com/connect/express-dashboard", detect: "connect.test dashboard link" },
-  { endpoint: "GET /v1/payouts (Stripe-Account)", use: "reading bank payouts on the connected account (reconciliation)", reason: "payouts are v1 objects on the connected account", doc: "https://docs.stripe.com/connect/payouts-connected-accounts", detect: "SANDBOX-PAYOUTS" },
-  { endpoint: "POST /v1/accounts/:id (settings.payouts)", use: "payout schedule (QA harness only — the app never changes it)", reason: "Accounts v2 does not expose payout settings", doc: "https://docs.stripe.com/connect/manage-payout-schedule", detect: "SANDBOX-PAYOUTS setup" },
+  { endpoint: "GET /v1/payouts (Stripe-Account)", use: "reading bank payouts on the connected account (reconciliation)", reason: "payouts are v1 objects on the connected account", doc: "https://docs.stripe.com/connect/payouts-connected-accounts", detect: "SANDBOX-SPLIT / SANDBOX-DELIVERY-G payout legs" },
+  { endpoint: "POST /v1/accounts/:id (settings.payouts)", use: "payout schedule (QA harness only — the app never changes it)", reason: "Accounts v2 does not expose payout settings", doc: "https://docs.stripe.com/connect/manage-payout-schedule", detect: "createVerifiedRecipient (harness)" },
+  { endpoint: "POST /v1/accounts/:id/external_accounts", use: "test bank account (QA harness only — partners add theirs on Stripe's hosted page)", reason: "no v2 bank-account API in stripe-node 22.x", doc: "https://docs.stripe.com/connect/payouts-bank-accounts", detect: "createVerifiedRecipient (harness)" },
 ] as const;
 
 export interface PaymentProvider {

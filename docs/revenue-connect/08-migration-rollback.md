@@ -31,3 +31,16 @@
 For every stage, the isolated test profile runs a scripted **flag on → transactions → flag off → transactions**
 cycle. The test asserts that legacy behaviour is byte-identical (golden totals) and that no historical snapshot
 or ledger row changed (hash before and after).
+
+## Stage 5e (Accounts v2, venue/host split)
+
+Additive only: new `connected_accounts` columns (`api_model` default `'v1'`, `configuration_type`, `dashboard_type`,
+`business_type`, `onboarding_state`, capability and requirement columns, `last_synced_at`, `last_event_id`,
+`creation_key` unique), and new tables `connected_account_creations`, `connected_account_syncs`,
+`venue_split_agreements`, `allocation_snapshots`, `allocation_lines`, `order_party_releases` and
+`dispute_recovery_allocations`. New rule key `venue_split` (v1 seeded), and new help entries (v1 seeded, editable).
+
+Rollback: switch `commerce.connect_v1` off, then deploy the previous build; it ignores the new columns and tables.
+v2 accounts created meanwhile can't be managed by a pre-5e build. Keep Connect off until 5e is redeployed. No data
+migration needs reversing; split agreements and snapshots are inert without the new code. See
+`connect-operations.md` §7.

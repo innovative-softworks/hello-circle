@@ -67,6 +67,7 @@ Verified against all seven test vectors in the brief, to the cent:
 | **3** UX | Public pricing calculator. Vendor earnings calculator (live, no submit). Admin simulator. Partner earnings and settlement statements. Revenue/GMV/contribution dashboard. Help articles with field help from the CMS | `ux.pricing`, `ux.earnings` | — |
 | **4** Policy system | Policy CMS (statuses, hash, placeholders, sanitised Markdown, history, print). 18 structured drafts. Acceptance and re-acceptance gating. Footer and dashboard links. Complaints, appeals and moderation reasons. Trader profiles (DSA/DAC7 data) | `policy.cms` | B1 for publication only |
 | **5** Stripe Sandbox | Connected accounts (Express, embedded onboarding). Separate charges and transfers with `transfer_group`/`source_transaction`. Transfers after settlement. Payout mirroring. Dispute recovery by explicit transfer reversal. Pro on Stripe Billing (grace 7 days, downgrade at period end). Rewards (points after settlement, 10k = free month). Credits at checkout. Coupon campaigns v2 | `connect.v1`, `billing.pro`, `rewards.v1`, `credits.v1`, `coupons.v2` | **B1, B2** (test key via env) |
+| **5e** Accounts v2 + split | Connected accounts on **Stripe Accounts v2** (Express dashboard, recipient configuration, hosted v2 Account Links; v1 only for the documented compatibility endpoints, see `adr-accounts-v2.md`). Normalized Connect events and the v2 thin-event endpoint. Venue/host split (flow C): agreements, frozen allocation snapshots, per-partner release, settlement, transfer, refund and dispute recovery | `connect.v1` (unchanged) | Sandbox only |
 | **6** Staging | Five test partners, reconciliation, payout simulations, UAT | — | Explicit push/deploy instruction |
 | **7** Pilot | 20–30 founding partners, IE/EUR, Pro waived 90 days, weekly finance review | — | Legal, tax and Stripe approval |
 | **8** General release | After all sign-offs | — | All sign-offs |
@@ -96,6 +97,11 @@ Verified against all seven test vectors in the brief, to the cent:
 | B19 | Database foreign keys | **None** (house rule; the QA and probably the production user lack `REFERENCES`). The ledger checks accounts in code | — |
 | B20 | Partner debt policy | **Admin-opened with a reason; freezes the partner's earnings; reverses only their own allocations, newest first; offset by their own future earnings.** Never automatic, never another partner's funds | A refused reversal leaves the debt open (retry), and earnings stay frozen until it's covered |
 | B21 | Consent model | **Five separate records**: contract acceptance, privacy acknowledgement, marketing opt-in, analytics cookies, advertising cookies. Consent Mode v2 denied by default | Consent wording needs a solicitor's review |
+
+| B22 | Accounts v1 vs v2 for new connected accounts (sandbox refuses v1) | **Accounts v2, v2-first.** v1 only where Stripe documents it for v2 accounts (transfers, reversals, login links, payout reads/settings), isolated in the provider adapter | No Dashboard change needed. See `adr-accounts-v2.md` |
+| B23 | Reward points on a venue/host split booking (points are one award per order) | **The host (seller) earns the order's points; the venue's share earns none** | Venues earn no points on split bookings. Needs owner review before pilot |
+| B24 | Who receives a split's rounding cent | **Configurable** (`venue_split.roundingOwner`, default venue). Recorded per booking | ≤ 1 cent per booking |
+| B25 | Completing Express onboarding in automated tests | **Not automatable** (Stripe shows an hCaptcha challenge in test mode). Money tests use labelled v2 test doubles (`dashboard: none`); the Express flow is tested up to Stripe's page | A person must complete one Express onboarding by hand before staging sign-off |
 
 ## Exact files expected to change
 
