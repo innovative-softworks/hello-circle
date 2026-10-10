@@ -219,25 +219,29 @@ No QA or test instructions are kept in help.
 
 ## UI-state test matrix (desktop + mobile, fake provider; Stripe test mode only in `qa:stripe`)
 
+Actual coverage after slice 5. Unit = `server/src/commerce/stage5f.test.ts` unless noted; browser = `tests/integration/specs/`
+(`qa:revenue`, both viewports, screenshots in the QA run's `evidence/stage5f/`). "—" means not covered at that level.
+
 | # | State or case | Unit | Browser |
 |---|---|---|---|
-| 1 | Free, standard VAT 23% | ✓ | ✓ |
-| 2 | Exempt partner | ✓ | ✓ |
-| 3 | Reverse-charge partner | ✓ | ✓ |
-| 4 | Checkout return → processing → active (delayed webhook) | ✓ | ✓ |
-| 5 | Duplicate CTA click → one session | ✓ | ✓ |
-| 6 | Paid Pro active | ✓ | ✓ |
-| 7 | Reward-funded Pro | ✓ | ✓ |
-| 8 | Cancel → cancelling → Keep Pro | ✓ | ✓ |
-| 9 | Renewal failure → payment_failed with grace days | ✓ | ✓ |
-| 10 | Grace expiry → Free | ✓ | — |
-| 11 | Zero points / pending points / redemption eligible / points debt | ✓ | ✓ |
-| 12 | Split-booking points history (venue and host share) | ✓ | ✓ |
+| 1 | Free, standard VAT 23% | ✓ | ✓ `revenue-plan` (REV-5F-PRO), `revenue-partner` |
+| 2 | Exempt partner | ✓ | — (same tax row component as 3) |
+| 3 | Reverse-charge partner | ✓ | ✓ `revenue-rewards` |
+| 4 | Checkout return → processing → active (delayed webhook) | ✓ | ✓ `revenue-plan` (QA hook `__qa/plan`) |
+| 5 | Duplicate CTA click → one session; second completion cancelled | ✓ | ✓ double click, `revenue-plan` |
+| 6 | Paid Pro active | ✓ | ✓ `revenue-plan` |
+| 7 | Reward-funded Pro; paid Pro billed from the reward end (D3) | ✓ | ✓ reward month, `revenue-rewards` |
+| 8 | Cancel → cancelling → Keep Pro | ✓ | ✓ `revenue-plan` |
+| 9 | Renewal failure → payment_failed with grace days; billing portal | ✓ | ✓ `revenue-plan` |
+| 10 | Grace expiry → Free | ✓ `billingRewardsCredits.test.ts` | — |
+| 11 | Zero / pending / eligible / points debt | ✓ | ✓ `revenue-rewards` |
+| 12 | Split-booking points history; frozen rate on reversal | ✓ | ✓ host share, `revenue-rewards` |
 | 13 | Refund and dispute reversal in history | ✓ | — |
-| 14 | Customer credit wallet (grant, use, restore) | ✓ | ✓ |
-| 15 | Coupon + credit checkout; full-credit (zero card) checkout | ✓ | ✓ |
-| 16 | Invalid / expired / limit / not-applicable coupon | ✓ | ✓ |
-| 17 | Full and partial refund restore credit | ✓ | — |
-| 18 | Invalid switch combination refused | ✓ | ✓ |
-| 19 | Unauthorized staff (finance view-only, other staff 403) | ✓ | ✓ |
-| 20 | Keyboard navigation, labels, aria-live, loading/empty/error | — | ✓ |
+| 14 | Customer credit wallet (grant, use, restore) | ✓ | ✓ `revenue-credit` |
+| 15 | Coupon + credit checkout; zero-card checkout | — (engine tests, 5b/5d) | ✓ `revenue-credit`, `revenue-resident` |
+| 16 | Invalid / expired / limit coupon | ✓ | ✓ invalid only, `revenue-credit` |
+| 17 | Full and partial refund restore credit (D1) | ✓ | — |
+| 18 | Invalid switch combination refused | ✓ (API 409) | ✓ `revenue-plan` (REV-5F-ADMIN) |
+| 19 | Unauthorized staff (finance view-only, other staff 403) | ✓ | — (no invited-staff QA persona) |
+| 20 | Keyboard, labels, aria-live, loading/empty states | — | ✓ keyboard activation, roles and labels, `role=status` |
+| 21 | Admin Finance: reward points, coupons, bank payouts, credit grant (funding, expiry, idempotency) | ✓ (grant idempotency) | ✓ `revenue-plan` (REV-5F-ADMIN) |

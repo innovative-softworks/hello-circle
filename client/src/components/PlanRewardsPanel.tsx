@@ -203,7 +203,7 @@ export function PlanRewardsPanel({ scope, variant }: { scope: Scope; variant: "c
     badge = <Badge tone="ok">Paid subscription</Badge>;
     body = (
       <>
-        <p style={{ margin: "6px 0", fontSize: 14 }}>{sub?.billingStartsAt && new Date(sub.billingStartsAt) > new Date() ? `Billing starts on ${day(sub.billingStartsAt)}, after your reward month.` : `Renews on ${day(sub?.currentPeriodEnd)}.`}</p>
+        <p style={{ margin: "6px 0", fontSize: 14 }}>{sub?.billingStartsAt && new Date(sub.billingStartsAt) > new Date() ? `Billing starts on ${day(sub.billingStartsAt)}, after your reward month.` : sub?.currentPeriodEnd ? `Renews on ${day(sub.currentPeriodEnd)}.` : "Renews monthly."}</p>
         {full && <PriceRows price={data.price} />}
       </>
     );
@@ -215,9 +215,11 @@ export function PlanRewardsPanel({ scope, variant }: { scope: Scope; variant: "c
       </>
     );
   } else if (s === "cancelling") {
-    headline = `Pro ends on ${day(sub?.currentPeriodEnd)}`;
+    // Stripe sends the period end after checkout completes, so it can briefly be unknown.
+    const ends = sub?.currentPeriodEnd ? day(sub.currentPeriodEnd) : null;
+    headline = ends ? `Pro ends on ${ends}` : "Pro ends at the end of this billing period";
     badge = <Badge tone="info">Cancelling</Badge>;
-    body = <p style={{ margin: "6px 0", fontSize: 14 }}>Your Pro benefits continue until {day(sub?.currentPeriodEnd)}. After that your plan returns to Free.</p>;
+    body = <p style={{ margin: "6px 0", fontSize: 14 }}>Your Pro benefits continue until {ends ?? "the end of the current billing period"}. After that your plan returns to Free.</p>;
     actions = (
       <>
         {manage && (
@@ -368,7 +370,7 @@ function Stat({ label, value, help }: { label: string; value: string; help?: str
       <p style={eyebrow}>
         {label} {help && <LearnMore helpKey={help} label="?" />}
       </p>
-      <p style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 20, margin: "2px 0 0" }}>{value}</p>
+      <p style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 20, margin: "2px 0 0" }} data-testid={`stat-${label.toLowerCase().replace(/\W+/g, "-")}`}>{value}</p>
     </div>
   );
 }

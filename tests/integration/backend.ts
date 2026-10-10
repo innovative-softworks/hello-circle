@@ -87,6 +87,34 @@ async function main() {
         });
         return true;
       }
+      // Stage 5f — stub-only Pro checkout simulation: Stripe "complete" (before the webhook),
+      // the webhook confirmation, and a failed renewal. Refused outside the stub profile.
+      if (request.url === "/api/__qa/plan" && request.method === "POST" && process.env.QA_PAYMENT_PROVIDER_STUB === "1") {
+        const chunks: Buffer[] = [];
+        request.on("data", (c: Buffer) => chunks.push(c));
+        request.on("end", async () => {
+          try {
+            const { action, sessionId, subscriptionId } = JSON.parse(Buffer.concat(chunks).toString("utf8")) as { action: string; sessionId?: string; subscriptionId?: string };
+            const { stubProvider } = await import("../../server/src/payments/provider");
+            const subs = await import("../../server/src/commerce/subscriptions");
+            if (action === "complete" && typeof sessionId === "string" && sessionId.startsWith("cs_sub_stub_")) stubProvider.checkoutStatuses.set(sessionId, "complete");
+            else if (action === "confirm" && typeof sessionId === "string" && sessionId.startsWith("cs_sub_stub_")) {
+              // Stripe's order: checkout.session.completed, then customer.subscription.* with the period end.
+              const subscription = `sub_stub_${sessionId.slice(12)}`;
+              await subs.applySubscriptionCheckout({ id: sessionId, subscription, payment_status: "paid" });
+              await subs.applySubscriptionUpdate({ id: subscription, status: "active", current_period_end: Math.floor(Date.now() / 1000) + 30 * 86400, cancel_at_period_end: false });
+            }
+            else if (action === "past_due" && typeof subscriptionId === "string" && subscriptionId.startsWith("sub_stub_")) await subs.applySubscriptionUpdate({ id: subscriptionId, status: "past_due" });
+            else throw new Error("bad input");
+            response.setHeader("Content-Type", "application/json");
+            response.end(JSON.stringify({ ok: true }));
+          } catch {
+            response.statusCode = 400;
+            response.end(JSON.stringify({ ok: false }));
+          }
+        });
+        return true;
+      }
       if (request.method === "GET" && typeof request.url === "string" && request.url.startsWith("/api/__qa/mail?")) {
         const to = (new URL(request.url, "http://127.0.0.1").searchParams.get("to") ?? "").toLowerCase();
         response.setHeader("Content-Type", "application/json");

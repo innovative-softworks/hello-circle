@@ -599,7 +599,7 @@ function CreditsProSection() {
           onClose={() => setDialog(false)}
           onConfirm={async (reason) => {
             // One idempotency key per dialog: a double submit grants once.
-            const r = await grantResidentCredit({ email, amountMinor: toMinor(amount) ?? 0, kind, reason, fundingOwner: funding, expiresAt: expiry ? new Date(`${expiry}T23:59:59Z`).toISOString() : null, idempotencyKey: grantKey });
+            const r = await grantResidentCredit({ email, amountMinor: toMinor(amount) ?? 0, kind, reason, fundingOwner: funding, expiresAt: expiry || null /* end of that day in Ireland, set by the server */, idempotencyKey: grantKey });
             setMessage(r.duplicate ? "Already granted (duplicate submission ignored)." : `Granted. Expires ${when(r.expiresAt)}.`);
             setLookup(await fetchResidentCredits(email));
             loadSummary();

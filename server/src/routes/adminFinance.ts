@@ -1,4 +1,5 @@
 import { Router, type Request, type Response } from "express";
+import { endOfIrelandDay } from "../irelandTime.js";
 import { db } from "../db/index.js";
 import { RewardError, adjustPoints, rewardHistory } from "../commerce/rewards.js";
 import { writeAudit } from "../audit.js";
@@ -313,7 +314,8 @@ adminFinanceRouter.post("/credits", async (req, res) => {
         reason: String(b.reason ?? ""),
         actorId: req.user!.id,
         fundingOwner: b.fundingOwner === "partner" ? "partner" : "helloCircle",
-        expiresAt: typeof b.expiresAt === "string" && b.expiresAt ? b.expiresAt : null,
+        // A date-only expiry (the admin form) means the end of that day in Ireland.
+        expiresAt: typeof b.expiresAt === "string" && b.expiresAt ? (/^\d{4}-\d{2}-\d{2}$/.test(b.expiresAt) ? endOfIrelandDay(b.expiresAt).toISOString() : b.expiresAt) : null,
         idempotencyKey: typeof b.idempotencyKey === "string" ? b.idempotencyKey : null,
       })
     );

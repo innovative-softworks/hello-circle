@@ -42,3 +42,17 @@ export async function publishForTest(connection: Connection, docKey: string): Pr
 export async function fitsViewport(page: Page) {
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1), "no horizontal scroll").toBe(true);
 }
+
+/** Stage 5f — saves a full-page screenshot as browser evidence for a UI state
+ * (QA data directory, evidence/stage5f/<name>.png). No personal data: QA personas only. */
+export async function shot(page: Page, name: string) {
+  if (!/^[a-z0-9-]+$/.test(name)) throw new Error("bad screenshot name");
+  const { connectedPreflight } = await import("./runtime");
+  const { mkdirSync } = await import("node:fs");
+  const path = await import("node:path");
+  const checked = await connectedPreflight();
+  await checked.connection.end();
+  const dir = path.join(checked.manifest.dataDir, "evidence", "stage5f");
+  mkdirSync(dir, { recursive: true, mode: 0o700 });
+  await page.screenshot({ path: path.join(dir, `${name}.png`), fullPage: true });
+}

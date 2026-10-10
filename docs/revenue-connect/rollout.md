@@ -1174,3 +1174,107 @@ tampered signatures, unknown types, out-of-order refunds, and duplicate replays.
   0 matches).
 - **Stripe data:** no other Stripe test data was modified or deleted. Only this run's test clocks and subscriptions were
   cleaned up.
+
+## Stage 5f — Partner subscription, rewards and customer-credit UX (2026-10-11)
+
+**Status: built and verified locally against the fake provider. Not pushed, not deployed; every feature switch stays
+off by default.** Specification: [08 — audit](08-subscription-rewards-ui-audit.md), [09 — UX](09-subscription-rewards-ux.md).
+
+### 1. Commits (local only, `feature/commerce-engine`)
+
+| Commit | Content |
+|---|---|
+| `76574f0`, `32d8068` | 1 — Audit (22 findings) and UX specification (docs 08, 09) |
+| `b814b16` | 2 — Partner dashboard and Pro flows: shared "Plan & rewards" panel, Pro details page, rewards history page |
+| `3b4c1ff` | 3 — Rewards, credit and coupon flows: credit wallet, ordered checkout breakdown, coupon reasons, proportional credit restoration |
+| `e35e8dd` | 4 — Admin and help experience: sectioned commercial rules, switch dependencies, Finance tabs, credit-grant form |
+| *(this commit)* | 5 — Tests and rollout evidence |
+
+### 2. Existing behaviour reused
+
+- Pro checkout, cancel/resume, grace sweep and invoices on Stripe Billing (5b); the stub and Stripe providers.
+- Reward lots, awards, FIFO redemption and points debt (5b); split points per partner (5e).
+- Credit lots and the reserved → confirmed → released/reversed lifecycle (5b); engine-priced experience checkout.
+- Versioned commercial rules with drafts, review, publish, effective dates, impact preview and audit (Stage 3).
+- Versioned field help (Stage 3), the `Drawer`, `ConfirmDialog` and consent-aware analytics.
+
+### 3. Existing behaviour corrected
+
+| Finding (doc 08) | Correction |
+|---|---|
+| F1 — two paid subscriptions possible | An open checkout is reused (one session per click storm); a second completed checkout is cancelled at Stripe on arrival and marked `duplicate` (audited) |
+| Expired/abandoned checkouts blocked a retry | Stale sessions are expired at Stripe and replaced |
+| Paid Pro during a reward month double-counted | Checkout uses `trial_end` = reward end; billing starts after the reward month (D3) |
+| Grace period hard-coded (7 days) | Rule `subscription_policy.graceDays`; frozen on the subscription when the payment fails |
+| Finance staff could change the plan | Owner-only for every plan action, server-enforced (403); finance staff view only (D2) |
+| Split reversals used today's rate | Reversal uses the rate frozen on the award |
+| Same-second history entries skipped across pages | `(before, beforeId)` cursor |
+| Coupon errors were generic | Every rejection carries a reason (`invalid`, `expired`, `limit`, `min_spend`, `not_applicable`, …) |
+| Partial refunds never returned credit | Credit restored in proportion to the refunded share, incrementally and idempotently (D1) |
+| Credit grants could double on a re-submit | Per-dialog idempotency key, unique in the database; capped by `credits.maxGrantMinor` |
+| Switches could be turned on without prerequisites | `SWITCH_DEPENDENCIES`, refused with 409 `switch_dependency`, prerequisite named |
+| A rule field added later broke older published versions | Missing fields take the catalog v1 default before validation |
+| "Circle credits" label confused with customer credit | Shown as "Partner reward points" (internal key `commerce.circle_credits` kept) |
+| "Pro ends on " with no date before Stripe sends the period end | Copy falls back to "the end of this billing period" (found by the browser tests) |
+| Credit expiry chosen as 31 March showed "1 April, 00:59" (UTC end of day, seen in Irish summer time) | A date-only expiry is the end of that day in Ireland (`endOfIrelandDay`), server-side (found in the screenshot review) |
+
+### 4. New UI
+
+- **Plan & rewards panel** (vendor overview, Host Manage overview, full on Earnings): states free, processing,
+  paid active, reward month, Pro granted, cancelling, payment failed, unavailable; points available, pending, this
+  month, progress, debt and redemption state.
+- **Pro details page** (`/vendor/pro`, `/manage/pro`): 12 sections, exact price with the partner's tax row (standard,
+  exempt, reverse charge), terms checkbox, "Continue to Stripe", test-card hint only in test mode, cancel with "Keep Pro".
+- **Rewards history** (`/vendor/rewards`, `/manage/rewards`): every kind (earned, venue/host share, refund and dispute
+  reversal, debt repayment, redemption, adjustment), paginated.
+- **Customer credit**: wallet on `/profile` (balance, reserved, next expiry, history); experience checkout with coupon
+  apply/remove and the ordered breakdown "price + taxes/fees − coupon − credit = card payment due".
+- **Admin**: Commercial rules in sections; "Needs: …" under dependent switches; Finance tabs Reward points (history,
+  audited idempotent adjustments), Coupons (usage), Bank payouts; credit grant with currency, type, funding owner,
+  optional expiry, idempotency and confirmation; outstanding credit summary.
+- **Help**: 19 editable entries (inline line, "Learn more" drawer, policy link).
+
+### 5. Remaining policy and tax decisions (provisional defaults in place)
+
+D1 proportional credit restoration · D2 finance staff view-only · D3 reward month then paid billing ·
+D4 admin roles unchanged · D5 VAT provisional pending Irish tax review (exempt and reverse charge need tax advice
+before use). Pro terms, cancellation and refund wording are help entries, not published policies — legal review is
+still needed before publishing.
+
+### 6. Automated tests
+
+| Suite | Result |
+|---|---|
+| Server unit (`npm run test --workspace server`, isolated container) | 774 passed, 23 skipped (includes 14 new in `stage5f.test.ts`) |
+| Client unit | 110 passed |
+| Harness checks (`qa:check`) | 97 passed |
+| Build (server + client) | clean |
+| Combined browser gate, fake provider: `qa:db:reset && qa:db:seed && qa:revenue && qa:booking` | **22 of 22 batches passed, 76 tests passed, 0 failed, exit 0** (2 by-design skips: the REM-046 batches each run one of a pair), 2026-10-10 19:48–19:53 UTC, AC power, database `hello_circle_e2e_qa_bf116a75118810bc`, on the final code |
+
+New browser specs: `revenue-plan` (Pro journey + admin), `revenue-rewards`, `revenue-credit`; each at desktop and mobile.
+Older specs updated for deliberate 5f UI changes (no direct "Upgrade to Pro" button; ordered checkout breakdown;
+points shown in the new panel): `revenue-partner`, `revenue-resident`, `revenue-split`, `booking-findings-b` (HC-QA-042
+now reads the total next to the booking button). Earlier gate attempts failed only on those outdated assertions, the
+missing-date bug in §3, and two test-data assumptions (QA_HOST's existing split history); each was fixed and the
+whole gate restarted from `qa:db:reset`. The credit-expiry fix in §3 came from reviewing the screenshots after a passing
+gate, so the gate was run again on the final code. `qa:stripe` was not run in this stage (no Stripe changes beyond the stub's
+hosted URL and the provider methods unit-tested here).
+
+See the UI-state matrix in [09](09-subscription-rewards-ux.md#ui-state-test-matrix-desktop--mobile-fake-provider-stripe-test-mode-only-in-qastripe).
+Browser screenshots for every main state, desktop and mobile: [evidence/stage5f](evidence/stage5f/README.md)
+(32 downscaled captures from the final gate; QA personas only).
+
+### 7. Manual checks still to do (in Stripe test mode, not done here)
+
+- Real Stripe Checkout for Pro end to end (`qa:stripe` covers 5b Pro; the 5f reuse/duplicate/trial-end paths are
+  verified against the fake provider only).
+- Stripe billing portal configuration as seen by a partner (cancel and payment-method update).
+- Screen-reader pass (VoiceOver) on the panel, Pro page and checkout breakdown; automated checks cover roles,
+  labels, `aria-live` and keyboard activation only.
+- Manual Express onboarding (carried over from 5e).
+
+### 8. Safety confirmation
+
+No push, no deployment, no staging. Fake provider only; no Stripe key used in this stage. Only disposable QA
+databases; `hello_circle_dev` and `hello_circle` were never accessed. Every feature switch stays off by default; no
+policies were published. No secret appears in code, fixtures, evidence or this report.

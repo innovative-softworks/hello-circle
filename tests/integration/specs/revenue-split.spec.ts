@@ -82,7 +82,7 @@ for (const viewport of ["desktop", "mobile"] as const) {
         for (const [pg, scope, path] of [[vp, "vendor", "/vendor?tab=earnings"], [hp, "host", "/manage?tab=earnings"]] as const) {
           const balance = (await (await (scope === "vendor" ? venue.context.request : host.context.request).get(`/api/${scope}/plan`)).json()).rewards.points as number;
           await pg.goto(path);
-          await expect(pg.getByText(`${balance.toLocaleString("en-IE")} reward points`)).toBeVisible();
+          await expect(pg.getByTestId("points-available").first()).toHaveText(balance.toLocaleString("en-IE")); // Stage 5f plan & rewards panel
           await fitsViewport(pg);
         }
       } finally {

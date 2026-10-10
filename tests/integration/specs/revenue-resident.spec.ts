@@ -93,10 +93,12 @@ for (const viewport of ["desktop", "mobile"] as const) {
         await dialog.locator('input[autocomplete="name"]').fill("QA credit booker");
         const credit = dialog.getByLabel(/Use my HelloCircle credit \(€5\.00 available\)/);
         await expect(credit).toBeVisible();
-        const before = (await dialog.locator("text=/^€\\d/").first().textContent())?.trim();
+        const card = dialog.getByTestId("breakdown-card");
+        const before = (await card.textContent())?.trim();
         await credit.check();
-        await expect(dialog.getByText(/€5\.00 off/)).toBeVisible();
-        await expect.poll(async () => (await dialog.locator("text=/^€\\d/").first().textContent())?.trim()).not.toBe(before);
+        // Stage 5f ordered breakdown: price + fees − coupon − credit = card payment due.
+        await expect(dialog.getByTestId("breakdown-credit")).toContainText("− €5.00");
+        await expect.poll(async () => (await card.textContent())?.trim()).not.toBe(before);
         await dialog.getByRole("button", { name: /^(Book|Continue to pay)$/ }).click();
         await expect.poll(async () => (await rows(f, "SELECT amount_minor, status FROM credit_uses WHERE lot_id = ?", [lotId])).length).toBe(1);
         expect(await rows(f, "SELECT amount_minor, status FROM credit_uses WHERE lot_id = ?", [lotId])).toEqual([{ amount_minor: 500, status: "reserved" }]);

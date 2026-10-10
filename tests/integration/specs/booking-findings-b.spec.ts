@@ -65,7 +65,9 @@ test("HC-QA-042: the experience booking form shows the amount the server will ac
       await page.getByRole("button", { name: "Book this adventure" }).filter({ visible: true }).first().click();
       const dialog = page.getByRole("dialog");
       await page.waitForTimeout(500);
-      const shown = (await dialog.locator("text=/^€\\d/").first().textContent())?.trim();
+      // The total next to the booking button (Stage 5f: the breakdown's first row is the activity price).
+      const shown = (await dialog.getByTestId("booking-total").textContent())?.trim();
+      await expect(dialog.getByTestId("breakdown-card")).toContainText(`€${(expectedTotal(1000) / 100).toFixed(2)}`);
       await evidence("hc-qa-042", { shown: shown ?? "", serverTotalForOne: `€${(expectedTotal(1000) / 100).toFixed(2)}` });
       expect(shown).toBe(`€${(expectedTotal(1000) / 100).toFixed(2)}`);
     } finally { await user.close(); }

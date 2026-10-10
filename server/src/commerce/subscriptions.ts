@@ -313,7 +313,8 @@ export async function subscriptionOverview(partner: PartnerKey) {
             cancelAtPeriodEnd: !!sub.cancelAtPeriodEnd,
             graceUntil: sub.graceUntil,
             graceDays: sub.graceDays,
-            graceDaysRemaining: graceMsLeft === null ? null : Math.max(0, Math.ceil(graceMsLeft / 864e5)),
+            // DATETIME rounds to the second, so allow a minute before counting a part day.
+            graceDaysRemaining: graceMsLeft === null ? null : Math.max(0, Math.ceil((graceMsLeft - 60_000) / 864e5)),
             billingStartsAt: sub.billingStartsAt,
           }
         : null,

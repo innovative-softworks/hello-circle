@@ -191,7 +191,7 @@ export function ProDetailsPage({ scope }: { scope: Scope }) {
           <ConfirmDialog
             open={confirmCancel}
             title="Cancel Pro?"
-            message={`Pro won't renew. You keep it until ${day(data.subscription?.currentPeriodEnd)}, then your plan returns to Free. You can choose "Keep Pro" before then.`}
+            message={`Pro won't renew. You keep it until ${data.subscription?.currentPeriodEnd ? day(data.subscription.currentPeriodEnd) : "the end of the current billing period"}, then your plan returns to Free. You can choose "Keep Pro" before then.`}
             confirmLabel="Cancel Pro"
             cancelLabel="Keep Pro"
             onCancel={() => setConfirmCancel(false)}

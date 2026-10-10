@@ -102,6 +102,9 @@ async function main() {
       ["revenue-admin", "revenue-admin\\.spec\\.ts$"],
       ["revenue-admin-b", "revenue-admin-b\\.spec\\.ts$"],
       ["revenue-split", "revenue-split\\.spec\\.ts$"],
+      ["revenue-plan", "revenue-plan\\.spec\\.ts$"],
+      ["revenue-rewards", "revenue-rewards\\.spec\\.ts$"],
+      ["revenue-credit", "revenue-credit\\.spec\\.ts$"],
     ] : browsers ? [
       // Critical journeys, re-run per engine (no Stripe financial batches).
       ["core", "(auth|passwordless-security)\\.spec\\.ts$"],

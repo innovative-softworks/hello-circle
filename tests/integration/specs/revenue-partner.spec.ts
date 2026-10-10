@@ -41,9 +41,9 @@ for (const viewport of ["desktop", "mobile"] as const) {
         const plan = await ui.context.newPage();
         await plan.goto("/vendor?tab=earnings");
         await expect(plan.getByRole("heading", { name: "Your plan: Free" })).toBeVisible();
-        await expect(plan.getByText(/Pro is €29\.00\/month excluding VAT/)).toBeVisible();
-        await expect(plan.getByText(/\+ VAT €6\.67 for you/)).toBeVisible();
-        await expect(plan.getByRole("button", { name: "Upgrade to Pro" })).toBeVisible();
+        // Stage 5f: net price + this partner's tax row = total; Pro is explored before any checkout.
+        await expect(plan.getByText(/Pro is €29\.00\/month \+ VAT 23% €6\.67 = €35\.67/).first()).toBeVisible();
+        await expect(plan.getByRole("link", { name: "Explore Pro" })).toBeVisible();
         await expect(plan.getByText(/reward points/).first()).toBeVisible();
         await fitsViewport(plan);
       } finally {
@@ -97,15 +97,19 @@ for (const viewport of ["desktop", "mobile"] as const) {
       try {
         const { page } = ui;
         page.setDefaultTimeout(10_000);
-        await page.goto("/vendor?tab=earnings");
-        const upgrade = page.getByRole("button", { name: "Upgrade to Pro" });
-        await upgrade.evaluate((el) => el.scrollIntoView({ block: "center" }));
-        await upgrade.click();
-        // The provider stub returns no hosted URL, so the page stays; the checkout is recorded at the net price + this partner's VAT.
+        // Stage 5f: checkout starts from the Pro details page, after the terms are accepted.
+        await page.goto("/vendor/pro");
+        await page.getByLabel(/I agree to the HelloCircle Pro terms/).check();
+        const stripe = page.waitForRequest((r) => r.url().startsWith("https://checkout.stub.invalid/pro/"));
+        await page.getByRole("button", { name: "Continue to Stripe" }).click();
+        await stripe; // the stub's hosted URL is aborted by the harness
+        // The checkout is recorded at the net price + this partner's VAT.
         await expect.poll(async () => (await rows(f, "SELECT status, net_minor, vat_minor, gross_minor FROM partner_subscriptions WHERE party_type = 'org' AND party_id = ? ORDER BY id DESC LIMIT 1", [orgId]))[0]).toEqual({ status: "checkout", net_minor: 2900, vat_minor: 667, gross_minor: 3567 });
-        await expect(page.getByRole("heading", { name: "Your plan: Free" })).toBeVisible(); // Pro starts only when the payment is confirmed
-        await expect(page.getByRole("button", { name: /Redeem 10,000 points/ })).toBeDisabled();
-        await fitsViewport(page);
+        const back = await ui.context.newPage();
+        await back.goto("/vendor?tab=earnings");
+        await expect(back.getByRole("heading", { name: "Your plan: Free" })).toBeVisible(); // Pro starts only when the payment is confirmed
+        await expect(back.getByTestId("redeem").first()).toHaveAttribute("data-redemption", "not_enough");
+        await fitsViewport(back);
       } finally {
         await ui.close();
         await f.connection.execute("DELETE FROM partner_subscriptions WHERE party_type = 'org' AND party_id = ? ORDER BY id DESC LIMIT 1", [orgId]);

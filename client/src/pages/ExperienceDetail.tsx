@@ -526,7 +526,7 @@ export function ExperienceDetail() {
   const bookingFooter = selectedSession ? (
     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 14 }}>
       <div style={{ minWidth: 0 }}>
-        <div style={{ fontWeight: 800, fontSize: 17, color: bookingTotalCents ? colors.text : colors.greenText }}>
+        <div style={{ fontWeight: 800, fontSize: 17, color: bookingTotalCents ? colors.text : colors.greenText }} data-testid="booking-total">
           {bookingTotalCents ? (quotedTotal !== null ? `€${(quotedTotal / 100).toFixed(2)}` : "…") : "Free"}
         </div>
         <div style={{ fontSize: 12, color: colors.mutedLight }}>

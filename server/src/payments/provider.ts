@@ -654,7 +654,9 @@ export class StubProvider implements PaymentProvider {
 
   async createSubscriptionCheckout(p: { customerEmail: string; productName: string; netAmountMinor: number; vatBps: number; currency: string; successUrl: string; cancelUrl: string; metadata: Record<string, string>; trialEndSec?: number | null }) {
     this.record("createSubscriptionCheckout", p);
-    return { id: `cs_sub_stub_${this.tag}${++this.seq}`, url: null };
+    // Stage 5f — a non-routable hosted URL (browser tests observe the redirect; the harness aborts it).
+    const id = `cs_sub_stub_${this.tag}${++this.seq}`;
+    return { id, url: `https://checkout.stub.invalid/pro/${id}` };
   }
 
   readonly testMode = true;
