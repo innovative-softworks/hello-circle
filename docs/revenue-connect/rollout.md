@@ -917,3 +917,260 @@ No live Stripe call (live keys refused; `livemode:false` checked before any obje
 no access to `hello_circle_dev` or `hello_circle`, no production feature flags. Every run used only the
 disposable QA container; feature switches were set and restored inside it. No secret value appears in code,
 logs, evidence or this document. Not proceeding to staging.
+
+## Stage 5e — Stripe Accounts v2, connected-account validation, venue/host split (2026-10-10)
+
+**Status: Stage 5e automated verification passed in one uninterrupted combined run.
+Manual Express onboarding remains pending before staging sign-off.**
+
+The gate ran this exact command on AC power, from a clean disposable database:
+
+```
+caffeinate -i sh -c 'npm run qa:db:reset && npm run qa:db:seed && npm run qa:stripe && npm run qa:revenue'
+```
+
+It ran on commit `5aeaf66`, from 18:01:37 to 18:25:14 UTC (no sleep in the window), against database
+`hello_circle_e2e_qa_2219ab4d0834b4c9`. Run tag: `qa_stripe_303abb022622920f`.
+
+Result: **23 of 23 batches passed, 73 tests passed, 0 failed, 0 skipped, exit 0.**
+
+Three earlier gate attempts failed and are **not** counted. Each failure was fixed and committed, and the whole sequence
+was restarted from `qa:db:reset`:
+
+| Attempt | Failure | Fix |
+|---|---|---|
+| 1 | Waiting for Stripe's hosted page load | `1257e0a` |
+| 2 | Cross-suite balance in the split spec | `0c15936` |
+| 3 | Transfer-reversal idempotency key collision, a real bug; then two revenue specs assuming zero balances | `0c15936`, `5aeaf66` |
+
+### 1. Commits (local only, `feature/commerce-engine`)
+
+| Commit | Content |
+|---|---|
+| `0daef8f` | Accounts v2 connected accounts, normalized Connect events, v2 thin-event endpoint, venue/host split engine |
+| `0aefc37` | Payout-account states UI, split UI, harness (Stripe CLI secret), sandbox Connect/split/delivery specs |
+| `143ac26` | ADR `adr-accounts-v2.md`, runbook `connect-operations.md`, plan and rollback docs |
+| `6771d4f` | Split-booking reward points per partner; VAT liability recorded (provisional) |
+| `a3f2b33` | Split gated by `commerce.venue_host_split_payout` (default off) |
+| `1257e0a` | Hosted-onboarding navigation wait (test) |
+| `0c15936` | **Fix:** globally unique transfer/reversal idempotency keys; robust split assertions |
+| `5aeaf66` | Revenue browser specs independent of balances left by `qa:stripe` |
+| *(this commit)* | Stage 5e report |
+
+### 2. Files and migrations
+
+43 files changed, +3128 / −249.
+
+- **Server:**
+  - new: `commerce/allocations.ts`, `routes/venueSplits.ts`, `payments/connectV2.test.ts`, `commerce/split.test.ts`;
+  - changed: `payments/provider.ts`, `payments/connect.ts`, `commerce/payments.ts`, `commerce/settlement.ts`,
+    `commerce/rewards.ts`, `commerce/catalog.ts`, `db/index.ts`, `routes/stripeWebhook.ts`, `routes/adminFinance.ts`,
+    `routes/payouts.ts`, `stripe.ts`, `index.ts`.
+- **Client:**
+  - new: `components/VenueSplitsCard.tsx`;
+  - changed: `PayoutAccountCard.tsx`, `EarningsSummary.tsx`, `api/vendor.ts`, `api/resident.ts`.
+- **Harness:**
+  - new: `stripe-sandbox-split.spec.ts`, `stripe-sandbox-delivery.spec.ts`, `revenue-split.spec.ts`;
+  - changed: `run.ts`, `backend.ts`, `runtime.ts`, the fixtures, `integration-safety.ts`, and the connect, billing,
+    reconcile, revenue-partner and revenue-admin-b specs.
+
+Migrations are all additive and idempotent, inside `initSchema()`, with no down path:
+- **`connected_accounts` columns:** `api_model` (default `'v1'`, so existing rows stay readable), `configuration_type`,
+  `dashboard_type`, `business_type`, `onboarding_state`, `charges_capability`, `payouts_capability`,
+  `requirements_past_due`, `requirements_pending`, `onboarding_completed_at`, `last_synced_at`, `last_event_id`,
+  `last_event_created_at`, `creation_key` (unique).
+- **New tables:** `connected_account_creations`, `connected_account_syncs`, `venue_split_agreements`,
+  `allocation_snapshots` (+ `vat_liability_owner`, `vat_treatment_status`, `vat_rule_hash`), `allocation_lines`,
+  `order_party_releases`, `dispute_recovery_allocations`, `reward_split_awards`, `reward_split_reversals`.
+- **New versioned rules (v1 seeded):** `venue_split` (rounding owner = venue, max venue share 90%), `split_rewards`
+  (basis = eligible allocation, rounding = floor total + largest remainder, timing = after settlement), `vat_treatment`
+  (owner = HelloCircle, **status = provisional pending Irish tax review**).
+- **New editable help entries (v1):** `connect_state_*` ×7, `connect_transfer_vs_payout`, `venue_split`.
+- **Switch:** `commerce.venue_host_split_payout` is now functional, default **off**.
+
+### 3. Accounts v2 architecture
+
+All new connected accounts are created with Accounts v2 `POST /v2/core/accounts`:
+- `dashboard: express`;
+- `defaults.responsibilities.fees_collector` and `losses_collector` both `application` (HelloCircle prices and bears
+  negative balances);
+- `configuration.recipient` requesting **only** `stripe_balance.stripe_transfers`. There is no merchant configuration;
+  HelloCircle stays the merchant with separate charges and transfers;
+- `identity.country = ie`, entity type company or individual from the trader profile.
+
+Stripe reports `requirements_collector: stripe`, verified in the sandbox. Onboarding and update links use v2 Account
+Links. Creation is idempotent: a per-partner reservation row carries a Stripe idempotency key with a random part fixed
+at reservation, so retries, timeouts after acceptance and concurrent requests resolve to one account. State is always
+re-fetched from Stripe, and `last_synced_at` stops an older fetch overwriting a newer one. Every sync is logged.
+
+Seven partner states: `not_started`, `onboarding_incomplete`, `under_review`, `more_information_required`,
+`transfers_unavailable`, `payouts_unavailable`, `enabled`. Transfers and bank payouts are kept apart in data, API and UI.
+
+Webhooks: v1 snapshot and v2 thin events map to normalized internal events (`connect.account.changed`,
+`connect.onboarding.returned`, `connect.bank_payout.changed`, `connect.transfer.reversed_externally`). The v2 endpoint
+`/api/stripe/webhook/v2` verifies, stores once, and re-fetches the event and the account. Admin replay works for v2
+events. Bank-payout mirrors never move backwards. Full decision record: `adr-accounts-v2.md`.
+
+### 4. `CONNECT_V1_COMPAT` inventory
+
+These endpoints are listed in `server/src/payments/provider.ts`, each with a reason, a docs link and its detecting test:
+
+| v1 endpoint (called with the v2 account id) | Why | Used by |
+|---|---|---|
+| `POST /v1/transfers` | No v2 transfers API; Stripe accepts a v2 recipient as destination | App |
+| `POST /v1/transfers/:id/reversals` | No v2 reversal API | App |
+| `POST /v1/accounts/:id/login_links` | No v2 login-link API | App |
+| `GET /v1/payouts` (Stripe-Account) | Payouts are v1 objects on the connected account | Reconciliation, tests |
+| `POST /v1/accounts/:id` `settings.payouts` | v2 has no payout settings | QA harness only |
+| `POST /v1/accounts/:id/external_accounts` | No v2 bank-account API in stripe-node 22.x | QA harness only |
+
+### 5. Stripe test objects and run tags
+
+All objects are test mode on platform `acct_1UJMiOCJ5YFf911E` (IE, EUR). Each carries `hc_qa_run` (or, for test clocks,
+the tag in the name).
+
+| Object type | Gate run IDs |
+|---|---|
+| Express accounts (app) | `acct_1UP4jLCJ5YK61jbs` (company vendor), `acct_1UP4jUCJ5YoGURyw` (individual host) |
+| Verified v2 test doubles (`dashboard: none`) | `acct_1UP4pRCJ5YcRwG9H` (venue, company), `acct_1UP4pnCJ5YIuxFdo` (host), `acct_1UP4tSCJ5Yai1ucU` (delivery) |
+| Split payments | `pi_3UP4qbCJ5YFf911E1gpatPGw`, `pi_3UP4r5CJ5YFf911E1v0DHsjV`, `pi_3UP4rgCJ5YFf911E0V29vSwH`, `pi_3UP4sHCJ5YFf911E1FnCvNO6` |
+| Transfers | `tr_1UP4rBCJ5YFf911EJGpyNx17`, `tr_1UP4rmCJ5YFf911EXWVtuYsu`, `tr_1UP4rnCJ5YFf911E4WmDVecS`, `tr_1UP4sPCJ5YFf911ESleEry21` |
+| Reversals | `trr_1UP4rFCJ5YFf911Ec7sMceuQ` (667), `trr_1UP4rqCJ5YFf911EWa63FKRQ` (2667), `trr_1UP4rrCJ5YFf911ERVJt0sLf` (333), `trr_1UP4sYCJ5YFf911Eg2kHurxv` (2667), `trr_1UP4sZCJ5YFf911Ef3xhbxFn` (615) |
+| Dispute | `du_1UP4sKCJ5YFf911EgTSsV2tJ` |
+| Bank payouts | `po_1UP4saCJ5YcRwG9HE3gZDEX0` (paid), `po_1UP4scCJ5YIuxFdo5fcgwgkd` (failed), `po_1UP4tmCJ5Yai1ucUZ27HiYVQ` (paid) |
+| Pro | `sub_1UP4nXCJ5YFf911EIXf8FNM9`, test clocks `clock_1UP4nkCJ5YFf911EaEhdnZCL`, `clock_1UP4oICJ5YFf911EJeBzZXsy` (deleted after use) |
+
+Earlier development runs and probes created further tagged test objects (listed in §11); none were attached to real users.
+
+### 6. Scenario outcomes
+
+| Flow | Result |
+|---|---|
+| **A — Accounts v2** | Company and individual created through the app. Retry → same account; 3 concurrent → 1 account. Real requirements (41 past due) → `onboarding_incomplete`. Real v2 event delivered (valid, duplicate, invalid → 400). Hosted refresh mints a new link; return re-syncs. "Completed onboarding" proven with verified v2 doubles (`enabled`). Requirements later due, restricted and verification failure are unit-tested only (§11). |
+| **B — single-partner booking** | Payment, fee snapshot = charge, actual fee reconciled, 48-hour hold, settlement, transfer held without an account (5d). With an account: transfer, then a Stripe bank payout (paid / failed) on the split doubles. |
+| **C — venue/host split** | Snapshot frozen and equal to the Stripe charge. Two connected accounts. Independent eligibility (venue transferred, host held for trader details). Aggregated weekly transfers with per-booking allocations. Partial reversals. |
+| **D — refunds** | Before transfer, full and partial (5d). After only the venue was transferred: ¼ refund recovered 667 from the venue's own B1 allocation; the host's 333 had no transfer to reverse, stayed open and frozen, then was offset by its own next earnings. After both were transferred: full refund recovered 2667 (venue) and 333 (host), each from its own B2 allocation. Coupon funded by HelloCircle or the partner (unit). Credits restored (5d). |
+| **E — disputes** | Opened, frozen, won and released; lost after settlement (5d). Split B4 lost after settlement: venue 3282 and host 1641 of 4923 disputed; Stripe's actual fee 2460 posted; venue debt recovered by reversals 2667 + 615. Lost before settlement (unit). |
+| **F — Pro** | IE VAT €29 + €6.67 = €35.67; exempt €29.00; **reverse charge €29.00, VAT 0**; renewal; failed renewal and 7-day grace; cancel at period end; free month for 10k points; points debt blocks redemption. |
+| **G — webhooks** | Valid / invalid / missing signature; duplicate; out of order (manual review → replay → processed); delayed; unknown; **real Stripe deliveries** (§8). |
+| **H — settlement** | Preview = execution; duplicate run key → 409; below-€25 carry (host 1000); frozen partner excluded (host `Earnings frozen`); one eligible and one ineligible split partner; failed bank payout leaves the transfer unchanged. |
+
+### 7. Split and points calculations (exact cents)
+
+**Booking split:** €40 game at 66.67% venue, rounding owner = venue. Charge 5120 = HelloCircle 200 + venue 2667 + host
+1333 + VAT 920 + deposit 0. Venue ⌊4000 × 6667 / 10000⌋ = 2666, host ⌊4000 × 3333 / 10000⌋ = 1333, remainder 1 →
+venue. Identical for all four bookings, and equal to Stripe's charge.
+
+**Refunds and disputes:**
+- **¼ refund (1280):** venue 667, host 333, fee 50, VAT 230 (largest remainder).
+- **Dispute 4923 of 5120:** recovery split by allocation, 4923 × 2667 / 4000 = 3282.35 → **3282** and
+  4923 × 1333 / 4000 = 1640.6 → **1641** (the remainder cent goes to the larger fraction).
+
+**Points** (rate 1 per €1; rule `split_rewards` v1):
+- **B1 / B2 at settlement:** ⌊(2667 + 1333) / 100⌋ = 40 → venue **27**, host **13**. No whole-booking award.
+- **B1 after the ¼ refund:** eligible 2000 / 1000 → 30 → targets 20 / 10 → reversed **7** (venue), **3** (host).
+- **B2 after the full refund:** eligible 0 / 0 → reversed **27** and **13**.
+- **B4 lost dispute:**
+  - disputed shares by allocation of 2667 / 1333 / 1120 → 2564 / 1282 / 1077;
+  - eligible 103 / 51 → ⌊154 / 100⌋ = 1 → venue keeps 1, reversed **26**;
+  - the host's B4 share was carried, so no host award existed yet.
+- **Coupon funded by HelloCircle (unit):** €10 off → eligible 2000 / 1000 → 20 / 10.
+- **Browser journey:** €70 at 60% → 42 / 28.
+
+**VAT:** every snapshot records `vat_liability_owner = helloCircle`, `vat_treatment_status =
+provisional_pending_irish_tax_review`. No VAT calculation was changed.
+
+### 8. Real webhook delivery vs fixture tests
+
+**Real Stripe-generated deliveries** via `stripe listen` (test-mode CLI session; two listeners, because the CLI won't
+send snapshot and thin events to the same URL; nothing hand-signed):
+
+| Event | Stripe event ID | Result |
+|---|---|---|
+| `checkout.session.completed` | `evt_1UP4t4CJ5YFf911EDcoomDt1` | Booking confirmed |
+| `charge.refunded` | `evt_3UP4t3CJ5YFf911E0O8jl5p2` | Refund recorded once |
+| `charge.dispute.created` | `evt_1UP4tPCJ5YFf911E0gP4VQ4R` | — |
+| v2 `v2.core.account[identity].updated` | — | `processed`; account re-synced |
+| v2 events for an account not yet linked | — | `ignored` |
+| `transfer.created` | `evt_1UP4tfCJ5YFf911EwVvPK5Ns` | — |
+| `transfer.reversed` (made outside HelloCircle) | `evt_1UP4tiCJ5YFf911EoLjHIJNT` | `manual_review` |
+| `payout.created`, `payout.paid` | — | `processed` |
+
+No event was processed twice.
+
+**Re-signed real events:** real Stripe event IDs and objects, signed locally with the run's CLI test secret, for ordering
+control. Used in the disputes, billing, split payout and v2 Connect tests.
+
+**Fixture events:** synthetic, signed locally, for deterministic negative and ordering tests: invalid, missing and
+tampered signatures, unknown types, out-of-order refunds, and duplicate replays.
+
+### 9. Reconciliation (`SANDBOX-RECONCILE`, same run)
+
+- **Payments:** 38 checked; **38 of 38 run-tagged Stripe payments represented locally**. Charge, refunds (by id), actual
+  card fee and disputes match to the cent. **0 mismatches.**
+- **Pro invoices:** 4 match ledger cash 3567 and VAT 667.
+- **Transfers:** 4, each with Stripe amount = local = settlement = Σ allocations, and Stripe `amount_reversed` = local
+  reversals:
+
+  | Transfer | Amount | Reversed |
+  |---|---|---|
+  | `tr_…ryNx17` | 6334 | 3334 |
+  | `tr_…uYsu` | 2666 | 333 |
+  | `tr_…VecS` | 2667 | 615 |
+  | `tr_…ry21` | 2667 | 2667 |
+
+- **Debts:** each spec closes its debts; debt recovery equals reversals in-spec.
+- **Ledger:** every group balances.
+- **Connected accounts:** every run-tagged account is explained: 2 app-created Express accounts and 3 labelled test
+  doubles.
+- **Intentional exception, listed:** `HB-372830` is a €1 refund made directly at Stripe by HC-QA-091-PARTIAL, whose
+  webhook is withheld on purpose (labelled `webhook-withheld` at Stripe).
+
+### 10. Test, build, browser and combined-run results
+
+| Suite | Result |
+|---|---|
+| Combined gate | 23 batches / 73 tests passed, 0 failed, 0 skipped, uninterrupted |
+| `qa:stripe` | 9 sandbox specs + 33 Stripe integration specs |
+| `qa:revenue` | 30 browser journeys |
+| Browser journeys in the gate | 32 at desktop and mobile viewports: Stripe UI, revenue partner/admin/resident, split |
+| Server suite | 72 files, **760 passed**, 23 skipped |
+| Client suite | **110 passed** |
+| QA harness check | **97 passed**, type-check clean |
+| Production build | Clean |
+
+### 11. Limitations and outstanding manual checks
+
+- **Manual Express onboarding is pending.** Stripe's hosted onboarding shows an **hCaptcha challenge** in test mode, so
+  automation can't complete it. Before staging sign-off, **a person must complete one company or individual Express
+  onboarding** through the app's "Set up payouts with Stripe" link, and record the account id, final state and a
+  screenshot here. Money-movement tests used labelled `dashboard: none` v2 test doubles, which differ only in dashboard
+  type and requirement collection.
+- **Some Stripe test triggers had no effect.** `address_no_match`, DOB `1900-01-01` and `https://inactivity.stripe.com`
+  didn't change a v2 recipient account's capability status in this sandbox. "Requirements later due", "restricted" and
+  "verification failure" states are covered by unit tests only.
+- **Expired-link timing isn't tested.** Links expire after about 5 minutes; the refresh path (mint a new link) is tested,
+  not the wall-clock expiry.
+- **Credits on split bookings:** games don't accept customer credits; credit restoration is validated on experiences
+  (5d).
+- **Tax review needed.** VAT treatment is **provisional pending Irish tax review** (rule `vat_treatment`). Reverse charge
+  and exempt are configured per partner but need tax advice before use.
+- **Points rule differs by booking type.** Split bookings follow the owner's per-partner decision; single-partner
+  bookings keep the 5b GMV-based points rule.
+- **Earlier probe objects are inert and tagged.** They are kept, not deleted: probe and test-double accounts from
+  development runs (e.g. `acct_1UOwLnCJ5YrB9U72`, `acct_1UP22eCJ5Ym58ZTv`, `acct_1UP254CJ5YUyvpCK`,
+  `acct_1UP275CJ5YQtOn0n`, `acct_1UP2VACJ5YKdDOw2`).
+
+### 12. Safety confirmation
+
+- **Stripe:** test mode only. `livemode: false` and the IE platform `acct_1UJMiOCJ5YFf911E` were confirmed before
+  creating objects. No live key and no live-mode request.
+- **Webhook secrets:** a per-run local secret, or the Stripe CLI's test-mode secret held in memory. No webhook endpoint
+  was registered at Stripe, and "Accounts v1 support" was not enabled in the Dashboard.
+- **Repository:** no push, no deployment, no staging.
+- **Databases:** only disposable QA containers. `hello_circle_dev` and `hello_circle` were never accessed.
+- **Switches and policies:** every feature switch stays off by default, and no policies were published.
+- **Secrets:** no key or webhook secret appears in code, fixtures, evidence, logs or this report (evidence files scanned:
+  0 matches).
+- **Stripe data:** no other Stripe test data was modified or deleted. Only this run's test clocks and subscriptions were
+  cleaned up.
