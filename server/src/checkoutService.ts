@@ -5,6 +5,7 @@ import { db } from "./db/index.js";
 import { CLIENT_URL, stripe } from "./stripe.js";
 import { PENDING_HOLD_MINUTES } from "./bookingIntegrity.js";
 import { recordStripeFailure } from "./stripeDiagnostics.js";
+import { PAID_CHECKOUT_CLOSED_ERROR, paidCheckoutOpen } from "./releaseGates.js";
 
 /** Phase 8 QA seam: a deterministic, network-free provider stand-in so the
  * internal pending → success/failure/expiry state machine can be proven
@@ -134,6 +135,10 @@ export async function createCheckoutSession(params: {
    * guestAuth.ts for the resident magic-link flow. */
   isNative?: boolean;
 }): Promise<CheckoutResult> {
+  // Commercial release gate — every paid customer checkout passes here, so
+  // paid bookings stay shut server-side until PAID_CHECKOUT=open (fails
+  // closed in production). Callers already release their pending row on !ok.
+  if (!paidCheckoutOpen()) return { ok: false, status: 503, error: PAID_CHECKOUT_CLOSED_ERROR };
   if (qaProviderStubEnabled()) {
     // QA-only provider seam (see qaProviderStubEnabled) — no network, no Stripe.
     return { ok: true, session: { id: `cs_qa_stub_${params.ref}`, url: null } as unknown as Stripe.Checkout.Session };

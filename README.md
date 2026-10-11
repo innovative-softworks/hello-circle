@@ -147,6 +147,7 @@ cp server/.env.example server/.env
 | `HELLO_CIRCLE_ADMIN_EMAIL` | no (default `admin@hellocircle.ie`) | Email of the auto-seeded admin account |
 | `HELLO_CIRCLE_ADMIN_PASSWORD` | no (default `changeme123`) | Password of the auto-seeded admin account — **change this before any real deployment** |
 | `STRIPE_SECRET_KEY` | no (checkout returns 503 without it) | Stripe secret key — `sk_test_...` for test mode, `sk_live_...` for real charges |
+| `PAID_CHECKOUT` | no | Commercial release gate for paid customer checkout (`server/src/releaseGates.ts`). `open` allows it, `closed` refuses it (503). **Unset = closed when `NODE_ENV=production`**, open otherwise. Free, cash and €0 orders, refunds and webhooks are unaffected. Leave unset or `closed` in production until paid bookings are approved |
 | `STRIPE_WEBHOOK_SECRET` | no in dev, **required in production** (`NODE_ENV=production`) | Signing secret from the Stripe webhook endpoint (`whsec_...`) — without it in production, the webhook is refused rather than accepting unverified events |
 | `CLIENT_URL` | no (default `http://localhost:5173`) | Public origin used for Stripe Checkout success/cancel redirect URLs — must be the real deployed domain in production |
 | `PUBLIC_ORIGINS` (or `PUBLIC_ORIGIN`) | no (falls back to reflecting the request origin) | Comma-separated list of allowed CORS origins — **set this to the real deployed domain(s) in production**, since the fallback (reflecting any origin) is broader than a production deploy needs |
