@@ -1,69 +1,41 @@
 import { useNavigate } from "react-router-dom";
-import { TreeIconSmall } from "./icons";
-import { Photo } from "./Photo";
+import { PinIcon, TreeIconSmall } from "./icons";
 import { SaveButton, useSavedState } from "./SaveButton";
-import { Button, CardLink } from "./ui";
-import { cardImageRatio, colors, placeholderStripes } from "../theme";
+import { Button } from "./ui";
+import { colors, placeholderStripes } from "../theme";
 import type { ExperienceSearchResult } from "../types";
 import { formatPrice } from "../formatters";
+import { centsPriceSignal } from "../priceSignal";
+import { PriceChip } from "./PriceChip";
+import { CardPrice, ListingCard, cardButtonStyle } from "./ListingCard";
 
 // Adventure/experience result card — shared by Explore's Results Mode and
-// AskHelloCircle.tsx (both consume the same runStructuredSearch() result).
-// Built to the exact same shell/spacing/type-scale as CentreCard/ClubCard
-// (padding, title size, photo badge, SaveButton) rather than its own
-// tighter variant — it previously ran smaller padding, a smaller title, and
-// no save button at all, which read as a lesser card family sitting in the
-// same results grid.
-
+// AskHelloCircle.tsx. Now the shared ListingCard shape (design-system
+// consistency pass); behaviour unchanged.
 export function ExperienceSearchCard({ e }: { e: ExperienceSearchResult }) {
   const navigate = useNavigate();
   const [fav, toggleFav] = useSavedState("experience", e.id);
   const href = `/${e.kind === "adventure" ? "adventures" : "experiences"}/${e.id}`;
   // Same per-kind CTA verb ExperienceDetail.tsx's own booking button uses.
   const registerLabel = e.kind === "adventure" ? "Book this adventure" : "Register for this experience";
+  const where = [e.area, e.county].filter(Boolean).join(", ");
   return (
-    <div
-      className="card-hover card-surface"
-      style={{ position: "relative", background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 18, overflow: "hidden" }}
-    >
-      <CardLink to={href} label={e.title} sharedImage />
-      <Photo
-        src={e.imageUrl || undefined}
-        alt={e.title}
-        ph={e.kind === "adventure" ? placeholderStripes.green : placeholderStripes.orange}
-        icon={<TreeIconSmall size={26} />}
-        iconColor={e.kind === "adventure" ? colors.greenText : colors.orangeDark}
-        style={{ aspectRatio: cardImageRatio.discovery }}
-        contentStyle={{ display: "flex", alignItems: "flex-end", padding: 12 }}
-      >
-        <span
-          className="card-photo-badge"
-          style={{
-            background: "rgba(255,255,255,.9)",
-            borderRadius: 8,
-            padding: "4px 9px",
-            fontSize: 12,
-            fontWeight: 700,
-            color: e.kind === "adventure" ? colors.green : colors.orangeDark,
-            transition: "background-color .2s ease, color .2s ease",
-          }}
-        >
-          {e.kind === "adventure" ? "Adventure" : "Experience"}
-        </span>
-        <SaveButton saved={fav} onToggle={toggleFav} />
-      </Photo>
-      <div style={{ padding: "16px 18px 18px" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
-          <h3 style={{ fontSize: 17, fontWeight: 700, margin: "0 0 3px", letterSpacing: "-.01em" }}>{e.title}</h3>
-          <span style={{ fontWeight: 700, fontSize: 15, whiteSpace: "nowrap" }}>{formatPrice(e.priceCents)}</span>
-        </div>
-        <p style={{ margin: "0 0 12px", color: colors.mutedLight, fontSize: 14 }}>{e.area}{e.area && e.county ? ", " : ""}{e.county}</p>
-        <div className="stretched-link-above">
-          <Button style={{ width: "100%", fontSize: 13 }} onClick={() => navigate(href)}>
-            {registerLabel}
-          </Button>
-        </div>
-      </div>
-    </div>
+    <ListingCard
+      href={href}
+      title={e.title}
+      image={e.imageUrl || null}
+      ph={e.kind === "adventure" ? placeholderStripes.green : placeholderStripes.orange}
+      icon={<TreeIconSmall size={26} />}
+      iconColor={colors.orange}
+      tag={e.kind === "adventure" ? "Adventure" : "Experience"}
+      save={<SaveButton saved={fav} onToggle={toggleFav} />}
+      details={[where ? { icon: <PinIcon size={13} />, text: where } : null]}
+      facts={centsPriceSignal(e.priceCents) ? <PriceChip signal="free" /> : <CardPrice>{formatPrice(e.priceCents)}</CardPrice>}
+      action={
+        <Button style={cardButtonStyle} variant="dark" onClick={() => navigate(href)}>
+          {registerLabel}
+        </Button>
+      }
+    />
   );
 }

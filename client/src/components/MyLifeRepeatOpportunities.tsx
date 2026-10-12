@@ -22,9 +22,9 @@ export function MyLifeRepeatOpportunities({ suggestions }: { suggestions: Routin
       {suggestions.slice(0, 2).map((s) => {
         const key = `${s.activityLabel}::${s.dayOfWeek}`;
         return (
-          <div key={key} style={{ background: colors.greenBg, borderRadius: 12, padding: "18px 20px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
+          <div key={key} style={{ background: colors.greenBg, borderRadius: 10, padding: "18px 20px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
             <div>
-              <div style={{ fontSize: 10.5, fontWeight: 700, color: colors.greenText, textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 4 }}>
+              <div style={{ fontSize: 10.5, fontWeight: 700, color: colors.greenText, textTransform: "uppercase", letterSpacing: 0, marginBottom: 4 }}>
                 {s.activityLabel}
               </div>
               <div style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 15 }}>You've been going most {DAY_NAMES[s.dayOfWeek - 1]}s.</div>

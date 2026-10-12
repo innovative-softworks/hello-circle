@@ -4,15 +4,16 @@ import { ArrowRightIcon, ClockIcon, CloseIcon, GridIcon, LightbulbIcon, PinIcon,
 import { Chip } from "./Chip";
 import { DiscoveryMap, type DiscoveryMapPin } from "./DiscoveryMap";
 import { DropdownOption } from "./FilterDropdown";
-import { Photo } from "./Photo";
 import { PageTitle } from "./PageTitle";
-import { Button, Card, CardLink, CardSkeleton, Drawer, EmptyState, LoadErrorState } from "./ui";
+import { Button, CardSkeleton, Drawer, EmptyState, LoadErrorState } from "./ui";
 import { SaveButton, useSavedState } from "./SaveButton";
+import { CardPrice, ListingCard, cardButtonStyle } from "./ListingCard";
 import { dateLabel } from "../euro";
 import { formatAvailability, formatDateTime, formatPrice } from "../formatters";
-import { cardImageRatio, colors, fonts, maxWidth, radius } from "../theme";
+import { colors, fonts, maxWidth, radius } from "../theme";
 import type { MapMarkerType } from "../types";
 import { daysBetween, irelandToday, weekdayOf } from "../irelandDate";
+import { CtaBand } from "./CtaBand";
 
 // Shared browse layout for the "book a spot on something" listing pages —
 // Adventures, Experiences, Volunteer (ExperienceKindBrowse.tsx) and
@@ -105,7 +106,8 @@ export interface BrowseConfig {
   mapSearchTypes?: MapMarkerType[];
   /** Whether any item can be featured — hides the "top picks first" hint and the sort option otherwise. */
   supportsFeatured: boolean;
-  closing: { text: string; primary: { label: string; to: string }; secondary: { label: string; to: string } };
+  /** Closing CtaBand copy — `label` is the vertical word, `lines` the three-line heading. */
+  closing: { label?: string; lines?: [string, string, string]; text: string; primary: { label: string; to: string }; secondary: { label: string; to: string } };
 }
 
 function uniqueSorted(values: (string | null | undefined)[]): string[] {
@@ -188,99 +190,44 @@ export function BrowseCard({ e, icon }: { e: BrowseItem; icon: ReactNode }) {
   const navigate = useNavigate();
   const session = e.next;
   const open = () => navigate(e.href);
+  const low = !!session && session.spotsLeft !== null && session.spotsLeft <= 2;
 
+  // Design-system consistency pass: the shared ListingCard shape.
   return (
-    <Card hover style={{ position: "relative", padding: 0, overflow: "hidden" }}>
-      <CardLink to={e.href} label={e.title} sharedImage />
-      <Photo
-        src={e.imageUrl || undefined}
-        alt={e.title}
-        ph={e.tone === "green" ? colors.greenBg : colors.orangeBg}
-        icon={icon}
-        iconColor={e.tone === "green" ? colors.greenText : colors.orangeDark}
-        style={{ aspectRatio: cardImageRatio.discovery }}
-        contentStyle={{ padding: 10, display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}
-      >
-        {session ? (
-          <span
-            className="card-photo-badge"
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: 5,
-              background: "rgba(255,255,255,.92)",
-              color: colors.text,
-              borderRadius: radius.pill,
-              padding: "5px 11px 5px 9px",
-              fontSize: 12.5,
-              fontWeight: 700,
-              transition: "background-color .2s ease, color .2s ease",
-            }}
-          >
-            <ClockIcon size={12} /> {formatDateTime(session.date, session.time)}
-          </span>
-        ) : (
-          <span
-            className="card-photo-badge"
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              background: "rgba(255,255,255,.85)",
-              color: colors.muted,
-              borderRadius: radius.pill,
-              padding: "5px 11px",
-              fontSize: 12,
-              fontWeight: 700,
-              transition: "background-color .2s ease, color .2s ease",
-            }}
-          >
-            No dates yet
-          </span>
-        )}
-        {e.save && <SaveSlot save={e.save} />}
-      </Photo>
-      <div style={{ padding: 16 }}>
-        <div style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 16, color: colors.text, marginBottom: 3 }}>{e.title}</div>
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 5,
-            fontSize: 13.5,
-            color: colors.mutedLight,
-            marginBottom: 6,
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-            whiteSpace: "nowrap",
-          }}
-        >
-          <PinIcon size={12} style={{ flex: "none" }} /> {e.locationLabel}
-        </div>
-        <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 8, marginBottom: 14 }}>
-          {e.tags.map((t) => (
-            <span key={t} style={{ fontSize: 11, fontWeight: 700, color: colors.muted, background: colors.panel, borderRadius: radius.pill, padding: "2px 8px", textTransform: "capitalize" }}>
-              {t}
-            </span>
-          ))}
-          {session && session.spotsLeft !== null && (
-            <span style={{ fontSize: 12.5, color: session.spotsLeft <= 2 ? colors.orangeDark : colors.mutedLight, fontWeight: session.spotsLeft <= 2 ? 700 : 400 }}>
-              {formatAvailability(session.spotsLeft)}
-            </span>
+    <ListingCard
+      href={e.href}
+      title={e.title}
+      image={e.imageUrl || null}
+      ph={e.tone === "green" ? colors.greenBg : colors.orangeBg}
+      icon={icon}
+      iconColor={colors.orange}
+      tag={e.tags[0]}
+      status={low && session ? { label: formatAvailability(session.spotsLeft as number) } : null}
+      save={e.save ? <SaveSlot save={e.save} /> : null}
+      details={[
+        e.locationLabel ? { icon: <PinIcon size={13} />, text: e.locationLabel } : null,
+        { icon: <ClockIcon size={13} />, text: session ? formatDateTime(session.date, session.time) : "No dates yet" },
+        e.tags.length > 1 ? { text: <span style={{ textTransform: "capitalize" }}>{e.tags.slice(1).join(" · ")}</span> } : null,
+      ]}
+      facts={
+        <>
+          {e.priceCents ? (
+            <CardPrice>
+              {formatPrice(e.priceCents)}
+              {e.perPerson ? <span style={{ fontSize: 12, fontWeight: 600, color: colors.mutedLight }}> pp</span> : null}
+            </CardPrice>
+          ) : (
+            <CardPrice>{formatPrice(e.priceCents)}</CardPrice>
           )}
-        </div>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <span style={{ fontWeight: 700, fontSize: 15, color: e.priceCents ? colors.text : colors.greenText }}>
-            {formatPrice(e.priceCents)}
-            {e.priceCents && e.perPerson ? <span style={{ fontSize: 12, fontWeight: 600, color: colors.mutedLight }}> pp</span> : null}
-          </span>
-          <div className="stretched-link-above">
-            <Button variant="dark" onClick={open} style={{ padding: "8px 16px", fontSize: 13 }}>
-              {e.ctaLabel}
-            </Button>
-          </div>
-        </div>
-      </div>
-    </Card>
+          {session && session.spotsLeft !== null && !low && <span style={{ fontWeight: 600, color: colors.mutedLight }}>{formatAvailability(session.spotsLeft)}</span>}
+        </>
+      }
+      action={
+        <Button style={cardButtonStyle} variant="dark" onClick={open}>
+          {e.ctaLabel}
+        </Button>
+      }
+    />
   );
 }
 
@@ -380,7 +327,7 @@ export function BrowseLayout({ config }: { config: BrowseConfig }) {
   const sortKeys = (Object.keys(SORT_LABELS) as SortKey[]).filter((k) => k !== "featured" || config.supportsFeatured);
 
   const filterGroupStyle: CSSProperties = { padding: "16px 0", borderTop: `1px solid ${colors.border}` };
-  const filterLabelStyle: CSSProperties = { fontSize: 11.5, fontWeight: 700, color: colors.mutedLight, textTransform: "uppercase", letterSpacing: ".04em", marginBottom: 8 };
+  const filterLabelStyle: CSSProperties = { fontSize: 11.5, fontWeight: 700, color: colors.mutedLight, textTransform: "uppercase", letterSpacing: 0, marginBottom: 8 };
 
   const filterPanel = (
     <>
@@ -404,7 +351,7 @@ export function BrowseLayout({ config }: { config: BrowseConfig }) {
             type="date"
             value={whenDate}
             onChange={(e) => setWhenDate(e.target.value)}
-            style={{ marginTop: 4, fontSize: 13, padding: "7px 9px", width: "100%", border: `1px solid ${colors.inputBorder}`, borderRadius: 8, boxSizing: "border-box" }}
+            style={{ marginTop: 4, fontSize: 13, padding: "7px 9px", width: "100%", border: `1px solid ${colors.inputBorder}`, borderRadius: 10, boxSizing: "border-box" }}
           />
         )}
       </div>
@@ -501,7 +448,7 @@ export function BrowseLayout({ config }: { config: BrowseConfig }) {
                         Showing 1-{Math.min(visibleCount, sorted.length)} of {sorted.length}
                       </div>
                     )}
-                    <div style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 20, letterSpacing: "-.01em" }}>
+                    <div style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 20, letterSpacing: 0 }}>
                       {sorted.length}{" "}
                       <span style={{ fontFamily: fonts.body, fontWeight: 600, fontSize: 15, color: colors.mutedLight }}>
                         {config.nounPlural} {sorted.length === 1 ? "listing" : "nearby"}
@@ -514,11 +461,13 @@ export function BrowseLayout({ config }: { config: BrowseConfig }) {
                   {query.trim() && ` for "${query.trim()}"`}
                 </div>
               </div>
-              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              {/* Wraps at phone widths (sitemap audit P1-09: Filters + Sort + the
+                  Grid/Map toggle overflowed the viewport by 59px at 320px). */}
+              <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
                 <button
                   className="games-filter-trigger"
                   onClick={() => setFiltersOpen(true)}
-                  style={{ display: "inline-flex", alignItems: "center", gap: 6, border: `1.5px solid ${colors.borderStrong}`, background: "#fff", color: colors.textSoft, borderRadius: 20, padding: "8px 14px", fontSize: 14, fontWeight: 600 }}
+                  style={{ display: "inline-flex", alignItems: "center", gap: 6, border: `1.5px solid ${colors.borderStrong}`, background: "#fff", color: colors.textSoft, borderRadius: 16, padding: "8px 14px", fontSize: 14, fontWeight: 600 }}
                 >
                   Filters{activeCount > 0 ? ` (${activeCount})` : ""}
                 </button>
@@ -558,7 +507,7 @@ export function BrowseLayout({ config }: { config: BrowseConfig }) {
             </div>
 
             {!loading && config.supportsFeatured && sort === "featured" && sorted.length > 0 && (
-              <div style={{ display: "flex", alignItems: "flex-start", gap: 10, background: "rgba(232,163,58,.12)", border: "1px solid rgba(232,163,58,.3)", borderRadius: 12, padding: "12px 16px", marginBottom: 20 }}>
+              <div style={{ display: "flex", alignItems: "flex-start", gap: 10, background: "rgba(232,163,58,.12)", border: "1px solid rgba(232,163,58,.3)", borderRadius: 10, padding: "12px 16px", marginBottom: 20 }}>
                 <LightbulbIcon size={16} style={{ color: colors.gold, flex: "none", marginTop: 1 }} />
                 <div>
                   <div style={{ fontSize: 13.5, fontWeight: 700, color: colors.text }}>Showing our top picks first</div>
@@ -573,7 +522,7 @@ export function BrowseLayout({ config }: { config: BrowseConfig }) {
                   <button
                     key={c.key}
                     onClick={c.onRemove}
-                    style={{ display: "inline-flex", alignItems: "center", gap: 5, background: colors.greenBg, color: colors.greenText, border: "none", borderRadius: 20, padding: "5px 10px 5px 12px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}
+                    style={{ display: "inline-flex", alignItems: "center", gap: 5, background: colors.greenBg, color: colors.greenText, border: "none", borderRadius: 16, padding: "5px 10px 5px 12px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}
                   >
                     {c.label} <CloseIcon size={12} />
                   </button>
@@ -638,38 +587,15 @@ export function BrowseLayout({ config }: { config: BrowseConfig }) {
         </div>
       </Drawer>
 
-      {/* Closing CTA band — echoes Games.tsx's own closing band. */}
-      <section style={{ background: colors.dark }}>
-        <div className="section-pad" style={{ maxWidth, margin: "0 auto", padding: "72px 24px 80px" }}>
-          <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: 32 }}>
-            <div>
-              <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: ".09em", textTransform: "uppercase", color: "rgba(255,255,255,.5)", marginBottom: 10 }}>
-                Keep exploring
-              </div>
-              <h2 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(26px, 3.6vw, 38px)", color: "#fff", margin: "0 0 10px", letterSpacing: "-.02em", lineHeight: 1.1 }}>
-                Didn't find the right one?
-              </h2>
-              <p style={{ margin: 0, color: "rgba(255,255,255,.72)", fontSize: 16 }}>{config.closing.text}</p>
-            </div>
-            <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-              <button
-                className="btn"
-                onClick={() => navigate(config.closing.primary.to)}
-                style={{ display: "inline-flex", alignItems: "center", gap: 8, background: "#fff", color: colors.dark, border: "none", borderRadius: radius.control, padding: "12px 20px", fontSize: 14.5, fontWeight: 700, cursor: "pointer" }}
-              >
-                {config.closing.primary.label} <ArrowRightIcon size={14} />
-              </button>
-              <button
-                className="btn"
-                onClick={() => navigate(config.closing.secondary.to)}
-                style={{ display: "inline-flex", alignItems: "center", gap: 8, background: "transparent", color: "#fff", border: "1px solid rgba(255,255,255,.4)", borderRadius: radius.control, padding: "12px 20px", fontSize: 14.5, fontWeight: 700, cursor: "pointer" }}
-              >
-                {config.closing.secondary.label} <ArrowRightIcon size={14} />
-              </button>
-            </div>
-          </div>
-        </div>
-      </section>
+      {/* Closing CTA band — the shared CtaBand (same as Home's closing band). */}
+      <CtaBand
+        id="browse-cta-title"
+        label={config.closing.label}
+        lines={config.closing.lines ?? ["Didn't find", "the right", "one?"]}
+        text={config.closing.text}
+        action={config.closing.primary}
+        secondary={config.closing.secondary}
+      />
     </div>
   );
 }

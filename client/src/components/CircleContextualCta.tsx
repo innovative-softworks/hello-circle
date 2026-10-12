@@ -27,7 +27,9 @@ export function CircleContextualCta({
 }) {
   const navigate = useNavigate();
   const plan = circle.nextPlan;
-  if (!plan) return null;
+  // Only a plan that belongs to this Circle — a "nearby" activity-label
+  // match isn't this Circle's meetup (same rule as the Circles page).
+  if (!plan || plan.source !== "circle") return null;
 
   return (
     <div
@@ -46,10 +48,10 @@ export function CircleContextualCta({
       }}
     >
       <div style={{ flex: "1 1 240px" }}>
-        <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: ".08em", textTransform: "uppercase", color: colors.greenText, marginBottom: 8 }}>
+        <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: 0, textTransform: "uppercase", color: colors.greenText, marginBottom: 8 }}>
           Next up
         </div>
-        <h3 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(22px,2.6vw,28px)", letterSpacing: "-.01em", margin: 0 }}>
+        <h3 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(22px,2.6vw,28px)", letterSpacing: 0, margin: 0 }}>
           Ready to join them?
         </h3>
       </div>

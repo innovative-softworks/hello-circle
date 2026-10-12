@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from "react";
-import { SelfCancelControl, refundBadgeText } from "../components/SelfCancelControl";
-import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { RefundStatus, SelfCancelControl } from "../components/SelfCancelControl";
+import { Link, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { safeReturnTo } from "../authRedirect";
+import { useConfirm } from "../components/ConfirmProvider";
+import { leaveWaitlistConfirm } from "../confirmCopy";
 import {
   cancelBooking,
   cancelExperienceBooking,
@@ -22,6 +24,7 @@ import {
   fetchResidentFull,
   fetchRoutineSuggestions,
   fetchWaitlistOfferStatus,
+  leaveClubWaitlist,
   guestLogout,
   lookupBooking,
   lookupRegistration,
@@ -53,6 +56,8 @@ import { Photo } from "../components/Photo";
 import { PostActivityFeedback } from "../components/PostActivityFeedback";
 import { Button, ConfirmDialog, EmptyState, onActivateProps, RowSkeleton, inputStyle, labelStyle, LoadErrorState } from "../components/ui";
 import { dateLabel, euro } from "../euro";
+import { formatIrishDateTime } from "../components/booking/policy";
+import { TIME_SLOTS } from "../constants";
 import { formatDatePill } from "../formatters";
 import { useGuest } from "../GuestContext";
 import { attendanceStateOf, isUpcomingProgramEnrollment, shouldPromptFeedback, shouldPromptProgramFeedback } from "../participation";
@@ -118,8 +123,12 @@ function RescheduleForm({ booking, onDone }: { booking: MyBooking; onDone: () =>
 
   return (
     <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "flex-end" }}>
-      <input type="date" value={date} onChange={(e) => setDate(e.target.value)} style={{ ...inputStyle, width: 150 }} />
-      <input type="time" value={time} onChange={(e) => setTime(e.target.value)} style={{ ...inputStyle, width: 110 }} />
+      <input type="date" aria-label="New date" value={date} onChange={(e) => setDate(e.target.value)} style={{ ...inputStyle, width: 150 }} />
+      <select aria-label="New start time" value={time} onChange={(e) => setTime(e.target.value)} style={{ ...inputStyle, width: 110 }}>
+        {TIME_SLOTS.map((t) => (
+          <option key={t} value={t}>{t}</option>
+        ))}
+      </select>
       <Button onClick={submit} disabled={busy}>{busy ? "Saving…" : "Confirm new time"}</Button>
       {error && <span style={{ color: colors.danger, fontSize: 12.5 }}>{error}</span>}
     </div>
@@ -134,27 +143,38 @@ function BookingRow({
   const [expanded, setExpanded] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const cancelled = booking.status === "cancelled";
-  const isPast = new Date(`${booking.date}T00:00:00`) < new Date(new Date().toDateString());
+  // Ireland date, not the device's (sitemap audit P2-14) — dates are YYYY-MM-DD, so a string compare is a date compare.
+  const isPast = booking.date.slice(0, 10) < irelandToday();
+  // Booking UX Phase 3 — what's allowed comes from the server (selfCancel.ts);
+  // an older server that doesn't send these keeps the previous behaviour.
+  const canCancel = !cancelled && (booking.canCancel ?? true);
+  const canReschedule = !cancelled && (booking.canReschedule ?? true);
   return (
     <div style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: radius.card, padding: "18px 20px", opacity: cancelled ? 0.6 : 1 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 18 }}>
-        <Photo src={booking.image} alt={booking.centreName} ph={booking.ph} style={{ width: 52, height: 52, borderRadius: 12, overflow: "hidden", flex: "none" }} />
+        <Photo src={booking.image} alt={booking.centreName} ph={booking.ph} style={{ width: 52, height: 52, borderRadius: 10, overflow: "hidden", flex: "none" }} />
         <div style={{ flex: 1, minWidth: 0, cursor: "pointer" }} {...onActivateProps(() => setExpanded((e) => !e))}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
             <span style={{ fontWeight: 700, fontSize: 16 }}>{booking.centreName}{booking.roomName ? ` — ${booking.roomName}` : ""}</span>
             {cancelled && <span style={cancelledBadgeStyle}>Cancelled</span>}
             {!cancelled && booking.attendance === "present" && <span style={checkedInBadgeStyle}>Checked in</span>}
+            <RefundStatus refundState={booking.refundState} />
             {recovered && <span style={recoveredBadgeStyle}>Found by reference</span>}
           </div>
           <div style={{ color: colors.mutedLight, fontSize: 14 }}>
             {dateLabel(booking.date)} · {booking.time}
           </div>
+          {!cancelled && !isPast && booking.cancelDeadline && (
+            <div style={{ color: colors.mutedLight, fontSize: 13 }}>
+              {canCancel ? `Free cancellation until ${formatIrishDateTime(booking.cancelDeadline)}` : "Online changes have closed — contact the venue"}
+            </div>
+          )}
           {error && <div style={{ color: colors.danger, fontSize: 12, marginTop: 4 }}>{error}</div>}
         </div>
         <div style={{ textAlign: "right", flex: "none" }}>
           <div style={{ fontWeight: 700 }}>{euro(booking.totalCents / 100)}</div>
-          <div style={{ fontSize: 12, color: colors.faint, marginBottom: cancelled ? 0 : 8 }}>{booking.ref}</div>
-          {!cancelled && (
+          <div style={{ fontSize: 12, color: colors.faint, marginBottom: canCancel ? 8 : 0 }}>{booking.ref}</div>
+          {canCancel && (
             <Button variant="danger" onClick={() => setConfirmOpen(true)} disabled={cancelling}>
               {cancelling ? "Cancelling…" : "Cancel"}
             </Button>
@@ -164,7 +184,9 @@ function BookingRow({
       <ConfirmDialog
         open={confirmOpen}
         title="Cancel this booking?"
-        message={`${booking.centreName}${booking.roomName ? ` — ${booking.roomName}` : ""}, ${dateLabel(booking.date)} at ${booking.time}. This can't be undone.`}
+        message={`${booking.centreName}${booking.roomName ? ` — ${booking.roomName}` : ""}, ${dateLabel(booking.date)} at ${booking.time}.${
+          booking.paidOnline && booking.totalCents > 0 ? " Your refund is issued by the venue through HelloCircle — we'll email you when it's done." : booking.paidOnline === false ? " Nothing was charged online." : ""
+        } This can't be undone.`}
         confirmLabel={cancelling ? "Cancelling…" : "Cancel booking"}
         cancelLabel="Keep booking"
         busy={cancelling}
@@ -189,8 +211,12 @@ function BookingRow({
                 Add to calendar
               </button>
             )}
-            <div style={{ fontSize: 12, fontWeight: 700, color: colors.muted, marginBottom: 8 }}>RESCHEDULE</div>
-            <RescheduleForm booking={booking} onDone={() => window.location.reload()} />
+            {canReschedule && (
+              <>
+                <div style={{ fontSize: 12, fontWeight: 700, color: colors.muted, marginBottom: 8 }}>RESCHEDULE</div>
+                <RescheduleForm booking={booking} onDone={() => window.location.reload()} />
+              </>
+            )}
             {shouldPromptFeedback(attendanceStateOf({ cancelled, attendance: booking.attendance }), isPast) && (
               <div style={{ marginTop: 16 }}>
                 <PostActivityFeedback kind="booking" reference={booking.ref} followTarget={{ type: "vendor", id: booking.vendorId }} />
@@ -203,8 +229,25 @@ function BookingRow({
   );
 }
 
-function WaitlistOfferBanner({ clubId }: { clubId: string }) {
+function WaitlistOfferBanner({ clubId, clubName }: { clubId: string; clubName: string }) {
   const [status, setStatus] = useState<WaitlistOfferStatus | null>(null);
+  const confirm = useConfirm();
+  const [leaving, setLeaving] = useState(false);
+  const [leaveError, setLeaveError] = useState<string | null>(null);
+  // Sitemap audit P2-09 — leaving was only possible through the API.
+  const leave = async () => {
+    if (!(await confirm(leaveWaitlistConfirm(clubName)))) return;
+    setLeaving(true);
+    setLeaveError(null);
+    try {
+      await leaveClubWaitlist(clubId);
+      setStatus({ onWaitlist: false });
+    } catch {
+      setLeaveError("Couldn't leave the waitlist — try again.");
+    } finally {
+      setLeaving(false);
+    }
+  };
   useEffect(() => {
     let cancelled = false;
     fetchWaitlistOfferStatus(clubId).then((s) => {
@@ -227,8 +270,12 @@ function WaitlistOfferBanner({ clubId }: { clubId: string }) {
   }
 
   return (
-    <div style={{ marginTop: 10, color: colors.mutedLight, fontSize: 13 }}>
-      On the waitlist{typeof status.position === "number" ? ` · position ${status.position}${status.total ? ` of ${status.total}` : ""}` : ""}
+    <div style={{ marginTop: 10, color: colors.mutedLight, fontSize: 13, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+      <span>On the waitlist{typeof status.position === "number" ? ` · position ${status.position}${status.total ? ` of ${status.total}` : ""}` : ""}</span>
+      <button onClick={() => void leave()} disabled={leaving} style={{ background: "none", border: "none", padding: "4px 2px", fontSize: 13, fontWeight: 600, color: colors.muted, textDecoration: "underline", cursor: "pointer" }}>
+        {leaving ? "Leaving…" : "Leave waitlist"}
+      </button>
+      {leaveError && <span role="alert" style={{ color: colors.danger }}>{leaveError}</span>}
     </div>
   );
 }
@@ -240,11 +287,12 @@ function RegistrationRow({
 }) {
   const [confirmOpen, setConfirmOpen] = useState(false);
   const cancelled = registration.status === "cancelled";
+  const canCancel = !cancelled && (registration.canCancel ?? true);
   const enoughTimeSinceSignup = Date.now() - new Date(registration.createdAt).getTime() > 14 * 24 * 60 * 60 * 1000;
   return (
     <div style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: radius.card, padding: "18px 20px", opacity: cancelled ? 0.6 : 1 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 18 }}>
-        <div style={{ width: 52, height: 52, borderRadius: 12, background: colors.orangeBg, flex: "none", display: "flex", alignItems: "center", justifyContent: "center", color: colors.orangeDark, fontWeight: 700, fontSize: 12 }}>
+        <div style={{ width: 52, height: 52, borderRadius: 10, background: colors.orangeBg, flex: "none", display: "flex", alignItems: "center", justifyContent: "center", color: colors.orangeDark, fontWeight: 700, fontSize: 12 }}>
           {registration.sport}
         </div>
         <div style={{ flex: 1, minWidth: 0 }}>
@@ -252,17 +300,18 @@ function RegistrationRow({
             <span style={{ fontWeight: 700, fontSize: 16 }}>{`${registration.childFirst} ${registration.childLast}`.trim()}</span>
             {cancelled && <span style={cancelledBadgeStyle}>Cancelled</span>}
             {!cancelled && registration.attendance === "present" && <span style={checkedInBadgeStyle}>Checked in</span>}
+            <RefundStatus refundState={registration.refundState} />
             {recovered && <span style={recoveredBadgeStyle}>Found by reference</span>}
           </div>
           <div style={{ color: colors.mutedLight, fontSize: 14 }}>
-            {registration.clubName} · {registration.team}
+            {registration.clubName}{registration.team ? ` · ${registration.team}` : ""}
           </div>
           {error && <div style={{ color: colors.danger, fontSize: 12, marginTop: 4 }}>{error}</div>}
         </div>
         <div style={{ textAlign: "right", flex: "none" }}>
           <div style={{ fontWeight: 700 }}>{registration.trial ? "Free trial" : euro(registration.totalCents / 100)}</div>
-          <div style={{ fontSize: 12, color: colors.faint, marginBottom: cancelled ? 0 : 8 }}>{registration.ref}</div>
-          {!cancelled && (
+          <div style={{ fontSize: 12, color: colors.faint, marginBottom: canCancel ? 8 : 0 }}>{registration.ref}</div>
+          {canCancel && (
             <Button variant="danger" onClick={() => setConfirmOpen(true)} disabled={cancelling}>
               {cancelling ? "Cancelling…" : "Cancel"}
             </Button>
@@ -272,7 +321,9 @@ function RegistrationRow({
       <ConfirmDialog
         open={confirmOpen}
         title="Cancel this registration?"
-        message={`${registration.childFirst} ${registration.childLast} — ${registration.clubName}, ${registration.team}. This can't be undone.`}
+        message={`${registration.childFirst} ${registration.childLast} — ${registration.clubName}${registration.team ? `, ${registration.team}` : ""}.${
+          registration.paidOnline && registration.totalCents > 0 ? " Your refund is issued by the club through HelloCircle — we'll email you when it's done." : ""
+        } This can't be undone.`}
         confirmLabel={cancelling ? "Cancelling…" : "Cancel registration"}
         cancelLabel="Keep registration"
         busy={cancelling}
@@ -282,7 +333,7 @@ function RegistrationRow({
         }}
         onCancel={() => setConfirmOpen(false)}
       />
-      {!cancelled && <WaitlistOfferBanner clubId={registration.clubId} />}
+      {!cancelled && <WaitlistOfferBanner clubId={registration.clubId} clubName={registration.clubName} />}
       {shouldPromptFeedback(attendanceStateOf({ cancelled, attendance: registration.attendance }), enoughTimeSinceSignup) && (
         <div style={{ marginTop: 12, paddingTop: 12, borderTop: `1px solid ${colors.border}` }}>
           <PostActivityFeedback kind="registration" reference={registration.ref} followTarget={{ type: "vendor", id: registration.vendorId }} />
@@ -302,7 +353,7 @@ function GameRow({ game }: { game: Game }) {
       style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: radius.card, padding: "18px 20px", opacity: cancelled ? 0.6 : 1 }}
     >
       <div style={{ display: "flex", alignItems: "center", gap: 18 }}>
-        <div style={{ width: 52, height: 52, borderRadius: 12, background: colors.greenBg, flex: "none", display: "flex", alignItems: "center", justifyContent: "center", color: colors.greenText, fontWeight: 700, fontSize: 18 }}>
+        <div style={{ width: 52, height: 52, borderRadius: 10, background: colors.greenBg, flex: "none", display: "flex", alignItems: "center", justifyContent: "center", color: colors.greenText, fontWeight: 700, fontSize: 18 }}>
           {game.activityLabel.charAt(0)}
         </div>
         <div style={{ flex: 1, minWidth: 0 }}>
@@ -323,21 +374,21 @@ function GameRow({ game }: { game: Game }) {
 function ExperienceBookingRow({ booking, onChanged }: { booking: MyExperienceBooking; onChanged: () => void }) {
   const navigate = useNavigate();
   const cancelled = booking.status === "cancelled";
-  const refundBadge = refundBadgeText(booking.refundState);
   // Resident Experience Polish — PostActivityFeedback previously only
   // existed for Centre bookings/Club registrations; an Experience booking
   // has a real single session date, same as a Centre booking, so the same
   // isPast gate applies directly.
-  const isPast = new Date(`${booking.date}T00:00:00`) < new Date(new Date().toDateString());
+  // Ireland date, not the device's (sitemap audit P2-14) — dates are YYYY-MM-DD, so a string compare is a date compare.
+  const isPast = booking.date.slice(0, 10) < irelandToday();
   return (
     <div
       style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: radius.card, padding: "18px 20px", opacity: cancelled ? 0.6 : 1 }}
     >
       <Link to={`/experiences/${booking.experienceId}`} className="row-link" style={{ display: "flex", alignItems: "center", gap: 18 }}>
         {booking.imageUrl ? (
-          <img src={getMediaUrl(booking.imageUrl, "thumbnail")} alt={booking.title} style={{ width: 52, height: 52, borderRadius: 12, objectFit: "cover", flex: "none" }} />
+          <img src={getMediaUrl(booking.imageUrl, "thumbnail")} alt={booking.title} style={{ width: 52, height: 52, borderRadius: 10, objectFit: "cover", flex: "none" }} />
         ) : (
-          <div style={{ width: 52, height: 52, borderRadius: 12, background: colors.orangeBg, flex: "none", display: "flex", alignItems: "center", justifyContent: "center", color: colors.orangeDark, fontWeight: 700, fontSize: 18 }}>
+          <div style={{ width: 52, height: 52, borderRadius: 10, background: colors.orangeBg, flex: "none", display: "flex", alignItems: "center", justifyContent: "center", color: colors.orangeDark, fontWeight: 700, fontSize: 18 }}>
             {booking.title.charAt(0)}
           </div>
         )}
@@ -345,7 +396,7 @@ function ExperienceBookingRow({ booking, onChanged }: { booking: MyExperienceBoo
           <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
             <span style={{ fontWeight: 700, fontSize: 16 }}>{booking.title}</span>
             {cancelled && <span style={cancelledBadgeStyle}>Cancelled</span>}
-            {refundBadge && <span style={cancelledBadgeStyle}>{refundBadge}</span>}
+            <RefundStatus refundState={booking.refundState} />
             {!cancelled && booking.attendance === "present" && <span style={checkedInBadgeStyle}>Attended</span>}
           </div>
           <div style={{ color: colors.mutedLight, fontSize: 14 }}>
@@ -387,7 +438,7 @@ function CircleRow({ circle }: { circle: Circle }) {
       style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: radius.card, padding: "18px 20px" }}
     >
       <div style={{ display: "flex", alignItems: "center", gap: 18 }}>
-        <div style={{ width: 52, height: 52, borderRadius: 12, background: colors.orangeBg, flex: "none", display: "flex", alignItems: "center", justifyContent: "center", color: colors.orangeDark, fontWeight: 700, fontSize: 18 }}>
+        <div style={{ width: 52, height: 52, borderRadius: 10, background: colors.orangeBg, flex: "none", display: "flex", alignItems: "center", justifyContent: "center", color: colors.orangeDark, fontWeight: 700, fontSize: 18 }}>
           {circle.name.charAt(0)}
         </div>
         <div style={{ flex: 1, minWidth: 0 }}>
@@ -405,16 +456,15 @@ function CircleRow({ circle }: { circle: Circle }) {
 function ProgramEnrollmentRow({ enrollment, onChanged }: { enrollment: MyProgramEnrollment; onChanged: () => void }) {
   const navigate = useNavigate();
   const cancelled = enrollment.status === "cancelled";
-  const refundBadge = refundBadgeText(enrollment.refundState);
   return (
     <div style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: radius.card, padding: "18px 20px", opacity: cancelled ? 0.6 : 1 }}>
       <Link to={`/programs/${enrollment.programId}`} className="row-link" style={{ display: "flex", alignItems: "center", gap: 18 }}>
-        <Photo src={enrollment.imageUrl} alt={enrollment.title} ph={colors.panel} style={{ width: 52, height: 52, borderRadius: 12, overflow: "hidden", flex: "none" }} />
+        <Photo src={enrollment.imageUrl} alt={enrollment.title} ph={colors.panel} style={{ width: 52, height: 52, borderRadius: 10, overflow: "hidden", flex: "none" }} />
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
             <span style={{ fontWeight: 700, fontSize: 16 }}>{enrollment.title}</span>
             {cancelled && <span style={cancelledBadgeStyle}>Cancelled</span>}
-            {refundBadge && <span style={cancelledBadgeStyle}>{refundBadge}</span>}
+            <RefundStatus refundState={enrollment.refundState} />
           </div>
           <div style={{ color: colors.mutedLight, fontSize: 14 }}>
             {enrollment.participantName} · {enrollment.listingName}
@@ -463,8 +513,8 @@ type LookupResult = { kind: "booking"; data: MyBooking } | { kind: "registration
 function SectionHeader({ eyebrow, title, subtitle }: { eyebrow: string; title: string; subtitle?: string }) {
   return (
     <div style={{ marginBottom: 18 }}>
-      <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".06em", color: colors.mutedLight, marginBottom: 6 }}>/ {eyebrow}</div>
-      <h2 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(20px,2.4vw,26px)", letterSpacing: "-.01em", margin: subtitle ? "0 0 4px" : 0 }}>{title}</h2>
+      <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0, color: colors.mutedLight, marginBottom: 6 }}>/ {eyebrow}</div>
+      <h2 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(20px,2.4vw,26px)", letterSpacing: 0, margin: subtitle ? "0 0 4px" : 0 }}>{title}</h2>
       {subtitle && <p style={{ margin: 0, fontSize: 13.5, color: colors.mutedLight }}>{subtitle}</p>}
     </div>
   );
@@ -498,6 +548,16 @@ export function MyBookings() {
 
   const [bookingsView, setBookingsView] = useState<"list" | "calendar">("list");
   const [showAllActivity, setShowAllActivity] = useState(false);
+  // Header account menu deep links (2026-10-12): /bookings#my-bookings opens
+  // the full activity list, /bookings#my-circles jumps to My Circles. Runs
+  // once the page data has loaded, since both sections render from it.
+  const { hash } = useLocation();
+  useEffect(() => {
+    if (loading || (hash !== "#my-bookings" && hash !== "#my-circles")) return;
+    if (hash === "#my-bookings") setShowAllActivity(true);
+    const t = window.setTimeout(() => document.getElementById(hash.slice(1))?.scrollIntoView({ block: "start" }), 50);
+    return () => window.clearTimeout(t);
+  }, [hash, loading]);
   const [cancellingRef, setCancellingRef] = useState<string | null>(null);
   const [cancelErrors, setCancelErrors] = useState<Record<string, string>>({});
 
@@ -868,12 +928,12 @@ export function MyBookings() {
           <div
             className="pop-in"
             style={{
-              background: colors.greenBg, borderRadius: 12, padding: "14px 18px", marginBottom: 24,
+              background: colors.greenBg, borderRadius: 10, padding: "14px 18px", marginBottom: 24,
               display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, flexWrap: "wrap",
             }}
           >
             <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-              <div style={{ width: 34, height: 34, borderRadius: "50%", background: "#fff", color: colors.greenText, display: "flex", alignItems: "center", justifyContent: "center", flex: "none" }}>
+              <div style={{ width: 34, height: 34, borderRadius: "50%", background: colors.surface, color: colors.greenText, display: "flex", alignItems: "center", justifyContent: "center", flex: "none" }}>
                 <LightbulbIcon size={16} />
               </div>
               <div>
@@ -898,12 +958,12 @@ export function MyBookings() {
         )}
 
         {verifying && (
-          <div style={{ background: colors.greenBg, color: colors.greenText, borderRadius: 12, padding: "14px 20px", marginBottom: 20, fontSize: 14, fontWeight: 600 }}>
+          <div style={{ background: colors.greenBg, color: colors.greenText, borderRadius: 10, padding: "14px 20px", marginBottom: 20, fontSize: 14, fontWeight: 600 }}>
             Signing you in…
           </div>
         )}
         {verifyError && (
-          <div style={{ background: colors.dangerBg, color: colors.danger, borderRadius: 12, padding: "14px 20px", marginBottom: 20, fontSize: 14 }}>
+          <div style={{ background: colors.dangerBg, color: colors.danger, borderRadius: 10, padding: "14px 20px", marginBottom: 20, fontSize: 14 }}>
             {verifyError}
           </div>
         )}
@@ -916,7 +976,7 @@ export function MyBookings() {
           </div>
         )}
         {!guestEmail && !guestLoadError && (
-          <div style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 12, padding: "18px 20px", marginBottom: 24, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
+          <div style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 10, padding: "18px 20px", marginBottom: 24, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
             <div>
               <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 2 }}>Sign in to see your life</div>
               <div style={{ fontSize: 13.5, color: colors.mutedLight }}>Your plans, Circles and history, all in one place.</div>
@@ -925,7 +985,7 @@ export function MyBookings() {
           </div>
         )}
         {lookupOpen && (
-          <div style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 12, padding: "16px 20px", marginBottom: 24 }}>
+          <div style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 10, padding: "16px 20px", marginBottom: 24 }}>
             <div style={{ display: "flex", flexWrap: "wrap", gap: 10, alignItems: "flex-end" }}>
               <div style={{ flex: "1 1 160px" }}>
                 <label style={labelStyle}>Reference</label>
@@ -996,14 +1056,14 @@ export function MyBookings() {
 
               <div className="sticky-aside" style={{ gridColumn: 2, gridRow: "1 / -1", position: "sticky", top: 90, display: "flex", flexDirection: "column", gap: 18 }}>
                 {needsAttention.length > 0 && (
-                  <div style={{ border: `1px solid ${colors.border}`, borderRadius: 12, padding: "16px 18px", background: colors.surface }}>
-                    <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".06em", color: colors.mutedLight, marginBottom: 12 }}>NEEDS YOU</div>
+                  <div style={{ border: `1px solid ${colors.border}`, borderRadius: 10, padding: "16px 18px", background: colors.surface }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0, color: colors.mutedLight, marginBottom: 12 }}>NEEDS YOU</div>
                     <MyLifeNeedsYou items={needsAttention} />
                   </div>
                 )}
                 {(games.some((g) => g.hostResidentId === resident?.id) || circles.some((c) => c.myRole === "organiser")) && (
-                  <div style={{ border: `1px solid ${colors.border}`, borderRadius: 12, padding: "16px 18px", background: colors.surface }}>
-                    <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".06em", color: colors.mutedLight, marginBottom: 10 }}>HOSTING</div>
+                  <div style={{ border: `1px solid ${colors.border}`, borderRadius: 10, padding: "16px 18px", background: colors.surface }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0, color: colors.mutedLight, marginBottom: 10 }}>HOSTING</div>
                     <p style={{ margin: "0 0 12px", fontSize: 13, color: colors.muted }}>Manage the sessions and Circles you run — edit, post updates, or check who's joined.</p>
                     <Button variant="ghost" onClick={() => navigate("/manage")}>Manage your hosting →</Button>
                   </div>
@@ -1011,24 +1071,24 @@ export function MyBookings() {
                 <MyLifeThisMonth entries={participation} />
                 <MyLifeRhythm entries={participation} />
                 {activeIntents.length > 0 && (
-                  <div style={{ border: `1px solid ${colors.border}`, borderRadius: 12, padding: "16px 18px", background: colors.surface }}>
-                    <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".06em", color: colors.mutedLight, marginBottom: 12 }}>WAITING</div>
+                  <div style={{ border: `1px solid ${colors.border}`, borderRadius: 10, padding: "16px 18px", background: colors.surface }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0, color: colors.mutedLight, marginBottom: 12 }}>WAITING</div>
                     <MyLifeWaitingFor intents={activeIntents.slice(0, 2)} onChange={loadMyStuff} />
                   </div>
                 )}
                 {favourites.length > 0 && (
-                  <div style={{ border: `1px solid ${colors.border}`, borderRadius: 12, padding: "16px 18px", background: colors.surface }}>
+                  <div style={{ border: `1px solid ${colors.border}`, borderRadius: 10, padding: "16px 18px", background: colors.surface }}>
                     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
-                      <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".06em", color: colors.mutedLight }}>FOR LATER</div>
+                      <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0, color: colors.mutedLight }}>FOR LATER</div>
                       <button onClick={() => navigate("/profile")} style={{ background: "none", border: "none", padding: 0, fontSize: 12, fontWeight: 700, color: colors.text, cursor: "pointer" }}>View all</button>
                     </div>
                     <MyLifeSaved favourites={favourites} />
                   </div>
                 )}
                 {follows.length > 0 && (
-                  <div style={{ border: `1px solid ${colors.border}`, borderRadius: 12, padding: "16px 18px", background: colors.surface }}>
+                  <div style={{ border: `1px solid ${colors.border}`, borderRadius: 10, padding: "16px 18px", background: colors.surface }}>
                     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
-                      <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".06em", color: colors.mutedLight }}>FOLLOWING</div>
+                      <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0, color: colors.mutedLight }}>FOLLOWING</div>
                       <button onClick={() => navigate("/profile")} style={{ background: "none", border: "none", padding: 0, fontSize: 12, fontWeight: 700, color: colors.text, cursor: "pointer" }}>View all</button>
                     </div>
                     <MyLifeFollowing follows={follows} />
@@ -1044,7 +1104,7 @@ export function MyBookings() {
               )}
 
               {circles.length > 0 && (
-                <section style={{ gridColumn: 1, borderTop: `1px solid ${colors.border}`, paddingTop: 36 }}>
+                <section id="my-circles" style={{ gridColumn: 1, borderTop: `1px solid ${colors.border}`, paddingTop: 36, scrollMarginTop: 96 }}>
                   <SectionHeader eyebrow="CIRCLES" title="My Circles" />
                   <MyLifeCircles circles={circles} />
                 </section>
@@ -1099,7 +1159,7 @@ export function MyBookings() {
                   surface what matters most. Left-column width only (same
                   as My Circles/Recently above), still inside the same grid
                   so the sticky rail keeps following while this is open. */}
-              <div style={{ gridColumn: 1, borderTop: `1px solid ${colors.border}`, paddingTop: 24 }}>
+              <div id="my-bookings" style={{ gridColumn: 1, borderTop: `1px solid ${colors.border}`, paddingTop: 24, scrollMarginTop: 96 }}>
                 <button
                   type="button"
                   aria-expanded={showAllActivity}
@@ -1135,7 +1195,7 @@ export function MyBookings() {
                     )}
                     {bookingsView === "list" && upcomingRows.length > 0 && (
                       <>
-                        <h2 style={{ fontSize: 15, fontWeight: 700, color: colors.muted, margin: "0 0 12px", letterSpacing: ".02em" }}>UPCOMING</h2>
+                        <h2 style={{ fontSize: 15, fontWeight: 700, color: colors.muted, margin: "0 0 12px", letterSpacing: 0 }}>UPCOMING</h2>
                         <div style={{ display: "flex", flexDirection: "column", gap: 12, marginBottom: 32 }}>
                           {upcomingRows.map((r) => r.el)}
                         </div>
@@ -1143,7 +1203,7 @@ export function MyBookings() {
                     )}
                     {bookingsView === "list" && (regs.length > 0 || circles.length > 0 || programEnrollments.length > 0) && (
                       <>
-                        <h2 style={{ fontSize: 15, fontWeight: 700, color: colors.muted, margin: "0 0 12px", letterSpacing: ".02em" }}>ONGOING</h2>
+                        <h2 style={{ fontSize: 15, fontWeight: 700, color: colors.muted, margin: "0 0 12px", letterSpacing: 0 }}>ONGOING</h2>
                         <div style={{ display: "flex", flexDirection: "column", gap: 12, marginBottom: 32 }}>
                           {regs.map((r) => (
                             <RegistrationRow
@@ -1161,7 +1221,7 @@ export function MyBookings() {
                     )}
                     {bookingsView === "list" && pastRows.length > 0 && (
                       <>
-                        <h2 style={{ fontSize: 15, fontWeight: 700, color: colors.muted, margin: "0 0 12px", letterSpacing: ".02em" }}>PAST</h2>
+                        <h2 style={{ fontSize: 15, fontWeight: 700, color: colors.muted, margin: "0 0 12px", letterSpacing: 0 }}>PAST</h2>
                         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
                           {pastRows.map((r) => r.el)}
                         </div>

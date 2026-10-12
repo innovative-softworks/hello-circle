@@ -22,7 +22,7 @@ export function CircleCountList({ items, unit, onSelect }: { items: { label: str
           <span style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 14, color: colors.faint, flex: "none", width: 24 }}>
             {String(i + 1).padStart(2, "0")}
           </span>
-          <span style={{ flex: 1, fontFamily: fonts.display, fontWeight: 700, fontSize: 16, letterSpacing: "-.01em" }}>{item.label}</span>
+          <span style={{ flex: 1, fontFamily: fonts.display, fontWeight: 700, fontSize: 16, letterSpacing: 0 }}>{item.label}</span>
           <span style={{ flex: "none", fontSize: 13, fontWeight: 700, color: colors.muted }}>
             {item.count} {unit}{item.count === 1 ? "" : "s"}
           </span>

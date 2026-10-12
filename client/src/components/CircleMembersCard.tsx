@@ -37,7 +37,7 @@ export function CircleMembersCard({ circle }: { circle: Circle }) {
   return (
     <Card>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
-        <h3 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 16, margin: 0, letterSpacing: "-.01em" }}>
+        <h3 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 16, margin: 0, letterSpacing: 0 }}>
           {total.toLocaleString()} member{total === 1 ? "" : "s"}
         </h3>
         {!expanded && overflow > 0 && (

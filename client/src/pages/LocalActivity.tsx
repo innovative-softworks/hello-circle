@@ -63,7 +63,7 @@ export function LocalActivity() {
         ) : feed && feed.items.length > 0 ? (
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 18 }}>
             {feed.items.map((item) => (
-              <DiscoverCard key={`${item.kind}-${item.id}`} item={item} isToday={item.date === irelandToday()} />
+              <DiscoverCard key={`${item.kind}-${item.id}`} item={item} isToday={item.date === irelandToday()} fill />
             ))}
           </div>
         ) : (

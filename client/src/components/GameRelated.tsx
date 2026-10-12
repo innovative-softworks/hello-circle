@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { fetchGamesPage } from "../api";
-import { BallIcon } from "./icons";
-import { Photo } from "./Photo";
+import { BallIcon, PinIcon } from "./icons";
+import { Button } from "./ui";
+import { ListingCard, cardButtonStyle } from "./ListingCard";
 import { dateLabel } from "../euro";
 import { formatParticipantCount } from "../formatters";
-import { cardImageRatio, colors, fonts, placeholderStripes } from "../theme";
+import { colors, fonts, placeholderStripes } from "../theme";
 import type { Game } from "../types";
 
 // "More like this" (Game Detail redesign §27/§28) — ranked, not random:
@@ -36,22 +37,28 @@ function rankRelated(games: Game[], current: Game): Game[] {
 function RelatedCard({ game }: { game: Game }) {
   const navigate = useNavigate();
   const full = game.spotsLeft === 0;
+  const href = `/games/${game.id}`;
+  // Design-system consistency pass: the shared ListingCard shape.
   return (
-    <button onClick={() => navigate(`/games/${game.id}`)} style={{ flex: "none", width: 220, textAlign: "left", background: "none", border: "none", padding: 0, cursor: "pointer" }}>
-      <Photo
-        src={game.imageUrl ?? undefined}
-        alt={game.activityLabel}
+    <div style={{ flex: "none", width: 240, display: "flex" }}>
+      <ListingCard
+        href={href}
+        title={game.activityLabel}
+        image={game.imageUrl}
         ph={placeholderStripes.green}
         icon={<BallIcon size={20} />}
-        iconColor={colors.green}
-        style={{ aspectRatio: cardImageRatio.discovery, borderRadius: 14, marginBottom: 10 }}
+        iconColor={colors.orange}
+        tag={dateLabel(game.date)}
+        status={full ? { label: "Full", tone: "calm" } : null}
+        details={[{ icon: <PinIcon size={13} />, text: game.centreName ?? game.locationText }]}
+        facts={<span>{full ? "Full" : formatParticipantCount(game.joined, game.capacity, "joined")}</span>}
+        action={
+          <Button style={cardButtonStyle} variant="ghost" onClick={() => navigate(href)}>
+            View activity
+          </Button>
+        }
       />
-      <div style={{ fontWeight: 700, fontSize: 14.5, marginBottom: 3 }}>{game.activityLabel}</div>
-      <div style={{ fontSize: 12.5, color: colors.mutedLight, marginBottom: 4 }}>{game.centreName ?? game.locationText}</div>
-      <div style={{ fontSize: 12, fontWeight: 700, color: full ? colors.muted : colors.greenText }}>
-        {dateLabel(game.date)} · {full ? "Full" : formatParticipantCount(game.joined, game.capacity, "joined")}
-      </div>
-    </button>
+    </div>
   );
 }
 

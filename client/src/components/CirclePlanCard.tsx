@@ -1,8 +1,9 @@
 import { useNavigate } from "react-router-dom";
-import { CalendarIcon } from "./icons";
-import { Photo } from "./Photo";
+import { CalendarIcon, PinIcon, UsersIcon } from "./icons";
+import { Button } from "./ui";
+import { CardPrice, ListingCard, cardButtonStyle } from "./ListingCard";
 import { SaveButton, useSavedState } from "./SaveButton";
-import { cardImageRatio, colors, fonts, placeholderStripes, radius } from "../theme";
+import { colors, placeholderStripes } from "../theme";
 import type { CirclePlanPreview } from "../types";
 import { formatCircleAvailability, formatDatePill, formatPrice } from "../formatters";
 
@@ -16,49 +17,37 @@ import { formatCircleAvailability, formatDatePill, formatPrice } from "../format
 // (see CircleDetail.tsx's handleJoinPlan), so this isn't new data, just an
 // existing mechanism applied to a card that didn't expose it before.
 
-function spotsCopy(spotsLeft: number): { text: string; color: string } {
-  const color = spotsLeft === 0 ? colors.muted : spotsLeft <= 3 ? colors.orangeDark : colors.greenText;
-  return { text: formatCircleAvailability(spotsLeft), color };
-}
-
 export function CirclePlanCard({ plan }: { plan: CirclePlanPreview }) {
   const navigate = useNavigate();
   const [saved, toggleSaved] = useSavedState("game", plan.id);
-  const spots = spotsCopy(plan.spotsLeft);
+  const href = `/games/${plan.id}`;
+  const full = plan.spotsLeft === 0;
 
+  // Design-system consistency pass: the shared ListingCard shape.
   return (
-    <div
-      role="button"
-      tabIndex={0}
-      onClick={() => navigate(`/games/${plan.id}`)}
-      onKeyDown={(e) => e.key === "Enter" && navigate(`/games/${plan.id}`)}
-      className="card-hover card-surface"
-      style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 12, overflow: "hidden", cursor: "pointer", display: "flex", flexDirection: "column" }}
-    >
-      <Photo
-        src={undefined}
-        alt={plan.activityLabel}
-        ph={placeholderStripes.green}
-        icon={<CalendarIcon size={22} />}
-        iconColor={colors.green}
-        style={{ aspectRatio: cardImageRatio.discovery }}
-        contentStyle={{ padding: 10, display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}
-      >
-        <span className="card-photo-badge" style={{ background: "rgba(255,255,255,.92)", color: colors.text, borderRadius: radius.pill, padding: "4px 10px", fontSize: 11, fontWeight: 800, letterSpacing: ".02em", transition: "background-color .2s ease, color .2s ease" }}>
-          {formatDatePill(plan.date)} · {plan.time}
-        </span>
-        <SaveButton saved={saved} onToggle={toggleSaved} />
-      </Photo>
-      <div style={{ padding: 14, display: "flex", flexDirection: "column", gap: 4, flex: 1 }}>
-        <div style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 15, letterSpacing: "-.005em" }}>{plan.activityLabel}</div>
-        <div style={{ fontSize: 13, color: colors.mutedLight }}>{plan.centreName ?? (plan.locationText || "Location TBC")}</div>
-        <div style={{ fontSize: 12.5, fontWeight: 700, color: spots.color, marginTop: 2 }}>
-          {plan.joined} going · {spots.text}
-        </div>
-        <div style={{ fontSize: 13.5, fontWeight: 700, color: plan.priceCents ? colors.text : colors.greenText, marginTop: 4 }}>
-          {formatPrice(plan.priceCents)}
-        </div>
-      </div>
-    </div>
+    <ListingCard
+      href={href}
+      title={plan.activityLabel}
+      ph={placeholderStripes.green}
+      icon={<CalendarIcon size={22} />}
+      iconColor={colors.orange}
+      tag={`${formatDatePill(plan.date)} · ${plan.time}`}
+      status={full ? { label: "Full", tone: "calm" } : plan.spotsLeft <= 3 ? { label: formatCircleAvailability(plan.spotsLeft) } : null}
+      save={<SaveButton saved={saved} onToggle={toggleSaved} />}
+      details={[{ icon: <PinIcon size={13} />, text: plan.centreName ?? (plan.locationText || "Location TBC") }]}
+      facts={
+        <>
+          <CardPrice>{formatPrice(plan.priceCents)}</CardPrice>
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
+            <UsersIcon size={13} /> {plan.joined} going
+          </span>
+        </>
+      }
+      action={
+        <Button style={cardButtonStyle} variant={full ? "ghost" : "dark"} onClick={() => navigate(href)}>
+          {full ? "View plan" : "See plan"}
+        </Button>
+      }
+    />
   );
 }

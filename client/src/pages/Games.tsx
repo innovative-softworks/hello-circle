@@ -9,21 +9,22 @@ import { ArrowRightIcon, AwardIcon, BallIcon, CalendarIcon, ClockIcon, CloseIcon
 import { Chip } from "../components/Chip";
 import { DropdownCheckbox, DropdownOption, FilterDropdown } from "../components/FilterDropdown";
 import { IntentCaptureForm } from "../components/IntentCaptureForm";
-import { Photo } from "../components/Photo";
-import { Button, Card, CardLink, CardSkeleton, ConfirmDialog, Drawer, EmptyState, LoadErrorState, LoadMoreControl, inputStyle, useDialogFocus } from "../components/ui";
+import { Button, CardSkeleton, ConfirmDialog, Drawer, EmptyState, LoadErrorState, LoadMoreControl, inputStyle, useDialogFocus } from "../components/ui";
 import type { GameListFilters } from "../api/resident";
 import { PageTitle } from "../components/PageTitle";
 import { AuthContextCard } from "../components/AuthShell";
 import { SignInPanel } from "../components/SignInPanel";
 import { SaveButton, useSavedState } from "../components/SaveButton";
+import { CardPrice, ListingCard, cardButtonStyle } from "../components/ListingCard";
 import { dateLabel } from "../euro";
 import { formatAvailability, formatDateTime, formatPrice } from "../formatters";
-import { gameState, primaryCtaLabel } from "../gameCta";
+import { gameState, isMinAgeRefusal, primaryCtaLabel } from "../gameCta";
 import { useGuest } from "../GuestContext";
-import { cardImageRatio, colors, fonts, maxWidth, photoOverlay, placeholderStripes, radius } from "../theme";
+import { colors, fonts, maxWidth, placeholderStripes, radius } from "../theme";
 import { SKILL_LEVELS } from "../constants";
 import type { Game } from "../types";
 import { daysBetween, irelandDaysFromToday, irelandToday, weekdayOf } from "../irelandDate";
+import { CtaBand } from "../components/CtaBand";
 
 // "Join a Game" (MVP) — the lightweight, participation-first counterpart to
 // booking a whole venue: see plan doc "Book vs Join". v1 is deliberately
@@ -95,96 +96,47 @@ export function GameCard({ game, onJoin, onLeave, joining }: { game: Game; onJoi
       setNotifyBusy(false);
     }
   };
+  // Design-system consistency pass: the shared ListingCard shape.
   return (
-    <div
-      className="card-hover card-surface"
-      style={{ position: "relative", background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 18, overflow: "hidden" }}
-    >
-      <CardLink to={href} label={game.activityLabel} sharedImage />
-      <Photo
-        src={game.imageUrl ?? undefined}
-        alt={game.activityLabel}
-        ph={placeholderStripes.green}
-        icon={<BallIcon size={22} />}
-        iconColor={colors.green}
-        style={{ aspectRatio: cardImageRatio.discovery }}
-        contentStyle={{ display: "flex", alignItems: "flex-end", padding: 12 }}
-      >
-        {(comingSoon || full || headline) && (
-          <span
-            className={full ? "card-photo-badge" : undefined}
-            style={{
-              background: full ? photoOverlay.whiteBg : photoOverlay.goldBg,
-              color: full ? colors.text : photoOverlay.goldText,
-              borderRadius: radius.pill,
-              padding: "4px 11px",
-              fontSize: 11.5,
-              fontWeight: 800,
-              transition: "background-color .2s ease, color .2s ease",
-            }}
-          >
-            {comingSoon ? "Coming soon" : full ? "Full" : headline}
-          </span>
-        )}
-        <SaveButton saved={saved} onToggle={toggleSaved} />
-      </Photo>
-      <div style={{ padding: "16px 18px 18px" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
-          <h3 style={{ fontSize: 17, fontWeight: 700, margin: "0 0 3px", letterSpacing: "-.01em" }}>{game.activityLabel}</h3>
-          <span style={{ fontWeight: 700, fontSize: game.priceCents ? 15 : 13, color: colors.greenText, whiteSpace: "nowrap" }}>
-            {formatPrice(game.priceCents)}
-          </span>
-        </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", color: colors.mutedLight, fontSize: 14, margin: "0 0 12px" }}>
-          {game.centreName ?? game.locationText}
-          {game.soloFriendly && (
-            <span style={{ fontSize: 11, fontWeight: 700, color: colors.greenText, background: colors.greenBg, borderRadius: radius.pill, padding: "2px 8px" }}>
-              Solo friendly
-            </span>
-          )}
-          {game.hostVerified && (
-            <span style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 11, fontWeight: 700, color: colors.greenText, background: colors.greenBg, borderRadius: radius.pill, padding: "2px 8px" }}>
-              <AwardIcon size={11} /> Verified Host
-            </span>
-          )}
-        </div>
-        <div style={{ display: "flex", gap: 16, margin: "0 0 14px", fontSize: 13.5, color: colors.muted }}>
+    <ListingCard
+      href={href}
+      title={game.activityLabel}
+      image={game.imageUrl}
+      ph={placeholderStripes.green}
+      icon={<BallIcon size={22} />}
+      iconColor={colors.orange}
+      tag={game.soloFriendly ? "Solo friendly" : "Activity"}
+      status={comingSoon ? { label: "Coming soon", tone: "calm" } : full ? { label: "Full", tone: "calm" } : headline ? { label: headline } : null}
+      save={<SaveButton saved={saved} onToggle={toggleSaved} />}
+      details={[
+        { icon: <PinIcon size={13} />, text: game.centreName ?? game.locationText },
+        { icon: <CalendarIcon size={13} />, text: `${game.date} · ${game.time}` },
+        game.hostVerified ? { icon: <AwardIcon size={13} />, text: "Verified host" } : null,
+      ]}
+      facts={
+        <>
+          <CardPrice>{formatPrice(game.priceCents)}</CardPrice>
           <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
-            <CalendarIcon size={14} /> {game.date}
+            <UsersIcon size={13} /> {game.joined}/{game.capacity} going
           </span>
-          <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
-            <ClockIcon size={14} /> {game.time}
-          </span>
-          <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
-            <UsersIcon size={14} /> {game.joined}/{game.capacity}
-          </span>
-        </div>
-        {comingSoon ? (
-          <div className="stretched-link-above">
-            <Button onClick={handleNotifyMe} disabled={notifyBusy || notifySubscribed} full>
-              {notifySubscribed ? "We'll let you know" : notifyBusy ? "Setting up…" : "Notify me"}
-            </Button>
-          </div>
+        </>
+      }
+      action={
+        comingSoon ? (
+          <Button style={cardButtonStyle} variant="dark" onClick={handleNotifyMe} disabled={notifyBusy || notifySubscribed}>
+            {notifySubscribed ? "We'll let you know" : notifyBusy ? "Setting up…" : "Notify me"}
+          </Button>
         ) : full ? (
-          <div className="stretched-link-above" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
-            <span style={{ fontSize: 13, fontWeight: 700, color: colors.muted }}>No spots left</span>
-            <Button
-              variant="ghost"
-              style={{ padding: "8px 16px", fontSize: 13 }}
-              onClick={() => (resident ? joinGameWaitlist(game.id) : navigate(signInHref(gameSignInContext(game))))}
-            >
-              {resident ? "Join waitlist" : "Sign in to join waitlist"}
-            </Button>
-          </div>
+          <Button style={cardButtonStyle} variant="ghost" onClick={() => (resident ? joinGameWaitlist(game.id) : navigate(signInHref(gameSignInContext(game))))}>
+            {resident ? "Join waitlist" : "Sign in to join waitlist"}
+          </Button>
         ) : (
-          <div className="stretched-link-above">
-            <Button onClick={resident ? onJoin : () => navigate(signInHref(gameSignInContext(game)))} disabled={joining} full>
-              {joining ? "Joining…" : resident ? "I'm in" : "Sign in to join"}
-            </Button>
-          </div>
-        )}
-      </div>
-    </div>
+          <Button onClick={resident ? onJoin : () => navigate(signInHref(gameSignInContext(game)))} disabled={joining} full>
+            {joining ? "Joining…" : resident ? "I'm in" : "Sign in to join"}
+          </Button>
+        )
+      }
+    />
   );
 }
 
@@ -367,121 +319,59 @@ function JoinGameCard({
       .finally(() => setNotifyBusy(false));
   };
 
-  // Every card CTA is a small, compact button (never full-width) - "I'm
-  // in"/"Join" (needs/available) dark, "Join waitlist"/"View plan" (full/
-  // already-joined) ghost. The urgency signal lives in the "X going · Y
-  // spots left" line's wording/color instead of a bold image badge.
+  // Design-system consistency pass: the shared ListingCard shape with one
+  // full-width action — "I'm in"/"Join" (brand), "Join waitlist"/"View
+  // plan" (secondary). Urgency shows as the photo status badge.
   const isJoinable = !joinedByMe && !full;
   const ctaLabel = joinedByMe ? "View plan" : full ? "Join waitlist" : primaryCtaLabel(game);
-  const ctaVariant = isJoinable ? "dark" : "ghost";
-  const ctaStyle = { padding: "8px 16px", fontSize: 13 };
-  const spotsColor = full ? colors.muted : state === "needs" ? colors.orangeDark : colors.mutedLight;
+  const ctaVariant = isJoinable ? "primary" : "ghost";
 
   return (
-    <Card hover style={{ position: "relative", padding: 0, overflow: "hidden" }}>
-      <CardLink to={href} label={game.activityLabel} sharedImage />
-      <Photo
-        src={game.imageUrl ?? undefined}
-        alt={game.activityLabel}
-        ph={placeholderStripes.green}
-        icon={<BallIcon size={24} />}
-        iconColor={colors.green}
-        style={{ aspectRatio: cardImageRatio.discovery }}
-        contentStyle={{ padding: 10, display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}
-      >
-        <span
-          className="card-photo-badge"
-          style={{
-            display: "inline-flex",
-            alignItems: "center",
-            gap: 5,
-            background: "rgba(255,255,255,.92)",
-            color: colors.text,
-            borderRadius: radius.pill,
-            padding: "5px 11px 5px 9px",
-            fontSize: 12.5,
-            fontWeight: 700,
-            transition: "background-color .2s ease, color .2s ease",
-          }}
-        >
-          <ClockIcon size={12} /> {gameWhen12h(game)}
-        </span>
-        {comingSoon && (
-          <span
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              background: photoOverlay.goldBg,
-              color: photoOverlay.goldText,
-              borderRadius: radius.pill,
-              padding: "5px 11px",
-              fontSize: 11.5,
-              fontWeight: 800,
-            }}
-          >
-            Coming soon
+    <ListingCard
+      href={href}
+      title={game.activityLabel}
+      image={game.imageUrl}
+      ph={placeholderStripes.green}
+      icon={<BallIcon size={24} />}
+      iconColor={colors.orange}
+      tag={comingSoon ? "Coming soon" : game.soloFriendly ? "Solo friendly" : "Activity"}
+      status={full ? { label: "Full", tone: "calm" } : state === "needs" ? { label: spotsLabel(game) } : null}
+      save={<SaveButton saved={saved} onToggle={toggleSaved} />}
+      details={[
+        { icon: <PinIcon size={13} />, text: game.centreName ?? game.locationText },
+        { icon: <ClockIcon size={13} />, text: gameWhen12h(game) },
+      ]}
+      facts={
+        <>
+          <CardPrice>{formatPrice(game.priceCents)}</CardPrice>
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
+            <UsersIcon size={13} /> {game.joined} going
           </span>
-        )}
-        <SaveButton saved={saved} onToggle={toggleSaved} />
-      </Photo>
-      <div style={{ padding: 16 }}>
-        <div
-          style={{
-            fontFamily: fonts.display,
-            fontWeight: 700,
-            fontSize: 16,
-            color: colors.text,
-            marginBottom: 3,
-          }}
-        >
-          {game.activityLabel}
-        </div>
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 5,
-            fontSize: 13.5,
-            color: colors.mutedLight,
-            marginBottom: 6,
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-            whiteSpace: "nowrap",
-          }}
-        >
-          <PinIcon size={12} style={{ flex: "none" }} /> {game.centreName ?? game.locationText}
-        </div>
-        <div style={{ fontSize: 13, color: colors.muted, marginBottom: 14 }}>
-          {game.joined} going{" "}
-          <span style={{ color: spotsColor, fontWeight: state === "needs" || full ? 700 : 400 }}>· {spotsLabel(game)}</span>
-        </div>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <span style={{ fontWeight: 700, fontSize: 15, color: game.priceCents ? colors.text : colors.greenText }}>
-            {formatPrice(game.priceCents)}
-          </span>
-          <div className="stretched-link-above">
-            {comingSoon ? (
-              <Button disabled={notifyBusy || notifySubscribed} onClick={handleNotifyMe} style={ctaStyle}>
-                {notifySubscribed ? "We'll let you know" : notifyBusy ? "Setting up…" : "Notify me"}
-              </Button>
-            ) : (
-              <Button variant={ctaVariant} disabled={busy} onClick={onPrimaryAction} style={ctaStyle}>
-                {busy ? "Joining…" : ctaLabel}
-              </Button>
-            )}
-          </div>
-        </div>
-        {full && !joinedByMe && (
-          <button
-            onClick={onFindSimilar}
-            className="stretched-link-above"
-            style={{ display: "block", width: "100%", textAlign: "right", background: "none", border: "none", padding: "8px 0 0", cursor: "pointer", fontSize: 12.5, fontWeight: 700, color: colors.muted }}
-          >
-            Find similar
-          </button>
-        )}
-      </div>
-    </Card>
+          {state !== "needs" && !full && <span style={{ fontWeight: 600, color: colors.mutedLight }}>{spotsLabel(game)}</span>}
+        </>
+      }
+      action={
+        <>
+          {comingSoon ? (
+            <Button style={cardButtonStyle} variant="dark" disabled={notifyBusy || notifySubscribed} onClick={handleNotifyMe}>
+              {notifySubscribed ? "We'll let you know" : notifyBusy ? "Setting up…" : "Notify me"}
+            </Button>
+          ) : (
+            <Button style={cardButtonStyle} variant={ctaVariant} disabled={busy} onClick={onPrimaryAction}>
+              {busy ? "Joining…" : ctaLabel}
+            </Button>
+          )}
+          {full && !joinedByMe && (
+            <button
+              onClick={onFindSimilar}
+              style={{ display: "block", width: "100%", minHeight: 44, background: "none", border: "none", padding: 0, cursor: "pointer", fontSize: 13, fontWeight: 700, color: colors.orange }}
+            >
+              Find similar
+            </button>
+          )}
+        </>
+      }
+    />
   );
 }
 
@@ -520,7 +410,7 @@ function JoinAuthModal({ open, game, onClose, onSignedIn }: { open: boolean; gam
         aria-modal="true"
         aria-label={game ? `Sign in to join ${game.activityLabel}` : "Sign in to join this session"}
         tabIndex={-1}
-        className="pop-in"
+        className="modal-in"
         style={{ background: colors.surface, borderRadius: radius.card, padding: 24, maxWidth: 400, width: "100%", boxShadow: "0 20px 60px rgba(20,22,20,.25)" }}
         onClick={(e) => e.stopPropagation()}
       >
@@ -784,6 +674,7 @@ export function Games() {
       setMyGameIds((prev) => new Set(prev).add(id));
       load();
     } catch (e) {
+      if (isMinAgeRefusal(e)) return void navigate(`/games/${id}`);
       toast.error(e instanceof Error ? e.message : "Couldn't join this session");
     } finally {
       setJoiningId(null);
@@ -841,7 +732,7 @@ export function Games() {
   const intentActivityLabel = category !== "All" ? category : parsedQuery.text || "this";
 
   const filterGroupStyle: CSSProperties = { padding: "16px 0", borderTop: `1px solid ${colors.border}` };
-  const filterLabelStyle: CSSProperties = { fontSize: 11.5, fontWeight: 700, color: colors.mutedLight, textTransform: "uppercase", letterSpacing: ".04em", marginBottom: 8 };
+  const filterLabelStyle: CSSProperties = { fontSize: 11.5, fontWeight: 700, color: colors.mutedLight, textTransform: "uppercase", letterSpacing: 0, marginBottom: 8 };
 
   const filterPanel = (
     <>
@@ -927,12 +818,12 @@ export function Games() {
       <section className="section-pad" style={{ maxWidth, margin: "0 auto", padding: "36px 24px 24px" }}>
         <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
           <div>
-            <PageTitle>Join a session</PageTitle>
+            <PageTitle>Activities</PageTitle>
             <p style={{ color: colors.mutedLight, fontSize: 15, margin: 0 }}>Find something nearby and jump in.</p>
           </div>
           {resident && (
             <button onClick={openCreateForm} style={{ background: "none", border: "none", padding: "6px 0", cursor: "pointer", fontSize: 13.5, fontWeight: 700, color: colors.muted }}>
-              Host a session instead →
+              Host an activity instead →
             </button>
           )}
         </div>
@@ -1011,7 +902,7 @@ export function Games() {
                         Showing 1-{Math.min(visibleCount, sorted.length)} of {sorted.length}{nextCursor ? "+" : ""}
                       </div>
                     )}
-                    <div style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 20, letterSpacing: "-.01em" }}>
+                    <div style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 20, letterSpacing: 0 }}>
                       {sorted.length}{nextCursor ? "+" : ""}{" "}
                       <span style={{ fontFamily: fonts.body, fontWeight: 600, fontSize: 15, color: colors.mutedLight }}>
                         game{sorted.length === 1 ? "" : "s"} & sessions nearby
@@ -1028,7 +919,7 @@ export function Games() {
                 <button
                   className="games-filter-trigger"
                   onClick={() => setFiltersOpen(true)}
-                  style={{ display: "inline-flex", alignItems: "center", gap: 6, border: `1.5px solid ${colors.borderStrong}`, background: colors.surface, color: colors.textSoft, borderRadius: 20, padding: "8px 14px", fontSize: 14, fontWeight: 600 }}
+                  style={{ display: "inline-flex", alignItems: "center", gap: 6, border: `1.5px solid ${colors.borderStrong}`, background: colors.surface, color: colors.textSoft, borderRadius: 16, padding: "8px 14px", fontSize: 14, fontWeight: 600 }}
                 >
                   Filters{activeCount > 0 ? ` (${activeCount})` : ""}
                 </button>
@@ -1045,7 +936,7 @@ export function Games() {
             </div>
 
             {!loading && sort === "recommended" && sorted.length > 0 && (
-              <div style={{ display: "flex", alignItems: "flex-start", gap: 10, background: "rgba(232,163,58,.12)", border: "1px solid rgba(232,163,58,.3)", borderRadius: 12, padding: "12px 16px", marginBottom: 20 }}>
+              <div style={{ display: "flex", alignItems: "flex-start", gap: 10, background: "rgba(232,163,58,.12)", border: "1px solid rgba(232,163,58,.3)", borderRadius: 10, padding: "12px 16px", marginBottom: 20 }}>
                 <LightbulbIcon size={16} style={{ color: colors.gold, flex: "none", marginTop: 1 }} />
                 <div>
                   <div style={{ fontSize: 13.5, fontWeight: 700, color: colors.text }}>Showing the best sessions you can join right now</div>
@@ -1060,7 +951,7 @@ export function Games() {
                   <button
                     key={c.key}
                     onClick={c.onRemove}
-                    style={{ display: "inline-flex", alignItems: "center", gap: 5, background: colors.greenBg, color: colors.greenText, border: "none", borderRadius: 20, padding: "5px 10px 5px 12px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}
+                    style={{ display: "inline-flex", alignItems: "center", gap: 5, background: colors.greenBg, color: colors.greenText, border: "none", borderRadius: 16, padding: "5px 10px 5px 12px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}
                   >
                     {c.label} <CloseIcon size={12} />
                   </button>
@@ -1140,55 +1031,25 @@ export function Games() {
         </div>
       </section>
 
-      {/* Closing CTA band — echoes Home.tsx's dark closing band, with the
-          Swiss/minimal type treatment from SectionHeader (uppercase,
-          letter-spaced eyebrow + tight-tracked display heading) rather than
-          the plain <h2>/<p> pair the rest of this page still uses. Sits
-          below the results grid so it reads as "still haven't found it?
-          here's what else to do" rather than competing with the results. */}
-      <section style={{ background: colors.dark }}>
-        <div className="section-pad" style={{ maxWidth, margin: "0 auto", padding: "72px 24px 80px" }}>
-          <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: 32 }}>
-            <div>
-              <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: ".09em", textTransform: "uppercase", color: "rgba(255,255,255,.5)", marginBottom: 10 }}>
-                Join or host
-              </div>
-              <h2 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(26px, 3.6vw, 38px)", color: "#fff", margin: "0 0 10px", letterSpacing: "-.02em", lineHeight: 1.1 }}>
-                Can't find the right game?
-              </h2>
-              <p style={{ margin: 0, color: "rgba(255,255,255,.72)", fontSize: 16 }}>
-                Start one yourself — invite friends or open it up to anyone nearby.
-              </p>
-              {upcomingWeekCount > 0 && (
-                <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 20, paddingTop: 16, borderTop: "1px solid rgba(255,255,255,.15)" }}>
-                  <span style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 20, color: "#fff", letterSpacing: "-.01em" }}>
-                    {upcomingWeekCount}
-                  </span>
-                  <span style={{ fontSize: 13, color: "rgba(255,255,255,.55)" }}>
-                    game{upcomingWeekCount === 1 ? "" : "s"} happening in the next 7 days
-                  </span>
-                </div>
-              )}
-            </div>
-            <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-              <button
-                className="btn"
-                onClick={resident ? openCreateForm : () => setAuthPromptOpen(true)}
-                style={{ display: "inline-flex", alignItems: "center", gap: 8, background: "#fff", color: colors.dark, border: "none", borderRadius: radius.control, padding: "12px 20px", fontSize: 14.5, fontWeight: 700, cursor: "pointer" }}
-              >
-                <PlusIcon size={16} /> Start a game
-              </button>
-              <button
-                className="btn"
-                onClick={() => navigate("/circles")}
-                style={{ display: "inline-flex", alignItems: "center", gap: 8, background: "transparent", color: "#fff", border: "1px solid rgba(255,255,255,.4)", borderRadius: radius.control, padding: "12px 20px", fontSize: 14.5, fontWeight: 700, cursor: "pointer" }}
-              >
-                Explore Circles instead <ArrowRightIcon size={14} />
-              </button>
-            </div>
-          </div>
-        </div>
-      </section>
+      {/* Closing CTA band — the shared CtaBand (same as Home's closing band). */}
+      <CtaBand
+        id="games-cta-title"
+        label="Join or host."
+        lines={["Can't find", "the right", "game?"]}
+        text={
+          <>
+            Start one yourself — invite friends or open it up to anyone nearby.
+            {upcomingWeekCount > 0 && (
+              <>
+                {" "}
+                <strong>{upcomingWeekCount}</strong> game{upcomingWeekCount === 1 ? "" : "s"} happening in the next 7 days.
+              </>
+            )}
+          </>
+        }
+        action={{ label: "Start a game", to: "/games/host", onClick: resident ? openCreateForm : () => setAuthPromptOpen(true) }}
+        secondary={{ label: "Explore Circles instead", to: "/circles" }}
+      />
 
       <Drawer open={filtersOpen} onClose={() => setFiltersOpen(false)} title="Filters">
         {filterPanel}

@@ -26,7 +26,7 @@ import { irelandToday } from "../irelandDate";
 // headline moment, the same call ForVenues/Home already made for their
 // own poster headlines.
 
-const ACCENT = "#FF4A1F";
+const ACCENT = "var(--color-brand)";
 
 const DURATIONS = [
   { label: "30 minutes", maxMinutes: 30 },
@@ -122,7 +122,7 @@ function ChoiceList({ options, onPick }: { options: { label: string }[]; onPick:
             textAlign: "left",
           }}
         >
-          <span style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(19px, 2.6vw, 26px)", letterSpacing: "-.01em", color: colors.text }}>
+          <span style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(19px, 2.6vw, 26px)", letterSpacing: 0, color: colors.text }}>
             {o.label}
           </span>
           <span style={{ color: colors.faint, display: "flex", flex: "none" }}>
@@ -226,7 +226,7 @@ export function FreeTimeMode() {
             paddingBottom: 16,
           }}
         >
-          <span style={{ display: "inline-flex", alignItems: "center", gap: 8, fontSize: 11.5, fontWeight: 700, letterSpacing: ".09em", textTransform: "uppercase", color: colors.mutedLight }}>
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 8, fontSize: 11.5, fontWeight: 700, letterSpacing: 0, textTransform: "uppercase", color: colors.mutedLight }}>
             <LightbulbIcon size={15} style={{ color: ACCENT }} /> Free Time Mode
           </span>
           {step === "results" ? (
@@ -255,9 +255,9 @@ export function FreeTimeMode() {
               style={{
                 fontFamily: fonts.display,
                 fontWeight: 800,
-                fontSize: "clamp(32px, 5vw, 52px)",
+                fontSize: "clamp(32px, 3.8vw, 52px)",
                 lineHeight: 1.02,
-                letterSpacing: "-.02em",
+                letterSpacing: 0,
                 margin: "0 0 32px",
                 color: colors.text,
               }}
@@ -280,13 +280,13 @@ export function FreeTimeMode() {
 
         {step === "results" && (
           <>
-            <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: ".09em", textTransform: "uppercase", color: colors.mutedLight, marginBottom: 8 }}>
+            <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: 0, textTransform: "uppercase", color: colors.mutedLight, marginBottom: 8 }}>
               <span style={{ color: ACCENT }} aria-hidden="true">
                 /
               </span>{" "}
               Your options
             </div>
-            <h1 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(28px, 4vw, 42px)", letterSpacing: "-.02em", margin: "0 0 32px", color: colors.text }}>
+            <h1 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(32px, 3.8vw, 52px)", letterSpacing: 0, margin: "0 0 32px", color: colors.text }}>
               Here's what fits.
             </h1>
 
@@ -305,7 +305,7 @@ export function FreeTimeMode() {
               <>
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))", gap: 16 }}>
                   {options.map((item) => (
-                    <DiscoverCard key={`${item.kind}-${item.id}`} item={item} isToday={item.date === irelandToday()} />
+                    <DiscoverCard key={`${item.kind}-${item.id}`} item={item} isToday={item.date === irelandToday()} fill />
                   ))}
                 </div>
                 <div style={{ marginTop: 32 }}>

@@ -73,7 +73,7 @@ export function MyLifeRecentActivity({ entries, onViewFull }: { entries: Partici
     <div>
       {groups.map(({ g, rows }, gi) => (
         <div key={g} style={{ marginTop: gi === 0 ? 0 : 18 }}>
-          <div style={{ fontSize: 10.5, fontWeight: 700, color: colors.faint, textTransform: "uppercase", letterSpacing: ".04em", marginBottom: 2 }}>{g}</div>
+          <div style={{ fontSize: 10.5, fontWeight: 700, color: colors.faint, textTransform: "uppercase", letterSpacing: 0, marginBottom: 2 }}>{g}</div>
           <div style={{ display: "flex", flexDirection: "column" }}>
             {rows.map((e, i) => {
               const cancelled = e.status === "cancelled";

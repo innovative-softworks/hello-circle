@@ -28,7 +28,7 @@ import {
   voteOnCirclePollOption,
 } from "../api";
 import { signInHref } from "../authRedirect";
-import { CalendarIcon, HeartIcon, PlusIcon, UsersIcon } from "../components/icons";
+import { CalendarIcon, HeartIcon, PlusIcon } from "../components/icons";
 import { ShareButton } from "../components/ShareButton";
 import { Button, Card, ConfirmDialog, EmptyState, inputStyle, labelStyle, PageSpinner } from "../components/ui";
 import { ListingChatButton } from "../components/ListingChats";
@@ -56,6 +56,7 @@ import { rehostHref } from "../rehost";
 import { getCircleCoverUrl } from "../media";
 import { colors, fonts, radius } from "../theme";
 import type { Circle, CircleActivityStats, CirclePlanIdea, CirclePlanPreview, CirclePoll, CircleRecentActivity } from "../types";
+import { CtaBand } from "../components/CtaBand";
 
 const hairline = `1px solid ${colors.border}`;
 
@@ -67,7 +68,7 @@ const CIRCLE_REPORT_REASONS = ["Spam or fake", "Inappropriate content", "Harassm
 function SectionHeader({ title, action }: { title: string; action?: { label: string; onClick: () => void } }) {
   return (
     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20, gap: 12 }}>
-      <h2 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(20px,2.4vw,24px)", letterSpacing: "-.01em", margin: 0 }}>{title}</h2>
+      <h2 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(20px,2.4vw,24px)", letterSpacing: 0, margin: 0 }}>{title}</h2>
       {action && (
         <button onClick={action.onClick} style={{ background: "none", border: "none", padding: 0, fontSize: 13, fontWeight: 700, color: colors.text, cursor: "pointer", flex: "none" }}>
           {action.label} →
@@ -450,7 +451,7 @@ export function CircleDetail() {
       setRehostBusyId(null);
     }
   };
-  const handleJoinCircle = async () => {
+  const handleJoinCircle = async (joinRequest?: { note?: string; answers?: string[] }) => {
     if (!circle) return;
     if (!resident) {
       return navigate(
@@ -459,7 +460,7 @@ export function CircleDetail() {
     }
     setJoinBusy(true);
     try {
-      await joinCircle(circle.id);
+      await joinCircle(circle.id, joinRequest);
       load();
     } finally {
       setJoinBusy(false);
@@ -531,7 +532,7 @@ export function CircleDetail() {
   if (loadError) {
     return (
       <section className="section-pad" style={{ maxWidth: 560, margin: "0 auto", padding: "80px 24px", textAlign: "center" }}>
-        <h1 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 22, margin: "0 0 10px" }}>We couldn't load this Circle.</h1>
+        <h1 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(24px, 2.4vw, 30px)", margin: "0 0 10px" }}>We couldn't load this Circle.</h1>
         <div style={{ display: "flex", gap: 10, justifyContent: "center", marginTop: 16 }}>
           <Button onClick={load}>Try again</Button>
           <Button variant="ghost" onClick={() => navigate("/circles")}>Browse Circles</Button>
@@ -543,7 +544,7 @@ export function CircleDetail() {
   if (!circle) {
     return (
       <section className="section-pad" style={{ maxWidth: 560, margin: "0 auto", padding: "80px 24px", textAlign: "center" }}>
-        <h1 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 22, margin: "0 0 10px" }}>This Circle doesn't exist.</h1>
+        <h1 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(24px, 2.4vw, 30px)", margin: "0 0 10px" }}>This Circle doesn't exist.</h1>
         <Button onClick={() => navigate("/circles")}>Find something similar</Button>
       </section>
     );
@@ -595,7 +596,7 @@ export function CircleDetail() {
             <img src={getCircleCoverUrl(circle) ?? undefined} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
           </div>
         )}
-        <h1 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(24px,3.4vw,32px)", margin: "0 0 6px", letterSpacing: "-.01em" }}>{circle.name}</h1>
+        <h1 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(24px, 2.4vw, 30px)", margin: "0 0 6px", letterSpacing: 0 }}>{circle.name}</h1>
         <p style={{ margin: "0 0 20px", fontSize: 14, color: colors.mutedLight }}>
           {circle.activityLabel}
           {circle.area ? ` · ${circle.area}` : ""}
@@ -622,13 +623,13 @@ export function CircleDetail() {
   }
 
   const featuredPlans = upcoming.slice(0, 4);
-  const highlightPlans = upcoming.length > 4 ? upcoming.slice(4) : upcoming;
   // Circle Experience Polish — Changeset 2A — see the "From this Circle"/
-  // "You might also like" split in the Upcoming plans section below.
+  // "You might also like" split below (own plans first, nearby after About).
   const realPlans = upcoming.filter((p) => p.source === "circle");
+  const highlightPlans = realPlans.length > 4 ? realPlans.slice(4) : realPlans;
   const nearbyPlans = upcoming.filter((p) => p.source === "nearby");
   const featuredRealPlans = realPlans.slice(0, 4);
-  const featuredNearbyPlans = nearbyPlans.slice(0, Math.max(0, 4 - featuredRealPlans.length));
+  const featuredNearbyPlans = nearbyPlans.slice(0, 4);
   const scrollToPlanning = () => planningRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
 
   return (
@@ -667,15 +668,15 @@ export function CircleDetail() {
             <CircleHero circle={circle} activeThisWeek={activeThisWeek} />
 
             <div style={{ marginTop: 24 }}>
-              <CircleStatsBar circle={circle} upcoming={upcoming} />
+              <CircleStatsBar circle={circle} upcoming={realPlans} />
             </div>
 
             <Section>
               {/* Circle Experience Polish — Changeset 2A. Real
                   games.circle_id-owned plans get their own "From this
                   Circle" heading; platform-wide activity-label matches are
-                  a visually separate, clearly-labelled "You might also
-                  like" — never merged into one undifferentiated list. */}
+                  their own, clearly-labelled "You might also like"
+                  section further down — never merged into one list. */}
               {featuredRealPlans.length > 0 ? (
                 <>
                   <SectionHeader title="From this Circle" action={{ label: "See all", onClick: () => navigate(`/games?activity=${encodeURIComponent(circle.activityLabel)}`) }} />
@@ -692,37 +693,7 @@ export function CircleDetail() {
                     {featuredRealPlans.map((plan) => (
                       <CirclePlanCard key={plan.id} plan={plan} />
                     ))}
-                    {featuredRealPlans.length < 4 && <CircleUpcomingSummary circle={circle} plans={upcoming} />}
-                  </div>
-                  {featuredNearbyPlans.length > 0 && (
-                    <div style={{ marginTop: 28 }}>
-                      <div style={{ fontSize: 13, fontWeight: 700, color: colors.mutedLight, marginBottom: 12 }}>You might also like</div>
-                      <div className="grid-responsive-3" style={{ display: "grid", gridTemplateColumns: `repeat(${featuredNearbyPlans.length},minmax(0,1fr))`, gap: 16 }}>
-                        {featuredNearbyPlans.map((plan) => (
-                          <CirclePlanCard key={plan.id} plan={plan} />
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </>
-              ) : nearbyPlans.length > 0 ? (
-                <>
-                  <SectionHeader title="You might also like" action={{ label: "See all", onClick: () => navigate(`/games?activity=${encodeURIComponent(circle.activityLabel)}`) }} />
-                  <p style={{ margin: "-10px 0 16px", fontSize: 13, color: colors.mutedLight }}>Similar activity happening nearby — not organised through this Circle.</p>
-                  <div
-                    className="grid-responsive-3"
-                    style={{
-                      display: "grid",
-                      gridTemplateColumns: nearbyPlans.slice(0, 4).length < 4
-                        ? `repeat(${nearbyPlans.slice(0, 4).length},minmax(0,1fr)) minmax(200px,${4 - nearbyPlans.slice(0, 4).length}fr)`
-                        : "repeat(4,1fr)",
-                      gap: 16,
-                    }}
-                  >
-                    {nearbyPlans.slice(0, 4).map((plan) => (
-                      <CirclePlanCard key={plan.id} plan={plan} />
-                    ))}
-                    {nearbyPlans.slice(0, 4).length < 4 && <CircleUpcomingSummary circle={circle} plans={upcoming} />}
+                    {featuredRealPlans.length < 4 && <CircleUpcomingSummary circle={circle} plans={realPlans} />}
                   </div>
                 </>
               ) : (
@@ -787,6 +758,20 @@ export function CircleDetail() {
               <CircleCommunityGrid circle={circle} />
             </Section>
 
+            {/* Platform-wide activity-label matches — clearly separate from
+                the Circle's own plans, and after the Circle's own story. */}
+            {featuredNearbyPlans.length > 0 && (
+              <Section>
+                <SectionHeader title="You might also like" action={{ label: "See all", onClick: () => navigate(`/games?activity=${encodeURIComponent(circle.activityLabel)}`) }} />
+                <p style={{ margin: "-10px 0 16px", fontSize: 13, color: colors.mutedLight }}>Similar activity happening nearby — not organised through this Circle.</p>
+                <div className="grid-responsive-3" style={{ display: "grid", gridTemplateColumns: "repeat(4,minmax(0,1fr))", gap: 16 }}>
+                  {featuredNearbyPlans.map((plan) => (
+                    <CirclePlanCard key={plan.id} plan={plan} />
+                  ))}
+                </div>
+              </Section>
+            )}
+
             {(joinState === "available" || joinState === "signed-out") && (
               <CircleContextualCta circle={circle} signedOut={joinState === "signed-out"} busy={joinBusy} onJoin={confirmThenJoin} />
             )}
@@ -800,7 +785,7 @@ export function CircleDetail() {
               <Section>
                 <div ref={planningRef}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-                    <h2 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 19, margin: 0, letterSpacing: "-.01em" }}>Planning</h2>
+                    <h2 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 19, margin: 0, letterSpacing: 0 }}>Planning</h2>
                     {!planIdeaFormOpen && (
                       <Button variant="ghost" onClick={() => setPlanIdeaFormOpen(true)}>
                         <PlusIcon size={14} /> Suggest a plan
@@ -865,7 +850,7 @@ export function CircleDetail() {
                   )}
 
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", margin: "24px 0 12px" }}>
-                    <h2 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 17, margin: 0, letterSpacing: "-.01em" }}>Polls</h2>
+                    <h2 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 17, margin: 0, letterSpacing: 0 }}>Polls</h2>
                     {!pollOpen && (
                       <Button variant="ghost" onClick={() => setPollOpen(true)}>
                         <PlusIcon size={14} /> Propose a time
@@ -1041,27 +1026,18 @@ export function CircleDetail() {
         )}
       </div>
 
-      {/* Full-width discovery CTA (reference §30) */}
+      {/* Full-width discovery CTA (reference §30) — the shared CtaBand. */}
       {!closed && (
-        <section style={{ background: colors.greenBg, marginTop: otherCircles.length > 0 ? 0 : 40 }}>
-          <div className="section-pad" style={{ maxWidth: 1440, margin: "0 auto", padding: "40px 24px", display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: 24 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 18, maxWidth: 460 }}>
-              <div style={{ flex: "none", width: 48, height: 48, borderRadius: "50%", background: colors.surface, display: "flex", alignItems: "center", justifyContent: "center", color: colors.greenText }}>
-                <UsersIcon size={20} />
-              </div>
-              <div>
-                <h2 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(20px, 2.4vw, 24px)", margin: "0 0 6px", letterSpacing: "-.01em", color: colors.greenText }}>
-                  Can't find what you're looking for?
-                </h2>
-                <p style={{ margin: 0, color: colors.muted, fontSize: 14 }}>Tell HelloCircle what kind of Circle you want to join and we'll help you find the right people.</p>
-              </div>
-            </div>
-            <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-              <Button variant="ghost" onClick={() => navigate("/circles")}>Explore Circles</Button>
-              <IntentCaptureForm activityLabel={circle.activityLabel || "this"} county={circle.county} startHref="/circles/start" startLabel="Start a Circle →" />
-            </div>
-          </div>
-        </section>
+        <CtaBand
+          id="circle-cta-title"
+          label="Find your people."
+          lines={["Can't find", "what you're", "after?"]}
+          text="Tell HelloCircle what kind of Circle you want to join and we'll help you find the right people."
+          action={{ label: "Explore Circles", to: "/circles" }}
+          secondary={{ label: "Start a Circle", to: "/circles/start" }}
+        >
+          <IntentCaptureForm activityLabel={circle.activityLabel || "this"} county={circle.county} startHref="/circles/start" startLabel="Start a Circle →" />
+        </CtaBand>
       )}
       </div>
 
