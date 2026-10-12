@@ -1,7 +1,9 @@
 import { usePageTitle } from "../pageTitle";
+import { PAID_CLOSED_MESSAGE, usePaidCheckoutOpen } from "../paidCheckout";
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
-import { enrollInProgram, fetchProgram, fetchProgramBrowse, quoteProgram, type PriceQuote } from "../api";
+import { Link, useNavigate, useParams } from "react-router-dom";
+import { ApiError, enrollInProgram, fetchHousehold, fetchProgram, fetchProgramBrowse, quoteProgram, type PriceQuote } from "../api";
+import { BookingSurface, CheckoutSummary, CouponField, CouponRejectedError, couponErrorCopy, couponReasonFromCode } from "../components/booking";
 import { openCheckout } from "../native";
 import { ListingChatButton } from "../components/ListingChats";
 import { BackLink } from "../components/BackLink";
@@ -20,10 +22,11 @@ import { useGuest } from "../GuestContext";
 import { dateLabel } from "../euro";
 import { formatPrice } from "../formatters";
 import { programToBrowseItem } from "./Programs";
-import { cardImageRatio, colors, fonts, maxWidth, photoOverlay, radius } from "../theme";
+import { cardImageRatio, colors, fonts, photoOverlay, radius } from "../theme";
 import { isValidEmail } from "../validate";
-import type { Program, ProgramSession, ProgramSummary } from "../types";
+import type { HouseholdMember, Program, ProgramSession, ProgramSummary } from "../types";
 import { irelandToday } from "../irelandDate";
+import { CtaBand } from "../components/CtaBand";
 
 // Resident-facing Program detail — the "8-week course, one sign-up"
 // counterpart to Experience detail, laid out the same way (ExperienceDetail
@@ -48,7 +51,7 @@ const outlineButtonStyle: React.CSSProperties = {
   color: colors.text,
   cursor: "pointer",
 };
-const factLabelStyle: React.CSSProperties = { fontSize: 11.5, color: colors.mutedLight, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".04em" };
+const factLabelStyle: React.CSSProperties = { fontSize: 11.5, color: colors.mutedLight, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0 };
 const sectionDividerStyle: React.CSSProperties = { height: 1, background: colors.border, margin: "28px 0" };
 
 function SectionHeading({ title }: { title: string }) {
@@ -74,6 +77,7 @@ function formatDuration(minutes: number): string {
 }
 
 export function ProgramDetail() {
+  const paidOpen = usePaidCheckoutOpen();
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { resident } = useGuest();
@@ -84,18 +88,60 @@ export function ProgramDetail() {
   const [form, setForm] = useState({ participantName: "", participantDob: "", email: resident?.email ?? "", phone: "" });
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Booking UX Phase 4 (UX plan S4) — reuse household members, and record the
+  // booking terms acknowledgement with the enrolment.
+  const [household, setHousehold] = useState<HouseholdMember[]>([]);
+  const [acceptedTerms, setAcceptedTerms] = useState(false);
+  useEffect(() => {
+    if (resident) fetchHousehold().then(setHousehold).catch(() => {});
+  }, [resident]);
   const [confirmed, setConfirmed] = useState<{ ref: string } | null>(null);
   const [enrollOpen, setEnrollOpen] = useState(false);
   // HC-QA-047 — the enrolment confirmation shows the server's own total.
   const [quote, setQuote] = useState<PriceQuote | null>(null);
+  const [quoteFailed, setQuoteFailed] = useState(false);
+  // R3A — an optional code, validated by the server on the quote and again at enrolment.
+  const [couponCode, setCouponCode] = useState<string | null>(null);
+  const [couponProblem, setCouponProblem] = useState<string | null>(null);
+  const loadQuote = (code: string | null) => {
+    if (!id) return Promise.resolve();
+    setQuoteFailed(false);
+    return quoteProgram(id, code).then(setQuote);
+  };
   useEffect(() => {
     if (!enrollOpen || !id) return;
     let live = true;
-    quoteProgram(id).then((q) => live && setQuote(q)).catch(() => live && setQuote(null));
+    quoteProgram(id, couponCode)
+      .then((q) => live && setQuote(q))
+      .catch(() => {
+        if (!live) return;
+        setQuote(null);
+        setQuoteFailed(true);
+      });
     return () => {
       live = false;
     };
-  }, [enrollOpen, id]);
+    // The code is re-quoted by CouponField's onApply; this only covers opening.
+  }, [enrollOpen, id]); // eslint-disable-line react-hooks/exhaustive-deps
+  const applyCoupon = async (code: string) => {
+    try {
+      await loadQuote(code);
+      setCouponCode(code);
+      setCouponProblem(null);
+    } catch (e) {
+      const reason = e instanceof ApiError ? couponReasonFromCode(e.body.code) : null;
+      if (reason) throw new CouponRejectedError(reason);
+      throw new Error("We couldn't check that code. Try again.");
+    }
+  };
+  const removeCoupon = () => {
+    setCouponCode(null);
+    setCouponProblem(null);
+    loadQuote(null).catch(() => {
+      setQuote(null);
+      setQuoteFailed(true);
+    });
+  };
   const [descriptionExpanded, setDescriptionExpanded] = useState(false);
   const [showPast, setShowPast] = useState(false);
 
@@ -128,10 +174,11 @@ export function ProgramDetail() {
       setError("A participant name and a valid email are required");
       return;
     }
+    if (!acceptedTerms) return setError("Tick the box to agree to the booking terms");
     setError(null);
     setSubmitting(true);
     try {
-      const res = await enrollInProgram(id, form);
+      const res = await enrollInProgram(id, { ...form, acceptedTerms, couponCode: couponCode ?? undefined });
       if (res.url) {
         openCheckout(res.url);
         return;
@@ -139,7 +186,16 @@ export function ProgramDetail() {
       setEnrollOpen(false);
       setConfirmed({ ref: res.ref });
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Couldn't complete enrollment");
+      // R3A — the code stopped applying between the quote and enrolment (e.g. it
+      // expired): say so next to the code and re-price without it.
+      const reason = e instanceof ApiError ? couponReasonFromCode(e.body.code) : null;
+      if (reason && couponCode) {
+        setCouponProblem(couponErrorCopy(reason));
+        loadQuote(null).catch(() => setQuoteFailed(true));
+        setError("Your total changed because the code no longer applies. Check it, then continue.");
+      } else {
+        setError(e instanceof Error ? e.message : "Couldn't complete enrollment");
+      }
     } finally {
       setSubmitting(false);
     }
@@ -149,7 +205,7 @@ export function ProgramDetail() {
   if (!program) {
     return (
       <section className="section-pad" style={{ maxWidth: 560, margin: "0 auto", padding: "80px 24px", textAlign: "center" }}>
-        <h1 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 22, margin: "0 0 10px" }}>This program isn't available.</h1>
+        <h1 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(24px, 2.4vw, 30px)", margin: "0 0 10px" }}>This program isn't available.</h1>
         <p style={{ color: colors.mutedLight, marginBottom: 20 }}>It may have finished or been taken down by the venue.</p>
         <Button onClick={() => navigate("/programs")}>Browse programs</Button>
       </section>
@@ -159,7 +215,7 @@ export function ProgramDetail() {
   if (confirmed) {
     return (
       <section className="section-pad" style={{ maxWidth: 560, margin: "0 auto", padding: "64px 24px", textAlign: "center" }}>
-        <h1 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 28, margin: "0 0 10px" }}>You're enrolled.</h1>
+        <h1 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: "clamp(32px, 3.8vw, 52px)", margin: "0 0 10px" }}>You're enrolled.</h1>
         <p style={{ color: colors.mutedLight, marginBottom: 20 }}>
           {program.title} · Reference {confirmed.ref}
         </p>
@@ -210,6 +266,8 @@ export function ProgramDetail() {
   const enrollSubtitle = [next ? `Starts ${dateLabel(next.date)} · ${next.time}` : null, `${upcoming.length} session${upcoming.length === 1 ? "" : "s"}`, program.listingName]
     .filter(Boolean)
     .join(" · ");
+  // Commercial release gate — card payment can't start while paid checkout is closed (the server refuses it too).
+  const programPaidClosed = paidOpen === false && !!program.priceCents && (quote ? quote.totalCents > 0 : true);
   const enrollFooter = (
     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 14 }}>
       <div style={{ minWidth: 0 }}>
@@ -217,14 +275,10 @@ export function ProgramDetail() {
           {program.priceCents ? (quote ? `€${(quote.totalCents / 100).toFixed(2)}` : "…") : "Free"}
         </div>
         <div style={{ fontSize: 12, color: colors.mutedLight }}>
-          {program.priceCents
-            ? quote
-              ? `€${(program.priceCents / 100).toFixed(2)} + VAT €${(quote.vatCents / 100).toFixed(2)} + fee €${(quote.platformFeeCents / 100).toFixed(2)} · every session`
-              : "Calculating total…"
-            : "No payment required"}
+          {program.priceCents ? (quote ? "Whole programme, incl. VAT and fee" : quoteFailed ? "Price unavailable — try again" : "Calculating total…") : "No payment required"}
         </div>
       </div>
-      <Button onClick={submit} disabled={submitting} style={{ flex: "none" }}>
+      <Button onClick={submit} disabled={submitting || programPaidClosed} style={{ flex: "none" }}>
         {submitting ? "Please wait…" : program.priceCents ? "Continue to pay" : "Enroll"}
       </Button>
     </div>
@@ -232,27 +286,75 @@ export function ProgramDetail() {
 
   const enrollForm = (
     <>
+      {programPaidClosed && (
+        <p role="status" style={{ fontSize: 13.5, fontWeight: 600, color: colors.orangeDark, background: colors.orangeBg, borderRadius: radius.control, padding: "10px 12px", margin: "0 0 14px" }}>
+          {PAID_CLOSED_MESSAGE}
+        </p>
+      )}
       <div style={{ fontSize: 13.5, color: colors.muted, marginBottom: 16, background: colors.panel, borderRadius: radius.control, padding: "10px 12px" }}>
         One enrolment covers every session — you don't book them one by one.
       </div>
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        {household.length > 0 && (
+          <fieldset style={{ border: "none", margin: 0, padding: 0 }}>
+            <legend style={{ ...labelStyle, padding: 0 }}>From your household</legend>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+              {household.map((m) => {
+                const name = `${m.firstName} ${m.lastName}`.trim();
+                const picked = form.participantName === name;
+                return (
+                  <button
+                    key={m.id}
+                    type="button"
+                    aria-pressed={picked}
+                    onClick={() => setForm((f) => ({ ...f, participantName: name, participantDob: m.dob || f.participantDob }))}
+                    style={{ minHeight: 40, padding: "0 14px", borderRadius: radius.pill, border: `1px solid ${picked ? colors.text : colors.borderStrong}`, background: picked ? colors.text : colors.surface, color: picked ? colors.surface : colors.text, fontSize: 14, fontWeight: 600, cursor: "pointer" }}
+                  >
+                    {name}
+                  </button>
+                );
+              })}
+            </div>
+          </fieldset>
+        )}
         <div>
-          <label style={labelStyle}>Participant name</label>
-          <input autoComplete="name" value={form.participantName} onChange={(e) => setForm((f) => ({ ...f, participantName: e.target.value }))} style={inputStyle} />
+          <label htmlFor="prog-participant" style={labelStyle}>Participant name</label>
+          <input id="prog-participant" autoComplete="name" value={form.participantName} onChange={(e) => setForm((f) => ({ ...f, participantName: e.target.value }))} style={inputStyle} />
         </div>
         <div>
-          <label style={labelStyle}>Participant date of birth (optional)</label>
-          <input type="date" value={form.participantDob} onChange={(e) => setForm((f) => ({ ...f, participantDob: e.target.value }))} style={inputStyle} />
+          <label htmlFor="prog-dob" style={labelStyle}>Participant date of birth (optional)</label>
+          <input id="prog-dob" type="date" value={form.participantDob} onChange={(e) => setForm((f) => ({ ...f, participantDob: e.target.value }))} style={inputStyle} />
         </div>
         <div>
-          <label style={labelStyle}>Email</label>
-          <input type="email" autoComplete="email" inputMode="email" value={form.email} onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))} style={inputStyle} />
-          <div style={{ fontSize: 12, color: colors.faint, marginTop: 4 }}>We'll send your confirmation here.</div>
+          <label htmlFor="prog-email" style={labelStyle}>Email</label>
+          <input id="prog-email" type="email" autoComplete="email" inputMode="email" value={form.email} onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))} style={inputStyle} aria-describedby="prog-email-help" />
+          <div id="prog-email-help" style={{ fontSize: 12, color: colors.faint, marginTop: 4 }}>We'll send your confirmation here.</div>
         </div>
         <div>
-          <label style={labelStyle}>Phone (optional)</label>
-          <input type="tel" autoComplete="tel" inputMode="tel" value={form.phone} onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))} style={inputStyle} />
+          <label htmlFor="prog-phone" style={labelStyle}>Phone (optional)</label>
+          <input id="prog-phone" type="tel" autoComplete="tel" inputMode="tel" value={form.phone} onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))} style={inputStyle} />
         </div>
+        {!!program.priceCents && (
+          <BookingSurface style={{ padding: "14px 16px", borderRadius: radius.control, display: "flex", flexDirection: "column", gap: 12 }}>
+            <CouponField
+              applied={couponCode}
+              appliedProblem={couponProblem}
+              onApply={applyCoupon}
+              onRemove={removeCoupon}
+            />
+            <CheckoutSummary
+              state={quote ? { status: "ready", quote, error: null, seq: 0 } : quoteFailed ? { status: "error", quote: null, error: "Check your connection and try again.", seq: 0 } : { status: "loading", quote: null, error: null, seq: 0 }}
+              subtotalLabel="Whole programme"
+              onRetry={() => loadQuote(couponCode).catch(() => setQuoteFailed(true))}
+            />
+          </BookingSurface>
+        )}
+        <label style={{ display: "flex", gap: 10, alignItems: "flex-start", fontSize: 14, lineHeight: 1.45, minHeight: 44, cursor: "pointer" }}>
+          <input type="checkbox" checked={acceptedTerms} onChange={(e) => setAcceptedTerms(e.target.checked)} style={{ width: 20, height: 20, margin: "1px 0 0", flex: "none" }} />
+          <span>
+            I agree to the <Link to="/policies/customer-booking-terms" target="_blank">booking terms</Link>
+          </span>
+        </label>
       </div>
       {error && (
         <p role="alert" style={{ color: colors.danger, fontSize: 13, margin: "12px 0 0" }}>
@@ -288,7 +390,7 @@ export function ProgramDetail() {
               variant="hero"
               eager
               sharedHero
-              style={{ aspectRatio: cardImageRatio.hero, borderRadius: 20, marginBottom: 24 }}
+              style={{ aspectRatio: cardImageRatio.hero, borderRadius: 16, marginBottom: 24 }}
               contentStyle={{ padding: 16, display: "flex", alignItems: "flex-start", justifyContent: "space-between" }}
             >
               {next ? (
@@ -318,11 +420,11 @@ export function ProgramDetail() {
             </Photo>
 
             {/* Eyebrow + title + price row — same as ExperienceDetail/GameDetail. */}
-            <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: colors.mutedLight, marginBottom: 6 }}>
+            <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: 0, textTransform: "uppercase", color: colors.mutedLight, marginBottom: 6 }}>
               Program{program.category ? ` · ${program.category}` : ""}
             </div>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 16 }}>
-              <h1 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 28, margin: 0, letterSpacing: "-.01em" }}>{program.title}</h1>
+              <h1 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(32px, 3.8vw, 52px)", margin: 0, letterSpacing: 0 }}>{program.title}</h1>
               <div style={{ flex: "none", textAlign: "right" }}>
                 {program.priceCents ? (
                   <>
@@ -355,12 +457,12 @@ export function ProgramDetail() {
             <OfficialCircleLink circleId={program.circleId} circleName={program.circleName} circleSlug={program.circleSlug} />
 
             {program.arrivalInstructions && (
-              <div style={{ background: colors.greenBg, color: colors.greenText, borderRadius: 12, padding: "10px 14px", fontSize: 13.5, margin: "16px 0" }}>
+              <div style={{ background: colors.greenBg, color: colors.greenText, borderRadius: 10, padding: "10px 14px", fontSize: 13.5, margin: "16px 0" }}>
                 <strong>Arriving:</strong> {program.arrivalInstructions}
               </div>
             )}
             {!upcoming.length && (
-              <div style={{ background: colors.panel, color: colors.muted, borderRadius: 12, padding: "10px 14px", fontSize: 13.5, margin: "16px 0" }}>
+              <div style={{ background: colors.panel, color: colors.muted, borderRadius: 10, padding: "10px 14px", fontSize: 13.5, margin: "16px 0" }}>
                 No upcoming sessions scheduled — check back soon, or tell us you're interested below.
               </div>
             )}
@@ -450,7 +552,7 @@ export function ProgramDetail() {
               <SectionHeading title="Schedule" />
               <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                 {upcoming.map((s, i) => (
-                  <div key={s.id} style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 12, padding: "12px 16px", display: "flex", flexWrap: "wrap", gap: 16, fontSize: 13.5, color: colors.muted }}>
+                  <div key={s.id} style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 10, padding: "12px 16px", display: "flex", flexWrap: "wrap", gap: 16, fontSize: 13.5, color: colors.muted }}>
                     <span style={{ fontWeight: 700, color: colors.text, minWidth: 24 }}>{i + 1}</span>
                     <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><CalendarIcon size={13} /> {dateLabel(s.date)}</span>
                     <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><ClockIcon size={13} /> {s.time} · {formatDuration(s.durationMinutes)}</span>
@@ -466,7 +568,7 @@ export function ProgramDetail() {
                 )}
                 {showPast &&
                   past.map((s) => (
-                    <div key={s.id} style={{ borderRadius: 12, padding: "10px 16px", display: "flex", flexWrap: "wrap", gap: 16, fontSize: 13, color: colors.faint, background: colors.panel }}>
+                    <div key={s.id} style={{ borderRadius: 10, padding: "10px 16px", display: "flex", flexWrap: "wrap", gap: 16, fontSize: 13, color: colors.faint, background: colors.panel }}>
                       <span>{dateLabel(s.date)}</span>
                       <span>{s.time}</span>
                     </div>
@@ -478,7 +580,7 @@ export function ProgramDetail() {
             {program.vendorName && (
               <div style={{ marginBottom: 28 }}>
                 <SectionHeading title="Hosted by" />
-                <div style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 14, padding: "14px 18px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+                <div style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 16, padding: "14px 18px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                     <span style={{ fontWeight: 700, fontSize: 14.5 }}>{program.vendorName}</span>
                     {program.vendorVerified && (
@@ -502,7 +604,7 @@ export function ProgramDetail() {
             {/* Where — the venue, with a map when it has coordinates. */}
             <div style={{ marginBottom: 28 }}>
               <SectionHeading title="Where" />
-              <div style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 14, padding: "16px 18px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap", marginBottom: 12 }}>
+              <div style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 16, padding: "16px 18px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap", marginBottom: 12 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                   <PinIcon size={16} style={{ color: colors.mutedLight, flex: "none" }} />
                   <div>
@@ -605,20 +707,17 @@ export function ProgramDetail() {
         {enrollForm}
       </Modal>
 
-      {/* "Can't make this one?" — same mint band as ExperienceDetail/GameDetail. */}
-      <section style={{ background: colors.greenBg }}>
-        <div className="section-pad" style={{ maxWidth, margin: "0 auto", padding: "48px 24px", display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: 32 }}>
-          <div style={{ maxWidth: 460 }}>
-            <h2 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(22px, 2.8vw, 28px)", margin: "0 0 8px", letterSpacing: "-.01em", color: colors.greenText }}>
-              Can't make this one?
-            </h2>
-            <p style={{ margin: 0, color: colors.muted, fontSize: 15 }}>
-              Tell HelloCircle when you'd like to do this. We'll let you know when a program like it starts.
-            </p>
-          </div>
-          <IntentCaptureForm activityLabel={program.category || program.title} county={program.venueCounty ?? ""} startHref="/programs" startLabel="Or browse more programs →" />
-        </div>
-      </section>
+      {/* "Can't make this one?" — the shared CtaBand, with this
+          programme's own copy and the interest form. */}
+      <CtaBand
+        id="program-cta-title"
+        label="Keep going."
+        lines={["Can't", "make this", "one?"]}
+        text="Tell HelloCircle when you'd like to do this. We'll let you know when a programme like it starts."
+        action={{ label: "Browse more programmes", to: "/programs" }}
+      >
+        <IntentCaptureForm activityLabel={program.category || program.title} county={program.venueCounty ?? ""} startHref="/programs" startLabel="Or browse more programs →" />
+      </CtaBand>
 
       {/* Mobile sticky bar — opens the same enrol popup as the desktop CTA. */}
       {canEnroll && (

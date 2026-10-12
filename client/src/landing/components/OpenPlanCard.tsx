@@ -8,7 +8,7 @@ export function OpenPlanCard({ plan }: { plan: LandingOpenPlan }) {
       style={{
         background: lc.ink,
         color: lc.paper,
-        borderRadius: 18,
+        borderRadius: 16,
         padding: "22px 22px 20px",
         display: "flex",
         flexDirection: "column",

@@ -1,3 +1,4 @@
+import { ApiError } from "./api/core";
 import type { Game } from "./types";
 
 // Shared game participation-state + CTA copy logic (design-system unification
@@ -28,4 +29,11 @@ export function gameState(game: Game): GameAvailability {
 export function primaryCtaLabel(game: Game): string {
   const base = gameState(game) === "needs" ? "I'm in" : "Join";
   return game.priceCents ? `${base} · €${(game.priceCents / 100).toFixed(2)}` : base;
+}
+
+/** Booking UX Phase 4 — the server refused a join for want of the
+ * minimum-age confirmation (it sends `minAge`). Quick-join buttons in lists
+ * open the activity page instead, where the confirmation is asked for. */
+export function isMinAgeRefusal(e: unknown): boolean {
+  return e instanceof ApiError && typeof e.body.minAge === "number";
 }

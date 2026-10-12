@@ -63,6 +63,7 @@ import {
   type WebhookEventRow,
 } from "../api";
 import { useAuth } from "../AuthContext";
+import { HYPOTHETICAL_PLAN_MODEL_NOTE } from "../partnerPricing";
 import { irelandToday } from "../irelandDate";
 import { colors, fonts, radius } from "../theme";
 import { Button, ManageCard as Card, Modal, inputStyle, labelStyle, tableStyle, tdStyle, thStyle } from "./ui";
@@ -215,8 +216,11 @@ function SimulatorSection() {
   const r = sim?.result;
   return (
     <Card style={{ padding: 22 }}>
-      <h3 style={h3}>Calculation simulator</h3>
-      <p style={hint}>Prices any order with the same engine checkout uses, from the rules in force now. Enter a partner to use their plan and any partner-specific rates.</p>
+      <h3 style={h3}>Calculation simulator — hypothetical</h3>
+      <p role="note" style={{ ...hint, background: colors.orangeBg, color: colors.orangeDark, padding: "10px 12px", borderRadius: radius.control, fontWeight: 600 }} data-testid="simulator-hypothetical">
+        {HYPOTHETICAL_PLAN_MODEL_NOTE}
+      </p>
+      <p style={hint}>Prices a scenario with the plan model from the plan rules in force now. Enter a partner to use their plan and any partner-specific rates.</p>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))", gap: 10 }}>
         <Field label="Price (€)"><input value={form.price} onChange={set("price")} style={inputStyle} inputMode="decimal" /></Field>
         <Field label="Places"><input value={form.qty} onChange={set("qty")} style={inputStyle} inputMode="numeric" /></Field>
@@ -731,7 +735,7 @@ function RewardsSection() {
   );
 }
 
-function CouponsUsageSection() {
+function CouponsUsageSection({ onEditCoupons }: { onEditCoupons?: () => void }) {
   const [rows, setRows] = useState<AdminCouponUsage[] | null>(null);
   useEffect(() => {
     fetchCouponUsage().then(setRows).catch(() => setRows([]));
@@ -739,7 +743,18 @@ function CouponsUsageSection() {
   return (
     <Card style={{ padding: 22 }}>
       <h3 style={h3}>Coupon usage</h3>
-      <p style={hint}>From the redemption ledger. "Returned" = released after an unpaid checkout or reversed on refund.</p>
+      <p style={hint}>
+        From the redemption ledger. "Returned" = released after an unpaid checkout or reversed on refund.
+        {onEditCoupons && (
+          <>
+            {" "}To create, pause or archive a code, go to{" "}
+            <button type="button" className="btn-reset link-accent" onClick={onEditCoupons} style={{ fontWeight: 700, textDecoration: "underline", textUnderlineOffset: 3, cursor: "pointer", fontSize: "inherit" }}>
+              Coupons
+            </button>
+            .
+          </>
+        )}
+      </p>
       <div style={{ overflowX: "auto" }}>
         <table style={tableStyle}>
           <thead><tr><th style={thStyle}>Code</th><th style={thStyle}>Uses</th><th style={thStyle}>Confirmed</th><th style={thStyle}>Returned</th><th style={thStyle}>Discount given</th><th style={thStyle}>HelloCircle-funded</th><th style={thStyle}>Last used</th></tr></thead>
@@ -1124,11 +1139,11 @@ const SECTIONS = [
   { key: "roles", label: "Admin roles", roles: ["super"] },
 ] as const;
 
-export function AdminFinanceTab() {
+export function AdminFinanceTab({ initialSection, onEditCoupons }: { initialSection?: string; onEditCoupons?: () => void } = {}) {
   const { user } = useAuth();
   const role = user?.adminRole ?? "super";
   const visible = SECTIONS.filter((s) => (s.roles as readonly string[]).includes(role));
-  const [section, setSection] = useState<string>(visible[0]?.key ?? "help");
+  const [section, setSection] = useState<string>(visible.some((s) => s.key === initialSection) ? initialSection! : visible[0]?.key ?? "help");
   if (!visible.length) return <p style={hint}>Your admin role doesn't include finance tools.</p>;
   return (
     <div className="fade-panel" style={{ display: "flex", flexDirection: "column", gap: 16 }}>
@@ -1152,7 +1167,7 @@ export function AdminFinanceTab() {
       {section === "debts" && <DebtsSection />}
       {section === "credits" && <CreditsProSection />}
       {section === "rewards" && <RewardsSection />}
-      {section === "coupons" && <CouponsUsageSection />}
+      {section === "coupons" && <CouponsUsageSection onEditCoupons={onEditCoupons} />}
       {section === "payouts" && <BankPayoutsSection />}
       {section === "events" && <WebhooksSection />}
       {section === "refunds" && <RefundsSection />}

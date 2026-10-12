@@ -3,7 +3,7 @@ import { Button } from "../ui";
 import { CheckIcon } from "../icons";
 import { ParallaxImage } from "../ParallaxImage";
 import { colors, fonts } from "../../theme";
-import { FV_ACCENT, FV_MAX_WIDTH, FV_MONO } from "./constants";
+import { FV_ACCENT, FV_ACCENT_DARK, FV_MAX_WIDTH, FV_MONO } from "./constants";
 import { RevealText } from "../RevealText";
 
 const REASSURANCE = ["Simple to get started", "Manage your availability", "Reach local people"];
@@ -41,7 +41,7 @@ export function VendorHero({
             gap: 12,
             fontFamily: FV_MONO,
             fontSize: 11.5,
-            letterSpacing: ".04em",
+            letterSpacing: 0,
             color: colors.mutedLight,
             borderBottom: `1px solid ${colors.border}`,
             paddingBottom: 16,
@@ -60,7 +60,7 @@ export function VendorHero({
       <div className="section-pad" style={{ maxWidth: FV_MAX_WIDTH, margin: "0 auto", padding: "8px 24px 40px" }}>
         <div className="grid-responsive" style={{ display: "grid", gridTemplateColumns: "7fr 3fr", gap: 48, alignItems: "center" }}>
           <div>
-            <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: ".09em", textTransform: "uppercase", color: FV_ACCENT, marginBottom: 14 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: 0, textTransform: "uppercase", color: FV_ACCENT_DARK, marginBottom: 14 }}>
               <span aria-hidden="true">/</span> For venues & hosts
             </div>
             <RevealText as="h1"
@@ -69,7 +69,7 @@ export function VendorHero({
                 fontWeight: 800,
                 fontSize: "clamp(38px, 5.6vw, 64px)",
                 lineHeight: 0.98,
-                letterSpacing: "-.03em",
+                letterSpacing: 0,
                 margin: "0 0 20px",
               }}
             >
@@ -77,7 +77,7 @@ export function VendorHero({
               <br />
               Get booked.
               <br />
-              <span style={{ color: FV_ACCENT }}>Grow your community.</span>
+              <span style={{ color: FV_ACCENT_DARK }}>Grow your community.</span>
             </RevealText>
             <p style={{ fontSize: 16.5, color: colors.textSoft, lineHeight: 1.6, margin: 0, maxWidth: 560 }}>
               Join HelloCircle to showcase your space, fill more available slots and connect with local people
@@ -92,7 +92,7 @@ export function VendorHero({
                 List your venue
               </Button>
               <Button variant="ghost" onClick={onBecomeHostCta} style={{ padding: "13px 22px", fontSize: 15 }}>
-                Become a Host
+                Become a host
               </Button>
             </div>
             {/* Secondary partner-entry CTA (auth UX audit §4) — a returning
@@ -109,7 +109,7 @@ export function VendorHero({
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
               {REASSURANCE.map((r) => (
                 <div key={r} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13.5, color: colors.muted, fontWeight: 600 }}>
-                  <span style={{ color: FV_ACCENT, display: "flex", flex: "none" }}>
+                  <span style={{ color: FV_ACCENT_DARK, display: "flex", flex: "none" }}>
                     <CheckIcon size={15} />
                   </span>
                   {r}

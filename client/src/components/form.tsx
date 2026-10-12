@@ -15,7 +15,7 @@ import { colors, fonts, radius } from "../theme";
 const baseControlStyle: CSSProperties = {
   padding: "11px 13px",
   border: `1px solid ${colors.inputBorder}`,
-  borderRadius: 11,
+  borderRadius: 10,
   fontSize: 14,
   background: colors.surface,
   color: colors.text,
@@ -57,7 +57,7 @@ export function Field({
 }) {
   return (
     <div style={{ width: WIDTH_PX[width], maxWidth: "100%", ...style }}>
-      <label htmlFor={htmlFor} style={{ display: "block", fontSize: 12, fontWeight: 600, color: colors.muted, margin: "0 0 6px", letterSpacing: ".01em" }}>
+      <label htmlFor={htmlFor} style={{ display: "block", fontSize: 12, fontWeight: 600, color: colors.muted, margin: "0 0 6px", letterSpacing: 0 }}>
         {label}
       </label>
       {helper && <p style={{ fontSize: 12, color: colors.mutedLight, margin: "-2px 0 7px", lineHeight: 1.5 }}>{helper}</p>}
@@ -378,7 +378,7 @@ export function SettingsSection({
     <div style={{ borderTop: `1px solid ${colors.border}`, padding: "18px 0" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 16 }}>
         <div style={{ minWidth: 0, flex: 1 }}>
-          <h2 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 13, letterSpacing: ".04em", textTransform: "uppercase", color: colors.muted, margin: "0 0 8px" }}>
+          <h2 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 13, letterSpacing: 0, textTransform: "uppercase", color: colors.muted, margin: "0 0 8px" }}>
             {title}
           </h2>
           {!open && <div style={{ fontSize: 14, color: colors.text, lineHeight: 1.5 }}>{summary}</div>}

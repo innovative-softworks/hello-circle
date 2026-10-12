@@ -29,7 +29,7 @@ const chip = (active: boolean) => ({
   border: `1px solid ${active ? colors.green : colors.border}`,
   background: active ? colors.greenBg : colors.surface,
   color: active ? colors.greenText : colors.text,
-  borderRadius: 100,
+  borderRadius: 999,
   padding: "4px 10px",
   fontSize: 12,
   fontWeight: 600,
@@ -160,7 +160,7 @@ export function IntentCaptureForm({
   return (
     <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 10, maxWidth: 340, margin: "0 auto" }}>
       {others > 0 && (
-        <div style={{ fontSize: 12, fontWeight: 700, color: colors.orangeDark, background: colors.orangeBg, borderRadius: 100, padding: "3px 10px", textAlign: "center" }}>
+        <div style={{ fontSize: 12, fontWeight: 700, color: colors.orangeDark, background: colors.orangeBg, borderRadius: 999, padding: "3px 10px", textAlign: "center" }}>
           {others} {others === 1 ? "person already wants" : "people already want"} something similar{county ? ` in ${county}` : ""}
         </div>
       )}

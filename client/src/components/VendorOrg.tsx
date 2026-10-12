@@ -1,4 +1,4 @@
-import { EarningsSummary } from "./EarningsSummary";
+import { EarningsSections } from "./EarningsSummary";
 import { TraderProfileForm } from "./TraderProfileForm";
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
@@ -632,7 +632,7 @@ function InsightsPanel() {
             <span style={{ fontSize: 13, color: colors.faint }}>No bookings yet.</span>
           ) : (
             insights.utilisation.map((u, i) => (
-              <span key={i} style={{ fontSize: 12, background: colors.greenBg, color: colors.greenText, borderRadius: 8, padding: "5px 9px", fontWeight: 700 }}>
+              <span key={i} style={{ fontSize: 12, background: colors.greenBg, color: colors.greenText, borderRadius: 10, padding: "5px 9px", fontWeight: 700 }}>
                 {DAY_NAMES[(u.dayOfWeek - 1) % 7]} {u.hour}:00 — {u.n}
               </span>
             ))
@@ -672,8 +672,7 @@ export function PaymentsPanel() {
   const filteredTransactions = data.transactions.filter((t) => filter === "all" || t.paymentStatus === filter);
 
   return (
-    <>
-    <EarningsSummary load={fetchVendorEarnings} scope="vendor" />
+    <EarningsSections scope="vendor" loadBalance={fetchVendorEarnings}>
     <Card>
       <div style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 22, marginBottom: 4 }}>€{(data.totalPaidCents / 100).toFixed(2)}</div>
       {/* Vendor Experience Polish — totalPaidCents is now a true SUM across
@@ -759,7 +758,7 @@ export function PaymentsPanel() {
         </>
       )}
     </Card>
-    </>
+    </EarningsSections>
   );
 }
 

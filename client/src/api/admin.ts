@@ -473,6 +473,8 @@ export interface CommerceSwitchState {
   description: string;
   defaultValue: boolean;
   activeFromPhase: number | null;
+  /** Admin-facing: who sees what change when this is on (text only). */
+  whenOn?: string;
   enabled: boolean;
 }
 
@@ -738,6 +740,23 @@ export interface AdminPolicyOverview { documents: AdminPolicyDoc[]; placeholders
 export interface AdminPolicyVersion { id: number; docKey: string; version: number; status: string; body: string; publishedBody: string | null; contentHash: string | null; changeSummary: string | null; material: number; effectiveFrom: string | null; createdBy: string; approvedBy: string | null; legalReviewerName: string | null; legalReviewedAt: string | null; publishedAt: string | null; retiredAt: string | null; rowVersion: number; createdAt: string }
 export interface AdminPolicyPreview extends AdminPolicyVersion { rendered: string; blockers: { placeholders: string[]; notes: string[]; legalReview: boolean } }
 
+/** Company profile completeness (sitemap audit P1-02): each field is missing,
+ * set but not yet in a published policy, or published (shown publicly). */
+export interface CompanyProfileField {
+  key: string;
+  label: string;
+  value: string | null;
+  state: "missing" | "set_not_published" | "published";
+  /** What's expected for this field (the owner's recorded decision). */
+  guidance: string;
+  /** The confirmed value, where one is decided. */
+  expected: string | null;
+  /** Set, but not the confirmed value. */
+  mismatch: boolean;
+}
+export function fetchCompanyProfile(): Promise<CompanyProfileField[]> {
+  return request(`/admin/policies/company-profile`);
+}
 export function fetchAdminPolicies(): Promise<AdminPolicyOverview> {
   return request(`/admin/policies`);
 }

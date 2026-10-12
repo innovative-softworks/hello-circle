@@ -1,6 +1,6 @@
 import { Button } from "../ui";
 import { colors, fonts } from "../../theme";
-import { FV_ACCENT, FV_MAX_WIDTH, FV_MONO } from "./constants";
+import { FV_ACCENT, FV_ACCENT_DARK, FV_MAX_WIDTH, FV_MONO } from "./constants";
 import { RevealText } from "../RevealText";
 
 export function HostFinalCTA({ onPrimaryCta }: { onPrimaryCta: () => void }) {
@@ -12,10 +12,10 @@ export function HostFinalCTA({ onPrimaryCta }: { onPrimaryCta: () => void }) {
           style={{ display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: 24, marginBottom: 44 }}
         >
           <div>
-            <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: ".09em", textTransform: "uppercase", color: FV_ACCENT, marginBottom: 10 }}>
+            <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: 0, textTransform: "uppercase", color: FV_ACCENT_DARK, marginBottom: 10 }}>
               <span aria-hidden="true">/</span> Ready when you are
             </div>
-            <RevealText as="h2" style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(24px, 3vw, 32px)", color: "#fff", margin: "0 0 8px", letterSpacing: "-.01em" }}>
+            <RevealText as="h2" style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(24px, 3vw, 32px)", color: "#fff", margin: "0 0 8px", letterSpacing: 0 }}>
               Get your first Session or Circle live.
             </RevealText>
             <p style={{ margin: 0, color: "rgba(255,255,255,.72)", fontSize: 15.5, maxWidth: 440, lineHeight: 1.6 }}>
@@ -24,7 +24,7 @@ export function HostFinalCTA({ onPrimaryCta }: { onPrimaryCta: () => void }) {
           </div>
           <div>
             <Button variant="orange" onClick={onPrimaryCta} style={{ padding: "13px 24px", fontSize: 15, background: FV_ACCENT }}>
-              Become a Host
+              Become a host
             </Button>
           </div>
         </div>
@@ -39,7 +39,7 @@ export function HostFinalCTA({ onPrimaryCta }: { onPrimaryCta: () => void }) {
               gap: 12,
               fontFamily: FV_MONO,
               fontSize: 11.5,
-              letterSpacing: ".04em",
+              letterSpacing: 0,
               color: "rgba(255,255,255,.5)",
               marginBottom: 8,
             }}
@@ -47,7 +47,7 @@ export function HostFinalCTA({ onPrimaryCta }: { onPrimaryCta: () => void }) {
             <span>HELLOCIRCLE.IE · IRELAND</span>
             <button
               onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
-              style={{ background: "none", border: "none", color: "rgba(255,255,255,.5)", fontFamily: FV_MONO, fontSize: 11.5, letterSpacing: ".04em", cursor: "pointer", padding: 0 }}
+              style={{ background: "none", border: "none", color: "rgba(255,255,255,.5)", fontFamily: FV_MONO, fontSize: 11.5, letterSpacing: 0, cursor: "pointer", padding: 0 }}
             >
               BACK TO TOP ↑
             </button>
@@ -58,7 +58,7 @@ export function HostFinalCTA({ onPrimaryCta }: { onPrimaryCta: () => void }) {
               fontWeight: 800,
               fontSize: "clamp(48px, 10vw, 130px)",
               lineHeight: 0.88,
-              letterSpacing: "-.03em",
+              letterSpacing: 0,
               color: FV_ACCENT,
               margin: 0,
             }}

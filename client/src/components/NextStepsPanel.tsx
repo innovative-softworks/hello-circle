@@ -56,7 +56,7 @@ export function NextStepsPanel({ kind, reference }: { kind: NextStepsKind; refer
 
   return (
     <div style={{ marginTop: 24 }}>
-      <div style={{ fontSize: 11.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".09em", color: colors.muted, marginBottom: 4 }}>
+      <div style={{ fontSize: 11.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0, color: colors.muted, marginBottom: 4 }}>
         Keep the connection going
       </div>
       <h3 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 16, margin: "0 0 6px" }}>See these people again</h3>

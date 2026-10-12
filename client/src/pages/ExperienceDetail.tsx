@@ -1,9 +1,10 @@
 import { usePageTitle } from "../pageTitle";
+import { PAID_CLOSED_MESSAGE, usePaidCheckoutOpen } from "../paidCheckout";
 import { useEffect, useMemo, useState } from "react";
 import { TraderInfo } from "../components/TraderInfo";
 import { OfficialCircleLink } from "../components/OfficialCircleLink";
 import { ParticipationBlock } from "../components/ParticipationBlock";
-import { useLocation, useNavigate, useParams } from "react-router-dom";
+import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { CheckoutBreakdown } from "../components/CheckoutBreakdown";
 import { AnalyticsEvent, trackTypedEvent } from "../analyticsEvents";
 import { ApiError, addFavourite, bookExperienceSession, fetchMyCredits, downloadExperienceBookingIcs, fetchExperience, fetchExperiences, fetchFavourites, quoteExperienceSession, removeFavourite, type BookingQuote } from "../api";
@@ -23,10 +24,11 @@ import { Button, Card, Modal, PageSpinner, inputStyle, labelStyle } from "../com
 import { isFavorite, toggleFavorite } from "../favorites";
 import { useGuest } from "../GuestContext";
 import { dateLabel } from "../euro";
-import { cardImageRatio, colors, fonts, maxWidth, photoOverlay, radius } from "../theme";
+import { cardImageRatio, colors, fonts, photoOverlay, radius } from "../theme";
 import { isValidEmail } from "../validate";
 import type { Experience, ExperienceSessionSlot } from "../types";
 import { formatPrice } from "../formatters";
+import { CtaBand } from "../components/CtaBand";
 
 // Adventures & Experiences detail page — this pass rebuilds it to use
 // GameDetail.tsx as the literal visual/layout source of truth (badge-
@@ -59,7 +61,7 @@ const outlineButtonStyle: React.CSSProperties = {
   cursor: "pointer",
 };
 
-const factLabelStyle: React.CSSProperties = { fontSize: 11.5, color: colors.mutedLight, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".04em" };
+const factLabelStyle: React.CSSProperties = { fontSize: 11.5, color: colors.mutedLight, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0 };
 const sectionDividerStyle: React.CSSProperties = { height: 1, background: colors.border, margin: "28px 0" };
 
 function capitalize(s: string): string {
@@ -130,7 +132,13 @@ function CancellationCard({ e }: { e: Experience }) {
   );
 }
 
+
+// Booking UX Phase 4 — acknowledgement rows (44px target, label wraps the box).
+const ackRow: React.CSSProperties = { display: "flex", gap: 10, alignItems: "flex-start", fontSize: 14, lineHeight: 1.45, minHeight: 44, cursor: "pointer" };
+const ackBox: React.CSSProperties = { width: 20, height: 20, margin: "1px 0 0", flex: "none" };
+
 export function ExperienceDetail() {
+  const paidOpen = usePaidCheckoutOpen();
   // Slugs (master-prompt punch list #1) — same convention as centres/clubs;
   // booking submits with experience.id once loaded, never this raw param.
   const { id: idOrSlug } = useParams<{ id: string }>();
@@ -158,6 +166,10 @@ export function ExperienceDetail() {
   const [appliedCoupon, setAppliedCoupon] = useState<string | null>(null);
   const [couponError, setCouponError] = useState<string | null>(null);
   const [form, setForm] = useState({ participantName: "", email: resident?.email ?? "", phone: "", partySize: 1 });
+  // Booking UX Phase 4 — names for persons 2..n, the minimum-age declaration
+  // and the acknowledgements recorded with the order (server: orderAcknowledgements.ts).
+  const [others, setOthers] = useState<string[]>([]);
+  const [acks, setAcks] = useState({ minAge: false, safety: false, terms: false });
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirmed, setConfirmed] = useState<{ ref: string } | null>(null);
@@ -267,13 +279,27 @@ export function ExperienceDetail() {
       setError("A participant name, a valid email and a departure are required");
       return;
     }
+    const extraNames = Array.from({ length: form.partySize - 1 }, (_, i) => (others[i] ?? "").trim());
+    if (extraNames.some((n) => !n)) return setError("Add a name for each person in the party");
+    if (experience.minAge && !acks.minAge) return setError(`Confirm everyone taking part is at least ${experience.minAge}`);
+    if (experience.safetyInfo.trim() && !acks.safety) return setError("Confirm you've read the safety information");
+    if (!acks.terms) return setError("Tick the box to agree to the booking terms");
     setError(null);
     setSubmitting(true);
     try {
       // Commerce Engine Phase 2 — hand back the quote the customer was shown;
       // the server refuses (409) rather than charging a price that moved.
       const quoteId = quote && quote.partySize === form.partySize ? quote.quoteId : undefined;
-      const res = await bookExperienceSession(experience.id, selectedSession.id, { ...form, quoteId, useCredits, couponCode: appliedCoupon ?? undefined });
+      const res = await bookExperienceSession(experience.id, selectedSession.id, {
+        ...form,
+        quoteId,
+        useCredits,
+        couponCode: appliedCoupon ?? undefined,
+        participants: [form.participantName.trim(), ...extraNames],
+        meetsMinAge: experience.minAge ? acks.minAge : undefined,
+        acceptedSafety: acks.safety,
+        acceptedTerms: acks.terms,
+      });
       if (useCredits && quote?.creditCents) trackTypedEvent(AnalyticsEvent.CreditApplied, { coversAll: quote.totalCents === 0 });
       if (res.url) {
         openCheckout(res.url);
@@ -311,7 +337,7 @@ export function ExperienceDetail() {
   if (loadError) {
     return (
       <section className="section-pad" style={{ maxWidth: 560, margin: "0 auto", padding: "80px 24px", textAlign: "center" }}>
-        <h1 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 22, margin: "0 0 10px" }}>We couldn't load this {kindNoun}.</h1>
+        <h1 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(24px, 2.4vw, 30px)", margin: "0 0 10px" }}>We couldn't load this {kindNoun}.</h1>
         <div style={{ display: "flex", gap: 10, justifyContent: "center", marginTop: 16 }}>
           <Button onClick={load}>Try again</Button>
           <Button variant="ghost" onClick={() => navigate(browsePath)}>Browse listings</Button>
@@ -323,7 +349,7 @@ export function ExperienceDetail() {
   if (!experience) {
     return (
       <section className="section-pad" style={{ maxWidth: 560, margin: "0 auto", padding: "80px 24px", textAlign: "center" }}>
-        <h1 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 22, margin: "0 0 10px" }}>This {kindNoun} is no longer available.</h1>
+        <h1 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(24px, 2.4vw, 30px)", margin: "0 0 10px" }}>This {kindNoun} is no longer available.</h1>
         <p style={{ color: colors.mutedLight, marginBottom: 20 }}>It may have been removed by its host.</p>
         <Button onClick={() => navigate(browsePath)}>Find something similar</Button>
       </section>
@@ -333,7 +359,7 @@ export function ExperienceDetail() {
   if (confirmed) {
     return (
       <section className="section-pad" style={{ maxWidth: 560, margin: "0 auto", padding: "64px 24px", textAlign: "center" }}>
-        <h1 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 28, margin: "0 0 10px" }}>You're booked.</h1>
+        <h1 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: "clamp(32px, 3.8vw, 52px)", margin: "0 0 10px" }}>You're booked.</h1>
         <p style={{ color: colors.mutedLight, marginBottom: 20 }}>{experience.title} · Reference {confirmed.ref}</p>
         <div style={{ display: "flex", gap: 10, justifyContent: "center", flexWrap: "wrap" }}>
           <Button variant="ghost" onClick={() => downloadExperienceBookingIcs(confirmed.ref)}>Add to calendar</Button>
@@ -429,7 +455,7 @@ export function ExperienceDetail() {
               textAlign: "left",
               background: colors.surface,
               border: `1.5px solid ${colors.border}`,
-              borderRadius: 12,
+              borderRadius: 10,
               padding: "14px 16px",
               display: "flex",
               justifyContent: "space-between",
@@ -475,6 +501,21 @@ export function ExperienceDetail() {
           min={1}
           max={selectedSession.spotsLeft}
         />
+        {form.partySize > 1 &&
+          Array.from({ length: form.partySize - 1 }, (_, i) => (
+            <div key={i}>
+              <label htmlFor={`exp-person-${i + 2}`} style={labelStyle}>
+                Name for person {i + 2}
+              </label>
+              <input
+                id={`exp-person-${i + 2}`}
+                autoComplete="off"
+                value={others[i] ?? ""}
+                onChange={(e) => setOthers((o) => Object.assign([...o], { [i]: e.target.value }))}
+                style={inputStyle}
+              />
+            </div>
+          ))}
         <div>
           <label style={labelStyle}>Email</label>
           <input type="email" autoComplete="email" inputMode="email" value={form.email} onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))} style={inputStyle} />
@@ -514,7 +555,33 @@ export function ExperienceDetail() {
           <span>Use my HelloCircle credit (€{(creditMinor / 100).toFixed(2)} available)</span>
         </label>
       )}
-      {quote && !!experience?.priceCents && <CheckoutBreakdown quote={quote} unitPriceCents={experience.priceCents} creditAvailableMinor={creditMinor} />}
+      {paidOpen === false && !!experience?.priceCents && experience.paymentMethod !== "cash" && (
+        <p role="status" style={{ fontSize: 13.5, fontWeight: 600, color: colors.orangeDark, background: colors.orangeBg, borderRadius: 10, padding: "10px 12px", margin: "14px 0 0" }}>
+          {PAID_CLOSED_MESSAGE}
+        </p>
+      )}
+      {quote && !!experience?.priceCents && <CheckoutBreakdown quote={quote} unitPriceCents={experience.priceCents} />}
+      <fieldset style={{ border: "none", margin: "16px 0 0", padding: 0, display: "flex", flexDirection: "column", gap: 10 }}>
+        <legend style={{ ...labelStyle, padding: 0 }}>Before you book</legend>
+        {!!experience.minAge && (
+          <label style={ackRow}>
+            <input type="checkbox" checked={acks.minAge} onChange={(e) => setAcks((a) => ({ ...a, minAge: e.target.checked }))} style={ackBox} />
+            <span>Everyone taking part is at least {experience.minAge}</span>
+          </label>
+        )}
+        {!!experience.safetyInfo.trim() && (
+          <label style={ackRow}>
+            <input type="checkbox" checked={acks.safety} onChange={(e) => setAcks((a) => ({ ...a, safety: e.target.checked }))} style={ackBox} />
+            <span>I've read the safety information for this {isVolunteer ? "opportunity" : "trip"} and will share it with my group</span>
+          </label>
+        )}
+        <label style={ackRow}>
+          <input type="checkbox" checked={acks.terms} onChange={(e) => setAcks((a) => ({ ...a, terms: e.target.checked }))} style={ackBox} />
+          <span>
+            I agree to the <Link to="/policies/customer-booking-terms" target="_blank">booking terms</Link> and this listing's cancellation terms
+          </span>
+        </label>
+      </fieldset>
       {error && (
         <p role="alert" style={{ color: colors.danger, fontSize: 13, margin: "14px 0 0" }}>
           {error}
@@ -539,7 +606,7 @@ export function ExperienceDetail() {
             : "No payment required"}
         </div>
       </div>
-      <Button onClick={submit} disabled={submitting} style={{ flex: "none" }}>
+      <Button onClick={submit} disabled={submitting || (paidOpen === false && !!bookingTotalCents && quotedTotal !== 0 && experience.paymentMethod !== "cash")} style={{ flex: "none" }}>
         {submitting ? "Please wait…" : bookingTotalCents && quotedTotal !== 0 ? "Continue to pay" : submitVerb}
       </Button>
     </div>
@@ -576,7 +643,7 @@ export function ExperienceDetail() {
               variant="hero"
               eager
               sharedHero
-              style={{ aspectRatio: cardImageRatio.hero, borderRadius: 20, marginBottom: photos.length > 1 ? 10 : 24 }}
+              style={{ aspectRatio: cardImageRatio.hero, borderRadius: 16, marginBottom: photos.length > 1 ? 10 : 24 }}
               contentStyle={{ padding: 16, display: "flex", alignItems: "flex-start", justifyContent: "space-between" }}
             >
               {session ? (
@@ -611,11 +678,11 @@ export function ExperienceDetail() {
 
             {/* Eyebrow (kind) + title + price row — same position/weight as
                 GameDetail's own eyebrow/title/price row. */}
-            <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: colors.mutedLight, marginBottom: 6 }}>
+            <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: 0, textTransform: "uppercase", color: colors.mutedLight, marginBottom: 6 }}>
               {kindLabel}
             </div>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 16 }}>
-              <h1 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 28, margin: 0, letterSpacing: "-.01em" }}>{experience.title}</h1>
+              <h1 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(32px, 3.8vw, 52px)", margin: 0, letterSpacing: 0 }}>{experience.title}</h1>
               <div style={{ flex: "none" }}>
                 {experience.priceCents ? (
                   <div style={{ fontWeight: 800, fontSize: 22, color: colors.text }}>€{(experience.priceCents / 100).toFixed(2)}</div>
@@ -647,12 +714,12 @@ export function ExperienceDetail() {
             <OfficialCircleLink circleId={experience.circleId} circleName={experience.circleName} circleSlug={experience.circleSlug} />
 
             {experience.meetingPoint && (
-              <div style={{ background: colors.greenBg, color: colors.greenText, borderRadius: 12, padding: "10px 14px", fontSize: 13.5, margin: "16px 0" }}>
+              <div style={{ background: colors.greenBg, color: colors.greenText, borderRadius: 10, padding: "10px 14px", fontSize: 13.5, margin: "16px 0" }}>
                 <strong>Meeting point:</strong> {experience.meetingPoint}
               </div>
             )}
             {!session && (
-              <div style={{ background: colors.panel, color: colors.muted, borderRadius: 12, padding: "10px 14px", fontSize: 13.5, margin: "16px 0" }}>
+              <div style={{ background: colors.panel, color: colors.muted, borderRadius: 10, padding: "10px 14px", fontSize: 13.5, margin: "16px 0" }}>
                 No upcoming departures scheduled yet — check back soon.
               </div>
             )}
@@ -765,7 +832,7 @@ export function ExperienceDetail() {
             {experience.vendorName && (
               <div style={{ marginBottom: 28 }}>
                 <SectionHeading title="Hosted by" />
-                <div style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 14, padding: "14px 18px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+                <div style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 16, padding: "14px 18px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                     <span style={{ fontWeight: 700, fontSize: 14.5 }}>{experience.vendorName}</span>
                     {experience.vendorVerified && (
@@ -788,7 +855,7 @@ export function ExperienceDetail() {
             {experience.lat !== null && experience.lng !== null && (
               <div style={{ marginBottom: 28 }}>
                 <SectionHeading title="Meeting point" />
-                <div style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 14, padding: "16px 18px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap", marginBottom: 12 }}>
+                <div style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 16, padding: "16px 18px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap", marginBottom: 12 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                     <PinIcon size={16} style={{ color: colors.mutedLight, flex: "none" }} />
                     <div>
@@ -904,27 +971,17 @@ export function ExperienceDetail() {
         {bookingBody}
       </Modal>
 
-      {/* "Can't make this one?" — full-width mint band, same treatment as
-          GameDetail's own closing band (pale mint background, dark green
-          title, compact form/actions). */}
-      <section style={{ background: colors.greenBg }}>
-        <div className="section-pad" style={{ maxWidth, margin: "0 auto", padding: "48px 24px", display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: 32 }}>
-          <div style={{ maxWidth: 460 }}>
-            <h2 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(22px, 2.8vw, 28px)", margin: "0 0 8px", letterSpacing: "-.01em", color: colors.greenText }}>
-              Can't make this one?
-            </h2>
-            <p style={{ margin: 0, color: colors.muted, fontSize: 15 }}>
-              Tell HelloCircle when you'd like to do this. We'll let you know when something matches your interest.
-            </p>
-          </div>
-          <IntentCaptureForm
-            activityLabel={experience.title}
-            county={experience.county ?? ""}
-            startHref={browsePath}
-            startLabel={`Or browse more ${experience.kind === "adventure" ? "adventures" : "experiences"} →`}
-          />
-        </div>
-      </section>
+      {/* "Can't make this one?" — the shared CtaBand, with this
+          listing's own copy and the interest form. */}
+      <CtaBand
+        id="experience-cta-title"
+        label={experience.kind === "adventure" ? "Outdoors." : "Try it."}
+        lines={["Can't", "make this", "one?"]}
+        text="Tell HelloCircle when you'd like to do this. We'll let you know when something matches your interest."
+        action={{ label: `Browse more ${experience.kind === "adventure" ? "adventures" : "experiences"}`, to: browsePath }}
+      >
+        <IntentCaptureForm activityLabel={experience.title} county={experience.county ?? ""} startHref={browsePath} startLabel={`Or browse more ${experience.kind === "adventure" ? "adventures" : "experiences"} →`} />
+      </CtaBand>
 
       {/* Mobile sticky bar — same fixed-above-tab-bar pattern as
           GameJoinCard's own MobileJoinBar. Unlike a Game there's no

@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { BallIcon, BuildingIcon, ChevronRightIcon, HandshakeIcon, SunIcon, TreeIconSmall } from "../icons";
 import { colors, fonts, radius } from "../../theme";
-import { FV_ACCENT, FV_MAX_WIDTH } from "./constants";
+import { FV_ACCENT, FV_ACCENT_DARK, FV_MAX_WIDTH } from "./constants";
 import { RevealText } from "../RevealText";
 
 const TYPES: { title: string; blurb: string; examples?: string; photo: string; alt: string; icon: typeof BallIcon }[] = [
@@ -51,10 +51,10 @@ export function ProviderTypeGrid({ onLearnMore }: { onLearnMore: () => void }) {
     <section className="section-pad" style={{ maxWidth: FV_MAX_WIDTH, margin: "0 auto", padding: "64px 24px" }}>
       <div className="grid-responsive" style={{ display: "grid", gridTemplateColumns: "1.15fr 1fr", gap: 40, alignItems: "center" }}>
         <div>
-          <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: ".09em", textTransform: "uppercase", color: colors.mutedLight, marginBottom: 8 }}>
-            <span style={{ color: FV_ACCENT }}>/</span> Who it's for
+          <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: 0, textTransform: "uppercase", color: colors.mutedLight, marginBottom: 8 }}>
+            <span style={{ color: FV_ACCENT_DARK }}>/</span> Who it's for
           </div>
-          <RevealText as="h2" style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(30px, 4.2vw, 46px)", lineHeight: 1.05, letterSpacing: "-.02em", margin: "0 0 32px" }}>
+          <RevealText as="h2" style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(30px, 4.2vw, 46px)", lineHeight: 1.05, letterSpacing: 0, margin: "0 0 32px" }}>
             Places and people
             <br />
             that make things happen.
@@ -105,7 +105,7 @@ export function ProviderTypeGrid({ onLearnMore }: { onLearnMore: () => void }) {
                         fontFamily: fonts.display,
                         fontWeight: 800,
                         fontSize: 24,
-                        letterSpacing: "-.01em",
+                        letterSpacing: 0,
                         color: isActive ? FV_ACCENT : colors.text,
                         textDecoration: isActive ? "underline" : "none",
                         textDecorationThickness: 2,

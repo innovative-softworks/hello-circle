@@ -51,7 +51,7 @@ export function HostCheckInScreen({ game, onClose }: { game: Game | null; onClos
               <div style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 24 }}>
                 {checkedInCount} <span style={{ color: colors.mutedLight, fontWeight: 700, fontSize: 18 }}>/ {joined.length}</span>
               </div>
-              <div style={{ fontSize: 12.5, color: colors.mutedLight, fontWeight: 700, letterSpacing: ".03em", textTransform: "uppercase" }}>Checked in</div>
+              <div style={{ fontSize: 12.5, color: colors.mutedLight, fontWeight: 700, letterSpacing: 0, textTransform: "uppercase" }}>Checked in</div>
             </div>
             <div aria-hidden="true" style={{ height: 6, borderRadius: 6, background: colors.panel, overflow: "hidden" }}>
               <div style={{ height: "100%", width: `${joined.length ? (checkedInCount / joined.length) * 100 : 0}%`, background: colors.green, transition: "width .3s ease" }} />

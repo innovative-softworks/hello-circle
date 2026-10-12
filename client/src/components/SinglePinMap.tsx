@@ -35,7 +35,7 @@ export function SinglePinMap(props: { lat: number; lng: number; label: string; h
     return (
       <div
         style={{
-          borderRadius: 14,
+          borderRadius: 16,
           border: `1px solid ${colors.border}`,
           height,
           display: "flex",
@@ -52,7 +52,7 @@ export function SinglePinMap(props: { lat: number; lng: number; label: string; h
     );
   }
   if (runtimeEnabled === null) {
-    return <div style={{ borderRadius: 14, border: `1px solid ${colors.border}`, height, background: colors.panel }} />;
+    return <div style={{ borderRadius: 16, border: `1px solid ${colors.border}`, height, background: colors.panel }} />;
   }
 
   if (!open) {
@@ -64,7 +64,7 @@ export function SinglePinMap(props: { lat: number; lng: number; label: string; h
         style={{
           width: "100%",
           height,
-          borderRadius: 14,
+          borderRadius: 16,
           border: `1px solid ${colors.border}`,
           background: colors.panel,
           display: "flex",
@@ -83,7 +83,7 @@ export function SinglePinMap(props: { lat: number; lng: number; label: string; h
   }
 
   return (
-    <Suspense fallback={<div style={{ borderRadius: 14, border: `1px solid ${colors.border}`, height, background: colors.panel }} />}>
+    <Suspense fallback={<div style={{ borderRadius: 16, border: `1px solid ${colors.border}`, height, background: colors.panel }} />}>
       <SinglePinMapImpl {...props} />
     </Suspense>
   );

@@ -12,10 +12,9 @@ import {
   fetchRegistrationStatus,
 } from "../api";
 import { useMyStuff } from "../MyStuffContext";
-import { CheckIcon, ClockIcon } from "../components/icons";
+import { BkButton, BookingSurface, ConfirmationPanel, ListingSummary, PolicySummary, formatCents } from "../components/booking";
 import { ShareButton } from "../components/ShareButton";
-import { dateLabel, euro } from "../euro";
-import { colors, fonts } from "../theme";
+import { dateLabel } from "../euro";
 import type {
   BookingConfirmation,
   ExperienceBookingConfirmation,
@@ -181,99 +180,60 @@ export function PaymentSuccess() {
     };
   }, [ref, refresh]);
 
-  // The richer "what did I just book?" content only ever renders once the
-  // transaction can be resolved safely — never during "checking"/"pending",
-  // which keep their existing plain reference-number-only copy unchanged.
+  // Never says "booked" before the server does: the rich summary renders only
+  // once the poll has returned paid (Booking UX Phase 3, on the booking kit).
   const view = status === "paid" && ref && details ? viewFor(ref, details) : null;
+  const cancelDeadline = details && "cancelDeadline" in details ? details.cancelDeadline : undefined;
 
   return (
-    <div style={{ animation: "fadeUp .3s ease backwards" }}>
-      <section className="section-pad" style={{ maxWidth: 560, margin: "0 auto", padding: "64px 24px 90px", textAlign: "center" }}>
-        {status === "checking" && (
-          <>
-            <div style={{ width: 74, height: 74, borderRadius: "50%", background: colors.panel, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 22px", color: colors.muted }}>
-              <ClockIcon size={32} />
-            </div>
-            <h1 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 28, margin: "0 0 8px", letterSpacing: "-.02em" }}>Confirming your payment…</h1>
-            <p style={{ color: colors.muted, fontSize: 16, lineHeight: 1.5 }}>This only takes a moment. Reference: <b style={{ color: colors.text }}>{ref}</b></p>
-          </>
-        )}
+    <BookingSurface page>
+      {status === "checking" && (
+        <ConfirmationPanel variant="pending" title="Confirming your payment…" bookingRef={ref} lead="This usually takes a few seconds. Please don't pay again." />
+      )}
 
-        {status === "paid" && (
-          <>
-            <div className="pop-in" style={{ width: 74, height: 74, borderRadius: "50%", background: colors.greenBg, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 22px", color: colors.greenText }}>
-              <CheckIcon size={32} />
-            </div>
-            <h1 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 32, margin: "0 0 8px", letterSpacing: "-.02em" }}>You're all set!</h1>
+      {status === "paid" && (
+        <ConfirmationPanel
+          variant="success"
+          title="You're all set!"
+          bookingRef={ref}
+          lead={details ? `Paid ${formatCents(details.totalCents)}. A receipt is on its way to your email.` : "Payment confirmed. A receipt is on its way to your email."}
+          summary={view && <ListingSummary title={view.title} when={view.when} details={[view.venue, view.quantity].filter(Boolean).join(" · ") || null} />}
+          actions={
+            <>
+              <BkButton variant="dark" onClick={() => navigate(view?.manageHref ?? "/bookings")}>View booking</BkButton>
+              <BkButton variant="secondary" onClick={() => navigate("/home")}>Explore more</BkButton>
+              {view?.onAddToCalendar && (
+                <BkButton variant="quiet" onClick={() => view.onAddToCalendar!()}>
+                  Add to calendar
+                </BkButton>
+              )}
+              {view?.shareEntity && <ShareButton entityType={view.shareEntity.type} entityId={view.shareEntity.id} variant="ghost" label="Share" />}
+            </>
+          }
+        >
+          {cancelDeadline && <PolicySummary cancelDeadline={cancelDeadline} contact={ref?.startsWith("EX-") ? "host" : "venue"} />}
+        </ConfirmationPanel>
+      )}
 
-            {view ? (
-              <div style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 16, padding: "20px 22px", margin: "0 0 22px", textAlign: "left" }}>
-                <div style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 19, marginBottom: 6 }}>{view.title}</div>
-                <div style={{ display: "flex", flexDirection: "column", gap: 3, fontSize: 14, color: colors.muted }}>
-                  {view.when && <span>{view.when}</span>}
-                  {view.venue && <span>{view.venue}</span>}
-                  {view.quantity && <span>{view.quantity}</span>}
-                  <span>{euro((details?.totalCents ?? 0) / 100)} · Ref {ref}</span>
-                </div>
-              </div>
-            ) : (
-              <p style={{ color: colors.muted, fontSize: 16, lineHeight: 1.5, marginBottom: 28 }}>
-                Payment confirmed and a receipt is on its way to your email. Reference: <b style={{ color: colors.text }}>{ref}</b>
-              </p>
-            )}
+      {status === "pending" && (
+        <ConfirmationPanel
+          variant="pending"
+          title="Still confirming"
+          bookingRef={ref}
+          lead="Your payment is taking longer than usual to confirm. It will appear in My Life as soon as it's through — please don't pay again."
+          actions={<BkButton variant="dark" onClick={() => navigate("/bookings")}>Check my bookings</BkButton>}
+        />
+      )}
 
-            <div style={{ display: "flex", gap: 12, justifyContent: "center", flexWrap: "wrap", marginBottom: 12 }}>
-              <button onClick={() => navigate(view?.manageHref ?? "/bookings")} style={{ background: colors.green, color: "#fff", border: "none", borderRadius: 12, padding: "13px 22px", fontWeight: 700, fontSize: 15, cursor: "pointer" }}>
-                View booking
-              </button>
-              <button onClick={() => navigate("/home")} style={{ background: "#fff", color: colors.text, border: `1px solid ${colors.borderStrong}`, borderRadius: 12, padding: "13px 22px", fontWeight: 600, fontSize: 15, cursor: "pointer" }}>
-                Explore more
-              </button>
-            </div>
-
-            {view && (view.onAddToCalendar || view.shareEntity) && (
-              <div style={{ display: "flex", gap: 12, justifyContent: "center", flexWrap: "wrap" }}>
-                {view.onAddToCalendar && (
-                  <button
-                    onClick={() => view.onAddToCalendar!()}
-                    style={{ background: "none", border: "none", padding: 0, color: colors.muted, fontSize: 13.5, fontWeight: 600, textDecoration: "underline", cursor: "pointer" }}
-                  >
-                    Add to calendar
-                  </button>
-                )}
-                {view.shareEntity && <ShareButton entityType={view.shareEntity.type} entityId={view.shareEntity.id} variant="ghost" label="Share" />}
-              </div>
-            )}
-          </>
-        )}
-
-        {status === "pending" && (
-          <>
-            <div style={{ width: 74, height: 74, borderRadius: "50%", background: colors.panel, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 22px", color: colors.muted }}>
-              <ClockIcon size={32} />
-            </div>
-            <h1 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 28, margin: "0 0 8px", letterSpacing: "-.02em" }}>Still confirming</h1>
-            <p style={{ color: colors.muted, fontSize: 16, lineHeight: 1.5, marginBottom: 28 }}>
-              Your payment is taking a little longer to confirm than usual. It'll show up in "My Life" as soon as it's through — reference <b style={{ color: colors.text }}>{ref}</b>.
-            </p>
-            <button onClick={() => navigate("/bookings")} style={{ background: colors.green, color: "#fff", border: "none", borderRadius: 12, padding: "13px 22px", fontWeight: 700, fontSize: 15, cursor: "pointer" }}>
-              Check my bookings
-            </button>
-          </>
-        )}
-
-        {(status === "failed" || status === "notfound") && (
-          <>
-            <h1 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 28, margin: "0 0 8px", letterSpacing: "-.02em" }}>We couldn't confirm that</h1>
-            <p style={{ color: colors.muted, fontSize: 16, lineHeight: 1.5, marginBottom: 28 }}>
-              {status === "failed" ? "That payment didn't go through — no charge was made." : "We couldn't find that booking reference."}
-            </p>
-            <button onClick={() => navigate("/home")} style={{ background: colors.green, color: "#fff", border: "none", borderRadius: 12, padding: "13px 22px", fontWeight: 700, fontSize: 15, cursor: "pointer" }}>
-              Back home
-            </button>
-          </>
-        )}
-      </section>
-    </div>
+      {(status === "failed" || status === "notfound") && (
+        <ConfirmationPanel
+          variant="failed"
+          title={status === "failed" ? "Payment didn't go through" : "We couldn't find that booking"}
+          bookingRef={status === "failed" ? ref : null}
+          lead={status === "failed" ? "No charge was made, and your place has been released." : "Check the link in your confirmation email, or look in My Life."}
+          actions={<BkButton variant="dark" onClick={() => navigate(status === "failed" ? "/home" : "/bookings")}>{status === "failed" ? "Back home" : "My bookings"}</BkButton>}
+        />
+      )}
+    </BookingSurface>
   );
 }

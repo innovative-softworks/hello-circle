@@ -69,7 +69,7 @@ export function HostInsightsTab() {
             <span style={{ fontSize: 13, color: colors.faint }}>Nothing hosted yet.</span>
           ) : (
             insights.utilisation.map((u, i) => (
-              <span key={i} style={{ fontSize: 12, background: colors.greenBg, color: colors.greenText, borderRadius: 8, padding: "5px 9px", fontWeight: 700 }}>
+              <span key={i} style={{ fontSize: 12, background: colors.greenBg, color: colors.greenText, borderRadius: 10, padding: "5px 9px", fontWeight: 700 }}>
                 {DAY_NAMES[(u.dayOfWeek - 1) % 7]} {u.hour}:00 — {u.n}
               </span>
             ))

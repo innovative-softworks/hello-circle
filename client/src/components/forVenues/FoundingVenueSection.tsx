@@ -1,6 +1,6 @@
 import { Button } from "../ui";
 import { colors, fonts, radius } from "../../theme";
-import { FV_ACCENT, FV_MAX_WIDTH } from "./constants";
+import { FV_ACCENT, FV_ACCENT_DARK, FV_MAX_WIDTH } from "./constants";
 import { RevealText } from "../RevealText";
 
 const HELP_US_UNDERSTAND = [
@@ -23,10 +23,10 @@ export function FoundingVenueSection({ onCta }: { onCta: () => void }) {
     <section className="section-pad" style={{ borderTop: `1px solid ${colors.border}`, borderBottom: `1px solid ${colors.border}` }}>
       <div className="grid-responsive" style={{ maxWidth: FV_MAX_WIDTH, margin: "0 auto", padding: "64px 24px", display: "grid", gridTemplateColumns: "1.1fr 1fr", gap: 48, alignItems: "start" }}>
         <div>
-          <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: ".09em", textTransform: "uppercase", color: FV_ACCENT, marginBottom: 10 }}>
+          <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: 0, textTransform: "uppercase", color: FV_ACCENT_DARK, marginBottom: 10 }}>
             <span aria-hidden="true">/</span> Founding venues
           </div>
-          <RevealText as="h2" style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(26px, 3.2vw, 36px)", lineHeight: 1.05, letterSpacing: "-.02em", margin: "0 0 16px", maxWidth: 420 }}>
+          <RevealText as="h2" style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(26px, 3.2vw, 36px)", lineHeight: 1.05, letterSpacing: 0, margin: "0 0 16px", maxWidth: 420 }}>
             Help shape HelloCircle in your area.
           </RevealText>
           <p style={{ fontSize: 15, color: colors.textSoft, lineHeight: 1.6, margin: "0 0 20px", maxWidth: 440 }}>

@@ -47,7 +47,6 @@ const AcceptInvite = lazy(() => import("./pages/AcceptInvite").then((m) => ({ de
 const ManageLinkConfirm = lazy(() => import("./pages/ManageLinkConfirm").then((m) => ({ default: m.ManageLinkConfirm })));
 const InvitationLanding = lazy(() => import("./pages/InvitationLanding").then((m) => ({ default: m.InvitationLanding })));
 const AdminDashboard = lazy(() => import("./pages/AdminDashboard").then((m) => ({ default: m.AdminDashboard })));
-const AskHelloCircle = lazy(() => import("./pages/AskHelloCircle").then((m) => ({ default: m.AskHelloCircle })));
 const Browse = lazy(() => import("./pages/Browse").then((m) => ({ default: m.Browse })));
 const CentreDetail = lazy(() => import("./pages/CentreDetail").then((m) => ({ default: m.CentreDetail })));
 const CircleDetail = lazy(() => import("./pages/CircleDetail").then((m) => ({ default: m.CircleDetail })));
@@ -81,15 +80,18 @@ const MyBookings = lazy(() => import("./pages/MyBookings").then((m) => ({ defaul
 const PaymentCancel = lazy(() => import("./pages/PaymentCancel").then((m) => ({ default: m.PaymentCancel })));
 const PaymentSuccess = lazy(() => import("./pages/PaymentSuccess").then((m) => ({ default: m.PaymentSuccess })));
 const PrivacyPolicy = lazy(() => import("./pages/PrivacyPolicy").then((m) => ({ default: m.PrivacyPolicy })));
+// Booking kit preview (UX plan Phase 1) — dev builds only; tree-shaken from production.
+const BookingKitPreview = import.meta.env.DEV ? lazy(() => import("./pages/BookingKitPreview").then((m) => ({ default: m.BookingKitPreview }))) : null;
 const PolicyIndex = lazy(() => import("./pages/Policies").then((m) => ({ default: m.PolicyIndex })));
 const PolicyPage = lazy(() => import("./pages/Policies").then((m) => ({ default: m.PolicyPage })));
 const CmsPolicy = lazy(() => import("./pages/Policies").then((m) => ({ default: m.CmsPolicy })));
 const CookieChoiceControl = lazy(() => import("./pages/CookiePolicy").then((m) => ({ default: m.CookieChoiceControl })));
+const About = lazy(() => import("./pages/About").then((m) => ({ default: m.About })));
+const Contact = lazy(() => import("./pages/Contact").then((m) => ({ default: m.Contact })));
 const Complaints = lazy(() => import("./pages/Complaints").then((m) => ({ default: m.Complaints })));
 const Chats = lazy(() => import("./pages/Chats").then((m) => ({ default: m.Chats })));
 const Profile = lazy(() => import("./pages/Profile").then((m) => ({ default: m.Profile })));
 const SuggestPlacePage = lazy(() => import("./pages/SuggestPlace").then((m) => ({ default: m.SuggestPlacePage })));
-const LandingPage = lazy(() => import("./landing/LandingPage").then((m) => ({ default: m.LandingPage })));
 const LocalActivity = lazy(() => import("./pages/LocalActivity").then((m) => ({ default: m.LocalActivity })));
 const ProgramDetail = lazy(() => import("./pages/ProgramDetail").then((m) => ({ default: m.ProgramDetail })));
 const ProviderProfilePage = lazy(() => import("./pages/ProviderProfile").then((m) => ({ default: m.ProviderProfilePage })));
@@ -143,9 +145,11 @@ const LAUNCH_GATE_ENABLED = import.meta.env.VITE_LAUNCH_MODE !== "public";
 // surfaces this gate exists for, and neither detail page is reachable without
 // already holding an id.
 function isExemptFromLaunchGate(pathname: string): boolean {
-  if (pathname === "/" || pathname === "/for-venues" || pathname === "/pricing" || pathname === "/become-a-host" || pathname === "/coming-soon") return true;
+  if (pathname === "/" || pathname === "/for-venues" || pathname === "/partners" || pathname === "/pricing" || pathname === "/become-a-host" || pathname === "/coming-soon") return true;
   if (pathname === "/login" || pathname === "/forgot-password" || pathname === "/reset-password" || pathname === "/accept-invite") return true;
   if (pathname === "/privacy" || pathname === "/cookies") return true;
+  // Who runs the site and how to reach them — must be reachable pre-launch too (sitemap audit P1-02).
+  if (pathname === "/about" || pathname === "/contact") return true;
   if (pathname.startsWith("/vendor") || pathname.startsWith("/admin")) return true;
   if (pathname === "/signin" || pathname.startsWith("/signin/") || pathname === "/onboarding") return true; // /onboarding now just redirects to /bookings?setup=1
   // /bookings is "My Life", the resident's own account home — not a discovery
@@ -326,15 +330,17 @@ export function App() {
               <AppUpdateBoundary resetKey={location.pathname}>
               <Suspense fallback={<PageSpinner />}>
               <Routes>
-                {/* /for-venues is now doing double duty as the pre-launch
-                    root landing page (per explicit request) — Home moves to
-                    /home so every existing "back home"/logo-click call site
-                    that still means "the browse experience" keeps working
-                    once it's repointed there, rather than silently landing
-                    users back on the vendor pitch mid-flow. */}
-                <Route path="/" element={<ForVenues />} />
+                {/* "/" is the vendor pitch only while the pre-launch gate is
+                    closed (per explicit request). Once VITE_LAUNCH_MODE=public
+                    it is the consumer Home (sitemap audit P1-04), so the logo,
+                    sign-out and every "/" link land on the product. /home stays
+                    as a second route to the same page for existing links; the
+                    pitch keeps /for-venues and gains /partners. */}
+                <Route path="/" element={LAUNCH_GATE_ENABLED ? <ForVenues /> : <Home />} />
                 <Route path="/home" element={<Home />} />
-                <Route path="/landing" element={<LandingPage />} />
+                {/* Sitemap audit P2-15 — the standalone /landing marketing page had no
+                    way in; retired to a redirect (its code is still in client/src/landing/). */}
+                <Route path="/landing" element={<Navigate to="/" replace />} />
                 <Route path="/coming-soon" element={<ComingSoon />} />
                 <Route path="/browse/:category" element={<Browse />} />
                 <Route path="/centres/:id" element={<CentreDetail />} />
@@ -347,7 +353,10 @@ export function App() {
                 <Route path="/free-time" element={<FreeTimeMode />} />
                 <Route path="/make-it-happen" element={<MakeItHappen />} />
                 <Route path="/suggest-place" element={<SuggestPlacePage />} />
-                <Route path="/ask" element={<AskHelloCircle />} />
+                {/* Sitemap audit P2-15 — Ask HelloCircle ran the same structured search
+                    as Explore and was only reachable from /landing; folded into
+                    Explore's search (?q= is forwarded). Page code kept in pages/AskHelloCircle.tsx. */}
+                <Route path="/ask" element={<SearchRedirect />} />
                 <Route path="/games/:id" element={<GameDetail />} />
                 <Route path="/circles" element={<Circles />} />
                 <Route path="/circles/start" element={<StartCirclePage />} />
@@ -391,6 +400,7 @@ export function App() {
                 <Route path="/manage/link-confirm" element={<ManageLinkConfirm />} />
                 <Route path="/i/:token" element={<InvitationLanding />} />
                 <Route path="/for-venues" element={<ForVenues />} />
+                <Route path="/partners" element={<ForVenues />} />
                 <Route path="/pricing" element={<Pricing />} />
                 <Route path="/become-a-host" element={<BecomeAHost />} />
                 <Route path="/vendor/signup" element={<VendorSignup />} />
@@ -423,6 +433,8 @@ export function App() {
                 <Route path="/cookies" element={<CmsPolicy docKey="cookie-policy" fallback={<CookiePolicy />} extra={<CookieChoiceControl />} />} />
                 <Route path="/policies" element={<PolicyIndex />} />
                 <Route path="/policies/:key" element={<PolicyPage />} />
+                <Route path="/about" element={<About />} />
+                <Route path="/contact" element={<Contact />} />
                 <Route path="/complaints" element={<Complaints />} />
                 <Route path="/help-guide" element={<HelpGuideIndex />} />
                 <Route path="/help-guide/explore" element={<HelpGuideExplore />} />
@@ -433,6 +445,7 @@ export function App() {
                     last among real routes; react-router v6 ranks static path segments
                     over dynamic ones regardless of declaration order, so this never
                     shadows an existing 2-segment route like /games/:id. */}
+                {BookingKitPreview && <Route path="/dev/booking-kit" element={<BookingKitPreview />} />}
                 <Route path="/:county/:activity" element={<LocalActivity />} />
                 <Route path="*" element={<NotFound />} />
               </Routes>

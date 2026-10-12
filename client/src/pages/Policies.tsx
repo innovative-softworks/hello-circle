@@ -26,7 +26,7 @@ export function PolicyIndex() {
   ];
   return (
     <main style={wrap}>
-      <h1 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 34, margin: "0 0 8px" }}>Policy Centre</h1>
+      <h1 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(32px, 3.8vw, 52px)", margin: "0 0 8px" }}>Policy Centre</h1>
       <p style={{ color: colors.textSoft, fontSize: 15, margin: "0 0 26px" }}>
         The terms and policies that apply to using HelloCircle. Questions or problems? <Link to="/complaints" style={{ color: colors.greenText, fontWeight: 600 }}>Contact us or appeal a decision</Link>.
       </p>
@@ -42,7 +42,7 @@ export function PolicyIndex() {
               <ul style={{ listStyle: "none", padding: 0, margin: 0, border: `1px solid ${colors.border}`, borderRadius: radius.control }}>
                 {list.map((d, i) => (
                   <li key={d.docKey} style={{ padding: "12px 14px", borderTop: i ? `1px solid ${colors.border}` : "none", display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
-                    <Link to={`/policies/${d.docKey}`} style={{ color: colors.text, fontWeight: 600, textDecoration: "none" }}>
+                    <Link to={`/policies/${d.docKey}`} style={{ color: colors.text, fontWeight: 600, textDecoration: "none", display: "inline-block", padding: "3px 0" }}>
                       {d.title}
                     </Link>
                     <span style={{ fontSize: 12.5, color: colors.mutedLight }}>{d.publishedVersion ? `Version ${d.publishedVersion} · ${day(d.publishedAt)}` : "Being prepared"}</span>
@@ -74,7 +74,7 @@ function PolicyView({ docKey, version, extra, fallback }: { docKey: string; vers
     if (fallback) return <>{fallback}</>;
     return (
       <main style={wrap}>
-        <h1 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 30, margin: "0 0 10px" }}>{doc === "error" ? "Policy not found" : doc.title}</h1>
+        <h1 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(32px, 3.8vw, 52px)", margin: "0 0 10px" }}>{doc === "error" ? "Policy not found" : doc.title}</h1>
         <p style={{ color: colors.textSoft }}>{doc === "error" ? "We couldn't find that policy." : "This document is being prepared and hasn't been published yet."}</p>
         <Link to="/policies" style={{ color: colors.greenText, fontWeight: 600 }}>All policies</Link>
       </main>
@@ -94,7 +94,7 @@ function PolicyView({ docKey, version, extra, fallback }: { docKey: string; vers
           This is an earlier version, no longer in force. <Link to={`/policies/${docKey}`} style={{ color: colors.orangeDark, fontWeight: 700 }}>See the current version</Link>.
         </p>
       )}
-      <h1 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 32, margin: "0 0 6px" }}>{doc.title}</h1>
+      <h1 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(32px, 3.8vw, 52px)", margin: "0 0 6px" }}>{doc.title}</h1>
       <p style={{ fontSize: 13, color: colors.mutedLight, margin: "0 0 24px" }}>
         Version {pub.version} · effective {day(pub.effectiveFrom ?? pub.publishedAt)}
       </p>

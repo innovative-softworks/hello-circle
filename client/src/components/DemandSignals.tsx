@@ -15,7 +15,7 @@ function scopeButtonStyle(active: boolean): CSSProperties {
     fontSize: 11.5,
     fontWeight: 700,
     padding: "4px 10px",
-    borderRadius: 100,
+    borderRadius: 999,
     border: "none",
     cursor: "pointer",
     background: active ? colors.dark : colors.panel,
@@ -77,7 +77,7 @@ export function DemandSignalsView({
               </span>
               <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
                 {r.recentCount > 0 && (
-                  <span style={{ fontSize: 11, fontWeight: 700, color: colors.orangeDark, background: colors.orangeBg, borderRadius: 100, padding: "2px 7px" }}>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: colors.orangeDark, background: colors.orangeBg, borderRadius: 999, padding: "2px 7px" }}>
                     {r.recentCount} this week
                   </span>
                 )}

@@ -12,7 +12,7 @@ export const GUIDE_SECTIONS: GuideSection[] = [
   {
     slug: "explore",
     label: "Explore",
-    description: "Join a session, Adventures, Experiences, Community centres and Sports clubs.",
+    description: "Activities, Adventures, Experiences, Programmes, Community centres and Sports clubs.",
   },
   {
     slug: "circles",
@@ -27,6 +27,6 @@ export const GUIDE_SECTIONS: GuideSection[] = [
   {
     slug: "start",
     label: "Start",
-    description: "Book a place, host a session, pitch an idea, or suggest a venue.",
+    description: "Host an activity, start a Circle, or suggest a place we're missing.",
   },
 ];

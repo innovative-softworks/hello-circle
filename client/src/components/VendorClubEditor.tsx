@@ -21,6 +21,7 @@ import { SingleImageUpload } from "./SingleImageUpload";
 import { ACTIVITY_CATEGORIES } from "../constants";
 import { colors, fonts, radius } from "../theme";
 import type { Club, ClubSession, WaitlistEntry } from "../types";
+import { PaidClosedPriceNotice } from "./PaidClosedPriceNotice";
 
 // Club create/edit form + its recurring-sessions and waitlist sub-panels —
 // split out of the original single VendorDashboard.tsx (see CLAUDE.md).
@@ -190,6 +191,7 @@ export function ClubEditor({
         <div>
           <label style={labelStyle}>Price (€)</label>
           <input type="number" value={form.price} onChange={(e) => set("price", Number(e.target.value))} style={{ ...inputStyle, maxWidth: 140 }} />
+          <PaidClosedPriceNotice amount={form.price} paymentMethod={form.paymentMethod ?? "online"} />
         </div>
         <div>
           <label style={labelStyle}>Per</label>
@@ -202,7 +204,7 @@ export function ClubEditor({
         </div>
       </div>
 
-      <label style={{ display: "flex", alignItems: "center", gap: 9, marginBottom: 16, fontSize: 14, background: colors.bg, border: `1px solid ${colors.border}`, borderRadius: 11, padding: "10px 13px", cursor: "pointer" }}>
+      <label style={{ display: "flex", alignItems: "center", gap: 9, marginBottom: 16, fontSize: 14, background: colors.bg, border: `1px solid ${colors.border}`, borderRadius: 10, padding: "10px 13px", cursor: "pointer" }}>
         <input type="checkbox" checked={!!form.trial} onChange={(e) => set("trial", e.target.checked)} style={{ accentColor: colors.orange, width: 16, height: 16 }} />
         Offers a free trial session
       </label>

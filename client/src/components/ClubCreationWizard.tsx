@@ -15,6 +15,7 @@ import { Card, labelStyle, inputStyle } from "./ui";
 import { ACTIVITY_CATEGORIES } from "../constants";
 import { colors, fonts, radius } from "../theme";
 import type { Club } from "../types";
+import { PaidClosedPriceNotice } from "./PaidClosedPriceNotice";
 
 // Guided Flow creation wizard for a sports club (Form System Audit, Phase 5
 // fast-follow to CentreCreationWizard.tsx — same reasoning applies here:
@@ -383,6 +384,7 @@ export function ClubCreationWizard({
             <div>
               <label htmlFor="club-wizard-price" style={labelStyle}>Price (€)</label>
               <input id="club-wizard-price" type="number" value={form.price} onChange={(e) => setForm({ price: Number(e.target.value) })} style={{ ...inputStyle, maxWidth: 140 }} />
+              <PaidClosedPriceNotice amount={form.price} paymentMethod={form.paymentMethod} />
             </div>
             <div>
               <label htmlFor="club-wizard-unit" style={labelStyle}>Per</label>
@@ -395,7 +397,7 @@ export function ClubCreationWizard({
             </div>
           </div>
 
-          <label style={{ display: "flex", alignItems: "center", gap: 9, fontSize: 14, background: colors.bg, border: `1px solid ${colors.border}`, borderRadius: 11, padding: "10px 13px", cursor: "pointer" }}>
+          <label style={{ display: "flex", alignItems: "center", gap: 9, fontSize: 14, background: colors.bg, border: `1px solid ${colors.border}`, borderRadius: 10, padding: "10px 13px", cursor: "pointer" }}>
             <input type="checkbox" checked={form.trial} onChange={(e) => setForm({ trial: e.target.checked })} style={{ accentColor: colors.orange, width: 16, height: 16 }} />
             Offers a free trial session
           </label>
@@ -493,7 +495,7 @@ export function ClubCreationWizard({
     >
       {previewClub && (
         <div style={{ maxWidth: 320, marginBottom: 18 }}>
-          <p style={{ fontSize: 12, color: colors.mutedLight, margin: "0 0 8px", fontWeight: 700, textTransform: "uppercase", letterSpacing: ".03em" }}>
+          <p style={{ fontSize: 12, color: colors.mutedLight, margin: "0 0 8px", fontWeight: 700, textTransform: "uppercase", letterSpacing: 0 }}>
             How it'll look
           </p>
           <div style={{ pointerEvents: "none" }}>

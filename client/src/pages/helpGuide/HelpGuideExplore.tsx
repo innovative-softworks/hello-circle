@@ -5,7 +5,7 @@ import { HelpGuideShell } from "./HelpGuideShell";
 
 function SubHeading({ children }: { children: React.ReactNode }) {
   return (
-    <h2 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 24, margin: "48px 0 4px", letterSpacing: "-.01em", borderTop: `1px solid ${colors.border}`, paddingTop: 40 }}>
+    <h2 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 24, margin: "48px 0 4px", letterSpacing: 0, borderTop: `1px solid ${colors.border}`, paddingTop: 40 }}>
       {children}
     </h2>
   );
@@ -17,33 +17,33 @@ export function HelpGuideExplore() {
       slug="explore"
       eyebrow="Help guide"
       title="Explore."
-      subtitle="Everything under the Explore menu — Activities (Join a session, Adventures, Experiences) and Venues (Community centres, Sports clubs)."
+      subtitle="Everything under the Explore menu — Things to do (Activities, Adventures, Experiences, Programmes) and Places (Community centres, Sports clubs)."
     >
       <p style={guideStepPStyle}>
         Click <strong>Explore</strong> in the top nav (or the Explore tab at the bottom of the screen on mobile) to open
-        this menu. It's split into three columns: <strong>Activities</strong> (things you can join right now, hosted by
-        residents or vendors), <strong>Venues</strong> (places you book directly), and <strong>Featured</strong>{" "}
-        (what's on this weekend, and how to become a Host).
+        this menu. It's split into columns: <strong>Things to do</strong> (things you can join, hosted by residents or
+        providers), <strong>Places</strong> (community centres and sports clubs, once they open on HelloCircle), and{" "}
+        <strong>Featured</strong> (what's on this weekend, and how to become a host).
       </p>
       <ScreenshotPlaceholder
         caption="Full-width screenshot of the open Explore megamenu, all three columns and the photo tile on the right visible, desktop width."
-        alt="The Explore megamenu open, showing Activities, Venues and Featured columns"
+        alt="The Explore megamenu open, showing Things to do, Places and Featured columns"
       />
 
-      {/* ---------- Join a session ---------- */}
-      <SubHeading>Join a session</SubHeading>
+      {/* ---------- Activities ---------- */}
+      <SubHeading>Activities</SubHeading>
       <p style={guideStepPStyle}>
-        A <strong>session</strong> is an ad-hoc, informal activity — a pickup game, a one-off class, a casual meetup —
+        An <strong>activity</strong> is an ad-hoc, informal session — a pickup game, a one-off class, a casual meetup —
         hosted by another resident, not a business. No vendor account or venue listing is required to host or join one.
       </p>
 
-      <GuideStep n="01" title="Open the sessions list">
+      <GuideStep n="01" title="Open the activities list">
         <p style={guideStepPStyle}>
-          Explore → Activities → <strong>Join a session</strong> takes you to <code>/games</code>. You'll see a search
+          Explore → Things to do → <strong>Activities</strong> takes you to <code>/games</code>. You'll see a search
           bar ("What do you feel like doing?"), a county filter, a "when" filter (today / this week / weekend), and a
           sort control (Recommended / Soonest / Most spots left).
         </p>
-        <ScreenshotPlaceholder caption="The /games page: search bar at top, filter row, and a grid of session cards below." alt="Join a session browse page" />
+        <ScreenshotPlaceholder caption="The /games page: search bar at top, filter row, and a grid of session cards below." alt="Activities browse page" />
       </GuideStep>
 
       <GuideStep n="02" title="Narrow it down">
@@ -127,7 +127,7 @@ export function HelpGuideExplore() {
 
       <GuideStep n="01" title="Browse centres">
         <p style={guideStepPStyle}>
-          Explore → Venues → <strong>Community centres</strong> opens <code>/browse/centres</code>. Filter by county,
+          Explore → Places → <strong>Community centres</strong> opens <code>/browse/centres</code>. Filter by county,
           sort by price or distance, and each card shows the centre's capacity and starting price per hour.
         </p>
         <ScreenshotPlaceholder caption="The Community centres browse page, with the filter bar and a grid/map view toggle." alt="Community centres browse page" />
@@ -137,7 +137,7 @@ export function HelpGuideExplore() {
         <p style={guideStepPStyle}>
           A centre's page lists every room it offers (each with its own capacity, hourly rate and photos), its opening
           hours, address and map, and reviews from past bookers. Larger centres may also list open sessions and
-          multi-week Programs happening on-site.
+          multi-week Programmes happening on-site.
         </p>
       </GuideStep>
 
@@ -168,7 +168,7 @@ export function HelpGuideExplore() {
 
       <GuideStep n="01" title="Browse clubs">
         <p style={guideStepPStyle}>
-          Explore → Venues → <strong>Sports clubs</strong> opens <code>/browse/clubs</code>. Filter by sport, county or
+          Explore → Places → <strong>Sports clubs</strong> opens <code>/browse/clubs</code>. Filter by sport, county or
           age group; each card shows the price and how it's billed (per year, per term, per lesson or per session).
         </p>
       </GuideStep>

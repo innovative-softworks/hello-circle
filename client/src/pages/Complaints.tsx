@@ -67,7 +67,7 @@ export function Complaints() {
 
   return (
     <main style={{ maxWidth: 760, margin: "0 auto", padding: "32px 16px 64px" }}>
-      <h1 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 32, margin: "0 0 8px" }}>Complaints and appeals</h1>
+      <h1 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(32px, 3.8vw, 52px)", margin: "0 0 8px" }}>Complaints and appeals</h1>
       <p style={{ color: colors.textSoft, fontSize: 15, margin: "0 0 22px", lineHeight: 1.6 }}>
         Tell us about a problem, report content you believe is illegal, or appeal a decision we made. A person reviews every request, and we explain our decision. See{" "}
         <Link to="/policies/complaints-appeals" style={{ color: colors.greenText, fontWeight: 600 }}>how we handle complaints and appeals</Link>.

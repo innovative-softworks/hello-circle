@@ -41,7 +41,7 @@ export function RewardsHistoryPage({ scope }: { scope: Scope }) {
   return (
     <main style={{ maxWidth: 820, margin: "0 auto", padding: "24px 16px 64px", background: colors.bg, color: colors.text }}>
       <Link to={scope === "vendor" ? "/vendor" : "/manage"} style={{ fontSize: 13.5, color: colors.text, fontWeight: 700 }}>← Back to your dashboard</Link>
-      <h1 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 32, margin: "6px 0" }}>Reward points</h1>
+      <h1 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(32px, 3.8vw, 52px)", margin: "6px 0" }}>Reward points</h1>
       <HelpLine helpKey="points_earning" />
       <div style={{ display: "flex", gap: 16, flexWrap: "wrap", margin: "4px 0 16px" }}>
         <LearnMore helpKey="points_pending" label="Pending vs available" />

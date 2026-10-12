@@ -1,5 +1,5 @@
 import { colors, fonts } from "../../theme";
-import { FV_ACCENT, FV_MAX_WIDTH } from "./constants";
+import { FV_ACCENT, FV_ACCENT_DARK, FV_MAX_WIDTH } from "./constants";
 import { RevealText } from "../RevealText";
 
 // Dark full-bleed band, same treatment ChooseYourPathSection uses — giant
@@ -16,10 +16,10 @@ export function HostWhatSection() {
     <section style={{ background: colors.dark }}>
       <div className="section-pad" style={{ maxWidth: FV_MAX_WIDTH, margin: "0 auto", padding: "80px 24px" }}>
         <div style={{ marginBottom: 56 }}>
-          <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: ".09em", textTransform: "uppercase", color: "rgba(255,255,255,.5)", marginBottom: 12 }}>
-            <span style={{ color: FV_ACCENT }}>/</span> What you can host
+          <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: 0, textTransform: "uppercase", color: "rgba(255,255,255,.5)", marginBottom: 12 }}>
+            <span style={{ color: FV_ACCENT_DARK }}>/</span> What you can host
           </div>
-          <RevealText as="h2" style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(36px, 5.4vw, 64px)", lineHeight: 0.98, letterSpacing: "-.03em", color: "#fff", margin: 0 }}>
+          <RevealText as="h2" style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(36px, 5.4vw, 64px)", lineHeight: 0.98, letterSpacing: 0, color: "#fff", margin: 0 }}>
             Two shapes.
             <br />
             Same starting point.
@@ -36,10 +36,10 @@ export function HostWhatSection() {
                 borderLeft: i === 1 ? "1px solid rgba(255,255,255,.15)" : "none",
               }}
             >
-              <div style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 80, letterSpacing: "-.02em", color: "rgba(255,255,255,.18)", lineHeight: 1, marginBottom: 20 }}>
+              <div style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 80, letterSpacing: 0, color: "rgba(255,255,255,.18)", lineHeight: 1, marginBottom: 20 }}>
                 {t.n}
               </div>
-              <h3 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(26px, 3vw, 34px)", letterSpacing: "-.01em", color: "#fff", margin: "0 0 16px" }}>
+              <h3 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(26px, 3vw, 34px)", letterSpacing: 0, color: "#fff", margin: "0 0 16px" }}>
                 {t.title}
               </h3>
               <p style={{ fontSize: 16, color: "rgba(255,255,255,.72)", lineHeight: 1.6, margin: 0, maxWidth: 400 }}>{t.detail}</p>

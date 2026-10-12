@@ -13,7 +13,7 @@ const hStyle = (level: number): CSSProperties => ({
   fontWeight: 700,
   fontSize: level === 1 ? 30 : level === 2 ? 19 : 16,
   margin: level === 1 ? "0 0 16px" : "26px 0 10px",
-  letterSpacing: "-.01em",
+  letterSpacing: 0,
 });
 const mark: CSSProperties = { background: colors.orangeBg, color: colors.orangeDark, padding: "1px 5px", borderRadius: 5, fontWeight: 600 };
 

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { fetchHostBalances, fetchHostGameEarnings } from "../api";
-import { EarningsSummary } from "./EarningsSummary";
+import { EarningsSections } from "./EarningsSummary";
 import { TraderProfileForm } from "./TraderProfileForm";
 import type { HostGameEarning } from "../api";
 import { CardIcon } from "./icons";
@@ -23,8 +23,7 @@ export function HostEarningsTab() {
   const totalCents = rows.reduce((sum, r) => sum + (r.amountCents ?? 0), 0);
 
   return (
-    <>
-    <EarningsSummary load={fetchHostBalances} scope="host" />
+    <EarningsSections scope="host" loadBalance={fetchHostBalances}>
     <div style={{ marginBottom: 16 }}>
       <TraderProfileForm scope="host" defaultEntity="individual" />
     </div>
@@ -58,6 +57,6 @@ export function HostEarningsTab() {
         </div>
       )}
     </Card>
-    </>
+    </EarningsSections>
   );
 }

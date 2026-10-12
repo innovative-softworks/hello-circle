@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { ChevronDownIcon } from "../icons";
 import { colors, fonts } from "../../theme";
-import { FV_ACCENT, FV_MAX_WIDTH } from "./constants";
+import { FV_ACCENT, FV_ACCENT_DARK, FV_MAX_WIDTH } from "./constants";
 import { RevealText } from "../RevealText";
 
 const VENUE_FAQS: { q: string; a: string }[] = [
@@ -30,10 +30,10 @@ export function VendorFAQ({
 
   return (
     <section className="section-pad" style={{ maxWidth: FV_MAX_WIDTH, margin: "0 auto", padding: "64px 24px" }}>
-      <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: ".09em", textTransform: "uppercase", color: colors.mutedLight, marginBottom: 8 }}>
-        <span style={{ color: FV_ACCENT }}>/</span> {eyebrow}
+      <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: 0, textTransform: "uppercase", color: colors.mutedLight, marginBottom: 8 }}>
+        <span style={{ color: FV_ACCENT_DARK }}>/</span> {eyebrow}
       </div>
-      <RevealText as="h2" style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(24px, 3vw, 32px)", letterSpacing: "-.02em", margin: "0 0 8px" }}>
+      <RevealText as="h2" style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(24px, 3vw, 32px)", letterSpacing: 0, margin: "0 0 8px" }}>
         {title}
       </RevealText>
       <div style={{ borderTop: `1px solid ${colors.border}`, marginTop: 24 }}>

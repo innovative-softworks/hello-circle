@@ -18,7 +18,7 @@ export function NotFound() {
         <div style={{ width: 74, height: 74, borderRadius: "50%", background: colors.orangeBg, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 22px", color: colors.orangeDark }}>
           <SearchIcon size={30} />
         </div>
-        <h1 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 28, margin: "0 0 8px", letterSpacing: "-.02em" }}>We couldn't find that page</h1>
+        <h1 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: "clamp(32px, 3.8vw, 52px)", margin: "0 0 8px", letterSpacing: 0 }}>We couldn't find that page</h1>
         <p style={{ color: colors.muted, fontSize: 16, lineHeight: 1.5, marginBottom: 28 }}>
           The link might be out of date, or the plan, Circle or listing it pointed to may have been removed.
         </p>

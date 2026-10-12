@@ -73,7 +73,7 @@ export function Chats() {
 
   return (
     <section className="section-pad" style={{ maxWidth: 720, margin: "0 auto", padding: "40px 24px 80px" }}>
-      <h1 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(26px, 3.4vw, 34px)", margin: "0 0 6px", letterSpacing: "-.02em" }}>Chats</h1>
+      <h1 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(32px, 3.8vw, 52px)", margin: "0 0 6px", letterSpacing: 0 }}>Chats</h1>
       <p style={{ margin: "0 0 20px", color: colors.mutedLight, fontSize: 15 }}>
         {view === "host" ? "Conversations with the people taking part in your listings." : "Group chats for everything you're taking part in."}
       </p>
@@ -125,7 +125,7 @@ export function Chats() {
                 color: colors.text,
               }}
             >
-              <span style={{ width: 42, height: 42, borderRadius: 14, background: i.unread > 0 ? colors.greenBg : colors.panel, color: i.unread > 0 ? colors.greenText : colors.muted, display: "inline-flex", alignItems: "center", justifyContent: "center", flex: "none" }}>
+              <span style={{ width: 42, height: 42, borderRadius: 16, background: i.unread > 0 ? colors.greenBg : colors.panel, color: i.unread > 0 ? colors.greenText : colors.muted, display: "inline-flex", alignItems: "center", justifyContent: "center", flex: "none" }}>
                 <ChatIcon size={19} />
               </span>
               <span style={{ flex: 1, minWidth: 0 }}>

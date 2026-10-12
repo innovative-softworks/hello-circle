@@ -443,7 +443,7 @@ export function CentreCreationWizard({
     >
       {previewCentre && (
         <div style={{ maxWidth: 320, marginBottom: 18 }}>
-          <p style={{ fontSize: 12, color: colors.mutedLight, margin: "0 0 8px", fontWeight: 700, textTransform: "uppercase", letterSpacing: ".03em" }}>
+          <p style={{ fontSize: 12, color: colors.mutedLight, margin: "0 0 8px", fontWeight: 700, textTransform: "uppercase", letterSpacing: 0 }}>
             How it'll look
           </p>
           <div style={{ pointerEvents: "none" }}>

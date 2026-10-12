@@ -5,6 +5,7 @@ import {
   fetchAdminComplaints,
   fetchAdminPolicies,
   fetchAdminTraders,
+  fetchCompanyProfile,
   fetchPolicyVersions,
   policyTransition,
   previewPolicyVersion,
@@ -16,6 +17,7 @@ import {
   type AdminPolicyPreview,
   type AdminPolicyVersion,
   type AdminTrader,
+  type CompanyProfileField,
   type PolicyAction,
 } from "../api";
 import { useAuth } from "../AuthContext";
@@ -260,6 +262,66 @@ function DocumentsSection({ overview, reload }: { overview: AdminPolicyOverview;
           }}
         />
       )}
+    </Card>
+  );
+}
+
+// Sitemap audit P1-02 readiness — what the public About/Contact pages can show.
+const PROFILE_STATE: Record<CompanyProfileField["state"], { label: string; fg: string; bg: string }> = {
+  missing: { label: "Missing", fg: colors.danger, bg: colors.dangerBg },
+  set_not_published: { label: "Set — not yet in a published policy", fg: colors.orangeDark, bg: colors.orangeBg },
+  published: { label: "Published — shown publicly", fg: colors.greenText, bg: colors.greenBg },
+};
+
+function CompanyProfileChecklist({ refreshKey }: { refreshKey: unknown }) {
+  const [fields, setFields] = useState<CompanyProfileField[] | null>(null);
+  const [error, setError] = useState(false);
+  useEffect(() => {
+    fetchCompanyProfile()
+      .then((f) => {
+        setFields(f);
+        setError(false);
+      })
+      .catch(() => setError(true));
+  }, [refreshKey]);
+  if (error) return <p role="alert" style={errStyle}>Couldn't load the company profile checklist.</p>;
+  if (!fields) return null;
+  const done = fields.filter((f) => f.state === "published" && !f.mismatch).length;
+  const missing = fields.filter((f) => f.state === "missing").length;
+  const mismatches = fields.filter((f) => f.mismatch).length;
+  return (
+    <Card style={{ padding: 22, marginBottom: 16 }}>
+      <h3 style={h3}>Company profile checklist</h3>
+      <p style={hint}>
+        <strong style={{ color: colors.text }}>
+          {done} of {fields.length} published · {missing} missing{mismatches ? ` · ${mismatches} not matching the confirmed value` : ""}.
+        </strong>{" "}
+        The About and Contact pages show a company detail only once its exact value appears in a published policy, so
+        legal details are never shown before legal sign-off. Enter real values only — from the company's CRO record, Revenue and its own records. If a value
+        changes, it stops showing until a policy carrying the new value is published.
+      </p>
+      <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
+        {fields.map((f) => {
+          const st = PROFILE_STATE[f.state];
+          return (
+            <li key={f.key} style={{ padding: "10px 0", borderTop: `1px solid ${colors.border}` }}>
+              <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+                <span style={{ fontSize: 13.5 }}>
+                  <strong>{f.label}</strong>
+                  <span style={{ color: colors.mutedLight, fontFamily: "ui-monospace, Menlo, monospace", fontSize: 12, marginLeft: 8 }}>[[{f.key}]]</span>
+                </span>
+                <span style={{ fontSize: 12, fontWeight: 700, color: st.fg, background: st.bg, borderRadius: radius.pill, padding: "3px 10px" }}>{st.label}</span>
+              </div>
+              <div style={{ fontSize: 12.5, color: colors.mutedLight, marginTop: 4, lineHeight: 1.45 }}>{f.guidance}</div>
+              {f.mismatch && (
+                <div role="alert" style={{ fontSize: 12.5, color: colors.danger, fontWeight: 600, marginTop: 4 }}>
+                  The value entered (“{f.value}”) isn't the confirmed one: {f.expected}.
+                </div>
+              )}
+            </li>
+          );
+        })}
+      </ul>
     </Card>
   );
 }
@@ -522,7 +584,12 @@ export function AdminPolicyTab() {
         ))}
       </div>
       {section === "documents" && overview && <DocumentsSection overview={overview} reload={reload} />}
-      {section === "values" && overview && <PlaceholdersSection overview={overview} reload={reload} />}
+      {section === "values" && overview && (
+        <>
+          <CompanyProfileChecklist refreshKey={overview} />
+          <PlaceholdersSection overview={overview} reload={reload} />
+        </>
+      )}
       {section === "complaints" && <ComplaintsSection />}
       {section === "traders" && <TradersSection />}
     </div>

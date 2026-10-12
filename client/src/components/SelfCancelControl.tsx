@@ -18,6 +18,31 @@ export function refundBadgeText(refundState: RefundState | undefined): string | 
   return null;
 }
 
+/** Commercial UX R1 (C6) — the one refund label for every booking type in My
+ * Life. Text and tone come only from the server's refundState: processing is
+ * neutral-warm (money still on its way), refunded is green (done). */
+export function RefundStatus({ refundState }: { refundState: RefundState | undefined }) {
+  const text = refundBadgeText(refundState);
+  if (!text) return null;
+  const done = refundState === "refunded";
+  return (
+    <span
+      data-refund-state={refundState}
+      style={{
+        fontSize: 11,
+        fontWeight: 700,
+        color: done ? colors.greenText : colors.orangeDark,
+        background: done ? colors.greenBg : colors.orangeBg,
+        borderRadius: 999,
+        padding: "2px 8px",
+        whiteSpace: "nowrap",
+      }}
+    >
+      {text}
+    </span>
+  );
+}
+
 export function SelfCancelControl({
   noun,
   title,

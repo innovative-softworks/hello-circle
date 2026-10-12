@@ -98,7 +98,7 @@ export function Reviews({ listingType, listingId, accent, onReviewPosted }: Prop
     <div style={{ maxWidth: 640 }}>
       <div style={{ borderTop: `1px solid ${colors.border}`, paddingTop: 36, marginTop: 4 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 22 }}>
-          <h2 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 25, margin: 0, letterSpacing: "-.015em" }}>Reviews</h2>
+          <h2 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 25, margin: 0, letterSpacing: 0 }}>Reviews</h2>
           {reviews.length > 0 && <span style={{ color: colors.faint, fontSize: 14 }}>{reviews.length}</span>}
         </div>
       </div>

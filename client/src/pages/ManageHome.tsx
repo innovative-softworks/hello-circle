@@ -142,7 +142,7 @@ export function ManageHome() {
               hideTabs
               badge={
                 hostStatus === "verified" ? (
-                  <span style={{ display: "inline-flex", alignItems: "center", gap: 4, background: colors.greenBg, color: colors.greenText, borderRadius: 20, padding: "3px 10px 3px 8px", fontSize: 12, fontWeight: 700 }}>
+                  <span style={{ display: "inline-flex", alignItems: "center", gap: 4, background: colors.greenBg, color: colors.greenText, borderRadius: 16, padding: "3px 10px 3px 8px", fontSize: 12, fontWeight: 700 }}>
                     <CheckCircleIcon size={13} /> Verified Host
                   </span>
                 ) : undefined

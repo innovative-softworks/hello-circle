@@ -6,6 +6,8 @@ import { colors, fonts } from "../theme";
 import { HelpLine, LearnMore } from "./LearnMore";
 import { useFieldHelp } from "./FieldHelp";
 import { Button } from "./ui";
+import { earningsHref } from "./earningsViews";
+import { visibleBenefitKeys } from "../partnerPricing";
 
 // Stage 5f — "Plan & rewards": ONE domain component for vendors and hosts
 // (scope) on the dashboard (compact) and Earnings (full). The plan state is
@@ -32,7 +34,7 @@ export const HISTORY_LABEL: Record<RewardHistoryEntry["kind"], string> = {
 };
 
 const panel = { background: colors.surface, border: `1px solid ${colors.borderStrong}`, borderRadius: 0, padding: 20 } as const;
-const eyebrow = { fontSize: 11.5, fontWeight: 700, letterSpacing: ".08em", textTransform: "uppercase" as const, color: colors.muted, margin: 0 };
+const eyebrow = { fontSize: 11.5, fontWeight: 700, letterSpacing: 0, textTransform: "uppercase" as const, color: colors.muted, margin: 0 };
 
 export function PriceRows({ price, totalLabel = "Total each month" }: { price: PartnerPlanOverview["price"]; totalLabel?: string }) {
   return (
@@ -54,7 +56,10 @@ function Badge({ children, tone }: { children: ReactNode; tone: "ok" | "warn" | 
 }
 
 function BenefitList() {
-  const items = [useFieldHelp("pro_benefit_1"), useFieldHelp("pro_benefit_2"), useFieldHelp("pro_benefit_3")].filter(Boolean);
+  // R3B F1 — the lower-fee benefits describe the unconfirmed fee model; hooks stay unconditional.
+  const all = [useFieldHelp("pro_benefit_1"), useFieldHelp("pro_benefit_2"), useFieldHelp("pro_benefit_3")];
+  const shown = visibleBenefitKeys(["pro_benefit_1", "pro_benefit_2", "pro_benefit_3"]);
+  const items = all.filter((b) => b && shown.includes(b.helpKey));
   if (!items.length) return null;
   return (
     <ul style={{ margin: "8px 0", paddingLeft: 18, fontSize: 14, lineHeight: 1.6 }} data-testid="pro-benefits">
@@ -286,7 +291,7 @@ export function PlanRewardsPanel({ scope, variant }: { scope: Scope; variant: "c
     <section style={panel} aria-labelledby={`plan-h-${scope}-${variant}`} data-testid="plan-rewards" data-state={confirming ? "processing" : s}>
       <p style={eyebrow}>Plan & rewards</p>
       <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginTop: 4 }}>
-        <h2 id={`plan-h-${scope}-${variant}`} style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: full ? 24 : 21, margin: 0, letterSpacing: "-0.01em" }}>
+        <h2 id={`plan-h-${scope}-${variant}`} style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: full ? 24 : 21, margin: 0, letterSpacing: 0 }}>
           {headline}
         </h2>
         {badge}
@@ -352,7 +357,7 @@ export function PlanRewardsPanel({ scope, variant }: { scope: Scope; variant: "c
       {!r.enabled && data.enabled && <p style={{ fontSize: 12.5, color: colors.muted, margin: "12px 0 0" }}>Reward points aren't available right now.</p>}
       <HelpLine helpKey={s === "free" ? "pro_price" : s === "payment_failed" ? "pro_failed_payment" : "points_earning"} />
       {variant === "compact" && (
-        <Link to={scope === "vendor" ? "/vendor?tab=earnings" : "/manage?tab=earnings"} style={{ fontSize: 13, color: colors.text, fontWeight: 700 }}>
+        <Link to={earningsHref(scope, "plan")} style={{ fontSize: 13, color: colors.text, fontWeight: 700 }}>
           Full details in Earnings →
         </Link>
       )}

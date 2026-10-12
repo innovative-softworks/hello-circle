@@ -1,3 +1,4 @@
+import type { ReceiptDetail } from "../components/commerceDisplay";
 import type {
   ChatInboxItem,
   GameNextSteps,
@@ -448,6 +449,8 @@ export function fetchMyGames(opts?: { hostedOnly?: boolean }): Promise<Game[]> {
 export interface CreateGameInput {
   activityLabel: string;
   centreId?: string;
+  /** Booking UX Phase 5 — required with centreId: the host's own confirmed booking there. */
+  bookingRef?: string;
   locationText?: string;
   date: string;
   time: string;
@@ -488,6 +491,21 @@ export interface CreateGameInput {
    * time publishing choice. Omitted (or 'active') keeps every existing
    * caller's behavior (publish immediately) unchanged. */
   lifecycle?: "draft" | "coming_soon" | "active";
+}
+
+/** Booking UX Phase 5 — the host's upcoming confirmed venue bookings an activity can be held on. */
+export interface HostVenueBooking {
+  ref: string;
+  centreId: string;
+  centreName: string;
+  roomName: string | null;
+  cap: number | null;
+  date: string;
+  time: string;
+  duration: number;
+}
+export function fetchHostVenueBookings(): Promise<HostVenueBooking[]> {
+  return request(`/games/host/venue-bookings`);
 }
 
 export function createGame(input: CreateGameInput): Promise<Game> {
@@ -543,8 +561,9 @@ export function postGameUpdate(id: string, message: string): Promise<GameUpdate>
 
 /** Free/cash games resolve `{ ok: true }` immediately; a priced game
  * (NEXT) instead returns a Stripe `url` to redirect to. */
-export function joinGame(id: string, couponCode?: string): Promise<{ ok?: boolean; ref?: string; url?: string; totalEuro?: number }> {
-  return request(`/games/${id}/join`, { method: "POST", body: JSON.stringify({ couponCode }) });
+/** `meetsMinAge` — Booking UX Phase 4: required (true) when the activity has a minimum age. */
+export function joinGame(id: string, couponCode?: string, meetsMinAge?: boolean): Promise<{ ok?: boolean; ref?: string; url?: string; totalEuro?: number }> {
+  return request(`/games/${id}/join`, { method: "POST", body: JSON.stringify({ couponCode, meetsMinAge }) });
 }
 
 /** Polled by PaymentSuccess.tsx after a paid game join's Stripe redirect —
@@ -586,6 +605,10 @@ export function subscribeGameNotifyMe(id: string): Promise<{ ok: boolean; alread
 
 export function unsubscribeGameNotifyMe(id: string): Promise<{ ok: boolean }> {
   return request(`/games/${id}/notify-me`, { method: "DELETE" });
+}
+
+export function fetchGameNotifyMe(id: string): Promise<{ subscribed: boolean }> {
+  return request(`/games/${id}/notify-me`);
 }
 
 /** Host-only visibility + targeted invite (Vendor-parity pass) — mirrors
@@ -742,6 +765,8 @@ interface CircleInput {
   whoCanJoin?: string;
   values?: string;
   joinMode?: CircleJoinMode;
+  /** Booking UX Phase 5 — up to three questions for an approval Circle; omit to leave unchanged, [] to clear. */
+  joinQuestions?: string[];
 }
 
 export function createCircle(input: CircleInput): Promise<{ id: string; slug: string }> {
@@ -758,8 +783,10 @@ export function updateCircle(id: string, input: CircleInput & { imageUrl?: strin
  * request instead of joining outright — see routes/circles.ts's own
  * join-mode comment for the full state machine (an outstanding organiser
  * invite always joins outright regardless of mode). */
-export function joinCircle(id: string): Promise<{ ok: boolean; requested?: boolean }> {
-  return request(`/circles/${id}/join`, { method: "POST" });
+/** `request` — Booking UX Phase 5: for an approval Circle, an optional note
+ * and answers to its questions (ignored for open Circles). */
+export function joinCircle(id: string, request_?: { note?: string; answers?: string[] }): Promise<{ ok: boolean; requested?: boolean }> {
+  return request(`/circles/${id}/join`, { method: "POST", body: JSON.stringify(request_ ?? {}) });
 }
 
 /** Also withdraws a still-pending join request, not just membership. */
@@ -776,6 +803,9 @@ export interface CircleJoinRequest {
   residentId: string;
   name: string;
   createdAt: string;
+  /** Booking UX Phase 5 — what the requester wrote, and their answers to the Circle's questions. */
+  note?: string | null;
+  answers?: { question: string; answer: string }[];
 }
 
 /** Phase 11B — organiser-only list of pending organiser-sent invitations. */
@@ -981,6 +1011,10 @@ export function saveAccessibilityPrefs(prefs: string[]): Promise<{ ok: boolean }
 
 export function fetchReceipts(): Promise<Receipt[]> {
   return request(`/residents/me/receipts`);
+}
+/** R3A — one receipt's recorded price, refunds and credit given back (own receipts only). */
+export function fetchReceiptDetail(ref: string): Promise<ReceiptDetail> {
+  return request(`/residents/me/receipts/${encodeURIComponent(ref)}`);
 }
 
 export function fetchWaitlistOfferStatus(clubId: string): Promise<WaitlistOfferStatus> {

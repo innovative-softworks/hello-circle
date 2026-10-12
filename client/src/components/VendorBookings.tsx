@@ -16,6 +16,7 @@ import {
 import { AwardIcon, CalendarIcon, CheckIcon, SearchIcon } from "./icons";
 import { Avatar, Button, ConfirmDialog, EmptyState, ManageCard as Card, Modal, tableStyle, tdStyle, thStyle } from "./ui";
 import { DemandSignalsView } from "./DemandSignals";
+import { VendorActionNeeded } from "./VendorActionNeeded";
 import { MonthCalendar } from "./MonthCalendar";
 import { colors, fonts, radius } from "../theme";
 import type { DemandRow, MyRegistration, VendorBookingRow } from "../types";
@@ -144,7 +145,7 @@ function filterPillStyle(active: boolean) {
     fontSize: 11.5,
     fontWeight: 700,
     padding: "4px 10px",
-    borderRadius: 100,
+    borderRadius: 999,
     border: "none",
     cursor: "pointer",
     background: active ? colors.dark : colors.panel,
@@ -263,9 +264,11 @@ function BookingDetailModal({ booking, onClose, onCancelled, onRefunded }: { boo
     setBusy(true);
     setError(null);
     try {
-      await cancelVendorBooking(booking.ref);
+      const result = await cancelVendorBooking(booking.ref);
       setConfirming(false);
       onCancelled(booking.ref);
+      // The cancellation stands either way; a failed refund waits under "Action needed".
+      if (result.refund === "failed") setError(`Cancelled, but the refund didn't go through (${result.refundError ?? "provider error"}). It's listed under Action needed.`);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Couldn't cancel this booking");
     } finally {
@@ -352,7 +355,7 @@ function BookingDetailModal({ booking, onClose, onCancelled, onRefunded }: { boo
           </div>
 
           <div>
-            <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: ".04em", textTransform: "uppercase", color: colors.mutedLight, marginBottom: 4 }}>Timeline</div>
+            <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: 0, textTransform: "uppercase", color: colors.mutedLight, marginBottom: 4 }}>Timeline</div>
             <TimelineStep label="Booked" achieved time={booking.createdAt} />
             <TimelineStep label="Payment received" achieved={booking.paymentStatus === "paid"} />
             <TimelineStep label="Checked in" achieved={!!checkIn?.checkedIn} time={checkIn?.checkedInAt} />
@@ -390,7 +393,7 @@ function BookingDetailModal({ booking, onClose, onCancelled, onRefunded }: { boo
       <ConfirmDialog
         open={confirming}
         title="Cancel this booking?"
-        message="The guest will be notified. This only flips the booking's status — issue a refund separately if one's owed."
+        message="The guest will be notified. If they paid online, they're refunded in full automatically."
         confirmLabel={busy ? "Cancelling…" : "Cancel booking"}
         busy={busy}
         onConfirm={handleCancel}
@@ -695,6 +698,8 @@ export function BookingsTab({ centreId, clubId }: { centreId?: string; clubId?: 
 
   return (
     <div className="fade-panel" style={{ display: "flex", flexDirection: "column", gap: 24 }}>
+      {/* Booking UX Phase 6 — refunds and deposits still owed, across every order type (org-wide view only). */}
+      {!centreId && !clubId && <VendorActionNeeded />}
       <BookingsFilterBar status={statusFilter} onStatus={setStatusFilter} when={whenFilter} onWhen={setWhenFilter} search={search} onSearch={setSearch} />
       {bulkError && <p style={{ color: colors.danger, fontSize: 13 }}>{bulkError}</p>}
 
@@ -886,7 +891,7 @@ export function BookingsTab({ centreId, clubId }: { centreId?: string; clubId?: 
       <ConfirmDialog
         open={!!bulkCancelTarget}
         title={bulkCancelTarget && bulkCancelTarget.refs.length > 1 ? `Cancel ${bulkCancelTarget.refs.length} ${bulkCancelTarget.kind}s?` : `Cancel this ${bulkCancelTarget?.kind}?`}
-        message="Every guest will be notified. This only flips status — issue a refund separately if one's owed."
+        message="Every guest will be notified. Anyone who paid online is refunded in full automatically."
         confirmLabel={bulkBusy ? "Cancelling…" : "Cancel"}
         busy={bulkBusy}
         onConfirm={handleBulkCancel}

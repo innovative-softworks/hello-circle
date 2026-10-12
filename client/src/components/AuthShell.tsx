@@ -27,8 +27,8 @@ export function AuthBrand() {
 // GameJoinCard, ...) supplied real data about a real Circle/game.
 export function AuthContextCard({ context }: { context: AuthIntentContext }) {
   return (
-    <div style={{ background: colors.panel, borderRadius: 12, padding: "13px 16px", marginBottom: 24, maxWidth: 340 }}>
-      <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".07em", textTransform: "uppercase", color: colors.mutedLight, marginBottom: 5 }}>
+    <div style={{ background: colors.panel, borderRadius: 10, padding: "13px 16px", marginBottom: 24, maxWidth: 340 }}>
+      <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0, textTransform: "uppercase", color: colors.mutedLight, marginBottom: 5 }}>
         You're joining
       </div>
       <div style={{ fontWeight: 700, fontSize: 15, color: colors.text }}>{context.title}</div>

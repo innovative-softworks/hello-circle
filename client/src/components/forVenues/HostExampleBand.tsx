@@ -1,6 +1,6 @@
 import { ArrowRightIcon } from "../icons";
 import { colors, fonts } from "../../theme";
-import { FV_ACCENT, FV_MAX_WIDTH } from "./constants";
+import { FV_ACCENT, FV_ACCENT_DARK, FV_MAX_WIDTH } from "./constants";
 import { RevealText } from "../RevealText";
 
 const STEPS: { n: string; title: string; detail: string }[] = [
@@ -21,10 +21,10 @@ export function HostExampleBand() {
       <div className="section-pad" style={{ maxWidth: FV_MAX_WIDTH, margin: "0 auto", padding: "80px 24px" }}>
         <div className="grid-responsive" style={{ display: "grid", gridTemplateColumns: "1.1fr 1fr", gap: 48, alignItems: "end", marginBottom: 64 }}>
           <div>
-            <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: ".09em", textTransform: "uppercase", color: "rgba(255,255,255,.5)", marginBottom: 14 }}>
-              <span style={{ color: FV_ACCENT }}>/</span> No listing required
+            <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: 0, textTransform: "uppercase", color: "rgba(255,255,255,.5)", marginBottom: 14 }}>
+              <span style={{ color: FV_ACCENT_DARK }}>/</span> No listing required
             </div>
-            <RevealText as="h2" style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(26px, 4.6vw, 56px)", lineHeight: 1, letterSpacing: "-.03em", color: "#fff", margin: 0 }}>
+            <RevealText as="h2" style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(26px, 4.6vw, 56px)", lineHeight: 1, letterSpacing: 0, color: "#fff", margin: 0 }}>
               Show up as yourself.
             </RevealText>
           </div>
@@ -44,7 +44,7 @@ export function HostExampleBand() {
                     height: 40,
                     borderRadius: "50%",
                     border: `1.5px solid ${FV_ACCENT}`,
-                    color: FV_ACCENT,
+                    color: FV_ACCENT_DARK,
                     display: "flex",
                     alignItems: "center",
                     justifyContent: "center",

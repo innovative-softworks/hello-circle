@@ -2,7 +2,8 @@ import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { fetchFieldHelp, fetchPayouts, payoutDashboardLink, refreshPayoutAccount, startPayoutOnboarding, type FieldHelpEntry, type PayoutAccountState, type PayoutsOverview } from "../api";
 import { colors, fonts, radius } from "../theme";
-import { Button, ManageCard as Card, tableStyle, tdStyle, thStyle } from "./ui";
+import { Button, ManageCard as Card } from "./ui";
+import { PayoutHistory } from "./PayoutHistory";
 
 // Revenue & Connect Stage 5a — the partner's payout account (Stripe Express,
 // Stripe-hosted onboarding). Shows what still blocks payouts, transfers
@@ -25,8 +26,6 @@ const STATE_TONE: Record<PayoutAccountState, "ok" | "wait" | "act" | "stop"> = {
 };
 const STATE_KEYS = (Object.keys(STATE_TONE) as PayoutAccountState[]).map((s) => `connect_state_${s}`);
 
-const euro = (minor: number) => `€${(Number(minor) / 100).toFixed(2)}`;
-const day = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString("en-IE", { timeZone: "Europe/Dublin", day: "numeric", month: "short" }) : "—");
 
 export function PayoutAccountCard({ scope }: { scope: "vendor" | "host" }) {
   const [data, setData] = useState<PayoutsOverview | null>(null);
@@ -81,6 +80,7 @@ export function PayoutAccountCard({ scope }: { scope: "vendor" | "host" }) {
   const capability = (c: string | undefined) => (c === "active" ? "Active" : c === "pending" ? "Being checked" : "Not yet");
 
   return (
+    <>
     <Card style={{ padding: 20, marginBottom: 16 }}>
       <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
         <h3 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 17, margin: 0 }}>Payout account</h3>
@@ -130,45 +130,14 @@ export function PayoutAccountCard({ scope }: { scope: "vendor" | "host" }) {
           See the <a href="/policies/payments-fees-payouts" style={{ color: colors.danger, fontWeight: 700 }}>Payments policy</a>.
         </p>
       )}
-      {(data.transfers.length > 0 || data.bankPayouts.length > 0) && (
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 16, marginTop: 16 }}>
-          <div style={{ overflowX: "auto" }}>
-            <div style={{ fontSize: 12, fontWeight: 700, color: colors.muted, marginBottom: 6 }}>TRANSFERS — HELLOCIRCLE → YOUR STRIPE ACCOUNT</div>
-            <table style={tableStyle}>
-              <thead><tr><th style={thStyle}>Date</th><th style={thStyle}>Amount</th><th style={thStyle}>Status</th></tr></thead>
-              <tbody>
-                {data.transfers.map((t) => (
-                  <tr key={t.id}>
-                    <td style={tdStyle}>{day(t.createdAt)}</td>
-                    <td style={{ ...tdStyle, fontWeight: 600 }}>
-                      {euro(t.amountMinor)}
-                      {Number(t.reversedMinor) > 0 ? ` (−${euro(t.reversedMinor)} recovered)` : ""}
-                      <div style={{ fontSize: 11.5, fontWeight: 400, color: colors.mutedLight }}>{t.bookings} booking{Number(t.bookings) === 1 ? "" : "s"}</div>
-                    </td>
-                    <td style={tdStyle}>{t.status === "created" ? "Sent" : t.status === "reversed" ? "Recovered" : "Partly recovered"}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <div style={{ overflowX: "auto" }}>
-            <div style={{ fontSize: 12, fontWeight: 700, color: colors.muted, marginBottom: 6 }}>BANK PAYOUTS — STRIPE → YOUR BANK</div>
-            <table style={tableStyle}>
-              <thead><tr><th style={thStyle}>Arrives</th><th style={thStyle}>Amount</th><th style={thStyle}>Status</th></tr></thead>
-              <tbody>
-                {data.bankPayouts.map((p) => (
-                  <tr key={p.id}>
-                    <td style={tdStyle}>{day(p.arrivalDate)}</td>
-                    <td style={{ ...tdStyle, fontWeight: 600 }}>{euro(p.amountMinor)}</td>
-                    <td style={tdStyle}>{p.status}{p.failureMessage ? ` — ${p.failureMessage}` : ""}</td>
-                  </tr>
-                ))}
-                {data.bankPayouts.length === 0 && <tr><td style={tdStyle} colSpan={3}>None yet</td></tr>}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
     </Card>
+    {/* R3A — transfers and bank payouts as one list (same records, same
+        ownership; the controls above are unchanged). */}
+    <PayoutHistory
+      scope={scope}
+      embedded
+      history={{ status: "ready", data: { accountState: state, minimumPayoutCents: data.minimumPayoutCents ?? null, items: data.history ?? [] } }}
+    />
+    </>
   );
 }

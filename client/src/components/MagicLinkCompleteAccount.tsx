@@ -56,7 +56,7 @@ export function MagicLinkCompleteAccount({
 
   return (
     <div style={{ maxWidth: 420, margin: "0 auto", padding: "56px 24px" }}>
-      <h1 style={{ fontFamily: fonts.display, fontSize: 22, fontWeight: 800, margin: "0 0 6px" }}>Complete your HelloCircle account</h1>
+      <h1 style={{ fontFamily: fonts.display, fontSize: "clamp(24px, 2.4vw, 30px)", fontWeight: 800, margin: "0 0 6px" }}>Complete your HelloCircle account</h1>
       <p style={{ margin: "0 0 22px", fontSize: 14, color: colors.mutedLight, lineHeight: 1.5 }}>
         Signed in as <strong>{email}</strong>. One more step before you continue.
       </p>

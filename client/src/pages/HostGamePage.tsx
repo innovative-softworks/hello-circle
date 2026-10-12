@@ -1,6 +1,6 @@
 import { useEffect, useState, type SetStateAction } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { createGame, fetchCentres, fetchGame, fetchGameParticipantsForManage, setGameLifecycle, updateGame } from "../api";
+import { createGame, fetchGame, fetchGameParticipantsForManage, fetchHostVenueBookings, setGameLifecycle, updateGame, type HostVenueBooking } from "../api";
 import { signInHref } from "../authRedirect";
 import { BackLink } from "../components/BackLink";
 import { AttributePicker } from "../components/AttributePicker";
@@ -13,8 +13,8 @@ import { Button, Card, inputStyle, labelStyle } from "../components/ui";
 import { useGuest } from "../GuestContext";
 import { colors, radius } from "../theme";
 import { SKILL_LEVELS } from "../constants";
-import type { Centre } from "../types";
 import { occurrenceDates } from "../irelandDate";
+import { PaidClosedPriceNotice } from "../components/PaidClosedPriceNotice";
 
 // ISO UTC -> the local wall-clock string a datetime-local input expects —
 // the reverse of handleSubmit's `new Date(form.confirmationDeadline).toISOString()`.
@@ -77,7 +77,6 @@ export function HostGamePage() {
   const initialTime = planId || fromDemand ? searchParams.get("time") ?? "" : "";
 
   const [step, setStep] = useState(1);
-  const [centres, setCentres] = useState<Centre[]>([]);
   const [loadingGame, setLoadingGame] = useState(!!gameId);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [priceLocked, setPriceLocked] = useState(false);
@@ -91,6 +90,8 @@ export function HostGamePage() {
   const [form, setFormRaw] = useState({
     activityLabel: initialActivity,
     centreId: initialCentreId,
+    // Booking UX Phase 5 — a venue is only ever held through one of the host's own bookings.
+    bookingRef: qp("bookingRef"),
     locationText: initialLocationText,
     date: initialDate,
     time: initialTime,
@@ -138,9 +139,26 @@ export function HostGamePage() {
   const todayIso = new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Dublin", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
   const [justCreatedImageUrl, setJustCreatedImageUrl] = useState<string | null>(null);
 
+  // Booking UX Phase 5 (audit B11) — the venues on offer are the host's own
+  // upcoming confirmed bookings; the server refuses any other venue.
+  const [venueBookings, setVenueBookings] = useState<HostVenueBooking[]>([]);
+  const [legacyVenue, setLegacyVenue] = useState<{ centreId: string; name: string } | null>(null);
   useEffect(() => {
-    fetchCentres().then(setCentres);
-  }, []);
+    if (!resident) return;
+    fetchHostVenueBookings()
+      .then((rows) => {
+        setVenueBookings(rows);
+        // A "host here" link from a venue page preselects your booking there, if you have one.
+        setFormRaw((f) => {
+          if (!f.centreId || f.bookingRef) return f;
+          const match = rows.find((b) => b.centreId === f.centreId);
+          return match ? { ...f, bookingRef: match.ref, date: match.date, time: match.time } : gameId ? f : { ...f, centreId: "" };
+        });
+      })
+      .catch(() => setVenueBookings([]));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [resident?.id]);
+  const chosenBooking = venueBookings.find((b) => b.ref === form.bookingRef) ?? null;
 
   useEffect(() => {
     if (!gameId || !resident) return;
@@ -152,9 +170,11 @@ export function HostGamePage() {
           return;
         }
         setOriginalDate(game.date);
+        if (game.centreId && !game.bookingRef) setLegacyVenue({ centreId: game.centreId, name: game.centreName ?? "Current venue" });
         setFormRaw({
           activityLabel: game.activityLabel,
           centreId: game.centreId ?? "",
+          bookingRef: game.bookingRef ?? "",
           locationText: game.locationText ?? "",
           date: game.date,
           time: game.time,
@@ -205,6 +225,7 @@ export function HostGamePage() {
       const baseInput = {
         activityLabel: form.activityLabel,
         centreId: form.centreId || undefined,
+        bookingRef: form.centreId && form.bookingRef ? form.bookingRef : undefined,
         locationText: form.centreId ? undefined : form.locationText,
         time: form.time,
         capacity: form.capacity,
@@ -282,6 +303,7 @@ export function HostGamePage() {
     await updateGame(justCreated.id, {
       activityLabel: form.activityLabel,
       centreId: form.centreId || undefined,
+      bookingRef: form.centreId && form.bookingRef ? form.bookingRef : undefined,
       locationText: form.centreId ? undefined : form.locationText,
       date: form.date,
       time: form.time,
@@ -373,12 +395,36 @@ export function HostGamePage() {
                 </div>
                 <div>
                   <label htmlFor="game-venue" style={labelStyle}>Venue (optional)</label>
-                  <select id="game-venue" value={form.centreId} onChange={(e) => setForm((f) => ({ ...f, centreId: e.target.value }))} style={inputStyle}>
-                    <option value="">Pick a location instead</option>
-                    {centres.map((c) => (
-                      <option key={c.id} value={c.id}>{c.name}</option>
+                  <select
+                    id="game-venue"
+                    aria-describedby="game-venue-help"
+                    value={form.bookingRef || (legacyVenue && form.centreId === legacyVenue.centreId ? "legacy" : "")}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      if (v === "legacy" && legacyVenue) return setForm((f) => ({ ...f, centreId: legacyVenue.centreId, bookingRef: "" }));
+                      const b = venueBookings.find((x) => x.ref === v);
+                      if (!b) return setForm((f) => ({ ...f, centreId: "", bookingRef: "" }));
+                      // The booking fixes where and when; the room's size caps how many can come.
+                      setRepeat("none");
+                      setForm((f) => ({ ...f, centreId: b.centreId, bookingRef: b.ref, date: b.date, time: b.time, capacity: b.cap && b.cap > 0 ? Math.min(f.capacity, b.cap) : f.capacity }));
+                    }}
+                    style={inputStyle}
+                  >
+                    <option value="">Somewhere else — I'll add the address</option>
+                    {legacyVenue && <option value="legacy">{legacyVenue.name} (current)</option>}
+                    {venueBookings.map((b) => (
+                      <option key={b.ref} value={b.ref}>
+                        {b.centreName}{b.roomName ? ` · ${b.roomName}` : ""} — {b.date} {b.time}
+                      </option>
                     ))}
                   </select>
+                  <p id="game-venue-help" style={{ fontSize: 11.5, color: colors.mutedLight, margin: "4px 0 0" }}>
+                    {chosenBooking
+                      ? `Held on your booking: ${chosenBooking.time} for ${chosenBooking.duration} hours${chosenBooking.cap ? `, up to ${chosenBooking.cap} people` : ""}.`
+                      : venueBookings.length
+                        ? "Pick one of your venue bookings, or add an address."
+                        : "Holding it at a venue? Book the venue first, then pick that booking here."}
+                  </p>
                 </div>
                 {!form.centreId && (
                   <div style={{ gridColumn: "1 / -1" }}>
@@ -388,13 +434,13 @@ export function HostGamePage() {
                 )}
                 <div>
                   <label htmlFor="game-date" style={labelStyle}>Date</label>
-                  <input id="game-date" type="date" min={originalDate && originalDate < todayIso ? undefined : todayIso} value={form.date} onChange={(e) => setForm((f) => ({ ...f, date: e.target.value }))} style={inputStyle} />
+                  <input id="game-date" type="date" min={originalDate && originalDate < todayIso ? undefined : todayIso} value={form.date} disabled={!!chosenBooking} onChange={(e) => setForm((f) => ({ ...f, date: e.target.value }))} style={inputStyle} />
                 </div>
                 <div>
                   <label htmlFor="game-time" style={labelStyle}>Time</label>
-                  <input id="game-time" type="time" value={form.time} onChange={(e) => setForm((f) => ({ ...f, time: e.target.value }))} style={inputStyle} />
+                  <input id="game-time" type="time" value={form.time} disabled={!!chosenBooking} onChange={(e) => setForm((f) => ({ ...f, time: e.target.value }))} style={inputStyle} />
                 </div>
-                {!gameId && !planId && (
+                {!gameId && !planId && !chosenBooking && (
                   <div>
                     <label htmlFor="game-repeat" style={labelStyle}>Repeat (optional)</label>
                     <div style={{ display: "flex", gap: 8 }}>
@@ -440,6 +486,7 @@ export function HostGamePage() {
                     disabled={priceLocked}
                   />
                   {priceLocked && <p style={{ fontSize: 11.5, color: colors.mutedLight, margin: "4px 0 0" }}>Locked — someone has already joined at this price.</p>}
+                  <PaidClosedPriceNotice amount={form.priceCents} />
                 </div>
                 <div>
                   <label htmlFor="game-skill-level" style={labelStyle}>Skill level (optional)</label>
@@ -685,7 +732,7 @@ function PublishingStatusPanel({ lifecycle, onChange }: { lifecycle: "draft" | "
 
   return (
     <div style={{ marginTop: 14, border: `1px solid ${colors.border}`, borderRadius: radius.card, padding: 14 }}>
-      <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: ".04em", textTransform: "uppercase", color: colors.mutedLight, marginBottom: 6 }}>Status</div>
+      <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: 0, textTransform: "uppercase", color: colors.mutedLight, marginBottom: 6 }}>Status</div>
       <div style={{ fontWeight: 700, marginBottom: actions.length ? 10 : 0 }}>{label}</div>
       {error && <p style={{ color: colors.danger, fontSize: 12.5, margin: "0 0 8px" }}>{error}</p>}
       {actions.length > 0 && (

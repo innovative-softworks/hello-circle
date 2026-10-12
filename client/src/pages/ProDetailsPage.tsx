@@ -1,4 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
+import { PARTNER_FEE_MODEL_CONFIRMED, PARTNER_PRICING_PENDING, visibleBenefitKeys } from "../partnerPricing";
 import { Link } from "react-router-dom";
 import { cancelProSubscription, fetchPricingPlans, startProCheckout, type PublicPlans } from "../api";
 import { AnalyticsEvent, trackTypedEvent } from "../analyticsEvents";
@@ -76,7 +77,7 @@ export function ProDetailsPage({ scope }: { scope: Scope }) {
 
   return (
     <Shell back={back}>
-      <h1 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 34, margin: "4px 0 6px", letterSpacing: "-0.02em" }}>HelloCircle Pro</h1>
+      <h1 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(32px, 3.8vw, 52px)", margin: "4px 0 6px", letterSpacing: 0 }}>HelloCircle Pro</h1>
       <HelpLine helpKey="pro_price" />
       {subscribed && (
         <div style={{ margin: "12px 0" }}>
@@ -97,25 +98,44 @@ export function ProDetailsPage({ scope }: { scope: Scope }) {
       </Section>
 
       <Section n={2} title="Free and Pro">
-        {plans ? (
-          <dl style={{ display: "grid", gridTemplateColumns: "minmax(0,1.4fr) minmax(0,1fr) minmax(0,1fr)", gap: "6px 12px", fontSize: 14, margin: 0 }} data-testid="plan-compare">
-            <dt />
-            <dd style={{ margin: 0, fontWeight: 700 }}>Free</dd>
-            <dd style={{ margin: 0, fontWeight: 700 }}>Pro</dd>
-            <dt>Success fee on paid bookings</dt>
-            <dd style={{ margin: 0 }}>{pct(plans.free.successFeeBps)}</dd>
-            <dd style={{ margin: 0 }}>{pct(plans.pro.successFeeBps)}</dd>
-            <dt>Minimum fee per paid booking</dt>
-            <dd style={{ margin: 0 }}>{euro(plans.free.minFeeMinor)}</dd>
-            <dd style={{ margin: 0 }}>{euro(plans.pro.minFeeMinor)}</dd>
-            <dt>Monthly price (before tax)</dt>
-            <dd style={{ margin: 0 }}>{euro(plans.free.subscriptionMonthlyMinor)}</dd>
-            <dd style={{ margin: 0 }}>{euro(data.price.netMinor)}</dd>
-          </dl>
+        {PARTNER_FEE_MODEL_CONFIRMED ? (
+          <>
+            {plans ? (
+              <dl style={{ display: "grid", gridTemplateColumns: "minmax(0,1.4fr) minmax(0,1fr) minmax(0,1fr)", gap: "6px 12px", fontSize: 14, margin: 0 }} data-testid="plan-compare">
+                <dt />
+                <dd style={{ margin: 0, fontWeight: 700 }}>Free</dd>
+                <dd style={{ margin: 0, fontWeight: 700 }}>Pro</dd>
+                <dt>Success fee on paid bookings</dt>
+                <dd style={{ margin: 0 }}>{pct(plans.free.successFeeBps)}</dd>
+                <dd style={{ margin: 0 }}>{pct(plans.pro.successFeeBps)}</dd>
+                <dt>Minimum fee per paid booking</dt>
+                <dd style={{ margin: 0 }}>{euro(plans.free.minFeeMinor)}</dd>
+                <dd style={{ margin: 0 }}>{euro(plans.pro.minFeeMinor)}</dd>
+                <dt>Monthly price (before tax)</dt>
+                <dd style={{ margin: 0 }}>{euro(plans.free.subscriptionMonthlyMinor)}</dd>
+                <dd style={{ margin: 0 }}>{euro(data.price.netMinor)}</dd>
+              </dl>
+            ) : (
+              <p style={{ fontSize: 13, color: colors.muted }}>Comparison unavailable right now.</p>
+            )}
+            {plans?.proBreakEvenMonthlyGmvMinor ? <p style={{ fontSize: 13, color: colors.muted }}>Pro costs less once your paid sales reach about {euro(plans.proBreakEvenMonthlyGmvMinor)} a month.</p> : null}
+          </>
         ) : (
-          <p style={{ fontSize: 13, color: colors.muted }}>Comparison unavailable right now.</p>
+          // R3B F1 — only the monthly price is in force; fee-per-booking terms aren't yet.
+          <>
+            <dl style={{ display: "grid", gridTemplateColumns: "minmax(0,1.4fr) minmax(0,1fr) minmax(0,1fr)", gap: "6px 12px", fontSize: 14, margin: 0 }} data-testid="plan-compare">
+              <dt />
+              <dd style={{ margin: 0, fontWeight: 700 }}>Free</dd>
+              <dd style={{ margin: 0, fontWeight: 700 }}>Pro</dd>
+              <dt>Monthly price (before tax)</dt>
+              <dd style={{ margin: 0 }}>{euro(0)}</dd>
+              <dd style={{ margin: 0 }}>{euro(data.price.netMinor)}</dd>
+            </dl>
+            <p role="note" style={{ fontSize: 13, color: colors.muted, margin: "10px 0 0" }} data-testid="fee-model-pending">
+              {PARTNER_PRICING_PENDING.plans}
+            </p>
+          </>
         )}
-        {plans?.proBreakEvenMonthlyGmvMinor ? <p style={{ fontSize: 13, color: colors.muted }}>Pro costs less once your paid sales reach about {euro(plans.proBreakEvenMonthlyGmvMinor)} a month.</p> : null}
       </Section>
 
       <Section n={3} title="Price and tax for you">
@@ -216,7 +236,10 @@ export function ProDetailsPage({ scope }: { scope: Scope }) {
 }
 
 function Benefits() {
-  const items = [useFieldHelp("pro_benefit_1"), useFieldHelp("pro_benefit_2"), useFieldHelp("pro_benefit_3")].filter(Boolean);
+  // R3B F1 — the lower-fee benefits describe the unconfirmed fee model; hooks stay unconditional.
+  const all = [useFieldHelp("pro_benefit_1"), useFieldHelp("pro_benefit_2"), useFieldHelp("pro_benefit_3")];
+  const shown = visibleBenefitKeys(["pro_benefit_1", "pro_benefit_2", "pro_benefit_3"]);
+  const items = all.filter((b) => b && shown.includes(b.helpKey));
   return (
     <ul style={{ margin: 0, paddingLeft: 18, fontSize: 14, lineHeight: 1.6 }}>
       {items.map((b) => (

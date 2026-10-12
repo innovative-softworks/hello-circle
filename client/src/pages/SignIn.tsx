@@ -47,14 +47,14 @@ function ForgotPasswordForm({ onBack }: { onBack: () => void }) {
       </button>
       {sent ? (
         <>
-          <h1 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 24, letterSpacing: "-.02em", margin: "0 0 8px" }}>Check your email</h1>
+          <h1 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(24px, 2.4vw, 30px)", letterSpacing: 0, margin: "0 0 8px" }}>Check your email</h1>
           <p style={{ margin: 0, fontSize: 14, color: colors.mutedLight, lineHeight: 1.5 }}>
             If an account exists for <strong>{email.trim()}</strong>, we've sent password reset instructions. The link expires in 30 minutes.
           </p>
         </>
       ) : (
         <>
-          <h1 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(24px,2.8vw,30px)", margin: "0 0 8px", letterSpacing: "-.02em" }}>Reset your password</h1>
+          <h1 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(24px, 2.4vw, 30px)", margin: "0 0 8px", letterSpacing: 0 }}>Reset your password</h1>
           <p style={{ margin: "0 0 20px", fontSize: 15, color: colors.mutedLight }}>Enter your email address and we'll send you a password reset link.</p>
           <form onSubmit={(e: FormEvent) => { e.preventDefault(); submit(); }} style={{ display: "flex", flexDirection: "column", gap: 10, maxWidth: 340 }}>
             <div>
@@ -96,7 +96,7 @@ function ResetPasswordForm({ token, onSuccess }: { token: string; onSuccess: () 
   if (done) {
     return (
       <div>
-        <h1 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 24, letterSpacing: "-.02em", margin: "0 0 6px", display: "flex", alignItems: "center", gap: 8 }}>
+        <h1 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(24px, 2.4vw, 30px)", letterSpacing: 0, margin: "0 0 6px", display: "flex", alignItems: "center", gap: 8 }}>
           Password updated <CheckIcon size={19} style={{ color: colors.greenText }} />
         </h1>
         <p style={{ margin: "0 0 20px", fontSize: 14, color: colors.mutedLight }}>You're signed in with your new password.</p>
@@ -109,7 +109,7 @@ function ResetPasswordForm({ token, onSuccess }: { token: string; onSuccess: () 
 
   return (
     <div>
-      <h1 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(24px,2.8vw,30px)", margin: "0 0 8px", letterSpacing: "-.02em" }}>Create a new password</h1>
+      <h1 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(24px, 2.4vw, 30px)", margin: "0 0 8px", letterSpacing: 0 }}>Create a new password</h1>
       <p style={{ margin: "0 0 20px", fontSize: 15, color: colors.mutedLight }}>Choose a new password for your HelloCircle account.</p>
       <form onSubmit={(e: FormEvent) => { e.preventDefault(); submit(); }} style={{ display: "flex", flexDirection: "column", gap: 14, maxWidth: 340 }}>
         <PasswordField id="reset-new-password" label="New password" value={password} onChange={setPassword} autoComplete="new-password" placeholder="Enter new password" invalid={!!error} describedBy={describedBy} />

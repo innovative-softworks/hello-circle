@@ -58,7 +58,7 @@ function describeChoice(c: ReturnType<typeof getStoredConsent>): string {
   return `analytics ${c.analytics ? "on" : "off"}, advertising ${c.advertising ? "on" : "off"}`;
 }
 
-const h2Style: React.CSSProperties = { fontFamily: fonts.display, fontWeight: 700, fontSize: 19, margin: "0 0 10px", letterSpacing: "-.01em" };
+const h2Style: React.CSSProperties = { fontFamily: fonts.display, fontWeight: 700, fontSize: 19, margin: "0 0 10px", letterSpacing: 0 };
 const pStyle: React.CSSProperties = { color: colors.textSoft, fontSize: 15, lineHeight: 1.65, margin: "0 0 10px" };
 
 export function CookiePolicy() {
@@ -95,12 +95,12 @@ export function CookiePolicy() {
           <ChevronLeftIcon size={14} style={{ marginRight: 4 }} /> Back
         </button>
 
-        <h1 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: "clamp(26px, 5vw, 34px)", margin: "0 0 6px", letterSpacing: "-.02em" }}>
+        <h1 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: "clamp(32px, 3.8vw, 52px)", margin: "0 0 6px", letterSpacing: 0 }}>
           Cookie Policy
         </h1>
         <p style={{ color: colors.faint, fontSize: 13, margin: "0 0 24px" }}>Last updated {LAST_UPDATED}</p>
 
-        <div style={{ background: colors.greenBg, border: `1px solid ${colors.border}`, borderRadius: 14, padding: "14px 18px", marginBottom: 30, fontSize: 14, color: colors.greenText, lineHeight: 1.6, fontWeight: 600 }}>
+        <div style={{ background: colors.greenBg, border: `1px solid ${colors.border}`, borderRadius: 16, padding: "14px 18px", marginBottom: 30, fontSize: 14, color: colors.greenText, lineHeight: 1.6, fontWeight: 600 }}>
           Most of what we store is strictly necessary to run the site. The one exception is Google Analytics, which
           only runs if you accept it in the cookie banner — no advertising cookies, no tracking beyond that.
         </div>

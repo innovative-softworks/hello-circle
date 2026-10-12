@@ -1,3 +1,4 @@
+import type { PayoutHistoryItem } from "../components/commerceDisplay";
 import type {
   HostOpportunity,
   AttendanceStatus,
@@ -255,7 +256,10 @@ export function fetchVendorBookings(centreId?: string): Promise<VendorBookingRow
   return request(`/vendor/bookings${centreId ? `?centreId=${encodeURIComponent(centreId)}` : ""}`);
 }
 
-export function cancelVendorBooking(ref: string): Promise<{ ok: boolean }> {
+/** Booking UX Phase 6 (B13) — a provider cancellation refunds a paid online order in full: `refund` says what happened. */
+export type ProviderCancelResult = { ok: boolean; refund?: "none" | "refunded" | "failed"; refundError?: string };
+
+export function cancelVendorBooking(ref: string): Promise<ProviderCancelResult> {
   return request(`/vendor/bookings/${encodeURIComponent(ref)}/cancel`, { method: "POST" });
 }
 
@@ -271,7 +275,7 @@ export function fetchVendorRegistrations(clubId?: string): Promise<(MyRegistrati
   return request(`/vendor/registrations${clubId ? `?clubId=${encodeURIComponent(clubId)}` : ""}`);
 }
 
-export function cancelVendorRegistration(ref: string): Promise<{ ok: boolean }> {
+export function cancelVendorRegistration(ref: string): Promise<ProviderCancelResult> {
   return request(`/vendor/registrations/${encodeURIComponent(ref)}/cancel`, { method: "POST" });
 }
 
@@ -663,6 +667,29 @@ export function fetchVendorEarnings(): Promise<PartnerEarnings> {
   return request(`/vendor/earnings`);
 }
 
+/** Booking UX Phase 6 (B12) — every order on the organisation's listings, with what still needs doing. */
+export interface VendorOrder {
+  type: "booking" | "registration" | "program" | "experience";
+  ref: string;
+  listingName: string;
+  customerName: string;
+  email: string;
+  date: string | null;
+  time: string | null;
+  quantity: number;
+  totalCents: number;
+  status: string;
+  paymentStatus: string;
+  paidOnline: boolean;
+  depositCents: number;
+  refundedCents: number;
+  attention: ("refund_pending" | "deposit_due")[];
+  createdAt: string;
+}
+export function fetchVendorOrders(attentionOnly = false): Promise<VendorOrder[]> {
+  return request(`/vendor/orders${attentionOnly ? "?attention=1" : ""}`);
+}
+
 /** Partial (or remaining) refund of one of the organisation's own online orders. */
 export function issueVendorRefund(input: { sourceType: "booking" | "registration" | "program" | "experience"; ref: string; amountMinor?: number; reason: string }): Promise<{ refundId: number; amountMinor: number; full: boolean }> {
   return request(`/vendor/refunds`, { method: "POST", body: JSON.stringify(input) });
@@ -696,6 +723,10 @@ export interface PayoutsOverview {
   /** The partner's Stripe account → their bank (made by Stripe, mirrored here). */
   bankPayouts: { id: string; amountMinor: number; currency: string; status: string; arrivalDate: string | null; failureMessage: string | null }[];
   openDebt: { id: number; outstandingMinor: number; openedAt: string } | null;
+  /** R3A — transfers and bank payouts as one dated list (same records as above). */
+  history?: PayoutHistoryItem[];
+  /** R3A — the weekly minimum from this partner's settlement rule. */
+  minimumPayoutCents?: number | null;
 }
 /** scope "vendor" = the signed-in vendor's organisation; "host" = the signed-in resident as a host. */
 export function fetchPayouts(scope: "vendor" | "host"): Promise<PayoutsOverview> {

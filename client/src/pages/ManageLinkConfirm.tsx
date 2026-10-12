@@ -45,7 +45,7 @@ export function ManageLinkConfirm() {
           <div style={{ color: colors.greenText, marginBottom: 14 }}>
             <CheckCircleIcon size={36} />
           </div>
-          <h1 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 24, margin: "0 0 8px", letterSpacing: "-.01em" }}>Accounts connected</h1>
+          <h1 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(24px, 2.4vw, 30px)", margin: "0 0 8px", letterSpacing: 0 }}>Accounts connected</h1>
           <p style={{ margin: "0 0 28px", fontSize: 15, color: colors.mutedLight }}>You can now switch between your HelloCircle workspaces.</p>
           {/* A full navigation, not client-side routing — the safest way to
               guarantee every part of the app (Header's workspace fetch
@@ -58,7 +58,7 @@ export function ManageLinkConfirm() {
 
       {status === "error" && (
         <>
-          <h1 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 22, margin: "0 0 10px" }}>This link didn't work.</h1>
+          <h1 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(24px, 2.4vw, 30px)", margin: "0 0 10px" }}>This link didn't work.</h1>
           <p style={{ margin: "0 0 28px", fontSize: 15, color: colors.mutedLight }}>{error}</p>
           <Button variant="ghost" onClick={() => { window.location.href = "/"; }}>Return home</Button>
         </>

@@ -9,11 +9,11 @@ import { colors, fonts } from "../../theme";
 export function GuideStep({ n, title, children }: { n: string; title: string; children: ReactNode }) {
   return (
     <div style={{ display: "flex", gap: 24, padding: "28px 0", borderTop: `1px solid ${colors.border}` }} className="stack-mobile">
-      <div style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 40, letterSpacing: "-.02em", color: colors.borderStrong, lineHeight: 1, flex: "none", width: 56 }}>
+      <div style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 40, letterSpacing: 0, color: colors.borderStrong, lineHeight: 1, flex: "none", width: 56 }}>
         {n}
       </div>
       <div style={{ flex: 1, minWidth: 0 }}>
-        <h3 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 18, margin: "0 0 8px", letterSpacing: "-.01em" }}>{title}</h3>
+        <h3 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 18, margin: "0 0 8px", letterSpacing: 0 }}>{title}</h3>
         <div style={{ color: colors.textSoft, fontSize: 15, lineHeight: 1.65 }}>{children}</div>
       </div>
     </div>

@@ -13,7 +13,7 @@ export function HeroSearch() {
     <div
       style={{
         background: lc.white,
-        borderRadius: 20,
+        borderRadius: 16,
         padding: 10,
         boxShadow: "0 20px 50px rgba(20, 23, 15, 0.14)",
         border: `1px solid ${lc.line}`,
@@ -32,7 +32,7 @@ export function HeroSearch() {
         <div style={{ width: 1, background: lc.line, margin: "8px 0" }} className="lc-hide-mobile" />
         <button
           onClick={() => setLocation(location === "Near me" ? "Hyderabad" : "Near me")}
-          style={{ display: "flex", alignItems: "center", gap: 8, background: lc.paperRaised, border: "none", borderRadius: 12, padding: "10px 16px", fontSize: 14.5, fontWeight: 600, color: lc.ink, flex: "none" }}
+          style={{ display: "flex", alignItems: "center", gap: 8, background: lc.paperRaised, border: "none", borderRadius: 10, padding: "10px 16px", fontSize: 14.5, fontWeight: 600, color: lc.ink, flex: "none" }}
         >
           <PinIcon size={16} style={{ color: lc.forest }} />
           {location}

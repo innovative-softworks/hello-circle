@@ -1,31 +1,80 @@
+import { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { CloseIcon } from "../components/icons";
-import { colors, fonts } from "../theme";
+import { abandonCheckout, type AbandonState } from "../api";
+import { BkButton, BookingSurface, ConfirmationPanel } from "../components/booking";
+
+// Booking UX Phase 3 (UX plan S7). Backing out of the payment page releases
+// the guest's 30-minute hold straight away (server: routes/checkoutAbandon.ts,
+// which never releases a paid or completing session), so "Try again" goes
+// back to the listing's booking form — where the draft is restored — instead
+// of browser history (Stripe's abandoned page).
+
+type View = "releasing" | AbandonState | "error";
 
 export function PaymentCancel() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const ref = searchParams.get("ref");
+  const [view, setView] = useState<View>(ref ? "releasing" : "error");
+  const [retryPath, setRetryPath] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!ref) return;
+    let cancelled = false;
+    abandonCheckout(ref)
+      .then((r) => {
+        if (cancelled) return;
+        setRetryPath(r.retryPath);
+        setView(r.state);
+      })
+      .catch(() => !cancelled && setView("error"));
+    return () => {
+      cancelled = true;
+    };
+  }, [ref]);
+
+  if (view === "paid" || view === "processing") {
+    return (
+      <BookingSurface page>
+        <ConfirmationPanel
+          variant="pending"
+          title="Your payment went through"
+          bookingRef={ref}
+          lead="It looks like the payment completed before you left the page, so there's nothing to redo."
+          actions={<BkButton variant="dark" onClick={() => navigate(`/payment/success?ref=${encodeURIComponent(ref ?? "")}`)}>See your booking</BkButton>}
+        />
+      </BookingSurface>
+    );
+  }
+
+  const lead =
+    view === "releasing"
+      ? "No charge was made. Releasing your place…"
+      : view === "released"
+        ? "No charge was made, and your place has been released — you can book it again now."
+        : view === "not_pending"
+          ? "No charge was made."
+          : "No charge was made. If you try again straight away, your place may stay held for up to 30 minutes.";
 
   return (
-    <div style={{ animation: "fadeUp .3s ease backwards" }}>
-      <section className="section-pad" style={{ maxWidth: 560, margin: "0 auto", padding: "64px 24px 90px", textAlign: "center" }}>
-        <div style={{ width: 74, height: 74, borderRadius: "50%", background: colors.orangeBg, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 22px", color: colors.orangeDark }}>
-          <CloseIcon size={30} />
-        </div>
-        <h1 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 28, margin: "0 0 8px", letterSpacing: "-.02em" }}>Payment cancelled</h1>
-        <p style={{ color: colors.muted, fontSize: 16, lineHeight: 1.5, marginBottom: 28 }}>
-          No charge was made{ref ? <> — reference <b style={{ color: colors.text }}>{ref}</b></> : null}. You can pick up where you left off whenever you're ready.
-        </p>
-        <div style={{ display: "flex", gap: 12, justifyContent: "center", flexWrap: "wrap" }}>
-          <button onClick={() => navigate(-1)} style={{ background: colors.green, color: "#fff", border: "none", borderRadius: 12, padding: "13px 22px", fontWeight: 700, fontSize: 15, cursor: "pointer" }}>
-            Try again
-          </button>
-          <button onClick={() => navigate("/home")} style={{ background: "#fff", color: colors.text, border: `1px solid ${colors.borderStrong}`, borderRadius: 12, padding: "13px 22px", fontWeight: 600, fontSize: 15, cursor: "pointer" }}>
-            Back home
-          </button>
-        </div>
-      </section>
-    </div>
+    <BookingSurface page>
+      <ConfirmationPanel
+        variant="cancelled"
+        bookingRef={ref}
+        lead={<span role="status">{lead}</span>}
+        actions={
+          <>
+            {retryPath && (
+              <BkButton variant="dark" onClick={() => navigate(retryPath)}>
+                Try again
+              </BkButton>
+            )}
+            <BkButton variant="secondary" onClick={() => navigate("/home")}>
+              Back home
+            </BkButton>
+          </>
+        }
+      />
+    </BookingSurface>
   );
 }

@@ -45,7 +45,7 @@ export function CreditWallet() {
 
   return (
     <section aria-labelledby="credit-h" data-testid="credit-wallet">
-      <p style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: ".08em", textTransform: "uppercase", color: colors.muted, margin: 0 }}>Available credit</p>
+      <p style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: 0, textTransform: "uppercase", color: colors.muted, margin: 0 }}>Available credit</p>
       <h2 id="credit-h" style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 34, margin: "2px 0" }} data-testid="credit-balance">
         {euro(data.balanceMinor)}
       </h2>

@@ -23,7 +23,7 @@ export function ScreenshotPlaceholder({
       <img
         src={src}
         alt={alt ?? caption}
-        style={{ width: "100%", aspectRatio: aspect, objectFit: "cover", borderRadius: 12, border: `1px solid ${colors.border}`, display: "block", margin: "14px 0" }}
+        style={{ width: "100%", aspectRatio: aspect, objectFit: "cover", borderRadius: 10, border: `1px solid ${colors.border}`, display: "block", margin: "14px 0" }}
       />
     );
   }
@@ -32,7 +32,7 @@ export function ScreenshotPlaceholder({
       style={{
         width: "100%",
         aspectRatio: aspect,
-        borderRadius: 12,
+        borderRadius: 10,
         border: `1.5px dashed ${colors.borderStrong}`,
         background: colors.panel,
         display: "flex",
@@ -46,7 +46,7 @@ export function ScreenshotPlaceholder({
       }}
     >
       <CameraIcon size={22} style={{ color: colors.faint }} />
-      <div style={{ fontSize: 12.5, fontWeight: 700, color: colors.muted, letterSpacing: ".02em" }}>Screenshot placeholder</div>
+      <div style={{ fontSize: 12.5, fontWeight: 700, color: colors.muted, letterSpacing: 0 }}>Screenshot placeholder</div>
       <div style={{ fontFamily: fonts.body, fontSize: 12.5, color: colors.mutedLight, maxWidth: 420, lineHeight: 1.5 }}>{caption}</div>
     </div>
   );

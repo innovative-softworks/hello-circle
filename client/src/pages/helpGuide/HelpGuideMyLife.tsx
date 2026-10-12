@@ -5,7 +5,7 @@ import { HelpGuideShell } from "./HelpGuideShell";
 
 function SubHeading({ children }: { children: React.ReactNode }) {
   return (
-    <h2 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 24, margin: "48px 0 4px", letterSpacing: "-.01em", borderTop: `1px solid ${colors.border}`, paddingTop: 40 }}>
+    <h2 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 24, margin: "48px 0 4px", letterSpacing: 0, borderTop: `1px solid ${colors.border}`, paddingTop: 40 }}>
       {children}
     </h2>
   );

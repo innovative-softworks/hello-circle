@@ -32,11 +32,11 @@ export function MonthCalendar({ items }: { items: { date: string; el: ReactNode 
   return (
     <div>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
-        <button onClick={() => setMonthOffset((m) => m - 1)} aria-label="Previous month" style={{ background: colors.panel, border: "none", borderRadius: 8, width: 30, height: 30, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <button onClick={() => setMonthOffset((m) => m - 1)} aria-label="Previous month" style={{ background: colors.panel, border: "none", borderRadius: 10, width: 30, height: 30, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
           <ChevronLeftIcon size={14} />
         </button>
         <span style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 15 }}>{MONTH_NAMES[viewMonth.getMonth()]} {viewMonth.getFullYear()}</span>
-        <button onClick={() => setMonthOffset((m) => m + 1)} aria-label="Next month" style={{ background: colors.panel, border: "none", borderRadius: 8, width: 30, height: 30, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <button onClick={() => setMonthOffset((m) => m + 1)} aria-label="Next month" style={{ background: colors.panel, border: "none", borderRadius: 10, width: 30, height: 30, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
           <ChevronRightIcon size={14} />
         </button>
       </div>

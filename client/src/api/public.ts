@@ -68,6 +68,8 @@ export interface CreateBookingInput {
   /** Minimum Participation Booking (participation-intent plan Phase 5) —
    * only meaningful alongside openSpots. See server's comment. */
   minParticipants?: number;
+  /** Booking UX Phase 4 — the booking terms were agreed (the version is resolved server-side). */
+  acceptedTerms?: boolean;
 }
 
 /** Creates a pending booking + a Stripe Checkout session — the caller
@@ -252,6 +254,8 @@ export interface CreateRegistrationInput {
   couponCode?: string;
   sessionId?: string;
   passId?: number;
+  /** Booking UX Phase 4 — the booking terms were agreed (the version is resolved server-side). */
+  acceptedTerms?: boolean;
 }
 
 /** Free trial registrations are confirmed immediately (no `url` returned).
@@ -492,7 +496,7 @@ export function fetchProgram(id: string): Promise<Program> {
 
 export function enrollInProgram(
   id: string,
-  input: { participantName: string; participantDob?: string; email: string; phone?: string }
+  input: { participantName: string; participantDob?: string; email: string; phone?: string; /** Booking UX Phase 4 — recorded with the enrolment. */ acceptedTerms?: boolean; /** R3A — re-validated by the server at enrolment. */ couponCode?: string }
 ): Promise<{ ref: string; url?: string; totalEuro: number }> {
   return request(`/programs/${id}/enroll`, { method: "POST", body: JSON.stringify(input) });
 }
@@ -527,7 +531,20 @@ export function fetchExperience(id: string): Promise<Experience> {
 export function bookExperienceSession(
   experienceId: string,
   sessionId: string,
-  input: { participantName: string; email: string; phone?: string; partySize?: number; couponCode?: string; quoteId?: string; useCredits?: boolean }
+  input: {
+    participantName: string;
+    email: string;
+    phone?: string;
+    partySize?: number;
+    couponCode?: string;
+    quoteId?: string;
+    useCredits?: boolean;
+    /** Booking UX Phase 4 — one name per seat, the minimum-age declaration, and what was acknowledged. */
+    participants?: string[];
+    meetsMinAge?: boolean;
+    acceptedSafety?: boolean;
+    acceptedTerms?: boolean;
+  }
 ): Promise<{ ref: string; url?: string; totalEuro: number }> {
   return request(`/experiences/${experienceId}/sessions/${sessionId}/checkout`, { method: "POST", body: JSON.stringify(input) });
 }
@@ -553,6 +570,10 @@ export interface BookingQuote {
   quoteExpiresAt?: string;
   /** Stage 5b — HelloCircle credit applied (engine-priced quotes only). */
   creditCents?: number;
+  /** R3A — the coupon's part of discountCents (discountCents = coupon + credit). */
+  couponDiscountCents?: number;
+  /** R3A — the resident's credit left after this booking (server-computed). */
+  creditBalanceAfterCents?: number | null;
 }
 export function quoteExperienceSession(experienceId: string, sessionId: string, input: { partySize: number; couponCode?: string; useCredits?: boolean }): Promise<BookingQuote> {
   return request(`/experiences/${experienceId}/sessions/${sessionId}/quote`, { method: "POST", body: JSON.stringify(input) });
@@ -560,11 +581,45 @@ export function quoteExperienceSession(experienceId: string, sessionId: string, 
 
 /** HC-QA-047 — authoritative totals for a programme enrolment / paid activity join. */
 export interface PriceQuote { subtotalCents: number; discountCents: number; vatCents: number; platformFeeCents: number; totalCents: number; couponCode: string | null; currency: "EUR" }
-export function quoteProgram(programId: string): Promise<PriceQuote> {
-  return request(`/programs/${encodeURIComponent(programId)}/quote`);
+export function quoteProgram(programId: string, couponCode?: string | null): Promise<PriceQuote> {
+  return request(`/programs/${encodeURIComponent(programId)}/quote${couponCode ? `?couponCode=${encodeURIComponent(couponCode)}` : ""}`);
+}
+/** R3A — the server price of a club session pass (the same function checkout charges with). */
+export function quotePass(listingId: string, creditsTotal: number): Promise<PriceQuote & { creditsTotal: number; depositCents: number }> {
+  return request(`/passes/quote?listingId=${encodeURIComponent(listingId)}&creditsTotal=${creditsTotal}`);
 }
 export function quoteGame(gameId: string, couponCode?: string | null): Promise<PriceQuote> {
   return request(`/games/${encodeURIComponent(gameId)}/quote${couponCode ? `?couponCode=${encodeURIComponent(couponCode)}` : ""}`);
+}
+
+/** Booking audit 2026-10-11 (B1/B2) — authoritative totals for a venue
+ * booking / club registration, priced by the same server code as checkout.
+ * Render these; never compute VAT or fees client-side. */
+export interface BookingFormQuote extends PriceQuote {
+  taxableCents: number;
+  depositCents: number;
+  /** Cash room/club: nothing is charged online. */
+  payAtVenue: boolean;
+}
+export interface VenueBookingQuote extends BookingFormQuote {
+  cancellationHours: number;
+  /** ISO instant — the latest the booking can be cancelled online. */
+  cancelDeadline: string;
+}
+export function quoteVenueBooking(input: { centreId: string; roomId: string; date: string; time: string; duration: number; guests: number; couponCode?: string }): Promise<VenueBookingQuote> {
+  return request(`/bookings/quote`, { method: "POST", body: JSON.stringify(input) });
+}
+export function quoteRegistration(input: { clubId: string; trial?: boolean; couponCode?: string }): Promise<BookingFormQuote & { trial: boolean }> {
+  return request(`/registrations/quote`, { method: "POST", body: JSON.stringify(input) });
+}
+
+/** Booking UX Phase 3 — the guest backed out of the payment page: release
+ * their hold now instead of in 30 minutes. The server never releases a paid
+ * or completing session (state "paid" / "processing"); `retryPath` leads
+ * back to the listing's booking form. */
+export type AbandonState = "released" | "paid" | "processing" | "not_pending" | "unknown";
+export function abandonCheckout(ref: string): Promise<{ state: AbandonState; retryPath: string }> {
+  return request(`/checkout/${encodeURIComponent(ref)}/abandon`, { method: "POST" });
 }
 
 /** Same guest-or-resident ownership model as fetchMyProgramEnrollments. */
@@ -597,7 +652,9 @@ export function joinLaunchWaitlist(input: { email: string; name?: string; county
 // the client only displays what the published rules produce.
 
 export interface PlanTerms { successFeeBps: number; minFeeMinor: number; subscriptionMonthlyMinor: number }
-export interface PublicPlans { currency: "EUR"; vatBps: number; feesExclusiveOfVat: boolean; free: PlanTerms; pro: PlanTerms; proBreakEvenMonthlyGmvMinor: number | null }
+/** Commercial claims safety audit — every /api/pricing response says whether its figures are in force. */
+export interface FeeModelStatus { status?: "proposed" | "in_force"; inForce?: boolean; notice?: string | null }
+export interface PublicPlans extends FeeModelStatus { currency: "EUR"; vatBps: number; feesExclusiveOfVat: boolean; free: PlanTerms; pro: PlanTerms; proBreakEvenMonthlyGmvMinor: number | null }
 
 export interface EstimateInput {
   priceMinor: number;
@@ -688,6 +745,10 @@ export interface PendingPolicy { docKey: string; title: string; kind: "accept" |
 
 export function fetchPolicies(): Promise<PolicySummary[]> {
   return request(`/policies`);
+}
+/** Company details published as policy placeholder values (only filled-in fields). */
+export function fetchCompanyDetails(): Promise<Partial<Record<"LEGAL_ENTITY_NAME" | "TRADING_NAME" | "COMPANY_NUMBER" | "VAT_NUMBER" | "REGISTERED_ADDRESS" | "SUPPORT_EMAIL" | "PRIVACY_EMAIL" | "LEGAL_EMAIL" | "PHONE_NUMBER", string>>> {
+  return request(`/policies/company`);
 }
 export function fetchPolicy(docKey: string, version?: number): Promise<PolicyDocument> {
   return request(`/policies/${encodeURIComponent(docKey)}${version ? `?version=${version}` : ""}`);

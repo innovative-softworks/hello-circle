@@ -56,7 +56,7 @@ export function AddressSearch({
 
   return (
     <div ref={containerRef} style={{ position: "relative" }}>
-      <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: colors.muted, margin: "0 0 6px", letterSpacing: ".01em" }}>{label}</label>
+      <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: colors.muted, margin: "0 0 6px", letterSpacing: 0 }}>{label}</label>
       <div style={{ display: "flex", gap: 8 }}>
         <div style={{ position: "relative", flex: 1 }}>
           <input
@@ -77,7 +77,7 @@ export function AddressSearch({
               width: "100%",
               padding: "11px 36px 11px 13px",
               border: `1px solid ${colors.inputBorder}`,
-              borderRadius: 11,
+              borderRadius: 10,
               fontSize: 14,
               background: colors.surface,
               color: colors.text,
@@ -104,7 +104,7 @@ export function AddressSearch({
             marginTop: 4,
             background: colors.surface,
             border: `1px solid ${colors.border}`,
-            borderRadius: 11,
+            borderRadius: 10,
             boxShadow: "0 8px 24px rgba(20,22,20,.12)",
             zIndex: 20,
             overflow: "hidden",

@@ -34,7 +34,7 @@ import { Button, ManageCard as Card, Modal, inputStyle, labelStyle, tableStyle, 
 // presents them. Nothing here changes a live checkout yet — rule v1 is
 // today's pricing, and the engine doesn't price real orders until Phase 2.
 
-const h3: CSSProperties = { fontFamily: fonts.display, fontWeight: 700, fontSize: 17, margin: "0 0 6px", letterSpacing: "-.01em" };
+const h3: CSSProperties = { fontFamily: fonts.display, fontWeight: 700, fontSize: 17, margin: "0 0 6px", letterSpacing: 0 };
 const hint: CSSProperties = { fontSize: 12.5, color: colors.mutedLight, margin: "0 0 14px", lineHeight: 1.5 };
 
 function isMultiplier(spec: CommerceFieldSpec) {
@@ -551,6 +551,11 @@ function SwitchesCard({ catalog, onChanged }: { catalog: CommerceCatalog; onChan
               {s.description}
               {s.activeFromPhase !== null && <> · <em>no effect until Phase {s.activeFromPhase}</em></>}
             </div>
+            {s.whenOn && (
+              <div style={{ fontSize: 12, color: colors.text, marginTop: 4 }} data-testid={`switch-when-on-${s.key}`}>
+                <strong>When on:</strong> {s.whenOn}
+              </div>
+            )}
             {(catalog.switchDependencies?.[s.key] ?? []).length > 0 && (
               <div style={{ fontSize: 12, marginTop: 2 }} data-testid={`switch-needs-${s.key}`}>
                 Needs: {(catalog.switchDependencies?.[s.key] ?? []).map((d) => catalog.switches.find((x) => x.key === d)?.label ?? d).join(", ")}
@@ -735,7 +740,7 @@ function OrdersCard() {
 // Stage 5f — Admin → Commercial rules sections (keys not listed fall into "Checkout, settlement and payouts").
 const SECTIONS: { id: string; title: string; keys?: string[]; note?: string }[] = [
   { id: "switches", title: "Feature switches", note: "Each change needs a reason and is audited. Switches that depend on others can't be turned on (or their prerequisites off) in an invalid combination." },
-  { id: "pro", title: "Pro pricing", keys: ["plan_free", "plan_pro", "plan_rules", "entitlements_free", "entitlements_pro", "subscription_policy"] },
+  { id: "pro", title: "Pro pricing", keys: ["plan_free", "plan_pro", "plan_rules", "entitlements_free", "entitlements_pro", "subscription_policy"], note: "The success-fee and minimum-fee values in the Free/Pro plan rules feed only the estimator and simulator (hypothetical). Checkout and settlement charge with the Pricing rule (customer platform fee + VAT on top, no partner success fee) — R3B finding F1. The Pro subscription price is what Pro billing would charge." },
   { id: "rewards", title: "Reward points", keys: ["rewards", "split_rewards"], note: "Partner reward points (not customer credit)." },
   { id: "credit", title: "Customer credit", keys: ["credits"], note: "Customer credit is granted in Admin → Finance → Credits & Pro." },
   { id: "coupons", title: "Coupons", note: "Coupon codes, limits and funding are managed in Admin → Coupons; usage is in Admin → Finance → Coupons." },

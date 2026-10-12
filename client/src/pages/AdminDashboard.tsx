@@ -183,7 +183,7 @@ function VendorDetailModal({
       )}
       {vendor.description && <div style={{ fontSize: 12.5, color: colors.muted, marginBottom: 18 }}>{vendor.description}</div>}
 
-      <h5 style={{ fontFamily: fonts.display, fontSize: 12, fontWeight: 700, color: colors.muted, margin: "0 0 8px", textTransform: "uppercase", letterSpacing: ".03em" }}>
+      <h5 style={{ fontFamily: fonts.display, fontSize: 12, fontWeight: 700, color: colors.muted, margin: "0 0 8px", textTransform: "uppercase", letterSpacing: 0 }}>
         Platform role &amp; tier
       </h5>
       {!vendor.invitedStaff && (
@@ -216,7 +216,7 @@ function VendorDetailModal({
         </Button>
       </div>
 
-      <h5 style={{ fontFamily: fonts.display, fontSize: 12, fontWeight: 700, color: colors.muted, margin: "0 0 8px", textTransform: "uppercase", letterSpacing: ".03em" }}>
+      <h5 style={{ fontFamily: fonts.display, fontSize: 12, fontWeight: 700, color: colors.muted, margin: "0 0 8px", textTransform: "uppercase", letterSpacing: 0 }}>
         Organisation
       </h5>
       <div style={{ fontSize: 13, marginBottom: 20 }}>
@@ -227,7 +227,7 @@ function VendorDetailModal({
         )}
       </div>
 
-      <h5 style={{ fontFamily: fonts.display, fontSize: 12, fontWeight: 700, color: colors.muted, margin: "0 0 8px", textTransform: "uppercase", letterSpacing: ".03em" }}>
+      <h5 style={{ fontFamily: fonts.display, fontSize: 12, fontWeight: 700, color: colors.muted, margin: "0 0 8px", textTransform: "uppercase", letterSpacing: 0 }}>
         Listings ({ownListings.length})
       </h5>
       {ownListings.length === 0 ? (
@@ -655,7 +655,7 @@ function ListingDetailModal({
         </div>
       }
     >
-      {item.image && <img src={getMediaUrl(item.image, "card")} alt="" style={{ width: "100%", height: 160, borderRadius: 12, objectFit: "cover", marginBottom: 16 }} />}
+      {item.image && <img src={getMediaUrl(item.image, "card")} alt="" style={{ width: "100%", height: 160, borderRadius: 10, objectFit: "cover", marginBottom: 16 }} />}
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
         <StatusBadge status={item.status as ListingStatus} />
       </div>
@@ -666,7 +666,7 @@ function ListingDetailModal({
 
       {organisations.length > 0 && (
         <>
-          <h5 style={{ fontFamily: fonts.display, fontSize: 12, fontWeight: 700, color: colors.muted, margin: "20px 0 4px", textTransform: "uppercase", letterSpacing: ".03em" }}>
+          <h5 style={{ fontFamily: fonts.display, fontSize: 12, fontWeight: 700, color: colors.muted, margin: "20px 0 4px", textTransform: "uppercase", letterSpacing: 0 }}>
             Organisation
           </h5>
           <p style={{ fontSize: 11.5, color: colors.faint, margin: "0 0 8px" }}>
@@ -744,7 +744,7 @@ function ListingsTab({
   return (
     <div className="fade-panel" style={{ display: "flex", flexDirection: "column", gap: 30 }}>
       <div>
-        <h3 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 17, margin: "0 0 14px", letterSpacing: "-.01em" }}>Community centres</h3>
+        <h3 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 17, margin: "0 0 14px", letterSpacing: 0 }}>Community centres</h3>
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
           {centres.map((c) => <ListingRow key={c.id} item={c} type="centre" onOpen={() => setOpen({ type: "centre", id: c.id })} onChanged={load} />)}
           {centres.length === 0 && (
@@ -757,7 +757,7 @@ function ListingsTab({
         </div>
       </div>
       <div>
-        <h3 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 17, margin: "0 0 14px", letterSpacing: "-.01em" }}>Sports clubs</h3>
+        <h3 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 17, margin: "0 0 14px", letterSpacing: 0 }}>Sports clubs</h3>
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
           {clubs.map((c) => <ListingRow key={c.id} item={c} type="club" onOpen={() => setOpen({ type: "club", id: c.id })} onChanged={load} />)}
           {clubs.length === 0 && (
@@ -785,7 +785,7 @@ function ReviewsTab() {
   return (
     <div className="fade-panel" style={{ display: "flex", flexDirection: "column", gap: 30 }}>
       <div>
-        <h3 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 17, margin: "0 0 14px", letterSpacing: "-.01em" }}>Reviews</h3>
+        <h3 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 17, margin: "0 0 14px", letterSpacing: 0 }}>Reviews</h3>
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
           {reviews.map((r) => (
             <Card key={r.id} hover style={{ padding: 15, display: "flex", flexWrap: "wrap", gap: 10, justifyContent: "space-between", alignItems: "center" }}>
@@ -876,7 +876,7 @@ function ReportsSection() {
   return (
     <div>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
-        <h3 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 17, margin: 0, letterSpacing: "-.01em" }}>Reports</h3>
+        <h3 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 17, margin: 0, letterSpacing: 0 }}>Reports</h3>
         <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12.5, color: colors.mutedLight, cursor: "pointer" }}>
           <input type="checkbox" checked={showAll} onChange={(e) => setShowAll(e.target.checked)} /> Show resolved
         </label>
@@ -916,7 +916,7 @@ function ReportsSection() {
                   <>
                     <div style={{ fontSize: 12, fontWeight: 700, color: colors.muted, marginBottom: 6, textTransform: "uppercase" }}>Target</div>
                     {caseData.target ? (
-                      <pre style={{ fontSize: 12, background: colors.panel, borderRadius: 8, padding: 10, overflowX: "auto", margin: "0 0 12px" }}>
+                      <pre style={{ fontSize: 12, background: colors.panel, borderRadius: 10, padding: 10, overflowX: "auto", margin: "0 0 12px" }}>
                         {JSON.stringify(caseData.target, null, 2)}
                       </pre>
                     ) : (
@@ -1392,7 +1392,7 @@ function couponFundingLabel(c: AdminCoupon): string {
   return "HelloCircle-funded";
 }
 
-function CouponsTab() {
+function CouponsTab({ onViewUsage }: { onViewUsage: () => void }) {
   const [coupons, setCoupons] = useState<AdminCoupon[]>([]);
   const [form, setForm] = useState(EMPTY_COUPON_FORM);
   const [error, setError] = useState<string | null>(null);
@@ -1451,6 +1451,14 @@ function CouponsTab() {
 
   return (
     <div className="fade-panel" style={{ display: "flex", flexDirection: "column", gap: 24 }}>
+      {/* Commercial UX R1 (A1) — configure here, watch usage in Finance. */}
+      <p style={{ margin: 0, fontSize: 13.5, color: colors.muted }}>
+        Create and manage codes here. Uses, returns and discount given are in{" "}
+        <button type="button" className="btn-reset link-accent" onClick={onViewUsage} style={{ fontWeight: 700, textDecoration: "underline", textUnderlineOffset: 3, cursor: "pointer" }}>
+          Finance → Coupon usage
+        </button>
+        .
+      </p>
       <Card>
         <h3 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 16, margin: "0 0 14px" }}>New coupon</h3>
         <div className="grid-responsive" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: 10, alignItems: "end" }}>
@@ -1623,7 +1631,7 @@ function OrganisationsTab({ onOpenVendor }: { onOpenVendor: (vendorId: string) =
   return (
     <div className="fade-panel" style={{ display: "flex", flexDirection: "column", gap: 30 }}>
       <div>
-        <h3 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 17, margin: "0 0 6px", letterSpacing: "-.01em" }}>Vendor organisations</h3>
+        <h3 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 17, margin: "0 0 6px", letterSpacing: 0 }}>Vendor organisations</h3>
         <p style={{ fontSize: 12.5, color: colors.mutedLight, margin: "0 0 14px" }}>
           Created automatically for every vendor at signup — this is the real one, what staff invites and platform roles are scoped to. Read-only here; a vendor manages their own from their dashboard.
         </p>
@@ -1664,7 +1672,7 @@ function OrganisationsTab({ onOpenVendor }: { onOpenVendor: (vendorId: string) =
       </div>
 
       <div>
-        <h3 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 17, margin: "0 0 6px", letterSpacing: "-.01em" }}>Custom organisations</h3>
+        <h3 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 17, margin: "0 0 6px", letterSpacing: 0 }}>Custom organisations</h3>
         <p style={{ fontSize: 12.5, color: colors.mutedLight, margin: "0 0 14px" }}>
           Scaffolding for a future multi-org deployment (e.g. a council overseeing several centres) — assigning a listing to one has no effect on visibility or access today.
         </p>
@@ -1807,7 +1815,7 @@ function AdminOverviewTab({ stats }: { stats: AdminStats }) {
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
             {recent.map((e) => (
-              <div key={e.id} style={{ fontSize: 13, background: colors.bg, borderRadius: 8, padding: "8px 12px", display: "flex", justifyContent: "space-between" }}>
+              <div key={e.id} style={{ fontSize: 13, background: colors.bg, borderRadius: 10, padding: "8px 12px", display: "flex", justifyContent: "space-between" }}>
                 <span><strong>{e.action}</strong> on {e.objectType} <code>{e.objectId}</code> by {e.actorEmail ?? "system"}</span>
                 <span style={{ color: colors.faint, fontSize: 11.5 }}>{new Date(e.createdAt).toLocaleString()}</span>
               </div>
@@ -1826,6 +1834,8 @@ export function AdminDashboard() {
   const [searchParams] = useSearchParams();
   const initialTab = searchParams.get("tab");
   const [tab, setTab] = useState<AdminTab>(ADMIN_TABS.some((t) => t.key === initialTab) ? (initialTab as AdminTab) : "overview");
+  // Finance sub-section to open (?section=coupons, or a cross-link from Coupons).
+  const [financeSection, setFinanceSection] = useState<string | undefined>(searchParams.get("section") ?? undefined);
   const [stats, setStats] = useState<AdminStats | null>(null);
   // Lets VendorDetailModal's listing links jump to the Listings tab with that
   // listing's own detail popup already open, instead of just switching tabs.
@@ -1898,9 +1908,9 @@ export function AdminDashboard() {
       {tab === "hostApplications" && <HostApplicationsTab />}
       {tab === "placeSuggestions" && <PlaceSuggestionsTab />}
       {tab === "reviews" && <ReviewsTab />}
-      {tab === "coupons" && <CouponsTab />}
+      {tab === "coupons" && <CouponsTab onViewUsage={() => { setFinanceSection("coupons"); setTab("finance"); }} />}
       {tab === "commerce" && <AdminCommerceTab />}
-      {tab === "finance" && <AdminFinanceTab />}
+      {tab === "finance" && <AdminFinanceTab initialSection={financeSection} onEditCoupons={() => setTab("coupons")} />}
       {tab === "policies" && <AdminPolicyTab />}
       {tab === "organisations" && (
         <OrganisationsTab onOpenVendor={(vendorId) => { setOpenVendorRequest(vendorId); setTab("vendors"); }} />
