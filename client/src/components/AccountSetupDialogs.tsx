@@ -74,7 +74,7 @@ function SetupModal({
         aria-modal="true"
         aria-labelledby={labelledBy}
         tabIndex={-1}
-        className="pop-in"
+        className="modal-in"
         style={{ background: colors.surface, borderRadius: radius.card, padding: "26px 24px 22px", width: "100%", maxWidth: 520, maxHeight: "min(92vh, 760px)", overflowY: "auto", boxShadow: "0 24px 70px rgba(20,22,20,.3)", outline: "none" }}
       >
         {children}
@@ -302,10 +302,10 @@ function OnboardingDialog({ resident, onSaved, onClose }: { resident: ResidentFu
     <SetupModal labelledBy="onboarding-title" onEscape={skip}>
       <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
         <div>
-          <div style={{ fontSize: 12, fontWeight: 700, color: colors.muted, textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 6 }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: colors.muted, textTransform: "uppercase", letterSpacing: 0, marginBottom: 6 }}>
             {editing ? "Your preferences" : `Step ${step === "location" ? 1 : 2} of 2 · optional`}
           </div>
-          <h2 id="onboarding-title" style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 24, margin: 0, letterSpacing: "-.01em" }}>
+          <h2 id="onboarding-title" style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 24, margin: 0, letterSpacing: 0 }}>
             {step === "location" ? (editing || !firstName ? "Where should we look?" : `Welcome, ${firstName}. Where should we look?`) : "What are you into?"}
           </h2>
         </div>
@@ -338,7 +338,7 @@ function OnboardingDialog({ resident, onSaved, onClose }: { resident: ResidentFu
             type="button"
             onClick={useMyLocation}
             disabled={locating}
-            style={{ display: "inline-flex", alignItems: "center", gap: 8, background: "none", border: `1px solid ${colors.border}`, borderRadius: 11, padding: "9px 14px", fontSize: 13.5, fontWeight: 700, color: colors.text, cursor: locating ? "default" : "pointer", marginBottom: 12 }}
+            style={{ display: "inline-flex", alignItems: "center", gap: 8, background: "none", border: `1px solid ${colors.border}`, borderRadius: 10, padding: "9px 14px", fontSize: 13.5, fontWeight: 700, color: colors.text, cursor: locating ? "default" : "pointer", marginBottom: 12 }}
           >
             <PinIcon size={15} /> {locating ? "Finding you…" : "Use my current location"}
           </button>
@@ -394,7 +394,7 @@ function OnboardingDialog({ resident, onSaved, onClose }: { resident: ResidentFu
         <>
           {INTEREST_GROUPS.map((group) => (
             <div key={group.label} style={{ marginBottom: 16 }}>
-              <div style={{ fontSize: 12, fontWeight: 700, color: colors.muted, textTransform: "uppercase", letterSpacing: ".04em", marginBottom: 8 }}>{group.label}</div>
+              <div style={{ fontSize: 12, fontWeight: 700, color: colors.muted, textTransform: "uppercase", letterSpacing: 0, marginBottom: 8 }}>{group.label}</div>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(130px, 1fr))", gap: 8 }}>
                 {group.items.map((i) => {
                   // A category not launched in this county still shows (never hidden outright)
@@ -403,7 +403,7 @@ function OnboardingDialog({ resident, onSaved, onClose }: { resident: ResidentFu
                   if (!live) {
                     const done = requested.includes(i);
                     return (
-                      <button key={i} type="button" onClick={() => requestCategory(i)} disabled={done} style={{ border: `1.5px dashed ${colors.border}`, background: colors.surface, color: colors.mutedLight, borderRadius: 11, padding: "11px 12px", fontSize: 13, fontWeight: 600, textAlign: "left", cursor: done ? "default" : "pointer" }}>
+                      <button key={i} type="button" onClick={() => requestCategory(i)} disabled={done} style={{ border: `1.5px dashed ${colors.border}`, background: colors.surface, color: colors.mutedLight, borderRadius: 10, padding: "11px 12px", fontSize: 13, fontWeight: 600, textAlign: "left", cursor: done ? "default" : "pointer" }}>
                         {i} — {done ? "Requested" : "not yet here"}
                       </button>
                     );
@@ -415,7 +415,7 @@ function OnboardingDialog({ resident, onSaved, onClose }: { resident: ResidentFu
                       type="button"
                       aria-pressed={active}
                       onClick={() => toggleInterest(i)}
-                      style={{ display: "flex", alignItems: "center", justifyContent: "space-between", border: `1.5px solid ${active ? colors.green : colors.border}`, background: active ? colors.greenBg : colors.surface, borderRadius: 11, padding: "11px 12px", fontSize: 14, fontWeight: 700, color: active ? colors.greenText : colors.text, cursor: "pointer", textAlign: "left" }}
+                      style={{ display: "flex", alignItems: "center", justifyContent: "space-between", border: `1.5px solid ${active ? colors.green : colors.border}`, background: active ? colors.greenBg : colors.surface, borderRadius: 10, padding: "11px 12px", fontSize: 14, fontWeight: 700, color: active ? colors.greenText : colors.text, cursor: "pointer", textAlign: "left" }}
                     >
                       {i}
                       {active && <CheckIcon size={15} />}

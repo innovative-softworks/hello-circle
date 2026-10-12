@@ -18,8 +18,54 @@ export function getStoredConsent(): CookieChoice | null {
 // separate opt-ins — analytics and advertising — passed to its tags through
 // Google Consent Mode v2 (denied by default). GTM loads only after at least
 // one of them is granted (now or on a previous visit).
+// R3A (commercial UX) — two layout rules so the banner never hides what the
+// person is doing:
+// 1. While a modal dialog is open (any [aria-modal="true"]: drawers, sheets,
+//    modals, the photo lightbox) the banner steps aside entirely and comes
+//    back when it closes. No choice is recorded by hiding it.
+// 2. On a checkout screen at phone/tablet width (the booking kit's fixed
+//    submit bar is present) it shows the first sentence and the three
+//    choices; the rest of the same wording is one tap away ("More about
+//    optional cookies"), and opens automatically under "Choose…".
+function useDomFlag(query: () => boolean): boolean {
+  const [flag, setFlag] = useState(false);
+  useEffect(() => {
+    let frame = 0;
+    const check = () => {
+      frame = 0;
+      setFlag(query());
+    };
+    const schedule = () => {
+      if (!frame) frame = requestAnimationFrame(check);
+    };
+    check();
+    const mo = typeof MutationObserver !== "undefined" ? new MutationObserver(schedule) : null;
+    mo?.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["aria-modal"] });
+    window.addEventListener("resize", schedule);
+    return () => {
+      if (frame) cancelAnimationFrame(frame);
+      mo?.disconnect();
+      window.removeEventListener("resize", schedule);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  return flag;
+}
+
+const modalOpen = () => !!document.querySelector('[aria-modal="true"]');
+const compactCheckout = () => !!document.querySelector(".bk-submitbar") && window.matchMedia("(max-width: 899px)").matches;
+// Homepage UX audit (2026-10-12) — at phone width the full wording covered
+// about half of a 320px screen (the headline and search). The same compact
+// form checkout already uses (first sentence + choices, the rest one tap
+// away) now applies to every page on a phone. Wording is unchanged.
+const compactPhone = () => window.matchMedia("(max-width: 640px)").matches;
+const compactView = () => compactCheckout() || compactPhone();
+
 export function CookieNotice() {
   const navigate = useNavigate();
+  const overlayOpen = useDomFlag(modalOpen);
+  const compact = useDomFlag(compactView);
+  const [showDetails, setShowDetails] = useState(false);
   const [consent, setConsent] = useState<CookieChoice | null | "pending">("pending");
   const [choosing, setChoosing] = useState(false);
   const [analytics, setAnalytics] = useState(false);
@@ -43,7 +89,7 @@ export function CookieNotice() {
   // the end of the document so the page can always scroll clear of it.
   useEffect(() => {
     const el = bannerRef.current;
-    if (consent !== null || !el) return;
+    if (consent !== null || !el || overlayOpen) return;
     const previous = document.body.style.paddingBottom;
     const root = document.documentElement;
     const reserve = () => {
@@ -60,9 +106,10 @@ export function CookieNotice() {
       document.body.style.paddingBottom = previous;
       root.style.removeProperty("--consent-reserve");
     };
-  }, [consent]);
+  }, [consent, overlayOpen]);
 
   if (consent !== null) return null;
+  const brief = compact && !showDetails && !choosing;
 
   const decide = (a: boolean, ad: boolean) => {
     const choice = saveChoice(a, ad);
@@ -78,6 +125,8 @@ export function CookieNotice() {
     border: "1px solid rgba(255,255,255,.4)",
     borderRadius: radius.control,
     padding: "9px 16px",
+    // Touch targets: 44px minimum (homepage UX audit).
+    minHeight: 44,
     fontSize: 13.5,
     fontWeight: 700,
     fontFamily: fonts.body,
@@ -89,7 +138,9 @@ export function CookieNotice() {
       ref={bannerRef}
       role="region"
       aria-label="Cookie preferences"
-      className="pop-in"
+      className="pop-in-up"
+      hidden={overlayOpen}
+      data-compact={compact || undefined}
       style={{
         position: "fixed",
         left: 16,
@@ -109,16 +160,35 @@ export function CookieNotice() {
         borderRadius: radius.card,
         padding: "16px 18px",
         boxShadow: "0 18px 40px rgba(0,0,0,.25)",
-        display: "flex",
+        // `hidden` alone loses to an inline display value.
+        display: overlayOpen ? "none" : "flex",
         flexWrap: "wrap",
         alignItems: "center",
-        gap: 14,
+        gap: compact ? 10 : 14,
       }}
     >
-      <p style={{ margin: 0, fontSize: 13.5, lineHeight: 1.5, flex: "1 1 320px" }}>
-        We use strictly necessary cookies and local storage to run this site. With your permission we'd also use{" "}
-        <strong>analytics</strong> cookies (Google Analytics, to understand how the site is used) and, separately,{" "}
-        <strong>advertising</strong> cookies (to measure and personalise ads). You can choose each one.{" "}
+      <p id="cookie-notice-text" style={{ margin: 0, fontSize: 13.5, lineHeight: 1.5, flex: "1 1 320px" }}>
+        We use strictly necessary cookies and local storage to run this site.{" "}
+        {!brief && (
+          <>
+            With your permission we'd also use <strong>analytics</strong> cookies (Google Analytics, to understand how the site is used) and, separately,{" "}
+            <strong>advertising</strong> cookies (to measure and personalise ads). You can choose each one.{" "}
+          </>
+        )}
+        {compact && !choosing && (
+          <>
+            <button
+              type="button"
+              aria-expanded={showDetails}
+              aria-controls="cookie-notice-text"
+              onClick={() => setShowDetails((v) => !v)}
+              className="btn-reset"
+              style={{ color: "#fff", textDecoration: "underline", fontWeight: 600, fontSize: 13.5, cursor: "pointer", padding: 0 }}
+            >
+              {showDetails ? "Show less" : "More about optional cookies"}
+            </button>{" "}
+          </>
+        )}
         <a
           href="/cookies"
           onClick={(e) => {
@@ -144,7 +214,10 @@ export function CookieNotice() {
           </label>
         </fieldset>
       )}
-      <div style={{ display: "flex", gap: 8, flex: "none", flexWrap: "wrap" }}>
+      {/* Release validation 2026-10-11: shrinkable (not flex: none) so the three
+          choices wrap inside the banner on phones — at 320–390 px "Accept all"
+          previously ran past the banner edge. Never grows, so desktop is unchanged. */}
+      <div style={{ display: "flex", gap: 8, flex: "0 1 auto", minWidth: 0, maxWidth: "100%", flexWrap: "wrap" }}>
         <button onClick={() => decide(false, false)} className="btn" style={ghost}>
           Necessary only
         </button>
@@ -161,11 +234,13 @@ export function CookieNotice() {
           onClick={() => decide(true, true)}
           className="btn"
           style={{
-            background: "#fff",
-            color: colors.dark,
+            // Fixed light button on the dark banner, in both themes.
+            background: "#f7f4ec",
+            color: "#172019",
             border: "none",
             borderRadius: radius.control,
             padding: "9px 18px",
+            minHeight: 44,
             fontSize: 13.5,
             fontWeight: 700,
             fontFamily: fonts.body,

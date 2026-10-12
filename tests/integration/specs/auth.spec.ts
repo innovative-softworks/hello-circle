@@ -21,7 +21,7 @@ test("REAL-AUTH-001: resident UI login, refresh, permission boundaries and logou
     await expect(page).toHaveURL(/\/login(?:\?|$)/);
   }
   await page.goto("/");
-  await page.getByRole("button", { name: "Menu", exact: true }).click();
+  await page.getByRole("button", { name: /^Account menu/ }).click();
   await page.getByRole("button", { name: "Sign out", exact: true }).click();
   await page.getByRole("alertdialog").filter({ has: page.getByRole("heading", { name: "Sign out?", exact: true }) }).getByRole("button", { name: "Sign out", exact: true }).click();
   await expect.poll(resident).toBeNull();

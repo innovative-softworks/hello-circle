@@ -1,0 +1,508 @@
+/* Header & navigation (premium pass 2026-10-12; audit:
+   docs/header-navigation-ux-audit-2026-10-12.md). Visual states live here
+   rather than inline so :hover / :focus-visible / [aria-current] apply.
+   Cream/white surfaces, forest text, orange accent; Lucide icons at 20px,
+   1.9 stroke; 8px corners; one soft shadow; 150ms transitions. */
+
+:root {
+  --hc-ease: 150ms ease;
+}
+
+.hc-header-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  height: 70px;
+  padding: 0 24px;
+}
+
+.hc-logo-link {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  border-radius: 8px;
+}
+.hc-logo-link img {
+  height: 34px;
+  width: auto;
+  display: block;
+}
+
+/* ── Primary navigation (Explore / Circles / My Life / Start) ─────────── */
+.hc-nav {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 100%;
+}
+.hc-nav-link {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 44px;
+  padding: 0 12px;
+  border: none;
+  border-radius: 8px;
+  background: none;
+  color: var(--color-text);
+  font: inherit;
+  font-family: "Bricolage Grotesque Variable", "Bricolage Grotesque", system-ui, sans-serif;
+  font-size: 15.5px;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-decoration: none;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: color var(--hc-ease), background-color var(--hc-ease);
+}
+.hc-nav-link:hover {
+  color: var(--color-orange-dark);
+}
+/* Active route: a subtle underline, not a filled pill. */
+.hc-nav-link::after {
+  content: "";
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: -13px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--color-orange);
+  transform: scaleX(0);
+  transform-origin: left center;
+  transition: transform var(--hc-ease);
+}
+.hc-nav-link.is-active::after,
+.hc-nav-link[aria-current="page"]::after {
+  transform: scaleX(1);
+}
+.hc-nav-link .hc-chevron {
+  transition: transform var(--hc-ease);
+}
+.hc-nav-link[aria-expanded="true"] .hc-chevron {
+  transform: rotate(180deg);
+}
+.hc-nav-link[aria-expanded="true"] {
+  color: var(--color-orange-dark);
+}
+/* Start: identifiable by its orange accent, lighter than the search field. */
+.hc-nav-link--start {
+  color: var(--color-orange-dark);
+  font-weight: 700;
+}
+.hc-nav-link--start .hc-start-plus {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  background: var(--color-orange);
+  color: #fff;
+}
+.hc-nav-link--start:hover {
+  background: var(--color-orange-bg);
+}
+
+/* ── 44px icon buttons (Search / Saved / Notifications / Messages) ────── */
+.hc-icon-btn {
+  position: relative;
+  width: 44px;
+  height: 44px;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 8px;
+  background: none;
+  color: var(--color-text);
+  text-decoration: none;
+  cursor: pointer;
+  transition: color var(--hc-ease), background-color var(--hc-ease);
+}
+.hc-icon-btn:hover {
+  background: var(--color-panel);
+  color: var(--color-orange-dark);
+}
+.hc-icon-btn.is-active,
+.hc-icon-btn[aria-current="page"],
+.hc-icon-btn[aria-expanded="true"] {
+  color: var(--color-orange-dark);
+  background: var(--color-orange-bg);
+}
+
+.hc-avatar-btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  height: 44px;
+  padding: 0 2px;
+  border: none;
+  border-radius: 999px;
+  background: none;
+  color: var(--color-muted);
+  cursor: pointer;
+  transition: color var(--hc-ease);
+}
+.hc-avatar-btn:hover,
+.hc-avatar-btn[aria-expanded="true"] {
+  color: var(--color-orange-dark);
+}
+.hc-avatar-btn .hc-chevron {
+  transition: transform var(--hc-ease);
+}
+.hc-avatar-btn[aria-expanded="true"] .hc-chevron {
+  transform: rotate(180deg);
+}
+
+/* ── Menu rows (Start, Account, mobile sheets, notifications) ─────────── */
+.hc-menu-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 44px;
+  padding: 8px 12px;
+  border: none;
+  border-radius: 8px;
+  background: none;
+  color: var(--color-text);
+  font: inherit;
+  font-size: 14.5px;
+  font-weight: 600;
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+  transition: background-color var(--hc-ease), color var(--hc-ease);
+}
+.hc-menu-row:hover,
+.hc-menu-row:focus-visible {
+  background: var(--color-panel);
+}
+.hc-menu-row[aria-current="page"] {
+  background: var(--color-orange-bg);
+}
+.hc-menu-row--unread {
+  background: var(--color-orange-bg);
+}
+.hc-row-icon {
+  display: inline-flex;
+  flex: none;
+  color: var(--color-text);
+  transition: color var(--hc-ease);
+}
+.hc-menu-row:hover .hc-row-icon,
+.hc-menu-row:focus-visible .hc-row-icon,
+.hc-menu-row[aria-current="page"] .hc-row-icon {
+  color: var(--color-orange-dark);
+}
+.hc-text-link {
+  display: inline-block;
+  margin-top: 4px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--color-orange-dark);
+  text-decoration: none;
+}
+.hc-text-link:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+/* ── Explore: full-width mega panel under the header ─────────────────── */
+.hc-mega {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 100%;
+  z-index: 60;
+  background: var(--color-surface);
+  border-top: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--color-border);
+  box-shadow: 0 18px 32px rgba(23, 32, 25, 0.1);
+  max-height: calc(100vh - 70px);
+  overflow-y: auto;
+}
+.hc-mega-inner {
+  display: grid;
+  gap: 40px;
+  padding: 32px 24px 36px;
+  margin: 0 auto;
+}
+.hc-mega-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 14px;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--color-orange-dark);
+  letter-spacing: 0;
+}
+.hc-mega-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  column-gap: 28px;
+}
+.hc-mega-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 13px 8px;
+  border-top: 1px solid var(--color-border);
+  border-radius: 0;
+  color: var(--color-text);
+  text-decoration: none;
+  transition: background-color var(--hc-ease);
+}
+.hc-mega-row:hover,
+.hc-mega-row:focus-visible {
+  background: var(--color-panel);
+  border-radius: 8px;
+}
+.hc-mega-row .hc-row-icon {
+  margin-top: 1px;
+}
+.hc-mega-row:hover .hc-row-icon,
+.hc-mega-row:focus-visible .hc-row-icon,
+.hc-mega-row[aria-current="page"] .hc-row-icon {
+  color: var(--color-orange-dark);
+}
+.hc-mega-tile {
+  display: block;
+  padding: 16px 18px;
+  border-radius: 8px;
+  background: var(--color-orange-bg);
+  color: var(--color-text);
+  text-decoration: none;
+  transition: background-color var(--hc-ease);
+}
+.hc-mega-tile:hover,
+.hc-mega-tile:focus-visible {
+  background: var(--color-orange-bg-hover);
+}
+.hc-mega-photo {
+  position: relative;
+  display: block;
+  min-height: 240px;
+  height: 100%;
+  overflow: hidden;
+  border-radius: 8px;
+  background: var(--color-orange-bg);
+}
+
+/* ── Focus ───────────────────────────────────────────────────────────── */
+.hc-nav-link:focus-visible,
+.hc-icon-btn:focus-visible,
+.hc-avatar-btn:focus-visible,
+.hc-logo-link:focus-visible,
+.hc-menu-row:focus-visible,
+.hc-mega-row:focus-visible,
+.hc-mega-tile:focus-visible,
+.hc-mega-photo:focus-visible,
+.hc-btn:focus-visible,
+.hc-text-link:focus-visible,
+.hc-search-option:focus-visible {
+  outline: 2px solid var(--color-green);
+  outline-offset: 2px;
+}
+
+/* ── Signed-out actions ──────────────────────────────────────────────── */
+.hc-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 40px;
+  padding: 0 16px;
+  border-radius: 8px;
+  border: 1px solid var(--color-border-strong);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: 14px;
+  font-weight: 700;
+  text-decoration: none;
+  white-space: nowrap;
+  transition: background-color var(--hc-ease), border-color var(--hc-ease);
+}
+.hc-btn:hover {
+  background: var(--color-panel);
+}
+.hc-btn--primary {
+  background: var(--color-dark);
+  border-color: var(--color-dark);
+  color: #fff;
+}
+.hc-btn--primary:hover {
+  background: var(--color-dark-hover);
+}
+
+/* ── Search ──────────────────────────────────────────────────────────── */
+.hc-search {
+  position: relative;
+  width: 100%;
+}
+.hc-search-field {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 44px;
+  padding: 0 6px 0 14px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: 8px;
+  background: var(--color-surface);
+  color: var(--color-muted);
+  transition: border-color var(--hc-ease), box-shadow var(--hc-ease);
+}
+.hc-search-field:hover {
+  border-color: var(--color-muted-light);
+}
+.hc-search-field:focus-within {
+  border-color: var(--color-text);
+  box-shadow: 0 0 0 2px var(--color-green);
+  color: var(--color-text);
+}
+.hc-search input {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  border: none;
+  background: none;
+  color: var(--color-text);
+  font: inherit;
+  font-size: 15px;
+  outline: none;
+}
+/* The field wrapper shows focus; the bare input must not add a second ring
+   from the global input:focus rule. */
+.hc-search .hc-search-field input:focus {
+  outline: none;
+  border: none;
+  box-shadow: none;
+}
+.hc-search input::-webkit-search-cancel-button {
+  display: none;
+}
+.hc-search-clear {
+  width: 32px;
+  height: 32px;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: var(--color-muted);
+  cursor: pointer;
+}
+.hc-search-clear:hover {
+  background: var(--color-panel);
+  color: var(--color-text);
+}
+.hc-search-option[aria-selected="true"] {
+  background: var(--color-panel);
+}
+
+/* Desktop search sits in the middle from 1180px; below that an icon opens the same field. */
+.hc-search-desktop {
+  flex: 1 1 360px;
+  max-width: 520px;
+  min-width: 240px;
+  margin: 0 auto;
+}
+.hc-search-icon-only {
+  display: none;
+}
+@media (max-width: 1179px) {
+  .hc-search-desktop {
+    display: none;
+  }
+  .hc-search-icon-only {
+    display: inline-flex;
+  }
+}
+
+/* ── Mobile full-screen search ───────────────────────────────────────── */
+.hc-search-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 300;
+  display: flex;
+  flex-direction: column;
+  background: var(--color-bg);
+  padding: env(safe-area-inset-top) 0 env(safe-area-inset-bottom);
+}
+.hc-search-screen-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--color-border);
+}
+.hc-search-screen-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px 12px 24px;
+}
+
+/* ── Mobile top bar (≤860px): logo + search / notifications / account ── */
+.hc-mobile-actions {
+  display: none;
+}
+@media (max-width: 860px) {
+  .hc-header-row {
+    gap: 8px;
+    height: 60px;
+    padding: 0 12px 0 16px;
+  }
+  .hc-mobile-actions {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    margin-left: auto;
+  }
+  .hc-logo-link img {
+    height: 30px;
+  }
+}
+@media (max-width: 380px) {
+  .hc-header-row {
+    padding: 0 8px 0 12px;
+  }
+  .hc-logo-link img {
+    height: 26px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hc-header *,
+  .hc-header *::after,
+  .hc-menu-row,
+  .hc-row-icon,
+  .hc-search-screen * {
+    transition: none !important;
+  }
+}
+
+/* Explore panel columns: things to do (2 sub-columns) · [places] · featured · photo.
+   Below 1200px the decorative photo tile drops out so the links keep their room. */
+.hc-mega-layout[data-places="0"] {
+  grid-template-columns: minmax(0, 2fr) 260px 280px;
+}
+.hc-mega-layout[data-places="1"] {
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) 240px 260px;
+}
+@media (max-width: 1199px) {
+  .hc-mega-photo-col {
+    display: none !important;
+  }
+  .hc-mega-layout[data-places="0"] {
+    grid-template-columns: minmax(0, 2fr) 260px;
+  }
+  .hc-mega-layout[data-places="1"] {
+    grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) 240px;
+  }
+}

@@ -33,7 +33,7 @@ function ToastView({ toast, onDismiss }: { toast: ToastItem; onDismiss: (id: num
   }, [toast.id, toast.kind, onDismiss]);
   return (
     <div
-      className="pop-in"
+      className="pop-in-up"
       style={{ display: "flex", alignItems: "center", gap: 12, maxWidth: 420, width: "100%", background: tone.bg, color: tone.fg, border: `1px solid ${colors.border}`, borderRadius: "var(--r-card)", boxShadow: "var(--shadow-overlay)", padding: "12px 12px 12px 16px", fontSize: 14, fontWeight: 600 }}
     >
       <span style={{ flex: 1, minWidth: 0 }}>{toast.message}</span>

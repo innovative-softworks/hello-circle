@@ -26,7 +26,7 @@ test("HC-QA-083-PUBLIC: public pages have one H1, no heading-level skips, one <m
     const ui = await uiActor(browser, null, "desktop");
     try {
       const rows: HeadingAudit[] = [];
-      for (const path of ["/home", "/explore", "/games", "/circles", "/adventures", "/experiences", "/programs", "/signin", "/login", "/vendor/signup", "/privacy", "/cookies", `/games/${game.id}`, `/circles/${circle.slug ?? circle.id}`, "/host/does-not-exist-qa", "/no-such-page-qa"]) {
+      for (const path of ["/home", "/explore", "/games", "/circles", "/adventures", "/experiences", "/programs", "/signin", "/login", "/vendor/signup", "/privacy", "/cookies", "/about", "/contact", `/games/${game.id}`, `/circles/${circle.slug ?? circle.id}`, "/host/does-not-exist-qa", "/no-such-page-qa"]) {
         await settle(ui.page, path);
         rows.push(await headingAudit(ui.page, path));
       }
@@ -134,10 +134,10 @@ test("HC-QA-070: header disclosures expose aria-expanded/aria-controls; current 
     await page.keyboard.press("Escape");
     await expect(explore, "Escape closes the menu").toHaveAttribute("aria-expanded", "false");
     await expect.poll(async () => (await focused(page)).name, { message: "focus returns to the trigger" }).toMatch(/^Explore/);
-    await expect(nav.getByRole("button", { name: "Circles", exact: true })).toHaveAttribute("aria-current", "page");
+    await expect(nav.getByRole("link", { name: "Circles", exact: true })).toHaveAttribute("aria-current", "page");
     await expect(nav.locator('[aria-current="page"]')).toHaveCount(1);
     await page.evaluate(() => { history.pushState({}, "", "/explore"); dispatchEvent(new PopStateEvent("popstate")); });
-    await expect(nav.getByRole("button", { name: "Circles", exact: true }), "state updates on navigation").not.toHaveAttribute("aria-current", "page");
+    await expect(nav.getByRole("link", { name: "Circles", exact: true }), "state updates on navigation").not.toHaveAttribute("aria-current", "page");
   } finally { await desktop.close(); }
   const mobile = await uiActor(browser, null, "mobile");
   try {

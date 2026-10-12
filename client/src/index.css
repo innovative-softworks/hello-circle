@@ -44,36 +44,36 @@ html {
   --bottom-nav: env(safe-area-inset-bottom, 0px);
   --r-card: 16px;
   --shadow-overlay: 0 12px 32px rgba(20, 22, 20, 0.18);
-  --color-bg: #fbfaf7;
+  --color-bg: #f7f4ec;
   --color-surface: #ffffff;
-  --color-text: #1e2420;
+  --color-text: #172019;
   --color-muted: #5b635c;
   --color-muted-light: #5f675e;
   --color-faint: #656d64;
-  --color-text-soft: #3b423c;
-  --color-border: #e7e4dc;
-  --color-border-strong: #d8d4cb;
+  --color-text-soft: #3b433c;
+  --color-border: #e4dfd3;
+  --color-border-strong: #d3cdbf;
   --color-input-border: #8a857a; /* HC-QA-071: ≥3:1 vs bg/surface/panel */
-  --color-panel: #f0eee8;
-  --color-footer-bg: #f6f4ef;
+  --color-panel: #efebe1;
+  --color-footer-bg: #f1ede3;
 
   --color-green: #1e7a4c;
   --color-green-dark: #175f3b;
   --color-green-bg: #eaf4ee;
   --color-green-text: #175f3b;
 
-  --color-orange: #c74c1a;
-  --color-orange-dark: #b0401a;
-  --color-orange-bg: #fcede4;
-  --color-orange-bg-hover: #f8ddcc;
+  --color-orange: #b8320f;
+  --color-orange-dark: #9c2a0c;
+  --color-orange-bg: #ffe9e1;
+  --color-orange-bg-hover: #ffd9cc;
   --color-logo-mark-text: #c72f10;
 
   --color-gold: #e8a33a;
-  --color-dark: #1e2420;
-  --color-dark-hover: #252d27;
+  --color-dark: #172019;
+  --color-dark-hover: #232e25;
 
-  --color-skeleton: #edeae1;
-  --color-skeleton-highlight: #f5f3ec;
+  --color-skeleton: #ebe6da;
+  --color-skeleton-highlight: #f3efe5;
 
   /* A real "error" color existed as a hand-copied #b00020/#FBEAEA literal in
      23 files, never added to the token set — harmless in light mode, but it
@@ -83,9 +83,17 @@ html {
   --color-danger-solid: #b00020; /* HC-QA-072: filled danger (white text 7.33:1) */
   --color-danger-bg: #fbeaea;
 
-  --color-header-bg: rgba(251, 250, 247, 0.86);
+  --color-header-bg: rgba(247, 244, 236, 0.88);
 
   color-scheme: light;
+  /* Design-system consistency pass (2026-10-12) — the editorial brand
+     palette from Home/Circles, now shared. Bright brand orange always
+     carries --color-on-brand (forest) text: white on #ff4b24 is 3.3:1. */
+  --color-brand: #ff4b24;
+  --color-brand-hover: #ff6a49;
+  --color-on-brand: #172019;
+  --color-night: #172019;
+  --color-on-night: #f7f4ec;
 }
 
 /* Dark mode (UI/UX plan phase 8), OS-driven by default via
@@ -126,10 +134,10 @@ html {
     --color-green-bg: #1c3327;
     --color-green-text: #7fd3a5;
 
-    --color-orange: #c74c1a;
-    --color-orange-dark: #f0996a;
-    --color-orange-bg: #3a2517;
-    --color-orange-bg-hover: #472d1c;
+    --color-orange: #ff7a59;
+    --color-orange-dark: #ff9a7f;
+    --color-orange-bg: #3a2016;
+    --color-orange-bg-hover: #4a291c;
     --color-logo-mark-text: #f27359;
 
     --color-gold: #e8a33a;
@@ -150,6 +158,11 @@ html {
     --color-header-bg: rgba(21, 24, 26, 0.86);
 
     color-scheme: dark;
+    --color-brand: #ff4b24;
+    --color-brand-hover: #ff6a49;
+    --color-on-brand: #172019;
+    --color-night: #0e1310;
+    --color-on-night: #f7f4ec;
   }
 }
 
@@ -180,10 +193,10 @@ html {
   --color-green-bg: #1c3327;
   --color-green-text: #7fd3a5;
 
-  --color-orange: #c74c1a;
-  --color-orange-dark: #f0996a;
-  --color-orange-bg: #3a2517;
-  --color-orange-bg-hover: #472d1c;
+  --color-orange: #ff7a59;
+  --color-orange-dark: #ff9a7f;
+  --color-orange-bg: #3a2016;
+  --color-orange-bg-hover: #4a291c;
   --color-logo-mark-text: #f27359;
 
   --color-gold: #e8a33a;
@@ -200,47 +213,60 @@ html {
   --color-header-bg: rgba(21, 24, 26, 0.86);
 
   color-scheme: dark;
+  --color-brand: #ff4b24;
+  --color-brand-hover: #ff6a49;
+  --color-on-brand: #172019;
+  --color-night: #0e1310;
+  --color-on-night: #f7f4ec;
 }
 
 :root[data-theme="light"] {
-  --color-bg: #fbfaf7;
+  --color-bg: #f7f4ec;
   --color-surface: #ffffff;
-  --color-text: #1e2420;
+  --color-text: #172019;
   --color-muted: #5b635c;
   --color-muted-light: #5f675e;
   --color-faint: #656d64;
-  --color-text-soft: #3b423c;
-  --color-border: #e7e4dc;
-  --color-border-strong: #d8d4cb;
+  --color-text-soft: #3b433c;
+  --color-border: #e4dfd3;
+  --color-border-strong: #d3cdbf;
   --color-input-border: #8a857a; /* HC-QA-071: ≥3:1 vs bg/surface/panel */
-  --color-panel: #f0eee8;
-  --color-footer-bg: #f6f4ef;
+  --color-panel: #efebe1;
+  --color-footer-bg: #f1ede3;
 
   --color-green: #1e7a4c;
   --color-green-dark: #175f3b;
   --color-green-bg: #eaf4ee;
   --color-green-text: #175f3b;
 
-  --color-orange: #c74c1a;
-  --color-orange-dark: #b0401a;
-  --color-orange-bg: #fcede4;
-  --color-orange-bg-hover: #f8ddcc;
+  --color-orange: #b8320f;
+  --color-orange-dark: #9c2a0c;
+  --color-orange-bg: #ffe9e1;
+  --color-orange-bg-hover: #ffd9cc;
   --color-logo-mark-text: #c72f10;
 
   --color-gold: #e8a33a;
-  --color-dark: #1e2420;
-  --color-dark-hover: #252d27;
+  --color-dark: #172019;
+  --color-dark-hover: #232e25;
 
-  --color-skeleton: #edeae1;
-  --color-skeleton-highlight: #f5f3ec;
+  --color-skeleton: #ebe6da;
+  --color-skeleton-highlight: #f3efe5;
 
   --color-danger: #b00020;
   --color-danger-solid: #b00020; /* HC-QA-072: filled danger (white text 7.33:1) */
   --color-danger-bg: #fbeaea;
 
-  --color-header-bg: rgba(251, 250, 247, 0.86);
+  --color-header-bg: rgba(247, 244, 236, 0.88);
 
   color-scheme: light;
+  /* Design-system consistency pass (2026-10-12) — the editorial brand
+     palette from Home/Circles, now shared. Bright brand orange always
+     carries --color-on-brand (forest) text: white on #ff4b24 is 3.3:1. */
+  --color-brand: #ff4b24;
+  --color-brand-hover: #ff6a49;
+  --color-on-brand: #172019;
+  --color-night: #172019;
+  --color-on-night: #f7f4ec;
 }
 
 * {
@@ -384,8 +410,17 @@ textarea:focus {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.35; }
 }
+/* Entrances grow from the edge an element is attached to, never from its
+   centre (owner, 2026-10-12): dropdowns/inline messages drop 6px from their
+   top edge, bottom-anchored toasts/banners rise from below. No scale, no
+   overshoot. Centred scale is kept only where it is the point (heart pop,
+   photo zoom, :active press). */
 @keyframes popIn {
-  from { opacity: 0; transform: scale(0.85); }
+  from { opacity: 0; transform: translateY(-6px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes popInUp {
+  from { opacity: 0; transform: translateY(8px); }
   to { opacity: 1; transform: none; }
 }
 @keyframes slideInRight {
@@ -575,7 +610,13 @@ textarea:focus {
   animation: fadeUp 0.28s ease backwards;
 }
 .pop-in {
-  animation: popIn 0.22s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  animation: popIn 0.18s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+.pop-in-up {
+  animation: popInUp 0.2s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+.fade-in {
+  animation: fadeIn 0.18s ease both;
 }
 .slide-in-right {
   animation: slideInRight 0.22s cubic-bezier(0.34, 1.56, 0.64, 1) both;
@@ -979,7 +1020,7 @@ textarea:focus {
   font-family: ui-monospace, "SF Mono", "Roboto Mono", Menlo, monospace;
   font-size: 11px;
   font-weight: 700;
-  letter-spacing: 0.14em;
+  letter-spacing: 0;
   text-transform: uppercase;
   color: #fff;
   background: rgba(20, 22, 20, 0.34);
@@ -1091,14 +1132,15 @@ textarea:focus {
 .slide-out-right { animation: slideOutRight 0.22s ease-in both; }
 .backdrop-in { animation: backdropIn 0.2s ease both; }
 .backdrop-out { animation: backdropOut 0.22s ease both; }
-/* Modal popup (ui.tsx's Modal) — a gentle scale+fade in the centre, not a slide. */
+/* Modal popup (ui.tsx's Modal / ConfirmDialog, dialogs) — fade + short rise,
+   no centre-scale (see popIn above). */
 @keyframes modalIn {
-  from { opacity: 0; transform: translateY(8px) scale(0.97); }
+  from { opacity: 0; transform: translateY(10px); }
   to { opacity: 1; transform: none; }
 }
 @keyframes modalOut {
   from { opacity: 1; transform: none; }
-  to { opacity: 0; transform: translateY(6px) scale(0.98); }
+  to { opacity: 0; transform: translateY(6px); }
 }
 .modal-in { animation: modalIn 0.24s cubic-bezier(0.22, 1, 0.36, 1) both; }
 .modal-out { animation: modalOut 0.18s ease-in both; }
@@ -1118,6 +1160,9 @@ textarea:focus {
 
 @media (prefers-reduced-motion: reduce) {
   .heart-pop,
+  .pop-in,
+  .pop-in-up,
+  .fade-in,
   .card-surface,
   .route-enter,
   .sheet-in,

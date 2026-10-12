@@ -1,18 +1,40 @@
 import { BrandLogo } from "./BrandLogo";
 import { useEffect, useRef, useState } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
-import { fetchAdminPendingListings, fetchChatInbox, fetchManageWorkspaces, fetchMyGames, fetchResidentNotificationsPage, fetchVendorListings, guestLogout, logout, markResidentNotificationRead, switchWorkspace } from "../api";
-import type { ManageWorkspaces } from "../api/manage";
+import { Link, useLocation, useNavigate } from "react-router-dom";
+import { Bell, ChevronDown, CircleHelp, Heart, Menu, MessageCircle, Plus, Search, Store, type LucideIcon } from "lucide-react";
+import { guestLogout, logout, switchWorkspace } from "../api";
 import { useAuth } from "../AuthContext";
 import { signInHref, signUpHref } from "../authRedirect";
 import { useDashboardNav } from "../DashboardNavContext";
 import { useGuest } from "../GuestContext";
 import { useTheme } from "../ThemeContext";
-import { BallIcon, BellIcon, ChatIcon, BuildingIcon, ChevronDownIcon, CloseIcon, GridIcon, LightbulbIcon, MenuIcon, MoonIcon, PinIcon, RepeatIcon, SearchIcon, SunIcon, TreeIconSmall } from "./icons";
-import { Avatar, ConfirmDialog } from "./ui";
-import { colors, fonts, maxWidth, radius } from "../theme";
+import { Avatar, ConfirmDialog, Drawer } from "./ui";
+import { colors, fonts, maxWidth } from "../theme";
 import { useMyStuff } from "../MyStuffContext";
-import type { ResidentNotification } from "../types";
+import { VENUE_PAGES_PUBLIC } from "../venueLaunch";
+import { useOpenBookingOpen } from "../paidCheckout";
+import { EXPLORE_FEATURED, EXPLORE_PATHS, EXPLORE_PLACES, EXPLORE_THINGS, FREE_TIME_ITEM, START_ITEMS, START_PATHS, SUGGEST_PLACE_ITEM, isUnder, visibleItems, type NavContext, type NavItem } from "../navigation/navConfig";
+import { useHeaderData } from "./header/useHeaderData";
+import { HeaderSearch } from "./header/HeaderSearch";
+import { MobileSearchScreen } from "./header/MobileSearchScreen";
+import { NotificationsList } from "./header/NotificationsList";
+import { AccountMenuContent } from "./header/AccountMenuContent";
+import { ICON_STROKE, badgeStyle, countLabel, menuRowDescStyle, menuRowTitleStyle, panelStyle } from "./header/headerStyles";
+import "./header/header.css";
+
+// Header & navigation (premium pass 2026-10-12 — see
+// docs/header-navigation-ux-audit-2026-10-12.md). Desktop: logo, Explore ▾,
+// Circles, My Life, Start ▾ | search | Saved, notifications, messages, one
+// account avatar. Mobile (≤860px): logo + search / notifications / account,
+// with MobileTabBar.tsx as the primary navigation. Every destination is a
+// real link; menus are disclosures (Escape + outside click close them and
+// return focus to their trigger). Icons are lucide-react throughout; menu
+// items come from navigation/navConfig.ts, shared with the mobile sheets.
+
+type Panel = "explore" | "start" | "notifications" | "account" | "search" | null;
+type Sheet = "account" | "notifications" | null;
+
+const NavIcon = ({ icon: I, size = 20 }: { icon: LucideIcon; size?: number }) => <I size={size} strokeWidth={ICON_STROKE} aria-hidden="true" />;
 
 export function Header() {
   const navigate = useNavigate();
@@ -20,127 +42,97 @@ export function Header() {
   const { count } = useMyStuff();
   const { user, loading: authLoading, refresh } = useAuth();
   const { email: guestEmail, resident, loading: guestLoading, refresh: refreshGuest } = useGuest();
-  // Both contexts start with user/email/resident all null and only resolve
-  // asynchronously (fetchMe()/fetchGuestSession()) — without checking their
-  // loading flags, every full page load briefly rendered the signed-out nav
-  // (hamburger icon instead of the avatar) for an already-authenticated
-  // vendor/admin/resident, before flashing to the correct state once both
-  // fetches resolved.
+  // Both sessions resolve asynchronously; until then show neither the
+  // signed-in nor the signed-out controls, so a signed-in visitor never sees
+  // a flash of "Log in".
   const authResolved = !authLoading && !guestLoading;
-  // Set only while an Admin/Vendor dashboard is mounted (see
-  // DashboardNavContext) — that's what makes this burger admin/vendor-only
-  // without Header needing to know about routes or tab lists itself.
+  // Set only while an Admin/Vendor/Manage dashboard is mounted (DashboardNavContext).
   const { openNav } = useDashboardNav();
   const { resolvedTheme, setTheme } = useTheme();
-  const [menuOpen, setMenuOpen] = useState(false);
-  const [alerts, setAlerts] = useState(0);
-  const [accountMenuOpen, setAccountMenuOpen] = useState(false);
-  // Free Time Mode + nav restructure (Phase 9) — collapses the old flat
-  // Community centres/Sports clubs/Join a game tabs into one "Explore"
-  // trigger. Nav megamenu pass: this now opens one wide multi-column panel
-  // (Activities/Venues/Featured) instead of two separate skinny dropdowns.
-  const [exploreMenuOpen, setExploreMenuOpen] = useState(false);
-  // Global Create hub (IA spec §1 audit) — desktop-only counterpart to
-  // MobileTabBar.tsx's Create sheet, same three destinations. Book a
-  // place/Join a game routes overlap with Explore's own, so only
-  // Make It Happen is exclusive to this menu — moved out of the Explore
-  // dropdown below to avoid two entry points for the same destination.
-  const [createMenuOpen, setCreateMenuOpen] = useState(false);
-  const accountMenuRef = useRef<HTMLDivElement>(null);
-  const exploreMenuRef = useRef<HTMLDivElement>(null);
-  const createMenuRef = useRef<HTMLDivElement>(null);
+  const openBooking = useOpenBookingOpen();
+  const data = useHeaderData(user, resident);
 
-  // Resident notification bell (Tier 1) — previously these only lived
-  // inside My Bookings > Notifications, easy to miss entirely.
-  const [residentNotifs, setResidentNotifs] = useState<ResidentNotification[]>([]);
-  const [notifOpen, setNotifOpen] = useState(false);
-  const notifRef = useRef<HTMLDivElement>(null);
-  // HC-QA-073 — the badge uses the server's true unread total, not a count of
-  // the (paginated) recent list.
-  const [unreadNotifs, setUnreadNotifs] = useState(0);
-
-  // Unread group-chat messages across every conversation this session can
-  // see — the resident's own, or (vendor-only session) the host inbox.
-  const [chatUnread, setChatUnread] = useState(0);
-  const hostOnly = !resident && user?.role === "vendor";
-  useEffect(() => {
-    if (!resident && !hostOnly) {
-      setChatUnread(0);
-      return;
-    }
-    const load = () => fetchChatInbox(hostOnly).then((r) => setChatUnread(r.unread)).catch(() => {});
-    load();
-    const id = window.setInterval(load, 60000);
-    return () => window.clearInterval(id);
-  }, [resident?.id, hostOnly, location.pathname]);
-
-  const loadResidentNotifs = () => {
-    if (resident) fetchResidentNotificationsPage(null, 20).then((page) => { setResidentNotifs(page.items); setUnreadNotifs(page.unread); }).catch(() => {});
+  const [panel, setPanel] = useState<Panel>(null);
+  const [sheet, setSheet] = useState<Sheet>(null);
+  const [searchScreen, setSearchScreen] = useState(false);
+  const megaRef = useRef<HTMLDivElement>(null);
+  const panelRefs = {
+    explore: useRef<HTMLDivElement>(null),
+    start: useRef<HTMLDivElement>(null),
+    notifications: useRef<HTMLDivElement>(null),
+    account: useRef<HTMLDivElement>(null),
+    search: useRef<HTMLDivElement>(null),
+  };
+  const toggle = (p: Exclude<Panel, null>) => setPanel((cur) => (cur === p ? null : p));
+  const closeAll = () => {
+    setPanel(null);
+    setSheet(null);
+    setSearchScreen(false);
   };
 
-  // HelloCircle Manage (Phase 1) — a resident who has linked a vendor account
-  // or organises a Circle gets those as switchable workspaces in this same
-  // dropdown, instead of needing to sign in twice. Fetched for a pure
-  // resident session (no vendor/admin session active), OR when the active
-  // vendor/admin session's own linked resident IS this resident — i.e. this
-  // browser has switched into its own linked Personal side, where both
-  // cookies now legitimately coexist. Deliberately NOT fetched when `user`
-  // and `resident` are simply two unrelated sessions coexisting by
-  // coincidence (e.g. an admin who separately signed in as some resident) —
-  // `user.residentId` only ever matches when the two are actually linked.
-  // Bug found during manual testing: gating this on plain `!user` meant that
-  // once a linked vendor ever switched to Personal, `user` never goes back to
-  // null client-side (the vendor cookie is deliberately kept valid so you can
-  // switch back) — so these entries would silently vanish forever afterward,
-  // even across a hard reload, despite the resident session being genuinely
-  // active.
-  const samePerson = !user || user.residentId === resident?.id;
-  const [workspaces, setWorkspaces] = useState<ManageWorkspaces | null>(null);
-  useEffect(() => {
-    if (resident && samePerson) fetchManageWorkspaces().then(setWorkspaces).catch(() => setWorkspaces(null));
-    else setWorkspaces(null);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [resident, user]);
+  const navCtx: NavContext = { venuesPublic: VENUE_PAGES_PUBLIC, openBooking, isVendor: user?.role === "vendor" };
+  const pathname = location.pathname;
+  const startActive = isUnder(pathname, START_PATHS);
+  const exploreActive = isUnder(pathname, EXPLORE_PATHS) && !startActive;
+  const onSearchPage = pathname === "/explore";
+  const signedIn = !!user || !!guestEmail;
+  // My Life is the resident's own home; a guest who has booked on this device
+  // also has one (anonymous client id). Not shown to vendor/admin-only sessions.
+  const showMyLife = !!resident || (!user && (!!guestEmail || count > 0));
+  const vendorOnly = !resident && user?.role === "vendor";
+  const businessRow =
+    resident && user && (user.role === "admin" || user.role === "vendor")
+      ? user.role === "admin"
+        ? { label: "Pending approvals", to: "/admin?tab=pending", count: data.businessCount }
+        : { label: "Business notifications", to: "/vendor?tab=messages", count: data.vendorUnread }
+      : null;
 
-  // Host MVP (Phase 3) — "any resident who's ever hosted" is cheap to derive
-  // client-side from the existing hosted-only games list, so this doesn't add
-  // a new field to GET /api/manage/workspaces's response.
-  const [hasHostedGames, setHasHostedGames] = useState(false);
+  // Close menus and sheets on navigation.
+  useEffect(closeAll, [location.pathname, location.search]);
+
+  // Outside click closes the open dropdown (the Explore panel lives outside
+  // its trigger's wrapper, so both count as "inside").
   useEffect(() => {
-    if (resident && samePerson)
-      fetchMyGames({ hostedOnly: true })
-        .then((games) => setHasHostedGames(games.length > 0))
-        .catch(() => setHasHostedGames(false));
-    else setHasHostedGames(false);
+    if (!panel) return;
+    const onDown = (e: MouseEvent) => {
+      const target = e.target as Node;
+      if (panelRefs[panel].current?.contains(target)) return;
+      if (panel === "explore" && megaRef.current?.contains(target)) return;
+      setPanel(null);
+    };
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [resident, user]);
+  }, [panel]);
+
+  // HC-QA-070 — Escape closes the open dropdown and returns focus to its
+  // trigger (found via aria-controls). Dialogs handle their own Escape.
+  useEffect(() => {
+    if (!panel) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape" || document.querySelector('[role="dialog"][aria-modal="true"], [role="alertdialog"]')) return;
+      const id = `hc-${panel}-menu`;
+      setPanel(null);
+      document.querySelector<HTMLElement>(`[aria-controls="${id}"]`)?.focus();
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [panel]);
 
   const switchToVendor = async () => {
-    setAccountMenuOpen(false);
+    closeAll();
     try {
       await switchWorkspace("vendor");
-      // AuthProvider only fetches /api/auth/me once, at initial app load —
-      // switching workspace mints a brand new vendor cookie without a page
-      // reload, so nothing else would ever tell AuthContext's `user` state
-      // about it. Without this, VendorDashboard.tsx mounts, sees the still-
-      // stale `user` (null, from before this session existed) and bounces
-      // straight back to /login.
+      // AuthContext only fetches /auth/me at load — refresh so the dashboard
+      // sees the new vendor session instead of bouncing to /login.
       await refresh();
       navigate("/vendor");
     } catch {
-      // Session mint failed (e.g. link was revoked) — fall back to a normal
-      // vendor login rather than leaving the click silently do nothing.
       navigate("/login");
     }
   };
-
-  // Reverse direction — a vendor session whose account is linked to a
-  // resident switching to Personal. Always calls switchWorkspace first
-  // (idempotent) rather than assuming a resident cookie already exists on
-  // this browser/device — same "don't assume, verify" reasoning as
-  // switchToVendor above, just mirrored.
   const switchToResident = async () => {
-    setAccountMenuOpen(false);
+    closeAll();
     try {
       await switchWorkspace("resident");
       await refreshGuest();
@@ -150,293 +142,144 @@ export function Header() {
     }
   };
 
-  useEffect(() => {
-    setMenuOpen(false);
-    setAccountMenuOpen(false);
-    setNotifOpen(false);
-    setExploreMenuOpen(false);
-    setCreateMenuOpen(false);
-  }, [location.pathname]);
-
-  useEffect(loadResidentNotifs, [resident]);
-
-  useEffect(() => {
-    function onDocClick(e: MouseEvent) {
-      if (notifRef.current && !notifRef.current.contains(e.target as Node)) setNotifOpen(false);
-    }
-    document.addEventListener("mousedown", onDocClick);
-    return () => document.removeEventListener("mousedown", onDocClick);
-  }, []);
-
-  const handleNotifRead = async (id: number) => {
-    await markResidentNotificationRead(id);
-    setResidentNotifs((rows) => rows.map((n) => (n.id === id ? { ...n, read: 1 } : n)));
-    setUnreadNotifs((n) => Math.max(0, n - 1));
-  };
-
-  // Close the two header dropdowns on an outside click — they're popovers,
-  // not the full-width mobile panel below, which already only opens via its
-  // own toggle button.
-  useEffect(() => {
-    function onDocClick(e: MouseEvent) {
-      if (accountMenuRef.current && !accountMenuRef.current.contains(e.target as Node)) setAccountMenuOpen(false);
-      if (exploreMenuRef.current && !exploreMenuRef.current.contains(e.target as Node)) setExploreMenuOpen(false);
-      if (createMenuRef.current && !createMenuRef.current.contains(e.target as Node)) setCreateMenuOpen(false);
-    }
-    document.addEventListener("mousedown", onDocClick);
-    return () => document.removeEventListener("mousedown", onDocClick);
-  }, []);
-
-  // HC-QA-070 — Escape closes whichever header disclosure is open and returns
-  // focus to its trigger (found via its aria-controls). Dialogs handle their
-  // own Escape, so this stays out of the way while one is open.
-  useEffect(() => {
-    const open: [boolean, () => void, string][] = [
-      [exploreMenuOpen, () => setExploreMenuOpen(false), "hc-explore-menu"],
-      [createMenuOpen, () => setCreateMenuOpen(false), "hc-start-menu"],
-      [notifOpen, () => setNotifOpen(false), "hc-notifications-panel"],
-      [accountMenuOpen, () => setAccountMenuOpen(false), "hc-account-menu"],
-      [menuOpen, () => setMenuOpen(false), "hc-mobile-menu"],
-    ];
-    if (!open.some(([isOpen]) => isOpen)) return;
-    function onKey(e: KeyboardEvent) {
-      if (e.key !== "Escape" || document.querySelector('[role="dialog"][aria-modal="true"], [role="alertdialog"]')) return;
-      for (const [isOpen, close, id] of open) {
-        if (!isOpen) continue;
-        close();
-        document.querySelector<HTMLElement>(`[aria-controls="${id}"]`)?.focus();
-      }
-    }
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, [exploreMenuOpen, createMenuOpen, notifOpen, accountMenuOpen, menuOpen]);
-
-  useEffect(() => {
-    if (user?.role === "admin") {
-      fetchAdminPendingListings()
-        .then((data) => setAlerts(data.centres.length + data.clubs.length))
-        .catch(() => setAlerts(0));
-    } else if (user?.role === "vendor" && user.status === "approved") {
-      fetchVendorListings()
-        .then((data) => {
-          const needsAttention = (rows: { status: string }[]) => rows.filter((r) => r.status === "pending" || r.status === "rejected").length;
-          setAlerts(needsAttention(data.centres) + needsAttention(data.clubs));
-        })
-        .catch(() => setAlerts(0));
-    } else {
-      setAlerts(0);
-    }
-  }, [user, location.pathname]);
-
-  const isActive = (prefixes: string[]) => prefixes.some((p) => location.pathname.startsWith(p));
-
-  const go = (path: string) => {
-    setMenuOpen(false);
-    navigate(path);
-  };
-
-  // Confirmed via a dialog rather than logging out on the first click —
-  // this menu item sits right next to plain navigation links, so a mis-tap
-  // (especially on mobile, where menu items are packed closer together)
-  // used to sign someone out with no way to back out of it.
+  // Signing out is confirmed — the item sits next to plain links.
   const [confirmingLogout, setConfirmingLogout] = useState<"vendor" | "guest" | null>(null);
   const [loggingOut, setLoggingOut] = useState(false);
-
-  const doLogout = async () => {
-    setMenuOpen(false);
+  const doSignOut = async () => {
     setLoggingOut(true);
     try {
-      await logout();
-      await refresh();
+      if (confirmingLogout === "vendor") {
+        await logout();
+        await refresh();
+      } else {
+        await guestLogout();
+        await refreshGuest();
+      }
       navigate("/");
     } finally {
       setLoggingOut(false);
       setConfirmingLogout(null);
     }
   };
+  const askSignOut = () => {
+    closeAll();
+    setConfirmingLogout(user ? "vendor" : "guest");
+  };
+  const toggleTheme = () => setTheme(resolvedTheme === "dark" ? "light" : "dark");
 
-  const doGuestLogout = async () => {
-    setMenuOpen(false);
-    setLoggingOut(true);
-    try {
-      await guestLogout();
-      await refreshGuest();
-      navigate("/");
-    } finally {
-      setLoggingOut(false);
-      setConfirmingLogout(null);
-    }
-  };
-
-  const navBtn: React.CSSProperties = {
-    background: "none",
-    border: "none",
-    padding: "8px 13px",
-    borderRadius: radius.control,
-    fontSize: 15,
-    fontWeight: 500,
-    color: colors.textSoft,
-    cursor: "pointer",
-  };
-  const mobileNavBtn: React.CSSProperties = {
-    ...navBtn,
-    textAlign: "left",
-    padding: "12px 6px",
-    fontSize: 16,
-    width: "100%",
-  };
-  // "Start" nav trigger — big, bold text rather than an outline button, so
-  // it reads as the one nav item that opens things up (not just another
-  // browse category) through weight/scale alone, no border/fill needed.
-  const startBtnStyle: React.CSSProperties = {
-    background: "none",
-    border: "none",
-    padding: "8px 13px",
-    borderRadius: radius.control,
-    fontSize: 17,
-    fontWeight: 800,
-    color: colors.text,
-    cursor: "pointer",
-    display: "inline-flex",
-    alignItems: "center",
-    gap: 5,
+  const accountProps = {
+    user,
+    resident,
+    guestEmail,
+    workspaces: data.workspaces,
+    hasHostedGames: data.hasHostedGames,
+    myLifeCount: count,
+    chatUnread: data.chatUnread,
+    unreadNotifs: data.unreadNotifs,
+    businessCount: data.businessCount,
+    resolvedTheme,
+    onToggleTheme: toggleTheme,
+    onSwitchVendor: switchToVendor,
+    onSwitchPersonal: switchToResident,
+    onSignOut: askSignOut,
+    onNavigate: closeAll,
   };
 
-  const circleBtnStyle: React.CSSProperties = {
-    width: 40,
-    height: 40,
-    borderRadius: "50%",
-    border: `1px solid ${colors.borderStrong}`,
-    background: colors.surface,
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    flex: "none",
-  };
-  const dropdownStyle: React.CSSProperties = {
-    position: "absolute",
-    top: "calc(100% + 10px)",
-    right: 0,
-    zIndex: 60,
-    minWidth: 200,
-    background: colors.surface,
-    border: `1px solid ${colors.border}`,
-    borderRadius: 14,
-    boxShadow: "0 16px 36px rgba(30,40,32,.14)",
-    padding: 8,
-  };
-  const dropdownLabelStyle: React.CSSProperties = {
-    padding: "8px 12px 4px",
-    fontSize: 12,
-    fontWeight: 700,
-    color: colors.muted,
-    textTransform: "uppercase",
-    letterSpacing: ".04em",
-  };
-  const dropdownItemStyle: React.CSSProperties = {
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: 8,
-    width: "100%",
-    background: "none",
-    border: "none",
-    borderRadius: radius.control,
-    padding: "10px 12px",
-    fontSize: 14.5,
-    fontWeight: 600,
-    color: colors.text,
-    textAlign: "left",
-    cursor: "pointer",
-  };
-  const dropdownDividerStyle: React.CSSProperties = { borderTop: `1px solid ${colors.border}`, margin: "6px 4px" };
-  // Explore megamenu (nav audit) — one wide multi-column panel, left-aligned
-  // under the trigger unlike dropdownStyle's right-aligned narrow popovers.
-  // Editorial language (premium pass): borrows the site's own "/ EYEBROW"
-  // label and hairline-rule vocabulary already used on /for-venues
-  // (HostHowItWorks/ChooseYourPathSection) instead of a boxed-icon/colored-
-  // tile treatment. Shared by both Explore's and Create's panels so the two
-  // megamenus read as one system.
-  const megaMenuStyle: React.CSSProperties = {
-    position: "absolute",
-    top: "calc(100% + 14px)",
-    left: 0,
-    zIndex: 60,
-    width: 1180,
-    background: colors.surface,
-    border: `1px solid ${colors.border}`,
-    borderRadius: 8,
-    boxShadow: "0 32px 64px rgba(30,40,32,.16)",
-    padding: "44px 48px",
-    display: "grid",
-    gridTemplateColumns: "1fr 1fr 230px 260px",
-    gap: 44,
-  };
-  // Create hub as a megamenu too (nav audit) — same panel language as
-  // Explore's, but single-column and anchored directly under its own
-  // trigger (left: 0 on its own position:relative wrapper) rather than
-  // right-aligned across the row.
-  const createMegaMenuStyle: React.CSSProperties = {
-    ...megaMenuStyle,
-    width: 320,
-    gridTemplateColumns: "1fr",
-    gap: 8,
-  };
-  const megaColStyle: React.CSSProperties = { display: "flex", flexDirection: "column", gap: 0 };
-  const megaColLabelStyle: React.CSSProperties = {
-    fontSize: 12.5,
-    fontWeight: 700,
-    color: colors.orangeDark,
-    letterSpacing: ".09em",
-    marginBottom: 22,
-    display: "flex",
-    alignItems: "center",
-    gap: 8,
-  };
-  const megaItemStyle: React.CSSProperties = {
-    display: "flex",
-    alignItems: "center",
-    gap: 14,
-    width: "100%",
-    background: "none",
-    border: "none",
-    borderTop: `1px solid ${colors.border}`,
-    borderRadius: 0,
-    padding: "15px 0",
-    textAlign: "left",
-    cursor: "pointer",
-  };
-  const megaIconWrapStyle: React.CSSProperties = {
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    flex: "none",
-    color: colors.text,
-  };
-  const megaItemTitleStyle: React.CSSProperties = { display: "block", fontFamily: fonts.display, fontSize: 16, fontWeight: 700, color: colors.text, letterSpacing: "-.01em" };
-  const megaItemDescStyle: React.CSSProperties = { display: "block", fontSize: 13, color: colors.muted, marginTop: 3, lineHeight: 1.45 };
-  const megaFeaturedTileStyle = (bg: string): React.CSSProperties => ({
-    display: "block",
-    width: "100%",
-    background: bg,
-    border: "none",
-    borderRadius: 4,
-    padding: "18px 20px",
-    textAlign: "left",
-    cursor: "pointer",
-  });
-  const countBadgeStyle: React.CSSProperties = {
-    background: colors.green,
-    color: "#fff",
-    borderRadius: 20,
-    fontSize: 11,
-    fontWeight: 700,
-    padding: "1px 7px",
-    flex: "none",
-  };
+  // Business work waiting (admin approvals / vendor listings) — surfaced on
+  // the avatar, named in its menu. Real server counts only.
+  const accountAttention = user ? data.businessCount : 0;
+  const accountLabel = `Account menu${accountAttention > 0 ? `, ${accountAttention} ${user?.role === "admin" ? "pending approvals" : "listings need attention"}` : ""}`;
+  const avatarName = resident?.name || user?.name || guestEmail || "?";
+  const badge = (n: number) => (n > 0 ? <span style={badgeStyle}>{countLabel(n)}</span> : null);
+  const savedActive = pathname === "/profile" && new URLSearchParams(location.search).get("tab") === "favourites";
+
+  // ── Explore: the existing mega menu, laid out full width ──────────────────
+  const places = visibleItems(EXPLORE_PLACES, navCtx);
+  const megaTitle: React.CSSProperties = { display: "block", fontFamily: fonts.display, fontSize: 15.5, fontWeight: 700, color: colors.text, letterSpacing: 0 };
+  const megaDesc: React.CSSProperties = { display: "block", fontSize: 13, color: colors.muted, marginTop: 2, lineHeight: 1.45 };
+  const megaRow = (item: NavItem) => (
+    <Link key={item.key} to={item.to} className="hc-mega-row" aria-current={pathname + location.search === item.to ? "page" : undefined} onClick={closeAll}>
+      <span className="hc-row-icon">
+        <NavIcon icon={item.icon} size={21} />
+      </span>
+      <span>
+        <span style={megaTitle}>{item.label}</span>
+        <span style={megaDesc}>{item.desc}</span>
+      </span>
+    </Link>
+  );
+  const megaTile = (item: NavItem, cta: string) => (
+    <Link key={item.key} to={item.to} className="hc-mega-tile" aria-current={pathname === item.to ? "page" : undefined} onClick={closeAll}>
+      <span style={megaTitle}>{item.label}</span>
+      <span style={megaDesc}>{item.desc}</span>
+      <span style={{ display: "block", fontSize: 11.5, fontWeight: 700, color: colors.orangeDark, letterSpacing: 0, marginTop: 10 }}>{cta} &rarr;</span>
+    </Link>
+  );
+  const exploreMega = (
+    <div ref={megaRef} id="hc-explore-menu" className="hc-mega pop-in">
+      <div className="hc-mega-inner hc-mega-layout" data-places={places.length > 0 ? "1" : "0"} style={{ maxWidth }}>
+        <div>
+          <div className="hc-mega-label">
+            <span style={{ opacity: 0.6 }}>/</span> THINGS TO DO
+          </div>
+          <div className="hc-mega-grid">{EXPLORE_THINGS.map(megaRow)}</div>
+        </div>
+        {places.length > 0 && (
+          <div>
+            <div className="hc-mega-label">
+              <span style={{ opacity: 0.6 }}>/</span> PLACES
+            </div>
+            {places.map(megaRow)}
+          </div>
+        )}
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          <div className="hc-mega-label" style={{ marginBottom: 4 }}>
+            <span style={{ opacity: 0.6 }}>/</span> FEATURED
+          </div>
+          {megaTile(EXPLORE_FEATURED[0], "SEE WHAT'S ON")}
+          {megaTile(EXPLORE_FEATURED[1], "GET STARTED")}
+          {megaTile(FREE_TIME_ITEM, "TRY IT")}
+        </div>
+        <Link to="/explore" onClick={closeAll} className="hc-mega-photo hc-mega-photo-col" aria-label="Discover what's on — start exploring">
+          <img
+            src="https://images.unsplash.com/photo-1633894812833-3961145496a3?w=600&q=75&auto=format&fit=crop"
+            alt=""
+            style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover", display: "block", filter: "grayscale(.15) saturate(1.05)" }}
+          />
+          <span style={{ position: "absolute", inset: 0, background: "linear-gradient(180deg, rgba(30,36,32,0) 45%, rgba(30,36,32,.88) 100%)" }} />
+          <span style={{ position: "absolute", left: 20, right: 20, bottom: 20, textAlign: "left" }}>
+            <span style={{ display: "block", fontFamily: fonts.display, fontWeight: 800, fontSize: 20, color: "#fff", lineHeight: 1.2 }}>
+              Discover
+              <br />
+              what's on.
+            </span>
+            <span style={{ display: "block", width: 26, height: 1, background: colors.gold, margin: "14px 0" }} />
+            <span style={{ display: "block", fontSize: 12, fontWeight: 700, color: colors.gold, letterSpacing: 0 }}>START EXPLORING &rarr;</span>
+          </span>
+        </Link>
+      </div>
+    </div>
+  );
+
+  const startPanel = (
+    <div className="pop-in" id="hc-start-menu" style={{ ...panelStyle, left: 0, width: 340 }}>
+      {visibleItems(START_ITEMS, navCtx).map((item) => (
+        <Link key={item.key} to={item.to} className="hc-menu-row" aria-current={pathname === item.to ? "page" : undefined} onClick={closeAll} style={{ alignItems: "flex-start", padding: "10px 12px" }}>
+          <span className="hc-row-icon" style={{ marginTop: 1 }}>
+            <NavIcon icon={item.icon} size={21} />
+          </span>
+          <span>
+            <span style={menuRowTitleStyle}>{item.label}</span>
+            <span style={menuRowDescStyle}>{item.desc}</span>
+          </span>
+        </Link>
+      ))}
+    </div>
+  );
 
   return (
     <header
+      className="hc-header"
       style={{
         position: "sticky",
         top: 0,
@@ -444,796 +287,250 @@ export function Header() {
         background: colors.headerBg,
         backdropFilter: "blur(12px)",
         borderBottom: `1px solid ${colors.border}`,
-        // Notch/status-bar clearance — resolves to 0 on web/non-notched
-        // devices, same env(safe-area-inset-*) pattern index.css already
-        // uses for the mobile bottom tab bar's bottom inset.
+        // Notch/status-bar clearance — 0 on web/non-notched devices.
         paddingTop: "env(safe-area-inset-top)",
       }}
     >
-      <div
-        style={{
-          maxWidth,
-          margin: "0 auto",
-          padding: "14px 24px",
-          display: "flex",
-          alignItems: "center",
-          gap: 26,
-        }}
-      >
+      <div className="hc-header-row" style={{ maxWidth, margin: "0 auto" }}>
         {openNav && (
-          <button
-            onClick={openNav}
-            aria-label="Open dashboard menu"
-            // Phase 5 polish — hidden at the same <=860px breakpoint that
-            // swaps in .mobile-menu-btn below, so a ManageShell page never
-            // shows two hamburger-style buttons at once on mobile. The
-            // ManageShell sidebar stays reachable there via a "Dashboard
-            // menu" entry at the top of that mobile menu panel instead.
-            className="dashboard-nav-btn"
-            style={{
-              width: 38,
-              height: 38,
-              borderRadius: radius.control,
-              border: `1px solid ${colors.borderStrong}`,
-              background: colors.surface,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              cursor: "pointer",
-              flex: "none",
-            }}
-          >
-            <MenuIcon size={17} />
+          // Dashboard side-menu burger: hidden ≥1025px (rail shown) and
+          // ≤860px (reached from the Account & More sheet instead).
+          <button className="dashboard-nav-btn hc-icon-btn" onClick={openNav} aria-label="Open dashboard menu">
+            <NavIcon icon={Menu} />
           </button>
         )}
-        <div
-          onClick={() => go("/")} aria-current={location.pathname === "/" ? "page" : undefined}
-          style={{ display: "flex", alignItems: "center", gap: 9, cursor: "pointer" }}
-        >
-          <BrandLogo alt="Hello Circle" style={{ height: 36, flex: "none" }} />
-        </div>
-        <nav className="desktop-nav" style={{ display: "flex", alignItems: "center", gap: 2, marginLeft: 8 }}>
-          <div ref={exploreMenuRef} style={{ position: "relative" }}>
-            <button
-              className="tab-btn"
-              style={
-                isActive(["/games", "/adventures", "/experiences", "/browse/centres", "/centres/", "/browse/clubs", "/clubs/"])
-                  ? { ...navBtn, background: colors.greenBg, color: colors.greenText, fontWeight: 700, display: "inline-flex", alignItems: "center", gap: 4 }
-                  : { ...navBtn, display: "inline-flex", alignItems: "center", gap: 4 }
-              }
-              onClick={() => setExploreMenuOpen((o) => !o)}
-              aria-expanded={exploreMenuOpen}
-              aria-controls="hc-explore-menu"
-            >
-              Explore <ChevronDownIcon size={13} style={{ transform: exploreMenuOpen ? "rotate(180deg)" : "none", transition: "transform .15s ease" }} />
+        <Link to="/" className="hc-logo-link" aria-label="HelloCircle home" aria-current={pathname === "/" || pathname === "/home" ? "page" : undefined}>
+          <BrandLogo decorative />
+        </Link>
+
+        <nav className="desktop-nav hc-nav" aria-label="Main">
+          <div ref={panelRefs.explore}>
+            <button type="button" className={`hc-nav-link${exploreActive ? " is-active" : ""}`} onClick={() => toggle("explore")} aria-expanded={panel === "explore"} aria-controls="hc-explore-menu">
+              Explore <ChevronDown className="hc-chevron" size={16} strokeWidth={ICON_STROKE} aria-hidden="true" />
             </button>
-            {exploreMenuOpen && (
-              <div className="pop-in" id="hc-explore-menu" style={megaMenuStyle}>
-                <div style={megaColStyle}>
-                  <div style={megaColLabelStyle}><span style={{ opacity: .6 }}>/</span> ACTIVITIES</div>
-                  <button style={megaItemStyle} onClick={() => go("/games")} aria-current={location.pathname === "/games" ? "page" : undefined}>
-                    <span style={megaIconWrapStyle}><RepeatIcon size={19} style={{ color: colors.text }} /></span>
-                    <span>
-                      <span style={megaItemTitleStyle}>Join a session</span>
-                      <span style={megaItemDescStyle}>Ad-hoc pickup sessions &amp; one-off classes</span>
-                    </span>
-                  </button>
-                  <button style={megaItemStyle} onClick={() => go("/adventures")} aria-current={location.pathname === "/adventures" ? "page" : undefined}>
-                    <span style={megaIconWrapStyle}><TreeIconSmall size={19} style={{ color: colors.text }} /></span>
-                    <span>
-                      <span style={megaItemTitleStyle}>Adventures</span>
-                      <span style={megaItemDescStyle}>Guided hikes, kayaking &amp; outdoor trips</span>
-                    </span>
-                  </button>
-                  <button style={megaItemStyle} onClick={() => go("/experiences")} aria-current={location.pathname === "/experiences" ? "page" : undefined}>
-                    <span style={megaIconWrapStyle}><TreeIconSmall size={19} style={{ color: colors.text }} /></span>
-                    <span>
-                      <span style={megaItemTitleStyle}>Experiences</span>
-                      <span style={megaItemDescStyle}>Workshops, classes &amp; one-off outings</span>
-                    </span>
-                  </button>
-                  {/* Programs has its own browse page (/programs) — it used
-                      to land on Explore's mixed "Things to do" results. */}
-                  <button style={{ ...megaItemStyle, borderBottom: `1px solid ${colors.border}` }} onClick={() => go("/programs")} aria-current={location.pathname === "/programs" ? "page" : undefined}>
-                    <span style={megaIconWrapStyle}><GridIcon size={19} style={{ color: colors.text }} /></span>
-                    <span>
-                      <span style={megaItemTitleStyle}>Programs</span>
-                      <span style={megaItemDescStyle}>Multi-week courses &amp; series</span>
-                    </span>
-                  </button>
-                </div>
-                <div style={megaColStyle}>
-                  {/* Product Language & IA Polish — Changeset 1C. Was
-                      "VENUES" — the audit found Centre/Venue/Place used as
-                      four different words for one concept within this file
-                      alone. "Places" is the high-level discovery/nav word;
-                      the item label below ("Community centres") still names
-                      the actual entity/listing type. */}
-                  <div style={megaColLabelStyle}><span style={{ opacity: .6 }}>/</span> PLACES</div>
-                  <button style={megaItemStyle} onClick={() => go("/browse/centres")} aria-current={location.pathname === "/browse/centres" ? "page" : undefined}>
-                    <span style={megaIconWrapStyle}><BuildingIcon size={19} style={{ color: colors.text }} /></span>
-                    <span>
-                      <span style={megaItemTitleStyle}>Community centres</span>
-                      <span style={megaItemDescStyle}>Book a hall or room, real-time</span>
-                    </span>
-                  </button>
-                  <button style={{ ...megaItemStyle, borderBottom: `1px solid ${colors.border}` }} onClick={() => go("/browse/clubs")} aria-current={location.pathname === "/browse/clubs" ? "page" : undefined}>
-                    <span style={megaIconWrapStyle}><BallIcon size={19} style={{ color: colors.text }} /></span>
-                    <span>
-                      <span style={megaItemTitleStyle}>Sports clubs</span>
-                      <span style={megaItemDescStyle}>Register a child, join a season</span>
-                    </span>
-                  </button>
-                </div>
-                <div style={{ ...megaColStyle, gap: 14 }}>
-                  <div style={megaColLabelStyle}><span style={{ opacity: .6 }}>/</span> FEATURED</div>
-                  <button style={megaFeaturedTileStyle(colors.greenBg)} onClick={() => go("/games?when=weekend")}>
-                    <div style={megaItemTitleStyle}>This weekend</div>
-                    <div style={megaItemDescStyle}>See what's on nearby.</div>
-                    <div style={{ fontSize: 11.5, fontWeight: 700, color: colors.greenText, letterSpacing: ".06em", marginTop: 12 }}>SEE WHAT'S ON &rarr;</div>
-                  </button>
-                  <button style={megaFeaturedTileStyle(colors.orangeBg)} onClick={() => go("/become-a-host")} aria-current={location.pathname === "/become-a-host" ? "page" : undefined}>
-                    <div style={megaItemTitleStyle}>Become a Host</div>
-                    <div style={megaItemDescStyle}>Run a session or Circle, free.</div>
-                    <div style={{ fontSize: 11.5, fontWeight: 700, color: colors.orangeDark, letterSpacing: ".06em", marginTop: 12 }}>GET STARTED &rarr;</div>
-                  </button>
-                </div>
-                <button
-                  onClick={() => go("/explore")} aria-current={location.pathname === "/explore" ? "page" : undefined}
-                  style={{ position: "relative", display: "block", width: "100%", height: "100%", minHeight: 260, overflow: "hidden", background: colors.greenBg, border: "none", padding: 0, cursor: "pointer" }}
-                >
-                  <img
-                    src="https://images.unsplash.com/photo-1633894812833-3961145496a3?w=600&q=75&auto=format&fit=crop"
-                    alt=""
-                    style={{ width: "100%", height: "100%", objectFit: "cover", display: "block", filter: "grayscale(.15) saturate(1.05)" }}
-                  />
-                  <div style={{ position: "absolute", inset: 0, background: "linear-gradient(180deg, rgba(30,36,32,0) 45%, rgba(30,36,32,.88) 100%)" }} />
-                  <div style={{ position: "absolute", left: 20, right: 20, bottom: 20, textAlign: "left" }}>
-                    <div style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 20, color: "#fff", lineHeight: 1.2 }}>Discover<br />what's on.</div>
-                    <div style={{ width: 26, height: 1, background: colors.gold, margin: "14px 0" }} />
-                    <div style={{ fontSize: 12, fontWeight: 700, color: colors.gold, letterSpacing: ".04em" }}>START EXPLORING &rarr;</div>
-                  </div>
-                </button>
-              </div>
-            )}
           </div>
-          <button
-            className="tab-btn"
-            style={isActive(["/circles"]) ? { ...navBtn, background: colors.greenBg, color: colors.greenText, fontWeight: 700 } : navBtn}
-            onClick={() => go("/circles")} aria-current={location.pathname === "/circles" ? "page" : undefined}
-          >
+          <Link to="/circles" className={`hc-nav-link${isUnder(pathname, ["/circles"]) && !startActive ? " is-active" : ""}`} aria-current={pathname === "/circles" ? "page" : undefined}>
             Circles
-          </button>
-          <button
-            className="tab-btn"
-            style={isActive(["/bookings", "/my-life"]) ? { ...navBtn, background: colors.greenBg, color: colors.greenText, fontWeight: 700 } : navBtn}
-            onClick={() => go("/bookings")} aria-current={(location.pathname === "/bookings" || location.pathname === "/my-life") ? "page" : undefined}
-          >
-            My Life
-          </button>
-          <div ref={createMenuRef} style={{ position: "relative" }}>
-            <button
-              style={
-                isActive(["/make-it-happen", "/suggest-place"])
-                  ? { ...startBtnStyle, color: colors.greenText }
-                  : startBtnStyle
-              }
-              onClick={() => setCreateMenuOpen((o) => !o)}
-              aria-expanded={createMenuOpen}
-              aria-controls="hc-start-menu"
-            >
-              Start <ChevronDownIcon size={13} style={{ transform: createMenuOpen ? "rotate(180deg)" : "none", transition: "transform .15s ease" }} />
+          </Link>
+          {showMyLife && (
+            <Link to="/bookings" className={`hc-nav-link${pathname === "/bookings" || pathname === "/my-life" ? " is-active" : ""}`} aria-current={pathname === "/bookings" || pathname === "/my-life" ? "page" : undefined}>
+              My Life
+            </Link>
+          )}
+          <div ref={panelRefs.start} style={{ position: "relative" }}>
+            <button type="button" className={`hc-nav-link hc-nav-link--start${startActive ? " is-active" : ""}`} onClick={() => toggle("start")} aria-expanded={panel === "start"} aria-controls="hc-start-menu">
+              <span className="hc-start-plus" aria-hidden="true">
+                <Plus size={15} strokeWidth={2.4} />
+              </span>
+              Start <ChevronDown className="hc-chevron" size={16} strokeWidth={ICON_STROKE} aria-hidden="true" />
             </button>
-            {createMenuOpen && (
-              <div className="pop-in" id="hc-start-menu" style={createMegaMenuStyle}>
-                <div style={megaColStyle}>
-                  <button style={{ ...megaItemStyle, borderTop: "none" }} onClick={() => go("/browse/centres")} aria-current={location.pathname === "/browse/centres" ? "page" : undefined}>
-                    <span style={megaIconWrapStyle}><BuildingIcon size={19} style={{ color: colors.text }} /></span>
-                    <span>
-                      <span style={megaItemTitleStyle}>Book a place</span>
-                      <span style={megaItemDescStyle}>List a hall or room to hire out</span>
-                    </span>
-                  </button>
-                  <button style={megaItemStyle} onClick={() => go("/games")} aria-current={location.pathname === "/games" ? "page" : undefined}>
-                    <span style={megaIconWrapStyle}><RepeatIcon size={19} style={{ color: colors.text }} /></span>
-                    <span>
-                      <span style={megaItemTitleStyle}>Start a session</span>
-                      <span style={megaItemDescStyle}>Post a pickup session or class</span>
-                    </span>
-                  </button>
-                  <button style={megaItemStyle} onClick={() => go("/make-it-happen")} aria-current={location.pathname === "/make-it-happen" ? "page" : undefined}>
-                    <span style={megaIconWrapStyle}><LightbulbIcon size={19} style={{ color: colors.text }} /></span>
-                    <span>
-                      <span style={megaItemTitleStyle}>Make It Happen</span>
-                      <span style={megaItemDescStyle}>Pitch an idea, rally people to it</span>
-                    </span>
-                  </button>
-                  <button style={megaItemStyle} onClick={() => go("/suggest-place")} aria-current={location.pathname === "/suggest-place" ? "page" : undefined}>
-                    <span style={megaIconWrapStyle}><PinIcon size={19} style={{ color: colors.text }} /></span>
-                    <span>
-                      <span style={megaItemTitleStyle}>Suggest a place</span>
-                      <span style={megaItemDescStyle}>Tell us about a place we're missing</span>
-                    </span>
-                  </button>
-                </div>
-              </div>
-            )}
+            {panel === "start" && startPanel}
           </div>
         </nav>
-        <div className="desktop-actions" style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10 }}>
-          <button
-            className="btn btn-ghost"
-            onClick={() => setTheme(resolvedTheme === "dark" ? "light" : "dark")}
-            aria-label={resolvedTheme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
-            title={resolvedTheme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
-            style={circleBtnStyle}
-          >
-            {resolvedTheme === "dark" ? <SunIcon size={17} /> : <MoonIcon size={17} />}
-          </button>
-          <button
-            className="btn btn-ghost"
-            onClick={() => go("/explore?focus=1")}
-            aria-label="Search"
-            title="Search"
-            style={isActive(["/explore"]) ? { ...circleBtnStyle, background: colors.greenBg, borderColor: colors.green } : circleBtnStyle}
-          >
-            <SearchIcon size={17} />
-          </button>
-          <button
-            className="btn btn-ghost hide-tablet"
-            onClick={() => go("/free-time")} aria-current={location.pathname === "/free-time" ? "page" : undefined}
-            aria-label="Free Time Mode"
-            title="Free Time Mode"
-            style={isActive(["/free-time"]) ? { ...circleBtnStyle, background: colors.orangeBg, borderColor: colors.orange } : circleBtnStyle}
-          >
-            <LightbulbIcon size={17} style={{ color: colors.orangeDark }} />
-          </button>
 
-          {/* A resident session also gets its own bell just below — when both
-              exist (a vendor/admin linked to their own resident identity),
-              showing two identical, unlabeled bell icons read as a bug, not
-              two real notification streams. That bell's dropdown carries a
-              "Business notifications" link instead, so this one only ever
-              renders standalone. */}
-          {user && (user.role === "admin" || user.role === "vendor") && !resident && (
-            <button
-              className="btn btn-ghost"
-              onClick={() => navigate(user.role === "admin" ? "/admin?tab=pending" : "/vendor?tab=messages")}
-              aria-label="Notifications"
-              style={{ ...circleBtnStyle, position: "relative" }}
-            >
-              <BellIcon size={17} />
-              {alerts > 0 && (
-                <span
-                  style={{
-                    position: "absolute",
-                    top: -3,
-                    right: -3,
-                    background: colors.orange,
-                    color: "#fff",
-                    borderRadius: radius.pill,
-                    fontSize: 10,
-                    fontWeight: 700,
-                    minWidth: 16,
-                    height: 16,
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    padding: "0 3px",
-                  }}
-                >
-                  {alerts}
-                </span>
-              )}
-            </button>
-          )}
+        {/* One search entry point → the Explore search page. Not repeated on
+            that page itself, which has its own search box. */}
+        {!onSearchPage ? (
+          <div className="hc-search-desktop desktop-actions">
+            <HeaderSearch />
+          </div>
+        ) : (
+          <div className="desktop-actions" style={{ flex: 1 }} />
+        )}
 
-          {(resident || hostOnly) && (
-            <button
-              className="btn btn-ghost"
-              onClick={() => go("/chats")} aria-current={location.pathname === "/chats" ? "page" : undefined}
-              aria-label={chatUnread > 0 ? `Chats, ${chatUnread} unread` : "Chats"}
-              title="Chats"
-              style={isActive(["/chats"]) ? { ...circleBtnStyle, position: "relative", background: colors.greenBg, borderColor: colors.green } : { ...circleBtnStyle, position: "relative" }}
-            >
-              <ChatIcon size={17} />
-              {chatUnread > 0 && (
-                <span
-                  style={{
-                    position: "absolute",
-                    top: -3,
-                    right: -3,
-                    background: colors.orange,
-                    color: "#fff",
-                    borderRadius: radius.pill,
-                    fontSize: 10,
-                    fontWeight: 700,
-                    minWidth: 16,
-                    height: 16,
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    padding: "0 3px",
-                  }}
-                >
-                  {chatUnread > 99 ? "99+" : chatUnread}
-                </span>
-              )}
-            </button>
-          )}
-
-          {resident && (
-            <div ref={notifRef} style={{ position: "relative" }}>
-              <button
-                className="btn btn-ghost"
-                onClick={() => setNotifOpen((o) => !o)}
-                aria-label="Notifications"
-                aria-expanded={notifOpen}
-                aria-controls="hc-notifications-panel"
-                style={circleBtnStyle}
-              >
-                <BellIcon size={17} />
-                {unreadNotifs > 0 && (
-                  <span
-                    style={{
-                      position: "absolute",
-                      top: -3,
-                      right: -3,
-                      background: colors.orange,
-                      color: "#fff",
-                      borderRadius: radius.pill,
-                      fontSize: 10,
-                      fontWeight: 700,
-                      minWidth: 16,
-                      height: 16,
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      padding: "0 3px",
-                    }}
-                  >
-                    {unreadNotifs}
-                  </span>
-                )}
+        <div className="desktop-actions" style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 4, flex: "none" }}>
+          {!onSearchPage && (
+            <div ref={panelRefs.search} className="hc-search-icon-only" style={{ position: "relative" }}>
+              <button type="button" className="hc-icon-btn" aria-label="Search" aria-expanded={panel === "search"} aria-controls="hc-search-menu" onClick={() => toggle("search")}>
+                <NavIcon icon={Search} />
               </button>
-              {notifOpen && (
-                <div className="pop-in" id="hc-notifications-panel" style={{ ...dropdownStyle, minWidth: 300, maxHeight: 360, overflowY: "auto" }}>
-                  <div style={dropdownLabelStyle}>Notifications</div>
-                  {user && (user.role === "admin" || user.role === "vendor") && (
-                    <button
-                      className="dropdown-item"
-                      style={dropdownItemStyle}
-                      onClick={() => {
-                        setNotifOpen(false);
-                        navigate(user.role === "admin" ? "/admin?tab=pending" : "/vendor?tab=messages");
-                      }}
-                    >
-                      Business notifications
-                      {alerts > 0 && <span style={{ ...countBadgeStyle, background: colors.orange }}>{alerts}</span>}
-                    </button>
-                  )}
-                  {residentNotifs.length === 0 ? (
-                    <div style={{ padding: "16px 12px", fontSize: 13.5, color: colors.mutedLight }}>Nothing yet.</div>
-                  ) : (
-                    residentNotifs.slice(0, 8).map((n) => (
-                      <button
-                        key={n.id}
-                        onClick={() => {
-                          if (!n.read) handleNotifRead(n.id);
-                          setNotifOpen(false);
-                          navigate("/bookings");
-                        }}
-                        style={{
-                          display: "block",
-                          width: "100%",
-                          textAlign: "left",
-                          background: n.read ? "none" : colors.greenBg,
-                          border: "none",
-                          borderRadius: radius.control,
-                          padding: "10px 12px",
-                          cursor: "pointer",
-                          marginBottom: 2,
-                        }}
-                      >
-                        <div style={{ fontSize: 13.5, fontWeight: 700, color: colors.text }}>{n.title}</div>
-                        <div style={{ fontSize: 12.5, color: colors.mutedLight, marginTop: 2 }}>{n.body}</div>
-                      </button>
-                    ))
-                  )}
+              {panel === "search" && (
+                <div id="hc-search-menu" style={{ ...panelStyle, right: 0, width: 380, padding: 10 }}>
+                  <HeaderSearch autoFocus onDone={closeAll} />
                 </div>
               )}
             </div>
           )}
 
-          <div ref={accountMenuRef} style={{ position: "relative" }}>
-            <button
-              className="btn btn-ghost"
-              onClick={() => setAccountMenuOpen((o) => !o)}
-              aria-label="Menu"
-              aria-expanded={accountMenuOpen}
-              aria-controls="hc-account-menu"
-              style={
-                user
-                  ? { display: "flex", alignItems: "center", gap: 4, border: "none", background: "none", cursor: "pointer", padding: 0 }
-                  : circleBtnStyle
-              }
-            >
-              {!authResolved ? (
-                // Neutral placeholder, same footprint as the hamburger icon
-                // below — avoids asserting "signed out" before the session
-                // fetch has actually resolved.
-                <div style={{ width: 17, height: 17 }} />
-              ) : user ? (
-                <>
-                  <Avatar name={user.name} size={36} />
-                  <ChevronDownIcon size={15} style={{ color: colors.muted }} />
-                </>
-              ) : (
-                <MenuIcon size={17} />
+          {!authResolved ? (
+            <div style={{ width: 44, height: 44 }} aria-hidden="true" />
+          ) : signedIn ? (
+            <>
+              {resident && (
+                <Link to="/profile?tab=favourites" className={`hc-icon-btn${savedActive ? " is-active" : ""}`} aria-label="Saved" title="Saved" aria-current={savedActive ? "page" : undefined}>
+                  <NavIcon icon={Heart} />
+                </Link>
               )}
-            </button>
-            {accountMenuOpen && (
-              <div className="pop-in" id="hc-account-menu" style={{ ...dropdownStyle, minWidth: 240 }}>
-                {!user && guestEmail && <div style={dropdownLabelStyle}>Signed in as {guestEmail}</div>}
-                <button
-                  className="dropdown-item"
-                  style={dropdownItemStyle}
-                  onClick={() => {
-                    setAccountMenuOpen(false);
-                    go("/bookings");
-                  }}
-                >
-                  My Life
-                  {count > 0 && <span style={countBadgeStyle}>{count}</span>}
-                </button>
-                {(resident || hostOnly) && (
+              {resident && (
+                <div ref={panelRefs.notifications} style={{ position: "relative" }}>
                   <button
-                    className="dropdown-item"
-                    style={dropdownItemStyle}
-                    onClick={() => {
-                      setAccountMenuOpen(false);
-                      go("/chats");
-                    }}
+                    type="button"
+                    className="hc-icon-btn"
+                    onClick={() => toggle("notifications")}
+                    aria-label={data.unreadNotifs > 0 ? `Notifications, ${data.unreadNotifs} unread` : "Notifications"}
+                    aria-expanded={panel === "notifications"}
+                    aria-controls="hc-notifications-menu"
                   >
-                    Chats
-                    {chatUnread > 0 && <span style={{ ...countBadgeStyle, background: colors.orange }}>{chatUnread}</span>}
+                    <NavIcon icon={Bell} />
+                    {badge(data.unreadNotifs)}
                   </button>
-                )}
-
-                {user && (user.role === "admin" || user.role === "vendor") && (
-                  <button
-                    className="dropdown-item"
-                    style={dropdownItemStyle}
-                    onClick={() => {
-                      setAccountMenuOpen(false);
-                      go(user.role === "admin" ? "/admin" : "/vendor");
-                    }}
-                  >
-                    {user.role === "admin" ? "Admin dashboard" : "Vendor dashboard"}
-                    {alerts > 0 && <span style={{ ...countBadgeStyle, background: colors.orange }}>{alerts}</span>}
-                  </button>
-                )}
-
-                {/* HelloCircle Manage (Phase 1) workspace switcher — only
-                    ever shows capabilities this account actually has. The
-                    "My Life" button above already covers Personal for a
-                    resident session; this covers the reverse — a vendor
-                    session whose account is linked to a resident. */}
-                {user?.role === "vendor" && user.residentId && (
-                  <button className="dropdown-item" style={dropdownItemStyle} onClick={switchToResident}>
-                    Personal
-                  </button>
-                )}
-                {/* A Host who opened a provider account via /become-provider
-                    sits at status 'pending' until admin approves — requireVendor
-                    403s every /vendor/* route until then, so show the state
-                    rather than a switch that lands on an empty dashboard. */}
-                {/* Product Language & IA Polish — Changeset 1E: was "Vendor
-                    dashboard" here but "Provider account" in the pending
-                    branch just below — same underlying object, two
-                    different words for the same account one line apart.
-                    Standardized on "Vendor", matching this same dropdown's
-                    other three self-referential nav labels (this is the
-                    account owner's own operational tool, not resident-
-                    facing description of someone else's business). */}
-                {workspaces?.vendor &&
-                  (workspaces.vendor.status === "approved" ? (
-                    <button className="dropdown-item" style={dropdownItemStyle} onClick={switchToVendor}>
-                      {workspaces.vendor.businessName || "Vendor dashboard"}
-                    </button>
-                  ) : (
-                    <div style={{ ...dropdownItemStyle, color: colors.mutedLight, cursor: "default", fontSize: 12.5 }}>
-                      {workspaces.vendor.businessName || "Vendor account"} — awaiting approval
+                  {panel === "notifications" && (
+                    <div className="pop-in" id="hc-notifications-menu" style={{ ...panelStyle, right: 0, width: 340, maxHeight: 440, overflowY: "auto" }}>
+                      <NotificationsList notifs={data.notifs} markRead={data.markRead} onNavigate={closeAll} business={businessRow} />
                     </div>
-                  ))}
-                {(hasHostedGames || !!workspaces?.circlesOrganising.length) && (
-                  <button
-                    className="dropdown-item"
-                    style={dropdownItemStyle}
-                    onClick={() => {
-                      setAccountMenuOpen(false);
-                      go("/manage");
-                    }}
-                  >
-                    Manage hosting
-                  </button>
-                )}
-                {workspaces?.circlesOrganising.map((c) => (
-                  <button
-                    key={c.id}
-                    className="dropdown-item"
-                    style={dropdownItemStyle}
-                    onClick={() => {
-                      setAccountMenuOpen(false);
-                      go(`/manage/circles/${c.slug ?? c.id}`);
-                    }}
-                  >
-                    Manage {c.name}
-                  </button>
-                ))}
-
-                <div style={dropdownDividerStyle} />
-
-                {user ? (
-                  <button
-                    className="dropdown-item"
-                    style={dropdownItemStyle}
-                    onClick={() => {
-                      setAccountMenuOpen(false);
-                      setConfirmingLogout("vendor");
-                    }}
-                  >
-                    Log out
-                  </button>
-                ) : guestEmail ? (
-                  <>
-                    <button
-                      className="dropdown-item"
-                      style={dropdownItemStyle}
-                      onClick={() => {
-                        setAccountMenuOpen(false);
-                        setConfirmingLogout("guest");
-                      }}
-                    >
-                      Sign out
-                    </button>
-                    <button
-                      className="dropdown-item"
-                      style={dropdownItemStyle}
-                      onClick={() => {
-                        setAccountMenuOpen(false);
-                        go("/for-venues");
-                      }}
-                    >
-                      For venues & organisers
-                    </button>
-                  </>
-                ) : (
-                  // Auth UX audit §4 — "Vendor / admin login" removed as a
-                  // public label (it named a role, not a method, and was the
-                  // only door a new vendor could find, despite being a
-                  // login-only screen). Vendor/admin sign-in is still fully
-                  // reachable, just via /for-venues's own "Partner sign in"
-                  // link now, matching a real partner-entry landing page
-                  // rather than sitting next to "Sign in" as if it were a
-                  // second, equally-generic option.
-                  <>
-                    <button
-                      className="dropdown-item"
-                      style={dropdownItemStyle}
-                      onClick={() => {
-                        setAccountMenuOpen(false);
-                        go(signInHref());
-                      }}
-                    >
-                      Sign in
-                    </button>
-                    <button
-                      className="dropdown-item"
-                      style={dropdownItemStyle}
-                      onClick={() => {
-                        setAccountMenuOpen(false);
-                        go(signUpHref());
-                      }}
-                    >
-                      Join HelloCircle
-                    </button>
-                    <button
-                      className="dropdown-item"
-                      style={dropdownItemStyle}
-                      onClick={() => {
-                        setAccountMenuOpen(false);
-                        go("/for-venues");
-                      }}
-                    >
-                      For venues & organisers
-                    </button>
-                  </>
-                )}
-              </div>
-            )}
-          </div>
-        </div>
-
-        <button
-          className="mobile-menu-btn btn btn-ghost"
-          onClick={() => setMenuOpen((o) => !o)}
-          aria-label="Toggle menu"
-          aria-expanded={menuOpen}
-          aria-controls="hc-mobile-menu"
-          style={{
-            marginLeft: "auto",
-            width: 40,
-            height: 40,
-            borderRadius: 11,
-            border: `1px solid ${colors.borderStrong}`,
-            background: colors.surface,
-            alignItems: "center",
-            justifyContent: "center",
-            flex: "none",
-          }}
-        >
-          {menuOpen ? <CloseIcon size={18} /> : <MenuIcon size={18} />}
-        </button>
-      </div>
-
-      {menuOpen && (
-        <div
-          id="hc-mobile-menu"
-          className="pop-in"
-          style={{
-            borderTop: `1px solid ${colors.border}`,
-            background: colors.bg,
-            padding: "10px 20px 20px",
-          }}
-        >
-          {/* HelloCircle Manage Phase 5 — the single mobile entry point for
-              the ManageShell sidebar (Bookings/Activities/Circle tabs etc.)
-              at <=860px, replacing the second hamburger .dashboard-nav-btn
-              would otherwise render alongside this menu's own toggle. */}
-          {openNav && (
-            <>
-              <div style={{ ...dropdownLabelStyle, padding: "2px 6px 2px" }}>Manage</div>
-              <button
-                style={{ ...mobileNavBtn, display: "flex", alignItems: "center", gap: 8 }}
-                onClick={() => {
-                  setMenuOpen(false);
-                  openNav();
-                }}
-              >
-                <MenuIcon size={16} /> Dashboard menu
-              </button>
-            </>
-          )}
-          {/* Platform Pre-Launch Polish — Changeset 5B. Before this, a mobile
-              Host/Circle-organiser/linked-Vendor had no route into Manage at
-              all unless a ManageShell page was already mounted (the openNav
-              case above) — the only path in was three taps through an
-              unrelated page (My Life → Edit profile → Profile → a Host-only
-              button). This mirrors the desktop account dropdown's own
-              workspace section exactly (same `workspaces`/`hasHostedGames`
-              state, already fetched for that dropdown) rather than adding a
-              new mobile-only nav concept — reuses the existing workspace
-              architecture as-is. Not shown while `openNav` is (a ManageShell
-              page is already mounted, so this would just duplicate the
-              "Dashboard menu" entry above). */}
-          {!openNav && (workspaces?.vendor || hasHostedGames || !!workspaces?.circlesOrganising.length) && (
-            <>
-              <div style={{ ...dropdownLabelStyle, padding: "2px 6px 2px" }}>Manage</div>
-              {workspaces?.vendor &&
-                (workspaces.vendor.status === "approved" ? (
-                  <button
-                    style={{ ...mobileNavBtn, display: "flex", alignItems: "center", gap: 8 }}
-                    onClick={() => {
-                      setMenuOpen(false);
-                      switchToVendor();
-                    }}
-                  >
-                    {workspaces.vendor.businessName || "Vendor dashboard"}
-                  </button>
-                ) : (
-                  <div style={{ ...mobileNavBtn, color: colors.mutedLight, fontSize: 12.5 }}>
-                    {workspaces.vendor.businessName || "Vendor account"} — awaiting approval
+                  )}
+                </div>
+              )}
+              {/* A vendor-only session: business notifications live in the
+                  dashboard's Messages tab — real unread rows, no listing counts. */}
+              {vendorOnly && (
+                <Link to="/vendor?tab=messages" className="hc-icon-btn" aria-label={data.vendorUnread > 0 ? `Business notifications, ${data.vendorUnread} unread` : "Business notifications"} title="Business notifications">
+                  <NavIcon icon={Bell} />
+                  {badge(data.vendorUnread)}
+                </Link>
+              )}
+              {(resident || data.hostOnly) && (
+                <Link
+                  to="/chats"
+                  className={`hc-icon-btn${pathname === "/chats" ? " is-active" : ""}`}
+                  aria-label={data.chatUnread > 0 ? `Messages, ${data.chatUnread} unread` : "Messages"}
+                  title="Messages"
+                  aria-current={pathname === "/chats" ? "page" : undefined}
+                >
+                  <NavIcon icon={MessageCircle} />
+                  {badge(data.chatUnread)}
+                </Link>
+              )}
+              <div ref={panelRefs.account} style={{ position: "relative", marginLeft: 4 }}>
+                <button type="button" className="hc-avatar-btn" onClick={() => toggle("account")} aria-label={accountLabel} aria-expanded={panel === "account"} aria-controls="hc-account-menu">
+                  <Avatar name={avatarName} size={36} src={resident?.avatarUrl ?? null} />
+                  <ChevronDown className="hc-chevron" size={16} strokeWidth={ICON_STROKE} aria-hidden="true" />
+                  {badge(accountAttention)}
+                </button>
+                {panel === "account" && (
+                  <div className="pop-in" id="hc-account-menu" style={{ ...panelStyle, right: 0, width: 300, maxHeight: "calc(100vh - 96px)", overflowY: "auto" }}>
+                    <AccountMenuContent {...accountProps} />
                   </div>
-                ))}
-              {(hasHostedGames || !!workspaces?.circlesOrganising.length) && (
-                <button style={{ ...mobileNavBtn, display: "flex", alignItems: "center", gap: 8 }} onClick={() => go("/manage")} aria-current={location.pathname === "/manage" ? "page" : undefined}>
-                  Manage hosting
-                </button>
-              )}
-              {workspaces?.circlesOrganising.map((c) => (
-                <button key={c.id} style={{ ...mobileNavBtn, display: "flex", alignItems: "center", gap: 8 }} onClick={() => go(`/manage/circles/${c.slug ?? c.id}`)}>
-                  Manage {c.name}
-                </button>
-              ))}
-            </>
-          )}
-          {/* Primary destinations (Community centres/Sports clubs/Join a
-              game/Adventures/Experiences/Circles/My Life) moved to the
-              persistent mobile bottom tab bar (see MobileTabBar.tsx) — this
-              drawer now only holds what the bottom bar doesn't cover:
-              secondary actions and account/auth. Grouped by intent (UI/UX
-              plan phase 4). */}
-          <div style={{ ...dropdownLabelStyle, padding: "2px 6px 2px" }}>Not sure yet?</div>
-          <button style={{ ...mobileNavBtn, display: "flex", alignItems: "center", gap: 8 }} onClick={() => go("/explore?focus=1")}>
-            <SearchIcon size={16} /> Search
-          </button>
-          <button style={{ ...mobileNavBtn, display: "flex", alignItems: "center", gap: 8 }} onClick={() => go("/free-time")} aria-current={location.pathname === "/free-time" ? "page" : undefined}>
-            <LightbulbIcon size={16} /> Free Time Mode
-          </button>
-
-          <div style={{ ...dropdownLabelStyle, padding: "10px 6px 2px" }}>You</div>
-          {(resident || hostOnly) && (
-            <button style={{ ...mobileNavBtn, display: "flex", alignItems: "center", gap: 8 }} onClick={() => go("/chats")} aria-current={location.pathname === "/chats" ? "page" : undefined}>
-              <ChatIcon size={16} /> Chats{chatUnread > 0 ? ` (${chatUnread})` : ""}
-            </button>
-          )}
-          {resident && (
-            <button style={{ ...mobileNavBtn, display: "flex", alignItems: "center", gap: 8 }} onClick={() => go("/bookings")} aria-current={(location.pathname === "/bookings" || location.pathname === "/my-life") ? "page" : undefined}>
-              <BellIcon size={16} /> Notifications{unreadNotifs > 0 ? ` (${unreadNotifs})` : ""}
-            </button>
-          )}
-          <button
-            style={{ ...mobileNavBtn, display: "flex", alignItems: "center", gap: 8 }}
-            onClick={() => setTheme(resolvedTheme === "dark" ? "light" : "dark")}
-          >
-            {resolvedTheme === "dark" ? <SunIcon size={16} /> : <MoonIcon size={16} />}
-            {resolvedTheme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
-          </button>
-          <div style={{ borderTop: `1px solid ${colors.border}`, margin: "8px 0" }} />
-          {user ? (
-            <>
-              {(user.role === "admin" || (user.role === "vendor" && user.status === "approved")) && (
-                <button style={{ ...mobileNavBtn, display: "flex", alignItems: "center", gap: 8 }} onClick={() => go(user.role === "admin" ? "/admin" : "/vendor")}>
-                  <BellIcon size={16} /> Notifications{alerts > 0 ? ` (${alerts})` : ""}
-                </button>
-              )}
-              <button style={{ ...mobileNavBtn, color: colors.greenText, fontWeight: 700 }} onClick={() => go(user.role === "admin" ? "/admin" : "/vendor")}>
-                {user.role === "admin" ? "Admin dashboard" : "Vendor dashboard"}
-              </button>
-              <button style={mobileNavBtn} onClick={() => setConfirmingLogout("vendor")}>
-                Log out
-              </button>
-            </>
-          ) : guestEmail ? (
-            <>
-              <div style={{ padding: "6px 6px 2px", fontSize: 13, color: colors.muted }}>
-                Signed in as <strong>{guestEmail}</strong>
+                )}
               </div>
-              <button style={mobileNavBtn} onClick={() => setConfirmingLogout("guest")}>
-                Sign out
-              </button>
-              <button style={mobileNavBtn} onClick={() => go("/for-venues")} aria-current={location.pathname === "/for-venues" ? "page" : undefined}>
-                For venues & organisers
-              </button>
             </>
           ) : (
             <>
-              <button style={{ ...mobileNavBtn, color: colors.greenText, fontWeight: 700 }} onClick={() => go(signInHref())}>
-                Sign in
-              </button>
-              <button style={mobileNavBtn} onClick={() => go(signUpHref())}>
-                Join HelloCircle
-              </button>
-              <button style={mobileNavBtn} onClick={() => go("/for-venues")} aria-current={location.pathname === "/for-venues" ? "page" : undefined}>
-                For venues & organisers
-              </button>
+              <Link to={signInHref()} className="hc-btn" style={{ marginLeft: 4 }}>
+                Log in
+              </Link>
+              <Link to={signUpHref()} className="hc-btn hc-btn--primary">
+                Sign up
+              </Link>
             </>
           )}
         </div>
-      )}
+
+        {/* Mobile (≤860px): search, notifications, account. The bottom tab
+            bar (MobileTabBar) carries the primary destinations. */}
+        <div className="hc-mobile-actions">
+          {!onSearchPage && (
+            <button type="button" className="hc-icon-btn" aria-label="Search" aria-haspopup="dialog" aria-expanded={searchScreen} onClick={() => setSearchScreen(true)}>
+              <NavIcon icon={Search} size={22} />
+            </button>
+          )}
+          {authResolved && resident && (
+            <button
+              type="button"
+              className="hc-icon-btn"
+              aria-label={data.unreadNotifs > 0 ? `Notifications, ${data.unreadNotifs} unread` : "Notifications"}
+              aria-haspopup="dialog"
+              aria-expanded={sheet === "notifications"}
+              onClick={() => setSheet("notifications")}
+            >
+              <NavIcon icon={Bell} size={22} />
+              {badge(data.unreadNotifs)}
+            </button>
+          )}
+          {authResolved && vendorOnly && (
+            <Link to="/vendor?tab=messages" className="hc-icon-btn" aria-label={data.vendorUnread > 0 ? `Business notifications, ${data.vendorUnread} unread` : "Business notifications"}>
+              <NavIcon icon={Bell} size={22} />
+              {badge(data.vendorUnread)}
+            </Link>
+          )}
+          <button
+            type="button"
+            className="hc-icon-btn"
+            aria-label={signedIn ? accountLabel.replace("Account menu", "Account and more") : "Menu"}
+            aria-haspopup="dialog"
+            aria-expanded={sheet === "account"}
+            onClick={() => setSheet("account")}
+          >
+            {authResolved && signedIn ? <Avatar name={avatarName} size={32} src={resident?.avatarUrl ?? null} /> : <NavIcon icon={Menu} size={22} />}
+            {badge(accountAttention)}
+          </button>
+        </div>
+      </div>
+
+      {panel === "explore" && exploreMega}
+
+      <MobileSearchScreen open={searchScreen} onClose={() => setSearchScreen(false)} />
+
+      <Drawer open={sheet === "notifications"} onClose={() => setSheet(null)} title="Notifications">
+        <NotificationsList notifs={data.notifs} markRead={data.markRead} onNavigate={closeAll} business={businessRow} />
+      </Drawer>
+
+      <Drawer open={sheet === "account"} onClose={() => setSheet(null)} title={signedIn ? "Account & more" : "Welcome to HelloCircle"}>
+        {openNav && (
+          <button
+            type="button"
+            className="hc-menu-row"
+            onClick={() => {
+              setSheet(null);
+              openNav();
+            }}
+          >
+            <span className="hc-row-icon">
+              <NavIcon icon={Menu} />
+            </span>
+            Dashboard menu
+          </button>
+        )}
+        {!signedIn && (
+          <div style={{ display: "flex", gap: 10, padding: "4px 4px 12px" }}>
+            <Link to={signInHref()} className="hc-btn" style={{ flex: 1, height: 44 }} onClick={closeAll}>
+              Log in
+            </Link>
+            <Link to={signUpHref()} className="hc-btn hc-btn--primary" style={{ flex: 1, height: 44 }} onClick={closeAll}>
+              Sign up
+            </Link>
+          </div>
+        )}
+        <AccountMenuContent
+          {...accountProps}
+          extra={
+            <>
+              <div style={{ borderTop: `1px solid ${colors.border}`, margin: "6px 4px" }} />
+              {[
+                { to: SUGGEST_PLACE_ITEM.to, label: SUGGEST_PLACE_ITEM.label, icon: SUGGEST_PLACE_ITEM.icon },
+                { to: "/help-guide", label: "Help guide", icon: CircleHelp },
+                { to: "/for-venues", label: "For venues & organisers", icon: Store },
+              ].map((r) => (
+                <Link key={r.to} to={r.to} className="hc-menu-row" onClick={closeAll}>
+                  <span className="hc-row-icon">
+                    <NavIcon icon={r.icon} />
+                  </span>
+                  {r.label}
+                </Link>
+              ))}
+            </>
+          }
+        />
+      </Drawer>
+
       <ConfirmDialog
         open={confirmingLogout !== null}
-        title={confirmingLogout === "vendor" ? "Log out?" : "Sign out?"}
-        message={
-          confirmingLogout === "vendor"
-            ? "You'll need to log back in to access your vendor/admin dashboard."
-            : "You'll need to sign back in to see your bookings, Circles and saved things."
-        }
-        confirmLabel={loggingOut ? "…" : confirmingLogout === "vendor" ? "Log out" : "Sign out"}
+        title="Sign out?"
+        message={confirmingLogout === "vendor" ? "You'll need to sign back in to reach your dashboard." : "You'll need to sign back in to see your bookings, Circles and saved things."}
+        confirmLabel={loggingOut ? "…" : "Sign out"}
         tone="neutral"
         busy={loggingOut}
-        onConfirm={() => (confirmingLogout === "vendor" ? doLogout() : doGuestLogout())}
+        onConfirm={doSignOut}
         onCancel={() => setConfirmingLogout(null)}
       />
     </header>

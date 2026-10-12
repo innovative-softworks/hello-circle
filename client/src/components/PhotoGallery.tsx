@@ -31,7 +31,7 @@ export function PhotoGallery({ images, alt, ph, height = 380, sharedHero }: Phot
         style={{
           position: "relative",
           height,
-          borderRadius: 20,
+          borderRadius: 16,
           overflow: "hidden",
           display: "grid",
           gridTemplateColumns: photos.length > 1 ? "1.5fr 1fr" : "1fr",
@@ -156,7 +156,10 @@ function Lightbox({
 
   return (
     <div
-      className="pop-in"
+      className="fade-in"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Photo viewer"
       style={{ position: "fixed", inset: 0, zIndex: 200, background: "rgba(20,22,20,.94)", display: "flex", flexDirection: "column" }}
       onClick={onClose}
     >
@@ -184,7 +187,7 @@ function Lightbox({
         <img
           src={getMediaUrl(photos[index], "hero")}
           alt={`${alt} photo ${index + 1}`}
-          style={{ maxWidth: "100%", maxHeight: "100%", borderRadius: 12, objectFit: "contain" }}
+          style={{ maxWidth: "100%", maxHeight: "100%", borderRadius: 10, objectFit: "contain" }}
         />
         {photos.length > 1 && (
           <button onClick={() => onIndex((index + 1) % photos.length)} aria-label="Next photo" style={{ ...navBtnStyle, right: 12 }}>
