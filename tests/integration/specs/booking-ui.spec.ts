@@ -43,6 +43,13 @@ for (const viewport of ["desktop", "mobile"] as const) {
         await dialog.locator('input[autocomplete="name"]').fill("QA UI booker");
         await dialog.locator('input[type="email"]').fill(`qa_ui_${viewport}@example.test`);
         await dialog.getByRole("button", { name: "Increase", exact: true }).click(); // party of 2
+        // Booking UX Phase 4 — each extra person is named, and the booking
+        // terms (plus safety / minimum age, when the listing has them) are ticked.
+        await dialog.getByLabel("Name for person 2").fill("QA second person");
+        for (const label of [/^Everyone taking part is at least/, /^I've read the safety information/, /^I agree to the booking terms/]) {
+          const box = dialog.getByRole("checkbox", { name: label });
+          if (await box.count()) await box.check();
+        }
         const shownTotal = (await dialog.locator("text=/^€\\d/").first().textContent())?.trim();
         const submit = dialog.getByRole("button", { name: /^(Book|Continue to pay)$/ });
         expect(await reachable(page, submit), "dialog submit not obscured").toBe(true);

@@ -25,8 +25,8 @@ export function CircleHappeningThisWeek({ circles }: { circles: Circle[] }) {
 
   return (
     <div>
-      <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: ".09em", textTransform: "uppercase", color: colors.mutedLight, marginBottom: 6 }}>Happening</div>
-      <h2 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(20px, 2.4vw, 26px)", letterSpacing: "-.01em", margin: "0 0 20px" }}>
+      <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: 0, textTransform: "uppercase", color: colors.mutedLight, marginBottom: 6 }}>Happening</div>
+      <h2 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(20px, 2.4vw, 26px)", letterSpacing: 0, margin: "0 0 20px" }}>
         Circles meeting this week
       </h2>
       <div>
@@ -46,7 +46,7 @@ export function CircleHappeningThisWeek({ circles }: { circles: Circle[] }) {
               <div style={{ fontWeight: 700, fontSize: 15.5, color: colors.text }}>{c.name}</div>
               <div style={{ fontSize: 13, color: colors.mutedLight, marginTop: 2 }}>{c.activityLabel}{c.area ? ` · ${c.area}` : ""}</div>
             </div>
-            <div style={{ flex: "none", textAlign: "right", fontSize: 12.5, fontWeight: 700, color: colors.muted, letterSpacing: ".02em" }}>
+            <div style={{ flex: "none", textAlign: "right", fontSize: 12.5, fontWeight: 700, color: colors.muted, letterSpacing: 0 }}>
               <div>{dayLabel(c.nextPlan!.date)} · {c.nextPlan!.time}</div>
               <div style={{ color: c.nextPlan!.spotsLeft <= 3 ? colors.orangeDark : colors.mutedLight, marginTop: 2 }}>
                 {c.nextPlan!.spotsLeft <= 3 && c.nextPlan!.spotsLeft > 0 ? `${c.nextPlan!.spotsLeft} spot${c.nextPlan!.spotsLeft === 1 ? "" : "s"} left` : `${c.nextPlan!.joined} going`}

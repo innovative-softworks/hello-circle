@@ -1,5 +1,5 @@
 import type { CSSProperties, ReactNode } from "react";
-import { fonts, type } from "../theme";
+import { fonts } from "../theme";
 
 // UI/UX plan phase 3 — the audit's own grep found 21 different font sizes
 // used for a page's own <h1> across client/src/pages, each hand-picked
@@ -19,15 +19,18 @@ export function PageTitle({
   level?: "hero" | "section";
   style?: CSSProperties;
 }) {
-  const scale = level === "hero" ? type.hero : type.section;
+  // Design-system consistency pass: one responsive heading scale shared by
+  // every page title (matches the hand-written page <h1>s).
+  const fontSize = level === "hero" ? "clamp(32px, 3.8vw, 52px)" : "clamp(24px, 2.4vw, 30px)";
   return (
     <h1
       style={{
         fontFamily: fonts.display,
-        fontWeight: scale.weight,
-        fontSize: scale.size,
+        fontWeight: 800,
+        fontSize,
+        lineHeight: 1.02,
         margin: "0 0 8px",
-        letterSpacing: "-.02em",
+        letterSpacing: 0,
         ...style,
       }}
     >

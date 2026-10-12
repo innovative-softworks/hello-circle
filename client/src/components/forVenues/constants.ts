@@ -10,8 +10,11 @@ export const FV_MAX_WIDTH = 1440;
 // `colors.*` token: it's a one-off brand-poster accent for this landing page,
 // not a themed UI color that should shift with light/dark mode the way
 // `colors.orange` does elsewhere in the app.
-export const FV_ACCENT = "#FF4A1F";
-export const FV_ACCENT_DARK = "#D93C15";
+// Design-system consistency pass: shared brand tokens, not a private hex.
+// FV_ACCENT is the bright brand orange (backgrounds, large display type);
+// FV_ACCENT_DARK is the accessible deep orange for small text.
+export const FV_ACCENT = "var(--color-brand)";
+export const FV_ACCENT_DARK = "var(--color-orange)";
 
 // Small monospace stack used for the hero's utility strip and the rotated
 // hero-photo tag — a deliberate "technical/utility label" texture borrowed

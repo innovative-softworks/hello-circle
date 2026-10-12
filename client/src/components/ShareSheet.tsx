@@ -269,7 +269,7 @@ export function ShareSheet({ open, onClose, entityType, entityId }: { open: bool
             </button>
           )}
 
-          <div style={{ fontSize: 11.5, fontWeight: 700, color: colors.faint, letterSpacing: ".04em", textTransform: "uppercase", marginBottom: 8 }}>Send to</div>
+          <div style={{ fontSize: 11.5, fontWeight: 700, color: colors.faint, letterSpacing: 0, textTransform: "uppercase", marginBottom: 8 }}>Send to</div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 4, marginBottom: 18 }}>
             <ChannelButton label="WhatsApp" onClick={() => openChannel("whatsapp")} />
             <ChannelButton label="Messages" onClick={() => openChannel("sms")} />
@@ -296,7 +296,7 @@ export function ShareSheet({ open, onClose, entityType, entityId }: { open: bool
             </button>
             {qrOpen && (
               <div style={{ textAlign: "center", padding: "12px 0" }}>
-                {qrDataUrl ? <img src={qrDataUrl} alt="QR code to this link" width={180} height={180} style={{ borderRadius: 8 }} /> : <PageSpinner />}
+                {qrDataUrl ? <img src={qrDataUrl} alt="QR code to this link" width={180} height={180} style={{ borderRadius: 10 }} /> : <PageSpinner />}
                 {qrDataUrl && (
                   <div>
                     <a href={qrDataUrl} download={`hellocircle-${entityType}-${entityId}.png`} style={{ fontSize: 12.5, color: colors.mutedLight, textDecoration: "underline" }}>

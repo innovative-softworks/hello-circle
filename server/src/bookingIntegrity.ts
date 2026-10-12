@@ -1,6 +1,9 @@
 import { db } from "./db/index.js";
 import { irelandTodayIso, irelandWallTimeToUtc } from "./irelandTime.js";
+import { syncCreditUses } from "./commerce/credits.js";
 import { ConflictError } from "./util.js";
+import { commerceSwitch } from "./commerce/switches.js";
+import { allocate } from "./commerce/money.js";
 
 // Phase 8 booking-integrity remediation (HC-QA-034..046) — the shared rules
 // every booking model applies. See QA_BOOKING_MODEL.md "Authoritative booking
@@ -36,12 +39,70 @@ type Tx = Pick<typeof db, "prepare">;
 /** HC-QA-037 — consume one use of a coupon inside the caller's transaction,
  * exactly once, regardless of payment path. Throws ConflictError when the
  * coupon is exhausted (a concurrent order took the last use). */
-export async function consumeCoupon(tx: Tx, code: string | null | undefined) {
+export async function consumeCoupon(tx: Tx, code: string | null | undefined, redemption?: RedemptionContext) {
   if (!code) return;
+  const normalized = code.trim().toUpperCase();
   const info = await tx
-    .prepare(`UPDATE coupons SET used_count = used_count + 1 WHERE code = ? AND active = 1 AND (max_uses IS NULL OR used_count < max_uses)`)
-    .run(code.trim().toUpperCase());
+    .prepare(`UPDATE coupons SET used_count = used_count + 1 WHERE code = ? AND active = 1 AND archived_at IS NULL AND (max_uses IS NULL OR used_count < max_uses)`)
+    .run(normalized);
   if (info.changes !== 1) throw new ConflictError("That code has been fully redeemed");
+  if (redemption && (await commerceSwitch("commerce.coupons_v2"))) await recordRedemption(tx, normalized, redemption);
+}
+
+/** Commerce Engine Phase 3 — who/what a coupon use belongs to. Funding and
+ * limits are read from the coupon row itself (already locked by the
+ * used_count UPDATE above), never trusted from the caller. */
+export interface RedemptionContext {
+  sourceType: string;
+  ref: string;
+  /** "r:<residentId>" when signed in, else "c:<clientId>". */
+  customerKey: string;
+  discountMinor: number;
+  /** true when the order is already paid/free/cash (no pending hold). */
+  confirmed: boolean;
+}
+
+export function customerKeyOf(residentId: string | null | undefined, clientId: string | null | undefined): string {
+  return residentId ? `r:${residentId}` : `c:${clientId ?? "unknown"}`;
+}
+
+async function recordRedemption(tx: Tx, code: string, r: RedemptionContext) {
+  const coupon = (await tx
+    .prepare(`SELECT id, funding, platform_share_bps as share, per_customer_limit as perCustomer, created_by_vendor_id as v, created_by_resident_id as h FROM coupons WHERE code = ?`)
+    .get(code)) as { id: number; funding: string; share: number; perCustomer: number | null; v: string | null; h: string | null };
+  if (coupon.perCustomer !== null && coupon.perCustomer !== undefined) {
+    // Serialised by the coupon row lock taken by the used_count UPDATE.
+    const { n } = (await tx
+      .prepare(`SELECT COUNT(*) as n FROM coupon_redemptions WHERE coupon_id = ? AND customer_key = ? AND status IN ('reserved', 'confirmed')`)
+      .get(coupon.id, r.customerKey)) as { n: number };
+    if (Number(n) >= coupon.perCustomer) throw new ConflictError(coupon.perCustomer === 1 ? "You've already used this code" : `This code can be used ${coupon.perCustomer} times per customer`);
+  }
+  const partnerOwned = !!(coupon.v || coupon.h);
+  const shareBps = partnerOwned || coupon.funding === "partner" ? 0 : coupon.funding === "platform" ? 10_000 : Math.max(0, Math.min(10_000, Number(coupon.share)));
+  const discount = Math.max(0, Math.round(r.discountMinor));
+  const platformFunded = shareBps === 0 || discount === 0 ? 0 : allocate(discount, [shareBps, 10_000 - shareBps])[0];
+  await tx
+    .prepare(
+      `INSERT INTO coupon_redemptions (coupon_id, code, source_type, source_ref, customer_key, discount_minor, platform_funded_minor, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+    )
+    .run(coupon.id, code, r.sourceType, r.ref, r.customerKey, discount, platformFunded, r.confirmed ? "confirmed" : "reserved");
+}
+
+const REDEMPTION_SOURCE: Record<string, string> = {
+  bookings: "booking",
+  registrations: "registration",
+  program_enrollments: "program",
+  experience_bookings: "experience",
+  game_participants: "game",
+};
+
+/** Marks a still-reserved redemption released (its pending hold ended). */
+export async function releaseRedemption(tx: Tx, table: string, ref: string) {
+  const sourceType = REDEMPTION_SOURCE[table];
+  if (!sourceType) return;
+  await tx.prepare(`UPDATE coupon_redemptions SET status = 'released' WHERE source_type = ? AND source_ref = ? AND status = 'reserved'`).run(sourceType, ref);
+  // Stage 5b — a reserved customer credit goes back to the resident too.
+  await syncCreditUses(tx, sourceType, ref, "released", ["reserved"]);
 }
 
 /** HC-QA-050 — hand back one reserved coupon use (never below zero). */
@@ -66,6 +127,7 @@ export async function endPendingHold(table: PendingTable, ref: string, mode: "de
       : await tx.prepare(`UPDATE ${table} SET payment_status = 'failed' WHERE ref = ? AND payment_status = 'pending'`).run(ref);
     if (info.changes !== 1) return false;
     await releaseCoupon(tx, row.coupon_code);
+    await releaseRedemption(tx, table, ref);
     return true;
   });
 }
@@ -90,3 +152,14 @@ export function startIsInFuture(date: string, time: string): boolean {
   const start = irelandWallTimeToUtc(date, h, m || 0);
   return !Number.isNaN(start.getTime()) && start.getTime() > Date.now();
 }
+
+/** Commerce audit R14 — suspending a vendor only changes users.status; their
+ * approved listings stay visible. Every paid/free checkout refuses to take a
+ * new order for a listing whose owning vendor is suspended. */
+export async function vendorSuspended(vendorId: string | null | undefined): Promise<boolean> {
+  if (!vendorId) return false;
+  const row = (await db.prepare(`SELECT status FROM users WHERE id = ?`).get(vendorId)) as { status: string } | undefined;
+  return row?.status === "suspended";
+}
+
+export const VENDOR_SUSPENDED_ERROR = "This listing isn't taking bookings right now";

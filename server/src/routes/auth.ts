@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import { Router } from "express";
+import { recordConsent } from "../consent.js";
 import {
   SESSION_COOKIE,
   createSession,
@@ -100,6 +101,7 @@ async function createVendorSignup(
     await tx
       .prepare(`UPDATE users SET google_uid = ?, terms_accepted_at = NOW(), terms_version = ?, marketing_consent = ? WHERE id = ?`)
       .run(googleUid ?? null, TERMS_VERSION, marketingConsent ? 1 : 0, user.id);
+    await recordConsent({ type: "user", id: user.id }, "marketing_email", marketingConsent, "vendor_signup", null, tx);
 
     const listingId = crypto.randomUUID();
     if (intake.vendorType === "community") {
@@ -442,6 +444,7 @@ authRouter.post("/accept-invite", passwordLoginLimiter, async (req, res) => {
       invitedStaff: true,
     });
     await tx.prepare(`UPDATE users SET terms_accepted_at = NOW(), terms_version = ?, marketing_consent = ? WHERE id = ?`).run(TERMS_VERSION, marketingConsent ? 1 : 0, u.id);
+    await recordConsent({ type: "user", id: u.id }, "marketing_email", !!marketingConsent, "staff_invite", null, tx);
     await tx.prepare(`UPDATE org_invites SET status = 'accepted' WHERE token = ? AND status = 'pending'`).run(token);
     return { user: u };
   }).catch((error: unknown) => {

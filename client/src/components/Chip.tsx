@@ -31,16 +31,18 @@ export function Chip({
   active,
   onClick,
   accent = "green",
-  radius = 20,
+  radius = 999,
   padding = "8px 15px",
   fontSize = 14,
   disabled = false,
 }: ChipProps) {
-  const accentColor = accent === "orange" ? colors.orange : colors.green;
+  // Design-system consistency pass: a selected filter is a forest pill
+  // everywhere (the `accent` prop is kept for API compatibility).
+  void accent;
   const style: CSSProperties = {
-    border: `1.5px solid ${active ? accentColor : colors.borderStrong}`,
-    background: active ? accentColor : colors.surface,
-    color: active ? "#fff" : colors.textSoft,
+    border: `1.5px solid ${active ? colors.dark : colors.borderStrong}`,
+    background: active ? colors.dark : colors.surface,
+    color: active ? colors.onNight : colors.textSoft,
     borderRadius: radius,
     padding,
     fontSize,
@@ -60,7 +62,7 @@ export function Chip({
 export function AttributeChip({ label, accent = "neutral" }: { label: ReactNode; accent?: "neutral" | "green" | "orange" }) {
   const tone =
     accent === "green"
-      ? { bg: colors.greenBg, fg: colors.greenText }
+      ? { bg: colors.orangeBg, fg: colors.text }
       : accent === "orange"
         ? { bg: colors.orangeBg, fg: colors.orangeDark }
         : { bg: colors.panel, fg: colors.muted };

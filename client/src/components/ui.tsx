@@ -89,8 +89,10 @@ export function CardLink({ to, label, sharedImage }: { to: string; label: string
 
 type ButtonVariant = "primary" | "orange" | "dark" | "ghost" | "danger";
 
+// Design-system consistency pass: pill buttons; primary = brand orange with
+// forest text (white on #ff4b24 fails contrast), dark = forest night.
 const buttonBase: CSSProperties = {
-  borderRadius: radius.control,
+  borderRadius: radius.pill,
   fontWeight: 700,
   fontSize: 14,
   padding: "10px 16px",
@@ -290,13 +292,13 @@ export function StatusBadge({ status, label }: { status: string; label?: string 
       style={{
         background: s.bg,
         color: s.fg,
-        borderRadius: 20,
+        borderRadius: 16,
         padding: "3px 11px",
         fontSize: 12,
         fontWeight: 700,
         display: "inline-flex",
         alignItems: "center",
-        letterSpacing: ".01em",
+        letterSpacing: 0,
       }}
     >
       {s.label}
@@ -351,7 +353,7 @@ export function AvailabilityBadge({ state, children, style }: { state: Availabil
         padding: "3px 11px",
         fontSize: 12.5,
         fontWeight: 700,
-        letterSpacing: ".01em",
+        letterSpacing: 0,
         ...style,
       }}
     >
@@ -524,7 +526,7 @@ export function Skeleton({
 /** Stands in for CentreCard/ClubCard while a listing grid loads. */
 export function CardSkeleton({ photoHeight = 140 }: { photoHeight?: number }) {
   return (
-    <div style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 18, overflow: "hidden" }}>
+    <div style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 16, overflow: "hidden" }}>
       <Skeleton height={photoHeight} radius={0} />
       <div style={{ padding: "16px 18px 18px" }}>
         <Skeleton width={90} height={13} style={{ marginBottom: 12 }} />
@@ -556,7 +558,7 @@ export function ListingDetailSkeleton() {
           <Skeleton height={14} style={{ marginBottom: 8 }} />
           <Skeleton width="80%" height={14} />
         </div>
-        <div style={{ border: `1px solid ${colors.border}`, borderRadius: 18, padding: 22 }}>
+        <div style={{ border: `1px solid ${colors.border}`, borderRadius: 16, padding: 22 }}>
           <Skeleton width={100} height={13} style={{ marginBottom: 10 }} />
           <Skeleton width={120} height={30} style={{ marginBottom: 20 }} />
           <Skeleton height={46} radius={12} />
@@ -744,6 +746,82 @@ export function Tabs<T extends string>({
   );
 }
 
+/** Same look as `Tabs`, but a real WAI-ARIA tablist: roving tabindex, arrow
+ * keys / Home / End move and select, each tab names its panel. Use with
+ * `TabPanel` when the options switch content in place (not a filter). On a
+ * narrow screen the row scrolls instead of wrapping into a ragged stack. */
+export function SectionTabs<T extends string>({
+  value,
+  onChange,
+  options,
+  label,
+  idBase,
+}: {
+  value: T;
+  onChange: (v: T) => void;
+  options: { key: T; label: string }[];
+  label: string;
+  idBase: string;
+}) {
+  const refs = useRef<Record<string, HTMLButtonElement | null>>({});
+  const move = (e: ReactKeyboardEvent, index: number) => {
+    const last = options.length - 1;
+    const next = e.key === "ArrowRight" ? (index === last ? 0 : index + 1) : e.key === "ArrowLeft" ? (index === 0 ? last : index - 1) : e.key === "Home" ? 0 : e.key === "End" ? last : null;
+    if (next === null) return;
+    e.preventDefault();
+    const key = options[next].key;
+    onChange(key);
+    refs.current[key]?.focus();
+  };
+  return (
+    <div role="tablist" aria-label={label} className="section-tabs" style={{ display: "flex", gap: 8, overflowX: "auto", paddingBottom: 2 }}>
+      {options.map((o, i) => {
+        const active = o.key === value;
+        return (
+          <button
+            key={o.key}
+            ref={(el) => {
+              refs.current[o.key] = el;
+            }}
+            type="button"
+            role="tab"
+            id={`${idBase}-tab-${o.key}`}
+            aria-selected={active}
+            aria-controls={`${idBase}-panel-${o.key}`}
+            tabIndex={active ? 0 : -1}
+            onClick={() => onChange(o.key)}
+            onKeyDown={(e) => move(e, i)}
+            className={`tab-btn ${active ? "tab-btn-active" : ""}`}
+            style={{
+              ...buttonBase,
+              flex: "0 0 auto",
+              minHeight: 44,
+              background: active ? colors.dark : colors.surface,
+              color: active ? "#fff" : colors.text,
+              border: active ? "none" : `1px solid ${colors.borderStrong}`,
+              padding: "9px 16px",
+              whiteSpace: "nowrap",
+            }}
+          >
+            {o.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/** `bare` keeps the same element (so children don't remount) but drops the
+ * tabpanel semantics while there's no tablist to label it. */
+export function TabPanel({ idBase, tab, bare, children }: { idBase: string; tab: string; bare?: boolean; children: ReactNode }) {
+  if (bare) return <div>{children}</div>;
+  return (
+    <div role="tabpanel" id={`${idBase}-panel-${tab}`} aria-labelledby={`${idBase}-tab-${tab}`}>
+      {children}
+    </div>
+  );
+}
+
 // --- DashboardTopPanel (heading + illustration + tabs, one shared colored
 // panel — deliberately identical structure/spacing for vendor and admin) ---
 
@@ -804,11 +882,11 @@ export function DashboardTopPanel<T extends string>({
           <Avatar name={avatarName} size={44} />
           <div>
             {eyebrow && (
-              <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: colors.orangeDark, marginBottom: 4 }}>
+              <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: 0, textTransform: "uppercase", color: colors.orangeDark, marginBottom: 4 }}>
                 {eyebrow}
               </div>
             )}
-            <h1 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 32, margin: 0, letterSpacing: "-.03em", lineHeight: 1.05 }}>{title}</h1>
+            <h1 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(32px, 3.8vw, 52px)", margin: 0, letterSpacing: 0, lineHeight: 1.05 }}>{title}</h1>
             <p style={{ color: colors.muted, fontSize: 13, margin: badge ? "6px 0 8px" : "6px 0 0" }}>{subtitle}</p>
             {badge}
           </div>
@@ -858,9 +936,9 @@ export function StatTile({
     <div style={{ display: "flex", flexDirection: "column", gap: 6, padding: "18px 22px", flex: 1, minWidth: 170 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 7, color: colors.faint }}>
         {icon}
-        <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".04em", textTransform: "uppercase", color: colors.mutedLight }}>{label}</span>
+        <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0, textTransform: "uppercase", color: colors.mutedLight }}>{label}</span>
       </div>
-      <div style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 30, lineHeight: 1, letterSpacing: "-.01em", fontVariantNumeric: "tabular-nums" }}>{value}</div>
+      <div style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 30, lineHeight: 1, letterSpacing: 0, fontVariantNumeric: "tabular-nums" }}>{value}</div>
       <div style={{ fontSize: 11.5, color: sublabelColor, fontWeight: 700 }}>{sublabel}</div>
     </div>
   );
@@ -891,9 +969,9 @@ export function KpiHero({
     <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 7, color: colors.faint }}>
         {icon}
-        <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".04em", textTransform: "uppercase", color: colors.mutedLight }}>{label}</span>
+        <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0, textTransform: "uppercase", color: colors.mutedLight }}>{label}</span>
       </div>
-      <div style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 60, lineHeight: 0.9, letterSpacing: "-.03em", fontVariantNumeric: "tabular-nums" }}>{value}</div>
+      <div style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 60, lineHeight: 0.9, letterSpacing: 0, fontVariantNumeric: "tabular-nums" }}>{value}</div>
       <div style={{ fontSize: 12.5, color: sublabelColor, fontWeight: 700 }}>{sublabel}</div>
     </div>
   );
@@ -976,7 +1054,7 @@ export function Switch({
           width: 18,
           height: 18,
           borderRadius: "50%",
-          background: "#fff",
+          background: colors.surface,
           boxShadow: "0 1px 3px rgba(0,0,0,.25)",
           transition: "left .15s ease",
           pointerEvents: "none",
@@ -992,7 +1070,7 @@ export const inputStyle: CSSProperties = {
   width: "100%",
   padding: "11px 13px",
   border: `1px solid ${colors.inputBorder}`,
-  borderRadius: 11,
+  borderRadius: 10,
   fontSize: 14,
   background: colors.surface,
   color: colors.text,
@@ -1005,7 +1083,7 @@ export const labelStyle: CSSProperties = {
   fontWeight: 600,
   color: colors.muted,
   margin: "0 0 6px",
-  letterSpacing: ".01em",
+  letterSpacing: 0,
 };
 
 // --- shared table styles ---------------------------------------------------
@@ -1023,7 +1101,7 @@ export const thStyle: CSSProperties = {
   fontWeight: 700,
   fontSize: 11,
   textTransform: "uppercase",
-  letterSpacing: ".04em",
+  letterSpacing: 0,
   borderBottom: `2px solid ${colors.border}`,
   whiteSpace: "nowrap",
 };
@@ -1076,6 +1154,35 @@ export function Drawer({
   const [closing, setClosing] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
   const dragStartY = useRef<number | null>(null);
+  const titleId = useId();
+  // Dialog focus: move into the panel on open, return to the opener on close.
+  const openerRef = useRef<HTMLElement | null>(null);
+  useEffect(() => {
+    if (!open) return;
+    openerRef.current = document.activeElement as HTMLElement | null;
+    // Leave an autoFocus field inside the panel alone.
+    const t = window.setTimeout(() => {
+      if (!panelRef.current?.contains(document.activeElement)) panelRef.current?.focus();
+    }, 0);
+    return () => {
+      window.clearTimeout(t);
+      openerRef.current?.focus?.();
+    };
+  }, [open]);
+  const trapTab = (e: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (e.key !== "Tab" || !panelRef.current) return;
+    const focusables = panelRef.current.querySelectorAll<HTMLElement>('a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])');
+    if (!focusables.length) return;
+    const first = focusables[0];
+    const last = focusables[focusables.length - 1];
+    if (e.shiftKey && (document.activeElement === first || document.activeElement === panelRef.current)) {
+      e.preventDefault();
+      last.focus();
+    } else if (!e.shiftKey && document.activeElement === last) {
+      e.preventDefault();
+      first.focus();
+    }
+  };
 
   useEffect(() => {
     if (open) {
@@ -1161,7 +1268,7 @@ export function Drawer({
       style={{ position: "fixed", inset: 0, zIndex: zIndex.drawer, background: "rgba(20,22,20,.45)" }}
       onClick={onClose}
     >
-      <div ref={panelRef} className={panelClass} style={panelStyle} onClick={(e) => e.stopPropagation()}>
+      <div ref={panelRef} role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1} onKeyDown={trapTab} className={panelClass} style={{ ...panelStyle, outline: "none" }} onClick={(e) => e.stopPropagation()}>
         {mobile && (
           <div
             onPointerDown={onDragStart}
@@ -1189,7 +1296,7 @@ export function Drawer({
             touchAction: mobile ? "none" : undefined,
           }}
         >
-          <span style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 17 }}>{title}</span>
+          <span id={titleId} style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 17 }}>{title}</span>
           <button
             onClick={onClose}
             onPointerDown={(e) => e.stopPropagation()}
@@ -1569,7 +1676,7 @@ export function ConfirmDialog({
         aria-labelledby={titleId}
         aria-describedby={messageId}
         tabIndex={-1}
-        className="pop-in"
+        className="modal-in"
         style={{ background: colors.surface, borderRadius: radius.card, padding: 24, maxWidth: 380, width: "100%", boxShadow: "0 20px 60px rgba(20,22,20,.25)" }}
         onClick={(e) => e.stopPropagation()}
       >
@@ -1634,7 +1741,7 @@ function NavOptionButtons<T extends string>({
                 style={{
                   fontSize: 11,
                   fontWeight: 700,
-                  letterSpacing: ".06em",
+                  letterSpacing: 0,
                   textTransform: "uppercase",
                   color: colors.faint,
                   padding: "16px 12px 6px",
@@ -1720,7 +1827,7 @@ export function NavRail<T extends string>({
             fontFamily: 'ui-monospace, "SF Mono", "Roboto Mono", Menlo, monospace',
             fontSize: 11,
             fontWeight: 700,
-            letterSpacing: ".06em",
+            letterSpacing: 0,
             textTransform: "uppercase",
             color: colors.mutedLight,
           }}

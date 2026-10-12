@@ -23,7 +23,8 @@ interface Props {
   circle: Circle;
   state: JoinState;
   busy: boolean;
-  onJoin: () => void;
+  /** For an approval Circle, the request carries an optional note and answers (Booking UX Phase 5). */
+  onJoin: (request?: { note?: string; answers?: string[] }) => void;
   onLeave: () => void;
   onMessage: () => void;
   onCreatePlan: () => void;
@@ -37,10 +38,13 @@ export function CircleJoinCard({ circle, state, busy, onJoin, onLeave, onMessage
   const [managing, setManaging] = useState(false);
   const [leaveConfirmOpen, setLeaveConfirmOpen] = useState(false);
   const [joinConfirmOpen, setJoinConfirmOpen] = useState(false);
+  const [note, setNote] = useState("");
+  const questions = circle.joinMode === "approval" ? circle.joinQuestions ?? [] : [];
+  const [answers, setAnswers] = useState<string[]>([]);
 
   return (
     <Card>
-      <h3 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 18, margin: "0 0 6px", letterSpacing: "-.01em" }}>
+      <h3 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 18, margin: "0 0 6px", letterSpacing: 0 }}>
         {state === "member"
           ? "You're in the Circle" /* Product Language & IA Polish — Changeset 1F. Was bare "You're in", identical to a one-off Game's own post-join headline, despite Circle membership being ongoing rather than a single occurrence. */
           : state === "organiser"
@@ -98,7 +102,7 @@ export function CircleJoinCard({ circle, state, busy, onJoin, onLeave, onMessage
         )}
 
         {state === "invited" && (
-          <Button full onClick={onJoin} disabled={busy}>
+          <Button full onClick={() => onJoin()} disabled={busy}>
             {busy ? "…" : "Accept invite"}
           </Button>
         )}
@@ -143,7 +147,7 @@ export function CircleJoinCard({ circle, state, busy, onJoin, onLeave, onMessage
                 <Button variant="ghost" full onClick={() => navigate(`/manage/circles/${circle.slug ?? circle.id}`)}>Manage circle</Button>
                 <Button variant="ghost" full onClick={onMessage}>Message Circle</Button>
                 <div>
-                  <div style={{ fontSize: 11.5, fontWeight: 700, color: colors.mutedLight, textTransform: "uppercase", letterSpacing: ".03em", marginBottom: 8 }}>Invite someone</div>
+                  <div style={{ fontSize: 11.5, fontWeight: 700, color: colors.mutedLight, textTransform: "uppercase", letterSpacing: 0, marginBottom: 8 }}>Invite someone</div>
                   <ResidentPicker onInvite={onInvite} />
                   {inviteError && <p style={{ fontSize: 12, color: colors.danger, margin: "6px 0 0" }}>{inviteError}</p>}
                 </div>
@@ -199,11 +203,43 @@ export function CircleJoinCard({ circle, state, busy, onJoin, onLeave, onMessage
         tone="neutral"
         busy={busy}
         onConfirm={() => {
-          onJoin();
+          onJoin(circle.joinMode === "approval" ? { note: note.trim() || undefined, answers: questions.map((_, i) => (answers[i] ?? "").trim()) } : undefined);
           setJoinConfirmOpen(false);
         }}
         onCancel={() => setJoinConfirmOpen(false)}
-      />
+      >
+        {circle.joinMode === "approval" && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            {questions.map((q, i) => (
+              <div key={q}>
+                <label htmlFor={`circle-q-${i}`} style={{ display: "block", fontSize: 13, fontWeight: 600, color: colors.text, marginBottom: 6 }}>
+                  {q} <span style={{ fontWeight: 400, color: colors.muted }}>(optional)</span>
+                </label>
+                <input
+                  id={`circle-q-${i}`}
+                  value={answers[i] ?? ""}
+                  maxLength={500}
+                  onChange={(e) => setAnswers((a) => Object.assign([...a], { [i]: e.target.value }))}
+                  style={{ width: "100%", boxSizing: "border-box", minHeight: 44, padding: "10px 12px", fontSize: 16, border: `1px solid ${colors.inputBorder}`, borderRadius: radius.control, background: colors.surface, color: colors.text }}
+                />
+              </div>
+            ))}
+            <div>
+              <label htmlFor="circle-request-note" style={{ display: "block", fontSize: 13, fontWeight: 600, color: colors.text, marginBottom: 6 }}>
+                A note for the organiser <span style={{ fontWeight: 400, color: colors.muted }}>(optional)</span>
+              </label>
+              <textarea
+                id="circle-request-note"
+                value={note}
+                maxLength={500}
+                rows={3}
+                onChange={(e) => setNote(e.target.value)}
+                style={{ width: "100%", boxSizing: "border-box", padding: "10px 12px", fontSize: 16, border: `1px solid ${colors.inputBorder}`, borderRadius: radius.control, background: colors.surface, color: colors.text, resize: "vertical" }}
+              />
+            </div>
+          </div>
+        )}
+      </ConfirmDialog>
     </Card>
   );
 }

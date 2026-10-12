@@ -52,7 +52,7 @@ export function CircleStatsBar({ circle, upcoming }: { circle: Circle; upcoming:
           <div style={{ display: "flex", alignItems: "center", gap: 6, color: colors.mutedLight, marginBottom: 3 }}>
             {s.icon}
           </div>
-          <div style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(17px,2.2vw,22px)", letterSpacing: "-.01em" }}>{s.value}</div>
+          <div style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(17px,2.2vw,22px)", letterSpacing: 0 }}>{s.value}</div>
           <div style={{ fontSize: 11.5, fontWeight: 600, color: colors.mutedLight, marginTop: 1 }}>{s.label}</div>
         </div>
       ))}

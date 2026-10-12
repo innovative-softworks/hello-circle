@@ -34,7 +34,7 @@ export function CircleOrganiserCard({ circle }: { circle: Circle }) {
       </div>
       <div>
         <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 4 }}>
-          <span style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 24, letterSpacing: "-.01em" }}>{circle.hostName}</span>
+          <span style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 24, letterSpacing: 0 }}>{circle.hostName}</span>
           {circle.hostVerified && (
             <span style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 11, fontWeight: 700, color: colors.greenText, background: colors.greenBg, borderRadius: radius.pill, padding: "3px 9px" }}>
               <AwardIcon size={11} /> Verified

@@ -1,14 +1,17 @@
 import { Router } from "express";
+import { shadowLegacy } from "../commerce/engine.js";
 import { computeCapacity } from "../capacity.js";
 import { createCheckoutSession, paymentsAvailable, pricingLineItems } from "../checkoutService.js";
-import { consumeCoupon, endPendingHold, occupiesCapacitySql } from "../bookingIntegrity.js";
+import { VENDOR_SUSPENDED_ERROR, consumeCoupon, customerKeyOf, endPendingHold, occupiesCapacitySql, vendorSuspended } from "../bookingIntegrity.js";
 import { logEvent } from "../analytics.js";
 import { db } from "../db/index.js";
 import { getClub } from "../db/queries.js";
 import { upgradeFavouriteStatus } from "./favourites.js";
 import { notifyCancellation, notifyNewBookingOrRegistration } from "../notifications.js";
 import { computePricing, evaluateCoupon } from "../pricing.js";
-import { lookupLimiter } from "../rateLimit.js";
+import { couponValidateLimiter, lookupLimiter } from "../rateLimit.js";
+import { registrationCancelBlock, refundStateOf } from "../selfCancel.js";
+import { recordOrderAcknowledgements } from "../orderAcknowledgements.js";
 import { stripe } from "../stripe.js";
 import { BadRequestError, ConflictError, clientIdFrom, generateRef, isPlausibleDob, isValidEmail } from "../util.js";
 import { activeOfferedCount, claimWaitlistOffer, hasActiveOffer, promoteNextWaitlistEntry } from "../waitlist.js";
@@ -57,6 +60,8 @@ interface CreateRegistrationBody {
    * exclusive with couponCode/trial — validated + consumed atomically in
    * the checkout handler, not here. */
   passId?: number;
+  /** Booking UX Phase 4 (B8) — recorded with the order; the terms version is resolved server-side. */
+  acceptedTerms?: boolean;
 }
 
 /** Shared "who + when" fragment for notification/receipt text — the kids
@@ -123,6 +128,7 @@ async function insertRegistration(
 class FullError extends ConflictError {}
 class DuplicateRegistrationError extends ConflictError {}
 class CouponExhaustedError extends ConflictError {}
+class TrialUsedError extends ConflictError {}
 
 /** Phase 8 (HC-QA-034/037/038/041) — the single serialized reservation path
  * for every registration (free, trial, cash, pass and pending-paid). Inside
@@ -157,6 +163,22 @@ async function reserveRegistration(
       .get(body.clubId, body.sessionId ?? null, body.childFirst, body.childLast, body.dob ?? "", clientId, residentId ?? "");
     if (duplicate) throw new DuplicateRegistrationError("This person is already registered for this club");
 
+    // Booking audit 2026-10-11 (P0, B4) — one free trial per participant per
+    // club. Checked under the club lock so two concurrent trial requests can't
+    // both pass. Cancelled trials count (cancel-and-retry would otherwise reset
+    // it); the same participant is matched across devices by email or resident.
+    if (body.trial) {
+      const usedTrial = await tx
+        .prepare(
+          `SELECT id FROM registrations
+           WHERE club_id = ? AND trial = 1 AND payment_status != 'failed'
+             AND LOWER(child_first) = LOWER(?) AND LOWER(child_last) = LOWER(?) AND dob = ?
+             AND (client_id = ? OR LOWER(email) = LOWER(?) OR (resident_id IS NOT NULL AND resident_id = ?)) LIMIT 1`
+        )
+        .get(body.clubId, body.childFirst, body.childLast, body.dob ?? "", clientId, body.email ?? "", residentId ?? "");
+      if (usedTrial) throw new TrialUsedError("This person has already had a free trial with this club");
+    }
+
     if (club.capacity !== null) {
       const { n } = (await tx.prepare(`SELECT COUNT(*) as n FROM registrations WHERE club_id = ? AND ${occupiesCapacitySql()}`).get(body.clubId)) as { n: number };
       // An active waitlist offer holds its spot, except the registrant's own.
@@ -177,12 +199,13 @@ async function reserveRegistration(
     // HC-QA-050 — reserve the coupon use with the registration, paid or pending.
     {
       try {
-        await consumeCoupon(tx, pricing.couponCode);
-      } catch {
-        throw new CouponExhaustedError("That code has been fully redeemed");
+        await consumeCoupon(tx, pricing.couponCode, { sourceType: "registration", ref, customerKey: customerKeyOf(residentId, clientId), discountMinor: pricing.discountCents, confirmed: status === "paid" });
+      } catch (e) {
+        throw new CouponExhaustedError(e instanceof Error ? e.message : "That code has been fully redeemed");
       }
     }
     await insertRegistration(ref, clientId, residentId, body, pricing, status, passId, tx);
+    await recordOrderAcknowledgements(tx, { sourceType: "registration", ref, clientId, residentId, terms: body.acceptedTerms === true });
   };
   if (existingTx) await run(existingTx);
   else await db.transaction(run);
@@ -192,10 +215,56 @@ async function reserveRegistration(
 function reservationError(e: unknown, res: import("express").Response) {
   if (e instanceof CouponExhaustedError) return res.status(400).json({ error: e.message });
   if (e instanceof DuplicateRegistrationError) return res.status(409).json({ error: e.message, duplicate: true });
+  if (e instanceof TrialUsedError) return res.status(409).json({ error: e.message, trialUsed: true });
   if (e instanceof FullError) return res.status(409).json({ error: e.message, full: true });
   if (e instanceof ConflictError) return res.status(409).json({ error: e.message });
   throw e;
 }
+
+type RegistrationPrice = { ok: true; pricing: ReturnType<typeof computePricing>; couponCode: string | null } | { ok: false; error: string };
+
+/** Booking audit 2026-10-11 (B2) — the one place a registration is priced,
+ * shared by POST /quote and POST /checkout so the total a guest is shown
+ * can't drift from what they're charged. A trial is free, only where the
+ * club offers one (B4 — the flag used to be trusted from the client). */
+async function priceRegistration(club: { id: string; price: number; trial: boolean }, trial: boolean, rawCoupon: string | undefined): Promise<RegistrationPrice> {
+  if (trial && !club.trial) return { ok: false, error: "This club doesn't offer a free trial" };
+  const subtotalCents = trial ? 0 : club.price * 100;
+  let discountCents = 0;
+  let couponCode: string | null = null;
+  if (!trial && rawCoupon) {
+    const result = await evaluateCoupon(rawCoupon, subtotalCents, { listingType: "club", listingId: club.id });
+    if (!result.valid) return { ok: false, error: result.error! };
+    discountCents = result.discountCents!;
+    couponCode = result.code!;
+  }
+  return { ok: true, pricing: computePricing(subtotalCents, 0, discountCents, couponCode), couponCode };
+}
+
+/** Booking audit 2026-10-11 (B2) — authoritative price for the registration
+ * form. Read-only: a coupon is evaluated, never reserved. */
+registrationsRouter.post("/quote", couponValidateLimiter, async (req, res) => {
+  const body = req.body as { clubId?: string; trial?: unknown; couponCode?: string };
+  if (!body.clubId) return res.status(400).json({ error: "clubId is required" });
+  const club = await getClub(body.clubId);
+  if (!club || club.status !== "approved") return res.status(404).json({ error: "Club not found" });
+  const priced = await priceRegistration(club, body.trial === true, body.couponCode);
+  if (!priced.ok) return res.status(400).json({ error: priced.error });
+  const p = priced.pricing;
+  res.json({
+    subtotalCents: p.subtotalCents,
+    discountCents: p.discountCents,
+    taxableCents: p.taxableCents,
+    vatCents: p.vatCents,
+    platformFeeCents: p.platformFeeCents,
+    depositCents: p.depositCents,
+    totalCents: p.totalCents,
+    couponCode: priced.couponCode,
+    currency: "EUR",
+    trial: body.trial === true,
+    payAtVenue: club.paymentMethod === "cash" && p.totalCents > 0,
+  });
+});
 
 registrationsRouter.post("/checkout", async (req, res) => {
   let clientId: string;
@@ -231,7 +300,16 @@ registrationsRouter.post("/checkout", async (req, res) => {
   }
 
   const club = await getClub(body.clubId);
-  if (!club) return res.status(404).json({ error: "Club not found" });
+  // Booking audit 2026-10-11 — only an approved club takes registrations
+  // (getClub is the unfiltered internal read; passes already check this).
+  if (!club || club.status !== "approved") return res.status(404).json({ error: "Club not found" });
+  // B4 — normalise the client's flag; priceRegistration refuses it unless the
+  // club offers a trial, and reserveRegistration allows one per participant.
+  body.trial = body.trial === true;
+  if (body.trial && body.passId) return res.status(400).json({ error: "A free trial can't be combined with a pass" });
+  if (body.trial && !club.trial) return res.status(400).json({ error: "This club doesn't offer a free trial" });
+  const clubOwner = (await db.prepare(`SELECT vendor_id FROM clubs WHERE id = ?`).get(body.clubId)) as { vendor_id: string | null } | undefined;
+  if (await vendorSuspended(clubOwner?.vendor_id)) return res.status(409).json({ error: VENDOR_SUSPENDED_ERROR });
 
   if (body.sessionId) {
     const session = await db.prepare(`SELECT id FROM club_sessions WHERE id = ? AND club_id = ? AND active = 1`).get(body.sessionId, body.clubId);
@@ -285,16 +363,10 @@ registrationsRouter.post("/checkout", async (req, res) => {
     return res.status(201).json({ ref, totalEuro: 0, trial: false });
   }
 
-  const subtotalCents = body.trial ? 0 : club.price * 100;
-  let discountCents = 0;
-  let couponCode: string | null = null;
-  if (!body.trial && body.couponCode) {
-    const result = await evaluateCoupon(body.couponCode, subtotalCents, { listingType: "club", listingId: club.id });
-    if (!result.valid) return res.status(400).json({ error: result.error });
-    discountCents = result.discountCents!;
-    couponCode = result.code!;
-  }
-  const pricing = computePricing(subtotalCents, 0, discountCents, couponCode);
+  const priced = await priceRegistration(club, body.trial, body.couponCode);
+  if (!priced.ok) return res.status(400).json({ error: priced.error });
+  const { pricing, couponCode } = priced;
+  shadowLegacy("registration", ref, { vendorUserId: clubOwner?.vendor_id }, pricing);
   // Free trial registrations need no payment, and cash-mode clubs skip
   // Stripe entirely — both confirm immediately, no redirect.
   const isCash = club.paymentMethod === "cash" && pricing.totalCents > 0;
@@ -380,6 +452,15 @@ registrationsRouter.get("/status/:ref", async (req, res) => {
   res.json(row);
 });
 
+type ManageableRegistrationRow = Record<string, unknown> & { status: string; paymentStatus: string; totalCents: number; paidOnline: number };
+
+/** Booking audit 2026-10-11 (B3) — what the guest may do with a registration,
+ * from the same rule the cancel route enforces (selfCancel.ts). There's no
+ * cut-off, so there's no cancelDeadline. */
+function withManageFields({ paidOnline, ...r }: ManageableRegistrationRow) {
+  return { ...r, paidOnline: !!paidOnline, canCancel: registrationCancelBlock(r) === null, refundState: refundStateOf({ ...r, paidOnline }) };
+}
+
 registrationsRouter.get("/", async (req, res) => {
   let clientId: string;
   try {
@@ -396,29 +477,31 @@ registrationsRouter.get("/", async (req, res) => {
     ? await db
         .prepare(
           `SELECT r.ref, r.team, r.child_first as childFirst, r.child_last as childLast, r.trial, r.status,
+                  r.payment_status as paymentStatus, r.stripe_session_id IS NOT NULL as paidOnline,
                   r.total_cents as totalCents, r.created_at as createdAt,
                   c.id as clubId, c.name as clubName, c.sport as sport, c.vendor_id as vendorId,
                   (SELECT a.status FROM attendance a WHERE a.kind = 'registration' AND a.ref = r.ref) as attendance
            FROM registrations r
            JOIN clubs c ON c.id = r.club_id
-           WHERE (r.client_id = ? OR LOWER(r.email) = LOWER(?)) AND r.payment_status = 'paid'
+           WHERE (r.client_id = ? OR LOWER(r.email) = LOWER(?)) AND r.payment_status IN ('paid', 'refunded')
            ORDER BY r.created_at DESC`
         )
         .all(clientId, req.guestEmail)
     : await db
         .prepare(
           `SELECT r.ref, r.team, r.child_first as childFirst, r.child_last as childLast, r.trial, r.status,
+                  r.payment_status as paymentStatus, r.stripe_session_id IS NOT NULL as paidOnline,
                   r.total_cents as totalCents, r.created_at as createdAt,
                   c.id as clubId, c.name as clubName, c.sport as sport, c.vendor_id as vendorId,
                   (SELECT a.status FROM attendance a WHERE a.kind = 'registration' AND a.ref = r.ref) as attendance
            FROM registrations r
            JOIN clubs c ON c.id = r.club_id
-           WHERE r.client_id = ? AND r.payment_status = 'paid'
+           WHERE r.client_id = ? AND r.payment_status IN ('paid', 'refunded')
            ORDER BY r.created_at DESC`
         )
         .all(clientId);
 
-  res.json(rows);
+  res.json((rows as ManageableRegistrationRow[]).map(withManageFields));
 });
 
 /** Lets a guest recover a registration on a device that never made it —
@@ -433,6 +516,7 @@ registrationsRouter.post("/lookup", lookupLimiter, async (req, res) => {
   const row = await db
     .prepare(
       `SELECT r.ref, r.team, r.child_first as childFirst, r.child_last as childLast, r.trial, r.status,
+              r.payment_status as paymentStatus, r.stripe_session_id IS NOT NULL as paidOnline,
               r.total_cents as totalCents, r.created_at as createdAt,
               c.id as clubId, c.name as clubName, c.sport as sport, c.vendor_id as vendorId
        FROM registrations r
@@ -441,7 +525,7 @@ registrationsRouter.post("/lookup", lookupLimiter, async (req, res) => {
     )
     .get(ref.trim(), email.trim());
   if (!row) return res.status(404).json({ error: "We couldn't find a registration with that reference and email" });
-  res.json(row);
+  res.json(withManageFields(row as ManageableRegistrationRow));
 });
 
 /** Same ownership/idempotency rules as booking cancellation, but no 48h
@@ -470,8 +554,8 @@ registrationsRouter.post("/:ref/cancel", lookupLimiter, async (req, res) => {
     | { ref: string; team: string; childFirst: string; childLast: string; status: string; paymentStatus: string; gFirst: string; gLast: string; email: string; clubId: string; clubName: string; vendorId: string | null; residentId: string | null }
     | undefined;
   if (!row) return res.status(404).json({ error: "Registration not found" });
-  if (row.status === "cancelled") return res.status(409).json({ error: "This registration is already cancelled" });
-  if (row.paymentStatus !== "paid") return res.status(409).json({ error: "This registration can't be cancelled" });
+  const block = registrationCancelBlock(row);
+  if (block) return res.status(block.status).json({ error: block.error });
 
   // HC-QA-046 — atomic transition: only the request that actually flips the row
   // runs the side effects (capacity release, audit, notifications, promotion).

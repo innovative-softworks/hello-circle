@@ -38,11 +38,11 @@ export function MyLifeNextUp({ data }: { data: NextUpData }) {
   return (
     <div style={{ background: colors.dark, borderRadius: radius.card, padding: "clamp(24px,3vw,40px)", color: "#fff", position: "relative", overflow: "hidden" }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 18, flexWrap: "wrap" }}>
-        <span style={{ fontSize: 12, fontWeight: 700, letterSpacing: ".08em", color: "rgba(255,255,255,.6)" }}>/ NEXT UP</span>
-        <span style={{ fontSize: 12, fontWeight: 700, letterSpacing: ".06em", color: "rgba(255,255,255,.85)" }}>{data.eyebrow}</span>
+        <span style={{ fontSize: 12, fontWeight: 700, letterSpacing: 0, color: "rgba(255,255,255,.6)" }}>/ NEXT UP</span>
+        <span style={{ fontSize: 12, fontWeight: 700, letterSpacing: 0, color: "rgba(255,255,255,.85)" }}>{data.eyebrow}</span>
       </div>
 
-      <h2 style={{ fontFamily: fonts.display, fontWeight: 800, letterSpacing: "-.02em", lineHeight: 1.05, fontSize: "clamp(28px,4vw,42px)", margin: "0 0 8px" }}>
+      <h2 style={{ fontFamily: fonts.display, fontWeight: 800, letterSpacing: 0, lineHeight: 1.05, fontSize: "clamp(28px,4vw,42px)", margin: "0 0 8px" }}>
         {data.title}
       </h2>
       <div style={{ fontSize: 15, color: "rgba(255,255,255,.72)", marginBottom: 28 }}>{data.subtitle}</div>
@@ -65,7 +65,7 @@ export function MyLifeNextUp({ data }: { data: NextUpData }) {
         </div>
         <button
           onClick={data.onCta}
-          style={{ background: "#fff", color: colors.dark, border: "none", borderRadius: radius.pill, padding: "11px 22px", fontSize: 13, fontWeight: 800, letterSpacing: ".03em", textTransform: "uppercase", cursor: "pointer" }}
+          style={{ background: colors.surface, color: colors.dark, border: "none", borderRadius: radius.pill, padding: "11px 22px", fontSize: 13, fontWeight: 800, letterSpacing: 0, textTransform: "uppercase", cursor: "pointer" }}
         >
           {data.ctaLabel} →
         </button>

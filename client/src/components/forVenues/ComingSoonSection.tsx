@@ -3,7 +3,7 @@ import { ApiError } from "../../api/core";
 import { joinLaunchWaitlist } from "../../api/public";
 import { CheckCircleIcon } from "../icons";
 import { colors, fonts } from "../../theme";
-import { FV_ACCENT, FV_MAX_WIDTH, FV_MONO } from "./constants";
+import { FV_ACCENT, FV_ACCENT_DARK, FV_MAX_WIDTH, FV_MONO } from "./constants";
 import { RevealText } from "../RevealText";
 
 // Sits directly below VendorHero's full-bleed photo (see ForVenues.tsx) —
@@ -44,10 +44,10 @@ export function ComingSoonSection() {
           style={{ display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: 24, marginBottom: 44 }}
         >
           <div>
-            <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: ".09em", textTransform: "uppercase", color: FV_ACCENT, marginBottom: 10 }}>
+            <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: 0, textTransform: "uppercase", color: FV_ACCENT_DARK, marginBottom: 10 }}>
               <span aria-hidden="true">/</span> Launching soon
             </div>
-            <RevealText as="h2" style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(24px, 3vw, 32px)", color: "#fff", margin: "0 0 8px", letterSpacing: "-.01em" }}>
+            <RevealText as="h2" style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(24px, 3vw, 32px)", color: "#fff", margin: "0 0 8px", letterSpacing: 0 }}>
               HelloCircle is almost ready.
             </RevealText>
             <p style={{ margin: 0, color: "rgba(255,255,255,.72)", fontSize: 15.5, maxWidth: 440, lineHeight: 1.6 }}>
@@ -59,7 +59,7 @@ export function ComingSoonSection() {
           <div>
             {status === "success" ? (
               <div style={{ display: "flex", alignItems: "center", gap: 8, color: "#fff", fontWeight: 700, fontSize: 14.5 }}>
-                <CheckCircleIcon size={17} style={{ color: FV_ACCENT }} /> You&rsquo;re on the list
+                <CheckCircleIcon size={17} style={{ color: FV_ACCENT_DARK }} /> You&rsquo;re on the list
               </div>
             ) : (
               <form onSubmit={handleSubmit} noValidate>
@@ -119,7 +119,7 @@ export function ComingSoonSection() {
               gap: 12,
               fontFamily: FV_MONO,
               fontSize: 11.5,
-              letterSpacing: ".04em",
+              letterSpacing: 0,
               color: "rgba(255,255,255,.5)",
               marginBottom: 8,
             }}
@@ -133,7 +133,7 @@ export function ComingSoonSection() {
               fontWeight: 800,
               fontSize: "clamp(48px, 10vw, 130px)",
               lineHeight: 0.88,
-              letterSpacing: "-.03em",
+              letterSpacing: 0,
               color: FV_ACCENT,
               margin: 0,
             }}

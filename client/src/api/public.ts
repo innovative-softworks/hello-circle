@@ -68,6 +68,8 @@ export interface CreateBookingInput {
   /** Minimum Participation Booking (participation-intent plan Phase 5) —
    * only meaningful alongside openSpots. See server's comment. */
   minParticipants?: number;
+  /** Booking UX Phase 4 — the booking terms were agreed (the version is resolved server-side). */
+  acceptedTerms?: boolean;
 }
 
 /** Creates a pending booking + a Stripe Checkout session — the caller
@@ -252,6 +254,8 @@ export interface CreateRegistrationInput {
   couponCode?: string;
   sessionId?: string;
   passId?: number;
+  /** Booking UX Phase 4 — the booking terms were agreed (the version is resolved server-side). */
+  acceptedTerms?: boolean;
 }
 
 /** Free trial registrations are confirmed immediately (no `url` returned).
@@ -291,8 +295,14 @@ export function cancelRegistration(ref: string, email?: string): Promise<{ ok: b
 export const VAT_RATE = 0.23;
 export const PLATFORM_FEE_RATE = 0.05;
 
-export function validateCoupon(code: string, subtotalCents: number): Promise<{ code: string; discountCents: number }> {
-  return request(`/coupons/validate`, { method: "POST", body: JSON.stringify({ code, subtotalCents }) });
+/** `listing` lets the server check a listing-/org-scoped code the same way
+ * checkout will; checkout still re-validates regardless. */
+export function validateCoupon(
+  code: string,
+  subtotalCents: number,
+  listing?: { listingType: "centre" | "club" | "program" | "experience" | "game"; listingId: string }
+): Promise<{ code: string; discountCents: number }> {
+  return request(`/coupons/validate`, { method: "POST", body: JSON.stringify({ code, subtotalCents, ...listing }) });
 }
 
 // --- search (FUTURE, best-effort) -------------------------------------------
@@ -486,7 +496,7 @@ export function fetchProgram(id: string): Promise<Program> {
 
 export function enrollInProgram(
   id: string,
-  input: { participantName: string; participantDob?: string; email: string; phone?: string }
+  input: { participantName: string; participantDob?: string; email: string; phone?: string; /** Booking UX Phase 4 — recorded with the enrolment. */ acceptedTerms?: boolean; /** R3A — re-validated by the server at enrolment. */ couponCode?: string }
 ): Promise<{ ref: string; url?: string; totalEuro: number }> {
   return request(`/programs/${id}/enroll`, { method: "POST", body: JSON.stringify(input) });
 }
@@ -521,7 +531,20 @@ export function fetchExperience(id: string): Promise<Experience> {
 export function bookExperienceSession(
   experienceId: string,
   sessionId: string,
-  input: { participantName: string; email: string; phone?: string; partySize?: number; couponCode?: string }
+  input: {
+    participantName: string;
+    email: string;
+    phone?: string;
+    partySize?: number;
+    couponCode?: string;
+    quoteId?: string;
+    useCredits?: boolean;
+    /** Booking UX Phase 4 — one name per seat, the minimum-age declaration, and what was acknowledged. */
+    participants?: string[];
+    meetsMinAge?: boolean;
+    acceptedSafety?: boolean;
+    acceptedTerms?: boolean;
+  }
 ): Promise<{ ref: string; url?: string; totalEuro: number }> {
   return request(`/experiences/${experienceId}/sessions/${sessionId}/checkout`, { method: "POST", body: JSON.stringify(input) });
 }
@@ -538,18 +561,65 @@ export interface BookingQuote {
   totalCents: number;
   couponCode: string | null;
   currency: "EUR";
+  /** Commerce Engine Phase 2 — true when the published pricing rule shows one
+   * VAT-inclusive price (VAT is inside totalCents, not added on top). */
+  vatIncluded?: boolean;
+  /** Present when the commerce engine priced this quote; sent back at
+   * checkout so a price change in between is detected, not charged. */
+  quoteId?: string;
+  quoteExpiresAt?: string;
+  /** Stage 5b — HelloCircle credit applied (engine-priced quotes only). */
+  creditCents?: number;
+  /** R3A — the coupon's part of discountCents (discountCents = coupon + credit). */
+  couponDiscountCents?: number;
+  /** R3A — the resident's credit left after this booking (server-computed). */
+  creditBalanceAfterCents?: number | null;
 }
-export function quoteExperienceSession(experienceId: string, sessionId: string, input: { partySize: number; couponCode?: string }): Promise<BookingQuote> {
+export function quoteExperienceSession(experienceId: string, sessionId: string, input: { partySize: number; couponCode?: string; useCredits?: boolean }): Promise<BookingQuote> {
   return request(`/experiences/${experienceId}/sessions/${sessionId}/quote`, { method: "POST", body: JSON.stringify(input) });
 }
 
 /** HC-QA-047 — authoritative totals for a programme enrolment / paid activity join. */
 export interface PriceQuote { subtotalCents: number; discountCents: number; vatCents: number; platformFeeCents: number; totalCents: number; couponCode: string | null; currency: "EUR" }
-export function quoteProgram(programId: string): Promise<PriceQuote> {
-  return request(`/programs/${encodeURIComponent(programId)}/quote`);
+export function quoteProgram(programId: string, couponCode?: string | null): Promise<PriceQuote> {
+  return request(`/programs/${encodeURIComponent(programId)}/quote${couponCode ? `?couponCode=${encodeURIComponent(couponCode)}` : ""}`);
+}
+/** R3A — the server price of a club session pass (the same function checkout charges with). */
+export function quotePass(listingId: string, creditsTotal: number): Promise<PriceQuote & { creditsTotal: number; depositCents: number }> {
+  return request(`/passes/quote?listingId=${encodeURIComponent(listingId)}&creditsTotal=${creditsTotal}`);
 }
 export function quoteGame(gameId: string, couponCode?: string | null): Promise<PriceQuote> {
   return request(`/games/${encodeURIComponent(gameId)}/quote${couponCode ? `?couponCode=${encodeURIComponent(couponCode)}` : ""}`);
+}
+
+/** Booking audit 2026-10-11 (B1/B2) — authoritative totals for a venue
+ * booking / club registration, priced by the same server code as checkout.
+ * Render these; never compute VAT or fees client-side. */
+export interface BookingFormQuote extends PriceQuote {
+  taxableCents: number;
+  depositCents: number;
+  /** Cash room/club: nothing is charged online. */
+  payAtVenue: boolean;
+}
+export interface VenueBookingQuote extends BookingFormQuote {
+  cancellationHours: number;
+  /** ISO instant — the latest the booking can be cancelled online. */
+  cancelDeadline: string;
+}
+export function quoteVenueBooking(input: { centreId: string; roomId: string; date: string; time: string; duration: number; guests: number; couponCode?: string }): Promise<VenueBookingQuote> {
+  return request(`/bookings/quote`, { method: "POST", body: JSON.stringify(input) });
+}
+export function quoteRegistration(input: { clubId: string; trial?: boolean; couponCode?: string }): Promise<BookingFormQuote & { trial: boolean }> {
+  return request(`/registrations/quote`, { method: "POST", body: JSON.stringify(input) });
+}
+
+/** Booking UX Phase 3 — the guest backed out of the payment page: release
+ * their hold now instead of in 30 minutes. The server never releases a paid
+ * or completing session (state "paid" / "processing"); `retryPath` leads
+ * back to the listing's booking form. */
+export type AbandonState = "released" | "paid" | "processing" | "not_pending" | "unknown";
+export function abandonCheckout(ref: string): Promise<{ state: AbandonState; retryPath: string }> {
+  return request(`/checkout/${encodeURIComponent(ref)}/abandon`, { method: "POST" });
 }
 
 /** Same guest-or-resident ownership model as fetchMyProgramEnrollments. */
@@ -575,4 +645,167 @@ export function fetchProviderProfile(vendorId: string): Promise<ProviderProfile>
 
 export function joinLaunchWaitlist(input: { email: string; name?: string; county?: string }): Promise<{ ok: true }> {
   return request(`/launch-signups`, { method: "POST", body: JSON.stringify(input) });
+}
+
+// --- Revenue & Connect Stage 3: public pricing + field help ----------------
+// Server-authoritative (server/src/routes/pricingPublic.ts, routes/help.ts):
+// the client only displays what the published rules produce.
+
+export interface PlanTerms { successFeeBps: number; minFeeMinor: number; subscriptionMonthlyMinor: number }
+/** Commercial claims safety audit — every /api/pricing response says whether its figures are in force. */
+export interface FeeModelStatus { status?: "proposed" | "in_force"; inForce?: boolean; notice?: string | null }
+export interface PublicPlans extends FeeModelStatus { currency: "EUR"; vatBps: number; feesExclusiveOfVat: boolean; free: PlanTerms; pro: PlanTerms; proBreakEvenMonthlyGmvMinor: number | null }
+
+export interface EstimateInput {
+  priceMinor: number;
+  quantity?: number;
+  planKey?: "free" | "pro";
+  discounts?: { funder: "vendor" | "host" | "venue" | "helloCircle" | "shared"; amountMinor: number; platformShareBps?: number }[];
+  split?: { mode: "single"; recipient: "vendor" | "host" | "venue" } | { mode: "fixed_venue"; venueMinor: number } | { mode: "fixed_host"; hostMinor: number } | { mode: "percentage"; venueBps: number };
+}
+
+export interface PriceEstimate {
+  planKey: string;
+  ok: boolean;
+  blockedReason: string | null;
+  serviceSubtotalMinor: number;
+  partnerFundedDiscountMinor: number;
+  helloCircleFundedDiscountMinor: number;
+  feeBaseMinor: number;
+  percentageFeeMinor: number;
+  minimumFeeApplied: boolean;
+  platformFeeNetMinor: number;
+  platformFeeVatMinor: number;
+  partnerPoolMinor: number;
+  allocations: { recipient: "vendor" | "host" | "venue"; amountMinor: number; payoutEstimateMinor: number }[];
+  customerChargeMinor: number;
+  cardEstimateMinor: number;
+  payoutEstimateMinor: number;
+  contributionBeforeReservesMinor: number;
+  contributionMinor: number;
+  /** Admin simulator only — never returned by the public estimator. */
+  marginWarning?: boolean;
+}
+
+export interface PlanComparison {
+  monthlyGmvMinor: number;
+  orders: number;
+  free: { feesMinor: number; feeVatMinor: number; subscriptionMinor: number; subscriptionVatMinor: number; totalMinor: number };
+  pro: { feesMinor: number; feeVatMinor: number; subscriptionMinor: number; subscriptionVatMinor: number; totalMinor: number };
+  proMonthlySavingMinor: number;
+  proBreakEvenMonthlyGmvMinor: number | null;
+  cheaperPlan: "free" | "pro";
+}
+
+export interface FieldHelpEntry {
+  helpKey: string;
+  version: number;
+  name: string;
+  definition: string;
+  formula: string;
+  example: string;
+  whoPays: string;
+  whenCharged: string;
+  refundBehaviour: string;
+  policyKey: string;
+}
+
+export function fetchPricingPlans(): Promise<PublicPlans> {
+  return request(`/pricing/plans`);
+}
+
+export function estimatePrice(input: EstimateInput): Promise<PriceEstimate> {
+  return request(`/pricing/estimate`, { method: "POST", body: JSON.stringify(input) });
+}
+
+export function comparePlans(monthlyGmvMinor: number, orders: number): Promise<PlanComparison> {
+  return request(`/pricing/compare`, { method: "POST", body: JSON.stringify({ monthlyGmvMinor, orders }) });
+}
+
+export function fetchFieldHelp(keys?: string[]): Promise<FieldHelpEntry[]> {
+  return request(`/help/fields${keys?.length ? `?keys=${encodeURIComponent(keys.join(","))}` : ""}`);
+}
+
+// --- Revenue & Connect Stage 4: Policy Centre, complaints, trader info -----
+
+export interface PolicySummary { docKey: string; title: string; audience: string; publishedVersion: number | null; publishedAt: string | null }
+export interface PublishedPolicy {
+  version: number;
+  status: "published" | "retired";
+  body: string;
+  contentHash: string;
+  changeSummary: string | null;
+  effectiveFrom: string | null;
+  publishedAt: string;
+  retiredAt: string | null;
+  history: { version: number; status: string; changeSummary: string | null; publishedAt: string; retiredAt: string | null }[];
+}
+export interface PolicyDocument { docKey: string; title: string; audience: string; published: PublishedPolicy | null }
+export interface PendingPolicy { docKey: string; title: string; kind: "accept" | "acknowledge"; version: number; effectiveFrom: string | null; changeSummary: string | null }
+
+export function fetchPolicies(): Promise<PolicySummary[]> {
+  return request(`/policies`);
+}
+/** Company details published as policy placeholder values (only filled-in fields). */
+export function fetchCompanyDetails(): Promise<Partial<Record<"LEGAL_ENTITY_NAME" | "TRADING_NAME" | "COMPANY_NUMBER" | "VAT_NUMBER" | "REGISTERED_ADDRESS" | "SUPPORT_EMAIL" | "PRIVACY_EMAIL" | "LEGAL_EMAIL" | "PHONE_NUMBER", string>>> {
+  return request(`/policies/company`);
+}
+export function fetchPolicy(docKey: string, version?: number): Promise<PolicyDocument> {
+  return request(`/policies/${encodeURIComponent(docKey)}${version ? `?version=${version}` : ""}`);
+}
+export function fetchPendingPolicies(): Promise<{ user: PendingPolicy[]; resident: PendingPolicy[] }> {
+  return request(`/policies/acceptance/pending`);
+}
+export function acceptPolicy(docKey: string, version: number, as: "user" | "resident"): Promise<{ docKey: string; version: number }> {
+  return request(`/policies/${encodeURIComponent(docKey)}/accept`, { method: "POST", body: JSON.stringify({ version, as, context: "gate" }) });
+}
+
+export type ComplaintKind = "complaint" | "notice" | "appeal";
+export interface ComplaintRow { id: number; kind: ComplaintKind; subjectType: string; subjectRef: string | null; body: string; status: string; decision: string | null; statementOfReasons: string | null; decidedAt: string | null; createdAt: string }
+export function submitComplaint(input: { kind: ComplaintKind; subjectType: string; subjectRef?: string; email?: string; body: string }): Promise<{ id: number; status: string }> {
+  return request(`/complaints`, { method: "POST", body: JSON.stringify(input) });
+}
+export function fetchMyComplaints(): Promise<ComplaintRow[]> {
+  return request(`/complaints/mine`);
+}
+
+export interface PublicTrader { legalName: string; tradingName: string | null; address: string; country: string; email: string; phone: string; companyNumber: string | null; vatNumber: string | null; selfCertifiedAt: string; verificationStatus: string }
+export function fetchListingTrader(type: "centre" | "club" | "experience" | "game", id: string): Promise<PublicTrader | null> {
+  return request(`/traders/listing/${type}/${encodeURIComponent(id)}`);
+}
+
+export interface TraderProfile {
+  entityType: "individual" | "company";
+  legalName: string;
+  tradingName: string | null;
+  address: string;
+  country: string;
+  email: string;
+  phone: string;
+  companyNumber: string | null;
+  vatNumber: string | null;
+  tin: string | null;
+  hasTin?: boolean;
+  dateOfBirth: string | null;
+  insuranceExpiresAt: string | null;
+  selfCertifiedAt: string | null;
+  verificationStatus: string;
+  verificationNote: string | null;
+}
+export type TraderProfileInput = Omit<TraderProfile, "selfCertifiedAt" | "verificationStatus" | "verificationNote" | "hasTin"> & { selfCertify: boolean };
+/** scope "vendor" = the signed-in vendor's organisation; "host" = the signed-in resident as a host. */
+export function fetchTraderProfile(scope: "vendor" | "host"): Promise<TraderProfile | null> {
+  return request(`/${scope}/trader-profile`);
+}
+export function saveTraderProfile(scope: "vendor" | "host", input: TraderProfileInput): Promise<TraderProfile> {
+  return request(`/${scope}/trader-profile`, { method: "PUT", body: JSON.stringify(input) });
+}
+
+// --- Revenue & Connect Stage 5c: separate consents ------------------------------
+
+export function recordCookieConsent(input: { analytics: boolean; advertising: boolean; policyVersion?: number }): Promise<{ ok: boolean }> {
+  return request(`/consents/cookies`, { method: "POST", body: JSON.stringify(input) });
+}
+export function acknowledgePolicy(docKey: string, version: number, as: "user" | "resident"): Promise<{ docKey: string; version: number }> {
+  return request(`/policies/${encodeURIComponent(docKey)}/acknowledge`, { method: "POST", body: JSON.stringify({ version, as }) });
 }

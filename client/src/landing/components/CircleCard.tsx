@@ -5,7 +5,7 @@ import { lc, lcFonts } from "../theme";
 
 export function CircleCard({ circle }: { circle: LandingCircle }) {
   return (
-    <article className="lc-card" style={{ background: lc.white, borderRadius: 18, overflow: "hidden", border: `1px solid ${lc.line}` }}>
+    <article className="lc-card" style={{ background: lc.white, borderRadius: 16, overflow: "hidden", border: `1px solid ${lc.line}` }}>
       <div className="lc-card-image" style={{ height: 150 }}>
         <img src={circle.image} alt="" loading="lazy" />
       </div>

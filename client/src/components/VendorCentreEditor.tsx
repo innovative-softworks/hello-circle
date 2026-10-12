@@ -19,6 +19,7 @@ import { MultiImageUpload } from "./VendorImageUpload";
 import { formatDate } from "../vendorFormat";
 import { colors, fonts, radius } from "../theme";
 import type { Centre, Room, RoomBlock } from "../types";
+import { PaidClosedPriceNotice } from "./PaidClosedPriceNotice";
 
 // Centre create/edit form + its rooms and per-day-hours sub-panels — split
 // out of the original single VendorDashboard.tsx (see CLAUDE.md).
@@ -333,7 +334,7 @@ export function RoomsManager({ centreId, rooms, onChanged }: { centreId: string;
       <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 16 }}>
         {rooms.map((r) =>
           editingId === r.id ? (
-            <div key={r.id} className="grid-responsive" style={{ display: "grid", gridTemplateColumns: "1.3fr .8fr .8fr 1fr auto auto", gap: 8, alignItems: "center", border: `1px solid ${colors.border}`, borderRadius: 12, padding: "10px 14px" }}>
+            <div key={r.id} className="grid-responsive" style={{ display: "grid", gridTemplateColumns: "1.3fr .8fr .8fr 1fr auto auto", gap: 8, alignItems: "center", border: `1px solid ${colors.border}`, borderRadius: 10, padding: "10px 14px" }}>
               <input value={editForm.name} onChange={(e) => setEditForm((f) => ({ ...f, name: e.target.value }))} style={inputStyle} />
               <input type="number" value={editForm.cap} onChange={(e) => setEditForm((f) => ({ ...f, cap: e.target.value }))} placeholder="Capacity" style={inputStyle} />
               <input type="number" value={editForm.rate} onChange={(e) => setEditForm((f) => ({ ...f, rate: e.target.value }))} placeholder="€/hour" style={inputStyle} />
@@ -348,7 +349,7 @@ export function RoomsManager({ centreId, rooms, onChanged }: { centreId: string;
             <div
               key={r.id}
               className="card-surface card-hover"
-              style={{ display: "flex", justifyContent: "space-between", alignItems: "center", border: `1px solid ${colors.border}`, borderRadius: 12, padding: "10px 14px", opacity: r.active ? 1 : 0.5 }}
+              style={{ display: "flex", justifyContent: "space-between", alignItems: "center", border: `1px solid ${colors.border}`, borderRadius: 10, padding: "10px 14px", opacity: r.active ? 1 : 0.5 }}
             >
               <div style={{ fontSize: 13 }}>
                 <strong>{r.name}</strong> — cap {r.cap} · €{r.rate}/hr · {r.paymentMethod === "cash" ? "Cash on arrival" : "Online payment"}
@@ -362,10 +363,11 @@ export function RoomsManager({ centreId, rooms, onChanged }: { centreId: string;
           )
         )}
         {rooms.length === 0 && <EmptyState icon={<CalendarIcon size={26} />} title="No rooms yet" subtitle="Add one below." />}
+        {editingId !== null && <PaidClosedPriceNotice amount={editForm.rate} paymentMethod={editForm.paymentMethod} />}
       </div>
 
       {addOpen ? (
-        <div style={{ border: `1px solid ${colors.border}`, borderRadius: 12, padding: 14, display: "flex", flexDirection: "column", gap: 14 }}>
+        <div style={{ border: `1px solid ${colors.border}`, borderRadius: 10, padding: 14, display: "flex", flexDirection: "column", gap: 14 }}>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 14, alignItems: "flex-end" }}>
             <TextInput label="Room name" width="md" placeholder="e.g. Main Hall" value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
             <NumberStepper label="Capacity" value={Number(form.cap) || 0} onChange={(n) => setForm((f) => ({ ...f, cap: String(n) }))} min={0} />
@@ -377,6 +379,7 @@ export function RoomsManager({ centreId, rooms, onChanged }: { centreId: string;
               </select>
             </Field>
           </div>
+          <PaidClosedPriceNotice amount={form.rate} paymentMethod={form.paymentMethod} />
           <div style={{ display: "flex", gap: 10 }}>
             <Button variant="ghost" onClick={add} disabled={adding || !form.name}>
               <PlusIcon size={14} /> Add room
@@ -456,7 +459,7 @@ export function AvailabilityBlocksManager({ centreId, rooms }: { centreId: strin
           <div
             key={b.id}
             className="card-surface card-hover"
-            style={{ display: "flex", justifyContent: "space-between", alignItems: "center", border: `1px solid ${colors.border}`, borderRadius: 12, padding: "10px 14px" }}
+            style={{ display: "flex", justifyContent: "space-between", alignItems: "center", border: `1px solid ${colors.border}`, borderRadius: 10, padding: "10px 14px" }}
           >
             <div style={{ fontSize: 13 }}>
               <strong>{formatDate(b.date)}</strong>

@@ -1,142 +1,102 @@
 import { useState } from "react";
-import { AwardIcon, CalendarIcon, RepeatIcon, UsersIcon } from "./icons";
-import { Photo } from "./Photo";
-import { Button, Card, CardLink, ConfirmDialog } from "./ui";
+import { useNavigate } from "react-router-dom";
+import { AwardIcon, CalendarIcon, PinIcon, RepeatIcon, UsersIcon } from "./icons";
+import { Button, ConfirmDialog } from "./ui";
+import { ListingCard, cardButtonStyle } from "./ListingCard";
+import { SaveButton, useSavedState } from "./SaveButton";
 import { dateLabel } from "../euro";
 import { formatCircleAvailability } from "../formatters";
 import { getCircleCoverUrl } from "../media";
-import { cardImageRatio, colors, fonts, photoOverlay, placeholderStripes, radius } from "../theme";
+import { colors, placeholderStripes } from "../theme";
 import type { Circle } from "../types";
 
 const DAY_MS = 86400000;
 
-/** Lightweight discovery-only activity state (§27) — "ACTIVE NOW" (a plan
- * within 7 days) or "NEW" (created in the last 3 weeks). Deliberately no
- * "Inactive"/"Quiet" badge — a Circle with nothing coming up just shows no
- * badge at all and ranks lower in "Recommended" sort, per the spec's own
- * explicit instruction not to label a Circle negatively on a discovery card. */
-function activityState(circle: Circle): "active-now" | "new" | null {
-  if (circle.nextPlan) {
-    const days = (new Date(`${circle.nextPlan.date}T00:00:00`).getTime() - Date.now()) / DAY_MS;
-    if (days <= 7) return "active-now";
-  }
-  const ageDays = (Date.now() - new Date(circle.createdAt).getTime()) / DAY_MS;
-  if (ageDays <= 21) return "new";
-  return null;
-}
-
+// Circle discovery card — the shared ListingCard shape (design-system
+// consistency pass), matching the Circles page cards. A Circle's meetup is
+// shown only when it is the Circle's own (nextPlan.source === "circle");
+// "nearby" plans are other activities sharing the label. Join/leave keep
+// the same confirmations as before.
 export function CircleDiscoveryCard({ circle, joined, onJoin, onLeave, busy }: { circle: Circle; joined: boolean; onJoin: () => void; onLeave: () => void; busy: boolean }) {
+  const navigate = useNavigate();
   const [leaveConfirmOpen, setLeaveConfirmOpen] = useState(false);
   const [joinConfirmOpen, setJoinConfirmOpen] = useState(false);
-  const state = activityState(circle);
-  const urgent = !!circle.nextPlan && circle.nextPlan.spotsLeft <= 3;
+  const [fav, toggleFav] = useSavedState("circle", circle.id);
   const href = `/circles/${circle.slug ?? circle.id}`;
+  const plan = circle.nextPlan && circle.nextPlan.source === "circle" ? circle.nextPlan : null;
+  const isNew = (Date.now() - new Date(circle.createdAt).getTime()) / DAY_MS <= 21;
+  const activeNow = !!plan && (new Date(`${plan.date}T00:00:00`).getTime() - Date.now()) / DAY_MS <= 7;
+  const where = [circle.area, circle.county].filter((v, i, a) => v && a.indexOf(v) === i).join(", ");
+  const mode = circle.joinMode === "approval" ? "Approval needed" : circle.joinMode === "invite" ? "Invite only" : "Open to join";
 
   return (
-    <Card hover style={{ position: "relative", padding: 0, overflow: "hidden", borderRadius: 18 }}>
-      <CardLink to={href} label={circle.name} sharedImage />
-      <div>
-        <Photo
-          src={getCircleCoverUrl(circle) ?? undefined}
-          alt={circle.name}
-          ph={placeholderStripes.green}
-          icon={<RepeatIcon size={22} />}
-          iconColor={colors.green}
-          style={{ aspectRatio: cardImageRatio.discovery }}
-          contentStyle={{ padding: 10, display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}
-        >
-          {state ? (
-            <span
-              className={state === "active-now" ? undefined : "card-photo-badge"}
-              style={{
-                background: state === "active-now" ? photoOverlay.goldBg : photoOverlay.whiteBg,
-                color: state === "active-now" ? photoOverlay.goldText : colors.text,
-                borderRadius: radius.pill, padding: "4px 11px", fontSize: 11.5, fontWeight: 800, letterSpacing: ".03em", textTransform: "uppercase",
-                transition: "background-color .2s ease, color .2s ease",
-              }}
-            >
-              {state === "active-now" ? "Active now" : "New"}
+    <>
+      <ListingCard
+        href={href}
+        title={circle.name}
+        image={getCircleCoverUrl(circle)}
+        ph={placeholderStripes.green}
+        icon={<RepeatIcon size={22} />}
+        iconColor={colors.orange}
+        tag={circle.activityLabel || "Circle"}
+        status={activeNow ? { label: "Active this week" } : isNew ? { label: "New", tone: "calm" } : null}
+        save={<SaveButton saved={fav} onToggle={toggleFav} />}
+        details={[
+          where ? { icon: <PinIcon size={13} />, text: where } : null,
+          plan ? { icon: <CalendarIcon size={13} />, text: `Next meetup ${dateLabel(plan.date)} · ${plan.time} · ${formatCircleAvailability(plan.spotsLeft)}`, tone: plan.spotsLeft <= 3 ? "hot" : "default" } : null,
+          circle.hostVerified ? { icon: <AwardIcon size={13} />, text: "Verified host" } : null,
+        ]}
+        facts={
+          <>
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
+              <UsersIcon size={13} /> {circle.members} member{circle.members === 1 ? "" : "s"}
             </span>
-          ) : <span />}
-          {urgent && (
-            <span style={{ background: photoOverlay.goldBg, color: photoOverlay.goldText, borderRadius: radius.pill, padding: "4px 11px", fontSize: 11.5, fontWeight: 800 }}>
-              {formatCircleAvailability(circle.nextPlan!.spotsLeft)}
-            </span>
-          )}
-        </Photo>
-
-        <div style={{ padding: "16px 16px 0" }}>
-          <div style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 16.5, color: colors.text, marginBottom: 2 }}>{circle.name}</div>
-          <div style={{ display: "flex", alignItems: "center", gap: 6, color: colors.mutedLight, fontSize: 13.5, marginBottom: 12 }}>
-            {[circle.activityLabel, circle.area || circle.county].filter(Boolean).join(" · ") || "General"}
-            {circle.hostVerified && (
-              <span style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 10.5, fontWeight: 700, color: colors.greenText, background: colors.greenBg, borderRadius: radius.pill, padding: "2px 7px" }}>
-                <AwardIcon size={10} /> Verified
-              </span>
-            )}
-          </div>
-
-          <div style={{ borderTop: `1px solid ${colors.border}`, paddingTop: 10 }}>
-            {circle.nextPlan ? (
-              <>
-                <div style={{ fontSize: 10.5, fontWeight: 800, letterSpacing: ".06em", textTransform: "uppercase", color: colors.mutedLight, marginBottom: 3 }}>Next</div>
-                <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 14, fontWeight: 700, color: colors.text }}>
-                  <CalendarIcon size={13} /> {dateLabel(circle.nextPlan.date)} · {circle.nextPlan.time}
-                </div>
-                <div style={{ fontSize: 13, color: circle.nextPlan.spotsLeft <= 3 ? colors.orangeDark : colors.muted, fontWeight: circle.nextPlan.spotsLeft <= 3 ? 700 : 400, marginTop: 3 }}>
-                  {circle.nextPlan.joined} going · {formatCircleAvailability(circle.nextPlan.spotsLeft)}
-                </div>
-              </>
-            ) : (
-              <div style={{ fontSize: 13.5, color: colors.faint }}>No upcoming plans yet</div>
-            )}
-          </div>
-        </div>
-      </div>
-
-      <div className="stretched-link-above" style={{ padding: "12px 16px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
-        <span style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 12.5, color: colors.mutedLight }}>
-          <UsersIcon size={12} /> {circle.members} member{circle.members === 1 ? "" : "s"}
-        </span>
-        {joined ? (
-          <Button variant="ghost" style={{ padding: "8px 16px", fontSize: 13 }} onClick={() => setLeaveConfirmOpen(true)} disabled={busy}>You're in</Button>
-        ) : (
-          <Button style={{ padding: "8px 16px", fontSize: 13 }} onClick={() => setJoinConfirmOpen(true)} disabled={busy}>
-            {circle.joinMode === "approval" ? "Request to join" : "Join Circle"}
-          </Button>
-        )}
-        <ConfirmDialog
-          open={leaveConfirmOpen}
-          title={`Leave ${circle.name}?`}
-          message="You'll stop seeing this Circle's plans and lose your spot in any you've joined."
-          confirmLabel="Leave Circle"
-          cancelLabel="Stay in"
-          busy={busy}
-          onConfirm={() => {
-            onLeave();
-            setLeaveConfirmOpen(false);
-          }}
-          onCancel={() => setLeaveConfirmOpen(false)}
-        />
-        <ConfirmDialog
-          open={joinConfirmOpen}
-          title={circle.joinMode === "approval" ? `Request to join ${circle.name}?` : `Join ${circle.name}?`}
-          message={
-            circle.joinMode === "approval"
-              ? "The organiser will need to approve your request before you're a member."
-              : `You'll be part of ${circle.name} and hear about every plan.`
-          }
-          confirmLabel={circle.joinMode === "approval" ? "Send request" : "Join Circle"}
-          cancelLabel="Not now"
-          tone="neutral"
-          busy={busy}
-          onConfirm={() => {
-            onJoin();
-            setJoinConfirmOpen(false);
-          }}
-          onCancel={() => setJoinConfirmOpen(false)}
-        />
-      </div>
-    </Card>
+            <span style={{ fontWeight: 600, color: colors.mutedLight }}>{joined ? "You're a member" : mode}</span>
+          </>
+        }
+        action={
+          joined ? (
+            <Button style={cardButtonStyle} variant="ghost" onClick={() => setLeaveConfirmOpen(true)} disabled={busy}>
+              You're in
+            </Button>
+          ) : circle.joinMode === "invite" ? (
+            <Button style={cardButtonStyle} variant="ghost" onClick={() => navigate(href)}>
+              View Circle
+            </Button>
+          ) : (
+            <Button style={cardButtonStyle} variant="dark" onClick={() => setJoinConfirmOpen(true)} disabled={busy}>
+              {circle.joinMode === "approval" ? "Request to join" : "Join Circle"}
+            </Button>
+          )
+        }
+      />
+      <ConfirmDialog
+        open={leaveConfirmOpen}
+        title={`Leave ${circle.name}?`}
+        message="You'll stop seeing this Circle's plans and lose your spot in any you've joined."
+        confirmLabel="Leave Circle"
+        cancelLabel="Stay in"
+        busy={busy}
+        onConfirm={() => {
+          onLeave();
+          setLeaveConfirmOpen(false);
+        }}
+        onCancel={() => setLeaveConfirmOpen(false)}
+      />
+      <ConfirmDialog
+        open={joinConfirmOpen}
+        title={circle.joinMode === "approval" ? `Request to join ${circle.name}?` : `Join ${circle.name}?`}
+        message={circle.joinMode === "approval" ? "The organiser will need to approve your request before you're a member." : `You'll be part of ${circle.name} and hear about every plan.`}
+        confirmLabel={circle.joinMode === "approval" ? "Send request" : "Join Circle"}
+        cancelLabel="Not now"
+        tone="neutral"
+        busy={busy}
+        onConfirm={() => {
+          onJoin();
+          setJoinConfirmOpen(false);
+        }}
+        onCancel={() => setJoinConfirmOpen(false)}
+      />
+    </>
   );
 }

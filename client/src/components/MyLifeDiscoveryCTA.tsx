@@ -16,8 +16,8 @@ export function MyLifeDiscoveryCTA() {
   return (
     <div style={{ background: colors.greenBg, borderRadius: 16, padding: "clamp(32px,4vw,52px)", display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: 28 }}>
       <div style={{ maxWidth: 480 }}>
-        <div style={{ fontSize: 12, fontWeight: 700, color: colors.greenText, letterSpacing: ".08em", marginBottom: 12 }}>/ WHAT NEXT?</div>
-        <h2 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(26px,3.4vw,38px)", letterSpacing: "-.02em", lineHeight: 1.08, margin: "0 0 10px", color: colors.greenText }}>
+        <div style={{ fontSize: 12, fontWeight: 700, color: colors.greenText, letterSpacing: 0, marginBottom: 12 }}>/ WHAT NEXT?</div>
+        <h2 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(26px,3.4vw,38px)", letterSpacing: 0, lineHeight: 1.08, margin: "0 0 10px", color: colors.greenText }}>
           What do you want to do next?
         </h2>
         <p style={{ margin: 0, color: colors.muted, fontSize: 14.5, lineHeight: 1.4 }}>Tell HelloCircle what you're up for. We'll let you know when something nearby matches.</p>

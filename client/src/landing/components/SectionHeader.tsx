@@ -29,7 +29,7 @@ export function SectionHeader({
     >
       <div style={{ maxWidth: 620, margin: align === "center" ? "0 auto" : undefined }}>
         {eyebrow && (
-          <div style={{ fontFamily: lcFonts.body, fontSize: 12.5, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: lc.forest, marginBottom: 10 }}>
+          <div style={{ fontFamily: lcFonts.body, fontSize: 12.5, fontWeight: 700, letterSpacing: 0, textTransform: "uppercase", color: lc.forest, marginBottom: 10 }}>
             {eyebrow}
           </div>
         )}

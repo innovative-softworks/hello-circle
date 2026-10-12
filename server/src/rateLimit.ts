@@ -67,3 +67,13 @@ export const passwordLoginLimiter = simpleRateLimit({ windowMs: 15 * 60 * 1000, 
  * this app's own resident/vendor screens on one shared IP) recently hit the
  * password-login limiter too. */
 export const googleAuthLimiter = simpleRateLimit({ windowMs: 15 * 60 * 1000, max: 30 });
+
+/** Commerce audit R5 — POST /api/coupons/validate is unauthenticated, so
+ * without a budget it lets a script enumerate live coupon codes. Generous
+ * enough for a person trying a few codes at checkout. */
+export const couponValidateLimiter = simpleRateLimit({ windowMs: 15 * 60 * 1000, max: 30 });
+
+/** Commerce Engine Phase 2 — each engine quote stores a row; bound how fast
+ * one client can create them (the booking form re-quotes on every party-size
+ * change, so this is generous). */
+export const commerceQuoteLimiter = simpleRateLimit({ windowMs: 15 * 60 * 1000, max: 120 });

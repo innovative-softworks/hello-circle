@@ -78,7 +78,7 @@ export function VendorExperienceEditPage() {
           />
         ) : (
           <>
-            <h1 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 24, margin: "0 0 18px", letterSpacing: "-.01em" }}>{title}</h1>
+            <h1 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: "clamp(24px, 2.4vw, 30px)", margin: "0 0 18px", letterSpacing: 0 }}>{title}</h1>
             <div style={{ marginBottom: 22 }}>
               <Tabs
                 value={tab}

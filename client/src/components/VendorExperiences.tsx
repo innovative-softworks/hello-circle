@@ -22,6 +22,7 @@ import { colors, fonts, radius } from "../theme";
 import type { Experience, ExperienceSessionRow, VendorExperienceBooking, VendorExperienceSummary } from "../types";
 import { formatPrice } from "../formatters";
 import { irelandToday } from "../irelandDate";
+import { PaidClosedPriceNotice } from "./PaidClosedPriceNotice";
 
 // Adventures & Experiences — vendor create/edit form + session/booking
 // management, split out the same way VendorPrograms.tsx is (see CLAUDE.md).
@@ -237,6 +238,7 @@ export function ExperienceEditor({
         ) : (
           <input id="experience-settings-price" type="number" value={(form.priceCents ?? 0) / 100} onChange={(e) => set("priceCents", Math.round(Number(e.target.value) * 100))} style={{ ...inputStyle, maxWidth: 140 }} />
         )}
+        {form.kind !== "volunteer" && <PaidClosedPriceNotice amount={form.priceCents} paymentMethod={form.paymentMethod ?? "online"} />}
       </div>
       <NumberStepper label="Capacity per departure" value={form.capacity ?? 8} onChange={(n) => set("capacity", n)} min={1} />
       <div>

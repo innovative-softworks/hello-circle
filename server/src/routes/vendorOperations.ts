@@ -1,4 +1,7 @@
 import { Router } from "express";
+import { activeLinkedGames } from "./bookings.js";
+import { cancelGameAndNotify } from "./games.js";
+import { refundOnProviderCancel } from "../providerCancelRefund.js";
 import { assertPlatformRole, requirePlatformRole } from "../auth.js";
 import { writeAudit } from "../audit.js";
 import { refundPaidOnce } from "../checkoutService.js";
@@ -9,6 +12,8 @@ import { sendMail } from "../email.js";
 import { notifyCancellation, notifyRefund, resendConfirmationEmail } from "../notifications.js";
 import { inClause, ownsCentre, ownsClub } from "./vendorHelpers.js";
 import { irelandTodayIso, irelandWallTimeToUtc } from "../irelandTime.js";
+import { couponAmountError, parseCouponLimits } from "../pricing.js";
+import { RefundError, refundInApp } from "../commerce/payments.js";
 import { ASSUMED_DURATION_MINUTES } from "../db/queries.js";
 import { offerToWaitlistEntry, promoteNextWaitlistEntry } from "../waitlist.js";
 
@@ -26,6 +31,72 @@ export const vendorOperationsRouter = Router();
 // one centre — used by VendorCentreEditPage.tsx's Bookings sub-tab; the
 // unparameterized dashboard-wide caller (VendorBookings.tsx) keeps today's
 // across-every-listing behaviour.
+/** Booking UX Phase 6 (UX plan S10, audit B12) — one list of every order on
+ * this organisation's listings (venue bookings, club registrations,
+ * programme enrolments, experience bookings), newest first, each flagged
+ * with what still needs doing:
+ *   refund_pending — cancelled but still paid online (a failed automatic
+ *                    refund, or a customer cancellation under refund policy A);
+ *   deposit_due    — a venue booking whose event has passed and whose
+ *                    refundable deposit hasn't been returned yet.
+ * Read-only; amounts are the stored order values, never re-priced. */
+vendorOperationsRouter.get("/orders", async (req, res) => {
+  const ids = req.vendorIds!;
+  if (!ids.length) return res.json([]);
+  const attentionOnly = req.query.attention === "1";
+  const today = irelandTodayIso();
+  const inIds = inClause(ids);
+  const refundedSql = (type: string, alias: string) =>
+    `(SELECT COALESCE(SUM(rf.amount_minor), 0) FROM refunds rf WHERE rf.source_type = '${type}' AND rf.source_ref = ${alias}.ref AND rf.status = 'succeeded')`;
+  const rows = (await db
+    .prepare(
+      `SELECT * FROM (
+         SELECT 'booking' as type, b.ref, c.name as listingName, b.name as customerName, b.email, b.date, b.time, b.guests as quantity,
+                b.total_cents as totalCents, b.status, b.payment_status as paymentStatus, b.stripe_session_id IS NOT NULL as paidOnline,
+                (b.total_cents - b.subtotal_cents - b.vat_cents - b.platform_fee_cents) as depositCents, ${refundedSql("booking", "b")} as refundedCents, b.created_at as createdAt
+         FROM bookings b JOIN centres c ON c.id = b.centre_id
+         WHERE c.vendor_id IN (${inIds}) AND b.payment_status IN ('paid', 'refunded')
+         UNION ALL
+         SELECT 'registration', r.ref, cl.name, CONCAT(r.child_first, ' ', r.child_last), r.email, NULL, NULL, 1,
+                r.total_cents, r.status, r.payment_status, r.stripe_session_id IS NOT NULL, 0, ${refundedSql("registration", "r")}, r.created_at
+         FROM registrations r JOIN clubs cl ON cl.id = r.club_id
+         WHERE cl.vendor_id IN (${inIds}) AND r.payment_status IN ('paid', 'refunded')
+         UNION ALL
+         SELECT 'program', pe.ref, p.title, pe.participant_name, pe.email, NULL, NULL, 1,
+                pe.total_cents, pe.status, pe.payment_status, pe.stripe_session_id IS NOT NULL, 0, ${refundedSql("program", "pe")}, pe.created_at
+         FROM program_enrollments pe JOIN programs p ON p.id = pe.program_id
+         WHERE p.vendor_id IN (${inIds}) AND pe.payment_status IN ('paid', 'refunded')
+         UNION ALL
+         SELECT 'experience', eb.ref, e.title, eb.participant_name, eb.email, es.date, es.time, eb.party_size,
+                eb.total_cents, eb.status, eb.payment_status, eb.stripe_session_id IS NOT NULL, 0, ${refundedSql("experience", "eb")}, eb.created_at
+         FROM experience_bookings eb JOIN experiences e ON e.id = eb.experience_id JOIN experience_sessions es ON es.id = eb.session_id
+         WHERE e.vendor_id IN (${inIds}) AND eb.payment_status IN ('paid', 'refunded')
+       ) orders ORDER BY createdAt DESC LIMIT 500`
+    )
+    .all(...ids, ...ids, ...ids, ...ids)) as {
+    type: string;
+    status: string;
+    paymentStatus: string;
+    paidOnline: number;
+    totalCents: number | string;
+    depositCents: number | string;
+    refundedCents: number | string;
+    date: string | null;
+  }[];
+  const out = rows.map((r) => {
+    const totalCents = Number(r.totalCents);
+    const depositCents = Math.max(0, Number(r.depositCents));
+    const refundedCents = Number(r.refundedCents);
+    const attention: string[] = [];
+    if (r.status === "cancelled" && r.paymentStatus === "paid" && !!r.paidOnline && totalCents > 0) attention.push("refund_pending");
+    if (r.type === "booking" && r.status !== "cancelled" && r.paymentStatus === "paid" && !!r.paidOnline && depositCents > 0 && r.date !== null && r.date < today && refundedCents < depositCents) {
+      attention.push("deposit_due");
+    }
+    return { ...r, paidOnline: !!r.paidOnline, totalCents, depositCents, refundedCents, attention };
+  });
+  res.json(attentionOnly ? out.filter((o) => o.attention.length) : out);
+});
+
 vendorOperationsRouter.get("/bookings", async (req, res) => {
   const ids = req.vendorIds!;
   const centreId = typeof req.query.centreId === "string" ? req.query.centreId : undefined;
@@ -80,7 +151,15 @@ vendorOperationsRouter.post("/bookings/:ref/cancel", requirePlatformRole("centre
     newValue: { status: "cancelled" },
   });
 
-  notifyCancellation({
+  // Booking UX Phase 5 (audit E1) — an activity held on this booking can't
+  // go ahead without it: cancel it too and tell its participants (once).
+  for (const g of await activeLinkedGames(row.ref)) {
+    if (await cancelGameAndNotify(g.id, { by: "venue", actorId: req.user!.id })) {
+      await writeAudit({ actorUserId: req.user!.id, action: "game.cancelled_with_venue_booking", objectType: "game", objectId: g.id, newValue: { bookingRef: row.ref } });
+    }
+  }
+
+  const notifyParams = {
     kind: "booking",
     listingType: "centre",
     listingId: row.centreId,
@@ -91,9 +170,12 @@ vendorOperationsRouter.post("/bookings/:ref/cancel", requirePlatformRole("centre
     ref: row.ref,
     detailsText: `${row.date} at ${row.time} · ${row.duration}h · ${row.guests} guests`,
     residentId: row.residentId,
-  }).catch((e) => console.error("[notifications] vendor booking cancellation notify failed:", e));
+  } as const;
+  notifyCancellation(notifyParams).catch((e) => console.error("[notifications] vendor booking cancellation notify failed:", e));
 
-  res.json({ ok: true });
+  // Booking UX Phase 6 (B13) — a provider cancellation refunds a paid online order in full.
+  const refund = await refundOnProviderCancel({ table: "bookings", ref: row.ref, actorUserId: req.user!.id, objectType: "booking", notify: notifyParams });
+  res.json({ ok: true, refund: refund.refund, ...(refund.refund === "failed" ? { refundError: refund.error } : {}) });
 });
 
 /** Registration equivalent of the booking cancel route above — didn't exist
@@ -148,7 +230,7 @@ vendorOperationsRouter.post("/registrations/:ref/cancel", requirePlatformRole("f
     newValue: { status: "cancelled" },
   });
 
-  notifyCancellation({
+  const notifyParams = {
     kind: "registration",
     listingType: "club",
     listingId: row.clubId,
@@ -159,11 +241,14 @@ vendorOperationsRouter.post("/registrations/:ref/cancel", requirePlatformRole("f
     ref: row.ref,
     detailsText: `${row.childFirst} ${row.childLast}${row.team ? ` · ${row.team}` : ""}`,
     residentId: row.residentId,
-  }).catch((e) => console.error("[notifications] vendor registration cancellation notify failed:", e));
+  } as const;
+  notifyCancellation(notifyParams).catch((e) => console.error("[notifications] vendor registration cancellation notify failed:", e));
 
   promoteNextWaitlistEntry("club", row.clubId, row.clubName);
 
-  res.json({ ok: true });
+  // Booking UX Phase 6 (B13) — a provider cancellation refunds a paid online order in full.
+  const refund = await refundOnProviderCancel({ table: "registrations", ref: row.ref, actorUserId: req.user!.id, objectType: "registration", notify: notifyParams });
+  res.json({ ok: true, refund: refund.refund, ...(refund.refund === "failed" ? { refundError: refund.error } : {}) });
 });
 
 /** "Resend confirmation" (Host Manage spec §10) — didn't exist anywhere;
@@ -300,6 +385,34 @@ vendorOperationsRouter.post("/bookings/:ref/refund", requirePlatformRole("financ
   }).catch((e) => console.error("[notifications] booking refund notify failed:", e));
 
   res.json({ ok: true });
+});
+
+// Revenue & Connect Stage 2c — partial (or remaining) refunds for any of the
+// vendor's own online orders, e.g. returning a venue deposit after the event.
+// Ownership is the listing's vendor within this organisation; the refund is
+// recorded, proportionally reverses the ledger posting, and only a refund of
+// the whole remaining amount marks the order refunded.
+const VENDOR_REFUND_OWNER_SQL: Record<string, string> = {
+  booking: `SELECT c.vendor_id as v FROM bookings x JOIN centres c ON c.id = x.centre_id WHERE x.ref = ?`,
+  registration: `SELECT c.vendor_id as v FROM registrations x JOIN clubs c ON c.id = x.club_id WHERE x.ref = ?`,
+  program: `SELECT p.vendor_id as v FROM program_enrollments x JOIN programs p ON p.id = x.program_id WHERE x.ref = ?`,
+  experience: `SELECT e.vendor_id as v FROM experience_bookings x JOIN experiences e ON e.id = x.experience_id WHERE x.ref = ?`,
+};
+
+vendorOperationsRouter.post("/refunds", requirePlatformRole("finance"), async (req, res) => {
+  const b = req.body as { sourceType?: string; ref?: string; amountMinor?: number; reason?: string };
+  if (!b.sourceType || !VENDOR_REFUND_OWNER_SQL[b.sourceType] || !b.ref) return res.status(400).json({ error: "sourceType (booking, registration, program or experience) and ref are required" });
+  if (b.amountMinor !== undefined && (!Number.isInteger(b.amountMinor) || b.amountMinor < 1)) return res.status(400).json({ error: "amountMinor must be a whole number of cents" });
+  const owner = (await db.prepare(VENDOR_REFUND_OWNER_SQL[b.sourceType]).get(b.ref)) as { v: string | null } | undefined;
+  if (!owner || !owner.v || !req.vendorIds!.includes(owner.v)) return res.status(404).json({ error: "Order not found" });
+  try {
+    const r = await refundInApp({ type: b.sourceType as "booking", ref: b.ref, amountMinor: b.amountMinor, reason: String(b.reason ?? ""), responsible: "partner", actorId: req.user!.id });
+    await writeAudit({ actorUserId: req.user!.id, actorKind: "user", action: "refund.issued_by_vendor", objectType: b.sourceType, objectId: b.ref, newValue: r, reason: b.reason });
+    res.json(r);
+  } catch (e) {
+    if (e instanceof RefundError) return res.status(e.status).json({ error: e.message });
+    throw e;
+  }
 });
 
 vendorOperationsRouter.post("/registrations/:ref/refund", requirePlatformRole("finance"), async (req, res) => {
@@ -891,6 +1004,8 @@ vendorOperationsRouter.get("/coupons", async (req, res) => {
 vendorOperationsRouter.post("/coupons", requirePlatformRole("finance"), async (req, res) => {
   const b = req.body as VendorCouponInput;
   if (!b.code?.trim() || !b.kind || !b.amount) return res.status(400).json({ error: "code, kind and amount are required" });
+  const amountError = couponAmountError(b.kind, b.amount);
+  if (amountError) return res.status(400).json({ error: amountError });
   // Must be both-or-neither: evaluateCoupon() in pricing.ts only checks
   // eligible_listing_type/id when eligible_listing_id is actually set, so a
   // row with a type but no id would skip that check entirely and become
@@ -905,13 +1020,19 @@ vendorOperationsRouter.post("/coupons", requirePlatformRole("finance"), async (r
     const owns = b.eligibleListingType === "centre" ? await ownsCentre(req.vendorIds!, b.eligibleListingId) : await ownsClub(req.vendorIds!, b.eligibleListingId);
     if (!owns) return res.status(403).json({ error: "Not your listing" });
   }
+  // Commerce Engine Phase 3 — partner coupons are always partner-funded;
+  // optional limits as for admin coupons.
+  const limits = parseCouponLimits(req.body as Record<string, unknown>);
+  if (!limits.ok) return res.status(400).json({ error: limits.error });
   try {
     await db
       .prepare(
-        `INSERT INTO coupons (code, kind, amount, max_uses, expires_at, created_by_vendor_id, eligible_listing_type, eligible_listing_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO coupons (code, kind, amount, max_uses, expires_at, created_by_vendor_id, eligible_listing_type, eligible_listing_id,
+                              funding, platform_share_bps, min_spend_cents, max_discount_cents, per_customer_limit, starts_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'partner', 0, ?, ?, ?, ?)`
       )
-      .run(b.code.trim().toUpperCase(), b.kind, b.amount, b.maxUses ?? null, b.expiresAt ?? null, req.user!.id, b.eligibleListingType ?? null, b.eligibleListingId ?? null);
+      .run(b.code.trim().toUpperCase(), b.kind, b.amount, b.maxUses ?? null, b.expiresAt ?? null, req.user!.id, b.eligibleListingType ?? null, b.eligibleListingId ?? null,
+        limits.limits.minSpendCents, limits.limits.maxDiscountCents, limits.limits.perCustomerLimit, limits.limits.startsAt);
     res.status(201).json({ ok: true });
   } catch (e) {
     res.status(409).json({ error: e instanceof Error && e.message.includes("Duplicate") ? "That code is already in use" : "Couldn't create the coupon" });

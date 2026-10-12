@@ -20,7 +20,7 @@ import { RevealText } from "../components/RevealText";
 // share that page's Swiss-editorial language: a single vivid accent, a
 // small monospace utility strip, and "/ label" slash eyebrows instead of
 // centered marketing-page headers.
-const ACCENT_TINT = "rgba(255, 74, 31, 0.12)";
+const ACCENT_TINT = "var(--color-orange-bg)";
 
 // Same visual system as the standalone marketing page (landing/LandingPage.tsx)
 // — lc.* tokens, the lc-btn/lc-card/lc-chip/lc-hero-collage classes from
@@ -105,9 +105,11 @@ export function ComingSoon() {
           (nothing else to send people to yet). */}
       <header className="lc-header" style={{ background: colors.headerBg, backdropFilter: "blur(12px)", borderBottom: `1px solid ${lc.line}` }}>
         <div style={{ maxWidth: lcMaxWidth, margin: "0 auto", padding: "16px 24px 0" }}>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16 }}>
+          {/* flexWrap: the logo + "Coming soon" chip + theme toggle don't fit
+              on one line below ~400px (sitemap audit P1-09). */}
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, rowGap: 10, flexWrap: "wrap" }}>
             <Link to="/" aria-label="HelloCircle home" style={{ display: "flex", flex: "none" }}>
-              <img src="/illustrations/Logo.svg" alt="Hello Circle" style={{ height: 44 }} />
+              <img src="/illustrations/Logo.svg" alt="HelloCircle" style={{ height: 44 }} />
             </Link>
             <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
               <span className="lc-chip" style={{ background: ACCENT_TINT, color: FV_ACCENT_DARK, fontWeight: 800, fontSize: 15, padding: "9px 18px" }}>
@@ -147,7 +149,7 @@ export function ComingSoon() {
               gap: 12,
               fontFamily: FV_MONO,
               fontSize: 11.5,
-              letterSpacing: "0.04em",
+              letterSpacing: 0,
               color: lc.inkSoft,
               padding: "16px 0",
               marginTop: 16,
@@ -168,11 +170,11 @@ export function ComingSoon() {
       <section className="lc-section" style={{ maxWidth: lcMaxWidth, margin: "0 auto", padding: "28px 24px 40px" }}>
         <div className="lc-stack-mobile" style={{ display: "grid", gridTemplateColumns: "1.1fr 0.8fr", gap: 48, alignItems: "end" }}>
           <div className="lc-fade-up">
-            <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: "0.09em", textTransform: "uppercase", color: FV_ACCENT, marginBottom: 14 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: 0, textTransform: "uppercase", color: FV_ACCENT_DARK, marginBottom: 14 }}>
               <span aria-hidden="true">/</span> Launching soon
             </div>
             <RevealText as="h1" style={{ fontSize: "clamp(42px, 5vw, 64px)", lineHeight: 1.05, fontWeight: 800, color: lc.ink }}>
-              Your town is about to get a lot more <span style={{ color: FV_ACCENT }}>interesting.</span>
+              Your town is about to get a lot more <span style={{ color: FV_ACCENT_DARK }}>interesting.</span>
             </RevealText>
             <p style={{ fontSize: 17.5, lineHeight: 1.6, color: lc.inkSoft, marginTop: 22, maxWidth: 460 }}>
               One place to book a hall, join a club, catch a pickup game, or start a recurring Circle across Ireland.
@@ -181,8 +183,8 @@ export function ComingSoon() {
 
           <div id="waitlist-form">
             {status === "success" ? (
-              <div className="lc-card" style={{ background: lc.paperRaised, border: `1px solid ${lc.line}`, borderRadius: 20, padding: "22px 24px", display: "flex", gap: 14, alignItems: "flex-start" }}>
-                <CheckCircleIcon size={22} style={{ color: FV_ACCENT, flex: "none", marginTop: 1 }} />
+              <div className="lc-card" style={{ background: lc.paperRaised, border: `1px solid ${lc.line}`, borderRadius: 16, padding: "22px 24px", display: "flex", gap: 14, alignItems: "flex-start" }}>
+                <CheckCircleIcon size={22} style={{ color: FV_ACCENT_DARK, flex: "none", marginTop: 1 }} />
                 <div>
                   <h3 style={{ fontFamily: lcFonts.display, fontSize: 17, fontWeight: 700 }}>You&rsquo;re on the list</h3>
                   <p style={{ fontSize: 14, color: lc.inkSoft, marginTop: 4, lineHeight: 1.55 }}>We&rsquo;ll email you the moment Hello Circle opens in your area.</p>
@@ -191,9 +193,9 @@ export function ComingSoon() {
             ) : (
               <form onSubmit={handleSubmit} noValidate>
                 <div
-                  style={{ background: lc.paperRaised, border: `1px solid ${lc.line}`, borderRadius: 20, padding: 20, boxShadow: "0 20px 50px rgba(20, 23, 15, 0.14)", display: "flex", flexDirection: "column", gap: 12 }}
+                  style={{ background: lc.paperRaised, border: `1px solid ${lc.line}`, borderRadius: 16, padding: 20, boxShadow: "0 20px 50px rgba(20, 23, 15, 0.14)", display: "flex", flexDirection: "column", gap: 12 }}
                 >
-                  <div style={{ display: "flex", alignItems: "center", gap: 10, background: lc.paper, border: `1px solid ${lc.line}`, borderRadius: 12, padding: "12px 14px" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10, background: lc.paper, border: `1px solid ${lc.line}`, borderRadius: 10, padding: "12px 14px" }}>
                     <MailIcon size={17} style={{ color: lc.inkSoft, flex: "none" }} />
                     <input
                       id="cs-email"
@@ -206,7 +208,7 @@ export function ComingSoon() {
                       style={{ border: "none", outline: "none", fontSize: 15.5, width: "100%", background: "transparent", color: lc.ink, fontFamily: "inherit" }}
                     />
                   </div>
-                  <div style={{ position: "relative", display: "flex", alignItems: "center", background: lc.paper, border: `1px solid ${lc.line}`, borderRadius: 12, padding: "12px 14px" }}>
+                  <div style={{ position: "relative", display: "flex", alignItems: "center", background: lc.paper, border: `1px solid ${lc.line}`, borderRadius: 10, padding: "12px 14px" }}>
                     <PinIcon size={17} style={{ color: lc.inkSoft, flex: "none", marginRight: 10 }} />
                     <select
                       id="cs-county"
@@ -257,7 +259,7 @@ export function ComingSoon() {
               className="lc-chip"
               style={{ display: "inline-flex", alignItems: "center", gap: 8, background: lc.paperRaised, border: `1px solid ${lc.line}`, color: lc.ink }}
             >
-              <t.icon size={15} style={{ color: FV_ACCENT, flex: "none" }} />
+              <t.icon size={15} style={{ color: FV_ACCENT_DARK, flex: "none" }} />
               {t.label}
             </span>
           ))}
@@ -279,18 +281,18 @@ export function ComingSoon() {
       {/* What's coming */}
       <section className="lc-section" style={{ maxWidth: lcMaxWidth, margin: "0 auto", padding: "16px 24px 88px" }}>
         <div style={{ marginBottom: 36 }}>
-          <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: "0.09em", textTransform: "uppercase", color: FV_ACCENT, marginBottom: 8 }}>
+          <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: 0, textTransform: "uppercase", color: FV_ACCENT_DARK, marginBottom: 8 }}>
             <span aria-hidden="true">/</span> What&rsquo;s coming
           </div>
-          <RevealText as="h2" style={{ fontFamily: lcFonts.display, fontWeight: 800, fontSize: "clamp(26px, 3.2vw, 38px)", letterSpacing: "-0.02em", color: lc.ink }}>
+          <RevealText as="h2" style={{ fontFamily: lcFonts.display, fontWeight: 800, fontSize: "clamp(26px, 3.2vw, 38px)", letterSpacing: 0, color: lc.ink }}>
             Everything you need to get out more.
           </RevealText>
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 18 }} className="lc-cs-features-grid">
           {FEATURES.map((f) => (
-            <div key={f.title} className="lc-card" style={{ background: lc.paperRaised, border: `1px solid ${lc.line}`, borderRadius: 18, padding: "26px 22px" }}>
-              <div style={{ width: 40, height: 40, borderRadius: 12, background: ACCENT_TINT, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 16 }}>
-                <f.icon size={19} style={{ color: FV_ACCENT }} />
+            <div key={f.title} className="lc-card" style={{ background: lc.paperRaised, border: `1px solid ${lc.line}`, borderRadius: 16, padding: "26px 22px" }}>
+              <div style={{ width: 40, height: 40, borderRadius: 10, background: ACCENT_TINT, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 16 }}>
+                <f.icon size={19} style={{ color: FV_ACCENT_DARK }} />
               </div>
               <h4 style={{ fontFamily: lcFonts.display, fontSize: 16.5, fontWeight: 700 }}>{f.title}</h4>
               <p style={{ fontSize: 13.5, color: lc.inkSoft, marginTop: 8, lineHeight: 1.55 }}>{f.text}</p>
@@ -304,10 +306,10 @@ export function ComingSoon() {
       <section className="lc-section" style={{ background: lc.paperRaised, padding: "64px 24px" }}>
         <div style={{ maxWidth: lcMaxWidth, margin: "0 auto" }}>
           <div style={{ textAlign: "center", marginBottom: 36 }}>
-            <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: "0.09em", textTransform: "uppercase", color: FV_ACCENT, marginBottom: 8 }}>
+            <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: 0, textTransform: "uppercase", color: FV_ACCENT_DARK, marginBottom: 8 }}>
               <span aria-hidden="true">/</span> Rollout
             </div>
-            <RevealText as="h2" style={{ fontFamily: lcFonts.display, fontWeight: 800, fontSize: "clamp(26px, 3.2vw, 38px)", letterSpacing: "-0.02em", color: lc.ink }}>
+            <RevealText as="h2" style={{ fontFamily: lcFonts.display, fontWeight: 800, fontSize: "clamp(26px, 3.2vw, 38px)", letterSpacing: 0, color: lc.ink }}>
               We&rsquo;re opening county by county.
             </RevealText>
             <p style={{ marginTop: 14, fontSize: 16, lineHeight: 1.55, color: lc.inkSoft, maxWidth: 480, marginLeft: "auto", marginRight: "auto" }}>
@@ -372,7 +374,7 @@ export function ComingSoon() {
           {/* Honest platform note — apps/mobile is a real, in-progress app,
               but neither store listing is published yet, so these are
               plain badges, not functioning "Download" links. */}
-          <p style={{ fontSize: 12.5, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "rgba(250,248,242,0.5)", marginTop: 48, marginBottom: 14 }}>
+          <p style={{ fontSize: 12.5, fontWeight: 700, letterSpacing: 0, textTransform: "uppercase", color: "rgba(250,248,242,0.5)", marginTop: 48, marginBottom: 14 }}>
             Also coming to
           </p>
           <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "center", gap: 12 }}>

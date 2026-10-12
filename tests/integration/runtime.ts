@@ -3,7 +3,7 @@ import { readFileSync, realpathSync, lstatSync, openSync, closeSync, unlinkSync,
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import mysql from "mysql2/promise";
-import { authIntegrationConfigIssues, QA_WEBHOOK_SECRET_PATTERN, stripeTestProfileIssues } from "../support/integration-safety";
+import { authIntegrationConfigIssues, qaWebhookSecretOk, stripeTestProfileIssues } from "../support/integration-safety";
 import { assertDatabaseIdentity, type DatabaseIdentity } from "./identity";
 
 export const repositoryRoot = fileURLToPath(new URL("../../", import.meta.url));
@@ -44,7 +44,7 @@ export function loadRun(): { manifest: Manifest; env: Record<string, string> } {
   // test profile (set by `qa:stripe` after validating the private file).
   const stripeProfile = process.env.QA_STRIPE_TEST_PROFILE === "1"
     && stripeTestProfileIssues({ STRIPE_SECRET_KEY: process.env.STRIPE_SECRET_KEY }).length === 0
-    && QA_WEBHOOK_SECRET_PATTERN.test(process.env.STRIPE_WEBHOOK_SECRET ?? "");
+    && qaWebhookSecretOk(process.env.STRIPE_WEBHOOK_SECRET);
   if ((process.env.STRIPE_SECRET_KEY || process.env.STRIPE_WEBHOOK_SECRET) && !stripeProfile) throw new Error("QA SAFETY ABORT: External credentials inherited by QA command.");
   if (process.env.SMTP_HOST || process.env.FIREBASE_PRIVATE_KEY || process.env.R2_SECRET_ACCESS_KEY) throw new Error("QA SAFETY ABORT: External credentials inherited by QA command.");
   return { manifest, env };

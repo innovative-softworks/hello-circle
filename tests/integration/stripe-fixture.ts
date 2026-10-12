@@ -3,7 +3,7 @@ import Stripe from "stripe";
 import type { APIRequestContext, APIResponse, Browser, BrowserContext, Page } from "@playwright/test";
 import { evidence } from "./authorization-fixture";
 import { expect, env, personas } from "./fixtures";
-import { isStripeBrowserHost, QA_WEBHOOK_SECRET_PATTERN } from "../support/integration-safety";
+import { isStripeBrowserHost, qaWebhookSecretOk } from "../support/integration-safety";
 
 // Phase 9 — Stripe TEST-mode helpers. Present only under `qa:stripe`, whose
 // runner validated a test-mode key and minted a per-run local webhook secret.
@@ -11,7 +11,7 @@ import { isStripeBrowserHost, QA_WEBHOOK_SECRET_PATTERN } from "../support/integ
 
 export const stripeProfile = process.env.QA_STRIPE_TEST_PROFILE === "1";
 const key = process.env.STRIPE_SECRET_KEY ?? "";
-if (stripeProfile && (!/^(sk|rk)_test_/.test(key) || !QA_WEBHOOK_SECRET_PATTERN.test(process.env.STRIPE_WEBHOOK_SECRET ?? ""))) throw new Error("QA SAFETY ABORT: Stripe test profile misconfigured.");
+if (stripeProfile && (!/^(sk|rk)_test_/.test(key) || !qaWebhookSecretOk(process.env.STRIPE_WEBHOOK_SECRET))) throw new Error("QA SAFETY ABORT: Stripe test profile misconfigured.");
 export const stripe = stripeProfile ? new Stripe(key) : (null as unknown as Stripe);
 
 export type SignatureMode = "valid" | "missing" | "invalid" | "tampered";

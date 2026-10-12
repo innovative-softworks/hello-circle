@@ -4,11 +4,18 @@ import { DEFAULT_WEIGHTS, getRecommendationWeights, setRecommendationWeights, va
 import { Router } from "express";
 import { sendMail } from "../email.js";
 import { CLIENT_URL } from "../stripe.js";
-import { requireAdmin } from "../auth.js";
+import { ADMIN_ROLES, requireAdmin, requireAdminRole } from "../auth.js";
 import { writeAudit } from "../audit.js";
 import { approximateCoords, db, getSetting, setSetting } from "../db/index.js";
 import { FEATURE_FLAG_KEYS, getAnalyticsFunnel, getCentre, getClub, getDemandSignals, getIntentClusters, getLiquidityScores, getMarketCategories, getParticipationStats, getReferralAttribution, getSupplyOverview, MARKET_CATEGORIES, orgFeatureFlagsById, type MarketCategory } from "../db/queries.js";
 import { endOfIrelandDay } from "../irelandTime.js";
+import { couponAmountError, parseCouponLimits } from "../pricing.js";
+import { adminCommerceRouter } from "./adminCommerce.js";
+import { adminFinanceRouter } from "./adminFinance.js";
+import { adminHelpRouter } from "./help.js";
+import { adminPoliciesRouter } from "./policies.js";
+import { adminComplaintsRouter } from "./complaints.js";
+import { adminTraderRouter } from "./traders.js";
 import { NOTIFICATION_TEMPLATE_KEYS } from "../notificationTemplates.js";
 import { notifyResident } from "../notifications.js";
 import { notifyVendorFollowers } from "./follows.js";
@@ -16,6 +23,53 @@ import { generateSlug } from "../slugify.js";
 
 export const adminRouter = Router();
 adminRouter.use(requireAdmin);
+// Commerce Engine Phase 1 — versioned commercial rules, switches, audit.
+adminRouter.use("/commerce", requireAdminRole("finance"), adminCommerceRouter);
+// Revenue & Connect Stage 2c — finance operations (webhooks, refunds, disputes, ledger).
+adminRouter.use("/finance", requireAdminRole("finance"), adminFinanceRouter);
+// Revenue & Connect Stage 3 — editable field help (legal/content admins).
+adminRouter.use("/help", requireAdminRole("legal"), adminHelpRouter);
+// Revenue & Connect Stage 4 — policy CMS (legal), complaints/appeals (support), trader verification (legal or support).
+adminRouter.use("/policies", requireAdminRole("legal"), adminPoliciesRouter);
+adminRouter.use("/complaints", requireAdminRole("support"), adminComplaintsRouter);
+adminRouter.use("/traders", requireAdminRole("legal", "support"), adminTraderRouter);
+// Coupons move money (HelloCircle-funded discounts) — finance only (Stage 2a).
+adminRouter.use("/coupons", requireAdminRole("finance"));
+
+// --- admin sub-roles (Revenue & Connect Stage 2a, risk P1-1) -------------------
+// Only a super admin assigns roles; nobody changes their own role, and the
+// last super admin can't be demoted (so the platform can't lock itself out).
+adminRouter.get("/admins", requireAdminRole(), async (_req, res) => {
+  const rows = await db
+    .prepare(`SELECT id, email, name, COALESCE(admin_role, 'super') as adminRole, created_at as createdAt FROM users WHERE role = 'admin' ORDER BY created_at`)
+    .all();
+  res.json(rows);
+});
+
+adminRouter.put("/admins/:id/role", requireAdminRole(), async (req, res) => {
+  const { adminRole, reason } = req.body as { adminRole?: string; reason?: string };
+  if (!adminRole || !(ADMIN_ROLES as readonly string[]).includes(adminRole)) return res.status(400).json({ error: `adminRole must be one of ${ADMIN_ROLES.join(", ")}` });
+  if (typeof reason !== "string" || reason.trim().length < 5) return res.status(400).json({ error: "A reason (at least 5 characters) is required" });
+  if (req.params.id === req.user!.id) return res.status(403).json({ error: "You can't change your own admin role" });
+  try {
+    const before = await db.transaction(async (tx) => {
+      const target = (await tx.prepare(`SELECT COALESCE(admin_role, 'super') as role FROM users WHERE id = ? AND role = 'admin' FOR UPDATE`).get(req.params.id)) as { role: string } | undefined;
+      if (!target) throw new Error("NOT_FOUND");
+      if (target.role === "super" && adminRole !== "super") {
+        const { n } = (await tx.prepare(`SELECT COUNT(*) as n FROM users WHERE role = 'admin' AND COALESCE(admin_role, 'super') = 'super' FOR UPDATE`).get()) as { n: number };
+        if (Number(n) <= 1) throw new Error("LAST_SUPER");
+      }
+      await tx.prepare(`UPDATE users SET admin_role = ? WHERE id = ?`).run(adminRole, req.params.id);
+      return target.role;
+    });
+    await writeAudit({ actorUserId: req.user!.id, actorKind: "user", action: "admin.role_changed", objectType: "user", objectId: req.params.id, previousValue: { adminRole: before }, newValue: { adminRole }, reason: reason.trim() });
+    res.json({ id: req.params.id, adminRole });
+  } catch (e) {
+    if (e instanceof Error && e.message === "NOT_FOUND") return res.status(404).json({ error: "Admin not found" });
+    if (e instanceof Error && e.message === "LAST_SUPER") return res.status(409).json({ error: "At least one super admin must remain" });
+    throw e;
+  }
+});
 
 // --- platform stats ----------------------------------------------------
 
@@ -466,46 +520,95 @@ interface CouponInput {
 }
 
 adminRouter.get("/coupons", async (_req, res) => {
-  const rows = await db
+  const rows = (await db
     .prepare(
-      `SELECT id, code, kind, amount, max_uses as maxUses, used_count as usedCount,
-              expires_at as expiresAt, active, created_at as createdAt
-       FROM coupons ORDER BY created_at DESC`
+      `SELECT c.id, c.code, c.kind, c.amount, c.max_uses as maxUses, c.used_count as usedCount,
+              c.expires_at as expiresAt, c.active, c.created_at as createdAt,
+              c.funding, c.platform_share_bps as platformShareBps, c.min_spend_cents as minSpendCents, c.max_discount_cents as maxDiscountCents,
+              c.per_customer_limit as perCustomerLimit, c.starts_at as startsAt, c.archived_at as archivedAt,
+              c.created_by_vendor_id as createdByVendorId, c.created_by_resident_id as createdByResidentId,
+              (SELECT COUNT(*) FROM coupon_redemptions r WHERE r.coupon_id = c.id AND r.status = 'confirmed') as confirmedRedemptions,
+              (SELECT COALESCE(SUM(r.platform_funded_minor), 0) FROM coupon_redemptions r WHERE r.coupon_id = c.id AND r.status = 'confirmed') as platformFundedMinor
+       FROM coupons c ORDER BY c.created_at DESC`
     )
-    .all();
-  res.json(rows);
+    .all()) as Record<string, any>[];
+  res.json(rows.map((r) => ({ ...r, confirmedRedemptions: Number(r.confirmedRedemptions), platformFundedMinor: Number(r.platformFundedMinor) })));
 });
 
+/** Commerce Engine Phase 3 — every admin coupon change carries a reason. */
+function couponReason(body: unknown): string | null {
+  const reason = (body as { reason?: unknown } | undefined)?.reason;
+  return typeof reason === "string" && reason.trim().length >= 5 ? reason.trim().slice(0, 2000) : null;
+}
+
 adminRouter.post("/coupons", async (req, res) => {
-  const b = req.body as CouponInput;
+  const b = req.body as CouponInput & { funding?: string; platformShareBps?: unknown; reason?: unknown } & Record<string, unknown>;
   if (!b.code || !b.kind || !b.amount) return res.status(400).json({ error: "code, kind and amount are required" });
-  if (!["percent", "fixed"].includes(b.kind)) return res.status(400).json({ error: "kind must be percent or fixed" });
-  if (b.kind === "percent" && (b.amount <= 0 || b.amount > 100)) return res.status(400).json({ error: "Percent amount must be 1-100" });
+  const amountError = couponAmountError(b.kind, b.amount);
+  if (amountError) return res.status(400).json({ error: amountError });
+  const reason = couponReason(b);
+  if (!reason) return res.status(400).json({ error: "A reason (at least 5 characters) is required" });
+  // Admin coupons are HelloCircle-funded, or split with the partner. A
+  // partner-funded coupon is created by the partner themselves (vendor/host
+  // routes), never on their behalf.
+  const funding = b.funding ?? "platform";
+  if (funding !== "platform" && funding !== "split") return res.status(400).json({ error: "Admin coupons are HelloCircle-funded or split-funded" });
+  let platformShareBps = 10_000;
+  if (funding === "split") {
+    if (typeof b.platformShareBps !== "number" || !Number.isInteger(b.platformShareBps) || b.platformShareBps < 1 || b.platformShareBps > 9_999) {
+      return res.status(400).json({ error: "A split coupon needs HelloCircle's share between 0.01% and 99.99%" });
+    }
+    platformShareBps = b.platformShareBps;
+  }
+  const limits = parseCouponLimits(b);
+  if (!limits.ok) return res.status(400).json({ error: limits.error });
 
   const code = b.code.trim().toUpperCase();
   // The admin picks a plain calendar date ("expires 25 Dec") — that should
   // mean valid through the end of that day in Ireland, not midnight UTC.
   const expiresAt = b.expiresAt ? endOfIrelandDay(b.expiresAt) : null;
   try {
-    await db.prepare(
-      `INSERT INTO coupons (code, kind, amount, max_uses, expires_at) VALUES (?, ?, ?, ?, ?)`
-    ).run(code, b.kind, b.amount, b.maxUses ?? null, expiresAt);
+    await db
+      .prepare(
+        `INSERT INTO coupons (code, kind, amount, max_uses, expires_at, funding, platform_share_bps, min_spend_cents, max_discount_cents, per_customer_limit, starts_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      )
+      .run(code, b.kind, b.amount, b.maxUses ?? null, expiresAt, funding, platformShareBps, limits.limits.minSpendCents, limits.limits.maxDiscountCents, limits.limits.perCustomerLimit, limits.limits.startsAt);
   } catch {
     return res.status(409).json({ error: "That code already exists" });
   }
+  await writeAudit({
+    actorUserId: req.user!.id,
+    actorKind: "user",
+    action: "coupon.created",
+    objectType: "coupon",
+    objectId: code,
+    newValue: { kind: b.kind, amount: b.amount, maxUses: b.maxUses ?? null, expiresAt, funding, platformShareBps, ...limits.limits },
+    reason,
+  });
   res.status(201).json({ ok: true });
 });
 
 adminRouter.put("/coupons/:id/active", async (req, res) => {
   const { active } = req.body as { active?: boolean };
-  const info = await db.prepare(`UPDATE coupons SET active = ? WHERE id = ?`).run(active ? 1 : 0, req.params.id);
-  if (info.changes === 0) return res.status(404).json({ error: "Coupon not found" });
+  const reason = couponReason(req.body);
+  if (!reason) return res.status(400).json({ error: "A reason (at least 5 characters) is required" });
+  const before = (await db.prepare(`SELECT code, active FROM coupons WHERE id = ? AND archived_at IS NULL`).get(req.params.id)) as { code: string; active: number } | undefined;
+  if (!before) return res.status(404).json({ error: "Coupon not found" });
+  await db.prepare(`UPDATE coupons SET active = ? WHERE id = ?`).run(active ? 1 : 0, req.params.id);
+  await writeAudit({ actorUserId: req.user!.id, actorKind: "user", action: active ? "coupon.resumed" : "coupon.paused", objectType: "coupon", objectId: before.code, previousValue: { active: !!before.active }, newValue: { active: !!active }, reason });
   res.json({ ok: true });
 });
 
+/** Archive, never hard-delete (commerce audit R6): historical orders keep a
+ * coupon_code with no foreign key, so the row must stay resolvable. */
 adminRouter.delete("/coupons/:id", async (req, res) => {
-  const info = await db.prepare(`DELETE FROM coupons WHERE id = ?`).run(req.params.id);
-  if (info.changes === 0) return res.status(404).json({ error: "Coupon not found" });
+  const reason = couponReason(req.body);
+  if (!reason) return res.status(400).json({ error: "A reason (at least 5 characters) is required" });
+  const before = (await db.prepare(`SELECT code FROM coupons WHERE id = ? AND archived_at IS NULL`).get(req.params.id)) as { code: string } | undefined;
+  if (!before) return res.status(404).json({ error: "Coupon not found" });
+  await db.prepare(`UPDATE coupons SET active = 0, archived_at = NOW() WHERE id = ?`).run(req.params.id);
+  await writeAudit({ actorUserId: req.user!.id, actorKind: "user", action: "coupon.archived", objectType: "coupon", objectId: before.code, newValue: { archived: true }, reason });
   res.json({ ok: true });
 });
 
@@ -749,7 +852,7 @@ adminRouter.get("/reports/:id/case", async (req, res) => {
 });
 
 adminRouter.put("/reports/:id", async (req, res) => {
-  const { status, notes } = req.body as { status?: string; notes?: string };
+  const { status, notes, statementOfReasons } = req.body as { status?: string; notes?: string; statementOfReasons?: string };
   if (status && !["dismissed", "actioned", "suspended"].includes(status)) {
     return res.status(400).json({ error: "status must be dismissed, actioned or suspended" });
   }
@@ -772,8 +875,12 @@ adminRouter.put("/reports/:id", async (req, res) => {
   }
 
   const info = await db
-    .prepare(`UPDATE reports SET status = COALESCE(?, status), admin_notes = COALESCE(?, admin_notes) WHERE id = ?`)
-    .run(status, notes, req.params.id);
+    .prepare(
+      `UPDATE reports SET status = COALESCE(?, status), admin_notes = COALESCE(?, admin_notes),
+        statement_of_reasons = COALESCE(?, statement_of_reasons), decided_by = IF(? IS NULL, decided_by, ?), decided_at = IF(? IS NULL, decided_at, NOW()) WHERE id = ?`
+    )
+    // Stage 4 — the statement of reasons (DSA art. 17) and decider are kept with the decision; the decider can't later decide an appeal of it.
+    .run(status, notes, typeof statementOfReasons === "string" && statementOfReasons.trim() ? statementOfReasons.trim().slice(0, 5000) : null, status ?? null, req.user!.id, status ?? null, req.params.id);
   if (info.changes === 0) return res.status(404).json({ error: "Report not found" });
   res.json({ ok: true, suspendedAction });
 });

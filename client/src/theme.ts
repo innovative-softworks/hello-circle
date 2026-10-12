@@ -59,6 +59,16 @@ export const colors = {
   orangeBg: "var(--color-orange-bg)",
   orangeBgHover: "var(--color-orange-bg-hover)",
 
+  /** Design-system consistency pass (2026-10-12): the shared editorial
+   * brand palette. `brand` is the bright orange for primary actions and
+   * always carries `onBrand` (forest) text; `night`/`onNight` are the
+   * near-black bands that stay dark in both themes. */
+  brand: "var(--color-brand)",
+  brandHover: "var(--color-brand-hover)",
+  onBrand: "var(--color-on-brand)",
+  night: "var(--color-night)",
+  onNight: "var(--color-on-night)",
+
   gold: "var(--color-gold)",
   dark: "var(--color-dark)",
   darkHover: "var(--color-dark-hover)",

@@ -368,9 +368,18 @@ function JoinRequestsCard({ circle }: { circle: Circle }) {
       <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
         {requests.map((r) => (
           <div key={r.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10, background: colors.bg, borderRadius: radius.control, padding: "10px 14px" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <div style={{ display: "flex", alignItems: "flex-start", gap: 10, minWidth: 0, flex: "1 1 220px" }}>
               <Avatar name={r.name} size={30} />
-              <div style={{ fontWeight: 700, fontSize: 13.5 }}>{r.name}</div>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontWeight: 700, fontSize: 13.5 }}>{r.name}</div>
+                {/* Booking UX Phase 5 — what they wrote, and their answers. */}
+                {r.note && <div style={{ fontSize: 13, color: colors.textSoft, marginTop: 4, whiteSpace: "pre-line", overflowWrap: "anywhere" }}>"{r.note}"</div>}
+                {(r.answers ?? []).map((a) => (
+                  <div key={a.question} style={{ fontSize: 12.5, color: colors.mutedLight, marginTop: 4, overflowWrap: "anywhere" }}>
+                    <span style={{ fontWeight: 600, color: colors.muted }}>{a.question}</span> {a.answer}
+                  </div>
+                ))}
+              </div>
             </div>
             <div style={{ display: "flex", gap: 8 }}>
               <button onClick={() => respond(r.id, false)} disabled={busyId === r.id} style={{ background: "none", border: "none", color: colors.danger, fontWeight: 700, fontSize: 12.5, cursor: "pointer" }}>
@@ -621,6 +630,8 @@ function SettingsTab({ circle, onSaved }: { circle: Circle; onSaved: (c: Circle)
     whatWeDo: circle.whatWeDo ?? "",
     whoCanJoin: circle.whoCanJoin ?? "",
     values: circle.values ?? "",
+    // Booking UX Phase 5 — up to three questions for an approval Circle.
+    joinQuestions: [...(circle.joinQuestions ?? []), "", "", ""].slice(0, 3),
   });
   // The cover photo is tracked separately from the rest of the form. For a
   // restricted Circle, `circle.imageUrl` is deliberately always null
@@ -660,6 +671,8 @@ function SettingsTab({ circle, onSaved }: { circle: Circle; onSaved: (c: Circle)
         whatWeDo: form.whatWeDo || undefined,
         whoCanJoin: form.whoCanJoin || undefined,
         values: form.values || undefined,
+        // Only an approval Circle edits its questions; otherwise they're left as they are.
+        joinQuestions: form.joinMode === "approval" ? form.joinQuestions.map((q) => q.trim()).filter(Boolean) : undefined,
       });
       onSaved(updated);
       setPhotoChange(undefined);
@@ -740,6 +753,24 @@ function SettingsTab({ circle, onSaved }: { circle: Circle; onSaved: (c: Circle)
             <label style={labelStyle}>Who can join (optional)</label>
             <textarea value={form.whoCanJoin} onChange={(e) => setForm((f) => ({ ...f, whoCanJoin: e.target.value }))} rows={2} style={{ ...inputStyle, resize: "vertical" }} />
           </div>
+          {form.joinMode === "approval" && (
+            <fieldset style={{ gridColumn: "1 / -1", border: "none", margin: 0, padding: 0 }}>
+              <legend style={{ ...labelStyle, padding: 0 }}>Questions for people asking to join (optional, up to three)</legend>
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {form.joinQuestions.map((q, i) => (
+                  <input
+                    key={i}
+                    aria-label={`Question ${i + 1}`}
+                    value={q}
+                    maxLength={200}
+                    placeholder={i === 0 ? "e.g. How often can you make it?" : ""}
+                    onChange={(e) => setForm((f) => ({ ...f, joinQuestions: Object.assign([...f.joinQuestions], { [i]: e.target.value }) }))}
+                    style={inputStyle}
+                  />
+                ))}
+              </div>
+            </fieldset>
+          )}
           <div style={{ gridColumn: "1 / -1" }}>
             <label style={labelStyle}>Our values (optional)</label>
             <textarea value={form.values} onChange={(e) => setForm((f) => ({ ...f, values: e.target.value }))} rows={2} style={{ ...inputStyle, resize: "vertical" }} />

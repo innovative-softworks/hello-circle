@@ -1,0 +1,157 @@
+/* CtaBand — shared closing call-to-action band (see CtaBand.tsx). Fixed
+   forest/cream/orange in both themes: the band is dark by design. */
+.cta-band {
+  --cta-forest: #172019;
+  --cta-cream: #f7f4ec;
+  --cta-orange: #ff4b24;
+  background: var(--cta-forest);
+  color: var(--cta-cream);
+  padding: clamp(48px, 5vw, 80px) 0;
+  overflow-x: clip;
+}
+
+.cta-band-grid {
+  max-width: 1440px;
+  margin: 0 auto;
+  padding: 0 clamp(16px, 3.4vw, 48px);
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) minmax(0, 340px);
+  gap: clamp(20px, 3vw, 48px);
+  align-items: center;
+  box-sizing: border-box;
+}
+
+.cta-band-vert {
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+  font-family: "Bricolage Grotesque Variable", "Bricolage Grotesque", system-ui, sans-serif;
+  font-weight: 800;
+  font-size: clamp(20px, 2vw, 30px);
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.cta-band-title {
+  margin: 0;
+  font-family: "Bricolage Grotesque Variable", "Bricolage Grotesque", system-ui, sans-serif;
+  font-weight: 800;
+  font-size: clamp(44px, 6.2vw, 104px);
+  line-height: 0.88;
+  letter-spacing: 0;
+  text-transform: uppercase;
+  color: var(--cta-orange);
+}
+
+.cta-band-title > span {
+  display: block;
+}
+
+.cta-band-title > span:nth-child(2) {
+  padding-left: 1.1em;
+}
+
+.cta-band-title > span:nth-child(3) {
+  padding-left: 2.2em;
+}
+
+.cta-band-side p {
+  font-size: 17px;
+  line-height: 1.45;
+  margin: 0 0 18px;
+  color: var(--cta-cream);
+}
+
+.cta-band-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-height: 48px;
+  padding: 0 22px;
+  border-radius: 999px;
+  background: var(--cta-orange);
+  color: var(--cta-forest);
+  font-size: 15px;
+  font-weight: 700;
+  text-decoration: none;
+  transition: background 0.2s ease, transform 0.15s ease;
+}
+
+.cta-band-btn:active {
+  transform: scale(0.985);
+}
+
+.cta-band-btn:focus-visible {
+  outline: 3px solid var(--cta-cream);
+  outline-offset: 3px;
+}
+
+@media (hover: hover) {
+  .cta-band-btn:hover {
+    background: #ff6a49;
+  }
+}
+
+.cta-band-link {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: fit-content;
+  min-height: 44px;
+  margin-top: 6px;
+  color: var(--cta-cream);
+  font-size: 14px;
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.cta-band-link:focus-visible {
+  outline: 3px solid var(--cta-cream);
+  outline-offset: 2px;
+}
+
+/* Extra content under the button (e.g. the interest form) sits on a page-
+   coloured panel so its own text and fields stay readable on the band. */
+.cta-band-panel {
+  margin-top: 18px;
+  padding: 16px;
+  border-radius: 16px;
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+/* The interest form renders nothing until there's an activity to ask about. */
+.cta-band-panel:empty {
+  display: none;
+}
+
+@media (max-width: 900px) {
+  .cta-band-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .cta-band-vert {
+    writing-mode: horizontal-tb;
+    transform: none;
+    font-size: 16px;
+  }
+}
+
+@media (max-width: 560px) {
+  .cta-band-title {
+    font-size: clamp(40px, 13vw, 68px);
+  }
+
+  .cta-band-title > span:nth-child(2) {
+    padding-left: 0.6em;
+  }
+
+  .cta-band-title > span:nth-child(3) {
+    padding-left: 1.2em;
+  }
+
+  .cta-band-btn {
+    width: 100%;
+  }
+}

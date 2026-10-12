@@ -36,15 +36,15 @@ export function MyLifeThisMonth({ entries }: { entries: ParticipationEntry[] }) 
   const insight = personalInsight(entries, monthEntries);
 
   return (
-    <div style={{ border: `1px solid ${colors.border}`, borderRadius: 12, padding: "16px 18px", background: colors.surface }}>
-      <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".06em", color: colors.mutedLight, marginBottom: 12 }}>YOUR MONTH</div>
+    <div style={{ border: `1px solid ${colors.border}`, borderRadius: 10, padding: "16px 18px", background: colors.surface }}>
+      <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0, color: colors.mutedLight, marginBottom: 12 }}>YOUR MONTH</div>
       <div style={{ display: "flex", gap: 20, marginBottom: insight ? 12 : 0 }}>
         <div>
-          <div style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 20, letterSpacing: "-.01em" }}>{attended}</div>
+          <div style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 20, letterSpacing: 0 }}>{attended}</div>
           <div style={{ fontSize: 11.5, color: colors.mutedLight, fontWeight: 600 }}>Plan{attended === 1 ? "" : "s"} attended</div>
         </div>
         <div>
-          <div style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 20, letterSpacing: "-.01em" }}>{distinctActivities}</div>
+          <div style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 20, letterSpacing: 0 }}>{distinctActivities}</div>
           <div style={{ fontSize: 11.5, color: colors.mutedLight, fontWeight: 600 }}>Different activit{distinctActivities === 1 ? "y" : "ies"}</div>
         </div>
       </div>

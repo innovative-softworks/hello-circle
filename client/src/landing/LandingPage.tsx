@@ -150,8 +150,8 @@ export function LandingPage() {
             const icons = [BuildingIcon, UsersIcon, RepeatIcon, CalendarIcon];
             const Icon = icons[i];
             return (
-              <div key={path.id} className="lc-card" style={{ background: lc.white, border: `1px solid ${lc.line}`, borderRadius: 18, padding: "24px 20px" }}>
-                <div style={{ width: 40, height: 40, borderRadius: 12, background: lc.forestBg, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 16 }}>
+              <div key={path.id} className="lc-card" style={{ background: lc.white, border: `1px solid ${lc.line}`, borderRadius: 16, padding: "24px 20px" }}>
+                <div style={{ width: 40, height: 40, borderRadius: 10, background: lc.forestBg, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 16 }}>
                   <Icon size={19} style={{ color: lc.forest }} />
                 </div>
                 <h4 style={{ fontFamily: lcFonts.display, fontSize: 16.5, fontWeight: 700 }}>{path.label}</h4>
@@ -224,7 +224,7 @@ export function LandingPage() {
       <section className="lc-section" style={{ background: lc.ink, padding: "88px 24px" }}>
         <div className="lc-stack-mobile" style={{ maxWidth: lcMaxWidth, margin: "0 auto", display: "grid", gridTemplateColumns: "1fr 0.85fr", gap: 56, alignItems: "center" }}>
           <div>
-            <div style={{ fontFamily: lcFonts.body, fontSize: 12.5, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: lc.gold, marginBottom: 12 }}>
+            <div style={{ fontFamily: lcFonts.body, fontSize: 12.5, fontWeight: 700, letterSpacing: 0, textTransform: "uppercase", color: lc.gold, marginBottom: 12 }}>
               Personalized discovery
             </div>
             <RevealText as="h2" style={{ fontFamily: lcFonts.display, fontSize: "clamp(28px, 4vw, 42px)", color: lc.paper, lineHeight: 1.15 }}>
@@ -243,7 +243,7 @@ export function LandingPage() {
             </div>
             <div style={{ marginTop: 18, display: "flex", flexDirection: "column", gap: 10 }}>
               {PERSONALIZED_SUGGESTIONS.map((s) => (
-                <div key={s.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: lc.paperRaised, borderRadius: 12, padding: "12px 14px" }}>
+                <div key={s.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: lc.paperRaised, borderRadius: 10, padding: "12px 14px" }}>
                   <span style={{ fontSize: 14, fontWeight: 600, color: lc.ink }}>{s.title}</span>
                   <span style={{ fontSize: 12.5, color: lc.inkSoft, display: "flex", alignItems: "center", gap: 4 }}>
                     <PinIcon size={11} /> {s.distanceKm} km
@@ -265,7 +265,7 @@ export function LandingPage() {
             <img src={img("hc-organizers", 900, 700)} alt="Organizer briefing a group before an activity" loading="lazy" />
           </div>
           <div>
-            <div style={{ fontFamily: lcFonts.body, fontSize: 12.5, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: lc.forest, marginBottom: 12 }}>
+            <div style={{ fontFamily: lcFonts.body, fontSize: 12.5, fontWeight: 700, letterSpacing: 0, textTransform: "uppercase", color: lc.forest, marginBottom: 12 }}>
               For organizers
             </div>
             <RevealText as="h2" style={{ fontFamily: lcFonts.display, fontSize: "clamp(26px, 3.6vw, 38px)", lineHeight: 1.18 }}>Bring people together.</RevealText>
@@ -290,7 +290,7 @@ export function LandingPage() {
       <section className="lc-section" style={{ background: lc.paperRaised, padding: "88px 24px" }}>
         <div className="lc-stack-mobile" style={{ maxWidth: lcMaxWidth, margin: "0 auto", display: "grid", gridTemplateColumns: "1fr 1fr", gap: 56, alignItems: "center" }}>
           <div style={{ order: 1 }}>
-            <div style={{ fontFamily: lcFonts.body, fontSize: 12.5, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: lc.forest, marginBottom: 12 }}>
+            <div style={{ fontFamily: lcFonts.body, fontSize: 12.5, fontWeight: 700, letterSpacing: 0, textTransform: "uppercase", color: lc.forest, marginBottom: 12 }}>
               For places
             </div>
             <RevealText as="h2" style={{ fontFamily: lcFonts.display, fontSize: "clamp(26px, 3.6vw, 38px)", lineHeight: 1.18 }}>Turn empty time into active communities.</RevealText>
@@ -337,7 +337,7 @@ export function LandingPage() {
               style={{
                 animationDelay: `${(i % 4) * 0.4}s`,
                 background: lc.white,
-                borderRadius: 14,
+                borderRadius: 16,
                 padding: "14px 16px",
                 fontSize: 13,
                 fontWeight: 700,
@@ -364,7 +364,7 @@ export function LandingPage() {
               { icon: GraduationCapIcon, title: "For organizers", text: "Tools built around actually running a session, not selling tickets to a one-off event." },
               { icon: HeartIcon, title: "For places", text: "A steady way to fill quiet hours with people who genuinely want to be there." },
             ].map((item) => (
-              <div key={item.title} style={{ background: lc.white, border: `1px solid ${lc.line}`, borderRadius: 18, padding: "26px 22px" }}>
+              <div key={item.title} style={{ background: lc.white, border: `1px solid ${lc.line}`, borderRadius: 16, padding: "26px 22px" }}>
                 <item.icon size={22} style={{ color: lc.forest }} />
                 <h4 style={{ fontFamily: lcFonts.display, fontSize: 16.5, fontWeight: 700, marginTop: 14 }}>{item.title}</h4>
                 <p style={{ fontSize: 13.5, color: lc.inkSoft, marginTop: 8, lineHeight: 1.55 }}>{item.text}</p>

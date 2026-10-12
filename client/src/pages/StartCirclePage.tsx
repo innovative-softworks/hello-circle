@@ -59,7 +59,7 @@ export function StartCirclePage() {
           <div style={{ color: colors.greenText, marginBottom: 14 }}>
             <CheckCircleIcon size={36} />
           </div>
-          <h1 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 26, margin: "0 0 8px", letterSpacing: "-.01em" }}>Your Circle is live.</h1>
+          <h1 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(32px, 3.8vw, 52px)", margin: "0 0 8px", letterSpacing: 0 }}>Your Circle is live.</h1>
           <p style={{ margin: "0 0 28px", fontSize: 15, color: colors.mutedLight }}>
             {form.name || "Your Circle"} is ready. Now get things moving.
           </p>

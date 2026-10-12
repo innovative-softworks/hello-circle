@@ -89,7 +89,7 @@ export function HostApplicationPanel({
     <div style={{ background: "#fff", border: `1px solid ${colors.border}`, borderRadius: radius.card, padding: "18px 20px" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
         <AwardIcon size={16} style={{ color: colors.greenText }} />
-        <span style={{ fontFamily: fonts.display, fontSize: 15, fontWeight: 700 }}>Become a Host</span>
+        <span style={{ fontFamily: fonts.display, fontSize: 15, fontWeight: 700 }}>Become a host</span>
       </div>
 
       {hostStatus === "verified" && (

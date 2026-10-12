@@ -28,7 +28,7 @@ export function OpportunitiesCard({ audience }: { audience: "vendor" | "host" })
 
   return (
     <Card>
-      <div style={{ fontSize: 11.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".09em", color: colors.muted, marginBottom: 4 }}>Opportunities</div>
+      <div style={{ fontSize: 11.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0, color: colors.muted, marginBottom: 4 }}>Opportunities</div>
       <h3 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 17, margin: "0 0 4px" }}>What people nearby are asking for</h3>
       <p style={{ fontSize: 12.5, color: colors.mutedLight, margin: "0 0 14px" }}>From real requests by signed-in residents. Counts are rounded, and we never show who asked.</p>
       <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
@@ -41,7 +41,7 @@ export function OpportunitiesCard({ audience }: { audience: "vendor" | "host" })
               : null;
           return (
             <div key={`${o.clusterKey}-${o.county}`} style={{ border: `1px solid ${colors.border}`, borderRadius: radius.card, padding: "14px 16px" }}>
-              {high && <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: ".06em", color: colors.orangeDark, marginBottom: 4 }}>HIGH DEMAND</div>}
+              {high && <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: 0, color: colors.orangeDark, marginBottom: 4 }}>HIGH DEMAND</div>}
               <div style={{ fontWeight: 700, fontSize: 16 }}>
                 {when ? `${when} ` : ""}
                 {o.label.toLowerCase()}

@@ -2,6 +2,7 @@ import { db } from "./index.js";
 import { haversineKm, type RadiusFilter } from "../geo.js";
 import { irelandWallTimeToUtc } from "../irelandTime.js";
 import { discoverableGameSql } from "../gameVisibility.js";
+import { commerceSwitch } from "../commerce/switches.js";
 import type { Centre, Club, Room } from "../types.js";
 
 interface CentreRow {
@@ -127,7 +128,7 @@ async function toCentre(row: CentreRow): Promise<Centre> {
   // the Open Booking checkbox proactively; createBookingInternal() is the
   // real server-side enforcement, this is just so the UI doesn't offer an
   // option that would fail.
-  const { open_booking: openBookingEnabled } = await orgFeatureFlags(row.vendor_id);
+  const openBookingEnabled = await openBookingAvailable(row.vendor_id);
   return {
     id: row.id,
     name: row.name,
@@ -552,6 +553,14 @@ export async function orgFeatureFlags(vendorId: string | null): Promise<FeatureF
     if ((FEATURE_FLAG_KEYS as readonly string[]).includes(r.flagKey)) flags[r.flagKey as FeatureFlagKey] = !!r.enabled;
   }
   return flags;
+}
+
+/** Booking audit 2026-10-11 (B6) — Open Booking (and Make It Happen, which
+ * is built on it) needs the platform switch AND the org's own flag. The
+ * platform switch is off by default until cost-sharing is repriced. */
+export async function openBookingAvailable(vendorId: string | null): Promise<boolean> {
+  if (!(await commerceSwitch("commerce.open_booking"))) return false;
+  return (await orgFeatureFlags(vendorId)).open_booking;
 }
 
 export async function orgFeatureFlagsById(orgId: string | null): Promise<FeatureFlags> {

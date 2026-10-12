@@ -31,6 +31,18 @@ export const AnalyticsEvent = {
   VendorSignupError: "vendor_signup_error",
   InvitationAccepted: "invitation_accepted",
   InvitationAcceptError: "invitation_accept_error",
+  // Stage 5f — plan, rewards and customer credit (coarse properties only).
+  PlanExplorePro: "plan_explore_pro",
+  PlanCheckoutStarted: "plan_checkout_started",
+  PlanCheckoutReturned: "plan_checkout_returned",
+  PlanCancel: "plan_cancel",
+  PlanKeep: "plan_keep",
+  PlanBillingPortal: "plan_billing_portal",
+  RewardsRedeemed: "rewards_redeemed",
+  RewardsHistoryViewed: "rewards_history_viewed",
+  CreditApplied: "credit_applied",
+  CouponApplied: "coupon_applied",
+  CouponRejected: "coupon_rejected",
 } as const;
 
 export type AnalyticsEventName = (typeof AnalyticsEvent)[keyof typeof AnalyticsEvent];
@@ -61,7 +73,19 @@ interface AnalyticsPropsMap {
   [AnalyticsEvent.VendorSignupError]: { reason: ErrorReason };
   [AnalyticsEvent.InvitationAccepted]: { platformRole: string };
   [AnalyticsEvent.InvitationAcceptError]: { reason: ErrorReason };
+  [AnalyticsEvent.PlanExplorePro]: { scope: PartnerScope; from: "dashboard" | "earnings" };
+  [AnalyticsEvent.PlanCheckoutStarted]: { scope: PartnerScope; reused: boolean };
+  [AnalyticsEvent.PlanCheckoutReturned]: { scope: PartnerScope; outcome: "success" | "cancelled" };
+  [AnalyticsEvent.PlanCancel]: { scope: PartnerScope };
+  [AnalyticsEvent.PlanKeep]: { scope: PartnerScope };
+  [AnalyticsEvent.PlanBillingPortal]: { scope: PartnerScope; state: string };
+  [AnalyticsEvent.RewardsRedeemed]: { scope: PartnerScope };
+  [AnalyticsEvent.RewardsHistoryViewed]: { scope: PartnerScope };
+  [AnalyticsEvent.CreditApplied]: { coversAll: boolean };
+  [AnalyticsEvent.CouponApplied]: undefined;
+  [AnalyticsEvent.CouponRejected]: { reason: "invalid" | "expired" | "limit" | "not_applicable" | "other" };
 }
+type PartnerScope = "vendor" | "host";
 
 export function trackTypedEvent<K extends AnalyticsEventName>(event: K, props?: AnalyticsPropsMap[K]): void {
   trackEvent(event, props as Record<string, unknown> | undefined);

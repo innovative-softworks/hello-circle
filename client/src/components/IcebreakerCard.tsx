@@ -46,7 +46,7 @@ export function IcebreakerCard({ game, onShared }: { game: Game; onShared?: () =
 
   return (
     <Card style={{ marginBottom: 28, background: colors.panel, border: "none" }}>
-      <div style={{ fontSize: 11.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".09em", color: colors.muted, marginBottom: 6 }}>Break the ice</div>
+      <div style={{ fontSize: 11.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0, color: colors.muted, marginBottom: 6 }}>Break the ice</div>
       {shared ? (
         <p style={{ margin: 0, fontSize: 14, color: colors.muted }}>Shared with the group. Try opening with it when everyone arrives.</p>
       ) : (

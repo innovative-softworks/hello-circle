@@ -1,83 +1,39 @@
 import { useNavigate } from "react-router-dom";
 import type { Centre } from "../types";
-import { cardImageRatio, colors } from "../theme";
-import { BuildingIcon, StarIcon } from "./icons";
-import { Photo } from "./Photo";
+import { colors } from "../theme";
+import { BuildingIcon, PinIcon, StarIcon, UsersIcon } from "./icons";
+import { CardPrice, ListingCard, cardButtonStyle } from "./ListingCard";
 import { SaveButton, useSavedState } from "./SaveButton";
-import { Button, CardLink } from "./ui";
+import { Button } from "./ui";
 
+// Community centre card — the shared ListingCard shape (design-system
+// consistency pass). Behaviour unchanged: opens the centre / booking page.
 export function CentreCard({ centre }: { centre: Centre }) {
   const navigate = useNavigate();
   const [fav, toggleFav] = useSavedState("centre", centre.id);
   const href = `/centres/${centre.slug ?? centre.id}`;
   const open = () => navigate(href);
-
   return (
-    <div
-      className="card-hover card-surface"
-      style={{
-        position: "relative",
-        background: colors.surface,
-        border: `1px solid ${colors.border}`,
-        borderRadius: 18,
-        overflow: "hidden",
-        display: "flex",
-        flexDirection: "column",
-      }}
-    >
-      <CardLink to={href} label={centre.name} sharedImage />
-      <Photo
-        src={centre.image}
-        alt={centre.name}
-        ph={centre.ph}
-        icon={<BuildingIcon size={26} />}
-        iconColor={colors.green}
-        style={{ aspectRatio: cardImageRatio.discovery }}
-        contentStyle={{ display: "flex", alignItems: "flex-end", padding: 12 }}
-      >
-        <span
-          className="card-photo-badge"
-          style={{
-            background: "rgba(255,255,255,.9)",
-            borderRadius: 8,
-            padding: "4px 9px",
-            fontSize: 12,
-            fontWeight: 700,
-            color: colors.greenText,
-            transition: "background-color .2s ease, color .2s ease",
-          }}
-        >
-          from €{centre.from}/hr
-        </span>
-        <SaveButton saved={fav} onToggle={toggleFav} />
-      </Photo>
-      <div style={{ padding: "16px 18px 18px", flex: 1, display: "flex", flexDirection: "column" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
-          {centre.reviews > 0 && (
-            <>
-              <StarIcon size={14} style={{ color: colors.gold }} />
-              <span style={{ fontWeight: 700, fontSize: 14 }}>{centre.rating}</span>
-              <span style={{ color: colors.faint, fontSize: 13 }}>({centre.reviews})</span>
-            </>
-          )}
-          <span style={{ marginLeft: "auto", color: colors.faint, fontSize: 13 }}>up to {centre.capacity}</span>
-        </div>
-        <h3 style={{ fontSize: 17, fontWeight: 700, margin: "0 0 3px", letterSpacing: "-.01em" }}>{centre.name}</h3>
-        <p style={{ margin: "0 0 12px", color: colors.mutedLight, fontSize: 14 }}>{centre.area}</p>
-        <div style={{ marginTop: "auto", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-          <span style={{ fontWeight: 700, fontSize: 15, color: colors.text }}>from €{centre.from}/hr</span>
-          <div className="stretched-link-above">
-            <Button
-              variant={centre.isOpen === false ? "ghost" : "dark"}
-              disabled={centre.isOpen === false}
-              style={{ padding: "8px 16px", fontSize: 13 }}
-              onClick={open}
-            >
-              {centre.isOpen === false ? "Not taking bookings" : "Check availability"}
-            </Button>
-          </div>
-        </div>
-      </div>
-    </div>
+    <ListingCard
+      href={href}
+      title={centre.name}
+      image={centre.image}
+      ph={centre.ph}
+      icon={<BuildingIcon size={26} />}
+      iconColor={colors.orange}
+      tag={`from €${centre.from}/hr`}
+      save={<SaveButton saved={fav} onToggle={toggleFav} />}
+      details={[
+        centre.area ? { icon: <PinIcon size={13} />, text: centre.area } : null,
+        { icon: <UsersIcon size={13} />, text: `Up to ${centre.capacity} people` },
+        centre.reviews > 0 ? { icon: <StarIcon size={13} style={{ color: colors.gold }} />, text: `${centre.rating} (${centre.reviews} review${centre.reviews === 1 ? "" : "s"})` } : null,
+      ]}
+      facts={<CardPrice>from €{centre.from}/hr</CardPrice>}
+      action={
+        <Button style={cardButtonStyle} variant={centre.isOpen === false ? "ghost" : "dark"} disabled={centre.isOpen === false} onClick={open}>
+          {centre.isOpen === false ? "Not taking bookings" : "Check availability"}
+        </Button>
+      }
+    />
   );
 }

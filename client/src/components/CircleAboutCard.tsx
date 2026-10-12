@@ -28,7 +28,7 @@ export function CircleAboutCard({ circle }: { circle: Circle }) {
 
   return (
     <Card>
-      <h3 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 16, margin: "0 0 10px", letterSpacing: "-.01em" }}>About this Circle</h3>
+      <h3 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 16, margin: "0 0 10px", letterSpacing: 0 }}>About this Circle</h3>
       {circle.about && (
         <p style={{ margin: "0 0 14px", fontSize: 14, color: colors.text, lineHeight: 1.55 }}>{circle.about}</p>
       )}
@@ -45,7 +45,7 @@ export function CircleAboutCard({ circle }: { circle: Circle }) {
 
       {circle.hostName && (
         <div style={{ marginTop: 16, paddingTop: 16, borderTop: `1px solid ${colors.border}` }}>
-          <div style={{ fontSize: 11.5, fontWeight: 700, color: colors.mutedLight, textTransform: "uppercase", letterSpacing: ".03em", marginBottom: 10 }}>Circle organiser</div>
+          <div style={{ fontSize: 11.5, fontWeight: 700, color: colors.mutedLight, textTransform: "uppercase", letterSpacing: 0, marginBottom: 10 }}>Circle organiser</div>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <Avatar name={circle.hostName} size={38} />
             <div style={{ minWidth: 0 }}>

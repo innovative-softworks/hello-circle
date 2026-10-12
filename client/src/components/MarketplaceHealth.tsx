@@ -19,7 +19,7 @@ const LABEL_STYLE: Record<LiquidityLabel, { bg: string; color: string }> = {
 export function LiquidityBadge({ label }: { label: LiquidityLabel }) {
   const s = LABEL_STYLE[label];
   return (
-    <span style={{ fontSize: 11, fontWeight: 700, color: s.color, background: s.bg, borderRadius: 100, padding: "3px 10px", flex: "none" }}>{label}</span>
+    <span style={{ fontSize: 11, fontWeight: 700, color: s.color, background: s.bg, borderRadius: 999, padding: "3px 10px", flex: "none" }}>{label}</span>
   );
 }
 
@@ -133,7 +133,7 @@ export function MarketplaceHealthView({
                     {r.source || "unknown source"} · landed {new Date(r.landedAt).toLocaleDateString("en-IE")}
                   </span>
                   {r.converted ? (
-                    <span style={{ fontSize: 11, fontWeight: 700, color: colors.greenText, background: colors.greenBg, borderRadius: 100, padding: "3px 10px" }}>
+                    <span style={{ fontSize: 11, fontWeight: 700, color: colors.greenText, background: colors.greenBg, borderRadius: 999, padding: "3px 10px" }}>
                       Converted ({r.convertedKind})
                     </span>
                   ) : (

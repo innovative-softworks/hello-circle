@@ -251,7 +251,7 @@ export function ChatModal({
             return (
               <div key={m.id}>
                 {showDay && (
-                  <div style={{ textAlign: "center", fontSize: 11.5, fontWeight: 700, color: colors.faint, margin: "6px 0 10px", textTransform: "uppercase", letterSpacing: ".04em" }}>{day}</div>
+                  <div style={{ textAlign: "center", fontSize: 11.5, fontWeight: 700, color: colors.faint, margin: "6px 0 10px", textTransform: "uppercase", letterSpacing: 0 }}>{day}</div>
                 )}
                 <div style={{ display: "flex", flexDirection: "column", alignItems: mine ? "flex-end" : "flex-start" }}>
                   {!mine && (

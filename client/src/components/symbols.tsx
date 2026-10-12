@@ -170,7 +170,7 @@ export function EntityTypeLabel({
     <span style={{ display: "inline-flex", alignItems: "center", gap: 6, color, ...style }}>
       <Mark size={size} {...(showLabel ? { "aria-hidden": "true" } : { role: "img", "aria-label": label })} />
       {showLabel && (
-        <span style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: size - 2, letterSpacing: ".04em", textTransform: "uppercase" }}>
+        <span style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: size - 2, letterSpacing: 0, textTransform: "uppercase" }}>
           {label}
         </span>
       )}

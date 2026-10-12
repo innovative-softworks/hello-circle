@@ -4,7 +4,7 @@ import { lc, lcFonts, lcRadius } from "../theme";
 
 export function VenueCard({ venue }: { venue: LandingVenue }) {
   return (
-    <article className="lc-card" style={{ background: lc.white, borderRadius: 18, overflow: "hidden", border: `1px solid ${lc.line}` }}>
+    <article className="lc-card" style={{ background: lc.white, borderRadius: 16, overflow: "hidden", border: `1px solid ${lc.line}` }}>
       <div className="lc-card-image" style={{ height: 168 }}>
         <img src={venue.image} alt="" loading="lazy" />
         {venue.unclaimed && (

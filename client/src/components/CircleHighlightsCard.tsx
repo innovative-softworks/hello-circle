@@ -18,7 +18,7 @@ export function CircleHighlightsCard({ circle, plans }: { circle: Circle; plans:
 
   return (
     <Card>
-      <h3 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 16, margin: "0 0 12px", letterSpacing: "-.01em" }}>Upcoming highlights</h3>
+      <h3 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 16, margin: "0 0 12px", letterSpacing: 0 }}>Upcoming highlights</h3>
       <div style={{ display: "flex", flexDirection: "column" }}>
         {plans.slice(0, 3).map((p) => (
           <button
@@ -26,7 +26,7 @@ export function CircleHighlightsCard({ circle, plans }: { circle: Circle; plans:
             onClick={() => navigate(`/games/${p.id}`)}
             style={{ display: "flex", alignItems: "center", gap: 10, width: "100%", textAlign: "left", background: "none", border: "none", borderTop: `1px solid ${colors.border}`, padding: "10px 0", cursor: "pointer" }}
           >
-            <div style={{ flex: "none", width: 34, height: 34, borderRadius: 8, background: colors.greenBg, color: colors.greenText, display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <div style={{ flex: "none", width: 34, height: 34, borderRadius: 10, background: colors.greenBg, color: colors.greenText, display: "flex", alignItems: "center", justifyContent: "center" }}>
               <CalendarIcon size={15} />
             </div>
             <div style={{ minWidth: 0, flex: 1 }}>

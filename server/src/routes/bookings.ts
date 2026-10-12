@@ -1,18 +1,21 @@
 import crypto from "node:crypto";
+import { shadowLegacy } from "../commerce/engine.js";
 import { Router } from "express";
 import { createCheckoutSession, pricingLineItems } from "../checkoutService.js";
 import { logEvent } from "../analytics.js";
 import { db } from "../db/index.js";
-import { getCentre, orgFeatureFlags, orgPoliciesForVendor } from "../db/queries.js";
+import { getCentre, openBookingAvailable, orgPoliciesForVendor } from "../db/queries.js";
 import { TIME_SLOTS } from "./availability.js";
 import { upgradeFavouriteStatus } from "./favourites.js";
 import { buildIcsEvent } from "../ics.js";
 import { irelandWallTimeToUtc } from "../irelandTime.js";
 import { notifyCancellation, notifyNewBookingOrRegistration } from "../notifications.js";
 import { computePricing, evaluateCoupon, splitCostPerPerson } from "../pricing.js";
-import { lookupLimiter } from "../rateLimit.js";
+import { couponValidateLimiter, lookupLimiter } from "../rateLimit.js";
+import { bookingChangeBlock, cancelDeadlineIso, refundStateOf } from "../selfCancel.js";
+import { recordOrderAcknowledgements } from "../orderAcknowledgements.js";
 import { BadRequestError, ConflictError, bookingEndHour, clientIdFrom, generateRef, hoursOverlap, isValidEmail } from "../util.js";
-import { consumeCoupon, endPendingHold, isPositiveInt, occupiesCapacitySql, startIsInFuture, validateFutureDate } from "../bookingIntegrity.js";
+import { VENDOR_SUSPENDED_ERROR, consumeCoupon, customerKeyOf, endPendingHold, isPositiveInt, occupiesCapacitySql, startIsInFuture, validateFutureDate, vendorSuspended } from "../bookingIntegrity.js";
 
 export const bookingsRouter = Router();
 
@@ -127,23 +130,40 @@ export interface CreateBookingInternalInput {
    * param. Optional: makeItHappen.ts's other call site omits it, keeping
    * web/default behavior unchanged. */
   isNative?: boolean;
+  /** Booking UX Phase 4 (B8) — recorded with the order; the terms version is resolved server-side. */
+  acceptedTerms?: boolean;
 }
 
 export type CreateBookingResult =
   | { ok: true; ref: string; totalEuro: number; url?: string }
   | { ok: false; status: number; error: string };
 
-/** The actual booking-creation logic shared by POST /checkout below and
- * Make It Happen's confirm step (routes/makeItHappen.ts) — extracted so
- * the two entry points can't drift apart on anything payment-adjacent
- * (overlap-locking, pricing, Stripe session creation). The route handler
- * below does request-shape validation (missing fields, email format) and
- * maps the result to an HTTP response; this function assumes its input is
- * already validated. */
-export async function createBookingInternal(input: CreateBookingInternalInput): Promise<CreateBookingResult> {
+export type BookingPriceInput = Pick<CreateBookingInternalInput, "centreId" | "roomId" | "date" | "time" | "duration" | "guests" | "couponCode" | "openSpots">;
+
+type PricedBooking = {
+  ok: true;
+  centre: NonNullable<Awaited<ReturnType<typeof getCentre>>>;
+  room: NonNullable<Awaited<ReturnType<typeof getCentre>>>["rooms"][number];
+  vendorId: string | null;
+  startHour: number;
+  reqEnd: number;
+  isCash: boolean;
+  discountCents: number;
+  couponCode: string | null;
+  pricing: ReturnType<typeof computePricing>;
+};
+
+/** Booking audit 2026-10-11 (B1) — every check that decides whether a
+ * booking request is valid, and its price, in one place. Shared by
+ * createBookingInternal (checkout, Make It Happen) and POST /quote, so the
+ * total shown before payment is computed by exactly the code that charges
+ * it. Read-only: no slot lock and no coupon reservation happen here. */
+export async function priceBookingRequest(input: BookingPriceInput): Promise<PricedBooking | { ok: false; status: number; error: string }> {
   const centre = await getCentre(input.centreId);
   const room = centre?.rooms.find((r) => r.id === input.roomId);
-  if (!centre || !room) return { ok: false, status: 404, error: "Centre or room not found" };
+  // Booking audit 2026-10-11 — getCentre is the unfiltered internal read, so
+  // the approval check lives here: a pending/rejected venue takes no bookings.
+  if (!centre || !room || centre.status !== "approved") return { ok: false, status: 404, error: "Centre or room not found" };
   if (!centre.isOpen) return { ok: false, status: 409, error: "This venue isn't currently taking bookings" };
 
   // Every overlap/opening-hours check below (and in availability.ts) only
@@ -176,6 +196,7 @@ export async function createBookingInternal(input: CreateBookingInternalInput): 
   }
 
   const centreVendorRow = (await db.prepare(`SELECT vendor_id FROM centres WHERE id = ?`).get(input.centreId)) as { vendor_id: string | null } | undefined;
+  if (await vendorSuspended(centreVendorRow?.vendor_id)) return { ok: false, status: 409, error: VENDOR_SUSPENDED_ERROR };
   const { bookingWindowDays } = await orgPoliciesForVendor(centreVendorRow?.vendor_id ?? null);
   const eventStart = irelandWallTimeToUtc(input.date, startHour);
   if (eventStart.getTime() - Date.now() > bookingWindowDays * 24 * 60 * 60 * 1000) {
@@ -186,7 +207,7 @@ export async function createBookingInternal(input: CreateBookingInternalInput): 
   // Booking for an org; checked here (the single internal function shared
   // by direct checkout and Make It Happen's confirm step) rather than at
   // each entry point separately, so neither can drift out of enforcement.
-  if (input.openSpots && !(await orgFeatureFlags(centreVendorRow?.vendor_id ?? null)).open_booking) {
+  if (input.openSpots && !(await openBookingAvailable(centreVendorRow?.vendor_id ?? null))) {
     return { ok: false, status: 403, error: "Open Booking isn't enabled for this venue" };
   }
 
@@ -202,7 +223,22 @@ export async function createBookingInternal(input: CreateBookingInternalInput): 
   }
   // Cash bookings skip the refundable deposit too — there's no online charge to hold it against.
   const pricing = computePricing(subtotalCents, isCash ? 0 : DEPOSIT_CENTS, discountCents, couponCode);
+  return { ok: true, centre, room, vendorId: centreVendorRow?.vendor_id ?? null, startHour, reqEnd, isCash, discountCents, couponCode, pricing };
+}
+
+/** The actual booking-creation logic shared by POST /checkout below and
+ * Make It Happen's confirm step (routes/makeItHappen.ts) — extracted so
+ * the two entry points can't drift apart on anything payment-adjacent
+ * (overlap-locking, pricing, Stripe session creation). The route handler
+ * below does request-shape validation (missing fields, email format) and
+ * maps the result to an HTTP response; this function assumes its input is
+ * already validated. */
+export async function createBookingInternal(input: CreateBookingInternalInput): Promise<CreateBookingResult> {
+  const priced = await priceBookingRequest(input);
+  if (!priced.ok) return priced;
+  const { centre, room, startHour, reqEnd, isCash, discountCents, couponCode, pricing } = priced;
   const ref = generateRef("HB");
+  shadowLegacy("booking", ref, { vendorUserId: priced.vendorId }, pricing);
 
   // The availability check and the insert must be atomic against concurrent
   // checkouts for the same room — otherwise two guests can both pass the
@@ -244,9 +280,9 @@ export async function createBookingInternal(input: CreateBookingInternalInput): 
       // or online); a pending online hold that fails/expires hands it back.
       if (couponCode) {
         try {
-          await consumeCoupon(tx, couponCode);
-        } catch {
-          throw new BadRequestError("That code has been fully redeemed");
+          await consumeCoupon(tx, couponCode, { sourceType: "booking", ref, customerKey: customerKeyOf(input.residentId, input.clientId), discountMinor: discountCents, confirmed: isCash });
+        } catch (e) {
+          throw new BadRequestError(e instanceof Error ? e.message : "That code has been fully redeemed");
         }
       }
 
@@ -283,6 +319,7 @@ export async function createBookingInternal(input: CreateBookingInternalInput): 
           totalCents: pricing.totalCents,
           status: isCash ? "paid" : "pending",
         });
+      await recordOrderAcknowledgements(tx, { sourceType: "booking", ref, clientId: input.clientId, residentId: input.residentId, terms: input.acceptedTerms === true });
     });
   } catch (e) {
     if (e instanceof BadRequestError) return { ok: false, status: 400, error: e.message };
@@ -330,6 +367,37 @@ export async function createBookingInternal(input: CreateBookingInternalInput): 
   await db.prepare(`UPDATE bookings SET stripe_session_id = ? WHERE ref = ?`).run(result.session.id, ref);
   return { ok: true, ref, url: result.session.url ?? undefined, totalEuro: pricing.totalCents / 100 };
 }
+
+/** Booking audit 2026-10-11 (B1) — the authoritative price for the booking
+ * form, from priceBookingRequest(): the same validation and pricing checkout
+ * runs, so the shown total is the charged total. Read-only: the slot isn't
+ * held and a coupon is evaluated, not reserved. Also returns the cancellation
+ * deadline for the requested slot, so the review step doesn't hard-code it. */
+bookingsRouter.post("/quote", couponValidateLimiter, async (req, res) => {
+  const b = req.body as Partial<Pick<CreateBookingBody, "centreId" | "roomId" | "date" | "time" | "duration" | "guests" | "couponCode">>;
+  if (!b.centreId || !b.roomId || !b.date || !b.time || b.duration === undefined || b.guests === undefined) {
+    return res.status(400).json({ error: "centreId, roomId, date, time, duration and guests are required" });
+  }
+  const priced = await priceBookingRequest({ centreId: b.centreId, roomId: b.roomId, date: b.date, time: b.time, duration: b.duration, guests: b.guests, couponCode: b.couponCode });
+  if (!priced.ok) return res.status(priced.status).json({ error: priced.error });
+  const p = priced.pricing;
+  const { cancellationHours } = await orgPoliciesForVendor(priced.vendorId);
+  const start = irelandWallTimeToUtc(b.date, priced.startHour);
+  res.json({
+    subtotalCents: p.subtotalCents,
+    discountCents: p.discountCents,
+    taxableCents: p.taxableCents,
+    vatCents: p.vatCents,
+    platformFeeCents: p.platformFeeCents,
+    depositCents: p.depositCents,
+    totalCents: p.totalCents,
+    couponCode: priced.couponCode,
+    currency: "EUR",
+    payAtVenue: priced.isCash,
+    cancellationHours,
+    cancelDeadline: new Date(start.getTime() - cancellationHours * 60 * 60 * 1000).toISOString(),
+  });
+});
 
 bookingsRouter.post("/checkout", async (req, res) => {
   let clientId: string;
@@ -385,6 +453,7 @@ bookingsRouter.post("/checkout", async (req, res) => {
     residentId: req.resident?.id ?? null,
     clientId,
     isNative: req.header("X-Client-Platform") === "mobile",
+    acceptedTerms: (body as { acceptedTerms?: unknown }).acceptedTerms === true,
   });
   if (!result.ok) return res.status(result.status).json({ error: result.error });
   res.status(201).json({ ref: result.ref, url: result.url, totalEuro: result.totalEuro });
@@ -404,16 +473,19 @@ bookingsRouter.get("/status/:ref", async (req, res) => {
   // polling loop, not enough to answer "what did I just book?" once paid.
   // Enriched in place rather than adding a second fetch: PaymentSuccess.tsx
   // already stores the terminal poll response, so no extra round trip.
-  const row = await db
+  const row = (await db
     .prepare(
       `SELECT b.ref, b.payment_status as paymentStatus, b.total_cents as totalCents,
-              b.centre_id as centreId, c.name as centreName, r.name as roomName, b.date, b.time, b.duration, b.guests
+              b.centre_id as centreId, c.name as centreName, r.name as roomName, b.date, b.time, b.duration, b.guests, c.vendor_id as vendorId
        FROM bookings b JOIN centres c ON c.id = b.centre_id LEFT JOIN rooms r ON r.id = b.room_id AND r.centre_id = b.centre_id
        WHERE b.ref = ? AND b.client_id = ?`
     )
-    .get(req.params.ref, clientId);
+    .get(req.params.ref, clientId)) as ({ vendorId: string | null; date: string; time: string } & Record<string, unknown>) | undefined;
   if (!row) return res.status(404).json({ error: "Booking not found" });
-  res.json(row);
+  // Booking UX Phase 3 — the confirmation page states the deadline (same rule as cancel).
+  const { vendorId, ...rest } = row;
+  const { cancellationHours } = await orgPoliciesForVendor(vendorId);
+  res.json({ ...rest, cancelDeadline: cancelDeadlineIso(row.date, row.time, cancellationHours) });
 });
 
 // "Add to calendar" (IA spec §13) — same client_id ownership gate as
@@ -447,6 +519,29 @@ bookingsRouter.get("/:ref/ics", async (req, res) => {
   res.send(ics);
 });
 
+type ManageableBookingRow = Record<string, unknown> & { date: string; time: string; status: string; paymentStatus: string; totalCents: number; paidOnline: number; vendorId: string | null };
+
+/** Booking audit 2026-10-11 (B3) — what the guest may do with each booking,
+ * decided by the same rules the cancel and reschedule routes enforce
+ * (selfCancel.ts), so My Life never offers an action the server refuses. */
+async function withManageFields(rows: ManageableBookingRow[]) {
+  const hoursByVendor = new Map<string | null, number>();
+  const out = [];
+  for (const { paidOnline, ...r } of rows) {
+    if (!hoursByVendor.has(r.vendorId)) hoursByVendor.set(r.vendorId, (await orgPoliciesForVendor(r.vendorId)).cancellationHours);
+    const hours = hoursByVendor.get(r.vendorId)!;
+    out.push({
+      ...r,
+      paidOnline: !!paidOnline,
+      canCancel: bookingChangeBlock(r, "cancel", hours) === null,
+      canReschedule: bookingChangeBlock(r, "reschedule", hours) === null,
+      cancelDeadline: cancelDeadlineIso(r.date, r.time, hours),
+      refundState: refundStateOf({ ...r, paidOnline }),
+    });
+  }
+  return out;
+}
+
 bookingsRouter.get("/", async (req, res) => {
   let clientId: string;
   try {
@@ -463,29 +558,31 @@ bookingsRouter.get("/", async (req, res) => {
     ? await db
         .prepare(
           `SELECT b.ref, b.date, b.time, b.total_cents as totalCents, b.created_at as createdAt, b.status,
+                  b.payment_status as paymentStatus, b.stripe_session_id IS NOT NULL as paidOnline,
                   c.name as centreName, c.ph as ph, c.image_url as image, r.name as roomName, c.vendor_id as vendorId,
                   (SELECT a.status FROM attendance a WHERE a.kind = 'booking' AND a.ref = b.ref) as attendance
            FROM bookings b
            JOIN centres c ON c.id = b.centre_id
            LEFT JOIN rooms r ON r.id = b.room_id AND r.centre_id = b.centre_id
-           WHERE (b.client_id = ? OR LOWER(b.email) = LOWER(?)) AND b.payment_status = 'paid'
+           WHERE (b.client_id = ? OR LOWER(b.email) = LOWER(?)) AND b.payment_status IN ('paid', 'refunded')
            ORDER BY b.created_at DESC`
         )
         .all(clientId, req.guestEmail)
     : await db
         .prepare(
           `SELECT b.ref, b.date, b.time, b.total_cents as totalCents, b.created_at as createdAt, b.status,
+                  b.payment_status as paymentStatus, b.stripe_session_id IS NOT NULL as paidOnline,
                   c.name as centreName, c.ph as ph, c.image_url as image, r.name as roomName, c.vendor_id as vendorId,
                   (SELECT a.status FROM attendance a WHERE a.kind = 'booking' AND a.ref = b.ref) as attendance
            FROM bookings b
            JOIN centres c ON c.id = b.centre_id
            LEFT JOIN rooms r ON r.id = b.room_id AND r.centre_id = b.centre_id
-           WHERE b.client_id = ? AND b.payment_status = 'paid'
+           WHERE b.client_id = ? AND b.payment_status IN ('paid', 'refunded')
            ORDER BY b.created_at DESC`
         )
         .all(clientId);
 
-  res.json(rows);
+  res.json(await withManageFields(rows as ManageableBookingRow[]));
 });
 
 /** Lets a guest recover a booking on a device that never made it — i.e.
@@ -500,6 +597,7 @@ bookingsRouter.post("/lookup", lookupLimiter, async (req, res) => {
   const row = await db
     .prepare(
       `SELECT b.ref, b.date, b.time, b.total_cents as totalCents, b.created_at as createdAt, b.status,
+              b.payment_status as paymentStatus, b.stripe_session_id IS NOT NULL as paidOnline,
               c.name as centreName, c.ph as ph, c.image_url as image, r.name as roomName, c.vendor_id as vendorId
        FROM bookings b
        JOIN centres c ON c.id = b.centre_id
@@ -508,8 +606,15 @@ bookingsRouter.post("/lookup", lookupLimiter, async (req, res) => {
     )
     .get(ref.trim(), email.trim());
   if (!row) return res.status(404).json({ error: "We couldn't find a booking with that reference and email" });
-  res.json(row);
+  res.json((await withManageFields([row as ManageableBookingRow]))[0]);
 });
+
+/** Booking UX Phase 5 (audit E1) — activities held on this booking (games.booking_ref).
+ * A guest can't cancel or move the booking out from under them; they change
+ * or cancel the activity first. A venue-side cancel cascades instead. */
+export async function activeLinkedGames(ref: string): Promise<{ id: string; activityLabel: string }[]> {
+  return (await db.prepare(`SELECT id, activity_label as activityLabel FROM games WHERE booking_ref = ? AND status != 'cancelled'`).all(ref)) as { id: string; activityLabel: string }[];
+}
 
 /** A booking may only be cancelled by the guest who made it, and only up to
  * 48h before the booked start time — matches the "Free cancellation up to
@@ -538,18 +643,13 @@ bookingsRouter.post("/:ref/cancel", lookupLimiter, async (req, res) => {
     | { ref: string; date: string; time: string; duration: number; guests: number; status: string; paymentStatus: string; name: string; email: string; centreId: string; centreName: string; vendorId: string | null; residentId: string | null }
     | undefined;
   if (!row) return res.status(404).json({ error: "Booking not found" });
-  if (row.status === "cancelled") return res.status(409).json({ error: "This booking is already cancelled" });
-  if (row.paymentStatus !== "paid") return res.status(409).json({ error: "This booking can't be cancelled" });
-
-  // Venues are physically in Ireland — the booking's date/time is an Irish
-  // wall-clock time, so the cutoff must be computed against that, not
-  // against whatever timezone this server process happens to be running in.
+  // Venues are physically in Ireland — the cut-off is computed against the
+  // booking's Irish wall-clock time (selfCancel.ts, shared with My Life).
   const { cancellationHours } = await orgPoliciesForVendor(row.vendorId);
-  const startHour = parseInt(row.time.slice(0, 2), 10);
-  const eventStart = irelandWallTimeToUtc(row.date, startHour);
-  if (eventStart.getTime() - Date.now() < cancellationHours * 60 * 60 * 1000) {
-    return res.status(409).json({ error: `This booking is within ${cancellationHours} hours and can no longer be cancelled online — please contact the venue directly` });
-  }
+  const block = bookingChangeBlock(row, "cancel", cancellationHours);
+  if (block) return res.status(block.status).json({ error: block.error });
+  const linked = await activeLinkedGames(row.ref);
+  if (linked.length) return res.status(409).json({ error: `"${linked[0].activityLabel}" is being held on this booking — cancel or move the activity first`, linkedGameId: linked[0].id });
 
   // HC-QA-046 — atomic transition: only the request that actually flips the row
   // runs the side effects (capacity release, audit, notifications, promotion).
@@ -603,15 +703,11 @@ bookingsRouter.post("/:ref/reschedule", lookupLimiter, async (req, res) => {
       }
     | undefined;
   if (!row) return res.status(404).json({ error: "Booking not found" });
-  if (row.status === "cancelled") return res.status(409).json({ error: "This booking is already cancelled" });
-  if (row.paymentStatus !== "paid") return res.status(409).json({ error: "This booking can't be rescheduled" });
-
   const { cancellationHours, bookingWindowDays } = await orgPoliciesForVendor(row.vendorId);
-  const currentStartHour = parseInt(row.time.slice(0, 2), 10);
-  const currentEventStart = irelandWallTimeToUtc(row.date, currentStartHour);
-  if (currentEventStart.getTime() - Date.now() < cancellationHours * 60 * 60 * 1000) {
-    return res.status(409).json({ error: `This booking is within ${cancellationHours} hours and can no longer be rescheduled online — please contact the venue directly` });
-  }
+  const block = bookingChangeBlock(row, "reschedule", cancellationHours);
+  if (block) return res.status(block.status).json({ error: block.error });
+  const linked = await activeLinkedGames(row.ref);
+  if (linked.length) return res.status(409).json({ error: `"${linked[0].activityLabel}" is being held on this booking — cancel or move the activity first`, linkedGameId: linked[0].id });
 
   const startHour = parseInt(time.slice(0, 2), 10);
   const reqEnd = bookingEndHour(startHour, row.duration);

@@ -12,6 +12,7 @@ import { IntentCaptureForm } from "../components/IntentCaptureForm";
 import { Button, CardSkeleton, EmptyState } from "../components/ui";
 import { colors, fonts, maxWidth, radius } from "../theme";
 import type { Centre, Club } from "../types";
+import { CtaBand } from "../components/CtaBand";
 
 // Compare mode (post-audit hardening pass) — folded in from the old
 // standalone /compare page (Compare.tsx, now removed/redirected here), since
@@ -253,13 +254,13 @@ export function Browse() {
         <div style={{ marginBottom: 32 }}>
           <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 24, flexWrap: "wrap" }}>
             <div>
-              <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: ".08em", color: colors.mutedLight, marginBottom: 14 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: 0, color: colors.mutedLight, marginBottom: 14 }}>
                 / {isClubs ? "SPORTS CLUBS" : "COMMUNITY CENTRES"}
               </div>
               <h1
                 style={{
-                  fontFamily: fonts.display, fontWeight: 800, letterSpacing: "-.02em", lineHeight: 1.04,
-                  fontSize: "clamp(32px,5vw,52px)", margin: "0 0 10px", color: colors.text,
+                  fontFamily: fonts.display, fontWeight: 800, letterSpacing: 0, lineHeight: 1.04,
+                  fontSize: "clamp(32px, 3.8vw, 52px)", margin: "0 0 10px", color: colors.text,
                 }}
               >
                 {isClubs ? "Sports clubs" : "Community centres"}
@@ -278,7 +279,7 @@ export function Browse() {
                 )}
               </div>
             </div>
-            <div style={{ display: "flex", border: `1px solid ${colors.inputBorder}`, borderRadius: 11, overflow: "hidden", flex: "none" }}>
+            <div style={{ display: "flex", border: `1px solid ${colors.inputBorder}`, borderRadius: 10, overflow: "hidden", flex: "none" }}>
               {(["list", "map"] as const).map((v) => (
                 <button
                   key={v}
@@ -371,7 +372,7 @@ export function Browse() {
                   style={{
                     padding: "9px 12px 9px 32px",
                     border: `1px solid ${colors.inputBorder}`,
-                    borderRadius: 11,
+                    borderRadius: 10,
                     fontSize: 14,
                     background: colors.bg,
                     color: colors.text,
@@ -386,7 +387,7 @@ export function Browse() {
                 style={{
                   padding: "9px 12px",
                   border: `1px solid ${colors.inputBorder}`,
-                  borderRadius: 11,
+                  borderRadius: 10,
                   fontSize: 14,
                   background: colors.bg,
                   color: colors.text,
@@ -575,6 +576,25 @@ export function Browse() {
           a closing note rather than competing with the header/results for
           attention. Same .fv-marquee mechanism as VendorBenefitStrip.tsx. */}
       <BrowseTicker isClubs={isClubs} />
+      {isClubs ? (
+        <CtaBand
+          id="browse-clubs-cta-title"
+          label="Join a club."
+          lines={["Can't find", "your", "club?"]}
+          text="Start a Circle around the sport you love and people nearby can join you."
+          action={{ label: "Start a Circle", to: "/circles/start" }}
+          secondary={{ label: "Join an activity instead", to: "/games" }}
+        />
+      ) : (
+        <CtaBand
+          id="browse-venues-cta-title"
+          label="Book a space."
+          lines={["Bring", "people", "together."]}
+          text="Book a hall for a class, a club night or a party — or host an activity and let people nearby join."
+          action={{ label: "Host an activity", to: "/games/host" }}
+          secondary={{ label: "Browse clubs", to: "/browse/clubs" }}
+        />
+      )}
     </div>
   );
 }

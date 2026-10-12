@@ -69,7 +69,9 @@ test("HC-QA-047: programme enrolment and paid activity confirmations show the am
       await page.goto(`/programs/${program.id}`);
       await page.getByRole("button", { name: "Enroll", exact: true }).filter({ visible: true }).first().click();
       const dialog = page.getByRole("dialog");
-      await expect(dialog.getByText(`€${(expectedTotal(2500) / 100).toFixed(2)}`, { exact: true })).toBeVisible();
+      // R3A: the server total now shows in the price summary and in the pinned footer — both must match.
+      await expect(dialog.getByText(`€${(expectedTotal(2500) / 100).toFixed(2)}`, { exact: true })).toHaveCount(2);
+      await expect(dialog.getByTestId("checkout-summary")).toContainText(`€${(expectedTotal(2500) / 100).toFixed(2)}`);
       await page.goto(`/games/${game.id}`);
       await page.getByRole("button", { name: /^Join · €8\.00$/ }).filter({ visible: true }).first().click();
       await expect(page.locator('[data-qa="game-quote-total"]').first()).toContainText(`€${(expectedTotal(800) / 100).toFixed(2)}`);

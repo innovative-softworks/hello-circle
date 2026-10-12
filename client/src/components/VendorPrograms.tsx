@@ -29,6 +29,7 @@ import { colors, fonts, radius } from "../theme";
 import type { AttendanceStatus, Program, ProgramStatus, Room, VendorProgramSummary, VendorScheduleItem } from "../types";
 import { formatPrice } from "../formatters";
 import { occurrenceDates } from "../irelandDate";
+import { PaidClosedPriceNotice } from "./PaidClosedPriceNotice";
 
 const ATTENDANCE_STATUS_COLORS: Record<AttendanceStatus, { fg: string; bg: string }> = {
   present: { fg: colors.greenText, bg: colors.greenBg },
@@ -204,7 +205,7 @@ export function ProgramManager({ programId, onChanged }: { programId: string; on
       <h3 style={{ fontSize: 13, fontWeight: 700, color: colors.muted, margin: "0 0 10px" }}>SESSIONS</h3>
       <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 16 }}>
         {program.sessions.map((s) => (
-          <div key={s.id} style={{ border: `1px solid ${colors.border}`, borderRadius: 12, padding: 12 }}>
+          <div key={s.id} style={{ border: `1px solid ${colors.border}`, borderRadius: 10, padding: 12 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               <span style={{ fontWeight: 600, fontSize: 14 }}>
                 {s.date} · {s.time} ({s.durationMinutes}min)
@@ -462,6 +463,7 @@ export function ProgramCreateForm({
         <div>
           <label htmlFor="program-price-total" style={labelStyle}>Price (€, total)</label>
           <input id="program-price-total" value={form.priceCents} onChange={(e) => setForm((f) => ({ ...f, priceCents: e.target.value }))} placeholder="0 = free" style={{ ...inputStyle, maxWidth: 140 }} />
+          <PaidClosedPriceNotice amount={form.priceCents} />
         </div>
         <div>
           <label htmlFor="program-capacity" style={labelStyle}>Capacity</label>

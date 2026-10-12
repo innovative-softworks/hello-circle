@@ -114,12 +114,12 @@ export function InviteSheet({ open, onClose, entityType, entityId, title }: { op
       }
     >
 
-      <div style={{ fontSize: 11.5, fontWeight: 700, color: colors.faint, letterSpacing: ".04em", textTransform: "uppercase", marginBottom: 8 }}>Invite via HelloCircle</div>
+      <div style={{ fontSize: 11.5, fontWeight: 700, color: colors.faint, letterSpacing: 0, textTransform: "uppercase", marginBottom: 8 }}>Invite via HelloCircle</div>
       <div style={{ marginBottom: 18 }}>
         <ResidentPicker onInvite={inviteResident} />
       </div>
 
-      <div style={{ fontSize: 11.5, fontWeight: 700, color: colors.faint, letterSpacing: ".04em", textTransform: "uppercase", marginBottom: 8 }}>Or invite by email</div>
+      <div style={{ fontSize: 11.5, fontWeight: 700, color: colors.faint, letterSpacing: 0, textTransform: "uppercase", marginBottom: 8 }}>Or invite by email</div>
       <div style={{ display: "flex", gap: 8, marginBottom: 18 }}>
         <div style={{ flex: 1 }}>
           <label htmlFor="invite-email" style={labelStyle}>Email address</label>
@@ -132,7 +132,7 @@ export function InviteSheet({ open, onClose, entityType, entityId, title }: { op
 
       {sent && sent.length > 0 && (
         <div style={{ borderTop: `1px solid ${colors.border}`, paddingTop: 16, marginBottom: 18 }}>
-          <h3 style={{ fontSize: 11.5, fontWeight: 700, color: colors.faint, letterSpacing: ".04em", textTransform: "uppercase", margin: "0 0 10px" }}>Invitations sent</h3>
+          <h3 style={{ fontSize: 11.5, fontWeight: 700, color: colors.faint, letterSpacing: 0, textTransform: "uppercase", margin: "0 0 10px" }}>Invitations sent</h3>
           <ul aria-label="Invitations sent" style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: 6 }}>
             {sent.map((inv) => (
               <li key={inv.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, background: colors.bg, borderRadius: radius.control, padding: "8px 12px" }}>
@@ -161,7 +161,7 @@ export function InviteSheet({ open, onClose, entityType, entityId, title }: { op
       </div>
 
       <div style={{ borderTop: `1px solid ${colors.border}`, paddingTop: 16 }}>
-        <div style={{ fontSize: 11.5, fontWeight: 700, color: colors.faint, letterSpacing: ".04em", textTransform: "uppercase", marginBottom: 10 }}>Other ways to invite</div>
+        <div style={{ fontSize: 11.5, fontWeight: 700, color: colors.faint, letterSpacing: 0, textTransform: "uppercase", marginBottom: 10 }}>Other ways to invite</div>
         <InviteButton title={title} text={`I'm going to ${title}. Want to join me?`} listingType={entityType} listingId={entityId} />
       </div>
     </Modal>

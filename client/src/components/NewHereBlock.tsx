@@ -29,7 +29,7 @@ export function NewHereBlock({ county, wrap }: { county?: string | null; wrap: (
     <>
       {wrap(
         <div>
-          <div style={{ fontSize: 11.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".09em", color: colors.muted, marginBottom: 6 }}>New here?</div>
+          <div style={{ fontSize: 11.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0, color: colors.muted, marginBottom: 6 }}>New here?</div>
           <h2 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(22px, 3vw, 30px)", margin: "0 0 6px" }}>
             Welcome{county ? ` to ${county}` : ""}
           </h2>

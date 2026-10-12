@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { lstatSync, readFileSync } from "node:fs";
 import os from "node:os";
@@ -17,7 +17,9 @@ async function main() {
   const stripeMode = args[0] === "stripe";
   const product = args[0] === "product";
   const browsers = args[0] === "browsers";
-  if (authorization || gate || lifecycle || booking || stripeMode || product || browsers) args.shift();
+  // Revenue & Connect Stage 5c — Stage 3–5 journeys (desktop + mobile), provider stub only.
+  const revenue = args[0] === "revenue";
+  if (authorization || gate || lifecycle || booking || stripeMode || product || browsers || revenue) args.shift();
   // Phase 10A — cross-browser critical journeys. Only these three engine
   // names are accepted; anything else falls back to Chromium.
   const qaBrowser = ["firefox", "webkit"].includes(process.env.QA_BROWSER ?? "") ? process.env.QA_BROWSER! : "chromium";
@@ -40,7 +42,32 @@ async function main() {
     try { cfg = JSON.parse(readFileSync(file, "utf8")); } catch { throw new Error("QA STRIPE INVALID: stripe-test.json is not valid JSON."); }
     const issues = stripeTestProfileIssues(cfg);
     if (issues.length) throw new Error(`QA STRIPE INVALID: ${issues.join(" ")}`);
-    stripeEnv = { STRIPE_SECRET_KEY: String(cfg.STRIPE_SECRET_KEY), STRIPE_WEBHOOK_SECRET: `whsec_qa_${randomBytes(32).toString("hex")}`, QA_STRIPE_TEST_PROFILE: "1" };
+    // Stage 5d — a second per-run local secret for Connect events (the handler accepts either),
+    // and a run tag written into the metadata of every Stripe object the run creates.
+    // Stage 5e — when the Stripe CLI is installed, the run signs and verifies
+    // webhooks with the CLI's TEST-mode secret (fetched here with the test key
+    // in the CLI's environment only; never printed), so one spec can receive
+    // real Stripe-delivered events through `stripe listen`. Otherwise every
+    // secret is a fresh per-run local one, as before.
+    let cliSecret: string | null = null;
+    try {
+      const r = spawnSync("stripe", ["listen", "--print-secret", "--skip-update"], { env: { PATH: process.env.PATH, HOME: process.env.HOME, STRIPE_API_KEY: String(cfg.STRIPE_SECRET_KEY) }, encoding: "utf8", timeout: 60_000 });
+      const out = (r.stdout ?? "").trim();
+      if (r.status === 0 && /^whsec_[A-Za-z0-9]{20,80}$/.test(out)) cliSecret = out;
+    } catch {
+      cliSecret = null;
+    }
+    const local = () => `whsec_qa_${randomBytes(32).toString("hex")}`;
+    stripeEnv = {
+      STRIPE_SECRET_KEY: String(cfg.STRIPE_SECRET_KEY),
+      STRIPE_WEBHOOK_SECRET: cliSecret ?? local(),
+      STRIPE_CONNECT_WEBHOOK_SECRET: cliSecret ?? local(),
+      STRIPE_V2_WEBHOOK_SECRET: cliSecret ?? local(),
+      QA_STRIPE_WEBHOOK_SOURCE: cliSecret ? "stripe-cli" : "local",
+      HC_QA_STRIPE_RUN: `qa_stripe_${randomBytes(8).toString("hex")}`,
+      QA_STRIPE_TEST_PROFILE: "1",
+    };
+    console.log(`Stripe webhook signing: ${cliSecret ? "Stripe CLI test-mode session (real delivery available)" : "per-run local secrets (Stripe CLI not available)"}`);
   }
   for (let index = 0; index < args.length; index++) {
     if (args[index] === "--list") continue;
@@ -67,7 +94,18 @@ async function main() {
     // Phase 7 product-lifecycle suites: same guards, one fresh backend per
     // file so each batch stays within the real 10-login password limiter.
     // Phase 8 booking-integrity suites (no payment provider), same guards.
-    const batches = browsers ? [
+    const batches = revenue ? [
+      // Network-free provider stub for every revenue batch; never a Stripe key.
+      ["revenue-public", "revenue-public\\.spec\\.ts$"],
+      ["revenue-partner", "revenue-partner\\.spec\\.ts$"],
+      ["revenue-resident", "revenue-resident\\.spec\\.ts$"],
+      ["revenue-admin", "revenue-admin\\.spec\\.ts$"],
+      ["revenue-admin-b", "revenue-admin-b\\.spec\\.ts$"],
+      ["revenue-split", "revenue-split\\.spec\\.ts$"],
+      ["revenue-plan", "revenue-plan\\.spec\\.ts$"],
+      ["revenue-rewards", "revenue-rewards\\.spec\\.ts$"],
+      ["revenue-credit", "revenue-credit\\.spec\\.ts$"],
+    ] : browsers ? [
       // Critical journeys, re-run per engine (no Stripe financial batches).
       ["core", "(auth|passwordless-security)\\.spec\\.ts$"],
       ["product-vendor-signup", "product-vendor-signup\\.spec\\.ts$"],
@@ -126,6 +164,17 @@ async function main() {
       ["stripe-selfcancel", "stripe-selfcancel\\.spec\\.ts$"],
       ["stripe-browser", "stripe-browser\\.spec\\.ts$"],
       ["stripe-findings", "stripe-findings\\.spec\\.ts$"],
+      // Commercial UX R3A — quote = stored = Stripe amount on the changed paths.
+      ["stripe-r3a", "stripe-r3a\\.spec\\.ts$"],
+      // Stage 5d — local Stripe sandbox validation (Connect, money, disputes, Billing, webhooks, settlement).
+      ["stripe-sandbox-connect", "stripe-sandbox-connect\\.spec\\.ts$"],
+      ["stripe-sandbox-money", "stripe-sandbox-money\\.spec\\.ts$"],
+      ["stripe-sandbox-disputes", "stripe-sandbox-disputes\\.spec\\.ts$"],
+      ["stripe-sandbox-billing", "stripe-sandbox-billing\\.spec\\.ts$"],
+      ["stripe-sandbox-webhooks", "stripe-sandbox-webhooks\\.spec\\.ts$"],
+      ["stripe-sandbox-split", "stripe-sandbox-split\\.spec\\.ts$"],
+      ["stripe-sandbox-delivery", "stripe-sandbox-delivery\\.spec\\.ts$"],
+      ["stripe-sandbox-reconcile", "stripe-sandbox-reconcile\\.spec\\.ts$"],
     ] : booking ? [
       ["booking-centre", "booking-centre\\.spec\\.ts$"],
       ["booking-club", "booking-club\\.spec\\.ts$"],
@@ -246,7 +295,7 @@ async function main() {
       console.log(`Real auth batch: ${batch}`);
       const code = await new Promise<number>((resolve, reject) => {
         const child = spawn(process.execPath, ["node_modules/@playwright/test/cli.js", "test", "--config", "tests/integration/playwright.config.ts", ...(args.length ? ["--pass-with-no-tests"] : []), files, ...args], {
-          cwd: repositoryRoot, env: { ...childEnvironment(current.env, current.manifest), QA_AUTH_BATCH: batch, QA_BROWSER: qaBrowser, ...(prodBuild ? { QA_PROD_BUILD: "1" } : {}), ...(batch === "booking-provider" ? { QA_PAYMENT_PROVIDER_STUB: "1" } : {}), ...stripeEnv }, stdio: "inherit",
+          cwd: repositoryRoot, env: { ...childEnvironment(current.env, current.manifest), QA_AUTH_BATCH: batch, QA_BROWSER: qaBrowser, ...(prodBuild ? { QA_PROD_BUILD: "1" } : {}), ...(batch === "booking-provider" || batch.startsWith("revenue-") ? { QA_PAYMENT_PROVIDER_STUB: "1" } : {}), ...stripeEnv }, stdio: "inherit",
         });
         child.once("error", reject);
         child.once("exit", (status) => resolve(status ?? 1));

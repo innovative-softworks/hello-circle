@@ -42,7 +42,13 @@ export interface AuthedUser {
    * (magic-link) account of the same person via routes/manage.ts. Null for
    * every vendor until they deliberately do that. */
   residentId: string | null;
+  /** Revenue & Connect Stage 2a — admin sub-role (super | finance | support |
+   * legal); null for every non-admin. */
+  adminRole: AdminRole | null;
 }
+
+export const ADMIN_ROLES = ["super", "finance", "support", "legal"] as const;
+export type AdminRole = (typeof ADMIN_ROLES)[number];
 
 interface UserRow {
   id: string;
@@ -64,6 +70,7 @@ interface UserRow {
   provider_tier: "standard" | "verified" | "featured";
   created_at: string;
   resident_id: string | null;
+  admin_role: AdminRole | null;
 }
 
 declare global {
@@ -144,6 +151,7 @@ export async function createUser(
     providerTier: "standard",
     createdAt: new Date().toISOString(),
     residentId: null,
+    adminRole: null,
   };
 }
 
@@ -167,13 +175,14 @@ function rowToUser(row: UserRow): AuthedUser {
     providerTier: row.provider_tier,
     createdAt: row.created_at,
     residentId: row.resident_id,
+    adminRole: row.role === "admin" ? row.admin_role ?? "super" : null,
   };
 }
 
 export async function findUserByEmail(email: string): Promise<(AuthedUser & { passwordHash: string }) | null> {
   const row = (await db
     .prepare(
-      `SELECT id, email, password_hash, role, status, name, vendor_type, business_name, address, county, mobile, landline, description, org_id, platform_role, invited_staff, provider_tier, created_at, resident_id
+      `SELECT id, email, password_hash, role, status, name, vendor_type, business_name, address, county, mobile, landline, description, org_id, platform_role, invited_staff, provider_tier, created_at, resident_id, admin_role
        FROM users WHERE email = ?`
     )
     .get(email.toLowerCase().trim())) as UserRow | undefined;
@@ -189,7 +198,7 @@ export async function findUserByEmail(email: string): Promise<(AuthedUser & { pa
 export async function findUserByGoogleUid(uid: string): Promise<AuthedUser | null> {
   const row = (await db
     .prepare(
-      `SELECT id, email, password_hash, role, status, name, vendor_type, business_name, address, county, mobile, landline, description, org_id, platform_role, invited_staff, provider_tier, created_at, resident_id
+      `SELECT id, email, password_hash, role, status, name, vendor_type, business_name, address, county, mobile, landline, description, org_id, platform_role, invited_staff, provider_tier, created_at, resident_id, admin_role
        FROM users WHERE google_uid = ?`
     )
     .get(uid)) as UserRow | undefined;
@@ -227,7 +236,7 @@ export async function destroySession(token: string) {
 async function userFromToken(token: string): Promise<AuthedUser | null> {
   const row = (await db
     .prepare(
-      `SELECT u.id, u.email, u.role, u.status, u.name, u.vendor_type, u.business_name, u.address, u.county, u.mobile, u.landline, u.description, u.org_id, u.platform_role, u.invited_staff, u.provider_tier, u.created_at, u.resident_id
+      `SELECT u.id, u.email, u.role, u.status, u.name, u.vendor_type, u.business_name, u.address, u.county, u.mobile, u.landline, u.description, u.org_id, u.platform_role, u.invited_staff, u.provider_tier, u.created_at, u.resident_id, u.admin_role
        FROM sessions s JOIN users u ON u.id = s.user_id
        WHERE s.token = ? AND s.expires_at > NOW()`
     )
@@ -254,6 +263,24 @@ export function requireVendor(req: Request, res: Response, next: NextFunction) {
 export function requireAdmin(req: Request, res: Response, next: NextFunction) {
   if (!req.user || req.user.role !== "admin") return res.status(401).json({ error: "Admin login required" });
   next();
+}
+
+/** Revenue & Connect Stage 2a (risk P1-1) — narrows an admin route to the
+ * named sub-roles. `super` always passes. Mount after requireAdmin. A null
+ * admin_role (an admin row created before the column existed and not yet
+ * backfilled) is treated as super, matching the boot backfill. */
+export function hasAdminRole(user: AuthedUser | undefined, ...roles: AdminRole[]): boolean {
+  if (!user || user.role !== "admin") return false;
+  const role = user.adminRole ?? "super";
+  return role === "super" || roles.includes(role);
+}
+
+export function requireAdminRole(...roles: AdminRole[]) {
+  return (req: Request, res: Response, next: NextFunction) => {
+    if (!req.user || req.user.role !== "admin") return res.status(401).json({ error: "Admin login required" });
+    if (!hasAdminRole(req.user, ...roles)) return res.status(403).json({ error: `This needs the ${roles.join(" or ")} admin role` });
+    next();
+  };
 }
 
 /** Either an approved vendor or an admin — used for actions (like uploads) that both roles may perform. */

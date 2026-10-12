@@ -15,6 +15,7 @@ import { Card, inputStyle, labelStyle } from "./ui";
 import { MultiImageUpload } from "./VendorImageUpload";
 import { colors, fonts, radius } from "../theme";
 import type { Experience } from "../types";
+import { PaidClosedPriceNotice } from "./PaidClosedPriceNotice";
 
 // Guided Flow creation wizard for an Adventure/Experience listing (Form
 // System Audit, Phase 5 fast-follow to Centre/Club — same reasoning: this
@@ -446,6 +447,7 @@ export function ExperienceCreationWizard({
               <div>
                 <label htmlFor="experience-wizard-price" style={labelStyle}>Price per person (€)</label>
                 <input id="experience-wizard-price" type="number" value={form.priceCents / 100} onChange={(e) => setForm({ priceCents: Math.round(Number(e.target.value) * 100) })} style={{ ...inputStyle, maxWidth: 140 }} />
+                <PaidClosedPriceNotice amount={form.priceCents} paymentMethod={form.paymentMethod} />
               </div>
             )}
             <NumberStepper label={form.kind === "volunteer" ? "Volunteers needed per session" : "Capacity per departure"} value={form.capacity} onChange={(n) => setForm({ capacity: n })} min={1} />

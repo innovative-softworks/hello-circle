@@ -28,7 +28,7 @@ export function HostNextUpHero({ game, onManage }: { game: Game; onManage: () =>
         <Photo src={game.imageUrl ?? undefined} alt={game.activityLabel} ph={placeholderStripes.green} style={{ width: 220, minHeight: 170, flex: "none" }} />
         <div style={{ flex: "1 1 260px", minWidth: 240, padding: "18px 20px" }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 8 }}>
-            <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".06em", color: colors.mutedLight }}>NEXT UP</span>
+            <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0, color: colors.mutedLight }}>NEXT UP</span>
             <StatusBadge game={game} />
           </div>
           <div style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 20, marginBottom: 8 }}>{game.activityLabel}</div>

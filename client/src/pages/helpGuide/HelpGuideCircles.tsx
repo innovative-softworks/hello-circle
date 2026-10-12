@@ -46,7 +46,7 @@ export function HelpGuideCircles() {
 
       <GuideStep n="04" title="Start your own Circle">
         <p style={guideStepPStyle}>
-          Press <strong>Start a Circle</strong> from the Circles page, or Explore → Featured → Become a Host, to open{" "}
+          Press <strong>Start a Circle</strong> from the Circles page or the Start menu, or Explore → Featured → Become a host, to open{" "}
           <code>/circles/start</code>. You'll set:
         </p>
         <ul style={guideStepUlStyle}>

@@ -1,5 +1,6 @@
 import { db } from "./db/index.js";
 import { sendMail } from "./email.js";
+import { marketingAllowed } from "./consent.js";
 import { renderTemplate } from "./notificationTemplates.js";
 import { sendPush } from "./push.js";
 import { CLIENT_URL } from "./stripe.js";
@@ -69,6 +70,8 @@ const PREF_KEY_BY_KIND: Partial<Record<NotifyResidentParams["kind"], string>> = 
  * notifyResident's in-app insert, e.g. waitlist.ts) can respect the same
  * preference instead of only gating the in-app copy. */
 export async function residentAllows(residentId: string, prefKey: string): Promise<boolean> {
+  // Stage 5c — marketing needs an explicit opt-in consent record; it never defaults to on.
+  if (prefKey === "marketing") return marketingAllowed(residentId);
   const row = (await db.prepare(`SELECT notification_prefs as prefs FROM residents WHERE id = ?`).get(residentId)) as
     | { prefs: string | null }
     | undefined;

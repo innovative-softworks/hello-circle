@@ -1,7 +1,7 @@
 import { ArrowRightIcon, AwardIcon, BuildingIcon } from "../icons";
 import { Button } from "../ui";
 import { colors, fonts } from "../../theme";
-import { FV_ACCENT, FV_MAX_WIDTH } from "./constants";
+import { FV_ACCENT, FV_ACCENT_DARK, FV_MAX_WIDTH } from "./constants";
 import { RevealText } from "../RevealText";
 
 // Swiss/editorial fork, matching this page's own dominant visual language
@@ -28,7 +28,7 @@ const PATHS = [
     eyebrow: "Just hosting?",
     title: "Start something yourself.",
     detail: "A one-off Session or a standing Circle — free, live in minutes, no venue or business required.",
-    cta: "Become a Host",
+    cta: "Become a host",
     variant: "ghost" as const,
   },
 ];
@@ -40,10 +40,10 @@ export function ChooseYourPathSection({ onListVenueCta, onBecomeHostCta }: { onL
     <section style={{ background: colors.dark }}>
       <div className="section-pad" style={{ maxWidth: FV_MAX_WIDTH, margin: "0 auto", padding: "80px 24px" }}>
         <div style={{ marginBottom: 56 }}>
-          <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: ".09em", textTransform: "uppercase", color: "rgba(255,255,255,.5)", marginBottom: 12 }}>
-            <span style={{ color: FV_ACCENT }}>/</span> Choose your path
+          <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: 0, textTransform: "uppercase", color: "rgba(255,255,255,.5)", marginBottom: 12 }}>
+            <span style={{ color: FV_ACCENT_DARK }}>/</span> Choose your path
           </div>
-          <RevealText as="h2" style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(36px, 5.4vw, 64px)", lineHeight: 0.98, letterSpacing: "-.03em", color: "#fff", margin: 0 }}>
+          <RevealText as="h2" style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(36px, 5.4vw, 64px)", lineHeight: 0.98, letterSpacing: 0, color: "#fff", margin: 0 }}>
             Neither path
             <br />
             needs the other.
@@ -65,17 +65,17 @@ export function ChooseYourPathSection({ onListVenueCta, onBecomeHostCta }: { onL
                 }}
               >
                 <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 24 }}>
-                  <span style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 64, letterSpacing: "-.02em", color: "rgba(255,255,255,.18)", lineHeight: 1 }}>
+                  <span style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 64, letterSpacing: 0, color: "rgba(255,255,255,.18)", lineHeight: 1 }}>
                     {p.n}
                   </span>
-                  <span style={{ color: FV_ACCENT, display: "flex" }}>
+                  <span style={{ color: FV_ACCENT_DARK, display: "flex" }}>
                     <Icon size={28} />
                   </span>
                 </div>
-                <div style={{ fontSize: 12.5, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: FV_ACCENT, marginBottom: 12 }}>
+                <div style={{ fontSize: 12.5, fontWeight: 700, letterSpacing: 0, textTransform: "uppercase", color: FV_ACCENT_DARK, marginBottom: 12 }}>
                   {p.eyebrow}
                 </div>
-                <h3 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(26px, 3vw, 34px)", letterSpacing: "-.01em", color: "#fff", margin: "0 0 16px" }}>
+                <h3 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(26px, 3vw, 34px)", letterSpacing: 0, color: "#fff", margin: "0 0 16px" }}>
                   {p.title}
                 </h3>
                 <p style={{ fontSize: 16, color: "rgba(255,255,255,.72)", lineHeight: 1.6, margin: "0 0 28px", maxWidth: 420 }}>{p.detail}</p>

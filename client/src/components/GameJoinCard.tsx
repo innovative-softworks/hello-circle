@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
+import { PAID_CLOSED_MESSAGE, usePaidCheckoutOpen } from "../paidCheckout";
 import { leaveWaitlistConfirm } from "../confirmCopy";
 import { useConfirm } from "./ConfirmProvider";
 import { useNavigate } from "react-router-dom";
-import { cancelGame, downloadGameIcs, fetchGameParticipants, joinGame, joinGameWaitlist, leaveGame, leaveGameWaitlist, quoteGame, subscribeGameNotifyMe, validateCoupon, type PriceQuote } from "../api";
+import { cancelGame, downloadGameIcs, fetchGameNotifyMe, fetchGameParticipants, joinGame, joinGameWaitlist, leaveGame, leaveGameWaitlist, quoteGame, subscribeGameNotifyMe, unsubscribeGameNotifyMe, validateCoupon, type PriceQuote } from "../api";
 import { signInHref } from "../authRedirect";
 import { openCheckout } from "../native";
 import { CalendarIcon, CheckIcon, PinIcon, UsersIcon } from "./icons";
@@ -56,6 +57,45 @@ function gameSignInContext(game: Game) {
   };
 }
 
+/** "Notify me" on a Coming Soon activity — shared by the card and the mobile
+ * bar. Loads the real subscription for a signed-in resident (sitemap audit
+ * P2-09: it used to live only in page state, so after a reload there was no
+ * sign you'd subscribed and no way to stop), and can unsubscribe. */
+function useGameNotifyMe(gameId: string, resident: Resident | null, active: boolean) {
+  const [subscribed, setSubscribed] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    if (!resident || !active) return;
+    let live = true;
+    fetchGameNotifyMe(gameId)
+      .then((r) => live && setSubscribed(r.subscribed))
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, [gameId, resident, active]);
+  const run = async (fn: () => Promise<unknown>, next: boolean, failure: string) => {
+    setBusy(true);
+    setError(null);
+    try {
+      await fn();
+      setSubscribed(next);
+    } catch {
+      setError(failure);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return {
+    subscribed,
+    busy,
+    error,
+    subscribe: () => run(() => subscribeGameNotifyMe(gameId), true, "Couldn't set up the notification — try again."),
+    unsubscribe: () => run(() => unsubscribeGameNotifyMe(gameId), false, "Couldn't turn the notification off — try again."),
+  };
+}
+
 interface JoinCardProps {
   game: Game;
   resident: Resident | null;
@@ -66,6 +106,17 @@ interface JoinCardProps {
 // Compact recap line shared by the confirm modal and the (rare) inline
 // error state — date/time, venue, headcount, price, in that order, matching
 // the spec's own §21 confirmation-sheet layout.
+/** Booking UX Phase 4 (B9) — an activity with a minimum age needs the
+ * joiner's confirmation; the server refuses the join without it. */
+function MinAgeConfirm({ minAge, checked, onChange }: { minAge: number; checked: boolean; onChange: (v: boolean) => void }) {
+  return (
+    <label style={{ display: "flex", gap: 10, alignItems: "flex-start", fontSize: 14, lineHeight: 1.45, minHeight: 44, marginTop: 12, cursor: "pointer", textAlign: "left" }}>
+      <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} style={{ width: 20, height: 20, margin: "1px 0 0", flex: "none" }} />
+      <span>I'm at least {minAge}</span>
+    </label>
+  );
+}
+
 function PlanRecap({ game, couponCode }: { game: Game; couponCode?: string | null }) {
   // HC-QA-047 — a paid join's confirmation shows the server's own total
   // (VAT + platform fee), not just the per-player listing price.
@@ -97,12 +148,10 @@ function PlanRecap({ game, couponCode }: { game: Game; couponCode?: string | nul
 }
 
 // Vendor-parity pass, Phase 25 — a host can scope a coupon to one priced
-// session (games.ts's POST /coupons). This preview uses the generic
-// /coupons/validate endpoint, which has no listing context (see pricing.ts's
-// own documented limit on that endpoint) — real enforcement/rejection for a
-// code that doesn't apply to this specific game happens at the actual join
-// call below, same never-trust-the-preview contract BookingFlow.tsx uses.
-function GameCouponField({ subtotalCents, onApplied }: { subtotalCents: number; onApplied: (code: string | null) => void }) {
+// session (games.ts's POST /coupons). The preview passes this game as listing
+// context so a code for another session is rejected here too; the join call
+// below still re-validates (never-trust-the-preview, same as BookingFlow.tsx).
+function GameCouponField({ gameId, subtotalCents, onApplied }: { gameId: string; subtotalCents: number; onApplied: (code: string | null) => void }) {
   const [input, setInput] = useState("");
   const [applied, setApplied] = useState<{ code: string; discountCents: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -113,7 +162,7 @@ function GameCouponField({ subtotalCents, onApplied }: { subtotalCents: number; 
     setChecking(true);
     setError(null);
     try {
-      const res = await validateCoupon(input.trim(), subtotalCents);
+      const res = await validateCoupon(input.trim(), subtotalCents, { listingType: "game", listingId: gameId });
       setApplied({ code: res.code, discountCents: res.discountCents });
       onApplied(res.code);
     } catch (e) {
@@ -218,6 +267,9 @@ function JoinHeadline({ game, state }: { game: Game; state: JoinState }) {
  * collapses to one column (MobileJoinBar below covers the "always visible"
  * requirement instead of reordering the page). */
 export function GameJoinCard({ game, resident, isHost, onRefresh }: JoinCardProps) {
+  const paidOpen = usePaidCheckoutOpen();
+  // Commercial release gate — a paid join can't start while paid checkout is closed (the server refuses it too).
+  const paidClosed = paidOpen === false && !!game.priceCents;
   const navigate = useNavigate();
   const confirm = useConfirm();
   const [busy, setBusy] = useState(false);
@@ -228,22 +280,14 @@ export function GameJoinCard({ game, resident, isHost, onRefresh }: JoinCardProp
   const [justJoined, setJustJoined] = useState(false);
   const [participants, setParticipants] = useState<{ residentId: string; name: string }[]>([]);
   const [couponCode, setCouponCode] = useState<string | null>(null);
+  const [ageOk, setAgeOk] = useState(false);
   const [leaveConfirmOpen, setLeaveConfirmOpen] = useState(false);
-  const [notifySubscribed, setNotifySubscribed] = useState(false);
-  const [notifyBusy, setNotifyBusy] = useState(false);
 
   const state = computeState(game, resident, isHost);
-  const handleNotifyMe = async () => {
+  const notify = useGameNotifyMe(game.id, resident, state === "coming-soon");
+  const handleNotifyMe = () => {
     if (!resident) return navigate(signInHref(gameSignInContext(game)));
-    setNotifyBusy(true);
-    try {
-      await subscribeGameNotifyMe(game.id);
-      setNotifySubscribed(true);
-    } catch {
-      setError("Couldn't set up the notification — try again.");
-    } finally {
-      setNotifyBusy(false);
-    }
+    void notify.subscribe();
   };
   const isPast = new Date(`${game.date}T${game.time}:00`).getTime() < Date.now();
 
@@ -272,7 +316,7 @@ export function GameJoinCard({ game, resident, isHost, onRefresh }: JoinCardProp
   };
 
   const handleConfirmJoin = () => {
-    run(() => joinGame(game.id, couponCode ?? undefined), () => {
+    run(() => joinGame(game.id, couponCode ?? undefined, game.minAge ? ageOk : undefined), () => {
       setConfirmOpen(false);
       setCouponCode(null);
       if (!game.priceCents) setJustJoined(true);
@@ -363,15 +407,25 @@ export function GameJoinCard({ game, resident, isHost, onRefresh }: JoinCardProp
             </Button>
           )}
           {state === "coming-soon" &&
-            (notifySubscribed ? (
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "9px 0", color: colors.greenText, fontWeight: 700, fontSize: 13 }}>
-                <CheckIcon size={14} /> We'll let you know
+            (notify.subscribed ? (
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 10, padding: "9px 0", flexWrap: "wrap" }}>
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 6, color: colors.greenText, fontWeight: 700, fontSize: 13 }}>
+                  <CheckIcon size={14} /> We'll let you know
+                </span>
+                <button
+                  onClick={() => void notify.unsubscribe()}
+                  disabled={notify.busy}
+                  style={{ background: "none", border: "none", padding: "4px 2px", fontSize: 13, fontWeight: 600, color: colors.muted, textDecoration: "underline", cursor: "pointer" }}
+                >
+                  {notify.busy ? "Turning off…" : "Stop notifications"}
+                </button>
               </div>
             ) : (
-              <Button full onClick={handleNotifyMe} disabled={notifyBusy}>
-                {notifyBusy ? "Setting up…" : "Notify me"}
+              <Button full onClick={handleNotifyMe} disabled={notify.busy}>
+                {notify.busy ? "Setting up…" : "Notify me"}
               </Button>
             ))}
+          {state === "coming-soon" && notify.error && <p role="alert" style={{ margin: 0, fontSize: 13, color: colors.danger }}>{notify.error}</p>}
           {state === "signed-out" && (
             <Button full onClick={() => navigate(signInHref(gameSignInContext(game)))}>{game.spotsLeft === 0 ? "Sign in to join the waitlist" : "Sign in to join"}</Button>
           )}
@@ -415,13 +469,16 @@ export function GameJoinCard({ game, resident, isHost, onRefresh }: JoinCardProp
         message={
           <>
             <PlanRecap game={game} couponCode={couponCode} />
-            {!!game.priceCents && <GameCouponField subtotalCents={game.priceCents} onApplied={setCouponCode} />}
+            {!!game.priceCents && <GameCouponField gameId={game.id} subtotalCents={game.priceCents} onApplied={setCouponCode} />}
+            {!!game.minAge && <MinAgeConfirm minAge={game.minAge} checked={ageOk} onChange={setAgeOk} />}
+            {paidClosed && <p role="status" style={{ margin: "10px 0 0", fontSize: 13.5, fontWeight: 600, color: colors.orangeDark }}>{PAID_CLOSED_MESSAGE}</p>}
           </>
         }
         confirmLabel={game.priceCents ? "Continue to payment" : "Confirm I'm in"}
         cancelLabel="Cancel"
         tone="neutral"
         busy={busy}
+        confirmDisabled={(!!game.minAge && !ageOk) || paidClosed}
         onConfirm={handleConfirmJoin}
         onCancel={() => {
           setConfirmOpen(false);
@@ -465,31 +522,33 @@ export function GameJoinCard({ game, resident, isHost, onRefresh }: JoinCardProp
  * plus a sticky "book now" bar above it, rather than reordering the whole
  * page to pull the desktop card up near the hero. */
 export function MobileJoinBar({ game, resident, isHost, onRefresh }: JoinCardProps) {
+  const paidOpen = usePaidCheckoutOpen();
+  // Commercial release gate — a paid join can't start while paid checkout is closed (the server refuses it too).
+  const paidClosed = paidOpen === false && !!game.priceCents;
   const navigate = useNavigate();
   const [busy, setBusy] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [couponCode, setCouponCode] = useState<string | null>(null);
-  const [notifySubscribed, setNotifySubscribed] = useState(false);
+  const [ageOk, setAgeOk] = useState(false);
 
   const state = computeState(game, resident, isHost);
+  const notify = useGameNotifyMe(game.id, resident, state === "coming-soon");
   if (state === "cancelled" || state === "host" || state === "joined") return null;
 
   if (state === "coming-soon") {
     const onNotify = () => {
       if (!resident) return navigate(signInHref(gameSignInContext(game)));
-      setBusy(true);
-      subscribeGameNotifyMe(game.id)
-        .then(() => setNotifySubscribed(true))
-        .finally(() => setBusy(false));
+      void (notify.subscribed ? notify.unsubscribe() : notify.subscribe());
     };
     return (
       <div className="mobile-join-bar">
         <div>
           <div style={{ fontWeight: 800, fontSize: 15, fontFamily: fonts.display, color: colors.orangeDark }}>Coming soon</div>
-          <div style={{ fontSize: 12.5, color: colors.mutedLight }}>Bookings aren't open yet</div>
+          <div style={{ fontSize: 12.5, color: colors.mutedLight }}>{notify.subscribed ? "We'll let you know when it opens" : "Bookings aren't open yet"}</div>
         </div>
-        <Button onClick={onNotify} disabled={busy || notifySubscribed} style={{ flex: "none" }}>
-          {notifySubscribed ? "We'll let you know" : busy ? "Please wait…" : "Notify me"}
+        {/* Subscribed: the button turns notifications off (labelled as such). */}
+        <Button variant={notify.subscribed ? "ghost" : "primary"} onClick={onNotify} disabled={notify.busy} style={{ flex: "none" }}>
+          {notify.busy ? "Please wait…" : notify.subscribed ? "Stop notifications" : "Notify me"}
         </Button>
       </div>
     );
@@ -523,16 +582,19 @@ export function MobileJoinBar({ game, resident, isHost, onRefresh }: JoinCardPro
         message={
           <>
             <PlanRecap game={game} couponCode={couponCode} />
-            {!!game.priceCents && <GameCouponField subtotalCents={game.priceCents} onApplied={setCouponCode} />}
+            {!!game.priceCents && <GameCouponField gameId={game.id} subtotalCents={game.priceCents} onApplied={setCouponCode} />}
+            {!!game.minAge && <MinAgeConfirm minAge={game.minAge} checked={ageOk} onChange={setAgeOk} />}
+            {paidClosed && <p role="status" style={{ margin: "10px 0 0", fontSize: 13.5, fontWeight: 600, color: colors.orangeDark }}>{PAID_CLOSED_MESSAGE}</p>}
           </>
         }
         confirmLabel={game.priceCents ? "Continue to payment" : "Confirm I'm in"}
         cancelLabel="Cancel"
         tone="neutral"
         busy={busy}
+        confirmDisabled={(!!game.minAge && !ageOk) || paidClosed}
         onConfirm={() => {
           setBusy(true);
-          joinGame(game.id, couponCode ?? undefined)
+          joinGame(game.id, couponCode ?? undefined, game.minAge ? ageOk : undefined)
             .then((res) => {
               if (res.url) {
                 openCheckout(res.url);

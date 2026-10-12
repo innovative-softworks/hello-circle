@@ -2,7 +2,7 @@ import { Button } from "../ui";
 import { CheckIcon } from "../icons";
 import { ParallaxImage } from "../ParallaxImage";
 import { colors, fonts } from "../../theme";
-import { FV_ACCENT, FV_MAX_WIDTH } from "./constants";
+import { FV_ACCENT, FV_ACCENT_DARK, FV_MAX_WIDTH } from "./constants";
 import { RevealText } from "../RevealText";
 
 const REASSURANCE = ["Completely free", "No venue or business needed", "Live in minutes"];
@@ -23,7 +23,7 @@ export function HostHero({ onCta }: { onCta: () => void }) {
       <div className="section-pad" style={{ maxWidth: FV_MAX_WIDTH, margin: "0 auto", padding: "28px 24px 40px" }}>
         <div className="grid-responsive" style={{ display: "grid", gridTemplateColumns: "7fr 3fr", gap: 48, alignItems: "center" }}>
           <div>
-            <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: ".09em", textTransform: "uppercase", color: FV_ACCENT, marginBottom: 14 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: 0, textTransform: "uppercase", color: FV_ACCENT_DARK, marginBottom: 14 }}>
               <span aria-hidden="true">/</span> For hosts
             </div>
             <RevealText as="h1"
@@ -32,13 +32,13 @@ export function HostHero({ onCta }: { onCta: () => void }) {
                 fontWeight: 800,
                 fontSize: "clamp(38px, 5.6vw, 64px)",
                 lineHeight: 0.98,
-                letterSpacing: "-.03em",
+                letterSpacing: 0,
                 margin: "0 0 20px",
               }}
             >
               Host something.
               <br />
-              <span style={{ color: FV_ACCENT }}>No venue needed.</span>
+              <span style={{ color: FV_ACCENT_DARK }}>No venue needed.</span>
             </RevealText>
             <p style={{ fontSize: 16.5, color: colors.textSoft, lineHeight: 1.6, margin: 0, maxWidth: 560 }}>
               A one-off Session or a standing Circle — a kickabout, a class, a standing group. Pick a time and a
@@ -49,13 +49,13 @@ export function HostHero({ onCta }: { onCta: () => void }) {
           <div>
             <div style={{ marginBottom: 22 }}>
               <Button variant="orange" onClick={onCta} style={{ padding: "13px 22px", fontSize: 15, background: FV_ACCENT }}>
-                Become a Host
+                Become a host
               </Button>
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
               {REASSURANCE.map((r) => (
                 <div key={r} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13.5, color: colors.muted, fontWeight: 600 }}>
-                  <span style={{ color: FV_ACCENT, display: "flex", flex: "none" }}>
+                  <span style={{ color: FV_ACCENT_DARK, display: "flex", flex: "none" }}>
                     <CheckIcon size={15} />
                   </span>
                   {r}

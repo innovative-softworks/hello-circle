@@ -140,7 +140,7 @@ function ListingProfileCard({
         </div>
         <div style={{ flex: "1 1 320px", padding: 24, display: "flex", flexDirection: "column", gap: 10 }}>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 10, alignItems: "center" }}>
-            <h3 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 19, margin: 0, letterSpacing: "-.01em" }}>{listing.name}</h3>
+            <h3 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 19, margin: 0, letterSpacing: 0 }}>{listing.name}</h3>
             <StatusBadge status={listing.status} label={approvedButGated ? VENUE_NOT_PUBLIC_LABEL : undefined} />
           </div>
           {!publiclyOpen && (listing.status === "approved" || listing.status === "paused") && (
@@ -249,9 +249,9 @@ function ListingsTable({
           <Card key={r.id} onClick={() => onEdit(r.id)} style={{ cursor: "pointer" }}>
             <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
               {r.image ? (
-                <img src={getMediaUrl(r.image, "thumbnail")} alt="" style={{ width: 48, height: 48, borderRadius: 8, objectFit: "cover", flex: "none" }} />
+                <img src={getMediaUrl(r.image, "thumbnail")} alt="" style={{ width: 48, height: 48, borderRadius: 10, objectFit: "cover", flex: "none" }} />
               ) : (
-                <div style={{ width: 48, height: 48, borderRadius: 8, background: colors.panel, flex: "none" }} />
+                <div style={{ width: 48, height: 48, borderRadius: 10, background: colors.panel, flex: "none" }} />
               )}
               <div style={{ minWidth: 0, flex: 1 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
@@ -292,9 +292,9 @@ function ListingsTable({
             <tr key={r.id}>
               <td style={{ ...tdStyle, width: 44 }}>
                 {r.image ? (
-                  <img src={getMediaUrl(r.image, "thumbnail")} alt="" style={{ width: 36, height: 36, borderRadius: 8, objectFit: "cover", display: "block" }} />
+                  <img src={getMediaUrl(r.image, "thumbnail")} alt="" style={{ width: 36, height: 36, borderRadius: 10, objectFit: "cover", display: "block" }} />
                 ) : (
-                  <div style={{ width: 36, height: 36, borderRadius: 8, background: colors.panel }} />
+                  <div style={{ width: 36, height: 36, borderRadius: 10, background: colors.panel }} />
                 )}
               </td>
               <td style={tdStyle}>
@@ -371,7 +371,7 @@ function ListingSection({
   if (rows.length === 1) {
     return (
       <div>
-        <h3 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 18, margin: "0 0 14px", letterSpacing: "-.01em" }}>{title}</h3>
+        <h3 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 18, margin: "0 0 14px", letterSpacing: 0 }}>{title}</h3>
         <ListingProfileCard
           kind={kind}
           listing={rows[0]}
@@ -387,7 +387,7 @@ function ListingSection({
   return (
     <div>
       <div style={{ display: "flex", flexWrap: "wrap", gap: 10, justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
-        <h3 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 18, margin: 0, letterSpacing: "-.01em" }}>{title}</h3>
+        <h3 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 18, margin: 0, letterSpacing: 0 }}>{title}</h3>
         <Button variant={addButtonVariant} onClick={onNew}>
           {addLabel}
         </Button>

@@ -1,3 +1,5 @@
+import { EarningsSections } from "./EarningsSummary";
+import { TraderProfileForm } from "./TraderProfileForm";
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../AuthContext";
@@ -11,6 +13,7 @@ import {
   fetchParticipants,
   fetchVendorInsights,
   fetchVendorPayments,
+  fetchVendorEarnings,
   inviteStaff,
   linkVendorGoogleAccount,
   requestManageLink,
@@ -629,7 +632,7 @@ function InsightsPanel() {
             <span style={{ fontSize: 13, color: colors.faint }}>No bookings yet.</span>
           ) : (
             insights.utilisation.map((u, i) => (
-              <span key={i} style={{ fontSize: 12, background: colors.greenBg, color: colors.greenText, borderRadius: 8, padding: "5px 9px", fontWeight: 700 }}>
+              <span key={i} style={{ fontSize: 12, background: colors.greenBg, color: colors.greenText, borderRadius: 10, padding: "5px 9px", fontWeight: 700 }}>
                 {DAY_NAMES[(u.dayOfWeek - 1) % 7]} {u.hour}:00 — {u.n}
               </span>
             ))
@@ -669,6 +672,7 @@ export function PaymentsPanel() {
   const filteredTransactions = data.transactions.filter((t) => filter === "all" || t.paymentStatus === filter);
 
   return (
+    <EarningsSections scope="vendor" loadBalance={fetchVendorEarnings}>
     <Card>
       <div style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 22, marginBottom: 4 }}>€{(data.totalPaidCents / 100).toFixed(2)}</div>
       {/* Vendor Experience Polish — totalPaidCents is now a true SUM across
@@ -676,7 +680,7 @@ export function PaymentsPanel() {
           derived from the transactions list below (which stays capped for
           display) — the old "last 200 transactions" caption was actively
           misleading about what the total represented, so it's dropped. */}
-      <div style={{ fontSize: 12.5, color: colors.mutedLight, marginBottom: 18 }}>Total paid, all time</div>
+      <div style={{ fontSize: 12.5, color: colors.mutedLight, marginBottom: 18 }}>Customer payments, all time (including VAT, fees and deposits — not your earnings; see your balance above)</div>
       {data.transactions.length === 0 ? (
         <EmptyState icon={<UsersIcon size={22} />} title="No transactions yet" />
       ) : (
@@ -754,12 +758,13 @@ export function PaymentsPanel() {
         </>
       )}
     </Card>
+    </EarningsSections>
   );
 }
 
 export function VendorOrgTab() {
   const [profile, setProfile] = useState<OrgProfile | null>(null);
-  const [subTab, setSubTab] = useState<"settings" | "staff" | "participants" | "insights">("settings");
+  const [subTab, setSubTab] = useState<"settings" | "trader" | "staff" | "participants" | "insights">("settings");
 
   const load = () => fetchOrgProfile().then(setProfile);
   useEffect(() => {
@@ -776,6 +781,7 @@ export function VendorOrgTab() {
           onChange={setSubTab}
           options={[
             { key: "settings", label: "Settings" },
+            { key: "trader", label: "Trader details" },
             { key: "staff", label: "Staff & roles" },
             { key: "participants", label: "Participants" },
             { key: "insights", label: "Insights", icon: <TrendUpIcon size={13} /> },
@@ -783,6 +789,7 @@ export function VendorOrgTab() {
         />
       </div>
       {subTab === "settings" && <SettingsPanel profile={profile} reload={load} />}
+      {subTab === "trader" && <TraderProfileForm scope="vendor" />}
       {subTab === "staff" && <StaffPanel profile={profile} reload={load} />}
       {subTab === "participants" && <ParticipantsPanel />}
       {subTab === "insights" && <InsightsPanel />}

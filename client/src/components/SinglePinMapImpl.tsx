@@ -8,7 +8,7 @@ function UnavailableFallback({ height, message }: { height: number; message: str
   return (
     <div
       style={{
-        borderRadius: 14,
+        borderRadius: 16,
         border: `1px solid ${colors.border}`,
         height,
         display: "flex",
@@ -43,7 +43,7 @@ export function SinglePinMap({ lat, lng, label, height = 260, zoom = 12 }: { lat
   }
 
   return (
-    <div style={{ borderRadius: 14, overflow: "hidden", border: `1px solid ${colors.border}`, height }}>
+    <div style={{ borderRadius: 16, overflow: "hidden", border: `1px solid ${colors.border}`, height }}>
       <Map
         mapboxAccessToken={MAPBOX_TOKEN}
         initialViewState={{ longitude: lng, latitude: lat, zoom }}

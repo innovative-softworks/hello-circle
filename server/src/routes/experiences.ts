@@ -1,4 +1,7 @@
 import { Router } from "express";
+import { allocate } from "../commerce/money.js";
+import { creditBalance, creditForCheckout, reserveCredit } from "../commerce/credits.js";
+import { commerceQuoteLimiter } from "../rateLimit.js";
 import { createCheckoutSession, pricingLineItems } from "../checkoutService.js";
 import { logEvent, logView } from "../analytics.js";
 import { db } from "../db/index.js";
@@ -7,11 +10,13 @@ import { orgPoliciesForVendor } from "../db/queries.js";
 import { upgradeFavouriteStatus } from "./favourites.js";
 import { buildIcsEvent } from "../ics.js";
 import { irelandWallTimeToUtc } from "../irelandTime.js";
-import { experienceCancelBlock, refundStateOf } from "../selfCancel.js";
+import { cancelDeadlineIso, experienceCancelBlock, refundStateOf } from "../selfCancel.js";
+import { cleanParticipantNames, minAgeError, recordOrderAcknowledgements, recordParticipantNames } from "../orderAcknowledgements.js";
 import { notifyCancellation, notifyNewBookingOrRegistration } from "../notifications.js";
 import { computePricing, evaluateCoupon } from "../pricing.js";
+import { QuoteError, consumeQuote, createOrder, createQuote, engineEnabledFor, engineLineItems, legacyColumns, priceWithRules, releaseQuote, shadowPrice, syncOrderFromSource, vendorPartner } from "../commerce/engine.js";
 import { BadRequestError, ConflictError, clientIdFrom, generateRef, isValidEmail } from "../util.js";
-import { consumeCoupon, endPendingHold, isPositiveInt, occupiesCapacitySql, startIsInFuture } from "../bookingIntegrity.js";
+import { VENDOR_SUSPENDED_ERROR, consumeCoupon, customerKeyOf, endPendingHold, isPositiveInt, occupiesCapacitySql, startIsInFuture, vendorSuspended } from "../bookingIntegrity.js";
 
 // Adventures & Experiences — a standalone third listing type alongside
 // centres/clubs (not nested under either), added post-IA-spec-audit. Same
@@ -22,7 +27,7 @@ import { consumeCoupon, endPendingHold, isPositiveInt, occupiesCapacitySql, star
 // multi-session enrollment the way a Program is — see vendorExperiences.ts
 // for the vendor-side CRUD half of this feature.
 
-interface ExperienceRow {
+export interface ExperienceRow {
   id: string;
   vendor_id: string;
   kind: "adventure" | "experience" | "volunteer";
@@ -200,6 +205,19 @@ interface BookBody {
   phone?: string;
   partySize?: number;
   couponCode?: string;
+  /** Commerce Engine Phase 2 — the quote the customer was shown (optional:
+   * without it checkout still prices server-side, it just can't detect that
+   * the price moved since the form was rendered). */
+  quoteId?: string;
+  /** Stage 5b — apply the signed-in resident's HelloCircle credit (engine-priced only). */
+  useCredits?: boolean;
+  /** Booking UX Phase 4 — one name per seat (optional for older clients; if sent, one per person). */
+  participants?: string[];
+  /** B9 — required (true) when the experience sets a minimum age. */
+  meetsMinAge?: boolean;
+  /** B8 — recorded with the order: booking terms (version resolved server-side) and the listing's safety text. */
+  acceptedTerms?: boolean;
+  acceptedSafety?: boolean;
 }
 
 // Books ONE session (a specific departure) — party_size spots on it, not a
@@ -214,26 +232,109 @@ async function quoteExperience(experience: ExperienceRow, partySize: number, raw
   let couponCode: string | null = null;
   if (rawCoupon) {
     const result = await evaluateCoupon(rawCoupon, subtotalCents, { listingType: "experience", listingId: experience.id });
-    if (!result.valid) return { ok: false as const, error: result.error! };
+    if (!result.valid) return { ok: false as const, error: result.error!, reason: result.reason ?? "invalid" };
     discountCents = result.discountCents!;
     couponCode = result.code!;
   }
   return { ok: true as const, pricing: computePricing(subtotalCents, 0, discountCents, couponCode), couponCode };
 }
 
+/** Commerce Engine Phase 2 — the same experience price, from the published
+ * pricing rules instead of pricing.ts. Used only while the engine is switched
+ * on for experiences; coupon evaluation is unchanged. */
+async function engineQuoteExperience(experience: ExperienceRow, partySize: number, rawCoupon: string | undefined, availableCreditMinor = 0) {
+  const listMinor = experience.price_cents * partySize;
+  let discountMinor = 0;
+  let platformShareBps = 0;
+  let couponCode: string | null = null;
+  if (rawCoupon) {
+    const result = await evaluateCoupon(rawCoupon, listMinor, { listingType: "experience", listingId: experience.id });
+    if (!result.valid) return { ok: false as const, error: result.error!, reason: result.reason ?? "invalid" };
+    discountMinor = Math.min(result.discountCents!, listMinor);
+    platformShareBps = result.platformShareBps ?? 0;
+    couponCode = result.code!;
+  }
+  // Phase 3 — the coupon's funding decides who absorbs the discount; the
+  // split is exact (largest remainder), recorded in the order snapshot.
+  const platformFundedDiscountMinor = discountMinor > 0 && platformShareBps > 0 ? allocate(discountMinor, [platformShareBps, 10_000 - platformShareBps])[0] : 0;
+  // Stage 5b — customer credit is a HelloCircle-funded discount on what's left after the coupon.
+  const creditMinor = Math.min(Math.max(0, availableCreditMinor), listMinor - discountMinor);
+  const partner = await vendorPartner(experience.vendor_id);
+  const price = await priceWithRules("experience", partner, {
+    listMinor,
+    discountMinor: discountMinor + creditMinor,
+    depositMinor: 0,
+    platformFundedDiscountMinor: platformFundedDiscountMinor + creditMinor,
+  });
+  return { ok: true as const, price, partner, couponCode, couponDiscountMinor: discountMinor, creditMinor };
+}
+
+/** Commerce Engine Phase 2 — prices with the published rules and stores a
+ * single-use quote. Shared by this router's quote endpoint and the generic
+ * POST /api/commerce/quotes (routes/commerce.ts). */
+export async function storedExperienceQuote(experience: ExperienceRow, sessionId: string, partySize: number, rawCoupon: string | undefined, clientId: string | null, residentId: string | null, useCredits = false) {
+  const q = await engineQuoteExperience(experience, partySize, rawCoupon, await creditForCheckout(residentId, useCredits, Number.MAX_SAFE_INTEGER));
+  if (!q.ok) return { status: 400, body: { error: q.error, code: `coupon_${q.reason}` } };
+  const stored = await createQuote({ sourceType: "experience", resourceId: experience.id, sessionId, quantity: partySize, couponCode: q.couponCode, clientId, residentId }, q.price);
+  const b = q.price.breakdown;
+  return {
+    status: 200,
+    body: {
+      partySize,
+      subtotalCents: b.listMinor,
+      discountCents: b.discountMinor,
+      taxableCents: b.discountedMinor,
+      vatCents: b.vatMinor,
+      platformFeeCents: b.customerFeeMinor,
+      totalCents: b.customerPaidMinor,
+      couponCode: q.couponCode,
+      creditCents: q.creditMinor,
+      // R3A — the two parts of discountCents (coupon, then credit — the
+      // engine's own order), and the credit balance left after this booking,
+      // so the client shows them without subtracting anything itself.
+      couponDiscountCents: q.couponDiscountMinor,
+      creditBalanceAfterCents: residentId && q.creditMinor > 0 ? Math.max(0, (await creditBalance(residentId)) - q.creditMinor) : null,
+      currency: "EUR",
+      vatIncluded: q.price.values.vatMode === "included_in_price",
+      quoteId: stored.id,
+      quoteExpiresAt: stored.expiresAt,
+    },
+  };
+}
+
+/** Loads a bookable experience + session for quoting, or an HTTP error. */
+export async function loadQuotableExperience(experienceId: string, sessionId: string) {
+  const experience = (await db.prepare(`SELECT * FROM experiences WHERE id = ? AND status = 'approved'`).get(experienceId)) as ExperienceRow | undefined;
+  if (!experience) return { ok: false as const, status: 404, error: "Experience not found" };
+  const session = await db.prepare(`SELECT id FROM experience_sessions WHERE id = ? AND experience_id = ?`).get(sessionId, experience.id);
+  if (!session) return { ok: false as const, status: 404, error: "Session not found" };
+  return { ok: true as const, experience };
+}
+
 /** Authoritative price quote for the booking form (no reservation made). */
-experiencesRouter.post("/:id/sessions/:sessionId/quote", async (req, res) => {
-  const body = req.body as { partySize?: unknown; couponCode?: string };
+experiencesRouter.post("/:id/sessions/:sessionId/quote", commerceQuoteLimiter, async (req, res) => {
+  const body = req.body as { partySize?: unknown; couponCode?: string; useCredits?: boolean };
   if (body.partySize !== undefined && !isPositiveInt(body.partySize)) return res.status(400).json({ error: "Party size must be a whole number of at least 1" });
   const partySize = (body.partySize as number | undefined) ?? 1;
   const experience = (await db.prepare(`SELECT * FROM experiences WHERE id = ? AND status = 'approved'`).get(req.params.id)) as ExperienceRow | undefined;
   if (!experience) return res.status(404).json({ error: "Experience not found" });
   const session = await db.prepare(`SELECT id FROM experience_sessions WHERE id = ? AND experience_id = ?`).get(req.params.sessionId, experience.id);
   if (!session) return res.status(404).json({ error: "Session not found" });
+  if (await engineEnabledFor("experience")) {
+    let clientId: string | null = null;
+    try {
+      clientId = clientIdFrom(req);
+    } catch {
+      clientId = null;
+    }
+    const r = await storedExperienceQuote(experience, req.params.sessionId, partySize, body.couponCode, clientId, req.resident?.id ?? null, body.useCredits === true);
+    return res.status(r.status).json(r.body);
+  }
   const quote = await quoteExperience(experience, partySize, body.couponCode);
-  if (!quote.ok) return res.status(400).json({ error: quote.error });
+  if (!quote.ok) return res.status(400).json({ error: quote.error, code: `coupon_${quote.reason}` });
   const { subtotalCents, discountCents, taxableCents, vatCents, platformFeeCents, totalCents } = quote.pricing;
-  res.json({ partySize, subtotalCents, discountCents, taxableCents, vatCents, platformFeeCents, totalCents, couponCode: quote.couponCode, currency: "EUR" });
+  // Legacy pricing has no customer credit: the whole discount is the coupon.
+  res.json({ partySize, subtotalCents, discountCents, taxableCents, vatCents, platformFeeCents, totalCents, couponCode: quote.couponCode, currency: "EUR", vatIncluded: false, couponDiscountCents: discountCents, creditCents: 0 });
 });
 
 experiencesRouter.post("/:id/sessions/:sessionId/checkout", async (req, res) => {
@@ -255,20 +356,51 @@ experiencesRouter.post("/:id/sessions/:sessionId/checkout", async (req, res) => 
   const experience = (await db.prepare(`SELECT * FROM experiences WHERE id = ?`).get(req.params.id)) as ExperienceRow | undefined;
   if (!experience) return res.status(404).json({ error: "Experience not found" });
   if (experience.status !== "approved") return res.status(409).json({ error: "This listing is no longer open for booking" });
+  if (await vendorSuspended(experience.vendor_id)) return res.status(409).json({ error: VENDOR_SUSPENDED_ERROR });
 
   const session = (await db
     .prepare(`SELECT id, capacity, status, date, time FROM experience_sessions WHERE id = ? AND experience_id = ?`)
     .get(req.params.sessionId, experience.id)) as { id: string; capacity: number | null; status: string; date: string; time: string } | undefined;
   if (!session) return res.status(404).json({ error: "Session not found" });
   if (session.status !== "scheduled") return res.status(409).json({ error: "This session is no longer open for booking" });
+  // Booking UX Phase 4 — minimum age (a declaration) and named seats.
+  const ageError = minAgeError(experience.min_age, body.meetsMinAge);
+  if (ageError) return res.status(400).json({ error: ageError, minAge: experience.min_age });
+  const seatNames = cleanParticipantNames(body.participants, partySize);
+  if (seatNames && "error" in seatNames) return res.status(400).json({ error: seatNames.error });
   // HC-QA-045 — a session that has already started can't take new bookings.
   if (!startIsInFuture(session.date, session.time)) return res.status(409).json({ error: "This session has already started" });
 
   const isCash = experience.payment_method === "cash";
-  const quote = await quoteExperience(experience, partySize, body.couponCode);
-  if (!quote.ok) return res.status(400).json({ error: quote.error });
-  const { pricing, couponCode } = quote;
+  // Commerce Engine Phase 2 — with the engine on, the published rules price
+  // this booking and a commerce order + immutable snapshot is written in the
+  // same transaction; with it off, legacy pricing plus an optional shadow
+  // comparison. Either way `pricing` keeps the legacy shape the rest of this
+  // handler (and the stored columns) already use.
+  const useEngine = await engineEnabledFor("experience");
+  let pricing: { taxableCents: number; discountCents: number; vatCents: number; platformFeeCents: number; totalCents: number; couponCode: string | null };
+  let couponCode: string | null;
+  let engine: (Awaited<ReturnType<typeof engineQuoteExperience>> & { ok: true }) | null = null;
+  let legacyPricing: ReturnType<typeof computePricing> | null = null;
+  if (useEngine) {
+    const q = await engineQuoteExperience(experience, partySize, body.couponCode, await creditForCheckout(req.resident?.id, body.useCredits === true, Number.MAX_SAFE_INTEGER));
+    if (!q.ok) return res.status(400).json({ error: q.error });
+    engine = q;
+    couponCode = q.couponCode;
+    const cols = legacyColumns(q.price.breakdown);
+    pricing = { taxableCents: cols.subtotalCents, discountCents: cols.discountCents, vatCents: cols.vatCents, platformFeeCents: cols.platformFeeCents, totalCents: cols.totalCents, couponCode };
+  } else {
+    const quote = await quoteExperience(experience, partySize, body.couponCode);
+    if (!quote.ok) return res.status(400).json({ error: quote.error });
+    pricing = legacyPricing = quote.pricing;
+    couponCode = quote.couponCode;
+  }
   const ref = generateRef("EX");
+  if (legacyPricing) {
+    const shadowed = legacyPricing;
+    void vendorPartner(experience.vendor_id).then((partner) => shadowPrice("experience", ref, partner, shadowed));
+  }
+  const quoteInput = { sourceType: "experience" as const, resourceId: experience.id, sessionId: req.params.sessionId, quantity: partySize, couponCode, clientId, residentId: req.resident?.id ?? null };
   // Release 5 — a free booking (always true for a volunteer listing, whose
   // price is forced to 0) confirms immediately like cash; it previously
   // fell through to a €0 Stripe checkout.
@@ -288,9 +420,18 @@ experiencesRouter.post("/:id/sessions/:sessionId/checkout", async (req, res) => 
       // HC-QA-037/050 — the coupon use is reserved with the order (confirmed or pending).
       if (couponCode) {
         try {
-          await consumeCoupon(tx, couponCode);
-        } catch {
-          throw new BadRequestError("That code has been fully redeemed");
+          await consumeCoupon(tx, couponCode, { sourceType: "experience", ref, customerKey: customerKeyOf(req.resident?.id, clientId), discountMinor: engine ? engine.couponDiscountMinor : pricing.discountCents, confirmed: confirmsNow });
+        } catch (e) {
+          throw new BadRequestError(e instanceof Error ? e.message : "That code has been fully redeemed");
+        }
+      }
+
+      // Stage 5b — reserve the credit with the order (confirmed now if nothing is left to pay).
+      if (engine && engine.creditMinor > 0 && req.resident?.id) {
+        try {
+          await reserveCredit(tx, { residentId: req.resident.id, sourceType: "experience", ref, amountMinor: engine.creditMinor, confirmed: confirmsNow });
+        } catch (e) {
+          throw new ConflictError(e instanceof Error ? e.message : "Your credit balance changed");
         }
       }
 
@@ -319,10 +460,37 @@ experiencesRouter.post("/:id/sessions/:sessionId/checkout", async (req, res) => 
           totalCents: pricing.totalCents,
           status: confirmsNow ? "paid" : "pending",
         });
+
+      await recordOrderAcknowledgements(tx, {
+        sourceType: "experience",
+        ref,
+        clientId,
+        residentId: req.resident?.id ?? null,
+        terms: body.acceptedTerms === true,
+        safetyText: body.acceptedSafety === true ? experience.safety_info : null,
+      });
+      await recordParticipantNames(tx, ref, seatNames ?? []);
+
+      if (engine) {
+        if (body.quoteId) await consumeQuote(tx, body.quoteId, quoteInput, engine.price);
+        await createOrder(tx, {
+          sourceType: "experience",
+          sourceRef: ref,
+          partner: engine.partner ?? { kind: "vendor", id: experience.vendor_id, vendorUserId: experience.vendor_id, hostResidentId: null, orgId: null },
+          customerClientId: clientId,
+          customerResidentId: req.resident?.id ?? null,
+          quoteId: body.quoteId ?? null,
+          couponCode,
+          paymentStatus: confirmsNow ? "paid" : "pending",
+          line: { itemType: "experience_session", itemId: session.id, quantity: partySize, unitMinor: experience.price_cents },
+          price: engine.price,
+        });
+      }
     });
   } catch (e) {
     if (e instanceof BadRequestError) return res.status(400).json({ error: e.message });
     if (e instanceof ConflictError) return res.status(409).json({ error: e.message });
+    if (e instanceof QuoteError) return res.status(409).json({ error: e.message, code: e.code });
     throw e;
   }
 
@@ -354,17 +522,25 @@ experiencesRouter.post("/:id/sessions/:sessionId/checkout", async (req, res) => 
     type: "experience",
     customerEmail: body.email,
     residentId: req.resident?.id ?? null,
-    lineItems: pricingLineItems(pricing, {
-      name: experience.title,
-      description: `${body.participantName} · party of ${partySize}${couponCode ? ` (coupon ${couponCode} applied)` : ""}`,
-    }),
+    lineItems: engine
+      ? engineLineItems(engine.price.breakdown, engine.price.values, {
+          name: experience.title,
+          description: `${body.participantName} · party of ${partySize}${couponCode ? ` (coupon ${couponCode} applied)` : ""}`,
+        })
+      : pricingLineItems(pricing, {
+          name: experience.title,
+          description: `${body.participantName} · party of ${partySize}${couponCode ? ` (coupon ${couponCode} applied)` : ""}`,
+        }),
   });
   if (!result.ok) {
     await endPendingHold("experience_bookings", ref, "delete");
+    await syncOrderFromSource("experience", ref);
+    if (engine && body.quoteId) await releaseQuote(body.quoteId);
     return res.status(result.status).json({ error: result.error });
   }
 
   await db.prepare(`UPDATE experience_bookings SET stripe_session_id = ? WHERE ref = ?`).run(result.session.id, ref);
+  await syncOrderFromSource("experience", ref);
   res.status(201).json({ ref, url: result.session.url, totalEuro: pricing.totalCents / 100 });
 });
 
@@ -446,6 +622,7 @@ experiencesRouter.post("/bookings/:ref/cancel", async (req, res) => {
   // runs the side effects (capacity release, audit, notifications, promotion).
   const flipped = await db.prepare(`UPDATE experience_bookings SET status = 'cancelled' WHERE ref = ? AND status != 'cancelled'`).run(row.ref);
   if (flipped.changes !== 1) return res.status(409).json({ error: "This booking is already cancelled" });
+  await syncOrderFromSource("experience", row.ref);
 
   notifyCancellation({
     kind: "experience",
@@ -473,16 +650,19 @@ experiencesRouter.get("/bookings/status/:ref", async (req, res) => {
   }
   // Resident Experience Polish — Changeset 5, same reasoning as
   // bookings.ts's GET /status/:ref.
-  const row = await db
+  const row = (await db
     .prepare(
       `SELECT eb.ref, eb.payment_status as paymentStatus, eb.total_cents as totalCents,
-              e.id as experienceId, e.title, e.meeting_point as meetingPoint, es.date, es.time, eb.party_size as partySize
+              e.id as experienceId, e.title, e.meeting_point as meetingPoint, es.date, es.time, eb.party_size as partySize, e.vendor_id as vendorId
        FROM experience_bookings eb JOIN experiences e ON e.id = eb.experience_id JOIN experience_sessions es ON es.id = eb.session_id
        WHERE eb.ref = ? AND eb.client_id = ?`
     )
-    .get(req.params.ref, clientId);
+    .get(req.params.ref, clientId)) as ({ vendorId: string; date: string; time: string } & Record<string, unknown>) | undefined;
   if (!row) return res.status(404).json({ error: "Booking not found" });
-  res.json(row);
+  // Booking UX Phase 3 — the confirmation page states the deadline (same rule as self-cancel).
+  const { vendorId, ...rest } = row;
+  const { cancellationHours } = await orgPoliciesForVendor(vendorId);
+  res.json({ ...rest, cancelDeadline: cancelDeadlineIso(row.date, row.time, cancellationHours) });
 });
 
 // "Add to calendar" — same client_id ownership gate + server-generated .ics

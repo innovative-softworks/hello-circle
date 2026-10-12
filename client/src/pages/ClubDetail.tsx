@@ -1,10 +1,13 @@
 import { usePageTitle } from "../pageTitle";
+import { usePaidCheckoutOpen } from "../paidCheckout";
 import { useEffect, useState } from "react";
+import { TraderInfo } from "../components/TraderInfo";
 import { useToast } from "../components/Toast";
 import { OfficialCircleLink } from "../components/OfficialCircleLink";
 import { ParticipationBlock } from "../components/ParticipationBlock";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { addFavourite, createPassCheckout, fetchClub, fetchFavourites, fetchPrograms, PLATFORM_FEE_RATE, removeFavourite, VAT_RATE } from "../api";
+import { addFavourite, createPassCheckout, fetchClub, fetchFavourites, fetchPrograms, quotePass, removeFavourite } from "../api";
+import { formatCents } from "../components/booking/quoteLines";
 import { openCheckout } from "../native";
 import { ListingChatButton } from "../components/ListingChats";
 import { BackLink } from "../components/BackLink";
@@ -21,8 +24,11 @@ import { useGuest } from "../GuestContext";
 import { colors, fonts, maxWidth, radius } from "../theme";
 import type { Club, Program } from "../types";
 import { formatPrice } from "../formatters";
+import { CtaBand } from "../components/CtaBand";
 
 export function ClubDetail() {
+  // The pass is card-only: hidden while paid checkout is closed (the server refuses it too).
+  const paidOpen = usePaidCheckoutOpen();
   const toast = useToast();
   // Slugs (master-prompt punch list #1) — see CentreDetail.tsx's own
   // comment; every call below uses club.id once loaded, never this raw
@@ -62,6 +68,22 @@ export function ClubDetail() {
     }
   };
 
+  // R3A — the pass price is the server's quote (the same pricing function the
+  // checkout charges with), never a client estimate. Null = still loading or
+  // unavailable, in which case the button doesn't show a price.
+  const [passTotalCents, setPassTotalCents] = useState<number | null>(null);
+  const passOffered = !!club && !!resident && club.paymentMethod !== "cash" && club.price > 0;
+  useEffect(() => {
+    if (!passOffered || !club) return setPassTotalCents(null);
+    let live = true;
+    quotePass(club.id, 10)
+      .then((q) => live && setPassTotalCents(q.totalCents))
+      .catch(() => live && setPassTotalCents(null));
+    return () => {
+      live = false;
+    };
+  }, [passOffered, club?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Credit-pack pass purchase (NEXT) — a simple fixed 10-credit pack;
   // a real product would let the vendor configure pack size/pricing.
   const handleBuyPass = async () => {
@@ -96,13 +118,13 @@ export function ClubDetail() {
               left: 20,
               bottom: 20,
               background: "rgba(255,255,255,.92)",
-              borderRadius: 8,
+              borderRadius: 10,
               padding: "6px 12px",
               fontFamily: fonts.display,
               fontWeight: 700,
               fontSize: 16,
               color: colors.orangeDark,
-              letterSpacing: "-.01em",
+              letterSpacing: 0,
               pointerEvents: "none",
             }}
           >
@@ -117,12 +139,12 @@ export function ClubDetail() {
         <div>
           {club.trial && (
             <span
-              style={{ display: "inline-block", background: colors.greenBg, color: colors.greenText, borderRadius: 20, padding: "4px 12px", fontSize: 13, fontWeight: 700, marginBottom: 12 }}
+              style={{ display: "inline-block", background: colors.greenBg, color: colors.greenText, borderRadius: 16, padding: "4px 12px", fontSize: 13, fontWeight: 700, marginBottom: 12 }}
             >
               Free trial session available
             </span>
           )}
-          <h1 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: "clamp(26px, 5vw, 36px)", margin: "0 0 4px", letterSpacing: "-.025em", display: "flex", alignItems: "center", gap: 10 }}>
+          <h1 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: "clamp(32px, 3.8vw, 52px)", margin: "0 0 4px", letterSpacing: 0, display: "flex", alignItems: "center", gap: 10 }}>
             {club.name}
             <button
               onClick={handleToggleFavourite}
@@ -143,7 +165,7 @@ export function ClubDetail() {
             <ListingChatButton scopeType="club" listingId={club.id} iconOnly style={{ background: "none", border: "none", padding: 0, color: colors.greenText }} />
           </h1>
           {club.capacity !== null && (
-            <span style={{ display: "inline-block", background: colors.panel, color: colors.muted, borderRadius: 20, padding: "3px 11px", fontSize: 12, fontWeight: 700, marginBottom: 8 }}>
+            <span style={{ display: "inline-block", background: colors.panel, color: colors.muted, borderRadius: 16, padding: "3px 11px", fontSize: 12, fontWeight: 700, marginBottom: 8 }}>
               Limited to {club.capacity} members
             </span>
           )}
@@ -176,7 +198,7 @@ export function ClubDetail() {
             <OfficialCircleLink circleId={club.circleId} circleName={club.circleName} circleSlug={club.circleSlug} />
           </div>
           <p style={{ fontSize: 16, lineHeight: 1.6, color: colors.textSoft, margin: "0 0 28px" }}>{club.blurb}</p>
-          <h3 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 20, margin: "0 0 12px", letterSpacing: "-.01em" }}>
+          <h3 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 20, margin: "0 0 12px", letterSpacing: 0 }}>
             What's included
           </h3>
           <div className="grid-responsive" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px 24px", marginBottom: 20 }}>
@@ -190,7 +212,7 @@ export function ClubDetail() {
 
           {club.accessibility.length > 0 && (
             <>
-              <h3 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 20, margin: "0 0 12px", letterSpacing: "-.01em" }}>
+              <h3 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 20, margin: "0 0 12px", letterSpacing: 0 }}>
                 Accessibility
               </h3>
               <div className="grid-responsive" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px 24px", marginBottom: 20 }}>
@@ -206,10 +228,10 @@ export function ClubDetail() {
 
           {club.lat !== null && club.lng !== null && (
             <>
-              <h3 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 20, margin: "0 0 12px", letterSpacing: "-.01em" }}>
+              <h3 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 20, margin: "0 0 12px", letterSpacing: 0 }}>
                 Location
               </h3>
-              <div style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 14, padding: "16px 18px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap", marginBottom: 12 }}>
+              <div style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 16, padding: "16px 18px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap", marginBottom: 12 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                   <PinIcon size={16} style={{ color: colors.mutedLight, flex: "none" }} />
                   <div>
@@ -244,7 +266,7 @@ export function ClubDetail() {
 
           {programs.length > 0 && (
             <>
-              <h3 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 20, margin: "24px 0 12px", letterSpacing: "-.01em" }}>
+              <h3 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 20, margin: "24px 0 12px", letterSpacing: 0 }}>
                 Programs & classes
               </h3>
               <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
@@ -252,7 +274,7 @@ export function ClubDetail() {
                   <Link
                     key={p.id}
                     to={`/programs/${p.id}`}
-                    style={{ textAlign: "left", textDecoration: "none", color: "inherit", border: `1px solid ${colors.border}`, borderRadius: 14, padding: "14px 16px", cursor: "pointer", background: colors.surface, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, width: "100%" }}
+                    style={{ textAlign: "left", textDecoration: "none", color: "inherit", border: `1px solid ${colors.border}`, borderRadius: 16, padding: "14px 16px", cursor: "pointer", background: colors.surface, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, width: "100%" }}
                   >
                     <div>
                       <div style={{ fontWeight: 700 }}>{p.title}</div>
@@ -267,7 +289,7 @@ export function ClubDetail() {
         </div>
         <div
           className="sticky-aside"
-          style={{ position: "sticky", top: 90, background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 18, padding: 22, boxShadow: "0 8px 30px rgba(30,40,32,.05)" }}
+          style={{ position: "sticky", top: 90, background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 16, padding: 22, boxShadow: "0 8px 30px rgba(30,40,32,.05)" }}
         >
           <div style={{ fontSize: 14, color: colors.mutedLight, marginBottom: 4 }}>Membership</div>
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 16 }}>
@@ -281,14 +303,13 @@ export function ClubDetail() {
           <Button variant="orange" full onClick={() => navigate(`/register/${club.id}`)} style={{ padding: 14, fontSize: 15, marginBottom: 10 }}>
             {club.audience === "kids" ? "Register my child" : "Register"}
           </Button>
-          {resident && club.paymentMethod !== "cash" && (
+          {resident && club.paymentMethod !== "cash" && paidOpen !== false && (
             <Button variant="ghost" full onClick={() => setPassConfirmOpen(true)} disabled={passLoading} style={{ padding: 12, fontSize: 14, marginBottom: 10 }}>
               {passLoading
                 ? "Please wait…"
-                : /* Inclusive of VAT + platform fee, matching what checkoutService.ts actually
-                   * charges (server/src/pricing.ts's computePricing) — showing the bare subtotal
-                   * here understated the real Stripe total by ~28%. */
-                  `Buy a 10-session pass — €${Math.round(club.price * 10 * (1 + VAT_RATE + PLATFORM_FEE_RATE))} (incl. VAT & fee)`}
+                : passTotalCents !== null
+                  ? `Buy a 10-session pass — ${formatCents(passTotalCents)} (incl. VAT & fee)`
+                  : "Buy a 10-session pass"}
             </Button>
           )}
           {/* Resident Experience Polish — this used to also claim "Training
@@ -312,10 +333,20 @@ export function ClubDetail() {
       </section>
       <section className="section-pad" style={{ maxWidth, margin: "0 auto", padding: "0 24px 40px" }}>
         <Reviews listingType="club" listingId={club.id} accent="orange" onReviewPosted={reloadRating} />
+        <div style={{ marginTop: 20 }}>
+          <TraderInfo type="club" id={club.id} />
+        </div>
       </section>
       <section className="section-pad" style={{ maxWidth, margin: "0 auto", padding: "0 24px 80px" }}>
         <ClaimListingCTA listingType="club" listingId={club.id} claimed={club.claimed} />
       </section>
+      <CtaBand
+        id="club-cta-title"
+        label="Join a club."
+        lines={["Find", "your", "club."]}
+        text="Sports clubs and groups for kids and adults across Ireland, all in one place."
+        action={{ label: "Browse clubs", to: "/browse/clubs" }}
+      />
     </div>
 
     <div className="mobile-join-bar">
@@ -329,7 +360,7 @@ export function ClubDetail() {
     <ConfirmDialog
       open={passConfirmOpen}
       title="Buy this pass?"
-      message={`10 sessions at ${club.name} for €${Math.round(club.price * 10 * (1 + VAT_RATE + PLATFORM_FEE_RATE))} (incl. VAT & fee) — you'll be taken to secure checkout.`}
+      message={`10 sessions at ${club.name}${passTotalCents !== null ? ` for ${formatCents(passTotalCents)} (incl. VAT & fee)` : ""} — you'll be taken to secure checkout.`}
       confirmLabel="Continue to payment"
       cancelLabel="Not now"
       tone="neutral"

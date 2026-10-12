@@ -5,7 +5,7 @@ import { colors, fonts } from "../theme";
 const LAST_UPDATED = "11 August 2026";
 
 const sectionStyle: React.CSSProperties = { margin: "0 0 28px" };
-const h2Style: React.CSSProperties = { fontFamily: fonts.display, fontWeight: 700, fontSize: 19, margin: "0 0 10px", letterSpacing: "-.01em" };
+const h2Style: React.CSSProperties = { fontFamily: fonts.display, fontWeight: 700, fontSize: 19, margin: "0 0 10px", letterSpacing: 0 };
 const pStyle: React.CSSProperties = { color: colors.textSoft, fontSize: 15, lineHeight: 1.65, margin: "0 0 10px" };
 const liStyle: React.CSSProperties = { color: colors.textSoft, fontSize: 15, lineHeight: 1.65, margin: "0 0 6px" };
 const placeholder: React.CSSProperties = { background: colors.orangeBg, color: colors.orangeDark, padding: "1px 6px", borderRadius: 5, fontWeight: 600 };
@@ -23,12 +23,12 @@ export function PrivacyPolicy() {
           <ChevronLeftIcon size={14} style={{ marginRight: 4 }} /> Back
         </button>
 
-        <h1 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: "clamp(26px, 5vw, 34px)", margin: "0 0 6px", letterSpacing: "-.02em" }}>
+        <h1 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: "clamp(32px, 3.8vw, 52px)", margin: "0 0 6px", letterSpacing: 0 }}>
           Privacy Policy
         </h1>
         <p style={{ color: colors.faint, fontSize: 13, margin: "0 0 30px" }}>Last updated {LAST_UPDATED}</p>
 
-        <div style={{ background: "#FBF0E9", border: `1px solid ${colors.border}`, borderRadius: 14, padding: "14px 18px", marginBottom: 30, fontSize: 13.5, color: colors.textSoft, lineHeight: 1.6 }}>
+        <div style={{ background: "#FBF0E9", border: `1px solid ${colors.border}`, borderRadius: 16, padding: "14px 18px", marginBottom: 30, fontSize: 13.5, color: colors.textSoft, lineHeight: 1.6 }}>
           Sections marked <span style={placeholder}>like this</span> are placeholders — fill in your real company/contact
           details (and have this reviewed by a solicitor) before this goes live for real users.
         </div>

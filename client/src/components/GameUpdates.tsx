@@ -61,7 +61,7 @@ export function GameUpdates({ game, isHost }: { game: Game; isHost: boolean }) {
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: isHost ? 12 : 0 }}>
           {updates.map((u) => (
-            <div key={u.id} style={{ background: colors.orangeBg, borderRadius: 12, padding: "12px 14px" }}>
+            <div key={u.id} style={{ background: colors.orangeBg, borderRadius: 10, padding: "12px 14px" }}>
               <div style={{ fontSize: 12, fontWeight: 700, color: colors.orangeDark, marginBottom: 4 }}>{relativeTime(u.createdAt)}</div>
               <div style={{ fontSize: 14, color: colors.textSoft, lineHeight: 1.5 }}>{u.message}</div>
             </div>

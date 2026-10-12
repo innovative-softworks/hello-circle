@@ -9,40 +9,46 @@
 // mirror the change here, and vice versa.
 
 export const lightColors = {
-  bg: "#fbfaf7",
+  bg: "#f7f4ec",
   surface: "#ffffff",
-  text: "#1e2420",
+  text: "#172019",
   muted: "#5b635c",
   mutedLight: "#5f675e",
   faint: "#656d64",
-  textSoft: "#3b423c",
-  border: "#e7e4dc",
-  borderStrong: "#d8d4cb",
+  textSoft: "#3b433c",
+  border: "#e4dfd3",
+  borderStrong: "#d3cdbf",
   inputBorder: "#8a857a",
-  panel: "#f0eee8",
-  footerBg: "#f6f4ef",
+  panel: "#efebe1",
+  footerBg: "#f1ede3",
 
   green: "#1e7a4c",
   greenDark: "#175f3b",
   greenBg: "#eaf4ee",
   greenText: "#175f3b",
 
-  orange: "#c74c1a",
-  orangeDark: "#b0401a",
-  orangeBg: "#fcede4",
-  orangeBgHover: "#f8ddcc",
+  orange: "#b8320f",
+  orangeDark: "#9c2a0c",
+  orangeBg: "#ffe9e1",
+  orangeBgHover: "#ffd9cc",
 
   gold: "#e8a33a",
-  dark: "#1e2420",
-  darkHover: "#252d27",
+  dark: "#172019",
+  darkHover: "#232e25",
 
   danger: "#b00020",
   dangerBg: "#fbeaea",
 
-  headerBg: "rgba(251, 250, 247, 0.86)",
+  headerBg: "rgba(247, 244, 236, 0.88)",
 
   logoMark: "#ee4826",
   logoMarkText: "#c72f10",
+
+  brand: "#ff4b24",
+  brandHover: "#ff6a49",
+  onBrand: "#172019",
+  night: "#172019",
+  onNight: "#f7f4ec",
 } as const;
 
 export const darkColors = {
@@ -64,10 +70,10 @@ export const darkColors = {
   greenBg: "#1c3327",
   greenText: "#7fd3a5",
 
-  orange: "#c74c1a",
-  orangeDark: "#f0996a",
-  orangeBg: "#3a2517",
-  orangeBgHover: "#472d1c",
+  orange: "#ff7a59",
+  orangeDark: "#ff9a7f",
+  orangeBg: "#3a2016",
+  orangeBgHover: "#4a291c",
 
   gold: "#e8a33a",
   dark: "#444d46",
@@ -80,6 +86,12 @@ export const darkColors = {
 
   logoMark: "#ee4826",
   logoMarkText: "#f27359",
+
+  brand: "#ff4b24",
+  brandHover: "#ff6a49",
+  onBrand: "#172019",
+  night: "#0e1310",
+  onNight: "#f7f4ec",
 } as const;
 
 export type ColorTokens = typeof lightColors;

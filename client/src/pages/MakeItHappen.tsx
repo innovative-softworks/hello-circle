@@ -12,6 +12,7 @@ import { clearContinuePlanning, saveContinuePlanning } from "../continuePlanning
 import { useGuest } from "../GuestContext";
 import { colors, fonts } from "../theme";
 import { fallbackCopy } from "../copy";
+import { useOpenBookingOpen } from "../paidCheckout";
 
 // Make It Happen (implementation plan Phase 10) — "pick activity/time/
 // place/participant-count/budget → HelloCircle finds a facility, prices
@@ -25,6 +26,9 @@ type Step = "form" | "results" | "details" | "done";
 export function MakeItHappen() {
   const navigate = useNavigate();
   const { resident } = useGuest();
+  // Sitemap audit P1-07 — the search/confirm routes refuse with 503 while the
+  // commerce.open_booking switch is off, so say so before the form, not after.
+  const openBooking = useOpenBookingOpen();
   const [step, setStep] = useState<Step>("form");
   const [counties, setCounties] = useState<string[]>([]);
 
@@ -109,6 +113,24 @@ export function MakeItHappen() {
       setConfirming(false);
     }
   };
+
+  if (openBooking === undefined) return <PageSpinner />;
+
+  if (openBooking === false) {
+    return (
+      <section className="section-pad" style={{ maxWidth: 640, margin: "0 auto", padding: "60px 24px", textAlign: "center" }}>
+        <HandshakeIcon size={28} style={{ color: colors.orangeDark, marginBottom: 12 }} />
+        <PageTitle level="section" style={{ margin: "0 0 10px" }}>Make It Happen is paused</PageTitle>
+        <p style={{ color: colors.mutedLight, marginBottom: 20 }}>
+          We're improving how group costs are shared, so HelloCircle isn't booking venues for groups right now. You can still host an activity yourself, or join one that's already happening.
+        </p>
+        <div style={{ display: "flex", gap: 10, justifyContent: "center", flexWrap: "wrap" }}>
+          <Button onClick={() => navigate("/games/host")}>Host an activity</Button>
+          <Button variant="ghost" onClick={() => navigate("/games")}>Find activities</Button>
+        </div>
+      </section>
+    );
+  }
 
   if (!resident) {
     return (
@@ -236,7 +258,7 @@ export function MakeItHappen() {
 
         {step === "details" && chosen && (
           <Card>
-            <div style={{ background: colors.panel, borderRadius: 12, padding: "12px 16px", marginBottom: 16, fontSize: 13.5 }}>
+            <div style={{ background: colors.panel, borderRadius: 10, padding: "12px 16px", marginBottom: 16, fontSize: 13.5 }}>
               <div style={{ fontWeight: 700, marginBottom: 4 }}>{chosen.centreName} — {chosen.roomName}</div>
               <div style={{ display: "flex", alignItems: "center", gap: 6, color: colors.muted }}><CalendarIcon size={13} /> {date}</div>
               <div style={{ display: "flex", alignItems: "center", gap: 6, color: colors.muted }}><ClockIcon size={13} /> {time} · {duration}h</div>
@@ -269,7 +291,7 @@ export function MakeItHappen() {
         )}
 
         {step === "done" && bookedRef && (
-          <div style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 18, padding: 32, textAlign: "center" }}>
+          <div style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 16, padding: 32, textAlign: "center" }}>
             <p style={{ fontSize: 16, fontWeight: 700, margin: "0 0 8px" }}>It's happening — venue secured.</p>
             <p style={{ color: colors.mutedLight, fontSize: 14, margin: "0 0 20px" }}>
               Booking reference <strong>{bookedRef}</strong>. We've opened the rest of the spots for others to join —

@@ -85,11 +85,11 @@ export function ManageShell<T extends string>({
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 16, marginBottom: 18 }}>
               <div>
                 {contextLabel && (
-                  <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: colors.mutedLight, marginBottom: 2 }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0, textTransform: "uppercase", color: colors.mutedLight, marginBottom: 2 }}>
                     {contextLabel}
                   </div>
                 )}
-                <TitleTag style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 26, margin: 0, letterSpacing: "-.02em" }}>{pageTitle}</TitleTag>
+                <TitleTag style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 26, margin: 0, letterSpacing: 0 }}>{pageTitle}</TitleTag>
               </div>
               {headerActions}
             </div>

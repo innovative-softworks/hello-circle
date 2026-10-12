@@ -39,10 +39,10 @@ export function SectionHeader({
   return (
     <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 16, marginBottom: 16, flexWrap: "wrap" }}>
       <div>
-        <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: ".09em", textTransform: "uppercase", color: colors.mutedLight, marginBottom: 6 }}>
+        <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: 0, textTransform: "uppercase", color: colors.mutedLight, marginBottom: 6 }}>
           {eyebrow}
         </div>
-        <RevealText as="h2" style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: titleSize ?? "clamp(20px, 2.4vw, 26px)", letterSpacing: "-.01em", margin: 0, color: titleColor ?? colors.text }}>
+        <RevealText as="h2" style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: titleSize ?? "clamp(20px, 2.4vw, 26px)", letterSpacing: 0, margin: 0, color: titleColor ?? colors.text }}>
           {title}
         </RevealText>
         {subtitle && <p style={{ fontSize: 14, color: colors.mutedLight, margin: "6px 0 0" }}>{subtitle}</p>}

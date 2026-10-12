@@ -416,3 +416,23 @@ describe("venue launch gate (HC-QA-059/060) — default, VENUE_PAGES_PUBLIC unse
     expect(launched.some((u) => u.endsWith("/browse/centres"))).toBe(true);
   });
 });
+
+// Company identity readiness (2026-10-12) — the site's Organization markup and
+// the About/Contact pages name the confirmed legal operator, and nothing that
+// isn't approved yet (no address, no registration numbers).
+describe("company identity in metadata", () => {
+  it("marks HelloCircle as a product of the legal operator", () => {
+    const meta = resolveMarketingOgMeta("/");
+    const parent = meta?.jsonLd?.parentOrganization as Record<string, string> | undefined;
+    expect(meta?.jsonLd?.name).toBe("HelloCircle");
+    expect(parent?.legalName).toBe("Innovative Softworks Technologies Limited");
+    expect(parent?.name).toBe("iSoftworks");
+    expect(JSON.stringify(meta?.jsonLd)).not.toMatch(/address|vatID|taxID|Station Walk/i);
+  });
+
+  it("gives /about and /contact their own titles and descriptions", () => {
+    expect(resolveMarketingOgMeta("/about")?.title).toBe("About HelloCircle");
+    expect(resolveMarketingOgMeta("/contact")?.title).toBe("Contact HelloCircle");
+    expect(resolveMarketingOgMeta("/about")?.description).not.toMatch(/Newbridge|Kildare/);
+  });
+});

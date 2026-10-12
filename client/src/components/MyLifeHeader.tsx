@@ -30,13 +30,13 @@ export function MyLifeHeader({
 
   return (
     <div>
-      <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: ".08em", color: colors.mutedLight, marginBottom: 14 }}>
+      <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: 0, color: colors.mutedLight, marginBottom: 14 }}>
         / MY LIFE
       </div>
       <h1
         style={{
-          fontFamily: fonts.display, fontWeight: 800, letterSpacing: "-.02em", lineHeight: 1.04,
-          fontSize: "clamp(32px,5vw,52px)", margin: "0 0 10px", color: colors.text,
+          fontFamily: fonts.display, fontWeight: 800, letterSpacing: 0, lineHeight: 1.04,
+          fontSize: "clamp(32px, 3.8vw, 52px)", margin: "0 0 10px", color: colors.text,
         }}
       >
         {greeting()}, {firstName}.

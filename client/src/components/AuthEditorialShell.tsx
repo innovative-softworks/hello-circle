@@ -32,10 +32,10 @@ export function AuthEditorialHeader({
   const accentColor = accent === "orange" ? colors.orange : colors.green;
   return (
     <div style={{ marginBottom: 30 }}>
-      <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: ".09em", textTransform: "uppercase", color: accentColor, marginBottom: 14 }}>
+      <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: 0, textTransform: "uppercase", color: accentColor, marginBottom: 14 }}>
         <span aria-hidden="true">/</span> {eyebrow}
       </div>
-      <h1 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(30px,4.6vw,46px)", lineHeight: 1.08, letterSpacing: "-.02em", margin: "0 0 14px" }}>
+      <h1 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(32px, 3.8vw, 52px)", lineHeight: 1.08, letterSpacing: 0, margin: "0 0 14px" }}>
         {headline}
       </h1>
       <p style={{ fontSize: 15.5, color: colors.mutedLight, lineHeight: 1.55, margin: 0, maxWidth: 460 }}>{subtitle}</p>
@@ -84,7 +84,7 @@ export function AuthEditorialShell({
             }}
           >
             {/* HC-QA-083 — decorative marketing caption over the photo, not part of the page outline. */}
-            <p style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(22px,2.2vw,28px)", lineHeight: 1.15, letterSpacing: "-.01em", color: "#fff", margin: 0 }}>
+            <p style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(22px,2.2vw,28px)", lineHeight: 1.15, letterSpacing: 0, color: "#fff", margin: 0 }}>
               {caption.heading}
             </p>
             {caption.avatarCaption && avatarSeeds.length > 0 && (

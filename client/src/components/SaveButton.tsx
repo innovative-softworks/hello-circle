@@ -63,6 +63,7 @@ export function SaveButton({ saved, onToggle, position = "top" }: { saved: boole
         right: 10,
         width: 30,
         height: 30,
+        zIndex: 2,
         borderRadius: "50%",
         border: "none",
         background: "rgba(255,255,255,.9)",

@@ -40,9 +40,9 @@ export function programToBrowseItem(p: ProgramSummary): BrowseItem {
 export function Programs() {
   const config = useMemo<BrowseConfig>(
     () => ({
-      title: "Programs",
+      title: "Programmes",
       subtitle: "Multi-week courses and series at community centres and clubs — sign up once and come back each week.",
-      nounPlural: "programs",
+      nounPlural: "programmes",
       searchPlaceholder: "What would you like to learn? e.g. Pottery",
       icon: <GridIcon size={24} />,
       load: () => fetchProgramBrowse().then((rows) => rows.map(programToBrowseItem)),
@@ -53,6 +53,8 @@ export function Programs() {
       mapSearchTypes: undefined,
       supportsFeatured: false,
       closing: {
+        label: "Keep going.",
+        lines: ["Learn it", "week by", "week."],
         text: "Prefer something one-off? Try an experience, or just join a session happening nearby.",
         primary: { label: "Browse Experiences", to: "/experiences" },
         secondary: { label: "Join a Game instead", to: "/games" },

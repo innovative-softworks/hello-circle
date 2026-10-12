@@ -35,7 +35,7 @@ const ITEMS: StorageItem[] = [
   {
     name: "hello_circle_cookie_consent",
     type: "Local storage",
-    purpose: "Remembers whether you accepted or declined analytics cookies, so we don't ask again every visit.",
+    purpose: "Remembers your analytics and advertising cookie choices (each separately), so we don't ask again every visit.",
     duration: "Until you clear your browser's site data",
   },
   {
@@ -44,9 +44,21 @@ const ITEMS: StorageItem[] = [
     purpose: "Google Analytics — anonymized statistics on how the site is used (pages visited, rough traffic sources). Only set if you accept analytics below.",
     duration: "Up to 2 years",
   },
+  {
+    name: "Advertising cookies (e.g. _gcl_*)",
+    type: "Cookie",
+    purpose: "Advertising measurement and personalisation through Google Tag Manager. Only set if you accept advertising cookies — a separate choice from analytics.",
+    duration: "Up to 90 days",
+  },
 ];
 
-const h2Style: React.CSSProperties = { fontFamily: fonts.display, fontWeight: 700, fontSize: 19, margin: "0 0 10px", letterSpacing: "-.01em" };
+/** Stage 5c — analytics and advertising are separate choices. */
+function describeChoice(c: ReturnType<typeof getStoredConsent>): string {
+  if (!c) return "not yet set";
+  return `analytics ${c.analytics ? "on" : "off"}, advertising ${c.advertising ? "on" : "off"}`;
+}
+
+const h2Style: React.CSSProperties = { fontFamily: fonts.display, fontWeight: 700, fontSize: 19, margin: "0 0 10px", letterSpacing: 0 };
 const pStyle: React.CSSProperties = { color: colors.textSoft, fontSize: 15, lineHeight: 1.65, margin: "0 0 10px" };
 
 export function CookiePolicy() {
@@ -83,12 +95,12 @@ export function CookiePolicy() {
           <ChevronLeftIcon size={14} style={{ marginRight: 4 }} /> Back
         </button>
 
-        <h1 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: "clamp(26px, 5vw, 34px)", margin: "0 0 6px", letterSpacing: "-.02em" }}>
+        <h1 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: "clamp(32px, 3.8vw, 52px)", margin: "0 0 6px", letterSpacing: 0 }}>
           Cookie Policy
         </h1>
         <p style={{ color: colors.faint, fontSize: 13, margin: "0 0 24px" }}>Last updated {LAST_UPDATED}</p>
 
-        <div style={{ background: colors.greenBg, border: `1px solid ${colors.border}`, borderRadius: 14, padding: "14px 18px", marginBottom: 30, fontSize: 14, color: colors.greenText, lineHeight: 1.6, fontWeight: 600 }}>
+        <div style={{ background: colors.greenBg, border: `1px solid ${colors.border}`, borderRadius: 16, padding: "14px 18px", marginBottom: 30, fontSize: 14, color: colors.greenText, lineHeight: 1.6, fontWeight: 600 }}>
           Most of what we store is strictly necessary to run the site. The one exception is Google Analytics, which
           only runs if you accept it in the cookie banner — no advertising cookies, no tracking beyond that.
         </div>
@@ -140,9 +152,8 @@ export function CookiePolicy() {
         <div>
           <h2 style={h2Style}>Managing storage</h2>
           <p style={pStyle}>
-            Everything except analytics is strictly necessary for booking/login features to work. Your analytics
-            choice is currently:{" "}
-            <strong>{consent === "accepted" ? "accepted" : consent === "rejected" ? "declined" : "not yet set"}</strong>.
+            Everything except analytics and advertising is strictly necessary for booking/login features to work. Your
+            current choices: <strong>{describeChoice(consent)}</strong>.
           </p>
           <button
             onClick={() => {
@@ -169,6 +180,31 @@ export function CookiePolicy() {
           </p>
         </div>
       </section>
+    </div>
+  );
+}
+
+/** Stage 4 — the analytics-choice control, reused under the CMS-published
+ * Cookie Policy so publishing it never removes the way to change consent. */
+export function CookieChoiceControl() {
+  const [consent, setConsent] = useState<ReturnType<typeof getStoredConsent>>(null);
+  useEffect(() => {
+    setConsent(getStoredConsent());
+  }, []);
+  return (
+    <div style={{ margin: "8px 0 0" }}>
+      <p style={pStyle}>
+        Your current choices: <strong>{describeChoice(consent)}</strong>.
+      </p>
+      <button
+        onClick={() => {
+          localStorage.removeItem(CONSENT_KEY);
+          window.location.reload();
+        }}
+        style={{ background: "none", border: `1px solid ${colors.border}`, borderRadius: 10, padding: "9px 16px", fontSize: 13.5, fontWeight: 700, color: colors.text, cursor: "pointer" }}
+      >
+        Change my cookie choice
+      </button>
     </div>
   );
 }

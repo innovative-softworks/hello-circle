@@ -1,5 +1,6 @@
 import "dotenv/config";
 import cookieParser from "cookie-parser";
+import { sweepSubscriptions } from "./commerce/subscriptions.js";
 import cors from "cors";
 import { createIndexHtmlReader, mountClient } from "./clientAssets.js";
 import express from "express";
@@ -24,6 +25,7 @@ import { adminMediaRouter } from "./routes/adminMedia.js";
 import { authRouter } from "./routes/auth.js";
 import { availabilityRouter } from "./routes/availability.js";
 import { bookingsRouter } from "./routes/bookings.js";
+import { checkoutAbandonRouter } from "./routes/checkoutAbandon.js";
 import { chatRouter } from "./routes/chat.js";
 import { makeItHappenRouter } from "./routes/makeItHappen.js";
 import { centresRouter } from "./routes/centres.js";
@@ -32,6 +34,16 @@ import { circlesRouter } from "./routes/circles.js";
 import { clubSessionsRouter } from "./routes/clubSessions.js";
 import { clubsRouter } from "./routes/clubs.js";
 import { couponsRouter } from "./routes/coupons.js";
+import { commerceRouter } from "./routes/commerce.js";
+import { pricingPublicRouter } from "./routes/pricingPublic.js";
+import { helpRouter } from "./routes/help.js";
+import { policiesRouter } from "./routes/policies.js";
+import { consentsRouter } from "./routes/consents.js";
+import { complaintsRouter } from "./routes/complaints.js";
+import { hostTraderRouter, publicTraderRouter, vendorTraderRouter } from "./routes/traders.js";
+import { hostPayoutsRouter, vendorPayoutsRouter } from "./routes/payouts.js";
+import { hostSplitsRouter, vendorSplitsRouter } from "./routes/venueSplits.js";
+import { hostPlanRouter, residentCreditsRouter, vendorPlanRouter } from "./routes/partnerPlan.js";
 import { discoverRouter } from "./routes/discover.js";
 import { experiencesRouter } from "./routes/experiences.js";
 import { favouritesRouter } from "./routes/favourites.js";
@@ -59,7 +71,7 @@ import { reviewsRouter } from "./routes/reviews.js";
 import { searchRouter } from "./routes/search.js";
 import { sharingRouter } from "./routes/sharing.js";
 import { askRouter } from "./routes/ask.js";
-import { stripeWebhookHandler } from "./routes/stripeWebhook.js";
+import { stripeThinWebhookHandler, stripeWebhookHandler } from "./routes/stripeWebhook.js";
 import { mediaRouter } from "./routes/media.js";
 import { uploadsRouter } from "./routes/uploads.js";
 import { vendorRouter } from "./routes/vendor.js";
@@ -94,6 +106,8 @@ process.on("unhandledRejection", (reason) => {
 // the simplest thing that works at current scale.
 sweepExpiredWaitlistOffers();
 setInterval(sweepExpiredWaitlistOffers, 15 * 60 * 1000);
+// Revenue & Connect Stage 5b — end Pro for subscriptions still unpaid after the grace period (hourly; a no-op when none are).
+setInterval(() => void sweepSubscriptions().catch((e) => console.error("[subscriptions] sweep failed:", e)), 60 * 60 * 1000);
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -126,6 +140,7 @@ app.use(
 // Stripe's signature check needs the exact raw body bytes, so this must be
 // registered before express.json() parses (and thereby mangles) the body —
 // and only for this one path, everything else still wants JSON.
+app.post("/api/stripe/webhook/v2", express.raw({ type: "application/json" }), stripeThinWebhookHandler);
 app.post("/api/stripe/webhook", express.raw({ type: "application/json" }), stripeWebhookHandler);
 app.use(express.json());
 app.use(cookieParser());
@@ -162,6 +177,7 @@ app.use("/api/clubs", clubsRouter);
 app.use("/api/club-sessions", clubSessionsRouter);
 app.use("/api/availability", availabilityRouter);
 app.use("/api/bookings", bookingsRouter);
+app.use("/api/checkout", checkoutAbandonRouter);
 app.use("/api/make-it-happen", makeItHappenRouter);
 app.use("/api/chat", chatRouter);
 app.use("/api/registrations", registrationsRouter);
@@ -177,6 +193,27 @@ app.use("/api/reports", reportsRouter);
 app.use("/api/search", searchRouter);
 app.use("/api/ask", askRouter);
 app.use("/api/coupons", couponsRouter);
+app.use("/api/commerce", commerceRouter);
+app.use("/api/pricing", pricingPublicRouter);
+app.use("/api/help", helpRouter);
+// Revenue & Connect Stage 4 — Policy Centre, complaints/appeals, trader profiles.
+app.use("/api/policies", policiesRouter);
+// Stage 5c — separate consent records (marketing, privacy acknowledgement, analytics/advertising cookies).
+app.use("/api/consents", consentsRouter);
+app.use("/api/complaints", complaintsRouter);
+app.use("/api/traders", publicTraderRouter);
+app.use("/api/vendor/trader-profile", vendorTraderRouter);
+app.use("/api/host/trader-profile", hostTraderRouter);
+// Revenue & Connect Stage 5a — partner payout accounts (Stripe Connect).
+// (Stage 5c: "payout account" — transfers in and bank payouts out are reported separately.)
+app.use("/api/vendor/payout-account", vendorPayoutsRouter);
+app.use("/api/host/payout-account", hostPayoutsRouter);
+app.use("/api/host/game-splits", hostSplitsRouter);
+app.use("/api/vendor/splits", vendorSplitsRouter);
+// Revenue & Connect Stage 5b — Pro subscription, reward points, customer credits.
+app.use("/api/vendor/plan", vendorPlanRouter);
+app.use("/api/host/plan", hostPlanRouter);
+app.use("/api/credits", residentCreditsRouter);
 app.use("/api/reviews", reviewsRouter);
 app.use("/api/uploads", uploadsRouter);
 app.use("/api/media", mediaRouter);
@@ -202,7 +239,7 @@ app.get("/api/health", (_req, res) => res.json({ ok: true }));
 // client/public/robots.txt's `Disallow: /`, which was consequently never
 // actually served at all despite reading like the live pre-launch policy.
 const PUBLIC_LAUNCH = process.env.VITE_LAUNCH_MODE === "public";
-const PRELAUNCH_SITEMAP_PATHS = ["/", "/for-venues", "/become-a-host", "/coming-soon", "/privacy", "/cookies"];
+const PRELAUNCH_SITEMAP_PATHS = ["/", "/for-venues", "/become-a-host", "/about", "/contact", "/coming-soon", "/privacy", "/cookies"];
 
 // SEO Phase 3 — pulled directly from client/src/App.tsx's route table (not
 // re-derived by hand from memory), scoped to routes that carry no

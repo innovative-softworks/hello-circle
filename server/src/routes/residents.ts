@@ -1,9 +1,12 @@
 import { PaginationError, parsePageParams, setNextCursor } from "../pagination.js";
+import { paymentProvider } from "../payments/provider.js";
+import { marketingAllowed, recordConsent } from "../consent.js";
 import { discoverableGameSql } from "../gameVisibility.js";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { Router } from "express";
+import { listReceipts, receiptDetail } from "../receipts.js";
 import multer from "multer";
 import { hashPassword, verifyPassword } from "../auth.js";
 import { dataDir } from "../dataDir.js";
@@ -18,7 +21,7 @@ import { sendMail } from "../email.js";
 import { GoogleAuthNotConfigured, verifyGoogleIdToken } from "../googleAuth.js";
 import { deleteObject, objectKeyFromUrl } from "../media/mediaService.js";
 import { googleAuthLimiter, magicLinkLimiter, passwordLoginLimiter } from "../rateLimit.js";
-import { CLIENT_URL, stripe } from "../stripe.js";
+import { CLIENT_URL } from "../stripe.js";
 import { TERMS_VERSION } from "../terms.js";
 import { BadRequestError, clientIdFrom } from "../util.js";
 
@@ -387,7 +390,8 @@ residentsRouter.get("/me", async (req, res) => {
       interests: row.interests ? row.interests.split(",").filter(Boolean) : [],
       availability: row.availability ? row.availability.split(",").filter(Boolean) : [],
       onboardingCompleted: !!row.onboardingCompleted,
-      notificationPrefs: row.notificationPrefs ? JSON.parse(row.notificationPrefs) : null,
+      // Stage 5c — the marketing toggle shows the marketing consent record, not the prefs JSON.
+      notificationPrefs: { ...(row.notificationPrefs ? JSON.parse(row.notificationPrefs) : {}), marketing: await marketingAllowed(req.resident.id) },
       accessibilityPrefs: row.accessibilityPrefs ? JSON.parse(row.accessibilityPrefs) : [],
       searchRadiusKm: row.searchRadiusKm,
       hostStatus: row.hostStatus,
@@ -931,7 +935,14 @@ residentsRouter.post("/me/onboarding/skip", requireResident, async (req, res) =>
 // --- preferences (Phase A) ----------------------------------------------
 
 residentsRouter.put("/me/notification-prefs", requireResident, async (req, res) => {
-  await db.prepare(`UPDATE residents SET notification_prefs = ? WHERE id = ?`).run(JSON.stringify(req.body ?? {}), req.resident!.id);
+  // Stage 5c — "marketing" is a consent, not a notification preference: it is
+  // recorded (with its own history) only when it actually changes, and is not
+  // stored in the prefs JSON at all.
+  const { marketing, ...prefs } = (req.body ?? {}) as Record<string, unknown>;
+  await db.prepare(`UPDATE residents SET notification_prefs = ? WHERE id = ?`).run(JSON.stringify(prefs), req.resident!.id);
+  if (typeof marketing === "boolean" && marketing !== (await marketingAllowed(req.resident!.id))) {
+    await recordConsent({ type: "resident", id: req.resident!.id }, "marketing_email", marketing, "notification_settings");
+  }
   res.json({ ok: true });
 });
 
@@ -972,52 +983,16 @@ residentsRouter.delete("/me/push-token", requireResident, async (req, res) => {
 // passes) into one list — there is no shared "payments" table to query.
 
 residentsRouter.get("/me/receipts", requireResident, async (req, res) => {
-  const id = req.resident!.id;
-  const [bookings, registrations, games, passes, programEnrollments] = await Promise.all([
-    db
-      .prepare(
-        `SELECT b.ref, 'booking' as kind, c.name as label, b.total_cents as totalCents, b.created_at as createdAt, b.payment_status as paymentStatus,
-                b.date as date, b.time as time, b.centre_id as centreId
-         FROM bookings b JOIN centres c ON c.id = b.centre_id WHERE b.resident_id = ? ORDER BY b.created_at DESC`
-      )
-      .all(id),
-    db
-      .prepare(
-        `SELECT r.ref, 'registration' as kind, c.name as label, r.total_cents as totalCents, r.created_at as createdAt, r.payment_status as paymentStatus,
-                NULL as date, NULL as time, NULL as centreId
-         FROM registrations r JOIN clubs c ON c.id = r.club_id WHERE r.resident_id = ? ORDER BY r.created_at DESC`
-      )
-      .all(id),
-    db
-      .prepare(
-        `SELECT gp.ref, 'game' as kind, g.activity_label as label, COALESCE(g.price_cents, 0) as totalCents, gp.joined_at as createdAt, gp.payment_status as paymentStatus,
-                NULL as date, NULL as time, NULL as centreId
-         FROM game_participants gp JOIN games g ON g.id = gp.game_id WHERE gp.resident_id = ? AND gp.ref IS NOT NULL ORDER BY gp.joined_at DESC`
-      )
-      .all(id),
-    db
-      .prepare(
-        `SELECT p.ref, 'pass' as kind, c.name as label, p.purchased_cents as totalCents, p.created_at as createdAt, p.payment_status as paymentStatus,
-                NULL as date, NULL as time, NULL as centreId
-         FROM passes p LEFT JOIN clubs c ON c.id = p.listing_id WHERE p.resident_id = ? ORDER BY p.created_at DESC`
-      )
-      .all(id),
-    // Previously missing here — a resident tapping their own program
-    // enrollment from My Life fell through to this same receipt lookup
-    // (ParticipationRow's generic fallback) and found nothing, showing a
-    // permanent "Loading…" instead of the QR/calendar receipt view.
-    db
-      .prepare(
-        `SELECT pe.ref, 'program_enrollment' as kind, pr.title as label, pe.total_cents as totalCents, pe.created_at as createdAt, pe.payment_status as paymentStatus,
-                NULL as date, NULL as time, NULL as centreId
-         FROM program_enrollments pe JOIN programs pr ON pr.id = pe.program_id WHERE pe.resident_id = ? ORDER BY pe.created_at DESC`
-      )
-      .all(id),
-  ]);
-  const all = [...bookings, ...registrations, ...games, ...passes, ...programEnrollments].sort(
-    (a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-  );
-  res.json(all);
+  res.json(await listReceipts(req.resident!.id));
+});
+
+// Commercial UX R3A — one receipt's detail: the price recorded at purchase,
+// refunds and credit given back. Only the resident's own rows; any other ref
+// (someone else's, or none) is the same 404.
+residentsRouter.get("/me/receipts/:ref", requireResident, async (req, res) => {
+  const detail = await receiptDetail(req.resident!.id, String(req.params.ref));
+  if (!detail) return res.status(404).json({ error: "Receipt not found" });
+  res.json(detail);
 });
 
 // --- resident-facing notifications (MVP) ------------------------------
@@ -1156,55 +1131,41 @@ residentsRouter.get("/search", requireResident, async (req, res) => {
 // unconfigured — never a hard crash.
 
 residentsRouter.get("/me/payment-methods", requireResident, async (req, res) => {
-  if (!stripe) return res.status(503).json({ error: "Payments aren't configured yet" });
+  const provider = paymentProvider();
+  if (!provider) return res.status(503).json({ error: "Payments aren't configured yet" });
   const row = (await db.prepare(`SELECT stripe_customer_id as stripeCustomerId FROM residents WHERE id = ?`).get(req.resident!.id)) as
     | { stripeCustomerId: string | null }
     | undefined;
   if (!row?.stripeCustomerId) return res.json({ methods: [], defaultMethodId: null });
-
-  const [methods, customer] = await Promise.all([
-    stripe.paymentMethods.list({ customer: row.stripeCustomerId, type: "card" }),
-    stripe.customers.retrieve(row.stripeCustomerId),
-  ]);
-  const defaultMethodId =
-    !customer.deleted && typeof customer.invoice_settings?.default_payment_method === "string"
-      ? customer.invoice_settings.default_payment_method
-      : null;
-
-  res.json({
-    methods: methods.data.map((m) => ({
-      id: m.id,
-      brand: m.card?.brand ?? "card",
-      last4: m.card?.last4 ?? "????",
-      expMonth: m.card?.exp_month ?? 0,
-      expYear: m.card?.exp_year ?? 0,
-    })),
-    defaultMethodId,
-  });
+  const { cards, defaultId } = await provider.listCards(row.stripeCustomerId);
+  res.json({ methods: cards, defaultMethodId: defaultId });
 });
 
-residentsRouter.put("/me/payment-methods/:id/default", requireResident, async (req, res) => {
-  if (!stripe) return res.status(503).json({ error: "Payments aren't configured yet" });
-  const row = (await db.prepare(`SELECT stripe_customer_id as stripeCustomerId FROM residents WHERE id = ?`).get(req.resident!.id)) as
+/** The saved card must belong to this resident's customer before it can be
+ * changed — one resident can't act on another's card by guessing its id. */
+async function ownCustomerFor(residentId: string, paymentMethodId: string, provider: NonNullable<ReturnType<typeof paymentProvider>>): Promise<{ status: number; error: string } | { customerId: string }> {
+  const row = (await db.prepare(`SELECT stripe_customer_id as stripeCustomerId FROM residents WHERE id = ?`).get(residentId)) as
     | { stripeCustomerId: string | null }
     | undefined;
-  if (!row?.stripeCustomerId) return res.status(404).json({ error: "No saved payment methods" });
-  await stripe.customers.update(row.stripeCustomerId, { invoice_settings: { default_payment_method: req.params.id } });
+  if (!row?.stripeCustomerId) return { status: 404, error: "No saved payment methods" };
+  if ((await provider.cardOwner(paymentMethodId)) !== row.stripeCustomerId) return { status: 403, error: "Not your payment method" };
+  return { customerId: row.stripeCustomerId };
+}
+
+residentsRouter.put("/me/payment-methods/:id/default", requireResident, async (req, res) => {
+  const provider = paymentProvider();
+  if (!provider) return res.status(503).json({ error: "Payments aren't configured yet" });
+  const own = await ownCustomerFor(req.resident!.id, req.params.id, provider);
+  if ("error" in own) return res.status(own.status).json({ error: own.error });
+  await provider.setDefaultCard(own.customerId, req.params.id);
   res.json({ ok: true });
 });
 
 residentsRouter.delete("/me/payment-methods/:id", requireResident, async (req, res) => {
-  if (!stripe) return res.status(503).json({ error: "Payments aren't configured yet" });
-  // detach() takes no customer id — the payment_method id alone identifies
-  // it, but only after confirming it actually belongs to this resident's
-  // customer, so one resident can't detach another's saved card by guessing
-  // a payment_method id.
-  const row = (await db.prepare(`SELECT stripe_customer_id as stripeCustomerId FROM residents WHERE id = ?`).get(req.resident!.id)) as
-    | { stripeCustomerId: string | null }
-    | undefined;
-  if (!row?.stripeCustomerId) return res.status(404).json({ error: "No saved payment methods" });
-  const method = await stripe.paymentMethods.retrieve(req.params.id);
-  if (method.customer !== row.stripeCustomerId) return res.status(403).json({ error: "Not your payment method" });
-  await stripe.paymentMethods.detach(req.params.id);
+  const provider = paymentProvider();
+  if (!provider) return res.status(503).json({ error: "Payments aren't configured yet" });
+  const own = await ownCustomerFor(req.resident!.id, req.params.id, provider);
+  if ("error" in own) return res.status(own.status).json({ error: own.error });
+  await provider.detachCard(req.params.id);
   res.json({ ok: true });
 });

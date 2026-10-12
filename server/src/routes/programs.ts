@@ -1,13 +1,16 @@
 import { Router } from "express";
+import { shadowLegacy } from "../commerce/engine.js";
 import { createCheckoutSession, pricingLineItems } from "../checkoutService.js";
 import { logEvent, logView } from "../analytics.js";
 import { db } from "../db/index.js";
-import { consumeCoupon, endPendingHold, occupiesCapacitySql } from "../bookingIntegrity.js";
+import { VENDOR_SUSPENDED_ERROR, consumeCoupon, customerKeyOf, endPendingHold, occupiesCapacitySql, vendorSuspended } from "../bookingIntegrity.js";
 import { getListingAttributes, officialCircleSummary } from "../listingAttributes.js";
 import { programmeCancelBlock, refundStateOf } from "../selfCancel.js";
+import { recordOrderAcknowledgements } from "../orderAcknowledgements.js";
 import { irelandTodayIso } from "../irelandTime.js";
 import { notifyCancellation, notifyNewBookingOrRegistration } from "../notifications.js";
 import { computePricing, evaluateCoupon } from "../pricing.js";
+import { commerceQuoteLimiter } from "../rateLimit.js";
 import { BadRequestError, clientIdFrom, generateRef, isValidEmail } from "../util.js";
 
 export const programsRouter = Router();
@@ -186,6 +189,8 @@ interface EnrollBody {
   email: string;
   phone?: string;
   couponCode?: string;
+  /** Booking UX Phase 4 (B8) — recorded with the order; the terms version is resolved server-side. */
+  acceptedTerms?: boolean;
 }
 
 // One enrollment covers every session of the program (matches "8-week
@@ -193,7 +198,8 @@ interface EnrollBody {
 // so two enrollments can't both take the program's last spot.
 /** HC-QA-047 — authoritative quote (same computePricing as enrolment) for
  * the enrolment confirmation; nothing is reserved. */
-programsRouter.get("/:id/quote", async (req, res) => {
+// R3A — rate-limited (it evaluates coupon codes), like the other quotes.
+programsRouter.get("/:id/quote", commerceQuoteLimiter, async (req, res) => {
   const program = (await db.prepare(`SELECT id, price_cents FROM programs WHERE id = ? AND status = 'published'`).get(req.params.id)) as { id: string; price_cents: number } | undefined;
   if (!program) return res.status(404).json({ error: "Program not found" });
   let discountCents = 0;
@@ -201,7 +207,7 @@ programsRouter.get("/:id/quote", async (req, res) => {
   const raw = typeof req.query.couponCode === "string" ? req.query.couponCode : "";
   if (raw) {
     const result = await evaluateCoupon(raw, program.price_cents, { listingType: "program", listingId: program.id });
-    if (!result.valid) return res.status(400).json({ error: result.error });
+    if (!result.valid) return res.status(400).json({ error: result.error, code: `coupon_${result.reason ?? "invalid"}` });
     discountCents = result.discountCents!;
     couponCode = result.code!;
   }
@@ -224,6 +230,7 @@ programsRouter.post("/:id/enroll", async (req, res) => {
   const program = (await db.prepare(`SELECT * FROM programs WHERE id = ?`).get(req.params.id)) as ProgramRow | undefined;
   if (!program) return res.status(404).json({ error: "Program not found" });
   if (program.status !== "published") return res.status(409).json({ error: "This program is no longer open for enrollment" });
+  if (await vendorSuspended(program.vendor_id)) return res.status(409).json({ error: VENDOR_SUSPENDED_ERROR });
 
   const ref = generateRef("PR");
   // Resident Experience Polish — Changeset 3. EnrollBody.couponCode was
@@ -241,11 +248,12 @@ programsRouter.post("/:id/enroll", async (req, res) => {
   let couponCode: string | null = null;
   if (body.couponCode) {
     const result = await evaluateCoupon(body.couponCode, program.price_cents, { listingType: "program", listingId: program.id });
-    if (!result.valid) return res.status(400).json({ error: result.error! });
+    if (!result.valid) return res.status(400).json({ error: result.error!, code: `coupon_${result.reason ?? "invalid"}` });
     discountCents = result.discountCents!;
     couponCode = result.code!;
   }
   const pricing = computePricing(program.price_cents, 0, discountCents, couponCode);
+  shadowLegacy("program", ref, { vendorUserId: program.vendor_id }, pricing);
   const isFree = pricing.totalCents === 0;
 
   try {
@@ -268,18 +276,21 @@ programsRouter.post("/:id/enroll", async (req, res) => {
         if (Number(enrolled) >= program.capacity) throw new Error("PROGRAM_FULL");
       }
       // HC-QA-037/050 — the coupon use is reserved with the enrolment (free or pending).
-      await consumeCoupon(tx, couponCode).catch(() => { throw new Error("COUPON_EXHAUSTED"); });
+      await consumeCoupon(tx, couponCode, { sourceType: "program", ref, customerKey: customerKeyOf(req.resident?.id, clientId), discountMinor: pricing.discountCents, confirmed: isFree }).catch((e) => {
+        throw new Error(`COUPON_EXHAUSTED:${e instanceof Error ? e.message : ""}`);
+      });
       await tx
         .prepare(
           `INSERT INTO program_enrollments (ref, program_id, resident_id, client_id, participant_name, participant_dob, email, phone, total_cents, coupon_code, payment_status, status)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'confirmed')`
         )
         .run(ref, program.id, req.resident?.id ?? null, clientId, body.participantName, body.participantDob ?? "", body.email, body.phone ?? "", pricing.totalCents, couponCode, isFree ? "paid" : "pending");
+      await recordOrderAcknowledgements(tx, { sourceType: "program", ref, clientId, residentId: req.resident?.id ?? null, terms: body.acceptedTerms === true });
     });
   } catch (e) {
     if (e instanceof Error && e.message === "PROGRAM_FULL") return res.status(409).json({ error: "This program is full" });
     if (e instanceof Error && e.message === "PROGRAM_DUPLICATE") return res.status(409).json({ error: "This participant is already enrolled", duplicate: true });
-    if (e instanceof Error && e.message === "COUPON_EXHAUSTED") return res.status(400).json({ error: "That code has been fully redeemed" });
+    if (e instanceof Error && e.message.startsWith("COUPON_EXHAUSTED")) return res.status(400).json({ error: e.message.slice("COUPON_EXHAUSTED:".length) || "That code has been fully redeemed" });
     throw e;
   }
 

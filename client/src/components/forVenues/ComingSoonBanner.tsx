@@ -77,7 +77,7 @@ export function ComingSoonBanner() {
               style={{
                 border: "none",
                 borderRadius: 999,
-                background: "#fff",
+                background: "var(--color-surface)",
                 color: FV_ACCENT_DARK,
                 fontWeight: 800,
                 fontSize: 13.5,

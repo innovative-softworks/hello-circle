@@ -59,7 +59,7 @@ export function MyLifeSaved({ favourites }: { favourites: Favourite[] }) {
               src={f.imageUrl ?? undefined}
               alt={title}
               ph={colors.panel}
-              style={{ width: 44, height: 44, borderRadius: 8, overflow: "hidden", flex: "none" }}
+              style={{ width: 44, height: 44, borderRadius: 10, overflow: "hidden", flex: "none" }}
               icon={!f.imageUrl ? <HeartIcon size={14} filled style={{ color: colors.orangeDark }} /> : undefined}
             />
             <div style={{ minWidth: 0, flex: 1 }}>

@@ -1,5 +1,7 @@
 import { usePageTitle } from "../pageTitle";
 import { useEffect, useState } from "react";
+import { isMinAgeRefusal } from "../gameCta";
+import { TraderInfo } from "../components/TraderInfo";
 import { useToast } from "../components/Toast";
 import { dateLabel } from "../euro";
 import { joinGameConfirm } from "../confirmCopy";
@@ -21,6 +23,7 @@ import { useGuest } from "../GuestContext";
 import { colors, fonts, maxWidth, radius } from "../theme";
 import type { Centre, Game, Program } from "../types";
 import { formatPrice } from "../formatters";
+import { CtaBand } from "../components/CtaBand";
 
 export function CentreDetail() {
   // Slugs (master-prompt punch list #1) — the URL param may be a slug or a
@@ -88,6 +91,7 @@ export function CentreDetail() {
       }
       setGames((rows) => rows.map((g) => (g.id === gameId ? { ...g, joined: g.joined + 1, spotsLeft: g.spotsLeft - 1 } : g)));
     } catch (e) {
+      if (isMinAgeRefusal(e)) return void navigate(`/games/${gameId}`);
       toast.error(e instanceof Error ? e.message : "Couldn't join this session");
     } finally {
       setJoiningId(null);
@@ -129,7 +133,7 @@ export function CentreDetail() {
               <span style={{ fontWeight: 500, color: colors.muted }}>({centre.wouldRepeatCount})</span>
             </div>
           )}
-          <h1 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: "clamp(26px, 5vw, 36px)", margin: "0 0 4px", letterSpacing: "-.025em", display: "flex", alignItems: "center", gap: 10 }}>
+          <h1 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: "clamp(32px, 3.8vw, 52px)", margin: "0 0 4px", letterSpacing: 0, display: "flex", alignItems: "center", gap: 10 }}>
             {centre.name}
             <button
               onClick={handleToggleFavourite}
@@ -178,7 +182,7 @@ export function CentreDetail() {
           )}
           <p style={{ fontSize: 16, lineHeight: 1.6, color: colors.textSoft, margin: "0 0 28px" }}>{centre.blurb}</p>
 
-          <h3 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 20, margin: "0 0 12px", letterSpacing: "-.01em" }}>
+          <h3 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 20, margin: "0 0 12px", letterSpacing: 0 }}>
             Facilities
           </h3>
           <div className="grid-responsive" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px 24px", marginBottom: 32 }}>
@@ -192,7 +196,7 @@ export function CentreDetail() {
 
           {centre.accessibility.length > 0 && (
             <>
-              <h3 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 20, margin: "0 0 12px", letterSpacing: "-.01em" }}>
+              <h3 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 20, margin: "0 0 12px", letterSpacing: 0 }}>
                 Accessibility
               </h3>
               <div className="grid-responsive" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px 24px", marginBottom: 32 }}>
@@ -208,10 +212,10 @@ export function CentreDetail() {
 
           {centre.lat !== null && centre.lng !== null && (
             <>
-              <h3 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 20, margin: "0 0 12px", letterSpacing: "-.01em" }}>
+              <h3 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 20, margin: "0 0 12px", letterSpacing: 0 }}>
                 Location
               </h3>
-              <div style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 14, padding: "16px 18px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap", marginBottom: 12 }}>
+              <div style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 16, padding: "16px 18px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap", marginBottom: 12 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                   <PinIcon size={16} style={{ color: colors.mutedLight, flex: "none" }} />
                   <div>
@@ -251,7 +255,7 @@ export function CentreDetail() {
 
           {programs.length > 0 && (
             <>
-              <h3 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 20, margin: "0 0 12px", letterSpacing: "-.01em" }}>
+              <h3 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 20, margin: "0 0 12px", letterSpacing: 0 }}>
                 Programs & classes
               </h3>
               <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 32 }}>
@@ -259,7 +263,7 @@ export function CentreDetail() {
                   <Link
                     key={p.id}
                     to={`/programs/${p.id}`}
-                    style={{ textAlign: "left", textDecoration: "none", color: "inherit", border: `1px solid ${colors.border}`, borderRadius: 14, padding: "14px 16px", cursor: "pointer", background: colors.surface, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, width: "100%" }}
+                    style={{ textAlign: "left", textDecoration: "none", color: "inherit", border: `1px solid ${colors.border}`, borderRadius: 16, padding: "14px 16px", cursor: "pointer", background: colors.surface, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, width: "100%" }}
                   >
                     <div>
                       <div style={{ fontWeight: 700 }}>{p.title}</div>
@@ -274,7 +278,7 @@ export function CentreDetail() {
 
           {games.length > 0 && (
             <>
-              <h3 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 20, margin: "0 0 4px", letterSpacing: "-.01em" }}>
+              <h3 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 20, margin: "0 0 4px", letterSpacing: 0 }}>
                 Open sessions here
               </h3>
               <p style={{ color: colors.mutedLight, fontSize: 14, margin: "0 0 14px" }}>
@@ -282,7 +286,7 @@ export function CentreDetail() {
               </p>
               <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 32 }}>
                 {games.map((g) => (
-                  <div key={g.id} style={{ border: `1px solid ${colors.border}`, borderRadius: 14, padding: "14px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+                  <div key={g.id} style={{ border: `1px solid ${colors.border}`, borderRadius: 16, padding: "14px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
                     <div>
                       <div style={{ fontWeight: 700 }}>{g.activityLabel}</div>
                       <div style={{ fontSize: 13, color: colors.mutedLight, display: "flex", gap: 12, marginTop: 2 }}>
@@ -303,7 +307,7 @@ export function CentreDetail() {
         </div>
         <div
           className="sticky-aside"
-          style={{ position: "sticky", top: 90, background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 18, padding: 22, boxShadow: "0 8px 30px rgba(30,40,32,.05)" }}
+          style={{ position: "sticky", top: 90, background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 16, padding: 22, boxShadow: "0 8px 30px rgba(30,40,32,.05)" }}
         >
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
             <div style={{ fontSize: 14, color: colors.mutedLight }}>Hire from</div>
@@ -325,7 +329,7 @@ export function CentreDetail() {
               Check availability
             </Button>
           ) : (
-            <div style={{ width: "100%", background: colors.panel, color: colors.muted, border: "none", borderRadius: 12, padding: 14, fontSize: 14, fontWeight: 600, textAlign: "center", marginBottom: 10 }}>
+            <div style={{ width: "100%", background: colors.panel, color: colors.muted, border: "none", borderRadius: 10, padding: 14, fontSize: 14, fontWeight: 600, textAlign: "center", marginBottom: 10 }}>
               Not currently taking bookings
             </div>
           )}
@@ -354,10 +358,20 @@ export function CentreDetail() {
       </section>
       <section className="section-pad" style={{ maxWidth, margin: "0 auto", padding: "0 24px 40px" }}>
         <Reviews listingType="centre" listingId={centre.id} accent="green" onReviewPosted={reloadRating} />
+        <div style={{ marginTop: 20 }}>
+          <TraderInfo type="centre" id={centre.id} />
+        </div>
       </section>
       <section className="section-pad" style={{ maxWidth, margin: "0 auto", padding: "0 24px 80px" }}>
         <ClaimListingCTA listingType="centre" listingId={centre.id} claimed={centre.claimed} />
       </section>
+      <CtaBand
+        id="centre-cta-title"
+        label="Book a space."
+        lines={["Need", "a space", "to meet?"]}
+        text="Halls and rooms in community centres across Ireland, bookable by the hour."
+        action={{ label: "Browse venues", to: "/browse/centres" }}
+      />
     </div>
 
     {/* Mobile sticky CTA bar — mirrors the rail card's own state (open/not

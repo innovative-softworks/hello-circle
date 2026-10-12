@@ -55,7 +55,7 @@ export function InvitationLanding() {
   if (error) {
     return (
       <section className="section-pad" style={{ maxWidth: 480, margin: "0 auto", padding: "80px 24px", textAlign: "center" }}>
-        <h1 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 22, margin: "0 0 10px" }}>This invitation isn't available.</h1>
+        <h1 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(24px, 2.4vw, 30px)", margin: "0 0 10px" }}>This invitation isn't available.</h1>
         <p style={{ color: colors.mutedLight, marginBottom: 20 }}>{error}</p>
         <Button onClick={() => navigate("/explore")}>Explore HelloCircle</Button>
       </section>
@@ -72,7 +72,7 @@ export function InvitationLanding() {
     const label = finalStatus === "accepted" ? "You're in!" : finalStatus === "maybe" ? "Marked as maybe" : finalStatus === "declined" ? "You've declined" : "This invitation has expired.";
     return (
       <section className="section-pad" style={{ maxWidth: 480, margin: "0 auto", padding: "80px 24px", textAlign: "center" }}>
-        <h1 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 22, margin: "0 0 10px" }}>{label}</h1>
+        <h1 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(24px, 2.4vw, 30px)", margin: "0 0 10px" }}>{label}</h1>
         <p style={{ color: colors.mutedLight, marginBottom: 20 }}>{entity.title}</p>
         <Button onClick={() => navigate(detailHref)}>View details</Button>
       </section>
@@ -82,7 +82,7 @@ export function InvitationLanding() {
   return (
     <section className="section-pad" style={{ maxWidth: 520, margin: "0 auto", padding: "56px 24px 80px" }}>
       <p style={{ fontSize: 13.5, color: colors.mutedLight, marginBottom: 4, fontWeight: 600 }}>{data.inviterName} invited you</p>
-      <h1 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(24px,3vw,32px)", margin: "0 0 18px", letterSpacing: "-.02em" }}>{entity.title}</h1>
+      <h1 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(24px, 2.4vw, 30px)", margin: "0 0 18px", letterSpacing: 0 }}>{entity.title}</h1>
 
       {entity.image && (
         <Photo src={entity.image} alt={entity.title} ph={colors.panel} style={{ width: "100%", height: 220, borderRadius: 16, overflow: "hidden", marginBottom: 18 }} />

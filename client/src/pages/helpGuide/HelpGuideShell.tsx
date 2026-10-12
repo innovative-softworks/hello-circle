@@ -37,10 +37,10 @@ export function HelpGuideShell({
           <ChevronLeftIcon size={14} style={{ marginRight: 4 }} /> {slug ? "All guide sections" : "Back"}
         </button>
 
-        <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: ".09em", textTransform: "uppercase", color: colors.mutedLight, marginBottom: 10 }}>
+        <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: 0, textTransform: "uppercase", color: colors.mutedLight, marginBottom: 10 }}>
           <span style={{ color: colors.orangeDark }}>/</span> {eyebrow}
         </div>
-        <h1 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(28px, 5vw, 40px)", margin: "0 0 12px", letterSpacing: "-.02em" }}>
+        <h1 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(32px, 3.8vw, 52px)", margin: "0 0 12px", letterSpacing: 0 }}>
           {title}
         </h1>
         <p style={{ color: colors.mutedLight, fontSize: 16, lineHeight: 1.6, margin: "0 0 36px", maxWidth: 640 }}>{subtitle}</p>
@@ -52,11 +52,11 @@ export function HelpGuideShell({
             {prev ? (
               <button
                 onClick={() => navigate(`/help-guide/${prev.slug}`)}
-                style={{ display: "flex", alignItems: "center", gap: 8, background: "none", border: `1px solid ${colors.border}`, borderRadius: 12, padding: "12px 18px", cursor: "pointer", textAlign: "left" }}
+                style={{ display: "flex", alignItems: "center", gap: 8, background: "none", border: `1px solid ${colors.border}`, borderRadius: 10, padding: "12px 18px", cursor: "pointer", textAlign: "left" }}
               >
                 <ChevronLeftIcon size={14} style={{ color: colors.muted, flex: "none" }} />
                 <span>
-                  <div style={{ fontSize: 11.5, fontWeight: 700, color: colors.mutedLight, textTransform: "uppercase", letterSpacing: ".04em" }}>Previous</div>
+                  <div style={{ fontSize: 11.5, fontWeight: 700, color: colors.mutedLight, textTransform: "uppercase", letterSpacing: 0 }}>Previous</div>
                   <div style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 14.5, color: colors.text }}>{prev.label}</div>
                 </span>
               </button>
@@ -64,10 +64,10 @@ export function HelpGuideShell({
             {next ? (
               <button
                 onClick={() => navigate(`/help-guide/${next.slug}`)}
-                style={{ display: "flex", alignItems: "center", gap: 8, background: "none", border: `1px solid ${colors.border}`, borderRadius: 12, padding: "12px 18px", cursor: "pointer", textAlign: "right" }}
+                style={{ display: "flex", alignItems: "center", gap: 8, background: "none", border: `1px solid ${colors.border}`, borderRadius: 10, padding: "12px 18px", cursor: "pointer", textAlign: "right" }}
               >
                 <span>
-                  <div style={{ fontSize: 11.5, fontWeight: 700, color: colors.mutedLight, textTransform: "uppercase", letterSpacing: ".04em" }}>Next</div>
+                  <div style={{ fontSize: 11.5, fontWeight: 700, color: colors.mutedLight, textTransform: "uppercase", letterSpacing: 0 }}>Next</div>
                   <div style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 14.5, color: colors.text }}>{next.label}</div>
                 </span>
                 <ChevronRightIcon size={14} style={{ color: colors.muted, flex: "none" }} />

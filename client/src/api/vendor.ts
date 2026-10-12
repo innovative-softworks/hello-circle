@@ -1,3 +1,4 @@
+import type { PayoutHistoryItem } from "../components/commerceDisplay";
 import type {
   HostOpportunity,
   AttendanceStatus,
@@ -255,7 +256,10 @@ export function fetchVendorBookings(centreId?: string): Promise<VendorBookingRow
   return request(`/vendor/bookings${centreId ? `?centreId=${encodeURIComponent(centreId)}` : ""}`);
 }
 
-export function cancelVendorBooking(ref: string): Promise<{ ok: boolean }> {
+/** Booking UX Phase 6 (B13) — a provider cancellation refunds a paid online order in full: `refund` says what happened. */
+export type ProviderCancelResult = { ok: boolean; refund?: "none" | "refunded" | "failed"; refundError?: string };
+
+export function cancelVendorBooking(ref: string): Promise<ProviderCancelResult> {
   return request(`/vendor/bookings/${encodeURIComponent(ref)}/cancel`, { method: "POST" });
 }
 
@@ -271,7 +275,7 @@ export function fetchVendorRegistrations(clubId?: string): Promise<(MyRegistrati
   return request(`/vendor/registrations${clubId ? `?clubId=${encodeURIComponent(clubId)}` : ""}`);
 }
 
-export function cancelVendorRegistration(ref: string): Promise<{ ok: boolean }> {
+export function cancelVendorRegistration(ref: string): Promise<ProviderCancelResult> {
   return request(`/vendor/registrations/${encodeURIComponent(ref)}/cancel`, { method: "POST" });
 }
 
@@ -644,4 +648,185 @@ export function bookingsReportCsvUrl(): string {
 /** Release 6 — resident-backed demand in this org's counties. */
 export function fetchVendorOpportunities(): Promise<{ opportunities: HostOpportunity[]; counties: string[] }> {
   return request(`/vendor/opportunities`);
+}
+
+// --- Revenue & Connect Stage 3: ledger-backed earnings ---------------------
+
+export interface PartnerEarnings {
+  party?: { partyType: string; partyId: string };
+  pendingMinor: number;
+  availableMinor: number;
+  /** Settled, not yet transferred to the partner's Stripe account. */
+  transferDueMinor: number;
+  /** Transferred to the partner's Stripe account (bank payouts are separate). */
+  transferredMinor: number;
+  settlements: { id: number; runKey: string; netMinor: number; status: string; createdAt: string }[];
+}
+
+export function fetchVendorEarnings(): Promise<PartnerEarnings> {
+  return request(`/vendor/earnings`);
+}
+
+/** Booking UX Phase 6 (B12) — every order on the organisation's listings, with what still needs doing. */
+export interface VendorOrder {
+  type: "booking" | "registration" | "program" | "experience";
+  ref: string;
+  listingName: string;
+  customerName: string;
+  email: string;
+  date: string | null;
+  time: string | null;
+  quantity: number;
+  totalCents: number;
+  status: string;
+  paymentStatus: string;
+  paidOnline: boolean;
+  depositCents: number;
+  refundedCents: number;
+  attention: ("refund_pending" | "deposit_due")[];
+  createdAt: string;
+}
+export function fetchVendorOrders(attentionOnly = false): Promise<VendorOrder[]> {
+  return request(`/vendor/orders${attentionOnly ? "?attention=1" : ""}`);
+}
+
+/** Partial (or remaining) refund of one of the organisation's own online orders. */
+export function issueVendorRefund(input: { sourceType: "booking" | "registration" | "program" | "experience"; ref: string; amountMinor?: number; reason: string }): Promise<{ refundId: number; amountMinor: number; full: boolean }> {
+  return request(`/vendor/refunds`, { method: "POST", body: JSON.stringify(input) });
+}
+
+// --- Revenue & Connect Stage 5a: payout account (Stripe Connect) -------------
+
+/** Stage 5e — the partner-facing payout-account states (wording: help entries connect_state_<state>). */
+export type PayoutAccountState = "not_started" | "onboarding_incomplete" | "under_review" | "more_information_required" | "transfers_unavailable" | "payouts_unavailable" | "enabled";
+export interface PayoutsOverview {
+  enabled: boolean;
+  state: PayoutAccountState;
+  account: {
+    apiModel: "v1" | "v2";
+    businessType: string | null;
+    detailsSubmitted: boolean;
+    payoutsEnabled: boolean;
+    transfersActive: boolean;
+    transfersCapability: string;
+    payoutsCapability: string;
+    requirementsDue: string[];
+    requirementsPastDue: string[];
+    requirementsPending: string[];
+    disabledReason: string | null;
+    onboardingCompleted: boolean;
+    lastSyncedAt: string | null;
+  } | null;
+  readiness: string[];
+  /** HelloCircle → the partner's Stripe account (weekly settlement transfers). */
+  transfers: { id: number; settlementId: number; amountMinor: number; reversedMinor: number; status: string; createdAt: string; bookings: number }[];
+  /** The partner's Stripe account → their bank (made by Stripe, mirrored here). */
+  bankPayouts: { id: string; amountMinor: number; currency: string; status: string; arrivalDate: string | null; failureMessage: string | null }[];
+  openDebt: { id: number; outstandingMinor: number; openedAt: string } | null;
+  /** R3A — transfers and bank payouts as one dated list (same records as above). */
+  history?: PayoutHistoryItem[];
+  /** R3A — the weekly minimum from this partner's settlement rule. */
+  minimumPayoutCents?: number | null;
+}
+/** scope "vendor" = the signed-in vendor's organisation; "host" = the signed-in resident as a host. */
+export function fetchPayouts(scope: "vendor" | "host"): Promise<PayoutsOverview> {
+  return request(`/${scope}/payout-account`);
+}
+export function startPayoutOnboarding(scope: "vendor" | "host"): Promise<{ url: string; expiresAt: string | null; purpose: "onboarding" | "update" }> {
+  return request(`/${scope}/payout-account/onboarding`, { method: "POST", body: JSON.stringify({ country: "IE" }) });
+}
+export function refreshPayoutAccount(scope: "vendor" | "host", source: "api" | "return" = "api"): Promise<PayoutsOverview> {
+  return request(`/${scope}/payout-account/refresh`, { method: "POST", body: JSON.stringify({ source }) });
+}
+
+// --- Revenue & Connect Stage 5e: venue/host split agreements -----------------
+
+export interface VenueSplitAgreement {
+  id: number;
+  gameId: string;
+  gameTitle?: string | null;
+  version: number;
+  venuePartyType: string;
+  venuePartyId: string;
+  hostResidentId: string;
+  mode: "percentage" | "fixed_venue" | "fixed_host";
+  venueBps: number | null;
+  venueFixedMinor: number | null;
+  hostFixedMinor: number | null;
+  status: "proposed" | "accepted" | "declined" | "withdrawn" | "superseded";
+  proposedAt: string;
+  decidedAt: string | null;
+  decisionReason: string | null;
+}
+/** The venue's organisation: splits proposed by hosts for games at its venues. */
+export function fetchVenueSplits(): Promise<VenueSplitAgreement[]> {
+  return request(`/vendor/splits`);
+}
+export function decideVenueSplit(id: number, accept: boolean, reason?: string): Promise<VenueSplitAgreement> {
+  return request(`/vendor/splits/${id}/decision`, { method: "POST", body: JSON.stringify({ accept, reason }) });
+}
+export function payoutDashboardLink(scope: "vendor" | "host"): Promise<{ url: string }> {
+  return request(`/${scope}/payout-account/dashboard`, { method: "POST", body: "{}" });
+}
+
+// --- Revenue & Connect Stage 5b: plan (Pro on Stripe Billing) + reward points --
+
+/** Stage 5f — server-derived plan state (the UI never infers it). */
+export type PlanState = "unavailable" | "free" | "processing" | "paid_active" | "cancelling" | "payment_failed" | "reward_active" | "pro_granted";
+export type RedemptionState = "available" | "not_enough" | "debt" | "paid_active" | "cancelling_active" | "disabled";
+export type RewardHistoryKind = "earned" | "venue_share" | "host_share" | "refund_reversal" | "dispute_reversal" | "debt_repayment" | "redemption" | "adjustment";
+export interface RewardHistoryEntry { id: string; kind: RewardHistoryKind; points: number; at: string; sourceType: string | null; sourceRef: string | null; note: string | null }
+export interface PartnerPlanOverview {
+  enabled: boolean;
+  rewardsEnabled: boolean;
+  state: PlanState;
+  canManage: boolean;
+  testMode: boolean;
+  plan: { planKey: "free" | "pro" | "enterprise"; source: string; effectiveFrom: string | null; effectiveTo: string | null; rewardFunded: boolean };
+  subscription: { status: string; currentPeriodEnd: string | null; cancelAtPeriodEnd: boolean; graceUntil: string | null; graceDays: number | null; graceDaysRemaining: number | null; billingStartsAt: string | null } | null;
+  pendingCheckout: boolean;
+  price: { netMinor: number; vatMinor: number; grossMinor: number; vatBps: number; vatMode: string; taxLabel: string };
+  graceDaysPolicy: number;
+  rewards: {
+    enabled: boolean;
+    points: number;
+    availablePoints: number;
+    debtPoints: number;
+    nextExpiry: string | null;
+    redemptionPoints: number;
+    pointsPerEuro: number;
+    pendingPoints: number;
+    earnedThisMonth: number;
+    progressBps: number;
+    recent: RewardHistoryEntry[];
+    redemption: RedemptionState;
+  };
+}
+export function fetchMyPlan(scope: "vendor" | "host"): Promise<PartnerPlanOverview> {
+  return request(`/${scope}/plan`);
+}
+export function fetchCheckoutStatus(scope: "vendor" | "host"): Promise<{ state: PlanState; pendingCheckout: boolean }> {
+  return request(`/${scope}/plan/checkout-status`);
+}
+export function startProCheckout(scope: "vendor" | "host", termsAccepted: boolean): Promise<{ id: string; url: string | null; reused: boolean; billingStartsAt?: string | null }> {
+  return request(`/${scope}/plan/pro/checkout`, { method: "POST", body: JSON.stringify({ termsAccepted }) });
+}
+export function cancelProSubscription(scope: "vendor" | "host"): Promise<{ ok: boolean }> {
+  return request(`/${scope}/plan/pro/cancel`, { method: "POST", body: "{}" });
+}
+export function resumeProSubscription(scope: "vendor" | "host"): Promise<{ ok: boolean }> {
+  return request(`/${scope}/plan/pro/resume`, { method: "POST", body: "{}" });
+}
+export function openBillingPortal(scope: "vendor" | "host"): Promise<{ url: string }> {
+  return request(`/${scope}/plan/billing-portal`, { method: "POST", body: "{}" });
+}
+export function fetchRewardHistory(scope: "vendor" | "host", opts: { limit?: number; before?: string; beforeId?: string } = {}): Promise<RewardHistoryEntry[]> {
+  const q = new URLSearchParams();
+  if (opts.limit) q.set("limit", String(opts.limit));
+  if (opts.before) q.set("before", opts.before);
+  if (opts.beforeId) q.set("beforeId", opts.beforeId);
+  return request(`/${scope}/plan/rewards/history${q.toString() ? `?${q}` : ""}`);
+}
+export function redeemRewardPoints(scope: "vendor" | "host"): Promise<{ redemptionId: number; proFrom: string; proUntil: string }> {
+  return request(`/${scope}/plan/rewards/redeem`, { method: "POST", body: "{}" });
 }

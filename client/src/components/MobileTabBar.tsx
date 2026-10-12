@@ -1,20 +1,14 @@
 import { useState, type ReactNode } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
-import {
-  BallIcon,
-  BuildingIcon,
-  GridIcon,
-  HandshakeIcon,
-  HomeIcon,
-  PersonIcon,
-  PinIcon,
-  PlusIcon,
-  RepeatIcon,
-  TreeIconSmall,
-} from "./icons";
+import { Link, useLocation, useNavigate } from "react-router-dom";
+import { useAuth } from "../AuthContext";
+import { EXPLORE_PATHS, EXPLORE_PLACES, EXPLORE_THINGS, FREE_TIME_ITEM, START_ITEMS, START_PATHS, isUnder, visibleItems, type NavContext, type NavItem } from "../navigation/navConfig";
+import { Compass, House, Plus, UserRound, UsersRound } from "lucide-react";
+import { ICON_STROKE } from "./header/headerStyles";
 import { Drawer } from "./ui";
 import { useMyStuff } from "../MyStuffContext";
 import { colors, radius } from "../theme";
+import { useOpenBookingOpen } from "../paidCheckout";
+import { VENUE_PAGES_PUBLIC } from "../venueLaunch";
 
 // IA spec five-layer audit's single highest-leverage remaining gap: mobile
 // nav was a hamburger-triggered drawer, a genuinely different pattern from
@@ -49,12 +43,13 @@ const itemButtonStyle: React.CSSProperties = {
 
 const sheetItemStyle: React.CSSProperties = {
   display: "flex",
+  textDecoration: "none",
   alignItems: "center",
   gap: 12,
   width: "100%",
   background: colors.panel,
   border: "none",
-  borderRadius: 12,
+  borderRadius: 10,
   padding: "14px 16px",
   fontSize: 15,
   fontWeight: 600,
@@ -69,7 +64,7 @@ const sheetGroupLabelStyle: React.CSSProperties = {
   fontWeight: 700,
   color: colors.muted,
   textTransform: "uppercase",
-  letterSpacing: ".04em",
+  letterSpacing: 0,
   padding: "4px 2px 8px",
 };
 
@@ -83,7 +78,7 @@ function TabButton({ icon, label, active, badge, onClick, current, expanded }: {
       aria-current={current ? "page" : undefined}
       aria-expanded={expanded}
       aria-haspopup={expanded === undefined ? undefined : "dialog"}
-      style={{ ...itemButtonStyle, color: active ? colors.greenText : colors.mutedLight, position: "relative" }}
+      style={{ ...itemButtonStyle, color: active ? colors.orange : colors.textSoft, position: "relative", transition: "color 150ms ease" }}
     >
       {icon}
       {label}
@@ -93,7 +88,7 @@ function TabButton({ icon, label, active, badge, onClick, current, expanded }: {
             position: "absolute",
             top: 0,
             right: "22%",
-            background: colors.green,
+            background: colors.orange,
             color: "#fff",
             borderRadius: radius.pill,
             fontSize: 9,
@@ -117,69 +112,73 @@ export function MobileTabBar() {
   const navigate = useNavigate();
   const location = useLocation();
   const { count } = useMyStuff();
+  const { user } = useAuth();
   const [exploreOpen, setExploreOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
 
-  const isActive = (prefixes: string[]) => prefixes.some((p) => location.pathname.startsWith(p));
-  const go = (path: string) => {
+  // "/" is Home too once the launch gate is open (App.tsx); while gated it is
+  // the vendor pitch, so the Home tab mustn't light up there.
+  const openBooking = useOpenBookingOpen();
+  const navCtx: NavContext = { venuesPublic: VENUE_PAGES_PUBLIC, openBooking, isVendor: user?.role === "vendor" };
+  const isHome = location.pathname === "/home" || (location.pathname === "/" && import.meta.env.VITE_LAUNCH_MODE === "public");
+  const close = () => {
     setExploreOpen(false);
     setCreateOpen(false);
+  };
+  const go = (path: string) => {
+    close();
     navigate(path);
   };
 
-  const exploreActive = isActive(["/browse/centres", "/centres/", "/browse/clubs", "/clubs/", "/games", "/adventures", "/experiences", "/programs"]);
+  const startActive = isUnder(location.pathname, START_PATHS);
+  const exploreActive = isUnder(location.pathname, EXPLORE_PATHS) && !startActive;
+  const places = visibleItems(EXPLORE_PLACES, navCtx);
+
+  // Sheet rows are real links (header audit P1-2), from the shared nav config.
+  const sheetLink = (item: NavItem) => (
+    <Link key={item.key} to={item.to} className="hc-menu-row" style={sheetItemStyle} onClick={close} aria-current={location.pathname === item.to ? "page" : undefined}>
+      <span style={{ display: "inline-flex", color: colors.orange, flex: "none" }} aria-hidden="true">
+        <item.icon size={20} strokeWidth={ICON_STROKE} />
+      </span>
+      {item.label}
+    </Link>
+  );
 
   return (
     <>
       <nav className="mobile-tab-bar" aria-label="Primary">
-        <TabButton icon={<HomeIcon size={20} />} label="Home" active={location.pathname === "/home"} current={location.pathname === "/home"} onClick={() => go("/home")} />
-        <TabButton icon={<GridIcon size={20} />} label="Explore" active={exploreActive} expanded={exploreOpen} onClick={() => setExploreOpen(true)} />
-        <TabButton icon={<PlusIcon size={20} />} label="Start" active={false} expanded={createOpen} onClick={() => setCreateOpen(true)} />
-        <TabButton icon={<RepeatIcon size={20} />} label="Circles" active={isActive(["/circles"])} current={location.pathname === "/circles"} onClick={() => go("/circles")} />
-        <TabButton icon={<PersonIcon size={20} />} label="My Life" active={isActive(["/bookings", "/my-life"])} current={location.pathname === "/bookings" || location.pathname === "/my-life"} badge={count} onClick={() => go("/bookings")} />
+        <TabButton icon={<House size={23} strokeWidth={ICON_STROKE} aria-hidden="true" />} label="Home" active={isHome} current={isHome} onClick={() => go("/home")} />
+        <TabButton icon={<Compass size={23} strokeWidth={ICON_STROKE} aria-hidden="true" />} label="Explore" active={exploreActive} expanded={exploreOpen} onClick={() => setExploreOpen(true)} />
+        <TabButton
+          icon={
+            // Start is the primary action: its icon stays orange (the tab label follows the normal active state).
+            <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 26, height: 26, borderRadius: 7, background: colors.orange, color: "#fff" }} aria-hidden="true">
+              <Plus size={19} strokeWidth={2.4} />
+            </span>
+          } label="Start" active={startActive} expanded={createOpen} onClick={() => setCreateOpen(true)} />
+        <TabButton icon={<UsersRound size={23} strokeWidth={ICON_STROKE} aria-hidden="true" />} label="Circles" active={isUnder(location.pathname, ["/circles"]) && !startActive} current={location.pathname === "/circles"} onClick={() => go("/circles")} />
+        <TabButton icon={<UserRound size={23} strokeWidth={ICON_STROKE} aria-hidden="true" />} label="My Life" active={isUnder(location.pathname, ["/bookings", "/my-life"])} current={location.pathname === "/bookings" || location.pathname === "/my-life"} badge={count} onClick={() => go("/bookings")} />
       </nav>
 
       <Drawer open={exploreOpen} onClose={() => setExploreOpen(false)} title="Explore">
-        <div style={sheetGroupLabelStyle}>Explore</div>
-        <button style={sheetItemStyle} onClick={() => go("/games")} aria-current={location.pathname === "/games" ? "page" : undefined}>
-          <RepeatIcon size={18} style={{ color: colors.greenText, flex: "none" }} /> Join a session
-        </button>
-        <button style={sheetItemStyle} onClick={() => go("/adventures")} aria-current={location.pathname === "/adventures" ? "page" : undefined}>
-          <TreeIconSmall size={18} style={{ color: colors.greenText, flex: "none" }} /> Adventures
-        </button>
-        <button style={sheetItemStyle} onClick={() => go("/experiences")} aria-current={location.pathname === "/experiences" ? "page" : undefined}>
-          <TreeIconSmall size={18} style={{ color: colors.orangeDark, flex: "none" }} /> Experiences
-        </button>
-        {/* Programs has its own browse page (/programs), same as the
-            desktop mega menu — it used to land on Explore's mixed results. */}
-        <button style={sheetItemStyle} onClick={() => go("/programs")} aria-current={location.pathname === "/programs" ? "page" : undefined}>
-          <GridIcon size={18} style={{ color: colors.greenText, flex: "none" }} /> Programs
-        </button>
-        {/* Product Language & IA Polish — Changeset 1C — mirrors Header.tsx's
-            desktop mega-menu's same convergence on "Places". */}
-        <div style={sheetGroupLabelStyle}>Places</div>
-        <button style={sheetItemStyle} onClick={() => go("/browse/centres")} aria-current={location.pathname === "/browse/centres" ? "page" : undefined}>
-          <BuildingIcon size={18} style={{ color: colors.greenText, flex: "none" }} /> Community centres
-        </button>
-        <button style={sheetItemStyle} onClick={() => go("/browse/clubs")} aria-current={location.pathname === "/browse/clubs" ? "page" : undefined}>
-          <BallIcon size={18} style={{ color: colors.greenText, flex: "none" }} /> Sports clubs
-        </button>
+        <div style={sheetGroupLabelStyle}>Things to do</div>
+        {EXPLORE_THINGS.map(sheetLink)}
+        {/* Sitemap audit P1-06 — only while venue pages are public; otherwise
+            both would land on /coming-soon. */}
+        {places.length > 0 && (
+          <>
+            <div style={sheetGroupLabelStyle}>Places</div>
+            {places.map(sheetLink)}
+          </>
+        )}
+        <div style={sheetGroupLabelStyle}>Not sure yet?</div>
+        {sheetLink(FREE_TIME_ITEM)}
       </Drawer>
 
       <Drawer open={createOpen} onClose={() => setCreateOpen(false)} title="Start">
         <p style={{ fontSize: 13, color: colors.mutedLight, margin: "0 0 16px" }}>Start something new.</p>
-        <button style={sheetItemStyle} onClick={() => go("/browse/centres")} aria-current={location.pathname === "/browse/centres" ? "page" : undefined}>
-          <BuildingIcon size={18} style={{ color: colors.greenText, flex: "none" }} /> Book a place
-        </button>
-        <button style={sheetItemStyle} onClick={() => go("/games")} aria-current={location.pathname === "/games" ? "page" : undefined}>
-          <PlusIcon size={18} style={{ color: colors.greenText, flex: "none" }} /> Start a session
-        </button>
-        <button style={sheetItemStyle} onClick={() => go("/make-it-happen")} aria-current={location.pathname === "/make-it-happen" ? "page" : undefined}>
-          <HandshakeIcon size={18} style={{ color: colors.orangeDark, flex: "none" }} /> Make It Happen
-        </button>
-        <button style={sheetItemStyle} onClick={() => go("/suggest-place")} aria-current={location.pathname === "/suggest-place" ? "page" : undefined}>
-          <PinIcon size={18} style={{ color: colors.greenText, flex: "none" }} /> Suggest a place
-        </button>
+        {/* Same items as the desktop Start menu (navConfig START_ITEMS). */}
+        {visibleItems(START_ITEMS, navCtx).map(sheetLink)}
       </Drawer>
     </>
   );

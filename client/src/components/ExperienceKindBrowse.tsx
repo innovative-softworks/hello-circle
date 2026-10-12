@@ -54,6 +54,13 @@ export function ExperienceKindBrowse({ kind, title, subtitle }: { kind: Experien
       mapSearchTypes: ["experience"],
       supportsFeatured: true,
       closing: {
+        label: kind === "adventure" ? "Outdoors." : kind === "volunteer" ? "Give back." : "Try it.",
+        lines:
+          kind === "adventure"
+            ? ["Get", "outside", "together."]
+            : kind === "volunteer"
+            ? ["Give", "a few", "hours."]
+            : ["Learn", "something", "new."],
         text:
           kind === "adventure"
             ? "Browse workshops and classes, or just join a session happening nearby."

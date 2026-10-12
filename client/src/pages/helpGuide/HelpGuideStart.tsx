@@ -5,7 +5,7 @@ import { HelpGuideShell } from "./HelpGuideShell";
 
 function SubHeading({ children }: { children: React.ReactNode }) {
   return (
-    <h2 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 24, margin: "48px 0 4px", letterSpacing: "-.01em", borderTop: `1px solid ${colors.border}`, paddingTop: 40 }}>
+    <h2 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 24, margin: "48px 0 4px", letterSpacing: 0, borderTop: `1px solid ${colors.border}`, paddingTop: 40 }}>
       {children}
     </h2>
   );
@@ -17,25 +17,27 @@ export function HelpGuideStart() {
       slug="start"
       eyebrow="Help guide"
       title="Start."
-      subtitle="Everything under the Start menu — the four ways to put something new onto Hello Circle, from booking a venue to suggesting one we're missing."
+      subtitle="Everything under the Start menu — the ways to put something new onto HelloCircle, from hosting an activity to suggesting a place we're missing."
     >
       <p style={guideStepPStyle}>
-        Click <strong>Start</strong> in the top nav to open a single list: <strong>Book a place</strong>,{" "}
-        <strong>Start a session</strong>, <strong>Make It Happen</strong>, and <strong>Suggest a place</strong>.
+        Click <strong>Start</strong> in the top nav (or the Start tab at the bottom of the screen on mobile) to open a
+        single list: <strong>Host an activity</strong>, <strong>Start a Circle</strong>, and{" "}
+        <strong>Suggest a place</strong>. <strong>Make It Happen</strong> and <strong>Book a place</strong> appear
+        there too while they're available.
       </p>
-      <ScreenshotPlaceholder caption="The open Start menu, all four rows visible: Book a place, Start a session, Make It Happen, Suggest a place." alt="The Start menu open" />
+      <ScreenshotPlaceholder caption="The open Start menu: Host an activity, Start a Circle, Suggest a place." alt="The Start menu open" />
 
       {/* ---------- Book a place ---------- */}
       <SubHeading>Book a place</SubHeading>
       <p style={guideStepPStyle}>
-        This is the same Community centres flow covered in full on the{" "}
+        Shown once community centres open on HelloCircle. This is the same Community centres flow covered in full on the{" "}
         <a href="/help-guide/explore" style={{ color: colors.greenText }}>Explore</a> page — Start just gives it a
         second, more direct entry point for when you already know you want to hire a room rather than browse first.
         It takes you straight to <code>/browse/centres</code> to pick a venue and book.
       </p>
 
-      {/* ---------- Start a session ---------- */}
-      <SubHeading>Start a session</SubHeading>
+      {/* ---------- Host an activity ---------- */}
+      <SubHeading>Host an activity</SubHeading>
       <p style={guideStepPStyle}>
         This is how you host — a pickup game, a one-off class, anything you want other people to be able to join. No
         venue listing or vendor account required: pick a time and a place (your own address, a park, an existing
@@ -51,7 +53,7 @@ export function HelpGuideStart() {
           <li style={guideStepLiStyle}><strong>How many players can join?</strong> — the capacity.</li>
           <li style={guideStepLiStyle}><strong>Minimum to run</strong> (optional) — require a certain number before it's confirmed rather than just "open"; you count toward this automatically as host.</li>
         </ul>
-        <ScreenshotPlaceholder caption="Step 1 of Host a session: activity name field, location/venue picker, date/time pickers, and the capacity stepper." alt="Host a session, step 1" />
+        <ScreenshotPlaceholder caption="Step 1 of Host an activity: activity name field, location/venue picker, date/time pickers, and the capacity stepper." alt="Host an activity, step 1" />
       </GuideStep>
 
       <GuideStep n="02" title="Everything else (all optional)">
@@ -63,21 +65,31 @@ export function HelpGuideStart() {
           <li style={guideStepLiStyle}>Visibility — public, Circle-only, or invite-only</li>
           <li style={guideStepLiStyle}>Whether it's solo-friendly</li>
         </ul>
-        <ScreenshotPlaceholder caption="Step 2 of Host a session: the optional-details fields and the final Create session button." alt="Host a session, step 2" />
+        <ScreenshotPlaceholder caption="Step 2 of Host an activity: the optional-details fields and the final Create session button." alt="Host an activity, step 2" />
       </GuideStep>
 
       <GuideStep n="03" title="Once it's posted">
         <p style={guideStepPStyle}>
-          Your session is live immediately (or shows "needs players" until your minimum is met). You can edit it, post
+          Your activity is live immediately (or shows "needs players" until your minimum is met). You can edit it, post
           updates to everyone who's joined, manage participants, or cancel it from{" "}
           <a href="/help-guide/my-life" style={{ color: colors.greenText }}>My Life</a>'s Activities section.
         </p>
       </GuideStep>
 
+      {/* ---------- Start a Circle ---------- */}
+      <SubHeading>Start a Circle</SubHeading>
+      <p style={guideStepPStyle}>
+        A Circle is a standing group around something you do regularly — a weekly run, a book club, Sunday football.
+        Start one from here and you're its organiser: you choose who can join, post plans and polls, and run it from{" "}
+        <a href="/manage" style={{ color: colors.greenText }}>Manage</a>. The full walkthrough is on the{" "}
+        <a href="/help-guide/circles" style={{ color: colors.greenText }}>Circles</a> page.
+      </p>
+
       {/* ---------- Make It Happen ---------- */}
       <SubHeading>Make It Happen</SubHeading>
       <p style={guideStepPStyle}>
-        The opposite direction from Start a session — instead of you finding a venue yourself, tell HelloCircle what
+        Shown in the Start menu only while it's available. The opposite direction from
+        hosting an activity — instead of you finding a venue yourself, tell HelloCircle what
         you want to do and it searches, prices, and proposes a real room for you, then recruits the rest of your group.
       </p>
 

@@ -79,10 +79,10 @@ export function GuidedFlow({
     <div>
       <Stepper labels={stepLabels} current={currentStep} accent={accent} />
       <div style={{ marginBottom: 4 }}>
-        <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".07em", textTransform: "uppercase", color: accent === "orange" ? colors.orangeDark : colors.greenText, marginBottom: 6 }}>
+        <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0, textTransform: "uppercase", color: accent === "orange" ? colors.orangeDark : colors.greenText, marginBottom: 6 }}>
           {String(currentStep).padStart(2, "0")} / {stepLabels[currentStep - 1]?.toUpperCase()}
         </div>
-        <Heading ref={headingRef} tabIndex={-1} style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 26, margin: "0 0 6px", letterSpacing: "-.01em", outline: "none" }}>{title}</Heading>
+        <Heading ref={headingRef} tabIndex={-1} style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 26, margin: "0 0 6px", letterSpacing: 0, outline: "none" }}>{title}</Heading>
         {subtitle && <p style={{ fontSize: 14, color: colors.mutedLight, margin: "0 0 22px", maxWidth: 520, lineHeight: 1.5 }}>{subtitle}</p>}
       </div>
 

@@ -21,8 +21,8 @@ export async function guest(playwright: PlaywrightWorkerArgs["playwright"], open
   return { ctx, clientId, email: `qa_guest_${clientId.slice(0, 8)}@example.test` };
 }
 
-export async function bookableCentre(f: Scope, opts: { rate?: number; cap?: number; payment?: "cash" | "online" } = {}) {
-  const centre = await centreFor(f, "QA_VENDOR");
+export async function bookableCentre(f: Scope, opts: { rate?: number; cap?: number; payment?: "cash" | "online"; owner?: string } = {}) {
+  const centre = await centreFor(f, opts.owner ?? "QA_VENDOR");
   await f.connection.execute("UPDATE centres SET status = 'approved', is_open = 1, opens_at = '09:00', closes_at = '21:00' WHERE id = ?", [centre.id]);
   await f.connection.execute("UPDATE rooms SET cap = ?, rate = ?, payment_method = ?, active = 1 WHERE centre_id = ?", [opts.cap ?? 10, opts.rate ?? 20, opts.payment ?? "cash", centre.id]);
   f.track("notifications", "listing_id", centre.id);

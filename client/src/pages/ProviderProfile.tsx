@@ -2,10 +2,10 @@ import { usePageTitle } from "../pageTitle";
 import { useEffect, useState, type ReactNode } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { fetchProviderProfile } from "../api";
-import { AwardIcon, ChevronRightIcon, PinIcon } from "../components/icons";
+import { AwardIcon, CalendarIcon, ChevronRightIcon, PinIcon } from "../components/icons";
 import { FollowButton } from "../components/FollowButton";
 import { ShareButton } from "../components/ShareButton";
-import { Photo } from "../components/Photo";
+import { CardPrice, ListingCard, cardButtonStyle } from "../components/ListingCard";
 import { getMediaUrl } from "../media";
 import { PhotoGallery } from "../components/PhotoGallery";
 import { ProviderCard } from "../components/ProviderCard";
@@ -13,7 +13,7 @@ import { SinglePinMap } from "../components/SinglePinMap";
 import { Button, LinkButton, PageSpinner, StarDisplay } from "../components/ui";
 import { EntityTypeLabel, ParticipationMeter } from "../components/symbols";
 import type { EntityKind } from "../components/symbols";
-import { cardImageRatio, colors, fonts, maxWidth, placeholderStripes, radius } from "../theme";
+import { colors, fonts, maxWidth, placeholderStripes, radius } from "../theme";
 import type { ProviderProfile, ProviderUpcomingItem } from "../types";
 
 // Provider public profile (IA spec §5; redesigned per the "HelloCircle —
@@ -55,27 +55,27 @@ function formatSessionDate(date: string, time: string): string {
 /** Vertical card (image on top) — the reference's "Upcoming" card shape,
  * replacing the horizontal-row treatment the previous pass used. */
 function UpcomingCard({ item, onOpen }: { item: ProviderUpcomingItem; onOpen: () => void }) {
+  // Design-system consistency pass: the shared ListingCard shape.
   return (
-    <div
-      onClick={onOpen}
-      className="card-hover card-surface"
-      style={{ cursor: "pointer", background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: radius.card, overflow: "hidden" }}
-    >
-      <Photo src={item.imageUrl ?? undefined} alt={item.title} ph={placeholderStripes.green} style={{ aspectRatio: cardImageRatio.discovery }} />
-      <div style={{ padding: "12px 14px 14px" }}>
-        <EntityTypeLabel type={UPCOMING_KIND_TO_ENTITY[item.kind]} size={11} color={colors.mutedLight} />
-        <div style={{ fontWeight: 700, fontSize: 14.5, margin: "5px 0 3px" }}>{item.title}</div>
-        <div style={{ fontSize: 12, color: colors.mutedLight, marginBottom: item.capacity ? 8 : 2 }}>{formatSessionDate(item.date, item.time)}</div>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-          {item.capacity !== null ? (
-            <ParticipationMeter capacity={item.capacity} joinedCount={item.spotsLeft !== null ? item.capacity - item.spotsLeft : 0} />
-          ) : (
-            <span />
-          )}
-          {item.priceCents !== null && item.priceCents > 0 && <span style={{ fontWeight: 700, fontSize: 13.5, flex: "none" }}>€{(item.priceCents / 100).toFixed(0)}</span>}
-        </div>
-      </div>
-    </div>
+    <ListingCard
+      href={item.href}
+      title={item.title}
+      image={item.imageUrl}
+      ph={placeholderStripes.green}
+      tag={<EntityTypeLabel type={UPCOMING_KIND_TO_ENTITY[item.kind]} size={11} color="#172019" />}
+      details={[{ icon: <CalendarIcon size={13} />, text: formatSessionDate(item.date, item.time) }]}
+      facts={
+        <>
+          {item.priceCents !== null && item.priceCents > 0 && <CardPrice>€{(item.priceCents / 100).toFixed(0)}</CardPrice>}
+          {item.capacity !== null && <ParticipationMeter capacity={item.capacity} joinedCount={item.spotsLeft !== null ? item.capacity - item.spotsLeft : 0} />}
+        </>
+      }
+      action={
+        <Button style={cardButtonStyle} variant="ghost" onClick={onOpen}>
+          View details
+        </Button>
+      }
+    />
   );
 }
 
@@ -212,7 +212,7 @@ export function ProviderProfilePage() {
             {typeLabels.length > 0 && (
               <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginBottom: 10 }}>
                 {typeLabels.map((t) => (
-                  <span key={t} style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: colors.mutedLight }}>
+                  <span key={t} style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: 0, textTransform: "uppercase", color: colors.mutedLight }}>
                     {t}
                   </span>
                 ))}
@@ -225,7 +225,7 @@ export function ProviderProfilePage() {
                 </span>
               </div>
             )}
-            <h1 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(34px, 6vw, 68px)", letterSpacing: "-.03em", lineHeight: 0.96, margin: "0 0 10px" }}>{profile.name}</h1>
+            <h1 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(32px, 3.8vw, 52px)", letterSpacing: 0, lineHeight: 0.96, margin: "0 0 10px" }}>{profile.name}</h1>
             <div style={{ fontSize: 13.5, color: colors.mutedLight, marginBottom: 12 }}>
               {typeLabels[0] ?? "Provider"} · {profile.county}
             </div>
@@ -267,7 +267,7 @@ export function ProviderProfilePage() {
             {/* 3. Upcoming — the centrepiece. */}
             <div id="upcoming" style={{ scrollMarginTop: 24 }}>
               <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 4 }}>
-                <h2 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 22, letterSpacing: "-.01em", margin: 0, display: "flex", alignItems: "baseline", gap: 7 }}>
+                <h2 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 22, letterSpacing: 0, margin: 0, display: "flex", alignItems: "baseline", gap: 7 }}>
                   <span aria-hidden="true" style={{ color: colors.orangeDark }}>
                     /
                   </span>
@@ -286,19 +286,19 @@ export function ProviderProfilePage() {
                     <UpcomingCard key={`${item.kind}-${item.id}`} item={item} onOpen={() => navigate(item.href)} />
                   ))}
                   {profile.centres.map((c) => (
-                    <div
+                    <ListingCard
                       key={c.id}
-                      onClick={() => navigate(`/centres/${c.slug ?? c.id}`)}
-                      className="card-hover card-surface"
-                      style={{ cursor: "pointer", background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: radius.card, overflow: "hidden" }}
-                    >
-                      <Photo src={c.image || undefined} alt={c.name} ph={placeholderStripes.green} style={{ aspectRatio: cardImageRatio.discovery }} />
-                      <div style={{ padding: "12px 14px 14px" }}>
-                        <EntityTypeLabel type="place" size={11} color={colors.mutedLight} />
-                        <div style={{ fontWeight: 700, fontSize: 14.5, margin: "5px 0 8px" }}>{c.name}</div>
-                        <span style={{ fontSize: 12.5, fontWeight: 700, color: colors.greenText }}>Check availability →</span>
-                      </div>
-                    </div>
+                      href={`/centres/${c.slug ?? c.id}`}
+                      title={c.name}
+                      image={c.image || null}
+                      ph={placeholderStripes.green}
+                      tag={<EntityTypeLabel type="place" size={11} color="#172019" />}
+                      action={
+                        <Button style={cardButtonStyle} variant="dark" onClick={() => navigate(`/centres/${c.slug ?? c.id}`)}>
+                          Check availability
+                        </Button>
+                      }
+                    />
                   ))}
                 </div>
               )}

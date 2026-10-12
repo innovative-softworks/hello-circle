@@ -1,4 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
+import { PlanRewardsPanel } from "../components/PlanRewardsPanel";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { fetchOrgProfile, fetchVendorListings, fetchVendorNotifications, fetchVendorScheduleItems, fetchVendorStats } from "../api";
 import { useAuth } from "../AuthContext";
@@ -28,6 +29,8 @@ import { ListingsTab } from "../components/VendorListings";
 import { MessagesTab } from "../components/VendorMessages";
 import { VendorOffersTab } from "../components/VendorOffers";
 import { VendorOrgTab, PaymentsPanel } from "../components/VendorOrg";
+import { vendorTabVisible } from "../vendorTabAccess";
+import { useToast } from "../components/Toast";
 import { VendorOverviewTab } from "../components/VendorOverview";
 import { VendorProgramsTab, VendorScheduleTab } from "../components/VendorPrograms";
 import { VendorReviewsTab } from "../components/VendorReviews";
@@ -52,7 +55,7 @@ type VendorTab = "overview" | "listings" | "messages" | "bookings" | "earnings" 
 const VENDOR_TABS: { key: VendorTab; label: string; icon: ReactNode; group?: string }[] = [
   { key: "overview", label: "Overview", icon: <EyeIcon size={15} /> },
   { key: "listings", label: "Listings", icon: <ClipboardIcon size={15} /> },
-  { key: "programs", label: "Programs", icon: <CalendarIcon size={15} /> },
+  { key: "programs", label: "Programmes", icon: <CalendarIcon size={15} /> },
   { key: "experiences", label: "Adventures & Experiences", icon: <TreeIconSmall size={15} /> },
   { key: "schedule", label: "Calendar", icon: <CalendarIcon size={15} /> },
   { key: "messages", label: "Messages", icon: <ChatIcon size={15} /> },
@@ -67,6 +70,7 @@ const VENDOR_TABS: { key: VendorTab; label: string; icon: ReactNode; group?: str
 export function VendorDashboard() {
   const { user, loading } = useAuth();
   const navigate = useNavigate();
+  const toast = useToast();
   const [searchParams] = useSearchParams();
   const initialTab = searchParams.get("tab");
   const [tab, setTab] = useState<VendorTab>(VENDOR_TABS.some((o) => o.key === initialTab) ? (initialTab as VendorTab) : "overview");
@@ -151,18 +155,27 @@ export function VendorDashboard() {
         : activeClubsCount === 1
           ? "My club"
           : "My listing";
-  const displayTabs = VENDOR_TABS.map((t) => (t.key === "listings" ? { ...t, label: listingsTabLabel } : t));
+  // Sitemap audit P2-03 — invited staff only see the tabs their platform_role
+  // can act in (vendorTabAccess.ts); the server still enforces every action.
+  // A ?tab= link or in-page shortcut to a hidden tab falls back to Overview.
+  const canSee = (t: VendorTab) => vendorTabVisible(t, user);
+  const activeTab: VendorTab = canSee(tab) ? tab : "overview";
+  const goTab = (t: VendorTab) => {
+    if (canSee(t)) setTab(t);
+    else toast.info("Your staff role doesn't include this. Ask your organisation owner if you need access.");
+  };
+  const displayTabs = VENDOR_TABS.filter((t) => canSee(t.key)).map((t) => (t.key === "listings" ? { ...t, label: listingsTabLabel } : t));
 
   return (
     <ManageShell
       navTitle="HelloCircle Manage"
       navOptions={displayTabs}
-      activeKey={tab}
-      onNavChange={setTab}
+      activeKey={activeTab}
+      onNavChange={goTab}
       contextLabel={user?.businessName ? `Managing ${user.businessName}` : "Managing Vendor account"}
-      pageTitle={displayTabs.find((t) => t.key === tab)?.label}
+      pageTitle={displayTabs.find((t) => t.key === activeTab)?.label}
       headerActions={
-        tab === "programs" ? (
+        activeTab === "programs" ? (
           <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4 }}>
             <Button onClick={() => navigate("/vendor/programs/new")} disabled={!programsEnabled}>
               <PlusIcon size={14} /> Add program
@@ -174,7 +187,7 @@ export function VendorDashboard() {
         ) : undefined
       }
       banner={
-        tab === "overview" ? (
+        activeTab === "overview" ? (
           <div style={{ borderBottom: `1px solid ${colors.border}`, paddingBottom: 24, marginBottom: 32 }}>
             <DashboardTopPanel
               title={user.name}
@@ -186,19 +199,19 @@ export function VendorDashboard() {
               avatarName={user.name}
               accent="green"
               eyebrow="/ Vendor"
-              tabs={VENDOR_TABS}
-              activeTab={tab}
-              onTabChange={setTab}
+              tabs={displayTabs}
+              activeTab={activeTab}
+              onTabChange={goTab}
               bottomSpacing={0}
               hideTabs
               badge={
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
                   {user.providerTier !== "standard" && (
-                    <span style={{ display: "inline-flex", alignItems: "center", gap: 4, background: colors.greenBg, color: colors.greenText, borderRadius: 20, padding: "3px 10px 3px 8px", fontSize: 12, fontWeight: 700 }}>
+                    <span style={{ display: "inline-flex", alignItems: "center", gap: 4, background: colors.greenBg, color: colors.greenText, borderRadius: 16, padding: "3px 10px 3px 8px", fontSize: 12, fontWeight: 700 }}>
                       <CheckCircleIcon size={13} /> Verified vendor
                     </span>
                   )}
-                  <span style={{ display: "inline-flex", alignItems: "center", background: colors.panel, color: colors.muted, borderRadius: 20, padding: "3px 10px", fontSize: 12, fontWeight: 600 }}>
+                  <span style={{ display: "inline-flex", alignItems: "center", background: colors.panel, color: colors.muted, borderRadius: 16, padding: "3px 10px", fontSize: 12, fontWeight: 600 }}>
                     Member since {formatMemberSince(user.createdAt)}
                   </span>
                 </div>
@@ -208,48 +221,50 @@ export function VendorDashboard() {
                   <LinkButton variant="orange" href={`/provider/${user.id}`} target="_blank" style={{ padding: "10px 18px", fontSize: 13.5 }}>
                     View public profile ↗
                   </LinkButton>
-                  <button
-                    onClick={() => setTab("messages")}
-                    aria-label={unreadCount > 0 ? `${unreadCount} unread messages` : "Messages"}
-                    style={{
-                      position: "relative",
-                      width: 40,
-                      height: 40,
-                      borderRadius: "50%",
-                      border: `1px solid ${colors.borderStrong}`,
-                      background: colors.surface,
-                      color: colors.text,
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      cursor: "pointer",
-                      flex: "none",
-                    }}
-                  >
-                    <ChatIcon size={16} />
-                    {unreadCount > 0 && (
-                      <span
-                        style={{
-                          position: "absolute",
-                          top: -4,
-                          right: -4,
-                          minWidth: 16,
-                          height: 16,
-                          borderRadius: 8,
-                          background: colors.orange,
-                          color: "#fff",
-                          fontSize: 10,
-                          fontWeight: 700,
-                          display: "flex",
-                          alignItems: "center",
-                          justifyContent: "center",
-                          padding: "0 3px",
-                        }}
-                      >
-                        {unreadCount}
-                      </span>
-                    )}
-                  </button>
+                  {canSee("messages") && (
+                    <button
+                      onClick={() => goTab("messages")}
+                      aria-label={unreadCount > 0 ? `${unreadCount} unread messages` : "Messages"}
+                      style={{
+                        position: "relative",
+                        width: 40,
+                        height: 40,
+                        borderRadius: "50%",
+                        border: `1px solid ${colors.borderStrong}`,
+                        background: colors.surface,
+                        color: colors.text,
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        cursor: "pointer",
+                        flex: "none",
+                      }}
+                    >
+                      <ChatIcon size={16} />
+                      {unreadCount > 0 && (
+                        <span
+                          style={{
+                            position: "absolute",
+                            top: -4,
+                            right: -4,
+                            minWidth: 16,
+                            height: 16,
+                            borderRadius: 10,
+                            background: colors.orange,
+                            color: "#fff",
+                            fontSize: 10,
+                            fontWeight: 700,
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            padding: "0 3px",
+                          }}
+                        >
+                          {unreadCount}
+                        </span>
+                      )}
+                    </button>
+                  )}
                 </>
               }
             />
@@ -257,19 +272,24 @@ export function VendorDashboard() {
         ) : undefined
       }
     >
-      {tab === "overview" && <VendorSetupChecklist variant="approved" />}
-      {tab === "overview" && stats && (
+      {activeTab === "overview" && <VendorSetupChecklist variant="approved" />}
+      {activeTab === "overview" && (
+        <div style={{ marginBottom: 16 }}>
+          <PlanRewardsPanel scope="vendor" variant="compact" />
+        </div>
+      )}
+      {activeTab === "overview" && stats && (
         <VendorOverviewTab
           stats={stats}
           unreadCount={unreadCount}
           listings={listings}
           items={scheduleItems}
           itemsError={scheduleItemsError}
-          onNavigateTab={setTab}
+          onNavigateTab={goTab}
         />
       )}
 
-      {tab === "listings" && (
+      {activeTab === "listings" && (
         <ListingsTab
           vendorType={user.vendorType}
           listings={listings}
@@ -281,16 +301,16 @@ export function VendorDashboard() {
         />
       )}
 
-      {tab === "messages" && <MessagesTab onRead={loadUnreadCount} listings={listings} />}
-      {tab === "bookings" && <BookingsTab />}
-      {tab === "earnings" && <PaymentsPanel />}
-      {tab === "reviews" && <VendorReviewsTab />}
-      {tab === "offers" && <VendorOffersTab />}
-      {tab === "demand" && <DemandTab />}
-      {tab === "programs" && <VendorProgramsTab onOpenProgram={(id) => navigate(`/vendor/programs/${id}`)} />}
-      {tab === "experiences" && <VendorExperiencesTab onOpenExperience={(id) => navigate(`/vendor/experiences/${id}`)} />}
-      {tab === "schedule" && <VendorScheduleTab onNavigateItem={setTab} />}
-      {tab === "org" && <VendorOrgTab />}
+      {activeTab === "messages" && <MessagesTab onRead={loadUnreadCount} listings={listings} />}
+      {activeTab === "bookings" && <BookingsTab />}
+      {activeTab === "earnings" && <PaymentsPanel />}
+      {activeTab === "reviews" && <VendorReviewsTab />}
+      {activeTab === "offers" && <VendorOffersTab />}
+      {activeTab === "demand" && <DemandTab />}
+      {activeTab === "programs" && <VendorProgramsTab onOpenProgram={(id) => navigate(`/vendor/programs/${id}`)} />}
+      {activeTab === "experiences" && <VendorExperiencesTab onOpenExperience={(id) => navigate(`/vendor/experiences/${id}`)} />}
+      {activeTab === "schedule" && <VendorScheduleTab onNavigateItem={goTab} />}
+      {activeTab === "org" && <VendorOrgTab />}
     </ManageShell>
   );
 }

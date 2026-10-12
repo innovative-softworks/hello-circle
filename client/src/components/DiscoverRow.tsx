@@ -1,18 +1,21 @@
 import { useEffect, useRef, useState } from "react";
 import { joinGameConfirm, joinWaitlistConfirm } from "../confirmCopy";
+import { isMinAgeRefusal } from "../gameCta";
 import { useConfirm } from "./ConfirmProvider";
 import { useNavigate } from "react-router-dom";
 import { joinGame, joinGameWaitlist } from "../api";
 import { useGuest } from "../GuestContext";
 import { openCheckout } from "../native";
-import { ArrowRightIcon, AwardIcon, BallIcon, CheckIcon, ChevronLeftIcon, ChevronRightIcon, RepeatIcon, TreeIconSmall, UsersIcon } from "./icons";
-import { Button, CardLink } from "./ui";
-import { Photo } from "./Photo";
+import { ArrowRightIcon, AwardIcon, BallIcon, CheckIcon, ChevronLeftIcon, ChevronRightIcon, ClockIcon, PinIcon, RepeatIcon, TreeIconSmall, UsersIcon } from "./icons";
+import { Button } from "./ui";
 import { WhyRecommended } from "./WhyRecommended";
 import { SaveButton, useSavedState } from "./SaveButton";
-import { cardImageRatio, colors, fonts, placeholderStripes, radius, statTile } from "../theme";
+import { CardPrice, ListingCard, cardButtonStyle } from "./ListingCard";
+import { colors, fonts, placeholderStripes, radius, statTile } from "../theme";
 import type { ActivitySummary } from "../types";
 import { formatDateTime, formatPrice } from "../formatters";
+import { centsPriceSignal } from "../priceSignal";
+import { PriceChip } from "./PriceChip";
 
 // Photo-driven cards for the homepage "Happening today" / "This weekend"
 // feeds (Phase 5), extended in Phase 1 "Connect" to also render Experience/
@@ -72,7 +75,7 @@ function JoinControl({ item }: { item: ActivitySummary }) {
   if (!resident) {
     return (
       <div className="stretched-link-above">
-        <Button variant="ghost" style={{ width: "100%", fontSize: 13 }} onClick={() => navigate(item.href)}>
+        <Button variant="dark" style={cardButtonStyle} onClick={() => navigate(item.href)}>
           Sign in to join
         </Button>
       </div>
@@ -81,7 +84,7 @@ function JoinControl({ item }: { item: ActivitySummary }) {
 
   if (joined) {
     return (
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "9px 0", color: colors.greenText, fontWeight: 700, fontSize: 13 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 0", color: colors.greenText, fontWeight: 700, fontSize: 13 }}>
         <CheckIcon size={14} /> You're in!
       </div>
     );
@@ -89,7 +92,7 @@ function JoinControl({ item }: { item: ActivitySummary }) {
 
   if (waitlisted) {
     return (
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "9px 0", color: colors.orangeDark, fontWeight: 700, fontSize: 13 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 0", color: colors.orangeDark, fontWeight: 700, fontSize: 13 }}>
         <CheckIcon size={14} /> On the waitlist
       </div>
     );
@@ -116,6 +119,7 @@ function JoinControl({ item }: { item: ActivitySummary }) {
       setJoined(true);
       setSpotsLeft((s) => Math.max(0, s - 1));
     } catch (e) {
+      if (isMinAgeRefusal(e)) return void navigate(`/games/${item.id}`);
       setError(e instanceof Error ? e.message : full ? "Couldn't join the waitlist" : "Couldn't join");
     } finally {
       setJoining(false);
@@ -125,186 +129,80 @@ function JoinControl({ item }: { item: ActivitySummary }) {
   return (
     <div className="stretched-link-above">
       {error && <div style={{ fontSize: 11.5, color: colors.danger, marginBottom: 6 }}>{error}</div>}
-      <Button style={{ width: "100%", fontSize: 13 }} disabled={joining || full} onClick={handleJoin}>
+      <Button variant="dark" style={cardButtonStyle} disabled={joining || full} onClick={handleJoin}>
         {joining ? "Joining…" : full ? "Join waitlist" : "I'm in"}
       </Button>
     </div>
   );
 }
 
-export function DiscoverCard({ item, isToday }: { item: ActivitySummary; isToday: boolean }) {
+export function DiscoverCard({
+  item,
+  isToday,
+  fill = false,
+}: {
+  item: ActivitySummary;
+  isToday: boolean;
+  /** Fill a results-grid cell instead of the rail's fixed 260px width. */
+  fill?: boolean;
+}) {
   const navigate = useNavigate();
   const meta = kindMeta(item.kind);
   const place = item.centreName ?? item.clubName;
   const isJoinableGame = item.kind === "game" && item.spotsLeft !== null;
-  // "Full" is meaningful for anything that reports a real spotsLeft figure
-  // (today: games only — program/club/experience sessions don't track a
-  // per-session attendee count yet) and isn't already mid-interaction via
-  // JoinControl's own "Join waitlist" state, which only shows once the
-  // visitor has actually clicked in. A static badge on the photo itself
-  // means "this is full" is visible while scrolling past, not just after
-  // tapping the card.
+  // "Full" only where a real spotsLeft figure exists (today: games only).
   const isFull = item.spotsLeft !== null && item.spotsLeft !== undefined && item.spotsLeft <= 0;
   const matchReasons = item.matchReasons ?? [];
-  // Favourite/save is keyed by listing (Favourite.listingType has no
-  // "experience_session" — an Experience is saved by its parent listing id,
-  // unlike a game/program/club session, which are saved by their own id).
-  // ActivitySummary.id on an experience_session is the *session's* id, not
-  // the parent experience's — there's no correct (kind, id) pair to pass
-  // here yet, so the save button is hidden for this one kind below rather
-  // than silently saving against the wrong id. Still called unconditionally
-  // (hooks can't be conditional) with a harmless placeholder kind.
+  // Favourite/save is keyed by listing; an experience_session has no
+  // correct (kind, id) pair here, so its save button stays hidden. The hook
+  // is still called unconditionally (hooks can't be conditional).
   const canSave = item.kind !== "experience_session";
   const [saved, toggleSaved] = useSavedState(item.kind === "experience_session" ? "experience" : item.kind, item.id);
 
   const href = item.canonicalUrl ?? item.href;
   const open = () => navigate(href);
 
+  // Design-system consistency pass: the shared ListingCard shape — at the
+  // row's fixed card width in a rail, or the cell's width in a results grid.
   return (
-    <div
-      className="card-hover card-surface"
-      style={{
-        position: "relative",
-        flex: "none",
-        width: 260,
-        scrollSnapAlign: "start",
-        background: "#fff",
-        border: `1px solid ${colors.border}`,
-        borderRadius: 18,
-        overflow: "hidden",
-        display: "flex",
-        flexDirection: "column",
-      }}
-    >
-      <CardLink to={href} label={`${item.title}${place ? `, ${place}` : ""}`} sharedImage />
-      <Photo
-        src={item.imageUrl ?? undefined}
-        alt={item.title}
+    <div style={fill ? { display: "grid", minWidth: 0 } : { flex: "none", width: 260, scrollSnapAlign: "start", display: "flex" }}>
+      <ListingCard
+        href={href}
+        title={item.title}
+        image={item.imageUrl}
         ph={meta.ph}
         icon={meta.icon}
         iconColor={meta.fg}
-        style={{ aspectRatio: cardImageRatio.discovery }}
-        contentStyle={{ position: "relative" }}
+        tag={item.isLive ? "Live now" : isToday ? "Today" : dayPillLabel(item.date)}
+        status={isFull ? { label: "Full", tone: "calm" } : null}
+        save={canSave ? <SaveButton saved={saved} onToggle={toggleSaved} /> : null}
+        details={[
+          { icon: <ClockIcon size={13} />, text: item.time },
+          place ? { icon: <PinIcon size={13} />, text: `${place}${item.area ? `, ${item.area}` : ""}` } : null,
+          item.hostVerified ? { icon: <AwardIcon size={13} />, text: "Verified host" } : null,
+        ]}
+        facts={
+          <>
+            {centsPriceSignal(item.priceCents) ? <PriceChip signal="free" /> : <CardPrice>{formatPrice(item.priceCents)}</CardPrice>}
+            {isJoinableGame && !!item.joined && (
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
+                <UsersIcon size={13} /> {item.joined} going
+              </span>
+            )}
+          </>
+        }
+        action={
+          isJoinableGame ? (
+            <JoinControl item={item} />
+          ) : (
+            <Button style={cardButtonStyle} variant="dark" onClick={open}>
+              {item.kind === "game" ? "View session" : KIND_CTA_LABEL[item.kind]}
+            </Button>
+          )
+        }
       >
-        <div style={{ position: "absolute", top: 10, left: 10 }}>
-          {item.isLive ? (
-            <span
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: 5,
-                background: colors.dark,
-                color: "#fff",
-                borderRadius: radius.pill,
-                padding: "4px 9px",
-                fontSize: 10.5,
-                fontWeight: 700,
-                letterSpacing: ".03em",
-              }}
-            >
-              <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#fff", animation: "pulseDot 1.6s ease-in-out infinite" }} />
-              LIVE
-            </span>
-          ) : isToday ? (
-            <span
-              className="card-photo-badge"
-              style={{
-                background: "rgba(255,255,255,.94)",
-                color: meta.fg,
-                borderRadius: radius.pill,
-                padding: "4px 9px",
-                fontSize: 10.5,
-                fontWeight: 700,
-                letterSpacing: ".03em",
-                transition: "background-color .2s ease, color .2s ease",
-              }}
-            >
-              TODAY
-            </span>
-          ) : (
-            <span className="card-photo-badge" style={{ background: "rgba(255,255,255,.94)", color: colors.text, borderRadius: radius.pill, padding: "4px 9px", fontSize: 10.5, fontWeight: 700, letterSpacing: ".02em", transition: "background-color .2s ease, color .2s ease" }}>
-              {dayPillLabel(item.date)}
-            </span>
-          )}
-        </div>
-        <div style={{ position: "absolute", top: 10, right: 10, display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 5 }}>
-          <span
-            className="card-photo-badge"
-            style={{
-              fontSize: 11.5,
-              fontWeight: 700,
-              color: item.priceCents ? colors.text : colors.greenText,
-              background: "rgba(255,255,255,.94)",
-              borderRadius: radius.pill,
-              padding: "4px 10px",
-              transition: "background-color .2s ease, color .2s ease",
-            }}
-          >
-            {formatPrice(item.priceCents)}
-          </span>
-          {isFull && (
-            <span
-              className="card-photo-badge"
-              style={{
-                fontSize: 10.5,
-                fontWeight: 700,
-                letterSpacing: ".02em",
-                color: colors.orangeDark,
-                background: "rgba(255,255,255,.94)",
-                borderRadius: radius.pill,
-                padding: "4px 9px",
-              }}
-            >
-              FULL
-            </span>
-          )}
-        </div>
-        {canSave && <SaveButton saved={saved} onToggle={toggleSaved} position="bottom" />}
-      </Photo>
-      <div style={{ padding: "12px 16px 16px", display: "flex", flexDirection: "column", gap: 4, flex: 1 }}>
-        <div style={{ fontSize: 12.5, fontWeight: 700, color: colors.muted }}>{item.time}</div>
-        <div style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 16, lineHeight: 1.3 }}>{item.title}</div>
-        {(place || item.hostVerified) && (
-          <div style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12.5, color: colors.mutedLight, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-            {place && (
-              <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>
-                {place}
-                {item.area ? `, ${item.area}` : ""}
-              </span>
-            )}
-            {item.hostVerified && (
-              <span title="Verified" style={{ display: "inline-flex", alignItems: "center", gap: 2, color: colors.greenText, fontWeight: 700, fontSize: 11, flexShrink: 0 }}>
-                <AwardIcon size={11} /> Verified
-              </span>
-            )}
-          </div>
-        )}
         <WhyRecommended reasons={matchReasons} label={item.fitLabel} />
-        <div style={{ marginTop: "auto", paddingTop: 8, display: "flex", flexDirection: "column", gap: 8 }}>
-          {isJoinableGame ? (
-            <>
-              {!!item.joined && (
-                <div style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 12, color: colors.mutedLight }}>
-                  <UsersIcon size={13} /> {item.joined} going
-                </div>
-              )}
-              <JoinControl item={item} />
-            </>
-          ) : (
-            // Program/club/experience sessions don't have inline join/
-            // capacity data (see ActivitySummary's own comments) — the
-            // whole card already navigates on click, but without a visible
-            // button here there was no on-card affordance telling the
-            // visitor what happens next (an ActivityCard always pairs a
-            // price with an explicit CTA button, never price-only).
-            <div className="stretched-link-above">
-              <Button variant="dark" style={{ width: "100%", fontSize: 13 }} onClick={open}>
-                {item.kind === "game" ? "View session" : KIND_CTA_LABEL[item.kind]}
-              </Button>
-            </div>
-          )}
-        </div>
-      </div>
+      </ListingCard>
     </div>
   );
 }
@@ -373,7 +271,7 @@ export function DiscoverRow({
   return (
     <>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
-        <h2 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 20, margin: 0, letterSpacing: "-.01em" }}>{title}</h2>
+        <h2 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 20, margin: 0, letterSpacing: 0 }}>{title}</h2>
         {visibleItems.length > 3 && (
           <div className="hide-mobile" style={{ display: "flex", gap: 8 }}>
             <button onClick={() => scrollToIndex(activeIndex - 1)} aria-label="Previous" className="btn btn-ghost" style={arrowBtnStyle}>
@@ -432,7 +330,10 @@ export function DiscoverRow({
         )}
       </div>
       {visibleItems.length > 1 && (
-        <div style={{ display: "flex", justifyContent: "center", gap: 6, marginTop: 12 }}>
+        // Sitemap audit P2-12 — each dot sits in a transparent 24×24 tap target
+        // (WCAG 2.2 target size); the visible dot is unchanged. Wraps on very
+        // narrow screens rather than overflowing.
+        <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "center", marginTop: 6 }}>
           {visibleItems.map((item, i) => (
             <button
               key={`${item.kind}-${item.id}`}
@@ -441,17 +342,20 @@ export function DiscoverRow({
                 scrollToIndex(i);
               }}
               aria-label={`Go to ${item.title}`}
-              style={{
-                width: i === activeIndex ? 18 : 6,
-                height: 6,
-                borderRadius: radius.pill,
-                border: "none",
-                padding: 0,
-                cursor: "pointer",
-                background: i === activeIndex ? colors.green : colors.borderStrong,
-                transition: "width 0.2s ease, background-color 0.2s ease",
-              }}
-            />
+              aria-current={i === activeIndex ? "true" : undefined}
+              style={{ minWidth: 24, height: 24, padding: "0 3px", border: "none", background: "none", cursor: "pointer", display: "inline-flex", alignItems: "center", justifyContent: "center" }}
+            >
+              <span
+                aria-hidden
+                style={{
+                  width: i === activeIndex ? 18 : 6,
+                  height: 6,
+                  borderRadius: radius.pill,
+                  background: i === activeIndex ? colors.green : colors.borderStrong,
+                  transition: "width 0.2s ease, background-color 0.2s ease",
+                }}
+              />
+            </button>
           ))}
         </div>
       )}

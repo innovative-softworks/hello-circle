@@ -313,7 +313,7 @@ export function VendorSignup() {
               />
             </Field>
             {googleIdToken ? (
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, padding: "10px 12px", borderRadius: 11, background: colors.orangeBg, border: `1px solid ${colors.inputBorder}` }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, padding: "10px 12px", borderRadius: 10, background: colors.orangeBg, border: `1px solid ${colors.inputBorder}` }}>
                 <span style={{ fontSize: 13.5, color: colors.text }}>
                   Signed in as <strong>{email}</strong> via Google
                 </span>
@@ -408,7 +408,7 @@ export function VendorSignup() {
                     flex: 1,
                     cursor: "pointer",
                     padding: "10px 12px",
-                    borderRadius: 12,
+                    borderRadius: 10,
                     border: `2px solid ${vendorType === opt.type ? colors.orange : colors.inputBorder}`,
                     background: vendorType === opt.type ? colors.orangeBg : colors.surface,
                     textAlign: "center",

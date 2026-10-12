@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { db } from "../db/index.js";
+import { occupiesCapacitySql } from "../bookingIntegrity.js";
 import { bookingEndHour, hoursOverlap } from "../util.js";
 
 export const availabilityRouter = Router();
@@ -77,8 +78,11 @@ availabilityRouter.get("/", async (req, res) => {
   const hours = await hoursFor(room.centre_id, date);
   const slots = hours.closed ? [] : slotsWithinHours(hours);
 
+  // Booking audit 2026-10-11 (B5) — the same occupancy rule checkout's
+  // locked overlap check uses: a cancelled booking or an abandoned (stale)
+  // checkout hold no longer shows the slot as taken.
   const bookings = (await db
-    .prepare(`SELECT time, duration FROM bookings WHERE room_id = ? AND centre_id = ? AND date = ? AND payment_status != 'failed'`)
+    .prepare(`SELECT time, duration FROM bookings WHERE room_id = ? AND centre_id = ? AND date = ? AND ${occupiesCapacitySql()}`)
     .all(roomId, room.centre_id, date)) as BookingRow[];
   const bookingIntervals = bookings.map((b) => {
     const bStart = parseInt(b.time.slice(0, 2), 10);

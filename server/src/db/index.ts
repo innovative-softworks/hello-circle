@@ -1,8 +1,10 @@
 import crypto from "node:crypto";
 import mysql from "mysql2/promise";
+import { FEE_CLAIM_DRAFT_CORRECTIONS, POLICY_SEEDS } from "../policy/drafts.js";
 import type { Pool, PoolConnection } from "mysql2/promise";
 import { normalizeAvailability, normalizeGoals } from "../participationVocab.js";
 import { normalizeDemand } from "../demandNormalize.js";
+import { RULE_KEYS, canonicalHash } from "../commerce/catalog.js";
 
 const pool = mysql.createPool({
   host: process.env.DB_HOST || "127.0.0.1",
@@ -128,6 +130,25 @@ export const db = {
     }
   },
 };
+
+/** Payment tracking (payment_status/stripe_session_id) predates this UTC
+ * instant — only rows older than it can be legacy "confirmed on submit" rows
+ * that the boot backfill in initSchema() may mark paid (commerce audit R8). */
+export const LEGACY_PAYMENT_BACKFILL_BEFORE = "2026-07-24 00:00:00";
+
+/** Backfill: rows created before payment tracking existed were confirmed on
+ * submit (the old flow) — treat them as already paid. Commerce audit R8 —
+ * bounded to rows that predate payment tracking: this runs on every boot, and
+ * a live checkout row is briefly pending with no stripe_session_id (between
+ * its INSERT and the session-id UPDATE), so a crash in that window used to
+ * turn an unpaid booking into 'paid' on the next restart. */
+export async function backfillLegacyPaymentStatus() {
+  for (const table of ["bookings", "registrations"]) {
+    await db
+      .prepare(`UPDATE ${table} SET payment_status = 'paid' WHERE payment_status = 'pending' AND stripe_session_id IS NULL AND created_at < ?`)
+      .run(LEGACY_PAYMENT_BACKFILL_BEFORE);
+  }
+}
 
 export async function initSchema() {
   await db.exec(`
@@ -1384,12 +1405,7 @@ export async function initSchema() {
   // computePricing() regardless, this column just makes the applied code
   // visible/auditable, same as bookings/registrations/experience_bookings.
   await ensureColumn("program_enrollments", "coupon_code", "coupon_code VARCHAR(191)");
-  // Backfill: rows created before payment tracking existed were confirmed
-  // on submit (the old flow) — treat them as already paid.
-  await db.exec(`
-    UPDATE bookings SET payment_status = 'paid' WHERE payment_status = 'pending' AND stripe_session_id IS NULL;
-    UPDATE registrations SET payment_status = 'paid' WHERE payment_status = 'pending' AND stripe_session_id IS NULL;
-  `);
+  await backfillLegacyPaymentStatus();
 
   // Guest-facing cancellation. Deliberately separate from payment_status
   // (which tracks the Stripe payment lifecycle: pending/paid/failed) so
@@ -1979,6 +1995,12 @@ export async function initSchema() {
   // the organiser to approve/decline. Every existing row is a real
   // organiser invite, so the default backfills them correctly.
   await ensureColumn("circle_invites", "initiated_by", "initiated_by VARCHAR(20) NOT NULL DEFAULT 'organiser'");
+  // Booking UX Phase 5 (audit B10) - up to three organiser questions on an
+  // approval Circle (JSON array), and the requester's note and answers.
+  // Nullable with no default (a TEXT column can't carry one in MySQL).
+  await ensureColumn("circles", "join_questions", "join_questions TEXT NULL");
+  await ensureColumn("circle_invites", "note", "note VARCHAR(500) NULL");
+  await ensureColumn("circle_invites", "answers", "answers TEXT NULL");
 
   // Vendor reply on a review (Host Manage spec §16) — only ever set for
   // centre/club reviews (a vendor replies), never game/host reviews (no
@@ -2231,6 +2253,1532 @@ export async function initSchema() {
       .prepare(`UPDATE participation_intents SET cluster_key = ?, category = ?, preferred_days = CASE WHEN preferred_days = '' THEN ? ELSE preferred_days END WHERE id = ?`)
       .run(n.clusterKey || row.activity_label.toLowerCase(), n.category, n.days.join(","), row.id);
   }
+
+  await initCommerceSchema(ensureColumn, ensureIndex);
+}
+
+/** Commerce Engine Phase 1 — versioned commercial rules (commerce/rules.ts,
+ * commerce/catalog.ts, docs/commerce-config-catalog.md). Additive only.
+ * A version row is created as a draft and published with an effective_from
+ * that is never in the past; published rows only ever gain effective_to. */
+async function initCommerceSchema(
+  ensureColumn: (table: string, column: string, ddl: string) => Promise<void>,
+  ensureIndex: (table: string, name: string, columns: string) => Promise<void>
+) {
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS commerce_rule_versions (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      rule_key VARCHAR(50) NOT NULL,
+      scope_type VARCHAR(20) NOT NULL,
+      scope_id VARCHAR(191) NOT NULL DEFAULT '',
+      version INT NOT NULL,
+      status VARCHAR(20) NOT NULL DEFAULT 'draft',
+      effective_from DATETIME NULL,
+      effective_to DATETIME NULL,
+      currency CHAR(3) NOT NULL DEFAULT 'EUR',
+      payload TEXT NOT NULL,
+      payload_hash CHAR(64) NOT NULL,
+      previous_version_id INT NULL,
+      created_by VARCHAR(191) NOT NULL,
+      approved_by VARCHAR(191) NULL,
+      published_by VARCHAR(191) NULL,
+      published_at DATETIME NULL,
+      change_reason TEXT NOT NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE KEY uniq_rule_scope_version (rule_key, scope_type, scope_id, version)
+    )
+  `);
+  await ensureIndex("commerce_rule_versions", "idx_rule_resolve", "(rule_key, scope_type, scope_id, status, effective_from)");
+
+  // Audit trail for commercial changes: who (kind), why, which request, where.
+  // TEXT columns stay nullable with no DEFAULT (MySQL rejects DEFAULT on TEXT).
+  await ensureColumn("audit_log", "actor_kind", "actor_kind VARCHAR(20) NULL");
+  await ensureColumn("audit_log", "reason", "reason TEXT NULL");
+  await ensureColumn("audit_log", "correlation_id", "correlation_id VARCHAR(64) NULL");
+  await ensureColumn("audit_log", "environment", "environment VARCHAR(20) NULL");
+
+  // Phase 2 — quotes, orders, immutable pricing snapshots, shadow diffs.
+  // Money is BIGINT minor units plus an explicit currency; nothing here is
+  // ever recomputed after insert. commerce_orders wraps (never replaces) the
+  // existing participation row identified by (source_type, source_ref).
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS commerce_quotes (
+      id CHAR(36) PRIMARY KEY,
+      source_type VARCHAR(20) NOT NULL,
+      resource_id VARCHAR(191) NOT NULL,
+      session_id VARCHAR(191) NULL,
+      quantity INT NOT NULL,
+      coupon_code VARCHAR(191) NULL,
+      client_id VARCHAR(191) NULL,
+      resident_id VARCHAR(191) NULL,
+      currency CHAR(3) NOT NULL,
+      customer_paid_minor BIGINT NOT NULL,
+      rule_hash CHAR(64) NOT NULL,
+      breakdown TEXT NOT NULL,
+      expires_at DATETIME NOT NULL,
+      used_at DATETIME NULL,
+      order_id CHAR(36) NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS commerce_orders (
+      id CHAR(36) PRIMARY KEY,
+      source_type VARCHAR(20) NOT NULL,
+      source_ref VARCHAR(191) NOT NULL,
+      scenario VARCHAR(30) NOT NULL,
+      category VARCHAR(20) NOT NULL,
+      customer_client_id VARCHAR(191) NULL,
+      customer_resident_id VARCHAR(191) NULL,
+      partner_kind VARCHAR(10) NOT NULL,
+      partner_id VARCHAR(191) NOT NULL,
+      vendor_user_id VARCHAR(191) NULL,
+      host_resident_id VARCHAR(191) NULL,
+      currency CHAR(3) NOT NULL,
+      order_status VARCHAR(20) NOT NULL,
+      payment_status VARCHAR(20) NOT NULL,
+      fulfilment_status VARCHAR(20) NOT NULL DEFAULT 'scheduled',
+      payout_status VARCHAR(20) NOT NULL DEFAULT 'not_tracked',
+      customer_paid_minor BIGINT NOT NULL,
+      stripe_session_id VARCHAR(255) NULL,
+      stripe_payment_intent_id VARCHAR(255) NULL,
+      quote_id CHAR(36) NULL,
+      rule_hash CHAR(64) NOT NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      UNIQUE KEY uniq_order_source (source_type, source_ref)
+    );
+
+    CREATE TABLE IF NOT EXISTS commerce_order_lines (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      order_id CHAR(36) NOT NULL,
+      item_type VARCHAR(30) NOT NULL,
+      item_id VARCHAR(191) NOT NULL,
+      quantity INT NOT NULL,
+      unit_minor BIGINT NOT NULL,
+      line_subtotal_minor BIGINT NOT NULL,
+      discount_minor BIGINT NOT NULL,
+      tax_minor BIGINT NOT NULL,
+      final_minor BIGINT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS pricing_snapshots (
+      order_id CHAR(36) PRIMARY KEY,
+      engine_version VARCHAR(20) NOT NULL,
+      rule_hash CHAR(64) NOT NULL,
+      rule_sources TEXT NOT NULL,
+      rule_values TEXT NOT NULL,
+      currency CHAR(3) NOT NULL,
+      list_minor BIGINT NOT NULL,
+      discount_minor BIGINT NOT NULL,
+      coupon_code VARCHAR(191) NULL,
+      goods_gross_minor BIGINT NOT NULL,
+      vat_minor BIGINT NOT NULL,
+      customer_fee_minor BIGINT NOT NULL,
+      deposit_minor BIGINT NOT NULL,
+      customer_paid_minor BIGINT NOT NULL,
+      partner_gross_minor BIGINT NOT NULL,
+      success_fee_minor BIGINT NOT NULL,
+      payment_cost_minor BIGINT NOT NULL,
+      partner_payment_cost_minor BIGINT NOT NULL,
+      partner_payout_minor BIGINT NOT NULL,
+      platform_revenue_minor BIGINT NOT NULL,
+      platform_contribution_minor BIGINT NOT NULL,
+      platform_funded_discount_minor BIGINT NOT NULL DEFAULT 0,
+      reward_liability_minor BIGINT NOT NULL DEFAULT 0,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS commerce_shadow_diffs (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      source_type VARCHAR(20) NOT NULL,
+      source_ref VARCHAR(191) NOT NULL,
+      matched TINYINT NOT NULL,
+      diff_fields VARCHAR(255) NOT NULL DEFAULT '',
+      legacy TEXT NOT NULL,
+      engine TEXT NOT NULL,
+      rule_hash CHAR(64) NOT NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+  await ensureIndex("commerce_orders", "idx_order_stripe_session", "(stripe_session_id)");
+  await ensureIndex("commerce_orders", "idx_order_partner", "(partner_kind, partner_id, created_at)");
+  await ensureIndex("commerce_order_lines", "idx_order_lines_order", "(order_id)");
+  await ensureIndex("commerce_quotes", "idx_quote_expiry", "(expires_at)");
+  await ensureIndex("commerce_shadow_diffs", "idx_shadow_matched", "(matched, created_at)");
+
+  // Phase 3 — coupon funding + optional limits (all nullable: a coupon that
+  // doesn't set them behaves exactly as before) and the redemption ledger.
+  await ensureColumn("coupons", "funding", "funding VARCHAR(20) NOT NULL DEFAULT 'platform'");
+  await ensureColumn("coupons", "platform_share_bps", "platform_share_bps INT NOT NULL DEFAULT 10000");
+  await ensureColumn("coupons", "min_spend_cents", "min_spend_cents INT NULL");
+  await ensureColumn("coupons", "max_discount_cents", "max_discount_cents INT NULL");
+  await ensureColumn("coupons", "per_customer_limit", "per_customer_limit INT NULL");
+  await ensureColumn("coupons", "starts_at", "starts_at DATETIME NULL");
+  await ensureColumn("coupons", "archived_at", "archived_at DATETIME NULL");
+  // Partner-created coupons are always partner-funded (a partner can never
+  // spend HelloCircle money). Idempotent: only rows still marked otherwise.
+  await db.exec(`
+    UPDATE coupons SET funding = 'partner', platform_share_bps = 0
+    WHERE (created_by_vendor_id IS NOT NULL OR created_by_resident_id IS NOT NULL) AND (funding <> 'partner' OR platform_share_bps <> 0)
+  `);
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS coupon_redemptions (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      coupon_id INT NOT NULL,
+      code VARCHAR(191) NOT NULL,
+      source_type VARCHAR(20) NOT NULL,
+      source_ref VARCHAR(191) NOT NULL,
+      customer_key VARCHAR(200) NOT NULL,
+      discount_minor BIGINT NOT NULL,
+      platform_funded_minor BIGINT NOT NULL,
+      status VARCHAR(20) NOT NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      UNIQUE KEY uniq_redemption_source (source_type, source_ref)
+    )
+  `);
+  await ensureIndex("coupon_redemptions", "idx_redemption_customer", "(coupon_id, customer_key, status)");
+
+  // Seed version 1 of every rule = today's live behaviour, plus the target
+  // model as an unpublished pricing draft. INSERT IGNORE on the unique
+  // (rule_key, scope_type, scope_id, version) key makes this a no-op on
+  // every boot after the first; a discarded draft is never re-created.
+  for (const spec of Object.values(RULE_KEYS)) {
+    await db
+      .prepare(
+        `INSERT IGNORE INTO commerce_rule_versions (rule_key, scope_type, scope_id, version, status, effective_from, payload, payload_hash, created_by, approved_by, published_by, published_at, change_reason)
+         VALUES (?, 'global', '', 1, 'published', '2000-01-01 00:00:00', ?, ?, 'system', 'system', 'system', NOW(), ?)`
+      )
+      .run(spec.key, JSON.stringify(spec.v1), canonicalHash(spec.v1), "Seeded at Commerce Engine Phase 1: reproduces the live pricing/checkout/cancellation behaviour at that time.");
+  }
+  // Decision B11 (docs/revenue-connect/07) — the earlier brief's target-model
+  // draft (customer fee 0 / 7% success / VAT included) is superseded by the
+  // Free/Pro plan rules. It is no longer seeded, and any copy still sitting
+  // as a system draft is discarded (kept for the record, never deleted).
+  await db.exec(`
+    UPDATE commerce_rule_versions SET status = 'discarded'
+    WHERE rule_key = 'pricing' AND created_by = 'system' AND status = 'draft'
+  `);
+
+  // Revenue & Connect Stage 2a — configuration workflow gains a review step
+  // and a retired state (statuses are strings; only reviewed_by is new).
+  await ensureColumn("commerce_rule_versions", "reviewed_by", "reviewed_by VARCHAR(191) NULL");
+
+  // Admin sub-roles (risk P1-1): super | finance | support | legal. Existing
+  // admins become super so nobody loses access on upgrade.
+  await ensureColumn("users", "admin_role", "admin_role VARCHAR(20) NULL");
+  await db.exec(`UPDATE users SET admin_role = 'super' WHERE role = 'admin' AND admin_role IS NULL`);
+  await ensureColumn("audit_log", "actor_role", "actor_role VARCHAR(30) NULL");
+
+  // Plans: identity + availability only; prices, fees and entitlements are
+  // versioned rules (plan_free / plan_pro / entitlements_*).
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS pricing_plans (
+      plan_key VARCHAR(30) PRIMARY KEY,
+      name VARCHAR(100) NOT NULL,
+      status VARCHAR(20) NOT NULL,
+      sort_order INT NOT NULL DEFAULT 0
+    );
+
+    CREATE TABLE IF NOT EXISTS partner_plan_assignments (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      partner_kind VARCHAR(10) NOT NULL,
+      partner_id VARCHAR(191) NOT NULL,
+      plan_key VARCHAR(30) NOT NULL,
+      fee_plan_key VARCHAR(30) NULL,
+      source VARCHAR(20) NOT NULL,
+      source_ref VARCHAR(191) NULL,
+      effective_from DATETIME NOT NULL,
+      effective_to DATETIME NULL,
+      created_by VARCHAR(191) NOT NULL,
+      reason TEXT NOT NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS promotion_campaigns (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      campaign_key VARCHAR(60) NOT NULL UNIQUE,
+      kind VARCHAR(30) NOT NULL,
+      plan_key VARCHAR(30) NOT NULL,
+      commission_plan_key VARCHAR(30) NOT NULL,
+      benefit_days INT NOT NULL,
+      max_enrollments INT NOT NULL,
+      starts_at DATETIME NOT NULL,
+      ends_at DATETIME NOT NULL,
+      status VARCHAR(20) NOT NULL,
+      terms TEXT NOT NULL,
+      created_by VARCHAR(191) NOT NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS promotion_enrollments (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      campaign_id INT NOT NULL,
+      partner_kind VARCHAR(10) NOT NULL,
+      partner_id VARCHAR(191) NOT NULL,
+      assignment_id INT NOT NULL,
+      enrolled_by VARCHAR(191) NOT NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE KEY uniq_campaign_partner (campaign_id, partner_kind, partner_id)
+    )
+  `);
+  await ensureIndex("partner_plan_assignments", "idx_plan_assignment_partner", "(partner_kind, partner_id, effective_from)");
+
+  // Revenue & Connect Stage 2c — webhook event store, payment records,
+  // refunds, disputes and the append-only double-entry ledger.
+  // webhook_events keeps a minimal summary (never the full payload: replay
+  // re-fetches the event from the provider). Ledger rows are never updated or
+  // deleted by application code; corrections are reversing groups.
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS webhook_events (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      provider VARCHAR(20) NOT NULL,
+      event_id VARCHAR(255) NOT NULL,
+      event_type VARCHAR(100) NOT NULL,
+      connected_account VARCHAR(255) NULL,
+      livemode TINYINT NOT NULL DEFAULT 0,
+      object_id VARCHAR(255) NULL,
+      summary TEXT NOT NULL,
+      payload_sha256 CHAR(64) NOT NULL,
+      status VARCHAR(20) NOT NULL,
+      attempts INT NOT NULL DEFAULT 0,
+      last_error VARCHAR(500) NULL,
+      provider_created_at DATETIME NULL,
+      received_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      processed_at DATETIME NULL,
+      UNIQUE KEY uniq_webhook_event (provider, event_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS payment_records (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      source_type VARCHAR(20) NOT NULL,
+      source_ref VARCHAR(191) NOT NULL,
+      provider VARCHAR(20) NOT NULL,
+      checkout_session_id VARCHAR(255) NULL,
+      payment_intent_id VARCHAR(255) NULL,
+      amount_minor BIGINT NOT NULL,
+      currency CHAR(3) NOT NULL,
+      status VARCHAR(20) NOT NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      UNIQUE KEY uniq_payment_source (source_type, source_ref)
+    );
+
+    CREATE TABLE IF NOT EXISTS refunds (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      source_type VARCHAR(20) NOT NULL,
+      source_ref VARCHAR(191) NOT NULL,
+      payment_record_id INT NULL,
+      provider_refund_id VARCHAR(255) NULL,
+      idempotency_key VARCHAR(255) NOT NULL,
+      amount_minor BIGINT NOT NULL,
+      currency CHAR(3) NOT NULL,
+      kind VARCHAR(20) NOT NULL,
+      origin VARCHAR(20) NOT NULL,
+      responsible VARCHAR(20) NOT NULL,
+      reason TEXT NOT NULL,
+      status VARCHAR(20) NOT NULL,
+      initiated_by VARCHAR(191) NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      UNIQUE KEY uniq_refund_key (idempotency_key)
+    );
+
+    CREATE TABLE IF NOT EXISTS disputes (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      provider_dispute_id VARCHAR(255) NOT NULL,
+      source_type VARCHAR(20) NULL,
+      source_ref VARCHAR(191) NULL,
+      payment_intent_id VARCHAR(255) NULL,
+      amount_minor BIGINT NOT NULL,
+      currency CHAR(3) NOT NULL,
+      reason VARCHAR(100) NOT NULL,
+      status VARCHAR(40) NOT NULL,
+      evidence_due_by DATETIME NULL,
+      recovery_status VARCHAR(20) NOT NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      UNIQUE KEY uniq_dispute (provider_dispute_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS ledger_accounts (
+      code VARCHAR(40) PRIMARY KEY,
+      name VARCHAR(120) NOT NULL,
+      account_type VARCHAR(20) NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS ledger_entry_groups (
+      id CHAR(36) PRIMARY KEY,
+      idempotency_key VARCHAR(255) NOT NULL,
+      source_type VARCHAR(30) NOT NULL,
+      source_id VARCHAR(191) NOT NULL,
+      description VARCHAR(255) NOT NULL,
+      basis VARCHAR(10) NOT NULL,
+      reverses_group_id CHAR(36) NULL,
+      currency CHAR(3) NOT NULL,
+      created_by VARCHAR(191) NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE KEY uniq_ledger_group_key (idempotency_key)
+    );
+
+    CREATE TABLE IF NOT EXISTS ledger_entries (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      group_id CHAR(36) NOT NULL,
+      line_no INT NOT NULL,
+      account_code VARCHAR(40) NOT NULL,
+      party_type VARCHAR(10) NULL,
+      party_id VARCHAR(191) NULL,
+      amount_minor BIGINT NOT NULL,
+      currency CHAR(3) NOT NULL,
+      memo VARCHAR(255) NOT NULL DEFAULT '',
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE KEY uniq_ledger_line (group_id, line_no),
+      KEY idx_ledger_entry_account (account_code)
+    )
+  `);
+  // Revenue & Connect Stage 2d — completion, settlements, fee reconciliation.
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS order_completions (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      source_type VARCHAR(20) NOT NULL,
+      source_ref VARCHAR(191) NOT NULL,
+      party_type VARCHAR(10) NOT NULL,
+      party_id VARCHAR(191) NOT NULL,
+      service_ends_at DATETIME NOT NULL,
+      eligible_at DATETIME NOT NULL,
+      released_minor BIGINT NOT NULL,
+      released_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE KEY uniq_completion_source (source_type, source_ref)
+    );
+
+    CREATE TABLE IF NOT EXISTS settlement_runs (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      run_key VARCHAR(60) NOT NULL,
+      dry_run TINYINT NOT NULL,
+      status VARCHAR(20) NOT NULL,
+      released_count INT NOT NULL DEFAULT 0,
+      settlement_count INT NOT NULL DEFAULT 0,
+      carried_forward_count INT NOT NULL DEFAULT 0,
+      summary TEXT NULL,
+      started_by VARCHAR(191) NOT NULL,
+      reason TEXT NOT NULL,
+      started_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      finished_at DATETIME NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS settlements (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      run_id INT NOT NULL,
+      party_type VARCHAR(10) NOT NULL,
+      party_id VARCHAR(191) NOT NULL,
+      currency CHAR(3) NOT NULL,
+      net_minor BIGINT NOT NULL,
+      status VARCHAR(20) NOT NULL,
+      ledger_group_id CHAR(36) NULL,
+      transfer_id VARCHAR(255) NULL,
+      paid_reference VARCHAR(255) NULL,
+      row_version INT NOT NULL DEFAULT 0,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      UNIQUE KEY uniq_settlement_run_party (run_id, party_type, party_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS settlement_items (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      settlement_id INT NOT NULL,
+      ledger_group_id CHAR(36) NOT NULL,
+      description VARCHAR(255) NOT NULL,
+      amount_minor BIGINT NOT NULL,
+      UNIQUE KEY uniq_settlement_item_group (ledger_group_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS fee_reconciliations (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      payment_record_id INT NOT NULL,
+      estimate_minor BIGINT NOT NULL,
+      actual_minor BIGINT NOT NULL,
+      reconciled_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE KEY uniq_fee_payment (payment_record_id)
+    )
+  `);
+  await ensureColumn("disputes", "responsible", "responsible VARCHAR(20) NULL");
+
+  // Stage 5c — processing-fee estimates are captured when the payment is
+  // confirmed (with the payment_costs rule hash that produced them) and are
+  // never rewritten; the provider's actual fee is stored beside them and the
+  // difference is posted as its own variance entry.
+  await ensureColumn("payment_records", "fee_estimate_minor", "fee_estimate_minor BIGINT NULL");
+  await ensureColumn("payment_records", "fee_estimate_rule_hash", "fee_estimate_rule_hash CHAR(64) NULL");
+  await ensureColumn("payment_records", "fee_estimated_at", "fee_estimated_at DATETIME NULL");
+  await ensureColumn("fee_reconciliations", "variance_minor", "variance_minor BIGINT NULL");
+  await ensureColumn("fee_reconciliations", "estimate_source", "estimate_source VARCHAR(20) NULL");
+  await db.exec(`
+    INSERT IGNORE INTO ledger_accounts (code, name, account_type) VALUES
+      ('processing_fee_variance', 'Card processing: actual minus estimate', 'expense'),
+      ('dispute_fee_expense', 'Provider dispute fees', 'expense')
+  `);
+
+  // Revenue & Connect Stage 5a — Stripe Connect. One Express account per
+  // selling party (org / vendor / host); status mirrored from the provider
+  // (refresh + account.updated). transfers: one per settlement, idempotency
+  // key settlement:<id>:<attempt>; "unknown" means the provider call's
+  // outcome wasn't seen (retried with the SAME key, so it can't double-pay).
+  // connected_payouts mirrors payout.* events from the connected accounts.
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS connected_accounts (
+      party_type VARCHAR(10) NOT NULL,
+      party_id VARCHAR(191) NOT NULL,
+      provider VARCHAR(20) NOT NULL,
+      account_id VARCHAR(255) NOT NULL,
+      country CHAR(2) NOT NULL,
+      details_submitted TINYINT NOT NULL DEFAULT 0,
+      charges_enabled TINYINT NOT NULL DEFAULT 0,
+      payouts_enabled TINYINT NOT NULL DEFAULT 0,
+      transfers_capability VARCHAR(20) NOT NULL DEFAULT 'inactive',
+      requirements_due TEXT NULL,
+      disabled_reason VARCHAR(120) NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      PRIMARY KEY (party_type, party_id),
+      UNIQUE KEY uq_connected_account (account_id)
+    )
+  `);
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS transfers (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      settlement_id INT NOT NULL,
+      attempt INT NOT NULL DEFAULT 1,
+      idempotency_key VARCHAR(120) NOT NULL,
+      party_type VARCHAR(10) NOT NULL,
+      party_id VARCHAR(191) NOT NULL,
+      destination_account VARCHAR(255) NOT NULL,
+      amount_minor BIGINT NOT NULL,
+      currency CHAR(3) NOT NULL,
+      transfer_group VARCHAR(120) NOT NULL,
+      provider_transfer_id VARCHAR(255) NULL,
+      status VARCHAR(20) NOT NULL,
+      reversed_minor BIGINT NOT NULL DEFAULT 0,
+      error TEXT NULL,
+      ledger_group_id CHAR(36) NULL,
+      created_by VARCHAR(191) NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      UNIQUE KEY uq_transfer_key (idempotency_key),
+      UNIQUE KEY uq_transfer_attempt (settlement_id, attempt),
+      KEY idx_transfer_party (party_type, party_id)
+    )
+  `);
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS transfer_reversals (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      transfer_id INT NOT NULL,
+      idempotency_key VARCHAR(120) NOT NULL,
+      provider_reversal_id VARCHAR(255) NULL,
+      amount_minor BIGINT NOT NULL,
+      reason VARCHAR(40) NOT NULL,
+      note TEXT NULL,
+      status VARCHAR(20) NOT NULL,
+      ledger_group_id CHAR(36) NULL,
+      created_by VARCHAR(191) NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE KEY uq_reversal_key (idempotency_key)
+    )
+  `);
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS connected_payouts (
+      provider_payout_id VARCHAR(255) PRIMARY KEY,
+      account_id VARCHAR(255) NOT NULL,
+      amount_minor BIGINT NOT NULL,
+      currency CHAR(3) NOT NULL,
+      status VARCHAR(20) NOT NULL,
+      arrival_date DATETIME NULL,
+      failure_code VARCHAR(80) NULL,
+      failure_message TEXT NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      KEY idx_payout_account (account_id, created_at)
+    )
+  `);
+
+  // Revenue & Connect Stage 5b — Pro on Stripe Billing, partner reward
+  // points (FIFO lots with expiry), customer credits (FIFO lots; uses follow
+  // the coupon redemption lifecycle: reserved → confirmed / released).
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS partner_subscriptions (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      party_type VARCHAR(10) NOT NULL,
+      party_id VARCHAR(191) NOT NULL,
+      checkout_session_id VARCHAR(255) NULL,
+      provider_subscription_id VARCHAR(255) NULL,
+      status VARCHAR(20) NOT NULL,
+      gross_minor BIGINT NOT NULL,
+      current_period_end DATETIME NULL,
+      cancel_at_period_end TINYINT NOT NULL DEFAULT 0,
+      grace_until DATETIME NULL,
+      created_by VARCHAR(191) NOT NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      UNIQUE KEY uq_sub_checkout (checkout_session_id),
+      UNIQUE KEY uq_sub_provider (provider_subscription_id),
+      KEY idx_sub_party (party_type, party_id, status)
+    )
+  `);
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS reward_lots (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      party_type VARCHAR(10) NOT NULL,
+      party_id VARCHAR(191) NOT NULL,
+      source_ref VARCHAR(120) NOT NULL,
+      points_earned INT NOT NULL,
+      points_remaining INT NOT NULL,
+      expires_at DATETIME NOT NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE KEY uq_reward_source (source_ref),
+      KEY idx_reward_party (party_type, party_id, expires_at)
+    )
+  `);
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS reward_redemptions (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      party_type VARCHAR(10) NOT NULL,
+      party_id VARCHAR(191) NOT NULL,
+      points INT NOT NULL,
+      plan_assignment_id INT NULL,
+      created_by VARCHAR(191) NOT NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS credit_lots (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      resident_id VARCHAR(191) NOT NULL,
+      kind VARCHAR(20) NOT NULL,
+      amount_minor BIGINT NOT NULL,
+      remaining_minor BIGINT NOT NULL,
+      reason TEXT NOT NULL,
+      expires_at DATETIME NOT NULL,
+      created_by VARCHAR(191) NOT NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      KEY idx_credit_resident (resident_id, expires_at)
+    )
+  `);
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS credit_uses (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      lot_id INT NOT NULL,
+      resident_id VARCHAR(191) NOT NULL,
+      source_type VARCHAR(20) NOT NULL,
+      source_ref VARCHAR(191) NOT NULL,
+      amount_minor BIGINT NOT NULL,
+      status VARCHAR(20) NOT NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      KEY idx_credit_use_source (source_type, source_ref)
+    )
+  `);
+
+  // Stage 5c — five separate records, never inferred from one another:
+  //   contractual acceptance   policy_acceptances (Terms, agreements)
+  //   privacy acknowledgement  consent_records purpose privacy_notice_ack
+  //                            (reading the notice is not consent)
+  //   marketing consent        consent_records purpose marketing_email
+  //                            (+ residents/users.marketing_consent mirror)
+  //   analytics cookies        consent_records purpose analytics_cookies
+  //   advertising cookies      consent_records purpose advertising_cookies
+  // Append-only: the latest row per (subject, purpose) is the current state.
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS consent_records (
+      id BIGINT AUTO_INCREMENT PRIMARY KEY,
+      subject_type VARCHAR(20) NOT NULL,
+      subject_id VARCHAR(191) NOT NULL,
+      purpose VARCHAR(40) NOT NULL,
+      granted TINYINT NOT NULL,
+      policy_doc_key VARCHAR(60) NULL,
+      policy_version INT NULL,
+      source VARCHAR(30) NOT NULL,
+      created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+      KEY idx_consent_subject (subject_type, subject_id, purpose, id)
+    )
+  `);
+
+  // Stage 5c — every settlement transfer is split into immutable per-booking
+  // allocation rows (one per settlement item: a released booking, or a
+  // negative adjustment such as a refund after completion). Reversals are
+  // recorded against an allocation in a separate table, never by editing it.
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS transfer_allocations (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      transfer_id INT NOT NULL,
+      settlement_item_id INT NOT NULL,
+      ledger_group_id CHAR(36) NOT NULL,
+      kind VARCHAR(20) NOT NULL,
+      source_type VARCHAR(20) NULL,
+      source_ref VARCHAR(191) NULL,
+      party_type VARCHAR(10) NOT NULL,
+      party_id VARCHAR(191) NOT NULL,
+      amount_minor BIGINT NOT NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE KEY uq_alloc_item (transfer_id, settlement_item_id),
+      KEY idx_alloc_source (source_type, source_ref),
+      KEY idx_alloc_party (party_type, party_id)
+    )
+  `);
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS transfer_allocation_reversals (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      allocation_id INT NOT NULL,
+      reversal_id INT NOT NULL,
+      amount_minor BIGINT NOT NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      KEY idx_alloc_rev_alloc (allocation_id),
+      KEY idx_alloc_rev_reversal (reversal_id)
+    )
+  `);
+  await ensureColumn("transfer_reversals", "debt_id", "debt_id INT NULL");
+  // Stage 5c — partner debts: what a partner owes back (refund after
+  // transfer, partner-caused lost dispute). Opening one needs an admin
+  // reason and freezes that partner's earnings (no settlement, no transfer)
+  // until it is recovered by reversing their own transfers or offset by
+  // their own future earnings.
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS partner_debts (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      party_type VARCHAR(10) NOT NULL,
+      party_id VARCHAR(191) NOT NULL,
+      status VARCHAR(20) NOT NULL,
+      opened_minor BIGINT NOT NULL,
+      recovered_minor BIGINT NOT NULL DEFAULT 0,
+      offset_minor BIGINT NOT NULL DEFAULT 0,
+      reason TEXT NOT NULL,
+      opened_by VARCHAR(191) NOT NULL,
+      opened_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      closed_at DATETIME NULL,
+      KEY idx_debt_party (party_type, party_id, status)
+    )
+  `);
+
+  // Stage 5c — reward points per order, so a refund or lost dispute after
+  // settlement reverses that order's points proportionally. Points already
+  // spent become a debt (reward_debts) that blocks redemption and is repaid
+  // from future awards first.
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS reward_awards (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      settlement_id INT NOT NULL,
+      party_type VARCHAR(10) NOT NULL,
+      party_id VARCHAR(191) NOT NULL,
+      source_type VARCHAR(20) NOT NULL,
+      source_ref VARCHAR(191) NOT NULL,
+      gmv_minor BIGINT NOT NULL,
+      refunded_at_award_minor BIGINT NOT NULL,
+      points INT NOT NULL,
+      reversed_points INT NOT NULL DEFAULT 0,
+      lot_id INT NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE KEY uq_reward_award_order (source_type, source_ref),
+      KEY idx_reward_award_settlement (settlement_id)
+    )
+  `);
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS reward_reversals (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      award_id INT NOT NULL,
+      points INT NOT NULL,
+      from_lots INT NOT NULL,
+      to_debt INT NOT NULL,
+      reason VARCHAR(40) NOT NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      KEY idx_reward_reversal_award (award_id)
+    )
+  `);
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS reward_debts (
+      party_type VARCHAR(10) NOT NULL,
+      party_id VARCHAR(191) NOT NULL,
+      points_owed INT NOT NULL DEFAULT 0,
+      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      PRIMARY KEY (party_type, party_id)
+    )
+  `);
+
+  // Stage 5c — Pro is priced net of VAT; the VAT that applies to this
+  // partner comes from the versioned tax_vat rule (partner-scoped, so exempt
+  // or reverse-charge partners get none) and is frozen on the subscription
+  // with the rule hashes that produced it.
+  await ensureColumn("partner_subscriptions", "net_minor", "net_minor BIGINT NULL");
+  await ensureColumn("partner_subscriptions", "vat_minor", "vat_minor BIGINT NULL");
+  await ensureColumn("partner_subscriptions", "vat_bps", "vat_bps INT NULL");
+  await ensureColumn("partner_subscriptions", "vat_mode", "vat_mode VARCHAR(20) NULL");
+  await ensureColumn("partner_subscriptions", "plan_rule_hash", "plan_rule_hash CHAR(64) NULL");
+  await ensureColumn("partner_subscriptions", "tax_rule_hash", "tax_rule_hash CHAR(64) NULL");
+
+  // Revenue & Connect Stage 4 — policy CMS (brief §20). Documents are
+  // seeded once from policy/drafts.ts as version-1 drafts. A version moves
+  // draft, review, approved, published, retired; published_body is the
+  // placeholder-substituted snapshot frozen at publish (content_hash is its
+  // SHA-256), so a later placeholder-value edit never alters a published
+  // version. Acceptances are per (document, version, subject).
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS policy_documents (
+      doc_key VARCHAR(60) PRIMARY KEY,
+      title VARCHAR(160) NOT NULL,
+      audience VARCHAR(20) NOT NULL,
+      acceptance_audience VARCHAR(20) NULL,
+      sort_order INT NOT NULL DEFAULT 0,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS policy_versions (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      doc_key VARCHAR(60) NOT NULL,
+      version INT NOT NULL,
+      status VARCHAR(20) NOT NULL,
+      body MEDIUMTEXT NOT NULL,
+      published_body MEDIUMTEXT NULL,
+      content_hash CHAR(64) NULL,
+      change_summary TEXT NULL,
+      material TINYINT NOT NULL DEFAULT 0,
+      effective_from DATETIME NULL,
+      created_by VARCHAR(191) NOT NULL,
+      submitted_by VARCHAR(191) NULL,
+      approved_by VARCHAR(191) NULL,
+      approved_at DATETIME NULL,
+      legal_reviewer_name VARCHAR(160) NULL,
+      legal_reviewed_by VARCHAR(191) NULL,
+      legal_reviewed_at DATETIME NULL,
+      published_by VARCHAR(191) NULL,
+      published_at DATETIME NULL,
+      retired_at DATETIME NULL,
+      row_version INT NOT NULL DEFAULT 0,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      UNIQUE KEY uq_policy_version (doc_key, version),
+      KEY idx_policy_status (doc_key, status)
+    )
+  `);
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS policy_values (
+      placeholder VARCHAR(60) PRIMARY KEY,
+      value TEXT NOT NULL,
+      updated_by VARCHAR(191) NOT NULL,
+      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    )
+  `);
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS policy_acceptances (
+      id BIGINT AUTO_INCREMENT PRIMARY KEY,
+      doc_key VARCHAR(60) NOT NULL,
+      version INT NOT NULL,
+      subject_type VARCHAR(20) NOT NULL,
+      subject_id VARCHAR(191) NOT NULL,
+      context VARCHAR(40) NOT NULL,
+      accepted_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE KEY uq_policy_acceptance (doc_key, version, subject_type, subject_id),
+      KEY idx_policy_acceptance_subject (subject_type, subject_id)
+    )
+  `);
+  {
+    for (const d of POLICY_SEEDS) {
+      await db
+        .prepare(`INSERT IGNORE INTO policy_documents (doc_key, title, audience, acceptance_audience, sort_order) VALUES (?, ?, ?, ?, ?)`)
+        .run(d.key, d.title, d.audience, d.acceptance, d.sort);
+      await db
+        .prepare(`INSERT IGNORE INTO policy_versions (doc_key, version, status, body, change_summary, material, created_by) VALUES (?, 1, 'draft', ?, 'Initial structured draft', 1, 'system')`)
+        .run(d.key, d.body);
+    }
+    // Commercial claims safety audit — correct the fee-model sentences in
+    // drafts nobody has edited yet. Drafts only (approved or published
+    // versions are never rewritten) and only system-authored ones.
+    for (const c of FEE_CLAIM_DRAFT_CORRECTIONS) {
+      await db
+        .prepare(`UPDATE policy_versions SET body = REPLACE(body, ?, ?) WHERE doc_key = ? AND status = 'draft' AND created_by = 'system' AND INSTR(body, ?) > 0`)
+        .run(c.from, c.to, c.docKey, c.from);
+    }
+  }
+  // Stage 5c — the privacy notice is acknowledged, not accepted; "all" = residents and partners.
+  await ensureColumn("policy_documents", "acceptance_kind", "acceptance_kind VARCHAR(20) NOT NULL DEFAULT 'contract'");
+  await db.exec(`UPDATE policy_documents SET acceptance_kind = 'acknowledge', acceptance_audience = 'all' WHERE doc_key = 'privacy-policy' AND acceptance_kind <> 'acknowledge'`);
+
+  // Stage 4 — complaints, notices and appeals (DSA notice and action,
+  // internal complaint handling). A decision to resolve or reject needs a
+  // statement of reasons. report_id links an appeal to the moderation report
+  // whose decision it challenges.
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS complaints (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      kind VARCHAR(20) NOT NULL,
+      subject_type VARCHAR(30) NOT NULL,
+      subject_ref VARCHAR(191) NULL,
+      report_id INT NULL,
+      submitter_type VARCHAR(20) NOT NULL,
+      submitter_id VARCHAR(191) NULL,
+      email VARCHAR(191) NOT NULL,
+      body TEXT NOT NULL,
+      status VARCHAR(20) NOT NULL DEFAULT 'open',
+      decision VARCHAR(20) NULL,
+      statement_of_reasons TEXT NULL,
+      decided_by VARCHAR(191) NULL,
+      decided_at DATETIME NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      KEY idx_complaints_status (status, created_at),
+      KEY idx_complaints_submitter (submitter_type, submitter_id)
+    )
+  `);
+  // Moderation statements of reasons (DSA art. 17) — recorded with the decision.
+  await ensureColumn("reports", "statement_of_reasons", "statement_of_reasons TEXT NULL");
+  await ensureColumn("reports", "decided_by", "decided_by VARCHAR(191) NULL");
+  await ensureColumn("reports", "decided_at", "decided_at DATETIME NULL");
+
+  // Stage 4 — trader profiles (DSA art. 30 traceability + DAC7 seller data).
+  // party_type org (vendor organisation) or host (resident). TIN is stored
+  // but only ever returned masked. Public display is limited to the art. 30
+  // fields and only once the trader has self-certified.
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS trader_profiles (
+      party_type VARCHAR(10) NOT NULL,
+      party_id VARCHAR(191) NOT NULL,
+      entity_type VARCHAR(20) NOT NULL,
+      legal_name VARCHAR(200) NOT NULL,
+      trading_name VARCHAR(200) NULL,
+      address TEXT NOT NULL,
+      country CHAR(2) NOT NULL,
+      email VARCHAR(191) NOT NULL,
+      phone VARCHAR(40) NOT NULL,
+      company_number VARCHAR(60) NULL,
+      vat_number VARCHAR(40) NULL,
+      tin VARCHAR(60) NULL,
+      date_of_birth DATE NULL,
+      insurance_expires_at DATE NULL,
+      self_certified_at DATETIME NULL,
+      verification_status VARCHAR(20) NOT NULL DEFAULT 'unverified',
+      verification_note TEXT NULL,
+      verified_by VARCHAR(191) NULL,
+      verified_at DATETIME NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      PRIMARY KEY (party_type, party_id)
+    )
+  `);
+
+  // Revenue & Connect Stage 3 — editable financial field help (brief §19D).
+  // Versioned: an edit adds a new version; the latest version is shown. Seeded
+  // once (INSERT IGNORE on key + version 1); policy_key links to the Policy
+  // Centre document that explains the rule in full.
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS help_entries (
+      help_key VARCHAR(60) NOT NULL,
+      version INT NOT NULL,
+      name VARCHAR(120) NOT NULL,
+      definition TEXT NOT NULL,
+      formula TEXT NOT NULL,
+      example TEXT NOT NULL,
+      who_pays VARCHAR(200) NOT NULL,
+      when_charged VARCHAR(200) NOT NULL,
+      refund_behaviour TEXT NOT NULL,
+      policy_key VARCHAR(60) NOT NULL,
+      created_by VARCHAR(191) NOT NULL DEFAULT 'system',
+      reason TEXT NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (help_key, version)
+    )
+  `);
+  // Seeded once per key as version 1 (parameterised: help text may contain
+  // punctuation that the multi-statement exec splitter would mangle).
+  const HELP_SEED: string[][] = [
+  [
+    "customer_price",
+    "Customer price",
+    "The amount the customer pays for the booking — the price you list, with no HelloCircle fee added.",
+    "Listed price × quantity − any discount",
+    "€100 listed → customer pays €100",
+    "The customer",
+    "At checkout",
+    "A refund returns all or part of it to the customer's card.",
+    "payments-fees-payouts"
+  ],
+  [
+    "platform_fee",
+    "HelloCircle fee",
+    "HelloCircle's success fee on each completed paid order. It is a percentage of the fee base, with a minimum per paid order. Free events carry no fee.",
+    "max(fee base × plan rate, plan minimum)",
+    "Free plan, €100 → 9% = €9.00; €5 → minimum €0.75",
+    "The partner (deducted from the payout)",
+    "When the order is paid; earned when it completes",
+    "Recalculated on the refunded amount; a full refund removes it.",
+    "payments-fees-payouts"
+  ],
+  [
+    "platform_fee_vat",
+    "VAT on the HelloCircle fee",
+    "VAT charged on HelloCircle's fee — not on your activity. Your own activity's VAT is yours and is kept separate.",
+    "HelloCircle fee × VAT rate",
+    "€9.00 × 23% = €2.07",
+    "The partner (deducted from the payout)",
+    "With the fee",
+    "Reversed with the fee on refunds.",
+    "payments-fees-payouts"
+  ],
+  [
+    "fee_base",
+    "Fee base",
+    "The amount the fee is calculated on: the service price after any discount you fund, minus anything refunded.",
+    "Service subtotal − partner-funded discount − refunded amount",
+    "€100 with your €10 coupon → €90",
+    "—",
+    "—",
+    "Falls when a refund is made.",
+    "payments-fees-payouts"
+  ],
+  [
+    "partner_payout",
+    "Your payout",
+    "What you receive for the order once it completes and the review period passes.",
+    "Fee base − HelloCircle fee − VAT on the fee",
+    "€100 → €100 − €9.00 − €2.07 = €88.93",
+    "—",
+    "Transferred in the weekly payout after completion + review period",
+    "Reduced by refunds and by disputes you are responsible for.",
+    "payments-fees-payouts"
+  ],
+  [
+    "venue_allocation",
+    "Venue share",
+    "For a venue-and-host event, the part of the partner payout that goes to the venue under the agreed split.",
+    "Fixed amount, percentage, or agreed custom split of the partner payout",
+    "€88.93 payout, venue fixed €35.00",
+    "—",
+    "With the payout",
+    "Reduced in proportion to refunds.",
+    "payments-fees-payouts"
+  ],
+  [
+    "host_allocation",
+    "Host share",
+    "For a venue-and-host event, the rest of the partner payout after the venue's share.",
+    "Partner payout − venue share",
+    "€88.93 − €35.00 = €53.93",
+    "—",
+    "With the payout",
+    "Reduced in proportion to refunds.",
+    "payments-fees-payouts"
+  ],
+  [
+    "hellocircle_discount",
+    "HelloCircle-funded discount",
+    "A discount HelloCircle pays for. It lowers what the customer pays but not what you earn.",
+    "Customer pays fee base − HelloCircle discount; your payout is unchanged",
+    "€100 with a €10 HelloCircle coupon → customer pays €90, your payout stays €88.93",
+    "HelloCircle",
+    "At checkout",
+    "If the order is refunded, the customer gets back what they paid.",
+    "coupons-promotions"
+  ],
+  [
+    "partner_discount",
+    "Discount you fund",
+    "A coupon or discount you offer. It lowers both the customer price and the fee base.",
+    "Fee base = price − your discount",
+    "€100 − €10 = €90 fee base; fee €8.10",
+    "You",
+    "At checkout",
+    "Refunds are calculated on what the customer paid.",
+    "coupons-promotions"
+  ],
+  [
+    "pending_balance",
+    "Pending",
+    "Money from paid orders whose activity hasn't finished yet (plus the review period).",
+    "Paid orders not yet completed",
+    "—",
+    "—",
+    "—",
+    "Refunds reduce it.",
+    "payments-fees-payouts"
+  ],
+  [
+    "available_balance",
+    "Available",
+    "Money from completed orders, ready for the next weekly payout once it reaches the minimum.",
+    "Completed orders − refunds − recovered disputes",
+    "—",
+    "—",
+    "—",
+    "Refunds after completion reduce it (it can go below zero and is netted later).",
+    "payments-fees-payouts"
+  ],
+  [
+    "settled_due",
+    "Settled — payout due",
+    "Amounts included in a weekly settlement and due to be paid out to you.",
+    "Sum of your settlements not yet paid out",
+    "—",
+    "—",
+    "Paid out on the weekly schedule",
+    "—",
+    "payments-fees-payouts"
+  ],
+  [
+    "review_period",
+    "Review period",
+    "Time after an activity ends before its money becomes available, so issues can be raised first.",
+    "Activity end + review period",
+    "Ends Saturday 18:00 + 48h → available Monday 18:00",
+    "—",
+    "—",
+    "—",
+    "payments-fees-payouts"
+  ],
+  [
+    "minimum_payout",
+    "Minimum payout",
+    "Balances below this carry forward to the next week.",
+    "—",
+    "€25",
+    "—",
+    "—",
+    "—",
+    "payments-fees-payouts"
+  ],
+  [
+    "pro_break_even",
+    "Pro break-even",
+    "The monthly sales at which Pro's lower fee pays for its subscription.",
+    "Pro price ÷ (Free rate − Pro rate)",
+    "€29 ÷ 2% = €1,450 per month",
+    "—",
+    "—",
+    "—",
+    "pro-subscription"
+  ],
+  [
+    "hellocircle_contribution",
+    "HelloCircle contribution (estimate)",
+    "What HelloCircle keeps from the fee after its estimated payment costs and any HelloCircle-funded discount. An estimate — actual Stripe costs replace it later.",
+    "Fee − card cost estimate − payout cost estimate − HelloCircle-funded discount",
+    "€100 Free → €9.00 − €1.75 − €0.32 = €6.93",
+    "—",
+    "—",
+    "—",
+    "payments-fees-payouts"
+  ],
+  // Stage 5e — payout-account states, transfer vs bank payout, venue/host split.
+    ["connect_state_not_started", "Payout account: not started", "You haven't set up a payout account yet. HelloCircle pays your earnings into a Stripe account in your name; Stripe then pays them to your bank.", "—", "—", "—", "—", "—", "payments-fees-payouts"],
+    ["connect_state_onboarding_incomplete", "Payout account: setup not finished", "Stripe still needs some details before it can accept transfers for you (for example identity, address or bank account). Continue setup — it takes you back to Stripe's secure page.", "—", "—", "—", "—", "—", "payments-fees-payouts"],
+    ["connect_state_under_review", "Payout account: under review", "You've given Stripe everything it asked for and it is checking your details. Nothing to do now; this usually finishes within a few days.", "—", "—", "—", "—", "—", "payments-fees-payouts"],
+    ["connect_state_more_information_required", "Payout account: more information needed", "Stripe has asked for more information to keep your account active. Until you provide it, transfers or bank payouts may be paused.", "—", "—", "—", "—", "—", "payments-fees-payouts"],
+    ["connect_state_transfers_unavailable", "Payout account: can't receive transfers", "Stripe isn't currently allowing transfers into your account. Settled earnings stay with HelloCircle until this is resolved — check your Stripe dashboard or contact support.", "—", "—", "—", "—", "—", "payments-fees-payouts"],
+    ["connect_state_payouts_unavailable", "Payout account: bank payouts paused", "Transfers from HelloCircle can reach your Stripe balance, but Stripe can't pay out to your bank yet (for example the bank account needs attention). Money stays in your Stripe balance until it can.", "—", "—", "—", "—", "—", "payments-fees-payouts"],
+    ["connect_state_enabled", "Payout account: ready", "Your account can receive transfers and Stripe can pay out to your bank.", "—", "—", "—", "—", "—", "payments-fees-payouts"],
+    ["connect_transfer_vs_payout", "Transfer vs bank payout", "A transfer is HelloCircle moving your settled earnings to your Stripe account (weekly). A bank payout is Stripe then paying your Stripe balance to your bank, on Stripe's schedule. A transfer having been sent doesn't mean the money has reached your bank yet.", "—", "Transfer on Monday → Stripe balance → bank payout a few days later (Stripe's schedule).", "HelloCircle sends transfers; Stripe makes bank payouts.", "Weekly, after completion and the review period.", "A refund or chargeback after a transfer can be recovered by reversing that transfer.", "payments-fees-payouts"],
+    ["venue_split", "Venue / host split", "When a host runs a paid game at a partner venue, the partner share of each booking is divided between the venue and the host as agreed (a percentage or a fixed amount). The split in force when the booking is paid is fixed for that booking.", "venue = ⌊partner share × venue % ⌋; host = ⌊partner share × host %⌋; any 1-cent remainder goes to the party set in the venue/host split rule.", "€40.00 partner share at 66.67% venue: venue €26.67 (incl. 1c rounding), host €13.33.", "Each partner receives only their own share; refunds and chargebacks are taken only from the responsible partner's share.", "Each share is released and settled separately, 48 hours after the game ends.", "A refund reduces both shares in proportion; a recovery after a transfer reverses only that partner's own transfer.", "payments-fees-payouts"],
+  // Stage 5f — plan, Pro, reward points and customer credit.
+    ["pro_benefit_1", "Lower success fee", "Pro lowers the success fee HelloCircle keeps on each completed paid booking.", "—", "—", "—", "—", "—", "payments-fees-payouts"],
+    ["pro_benefit_2", "Lower minimum fee", "Pro lowers the minimum platform fee per paid booking, which matters most for low-priced activities.", "—", "—", "—", "—", "—", "payments-fees-payouts"],
+    ["pro_benefit_3", "Free months with reward points", "Your reward points can pay for a whole month of Pro, so busy partners may never pay for it.", "—", "—", "—", "—", "—", "payments-fees-payouts"],
+    ["pro_price", "Pro subscription price", "Pro is a monthly subscription. The price shown is before tax; any tax that applies to you is added on top and shown separately.", "—", "—", "You", "Monthly, from the day you subscribe", "Not refunded for a partly used month", "—"],
+    ["pro_vat", "Tax on your Pro subscription", "The tax row depends on your trader details: standard Irish VAT is added, or no VAT where reverse charge or an exemption applies to you.", "—", "—", "You", "—", "—", "—"],
+    ["pro_reverse_charge", "Reverse charge", "If you're a VAT-registered business that accounts for VAT under the reverse-charge rules, HelloCircle doesn't charge VAT on Pro; you account for it yourself.", "—", "—", "—", "—", "—", "—"],
+    ["pro_cancellation", "Cancelling Pro", "Cancelling stops the next renewal. You keep Pro until the end of the month you've paid for, and you can choose 'Keep Pro' before then.", "—", "—", "—", "—", "—", "—"],
+    ["pro_failed_payment", "When a Pro payment fails", "If a renewal payment fails you keep Pro during a grace period. Update your payment method before it ends; otherwise your plan returns to Free.", "—", "—", "—", "—", "—", "—"],
+    ["pro_faq_cancel", "Can I cancel at any time?", "Yes. Pro stays active until the end of the paid month, then your plan returns to Free. Nothing else changes.", "—", "—", "—", "—", "—", "—"],
+    ["pro_faq_refund_points", "What happens to points after a refund?", "Points are only earned on what was actually settled. If a booking is refunded or a chargeback is lost, the matching points are taken back.", "—", "—", "—", "—", "—", "—"],
+    ["pro_faq_reward_month", "What if I subscribe during a free reward month?", "Your free month continues and billing starts when it ends — you're never charged twice for the same days.", "—", "—", "—", "—", "—", "—"],
+    ["points_earning", "How reward points are earned", "You earn points on settled sales: when your earnings are settled after an activity, points are added at the published rate. Points aren't cash and can't be transferred.", "—", "—", "—", "At settlement", "—", "—"],
+    ["points_pending", "Pending vs available points", "Pending points are an estimate for paid bookings that haven't been settled yet. They become available — and can be redeemed — only after settlement.", "—", "—", "—", "—", "—", "—"],
+    ["points_split", "Points on shared bookings", "When a venue and a host share a booking, each earns points only on their own share. Together they never earn more than the booking would.", "—", "—", "—", "—", "—", "—"],
+    ["points_debt", "Points debt", "If a refund or lost chargeback takes back points you've already used, the difference becomes a points debt. It's repaid automatically from your next points, and you can't redeem until it's cleared. It isn't money you owe.", "—", "—", "—", "—", "—", "—"],
+    ["points_redeem", "Redeeming a free Pro month", "Once you have enough points you can exchange them for one month of Pro. No paid subscription is created and nothing renews automatically.", "—", "—", "—", "—", "—", "—"],
+    ["credit_customer", "HelloCircle credit", "Credit is money HelloCircle has given you to spend on bookings. It's used before your card at checkout, has an expiry date, and can't be exchanged for cash.", "—", "—", "—", "—", "—", "—"],
+    ["credit_coupons", "Coupons and credit together", "A coupon is applied first, then your credit; your card pays whatever is left. If the credit covers everything, no card payment is needed.", "—", "—", "—", "—", "—", "—"],
+    ["credit_refund_restoration", "Credit after a refund", "If a booking paid partly with credit is refunded, the credit share comes back to your HelloCircle credit and the card share goes back to your card, in proportion to what's refunded.", "—", "—", "—", "—", "—", "—"]
+];
+  for (const [key, ...v] of HELP_SEED) {
+    await db
+      .prepare(`INSERT IGNORE INTO help_entries (help_key, version, name, definition, formula, example, who_pays, when_charged, refund_behaviour, policy_key) VALUES (?, 1, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      .run(key, ...v);
+  }
+  // Stage 5c — terminology: a *transfer* (HelloCircle → your Stripe account)
+  // is not a *bank payout* (Stripe → your bank). Added as version 2 so the
+  // v1 wording stays in the history; skipped if an admin already wrote v2.
+  const HELP_SEED_V2: string[][] = [
+  [
+    "partner_payout",
+    "Your earnings",
+    "What you earn on the order once it completes and the review period passes. Earnings are paid to you in two steps: a weekly transfer to your Stripe account, then Stripe's payout to your bank.",
+    "Fee base − HelloCircle fee − VAT on the fee",
+    "€100 → €100 − €9.00 − €2.07 = €88.93",
+    "—",
+    "Included in the weekly transfer after completion + review period",
+    "Reduced by refunds and by disputes you are responsible for.",
+    "payments-fees-payouts"
+  ],
+  [
+    "available_balance",
+    "Available",
+    "Earnings from completed orders, ready to be included in the next weekly transfer once they reach the minimum.",
+    "Completed orders − refunds − recovered disputes",
+    "—",
+    "—",
+    "—",
+    "Refunds after completion reduce it (it can go below zero and is then recovered — see Payments policy).",
+    "payments-fees-payouts"
+  ],
+  [
+    "settled_due",
+    "Settled — transfer due",
+    "Amounts included in a weekly settlement and due to be transferred from HelloCircle to your Stripe account. This is not yet a bank payout: Stripe pays your Stripe balance out to your bank on its own schedule.",
+    "Sum of your settlements not yet transferred",
+    "—",
+    "—",
+    "Transferred in the weekly transfer run",
+    "—",
+    "payments-fees-payouts"
+  ],
+  [
+    "minimum_payout",
+    "Minimum weekly transfer",
+    "Weekly settlements below this amount carry forward to the next week instead of being transferred.",
+    "—",
+    "€25",
+    "—",
+    "—",
+    "—",
+    "payments-fees-payouts"
+  ]
+];
+  for (const [key, ...v] of HELP_SEED_V2) {
+    await db
+      .prepare(
+        `INSERT IGNORE INTO help_entries (help_key, version, name, definition, formula, example, who_pays, when_charged, refund_behaviour, policy_key, reason)
+         VALUES (?, 2, ?, ?, ?, ?, ?, ?, ?, ?, 'Stage 5c: transfers and bank payouts named separately')`
+      )
+      .run(key, ...v);
+  }
+  await correctFeeModelHelp();
+  await db.exec(`
+    INSERT IGNORE INTO ledger_accounts (code, name, account_type) VALUES
+      ('partner_available', 'Partner balance available for settlement', 'liability'),
+      ('settlement_payable', 'Settlements due to partners', 'liability')
+  `);
+  await ensureIndex("payment_records", "idx_payment_intent", "(payment_intent_id)");
+  await ensureIndex("payment_records", "idx_payment_session", "(checkout_session_id)");
+  await ensureIndex("refunds", "idx_refund_source", "(source_type, source_ref)");
+  await ensureIndex("refunds", "idx_refund_provider_id", "(provider_refund_id)");
+  await ensureIndex("webhook_events", "idx_webhook_status", "(status, received_at)");
+  await ensureIndex("ledger_entry_groups", "idx_ledger_source", "(source_type, source_id)");
+  await ensureIndex("ledger_entries", "idx_ledger_account_party", "(account_code, party_type, party_id)");
+  await db.exec(`
+    INSERT IGNORE INTO ledger_accounts (code, name, account_type) VALUES
+      ('stripe_clearing', 'Stripe clearing', 'asset'),
+      ('cash_bank', 'Cash / bank balance', 'asset'),
+      ('dispute_reserve', 'Funds held for disputes', 'asset'),
+      ('partner_recovery', 'Recoverable from partners', 'asset'),
+      ('partner_payable', 'Partner payable (vendor)', 'liability'),
+      ('venue_payable', 'Venue payable', 'liability'),
+      ('host_payable', 'Host payable', 'liability'),
+      ('platform_fee_vat_payable', 'VAT payable on platform fees', 'liability'),
+      ('underlying_tax_payable', 'Tax collected on activities', 'liability'),
+      ('subscription_vat_payable', 'VAT payable on subscriptions', 'liability'),
+      ('customer_credit_liability', 'Customer credit liability', 'liability'),
+      ('gift_credit_liability', 'Gift credit liability', 'liability'),
+      ('reward_liability', 'Reward points liability', 'liability'),
+      ('refund_liability', 'Refundable deposits and refunds owed', 'liability'),
+      ('accrued_payment_costs', 'Accrued payment costs (estimates)', 'liability'),
+      ('platform_fee_revenue', 'Platform fee revenue', 'revenue'),
+      ('subscription_revenue', 'Subscription revenue', 'revenue'),
+      ('processing_fee_expense', 'Card processing expense', 'expense'),
+      ('connect_fee_expense', 'Connect account expense', 'expense'),
+      ('payout_fee_expense', 'Payout expense', 'expense'),
+      ('coupon_expense', 'HelloCircle-funded coupons', 'expense'),
+      ('chargeback_loss', 'Chargeback losses', 'expense')
+  `);
+  // Stage 5e — Stripe Accounts v2 (docs/revenue-connect/adr-accounts-v2.md).
+  // Additive only: rows created before 5e keep api_model 'v1' and stay readable.
+  // Capability and verification state is always refreshed from Stripe, never set
+  // locally; last_synced_at guards against an older fetch overwriting a newer one.
+  await ensureColumn("connected_accounts", "api_model", "api_model VARCHAR(8) NOT NULL DEFAULT 'v1'");
+  await ensureColumn("connected_accounts", "configuration_type", "configuration_type VARCHAR(20) NULL");
+  await ensureColumn("connected_accounts", "dashboard_type", "dashboard_type VARCHAR(10) NULL");
+  await ensureColumn("connected_accounts", "business_type", "business_type VARCHAR(12) NULL");
+  await ensureColumn("connected_accounts", "onboarding_state", "onboarding_state VARCHAR(32) NOT NULL DEFAULT 'onboarding_incomplete'");
+  await ensureColumn("connected_accounts", "charges_capability", "charges_capability VARCHAR(20) NULL");
+  await ensureColumn("connected_accounts", "payouts_capability", "payouts_capability VARCHAR(20) NULL");
+  await ensureColumn("connected_accounts", "requirements_past_due", "requirements_past_due TEXT NULL");
+  await ensureColumn("connected_accounts", "requirements_pending", "requirements_pending TEXT NULL");
+  await ensureColumn("connected_accounts", "onboarding_completed_at", "onboarding_completed_at DATETIME NULL");
+  await ensureColumn("connected_accounts", "last_synced_at", "last_synced_at DATETIME(3) NULL");
+  await ensureColumn("connected_accounts", "last_event_id", "last_event_id VARCHAR(255) NULL");
+  await ensureColumn("connected_accounts", "last_event_created_at", "last_event_created_at DATETIME NULL");
+  await ensureColumn("connected_accounts", "creation_key", "creation_key VARCHAR(160) NULL");
+  {
+    const has = (await db.prepare(`SELECT 1 FROM INFORMATION_SCHEMA.STATISTICS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'connected_accounts' AND INDEX_NAME = 'uq_connected_creation_key' LIMIT 1`).all()) as unknown[];
+    if (!has.length) {
+      try {
+        await db.exec(`CREATE UNIQUE INDEX uq_connected_creation_key ON connected_accounts (creation_key)`);
+      } catch (e) {
+        if ((e as { code?: string }).code !== "ER_DUP_KEYNAME") throw e;
+      }
+    }
+  }
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS connected_account_creations (
+      party_type VARCHAR(10) NOT NULL,
+      party_id VARCHAR(191) NOT NULL,
+      idempotency_key VARCHAR(160) NOT NULL,
+      api_model VARCHAR(8) NOT NULL,
+      status VARCHAR(12) NOT NULL,
+      account_id VARCHAR(255) NULL,
+      attempts INT NOT NULL DEFAULT 0,
+      last_error VARCHAR(500) NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      PRIMARY KEY (party_type, party_id),
+      UNIQUE KEY uq_account_creation_key (idempotency_key)
+    )
+  `);
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS connected_account_syncs (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      account_id VARCHAR(255) NOT NULL,
+      source VARCHAR(20) NOT NULL,
+      normalized_type VARCHAR(60) NOT NULL,
+      provider_event_id VARCHAR(255) NULL,
+      provider_event_type VARCHAR(120) NULL,
+      provider_event_created_at DATETIME NULL,
+      before_state VARCHAR(40) NULL,
+      after_state VARCHAR(40) NULL,
+      applied TINYINT NOT NULL,
+      note VARCHAR(500) NULL,
+      created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+      KEY idx_account_sync (account_id, id)
+    )
+  `);
+  // Stage 5e — venue/host split (flow C): a host's paid game at a partner venue.
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS venue_split_agreements (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      game_id VARCHAR(191) NOT NULL,
+      version INT NOT NULL,
+      venue_party_type VARCHAR(10) NOT NULL,
+      venue_party_id VARCHAR(191) NOT NULL,
+      host_resident_id VARCHAR(191) NOT NULL,
+      mode VARCHAR(20) NOT NULL,
+      venue_bps INT NULL,
+      venue_fixed_minor BIGINT NULL,
+      host_fixed_minor BIGINT NULL,
+      status VARCHAR(12) NOT NULL,
+      proposed_by VARCHAR(191) NOT NULL,
+      proposed_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      decided_by VARCHAR(191) NULL,
+      decided_at DATETIME NULL,
+      decision_reason VARCHAR(500) NULL,
+      UNIQUE KEY uq_split_game_version (game_id, version),
+      KEY idx_split_venue (venue_party_type, venue_party_id, status)
+    )
+  `);
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS allocation_snapshots (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      source_type VARCHAR(20) NOT NULL,
+      source_ref VARCHAR(191) NOT NULL,
+      currency CHAR(3) NOT NULL,
+      gross_minor BIGINT NOT NULL,
+      vat_minor BIGINT NOT NULL,
+      credits_used_minor BIGINT NOT NULL,
+      discount_minor BIGINT NOT NULL,
+      discount_funder VARCHAR(20) NOT NULL,
+      platform_funded_discount_minor BIGINT NOT NULL,
+      customer_fee_minor BIGINT NOT NULL,
+      success_fee_minor BIGINT NOT NULL,
+      est_processing_fee_minor BIGINT NOT NULL,
+      deposit_minor BIGINT NOT NULL,
+      platform_retained_minor BIGINT NOT NULL,
+      partner_pool_minor BIGINT NOT NULL,
+      rounding_adjustment_minor BIGINT NOT NULL,
+      rounding_owner VARCHAR(10) NOT NULL,
+      pricing_rule_hash CHAR(64) NULL,
+      split_rule_hash CHAR(64) NULL,
+      split_agreement_id INT NULL,
+      split_agreement_version INT NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE KEY uq_allocation_source (source_type, source_ref)
+    )
+  `);
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS allocation_lines (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      snapshot_id INT NOT NULL,
+      role VARCHAR(10) NOT NULL,
+      party_type VARCHAR(10) NULL,
+      party_id VARCHAR(191) NULL,
+      amount_minor BIGINT NOT NULL,
+      UNIQUE KEY uq_allocation_role (snapshot_id, role)
+    )
+  `);
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS order_party_releases (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      source_type VARCHAR(20) NOT NULL,
+      source_ref VARCHAR(191) NOT NULL,
+      party_type VARCHAR(10) NOT NULL,
+      party_id VARCHAR(191) NOT NULL,
+      released_minor BIGINT NOT NULL,
+      released_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE KEY uq_party_release (source_type, source_ref, party_type, party_id)
+    )
+  `);
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS dispute_recovery_allocations (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      dispute_id INT NOT NULL,
+      role VARCHAR(10) NOT NULL,
+      party_type VARCHAR(10) NULL,
+      party_id VARCHAR(191) NULL,
+      amount_minor BIGINT NOT NULL,
+      UNIQUE KEY uq_dispute_role (dispute_id, role)
+    )
+  `);
+  // Stage 5e — split-booking reward points: one award per partner per booking,
+  // on that partner's own eligible allocation (rule split_rewards).
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS reward_split_awards (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      settlement_id INT NOT NULL,
+      party_type VARCHAR(10) NOT NULL,
+      party_id VARCHAR(191) NOT NULL,
+      source_type VARCHAR(20) NOT NULL,
+      source_ref VARCHAR(191) NOT NULL,
+      eligible_minor BIGINT NOT NULL,
+      points INT NOT NULL,
+      reversed_points INT NOT NULL DEFAULT 0,
+      lot_id INT NULL,
+      rule_hash CHAR(64) NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE KEY uq_split_award (source_type, source_ref, party_type, party_id),
+      KEY idx_split_award_settlement (settlement_id)
+    )
+  `);
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS reward_split_reversals (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      split_award_id INT NOT NULL,
+      points INT NOT NULL,
+      from_lots INT NOT NULL,
+      to_debt INT NOT NULL,
+      reason VARCHAR(30) NOT NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      KEY idx_split_reversal_award (split_award_id)
+    )
+  `);
+  // Stage 5e — who owns the VAT liability on a booking (rule vat_treatment);
+  // provisional pending Irish tax review. Recorded only; no VAT calculation changes.
+  await ensureColumn("allocation_snapshots", "vat_liability_owner", "vat_liability_owner VARCHAR(20) NULL");
+  await ensureColumn("allocation_snapshots", "vat_treatment_status", "vat_treatment_status VARCHAR(50) NULL");
+  await ensureColumn("allocation_snapshots", "vat_rule_hash", "vat_rule_hash CHAR(64) NULL");
+  // Stage 5f — Pro checkout reuse (no second subscription), terms acknowledgement,
+  // deferred billing after a reward month, and the grace period frozen when a payment fails.
+  await ensureColumn("partner_subscriptions", "checkout_url", "checkout_url VARCHAR(1000) NULL");
+  await ensureColumn("partner_subscriptions", "terms_accepted_at", "terms_accepted_at DATETIME NULL");
+  await ensureColumn("partner_subscriptions", "billing_starts_at", "billing_starts_at DATETIME NULL");
+  await ensureColumn("partner_subscriptions", "grace_days", "grace_days INT NULL");
+  // Stage 5f — split points use the rate frozen when they were awarded; debt repayments are recorded.
+  await ensureColumn("reward_split_awards", "rate_per_euro", "rate_per_euro INT NULL");
+  await ensureColumn("reward_split_awards", "rewards_rule_hash", "rewards_rule_hash CHAR(64) NULL");
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS reward_debt_repayments (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      party_type VARCHAR(10) NOT NULL,
+      party_id VARCHAR(191) NOT NULL,
+      settlement_id INT NULL,
+      points INT NOT NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      KEY idx_debt_repay_party (party_type, party_id)
+    )
+  `);
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS reward_adjustments (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      party_type VARCHAR(10) NOT NULL,
+      party_id VARCHAR(191) NOT NULL,
+      points INT NOT NULL,
+      lot_id INT NULL,
+      to_debt INT NOT NULL DEFAULT 0,
+      reason VARCHAR(2000) NOT NULL,
+      idempotency_key VARCHAR(120) NOT NULL,
+      created_by VARCHAR(191) NOT NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE KEY uq_reward_adjustment_key (idempotency_key),
+      KEY idx_reward_adjustment_party (party_type, party_id)
+    )
+  `);
+  // Stage 5f — when a credit use was released/restored (for the customer's history).
+  await ensureColumn("credit_uses", "status_changed_at", "status_changed_at DATETIME NULL");
+  // Stage 5f — credit grants: currency, funding owner, idempotency.
+  await ensureColumn("credit_lots", "currency", "currency CHAR(3) NOT NULL DEFAULT 'EUR'");
+  await ensureColumn("credit_lots", "funding_owner", "funding_owner VARCHAR(20) NOT NULL DEFAULT 'helloCircle'");
+  await ensureColumn("credit_lots", "idempotency_key", "idempotency_key VARCHAR(120) NULL");
+  {
+    const has = (await db.prepare(`SELECT 1 FROM INFORMATION_SCHEMA.STATISTICS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'credit_lots' AND INDEX_NAME = 'uq_credit_lot_key' LIMIT 1`).all()) as unknown[];
+    if (!has.length) {
+      try {
+        await db.exec(`CREATE UNIQUE INDEX uq_credit_lot_key ON credit_lots (idempotency_key)`);
+      } catch (e) {
+        if ((e as { code?: string }).code !== "ER_DUP_KEYNAME") throw e;
+      }
+    }
+  }
+  await db.exec(`
+    INSERT IGNORE INTO pricing_plans (plan_key, name, status, sort_order) VALUES
+      ('free', 'Free', 'active', 1),
+      ('pro', 'Pro', 'active', 2),
+      ('enterprise', 'Enterprise', 'disabled', 3)
+  `);
+
+  // Booking UX Phase 4 (audit B8) - what a customer agreed to with an order:
+  // the booking terms version in force (resolved server-side from the policy
+  // CMS, NULL while only a draft exists) or a fingerprint of the listing's own
+  // safety text. Append-only; written in the order's own transaction.
+  // Booking UX Phase 4 (audit B7) - the named people in a multi-person
+  // experience booking, one row per seat.
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS order_acknowledgements (
+      id BIGINT AUTO_INCREMENT PRIMARY KEY,
+      source_type VARCHAR(20) NOT NULL,
+      source_ref VARCHAR(191) NOT NULL,
+      kind VARCHAR(20) NOT NULL,
+      doc_key VARCHAR(60) NULL,
+      doc_version INT NULL,
+      text_fingerprint VARCHAR(64) NULL,
+      client_id VARCHAR(191) NULL,
+      resident_id VARCHAR(191) NULL,
+      accepted_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE KEY uq_order_ack (source_type, source_ref, kind)
+    );
+
+    CREATE TABLE IF NOT EXISTS experience_booking_participants (
+      id BIGINT AUTO_INCREMENT PRIMARY KEY,
+      booking_ref VARCHAR(191) NOT NULL,
+      seat INT NOT NULL,
+      name VARCHAR(120) NOT NULL,
+      UNIQUE KEY uq_booking_seat (booking_ref, seat)
+    );
+  `);
+
+  // Booking UX Phase 7 (audit E5) - indexes for the booking hot paths: the
+  // row-locked overlap and capacity checks, "my bookings" by device or email,
+  // and activity-on-booking lookups. Additive and idempotent.
+  await ensureIndex("bookings", "idx_bookings_room_date", "(centre_id, room_id, date)");
+  await ensureIndex("bookings", "idx_bookings_client", "(client_id)");
+  await ensureIndex("bookings", "idx_bookings_email", "(email)");
+  await ensureIndex("bookings", "idx_bookings_resident", "(resident_id)");
+  await ensureIndex("registrations", "idx_registrations_club", "(club_id)");
+  await ensureIndex("registrations", "idx_registrations_session", "(session_id)");
+  await ensureIndex("registrations", "idx_registrations_client", "(client_id)");
+  await ensureIndex("registrations", "idx_registrations_email", "(email)");
+  await ensureIndex("program_enrollments", "idx_enrollments_program", "(program_id)");
+  await ensureIndex("experience_bookings", "idx_exp_bookings_session", "(session_id)");
+  await ensureIndex("experience_bookings", "idx_exp_bookings_experience", "(experience_id)");
+  await ensureIndex("games", "idx_games_booking_ref", "(booking_ref)");
 }
 
 export const COUNTY_CENTROIDS: Record<string, { lat: number; lng: number }> = {
@@ -2322,4 +3870,59 @@ export async function getSetting(key: string, defaultValue: string): Promise<str
 export async function setSetting(key: string, value: string): Promise<void> {
   await db.prepare(`INSERT INTO app_settings (\`key\`, value) VALUES (?, ?) ON DUPLICATE KEY UPDATE value = VALUES(value)`).run(key, value);
   settingsCache.set(key, { value, expiresAt: Date.now() + SETTINGS_CACHE_TTL_MS });
+}
+
+// Commercial claims safety audit (2026-10-11, R3B F1) — these entries
+// described the proposed partner fee model (9% / 7% success fee, VAT on the
+// fee, Pro's lower fee) as if it were charged. It isn't. Adds one new version
+// per key with neutral text, keeping every earlier version as history. Only
+// when the latest version is still system-written (an admin's edit is never
+// overridden) and differs from the correction, so re-running is a no-op.
+export const FEE_MODEL_HELP_CORRECTIONS: Record<string, { name: string; definition: string }> = {
+  platform_fee: {
+    name: "HelloCircle fee",
+    definition: "HelloCircle's fees on paid bookings are being finalised and will be confirmed with you before you take paid bookings. Free events carry no fee.",
+  },
+  platform_fee_vat: {
+    name: "VAT on HelloCircle's fees",
+    definition: "How VAT applies to HelloCircle's fees and to your own activity is being confirmed with our tax adviser, and will be confirmed with you before you take paid bookings.",
+  },
+  fee_base: {
+    name: "Fee base",
+    definition: "The amount any HelloCircle fee is worked out on. It's confirmed together with the fees before paid bookings open.",
+  },
+  partner_payout: {
+    name: "Your payout",
+    definition: "What you receive for an order once it completes and the review period passes. How it's worked out is confirmed with you before paid bookings open.",
+  },
+  pro_break_even: {
+    name: "Pro and paid-booking fees",
+    definition: "What Pro costs and what it changes for paid bookings will be confirmed together with paid-booking pricing.",
+  },
+  pro_benefit_1: {
+    name: "Paid-booking fees (to be confirmed)",
+    definition: "What Pro changes for fees on paid bookings will be confirmed together with paid-booking pricing.",
+  },
+  pro_benefit_2: {
+    name: "Low-priced activities (to be confirmed)",
+    definition: "How Pro treats fees on low-priced activities will be confirmed together with paid-booking pricing.",
+  },
+};
+
+async function correctFeeModelHelp(): Promise<void> {
+  for (const [key, fix] of Object.entries(FEE_MODEL_HELP_CORRECTIONS)) {
+    const latest = (await db
+      .prepare(
+        `SELECT version, name, definition, who_pays as whoPays, when_charged as whenCharged, refund_behaviour as refundBehaviour, policy_key as policyKey, created_by as createdBy
+         FROM help_entries WHERE help_key = ? ORDER BY version DESC LIMIT 1`
+      )
+      .get(key)) as { version: number; name: string; definition: string; whoPays: string; whenCharged: string; refundBehaviour: string; policyKey: string; createdBy: string } | undefined;
+    if (!latest || latest.createdBy !== "system" || latest.definition === fix.definition) continue;
+    await db
+      .prepare(
+        `INSERT IGNORE INTO help_entries (help_key, version, name, definition, formula, example, who_pays, when_charged, refund_behaviour, policy_key, reason)
+         VALUES (?, ?, ?, ?, '—', '—', ?, ?, ?, ?, 'Commercial claims safety audit: the proposed fee model is not in force')`
+      )
+      .run(key, Number(latest.version) + 1, fix.name, fix.definition, latest.whoPays, latest.whenCharged, latest.refundBehaviour, latest.policyKey);
+  }
 }

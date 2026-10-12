@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import { Router } from "express";
+import { recordConsent } from "../consent.js";
 import { GUEST_SESSION_COOKIE, createGuestSession } from "../guestAuth.js";
 import { SESSION_COOKIE, createSession, createUser, findUserByEmail, requireVendor } from "../auth.js";
 import { db } from "../db/index.js";
@@ -188,6 +189,7 @@ manageRouter.post("/become-provider", requireResident, async (req, res) => {
     // createUser() builds its return value before this UPDATE, so the link has
     // to be reflected back onto it or the response reports residentId: null.
     await tx.prepare(`UPDATE users SET resident_id = ?, terms_accepted_at = NOW(), terms_version = ?, marketing_consent = ? WHERE id = ?`).run(resident.id, TERMS_VERSION, marketingConsent ? 1 : 0, user.id);
+    await recordConsent({ type: "user", id: user.id }, "marketing_email", !!marketingConsent, "become_provider", null, tx);
     user.residentId = resident.id;
 
     const listingId = crypto.randomUUID();

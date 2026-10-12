@@ -1,28 +1,31 @@
-import { Photo } from "./Photo";
+import { useNavigate } from "react-router-dom";
+import { PinIcon } from "./icons";
 import { EntityTypeLabel } from "./symbols";
-import { CardLink } from "./ui";
-import { cardImageRatio, colors, placeholderStripes, radius } from "../theme";
+import { Button } from "./ui";
+import { ListingCard, cardButtonStyle } from "./ListingCard";
+import { colors, placeholderStripes } from "../theme";
 import type { SimilarProvider } from "../types";
 
 // "Similar providers" / "More from this provider" card — deliberately
-// minimal per the redesign brief's §44 (no followers/reviews/ratings/five
-// CTAs stacked onto a card meant for quick comparison).
+// minimal per the redesign brief's §44 (no followers/reviews/ratings).
+// Design-system consistency pass: the shared ListingCard shape.
 export function ProviderCard({ provider }: { provider: SimilarProvider }) {
+  const navigate = useNavigate();
+  const href = `/provider/${provider.id}`;
   return (
-    <div
-      className="card-hover card-surface"
-      style={{ position: "relative", background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: radius.card, overflow: "hidden" }}
-    >
-      <CardLink to={`/provider/${provider.id}`} label={provider.name} sharedImage />
-      <Photo src={provider.image ?? undefined} alt={provider.name} ph={placeholderStripes.green} style={{ aspectRatio: cardImageRatio.discovery }} />
-      <div style={{ padding: "14px 16px 16px" }}>
-        <EntityTypeLabel type={provider.type} size={12} color={colors.mutedLight} />
-        <div style={{ fontWeight: 700, fontSize: 15, margin: "6px 0 2px" }}>{provider.name}</div>
-        {provider.area && <div style={{ fontSize: 12.5, color: colors.mutedLight, marginBottom: 8 }}>{provider.area}</div>}
-        <span style={{ fontSize: 12, color: colors.faint }}>
-          {provider.listingCount} listing{provider.listingCount === 1 ? "" : "s"}
-        </span>
-      </div>
-    </div>
+    <ListingCard
+      href={href}
+      title={provider.name}
+      image={provider.image}
+      ph={placeholderStripes.green}
+      tag={<EntityTypeLabel type={provider.type} size={11} color="#172019" />}
+      details={[provider.area ? { icon: <PinIcon size={13} />, text: provider.area } : null]}
+      facts={<span style={{ color: colors.text }}>{provider.listingCount} listing{provider.listingCount === 1 ? "" : "s"}</span>}
+      action={
+        <Button style={cardButtonStyle} variant="ghost" onClick={() => navigate(href)}>
+          View provider
+        </Button>
+      }
+    />
   );
 }

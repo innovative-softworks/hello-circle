@@ -21,7 +21,7 @@ const SOURCE_TYPE_ICONS: Record<VendorScheduleItem["sourceType"], typeof Buildin
 export function SourceTypeBadge({ sourceType }: { sourceType: VendorScheduleItem["sourceType"] }) {
   const Icon = SOURCE_TYPE_ICONS[sourceType];
   return (
-    <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11, fontWeight: 700, letterSpacing: ".04em", color: colors.mutedLight, textTransform: "uppercase" }}>
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11, fontWeight: 700, letterSpacing: 0, color: colors.mutedLight, textTransform: "uppercase" }}>
       <Icon size={12} /> {SOURCE_TYPE_LABELS[sourceType]}
     </span>
   );
@@ -52,7 +52,7 @@ export function VendorNextUpHero({ item, onManage }: { item: VendorScheduleItem;
   return (
     <Card>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 10 }}>
-        <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".06em", color: colors.mutedLight }}>NEXT UP</span>
+        <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0, color: colors.mutedLight }}>NEXT UP</span>
         <StatusPill status={item.status} />
       </div>
       <div style={{ fontSize: 13, color: colors.muted, marginBottom: 4, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
@@ -60,7 +60,7 @@ export function VendorNextUpHero({ item, onManage }: { item: VendorScheduleItem;
           <CalendarIcon size={13} /> {formatScheduleWhen(item.startDateTime)}
         </span>
         {item.spaceName && (
-          <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".04em", color: colors.mutedLight, textTransform: "uppercase" }}>{item.spaceName}</span>
+          <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0, color: colors.mutedLight, textTransform: "uppercase" }}>{item.spaceName}</span>
         )}
       </div>
       <div style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 19, marginBottom: 4 }}>{item.title}</div>

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { PlanRewardsPanel } from "../components/PlanRewardsPanel";
 import { OpportunitiesCard } from "../components/OpportunitiesCard";
 import { Navigate, useNavigate, useSearchParams } from "react-router-dom";
 import { fetchMyGames, fetchResidentFull } from "../api";
@@ -141,7 +142,7 @@ export function ManageHome() {
               hideTabs
               badge={
                 hostStatus === "verified" ? (
-                  <span style={{ display: "inline-flex", alignItems: "center", gap: 4, background: colors.greenBg, color: colors.greenText, borderRadius: 20, padding: "3px 10px 3px 8px", fontSize: 12, fontWeight: 700 }}>
+                  <span style={{ display: "inline-flex", alignItems: "center", gap: 4, background: colors.greenBg, color: colors.greenText, borderRadius: 16, padding: "3px 10px 3px 8px", fontSize: 12, fontWeight: 700 }}>
                     <CheckCircleIcon size={13} /> Verified Host
                   </span>
                 ) : undefined
@@ -155,6 +156,7 @@ export function ManageHome() {
       {tab === "overview" && (
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
           <HostAttentionPanel residentId={resident.id} onGoToActivities={() => setTab("activities")} />
+          {hostStatus === "verified" && <PlanRewardsPanel scope="host" variant="compact" />}
           {hostStatus === "verified" && <OpportunitiesCard audience="host" />}
 
           <Card>

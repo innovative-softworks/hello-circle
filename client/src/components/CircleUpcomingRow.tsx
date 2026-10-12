@@ -31,11 +31,11 @@ export function CircleUpcomingRow({ plan, index }: { plan: CirclePlanPreview; in
     >
       <div style={{ flex: "none", width: 92 }}>
         <div style={{ fontSize: 11.5, fontWeight: 700, color: colors.faint, marginBottom: 4 }}>{String(index).padStart(2, "0")}</div>
-        <div style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 14, letterSpacing: ".03em" }}>{dayAbbrev(plan.date)}</div>
+        <div style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 14, letterSpacing: 0 }}>{dayAbbrev(plan.date)}</div>
         <div style={{ fontSize: 12.5, color: colors.mutedLight }}>{dayMonth(plan.date)}</div>
       </div>
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 20, letterSpacing: "-.01em", marginBottom: 4 }}>{plan.activityLabel}</div>
+        <div style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 20, letterSpacing: 0, marginBottom: 4 }}>{plan.activityLabel}</div>
         <div style={{ fontSize: 13.5, color: colors.mutedLight }}>
           {plan.time} · {plan.centreName ?? (plan.locationText || "Location TBC")}
         </div>

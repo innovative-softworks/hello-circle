@@ -63,7 +63,7 @@ for (const model of MODELS) {
         const statusBefore = row.status;
         const notesBefore = await notificationCount(f, model, listing, ref);
         // Accidental refund outside HelloCircle (what a Stripe Dashboard refund produces).
-        const external = await stripe.refunds.create({ payment_intent: paymentIntentOf(s) });
+        const external = await stripe.refunds.create({ payment_intent: paymentIntentOf(s), metadata: { hc_qa_run: process.env.HC_QA_STRIPE_RUN! } }); // Stage 5d run tag
         expect(["succeeded", "pending"]).toContain(external.status);
         // Three simultaneous HelloCircle refund attempts.
         const call = refundCall(f, model, listing, row);
@@ -101,7 +101,7 @@ test("HC-QA-091-PARTIAL: a partial refund made outside HelloCircle is not guesse
     const opened: APIRequestContext[] = [];
     try {
       const { listing, ref, s, row } = await paidRow(f, browser, playwright, opened, "hall");
-      await stripe.refunds.create({ payment_intent: paymentIntentOf(s), amount: 100 });
+      await stripe.refunds.create({ payment_intent: paymentIntentOf(s), amount: 100, metadata: { hc_qa_run: process.env.HC_QA_STRIPE_RUN!, hc_qa_purpose: "webhook-withheld" } }); // Stage 5d run tag; reconciliation reports it as a known exception
       const res = await refundCall(f, "hall", listing, row)();
       const body = await res.json().catch(() => ({}));
       const after = (await localRow(f, "hall", ref))!;

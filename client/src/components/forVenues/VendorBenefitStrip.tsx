@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { BallIcon, BuildingIcon, GraduationCapIcon, HandshakeIcon, TreeIconSmall } from "../icons";
 import { colors, fonts } from "../../theme";
-import { FV_ACCENT } from "./constants";
+import { FV_ACCENT, FV_ACCENT_DARK } from "./constants";
 
 const BENEFITS: { icon: ReactNode; label: string }[] = [
   { icon: <BuildingIcon size={16} />, label: "Reach more local people" },
@@ -16,7 +16,7 @@ function TickerGroup({ ariaHidden }: { ariaHidden?: boolean }) {
     <div aria-hidden={ariaHidden} style={{ display: "flex", alignItems: "center" }}>
       {BENEFITS.map((b, i) => (
         <span key={i} style={{ display: "inline-flex", alignItems: "center", gap: 20, padding: "0 28px" }}>
-          <span style={{ color: FV_ACCENT, display: "flex" }}>{b.icon}</span>
+          <span style={{ color: FV_ACCENT_DARK, display: "flex" }}>{b.icon}</span>
           <span style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 16, whiteSpace: "nowrap" }}>{b.label}</span>
           <span style={{ color: colors.borderStrong, fontWeight: 700 }} aria-hidden="true">
             /

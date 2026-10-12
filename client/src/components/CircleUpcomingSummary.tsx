@@ -36,11 +36,11 @@ export function CircleUpcomingSummary({ circle, plans }: { circle: Circle; plans
       }}
     >
       <div>
-        <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: colors.mutedLight, marginBottom: 14 }}>
+        <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0, textTransform: "uppercase", color: colors.mutedLight, marginBottom: 14 }}>
           {next7.length > 0 ? "Next 7 days" : "Coming up"}
         </div>
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          <div style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 20, letterSpacing: "-.01em" }}>
+          <div style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 20, letterSpacing: 0 }}>
             {rows.length} plan{rows.length === 1 ? "" : "s"}
           </div>
           {joining > 0 && (

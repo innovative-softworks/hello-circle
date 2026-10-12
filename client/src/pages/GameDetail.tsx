@@ -1,5 +1,6 @@
 import { usePageTitle } from "../pageTitle";
 import { useEffect, useState } from "react";
+import { TraderInfo } from "../components/TraderInfo";
 import { useToast } from "../components/Toast";
 import { ParticipationBlock } from "../components/ParticipationBlock";
 import { useNavigate, useParams } from "react-router-dom";
@@ -24,8 +25,9 @@ import { isFavorite, toggleFavorite } from "../favorites";
 import { useGuest } from "../GuestContext";
 import { rehostHref } from "../rehost";
 import { dateLabel } from "../euro";
-import { cardImageRatio, colors, fonts, maxWidth, photoOverlay, placeholderStripes, radius } from "../theme";
+import { cardImageRatio, colors, fonts, photoOverlay, placeholderStripes, radius } from "../theme";
 import type { Game } from "../types";
+import { CtaBand } from "../components/CtaBand";
 
 // Self-serve check-in only makes sense in a real window around the game's
 // own time — not the moment it's created, not weeks after. Client-only
@@ -45,7 +47,7 @@ const outlineButtonStyle: React.CSSProperties = {
   borderRadius: radius.control, padding: "9px 16px", fontSize: 13.5, fontWeight: 600, color: colors.text, cursor: "pointer",
 };
 
-const factLabelStyle: React.CSSProperties = { fontSize: 11.5, color: colors.mutedLight, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".04em" };
+const factLabelStyle: React.CSSProperties = { fontSize: 11.5, color: colors.mutedLight, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0 };
 const factValueStyle: React.CSSProperties = { display: "flex", alignItems: "center", gap: 5, fontSize: 14.5, fontWeight: 700, marginTop: 2 };
 
 function capitalize(s: string): string {
@@ -172,7 +174,7 @@ export function GameDetail() {
   if (loadError) {
     return (
       <section className="section-pad" style={{ maxWidth: 560, margin: "0 auto", padding: "80px 24px", textAlign: "center" }}>
-        <h1 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 22, margin: "0 0 10px" }}>We couldn't load this plan.</h1>
+        <h1 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(24px, 2.4vw, 30px)", margin: "0 0 10px" }}>We couldn't load this plan.</h1>
         <div style={{ display: "flex", gap: 10, justifyContent: "center", marginTop: 16 }}>
           <Button onClick={load}>Try again</Button>
           <Button variant="ghost" onClick={() => navigate("/games")}>Browse activities</Button>
@@ -184,7 +186,7 @@ export function GameDetail() {
   if (!game) {
     return (
       <section className="section-pad" style={{ maxWidth: 560, margin: "0 auto", padding: "80px 24px", textAlign: "center" }}>
-        <h1 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 22, margin: "0 0 10px" }}>This plan is no longer available.</h1>
+        <h1 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(24px, 2.4vw, 30px)", margin: "0 0 10px" }}>This plan is no longer available.</h1>
         <p style={{ color: colors.mutedLight, marginBottom: 20 }}>It may have been cancelled or removed by its host.</p>
         <Button onClick={() => navigate("/games")}>Find something similar</Button>
       </section>
@@ -213,8 +215,8 @@ export function GameDetail() {
         </div>
 
         {cancelled && (
-          <div style={{ display: "flex", alignItems: "center", gap: 10, background: colors.dangerBg, borderRadius: 12, padding: "12px 16px", marginBottom: 20 }}>
-            <span style={{ fontSize: 11.5, fontWeight: 800, letterSpacing: ".06em", textTransform: "uppercase", color: colors.danger }}>Plan cancelled</span>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, background: colors.dangerBg, borderRadius: 10, padding: "12px 16px", marginBottom: 20 }}>
+            <span style={{ fontSize: 11.5, fontWeight: 800, letterSpacing: 0, textTransform: "uppercase", color: colors.danger }}>Plan cancelled</span>
             <span style={{ fontSize: 13.5, color: colors.danger }}>This plan is no longer happening.</span>
           </div>
         )}
@@ -231,7 +233,7 @@ export function GameDetail() {
               variant="hero"
               eager
               sharedHero
-              style={{ aspectRatio: cardImageRatio.hero, borderRadius: 20, marginBottom: 24 }}
+              style={{ aspectRatio: cardImageRatio.hero, borderRadius: 16, marginBottom: 24 }}
               contentStyle={{ padding: 16, display: "flex", alignItems: "flex-start", justifyContent: "space-between" }}
             >
               <span style={{ display: "inline-flex", alignItems: "center", gap: 6, background: "rgba(255,255,255,.92)", color: colors.text, borderRadius: radius.pill, padding: "6px 12px", fontSize: 13, fontWeight: 700 }}>
@@ -250,7 +252,7 @@ export function GameDetail() {
               )}
             </Photo>
 
-            <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: colors.mutedLight, marginBottom: 6 }}>
+            <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: 0, textTransform: "uppercase", color: colors.mutedLight, marginBottom: 6 }}>
               {pending ? "Needs players" : "Open plan"}
             </div>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 16 }}>
@@ -287,12 +289,12 @@ export function GameDetail() {
             <ParticipationBlock attributes={game.participationAttributes} going={cancelled ? 0 : game.joined} firstTimers={game.firstTimerCount} />
 
             {game.bookingRef && (
-              <div style={{ background: colors.panel, color: colors.muted, borderRadius: 12, padding: "10px 14px", fontSize: 13, margin: "16px 0" }}>
+              <div style={{ background: colors.panel, color: colors.muted, borderRadius: 10, padding: "10px 14px", fontSize: 13, margin: "16px 0" }}>
                 This session is happening as part of the host's existing room booking — you'll pay your own share to join.
               </div>
             )}
             {pending && !cancelled && (
-              <div style={{ background: colors.orangeBg, color: colors.orangeDark, borderRadius: 12, padding: "10px 14px", fontWeight: 700, fontSize: 13.5, margin: "16px 0" }}>
+              <div style={{ background: colors.orangeBg, color: colors.orangeDark, borderRadius: 10, padding: "10px 14px", fontWeight: 700, fontSize: 13.5, margin: "16px 0" }}>
                 Needs {Math.max(0, (game.minParticipants ?? 0) - game.joined)} more player{Math.max(0, (game.minParticipants ?? 0) - game.joined) === 1 ? "" : "s"} to confirm — still joinable while waiting.
                 {game.confirmationDeadline && (
                   <div style={{ fontWeight: 500, marginTop: 4 }}>
@@ -302,12 +304,12 @@ export function GameDetail() {
               </div>
             )}
             {!cancelled && !!game.familiarCount && (
-              <div style={{ background: colors.greenBg, color: colors.greenText, borderRadius: 12, padding: "10px 14px", fontWeight: 700, fontSize: 13.5, margin: "16px 0" }}>
+              <div style={{ background: colors.greenBg, color: colors.greenText, borderRadius: 10, padding: "10px 14px", fontWeight: 700, fontSize: 13.5, margin: "16px 0" }}>
                 {game.familiarCount} {game.familiarCount === 1 ? "person" : "people"} you've played with before {game.familiarCount === 1 ? "is" : "are"} joining.
               </div>
             )}
             {game.meetingInstructions && (
-              <div style={{ background: colors.greenBg, color: colors.greenText, borderRadius: 12, padding: "10px 14px", fontSize: 13.5, margin: "16px 0" }}>
+              <div style={{ background: colors.greenBg, color: colors.greenText, borderRadius: 10, padding: "10px 14px", fontSize: 13.5, margin: "16px 0" }}>
                 <strong>Meeting point:</strong> {game.meetingInstructions}
               </div>
             )}
@@ -412,23 +414,22 @@ export function GameDetail() {
         </div>
       </section>
 
-      {/* "Can't make this one?" (§29) — full-width, breaks out of the
-          1440px content column the same way Games.tsx's own closing CTA
-          band does, so it reads as a page-level moment rather than another
-          card in the content column. */}
-      {!cancelled && (
-        <section style={{ background: colors.greenBg }}>
-          <div className="section-pad" style={{ maxWidth, margin: "0 auto", padding: "48px 24px", display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: 32 }}>
-            <div style={{ maxWidth: 460 }}>
-              <h2 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(22px, 2.8vw, 28px)", margin: "0 0 8px", letterSpacing: "-.01em", color: colors.greenText }}>
-                Can't make this one?
-              </h2>
-              <p style={{ margin: 0, color: colors.muted, fontSize: 15 }}>
-                Tell HelloCircle when you'd like to {game.activityLabel.toLowerCase()}. We'll let you know when a plan matches your interest.
-              </p>
-            </div>
-            <IntentCaptureForm activityLabel={game.activityLabel} county={game.county ?? ""} />
-          </div>
+      {/* "Can't make this one?" (§29) — the shared CtaBand, with this
+          activity's own copy and the interest form (hidden once cancelled). */}
+      <CtaBand
+        id="game-cta-title"
+        label="Not this time?"
+        lines={["Can't", "make this", "one?"]}
+        text={`Tell us when suits you for ${game.activityLabel.toLowerCase()} and we'll let you know when a plan matches.`}
+        action={{ label: `More ${game.activityLabel.toLowerCase()} near you`, to: `/games?activity=${encodeURIComponent(game.activityLabel)}` }}
+        secondary={{ label: "See all activities", to: "/games" }}
+      >
+        {!cancelled && <IntentCaptureForm activityLabel={game.activityLabel} county={game.county ?? ""} />}
+      </CtaBand>
+
+      {(game.priceCents ?? 0) > 0 && (
+        <section className="section-pad" style={{ maxWidth: 960, margin: "0 auto", padding: "0 24px 32px" }}>
+          <TraderInfo type="game" id={game.id} />
         </section>
       )}
 

@@ -37,7 +37,16 @@ for (const viewport of ["desktop", "mobile"] as const) {
         await dialog.locator('input[autocomplete="name"]').fill(`QA ${viewport} payer`);
         await dialog.locator('input[type="email"]').fill(`qa_pay_${viewport}@example.test`);
         await dialog.getByRole("button", { name: "Increase", exact: true }).click(); // party of 2
-        await expect(dialog.getByText(`€${(expectedTotal(3000) / 100).toFixed(2)}`, { exact: true })).toBeVisible();
+        // Booking UX Phase 4 — each extra person is named, and the booking
+        // terms (plus safety / minimum age, when the listing has them) are ticked.
+        await dialog.getByLabel("Name for person 2").fill("QA second person");
+        for (const label of [/^Everyone taking part is at least/, /^I've read the safety information/, /^I agree to the booking terms/]) {
+          const box = dialog.getByRole("checkbox", { name: label });
+          if (await box.count()) await box.check();
+        }
+        // Since Stage 5f (3b4c1ff) the total shows twice — the itemised breakdown and the footer — so check each by its test id.
+        await expect(dialog.getByTestId("booking-total")).toHaveText(`€${(expectedTotal(3000) / 100).toFixed(2)}`);
+        await expect(dialog.getByTestId("breakdown-card")).toContainText(`€${(expectedTotal(3000) / 100).toFixed(2)}`);
         await expect(dialog.getByText(/2 × €15\.00 \+ VAT €6\.90 \+ fee €1\.50/)).toBeVisible();
         const submit = dialog.getByRole("button", { name: "Continue to pay" });
         expect(await reachable(page, submit), "pay CTA not obscured").toBe(true);

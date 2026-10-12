@@ -31,9 +31,9 @@ export function ParticipationTimelineRow({ row }: { row: TimelineRow }) {
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 20, padding: "18px 0" }}>
       <div style={{ flex: "none", width: 54, textAlign: "center" }}>
-        <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".04em", color: colors.faint }}>{dow}</div>
-        <div style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 24, letterSpacing: "-.01em", lineHeight: 1.1 }}>{day}</div>
-        <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".04em", color: colors.faint }}>{mon}</div>
+        <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0, color: colors.faint }}>{dow}</div>
+        <div style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 24, letterSpacing: 0, lineHeight: 1.1 }}>{day}</div>
+        <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0, color: colors.faint }}>{mon}</div>
       </div>
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 16, marginBottom: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
@@ -43,7 +43,7 @@ export function ParticipationTimelineRow({ row }: { row: TimelineRow }) {
           {row.subtitle}
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 11.5 }}>
-          <span style={{ fontWeight: 700, letterSpacing: ".04em", color: colors.mutedLight }}>{row.kind}</span>
+          <span style={{ fontWeight: 700, letterSpacing: 0, color: colors.mutedLight }}>{row.kind}</span>
           {row.meta && <span style={{ color: colors.faint }}>· {row.meta}</span>}
         </div>
       </div>

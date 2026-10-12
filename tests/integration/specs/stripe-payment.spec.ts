@@ -140,7 +140,7 @@ test("STRIPE-ISOLATION: a valid paid event for booking A never mutates booking B
       await sleep(800);
       expect((await localRow(f, "hall", A.ref))!.payment_status).toBe("paid");
       expect(JSON.stringify(await localRow(f, "hall", B.ref)), "B untouched").toBe(beforeB);
-      expect(paid.session.metadata).toEqual({ type: "booking", ref: A.ref });
+      expect(paid.session.metadata).toEqual({ type: "booking", ref: A.ref, hc_qa_run: process.env.HC_QA_STRIPE_RUN }); // Stage 5d run tag
       await evidence("stripe-isolation", { a: "paid", b: "unchanged" });
     } finally { for (const x of opened) await x.dispose(); }
   });

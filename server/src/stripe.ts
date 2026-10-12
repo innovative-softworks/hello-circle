@@ -1,11 +1,18 @@
 import Stripe from "stripe";
-import { stripeWebhookModeNotice } from "./stripeWebhookPolicy.js";
+import { stripeKeyRefusal, stripeWebhookModeNotice } from "./stripeWebhookPolicy.js";
 
 const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY;
 export const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET;
+/** Revenue & Connect Stage 5a — the Connect endpoint (events from connected
+ * accounts) has its own signing secret in Stripe; both are accepted here. */
+export const STRIPE_CONNECT_WEBHOOK_SECRET = process.env.STRIPE_CONNECT_WEBHOOK_SECRET;
+/** Stage 5e — signing secret of the event destination that delivers Accounts v2 ("thin") events. */
+export const STRIPE_V2_WEBHOOK_SECRET = process.env.STRIPE_V2_WEBHOOK_SECRET;
 export const CLIENT_URL = process.env.CLIENT_URL || "http://localhost:5173";
 
-export const stripe = STRIPE_SECRET_KEY ? new Stripe(STRIPE_SECRET_KEY) : null;
+const keyRefusal = stripeKeyRefusal(STRIPE_SECRET_KEY);
+if (keyRefusal) console.error(keyRefusal);
+export const stripe = STRIPE_SECRET_KEY && !keyRefusal ? new Stripe(STRIPE_SECRET_KEY) : null;
 
 if (!stripe) {
   console.log("[stripe] STRIPE_SECRET_KEY not set (server/.env) — checkout will return 503 until it's configured");

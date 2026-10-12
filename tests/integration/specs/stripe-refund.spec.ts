@@ -124,3 +124,33 @@ for (const model of ["hall", "experience"] as const) {
     });
   });
 }
+
+// Booking UX Phase 6 (audit B13) — a VENDOR cancellation of a paid online booking
+// refunds the guest in full by itself, once, through the same refund-once path.
+test("STRIPE-REFUND-VENDOR-CANCEL: paid → vendor cancel → automatic full refund (test mode) → no second refund", async ({ playwright, browser }) => {
+  test.skip(!stripeProfile, "qa:stripe only");
+  test.setTimeout(240_000);
+  await withActors(playwright, ["QA_VENDOR"], async f => {
+    const opened: APIRequestContext[] = [];
+    try {
+      const [g] = await guests(playwright, opened, 1);
+      const { listing } = await paidResource(f, "hall");
+      const { ref, url, totalEuro } = await (await checkout("hall", listing, g.ctx, g.email)).json();
+      f.track("audit_log", "object_id", ref);
+      const s = await payAndConfirm(browser, g.ctx, url, (await localRow(f, "hall", ref))!.stripe_session_id);
+      expect((await localRow(f, "hall", ref))!.payment_status).toBe("paid");
+      const cancel = await f.actors.QA_VENDOR.post(`/api/vendor/bookings/${ref}/cancel`, { data: {} });
+      expect(cancel.status()).toBe(200);
+      expect(await cancel.json()).toMatchObject({ ok: true, refund: "refunded" });
+      expect(await localRow(f, "hall", ref)).toMatchObject({ status: "cancelled", payment_status: "refunded" });
+      // Replays: a second cancel and a manual refund move no more money.
+      expect((await f.actors.QA_VENDOR.post(`/api/vendor/bookings/${ref}/cancel`, { data: {} })).status()).toBe(409);
+      expect((await f.actors.QA_VENDOR.post(`/api/vendor/bookings/${ref}/refund`, { data: {} })).status()).toBe(409);
+      const refunds = await refundsFor(s);
+      expect(refunds.length, "exactly one provider refund").toBe(1);
+      expect(refunds[0].amount).toBe(Math.round(totalEuro * 100));
+      expect((await rows(f, "SELECT id FROM audit_log WHERE action = 'booking.refunded_on_vendor_cancel' AND object_id = ?", [ref])).length).toBe(1);
+      await evidence("stripe-refund-vendor-cancel", { refundStatus: String(refunds[0].status), amount: refunds[0].amount });
+    } finally { for (const x of opened) await x.dispose(); }
+  });
+});

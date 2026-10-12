@@ -65,7 +65,7 @@ export function CircleHero({ circle, activeThisWeek }: { circle: Circle; activeT
 
         {activeThisWeek && (
           <span style={{ display: "inline-block", background: colors.green, borderRadius: 2, padding: "6px 12px", flex: "none" }}>
-            <span style={{ fontSize: 11, fontWeight: 800, color: "#fff", textTransform: "uppercase", letterSpacing: ".05em" }}>Active this week</span>
+            <span style={{ fontSize: 11, fontWeight: 800, color: "#fff", textTransform: "uppercase", letterSpacing: 0 }}>Active this week</span>
           </span>
         )}
       </div>
@@ -83,8 +83,8 @@ export function CircleHero({ circle, activeThisWeek }: { circle: Circle; activeT
         <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 10 }}>
           <h1
             style={{
-              fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(30px,4.2vw,44px)", lineHeight: 1.03,
-              letterSpacing: "-.02em", color: "#fff", margin: 0,
+              fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(32px, 3.8vw, 52px)", lineHeight: 1.03,
+              letterSpacing: 0, color: "#fff", margin: 0,
             }}
           >
             {circle.name}
@@ -100,7 +100,7 @@ export function CircleHero({ circle, activeThisWeek }: { circle: Circle; activeT
             {circle.about.split(/\n|\. /)[0].replace(/\.+$/, "")}.
           </p>
         )}
-        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", fontSize: 11.5, fontWeight: 700, color: "rgba(255,255,255,.8)", textTransform: "uppercase", letterSpacing: ".04em" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", fontSize: 11.5, fontWeight: 700, color: "rgba(255,255,255,.8)", textTransform: "uppercase", letterSpacing: 0 }}>
           <span>{closed ? "Closed circle" : "Public circle"}</span>
           <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
             <span style={{ opacity: 0.55 }}>/</span>

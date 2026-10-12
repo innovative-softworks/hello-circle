@@ -33,7 +33,25 @@ async function scrollToEnd(page: Page) {
   }
 }
 const BANNER = '[aria-label="Cookie preferences"]';
-const consentButtons = (page: Page) => [page.getByRole("button", { name: "Necessary only", exact: true }), page.getByRole("button", { name: "Accept", exact: true })];
+// Since Revenue & Connect Stage 5c (commit 3640b1a) the banner offers three choices —
+// "Necessary only", "Choose…" (separate analytics / advertising opt-ins) and "Accept all" —
+// and stores a JSON choice ({ v: 2, analytics, advertising, decidedAt }) instead of "accepted"/"rejected".
+const consentButtons = (page: Page) => [
+  page.getByRole("button", { name: "Necessary only", exact: true }),
+  page.getByRole("button", { name: "Choose…", exact: true }),
+  page.getByRole("button", { name: "Accept all", exact: true }),
+];
+const acceptAll = (page: Page) => page.getByRole("button", { name: "Accept all", exact: true });
+const storedChoice = (page: Page) =>
+  page.evaluate(() => {
+    const raw = localStorage.getItem("hello_circle_cookie_consent");
+    try {
+      const o = raw ? JSON.parse(raw) : null;
+      return o && typeof o === "object" ? { analytics: o.analytics, advertising: o.advertising } : raw;
+    } catch {
+      return raw;
+    }
+  });
 
 test("HC-QA-001-CONSENT: banner clear of the tab bar, reachable, keyboard-accessible; accept/reject/reopen at mobile sizes", async ({ browser }) => {
   test.setTimeout(150_000);
@@ -57,21 +75,26 @@ test("HC-QA-001-CONSENT: banner clear of the tab bar, reachable, keyboard-access
         expect(b.height, `${name}: touch target height`).toBeGreaterThanOrEqual(32);
         expect(b.y + b.height, `${name}: button above tab bar`).toBeLessThanOrEqual(bar!.top);
       }
-      // Keyboard: Learn more is a real link; Tab moves to Necessary only, visibly focused and unobstructed.
+      // Keyboard: Learn more is a real link; Tab moves through Necessary only → Choose… → Accept all,
+      // each visibly focused and unobstructed.
       const learn = page.locator(BANNER).getByRole("link", { name: "Learn more" });
       await learn.focus();
+      const [necessary, choose, all] = consentButtons(page);
       await page.keyboard.press("Tab");
-      const necessary = consentButtons(page)[0];
       await expect(necessary).toBeFocused();
       expect(await necessary.evaluate(el => getComputedStyle(el).outlineStyle)).not.toBe("none");
       expect(await reachable(page, necessary)).toBe(true);
       await page.keyboard.press("Tab");
-      await expect(consentButtons(page)[1]).toBeFocused();
-      // Reject with the keyboard: semantics unchanged.
+      await expect(choose).toBeFocused();
+      await page.keyboard.press("Tab");
+      await expect(all).toBeFocused();
+      // Reject with the keyboard: back to Necessary only and press Enter — nothing optional granted.
       await page.keyboard.press("Shift+Tab");
+      await page.keyboard.press("Shift+Tab");
+      await expect(necessary).toBeFocused();
       await page.keyboard.press("Enter");
       await expect(page.locator(BANNER)).toHaveCount(0);
-      expect(await page.evaluate(() => localStorage.getItem("hello_circle_cookie_consent"))).toBe("rejected");
+      expect(await storedChoice(page)).toEqual({ analytics: false, advertising: false });
       expect(await page.evaluate(() => document.body.style.paddingBottom)).toBe("");
       // Reopen from the Cookie Policy, then accept by tap.
       await page.goto("/cookies");
@@ -80,10 +103,10 @@ test("HC-QA-001-CONSENT: banner clear of the tab bar, reachable, keyboard-access
       expect(await reachable(page, change), `${name}: change-choice not under the tab bar`).toBe(true);
       await change.click();
       await expect(page.locator(BANNER)).toBeVisible();
-      await consentButtons(page)[1].scrollIntoViewIfNeeded();
-      await consentButtons(page)[1].click();
+      await acceptAll(page).scrollIntoViewIfNeeded();
+      await acceptAll(page).click();
       await expect(page.locator(BANNER)).toHaveCount(0);
-      expect(await page.evaluate(() => localStorage.getItem("hello_circle_cookie_consent"))).toBe("accepted");
+      expect(await storedChoice(page)).toEqual({ analytics: true, advertising: true });
       facts[name] = { barTop: bar!.top, barHeight: bar!.height, bannerBottom: banner!.bottom, bannerHeight: banner!.height };
     } finally { await ui.close(); }
   }
@@ -154,7 +177,7 @@ test("HC-QA-001-NAV: tab bar navigation, bottom sheet, scroll clearance and desk
     expect(new Set(colours).size, "one tab rendered as active").toBe(2);
     // Bottom sheet opens above the banner and its items are reachable.
     await page.locator(".mobile-tab-bar").getByRole("button", { name: "Explore" }).click();
-    const games = page.getByRole("button", { name: "Join a session", exact: true });
+    const games = page.getByRole("dialog").getByRole("link", { name: "Activities", exact: true }); // was "Join a session" (sitemap audit P2-02); a link since the 2026-10-12 header redesign
     await expect(games).toBeVisible();
     await page.waitForTimeout(600); // let the sheet-in slide animation finish before hit-testing
     expect(await reachable(page, games), "bottom sheet item above banner/tab bar").toBe(true);

@@ -1,12 +1,12 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { useConfirm } from "../components/ConfirmProvider";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import {
   adminDeleteCentre,
   adminDeleteClub,
   createAdminCoupon,
   createAdminOrganisation,
-  deleteAdminCoupon,
+  archiveAdminCoupon,
   fetchActivityOverview,
   fetchAdminCoupons,
   fetchAdminDemand,
@@ -60,6 +60,9 @@ import { ManageShell } from "../components/ManageShell";
 import { AwardIcon, BallIcon, BuildingIcon, CalendarIcon, CheckIcon, ClipboardIcon, EyeIcon, GridIcon, IdCardIcon, MailIcon, PhotoStackIcon, PinIcon, SearchIcon, StarIcon, TagIcon, TrendUpIcon, UsersIcon } from "../components/icons";
 import { Avatar, BadgedIcon, Button, ConfirmDialog, DashboardTopPanel, EmptyState, KpiHero, KpiStrip, ManageCard as Card, Modal, PageSpinner, StarDisplay, StatTile, StatusBadge, inputStyle, labelStyle, onActivateProps, tableStyle, tdStyle, thStyle, type ListingStatus } from "../components/ui";
 import { AdminMediaTab } from "../components/AdminMedia";
+import { AdminCommerceTab } from "../components/AdminCommerce";
+import { AdminFinanceTab } from "../components/AdminFinance";
+import { AdminPolicyTab } from "../components/AdminPolicy";
 import { DemandSignalsView, IntentClusterView } from "../components/DemandSignals";
 import { MarketplaceHealthView } from "../components/MarketplaceHealth";
 import { MarketConfig } from "../components/MarketConfig";
@@ -180,7 +183,7 @@ function VendorDetailModal({
       )}
       {vendor.description && <div style={{ fontSize: 12.5, color: colors.muted, marginBottom: 18 }}>{vendor.description}</div>}
 
-      <h5 style={{ fontFamily: fonts.display, fontSize: 12, fontWeight: 700, color: colors.muted, margin: "0 0 8px", textTransform: "uppercase", letterSpacing: ".03em" }}>
+      <h5 style={{ fontFamily: fonts.display, fontSize: 12, fontWeight: 700, color: colors.muted, margin: "0 0 8px", textTransform: "uppercase", letterSpacing: 0 }}>
         Platform role &amp; tier
       </h5>
       {!vendor.invitedStaff && (
@@ -213,7 +216,7 @@ function VendorDetailModal({
         </Button>
       </div>
 
-      <h5 style={{ fontFamily: fonts.display, fontSize: 12, fontWeight: 700, color: colors.muted, margin: "0 0 8px", textTransform: "uppercase", letterSpacing: ".03em" }}>
+      <h5 style={{ fontFamily: fonts.display, fontSize: 12, fontWeight: 700, color: colors.muted, margin: "0 0 8px", textTransform: "uppercase", letterSpacing: 0 }}>
         Organisation
       </h5>
       <div style={{ fontSize: 13, marginBottom: 20 }}>
@@ -224,7 +227,7 @@ function VendorDetailModal({
         )}
       </div>
 
-      <h5 style={{ fontFamily: fonts.display, fontSize: 12, fontWeight: 700, color: colors.muted, margin: "0 0 8px", textTransform: "uppercase", letterSpacing: ".03em" }}>
+      <h5 style={{ fontFamily: fonts.display, fontSize: 12, fontWeight: 700, color: colors.muted, margin: "0 0 8px", textTransform: "uppercase", letterSpacing: 0 }}>
         Listings ({ownListings.length})
       </h5>
       {ownListings.length === 0 ? (
@@ -652,7 +655,7 @@ function ListingDetailModal({
         </div>
       }
     >
-      {item.image && <img src={getMediaUrl(item.image, "card")} alt="" style={{ width: "100%", height: 160, borderRadius: 12, objectFit: "cover", marginBottom: 16 }} />}
+      {item.image && <img src={getMediaUrl(item.image, "card")} alt="" style={{ width: "100%", height: 160, borderRadius: 10, objectFit: "cover", marginBottom: 16 }} />}
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
         <StatusBadge status={item.status as ListingStatus} />
       </div>
@@ -663,7 +666,7 @@ function ListingDetailModal({
 
       {organisations.length > 0 && (
         <>
-          <h5 style={{ fontFamily: fonts.display, fontSize: 12, fontWeight: 700, color: colors.muted, margin: "20px 0 4px", textTransform: "uppercase", letterSpacing: ".03em" }}>
+          <h5 style={{ fontFamily: fonts.display, fontSize: 12, fontWeight: 700, color: colors.muted, margin: "20px 0 4px", textTransform: "uppercase", letterSpacing: 0 }}>
             Organisation
           </h5>
           <p style={{ fontSize: 11.5, color: colors.faint, margin: "0 0 8px" }}>
@@ -741,7 +744,7 @@ function ListingsTab({
   return (
     <div className="fade-panel" style={{ display: "flex", flexDirection: "column", gap: 30 }}>
       <div>
-        <h3 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 17, margin: "0 0 14px", letterSpacing: "-.01em" }}>Community centres</h3>
+        <h3 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 17, margin: "0 0 14px", letterSpacing: 0 }}>Community centres</h3>
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
           {centres.map((c) => <ListingRow key={c.id} item={c} type="centre" onOpen={() => setOpen({ type: "centre", id: c.id })} onChanged={load} />)}
           {centres.length === 0 && (
@@ -754,7 +757,7 @@ function ListingsTab({
         </div>
       </div>
       <div>
-        <h3 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 17, margin: "0 0 14px", letterSpacing: "-.01em" }}>Sports clubs</h3>
+        <h3 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 17, margin: "0 0 14px", letterSpacing: 0 }}>Sports clubs</h3>
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
           {clubs.map((c) => <ListingRow key={c.id} item={c} type="club" onOpen={() => setOpen({ type: "club", id: c.id })} onChanged={load} />)}
           {clubs.length === 0 && (
@@ -782,7 +785,7 @@ function ReviewsTab() {
   return (
     <div className="fade-panel" style={{ display: "flex", flexDirection: "column", gap: 30 }}>
       <div>
-        <h3 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 17, margin: "0 0 14px", letterSpacing: "-.01em" }}>Reviews</h3>
+        <h3 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 17, margin: "0 0 14px", letterSpacing: 0 }}>Reviews</h3>
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
           {reviews.map((r) => (
             <Card key={r.id} hover style={{ padding: 15, display: "flex", flexWrap: "wrap", gap: 10, justifyContent: "space-between", alignItems: "center" }}>
@@ -860,8 +863,11 @@ function ReportsSection() {
     load();
   };
 
+  // Revenue & Connect Stage 4 — the statement of reasons kept with the decision (DSA art. 17).
+  const [reasons, setReasons] = useState("");
   const resolve = async (id: number, status: "dismissed" | "actioned" | "suspended") => {
-    await resolveReport(id, { status });
+    await resolveReport(id, { status, statementOfReasons: reasons.trim() || undefined });
+    setReasons("");
     setExpandedId(null);
     setCaseData(null);
     load();
@@ -870,7 +876,7 @@ function ReportsSection() {
   return (
     <div>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
-        <h3 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 17, margin: 0, letterSpacing: "-.01em" }}>Reports</h3>
+        <h3 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 17, margin: 0, letterSpacing: 0 }}>Reports</h3>
         <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12.5, color: colors.mutedLight, cursor: "pointer" }}>
           <input type="checkbox" checked={showAll} onChange={(e) => setShowAll(e.target.checked)} /> Show resolved
         </label>
@@ -910,7 +916,7 @@ function ReportsSection() {
                   <>
                     <div style={{ fontSize: 12, fontWeight: 700, color: colors.muted, marginBottom: 6, textTransform: "uppercase" }}>Target</div>
                     {caseData.target ? (
-                      <pre style={{ fontSize: 12, background: colors.panel, borderRadius: 8, padding: 10, overflowX: "auto", margin: "0 0 12px" }}>
+                      <pre style={{ fontSize: 12, background: colors.panel, borderRadius: 10, padding: 10, overflowX: "auto", margin: "0 0 12px" }}>
                         {JSON.stringify(caseData.target, null, 2)}
                       </pre>
                     ) : (
@@ -933,6 +939,8 @@ function ReportsSection() {
                     <label style={labelStyle}>Investigation notes</label>
                     <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} style={{ ...inputStyle, resize: "vertical", marginBottom: 8 }} />
                     <Button variant="ghost" onClick={() => saveNotes(r.id)}>Save notes</Button>
+                    <label style={{ ...labelStyle, marginTop: 12, display: "block" }}>Statement of reasons (kept with the decision; the affected person can appeal it)</label>
+                    <textarea value={reasons} onChange={(e) => setReasons(e.target.value)} rows={3} style={{ ...inputStyle, resize: "vertical" }} placeholder="What was decided, the facts, and the rule relied on." />
                   </>
                 )}
               </div>
@@ -1370,11 +1378,27 @@ function SupportTab() {
   );
 }
 
-function CouponsTab() {
+// Commerce Engine Phase 3 — admin coupons carry a funding source
+// (HelloCircle-funded, or split with the partner), optional limits, and a
+// mandatory reason on every change (audited server-side). Remove = archive.
+const EMPTY_COUPON_FORM = { code: "", kind: "percent" as "percent" | "fixed", amount: "", maxUses: "", expiresAt: "", funding: "platform" as "platform" | "split", sharePct: "50", minSpend: "", maxDiscount: "", perCustomer: "", startsAt: "", reason: "" };
+
+const euroToCents = (v: string) => (v.trim() === "" ? null : Math.round(Number(v) * 100));
+const intOrNull = (v: string) => (v.trim() === "" ? null : Number(v));
+
+function couponFundingLabel(c: AdminCoupon): string {
+  if (c.createdByVendorId || c.createdByResidentId || c.funding === "partner") return c.createdByResidentId ? "Host-funded" : "Vendor-funded";
+  if (c.funding === "split") return `Split · HelloCircle ${(c.platformShareBps / 100).toFixed(0)}%`;
+  return "HelloCircle-funded";
+}
+
+function CouponsTab({ onViewUsage }: { onViewUsage: () => void }) {
   const [coupons, setCoupons] = useState<AdminCoupon[]>([]);
-  const [form, setForm] = useState({ code: "", kind: "percent" as "percent" | "fixed", amount: "", maxUses: "", expiresAt: "" });
+  const [form, setForm] = useState(EMPTY_COUPON_FORM);
   const [error, setError] = useState<string | null>(null);
-  const [confirmingId, setConfirmingId] = useState<number | null>(null);
+  const [action, setAction] = useState<{ coupon: AdminCoupon; kind: "pause" | "resume" | "archive" } | null>(null);
+  const [actionReason, setActionReason] = useState("");
+  const [actionError, setActionError] = useState<string | null>(null);
   const load = () => fetchAdminCoupons().then(setCoupons);
   useEffect(() => { load(); }, []);
 
@@ -1385,92 +1409,148 @@ function CouponsTab() {
       await createAdminCoupon({
         code: form.code.trim(),
         kind: form.kind,
-        amount: Number(form.amount),
-        maxUses: form.maxUses ? Number(form.maxUses) : null,
+        amount: form.kind === "fixed" ? Math.round(Number(form.amount) * 100) : Number(form.amount),
+        maxUses: intOrNull(form.maxUses),
         expiresAt: form.expiresAt || null,
+        funding: form.funding,
+        platformShareBps: form.funding === "split" ? Math.round(Number(form.sharePct) * 100) : undefined,
+        minSpendCents: euroToCents(form.minSpend),
+        maxDiscountCents: euroToCents(form.maxDiscount),
+        perCustomerLimit: intOrNull(form.perCustomer),
+        startsAt: form.startsAt ? new Date(`${form.startsAt}T00:00:00`).toISOString() : null,
+        reason: form.reason,
       });
-      setForm({ code: "", kind: "percent", amount: "", maxUses: "", expiresAt: "" });
+      setForm(EMPTY_COUPON_FORM);
       load();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Couldn't create that coupon");
     }
   };
 
+  const runAction = async () => {
+    if (!action) return;
+    setActionError(null);
+    try {
+      if (action.kind === "archive") await archiveAdminCoupon(action.coupon.id, actionReason);
+      else await setAdminCouponActive(action.coupon.id, action.kind === "resume", actionReason);
+      setAction(null);
+      setActionReason("");
+      load();
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : "That didn't work");
+    }
+  };
+
+  const visible = coupons.filter((c) => !c.archivedAt);
+  const field = (label: string, input: ReactNode) => (
+    <div>
+      <label style={labelStyle}>{label}</label>
+      {input}
+    </div>
+  );
+
   return (
     <div className="fade-panel" style={{ display: "flex", flexDirection: "column", gap: 24 }}>
+      {/* Commercial UX R1 (A1) — configure here, watch usage in Finance. */}
+      <p style={{ margin: 0, fontSize: 13.5, color: colors.muted }}>
+        Create and manage codes here. Uses, returns and discount given are in{" "}
+        <button type="button" className="btn-reset link-accent" onClick={onViewUsage} style={{ fontWeight: 700, textDecoration: "underline", textUnderlineOffset: 3, cursor: "pointer" }}>
+          Finance → Coupon usage
+        </button>
+        .
+      </p>
       <Card>
         <h3 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 16, margin: "0 0 14px" }}>New coupon</h3>
-        <div className="grid-responsive" style={{ display: "grid", gridTemplateColumns: "1.1fr 0.8fr 0.8fr 1fr 1.1fr auto", gap: 8, alignItems: "end" }}>
-          <div>
-            <label style={labelStyle}>Code</label>
-            <input placeholder="WELCOME10" value={form.code} onChange={(e) => setForm((f) => ({ ...f, code: e.target.value.toUpperCase() }))} style={{ ...inputStyle, textTransform: "uppercase" }} />
-          </div>
-          <div>
-            <label style={labelStyle}>Type</label>
+        <div className="grid-responsive" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: 10, alignItems: "end" }}>
+          {field("Code", <input placeholder="WELCOME10" value={form.code} onChange={(e) => setForm((f) => ({ ...f, code: e.target.value.toUpperCase() }))} style={{ ...inputStyle, textTransform: "uppercase" }} />)}
+          {field("Type", (
             <select value={form.kind} onChange={(e) => setForm((f) => ({ ...f, kind: e.target.value as "percent" | "fixed" }))} style={inputStyle}>
               <option value="percent">% off</option>
               <option value="fixed">€ off</option>
             </select>
+          ))}
+          {field(form.kind === "percent" ? "Amount (%)" : "Amount (€)", <input type="number" placeholder={form.kind === "percent" ? "10" : "5.00"} value={form.amount} onChange={(e) => setForm((f) => ({ ...f, amount: e.target.value }))} style={inputStyle} />)}
+          {field("Funded by", (
+            <select value={form.funding} onChange={(e) => setForm((f) => ({ ...f, funding: e.target.value as "platform" | "split" }))} style={inputStyle}>
+              <option value="platform">HelloCircle</option>
+              <option value="split">Split with partner</option>
+            </select>
+          ))}
+          {form.funding === "split" && field("HelloCircle share (%)", <input type="number" min={1} max={99} value={form.sharePct} onChange={(e) => setForm((f) => ({ ...f, sharePct: e.target.value }))} style={inputStyle} />)}
+          {field("Max uses (optional)", <input type="number" placeholder="Unlimited" value={form.maxUses} onChange={(e) => setForm((f) => ({ ...f, maxUses: e.target.value }))} style={inputStyle} />)}
+          {field("Uses per customer", <input type="number" placeholder="Unlimited" value={form.perCustomer} onChange={(e) => setForm((f) => ({ ...f, perCustomer: e.target.value }))} style={inputStyle} />)}
+          {field("Minimum spend (€)", <input type="number" placeholder="None" value={form.minSpend} onChange={(e) => setForm((f) => ({ ...f, minSpend: e.target.value }))} style={inputStyle} />)}
+          {field("Maximum discount (€)", <input type="number" placeholder="None" value={form.maxDiscount} onChange={(e) => setForm((f) => ({ ...f, maxDiscount: e.target.value }))} style={inputStyle} />)}
+          {field("Starts (optional)", <input type="date" value={form.startsAt} onChange={(e) => setForm((f) => ({ ...f, startsAt: e.target.value }))} style={inputStyle} />)}
+          {field("Expires (optional)", <input type="date" value={form.expiresAt} onChange={(e) => setForm((f) => ({ ...f, expiresAt: e.target.value }))} style={inputStyle} />)}
+        </div>
+        <div style={{ display: "flex", gap: 10, alignItems: "end", marginTop: 12, flexWrap: "wrap" }}>
+          <div style={{ flex: 1, minWidth: 220 }}>
+            <label style={labelStyle}>Reason (required, audited)</label>
+            <input placeholder="e.g. Autumn launch campaign" value={form.reason} onChange={(e) => setForm((f) => ({ ...f, reason: e.target.value }))} style={inputStyle} />
           </div>
-          <div>
-            <label style={labelStyle}>Amount</label>
-            <input type="number" placeholder={form.kind === "percent" ? "10" : "500"} value={form.amount} onChange={(e) => setForm((f) => ({ ...f, amount: e.target.value }))} style={inputStyle} />
-          </div>
-          <div>
-            <label style={labelStyle}>Max uses (optional)</label>
-            <input type="number" placeholder="Unlimited" value={form.maxUses} onChange={(e) => setForm((f) => ({ ...f, maxUses: e.target.value }))} style={inputStyle} />
-          </div>
-          <div>
-            <label style={labelStyle}>Expires (optional)</label>
-            <input type="date" value={form.expiresAt} onChange={(e) => setForm((f) => ({ ...f, expiresAt: e.target.value }))} style={inputStyle} />
-          </div>
-          <Button onClick={create}>Create</Button>
+          <Button onClick={create} disabled={form.reason.trim().length < 5}>Create</Button>
         </div>
         <p style={{ fontSize: 12, color: colors.mutedLight, margin: "10px 0 0" }}>
-          "€ off" amounts are in cents (e.g. 500 = €5.00). Applies to the pre-VAT/fee subtotal on any booking or registration.
+          Applies to the pre-VAT/fee subtotal. HelloCircle-funded discounts are paid back to the partner, so partners keep their full price. Partners create their own (partner-funded) coupons from their dashboards.
         </p>
         {error && <p className="pop-in" style={{ color: colors.danger, fontSize: 13, margin: "12px 0 0", background: colors.dangerBg, padding: "9px 12px", borderRadius: radius.control }}>{error}</p>}
       </Card>
 
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-        {coupons.map((c) => (
+        {visible.map((c) => (
           <Card key={c.id} hover style={{ padding: 15, display: "flex", flexWrap: "wrap", gap: 10, justifyContent: "space-between", alignItems: "center" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
               <div style={{ width: 36, height: 36, borderRadius: "50%", background: colors.greenBg, color: colors.greenText, display: "flex", alignItems: "center", justifyContent: "center", flex: "none" }}>
                 <TagIcon size={16} />
               </div>
               <div>
-                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
                   <span style={{ fontWeight: 700, fontSize: 14, fontFamily: "monospace" }}>{c.code}</span>
-                  <StatusBadge status={c.active ? "approved" : "suspended"} />
+                  <StatusBadge status={c.active ? "approved" : "paused"} label={c.active ? "Active" : "Paused"} />
+                  <span style={{ fontSize: 11.5, color: colors.muted }}>{couponFundingLabel(c)}</span>
                 </div>
                 <div style={{ fontSize: 12, color: colors.mutedLight }}>
                   {c.kind === "percent" ? `${c.amount}% off` : `€${(c.amount / 100).toFixed(2)} off`} · used {c.usedCount}
-                  {c.maxUses ? `/${c.maxUses}` : ""} times{c.expiresAt ? ` · expires ${c.expiresAt}` : ""}
+                  {c.maxUses ? `/${c.maxUses}` : ""} times
+                  {c.perCustomerLimit ? ` · ${c.perCustomerLimit} per customer` : ""}
+                  {c.minSpendCents ? ` · min spend €${(c.minSpendCents / 100).toFixed(2)}` : ""}
+                  {c.maxDiscountCents ? ` · max €${(c.maxDiscountCents / 100).toFixed(2)} off` : ""}
+                  {c.startsAt ? ` · from ${c.startsAt.slice(0, 10)}` : ""}
+                  {c.expiresAt ? ` · expires ${c.expiresAt}` : ""}
+                  {c.platformFundedMinor ? ` · HelloCircle has funded €${(c.platformFundedMinor / 100).toFixed(2)}` : ""}
                 </div>
               </div>
             </div>
             <div style={{ display: "flex", gap: 8 }}>
-              {c.active ? (
-                <Button variant="ghost" onClick={() => setAdminCouponActive(c.id, false).then(load)}>Deactivate</Button>
-              ) : (
-                <Button variant="dark" onClick={() => setAdminCouponActive(c.id, true).then(load)}>Activate</Button>
-              )}
-              <Button variant="danger" onClick={() => setConfirmingId(c.id)}>Delete</Button>
+              <Button variant={c.active ? "ghost" : "dark"} onClick={() => { setAction({ coupon: c, kind: c.active ? "pause" : "resume" }); setActionReason(""); setActionError(null); }}>
+                {c.active ? "Pause" : "Resume"}
+              </Button>
+              <Button variant="danger" onClick={() => { setAction({ coupon: c, kind: "archive" }); setActionReason(""); setActionError(null); }}>Archive</Button>
             </div>
           </Card>
         ))}
-        {coupons.length === 0 && <EmptyState icon={<TagIcon size={26} />} title="No coupons yet" subtitle="Create one above." />}
+        {visible.length === 0 && <EmptyState icon={<TagIcon size={26} />} title="No coupons yet" subtitle="Create one above." />}
       </div>
 
-      <ConfirmDialog
-        open={confirmingId !== null}
-        title="Delete this coupon?"
-        message="This permanently deletes the coupon — it can't be undone. Consider Deactivate instead if you might want it again."
-        confirmLabel="Delete"
-        onConfirm={() => { if (confirmingId !== null) deleteAdminCoupon(confirmingId).then(load); setConfirmingId(null); }}
-        onCancel={() => setConfirmingId(null)}
-      />
+      {action && (
+        <Modal
+          open
+          onClose={() => setAction(null)}
+          title={`${action.kind === "archive" ? "Archive" : action.kind === "pause" ? "Pause" : "Resume"} ${action.coupon.code}`}
+          subtitle={action.kind === "archive" ? "The code stops working and is hidden here; past orders keep their record." : undefined}
+          footer={
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+              <Button variant="ghost" onClick={() => setAction(null)}>Cancel</Button>
+              <Button variant={action.kind === "archive" ? "danger" : "primary"} disabled={actionReason.trim().length < 5} onClick={runAction}>Confirm</Button>
+            </div>
+          }
+        >
+          <label style={labelStyle}>Reason (required, audited)</label>
+          <textarea rows={3} value={actionReason} onChange={(e) => setActionReason(e.target.value)} style={{ ...inputStyle, resize: "vertical" }} />
+          {actionError && <p style={{ color: colors.danger, fontSize: 13, marginTop: 10 }}>{actionError}</p>}
+        </Modal>
+      )}
     </div>
   );
 }
@@ -1551,7 +1631,7 @@ function OrganisationsTab({ onOpenVendor }: { onOpenVendor: (vendorId: string) =
   return (
     <div className="fade-panel" style={{ display: "flex", flexDirection: "column", gap: 30 }}>
       <div>
-        <h3 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 17, margin: "0 0 6px", letterSpacing: "-.01em" }}>Vendor organisations</h3>
+        <h3 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 17, margin: "0 0 6px", letterSpacing: 0 }}>Vendor organisations</h3>
         <p style={{ fontSize: 12.5, color: colors.mutedLight, margin: "0 0 14px" }}>
           Created automatically for every vendor at signup — this is the real one, what staff invites and platform roles are scoped to. Read-only here; a vendor manages their own from their dashboard.
         </p>
@@ -1592,7 +1672,7 @@ function OrganisationsTab({ onOpenVendor }: { onOpenVendor: (vendorId: string) =
       </div>
 
       <div>
-        <h3 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 17, margin: "0 0 6px", letterSpacing: "-.01em" }}>Custom organisations</h3>
+        <h3 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 17, margin: "0 0 6px", letterSpacing: 0 }}>Custom organisations</h3>
         <p style={{ fontSize: 12.5, color: colors.mutedLight, margin: "0 0 14px" }}>
           Scaffolding for a future multi-org deployment (e.g. a council overseeing several centres) — assigning a listing to one has no effect on visibility or access today.
         </p>
@@ -1673,7 +1753,7 @@ function AdminMarketplaceHealthTab() {
   );
 }
 
-type AdminTab = "overview" | "vendors" | "pending" | "listings" | "claims" | "hostApplications" | "placeSuggestions" | "reviews" | "coupons" | "organisations" | "demand" | "marketplaceHealth" | "audit" | "support" | "notificationTemplates" | "media";
+type AdminTab = "overview" | "vendors" | "pending" | "listings" | "claims" | "hostApplications" | "placeSuggestions" | "reviews" | "coupons" | "commerce" | "finance" | "policies" | "organisations" | "demand" | "marketplaceHealth" | "audit" | "support" | "notificationTemplates" | "media";
 
 const ADMIN_TABS: { key: AdminTab; label: string; icon: ReactNode }[] = [
   { key: "overview", label: "Overview", icon: <EyeIcon size={15} /> },
@@ -1685,6 +1765,9 @@ const ADMIN_TABS: { key: AdminTab; label: string; icon: ReactNode }[] = [
   { key: "placeSuggestions", label: "Place suggestions", icon: <PinIcon size={15} /> },
   { key: "reviews", label: "Reviews", icon: <StarIcon size={15} /> },
   { key: "coupons", label: "Coupons", icon: <TagIcon size={15} /> },
+  { key: "commerce", label: "Commercial rules", icon: <TagIcon size={15} /> },
+  { key: "finance", label: "Finance", icon: <TrendUpIcon size={15} /> },
+  { key: "policies", label: "Policies & trust", icon: <ClipboardIcon size={15} /> },
   { key: "organisations", label: "Organisations", icon: <BuildingIcon size={15} /> },
   { key: "demand", label: "Demand", icon: <TrendUpIcon size={15} /> },
   { key: "marketplaceHealth", label: "Marketplace health", icon: <GridIcon size={15} /> },
@@ -1732,7 +1815,7 @@ function AdminOverviewTab({ stats }: { stats: AdminStats }) {
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
             {recent.map((e) => (
-              <div key={e.id} style={{ fontSize: 13, background: colors.bg, borderRadius: 8, padding: "8px 12px", display: "flex", justifyContent: "space-between" }}>
+              <div key={e.id} style={{ fontSize: 13, background: colors.bg, borderRadius: 10, padding: "8px 12px", display: "flex", justifyContent: "space-between" }}>
                 <span><strong>{e.action}</strong> on {e.objectType} <code>{e.objectId}</code> by {e.actorEmail ?? "system"}</span>
                 <span style={{ color: colors.faint, fontSize: 11.5 }}>{new Date(e.createdAt).toLocaleString()}</span>
               </div>
@@ -1747,7 +1830,12 @@ function AdminOverviewTab({ stats }: { stats: AdminStats }) {
 export function AdminDashboard() {
   const { user, loading } = useAuth();
   const navigate = useNavigate();
-  const [tab, setTab] = useState<AdminTab>("overview");
+  // Deep link (?tab=finance etc.), same convention as the vendor dashboard.
+  const [searchParams] = useSearchParams();
+  const initialTab = searchParams.get("tab");
+  const [tab, setTab] = useState<AdminTab>(ADMIN_TABS.some((t) => t.key === initialTab) ? (initialTab as AdminTab) : "overview");
+  // Finance sub-section to open (?section=coupons, or a cross-link from Coupons).
+  const [financeSection, setFinanceSection] = useState<string | undefined>(searchParams.get("section") ?? undefined);
   const [stats, setStats] = useState<AdminStats | null>(null);
   // Lets VendorDetailModal's listing links jump to the Listings tab with that
   // listing's own detail popup already open, instead of just switching tabs.
@@ -1820,7 +1908,10 @@ export function AdminDashboard() {
       {tab === "hostApplications" && <HostApplicationsTab />}
       {tab === "placeSuggestions" && <PlaceSuggestionsTab />}
       {tab === "reviews" && <ReviewsTab />}
-      {tab === "coupons" && <CouponsTab />}
+      {tab === "coupons" && <CouponsTab onViewUsage={() => { setFinanceSection("coupons"); setTab("finance"); }} />}
+      {tab === "commerce" && <AdminCommerceTab />}
+      {tab === "finance" && <AdminFinanceTab initialSection={financeSection} onEditCoupons={() => setTab("coupons")} />}
+      {tab === "policies" && <AdminPolicyTab />}
       {tab === "organisations" && (
         <OrganisationsTab onOpenVendor={(vendorId) => { setOpenVendorRequest(vendorId); setTab("vendors"); }} />
       )}

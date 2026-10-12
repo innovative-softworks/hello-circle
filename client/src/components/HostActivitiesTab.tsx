@@ -34,15 +34,35 @@ const UPDATE_TEMPLATES: { key: string; label: string; text: (activityLabel: stri
 // Vendor-parity pass, Phase 27 — same filter-bar pattern as
 // VendorBookings.tsx's BookingsFilterBar, client-side only (no server
 // change, `fetchMyGames({ hostedOnly: true })` already returns everything).
-type ActivityStatusFilter = "all" | "open" | "pending_participants" | "cancelled";
+// "draft" / "coming_soon" filter on the publishing lifecycle (sitemap audit
+// P2-16: drafts used to be mixed in with open activities); "open" and "Needs
+// players" then mean live activities only.
+type ActivityStatusFilter = "all" | "draft" | "coming_soon" | "open" | "pending_participants" | "cancelled";
 type ActivityWhenFilter = "upcoming" | "past" | "all";
+
+const STATUS_FILTER_LABELS: Record<ActivityStatusFilter, string> = {
+  all: "All",
+  draft: "Drafts",
+  coming_soon: "Coming soon",
+  open: "Open",
+  pending_participants: "Needs players",
+  cancelled: "Cancelled",
+};
+
+function matchesStatusFilter(g: Game, filter: ActivityStatusFilter): boolean {
+  if (filter === "all") return true;
+  if (filter === "draft" || filter === "coming_soon") return g.status !== "cancelled" && g.effectiveLifecycle === filter;
+  if (filter === "cancelled") return g.status === "cancelled";
+  const live = g.effectiveLifecycle !== "draft" && g.effectiveLifecycle !== "coming_soon";
+  return live && g.status === filter;
+}
 
 function activityFilterPillStyle(active: boolean) {
   return {
     fontSize: 11.5,
     fontWeight: 700,
     padding: "4px 10px",
-    borderRadius: 100,
+    borderRadius: 999,
     border: "none",
     cursor: "pointer",
     background: active ? colors.dark : colors.panel,
@@ -80,9 +100,9 @@ function ActivitiesFilterBar({
         ))}
       </div>
       <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
-        {(["all", "open", "pending_participants", "cancelled"] as const).map((s) => (
-          <button key={s} onClick={() => onStatus(s)} style={activityFilterPillStyle(status === s)}>
-            {s === "all" ? "All" : s === "open" ? "Open" : s === "pending_participants" ? "Needs players" : "Cancelled"}
+        {(["all", "draft", "coming_soon", "open", "pending_participants", "cancelled"] as const).map((s) => (
+          <button key={s} onClick={() => onStatus(s)} style={activityFilterPillStyle(status === s)} aria-pressed={status === s}>
+            {STATUS_FILTER_LABELS[s]}
           </button>
         ))}
       </div>
@@ -451,7 +471,7 @@ export function ActivitiesTab() {
   const today = irelandToday();
   const q = search.trim().toLowerCase();
   const filtered = games.filter((g) => {
-    if (statusFilter !== "all" && g.status !== statusFilter) return false;
+    if (!matchesStatusFilter(g, statusFilter)) return false;
     const isUpcoming = g.status !== "cancelled" && g.date >= today;
     if (whenFilter === "upcoming" && !isUpcoming) return false;
     if (whenFilter === "past" && isUpcoming) return false;

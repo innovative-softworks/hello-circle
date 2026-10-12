@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import type { NextFunction, Request, Response } from "express";
+import { recordConsent } from "./consent.js";
 import { db } from "./db/index.js";
 import { TERMS_VERSION } from "./terms.js";
 
@@ -158,6 +159,8 @@ export async function createResidentFromGoogle(
          VALUES (?, ?, ?, ?, ?, NOW(), NOW(), ?, ?)`
       )
       .run(id, email, name, uid, picture, TERMS_VERSION, marketingConsent ? 1 : 0);
+    // Stage 5c — marketing is its own consent record (never implied by accepting the Terms).
+    await recordConsent({ type: "resident", id }, "marketing_email", marketingConsent, "signup_google");
   } catch (e) {
     if ((e as { code?: string }).code === "ER_DUP_ENTRY") {
       const winner = await getResidentByGoogleUid(uid);
@@ -236,6 +239,7 @@ export async function createResidentFromMagicLink(email: string, name: string, m
          VALUES (?, ?, ?, NOW(), NOW(), ?, ?)`
       )
       .run(id, normalized, name.trim(), TERMS_VERSION, marketingConsent ? 1 : 0);
+    await recordConsent({ type: "resident", id }, "marketing_email", marketingConsent, "signup_magic_link");
   } catch (e) {
     if ((e as { code?: string }).code === "ER_DUP_ENTRY") {
       const existing = await getResidentByEmail(normalized);
@@ -287,6 +291,7 @@ export async function createResidentWithPassword(
          VALUES (?, ?, ?, ?, NOW(), ?, ?)`
       )
       .run(id, normalized, name.trim(), passwordHash, TERMS_VERSION, marketingConsent ? 1 : 0);
+    await recordConsent({ type: "resident", id }, "marketing_email", marketingConsent, "signup_password");
   } catch (e) {
     if ((e as { code?: string }).code === "ER_DUP_ENTRY") throw new ResidentSignupRaceError("An account already exists for this email");
     throw e;

@@ -16,12 +16,12 @@ export function MyLifeEmptyState() {
   const navigate = useNavigate();
   return (
     <div>
-      <h1 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(24px,3vw,32px)", letterSpacing: "-.01em", margin: "0 0 24px" }}>
+      <h1 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(24px, 2.4vw, 30px)", letterSpacing: 0, margin: "0 0 24px" }}>
         Make HelloCircle yours.
       </h1>
       <div className="grid-responsive-3" style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 16, marginBottom: 32 }}>
         {STEPS.map((s) => (
-          <div key={s.n} style={{ border: `1px solid ${colors.border}`, borderRadius: 12, padding: 20 }}>
+          <div key={s.n} style={{ border: `1px solid ${colors.border}`, borderRadius: 10, padding: 20 }}>
             <div style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 22, color: colors.faint, marginBottom: 10 }}>{s.n}</div>
             <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 14 }}>{s.title}</div>
             <Button variant="ghost" onClick={() => (s.href ? navigate(s.href) : openOnboarding())}>{s.cta}</Button>

@@ -33,7 +33,7 @@ export function FilterDropdown({
     return () => document.removeEventListener("mousedown", onDocClick);
   }, []);
 
-  const accentColor = accent === "orange" ? colors.orange : colors.green;
+  void accent; // selected = forest pill everywhere (design-system pass)
 
   return (
     <div ref={ref} style={{ position: "relative" }}>
@@ -44,10 +44,10 @@ export function FilterDropdown({
           display: "inline-flex",
           alignItems: "center",
           gap: 6,
-          border: `1.5px solid ${active ? accentColor : colors.borderStrong}`,
-          background: active ? accentColor : "#fff",
-          color: active ? "#fff" : colors.textSoft,
-          borderRadius: 20,
+          border: `1.5px solid ${active ? colors.dark : colors.borderStrong}`,
+          background: active ? colors.dark : colors.surface,
+          color: active ? colors.onNight : colors.textSoft,
+          borderRadius: 999,
           padding: "8px 14px",
           fontSize: 14,
           fontWeight: 600,
@@ -64,9 +64,9 @@ export function FilterDropdown({
             top: "calc(100% + 6px)",
             left: 0,
             zIndex: 30,
-            background: "#fff",
+            background: colors.surface,
             border: `1px solid ${colors.border}`,
-            borderRadius: 12,
+            borderRadius: 16,
             padding: 8,
             minWidth: 230,
             maxHeight: 320,
@@ -91,13 +91,13 @@ export function DropdownOption({ label, active, onClick }: { label: ReactNode; a
         display: "block",
         width: "100%",
         textAlign: "left",
-        background: active ? colors.greenBg : "none",
+        background: active ? colors.orangeBg : "none",
         border: "none",
-        borderRadius: 8,
+        borderRadius: 10,
         padding: "8px 10px",
         fontSize: 14,
         fontWeight: active ? 700 : 500,
-        color: active ? colors.greenText : colors.textSoft,
+        color: active ? colors.text : colors.textSoft,
         cursor: "pointer",
       }}
     >
@@ -110,7 +110,7 @@ export function DropdownOption({ label, active, onClick }: { label: ReactNode; a
  * amenities/accessibility — every checked box must match, AND not OR). */
 export function DropdownCheckbox({ label, checked, onChange }: { label: ReactNode; checked: boolean; onChange: () => void }) {
   return (
-    <label style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 10px", fontSize: 13.5, color: colors.textSoft, cursor: "pointer", borderRadius: 8 }}>
+    <label style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 10px", fontSize: 13.5, color: colors.textSoft, cursor: "pointer", borderRadius: 10 }}>
       <input type="checkbox" checked={checked} onChange={onChange} />
       {label}
     </label>

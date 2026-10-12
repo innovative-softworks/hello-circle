@@ -44,6 +44,8 @@ export type AnalyticsEventType =
   | "activity_saved"
   | "request_interest_added"
   | "booking_started"
+  // Booking UX Phase 3 — a guest backed out of the payment page and the hold was released.
+  | "checkout_abandoned"
   | "booking_completed"
   | "feedback_submitted"
   | "circle_created"

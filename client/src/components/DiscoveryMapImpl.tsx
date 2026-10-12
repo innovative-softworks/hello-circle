@@ -234,7 +234,7 @@ export function DiscoveryMap({ pins, searchTypes, searchFilters }: { pins: Disco
               <div style={{ fontSize: 12.5, marginBottom: 8 }}>{selected.priceLabel}</div>
               <button
                 onClick={() => navigate(selected.href)}
-                style={{ background: colors.dark, color: "#fff", border: "none", borderRadius: 8, padding: "6px 10px", fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}
+                style={{ background: colors.dark, color: "#fff", border: "none", borderRadius: 10, padding: "6px 10px", fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}
               >
                 View details
               </button>
@@ -254,7 +254,7 @@ export function DiscoveryMap({ pins, searchTypes, searchFilters }: { pins: Disco
             background: colors.dark,
             color: "#fff",
             border: "none",
-            borderRadius: 20,
+            borderRadius: 16,
             padding: "9px 16px",
             fontSize: 13,
             fontWeight: 700,
@@ -275,7 +275,7 @@ export function DiscoveryMap({ pins, searchTypes, searchFilters }: { pins: Disco
             transform: "translateX(-50%)",
             background: colors.dark,
             color: "#fff",
-            borderRadius: 20,
+            borderRadius: 16,
             padding: "9px 16px",
             fontSize: 13,
             fontWeight: 700,
@@ -298,7 +298,7 @@ export function DiscoveryMap({ pins, searchTypes, searchFilters }: { pins: Disco
             background: "#fff",
             color: colors.text,
             border: `1px solid ${colors.border}`,
-            borderRadius: 20,
+            borderRadius: 16,
             padding: "9px 16px",
             fontSize: 13,
             fontWeight: 600,
@@ -323,7 +323,7 @@ export function DiscoveryMap({ pins, searchTypes, searchFilters }: { pins: Disco
             right: 12,
             background: "#fff",
             border: `1px solid ${colors.border}`,
-            borderRadius: 12,
+            borderRadius: 10,
             padding: "8px 12px",
             fontSize: 12.5,
             color: colors.mutedLight,

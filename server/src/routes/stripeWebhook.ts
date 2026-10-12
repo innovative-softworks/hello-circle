@@ -1,5 +1,6 @@
 import type { Request, Response } from "express";
 import { createGameFromOpenBooking } from "./bookings.js";
+import { applySubscriptionCheckout, applySubscriptionDeleted, applySubscriptionUpdate, recordInvoicePaid } from "../commerce/subscriptions.js";
 import { upgradeFavouriteStatus } from "./favourites.js";
 import { checkMinParticipantsThreshold } from "./games.js";
 import { logEvent } from "../analytics.js";
@@ -11,9 +12,15 @@ import { claimWaitlistOffer } from "../waitlist.js";
 import { endPendingHold, gameSeatSql, holdIsLive, occupiesCapacitySql } from "../bookingIntegrity.js";
 import { writeAudit } from "../audit.js";
 import { bookingEndHour, hoursOverlap } from "../util.js";
-import { CLIENT_URL, STRIPE_WEBHOOK_SECRET, stripe } from "../stripe.js";
+import { CLIENT_URL, STRIPE_CONNECT_WEBHOOK_SECRET, STRIPE_V2_WEBHOOK_SECRET, STRIPE_WEBHOOK_SECRET, stripe } from "../stripe.js";
+import { CONNECT_EVENT_TYPES, processConnectEvent, processThinConnectEvent } from "../payments/connect.js";
+import { paymentProvider } from "../payments/provider.js";
 import { unsignedStripeWebhooksAllowed } from "../stripeWebhookPolicy.js";
 import type Stripe from "stripe";
+import type { CheckoutType } from "../checkoutService.js";
+import { SOURCE_TABLES, syncOrderFromSource } from "../commerce/engine.js";
+import { NeedsReviewError, recordDispute, recordPaymentConfirmed, recordProviderRefunds } from "../commerce/payments.js";
+import { beginEvent, failEvent, finishEvent, type IncomingEvent } from "../payments/webhookEvents.js";
 
 interface BookingForNotify {
   ref: string;
@@ -409,6 +416,14 @@ async function markFailed(metadata: Stripe.Metadata | null | undefined) {
   else if (metadata.type === "pass") await db.prepare(`DELETE FROM passes WHERE ref = ? AND payment_status = 'pending'`).run(metadata.ref);
   else if (metadata.type === "program") await endPendingHold("program_enrollments", metadata.ref, "delete");
   else if (metadata.type === "experience") await endPendingHold("experience_bookings", metadata.ref, "delete");
+  await syncOrder(metadata);
+}
+
+/** Commerce Engine Phase 2 — mirror the participation row onto its commerce
+ * order (if the engine priced it). A no-op for every legacy-priced row. */
+async function syncOrder(metadata: Stripe.Metadata | null | undefined) {
+  const { type, ref } = metadata ?? {};
+  if (ref && type && type in SOURCE_TABLES) await syncOrderFromSource(type as CheckoutType, ref);
 }
 
 /** Registered with express.raw() (not express.json()) — Stripe's signature
@@ -416,6 +431,9 @@ async function markFailed(metadata: Stripe.Metadata | null | undefined) {
  * booking/registration is ever marked 'paid' — never on the client's say-so. */
 export async function stripeWebhookHandler(req: Request, res: Response) {
   if (!stripe) return res.status(503).send("Payments not configured");
+  // Stage 5e — a v2 event notification (e.g. forwarded by the Stripe CLI to
+  // this one URL) goes to the v2 handler, which verifies it with its own secret.
+  if (Buffer.isBuffer(req.body) && req.body.length < 65_536 && /"object"\s*:\s*"v2\.core\.event"/.test(req.body.toString("utf8"))) return stripeThinWebhookHandler(req, res);
 
   let event: Stripe.Event;
   const signature = req.headers["stripe-signature"];
@@ -431,8 +449,20 @@ export async function stripeWebhookHandler(req: Request, res: Response) {
     try {
       event = stripe.webhooks.constructEvent(req.body, signature, STRIPE_WEBHOOK_SECRET);
     } catch (e) {
-      console.error("[stripe] webhook signature verification failed:", e instanceof Error ? e.message : e);
-      return res.status(400).send("Invalid signature");
+      // Stage 5a — events from connected accounts are signed with the Connect endpoint's own secret.
+      let connectEvent: Stripe.Event | null = null;
+      if (STRIPE_CONNECT_WEBHOOK_SECRET) {
+        try {
+          connectEvent = stripe.webhooks.constructEvent(req.body, signature, STRIPE_CONNECT_WEBHOOK_SECRET);
+        } catch {
+          connectEvent = null;
+        }
+      }
+      if (!connectEvent) {
+        console.error("[stripe] webhook signature verification failed:", e instanceof Error ? e.message : e);
+        return res.status(400).send("Invalid signature");
+      }
+      event = connectEvent;
     }
   } else if (!unsignedStripeWebhooksAllowed()) {
     // Without signature verification, anyone who finds this URL could POST a
@@ -447,40 +477,171 @@ export async function stripeWebhookHandler(req: Request, res: Response) {
     event = JSON.parse(req.body.toString("utf8"));
   }
 
-  if (
-    event.type === "checkout.session.completed" ||
-    event.type === "checkout.session.async_payment_succeeded" ||
-    event.type === "checkout.session.async_payment_failed"
-  ) {
-    const session = event.data.object as Stripe.Checkout.Session;
-    // A delayed payment method (SEPA/Bacs Direct Debit — never explicitly
-    // restricted in checkoutService.ts's createCheckoutSession, so available
-    // whenever "automatic payment methods" is on in the Stripe Dashboard)
-    // fires `completed` immediately with payment_status "unpaid", before the
-    // debit has actually settled — confirming here would mark the booking
-    // paid before money has moved, with no later event to revert it if the
-    // debit then fails. Only `async_payment_succeeded` (and a `completed`
-    // whose payment_status is already "paid", the common synchronous-method
-    // case) should confirm; `async_payment_failed` mirrors `expired`.
-    if (event.type === "checkout.session.async_payment_failed") {
-      await markFailed(session.metadata);
-    } else if (session.payment_status === "paid") {
-      await confirmByType(session.metadata);
-    }
-  } else if (event.type === "checkout.session.expired") {
-    const session = event.data.object as Stripe.Checkout.Session;
-    await markFailed(session.metadata);
+  // Revenue & Connect Stage 2c — store once, claim, process, record outcome.
+  const begin = await beginEvent("stripe", event as unknown as IncomingEvent, req.body);
+  if (begin.action === "duplicate") return res.json({ received: true, duplicate: true });
+  if (begin.action === "busy") return res.status(409).send("Event is already being processed");
+  try {
+    const outcome = await processStripeEvent(event as unknown as IncomingEvent);
+    await finishEvent(begin.rowId, outcome);
+    res.json({ received: true });
+  } catch (e) {
+    const retry = await failEvent(begin.rowId, e, { needsReview: e instanceof NeedsReviewError });
+    console.error(`[stripe] webhook ${event.id} (${event.type}) failed${retry ? " — will retry" : " — parked for manual review"}:`, e instanceof Error ? e.message : e);
+    // 500 asks the provider to retry; once parked, acknowledge so it stops.
+    if (retry) return res.status(500).send("Processing failed");
+    res.json({ received: true, parked: true });
   }
+}
 
-  res.json({ received: true });
+/**
+ * Stage 5e — Accounts v2 ("thin") events from the event destination
+ * (POST /api/stripe/webhook/v2). The notification carries only an id: after
+ * the signature check it is stored once (duplicates refused), then the event
+ * and the account it names are re-fetched from Stripe — never trusted as sent.
+ */
+export async function stripeThinWebhookHandler(req: Request, res: Response) {
+  const provider = paymentProvider();
+  if (!provider) return res.status(503).send("Payments not configured");
+  const secret = process.env.STRIPE_V2_WEBHOOK_SECRET ?? STRIPE_V2_WEBHOOK_SECRET;
+  if (!secret) return res.status(503).send("Webhook not configured");
+  const signature = req.headers["stripe-signature"];
+  if (typeof signature !== "string" || !signature) return res.status(400).send("Missing signature");
+  let note: { id: string; type: string; relatedObjectId: string | null; created: string };
+  try {
+    note = provider.parseThinEvent(req.body, signature, secret);
+  } catch {
+    return res.status(400).send("Invalid signature");
+  }
+  const incoming: IncomingEvent = { id: note.id, type: note.type, created: Math.floor(new Date(note.created).getTime() / 1000) || 0, livemode: false, account: note.relatedObjectId, data: { object: { id: note.relatedObjectId } } };
+  const begin = await beginEvent("stripe_v2", incoming, req.body);
+  if (begin.action === "duplicate") return res.json({ received: true, duplicate: true });
+  if (begin.action === "busy") return res.status(409).send("Event is already being processed");
+  try {
+    await finishEvent(begin.rowId, await processThinConnectEvent(note.id));
+    res.json({ received: true });
+  } catch (e) {
+    const retry = await failEvent(begin.rowId, e, { needsReview: e instanceof NeedsReviewError });
+    if (retry) return res.status(500).send("Processing failed");
+    res.json({ received: true, parked: true });
+  }
+}
+
+/** Applies one verified provider event. Shared by the live webhook, admin
+ * replay and tests. Returns "ignored" for events HelloCircle doesn't act on
+ * (still stored, so the history is complete). */
+export async function processStripeEvent(event: IncomingEvent): Promise<"processed" | "ignored"> {
+  const o = event.data.object;
+  switch (event.type) {
+    case "checkout.session.completed":
+    case "checkout.session.async_payment_succeeded":
+    case "checkout.session.async_payment_failed": {
+      // Stage 5b — a Pro subscription checkout, not a booking.
+      if (o.metadata?.type === "subscription") return event.type === "checkout.session.async_payment_failed" ? "ignored" : applySubscriptionCheckout(o as never);
+      // A delayed payment method (SEPA/Bacs Direct Debit) fires `completed`
+      // with payment_status "unpaid" before the debit settles — confirming
+      // then would mark the booking paid before money moved. Only
+      // `async_payment_succeeded` (or a `completed` already "paid") confirms;
+      // `async_payment_failed` mirrors `expired`.
+      if (event.type === "checkout.session.async_payment_failed") {
+        await markFailed(o.metadata);
+        return "processed";
+      }
+      if (o.payment_status !== "paid") return "ignored";
+      await confirmByType(o.metadata);
+      await afterPaid(o.metadata, {
+        checkoutSessionId: o.id ?? null,
+        paymentIntentId: typeof o.payment_intent === "string" ? o.payment_intent : o.payment_intent?.id ?? null,
+        amountMinor: typeof o.amount_total === "number" ? o.amount_total : null,
+        currency: o.currency ?? "eur",
+        provider: "stripe",
+      });
+      return "processed";
+    }
+    case "checkout.session.expired":
+      if (o.metadata?.type === "subscription") {
+        await db.prepare(`UPDATE partner_subscriptions SET status = 'abandoned' WHERE checkout_session_id = ? AND status = 'checkout'`).run(o.id);
+        return "processed";
+      }
+      await markFailed(o.metadata);
+      return "processed";
+    // Stage 5b — HelloCircle Pro (Stripe Billing).
+    case "customer.subscription.updated":
+      return applySubscriptionUpdate(o as never);
+    case "customer.subscription.deleted":
+      return applySubscriptionDeleted(o as never);
+    case "invoice.paid":
+      return recordInvoicePaid(o as never);
+    case "invoice.payment_failed": {
+      const subId = typeof o.subscription === "string" ? o.subscription : o.subscription?.id ?? o.parent?.subscription_details?.subscription ?? null;
+      return subId ? applySubscriptionUpdate({ id: subId, status: "past_due" }) : "ignored";
+    }
+    case "charge.refunded": {
+      const pi = typeof o.payment_intent === "string" ? o.payment_intent : o.payment_intent?.id;
+      if (!pi) throw new NeedsReviewError(`Refunded charge ${o.id} has no payment intent`);
+      // Stage 5d — the charge's refunds (by id) from the provider, so each is recorded under its own id.
+      const providerRefunds = await paymentProvider()?.chargeRefunds(o.id).catch(() => []) ?? [];
+      await recordProviderRefunds({ paymentIntentId: pi, chargeId: o.id, amountRefundedMinor: Number(o.amount_refunded ?? 0), amountMinor: Number(o.amount ?? 0), currency: o.currency ?? "eur", providerRefunds });
+      return "processed";
+    }
+    case "charge.dispute.created":
+    case "charge.dispute.updated":
+    case "charge.dispute.closed":
+      await recordDispute({
+        disputeId: o.id,
+        paymentIntentId: typeof o.payment_intent === "string" ? o.payment_intent : o.payment_intent?.id ?? null,
+        amountMinor: Number(o.amount ?? 0),
+        currency: o.currency ?? "eur",
+        reason: String(o.reason ?? "unknown"),
+        status: String(o.status ?? "needs_response"),
+        evidenceDueBy: o.evidence_details?.due_by ? new Date(o.evidence_details.due_by * 1000) : null,
+        // Stage 5d — Stripe's dispute fee (it is not returned when a dispute is won).
+        feeMinor: (o.balance_transactions ?? []).reduce((a: number, b: { fee?: number }) => a + Number(b.fee ?? 0), 0),
+      });
+      return "processed";
+    default:
+      // Stage 5a — connected-account status, payouts and reversals.
+      if (CONNECT_EVENT_TYPES.has(event.type)) return processConnectEvent(event);
+      // payment_intent.* and everything else: Checkout events are the
+      // authoritative confirmation; these are stored for the record only.
+      return "ignored";
+  }
+}
+
+/** Records the confirmed payment (payment_records + ledger) when the row is
+ * now paid. Missing provider details are read back from the row (QA seam). */
+async function afterPaid(
+  metadata: { type?: string; ref?: string } | null | undefined,
+  details: { checkoutSessionId: string | null; paymentIntentId: string | null; amountMinor: number | null; currency: string; provider: "stripe" | "stub" }
+) {
+  const { type, ref } = metadata ?? {};
+  if (!type || !ref || !(type in SOURCE_TABLES)) return;
+  const table = SOURCE_TABLES[type as CheckoutType];
+  const totalCol = type === "pass" ? "purchased_cents" : "total_cents";
+  const row = (await db.prepare(`SELECT payment_status as ps, stripe_session_id as sid, ${totalCol} as total FROM ${table} WHERE ref = ?`).get(ref)) as
+    | { ps: string; sid: string | null; total: number | null }
+    | undefined;
+  if (!row || row.ps !== "paid") return;
+  const sessionId = details.checkoutSessionId ?? row.sid;
+  await recordPaymentConfirmed({
+    type: type as CheckoutType,
+    ref,
+    checkoutSessionId: sessionId,
+    paymentIntentId: details.paymentIntentId ?? (details.provider === "stub" && sessionId ? `pi_stub_${sessionId}` : null),
+    amountMinor: details.amountMinor ?? Number(row.total ?? 0),
+    currency: details.currency,
+    provider: details.provider,
+  });
 }
 
 /** Provider-independent outcome entry point (Phase 8). The webhook handler
  * maps provider events onto these; the QA provider seam calls it directly.
  * success → confirm (idempotent); failure/expired → release the hold. */
 export async function processProviderOutcome(type: string, ref: string, outcome: "success" | "failure" | "expired") {
-  if (outcome === "success") await confirmByType({ type, ref });
-  else await markFailed({ type, ref });
+  if (outcome === "success") {
+    await confirmByType({ type, ref });
+    await afterPaid({ type, ref }, { checkoutSessionId: null, paymentIntentId: null, amountMinor: null, currency: "eur", provider: "stub" });
+  } else await markFailed({ type, ref });
 }
 
 async function confirmByType(metadata: Stripe.Metadata | null | undefined) {
@@ -492,4 +653,5 @@ async function confirmByType(metadata: Stripe.Metadata | null | undefined) {
   else if (type === "pass") await confirmPass(ref);
   else if (type === "program") await confirmProgramEnrollment(ref);
   else if (type === "experience") await confirmExperienceBooking(ref);
+  await syncOrder(metadata);
 }

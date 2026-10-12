@@ -1,6 +1,7 @@
 import net from "node:net";
 import http from "node:http";
 import { connectedPreflight } from "./runtime";
+import { qaWebhookSecretOk } from "../support/integration-safety";
 
 async function main() {
   const checked = await connectedPreflight();
@@ -44,7 +45,11 @@ async function main() {
   });
   const { stripe } = await import("../../server/src/stripe");
   if (stripeProfile) {
-    if (!stripe || !/^(sk|rk)_test_/.test(process.env.STRIPE_SECRET_KEY ?? "") || !/^whsec_qa_[a-f0-9]{64}$/.test(process.env.STRIPE_WEBHOOK_SECRET ?? "")) throw new Error("QA SAFETY ABORT: Stripe test profile misconfigured.");
+    if (!stripe || !/^(sk|rk)_test_/.test(process.env.STRIPE_SECRET_KEY ?? "") || !qaWebhookSecretOk(process.env.STRIPE_WEBHOOK_SECRET)) throw new Error("QA SAFETY ABORT: Stripe test profile misconfigured.");
+    // Stage 5d — the Connect secret, when present, must also be a per-run local one; the run tag must be well-formed.
+    if (process.env.STRIPE_CONNECT_WEBHOOK_SECRET && !qaWebhookSecretOk(process.env.STRIPE_CONNECT_WEBHOOK_SECRET)) throw new Error("QA SAFETY ABORT: Connect webhook secret must be a per-run local or Stripe CLI test secret.");
+    if (process.env.STRIPE_V2_WEBHOOK_SECRET && !qaWebhookSecretOk(process.env.STRIPE_V2_WEBHOOK_SECRET)) throw new Error("QA SAFETY ABORT: v2 webhook secret must be a per-run local or Stripe CLI test secret.");
+    if (process.env.HC_QA_STRIPE_RUN && !/^qa_stripe_[a-f0-9]{16}$/.test(process.env.HC_QA_STRIPE_RUN)) throw new Error("QA SAFETY ABORT: malformed Stripe run tag.");
     // Prove TEST mode with the provider itself before any app traffic.
     const balance = await stripe.balance.retrieve();
     if (balance.livemode !== false) throw new Error("QA SAFETY ABORT: Live-mode Stripe account refused.");
@@ -78,6 +83,34 @@ async function main() {
           } catch {
             response.statusCode = 400;
             response.end(JSON.stringify({ processed: false }));
+          }
+        });
+        return true;
+      }
+      // Stage 5f — stub-only Pro checkout simulation: Stripe "complete" (before the webhook),
+      // the webhook confirmation, and a failed renewal. Refused outside the stub profile.
+      if (request.url === "/api/__qa/plan" && request.method === "POST" && process.env.QA_PAYMENT_PROVIDER_STUB === "1") {
+        const chunks: Buffer[] = [];
+        request.on("data", (c: Buffer) => chunks.push(c));
+        request.on("end", async () => {
+          try {
+            const { action, sessionId, subscriptionId } = JSON.parse(Buffer.concat(chunks).toString("utf8")) as { action: string; sessionId?: string; subscriptionId?: string };
+            const { stubProvider } = await import("../../server/src/payments/provider");
+            const subs = await import("../../server/src/commerce/subscriptions");
+            if (action === "complete" && typeof sessionId === "string" && sessionId.startsWith("cs_sub_stub_")) stubProvider.checkoutStatuses.set(sessionId, "complete");
+            else if (action === "confirm" && typeof sessionId === "string" && sessionId.startsWith("cs_sub_stub_")) {
+              // Stripe's order: checkout.session.completed, then customer.subscription.* with the period end.
+              const subscription = `sub_stub_${sessionId.slice(12)}`;
+              await subs.applySubscriptionCheckout({ id: sessionId, subscription, payment_status: "paid" });
+              await subs.applySubscriptionUpdate({ id: subscription, status: "active", current_period_end: Math.floor(Date.now() / 1000) + 30 * 86400, cancel_at_period_end: false });
+            }
+            else if (action === "past_due" && typeof subscriptionId === "string" && subscriptionId.startsWith("sub_stub_")) await subs.applySubscriptionUpdate({ id: subscriptionId, status: "past_due" });
+            else throw new Error("bad input");
+            response.setHeader("Content-Type", "application/json");
+            response.end(JSON.stringify({ ok: true }));
+          } catch {
+            response.statusCode = 400;
+            response.end(JSON.stringify({ ok: false }));
           }
         });
         return true;

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ChangeEvent, type CSSProperties, type ReactNode } from "react";
+import { CreditWallet } from "../components/CreditWallet";
 import { useConfirm } from "../components/ConfirmProvider";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import {
   addHouseholdMember,
   changeResidentPassword,
@@ -16,6 +17,7 @@ import {
   fetchMyReports,
   fetchMyRoutines,
   fetchReceipts,
+  fetchReceiptDetail,
   fetchResidentFull,
   fetchResidentNotificationsPage,
   fetchRoutineSuggestions,
@@ -38,6 +40,8 @@ import {
   updateRoutine,
   uploadAvatar,
 } from "../api";
+import { RECEIPT_KIND_LABELS, receiptListStatus, type ReceiptDetail, type Remote } from "../components/commerceDisplay";
+import { ReceiptDrawer, ToneChip } from "../components/ReceiptDrawer";
 import type { FollowedEntity, NotificationLevel } from "../api";
 import {
   AwardIcon,
@@ -113,7 +117,7 @@ function ProfileIdentityBanner({ onEdit }: { onEdit: () => void }) {
     <div
       style={{
         display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap",
-        background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 20,
+        background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 16,
         padding: "20px 22px", marginBottom: 28,
       }}
     >
@@ -275,7 +279,7 @@ function HouseholdPanel() {
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
           {members.map((m) => (
-            <div key={m.id} style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 14, padding: "14px 18px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <div key={m.id} style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 16, padding: "14px 18px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
               <div>
                 <div style={{ fontWeight: 700 }}>{m.firstName} {m.lastName}</div>
                 {m.dob && <div style={{ fontSize: 13, color: colors.mutedLight }}>Born {m.dob}</div>}
@@ -386,7 +390,7 @@ function FavouritesPanel() {
             const next = NEXT_STATUS[f.status];
             const detailHref = favouriteDetailHref(f);
             return (
-              <div key={`${f.listingType}:${f.listingId}`} style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 14, padding: "14px 18px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+              <div key={`${f.listingType}:${f.listingId}`} style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 16, padding: "14px 18px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
                 <button
                   onClick={() => detailHref && navigate(detailHref)}
                   disabled={!detailHref}
@@ -470,7 +474,7 @@ function FollowingPanel() {
       {follows.map((f) => (
         <div
           key={key(f)}
-          style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 14, padding: "14px 18px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}
+          style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 16, padding: "14px 18px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}
         >
           <button
             onClick={() => navigate(f.href)}
@@ -591,7 +595,7 @@ function NotificationInboxPanel() {
               <div style={{ fontSize: 13.5, color: colors.mutedLight, marginTop: 2 }}>{n.body}</div>
             </>
           );
-          const boxStyle = { display: "block", width: "100%", textAlign: "left" as const, background: n.read ? colors.surface : colors.greenBg, border: `1px solid ${colors.border}`, borderRadius: 14, padding: "14px 18px" };
+          const boxStyle = { display: "block", width: "100%", textAlign: "left" as const, background: n.read ? colors.surface : colors.greenBg, border: `1px solid ${colors.border}`, borderRadius: 16, padding: "14px 18px" };
           return (
             <li key={n.id}>
               {actionable ? (
@@ -672,12 +676,12 @@ function RoutinesPanel() {
     <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
       {visibleSuggestions.length > 0 && (
         <div>
-          <h3 style={{ fontSize: 13, fontWeight: 700, color: colors.muted, margin: "0 0 10px", letterSpacing: ".02em" }}>SUGGESTED</h3>
+          <h3 style={{ fontSize: 13, fontWeight: 700, color: colors.muted, margin: "0 0 10px", letterSpacing: 0 }}>SUGGESTED</h3>
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             {visibleSuggestions.map((s) => {
               const key = `${s.activityLabel}::${s.dayOfWeek}`;
               return (
-                <div key={key} style={{ background: colors.greenBg, borderRadius: 14, padding: "14px 18px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+                <div key={key} style={{ background: colors.greenBg, borderRadius: 16, padding: "14px 18px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
                   <div>
                     <div style={{ fontWeight: 700, fontSize: 14 }}>{s.activityLabel}</div>
                     <div style={{ fontSize: 12.5, color: colors.mutedLight, marginTop: 2 }}>
@@ -696,13 +700,13 @@ function RoutinesPanel() {
       )}
 
       <div>
-        <h3 style={{ fontSize: 13, fontWeight: 700, color: colors.muted, margin: "0 0 10px", letterSpacing: ".02em" }}>YOUR ROUTINES</h3>
+        <h3 style={{ fontSize: 13, fontWeight: 700, color: colors.muted, margin: "0 0 10px", letterSpacing: 0 }}>YOUR ROUTINES</h3>
         {routines.length === 0 ? (
           <EmptyState icon={<ChevronRightIcon size={20} />} title="No routines yet" subtitle="Keep showing up to the same activity and we'll suggest making it a routine." />
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             {routines.map((r) => (
-              <div key={r.id} style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 14, padding: "14px 18px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+              <div key={r.id} style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 16, padding: "14px 18px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
                 <div>
                   <div style={{ fontWeight: 700, fontSize: 14 }}>{r.activityLabel}</div>
                   <div style={{ fontSize: 12.5, color: colors.mutedLight, marginTop: 2 }}>
@@ -747,7 +751,7 @@ function PassesPanel() {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
       {passes.map((p) => (
-        <div key={p.id} style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 14, padding: "14px 18px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <div key={p.id} style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 16, padding: "14px 18px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <div>
             <div style={{ fontWeight: 700 }}>{p.listingName}</div>
             <div style={{ fontSize: 13, color: colors.mutedLight }}>{p.creditsTotal - p.creditsUsed} of {p.creditsTotal} credits left</div>
@@ -759,19 +763,15 @@ function PassesPanel() {
   );
 }
 
-// --- Receipts / payment history (relocated unchanged) -----------------------
-
-const RECEIPT_LABELS: Record<Receipt["kind"], string> = {
-  booking: "Hall booking",
-  registration: "Club registration",
-  game: "Session",
-  pass: "Pass",
-  program_enrollment: "Program enrollment",
-};
+// --- Receipts / payment history ---------------------------------------------
+// R3A — every kind of paid participation (experiences included), the amount
+// actually charged, and a detail drawer with the recorded price and refunds.
 
 function ReceiptsPanel() {
   const [receipts, setReceipts] = useState<Receipt[]>([]);
   const [loading, setLoading] = useState(true);
+  const [open, setOpen] = useState<string | null>(null);
+  const [detail, setDetail] = useState<Remote<ReceiptDetail>>({ status: "loading" });
 
   useEffect(() => {
     fetchReceipts()
@@ -779,26 +779,53 @@ function ReceiptsPanel() {
       .finally(() => setLoading(false));
   }, []);
 
+  const load = (ref: string) => {
+    setDetail({ status: "loading" });
+    fetchReceiptDetail(ref)
+      .then((data) => setDetail({ status: "ready", data }))
+      .catch((e) => setDetail({ status: "error", error: e instanceof Error ? e.message : "Check your connection and try again." }));
+  };
+  const show = (ref: string) => {
+    setOpen(ref);
+    load(ref);
+  };
+
   if (loading) return <RowSkeleton />;
   if (receipts.length === 0) {
     return <EmptyState icon={<ChevronRightIcon size={20} />} title="No payments yet" />;
   }
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-      {receipts.map((r) => (
-        <div key={r.ref} style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 14, padding: "14px 18px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <div>
-            <div style={{ fontWeight: 700 }}>{r.label}</div>
-            <div style={{ fontSize: 13, color: colors.mutedLight }}>{RECEIPT_LABELS[r.kind]} · {r.ref} · {r.createdAt.slice(0, 10)}</div>
-          </div>
-          <div style={{ textAlign: "right" }}>
-            <div style={{ fontWeight: 700 }}>{euro(r.totalCents / 100)}</div>
-            <div style={{ fontSize: 11, color: r.paymentStatus === "paid" ? colors.greenText : colors.faint }}>{r.paymentStatus}</div>
-          </div>
-        </div>
-      ))}
-    </div>
+    <>
+      <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: 10 }}>
+        {receipts.map((r) => {
+          const st = receiptListStatus(r.paymentStatus);
+          return (
+            <li key={r.ref}>
+              <button
+                type="button"
+                className="btn-reset row-link"
+                onClick={() => show(r.ref)}
+                aria-label={`Receipt for ${r.label}, ${euro(r.totalCents / 100)}, ${st.label}`}
+                style={{ width: "100%", textAlign: "left", cursor: "pointer", background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 16, padding: "14px 18px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}
+              >
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontWeight: 700 }}>{r.label}</div>
+                  <div style={{ fontSize: 13, color: colors.mutedLight }}>
+                    {RECEIPT_KIND_LABELS[r.kind]} · <span style={{ fontFamily: "monospace" }}>{r.ref}</span> · {r.createdAt.slice(0, 10)}
+                  </div>
+                </div>
+                <div style={{ textAlign: "right", flex: "none", display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4 }}>
+                  <div style={{ fontWeight: 700 }}>{euro(r.totalCents / 100)}</div>
+                  <ToneChip tone={st.tone}>{st.label}</ToneChip>
+                </div>
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+      <ReceiptDrawer open={open !== null} onClose={() => setOpen(null)} receipt={detail} onRetry={open ? () => load(open) : undefined} />
+    </>
   );
 }
 
@@ -812,7 +839,7 @@ function SettingsSection({ title, children, last }: { title?: string; children: 
   return (
     <div style={{ marginBottom: last ? 0 : 44 }}>
       {title && (
-        <h2 style={{ fontSize: 12, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".05em", color: colors.faint, margin: "0 0 4px" }}>
+        <h2 style={{ fontSize: 12, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0, color: colors.faint, margin: "0 0 4px" }}>
           {title}
         </h2>
       )}
@@ -1682,12 +1709,12 @@ function HelpSupportPanel() {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14, maxWidth: 560 }}>
       {HELP_FAQS.map((f) => (
-        <div key={f.q} style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 14, padding: "16px 18px" }}>
+        <div key={f.q} style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 16, padding: "16px 18px" }}>
           <div style={{ fontWeight: 700, fontSize: 14.5, marginBottom: 6 }}>{f.q}</div>
           <div style={{ fontSize: 13.5, color: colors.mutedLight, lineHeight: 1.5 }}>{f.a}</div>
         </div>
       ))}
-      <div style={{ background: colors.panel, borderRadius: 14, padding: "16px 18px", fontSize: 13.5, color: colors.muted }}>
+      <div style={{ background: colors.panel, borderRadius: 16, padding: "16px 18px", fontSize: 13.5, color: colors.muted }}>
         Still stuck? Email us at{" "}
         <a href="mailto:support@hellocircle.ie" style={{ color: colors.greenText, fontWeight: 700 }}>support@hellocircle.ie</a>.
       </div>
@@ -1698,7 +1725,7 @@ function HelpSupportPanel() {
 // --- Page shell --------------------------------------------------------
 
 type ProfileSection =
-  | "account" | "notificationPrefs" | "preferences" | "privacy" | "payment"
+  | "account" | "notificationPrefs" | "preferences" | "privacy" | "payment" | "credit"
   | "household" | "favourites" | "following" | "routines" | "passes" | "receipts" | "inbox"
   | "hosting"
   | "safety" | "help";
@@ -1709,6 +1736,7 @@ const NAV_OPTIONS: { key: ProfileSection; label: string; icon: ReactNode; group:
   { key: "preferences", label: "Interests & Discovery", icon: <LightbulbIcon size={15} />, group: "Account" },
   { key: "privacy", label: "Privacy & accessibility", icon: <EyeOffIcon size={15} />, group: "Account" },
   { key: "payment", label: "Payment methods", icon: <CardIcon size={15} />, group: "Account" },
+  { key: "credit", label: "HelloCircle credit", icon: <TagIcon size={15} />, group: "Account" },
 
   { key: "household", label: "Household", icon: <UsersIcon size={15} />, group: "Household & plans" },
   { key: "favourites", label: "Saved", icon: <HeartIcon size={15} />, group: "Household & plans" },
@@ -1729,15 +1757,18 @@ export function Profile() {
   const navigate = useNavigate();
   const { resident, loading: guestLoading } = useGuest();
   // ?tab= lets other screens deep-link a section (e.g. My Life's "Add availability" -> preferences).
-  const [section, setSection] = useState<ProfileSection>(() => {
-    const t = new URLSearchParams(window.location.search).get("tab");
-    return t && NAV_SECTION_KEYS.has(t) ? (t as ProfileSection) : "account";
-  });
+  // Read reactively, so a footer link clicked while already on /profile still switches section.
+  const [searchParams] = useSearchParams();
+  const tabParam = searchParams.get("tab");
+  const [section, setSection] = useState<ProfileSection>(() => (tabParam && NAV_SECTION_KEYS.has(tabParam) ? (tabParam as ProfileSection) : "account"));
+  useEffect(() => {
+    if (tabParam && NAV_SECTION_KEYS.has(tabParam)) setSection(tabParam as ProfileSection);
+  }, [tabParam]);
 
   if (!guestLoading && !resident) {
     return (
       <section className="section-pad" style={{ maxWidth: 560, margin: "0 auto", padding: "80px 24px", textAlign: "center" }}>
-        <h1 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 22, margin: "0 0 10px" }}>Sign in to edit your profile.</h1>
+        <h1 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(24px, 2.4vw, 30px)", margin: "0 0 10px" }}>Sign in to edit your profile.</h1>
         <p style={{ color: colors.mutedLight, marginBottom: 20 }}>Profile, household, saved plans and settings live here once you're signed in.</p>
         <Button onClick={() => navigate(signInHref())}>Sign in</Button>
       </section>
@@ -1760,6 +1791,7 @@ export function Profile() {
       {section === "preferences" && <ParticipationPreferencesPanel />}
       {section === "privacy" && <PrivacyAccessibilityPanel />}
       {section === "payment" && <PaymentMethodsPanel />}
+      {section === "credit" && <CreditWallet />}
       {section === "household" && <HouseholdPanel />}
       {section === "favourites" && <FavouritesPanel />}
       {section === "following" && <FollowingPanel />}

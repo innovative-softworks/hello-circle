@@ -22,11 +22,11 @@ export function CircleActivityCard({ stats, period, onPeriodChange }: { stats: C
   return (
     <Card>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
-        <h3 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 16, margin: 0, letterSpacing: "-.01em" }}>Circle activity</h3>
+        <h3 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 16, margin: 0, letterSpacing: 0 }}>Circle activity</h3>
         <select
           value={period}
           onChange={(e) => onPeriodChange(e.target.value as "week" | "month")}
-          style={{ border: `1px solid ${colors.inputBorder}`, borderRadius: 8, padding: "3px 6px", fontSize: 12, fontWeight: 600, color: colors.text, background: colors.bg }}
+          style={{ border: `1px solid ${colors.inputBorder}`, borderRadius: 10, padding: "3px 6px", fontSize: 12, fontWeight: 600, color: colors.text, background: colors.bg }}
         >
           <option value="week">This week</option>
           <option value="month">This month</option>
