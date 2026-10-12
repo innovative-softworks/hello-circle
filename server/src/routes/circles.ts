@@ -35,6 +35,26 @@ async function canViewCircleFull(circleId: string, joinMode: string, viewerId: s
   return isMember(circleId, viewerId);
 }
 
+/** Booking UX Phase 5 (B10) — an approval Circle's questions, stored as JSON. */
+export function parseJoinQuestions(raw: string | null | undefined): string[] {
+  if (!raw) return [];
+  try {
+    const v = JSON.parse(raw);
+    return Array.isArray(v) ? v.filter((q): q is string => typeof q === "string" && !!q.trim()).slice(0, 3) : [];
+  } catch {
+    return [];
+  }
+}
+
+/** Validates organiser-supplied questions: at most three, each 1–200 characters. */
+export function cleanJoinQuestions(raw: unknown): string[] | { error: string } {
+  if (!Array.isArray(raw)) return { error: "joinQuestions must be a list" };
+  const qs = raw.map((q) => (typeof q === "string" ? q.trim() : "")).filter(Boolean);
+  if (qs.length > 3) return { error: "Ask at most three questions" };
+  if (qs.some((q) => q.length > 200)) return { error: "Keep each question under 200 characters" };
+  return qs;
+}
+
 interface CircleRow {
   id: string;
   name: string;
@@ -52,6 +72,7 @@ interface CircleRow {
   who_can_join: string | null;
   circle_values: string | null;
   join_mode: "open" | "approval" | "invite";
+  join_questions?: string | null;
 }
 
 interface NextPlan {
@@ -195,6 +216,7 @@ async function toCircleJson(row: CircleRow, viewerId: string | null) {
     whatWeDo: row.what_we_do,
     whoCanJoin: row.who_can_join,
     values: row.circle_values,
+    joinQuestions: row.join_mode === "approval" ? parseJoinQuestions(row.join_questions) : [],
   };
 }
 
@@ -233,6 +255,8 @@ async function toCircleTeaserJson(row: CircleRow, viewerId: string | null) {
     imageUrl: null,
     hasImage: !!row.image_url,
     joinMode: row.join_mode,
+    // What the organiser asks before approving — needed by the requester.
+    joinQuestions: row.join_mode === "approval" ? parseJoinQuestions(row.join_questions) : [],
     restricted: true as const,
     hasPendingInvite: !!pendingInvite,
     requested: !!requested,
@@ -1006,6 +1030,10 @@ circlesRouter.post("/:id/join", requireResident, async (req, res) => {
   }
 
   if (circle.joinMode === "approval") {
+    // Booking UX Phase 5 (B10) — an optional note, and answers to the organiser's questions.
+    const { note: rawNote, answers: rawAnswers } = req.body as { note?: unknown; answers?: unknown };
+    const note = typeof rawNote === "string" ? rawNote.trim().slice(0, 500) : "";
+    const answers = Array.isArray(rawAnswers) ? rawAnswers.slice(0, 3).map((a) => (typeof a === "string" ? a.trim().slice(0, 500) : "")) : [];
     const alreadyMember = await db.prepare(`SELECT 1 FROM circle_members WHERE circle_id = ? AND resident_id = ?`).get(req.params.id, req.resident!.id);
     if (alreadyMember) return res.status(409).json({ error: "Already a member" });
     // HC-QA-033 — idempotent while pending: the same request again changes
@@ -1017,10 +1045,10 @@ circlesRouter.post("/:id/join", requireResident, async (req, res) => {
     const requestId = crypto.randomUUID();
     await db
       .prepare(
-        `INSERT INTO circle_invites (id, circle_id, resident_id, invited_by_resident_id, initiated_by) VALUES (?, ?, ?, ?, 'resident')
-         ON DUPLICATE KEY UPDATE status = 'pending', initiated_by = 'resident', invited_by_resident_id = VALUES(invited_by_resident_id), created_at = NOW()`
+        `INSERT INTO circle_invites (id, circle_id, resident_id, invited_by_resident_id, initiated_by, note, answers) VALUES (?, ?, ?, ?, 'resident', ?, ?)
+         ON DUPLICATE KEY UPDATE status = 'pending', initiated_by = 'resident', invited_by_resident_id = VALUES(invited_by_resident_id), note = VALUES(note), answers = VALUES(answers), created_at = NOW()`
       )
-      .run(requestId, req.params.id, req.resident!.id, req.resident!.id);
+      .run(requestId, req.params.id, req.resident!.id, req.resident!.id, note || null, answers.some(Boolean) ? JSON.stringify(answers) : null);
 
     const [organisers, circleName] = await Promise.all([
       db.prepare(`SELECT resident_id as residentId FROM circle_members WHERE circle_id = ? AND role = 'organiser'`).all(req.params.id) as Promise<{ residentId: string }[]>,
@@ -1087,15 +1115,29 @@ circlesRouter.get("/:id/membership", requireResident, async (req, res) => {
 // see GET /invitations/mine below, which is the invitee's own inbox).
 circlesRouter.get("/:id/join-requests", requireResident, async (req, res) => {
   if (!(await isOrganiser(req.params.id, req.resident!.id))) return res.status(403).json({ error: "Only the organiser can view this" });
-  const rows = await db
+  const rows = (await db
     .prepare(
-      `SELECT ci.id, ci.resident_id as residentId, r.name, ci.created_at as createdAt
+      `SELECT ci.id, ci.resident_id as residentId, r.name, ci.created_at as createdAt, ci.note, ci.answers
        FROM circle_invites ci JOIN residents r ON r.id = ci.resident_id
        WHERE ci.circle_id = ? AND ci.status = 'pending' AND ci.initiated_by = 'resident'
        ORDER BY ci.created_at DESC`
     )
-    .all(req.params.id);
-  res.json(rows);
+    .all(req.params.id)) as { answers: string | null; note: string | null }[];
+  // Booking UX Phase 5 — each answer next to the question it answers.
+  const questionsRow = (await db.prepare(`SELECT join_questions FROM circles WHERE id = ?`).get(req.params.id)) as { join_questions: string | null } | undefined;
+  const questions = parseJoinQuestions(questionsRow?.join_questions);
+  res.json(
+    rows.map(({ answers, ...r }) => {
+      let given: string[] = [];
+      try {
+        const v = answers ? JSON.parse(answers) : [];
+        given = Array.isArray(v) ? v.map((a) => (typeof a === "string" ? a : "")) : [];
+      } catch {
+        given = [];
+      }
+      return { ...r, note: r.note || null, answers: questions.map((question, i) => ({ question, answer: given[i] ?? "" })).filter((a) => a.answer) };
+    })
+  );
 });
 
 circlesRouter.post("/:id/join-requests/:requestId/respond", requireResident, async (req, res) => {
@@ -1116,10 +1158,15 @@ circlesRouter.post("/:id/join-requests/:requestId/respond", requireResident, asy
     return res.status(409).json({ error: "This Circle is closed and isn't accepting new members" });
   }
 
-  await db.transaction(async (tx) => {
-    await tx.prepare(`UPDATE circle_invites SET status = ? WHERE id = ?`).run(accept ? "accepted" : "declined", req.params.requestId);
+  // Booking UX Phase 5 — conditional on still being pending, so a double
+  // click (or two organisers) can't both act; the loser gets 409.
+  const changed = await db.transaction(async (tx) => {
+    const r = await tx.prepare(`UPDATE circle_invites SET status = ? WHERE id = ? AND status = 'pending'`).run(accept ? "accepted" : "declined", req.params.requestId);
+    if (r.changes !== 1) return false;
     if (accept) await tx.prepare(`INSERT IGNORE INTO circle_members (circle_id, resident_id) VALUES (?, ?)`).run(req.params.id, request.residentId);
+    return true;
   });
+  if (!changed) return res.status(409).json({ error: "This request has already been answered" });
 
   const circle = circleRow;
   await notifyResident({
@@ -1180,6 +1227,8 @@ interface UpdateCircleInput {
   whoCanJoin?: string;
   values?: string;
   joinMode?: JoinMode;
+  /** Booking UX Phase 5 — omitted leaves the questions untouched; [] clears them. */
+  joinQuestions?: string[];
 }
 
 circlesRouter.put("/:id", requireResident, async (req, res) => {
@@ -1187,6 +1236,8 @@ circlesRouter.put("/:id", requireResident, async (req, res) => {
   if (!b.name) return res.status(400).json({ error: "A name is required" });
   if (b.joinMode && !JOIN_MODES.includes(b.joinMode)) return res.status(400).json({ error: "Invalid joinMode" });
   if (!(await isOrganiser(req.params.id, req.resident!.id))) return res.status(403).json({ error: "Only the organiser can edit this Circle" });
+  const questions = b.joinQuestions === undefined ? undefined : cleanJoinQuestions(b.joinQuestions);
+  if (questions && "error" in questions) return res.status(400).json({ error: questions.error });
 
   // image_url is COALESCE'd, everything else here is a plain overwrite —
   // deliberately, since imageUrl is no longer always present in what the
@@ -1214,6 +1265,7 @@ circlesRouter.put("/:id", requireResident, async (req, res) => {
       b.joinMode ?? null,
       req.params.id
     );
+  if (questions) await db.prepare(`UPDATE circles SET join_questions = ? WHERE id = ?`).run(questions.length ? JSON.stringify(questions) : null, req.params.id);
 
   const row = (await db.prepare(`SELECT * FROM circles WHERE id = ?`).get(req.params.id)) as CircleRow;
   res.json(await toCircleJson(row, req.resident!.id));

@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 import mysql from "mysql2/promise";
-import { POLICY_SEEDS } from "../policy/drafts.js";
+import { FEE_CLAIM_DRAFT_CORRECTIONS, POLICY_SEEDS } from "../policy/drafts.js";
 import type { Pool, PoolConnection } from "mysql2/promise";
 import { normalizeAvailability, normalizeGoals } from "../participationVocab.js";
 import { normalizeDemand } from "../demandNormalize.js";
@@ -1995,6 +1995,12 @@ export async function initSchema() {
   // the organiser to approve/decline. Every existing row is a real
   // organiser invite, so the default backfills them correctly.
   await ensureColumn("circle_invites", "initiated_by", "initiated_by VARCHAR(20) NOT NULL DEFAULT 'organiser'");
+  // Booking UX Phase 5 (audit B10) - up to three organiser questions on an
+  // approval Circle (JSON array), and the requester's note and answers.
+  // Nullable with no default (a TEXT column can't carry one in MySQL).
+  await ensureColumn("circles", "join_questions", "join_questions TEXT NULL");
+  await ensureColumn("circle_invites", "note", "note VARCHAR(500) NULL");
+  await ensureColumn("circle_invites", "answers", "answers TEXT NULL");
 
   // Vendor reply on a review (Host Manage spec §16) — only ever set for
   // centre/club reviews (a vendor replies), never game/host reviews (no
@@ -3080,6 +3086,14 @@ async function initCommerceSchema(
         .prepare(`INSERT IGNORE INTO policy_versions (doc_key, version, status, body, change_summary, material, created_by) VALUES (?, 1, 'draft', ?, 'Initial structured draft', 1, 'system')`)
         .run(d.key, d.body);
     }
+    // Commercial claims safety audit — correct the fee-model sentences in
+    // drafts nobody has edited yet. Drafts only (approved or published
+    // versions are never rewritten) and only system-authored ones.
+    for (const c of FEE_CLAIM_DRAFT_CORRECTIONS) {
+      await db
+        .prepare(`UPDATE policy_versions SET body = REPLACE(body, ?, ?) WHERE doc_key = ? AND status = 'draft' AND created_by = 'system' AND INSTR(body, ?) > 0`)
+        .run(c.from, c.to, c.docKey, c.from);
+    }
   }
   // Stage 5c — the privacy notice is acknowledged, not accepted; "all" = residents and partners.
   await ensureColumn("policy_documents", "acceptance_kind", "acceptance_kind VARCHAR(20) NOT NULL DEFAULT 'contract'");
@@ -3440,6 +3454,7 @@ async function initCommerceSchema(
       )
       .run(key, ...v);
   }
+  await correctFeeModelHelp();
   await db.exec(`
     INSERT IGNORE INTO ledger_accounts (code, name, account_type) VALUES
       ('partner_available', 'Partner balance available for settlement', 'liability'),
@@ -3718,6 +3733,52 @@ async function initCommerceSchema(
       ('pro', 'Pro', 'active', 2),
       ('enterprise', 'Enterprise', 'disabled', 3)
   `);
+
+  // Booking UX Phase 4 (audit B8) - what a customer agreed to with an order:
+  // the booking terms version in force (resolved server-side from the policy
+  // CMS, NULL while only a draft exists) or a fingerprint of the listing's own
+  // safety text. Append-only; written in the order's own transaction.
+  // Booking UX Phase 4 (audit B7) - the named people in a multi-person
+  // experience booking, one row per seat.
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS order_acknowledgements (
+      id BIGINT AUTO_INCREMENT PRIMARY KEY,
+      source_type VARCHAR(20) NOT NULL,
+      source_ref VARCHAR(191) NOT NULL,
+      kind VARCHAR(20) NOT NULL,
+      doc_key VARCHAR(60) NULL,
+      doc_version INT NULL,
+      text_fingerprint VARCHAR(64) NULL,
+      client_id VARCHAR(191) NULL,
+      resident_id VARCHAR(191) NULL,
+      accepted_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE KEY uq_order_ack (source_type, source_ref, kind)
+    );
+
+    CREATE TABLE IF NOT EXISTS experience_booking_participants (
+      id BIGINT AUTO_INCREMENT PRIMARY KEY,
+      booking_ref VARCHAR(191) NOT NULL,
+      seat INT NOT NULL,
+      name VARCHAR(120) NOT NULL,
+      UNIQUE KEY uq_booking_seat (booking_ref, seat)
+    );
+  `);
+
+  // Booking UX Phase 7 (audit E5) - indexes for the booking hot paths: the
+  // row-locked overlap and capacity checks, "my bookings" by device or email,
+  // and activity-on-booking lookups. Additive and idempotent.
+  await ensureIndex("bookings", "idx_bookings_room_date", "(centre_id, room_id, date)");
+  await ensureIndex("bookings", "idx_bookings_client", "(client_id)");
+  await ensureIndex("bookings", "idx_bookings_email", "(email)");
+  await ensureIndex("bookings", "idx_bookings_resident", "(resident_id)");
+  await ensureIndex("registrations", "idx_registrations_club", "(club_id)");
+  await ensureIndex("registrations", "idx_registrations_session", "(session_id)");
+  await ensureIndex("registrations", "idx_registrations_client", "(client_id)");
+  await ensureIndex("registrations", "idx_registrations_email", "(email)");
+  await ensureIndex("program_enrollments", "idx_enrollments_program", "(program_id)");
+  await ensureIndex("experience_bookings", "idx_exp_bookings_session", "(session_id)");
+  await ensureIndex("experience_bookings", "idx_exp_bookings_experience", "(experience_id)");
+  await ensureIndex("games", "idx_games_booking_ref", "(booking_ref)");
 }
 
 export const COUNTY_CENTROIDS: Record<string, { lat: number; lng: number }> = {
@@ -3809,4 +3870,59 @@ export async function getSetting(key: string, defaultValue: string): Promise<str
 export async function setSetting(key: string, value: string): Promise<void> {
   await db.prepare(`INSERT INTO app_settings (\`key\`, value) VALUES (?, ?) ON DUPLICATE KEY UPDATE value = VALUES(value)`).run(key, value);
   settingsCache.set(key, { value, expiresAt: Date.now() + SETTINGS_CACHE_TTL_MS });
+}
+
+// Commercial claims safety audit (2026-10-11, R3B F1) — these entries
+// described the proposed partner fee model (9% / 7% success fee, VAT on the
+// fee, Pro's lower fee) as if it were charged. It isn't. Adds one new version
+// per key with neutral text, keeping every earlier version as history. Only
+// when the latest version is still system-written (an admin's edit is never
+// overridden) and differs from the correction, so re-running is a no-op.
+export const FEE_MODEL_HELP_CORRECTIONS: Record<string, { name: string; definition: string }> = {
+  platform_fee: {
+    name: "HelloCircle fee",
+    definition: "HelloCircle's fees on paid bookings are being finalised and will be confirmed with you before you take paid bookings. Free events carry no fee.",
+  },
+  platform_fee_vat: {
+    name: "VAT on HelloCircle's fees",
+    definition: "How VAT applies to HelloCircle's fees and to your own activity is being confirmed with our tax adviser, and will be confirmed with you before you take paid bookings.",
+  },
+  fee_base: {
+    name: "Fee base",
+    definition: "The amount any HelloCircle fee is worked out on. It's confirmed together with the fees before paid bookings open.",
+  },
+  partner_payout: {
+    name: "Your payout",
+    definition: "What you receive for an order once it completes and the review period passes. How it's worked out is confirmed with you before paid bookings open.",
+  },
+  pro_break_even: {
+    name: "Pro and paid-booking fees",
+    definition: "What Pro costs and what it changes for paid bookings will be confirmed together with paid-booking pricing.",
+  },
+  pro_benefit_1: {
+    name: "Paid-booking fees (to be confirmed)",
+    definition: "What Pro changes for fees on paid bookings will be confirmed together with paid-booking pricing.",
+  },
+  pro_benefit_2: {
+    name: "Low-priced activities (to be confirmed)",
+    definition: "How Pro treats fees on low-priced activities will be confirmed together with paid-booking pricing.",
+  },
+};
+
+async function correctFeeModelHelp(): Promise<void> {
+  for (const [key, fix] of Object.entries(FEE_MODEL_HELP_CORRECTIONS)) {
+    const latest = (await db
+      .prepare(
+        `SELECT version, name, definition, who_pays as whoPays, when_charged as whenCharged, refund_behaviour as refundBehaviour, policy_key as policyKey, created_by as createdBy
+         FROM help_entries WHERE help_key = ? ORDER BY version DESC LIMIT 1`
+      )
+      .get(key)) as { version: number; name: string; definition: string; whoPays: string; whenCharged: string; refundBehaviour: string; policyKey: string; createdBy: string } | undefined;
+    if (!latest || latest.createdBy !== "system" || latest.definition === fix.definition) continue;
+    await db
+      .prepare(
+        `INSERT IGNORE INTO help_entries (help_key, version, name, definition, formula, example, who_pays, when_charged, refund_behaviour, policy_key, reason)
+         VALUES (?, ?, ?, ?, '—', '—', ?, ?, ?, ?, 'Commercial claims safety audit: the proposed fee model is not in force')`
+      )
+      .run(key, Number(latest.version) + 1, fix.name, fix.definition, latest.whoPays, latest.whenCharged, latest.refundBehaviour, latest.policyKey);
+  }
 }

@@ -1,3 +1,4 @@
+import { proPurchaseAllowed } from "./releaseGates.js";
 import { writeAudit } from "../audit.js";
 import { db } from "../db/index.js";
 import { allocationPartners, isSplitOrder } from "./allocations.js";
@@ -252,6 +253,8 @@ export async function rewardBalance(partner: PartnerKey, at: Date = new Date()) 
 /** Spends the published number of points (oldest first) on one month of Pro. */
 export async function redeemForProMonth(partner: PartnerKey, actorId: string) {
   if (!(await commerceSwitch("commerce.circle_credits"))) throw new RewardError("Reward points aren't available yet", 409);
+  // Commercial release gate — a redemption activates Pro, so it waits for the fee model too.
+  if (!proPurchaseAllowed()) throw new RewardError("Reward points aren't available yet", 409);
   const sub = await db.prepare(`SELECT id FROM partner_subscriptions WHERE party_type = ? AND party_id = ? AND status IN ('active','past_due') LIMIT 1`).get(partner.kind, partner.id);
   if (sub) throw new RewardError("You're subscribed to Pro already — points can be redeemed when you're not on a paid subscription", 409);
   const { redemptionPoints } = await rewardBalance(partner);

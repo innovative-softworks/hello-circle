@@ -721,6 +721,66 @@ export const CONNECT_EVENT_TYPES = new Set(["account.updated", "capability.updat
 
 // --- partner view ---------------------------------------------------------------------
 
+interface TransferListRow { id: number; settlementId: number; amountMinor: number | string; reversedMinor: number | string; status: string; createdAt: string; bookings: number | string }
+interface BankPayoutListRow { id: string; amountMinor: number | string; currency: string; status: string; arrivalDate: string | null; failureMessage: string | null }
+
+export type PayoutHistoryStatus = "sent" | "in_transit" | "paid" | "failed" | "reversed" | "partly_reversed";
+export interface PayoutHistoryItem {
+  id: string;
+  type: "transfer" | "bank_payout";
+  date: string | null;
+  amountCents: number;
+  status: PayoutHistoryStatus;
+  settlementRef: string | null;
+  bookings: number | null;
+  recoveredCents: number | null;
+  failureMessage: string | null;
+}
+
+/** Stripe payout statuses → the partner-facing vocabulary. */
+export function bankPayoutStatus(stripeStatus: string): PayoutHistoryStatus {
+  if (stripeStatus === "paid") return "paid";
+  if (stripeStatus === "failed" || stripeStatus === "canceled") return "failed";
+  return "in_transit"; // pending, in_transit
+}
+
+/** Read-only view over existing transfer and bank-payout records — never creates one. */
+async function payoutHistory(transfers: TransferListRow[], payouts: BankPayoutListRow[]): Promise<PayoutHistoryItem[]> {
+  const runKeys = new Map<number, string>();
+  const ids = [...new Set(transfers.map((t) => Number(t.settlementId)))];
+  if (ids.length) {
+    const rows = (await db
+      .prepare(`SELECT s.id, r.run_key as runKey FROM settlements s JOIN settlement_runs r ON r.id = s.run_id WHERE s.id IN (${ids.map(() => "?").join(", ")})`)
+      .all(...ids)) as { id: number; runKey: string }[];
+    for (const r of rows) runKeys.set(Number(r.id), r.runKey);
+  }
+  const items: PayoutHistoryItem[] = [
+    ...transfers.map((t) => ({
+      id: `transfer-${t.id}`,
+      type: "transfer" as const,
+      date: t.createdAt,
+      amountCents: Number(t.amountMinor),
+      status: (t.status === "reversed" ? "reversed" : t.status === "partially_reversed" ? "partly_reversed" : "sent") as PayoutHistoryStatus,
+      settlementRef: runKeys.get(Number(t.settlementId)) ?? null,
+      bookings: Number(t.bookings),
+      recoveredCents: Number(t.reversedMinor) > 0 ? Number(t.reversedMinor) : null,
+      failureMessage: null,
+    })),
+    ...payouts.map((p) => ({
+      id: `payout-${p.id}`,
+      type: "bank_payout" as const,
+      date: p.arrivalDate,
+      amountCents: Number(p.amountMinor),
+      status: bankPayoutStatus(p.status),
+      settlementRef: null,
+      bookings: null,
+      recoveredCents: null,
+      failureMessage: p.failureMessage,
+    })),
+  ];
+  return items.sort((a, b) => new Date(b.date ?? 0).getTime() - new Date(a.date ?? 0).getTime());
+}
+
 export async function payoutsOverview(party: Party) {
   const account = await getConnectedAccount(party);
   const [readiness, transfers, payouts] = await Promise.all([
@@ -762,6 +822,13 @@ export async function payoutsOverview(party: Party) {
     transfers,
     /** The partner's Stripe account → their bank (made by Stripe; mirrored). */
     bankPayouts: payouts,
+    // Commercial UX R3A — the same two record sets as one dated list with a
+    // shared status vocabulary (additive; `transfers`/`bankPayouts` unchanged).
+    history: await payoutHistory(transfers as TransferListRow[], payouts as BankPayoutListRow[]),
+    /** The weekly minimum before a transfer is made, from this partner's settlement rule. */
+    minimumPayoutCents: await resolveRule("settlement", { orgId: party.partyType === "org" ? party.partyId : null, hostResidentId: party.partyType === "host" ? party.partyId : null })
+      .then((r) => (Number.isFinite(Number(r.values.minPayoutMinor)) ? Number(r.values.minPayoutMinor) : null))
+      .catch(() => null),
     openDebt: await openDebtFor(party).then((d) => (d ? { id: d.id, outstandingMinor: outstandingMinor(d), openedAt: d.openedAt } : null)),
   };
 }

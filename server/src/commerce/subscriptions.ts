@@ -1,3 +1,4 @@
+import { proPurchaseAllowed } from "./releaseGates.js";
 import { writeAudit } from "../audit.js";
 import { db } from "../db/index.js";
 import { paymentProvider } from "../payments/provider.js";
@@ -82,6 +83,8 @@ export async function liveSubscription(partner: PartnerKey) {
  */
 export async function startProCheckout(partner: PartnerKey, input: { email: string; actorId: string; returnPath: string; termsAccepted?: boolean }) {
   if (!(await commerceSwitch("commerce.pro_subscriptions"))) throw new SubscriptionError("Pro subscriptions aren't available yet", 409);
+  // Commercial release gate — even with the switch on, no Pro purchase while the fee model is unapproved.
+  if (!proPurchaseAllowed()) throw new SubscriptionError("Pro subscriptions aren't available yet", 409);
   if (input.termsAccepted !== true) throw new SubscriptionError("Please confirm the Pro terms before continuing", 400);
   const provider = paymentProvider();
   if (!provider) throw new SubscriptionError("Payments aren't configured on this server", 503);

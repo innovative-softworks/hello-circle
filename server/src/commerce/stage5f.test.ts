@@ -319,7 +319,9 @@ describe("coupons and switches", () => {
   it("refuses invalid switch combinations (server-side)", async () => {
     const all = (on: string[]) => Object.fromEntries(SWITCHES.concat(["commerce.connect_v1", "commerce.venue_host_split_payout"]).map((k) => [k, on.includes(k)]));
     expect(switchChangeProblem("commerce.circle_credits", true, all([]))).toMatch(/Turn on .*ledger/i);
-    expect(switchChangeProblem("commerce.circle_credits", true, all(["commerce.settlement_ledger"]))).toBeNull();
+    // Commercial release gate: with its prerequisite on, rewards still wait for the approved fee model.
+    expect(switchChangeProblem("commerce.circle_credits", true, all(["commerce.settlement_ledger"]))).toMatch(/fee model is approved/);
+    expect(switchChangeProblem("commerce.customer_credits", true, all(["commerce.engine_v2", "commerce.engine_v2_experience"]))).toBeNull();
     expect(switchChangeProblem("commerce.settlement_ledger", false, all(["commerce.settlement_ledger", "commerce.circle_credits"]))).toMatch(/Turn off/);
     expect(switchChangeProblem("commerce.customer_credits", true, all(["commerce.engine_v2"]))).toMatch(/experience/i);
     await setSetting("commerce.settlement_ledger", "false");

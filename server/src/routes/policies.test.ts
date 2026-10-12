@@ -255,3 +255,51 @@ describe("trader profiles", () => {
     expect((await call("PUT", `/admin/traders/host/${resident}/verification`, { status: "verified", note: "Checked against Stripe KYC" }, asLegal)).status).toBe(200);
   });
 });
+
+// Sitemap audit P1-02 — the public About/Contact pages read company details
+// from the policy placeholder values, but only values that appear in a
+// published (legally signed-off) policy. Runs last in this file; afterAll
+// puts the general-terms document back to its seeded draft.
+describe("company profile", () => {
+  const set = (k: string, v: string) =>
+    db.prepare(`INSERT INTO policy_values (placeholder, value, updated_by) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE value = VALUES(value), updated_by = VALUES(updated_by)`).run(k, v, legal);
+  const entity = `Test Entity ${run} Limited`;
+
+  it("never exposes a value that is only set, not published", async () => {
+    await set("LEGAL_ENTITY_NAME", entity);
+    await set("COMPANY_NUMBER", "   ");
+    await set("DATA_RETENTION_PERIOD", "6 years");
+    const body = (await (await fetch(`${baseUrl}/policies/company`)).json()) as Record<string, string>;
+    expect(body).not.toHaveProperty("LEGAL_ENTITY_NAME"); // set, but in no published policy
+    expect(body).not.toHaveProperty("COMPANY_NUMBER"); // blank
+    expect(body).not.toHaveProperty("DATA_RETENTION_PERIOD"); // not a company field at all
+  });
+
+  it("exposes a value once a published policy carries it, and drops it again if the value changes", async () => {
+    await db
+      .prepare(`UPDATE policy_versions SET status = 'published', published_body = ?, published_at = NOW() WHERE doc_key = ? AND version = 1`)
+      .run(`These terms are between you and ${entity}.`, DOC);
+    let body = (await (await fetch(`${baseUrl}/policies/company`)).json()) as Record<string, string>;
+    expect(body.LEGAL_ENTITY_NAME).toBe(entity);
+    await set("LEGAL_ENTITY_NAME", `${entity} (renamed)`); // changed after publication, not yet re-approved
+    body = (await (await fetch(`${baseUrl}/policies/company`)).json()) as Record<string, string>;
+    expect(body).not.toHaveProperty("LEGAL_ENTITY_NAME");
+  });
+
+  it("gives legal admins a completeness checklist, and nobody else", async () => {
+    const r = await call("GET", "/admin/policies/company-profile", undefined, asLegal);
+    expect(r.status).toBe(200);
+    const byKey = Object.fromEntries((r.body as { key: string; state: string }[]).map((f) => [f.key, f.state]));
+    expect(byKey.LEGAL_ENTITY_NAME).toBe("set_not_published");
+    expect(byKey.COMPANY_NUMBER).toBe("missing");
+    expect(byKey).not.toHaveProperty("DATA_RETENTION_PERIOD");
+    const legalName = (r.body as { key: string; mismatch: boolean; expected: string | null; guidance: string }[]).find((f) => f.key === "LEGAL_ENTITY_NAME")!;
+    expect(legalName.expected).toBe("Innovative Softworks Technologies Limited");
+    expect(legalName.mismatch).toBe(true); // the test value isn't the confirmed operator
+    const cro = (r.body as { key: string; guidance: string; mismatch: boolean }[]).find((f) => f.key === "COMPANY_NUMBER")!;
+    expect(cro.guidance).toMatch(/Pending/);
+    expect(cro.mismatch).toBe(false);
+    expect((await call("GET", "/admin/policies/company-profile", undefined, { "X-Test-Admin": support })).status).toBe(403);
+    expect((await call("GET", "/admin/policies/company-profile")).status).toBe(401);
+  });
+});

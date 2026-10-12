@@ -4,6 +4,7 @@ import { comparePlans } from "../commerce/planCompare.js";
 import { proBreakEvenMinor } from "../commerce/plans.js";
 import { RuleError, RuleResolutionError, resolveRule } from "../commerce/rules.js";
 import { simpleRateLimit } from "../rateLimit.js";
+import { partnerFeeModelApproved } from "../commerce/releaseGates.js";
 
 // Revenue & Connect Stage 2b — public pricing endpoints behind the pricing
 // page and partner calculators (Stage 3). Partner-agnostic (no partner ids
@@ -11,6 +12,21 @@ import { simpleRateLimit } from "../rateLimit.js";
 // §19B), so they are stripped here.
 export const pricingPublicRouter = Router();
 const limiter = simpleRateLimit({ windowMs: 15 * 60 * 1000, max: 300 });
+
+// Commercial claims safety audit (R3B F1) — these figures come from the
+// proposed plan model, not from what checkout charges. Every response says so
+// in-band (additive fields; existing fields and figures unchanged, so any
+// existing consumer keeps working) and in a header.
+export const FEE_MODEL_NOTICE =
+  "Proposed partner pricing — not in force. HelloCircle doesn't charge these fees today; paid-booking pricing is being finalised.";
+function modelStatus() {
+  const approved = partnerFeeModelApproved();
+  return { status: approved ? ("in_force" as const) : ("proposed" as const), inForce: approved, notice: approved ? null : FEE_MODEL_NOTICE };
+}
+pricingPublicRouter.use((_req, res, next) => {
+  res.setHeader("X-HelloCircle-Fee-Model", partnerFeeModelApproved() ? "in_force" : "proposed");
+  next();
+});
 
 function fail(res: import("express").Response, e: unknown) {
   if (e instanceof RuleError) return res.status(e.status).json({ error: e.message });
@@ -29,6 +45,7 @@ pricingPublicRouter.get("/plans", async (_req, res) => {
       free: pick(free),
       pro: pick(pro),
       proBreakEvenMonthlyGmvMinor: proBreakEvenMinor(Number(free.values.successFeeBps), Number(pro.values.successFeeBps), Number(pro.values.subscriptionMonthlyMinor)),
+      ...modelStatus(),
     });
   } catch (e) {
     fail(res, e);
@@ -39,7 +56,7 @@ pricingPublicRouter.post("/estimate", limiter, async (req, res) => {
   try {
     const { result, planKey } = await estimate(parseEstimateBody(req.body ?? {}, { allowPartner: false }));
     const { marginWarning: _hidden, ...visible } = result;
-    res.json({ planKey, ...visible });
+    res.json({ planKey, ...visible, ...modelStatus() });
   } catch (e) {
     fail(res, e);
   }
@@ -53,7 +70,7 @@ pricingPublicRouter.post("/compare", limiter, async (req, res) => {
       return res.status(400).json({ error: "monthlyGmvMinor and orders must be whole numbers" });
     }
     const { ruleHashes: _h, ...visible } = await comparePlans(gmv, orders);
-    res.json(visible);
+    res.json({ ...visible, ...modelStatus() });
   } catch (e) {
     fail(res, e);
   }

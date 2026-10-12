@@ -1,5 +1,11 @@
 import nodemailer from "nodemailer";
 import { CLIENT_URL } from "./stripe.js";
+import { CORPORATE_BRAND, LEGAL_OPERATOR, PRODUCT_BRAND } from "./companyIdentity.js";
+
+// Who sent this, in every email footer: the product, its corporate brand and
+// the legal operator (owner-confirmed, see companyIdentity.ts). No address or
+// registration details — those aren't approved for public use yet.
+const EMAIL_FOOTER_IDENTITY = `${PRODUCT_BRAND} — local activities, Circles and community spaces in Ireland. A product of ${CORPORATE_BRAND} (${LEGAL_OPERATOR}).`;
 
 const SMTP_HOST = process.env.SMTP_HOST;
 const SMTP_PORT = Number(process.env.SMTP_PORT) || 587;
@@ -115,7 +121,7 @@ function wrapEmailHtml(subject: string, bodyHtml: string): string {
           <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:480px;background-color:#ffffff;border:1px solid #e7e4dc;border-radius:16px;">
             <tr>
               <td style="padding:20px 32px;border-bottom:1px solid #e7e4dc;">
-                <img src="${CLIENT_URL}/illustrations/logo-email.png" width="114" height="26" alt="Hello Circle" style="display:block;width:114px;height:26px;border:0;">
+                <img src="${CLIENT_URL}/illustrations/logo-email.png" width="114" height="26" alt="HelloCircle" style="display:block;width:114px;height:26px;border:0;">
               </td>
             </tr>
             <tr>
@@ -125,7 +131,7 @@ function wrapEmailHtml(subject: string, bodyHtml: string): string {
             </tr>
             <tr>
               <td style="padding:18px 32px 26px;border-top:1px solid #e7e4dc;font-family:${EMAIL_FONT};font-size:12.5px;color:#5b635c;">
-                Hello Circle — local community centres &amp; sports clubs in Ireland.
+                ${EMAIL_FOOTER_IDENTITY}
               </td>
             </tr>
           </table>

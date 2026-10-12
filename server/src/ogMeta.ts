@@ -1,3 +1,4 @@
+import { CORPORATE_BRAND, CORPORATE_BRAND_URL, LEGAL_OPERATOR, PRODUCT_BRAND } from "./companyIdentity.js";
 import { venuePagesPublic, isVenuePath } from "./venueLaunch.js";
 import { db } from "./db/index.js";
 import { irelandTodayIso } from "./irelandTime.js";
@@ -109,15 +110,32 @@ const MARKETING_PAGES: Record<string, { title: string; description: string; imag
     jsonLd: {
       "@context": "https://schema.org",
       "@type": "Organization",
-      name: "HelloCircle",
+      name: PRODUCT_BRAND,
       url: "https://www.hellocircle.ie",
       logo: "https://www.hellocircle.ie/illustrations/Logo.svg",
       description: DEFAULT_DESCRIPTION,
+      // HelloCircle is a product brand of the legal operator (owner-confirmed;
+      // see companyIdentity.ts) — not a separate company.
+      parentOrganization: { "@type": "Organization", name: CORPORATE_BRAND, legalName: LEGAL_OPERATOR, url: CORPORATE_BRAND_URL },
     },
   },
   "/for-venues": {
     title: "List your venue or become a Host — HelloCircle",
     description: "Get discovered, get booked, and grow your community. List a community centre or sports club, or become a Host and run a Session or Circle with no venue needed.",
+  },
+  // Second route to the same vendor pitch (sitemap audit P1-04).
+  "/partners": {
+    title: "List your venue or become a Host — HelloCircle",
+    description: "Get discovered, get booked, and grow your community. List a community centre or sports club, or become a Host and run a Session or Circle with no venue needed.",
+  },
+  // Sitemap audit P1-02 — who runs HelloCircle and how to reach them.
+  "/about": {
+    title: "About HelloCircle",
+    description: "HelloCircle brings together local activities, regular groups, courses and community spaces across Ireland. A product of iSoftworks.",
+  },
+  "/contact": {
+    title: "Contact HelloCircle",
+    description: "Get help with HelloCircle, list your venue or club, make a complaint, or ask about your data.",
   },
   "/become-a-host": {
     title: "Become a Host, free — no venue needed — HelloCircle",
@@ -568,7 +586,7 @@ export function injectOgTags(html: string, meta: OgMeta): string {
 // open game, not every syntactically-valid local-landing URL (which would
 // be unbounded, since the activity segment accepts free text).
 
-const STATIC_SITEMAP_PATHS = ["/", "/explore", "/browse/centres", "/browse/clubs", "/circles", "/games", "/adventures", "/experiences"];
+const STATIC_SITEMAP_PATHS = ["/", "/explore", "/browse/centres", "/browse/clubs", "/circles", "/games", "/adventures", "/experiences", "/about", "/contact"];
 
 function slugifyActivity(label: string): string {
   return label.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");

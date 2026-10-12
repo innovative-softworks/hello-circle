@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { allocate } from "../commerce/money.js";
-import { creditForCheckout, reserveCredit } from "../commerce/credits.js";
+import { creditBalance, creditForCheckout, reserveCredit } from "../commerce/credits.js";
 import { commerceQuoteLimiter } from "../rateLimit.js";
 import { createCheckoutSession, pricingLineItems } from "../checkoutService.js";
 import { logEvent, logView } from "../analytics.js";
@@ -10,7 +10,8 @@ import { orgPoliciesForVendor } from "../db/queries.js";
 import { upgradeFavouriteStatus } from "./favourites.js";
 import { buildIcsEvent } from "../ics.js";
 import { irelandWallTimeToUtc } from "../irelandTime.js";
-import { experienceCancelBlock, refundStateOf } from "../selfCancel.js";
+import { cancelDeadlineIso, experienceCancelBlock, refundStateOf } from "../selfCancel.js";
+import { cleanParticipantNames, minAgeError, recordOrderAcknowledgements, recordParticipantNames } from "../orderAcknowledgements.js";
 import { notifyCancellation, notifyNewBookingOrRegistration } from "../notifications.js";
 import { computePricing, evaluateCoupon } from "../pricing.js";
 import { QuoteError, consumeQuote, createOrder, createQuote, engineEnabledFor, engineLineItems, legacyColumns, priceWithRules, releaseQuote, shadowPrice, syncOrderFromSource, vendorPartner } from "../commerce/engine.js";
@@ -210,6 +211,13 @@ interface BookBody {
   quoteId?: string;
   /** Stage 5b — apply the signed-in resident's HelloCircle credit (engine-priced only). */
   useCredits?: boolean;
+  /** Booking UX Phase 4 — one name per seat (optional for older clients; if sent, one per person). */
+  participants?: string[];
+  /** B9 — required (true) when the experience sets a minimum age. */
+  meetsMinAge?: boolean;
+  /** B8 — recorded with the order: booking terms (version resolved server-side) and the listing's safety text. */
+  acceptedTerms?: boolean;
+  acceptedSafety?: boolean;
 }
 
 // Books ONE session (a specific departure) — party_size spots on it, not a
@@ -224,7 +232,7 @@ async function quoteExperience(experience: ExperienceRow, partySize: number, raw
   let couponCode: string | null = null;
   if (rawCoupon) {
     const result = await evaluateCoupon(rawCoupon, subtotalCents, { listingType: "experience", listingId: experience.id });
-    if (!result.valid) return { ok: false as const, error: result.error! };
+    if (!result.valid) return { ok: false as const, error: result.error!, reason: result.reason ?? "invalid" };
     discountCents = result.discountCents!;
     couponCode = result.code!;
   }
@@ -281,6 +289,11 @@ export async function storedExperienceQuote(experience: ExperienceRow, sessionId
       totalCents: b.customerPaidMinor,
       couponCode: q.couponCode,
       creditCents: q.creditMinor,
+      // R3A — the two parts of discountCents (coupon, then credit — the
+      // engine's own order), and the credit balance left after this booking,
+      // so the client shows them without subtracting anything itself.
+      couponDiscountCents: q.couponDiscountMinor,
+      creditBalanceAfterCents: residentId && q.creditMinor > 0 ? Math.max(0, (await creditBalance(residentId)) - q.creditMinor) : null,
       currency: "EUR",
       vatIncluded: q.price.values.vatMode === "included_in_price",
       quoteId: stored.id,
@@ -318,9 +331,10 @@ experiencesRouter.post("/:id/sessions/:sessionId/quote", commerceQuoteLimiter, a
     return res.status(r.status).json(r.body);
   }
   const quote = await quoteExperience(experience, partySize, body.couponCode);
-  if (!quote.ok) return res.status(400).json({ error: quote.error });
+  if (!quote.ok) return res.status(400).json({ error: quote.error, code: `coupon_${quote.reason}` });
   const { subtotalCents, discountCents, taxableCents, vatCents, platformFeeCents, totalCents } = quote.pricing;
-  res.json({ partySize, subtotalCents, discountCents, taxableCents, vatCents, platformFeeCents, totalCents, couponCode: quote.couponCode, currency: "EUR", vatIncluded: false });
+  // Legacy pricing has no customer credit: the whole discount is the coupon.
+  res.json({ partySize, subtotalCents, discountCents, taxableCents, vatCents, platformFeeCents, totalCents, couponCode: quote.couponCode, currency: "EUR", vatIncluded: false, couponDiscountCents: discountCents, creditCents: 0 });
 });
 
 experiencesRouter.post("/:id/sessions/:sessionId/checkout", async (req, res) => {
@@ -349,6 +363,11 @@ experiencesRouter.post("/:id/sessions/:sessionId/checkout", async (req, res) => 
     .get(req.params.sessionId, experience.id)) as { id: string; capacity: number | null; status: string; date: string; time: string } | undefined;
   if (!session) return res.status(404).json({ error: "Session not found" });
   if (session.status !== "scheduled") return res.status(409).json({ error: "This session is no longer open for booking" });
+  // Booking UX Phase 4 — minimum age (a declaration) and named seats.
+  const ageError = minAgeError(experience.min_age, body.meetsMinAge);
+  if (ageError) return res.status(400).json({ error: ageError, minAge: experience.min_age });
+  const seatNames = cleanParticipantNames(body.participants, partySize);
+  if (seatNames && "error" in seatNames) return res.status(400).json({ error: seatNames.error });
   // HC-QA-045 — a session that has already started can't take new bookings.
   if (!startIsInFuture(session.date, session.time)) return res.status(409).json({ error: "This session has already started" });
 
@@ -441,6 +460,16 @@ experiencesRouter.post("/:id/sessions/:sessionId/checkout", async (req, res) => 
           totalCents: pricing.totalCents,
           status: confirmsNow ? "paid" : "pending",
         });
+
+      await recordOrderAcknowledgements(tx, {
+        sourceType: "experience",
+        ref,
+        clientId,
+        residentId: req.resident?.id ?? null,
+        terms: body.acceptedTerms === true,
+        safetyText: body.acceptedSafety === true ? experience.safety_info : null,
+      });
+      await recordParticipantNames(tx, ref, seatNames ?? []);
 
       if (engine) {
         if (body.quoteId) await consumeQuote(tx, body.quoteId, quoteInput, engine.price);
@@ -621,16 +650,19 @@ experiencesRouter.get("/bookings/status/:ref", async (req, res) => {
   }
   // Resident Experience Polish — Changeset 5, same reasoning as
   // bookings.ts's GET /status/:ref.
-  const row = await db
+  const row = (await db
     .prepare(
       `SELECT eb.ref, eb.payment_status as paymentStatus, eb.total_cents as totalCents,
-              e.id as experienceId, e.title, e.meeting_point as meetingPoint, es.date, es.time, eb.party_size as partySize
+              e.id as experienceId, e.title, e.meeting_point as meetingPoint, es.date, es.time, eb.party_size as partySize, e.vendor_id as vendorId
        FROM experience_bookings eb JOIN experiences e ON e.id = eb.experience_id JOIN experience_sessions es ON es.id = eb.session_id
        WHERE eb.ref = ? AND eb.client_id = ?`
     )
-    .get(req.params.ref, clientId);
+    .get(req.params.ref, clientId)) as ({ vendorId: string; date: string; time: string } & Record<string, unknown>) | undefined;
   if (!row) return res.status(404).json({ error: "Booking not found" });
-  res.json(row);
+  // Booking UX Phase 3 — the confirmation page states the deadline (same rule as self-cancel).
+  const { vendorId, ...rest } = row;
+  const { cancellationHours } = await orgPoliciesForVendor(vendorId);
+  res.json({ ...rest, cancelDeadline: cancelDeadlineIso(row.date, row.time, cancellationHours) });
 });
 
 // "Add to calendar" — same client_id ownership gate + server-generated .ics

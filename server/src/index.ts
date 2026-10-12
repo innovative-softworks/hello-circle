@@ -25,6 +25,7 @@ import { adminMediaRouter } from "./routes/adminMedia.js";
 import { authRouter } from "./routes/auth.js";
 import { availabilityRouter } from "./routes/availability.js";
 import { bookingsRouter } from "./routes/bookings.js";
+import { checkoutAbandonRouter } from "./routes/checkoutAbandon.js";
 import { chatRouter } from "./routes/chat.js";
 import { makeItHappenRouter } from "./routes/makeItHappen.js";
 import { centresRouter } from "./routes/centres.js";
@@ -176,6 +177,7 @@ app.use("/api/clubs", clubsRouter);
 app.use("/api/club-sessions", clubSessionsRouter);
 app.use("/api/availability", availabilityRouter);
 app.use("/api/bookings", bookingsRouter);
+app.use("/api/checkout", checkoutAbandonRouter);
 app.use("/api/make-it-happen", makeItHappenRouter);
 app.use("/api/chat", chatRouter);
 app.use("/api/registrations", registrationsRouter);
@@ -237,7 +239,7 @@ app.get("/api/health", (_req, res) => res.json({ ok: true }));
 // client/public/robots.txt's `Disallow: /`, which was consequently never
 // actually served at all despite reading like the live pre-launch policy.
 const PUBLIC_LAUNCH = process.env.VITE_LAUNCH_MODE === "public";
-const PRELAUNCH_SITEMAP_PATHS = ["/", "/for-venues", "/become-a-host", "/coming-soon", "/privacy", "/cookies"];
+const PRELAUNCH_SITEMAP_PATHS = ["/", "/for-venues", "/become-a-host", "/about", "/contact", "/coming-soon", "/privacy", "/cookies"];
 
 // SEO Phase 3 — pulled directly from client/src/App.tsx's route table (not
 // re-derived by hand from memory), scoped to routes that carry no

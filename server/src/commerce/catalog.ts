@@ -12,6 +12,7 @@
 // bounds, and some bounds are technical rather than commercial (the checkout
 // hold can't leave Stripe's 30-minute..24-hour Checkout session window).
 
+import { FEE_MODEL_NOT_APPROVED_ERROR, FEE_MODEL_SWITCHES, partnerFeeModelApproved } from "./releaseGates.js";
 import crypto from "node:crypto";
 
 /** sha256 of the values with keys sorted — stored with every rule version and
@@ -380,22 +381,26 @@ export interface CommerceSwitch {
   defaultValue: boolean;
   /** Phase whose code first reads this switch; null = read today. */
   activeFromPhase: number | null;
+  /** Admin-facing text only (commercial UX R1, A2): who sees what change when
+   * this is on. Never read by any code path that decides behaviour. */
+  whenOn?: string;
 }
 
 export const COMMERCE_SWITCHES: CommerceSwitch[] = [
-  { key: "commerce.require_second_approver", label: "Two-person approval for rule changes", description: "A different admin must approve a rule version before it can be published.", defaultValue: false, activeFromPhase: null },
-  { key: "commerce.paid_games_require_verified_host", label: "Paid activities need a verified host", description: "Only residents with host status 'verified' can put a price on an activity.", defaultValue: true, activeFromPhase: null },
-  { key: "commerce.shadow_pricing", label: "Shadow pricing (PRICING_RULES_V2)", description: "Price every checkout with the rules engine too and log differences, without changing what the customer is charged.", defaultValue: false, activeFromPhase: null },
-  { key: "commerce.engine_v2", label: "Commerce engine (COMMERCE_ENGINE_V2)", description: "Master switch: quotes, orders and pricing snapshots from the commerce engine for the resource types switched on below.", defaultValue: false, activeFromPhase: null },
-  { key: "commerce.engine_v2_experience", label: "Commerce engine — Experiences", description: "Experience bookings are priced by the published rules and recorded as commerce orders (needs the master switch too).", defaultValue: false, activeFromPhase: null },
-  { key: "commerce.coupons_v2", label: "Coupons v2 (COUPONS_V2)", description: "Record every coupon use in the redemption ledger (reserved → confirmed → released/reversed) and enforce per-customer limits. Funding, minimum spend, maximum discount and start dates apply whenever a coupon sets them.", defaultValue: false, activeFromPhase: null },
-  { key: "commerce.settlement_ledger", label: "Financial ledger (SETTLEMENT_LEDGER)", description: "Post confirmed payments, refunds and disputes to the append-only double-entry ledger. Payment, refund and dispute records are kept either way.", defaultValue: false, activeFromPhase: null },
-  { key: "commerce.connect_v1", label: "Stripe Connect payouts (CONNECT_V1)", description: "Partners connect a Stripe Express account; settled amounts are transferred to it (separate charges and transfers). Transfers only run when a finance admin runs them. Test mode only until go-live is approved.", defaultValue: false, activeFromPhase: null },
-  { key: "commerce.circle_credits", label: "Partner reward points", description: "Partners earn points on settled sales (awarded when a settlement is created) and can redeem them for a free month of Pro.", defaultValue: false, activeFromPhase: null },
-  { key: "commerce.pro_subscriptions", label: "HelloCircle Pro (PRO_SUBSCRIPTIONS)", description: "Partners can subscribe to Pro through Stripe Billing (monthly, VAT added). 7-day grace after a failed payment; cancelling ends Pro at the end of the paid month.", defaultValue: false, activeFromPhase: null },
-  { key: "commerce.customer_credits", label: "Customer credits (CUSTOMER_CREDITS)", description: "Finance can grant HelloCircle-funded credits to residents, who can apply them at checkout (engine-priced bookings). No cash value.", defaultValue: false, activeFromPhase: null },
-  { key: "commerce.boost_vouchers", label: "Boost vouchers (BOOST_VOUCHERS)", description: "Promotional visibility credits.", defaultValue: false, activeFromPhase: 7 },
-  { key: "commerce.venue_host_split_payout", label: "Venue + Host split payout (VENUE_HOST_SPLIT_PAYOUT)", description: "One platform fee, payout split between venue and host. Off: hosts can't propose splits and every booking pays the host alone (accepted agreements are kept but not applied).", defaultValue: false, activeFromPhase: null },
+  { key: "commerce.require_second_approver", label: "Two-person approval for rule changes", description: "A different admin must approve a rule version before it can be published.", defaultValue: false, activeFromPhase: null, whenOn: "Admins only: publishing a rule version needs a second admin’s approval. Customers and partners see no change." },
+  { key: "commerce.paid_games_require_verified_host", label: "Paid activities need a verified host", description: "Only residents with host status 'verified' can put a price on an activity.", defaultValue: true, activeFromPhase: null, whenOn: "Hosts: only verified hosts are offered a price on a new activity. Off: any host can charge." },
+  { key: "commerce.shadow_pricing", label: "Shadow pricing (PRICING_RULES_V2)", description: "Price every checkout with the rules engine too and log differences, without changing what the customer is charged.", defaultValue: false, activeFromPhase: null, whenOn: "Nobody sees a change. Every checkout is also priced by the rules engine and differences are logged for finance." },
+  { key: "commerce.engine_v2", label: "Commerce engine (COMMERCE_ENGINE_V2)", description: "Master switch: quotes, orders and pricing snapshots from the commerce engine for the resource types switched on below.", defaultValue: false, activeFromPhase: null, whenOn: "On its own, nothing visible. It only takes effect for the resource types switched on below." },
+  { key: "commerce.engine_v2_experience", label: "Commerce engine — Experiences", description: "Experience bookings are priced by the published rules and recorded as commerce orders (needs the master switch too).", defaultValue: false, activeFromPhase: null, whenOn: "Customers: experience checkout is priced and recorded by the published rules (the breakdown follows those rules). Partners: experience earnings follow the published plan." },
+  { key: "commerce.coupons_v2", label: "Coupons v2 (COUPONS_V2)", description: "Record every coupon use in the redemption ledger (reserved → confirmed → released/reversed) and enforce per-customer limits. Funding, minimum spend, maximum discount and start dates apply whenever a coupon sets them.", defaultValue: false, activeFromPhase: null, whenOn: "Customers: per-customer limits, start dates, minimum spend and maximum discount are enforced at checkout, so some codes that worked before may be refused. Admins: Finance → Coupon usage fills in." },
+  { key: "commerce.settlement_ledger", label: "Financial ledger (SETTLEMENT_LEDGER)", description: "Post confirmed payments, refunds and disputes to the append-only double-entry ledger. Payment, refund and dispute records are kept either way.", defaultValue: false, activeFromPhase: null, whenOn: "Partners: the Earnings → Balance figures (pending, available, transfer due) start moving. Customers see no change." },
+  { key: "commerce.connect_v1", label: "Stripe Connect payouts (CONNECT_V1)", description: "Partners connect a Stripe Express account; settled amounts are transferred to it (separate charges and transfers). Transfers only run when a finance admin runs them. Test mode only until go-live is approved.", defaultValue: false, activeFromPhase: null, whenOn: "Partners: Earnings gets a Payouts section to connect a Stripe account and see transfers and bank payouts. Money only moves when finance runs transfers." },
+  { key: "commerce.circle_credits", label: "Partner reward points", description: "Partners earn points on settled sales (awarded when a settlement is created) and can redeem them for a free month of Pro.", defaultValue: false, activeFromPhase: null, whenOn: "Partners: reward points appear on Overview and in Earnings → Plan & billing, with history and the free-month redemption." },
+  { key: "commerce.pro_subscriptions", label: "HelloCircle Pro (PRO_SUBSCRIPTIONS)", description: "Partners can subscribe to Pro through Stripe Billing (monthly, VAT added). 7-day grace after a failed payment; cancelling ends Pro at the end of the paid month.", defaultValue: false, activeFromPhase: null, whenOn: "Partners: Explore Pro, the Pro details page and Earnings → Plan & billing appear, and partners can subscribe through Stripe." },
+  { key: "commerce.customer_credits", label: "Customer credits (CUSTOMER_CREDITS)", description: "Finance can grant HelloCircle-funded credits to residents, who can apply them at checkout (engine-priced bookings). No cash value.", defaultValue: false, activeFromPhase: null, whenOn: "Customers: Profile → Credit (wallet) and a HelloCircle credit line in experience checkout. Finance can grant credit." },
+  { key: "commerce.boost_vouchers", label: "Boost vouchers (BOOST_VOUCHERS)", description: "Promotional visibility credits.", defaultValue: false, activeFromPhase: 7, whenOn: "No visible effect yet: nothing reads this switch until Phase 7." },
+  { key: "commerce.open_booking", label: "Open Booking & Make It Happen (cost-sharing)", description: "Lets a booker open spare places that other residents pay into; Make It Happen books this way too. Off until cost-sharing is repriced: joiners are currently charged VAT and the fee on a share that already includes them (booking audit 2026-10-11). Each organisation's own Open Booking flag still applies when this is on.", defaultValue: false, activeFromPhase: null, whenOn: "Not launch-ready — keep off. Turning it on puts the Open Booking option and Make It Happen back in front of customers with the cost-sharing price that is still wrong (joiners are charged VAT and the platform fee on a share that already includes them — booking audit 2026-10-11, P0). Only for an isolated test environment until cost-sharing is repriced and signed off. Each organisation’s own Open Booking flag still applies." },
+  { key: "commerce.venue_host_split_payout", label: "Venue + Host split payout (VENUE_HOST_SPLIT_PAYOUT)", description: "One platform fee, payout split between venue and host. Off: hosts can't propose splits and every booking pays the host alone (accepted agreements are kept but not applied).", defaultValue: false, activeFromPhase: null, whenOn: "Hosts can propose a venue/host split in Earnings → Balance; venues accept or decline there. Accepted splits apply to payouts." },
 ];
 
 /**
@@ -417,6 +422,9 @@ export function switchChangeProblem(key: string, enabled: boolean, current: Reco
   if (enabled) {
     const missing = (SWITCH_DEPENDENCIES[key] ?? []).filter((d) => !current[d]);
     if (missing.length) return `Turn on ${missing.map(label).join(" and ")} first`;
+    // Commercial release gate — Pro and partner rewards can't be switched on
+    // while the partner fee model is a proposal (R3B D1).
+    if ((FEE_MODEL_SWITCHES as readonly string[]).includes(key) && !partnerFeeModelApproved()) return FEE_MODEL_NOT_APPROVED_ERROR;
     return null;
   }
   const needing = Object.entries(SWITCH_DEPENDENCIES)

@@ -42,3 +42,38 @@ export function experienceCancelBlock(row: Pick<SelfCancelRow, "status" | "payme
   }
   return null;
 }
+
+/** Booking audit 2026-10-11 (B3) — the latest instant a dated booking can
+ * still be cancelled or rescheduled online, as an ISO string. */
+export function cancelDeadlineIso(date: string, time: string, cancellationHours: number): string {
+  const start = irelandWallTimeToUtc(date, parseInt(time.slice(0, 2), 10));
+  return new Date(start.getTime() - cancellationHours * 60 * 60 * 1000).toISOString();
+}
+
+/** Venue (hall/room) bookings — B3. The venue organisation's cut-off applies
+ * to cancelling and rescheduling alike; the wording matches what
+ * routes/bookings.ts returned before these rules moved here. */
+export function bookingChangeBlock(
+  row: Pick<SelfCancelRow, "status" | "paymentStatus"> & { date: string; time: string },
+  action: "cancel" | "reschedule",
+  cancellationHours: number,
+  now = Date.now()
+): CancelBlock {
+  if (row.status === "cancelled") return { status: 409, error: "This booking is already cancelled" };
+  if (row.paymentStatus !== "paid") return { status: 409, error: `This booking can't be ${action === "cancel" ? "cancelled" : "rescheduled"}` };
+  const start = irelandWallTimeToUtc(row.date, parseInt(row.time.slice(0, 2), 10));
+  if (start.getTime() - now < cancellationHours * 60 * 60 * 1000) {
+    return {
+      status: 409,
+      error: `This booking is within ${cancellationHours} hours and can no longer be ${action === "cancel" ? "cancelled" : "rescheduled"} online — please contact the venue directly`,
+    };
+  }
+  return null;
+}
+
+/** Club registrations — B3. No cut-off: a registration isn't one dated slot. */
+export function registrationCancelBlock(row: Pick<SelfCancelRow, "status" | "paymentStatus">): CancelBlock {
+  if (row.status === "cancelled") return { status: 409, error: "This registration is already cancelled" };
+  if (row.paymentStatus !== "paid") return { status: 409, error: "This registration can't be cancelled" };
+  return null;
+}

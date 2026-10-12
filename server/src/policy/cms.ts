@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import { writeAudit } from "../audit.js";
 import { db } from "../db/index.js";
+import { LEGAL_OPERATOR } from "../companyIdentity.js";
 import { secondApproverRequired } from "../commerce/rules.js";
 import { recordConsent } from "../consent.js";
 
@@ -65,6 +66,73 @@ export function substitute(body: string, values: Map<string, string>): string {
 export async function placeholderValues(): Promise<Map<string, string>> {
   const rows = (await db.prepare(`SELECT placeholder, value FROM policy_values`).all()) as { placeholder: string; value: string }[];
   return new Map(rows.map((r) => [r.placeholder, r.value]));
+}
+
+// --- company profile (sitemap audit P1-02 readiness) ------------------------
+//
+// The company identity shown on the public About/Contact pages. Values are
+// set by a legal admin, but a value only counts as *approved* once it appears
+// in a currently published policy: publishing requires review, approval, a
+// named legal sign-off and every placeholder filled, and freezes the rendered
+// text (published_body). So "set" alone is never enough to show it publicly,
+// and a value changed after publication drops back to unapproved until a
+// policy carrying the new value is published.
+
+// `guidance` records the owner's decisions (2026-10-12) so the admin checklist
+// says what's expected, not just what's empty. `expected`, where given, is the
+// confirmed value; a different value is flagged as a mismatch.
+export const COMPANY_PROFILE_FIELDS = [
+  { key: "LEGAL_ENTITY_NAME", label: "Legal entity name", expected: LEGAL_OPERATOR, guidance: `Confirmed: ${LEGAL_OPERATOR}. Enter exactly this.` },
+  { key: "TRADING_NAME", label: "Trading name", guidance: "Pending owner confirmation. HelloCircle is a product brand — don't enter it as a registered trading name until that's confirmed." },
+  { key: "REGISTERED_ADDRESS", label: "Registered office address", guidance: "Pending — the owner will confirm the exact address from the CRO record." },
+  { key: "COMPANY_NUMBER", label: "Company registration (CRO) number", guidance: "Pending — the owner will supply the verified CRO number." },
+  { key: "VAT_NUMBER", label: "VAT number", guidance: "Pending — the owner will confirm VAT status (number, or not VAT-registered)." },
+  { key: "PHONE_NUMBER", label: "Phone number", guidance: "Pending — not yet decided whether to publish a phone number." },
+  { key: "SUPPORT_EMAIL", label: "Support email", expected: "support@hellocircle.ie", guidance: "Decided: support@hellocircle.ie (customer support)." },
+  { key: "PRIVACY_EMAIL", label: "Privacy email", guidance: "Pending owner confirmation." },
+  { key: "LEGAL_EMAIL", label: "Legal email", guidance: "Pending owner confirmation." },
+] as const satisfies readonly { key: string; label: string; guidance: string; expected?: string }[];
+
+export type CompanyFieldKey = (typeof COMPANY_PROFILE_FIELDS)[number]["key"];
+export type CompanyFieldState = "missing" | "set_not_published" | "published";
+
+export interface CompanyProfileEntry {
+  key: CompanyFieldKey;
+  label: string;
+  value: string | null;
+  state: CompanyFieldState;
+  guidance: string;
+  expected: string | null;
+  /** A value is set but isn't the confirmed one. */
+  mismatch: boolean;
+}
+
+export async function companyProfile(): Promise<CompanyProfileEntry[]> {
+  const values = await placeholderValues();
+  const published = ((await db.prepare(`SELECT published_body as body FROM policy_versions WHERE status = 'published' AND published_body IS NOT NULL`).all()) as { body: string }[]).map((r) => r.body);
+  return COMPANY_PROFILE_FIELDS.map((f) => {
+    const { key, label, guidance } = f;
+    const expected = "expected" in f ? f.expected : null;
+    const value = values.get(key)?.trim() || null;
+    // A short value ("IE") would match by accident, so require a real one.
+    const approved = !!value && value.length >= 3 && published.some((b) => b.includes(value));
+    return {
+      key,
+      label,
+      value,
+      state: !value ? "missing" : approved ? "published" : "set_not_published",
+      guidance,
+      expected,
+      mismatch: !!value && !!expected && value !== expected,
+    };
+  });
+}
+
+/** Only the approved company fields, for the public pages. */
+export async function publicCompanyDetails(): Promise<Partial<Record<CompanyFieldKey, string>>> {
+  const out: Partial<Record<CompanyFieldKey, string>> = {};
+  for (const f of await companyProfile()) if (f.state === "published" && f.value) out[f.key] = f.value;
+  return out;
 }
 
 /** What still blocks publishing this text. Empty = publishable. */

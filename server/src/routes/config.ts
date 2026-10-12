@@ -1,5 +1,7 @@
 import { Router } from "express";
 import { getSetting } from "../db/index.js";
+import { paidCheckoutOpen } from "../commerce/releaseGates.js";
+import { commerceSwitch } from "../commerce/switches.js";
 
 // Public, non-sensitive app config the client needs before it's decided
 // anything about auth/session — currently just the maps kill switch (Maps
@@ -11,5 +13,12 @@ export const configRouter = Router();
 
 configRouter.get("/", async (_req, res) => {
   const mapsEnabled = (await getSetting("maps_enabled", "true")) !== "false";
-  res.json({ mapsEnabled });
+  // Make It Happen (Open Booking) switch — lets the client hide the entry
+  // points and show a "paused" state instead of a form that can only fail.
+  // Display only: the make-it-happen routes refuse with 503 regardless.
+  const openBooking = await commerceSwitch("commerce.open_booking");
+  // Commercial release gate — lets the client say "free bookings only" up
+  // front instead of failing at payment. Display only: the server refuses a
+  // paid checkout regardless (checkoutService.createCheckoutSession).
+  res.json({ mapsEnabled, paidCheckoutOpen: paidCheckoutOpen(), openBooking });
 });

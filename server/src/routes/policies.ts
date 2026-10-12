@@ -12,6 +12,8 @@ import {
   listVersions,
   pendingAcceptances,
   placeholderValues,
+  companyProfile,
+  publicCompanyDetails,
   placeholdersIn,
   editorialNotesIn,
   publicVersion,
@@ -39,6 +41,15 @@ function handle(res: import("express").Response, e: unknown) {
 policiesRouter.get("/", async (_req, res) => {
   const docs = await listDocuments();
   res.json(docs.map((d) => ({ docKey: d.docKey, title: d.title, audience: d.audience, publishedVersion: d.publishedVersion, publishedAt: d.publishedAt })));
+});
+
+/** Company details for the public About and Contact pages — only fields
+ * whose current value appears in a published (legally signed-off) policy;
+ * a value that's merely set, or changed since publication, is left out (see
+ * companyProfile() in policy/cms.ts). Registered before "/:key" so "company"
+ * is never read as a document key. */
+policiesRouter.get("/company", async (_req, res) => {
+  res.json(await publicCompanyDetails());
 });
 
 /** Policies the signed-in partner and/or resident still have to accept. */
@@ -104,6 +115,13 @@ adminPoliciesRouter.get("/", async (_req, res) => {
     placeholders: MANDATORY_PLACEHOLDERS.map((p) => ({ placeholder: p, value: values.get(p) ?? null })),
     extraValues: [...values.entries()].filter(([k]) => !(MANDATORY_PLACEHOLDERS as readonly string[]).includes(k)).map(([placeholder, value]) => ({ placeholder, value })),
   });
+});
+
+/** Company profile completeness for the admin checklist: every field with
+ * its value and whether it's missing, set but not yet in a published
+ * policy, or published (and so shown on the public pages). */
+adminPoliciesRouter.get("/company-profile", async (_req, res) => {
+  res.json(await companyProfile());
 });
 
 adminPoliciesRouter.put("/placeholders/:name", async (req, res) => {

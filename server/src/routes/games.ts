@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { minAgeError } from "../orderAcknowledgements.js";
 import { shadowLegacy } from "../commerce/engine.js";
 import { Router } from "express";
 import { logEvent, logView } from "../analytics.js";
@@ -30,7 +31,7 @@ import { getOpportunities } from "../participationIntents.js";
 import { BadRequestError, ConflictError, generateRef } from "../util.js";
 import { consumeCoupon, customerKeyOf, endPendingHold, gameSeatSql, holdIsLive } from "../bookingIntegrity.js";
 import { getEffectiveAvailability, getEffectiveLifecycle, getPublicLifecycleLabel, validateLifecycleTransition, type Lifecycle } from "../lifecycle.js";
-import { notifyGameNotifyMeSubscribers, subscribeNotifyMe, unsubscribeNotifyMe } from "../notifyMe.js";
+import { isSubscribedToNotifyMe, notifyGameNotifyMeSubscribers, subscribeNotifyMe, unsubscribeNotifyMe } from "../notifyMe.js";
 import { activeOfferedCount, claimWaitlistOffer, hasActiveOffer, offerToWaitlistEntry, promoteNextWaitlistEntry } from "../waitlist.js";
 
 // HC-QA-056 — Circle members hear about every plan (the join dialog and
@@ -61,6 +62,37 @@ async function notifyCircleMembersOfPlan(row: GameRow) {
       listingId: row.id,
       ref: row.id,
     });
+  }
+}
+
+/** Booking UX Phase 5 (audit B11) — an activity may name a venue only
+ * through the host's own confirmed booking there: same venue, same date,
+ * starting inside the booked hours, and no more people than the room holds.
+ * Without one, the host gives an address (locationText) instead — the venue
+ * is never shown as hosting something it hasn't been booked for. */
+export async function venueBookingProblem(hostId: string, input: { centreId: string; bookingRef?: string | null; date: string; time: string; capacity: number }): Promise<string | null> {
+  if (!input.bookingRef) return "To hold this at a venue, book it first and pick that booking — or enter an address instead";
+  const booking = (await db
+    .prepare(
+      `SELECT b.centre_id as centreId, b.date, b.time, b.duration, r.cap
+       FROM bookings b LEFT JOIN rooms r ON r.id = b.room_id AND r.centre_id = b.centre_id
+       WHERE b.ref = ? AND b.resident_id = ? AND b.payment_status = 'paid' AND b.status != 'cancelled'`
+    )
+    .get(input.bookingRef, hostId)) as { centreId: string; date: string; time: string; duration: number; cap: number | null } | undefined;
+  if (!booking || booking.centreId !== input.centreId) return "That booking isn't yours, isn't confirmed, or is for a different venue";
+  if (booking.date !== input.date) return "The activity has to be on the date you booked the venue";
+  const start = parseInt(booking.time.slice(0, 2), 10);
+  const hour = parseInt(input.time.slice(0, 2), 10);
+  if (!(hour >= start && hour < start + Number(booking.duration))) return `The activity has to start within your booking (${booking.time} for ${booking.duration} hours)`;
+  if (booking.cap && booking.cap > 0 && input.capacity > booking.cap) return `The room you booked holds up to ${booking.cap}`;
+  return null;
+}
+
+/** Booking UX Phase 4 (B9) — refused for want of the minimum-age declaration;
+ * the response carries `minAge` so a quick-join can open the activity page. */
+class MinAgeRequiredError extends BadRequestError {
+  constructor(message: string, readonly minAge: number) {
+    super(message);
   }
 }
 
@@ -322,6 +354,20 @@ gamesRouter.get("/host/opportunities", requireResident, async (req, res) => {
   const opportunities = await getOpportunities(me.homeCounty ? [me.homeCounty] : null);
   void logEvent("host_opportunity_viewed", { residentId: req.resident!.id, metadata: { by: "resident_host", shown: opportunities.length } });
   res.json({ opportunities, counties: me.homeCounty ? [me.homeCounty] : [] });
+});
+
+/** Booking UX Phase 5 (B11) — the host's own upcoming, confirmed venue
+ * bookings: what an activity can be held on (see venueBookingProblem). */
+gamesRouter.get("/host/venue-bookings", requireResident, async (req, res) => {
+  const rows = await db
+    .prepare(
+      `SELECT b.ref, b.centre_id as centreId, c.name as centreName, r.name as roomName, r.cap, b.date, b.time, b.duration
+       FROM bookings b JOIN centres c ON c.id = b.centre_id LEFT JOIN rooms r ON r.id = b.room_id AND r.centre_id = b.centre_id
+       WHERE b.resident_id = ? AND b.payment_status = 'paid' AND b.status != 'cancelled' AND b.date >= ?
+       ORDER BY b.date, b.time`
+    )
+    .all(req.resident!.id, irelandTodayIso());
+  res.json(rows);
 });
 
 gamesRouter.get("/host/earnings", requireResident, async (req, res) => {
@@ -879,52 +925,84 @@ gamesRouter.post("/:id/confirm-attendance", requireResident, async (req, res) =>
 // participant leaving: this ends it for everyone. Deliberately doesn't
 // refund a paid join automatically — same off-platform-refund convention
 // bookings.ts/registrations.ts already use for cancellations.
-gamesRouter.post("/:id/cancel", requireResident, async (req, res) => {
-  const { reason } = req.body as { reason?: string };
-  const row = (await db.prepare(`SELECT host_resident_id, activity_label FROM games WHERE id = ?`).get(req.params.id)) as
-    | { host_resident_id: string; activity_label: string }
-    | undefined;
-  if (!row) return res.status(404).json({ error: "Session not found" });
-  if (row.host_resident_id !== req.resident!.id) return res.status(403).json({ error: "Only the host can cancel this session" });
+/** Cancels an activity once and tells everyone involved — participants and
+ * anyone still waitlisted. Idempotent (HC-QA-028): only the call that flips
+ * the status fans out notifications. Shared by the host's own cancel and,
+ * since Booking UX Phase 5 (audit E1), by a venue cancelling the booking the
+ * activity was held on. Returns false when it was already cancelled. */
+export async function cancelGameAndNotify(gameId: string, opts: { by: "host" | "venue"; reason?: string; excludeResidentId?: string; actorId?: string }): Promise<boolean> {
+  const row = (await db.prepare(`SELECT activity_label FROM games WHERE id = ?`).get(gameId)) as { activity_label: string } | undefined;
+  if (!row) return false;
+  const flipped = await db.prepare(`UPDATE games SET status = 'cancelled' WHERE id = ? AND status != 'cancelled'`).run(gameId);
+  if (flipped.changes === 0) return false;
 
-  // HC-QA-028 — idempotent: only the request that actually flips the status
-  // fans out notifications, so a repeat (or concurrent) cancel is a no-op.
-  const flipped = await db.prepare(`UPDATE games SET status = 'cancelled' WHERE id = ? AND status != 'cancelled'`).run(req.params.id);
-  if (flipped.changes === 0) return res.json({ ok: true, alreadyCancelled: true });
+  const who = opts.by === "host" ? "The host has cancelled this session" : "The venue has cancelled the booking this session was held on, so it's cancelled";
+  const reason = opts.reason;
 
   // Waitlisted residents lose their place too: close their entries (no
   // offer can follow) and tell them, instead of leaving them "waiting".
   const waiting = (await db
     .prepare(`SELECT id, resident_id FROM waitlist_entries WHERE listing_type = 'game' AND listing_id = ? AND status IN ('waiting', 'offered')`)
-    .all(req.params.id)) as { id: number; resident_id: string | null }[];
-  await db.prepare(`UPDATE waitlist_entries SET status = 'cancelled' WHERE listing_type = 'game' AND listing_id = ? AND status IN ('waiting', 'offered')`).run(req.params.id);
+    .all(gameId)) as { id: number; resident_id: string | null }[];
+  await db.prepare(`UPDATE waitlist_entries SET status = 'cancelled' WHERE listing_type = 'game' AND listing_id = ? AND status IN ('waiting', 'offered')`).run(gameId);
   for (const w of waiting) {
     if (!w.resident_id) continue;
     await notifyResident({
       residentId: w.resident_id,
       kind: "game",
       title: `Cancelled: ${row.activity_label}`,
-      body: reason ? `The host has cancelled this session: ${reason}. You've been taken off the waitlist.` : "The host has cancelled this session. You've been taken off the waitlist.",
+      body: reason ? `${who}: ${reason}. You've been taken off the waitlist.` : `${who}. You've been taken off the waitlist.`,
       listingType: "game",
-      listingId: req.params.id,
-      ref: req.params.id,
+      listingId: gameId,
+      ref: gameId,
     });
   }
 
   const participants = (await db
-    .prepare(`SELECT resident_id FROM game_participants WHERE game_id = ? AND resident_id != ? AND status = 'joined'`)
-    .all(req.params.id, req.resident!.id)) as { resident_id: string }[];
+    .prepare(`SELECT resident_id, payment_status as paymentStatus, stripe_session_id as sessionId, total_cents as totalCents FROM game_participants WHERE game_id = ? AND resident_id != ? AND status = 'joined'`)
+    .all(gameId, opts.excludeResidentId ?? "")) as { resident_id: string; paymentStatus: string; sessionId: string | null; totalCents: number | null }[];
   for (const p of participants) {
+    // Provider cancellation refunds in full (as vendor cancellations already
+    // do — providerCancelRefund.ts): same refund-once path as the host's own
+    // "Refund" button, so a later manual refund can't pay twice. A failed
+    // refund is audited and left paid for the host / finance to retry.
+    let refundLine = "";
+    if (p.paymentStatus === "paid" && p.sessionId && Number(p.totalCents ?? 0) > 0) {
+      const objectId = `${gameId}:${p.resident_id}`;
+      const r = await refundPaidOnce("game_participants", "game_id = ? AND resident_id = ?", [gameId, p.resident_id], p.sessionId, "This participant has already been refunded", {
+        actorUserId: opts.actorId ?? "system",
+        objectType: "game_participant",
+        objectId,
+      });
+      if (r.ok) {
+        refundLine = ` A full refund of €${(r.amountCents / 100).toFixed(2)} has been issued — it can take a few business days to reach your account.`;
+        await writeAudit({ actorUserId: opts.actorId ?? "system", action: "game_participant.refunded_on_cancel", objectType: "game_participant", objectId, newValue: { paymentStatus: "refunded", amountCents: r.amountCents, by: opts.by } });
+      } else {
+        console.error(`[refunds] automatic refund on game cancel failed for ${objectId}: ${r.error}`);
+        await writeAudit({ actorUserId: opts.actorId ?? "system", action: "game_participant.refund_on_cancel_failed", objectType: "game_participant", objectId, newValue: { error: r.error } });
+        refundLine = " Your refund is being arranged — we'll let you know when it's on its way.";
+      }
+    }
     await notifyResident({
       residentId: p.resident_id,
       kind: "game",
       title: `Cancelled: ${row.activity_label}`,
-      body: reason ? `The host has cancelled this session: ${reason}` : "The host has cancelled this session.",
+      body: (reason ? `${who}: ${reason}.` : `${who}.`) + refundLine,
       listingType: "game",
-      listingId: req.params.id,
-      ref: req.params.id,
+      listingId: gameId,
+      ref: gameId,
     });
   }
+  return true;
+}
+
+gamesRouter.post("/:id/cancel", requireResident, async (req, res) => {
+  const { reason } = req.body as { reason?: string };
+  const row = (await db.prepare(`SELECT host_resident_id FROM games WHERE id = ?`).get(req.params.id)) as { host_resident_id: string } | undefined;
+  if (!row) return res.status(404).json({ error: "Session not found" });
+  if (row.host_resident_id !== req.resident!.id) return res.status(403).json({ error: "Only the host can cancel this session" });
+  const cancelled = await cancelGameAndNotify(req.params.id, { by: "host", reason, excludeResidentId: req.resident!.id, actorId: req.resident!.id });
+  if (!cancelled) return res.json({ ok: true, alreadyCancelled: true });
   res.json({ ok: true });
 });
 
@@ -958,6 +1036,14 @@ gamesRouter.put("/:id", requireResident, async (req, res) => {
   // (completed) activity can still have its other details corrected.
   if (b.date !== row.date && (!/^\d{4}-\d{2}-\d{2}$/.test(b.date) || b.date < irelandTodayIso())) {
     return res.status(400).json({ error: "Pick a date that hasn't passed" });
+  }
+
+  // Booking UX Phase 5 (B11) — checked whenever the venue, date, time or
+  // capacity changes; an older activity that already names a venue keeps
+  // working until one of those is edited.
+  if (b.centreId && (b.centreId !== row.centre_id || b.date !== row.date || b.time !== row.time || b.capacity !== row.capacity || (b.bookingRef ?? row.booking_ref ?? null) !== (row.booking_ref ?? null))) {
+    const problem = await venueBookingProblem(req.resident!.id, { centreId: b.centreId, bookingRef: b.bookingRef ?? row.booking_ref, date: b.date, time: b.time, capacity: b.capacity });
+    if (problem) return res.status(400).json({ error: problem, needsVenueBooking: true });
   }
 
   const { n: joined } = (await db
@@ -1018,6 +1104,8 @@ gamesRouter.put("/:id", requireResident, async (req, res) => {
       b.accessibilityInfo === undefined ? null : b.accessibilityInfo.trim(),
       req.params.id
     );
+  // Booking UX Phase 5 — the venue booking travels with the venue; an address clears it.
+  await db.prepare(`UPDATE games SET booking_ref = ? WHERE id = ?`).run(b.centreId ? b.bookingRef ?? row.booking_ref ?? null : null, req.params.id);
   await syncGameAttributes(req.params.id, b);
 
   const materialChange = b.date !== row.date || b.time !== row.time || (b.centreId ?? null) !== row.centre_id || (b.locationText ?? "") !== row.location_text;
@@ -1112,6 +1200,12 @@ gamesRouter.post("/:id/notify-me", requireResident, async (req, res) => {
   res.status(created ? 201 : 200).json({ ok: true, alreadySubscribed: !created });
 });
 
+// Sitemap audit P2-09 — whether the signed-in resident is subscribed, so the
+// card can show "We'll let you know" (with a way to stop) after a reload.
+gamesRouter.get("/:id/notify-me", requireResident, async (req, res) => {
+  res.json({ subscribed: await isSubscribedToNotifyMe(req.resident!.id, "game", req.params.id) });
+});
+
 gamesRouter.delete("/:id/notify-me", requireResident, async (req, res) => {
   await unsubscribeNotifyMe(req.resident!.id, "game", req.params.id);
   res.json({ ok: true });
@@ -1120,6 +1214,8 @@ gamesRouter.delete("/:id/notify-me", requireResident, async (req, res) => {
 interface CreateGameInput {
   activityLabel: string;
   centreId?: string;
+  /** Booking UX Phase 5 — the host's own confirmed booking at centreId (required with it). */
+  bookingRef?: string;
   locationText?: string;
   date: string;
   time: string;
@@ -1219,8 +1315,8 @@ export async function createGameRow(input: CreateGameInput & { hostResidentId: s
   await db.transaction(async (tx) => {
     await tx
       .prepare(
-        `INSERT INTO games (id, host_resident_id, activity_label, centre_id, location_text, date, time, skill_level, capacity, price_cents, visibility, solo_friendly, min_participants, confirmation_deadline, status, description, duration_minutes, equipment_needed, min_age, surface_type, indoor_outdoor, meeting_instructions, cancellation_policy, circle_id, plan_id, lifecycle, publish_at, booking_open_at, booking_close_at, experience_required, accessibility_info)
-         VALUES (@id, @hostResidentId, @activityLabel, @centreId, @locationText, @date, @time, @skillLevel, @capacity, @priceCents, @visibility, @soloFriendly, @minParticipants, @confirmationDeadline, @status, @description, @durationMinutes, @equipmentNeeded, @minAge, @surfaceType, @indoorOutdoor, @meetingInstructions, @cancellationPolicy, @circleId, @planId, @lifecycle, @publishAt, @bookingOpenAt, @bookingCloseAt, @experienceRequired, @accessibilityInfo)`
+        `INSERT INTO games (id, host_resident_id, activity_label, centre_id, location_text, date, time, skill_level, capacity, price_cents, visibility, solo_friendly, min_participants, confirmation_deadline, status, description, duration_minutes, equipment_needed, min_age, surface_type, indoor_outdoor, meeting_instructions, cancellation_policy, circle_id, plan_id, lifecycle, publish_at, booking_open_at, booking_close_at, experience_required, accessibility_info, booking_ref)
+         VALUES (@id, @hostResidentId, @activityLabel, @centreId, @locationText, @date, @time, @skillLevel, @capacity, @priceCents, @visibility, @soloFriendly, @minParticipants, @confirmationDeadline, @status, @description, @durationMinutes, @equipmentNeeded, @minAge, @surfaceType, @indoorOutdoor, @meetingInstructions, @cancellationPolicy, @circleId, @planId, @lifecycle, @publishAt, @bookingOpenAt, @bookingCloseAt, @experienceRequired, @accessibilityInfo, @bookingRef)`
       )
       .run({
         id,
@@ -1254,6 +1350,8 @@ export async function createGameRow(input: CreateGameInput & { hostResidentId: s
         bookingCloseAt: input.bookingCloseAt ?? null,
         experienceRequired: input.experienceRequired?.trim() || null,
         accessibilityInfo: input.accessibilityInfo?.trim() || null,
+        // Booking UX Phase 5 — set only alongside a centre (validated by venueBookingProblem).
+        bookingRef: input.centreId ? input.bookingRef ?? null : null,
       });
     // The host is automatically a participant — they take one of the capacity spots.
     await tx.prepare(`INSERT INTO game_participants (game_id, resident_id) VALUES (?, ?)`).run(id, input.hostResidentId);
@@ -1378,6 +1476,11 @@ gamesRouter.post("/", requireResident, async (req, res) => {
     visibility = circle?.joinMode === "open" ? "public" : "circle";
   }
 
+  if (b.centreId) {
+    const problem = await venueBookingProblem(req.resident!.id, { centreId: b.centreId, bookingRef: b.bookingRef, date: b.date, time: b.time, capacity: b.capacity });
+    if (problem) return res.status(400).json({ error: problem, needsVenueBooking: true });
+  }
+
   let row: GameRow;
   try {
     row = await createGameRow({ ...b, visibility, hostResidentId: req.resident!.id });
@@ -1459,7 +1562,7 @@ gamesRouter.post("/:id/join", requireResident, async (req, res) => {
   // Visibility must precede coupons, participation and checkout: joining must
   // never manufacture the relationship required to see a private activity.
   if (!(await loadViewableGame(req.params.id, req.resident!.id))) return res.status(404).json({ error: "Session not found" });
-  const { couponCode: rawCouponCode } = req.body as { couponCode?: string };
+  const { couponCode: rawCouponCode, meetsMinAge } = req.body as { couponCode?: string; meetsMinAge?: boolean };
   let insertedRef: string | null = null;
   let checkoutRow: GameRow | null = null;
   let joinedRow: GameRow | null = null;
@@ -1497,6 +1600,9 @@ gamesRouter.post("/:id/join", requireResident, async (req, res) => {
       // A 'pending_participants' game (Phase 4) is still joinable — that's
       // exactly how it reaches its threshold — only 'cancelled' blocks it.
       if (row.status !== "open" && row.status !== "pending_participants") throw new ConflictError("This session is no longer open");
+      // Booking UX Phase 4 (B9) — a minimum age needs the joiner's declaration.
+      const ageError = minAgeError(row.min_age, meetsMinAge);
+      if (ageError) throw new MinAgeRequiredError(ageError, row.min_age!);
       // §48 — CRITICAL: server-side lifecycle validation, not just a
       // disabled client button. A Draft/Coming Soon/Paused/Archived game
       // must reject a join even if its (separate) `status` column happens
@@ -1591,6 +1697,7 @@ gamesRouter.post("/:id/join", requireResident, async (req, res) => {
     });
   } catch (e) {
     if (e instanceof GameNotVisibleError) return res.status(404).json({ error: "Session not found" });
+    if (e instanceof MinAgeRequiredError) return res.status(400).json({ error: e.message, minAge: e.minAge });
     if (e instanceof BadRequestError) return res.status(400).json({ error: e.message });
     if (e instanceof ConflictError) return res.status(409).json({ error: e.message });
     throw e;

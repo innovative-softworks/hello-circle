@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { refundOnProviderCancel } from "../providerCancelRefund.js";
 import { releaseCoupon, releaseRedemption } from "../bookingIntegrity.js";
 import { syncOrderFromSource } from "../commerce/engine.js";
 import { matchExperienceSupply } from "../participationIntents.js";
@@ -386,9 +387,10 @@ vendorExperiencesRouter.delete("/experiences/:id/sessions/:sessionId", requirePl
   if (!(await ownsExperience(req.vendorIds!, req.params.id))) return res.status(403).json({ error: "Not your listing" });
   // HC-QA-040 — cancelling a session cancels its active bookings in the same
   // transaction (row-locked, idempotent): a repeat cancel finds nothing to do.
-  // Paid bookings stay payment_status='paid' with status='cancelled' — the
-  // existing "refund required" state the vendor refund route acts on; no
-  // refund is performed or fabricated here. Pending holds are released.
+  // Paid bookings become status='cancelled'; since Booking UX Phase 6 each paid
+  // online one is then refunded in full (refundOnProviderCancel, after the
+  // transaction) — a failed refund leaves it in the "refund required" state
+  // the vendor refund route acts on. Pending holds are released.
   const affected = await db.transaction(async (tx) => {
     const session = (await tx
       .prepare(`SELECT id, status, date, time FROM experience_sessions WHERE id = ? AND experience_id = ? FOR UPDATE`)
@@ -412,6 +414,8 @@ vendorExperiencesRouter.delete("/experiences/:id/sessions/:sessionId", requirePl
     return { session, rows };
   });
   for (const b of affected.rows) await syncOrderFromSource("experience", b.ref);
+  let refunded = 0;
+  let refundsFailed = 0;
   if (affected.session && affected.rows.length) {
     const exp = (await db.prepare(`SELECT title, vendor_id as vendorId FROM experiences WHERE id = ?`).get(req.params.id)) as { title: string; vendorId: string };
     await writeAudit({
@@ -422,7 +426,7 @@ vendorExperiencesRouter.delete("/experiences/:id/sessions/:sessionId", requirePl
       newValue: { status: "cancelled", bookingsCancelled: affected.rows.length },
     });
     for (const b of affected.rows) {
-      notifyCancellation({
+      const notifyParams = {
         kind: "experience",
         listingType: "experience",
         listingId: req.params.id,
@@ -433,10 +437,15 @@ vendorExperiencesRouter.delete("/experiences/:id/sessions/:sessionId", requirePl
         ref: b.ref,
         detailsText: `${affected.session.date} at ${affected.session.time} · ${exp.title} — this departure was cancelled by the host`,
         residentId: b.residentId,
-      }).catch((e) => console.error("[notifications] session cancellation notify failed:", e));
+      } as const;
+      notifyCancellation(notifyParams).catch((e) => console.error("[notifications] session cancellation notify failed:", e));
+      // Booking UX Phase 6 (B13) — every paid online booking on the cancelled departure is refunded in full.
+      const refund = await refundOnProviderCancel({ table: "experience_bookings", ref: b.ref, actorUserId: req.user!.id, objectType: "experience_booking", notify: notifyParams });
+      if (refund.refund === "refunded") refunded++;
+      if (refund.refund === "failed") refundsFailed++;
     }
   }
-  res.json({ ok: true, bookingsCancelled: affected.rows.length });
+  res.json({ ok: true, bookingsCancelled: affected.rows.length, refunded, refundsFailed });
 });
 
 // --- booking cancel + refund (Phase 0 protect) -------------------------
@@ -479,7 +488,7 @@ vendorExperiencesRouter.post("/experiences/:id/bookings/:bookingId/cancel", requ
     newValue: { status: "cancelled" },
   });
 
-  notifyCancellation({
+  const notifyParams = {
     kind: "experience",
     listingType: "experience",
     listingId: req.params.id,
@@ -490,9 +499,12 @@ vendorExperiencesRouter.post("/experiences/:id/bookings/:bookingId/cancel", requ
     ref: row.ref,
     detailsText: `${row.date} at ${row.time} · ${row.title}`,
     residentId: row.residentId,
-  }).catch((e) => console.error("[notifications] vendor experience booking cancellation notify failed:", e));
+  } as const;
+  notifyCancellation(notifyParams).catch((e) => console.error("[notifications] vendor experience booking cancellation notify failed:", e));
 
-  res.json({ ok: true });
+  // Booking UX Phase 6 (B13) — a provider cancellation refunds a paid online order in full.
+  const refund = await refundOnProviderCancel({ table: "experience_bookings", ref: row.ref, actorUserId: req.user!.id, objectType: "experience_booking", notify: notifyParams });
+  res.json({ ok: true, refund: refund.refund, ...(refund.refund === "failed" ? { refundError: refund.error } : {}) });
 });
 
 vendorExperiencesRouter.post("/experiences/:id/bookings/:bookingId/refund", requirePlatformRole("finance"), async (req, res) => {
@@ -576,7 +588,7 @@ vendorExperiencesRouter.post("/experiences/:id/bookings/:ref/attendance", requir
 
 vendorExperiencesRouter.get("/experiences/:id/bookings", async (req, res) => {
   if (!(await ownsExperience(req.vendorIds!, req.params.id))) return res.status(403).json({ error: "Not your listing" });
-  const rows = await db
+  const rows = (await db
     .prepare(
       `SELECT eb.id, eb.ref, eb.participant_name as participantName, eb.email, eb.phone, eb.party_size as partySize,
               eb.total_cents as totalCents, eb.status, eb.created_at as createdAt, es.date, es.time,
@@ -584,6 +596,12 @@ vendorExperiencesRouter.get("/experiences/:id/bookings", async (req, res) => {
        FROM experience_bookings eb JOIN experience_sessions es ON es.id = eb.session_id
        WHERE eb.experience_id = ? AND eb.payment_status = 'paid' ORDER BY es.date, es.time`
     )
-    .all(req.params.id);
-  res.json(rows);
+    .all(req.params.id)) as { ref: string }[];
+  // Booking UX Phase 4 (B7) — the named people in each party, seat order.
+  const names = rows.length
+    ? ((await db
+        .prepare(`SELECT booking_ref as ref, name FROM experience_booking_participants WHERE booking_ref IN (${rows.map(() => "?").join(",")}) ORDER BY booking_ref, seat`)
+        .all(...rows.map((r) => r.ref))) as { ref: string; name: string }[])
+    : [];
+  res.json(rows.map((r) => ({ ...r, participants: names.filter((n) => n.ref === r.ref).map((n) => n.name) })));
 });

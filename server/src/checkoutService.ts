@@ -1,3 +1,4 @@
+import { PAID_CHECKOUT_CLOSED_ERROR, paidCheckoutOpen } from "./commerce/releaseGates.js";
 import type Stripe from "stripe";
 import { logEvent } from "./analytics.js";
 import { writeAudit } from "./audit.js";
@@ -136,6 +137,10 @@ export async function createCheckoutSession(params: {
    * guestAuth.ts for the resident magic-link flow. */
   isNative?: boolean;
 }): Promise<CheckoutResult> {
+  // Commercial release gate — every paid customer checkout passes here, so
+  // paid bookings stay shut server-side until PAID_CHECKOUT=open (fails
+  // closed in production). Callers already release their pending row on !ok.
+  if (!paidCheckoutOpen()) return { ok: false, status: 503, error: PAID_CHECKOUT_CLOSED_ERROR };
   const provider = paymentProvider();
   if (!provider) return { ok: false, status: 503, error: "Payments aren't configured yet" };
 
@@ -231,7 +236,7 @@ export async function issueStripeRefund(stripeSessionId: string, opts: { amountM
   }
 }
 
-type RefundTable = "bookings" | "registrations" | "program_enrollments" | "experience_bookings" | "game_participants";
+export type RefundTable = "bookings" | "registrations" | "program_enrollments" | "experience_bookings" | "game_participants";
 
 const REFUND_SOURCE_TYPE: Record<RefundTable, CheckoutType> = {
   bookings: "booking",

@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { refundOnProviderCancel } from "../providerCancelRefund.js";
 import { logEvent } from "../analytics.js";
 import { matchProgramSupply } from "../participationIntents.js";
 import { Router } from "express";
@@ -334,7 +335,7 @@ vendorProgramsRouter.post("/programs/:programId/enrollments/:enrollmentId/cancel
     newValue: { status: "cancelled" },
   });
 
-  notifyCancellation({
+  const notifyParams = {
     kind: "program",
     listingType: row.listingType,
     listingId: row.listingId,
@@ -345,9 +346,12 @@ vendorProgramsRouter.post("/programs/:programId/enrollments/:enrollmentId/cancel
     ref: row.ref,
     detailsText: row.title,
     residentId: row.residentId,
-  }).catch((e) => console.error("[notifications] vendor program enrollment cancellation notify failed:", e));
+  } as const;
+  notifyCancellation(notifyParams).catch((e) => console.error("[notifications] vendor program enrollment cancellation notify failed:", e));
 
-  res.json({ ok: true });
+  // Booking UX Phase 6 (B13) — a provider cancellation refunds a paid online order in full.
+  const refund = await refundOnProviderCancel({ table: "program_enrollments", ref: row.ref, actorUserId: req.user!.id, objectType: "program_enrollment", notify: notifyParams });
+  res.json({ ok: true, refund: refund.refund, ...(refund.refund === "failed" ? { refundError: refund.error } : {}) });
 });
 
 vendorProgramsRouter.post("/programs/:programId/enrollments/:enrollmentId/refund", async (req, res) => {

@@ -6,9 +6,11 @@ import { db } from "../db/index.js";
 import { VENDOR_SUSPENDED_ERROR, consumeCoupon, customerKeyOf, endPendingHold, occupiesCapacitySql, vendorSuspended } from "../bookingIntegrity.js";
 import { getListingAttributes, officialCircleSummary } from "../listingAttributes.js";
 import { programmeCancelBlock, refundStateOf } from "../selfCancel.js";
+import { recordOrderAcknowledgements } from "../orderAcknowledgements.js";
 import { irelandTodayIso } from "../irelandTime.js";
 import { notifyCancellation, notifyNewBookingOrRegistration } from "../notifications.js";
 import { computePricing, evaluateCoupon } from "../pricing.js";
+import { commerceQuoteLimiter } from "../rateLimit.js";
 import { BadRequestError, clientIdFrom, generateRef, isValidEmail } from "../util.js";
 
 export const programsRouter = Router();
@@ -187,6 +189,8 @@ interface EnrollBody {
   email: string;
   phone?: string;
   couponCode?: string;
+  /** Booking UX Phase 4 (B8) — recorded with the order; the terms version is resolved server-side. */
+  acceptedTerms?: boolean;
 }
 
 // One enrollment covers every session of the program (matches "8-week
@@ -194,7 +198,8 @@ interface EnrollBody {
 // so two enrollments can't both take the program's last spot.
 /** HC-QA-047 — authoritative quote (same computePricing as enrolment) for
  * the enrolment confirmation; nothing is reserved. */
-programsRouter.get("/:id/quote", async (req, res) => {
+// R3A — rate-limited (it evaluates coupon codes), like the other quotes.
+programsRouter.get("/:id/quote", commerceQuoteLimiter, async (req, res) => {
   const program = (await db.prepare(`SELECT id, price_cents FROM programs WHERE id = ? AND status = 'published'`).get(req.params.id)) as { id: string; price_cents: number } | undefined;
   if (!program) return res.status(404).json({ error: "Program not found" });
   let discountCents = 0;
@@ -202,7 +207,7 @@ programsRouter.get("/:id/quote", async (req, res) => {
   const raw = typeof req.query.couponCode === "string" ? req.query.couponCode : "";
   if (raw) {
     const result = await evaluateCoupon(raw, program.price_cents, { listingType: "program", listingId: program.id });
-    if (!result.valid) return res.status(400).json({ error: result.error });
+    if (!result.valid) return res.status(400).json({ error: result.error, code: `coupon_${result.reason ?? "invalid"}` });
     discountCents = result.discountCents!;
     couponCode = result.code!;
   }
@@ -243,7 +248,7 @@ programsRouter.post("/:id/enroll", async (req, res) => {
   let couponCode: string | null = null;
   if (body.couponCode) {
     const result = await evaluateCoupon(body.couponCode, program.price_cents, { listingType: "program", listingId: program.id });
-    if (!result.valid) return res.status(400).json({ error: result.error! });
+    if (!result.valid) return res.status(400).json({ error: result.error!, code: `coupon_${result.reason ?? "invalid"}` });
     discountCents = result.discountCents!;
     couponCode = result.code!;
   }
@@ -280,6 +285,7 @@ programsRouter.post("/:id/enroll", async (req, res) => {
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'confirmed')`
         )
         .run(ref, program.id, req.resident?.id ?? null, clientId, body.participantName, body.participantDob ?? "", body.email, body.phone ?? "", pricing.totalCents, couponCode, isFree ? "paid" : "pending");
+      await recordOrderAcknowledgements(tx, { sourceType: "program", ref, clientId, residentId: req.resident?.id ?? null, terms: body.acceptedTerms === true });
     });
   } catch (e) {
     if (e instanceof Error && e.message === "PROGRAM_FULL") return res.status(409).json({ error: "This program is full" });

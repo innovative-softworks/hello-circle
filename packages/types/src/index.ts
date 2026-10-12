@@ -151,6 +151,16 @@ export interface MyBooking {
    * checked this booking in, null when nobody did — null is "unknown", not
    * "absent" (Release 1). Optional: older servers don't send it. */
   attendance?: string | null;
+  /** Booking audit 2026-10-11 (B3) — decided server-side by the same rules
+   * the cancel/reschedule routes enforce (server/src/selfCancel.ts); never
+   * re-derive them here. Optional: older servers don't send them. */
+  paymentStatus?: string;
+  paidOnline?: boolean;
+  canCancel?: boolean;
+  canReschedule?: boolean;
+  /** ISO instant after which the booking can't be changed online. */
+  cancelDeadline?: string;
+  refundState?: "none" | "pending" | "refunded";
 }
 
 // Resident Experience Polish — Changeset 5. PaymentSuccess.tsx's six
@@ -165,6 +175,8 @@ export interface BookingConfirmation {
   ref: string;
   paymentStatus: string;
   totalCents: number;
+  /** Booking UX Phase 3 — ISO instant after which it can't be cancelled online (server rule). Optional: older servers don't send it. */
+  cancelDeadline?: string;
   centreId: string;
   centreName: string;
   roomName: string | null;
@@ -201,6 +213,8 @@ export interface ExperienceBookingConfirmation {
   ref: string;
   paymentStatus: string;
   totalCents: number;
+  /** Booking UX Phase 3 — ISO instant after which it can't be cancelled online (server rule). Optional: older servers don't send it. */
+  cancelDeadline?: string;
   experienceId: string;
   title: string;
   meetingPoint: string;
@@ -267,13 +281,18 @@ export interface MyRegistration {
   sport: string;
   status: BookingStatus;
   vendorId: string;
-  /** Only ever present on the vendor's own view (vendorOperations.ts's
-   * GET /registrations) — not selected on the resident-facing MyRegistration
-   * fetch. */
+  /** Sent by both the vendor view and (since the booking audit, B3) the
+   * resident-facing fetch. */
   paymentStatus?: string;
+  /** Vendor view only (vendorOperations.ts's GET /registrations). */
   hasStripePayment?: boolean;
   /** Resident-facing fetch only — same meaning as MyBooking.attendance. */
   attendance?: string | null;
+  /** Resident-facing fetch only (B3) — see MyBooking's fields of the same
+   * names. Registrations have no cut-off, so no cancelDeadline. */
+  paidOnline?: boolean;
+  canCancel?: boolean;
+  refundState?: "none" | "pending" | "refunded";
 }
 
 export interface ParticipationEntry {
@@ -744,6 +763,8 @@ export interface Circle {
   /** Join modes (Follow/Notify/Stats gap audit §6) — 'open' is the original
    * instant-join behaviour every pre-existing Circle keeps by default. */
   joinMode: "open" | "approval" | "invite";
+  /** Booking UX Phase 5 — an approval Circle's questions for people asking to join (up to three). Optional: older servers don't send it. */
+  joinQuestions?: string[];
   /** Only present on the single-circle detail fetch (see routes/circles.ts's
    * detailStatsFor) — too expensive to compute per row on the browse list. */
   participantsThisMonth?: number;
@@ -1551,7 +1572,7 @@ export const BUDGET_OPTIONS = [
 
 export interface Receipt {
   ref: string;
-  kind: "booking" | "registration" | "game" | "pass" | "program_enrollment";
+  kind: "booking" | "registration" | "game" | "pass" | "program_enrollment" | "experience";
   label: string;
   totalCents: number;
   createdAt: string;

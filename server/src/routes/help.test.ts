@@ -49,7 +49,22 @@ describe("field help", () => {
     const rows = await fetch(`${baseUrl}/help/fields`).then((r) => r.json());
     const keys = rows.map((r: { helpKey: string }) => r.helpKey);
     for (const k of ["customer_price", "platform_fee", "platform_fee_vat", "fee_base", "partner_payout", "venue_allocation", "host_allocation", "available_balance", "pro_break_even"]) expect(keys).toContain(k);
-    expect(rows.find((r: { helpKey: string }) => r.helpKey === "partner_payout").example).toContain("€88.93");
+    // Commercial claims safety audit — the proposed fee model is no longer described as charged.
+    const payout = rows.find((r: { helpKey: string }) => r.helpKey === "partner_payout");
+    expect(payout.example).not.toContain("€88.93");
+    expect(payout.definition).toContain("confirmed with you before paid bookings open");
+  });
+
+  it("fee-model entries carry the neutral correction; earlier versions are kept as history", async () => {
+    const keys = ["platform_fee_vat", "fee_base", "partner_payout", "pro_break_even", "pro_benefit_1", "pro_benefit_2"];
+    const rows = await fetch(`${baseUrl}/help/fields?keys=${keys.join(",")}`).then((r) => r.json());
+    for (const r of rows as { helpKey: string; definition: string; example: string; formula: string }[]) {
+      const text = `${r.definition} ${r.example} ${r.formula}`;
+      expect(text, r.helpKey).not.toMatch(/\b9%|\b7%|€88\.93|success fee HelloCircle keeps|lower fee pays/);
+      expect(r.definition, r.helpKey).toMatch(/confirmed/);
+    }
+    const versions = await fetch(`${baseUrl}/admin/help/fee_base/versions`, { headers: { "X-Test-Admin-Role": "legal" } }).then((x) => x.json());
+    expect(versions.length).toBeGreaterThanOrEqual(2);
   });
 
   it("filters by key and ignores malformed keys", async () => {

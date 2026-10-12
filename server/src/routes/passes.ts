@@ -6,6 +6,7 @@ import { VENDOR_SUSPENDED_ERROR, isPositiveInt, vendorSuspended } from "../booki
 import { computePricing } from "../pricing.js";
 import { requireResident } from "../residents.js";
 import { generateRef } from "../util.js";
+import { commerceQuoteLimiter } from "../rateLimit.js";
 
 export const passesRouter = Router();
 
@@ -35,26 +36,58 @@ interface PassCheckoutInput {
   creditsTotal: number;
 }
 
-passesRouter.post("/checkout", requireResident, async (req, res) => {
-  const b = req.body as PassCheckoutInput;
-  if (!b.listingId || !b.creditsTotal || b.creditsTotal < 1) return res.status(400).json({ error: "listingId and creditsTotal are required" });
+type PassPrice =
+  | { ok: true; club: { name: string; vendor_id: string | null }; pricing: ReturnType<typeof computePricing> }
+  | { ok: false; status: number; error: string };
+
+/** The one place a pass is priced — shared by the quote and the checkout so
+ * the button's price is the charged price (R3A; replaces a client estimate). */
+async function pricePass(listingId: string | undefined, creditsTotal: unknown): Promise<PassPrice> {
+  if (!listingId || !creditsTotal || Number(creditsTotal) < 1) return { ok: false, status: 400, error: "listingId and creditsTotal are required" };
   // Commerce audit R10 — a whole number of credits within a sane pack size.
-  if (!isPositiveInt(b.creditsTotal, MAX_PASS_CREDITS)) return res.status(400).json({ error: `A pass can hold between 1 and ${MAX_PASS_CREDITS} sessions` });
+  if (!isPositiveInt(creditsTotal, MAX_PASS_CREDITS)) return { ok: false, status: 400, error: `A pass can hold between 1 and ${MAX_PASS_CREDITS} sessions` };
 
   // Commerce audit R10/R14 — same listing gates every other checkout applies:
   // only an approved club whose vendor isn't suspended can sell a pass.
-  const club = (await db.prepare(`SELECT name, price, status, vendor_id FROM clubs WHERE id = ?`).get(b.listingId)) as
+  const club = (await db.prepare(`SELECT name, price, status, vendor_id FROM clubs WHERE id = ?`).get(listingId)) as
     | { name: string; price: number; status: string; vendor_id: string | null }
     | undefined;
-  if (!club || club.status !== "approved") return res.status(404).json({ error: "Club not found" });
-  if (await vendorSuspended(club.vendor_id)) return res.status(409).json({ error: VENDOR_SUSPENDED_ERROR });
-  if (!(club.price > 0)) return res.status(400).json({ error: "This club doesn't sell passes" });
+  if (!club || club.status !== "approved") return { ok: false, status: 404, error: "Club not found" };
+  if (await vendorSuspended(club.vendor_id)) return { ok: false, status: 409, error: VENDOR_SUSPENDED_ERROR };
+  if (!(club.price > 0)) return { ok: false, status: 400, error: "This club doesn't sell passes" };
 
   // Simple bulk pricing: credits at the club's per-registration price, no
   // discount logic — a real pass product would want tiered pricing, out of
   // scope for this scaffolding.
-  const subtotalCents = club.price * 100 * b.creditsTotal;
-  const pricing = computePricing(subtotalCents, 0, 0, null);
+  const subtotalCents = club.price * 100 * (creditsTotal as number);
+  return { ok: true, club, pricing: computePricing(subtotalCents, 0, 0, null) };
+}
+
+/** R3A — read-only price for the "Buy a pass" button (no row, no Stripe call). */
+passesRouter.get("/quote", commerceQuoteLimiter, async (req, res) => {
+  const credits = Number(req.query.creditsTotal ?? 10);
+  const priced = await pricePass(typeof req.query.listingId === "string" ? req.query.listingId : undefined, credits);
+  if (!priced.ok) return res.status(priced.status).json({ error: priced.error });
+  const p = priced.pricing;
+  res.json({
+    creditsTotal: credits,
+    subtotalCents: p.subtotalCents,
+    discountCents: p.discountCents,
+    taxableCents: p.taxableCents,
+    vatCents: p.vatCents,
+    platformFeeCents: p.platformFeeCents,
+    depositCents: p.depositCents,
+    totalCents: p.totalCents,
+    couponCode: null,
+    currency: "EUR",
+  });
+});
+
+passesRouter.post("/checkout", requireResident, async (req, res) => {
+  const b = req.body as PassCheckoutInput;
+  const priced = await pricePass(b.listingId, b.creditsTotal);
+  if (!priced.ok) return res.status(priced.status).json({ error: priced.error });
+  const { club, pricing } = priced;
   const ref = generateRef("PS");
   shadowLegacy("pass", ref, { vendorUserId: club.vendor_id }, pricing);
 

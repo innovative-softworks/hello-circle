@@ -5,6 +5,8 @@ import { computePricing, splitCostPerPerson } from "../pricing.js";
 import { requireResident } from "../residents.js";
 import { BadRequestError, bookingEndHour, clientIdFrom, hoursOverlap, isValidEmail } from "../util.js";
 import { db } from "../db/index.js";
+import { commerceSwitch } from "../commerce/switches.js";
+import { occupiesCapacitySql } from "../bookingIntegrity.js";
 import type { Centre, Room } from "../types.js";
 
 export const makeItHappenRouter = Router();
@@ -85,7 +87,7 @@ async function findCandidates(body: SearchBody): Promise<Candidate[]> {
       if (body.maxBudgetPerPersonCents && perPersonCents > body.maxBudgetPerPersonCents) continue;
 
       const overlapping = (await db
-        .prepare(`SELECT time, duration FROM bookings WHERE room_id = ? AND centre_id = ? AND date = ? AND payment_status != 'failed' AND status != 'cancelled'`)
+        .prepare(`SELECT time, duration FROM bookings WHERE room_id = ? AND centre_id = ? AND date = ? AND ${occupiesCapacitySql()}`)
         .all(room.id, centre.id, body.date)) as { time: string; duration: number }[];
       const clashes = overlapping.some((b) => {
         const bStart = parseInt(b.time.slice(0, 2), 10);
@@ -122,7 +124,13 @@ async function findCandidates(body: SearchBody): Promise<Candidate[]> {
   return candidates;
 }
 
+/** Booking audit 2026-10-11 (B6) — Make It Happen books through Open
+ * Booking's cost-sharing, which is paused platform-wide until it's repriced.
+ * Say so plainly rather than returning an empty "nothing matches" list. */
+const PAUSED = { error: "Make It Happen is paused while we improve how group costs are shared", paused: true };
+
 makeItHappenRouter.post("/search", async (req, res) => {
+  if (!(await commerceSwitch("commerce.open_booking"))) return res.status(503).json(PAUSED);
   const body = req.body as SearchBody;
   const error = validateSearchInput(body);
   if (error) return res.status(400).json({ error });
@@ -141,6 +149,7 @@ interface ConfirmBody extends SearchBody {
 }
 
 makeItHappenRouter.post("/confirm", requireResident, async (req, res) => {
+  if (!(await commerceSwitch("commerce.open_booking"))) return res.status(503).json(PAUSED);
   let clientId: string;
   try {
     clientId = clientIdFrom(req);

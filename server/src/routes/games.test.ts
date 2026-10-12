@@ -679,4 +679,17 @@ describe("Activity lifecycle — draft/coming_soon/active, notify-me, transition
     const row = await db.prepare(`SELECT 1 FROM notify_me_subscriptions WHERE entity_type = 'game' AND entity_id = ? AND resident_id = ?`).get(game.id, subscriberId);
     expect(row).toBeUndefined();
   });
+
+  // Sitemap audit P2-09 — the card reads the real subscription after a reload.
+  it("GET notify-me reports the signed-in resident's own subscription", async () => {
+    const game = await createGame("coming_soon");
+    const status = async (residentId: string) => (await (await fetch(`${baseUrl}/${game.id}/notify-me`, { headers: { "X-Test-Resident-Id": residentId } })).json()).subscribed;
+    expect(await status(subscriberId)).toBe(false);
+    await fetch(`${baseUrl}/${game.id}/notify-me`, { method: "POST", headers: { "X-Test-Resident-Id": subscriberId } });
+    expect(await status(subscriberId)).toBe(true);
+    expect(await status(outsiderId)).toBe(false);
+    await fetch(`${baseUrl}/${game.id}/notify-me`, { method: "DELETE", headers: { "X-Test-Resident-Id": subscriberId } });
+    expect(await status(subscriberId)).toBe(false);
+    expect((await fetch(`${baseUrl}/${game.id}/notify-me`)).status).toBe(401);
+  });
 });

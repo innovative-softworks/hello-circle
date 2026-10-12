@@ -85,7 +85,7 @@ ${CONTACT}`,
 ## 1. Your booking
 
 1. When you book, your contract for the activity is with the partner named on the listing and at checkout. HelloCircle is not the supplier of the activity.
-2. The price shown at checkout is the price you pay. HelloCircle adds no booking fee for customers.
+2. The total shown at checkout, including any fees and VAT, is the price you pay.
 3. Your confirmation and receipt name the partner, the activity, the date and the amount paid.
 
 ## 2. Payment
@@ -132,7 +132,7 @@ ${CONTACT}`,
 
 ## 3. Fees and payouts
 
-1. HelloCircle charges the success fee for your plan, as published on the [Pricing page](/pricing), plus VAT on that fee. Your customers pay no booking fee.
+1. HelloCircle's fees for paid bookings are set out in the [Payments, Fees & Payout Policy](/policies/payments-fees-payouts) and are confirmed with you before you take paid bookings.
 2. Payouts follow the [Payments, Fees & Payout Policy](/policies/payments-fees-payouts).
 3. A Pro subscription is optional and subject to the [Pro Subscription Terms](/policies/pro-subscription-terms).
 
@@ -180,7 +180,7 @@ ${CONTACT}`,
 
 ## 3. Fees and payouts
 
-1. The success fee for your plan, as published on the [Pricing page](/pricing), plus VAT on that fee, is deducted from what customers pay. Payouts follow the [Payments, Fees & Payout Policy](/policies/payments-fees-payouts).
+1. HelloCircle's fees for paid bookings are confirmed with you before you take paid bookings. Payouts follow the [Payments, Fees & Payout Policy](/policies/payments-fees-payouts).
 
 ## 4. Safety
 
@@ -276,7 +276,7 @@ ${CONTACT}`,
 
 ## 1. The subscription
 
-1. Pro is an optional monthly subscription for partners. The price and the reduced success fee are published on the [Pricing page](/pricing). VAT applies to the subscription.
+1. Pro is an optional monthly subscription for partners. The price is shown before you subscribe. VAT applies to the subscription.
 
 ## 2. Billing
 
@@ -558,5 +558,31 @@ ${CONTACT}`,
 3. Partners provide each listing's accessibility information. Contact the partner for specific needs.
 4. If something doesn't work for you, contact [[SUPPORT_EMAIL]]. We aim to respond within [response time].
 5. This statement was last reviewed on [date].`,
+  },
+];
+
+/** Commercial claims safety audit (2026-10-11) — sentences the v1 drafts used
+ * to contain that state the unapproved fee model as fact, and their
+ * replacements. Applied to never-edited system drafts at boot (db/index.ts). */
+export const FEE_CLAIM_DRAFT_CORRECTIONS: { docKey: string; from: string; to: string }[] = [
+  {
+    docKey: "customer-booking-terms",
+    from: "2. The price shown at checkout is the price you pay. HelloCircle adds no booking fee for customers.",
+    to: "2. The total shown at checkout, including any fees and VAT, is the price you pay.",
+  },
+  {
+    docKey: "vendor-venue-agreement",
+    from: "1. HelloCircle charges the success fee for your plan, as published on the [Pricing page](/pricing), plus VAT on that fee. Your customers pay no booking fee.",
+    to: "1. HelloCircle's fees for paid bookings are set out in the [Payments, Fees & Payout Policy](/policies/payments-fees-payouts) and are confirmed with you before you take paid bookings.",
+  },
+  {
+    docKey: "host-agreement",
+    from: "1. The success fee for your plan, as published on the [Pricing page](/pricing), plus VAT on that fee, is deducted from what customers pay.",
+    to: "1. HelloCircle's fees for paid bookings are confirmed with you before you take paid bookings.",
+  },
+  {
+    docKey: "pro-subscription-terms",
+    from: "The price and the reduced success fee are published on the [Pricing page](/pricing).",
+    to: "The price is shown before you subscribe.",
   },
 ];
