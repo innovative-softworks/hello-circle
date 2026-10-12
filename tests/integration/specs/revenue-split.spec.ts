@@ -33,7 +33,10 @@ for (const viewport of ["desktop", "mobile"] as const) {
         const hp = host.page;
         await hp.goto("/manage?tab=earnings");
         await expect(hp.getByTestId("host-splits")).toBeVisible();
+        // Commercial UX R1: the payout account is in Earnings → Payouts; splits stay in Balance.
+        await hp.getByRole("tab", { name: "Payouts" }).click();
         await expect(hp.getByTestId("payout-state")).toHaveAttribute("data-state", /not_started|onboarding_incomplete/);
+        await hp.getByRole("tab", { name: "Balance" }).click();
         const row = hp.locator("div").filter({ hasText: game.activityLabel }).filter({ has: hp.getByRole("button", { name: "Propose to venue" }) }).last();
         await expect(row.getByText(/No split/)).toBeVisible();
         await row.getByLabel("Split type").selectOption("percentage");
@@ -79,7 +82,7 @@ for (const viewport of ["desktop", "mobile"] as const) {
         const awards = await rows(f, "SELECT party_type AS t, points, eligible_minor AS e FROM reward_split_awards WHERE source_ref = ? ORDER BY party_type DESC", [ref]);
         // €70 at 60 %: venue 4200, host 2800 → ⌊7000 × 1/€⌋ = 70 → 42 / 28 (only after settlement).
         expect(awards.map((x: any) => [x.t, Number(x.e), Number(x.points)])).toEqual([["org", 4200, 42], ["host", 2800, 28]]);
-        for (const [pg, scope, path] of [[vp, "vendor", "/vendor?tab=earnings"], [hp, "host", "/manage?tab=earnings"]] as const) {
+        for (const [pg, scope, path] of [[vp, "vendor", "/vendor?tab=earnings&view=plan"], [hp, "host", "/manage?tab=earnings&view=plan"]] as const) {
           const balance = (await (await (scope === "vendor" ? venue.context.request : host.context.request).get(`/api/${scope}/plan`)).json()).rewards.points as number;
           await pg.goto(path);
           await expect(pg.getByTestId("points-available").first()).toHaveText(balance.toLocaleString("en-IE")); // Stage 5f plan & rewards panel

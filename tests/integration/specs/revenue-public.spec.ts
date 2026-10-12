@@ -9,30 +9,22 @@ import { fitsViewport } from "../revenue-fixture";
 // choices, and the Policy Centre + complaints form. No logins.
 
 for (const viewport of ["desktop", "mobile"] as const) {
-  test(`REV-PUBLIC-PRICING-${viewport}: plans, live calculators and field help`, async ({ playwright, browser }) => {
+  // R3B F1 — the plan fee model (9% / 7% success fee, no customer fee) isn't what
+  // checkout charges, so the public page must not present it. The previous
+  // calculator assertions return when the model is confirmed (partnerPricing.ts).
+  test(`REV-PUBLIC-PRICING-${viewport}: no unconfirmed fee promises; free-plan facts stay`, async ({ playwright, browser }) => {
     test.setTimeout(60_000);
     await withActors(playwright, [], async () => {
       const ui = await uiActor(browser, null, viewport);
       try {
         const { page } = ui;
         await page.goto("/pricing");
-        await expect(page.getByRole("heading", { name: /Simple pricing/ })).toBeVisible();
-        await expect(page.getByText(/9% \+ VAT per completed paid booking/)).toBeVisible();
-        await expect(page.getByText(/7% \+ VAT per completed paid booking/)).toBeVisible();
-        // Test vector 1: €100 on Free → partner earnings €88.93 (fee €9.00 + VAT €2.07).
-        const price = page.getByLabel("Price per place (€)");
-        await price.fill("100");
-        await expect(page.getByText("€88.93").first()).toBeVisible();
-        await expect(page.getByText("−€9.00").first()).toBeVisible();
-        await expect(page.getByText("−€2.07").first()).toBeVisible();
-        // Below the minimum: €5 → the €0.75 minimum fee applies.
-        await price.fill("5");
-        await expect(page.getByText(/minimum applies/)).toBeVisible();
-        // Free vs Pro comparison and break-even.
-        await expect(page.getByText(/Pro pays for itself above/).first()).toBeVisible();
-        // Field help explains in place.
-        await page.getByRole("button", { name: /What is HelloCircle fee\?/ }).first().click();
-        await expect(page.getByRole("note").first()).toContainText(/success fee/);
+        await expect(page.getByRole("heading", { name: "Pricing for partners" })).toBeVisible();
+        await expect(page.getByText(/being finalised/).first()).toBeVisible();
+        for (const t of ["Free listing", "No fee on free events"]) await expect(page.getByText(t, { exact: true })).toBeVisible();
+        const text = await page.getByTestId("pricing-pending").innerText();
+        for (const claim of [/\b9%/, /\b7%/, /success fee/i, /No booking fee/i, /pays for itself/i, /What you'd earn/i, /transferred weekly|weekly transfers/i, /€29/]) expect(text, String(claim)).not.toMatch(claim);
+        await expect(page.getByLabel("Price per place (€)")).toHaveCount(0); // no estimator
         await fitsViewport(page);
         expect(ui.consoleErrors).toEqual([]);
       } finally {

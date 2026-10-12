@@ -54,9 +54,14 @@ for (const viewport of ["desktop", "mobile"] as const) {
         await expect(dialog.getByTestId("breakdown-coupon")).toContainText("− €5.00");
         await dialog.getByLabel(/Use my HelloCircle credit/).check();
         await expect(dialog.getByTestId("breakdown-credit")).toContainText("− €15.00");
-        await expect(dialog.getByTestId("breakdown-card")).toContainText("none needed");
+        await expect(dialog.getByTestId("breakdown-card")).toContainText("nothing to pay"); // R3A shared wording
         await expect(dialog.getByTestId("breakdown-card")).toContainText("€0.00");
         await shot(page, `checkout-coupon-credit-${viewport}`);
+        // Booking UX Phase 4 — tick the acknowledgements the listing asks for.
+        for (const label of [/^Everyone taking part is at least/, /^I've read the safety information/, /^I agree to the booking terms/]) {
+          const box = dialog.getByRole("checkbox", { name: label });
+          if (await box.count()) await box.check();
+        }
         await dialog.getByRole("button", { name: /^(Book|Confirm|Reserve)/ }).click();
         await expect(page.getByRole("heading", { name: "You're booked." })).toBeVisible();
         const [booked] = await rows(f, "SELECT ref, payment_status AS ps FROM experience_bookings WHERE session_id = ? ORDER BY created_at DESC LIMIT 1", [exp.session]);

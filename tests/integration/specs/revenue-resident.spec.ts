@@ -56,10 +56,12 @@ for (const viewport of ["desktop", "mobile"] as const) {
         const { page } = ui;
         await page.goto("/manage?tab=earnings");
         await expect(page.getByRole("heading", { name: "Your balance" })).toBeVisible();
-        await expect(page.getByRole("heading", { name: "Payout account" })).toBeVisible();
         await expect(page.getByRole("heading", { name: "Trader details" })).toBeVisible();
         await expect(page.getByLabel("Selling as")).toHaveValue("individual");
         await expect(page.getByLabel("Date of birth")).toBeVisible();
+        // Commercial UX R1: the payout account is in Earnings → Payouts.
+        await page.getByRole("tab", { name: "Payouts" }).click();
+        await expect(page.getByRole("heading", { name: "Payout account" })).toBeVisible();
         await fitsViewport(page);
       } finally {
         await ui.close();
@@ -96,9 +98,14 @@ for (const viewport of ["desktop", "mobile"] as const) {
         const card = dialog.getByTestId("breakdown-card");
         const before = (await card.textContent())?.trim();
         await credit.check();
-        // Stage 5f ordered breakdown: price + fees − coupon − credit = card payment due.
+        // R3A: the server order — price − coupon − credit (+ VAT and fees) = card payment due.
         await expect(dialog.getByTestId("breakdown-credit")).toContainText("− €5.00");
         await expect.poll(async () => (await card.textContent())?.trim()).not.toBe(before);
+        // Booking UX Phase 4 — tick the acknowledgements the listing asks for.
+        for (const label of [/^Everyone taking part is at least/, /^I've read the safety information/, /^I agree to the booking terms/]) {
+          const box = dialog.getByRole("checkbox", { name: label });
+          if (await box.count()) await box.check();
+        }
         await dialog.getByRole("button", { name: /^(Book|Continue to pay)$/ }).click();
         await expect.poll(async () => (await rows(f, "SELECT amount_minor, status FROM credit_uses WHERE lot_id = ?", [lotId])).length).toBe(1);
         expect(await rows(f, "SELECT amount_minor, status FROM credit_uses WHERE lot_id = ?", [lotId])).toEqual([{ amount_minor: 500, status: "reserved" }]);

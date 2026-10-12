@@ -42,6 +42,9 @@ for (const viewport of ["desktop", "mobile"] as const) {
         // Pro details: comparison, exact price and tax, test-card hint (test mode only), terms gate.
         await expect(page.getByRole("heading", { name: "HelloCircle Pro" })).toBeVisible();
         await expect(page.getByTestId("plan-compare")).toBeVisible();
+        // R3B F1 — only the monthly price is compared; no per-booking fee promise.
+        await expect(page.getByTestId("fee-model-pending")).toBeVisible();
+        await expect(page.getByTestId("plan-compare")).not.toContainText(/Success fee|Minimum fee/);
         const price = page.getByTestId("pro-price").first();
         for (const t of ["Pro subscription", "€29.00", "VAT 23%", "€6.67", "Total due today", "€35.67"]) await expect(price.getByText(t, { exact: true })).toBeVisible();
         await expect(page.getByTestId("test-card-hint")).toBeVisible();

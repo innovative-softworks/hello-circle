@@ -23,6 +23,10 @@ for (const viewport of ["desktop", "mobile"] as const) {
         const balance = page.locator("div").filter({ has: page.getByRole("heading", { name: "Your balance" }) }).last();
         for (const label of ["Pending", "Available", "Settled — transfer due", "Transferred to your Stripe account"]) await expect(balance.getByText(label).first()).toBeVisible();
         await expect(page.getByText(/transferred weekly to your Stripe account; Stripe then pays out to your bank/)).toBeVisible();
+        // Commercial UX R1: the payout account lives in Earnings → Payouts (a real tab, switched on above).
+        await page.getByRole("tab", { name: "Payouts" }).click();
+        await expect(page.getByRole("tab", { name: "Payouts" })).toHaveAttribute("aria-selected", "true");
+        await expect(page).toHaveURL(/view=payouts/);
         // Payout account: what blocks payouts, then Stripe-hosted onboarding.
         // The card = the innermost div holding both its heading and its action (the heading sits in a header row).
         const card = page.locator("div").filter({ has: page.getByRole("heading", { name: "Payout account" }) }).filter({ has: page.getByRole("button", { name: "Set up payouts with Stripe" }) }).last();
@@ -39,7 +43,7 @@ for (const viewport of ["desktop", "mobile"] as const) {
         // Plan card: Pro is the net price; this partner's VAT is shown separately.
         // (A fresh page in the same session: the first one was sent to the blocked Stripe-hosted URL.)
         const plan = await ui.context.newPage();
-        await plan.goto("/vendor?tab=earnings");
+        await plan.goto("/vendor?tab=earnings&view=plan"); // commercial UX R1: Earnings → Plan & billing
         await expect(plan.getByRole("heading", { name: "Your plan: Free" })).toBeVisible();
         // Stage 5f: net price + this partner's tax row = total; Pro is explored before any checkout.
         await expect(plan.getByText(/Pro is €29\.00\/month \+ VAT 23% €6\.67 = €35\.67/).first()).toBeVisible();
@@ -106,7 +110,7 @@ for (const viewport of ["desktop", "mobile"] as const) {
         // The checkout is recorded at the net price + this partner's VAT.
         await expect.poll(async () => (await rows(f, "SELECT status, net_minor, vat_minor, gross_minor FROM partner_subscriptions WHERE party_type = 'org' AND party_id = ? ORDER BY id DESC LIMIT 1", [orgId]))[0]).toEqual({ status: "checkout", net_minor: 2900, vat_minor: 667, gross_minor: 3567 });
         const back = await ui.context.newPage();
-        await back.goto("/vendor?tab=earnings");
+        await back.goto("/vendor?tab=earnings&view=plan");
         await expect(back.getByRole("heading", { name: "Your plan: Free" })).toBeVisible(); // Pro starts only when the payment is confirmed
         await expect(back.getByTestId("redeem").first()).toHaveAttribute("data-redemption", "not_enough");
         await fitsViewport(back);

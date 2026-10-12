@@ -164,6 +164,8 @@ async function main() {
       ["stripe-selfcancel", "stripe-selfcancel\\.spec\\.ts$"],
       ["stripe-browser", "stripe-browser\\.spec\\.ts$"],
       ["stripe-findings", "stripe-findings\\.spec\\.ts$"],
+      // Commercial UX R3A — quote = stored = Stripe amount on the changed paths.
+      ["stripe-r3a", "stripe-r3a\\.spec\\.ts$"],
       // Stage 5d — local Stripe sandbox validation (Connect, money, disputes, Billing, webhooks, settlement).
       ["stripe-sandbox-connect", "stripe-sandbox-connect\\.spec\\.ts$"],
       ["stripe-sandbox-money", "stripe-sandbox-money\\.spec\\.ts$"],

@@ -24,6 +24,8 @@ for (const viewport of ["desktop", "mobile"] as const) {
         const { page } = ui;
         await page.goto("/admin?tab=finance");
         await page.getByRole("tab", { name: "Simulator" }).click();
+        // R3B F1 — the simulator is labelled hypothetical (plan model, not what checkout charges).
+        await expect(page.getByTestId("simulator-hypothetical")).toContainText(/Hypothetical/);
         await page.getByLabel("Price (€)").fill("100");
         await page.getByRole("button", { name: "Simulate" }).click();
         await expect(page.getByText("€88.93").first()).toBeVisible(); // partner pool, test vector 1

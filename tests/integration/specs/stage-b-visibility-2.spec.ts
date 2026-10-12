@@ -25,6 +25,15 @@ test("VIS-COUNTS: public counts do not change when protected activities are crea
   await withActors(playwright, ["QA_VENDOR", "QA_USER", "QA_HOST_B", "GUEST"], async (f) => {
     const centre = await centreFor(f, "QA_VENDOR");
     const label = `QA counts ${randomUUID().slice(0, 8)}`;
+    // Booking UX Phase 5 (audit B11) — an activity names a venue only through the
+    // host's own confirmed booking there, so the host holds one for tonight.
+    const bookingRef = `HB-QAVIS${randomUUID().slice(0, 8)}`;
+    await f.connection.execute("UPDATE rooms SET cap = 500 WHERE centre_id = ?", [centre.id]);
+    await f.connection.execute(
+      `INSERT INTO bookings (ref, client_id, resident_id, centre_id, room_id, date, time, duration, event_type, guests, name, email, phone, notes, total_cents, payment_status)
+       VALUES (?, 'qa-vis', ?, ?, ?, ?, '23:00', 1, 'QA', 1, 'QA host', 'qa@example.test', '', '', 0, 'paid')`,
+      [bookingRef, personas.QA_HOST_B.id, centre.id, centre.room, new Date().toISOString().slice(0, 10)]
+    );
     const created = await f.actors.QA_USER.post("/api/circles", { data: { name: `QA counts ${randomUUID()}`, joinMode: "open", activityLabel: label } });
     const circle = (await created.json()).id;
     f.track("circles", "id", circle); f.track("circle_members", "circle_id", circle);
@@ -37,10 +46,10 @@ test("VIS-COUNTS: public counts do not change when protected activities are crea
     const before = await counts();
     const today = new Date().toISOString().slice(0, 10);
     for (const input of [{ visibility: "invite", lifecycle: "active" }, { visibility: "public", lifecycle: "draft" }, { visibility: "public", lifecycle: "active", publishAt: at(20) }]) {
-      await game(f, "QA_HOST_B", { activityLabel: label, centreId: centre.id, capacity: 500, date: today, time: "23:30", ...input });
+      await game(f, "QA_HOST_B", { activityLabel: label, centreId: centre.id, bookingRef, capacity: 500, date: today, time: "23:30", ...input });
     }
     const afterProtected = await counts();
-    await game(f, "QA_HOST_B", { activityLabel: label, centreId: centre.id, capacity: 500, date: today, time: "23:45", visibility: "public", lifecycle: "active" });
+    await game(f, "QA_HOST_B", { activityLabel: label, centreId: centre.id, bookingRef, capacity: 500, date: today, time: "23:45", visibility: "public", lifecycle: "active" });
     const afterPublic = await counts();
     await evidence("vis-counts", { before: JSON.stringify(before), afterProtected: JSON.stringify(afterProtected), afterPublic: JSON.stringify(afterPublic) });
     expect(afterProtected, "protected activities do not move public counts").toEqual(before);
