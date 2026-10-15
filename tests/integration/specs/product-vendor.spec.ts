@@ -95,7 +95,13 @@ test("HC-QA-066-VENDOR: a booking's details open from the keyboard (desktop tabl
         await opener.focus();
         expect((await focused(page)).focusVisible, `${viewport}: visible focus`).toBe(true);
         await page.keyboard.press("Enter");
-        await expect(page.getByRole("dialog").filter({ hasText: ref })).toBeVisible();
+        // Booking details are a record page (UI completion 2026-10-14), not a dialog:
+        // shareable URL, the guest as the page heading, Back returns to the list.
+        await expect(page).toHaveURL(new RegExp(`record=booking%3A${ref}|record=booking:${ref}`));
+        await expect(page.getByRole("heading", { level: 1, name: "QA synthetic guest" })).toBeVisible();
+        await expect(page.getByText(ref).first()).toBeVisible();
+        await page.goBack();
+        await expect(page.getByRole("button", { name: /Open booking for QA synthetic guest/ }).filter({ visible: true }).first()).toBeVisible();
       } finally { await ui.close(); }
     }
     await evidence("hc-qa-066-vendor", { keyboardOpensBooking: true });

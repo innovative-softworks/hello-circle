@@ -73,7 +73,7 @@ the app creates/migrates tables inside it on startup, not the database itself.
 
 First run: the server awaits `initSchema()` + seeding before it starts listening (schema/seed queries are
 async against MySQL, so this is a real `await` at module load, not fire-and-forget) and seeds an admin
-account — `admin@hellocircle.ie` / `changeme123` by default, overridable via `HELLO_CIRCLE_ADMIN_EMAIL` /
+account — `itadmin@hellocircle.ie` / `changeme123` by default, overridable via `HELLO_CIRCLE_ADMIN_EMAIL` /
 `HELLO_CIRCLE_ADMIN_PASSWORD`.
 
 ## Who uses this — four identity/participation surfaces
@@ -131,6 +131,22 @@ browser can simply hold both session cookies at once, and these routes only mint
   `AdminDashboard.tsx`/`routes/admin.ts` and the standalone page/router were deleted. Look in `admin.ts` for
   organisation CRUD, RBAC role assignment, provider-tier assignment, the audit log, and moderation reports —
   they're all here now, not in a separate router.
+- **Admin permissions (D-02) are deny-by-default.** Admins have a sub-role (`users.admin_role`: super | finance |
+  support | legal); what each may do is the single table `ADMIN_PERMISSIONS` in `server/src/adminPermissions.ts`.
+  Every admin route declares exactly one permission as its first handler — `requireAdminPermission("…")` (or
+  `ensureAdminCan()` inside a handler when the target state decides it). `adminPermissions.test.ts` walks the real
+  routers and fails if a route has none, so a new admin route **must** declare one. An empty/unknown role is denied
+  everything (the NULL→super upgrade backfill runs once per DB, never per boot); no session → 401, a signed-in
+  non-admin or a role without the permission → 403. No env var or mode widens the table. The client mirrors it via
+  `GET /api/admin/permissions` (`components/admin/adminPermissions.tsx`, `useAdminCan()`; nav items name
+  permissions in `adminNav.ts`) — hide controls with it, but the server is the enforcement point. Routes outside
+  `/api/admin` that admins reach check `adminCan()` too (e.g. `POST /api/uploads` needs `listings.edit` or
+  `media.editorial`). The one-time role backfill writes an `admin.role_backfilled` audit row per account.
+- **Decision reasons (D-03).** Listing rejection, partner suspension, and claim / host-application /
+  place-suggestion rejection require `{ reasonCategory, explanation }` (+ optional `internalNote`) and append a row
+  to `moderation_decisions` (`server/src/moderationDecisions.ts`; never edited, never back-filled). The explanation
+  reaches the partner/applicant (`moderationNotify.ts`, `DecisionExplanation.tsx`); the internal note never leaves
+  admin APIs for roles with `decisions.internal_notes.view`. Old decisions show "No reason recorded" — never invent one.
 - **Organisations + RBAC are real and enforced**, not schema-only scaffolding. Every vendor has an `org_id`
   (1:1-backfilled at boot for pre-existing vendors, assigned at signup for new ones — see
   `server/src/db/index.ts`'s vendor-org backfill and `routes/auth.ts`'s signup transaction). `orgVendorIds()`
@@ -211,9 +227,26 @@ of what used to be one 1088-line file — still reached the same way from outsid
 centre/club routes only ever return `approved` rows. The Stripe webhook
 (`routes/stripeWebhook.ts`) is mounted *before* `express.json()` with `express.raw()` instead, because
 Stripe's signature check needs the untouched raw body bytes — keep any new raw-body-dependent route ahead of
-the JSON body parser too. In production (`NODE_ENV=production`) the webhook handler *requires*
-`STRIPE_WEBHOOK_SECRET` and refuses unverified events; in dev, an unset secret just skips signature
-verification.
+the JSON body parser too. The webhook handler *requires* `STRIPE_WEBHOOK_SECRET` and refuses unsigned events
+everywhere; a local-only `ALLOW_UNSIGNED_STRIPE_WEBHOOKS=true` opt-in exists and is ignored in production and
+staging (`stripeWebhookPolicy.ts`). Live Stripe keys are refused outside production. Events are stored once in
+`webhook_events` (duplicates acknowledged without reprocessing). Since 2026-10-14 a paid Checkout event is only
+confirmed when it matches the **checkout agreement** recorded when the session was created
+(`payments/checkoutAgreement.ts`: same order, same session, agreed amount and currency); a mismatch parks the event
+for finance review instead of marking anything paid; the order status endpoints then report `paymentReview: true`
+(`paymentUnderReview()`), which the confirmation page shows as "needs a check" — never as booked. Don't bypass this when adding a payment path — create sessions
+through `checkoutService.createCheckoutSession()`, which records the agreement.
+**Paid orders under review (D-10/D-11, local 2026-10-15)** live in `server/src/payments/paymentReview.ts`: one
+`payment_reviews` row per Checkout session that couldn't simply confirm is the durable record of the money received —
+its order row keeps its own status (never relabelled unpaid), its place is held only until the stored
+`review_hold_until` deadline (counted by `occupiesCapacitySql`/`gameSeatSql`; it is only ever shortened), a 5-minute
+restart-safe sweep releases expired holds and sends once-only alerts, and expiry never refunds. Confirmation
+(`settleOrder()` in `stripeWebhook.ts`, with `payments/orderState.ts`) re-checks organisation, cancellation, refunds,
+listing eligibility, start time and capacity. The only automatic refund is D-10 cases 4/4b (provider re-read, refund
+row committed before the call, never retried blindly). "Recheck with Stripe" only reads the provider. Don't add a
+path that confirms a held payment without going through these. Settlement items are unique per (ledger group, party): one
+group can credit both a venue and a host (fixed 2026-10-15 — it used to fail the run or drop a share); a settlement run
+that throws is marked `failed` with its step, and the API returns a correlation id matching its `[error-report]` line.
 
 **Payments**: Stripe Checkout session creation is centralized in `server/src/checkoutService.ts`
 (`createCheckoutSession()`/`pricingLineItems()`) — every payment path (`bookings.ts`, `registrations.ts`,
@@ -250,25 +283,40 @@ than trusting a stale enumeration here. `AuthContext.tsx` holds vendor/admin ses
 holds resident/magic-link session state, `MyStuffContext.tsx` holds the guest "my bookings" count,
 `DashboardNavContext.tsx` lets the Vendor/Admin dashboards register a burger-menu trigger in the global
 `Header`. `api.ts` has one typed fetch wrapper per API endpoint — add new server routes there rather than
-calling `fetch` ad hoc from pages. It's now a thin barrel (`export * from "./api/core"` etc.) re-exporting six
+calling `fetch` ad hoc from pages. It's now a thin barrel (`export * from "./api/core"` etc.) re-exporting the
 domain modules under `client/src/api/` — `core.ts` (the shared `request()`/`ApiError`), `public.ts`
 (guest-facing browsing/transactions, no account needed), `resident.ts` (magic-link session, household,
 favourites, games, circles, passes, …), `vendorAuth.ts` (signup/login/password-reset/invite-accept),
-`vendor.ts` (the vendor dashboard's own CRUD/ops/insights calls), and `admin.ts` — split out of what used to
-be one 1076-line file. Every existing `from "../api"` import site is unchanged, since the barrel keeps the
+`vendor.ts` (the vendor dashboard's own CRUD/ops/insights calls), `admin.ts`, plus `invitations.ts`,
+`manage.ts`, `media.ts` and `sharing.ts` — split out of what used to be one 1076-line file. Every existing `from "../api"` import site is unchanged, since the barrel keeps the
 public import path stable; add a new wrapper to whichever domain module it belongs to (or `api.ts` itself
 stays untouched). `VendorDashboard.tsx` similarly split into `components/Vendor*.tsx` files (one per tab) plus
 `vendorFormat.ts` for shared formatters, the same pattern already used for `VendorOrg.tsx`/`VendorPrograms.tsx`.
 `types.ts` mirrors server response shapes by hand (no shared/generated types package
 between client and server — keep both in sync manually when changing an API shape; `client/src/types.ts` and
-`client/src/theme.ts` *are* now re-exports of `packages/types`/`packages/design-tokens`, shared with
-`apps/mobile` — that sharing is client↔mobile only, `server/src/types.ts` stays a separate hand-synced
-mirror). No CSS framework;
+`client/src/theme.ts` *are* now re-exports of `packages/types`/`packages/design-tokens`, shared with the mobile
+app (which lives in a separate repository — `apps/` is empty here) — that sharing is client↔mobile only,
+`server/src/types.ts` stays a separate hand-synced mirror). `theme.ts` overrides the shared numeric `radius`
+tokens with CSS variables (`--radius-control/card/pill`): consumer values in `index.css`, square 2px values inside
+the workspaces. No CSS framework;
 styling is hand-rolled via `theme.ts` (design tokens, no formal spacing/type scale yet — inline pixel values
 are common) and `index.css` (also the home of the app's `@media` responsive escape-hatch utility classes,
 since inline styles can't express breakpoints). `ui.tsx` is the closest thing to a component library
-(`Button`, `LinkButton`, `Card`, `StatusBadge`, `EmptyState`, `ConfirmDialog`, `DashboardTopPanel`, `Drawer`,
-`NavSidebar`, table style constants, …) — no Storybook, no visual regression tooling. One file per route
+(`Button`, `LinkButton`, `Card`, `StatusBadge`, `EmptyState`, `ConfirmDialog`, `Modal`, `LoadErrorState`,
+table style constants, …) — no Storybook, no visual regression tooling. **No sliding side panels** for records,
+forms or decisions: `Drawer` now renders the centred `Modal`; `ConfirmDialog` handles async confirm handlers
+(progress, no double submit, stays open with the error); mobile section menus (`WorkspaceShell`'s "Sections",
+resident `NavSidebar`) are full-screen. Resident receipts are a page (`/receipts/:ref`). **Workspaces** (admin `/admin`, partner `/vendor*`, host
+`/manage*`) share `components/workspace/WorkspaceShell.tsx` (cream system in `components/admin/admin.css`;
+`PartnerWorkspace`, `HostWorkspace`, `AdminShell` wrap it), keep tabs and list filters in the URL (`useUrlTab`,
+`useUrlParam`, `useRecordParam` in `useUrlTab.ts`), and show records as pages via `?record=<type>:<id>` and
+`components/workspace/RecordView.tsx` (shareable, Back-safe, the record is the page H1). Admin tool primitives live
+in `components/admin/adminUi.tsx`; failed loads use `LoadErrorState` / `components/admin/loadFailure.tsx` — never a
+silent empty list. Several secondary row actions go in `components/ActionMenu.tsx` (anchored menu, main action stays
+visible). Forms follow one convention in `components/form.tsx`: `FieldLabel` (` *` required / "(optional)"),
+`RequiredNote`, `useFormErrors` + `FieldError` (aria-invalid/describedby) and a focused, linked `FormErrorSummary`; an
+editor whose record failed to load must not render a saveable blank form. Note `Button` forwards only whitelisted
+`aria-*` props (TypeScript doesn't flag hyphenated props it drops). One file per route
 under `pages/`; shared UI under `components/`. `pages/PlatformAdmin.tsx` was deleted (folded into
 `AdminDashboard.tsx`, see "Who uses this" above); the pre-existing "New to Ireland" checklist page
 (`pages/Checklist.tsx`, `/checklist`) was removed earlier and stays removed. `pages/PrivacyPolicy.tsx`
@@ -281,8 +329,10 @@ one origin, avoiding cross-origin cookie/CORS complexity by construction. `DATA_
 (`server/src/dataDir.ts`, default: the server package root) controls where `uploads/` lives — point it at a
 mounted persistent volume in production, since container/PaaS hosts typically wipe local disk on redeploy.
 `start.sh`/`start.bat` are convenience launchers (`cd` to the repo root, `npm run dev`) — dev-only, not part
-of the build/deploy path. CORS is still `cors({ origin: true, credentials: true })` (reflects any origin) —
-fine for same-origin production deploys, but should be locked to a real origin if that ever changes. The
+of the build/deploy path. CORS allows only `PUBLIC_ORIGINS`/`PUBLIC_ORIGIN` when set and reflects the request
+origin only when neither is set (local dev). Errors are reported provider-neutrally (`server/src/errorReporting.ts`,
+`client/src/errorReporting.ts` → `POST /api/client-errors`): one scrubbed `[error-report]` log line each, forwarded
+only if `ERROR_REPORT_WEBHOOK_URL` is set — never log request bodies, cookies or personal data there. The
 in-memory rate limiter (`server/src/rateLimit.ts`) resets on process restart and won't survive a
 multi-instance deploy — fine at current scale, replace with a shared store before scaling past one instance.
 
@@ -295,10 +345,27 @@ into fixing (or worse, half-fixing) one as a side effect of an unrelated task:
 
 - **The five participant-tracking tables aren't unified** (see above) — a real fix is a large, deliberate
   migration, not a quick refactor.
-- **RBAC's scope is still being actively extended**, not finished — check current `requirePlatformRole(...)`
+- **Partner-side RBAC's scope is still being actively extended** (admin permissions are complete — see D-02 above), not finished — check current `requirePlatformRole(...)`
   usage in `server/src/routes/*.ts` before assuming any given vendor-scoped route is or isn't gated.
-- **No CI, and the Vitest suites are thin** (see above) — no automated safety net for checkout/cancellation
-  paths beyond what the server's handful of `*.test.ts` files cover. Verify payment-adjacent changes by hand
-  against `hello_circle_dev`, never `hello_circle`.
+- **CI is minimal** (`.github/workflows/web-ci.yml`: build, client tests, server tests). The guarded
+  `npm run qa:*` Playwright suites (isolated container, Stripe TEST mode for `qa:stripe`) are run locally, not in
+  CI. Verify payment-adjacent changes with those suites and by hand against `hello_circle_dev`, never
+  `hello_circle`. Open product/policy decisions are listed in `docs/hellocircle-operating-decisions.md`.
+- **Two suspension levers (D-01, local 2026-10-15).** Organisation suspension (`organisations.status`, admin
+  Organisations record page, Super only) hides all of an organisation's supply and refuses every new sale whoever
+  created it; members get a read-only obligations page. It never rewrites listing statuses: public reads add
+  `orgActiveSql("<alias>.vendor_id")` (`server/src/orgSql.ts`) and sale paths call `offeringSellable()` +
+  `assertSellable(tx, vendorId)` (`server/src/orgStatus.ts`) inside their own transaction — **a new public read of
+  centres/clubs/experiences/programmes or a new sale path must do the same**. Ownership = `listing.vendor_id →
+  users.org_id` (`centres.org_id`/`clubs.org_id` are an unrelated, experimental admin link). The older per-user
+  suspension still blocks that user's sign-in and the listings in their own `vendor_id`, but doesn't hide anything;
+  use the organisation lever to suspend a business. A late payment for a suspended organisation is refunded
+  automatically when every D-10 precondition holds; otherwise it is parked in Finance review (order left pending).
+- **Staff management (D-08, local 2026-10-15).** Owners change roles / remove members via `PUT|DELETE
+  /api/vendor/org/staff/:id` with `rowVersion` (409 if stale). Removal moves the member's listings and coupons to the
+  owner (`created_by_user_id` keeps the creator) and deletes their partner sessions; a removed member is
+  `invitedStaff && !orgId` and gets 403 `removedFromOrg` from partner APIs. They can be re-invited with the same email and rejoin only by
+  accepting the new invite with their existing password (`/auth/accept-invite`); a new invite replaces older pending
+  ones for that person and organisation.
 - **Resident preferences (`interests`/`availability`) are stored as CSV text**, not a structured/queryable
   shape — fine for display, not yet a foundation for real personalization/recommendations.

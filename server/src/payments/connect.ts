@@ -49,6 +49,7 @@ const ACCOUNT_FIELDS = `party_type as partyType, party_id as partyId, provider, 
   api_model as apiModel, configuration_type as configurationType, dashboard_type as dashboardType, business_type as businessType,
   onboarding_state as onboardingState, charges_capability as chargesCapability, payouts_capability as payoutsCapability,
   requirements_past_due as requirementsPastDue, requirements_pending as requirementsPending, onboarding_completed_at as onboardingCompletedAt,
+  onboarding_returned_at as onboardingReturnedAt,
   last_synced_at as lastSyncedAt, last_event_id as lastEventId, creation_key as creationKey`;
 
 export interface ConnectedAccountRow {
@@ -74,6 +75,7 @@ export interface ConnectedAccountRow {
   requirementsPastDue: string | null;
   requirementsPending: string | null;
   onboardingCompletedAt: string | null;
+  onboardingReturnedAt?: string | null;
   lastSyncedAt: string | null;
   lastEventId: string | null;
   creationKey: string | null;
@@ -94,10 +96,18 @@ const REVIEW_CODES = new Set(["requirements_pending_verification", "determining_
 
 /** Pure: the partner-facing state from the provider's state. "Completed
  * before" separates first onboarding from Stripe asking for more later. */
-export function deriveOnboardingState(st: Pick<ConnectedAccountStatus, "transfersCapability" | "payoutsCapability" | "requirementsDue" | "requirementsPastDue" | "requirementsPending" | "disabledReason">, completedBefore: boolean): OnboardingState {
+export function deriveOnboardingState(
+  st: Pick<ConnectedAccountStatus, "transfersCapability" | "payoutsCapability" | "requirementsDue" | "requirementsPastDue" | "requirementsPending" | "disabledReason">,
+  completedBefore: boolean,
+  /** The partner has been through Stripe's hosted onboarding at least once. */
+  submitted = true
+): OnboardingState {
   const userAction = st.requirementsDue.length + st.requirementsPastDue.length > 0;
   if (st.transfersCapability === "active" && st.payoutsCapability === "active" && !userAction) return "enabled";
   if (userAction) return completedBefore ? "more_information_required" : "onboarding_incomplete";
+  // Nothing listed yet and the partner has never been through the form: it's
+  // not "under review", it simply hasn't started (Stripe lists requirements lazily).
+  if (!completedBefore && !submitted && st.transfersCapability !== "active") return "onboarding_incomplete";
   if (st.requirementsPending.length > 0 || (st.disabledReason && REVIEW_CODES.has(st.disabledReason)) || st.transfersCapability === "pending") return "under_review";
   if (st.transfersCapability !== "active") return "transfers_unavailable";
   return "payouts_unavailable";
@@ -140,14 +150,23 @@ export async function syncConnectedAccount(
   const fetchedAt = new Date();
   const st = await provider.retrieveConnectedAccount(accountId, row.apiModel ?? "v1");
   const completedBefore = !!row.onboardingCompletedAt;
-  const state = deriveOnboardingState(st, completedBefore);
-  // Onboarding counts as completed the first time Stripe needs nothing more from the partner.
-  const completedNow = !completedBefore && st.requirementsDue.length + st.requirementsPastDue.length === 0;
+  const submitted = !!row.onboardingReturnedAt || ctx.source === "return" || st.transfersCapability === "active";
+  const state = deriveOnboardingState(st, completedBefore, submitted);
+  // Onboarding counts as completed the first time Stripe needs nothing more
+  // from the partner AND there is positive evidence it happened. Stripe
+  // computes requirements lazily: a brand-new Accounts v2 account can report
+  // none at all, which used to mark it "completed" at creation — the app then
+  // asked for an `account_update` link, which Stripe refuses before onboarding
+  // ("Valid types for this account are [account_onboarding]").
+  const nothingOutstanding = st.requirementsDue.length + st.requirementsPastDue.length === 0;
+  const evidence = st.apiModel === "v2" ? st.transfersCapability === "active" : st.detailsSubmitted;
+  const completedNow = !completedBefore && ctx.source !== "create" && nothingOutstanding && evidence;
   const r = await db
     .prepare(
       `UPDATE connected_accounts SET details_submitted = ?, charges_enabled = ?, payouts_enabled = ?, transfers_capability = ?, requirements_due = ?, disabled_reason = ?,
          configuration_type = ?, dashboard_type = ?, business_type = COALESCE(?, business_type), onboarding_state = ?, charges_capability = ?, payouts_capability = ?,
          requirements_past_due = ?, requirements_pending = ?, onboarding_completed_at = IF(? = 1 AND onboarding_completed_at IS NULL, ?, onboarding_completed_at),
+         onboarding_returned_at = IF(? = 1 AND onboarding_returned_at IS NULL, ?, onboarding_returned_at),
          last_synced_at = ?, last_event_id = COALESCE(?, last_event_id), last_event_created_at = GREATEST(COALESCE(last_event_created_at, '1970-01-01'), COALESCE(?, '1970-01-01'))
        WHERE account_id = ? AND (last_synced_at IS NULL OR last_synced_at <= ?)`
     )
@@ -155,6 +174,7 @@ export async function syncConnectedAccount(
       st.detailsSubmitted ? 1 : 0, st.chargesEnabled ? 1 : 0, st.payoutsEnabled ? 1 : 0, st.transfersCapability.slice(0, 20), list(st.requirementsDue), st.disabledReason?.slice(0, 120) ?? null,
       st.configurationType, st.dashboardType, st.businessType, state, st.chargesCapability.slice(0, 20), st.payoutsCapability.slice(0, 20),
       list(st.requirementsPastDue), list(st.requirementsPending), completedNow ? 1 : 0, fetchedAt,
+      ctx.source === "return" ? 1 : 0, fetchedAt,
       fetchedAt, ctx.eventId ?? null, ctx.eventCreated ?? null, accountId, fetchedAt
     );
   const applied = r.changes > 0;
@@ -254,6 +274,17 @@ async function ensureAccount(provider: PaymentProvider, party: Party, input: { e
  * link back to `returnPath`: onboarding the first time, an update link when
  * Stripe asks an already-onboarded partner for more information. Links are
  * single use and expire; the refresh URL mints a new one. */
+/** Stripe's own error text, safe to show: truncated, and anything that looks
+ * like a credential removed. Stripe messages carry no secrets, but never trust that. */
+export function providerErrorDetail(e: unknown): string {
+  const err = e as { type?: string; code?: string; message?: string; param?: string };
+  const message = String(err.message ?? "")
+    .replace(/\b(sk|rk|pk)_(live|test)_[A-Za-z0-9]+/g, "[key]")
+    .replace(/\bwhsec_[A-Za-z0-9]+/g, "[secret]")
+    .slice(0, 200);
+  return [err.code ?? err.type ?? "provider error", err.param ? `param ${err.param}` : null, message || null].filter(Boolean).join(" — ");
+}
+
 export async function startOnboarding(party: Party, input: { email: string; country: string; returnPath: string; actorId: string }) {
   const provider = await requireConnect();
   if (!/^\/[\w\-/?=&]*$/.test(input.returnPath)) throw new ConnectError("Invalid return path");
@@ -263,13 +294,21 @@ export async function startOnboarding(party: Party, input: { email: string; coun
   const account = await ensureAccount(provider, party, input);
   const sep = input.returnPath.includes("?") ? "&" : "?";
   const purpose = account.onboardingCompletedAt ? "update" : "onboarding";
-  const link = await provider.createOnboardingLink({
-    accountId: account.accountId,
-    apiModel: account.apiModel,
-    purpose,
-    refreshUrl: `${CLIENT_URL}${input.returnPath}${sep}payouts=refresh`,
-    returnUrl: `${CLIENT_URL}${input.returnPath}${sep}payouts=return`,
-  });
+  let link: Awaited<ReturnType<typeof provider.createOnboardingLink>>;
+  try {
+    link = await provider.createOnboardingLink({
+      accountId: account.accountId,
+      apiModel: account.apiModel,
+      purpose,
+      refreshUrl: `${CLIENT_URL}${input.returnPath}${sep}payouts=refresh`,
+      returnUrl: `${CLIENT_URL}${input.returnPath}${sep}payouts=return`,
+    });
+  } catch (e) {
+    // Same convention as account creation: a provider refusal is a clear 502
+    // with Stripe's code, never a bare 500. The account itself is kept.
+    console.error("[connect] onboarding link refused:", providerErrorDetail(e));
+    throw new ConnectError(`Stripe couldn't create the onboarding link (${providerErrorDetail(e)}). Please try again.`, 502);
+  }
   return { url: link.url, expiresAt: link.expiresAt, purpose };
 }
 
@@ -285,8 +324,17 @@ export async function dashboardLink(party: Party) {
   const provider = await requireConnect();
   const account = await getConnectedAccount(party);
   if (!account) throw new ConnectError("No payout account yet", 404);
-  if (!account.onboardingCompletedAt && !account.detailsSubmitted) throw new ConnectError("Finish setting up payouts first", 409);
-  return provider.createDashboardLink(account.accountId);
+  // For Accounts v2, `details_submitted` is derived from "nothing outstanding",
+  // which a fresh account also reports (Stripe lists requirements lazily) —
+  // only a completed onboarding counts there. v1 keeps Stripe's own flag.
+  const ready = account.onboardingCompletedAt || (account.apiModel === "v1" && account.detailsSubmitted);
+  if (!ready) throw new ConnectError("Finish setting up payouts first", 409);
+  try {
+    return await provider.createDashboardLink(account.accountId);
+  } catch (e) {
+    console.error("[connect] dashboard link refused:", providerErrorDetail(e));
+    throw new ConnectError(`Stripe couldn't open the payout dashboard (${providerErrorDetail(e)}). Please try again.`, 502);
+  }
 }
 
 /** Why a party can't receive a *transfer* yet (empty = ready). Bank payouts

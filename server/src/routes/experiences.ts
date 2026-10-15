@@ -1,4 +1,6 @@
+import { customerPaymentCase } from "../payments/paymentReview.js";
 import { Router } from "express";
+import { paymentUnderReview } from "../payments/checkoutAgreement.js";
 import { allocate } from "../commerce/money.js";
 import { creditBalance, creditForCheckout, reserveCredit } from "../commerce/credits.js";
 import { commerceQuoteLimiter } from "../rateLimit.js";
@@ -16,7 +18,8 @@ import { notifyCancellation, notifyNewBookingOrRegistration } from "../notificat
 import { computePricing, evaluateCoupon } from "../pricing.js";
 import { QuoteError, consumeQuote, createOrder, createQuote, engineEnabledFor, engineLineItems, legacyColumns, priceWithRules, releaseQuote, shadowPrice, syncOrderFromSource, vendorPartner } from "../commerce/engine.js";
 import { BadRequestError, ConflictError, clientIdFrom, generateRef, isValidEmail } from "../util.js";
-import { VENDOR_SUSPENDED_ERROR, consumeCoupon, customerKeyOf, endPendingHold, isPositiveInt, occupiesCapacitySql, startIsInFuture, vendorSuspended } from "../bookingIntegrity.js";
+import { VENDOR_SUSPENDED_ERROR, consumeCoupon, customerKeyOf, endPendingHold, isPositiveInt, occupiesCapacitySql, startIsInFuture } from "../bookingIntegrity.js";
+import { assertSellable, offeringSellable, orgActiveSql, unavailableListing } from "../orgStatus.js";
 
 // Adventures & Experiences — a standalone third listing type alongside
 // centres/clubs (not nested under either), added post-IA-spec-audit. Same
@@ -160,7 +163,7 @@ export const experiencesRouter = Router();
 // otherwise collide with the bare column name.
 experiencesRouter.get("/", async (req, res) => {
   const { kind, county } = req.query as { kind?: string; county?: string };
-  const conditions = [`e.status = 'approved'`];
+  const conditions = [`e.status = 'approved'`, orgActiveSql("e.vendor_id")];
   const params: string[] = [];
   if (kind === "adventure" || kind === "experience" || kind === "volunteer") {
     conditions.push(`e.kind = ?`);
@@ -190,10 +193,15 @@ experiencesRouter.get("/:id", async (req, res) => {
     .prepare(
       `SELECT e.*, u.business_name as vendor_business_name, u.name as vendor_name, u.provider_tier as vendor_provider_tier
        FROM experiences e JOIN users u ON u.id = e.vendor_id
-       WHERE (e.slug = ? OR e.id = ?) AND e.status = 'approved'`
+       WHERE (e.slug = ? OR e.id = ?) AND e.status = 'approved' AND ${orgActiveSql("e.vendor_id")}`
     )
     .get(req.params.id, req.params.id)) as ExperienceRow | undefined;
-  if (!row) return res.status(404).json({ error: "Experience not found" });
+  if (!row) {
+    // D-01: a live listing of a suspended organisation shows an unavailable state.
+    const unavailable = await unavailableListing("experience", req.params.id);
+    if (unavailable) return res.json(unavailable);
+    return res.status(404).json({ error: "Experience not found" });
+  }
   await db.prepare(`UPDATE experiences SET views = views + 1 WHERE id = ?`).run(row.id);
   logView("activity_viewed", req, { kind: "experience", id: row.id });
   res.json({ ...(await toExperienceJson(row)), participationAttributes: await getListingAttributes("experience", row.id), ...(await officialCircleSummary("experiences", row.id)) });
@@ -304,7 +312,7 @@ export async function storedExperienceQuote(experience: ExperienceRow, sessionId
 
 /** Loads a bookable experience + session for quoting, or an HTTP error. */
 export async function loadQuotableExperience(experienceId: string, sessionId: string) {
-  const experience = (await db.prepare(`SELECT * FROM experiences WHERE id = ? AND status = 'approved'`).get(experienceId)) as ExperienceRow | undefined;
+  const experience = (await db.prepare(`SELECT * FROM experiences WHERE id = ? AND status = 'approved' AND ${orgActiveSql("vendor_id")}`).get(experienceId)) as ExperienceRow | undefined;
   if (!experience) return { ok: false as const, status: 404, error: "Experience not found" };
   const session = await db.prepare(`SELECT id FROM experience_sessions WHERE id = ? AND experience_id = ?`).get(sessionId, experience.id);
   if (!session) return { ok: false as const, status: 404, error: "Session not found" };
@@ -316,7 +324,7 @@ experiencesRouter.post("/:id/sessions/:sessionId/quote", commerceQuoteLimiter, a
   const body = req.body as { partySize?: unknown; couponCode?: string; useCredits?: boolean };
   if (body.partySize !== undefined && !isPositiveInt(body.partySize)) return res.status(400).json({ error: "Party size must be a whole number of at least 1" });
   const partySize = (body.partySize as number | undefined) ?? 1;
-  const experience = (await db.prepare(`SELECT * FROM experiences WHERE id = ? AND status = 'approved'`).get(req.params.id)) as ExperienceRow | undefined;
+  const experience = (await db.prepare(`SELECT * FROM experiences WHERE id = ? AND status = 'approved' AND ${orgActiveSql("vendor_id")}`).get(req.params.id)) as ExperienceRow | undefined;
   if (!experience) return res.status(404).json({ error: "Experience not found" });
   const session = await db.prepare(`SELECT id FROM experience_sessions WHERE id = ? AND experience_id = ?`).get(req.params.sessionId, experience.id);
   if (!session) return res.status(404).json({ error: "Session not found" });
@@ -356,7 +364,7 @@ experiencesRouter.post("/:id/sessions/:sessionId/checkout", async (req, res) => 
   const experience = (await db.prepare(`SELECT * FROM experiences WHERE id = ?`).get(req.params.id)) as ExperienceRow | undefined;
   if (!experience) return res.status(404).json({ error: "Experience not found" });
   if (experience.status !== "approved") return res.status(409).json({ error: "This listing is no longer open for booking" });
-  if (await vendorSuspended(experience.vendor_id)) return res.status(409).json({ error: VENDOR_SUSPENDED_ERROR });
+  if (!(await offeringSellable(experience.vendor_id))) return res.status(409).json({ error: VENDOR_SUSPENDED_ERROR });
 
   const session = (await db
     .prepare(`SELECT id, capacity, status, date, time FROM experience_sessions WHERE id = ? AND experience_id = ?`)
@@ -409,6 +417,8 @@ experiencesRouter.post("/:id/sessions/:sessionId/checkout", async (req, res) => 
   try {
     await db.transaction(async (tx) => {
       await tx.prepare(`SELECT id FROM experience_sessions WHERE id = ? FOR UPDATE`).get(session.id);
+      // D-01: re-check the member and organisation under a shared lock on the organisation row.
+      await assertSellable(tx, experience.vendor_id);
       const cap = session.capacity ?? experience.capacity;
       // HC-QA-041 — live pending checkouts hold their seats; status re-read under the lock.
       const locked = (await tx.prepare(`SELECT status FROM experience_sessions WHERE id = ?`).get(session.id)) as { status: string };
@@ -662,7 +672,8 @@ experiencesRouter.get("/bookings/status/:ref", async (req, res) => {
   // Booking UX Phase 3 — the confirmation page states the deadline (same rule as self-cancel).
   const { vendorId, ...rest } = row;
   const { cancellationHours } = await orgPoliciesForVendor(vendorId);
-  res.json({ ...rest, cancelDeadline: cancelDeadlineIso(row.date, row.time, cancellationHours) });
+  const paymentReview = row.paymentStatus === "pending" && (await paymentUnderReview("experience", req.params.ref));
+  res.json({ ...rest, cancelDeadline: cancelDeadlineIso(row.date, row.time, cancellationHours), paymentReview, paymentCase: await customerPaymentCase("experience", req.params.ref) });
 });
 
 // "Add to calendar" — same client_id ownership gate + server-generated .ics

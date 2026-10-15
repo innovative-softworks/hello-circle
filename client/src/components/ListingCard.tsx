@@ -37,9 +37,13 @@ export function ListingCard({
   action,
   children,
   sharedImage = true,
+  headingLevel = 3,
 }: {
   href: string;
   title: string;
+  /** Title heading level. 3 under a section heading (the default); 2 when the
+   * cards sit directly under the page's H1 (no skipped levels, HC-QA-083). */
+  headingLevel?: 2 | 3;
   image?: string | null;
   imageAlt?: string;
   /** Placeholder background when there's no photo. */
@@ -81,7 +85,7 @@ export function ListingCard({
         {save}
       </Photo>
       <div style={bodyStyle}>
-        <h3 style={titleStyle}>{title}</h3>
+        {headingLevel === 2 ? <h2 style={titleStyle}>{title}</h2> : <h3 style={titleStyle}>{title}</h3>}
         {details
           ?.filter((d): d is ListingCardDetail => !!d)
           .map((d, i) => (

@@ -1,3 +1,4 @@
+import { orgActiveSql } from "./orgSql.js";
 import { logEvent } from "./analytics.js";
 import { db } from "./db/index.js";
 import { interestRange, normalizeDemand } from "./demandNormalize.js";
@@ -224,7 +225,7 @@ export async function matchProgramSupply(programId: string) {
        FROM programs p
        LEFT JOIN centres c ON p.listing_type = 'centre' AND c.id = p.listing_id
        LEFT JOIN clubs cl ON p.listing_type = 'club' AND cl.id = p.listing_id
-       WHERE p.id = ? AND p.status = 'published'`
+       WHERE p.id = ? AND p.status = 'published' AND ${orgActiveSql("p.vendor_id")}`
     )
     .get(programId)) as { id: string; title: string; category: string; county: string | null; nextWhen: string | null } | undefined;
   if (!p) return;
@@ -238,7 +239,7 @@ export async function matchExperienceSupply(experienceId: string) {
     .prepare(
       `SELECT e.id, e.title, e.county,
               (SELECT CONCAT(es.date, ' · ', es.time) FROM experience_sessions es WHERE es.experience_id = e.id AND es.status = 'scheduled' AND es.date >= CURDATE() ORDER BY es.date, es.time LIMIT 1) as nextWhen
-       FROM experiences e WHERE e.id = ? AND e.status = 'approved'`
+       FROM experiences e WHERE e.id = ? AND e.status = 'approved' AND ${orgActiveSql("e.vendor_id")}`
     )
     .get(experienceId)) as { id: string; title: string; county: string; nextWhen: string | null } | undefined;
   if (!e || !e.nextWhen) return; // nothing bookable yet — match once a date exists
@@ -246,7 +247,7 @@ export async function matchExperienceSupply(experienceId: string) {
 }
 
 export async function matchClubSessionSupply(clubId: string, sessionLabel: string, when: string) {
-  const c = (await db.prepare(`SELECT id, name, sport, county FROM clubs WHERE id = ? AND status = 'approved'`).get(clubId)) as
+  const c = (await db.prepare(`SELECT id, name, sport, county FROM clubs WHERE id = ? AND status = 'approved' AND ${orgActiveSql("vendor_id")}`).get(clubId)) as
     | { id: string; name: string; sport: string; county: string }
     | undefined;
   if (!c) return;

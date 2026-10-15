@@ -1,3 +1,4 @@
+import { orgActiveSql } from "../orgSql.js";
 import { Router } from "express";
 import { logEvent } from "../analytics.js";
 import { dataDir } from "../dataDir.js";
@@ -84,7 +85,7 @@ export async function getShareData(entityType: ShareEntityType, idOrSlug: string
 
   if (entityType === "centre" || entityType === "club") {
     const table = entityType === "centre" ? "centres" : "clubs";
-    const row = (await db.prepare(`SELECT name, blurb, image_url, area, county FROM ${table} WHERE (slug = ? OR id = ?) AND status = 'approved'`).get(idOrSlug, idOrSlug)) as
+    const row = (await db.prepare(`SELECT name, blurb, image_url, area, county FROM ${table} WHERE (slug = ? OR id = ?) AND status = 'approved' AND ${orgActiveSql("vendor_id")}`).get(idOrSlug, idOrSlug)) as
       | { name: string; blurb: string; image_url: string; area: string; county: string }
       | undefined;
     if (!row) return null;
@@ -132,7 +133,7 @@ export async function getShareData(entityType: ShareEntityType, idOrSlug: string
 
   if (entityType === "experience" || entityType === "adventure") {
     const row = (await db
-      .prepare(`SELECT title, blurb, image_url, area, county, price_cents as priceCents FROM experiences WHERE (slug = ? OR id = ?) AND status = 'approved'`)
+      .prepare(`SELECT title, blurb, image_url, area, county, price_cents as priceCents FROM experiences WHERE (slug = ? OR id = ?) AND status = 'approved' AND ${orgActiveSql("vendor_id")}`)
       .get(idOrSlug, idOrSlug)) as { title: string; blurb: string; image_url: string; area: string; county: string; priceCents: number | null } | undefined;
     if (!row) return null;
     return {
@@ -149,7 +150,7 @@ export async function getShareData(entityType: ShareEntityType, idOrSlug: string
   }
 
   if (entityType === "program") {
-    const row = (await db.prepare(`SELECT id, title, description, image_url, price_cents as priceCents, listing_type as listingType, listing_id as listingId FROM programs WHERE id = ? AND status = 'published'`).get(idOrSlug)) as
+    const row = (await db.prepare(`SELECT id, title, description, image_url, price_cents as priceCents, listing_type as listingType, listing_id as listingId FROM programs WHERE id = ? AND status = 'published' AND ${orgActiveSql("vendor_id")}`).get(idOrSlug)) as
       | { id: string; title: string; description: string; image_url: string; priceCents: number; listingType: string; listingId: string }
       | undefined;
     if (!row) return null;
@@ -278,7 +279,7 @@ export async function getShareData(entityType: ShareEntityType, idOrSlug: string
   }
 
   if (entityType === "provider") {
-    const row = (await db.prepare(`SELECT id, name, business_name as businessName, description, logo FROM users WHERE id = ? AND role = 'vendor' AND status = 'approved'`).get(idOrSlug)) as
+    const row = (await db.prepare(`SELECT id, name, business_name as businessName, description, logo FROM users WHERE id = ? AND role = 'vendor' AND status = 'approved' AND ${orgActiveSql("users.id")}`).get(idOrSlug)) as
       | { id: string; name: string; businessName: string; description: string; logo: string | null }
       | undefined;
     if (!row) return null;

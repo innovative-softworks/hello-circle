@@ -15,8 +15,8 @@ import {
   type ExperienceInput,
 } from "../api";
 import { CalendarIcon, PlusIcon, TreeIconSmall, TrashIcon, UsersIcon } from "./icons";
-import { FormErrorSummary, NumberStepper, SettingsSection } from "./form";
-import { Button, ManageCard as Card, ConfirmDialog, EmptyState, inputStyle, labelStyle } from "./ui";
+import { FieldError, FieldLabel, FormErrorSummary, NumberStepper, RequiredNote, SettingsSection, useFormErrors } from "./form";
+import { Button, ManageCard as Card, ConfirmDialog, EmptyState, LoadErrorState, inputStyle, labelStyle } from "./ui";
 import { MultiImageUpload } from "./VendorImageUpload";
 import { colors, fonts, radius } from "../theme";
 import type { Experience, ExperienceSessionRow, VendorExperienceBooking, VendorExperienceSummary } from "../types";
@@ -119,17 +119,26 @@ export function ExperienceEditor({
 }) {
   const [form, setForm] = useState<ExperienceInput>(blankExperienceInput());
   const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
-  const [fieldErrors, setFieldErrors] = useState<{ field: string; message: string; fieldId: string }[]>([]);
+  const fe = useFormErrors();
+  // A failed load hides the form so a blank form can't be saved over the real listing.
+  const [loadState, setLoadState] = useState<"loading" | "ready" | "failed">("loading");
 
-  useEffect(() => {
-    fetchVendorExperience(id).then((e) => setForm(experienceToInput(e)));
-  }, [id]);
+  const load = () => {
+    setLoadState("loading");
+    fetchVendorExperience(id)
+      .then((e) => {
+        setForm(experienceToInput(e));
+        setLoadState("ready");
+      })
+      .catch(() => setLoadState("failed"));
+  };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(load, [id]);
 
   const set = <K extends keyof ExperienceInput>(k: K, v: ExperienceInput[K]) => {
     setForm((f) => ({ ...f, [k]: v }));
-    setFieldErrors([]);
+    fe.clearField(`experience-${String(k)}`);
     onDirtyChange?.(true);
   };
 
@@ -137,11 +146,11 @@ export function ExperienceEditor({
     const errors: { field: string; message: string; fieldId: string }[] = [];
     if (!form.title.trim()) errors.push({ field: "title", message: "Title is required", fieldId: "experience-title" });
     if (!form.blurb.trim()) errors.push({ field: "blurb", message: "A short blurb is required", fieldId: "experience-blurb" });
-    setFieldErrors(errors);
-    if (errors.length > 0) return;
+    if (errors.length > 0) return fe.fail(errors);
+    if (saving) return;
 
+    fe.clear();
     setSaving(true);
-    setError(null);
     setSaved(false);
     try {
       await updateVendorExperience(id, form);
@@ -149,7 +158,8 @@ export function ExperienceEditor({
       onDirtyChange?.(false);
       onSaved(id);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Couldn't save");
+      // Everything typed stays in the form; the reason goes in the summary.
+      fe.fail([{ field: "save", message: `Couldn't save: ${e instanceof Error ? e.message : "please try again"}` }]);
     } finally {
       setSaving(false);
     }
@@ -161,20 +171,21 @@ export function ExperienceEditor({
     <>
       <div className="grid-responsive" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 14 }}>
         <div>
-          <label style={labelStyle}>Kind</label>
-          <select value={form.kind ?? "experience"} onChange={(e) => set("kind", e.target.value as "adventure" | "experience" | "volunteer")} style={inputStyle}>
+          <FieldLabel htmlFor="experience-kind">Kind</FieldLabel>
+          <select id="experience-kind" value={form.kind ?? "experience"} onChange={(e) => set("kind", e.target.value as "adventure" | "experience" | "volunteer")} style={inputStyle}>
             <option value="experience">Experience</option>
             <option value="adventure">Adventure</option>
             <option value="volunteer">Volunteer opportunity</option>
           </select>
         </div>
         <div>
-          <label style={labelStyle}>Title</label>
-          <input id="experience-title" value={form.title} onChange={(e) => set("title", e.target.value)} style={inputStyle} />
+          <FieldLabel htmlFor="experience-title" required>Title</FieldLabel>
+          <input {...fe.control("experience-title")} required value={form.title} onChange={(e) => set("title", e.target.value)} style={inputStyle} />
+          <FieldError fieldId="experience-title" message={fe.messageFor("experience-title")} />
         </div>
         <div>
-          <label style={labelStyle}>Difficulty</label>
-          <select value={form.difficulty ?? ""} onChange={(e) => set("difficulty", e.target.value)} style={inputStyle}>
+          <FieldLabel htmlFor="experience-difficulty">Difficulty</FieldLabel>
+          <select id="experience-difficulty" value={form.difficulty ?? ""} onChange={(e) => set("difficulty", e.target.value)} style={inputStyle}>
             <option value="">— none —</option>
             <option value="easy">Easy</option>
             <option value="moderate">Moderate</option>
@@ -182,26 +193,27 @@ export function ExperienceEditor({
           </select>
         </div>
       </div>
-      <label style={labelStyle}>Short blurb (shown on listing cards)</label>
-      <p style={{ fontSize: 12, color: colors.mutedLight, margin: "-4px 0 8px" }}>
+      <FieldLabel htmlFor="experience-blurb" required>Short blurb (shown on listing cards)</FieldLabel>
+      <p id="experience-blurb-helper" style={{ fontSize: 12, color: colors.mutedLight, margin: "-4px 0 8px" }}>
         e.g. "A gentle guided coastal walk with sea views, finishing at a local café."
       </p>
-      <textarea id="experience-blurb" value={form.blurb} onChange={(e) => set("blurb", e.target.value)} rows={2} style={{ ...inputStyle, resize: "vertical", marginBottom: 14 }} />
-      <label style={labelStyle}>Full description</label>
-      <textarea value={form.description ?? ""} onChange={(e) => set("description", e.target.value)} rows={3} style={{ ...inputStyle, resize: "vertical" }} />
+      <textarea {...fe.control("experience-blurb", "experience-blurb-helper")} required value={form.blurb} onChange={(e) => set("blurb", e.target.value)} rows={2} style={{ ...inputStyle, resize: "vertical", marginBottom: fe.messageFor("experience-blurb") ? 0 : 14 }} />
+      <FieldError fieldId="experience-blurb" message={fe.messageFor("experience-blurb")} />
+      <FieldLabel htmlFor="experience-full-description" optional style={{ marginTop: fe.messageFor("experience-blurb") ? 14 : 0 }}>Full description</FieldLabel>
+      <textarea id="experience-full-description" value={form.description ?? ""} onChange={(e) => set("description", e.target.value)} rows={3} style={{ ...inputStyle, resize: "vertical" }} />
       {form.kind === "volunteer" && (
         <div className="grid-responsive" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginTop: 14 }}>
           <div>
-            <label style={labelStyle}>Cause (optional)</label>
-            <input value={form.cause ?? ""} maxLength={100} onChange={(e) => set("cause", e.target.value)} placeholder="e.g. Coastal clean-up" style={inputStyle} />
+            <FieldLabel htmlFor="experience-cause" optional>Cause</FieldLabel>
+            <input id="experience-cause" value={form.cause ?? ""} maxLength={100} onChange={(e) => set("cause", e.target.value)} placeholder="e.g. Coastal clean-up" style={inputStyle} />
           </div>
           <div>
-            <label style={labelStyle}>Minimum age (optional)</label>
-            <input type="number" min={0} value={form.minAge ?? ""} onChange={(e) => set("minAge", e.target.value ? Number(e.target.value) : null)} style={{ ...inputStyle, maxWidth: 120 }} />
+            <FieldLabel htmlFor="experience-minimum-age" optional>Minimum age</FieldLabel>
+            <input id="experience-minimum-age" type="number" min={0} value={form.minAge ?? ""} onChange={(e) => set("minAge", e.target.value ? Number(e.target.value) : null)} style={{ ...inputStyle, maxWidth: 120 }} />
           </div>
           <div style={{ gridColumn: "1 / -1" }}>
-            <label style={labelStyle}>Skills needed (optional)</label>
-            <input value={form.skillsRequired ?? ""} onChange={(e) => set("skillsRequired", e.target.value)} placeholder="e.g. None — we'll show you what to do" style={inputStyle} />
+            <FieldLabel htmlFor="experience-skills-needed" optional>Skills needed</FieldLabel>
+            <input id="experience-skills-needed" value={form.skillsRequired ?? ""} onChange={(e) => set("skillsRequired", e.target.value)} placeholder="e.g. None — we'll show you what to do" style={inputStyle} />
           </div>
         </div>
       )}
@@ -211,16 +223,16 @@ export function ExperienceEditor({
   const locationFields = (
     <div className="grid-responsive" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
       <div>
-        <label style={labelStyle}>Area</label>
-        <input value={form.area ?? ""} onChange={(e) => set("area", e.target.value)} style={inputStyle} />
+        <FieldLabel htmlFor="experience-area" optional>Area</FieldLabel>
+        <input id="experience-area" value={form.area ?? ""} onChange={(e) => set("area", e.target.value)} style={inputStyle} />
       </div>
       <div>
-        <label style={labelStyle}>County</label>
-        <input value={form.county ?? ""} onChange={(e) => set("county", e.target.value)} style={inputStyle} />
+        <FieldLabel htmlFor="experience-county" optional>County</FieldLabel>
+        <input id="experience-county" value={form.county ?? ""} onChange={(e) => set("county", e.target.value)} style={inputStyle} />
       </div>
       <div style={{ gridColumn: "1 / -1" }}>
-        <label style={labelStyle}>Meeting point</label>
-        <input value={form.meetingPoint ?? ""} onChange={(e) => set("meetingPoint", e.target.value)} placeholder="Where participants gather" style={inputStyle} />
+        <FieldLabel htmlFor="experience-meeting-point" optional>Meeting point</FieldLabel>
+        <input id="experience-meeting-point" value={form.meetingPoint ?? ""} onChange={(e) => set("meetingPoint", e.target.value)} placeholder="Where participants gather" style={inputStyle} />
       </div>
     </div>
   );
@@ -228,11 +240,11 @@ export function ExperienceEditor({
   const pricingFields = (
     <div className="grid-responsive" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, alignItems: "end" }}>
       <div>
-        <label htmlFor="experience-settings-duration" style={labelStyle}>Duration (minutes)</label>
+        <FieldLabel htmlFor="experience-settings-duration">Duration (minutes)</FieldLabel>
         <input id="experience-settings-duration" type="number" value={form.durationMinutes ?? 120} onChange={(e) => set("durationMinutes", Number(e.target.value))} style={{ ...inputStyle, maxWidth: 140 }} />
       </div>
       <div>
-        <label htmlFor="experience-settings-price" style={labelStyle}>Price per person (€)</label>
+        <FieldLabel htmlFor="experience-settings-price">Price per person (€)</FieldLabel>
         {form.kind === "volunteer" ? (
           <p style={{ fontSize: 13, color: colors.mutedLight, margin: 0 }}>Volunteering is always free to sign up for.</p>
         ) : (
@@ -242,7 +254,7 @@ export function ExperienceEditor({
       </div>
       <NumberStepper label="Capacity per departure" value={form.capacity ?? 8} onChange={(n) => set("capacity", n)} min={1} />
       <div>
-        <label htmlFor="experience-settings-payment" style={labelStyle}>Payment</label>
+        <FieldLabel htmlFor="experience-settings-payment">Payment</FieldLabel>
         <select id="experience-settings-payment" value={form.paymentMethod ?? "online"} onChange={(e) => set("paymentMethod", e.target.value as "online" | "cash")} style={inputStyle}>
           <option value="online">Online payment</option>
           <option value="cash">Cash on arrival</option>
@@ -254,42 +266,42 @@ export function ExperienceEditor({
   const adventureFields = (
     <div className="grid-responsive" style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 14 }}>
       <div>
-        <label style={labelStyle}>Distance (km, optional)</label>
-        <input type="number" min={0} step="0.1" value={form.distanceKm ?? ""} onChange={(e) => set("distanceKm", e.target.value ? Number(e.target.value) : null)} style={inputStyle} />
+        <FieldLabel htmlFor="experience-distance" optional>Distance (km)</FieldLabel>
+        <input id="experience-distance" type="number" min={0} step="0.1" value={form.distanceKm ?? ""} onChange={(e) => set("distanceKm", e.target.value ? Number(e.target.value) : null)} style={inputStyle} />
       </div>
       <div>
-        <label style={labelStyle}>Elevation gain (m, optional)</label>
-        <input type="number" min={0} value={form.elevationGainM ?? ""} onChange={(e) => set("elevationGainM", e.target.value ? Number(e.target.value) : null)} style={inputStyle} />
+        <FieldLabel htmlFor="experience-elevation-gain" optional>Elevation gain (m)</FieldLabel>
+        <input id="experience-elevation-gain" type="number" min={0} value={form.elevationGainM ?? ""} onChange={(e) => set("elevationGainM", e.target.value ? Number(e.target.value) : null)} style={inputStyle} />
       </div>
       <div>
-        <label style={labelStyle}>Terrain (optional)</label>
-        <input value={form.terrainType ?? ""} onChange={(e) => set("terrainType", e.target.value)} placeholder="e.g. Trail & mountain" style={inputStyle} />
+        <FieldLabel htmlFor="experience-terrain" optional>Terrain</FieldLabel>
+        <input id="experience-terrain" value={form.terrainType ?? ""} onChange={(e) => set("terrainType", e.target.value)} placeholder="e.g. Trail & mountain" style={inputStyle} />
       </div>
     </div>
   );
 
   const prepFields = (
     <>
-      <label style={labelStyle}>Itinerary (optional)</label>
-      <textarea value={form.itinerary ?? ""} onChange={(e) => set("itinerary", e.target.value)} rows={3} style={{ ...inputStyle, resize: "vertical", marginBottom: 14 }} />
+      <FieldLabel htmlFor="experience-itinerary" optional>Itinerary</FieldLabel>
+      <textarea id="experience-itinerary" value={form.itinerary ?? ""} onChange={(e) => set("itinerary", e.target.value)} rows={3} style={{ ...inputStyle, resize: "vertical", marginBottom: 14 }} />
       <div className="grid-responsive" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 14 }}>
         <div>
-          <label style={labelStyle}>Equipment provided (optional)</label>
-          <textarea value={form.equipmentProvided ?? ""} onChange={(e) => set("equipmentProvided", e.target.value)} rows={2} style={{ ...inputStyle, resize: "vertical" }} />
+          <FieldLabel htmlFor="experience-equipment-provided" optional>Equipment provided</FieldLabel>
+          <textarea id="experience-equipment-provided" value={form.equipmentProvided ?? ""} onChange={(e) => set("equipmentProvided", e.target.value)} rows={2} style={{ ...inputStyle, resize: "vertical" }} />
         </div>
         <div>
-          <label style={labelStyle}>Equipment required (optional)</label>
-          <textarea value={form.equipmentRequired ?? ""} onChange={(e) => set("equipmentRequired", e.target.value)} rows={2} style={{ ...inputStyle, resize: "vertical" }} />
+          <FieldLabel htmlFor="experience-equipment-required" optional>Equipment required</FieldLabel>
+          <textarea id="experience-equipment-required" value={form.equipmentRequired ?? ""} onChange={(e) => set("equipmentRequired", e.target.value)} rows={2} style={{ ...inputStyle, resize: "vertical" }} />
         </div>
       </div>
       <div className="grid-responsive" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
         <div>
-          <label style={labelStyle}>Fitness requirements (optional)</label>
-          <textarea value={form.fitnessRequirements ?? ""} onChange={(e) => set("fitnessRequirements", e.target.value)} rows={2} style={{ ...inputStyle, resize: "vertical" }} />
+          <FieldLabel htmlFor="experience-fitness-requirements" optional>Fitness requirements</FieldLabel>
+          <textarea id="experience-fitness-requirements" value={form.fitnessRequirements ?? ""} onChange={(e) => set("fitnessRequirements", e.target.value)} rows={2} style={{ ...inputStyle, resize: "vertical" }} />
         </div>
         <div>
-          <label style={labelStyle}>Eligibility (optional, e.g. minimum age)</label>
-          <textarea value={form.eligibility ?? ""} onChange={(e) => set("eligibility", e.target.value)} rows={2} style={{ ...inputStyle, resize: "vertical" }} />
+          <FieldLabel htmlFor="experience-eligibility" optional>Eligibility (e.g. minimum age)</FieldLabel>
+          <textarea id="experience-eligibility" value={form.eligibility ?? ""} onChange={(e) => set("eligibility", e.target.value)} rows={2} style={{ ...inputStyle, resize: "vertical" }} />
         </div>
       </div>
     </>
@@ -299,22 +311,22 @@ export function ExperienceEditor({
     <>
       <div className="grid-responsive" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 14 }}>
         <div>
-          <label style={labelStyle}>Transport info (optional)</label>
-          <textarea value={form.transportInfo ?? ""} onChange={(e) => set("transportInfo", e.target.value)} rows={2} style={{ ...inputStyle, resize: "vertical" }} />
+          <FieldLabel htmlFor="experience-transport-info" optional>Transport info</FieldLabel>
+          <textarea id="experience-transport-info" value={form.transportInfo ?? ""} onChange={(e) => set("transportInfo", e.target.value)} rows={2} style={{ ...inputStyle, resize: "vertical" }} />
         </div>
         <div>
-          <label style={labelStyle}>Weather policy (optional)</label>
-          <textarea value={form.weatherPolicy ?? ""} onChange={(e) => set("weatherPolicy", e.target.value)} rows={2} style={{ ...inputStyle, resize: "vertical" }} />
+          <FieldLabel htmlFor="experience-weather-policy" optional>Weather policy</FieldLabel>
+          <textarea id="experience-weather-policy" value={form.weatherPolicy ?? ""} onChange={(e) => set("weatherPolicy", e.target.value)} rows={2} style={{ ...inputStyle, resize: "vertical" }} />
         </div>
       </div>
       <div className="grid-responsive" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
         <div>
-          <label style={labelStyle}>Safety info (optional)</label>
-          <textarea value={form.safetyInfo ?? ""} onChange={(e) => set("safetyInfo", e.target.value)} rows={2} style={{ ...inputStyle, resize: "vertical" }} />
+          <FieldLabel htmlFor="experience-safety-info" optional>Safety info</FieldLabel>
+          <textarea id="experience-safety-info" value={form.safetyInfo ?? ""} onChange={(e) => set("safetyInfo", e.target.value)} rows={2} style={{ ...inputStyle, resize: "vertical" }} />
         </div>
         <div>
-          <label style={labelStyle}>Cancellation terms (optional)</label>
-          <textarea value={form.cancellationTerms ?? ""} onChange={(e) => set("cancellationTerms", e.target.value)} rows={2} style={{ ...inputStyle, resize: "vertical" }} />
+          <FieldLabel htmlFor="experience-cancellation-terms" optional>Cancellation terms</FieldLabel>
+          <textarea id="experience-cancellation-terms" value={form.cancellationTerms ?? ""} onChange={(e) => set("cancellationTerms", e.target.value)} rows={2} style={{ ...inputStyle, resize: "vertical" }} />
         </div>
       </div>
     </>
@@ -326,11 +338,10 @@ export function ExperienceEditor({
 
   const footer = (
     <>
-      <FormErrorSummary errors={fieldErrors} />
-      {error && <p className="pop-in" style={{ color: colors.danger, fontSize: 13, margin: "0 0 12px", background: colors.dangerBg, padding: "9px 12px", borderRadius: radius.control }}>{error}</p>}
+      <FormErrorSummary errors={fe.errors} focusKey={fe.focusKey} />
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 18 }}>
-        <Button variant="primary" disabled={saving} onClick={save}>
-          Save changes
+        <Button variant="primary" disabled={saving} onClick={save} aria-busy={saving || undefined}>
+          {saving ? "Saving…" : "Save changes"}
         </Button>
         {saved && <span style={{ fontSize: 13, color: colors.greenText, fontWeight: 600 }}>Saved</span>}
       </div>
@@ -340,9 +351,13 @@ export function ExperienceEditor({
   const prepCount = [form.itinerary, form.equipmentProvided, form.equipmentRequired, form.fitnessRequirements, form.eligibility].filter(Boolean).length;
   const logisticsCount = [form.transportInfo, form.weatherPolicy, form.safetyInfo, form.cancellationTerms].filter(Boolean).length;
 
+  if (loadState === "failed") return <LoadErrorState title="Couldn't load this experience's details." onRetry={load} />;
+  if (loadState === "loading") return <p style={{ fontSize: 13.5, color: colors.mutedLight }}>Loading experience details…</p>;
+
   return (
     <>
-      <SettingsSection title="General" summary={<>{form.title || "Not set"}{form.blurb && <div style={{ color: colors.mutedLight, fontSize: 13, marginTop: 2 }}>{form.blurb}</div>}</>}>
+      <RequiredNote />
+      <SettingsSection title="General" forceOpen={fe.has("experience-title", "experience-blurb")} summary={<>{form.title || "Not set"}{form.blurb && <div style={{ color: colors.mutedLight, fontSize: 13, marginTop: 2 }}>{form.blurb}</div>}</>}>
         {generalFields}
       </SettingsSection>
       <SettingsSection title="Location & meeting" summary={[form.area, form.county].filter(Boolean).join(", ") || "Not set"}>
@@ -382,8 +397,12 @@ export function SessionsManager({ experienceId }: { experienceId: string }) {
   const [error, setError] = useState<string | null>(null);
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
 
+  const [sessionsFailed, setSessionsFailed] = useState(false);
   const load = () => {
-    fetchVendorExperienceSessions(experienceId).then(setSessions).catch(() => {});
+    setSessionsFailed(false);
+    fetchVendorExperienceSessions(experienceId)
+      .then(setSessions)
+      .catch(() => setSessionsFailed(true));
   };
   useEffect(load, [experienceId]);
 
@@ -409,11 +428,16 @@ export function SessionsManager({ experienceId }: { experienceId: string }) {
 
   return (
     <div style={{ marginTop: 26, paddingTop: 22, borderTop: `1px solid ${colors.border}` }}>
-      <h4 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 15, margin: "0 0 4px" }}>Departures</h4>
+      <h2 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 15, margin: "0 0 4px" }}>Departures</h2>
       <p style={{ fontSize: 12.5, color: colors.mutedLight, margin: "0 0 14px" }}>
         Each departure is one bookable date/time — a guest books a party of one or more spots on a specific departure, not the listing as a whole.
       </p>
       {error && <p style={{ fontSize: 12.5, color: colors.orangeDark, margin: "0 0 10px" }}>{error}</p>}
+      {sessionsFailed && (
+        <div style={{ marginBottom: 14 }}>
+          <LoadErrorState title="Couldn't load departures." detail="Existing departures aren't shown until this loads." onRetry={load} />
+        </div>
+      )}
       {sessions.length > 0 && (
         <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 14 }}>
           {sessions.map((s) => (
@@ -493,17 +517,24 @@ function ExperienceAttendance({ status, onMark }: { status: string | null; onMar
 
 export function BookingsPanel({ experienceId }: { experienceId: string }) {
   const [bookings, setBookings] = useState<VendorExperienceBooking[] | null>(null);
+  const [failed, setFailed] = useState(false);
   const today = irelandToday();
 
-  useEffect(() => {
-    fetchVendorExperienceBookings(experienceId).then(setBookings).catch(() => setBookings([]));
-  }, [experienceId]);
+  const load = () => {
+    setFailed(false);
+    fetchVendorExperienceBookings(experienceId)
+      .then(setBookings)
+      .catch(() => setFailed(true));
+  };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(load, [experienceId]);
 
-  if (bookings === null) return null;
+  if (failed) return <div style={{ marginTop: 26 }}><LoadErrorState title="Couldn't load bookings for this listing." onRetry={load} /></div>;
+  if (bookings === null) return <p role="status" aria-busy="true" style={{ marginTop: 26, fontSize: 13.5, color: colors.mutedLight }}>Loading bookings…</p>;
 
   return (
     <div style={{ marginTop: 26, paddingTop: 22, borderTop: `1px solid ${colors.border}` }}>
-      <h4 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 15, margin: "0 0 14px" }}>Bookings ({bookings.length})</h4>
+      <h2 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 15, margin: "0 0 14px" }}>Bookings ({bookings.length})</h2>
       {bookings.length === 0 ? (
         <EmptyState icon={<UsersIcon size={20} />} title="No bookings yet" />
       ) : (

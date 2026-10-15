@@ -5,7 +5,7 @@ import { useAuth } from "../AuthContext";
 import { useGuest } from "../GuestContext";
 import { ChatModal } from "../components/ChatModal";
 import { ChatIcon } from "../components/icons";
-import { Button, EmptyState, PageSpinner, Tabs } from "../components/ui";
+import { Button, EmptyState, LoadErrorState, PageSpinner, Tabs } from "../components/ui";
 import { signInHref } from "../authRedirect";
 import { colors, fonts, radius } from "../theme";
 import type { ChatInboxItem } from "../types";
@@ -42,12 +42,14 @@ export function Chats() {
     if (!resident && isVendor) setView("host");
   }, [resident, isVendor]);
 
+  const [failed, setFailed] = useState(false);
   const load = () => {
     if (view === "personal" && !resident) return setItems([]);
     if (view === "host" && !isVendor) return setItems([]);
+    setFailed(false);
     fetchChatInbox(view === "host")
       .then((r) => setItems(r.items))
-      .catch(() => setItems([]));
+      .catch(() => setFailed(true));
   };
 
   useEffect(() => {
@@ -91,7 +93,9 @@ export function Chats() {
         </div>
       )}
 
-      {!items ? (
+      {failed ? (
+        <LoadErrorState title="We couldn't load your chats." onRetry={load} />
+      ) : !items ? (
         <PageSpinner />
       ) : items.length === 0 ? (
         <EmptyState

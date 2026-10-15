@@ -1,8 +1,11 @@
+import { customerPaymentCase } from "../payments/paymentReview.js";
 import { Router } from "express";
+import { paymentUnderReview } from "../payments/checkoutAgreement.js";
 import { shadowLegacy } from "../commerce/engine.js";
 import { computeCapacity } from "../capacity.js";
 import { createCheckoutSession, paymentsAvailable, pricingLineItems } from "../checkoutService.js";
-import { VENDOR_SUSPENDED_ERROR, consumeCoupon, customerKeyOf, endPendingHold, occupiesCapacitySql, vendorSuspended } from "../bookingIntegrity.js";
+import { VENDOR_SUSPENDED_ERROR, consumeCoupon, customerKeyOf, endPendingHold, occupiesCapacitySql } from "../bookingIntegrity.js";
+import { assertSellable, offeringSellable } from "../orgStatus.js";
 import { logEvent } from "../analytics.js";
 import { db } from "../db/index.js";
 import { getClub } from "../db/queries.js";
@@ -149,8 +152,11 @@ async function reserveRegistration(
   existingTx?: Pick<typeof db, "prepare">
 ) {
   const run = async (tx: Pick<typeof db, "prepare">) => {
-    const club = (await tx.prepare(`SELECT id, capacity FROM clubs WHERE id = ? FOR UPDATE`).get(body.clubId)) as { id: string; capacity: number | null } | undefined;
+    const club = (await tx.prepare(`SELECT id, capacity, vendor_id FROM clubs WHERE id = ? FOR UPDATE`).get(body.clubId)) as { id: string; capacity: number | null; vendor_id: string | null } | undefined;
     if (!club) throw new ConflictError("Club not found");
+    // D-01: re-check the member and organisation under a shared lock on the
+    // organisation row (covers paid, free, trial and pass-credit registrations).
+    await assertSellable(tx, club.vendor_id);
 
     // HC-QA-038 — one active registration per owner + participant (+ session).
     const duplicate = await tx
@@ -309,7 +315,7 @@ registrationsRouter.post("/checkout", async (req, res) => {
   if (body.trial && body.passId) return res.status(400).json({ error: "A free trial can't be combined with a pass" });
   if (body.trial && !club.trial) return res.status(400).json({ error: "This club doesn't offer a free trial" });
   const clubOwner = (await db.prepare(`SELECT vendor_id FROM clubs WHERE id = ?`).get(body.clubId)) as { vendor_id: string | null } | undefined;
-  if (await vendorSuspended(clubOwner?.vendor_id)) return res.status(409).json({ error: VENDOR_SUSPENDED_ERROR });
+  if (!(await offeringSellable(clubOwner?.vendor_id))) return res.status(409).json({ error: VENDOR_SUSPENDED_ERROR });
 
   if (body.sessionId) {
     const session = await db.prepare(`SELECT id FROM club_sessions WHERE id = ? AND club_id = ? AND active = 1`).get(body.sessionId, body.clubId);
@@ -449,7 +455,8 @@ registrationsRouter.get("/status/:ref", async (req, res) => {
     )
     .get(req.params.ref, clientId);
   if (!row) return res.status(404).json({ error: "Registration not found" });
-  res.json(row);
+  const paymentReview = (row as { paymentStatus?: string }).paymentStatus === "pending" && (await paymentUnderReview("registration", req.params.ref));
+  res.json({ ...row, paymentReview, paymentCase: await customerPaymentCase("registration", req.params.ref) });
 });
 
 type ManageableRegistrationRow = Record<string, unknown> & { status: string; paymentStatus: string; totalCents: number; paidOnline: number };

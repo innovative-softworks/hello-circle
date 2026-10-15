@@ -301,7 +301,7 @@ export async function seedIfEmpty() {
   }
 }
 
-const ADMIN_EMAIL = process.env.HELLO_CIRCLE_ADMIN_EMAIL || "admin@hellocircle.ie";
+const ADMIN_EMAIL = process.env.HELLO_CIRCLE_ADMIN_EMAIL || "itadmin@hellocircle.ie";
 const ADMIN_PASSWORD = process.env.HELLO_CIRCLE_ADMIN_PASSWORD || "changeme123";
 
 /** Seeds a single admin account on first run. Prototype-only credential

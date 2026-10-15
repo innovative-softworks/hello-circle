@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState, type ChangeEvent, type CSSProperties, type ReactNode } from "react";
 import { CreditWallet } from "../components/CreditWallet";
 import { useConfirm } from "../components/ConfirmProvider";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
+import { useUrlTab } from "../useUrlTab";
 import {
   addHouseholdMember,
   changeResidentPassword,
@@ -41,7 +42,7 @@ import {
   uploadAvatar,
 } from "../api";
 import { RECEIPT_KIND_LABELS, receiptListStatus, type ReceiptDetail, type Remote } from "../components/commerceDisplay";
-import { ReceiptDrawer, ToneChip } from "../components/ReceiptDrawer";
+import { ToneChip } from "../components/ReceiptDrawer";
 import type { FollowedEntity, NotificationLevel } from "../api";
 import {
   AwardIcon,
@@ -85,7 +86,7 @@ import { colors, fonts, radius } from "../theme";
 import { ACCESSIBILITY_OPTIONS, BUDGET_OPTIONS, GROUP_SIZE_OPTIONS, INTEREST_OPTIONS } from "../types";
 import { GOALS, MAX_GOALS, toggleGoal } from "../participationVocab";
 import { AvailabilityPicker } from "../components/AvailabilityPicker";
-import type { BlockedResident, Favourite, HostStatus, HouseholdMember, NotificationPrefs, Pass, Receipt, ReportRecord, ResidentNotification, Routine, RoutineSuggestion } from "../types";
+import type { BlockedResident, Favourite, HostStatus, HouseholdMember, NotificationPrefs, Pass, Receipt, ReportRecord, ResidentNotification, Routine, RoutineSuggestion, ModerationDecisionPublic } from "../types";
 
 // Profile & settings (My Life redesign §46, restructured again in the
 // dashboard-nav pass below) — split out of what used to be MyBookings.tsx's
@@ -768,29 +769,25 @@ function PassesPanel() {
 // actually charged, and a detail drawer with the recorded price and refunds.
 
 function ReceiptsPanel() {
+  const navigate = useNavigate();
   const [receipts, setReceipts] = useState<Receipt[]>([]);
   const [loading, setLoading] = useState(true);
-  const [open, setOpen] = useState<string | null>(null);
-  const [detail, setDetail] = useState<Remote<ReceiptDetail>>({ status: "loading" });
+  const [failed, setFailed] = useState(false);
 
-  useEffect(() => {
+  const loadList = () => {
+    setLoading(true);
+    setFailed(false);
     fetchReceipts()
       .then(setReceipts)
+      .catch(() => setFailed(true))
       .finally(() => setLoading(false));
-  }, []);
-
-  const load = (ref: string) => {
-    setDetail({ status: "loading" });
-    fetchReceiptDetail(ref)
-      .then((data) => setDetail({ status: "ready", data }))
-      .catch((e) => setDetail({ status: "error", error: e instanceof Error ? e.message : "Check your connection and try again." }));
   };
-  const show = (ref: string) => {
-    setOpen(ref);
-    load(ref);
-  };
+  useEffect(loadList, []);
+  // Each receipt is its own page (/receipts/:ref) — no slide-in drawer.
+  const show = (ref: string) => navigate(`/receipts/${encodeURIComponent(ref)}`);
 
   if (loading) return <RowSkeleton />;
+  if (failed) return <LoadErrorState title="We couldn't load your receipts." onRetry={loadList} />;
   if (receipts.length === 0) {
     return <EmptyState icon={<ChevronRightIcon size={20} />} title="No payments yet" />;
   }
@@ -824,7 +821,6 @@ function ReceiptsPanel() {
           );
         })}
       </ul>
-      <ReceiptDrawer open={open !== null} onClose={() => setOpen(null)} receipt={detail} onRetry={open ? () => load(open) : undefined} />
     </>
   );
 }
@@ -1590,6 +1586,7 @@ function HostingPanel() {
   const [hostStatus, setHostStatus] = useState<HostStatus>("none");
   const [hostBio, setHostBio] = useState("");
   const [hostPhone, setHostPhone] = useState("");
+  const [hostDecision, setHostDecision] = useState<ModerationDecisionPublic | null>(null);
 
   const load = () => {
     fetchResidentFull().then(({ resident: r }) => {
@@ -1597,6 +1594,7 @@ function HostingPanel() {
       setHostStatus(r.hostStatus);
       setHostBio(r.hostBio);
       setHostPhone(r.hostPhone);
+      setHostDecision(r.hostDecision ?? null);
     });
   };
 
@@ -1613,7 +1611,7 @@ function HostingPanel() {
           a way in — /manage's own empty states cover a resident who's
           hosted nothing yet. */}
       <Button variant="ghost" onClick={() => navigate("/manage")}>Go to your Hosting dashboard →</Button>
-      <HostApplicationPanel hostStatus={hostStatus} hostBio={hostBio} hostPhone={hostPhone} onApplied={load} />
+      <HostApplicationPanel hostStatus={hostStatus} hostDecision={hostDecision} hostBio={hostBio} hostPhone={hostPhone} onApplied={load} />
       <BecomeProviderPanel hostStatus={hostStatus} />
       <SearchAlertsPanel />
     </div>
@@ -1758,12 +1756,8 @@ export function Profile() {
   const { resident, loading: guestLoading } = useGuest();
   // ?tab= lets other screens deep-link a section (e.g. My Life's "Add availability" -> preferences).
   // Read reactively, so a footer link clicked while already on /profile still switches section.
-  const [searchParams] = useSearchParams();
-  const tabParam = searchParams.get("tab");
-  const [section, setSection] = useState<ProfileSection>(() => (tabParam && NAV_SECTION_KEYS.has(tabParam) ? (tabParam as ProfileSection) : "account"));
-  useEffect(() => {
-    if (tabParam && NAV_SECTION_KEYS.has(tabParam)) setSection(tabParam as ProfileSection);
-  }, [tabParam]);
+  // URL-synced, so Back/Forward and refresh keep the section too.
+  const [section, setSection] = useUrlTab<ProfileSection>([...NAV_SECTION_KEYS] as ProfileSection[], "account");
 
   if (!guestLoading && !resident) {
     return (

@@ -1,5 +1,5 @@
 import { Router, type Request, type Response } from "express";
-import { orgVendorIds } from "../auth.js";
+import { orgSuspended, orgVendorIds, removedStaff } from "../auth.js";
 import { db } from "../db/index.js";
 import { ASSUMED_DURATION_MINUTES } from "../db/queries.js";
 import { irelandTodayIso, irelandWallTimeToUtc } from "../irelandTime.js";
@@ -177,8 +177,13 @@ async function checkScope(scopeType: ScopeType, scopeId: string, actor: Actor): 
 async function hostActor(req: Request): Promise<Actor | null> {
   const u = req.user;
   if (!u || u.role !== "vendor" || u.status !== "approved") return null;
+  // D-01 / D-08: no partner messaging while the organisation is suspended or after removal from it.
+  if (orgSuspended(u) || removedStaff(u)) return null;
   return { kind: "host", userId: u.id, vendorIds: await orgVendorIds(u), name: u.businessName || u.name };
 }
+
+/** A signed-in partner who is blocked from partner features (organisation suspended or removed). */
+const blockedPartner = (req: Request) => req.user?.role === "vendor" && (orgSuspended(req.user) || removedStaff(req.user));
 
 function residentActor(req: Request): Actor | null {
   const r = req.resident;
@@ -191,7 +196,9 @@ function residentActor(req: Request): Actor | null {
 async function resolve(req: Request, res: Response, scopeType: ScopeType, scopeId: string): Promise<{ actor: Actor; membership: MembershipCheck } | null> {
   const candidates = [residentActor(req), await hostActor(req)].filter((a): a is Actor => !!a);
   if (!candidates.length) {
-    res.status(401).json({ error: "Sign in to chat" });
+    // D-01 / D-08: signed in, but this partner can't use chat right now → 403, not "sign in".
+    if (blockedPartner(req)) res.status(403).json({ error: "Messaging isn't available while your organisation is suspended", orgSuspended: orgSuspended(req.user) || undefined });
+    else res.status(401).json({ error: "Sign in to chat" });
     return null;
   }
   let found = false;
@@ -439,7 +446,11 @@ async function buildInbox(actor: Actor) {
  * when a browser holds both sessions. */
 chatRouter.get("/mine", async (req, res) => {
   const actor = req.query.as === "host" ? await hostActor(req) : residentActor(req) ?? (await hostActor(req));
-  if (!actor) return res.status(401).json({ error: "Sign in to see your chats" });
+  if (!actor) {
+    // D-01 / D-08: signed in, but this partner can't use chat right now → 403, not "sign in".
+    if (blockedPartner(req)) return res.status(403).json({ error: "Messaging isn't available while your organisation is suspended" });
+    return res.status(401).json({ error: "Sign in to see your chats" });
+  }
   const items = await buildInbox(actor);
   res.json({ items, unread: items.reduce((n, i) => n + i.unread, 0), viewerRole: actor.kind });
 });

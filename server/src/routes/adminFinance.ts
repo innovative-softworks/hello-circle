@@ -1,3 +1,8 @@
+import crypto from "node:crypto";
+import { reportException } from "../errorReporting.js";
+import { SettlementRunError } from "../commerce/settlement.js";
+import { RecheckError, getReview, recheckReview } from "../payments/paymentReview.js";
+import { ORDER_TABLE, ORDER_TOTAL, isOrderType } from "../payments/orderState.js";
 import { Router, type Request, type Response } from "express";
 import { endOfIrelandDay } from "../irelandTime.js";
 import { db } from "../db/index.js";
@@ -16,10 +21,11 @@ import { ConnectError, openPartnerDebt, payoutReadiness, retryDebtRecovery, reve
 import { listDebts } from "../commerce/debts.js";
 import { CreditError, grantCredit, residentCredits } from "../commerce/credits.js";
 import { sweepSubscriptions } from "../commerce/subscriptions.js";
+import { requireAdminPermission } from "../adminPermissions.js";
 
 // Revenue & Connect Stage 2c — finance operations: webhook queue + replay,
 // payments, refunds (incl. partial), disputes, ledger. Mounted from admin.ts
-// behind requireAdminRole("finance"); writes are audited with a reason.
+// with per-route requireAdminPermission() guards (D-02); writes are audited with a reason.
 export const adminFinanceRouter = Router();
 
 const REFUNDABLE: CheckoutType[] = ["booking", "registration", "program", "experience", "game"];
@@ -29,7 +35,7 @@ function reasonOf(req: Request): string | null {
   return typeof r === "string" && r.trim().length >= 5 ? r.trim().slice(0, 2000) : null;
 }
 
-adminFinanceRouter.get("/webhooks", async (req, res) => {
+adminFinanceRouter.get("/webhooks", requireAdminPermission("finance.operate"), async (req, res) => {
   const status = typeof req.query.status === "string" ? req.query.status : null;
   const rows = await db
     .prepare(
@@ -42,7 +48,7 @@ adminFinanceRouter.get("/webhooks", async (req, res) => {
 
 /** Replays a failed or parked event: re-fetched from the provider, then
  * processed exactly like a live delivery (handlers are idempotent). */
-adminFinanceRouter.post("/webhooks/:id/replay", async (req: Request, res: Response) => {
+adminFinanceRouter.post("/webhooks/:id/replay", requireAdminPermission("finance.operate"), async (req: Request, res: Response) => {
   const reason = reasonOf(req);
   if (!reason) return res.status(400).json({ error: "A reason (at least 5 characters) is required" });
   const provider = paymentProvider();
@@ -66,8 +72,82 @@ adminFinanceRouter.post("/webhooks/:id/replay", async (req: Request, res: Respon
   }
 });
 
+// --- D-10 / D-11: payment reviews ---------------------------------------------------
+
+/** Each order's own state, read separately from the review (never merged). */
+async function orderFacts(type: string | null, ref: string | null) {
+  if (!isOrderType(type) || !ref) return null;
+  const statusCol = type === "pass" ? "NULL" : "status";
+  const holdCol = type === "pass" ? "NULL" : "review_hold_until";
+  const row = (await db.prepare(`SELECT ${statusCol} AS status, payment_status AS paymentStatus, ${ORDER_TOTAL[type]} AS totalMinor, ${holdCol} AS reviewHoldUntil, stripe_session_id AS sessionId FROM ${ORDER_TABLE[type]} WHERE ref = ?`).get(ref)) as Record<string, unknown> | undefined;
+  return row ? { ...row, totalMinor: Number(row.totalMinor ?? 0) } : { missing: true };
+}
+
+adminFinanceRouter.get("/payment-reviews", requireAdminPermission("finance.operate"), async (req, res) => {
+  const status = req.query.status === "resolved" ? "resolved" : req.query.status === "all" ? null : "open";
+  const rows = (await db
+    .prepare(
+      `SELECT id, checkout_session_id AS checkoutSessionId, source_type AS sourceType, source_ref AS sourceRef, received_minor AS receivedMinor, received_currency AS receivedCurrency,
+              reason, hold_status AS holdStatus, review_hold_until AS reviewHoldUntil, urgency, auto_refund AS autoRefund, status, resolution, flagged_at AS flaggedAt
+       FROM payment_reviews ${status ? "WHERE status = ?" : ""} ORDER BY (urgency IN ('within_lead', 'after_start')) DESC, flagged_at DESC LIMIT 200`
+    )
+    .all(...(status ? [status] : []))) as Record<string, unknown>[];
+  res.json(await Promise.all(rows.map(async (r) => ({ ...r, receivedMinor: r.receivedMinor === null ? null : Number(r.receivedMinor), order: await orderFacts(r.sourceType as string, r.sourceRef as string) }))));
+});
+
+adminFinanceRouter.get("/payment-reviews/:id", requireAdminPermission("finance.operate"), async (req, res) => {
+  const review = await getReview(Number(req.params.id));
+  if (!review) return res.status(404).json({ error: "No payment review has this number" });
+  const [order, payment, refunds, events, alerts] = await Promise.all([
+    orderFacts(review.sourceType, review.sourceRef),
+    review.sourceType && review.sourceRef ? db.prepare(`SELECT id, amount_minor AS amountMinor, currency, status, payment_intent_id AS paymentIntentId, created_at AS createdAt FROM payment_records WHERE source_type = ? AND source_ref = ?`).get(review.sourceType, review.sourceRef) : null,
+    review.sourceType && review.sourceRef
+      ? db.prepare(`SELECT id, amount_minor AS amountMinor, currency, kind, origin, status, provider_refund_id AS providerRefundId, idempotency_key AS idempotencyKey, last_error AS lastError, reason, created_at AS createdAt, updated_at AS updatedAt FROM refunds WHERE source_type = ? AND source_ref = ? ORDER BY id`).all(review.sourceType, review.sourceRef)
+      : [],
+    db
+      .prepare(
+        `SELECT id, event_id AS eventId, event_type AS eventType, status, attempts, last_error AS lastError, resolution, received_at AS receivedAt, resolved_at AS resolvedAt FROM webhook_events
+         WHERE object_id = ? OR (? IS NOT NULL AND JSON_UNQUOTE(JSON_EXTRACT(summary, '$.payment_intent')) = ?) ORDER BY id`
+      )
+      .all(review.checkoutSessionId, review.paymentIntentId, review.paymentIntentId),
+    db.prepare(`SELECT kind, created_at AS createdAt FROM payment_review_alerts WHERE review_id = ? ORDER BY id`).all(review.id),
+  ]);
+  res.json({ review, order, payment: payment ?? null, refunds, events, alerts });
+});
+
+/** D-11 — Recheck with Stripe: reads the payment and its refunds/disputes from
+ * the provider and reconciles; closes the review only when the verified
+ * outcome supports it. Never refunds, never confirms, never restores. */
+adminFinanceRouter.post("/payment-reviews/:id/recheck", requireAdminPermission("finance.operate"), async (req, res) => {
+  const reason = reasonOf(req);
+  if (!reason) return res.status(400).json({ error: "A reason (at least 5 characters) is required" });
+  try {
+    res.json(await recheckReview(Number(req.params.id), req.user!.id, reason));
+  } catch (e) {
+    if (e instanceof RecheckError) return res.status(e.status).json({ error: e.message });
+    throw e;
+  }
+});
+
+/** The same recheck, from a parked payment event (its session or payment intent). */
+adminFinanceRouter.post("/webhooks/:id/recheck", requireAdminPermission("finance.operate"), async (req, res) => {
+  const reason = reasonOf(req);
+  if (!reason) return res.status(400).json({ error: "A reason (at least 5 characters) is required" });
+  const ev = (await db.prepare(`SELECT object_id AS objectId, summary FROM webhook_events WHERE id = ?`).get(Number(req.params.id))) as { objectId: string | null; summary: string } | undefined;
+  if (!ev) return res.status(404).json({ error: "No payment event has this number" });
+  const pi = (JSON.parse(ev.summary) as { payment_intent?: string }).payment_intent ?? null;
+  const review = (await db.prepare(`SELECT id FROM payment_reviews WHERE checkout_session_id = ? OR (? IS NOT NULL AND payment_intent_id = ?) ORDER BY id DESC LIMIT 1`).get(ev.objectId, pi, pi)) as { id: number } | undefined;
+  if (!review) return res.status(404).json({ error: "This event has no payment review to recheck" });
+  try {
+    res.json({ reviewId: review.id, ...(await recheckReview(review.id, req.user!.id, reason)) });
+  } catch (e) {
+    if (e instanceof RecheckError) return res.status(e.status).json({ error: e.message });
+    throw e;
+  }
+});
+
 /** Stage 5e — a booking's frozen allocation snapshot (and its split agreement). */
-adminFinanceRouter.get("/allocations/:type/:ref", async (req, res) => {
+adminFinanceRouter.get("/allocations/:type/:ref", requireAdminPermission("finance.operate"), async (req, res) => {
   const snap = (await db.prepare(`SELECT * FROM allocation_snapshots WHERE source_type = ? AND source_ref = ?`).get(req.params.type, req.params.ref)) as Record<string, unknown> | undefined;
   if (!snap) return res.status(404).json({ error: "No allocation frozen for this booking" });
   const lines = await db.prepare(`SELECT role, party_type as partyType, party_id as partyId, amount_minor as amountMinor FROM allocation_lines WHERE snapshot_id = ? ORDER BY id`).all(snap.id);
@@ -75,12 +155,12 @@ adminFinanceRouter.get("/allocations/:type/:ref", async (req, res) => {
   res.json({ snapshot: snap, lines, releases });
 });
 
-adminFinanceRouter.get("/splits", async (req, res) => {
+adminFinanceRouter.get("/splits", requireAdminPermission("finance.operate"), async (req, res) => {
   const gameId = typeof req.query.gameId === "string" ? req.query.gameId : null;
   res.json(await db.prepare(`SELECT * FROM venue_split_agreements ${gameId ? "WHERE game_id = ?" : ""} ORDER BY id DESC LIMIT 200`).all(...(gameId ? [gameId] : [])));
 });
 
-adminFinanceRouter.get("/payments", async (req, res) => {
+adminFinanceRouter.get("/payments", requireAdminPermission("finance.payment_state.view"), async (req, res) => {
   const ref = typeof req.query.ref === "string" ? req.query.ref : null;
   const rows = await db
     .prepare(`SELECT * FROM payment_records ${ref ? "WHERE source_ref = ? OR payment_intent_id = ? OR checkout_session_id = ?" : ""} ORDER BY id DESC LIMIT 200`)
@@ -88,11 +168,11 @@ adminFinanceRouter.get("/payments", async (req, res) => {
   res.json(rows);
 });
 
-adminFinanceRouter.get("/refunds", async (_req, res) => {
+adminFinanceRouter.get("/refunds", requireAdminPermission("finance.payment_state.view"), async (_req, res) => {
   res.json(await db.prepare(`SELECT * FROM refunds ORDER BY id DESC LIMIT 200`).all());
 });
 
-adminFinanceRouter.post("/refunds", async (req, res) => {
+adminFinanceRouter.post("/refunds", requireAdminPermission("finance.operate"), async (req, res) => {
   const b = req.body as { sourceType?: string; ref?: string; amountMinor?: number; responsible?: string };
   const reason = reasonOf(req);
   if (!reason) return res.status(400).json({ error: "A reason (at least 5 characters) is required" });
@@ -108,11 +188,11 @@ adminFinanceRouter.post("/refunds", async (req, res) => {
   }
 });
 
-adminFinanceRouter.get("/disputes", async (_req, res) => {
+adminFinanceRouter.get("/disputes", requireAdminPermission("finance.operate"), async (_req, res) => {
   res.json(await db.prepare(`SELECT * FROM disputes ORDER BY id DESC LIMIT 200`).all());
 });
 
-adminFinanceRouter.get("/ledger/groups", async (req, res) => {
+adminFinanceRouter.get("/ledger/groups", requireAdminPermission("finance.operate"), async (req, res) => {
   const q = req.query as Record<string, string | undefined>;
   const where: string[] = [];
   const params: string[] = [];
@@ -130,7 +210,7 @@ adminFinanceRouter.get("/ledger/groups", async (req, res) => {
   res.json(await Promise.all(groups.map(async (g) => ({ ...g, lines: await groupLines(db, g.id) }))));
 });
 
-adminFinanceRouter.get("/ledger/balances", async (req, res) => {
+adminFinanceRouter.get("/ledger/balances", requireAdminPermission("finance.operate"), async (req, res) => {
   const q = req.query as Record<string, string | undefined>;
   res.json({ balanced: await ledgerIsBalanced(), accounts: await balances({ partyType: q.partyType, partyId: q.partyId, basis: q.basis === "estimate" ? "estimate" : q.basis === "actual" ? "actual" : undefined }) });
 });
@@ -139,12 +219,19 @@ adminFinanceRouter.get("/ledger/balances", async (req, res) => {
 
 function handleRule(res: Response, e: unknown) {
   if (e instanceof RuleError) return res.status(e.status).json({ error: e.message });
+  if (e instanceof SettlementRunError) {
+    // One scrubbed, correlated [error-report] line for the server log; the
+    // same correlation id, run, step and error code go back to the caller.
+    const correlationId = crypto.randomUUID();
+    reportException("settlement_run_failed", new Error(`correlation=${correlationId} run=${e.runId} step=${e.step} ${e.failure}`), { route: "/api/admin/finance/settlements/run", status: 500 });
+    return res.status(500).json({ error: "The settlement run failed — nothing after the failing step was settled", runId: e.runId, step: e.step, code: e.code, failure: e.failure, correlationId });
+  }
   throw e;
 }
 
 /** Runs (or dry-runs) a weekly settlement: releases completed orders, then
  * creates settlements for payees at or above the minimum payout. */
-adminFinanceRouter.post("/settlements/run", async (req, res) => {
+adminFinanceRouter.post("/settlements/run", requireAdminPermission("finance.operate"), async (req, res) => {
   const b = req.body as { runKey?: string; dryRun?: boolean };
   const reason = reasonOf(req);
   if (!reason) return res.status(400).json({ error: "A reason (at least 5 characters) is required" });
@@ -157,7 +244,7 @@ adminFinanceRouter.post("/settlements/run", async (req, res) => {
   }
 });
 
-adminFinanceRouter.get("/settlements", async (_req, res) => {
+adminFinanceRouter.get("/settlements", requireAdminPermission("finance.operate"), async (_req, res) => {
   res.json(
     await db
       .prepare(`SELECT s.id, r.run_key as runKey, s.party_type as partyType, s.party_id as partyId, s.net_minor as netMinor, s.status, s.transfer_id as transferId, s.created_at as createdAt FROM settlements s JOIN settlement_runs r ON r.id = s.run_id ORDER BY s.id DESC LIMIT 200`)
@@ -165,14 +252,14 @@ adminFinanceRouter.get("/settlements", async (_req, res) => {
   );
 });
 
-adminFinanceRouter.get("/settlements/:id", async (req, res) => {
+adminFinanceRouter.get("/settlements/:id", requireAdminPermission("finance.operate"), async (req, res) => {
   const s = await db.prepare(`SELECT * FROM settlements WHERE id = ?`).get(req.params.id);
   if (!s) return res.status(404).json({ error: "Settlement not found" });
   const items = await db.prepare(`SELECT ledger_group_id as groupId, description, amount_minor as amountMinor FROM settlement_items WHERE settlement_id = ? ORDER BY id`).all(req.params.id);
   res.json({ settlement: s, items });
 });
 
-adminFinanceRouter.post("/disputes/:id/recovery", async (req, res) => {
+adminFinanceRouter.post("/disputes/:id/recovery", requireAdminPermission("finance.operate"), async (req, res) => {
   const reason = reasonOf(req);
   if (!reason) return res.status(400).json({ error: "A reason (at least 5 characters) is required" });
   const responsible = (req.body as { responsible?: string }).responsible;
@@ -186,7 +273,7 @@ adminFinanceRouter.post("/disputes/:id/recovery", async (req, res) => {
   }
 });
 
-adminFinanceRouter.post("/fees/reconcile", async (_req, res) => {
+adminFinanceRouter.post("/fees/reconcile", requireAdminPermission("finance.operate"), async (_req, res) => {
   try {
     res.json(await reconcilePaymentFees());
   } catch (e) {
@@ -194,7 +281,7 @@ adminFinanceRouter.post("/fees/reconcile", async (_req, res) => {
   }
 });
 
-adminFinanceRouter.get("/partners/:kind/:id/balances", async (req, res) => {
+adminFinanceRouter.get("/partners/:kind/:id/balances", requireAdminPermission("finance.operate"), async (req, res) => {
   res.json(await partnerBalances({ partyType: req.params.kind, partyId: req.params.id }));
 });
 
@@ -207,7 +294,7 @@ function handleConnect(res: Response, e: unknown) {
 
 const PARTY_TYPES = ["org", "vendor", "host"];
 
-adminFinanceRouter.get("/connect/accounts", async (_req, res) => {
+adminFinanceRouter.get("/connect/accounts", requireAdminPermission("finance.operate"), async (_req, res) => {
   const rows = (await db
     .prepare(
       `SELECT party_type as partyType, party_id as partyId, account_id as accountId, country, details_submitted as detailsSubmitted, payouts_enabled as payoutsEnabled,
@@ -218,7 +305,7 @@ adminFinanceRouter.get("/connect/accounts", async (_req, res) => {
   res.json(await Promise.all(rows.map(async (r) => ({ ...r, readiness: await payoutReadiness(r) }))));
 });
 
-adminFinanceRouter.get("/transfers", async (_req, res) => {
+adminFinanceRouter.get("/transfers", requireAdminPermission("finance.operate"), async (_req, res) => {
   res.json(
     await db
       .prepare(
@@ -230,7 +317,7 @@ adminFinanceRouter.get("/transfers", async (_req, res) => {
   );
 });
 
-adminFinanceRouter.post("/transfers/run", async (req, res) => {
+adminFinanceRouter.post("/transfers/run", requireAdminPermission("finance.operate"), async (req, res) => {
   try {
     const { dryRun, reason, limit } = (req.body ?? {}) as { dryRun?: boolean; reason?: string; limit?: number };
     res.json(await runTransfers({ dryRun: dryRun !== false, actorId: req.user!.id, reason: String(reason ?? ""), limit }));
@@ -240,12 +327,12 @@ adminFinanceRouter.post("/transfers/run", async (req, res) => {
 });
 
 // Stage 5c — partner debts (replace the 5a "recover balance" action).
-adminFinanceRouter.get("/debts", async (req, res) => {
+adminFinanceRouter.get("/debts", requireAdminPermission("finance.operate"), async (req, res) => {
   const status = typeof req.query.status === "string" && ["open", "recovered", "offset"].includes(req.query.status) ? req.query.status : undefined;
   res.json(await listDebts(status));
 });
 
-adminFinanceRouter.post("/partners/:kind/:id/debts", async (req, res) => {
+adminFinanceRouter.post("/partners/:kind/:id/debts", requireAdminPermission("finance.operate"), async (req, res) => {
   if (!PARTY_TYPES.includes(req.params.kind)) return res.status(400).json({ error: "Unknown partner kind" });
   try {
     // Stage 5e — optionally reverse a specific booking's allocation first (e.g. the refunded one).
@@ -257,7 +344,7 @@ adminFinanceRouter.post("/partners/:kind/:id/debts", async (req, res) => {
   }
 });
 
-adminFinanceRouter.post("/debts/:id/retry", async (req, res) => {
+adminFinanceRouter.post("/debts/:id/retry", requireAdminPermission("finance.operate"), async (req, res) => {
   try {
     res.json(await retryDebtRecovery(Number(req.params.id), { actorId: req.user!.id, reason: String(req.body?.reason ?? "") }));
   } catch (e) {
@@ -265,7 +352,7 @@ adminFinanceRouter.post("/debts/:id/retry", async (req, res) => {
   }
 });
 
-adminFinanceRouter.get("/transfers/:id/allocations", async (req, res) => {
+adminFinanceRouter.get("/transfers/:id/allocations", requireAdminPermission("finance.operate"), async (req, res) => {
   res.json(
     await db
       .prepare(
@@ -277,7 +364,7 @@ adminFinanceRouter.get("/transfers/:id/allocations", async (req, res) => {
   );
 });
 
-adminFinanceRouter.post("/allocations/:id/reverse", async (req, res) => {
+adminFinanceRouter.post("/allocations/:id/reverse", requireAdminPermission("finance.operate"), async (req, res) => {
   try {
     res.json(await reverseAllocation(Number(req.params.id), { actorId: req.user!.id, reason: String(req.body?.reason ?? ""), amountMinor: Number(req.body?.amountMinor) }));
   } catch (e) {
@@ -294,13 +381,13 @@ async function residentIdFrom(body: { residentId?: string; email?: string }): Pr
   return r?.id ?? null;
 }
 
-adminFinanceRouter.get("/credits", async (req, res) => {
+adminFinanceRouter.get("/credits", requireAdminPermission("finance.operate"), async (req, res) => {
   const id = await residentIdFrom({ residentId: typeof req.query.residentId === "string" ? req.query.residentId : undefined, email: typeof req.query.email === "string" ? req.query.email : undefined });
   if (!id) return res.status(404).json({ error: "No resident with that email" });
   res.json({ residentId: id, ...(await residentCredits(id)) });
 });
 
-adminFinanceRouter.post("/credits", async (req, res) => {
+adminFinanceRouter.post("/credits", requireAdminPermission("finance.operate"), async (req, res) => {
   const b = (req.body ?? {}) as { residentId?: string; email?: string; amountMinor?: number; kind?: string; reason?: string; fundingOwner?: string; expiresAt?: string | null; idempotencyKey?: string };
   const id = await residentIdFrom(b);
   if (!id) return res.status(404).json({ error: "No resident with that email" });
@@ -326,7 +413,7 @@ adminFinanceRouter.post("/credits", async (req, res) => {
 });
 
 /** Stage 5f — partner reward points: balances and debts per partner. */
-adminFinanceRouter.get("/rewards", async (_req, res) => {
+adminFinanceRouter.get("/rewards", requireAdminPermission("finance.operate"), async (_req, res) => {
   const rows = await db
     .prepare(
       `SELECT p.party_type as partyType, p.party_id as partyId,
@@ -341,13 +428,13 @@ adminFinanceRouter.get("/rewards", async (_req, res) => {
   res.json((rows as Record<string, unknown>[]).map((r) => ({ ...r, available: Number(r.available), debt: Number(r.debt ?? 0), earned: Number(r.earned), redeemed: Number(r.redeemed) })));
 });
 
-adminFinanceRouter.get("/rewards/:kind/:id/history", async (req, res) => {
+adminFinanceRouter.get("/rewards/:kind/:id/history", requireAdminPermission("finance.operate"), async (req, res) => {
   if (!["org", "host", "vendor"].includes(req.params.kind)) return res.status(400).json({ error: "Unknown partner kind" });
   res.json(await rewardHistory({ kind: req.params.kind as "org" | "host" | "vendor", id: req.params.id }, { limit: 200 }));
 });
 
 /** Stage 5f — manual points adjustment (reason, idempotency key, audit). */
-adminFinanceRouter.post("/rewards/:kind/:id/adjust", async (req, res) => {
+adminFinanceRouter.post("/rewards/:kind/:id/adjust", requireAdminPermission("finance.operate"), async (req, res) => {
   if (!["org", "host"].includes(req.params.kind)) return res.status(400).json({ error: "Points apply to organisations and hosts" });
   const b = (req.body ?? {}) as { points?: number; reason?: string; idempotencyKey?: string };
   try {
@@ -359,7 +446,7 @@ adminFinanceRouter.post("/rewards/:kind/:id/adjust", async (req, res) => {
 });
 
 /** Stage 5f — coupon usage (redemption ledger). */
-adminFinanceRouter.get("/coupons/usage", async (_req, res) => {
+adminFinanceRouter.get("/coupons/usage", requireAdminPermission("finance.operate"), async (_req, res) => {
   const rows = await db
     .prepare(
       `SELECT code, COUNT(*) as uses, SUM(CASE WHEN status = 'confirmed' THEN 1 ELSE 0 END) as confirmed, SUM(CASE WHEN status IN ('released','reversed') THEN 1 ELSE 0 END) as returned,
@@ -372,7 +459,7 @@ adminFinanceRouter.get("/coupons/usage", async (_req, res) => {
 });
 
 /** Stage 5f — customer credit outstanding (liability) and recent grants. */
-adminFinanceRouter.get("/credits/summary", async (_req, res) => {
+adminFinanceRouter.get("/credits/summary", requireAdminPermission("finance.operate"), async (_req, res) => {
   const total = (await db.prepare(`SELECT COALESCE(SUM(remaining_minor), 0) as s, COUNT(DISTINCT resident_id) as n FROM credit_lots WHERE expires_at > NOW() AND remaining_minor > 0`).get()) as { s: number | string; n: number | string };
   const grants = await db
     .prepare(
@@ -384,7 +471,7 @@ adminFinanceRouter.get("/credits/summary", async (_req, res) => {
 });
 
 /** Stage 5f — bank payouts (Stripe → partner's bank), mirrored from payout.* events. */
-adminFinanceRouter.get("/payouts", async (_req, res) => {
+adminFinanceRouter.get("/payouts", requireAdminPermission("finance.operate"), async (_req, res) => {
   res.json(
     await db
       .prepare(
@@ -396,7 +483,7 @@ adminFinanceRouter.get("/payouts", async (_req, res) => {
   );
 });
 
-adminFinanceRouter.get("/subscriptions", async (_req, res) => {
+adminFinanceRouter.get("/subscriptions", requireAdminPermission("finance.operate"), async (_req, res) => {
   res.json(
     await db
       .prepare(
@@ -408,7 +495,7 @@ adminFinanceRouter.get("/subscriptions", async (_req, res) => {
   );
 });
 
-adminFinanceRouter.post("/subscriptions/sweep", async (req, res) => {
+adminFinanceRouter.post("/subscriptions/sweep", requireAdminPermission("finance.operate"), async (req, res) => {
   const r = await sweepSubscriptions();
   await writeAudit({ actorUserId: req.user!.id, action: "subscriptions.swept", objectType: "subscriptions", objectId: new Date().toISOString(), newValue: r });
   res.json(r);

@@ -1,4 +1,7 @@
+import { heldRefsFor, shortenReviewHolds } from "../payments/paymentReview.js";
+import { customerPaymentCase } from "../payments/paymentReview.js";
 import crypto from "node:crypto";
+import { paymentUnderReview } from "../payments/checkoutAgreement.js";
 import { minAgeError } from "../orderAcknowledgements.js";
 import { shadowLegacy } from "../commerce/engine.js";
 import { Router } from "express";
@@ -1109,6 +1112,8 @@ gamesRouter.put("/:id", requireResident, async (req, res) => {
   await syncGameAttributes(req.params.id, b);
 
   const materialChange = b.date !== row.date || b.time !== row.time || (b.centreId ?? null) !== row.centre_id || (b.locationText ?? "") !== row.location_text;
+  // D-10 — a moved activity can only shorten a payment-review hold, never extend it.
+  if (b.date !== row.date || b.time !== row.time) await shortenReviewHolds("game", await heldRefsFor("game", req.params.id));
   if (materialChange) {
     const participants = (await db
       .prepare(`SELECT resident_id FROM game_participants WHERE game_id = ? AND resident_id != ? AND status = 'joined'`)
@@ -1770,7 +1775,8 @@ gamesRouter.get("/status/:ref", requireResident, async (req, res) => {
     )
     .get(req.params.ref, req.resident!.id);
   if (!row) return res.status(404).json({ error: "Session join not found" });
-  res.json(row);
+  const paymentReview = (row as { paymentStatus?: string }).paymentStatus === "pending" && (await paymentUnderReview("game", req.params.ref));
+  res.json({ ...row, paymentReview, paymentCase: await customerPaymentCase("game", req.params.ref) });
 });
 
 // --- waitlist (NEXT) — mirrors routes/clubs.ts's club waitlist ------------

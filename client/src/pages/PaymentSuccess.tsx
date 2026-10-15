@@ -10,6 +10,7 @@ import {
   fetchPassStatus,
   fetchProgramEnrollmentStatus,
   fetchRegistrationStatus,
+  ApiError,
 } from "../api";
 import { useMyStuff } from "../MyStuffContext";
 import { BkButton, BookingSurface, ConfirmationPanel, ListingSummary, PolicySummary, formatCents } from "../components/booking";
@@ -23,6 +24,63 @@ import type {
   ProgramEnrollmentConfirmation,
   RegistrationConfirmation,
 } from "../types";
+
+/** D-10 / D-11 — what the server says about a paid order that couldn't simply
+ * be confirmed (GET …/status/:ref → paymentCase). The money was received in
+ * every one of these states, so none of them is shown as "not paid" or
+ * "not found". */
+interface PaymentCase {
+  state: "review" | "review_urgent" | "review_expired" | "refund_pending" | "refunded" | "not_fulfilled";
+  reason: string;
+  receivedMinor: number | null;
+  currency: string;
+  refundedMinor: number;
+  refundedAt: string | null;
+}
+
+const WHY: Record<string, string> = {
+  capacity_unavailable: "the place was no longer available when your payment came through",
+  org_suspended: "this provider isn't taking bookings right now",
+  listing_unavailable: "this listing or session is no longer available",
+  after_start: "it had already started when your payment came through",
+  mid_programme: "the programme had already started when your payment came through",
+  order_cancelled: "this booking had already been cancelled when your payment came through",
+  provider_state: "your payment needs to be checked by our team",
+  amount_mismatch: "the amount charged didn't match what was agreed at checkout",
+  currency_mismatch: "the currency charged didn't match what was agreed at checkout",
+};
+
+function caseCopy(c: PaymentCase): { variant: "pending" | "cancelled"; title: string; lead: string } {
+  const received = c.receivedMinor !== null ? `We've received your payment of ${formatCents(c.receivedMinor)}` : "We've received your payment";
+  const why = WHY[c.reason] ?? "it needs a check";
+  switch (c.state) {
+    case "review":
+      return {
+        variant: "pending",
+        title: "Your payment needs a quick check",
+        lead: `${received}, but ${why}, so your booking isn't confirmed yet. ${c.reason === "org_suspended" ? "Our team will contact you about your payment." : "Your place is being held while our team checks it, and we'll contact you."} Please don't pay again.`,
+      };
+    case "review_urgent":
+      return { variant: "pending", title: "We couldn't confirm your payment in time", lead: `${received}, but it couldn't be checked before your booking starts, so it isn't confirmed. Our team will contact you about your payment. Please don't pay again.` };
+    case "review_expired":
+      return { variant: "pending", title: "We couldn't confirm your booking in time", lead: `${received} and our team is still checking it. Your place is no longer being held. We'll contact you about your payment — please don't pay again.` };
+    case "refund_pending":
+      return {
+        variant: "cancelled",
+        title: c.reason === "capacity_unavailable" ? "We couldn't keep your place — your refund is on its way" : c.reason === "org_suspended" ? "This provider isn't taking bookings — your refund is on its way" : "Your booking wasn't confirmed — your refund is on its way",
+        lead: `${received}. A full refund is being processed; it can take a few business days to reach your account.`,
+      };
+    case "refunded":
+      return {
+        variant: "cancelled",
+        title: "Your booking wasn't confirmed — your payment was refunded",
+        lead: `${received}, but ${why}. We refunded ${formatCents(c.refundedMinor)}${c.refundedAt ? ` on ${new Date(c.refundedAt).toLocaleDateString("en-IE", { timeZone: "Europe/Dublin", day: "numeric", month: "long", year: "numeric" })}` : ""}. It can take a few business days to show on your statement.`,
+      };
+    case "not_fulfilled":
+    default:
+      return { variant: "cancelled", title: c.reason === "capacity_unavailable" ? "We couldn't keep your place" : "We couldn't confirm this booking", lead: `${received}, but ${why}. Our team will arrange your refund and contact you — please don't pay again.` };
+  }
+}
 
 const POLL_MS = 1500;
 const MAX_ATTEMPTS = 12;
@@ -143,7 +201,12 @@ export function PaymentSuccess() {
   const navigate = useNavigate();
   const { refresh } = useMyStuff();
   const ref = searchParams.get("ref");
-  const [status, setStatus] = useState<"checking" | "paid" | "pending" | "failed" | "notfound">("checking");
+  // "review": Stripe reported a payment that didn't match the checkout the
+  // server agreed, so it is parked for a person to check — never shown as
+  // booked. "error": the status couldn't be fetched (not the same as "not found").
+  const [status, setStatus] = useState<"checking" | "paid" | "pending" | "review" | "case" | "failed" | "notfound" | "error">("checking");
+  const [paymentCase, setPaymentCase] = useState<PaymentCase | null>(null);
+  const [attempt, setAttempt] = useState(0);
   const [details, setDetails] = useState<AnyConfirmation | null>(null);
   const attempts = useRef(0);
 
@@ -159,12 +222,18 @@ export function PaymentSuccess() {
       fetchStatus(ref)
         .then((r) => {
           if (cancelled) return;
-          if (r.paymentStatus === "paid") {
+          const pc = (r as { paymentCase?: PaymentCase | null }).paymentCase;
+          if (pc) {
+            setPaymentCase(pc);
+            setStatus("case");
+          } else if (r.paymentStatus === "paid") {
             setDetails(r);
             setStatus("paid");
             refresh();
           } else if (r.paymentStatus === "failed") {
             setStatus("failed");
+          } else if ((r as { paymentReview?: boolean }).paymentReview) {
+            setStatus("review");
           } else if (attempts.current < MAX_ATTEMPTS) {
             attempts.current += 1;
             setTimeout(poll, POLL_MS);
@@ -172,13 +241,14 @@ export function PaymentSuccess() {
             setStatus("pending");
           }
         })
-        .catch(() => !cancelled && setStatus("notfound"));
+        .catch((e) => !cancelled && setStatus(e instanceof ApiError && e.status === 404 ? "notfound" : "error"));
     };
+    attempts.current = 0;
     poll();
     return () => {
       cancelled = true;
     };
-  }, [ref, refresh]);
+  }, [ref, refresh, attempt]);
 
   // Never says "booked" before the server does: the rich summary renders only
   // once the poll has returned paid (Booking UX Phase 3, on the booking kit).
@@ -222,6 +292,46 @@ export function PaymentSuccess() {
           bookingRef={ref}
           lead="Your payment is taking longer than usual to confirm. It will appear in My Life as soon as it's through — please don't pay again."
           actions={<BkButton variant="dark" onClick={() => navigate("/bookings")}>Check my bookings</BkButton>}
+        />
+      )}
+
+      {status === "review" && (
+        <ConfirmationPanel
+          variant="pending"
+          title="Your payment needs a quick check"
+          bookingRef={ref}
+          lead="The payment Stripe reported for this booking didn't match what was agreed at checkout, so the booking isn't confirmed yet. It's waiting for our team to check. Please don't pay again — contact us with your booking reference if you have a question."
+          actions={
+            <>
+              <BkButton variant="dark" onClick={() => navigate("/contact")}>Contact us</BkButton>
+              <BkButton variant="secondary" onClick={() => navigate("/bookings")}>My bookings</BkButton>
+            </>
+          }
+        />
+      )}
+
+      {status === "case" && paymentCase && (
+        <ConfirmationPanel
+          variant={caseCopy(paymentCase).variant}
+          title={caseCopy(paymentCase).title}
+          bookingRef={ref}
+          lead={caseCopy(paymentCase).lead}
+          actions={
+            <>
+              <BkButton variant="dark" onClick={() => navigate("/contact")}>Contact us</BkButton>
+              <BkButton variant="secondary" onClick={() => navigate("/bookings")}>My bookings</BkButton>
+            </>
+          }
+        />
+      )}
+
+      {status === "error" && (
+        <ConfirmationPanel
+          variant="pending"
+          title="We couldn't check your payment just now"
+          bookingRef={ref}
+          lead="This is a connection problem on our side or yours — it doesn't mean the payment failed. Please don't pay again; try checking again in a moment."
+          actions={<BkButton variant="dark" onClick={() => { setStatus("checking"); setAttempt((n) => n + 1); }}>Check again</BkButton>}
         />
       )}
 

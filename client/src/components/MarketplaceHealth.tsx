@@ -1,3 +1,4 @@
+import { Fragment } from "react";
 import type { AnalyticsFunnelRow, LiquidityLabel, LiquidityScore, MarketplaceHealth as MarketplaceHealthData, ReferralAttributionRow } from "../types";
 import { colors, fonts, radius } from "../theme";
 import { SearchIcon } from "./icons";
@@ -19,7 +20,7 @@ const LABEL_STYLE: Record<LiquidityLabel, { bg: string; color: string }> = {
 export function LiquidityBadge({ label }: { label: LiquidityLabel }) {
   const s = LABEL_STYLE[label];
   return (
-    <span style={{ fontSize: 11, fontWeight: 700, color: s.color, background: s.bg, borderRadius: 999, padding: "3px 10px", flex: "none" }}>{label}</span>
+    <span style={{ fontSize: 11, fontWeight: 700, color: s.color, background: s.bg, borderRadius: radius.pill, padding: "3px 10px", flex: "none" }}>{label}</span>
   );
 }
 
@@ -133,7 +134,7 @@ export function MarketplaceHealthView({
                     {r.source || "unknown source"} · landed {new Date(r.landedAt).toLocaleDateString("en-IE")}
                   </span>
                   {r.converted ? (
-                    <span style={{ fontSize: 11, fontWeight: 700, color: colors.greenText, background: colors.greenBg, borderRadius: 999, padding: "3px 10px" }}>
+                    <span style={{ fontSize: 11, fontWeight: 700, color: colors.greenText, background: colors.greenBg, borderRadius: radius.pill, padding: "3px 10px" }}>
                       Converted ({r.convertedKind})
                     </span>
                   ) : (
@@ -158,7 +159,7 @@ export function MarketplaceHealthView({
             <EmptyState icon={<SearchIcon size={22} />} title="No events logged yet" />
           ) : (
             <div style={{ display: "flex", flexWrap: "wrap" }}>
-              {funnel.map((row) => statBlock(row.count, FUNNEL_LABELS[row.eventType] ?? row.eventType))}
+              {funnel.map((row) => <Fragment key={row.eventType}>{statBlock(row.count, FUNNEL_LABELS[row.eventType] ?? row.eventType)}</Fragment>)}
             </div>
           )}
         </Card>

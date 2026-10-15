@@ -30,9 +30,9 @@ export function PayoutHistory({
   return (
     <Card style={{ padding: 20 }}>
       <section aria-labelledby={`payout-history-${scope}`} aria-busy={history.status === "loading" || undefined} data-testid="payout-history">
-        <h3 id={`payout-history-${scope}`} style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 17, margin: "0 0 4px" }}>
+        <h2 id={`payout-history-${scope}`} style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 17, margin: "0 0 4px" }}>
           Payout history
-        </h3>
+        </h2>
         <p style={{ fontSize: 12.5, color: colors.mutedLight, margin: "0 0 14px", lineHeight: 1.5 }}>
           A transfer moves settled earnings from HelloCircle to your Stripe account. Stripe then makes a bank payout to you.
         </p>

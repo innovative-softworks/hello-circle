@@ -74,7 +74,7 @@ export function TraderProfileForm({ scope, defaultEntity = "company" }: { scope:
   return (
     <Card style={{ padding: 22 }}>
       <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
-        <h3 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 17, margin: 0 }}>Trader details</h3>
+        <h2 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 17, margin: 0 }}>Trader details</h2>
         {status && <span style={{ fontSize: 12.5, fontWeight: 700, color: status.tone }}>{status.label}</span>}
       </div>
       <p style={{ fontSize: 12.5, color: colors.mutedLight, margin: "6px 0 14px", lineHeight: 1.5 }}>

@@ -65,7 +65,7 @@ export function HostChatButton({
       >
         <ChatIcon size={14} /> {label}
         {unread > 0 && (
-          <span style={{ minWidth: 17, height: 17, borderRadius: 9, background: colors.orange, color: "#fff", fontSize: 10.5, fontWeight: 800, display: "inline-flex", alignItems: "center", justifyContent: "center", padding: "0 5px" }}>
+          <span style={{ minWidth: 17, height: 17, borderRadius: radius.control, background: colors.orange, color: "#fff", fontSize: 10.5, fontWeight: 800, display: "inline-flex", alignItems: "center", justifyContent: "center", padding: "0 5px" }}>
             {unread > 99 ? "99+" : unread}
           </span>
         )}
@@ -123,7 +123,7 @@ export function VendorChatsCard() {
               </span>
             </span>
             {i.unread > 0 && (
-              <span style={{ minWidth: 20, height: 20, borderRadius: 10, background: colors.orange, color: "#fff", fontSize: 11, fontWeight: 800, display: "inline-flex", alignItems: "center", justifyContent: "center", padding: "0 6px", flex: "none" }}>{i.unread}</span>
+              <span style={{ minWidth: 20, height: 20, borderRadius: radius.control, background: colors.orange, color: "#fff", fontSize: 11, fontWeight: 800, display: "inline-flex", alignItems: "center", justifyContent: "center", padding: "0 6px", flex: "none" }}>{i.unread}</span>
             )}
           </button>
         ))}

@@ -23,7 +23,10 @@ export function AcceptInvite() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const token = searchParams.get("token") ?? "";
-  const [invite, setInvite] = useState<{ email: string; platformRole: string; orgName: string } | null>(null);
+  const [invite, setInvite] = useState<{ email: string; platformRole: string; orgName: string; rejoin?: boolean } | null>(null);
+  // D-08 follow-up — a previously removed team member rejoins with their
+  // existing account: no new name, just their current password.
+  const rejoin = !!invite?.rejoin;
   const [loading, setLoading] = useState(true);
   const [name, setName] = useState("");
   const [password, setPassword] = useState("");
@@ -51,8 +54,8 @@ export function AcceptInvite() {
   const submit = async () => {
     if (submitting) return;
     setError(null);
-    if (!name.trim() || password.length < 8) {
-      setError("Name and a password of at least 8 characters are required");
+    if ((!rejoin && !name.trim()) || password.length < 8) {
+      setError(rejoin ? "Enter your HelloCircle password" : "Name and a password of at least 8 characters are required");
       return;
     }
     if (!termsAccepted) {
@@ -99,9 +102,16 @@ export function AcceptInvite() {
             eyebrow="Team invite"
             accent="orange"
             headline={<>Join<br /><span style={{ color: colors.orangeDark }}>{invite.orgName}.</span></>}
-            subtitle={<>You've been invited as <strong>{invite.platformRole.replace(/_/g, " ")}</strong> — signing in as {invite.email}.</>}
+            subtitle={
+              rejoin ? (
+                <>You've been invited back as <strong>{invite.platformRole.replace(/_/g, " ")}</strong>. You already have a HelloCircle account ({invite.email}) — enter its password to rejoin.</>
+              ) : (
+                <>You've been invited as <strong>{invite.platformRole.replace(/_/g, " ")}</strong> — signing in as {invite.email}.</>
+              )
+            }
           />
           <form onSubmit={(e: FormEvent) => { e.preventDefault(); submit(); }}>
+            {!rejoin && (<>
             <label htmlFor="invite-name" style={labelStyle}>Your name</label>
             <div style={{ position: "relative", marginBottom: 14 }}>
               <FieldIcon><PersonIcon size={16} /></FieldIcon>
@@ -118,14 +128,15 @@ export function AcceptInvite() {
                 style={{ ...inputStyle, paddingLeft: 38 }}
               />
             </div>
+            </>)}
             <div style={{ marginBottom: 14 }}>
               <PasswordField
                 id="invite-password"
-                label="Set a password"
+                label={rejoin ? "Your HelloCircle password" : "Set a password"}
                 value={password}
                 onChange={setPassword}
-                autoComplete="new-password"
-                placeholder="Create a password"
+                autoComplete={rejoin ? "current-password" : "new-password"}
+                placeholder={rejoin ? "Your current password" : "Create a password"}
                 invalid={!!error}
                 describedBy={error ? "accept-invite-error" : undefined}
               />
@@ -141,7 +152,7 @@ export function AcceptInvite() {
             </div>
             {error && <div style={{ marginBottom: 14 }}><AuthFormError id="accept-invite-error" innerRef={errorRef} message={error} /></div>}
             <Button type="submit" variant="orange" full disabled={submitting || !termsAccepted}>
-              {submitting ? "Joining…" : "Accept & join →"}
+              {submitting ? "Joining…" : rejoin ? "Accept & rejoin →" : "Accept & join →"}
             </Button>
           </form>
         </>

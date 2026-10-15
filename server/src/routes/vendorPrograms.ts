@@ -1,3 +1,5 @@
+import { heldRefsFor, shortenReviewHolds } from "../payments/paymentReview.js";
+import { assertCreatorStillMember } from "../orgStatus.js";
 import crypto from "node:crypto";
 import { refundOnProviderCancel } from "../providerCancelRefund.js";
 import { logEvent } from "../analytics.js";
@@ -69,7 +71,10 @@ vendorProgramsRouter.post("/programs", async (req, res) => {
   }
 
   const id = crypto.randomUUID();
-  await db
+  await db.transaction(async (tx) => {
+    // D-08: refuse if the creator was removed from the organisation meanwhile.
+    await assertCreatorStillMember(tx, req.user!);
+    await tx
     .prepare(
       `INSERT INTO programs (id, listing_type, listing_id, vendor_id, title, description, age_range, image_url, price_cents, capacity, status, category, skill_level, equipment, instructor_name, guardian_rules, safeguarding_info)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?, ?, ?, ?)`
@@ -92,6 +97,7 @@ vendorProgramsRouter.post("/programs", async (req, res) => {
       b.guardianRules ?? "",
       b.safeguardingInfo ?? ""
     );
+  });
 const fromDemand = (req.body as { fromDemand?: string }).fromDemand;
   if (fromDemand) void logEvent("host_created_from_demand", { metadata: { kind: "program", id, clusterKey: fromDemand, userId: req.user!.id } });
     res.status(201).json({ id });
@@ -196,6 +202,8 @@ vendorProgramsRouter.post("/programs/:id/sessions", async (req, res) => {
       `INSERT INTO program_sessions (id, program_id, date, time, duration_minutes, capacity, instructor_name, room_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .run(id, req.params.id, date, time, durationMinutes ?? 60, capacity ?? null, instructorName ?? "", roomId ?? null);
+  // D-10 — an earlier first session can only shorten a payment-review hold, never extend it.
+  await shortenReviewHolds("program", await heldRefsFor("program", req.params.id));
 
   // Follow feature — same "everything"-only gating as experiences' own new-
   // session notify (a new session on an existing listing, not a new listing

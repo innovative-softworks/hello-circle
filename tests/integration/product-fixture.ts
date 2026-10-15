@@ -94,6 +94,9 @@ export async function cleanupVendorSignup(email: string) {
   try {
     const [users] = await safe.connection.query<any[]>("SELECT id, org_id FROM users WHERE email = ?", [email]);
     for (const user of users) {
+      // D-03: decisions and moderation notices about this synthetic account.
+      await safe.connection.execute("DELETE FROM moderation_decisions WHERE object_type = 'vendor' AND object_id = ?", [user.id]);
+      await safe.connection.execute("DELETE FROM notifications WHERE recipient_id = ? AND kind = 'moderation'", [user.id]);
       const [centres] = await safe.connection.query<any[]>("SELECT id FROM centres WHERE vendor_id = ?", [user.id]);
       for (const centre of centres) {
         await safe.connection.execute("DELETE FROM rooms WHERE centre_id = ?", [centre.id]);

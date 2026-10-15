@@ -1,3 +1,4 @@
+import { orgActiveSql, orgOfVendor } from "../orgStatus.js";
 import { Router } from "express";
 import { db } from "../db/index.js";
 import { getProviderAmenities, getProviderParticipantCount, getProviderReviewsSummary, getProviderUpcoming, getProviderWentAheadPercent, orgPoliciesForVendor } from "../db/queries.js";
@@ -25,6 +26,10 @@ providersRouter.get("/:id", async (req, res) => {
     | { id: string; name: string; businessName: string; description: string; providerTier: string; county: string; status: string; logo: string | null; website: string | null; socials: string | null }
     | undefined;
   if (!vendor || vendor.status !== "approved") return res.status(404).json({ error: "Provider not found" });
+  // D-01: a provider whose organisation is suspended shows an unavailable state, with none of its offerings.
+  if ((await orgOfVendor(vendorId))?.status === "suspended") {
+    return res.json({ id: vendor.id, name: vendor.businessName || vendor.name, unavailable: true, message: "This provider isn't available at the moment." });
+  }
 
   const centres = (await db
     .prepare(`SELECT id, name, area, county, image_url as image, blurb, slug, lat, lng FROM centres WHERE vendor_id = ? AND status = 'approved' ORDER BY name`)
@@ -91,7 +96,7 @@ providersRouter.get("/:id", async (req, res) => {
   // yet, just real, same-county providers rather than a fabricated
   // "relevance" score.
   const similarCandidates = (await db
-    .prepare(`SELECT id, business_name as businessName, name FROM users WHERE role = 'vendor' AND status = 'approved' AND id != ? AND county = ? LIMIT 6`)
+    .prepare(`SELECT id, business_name as businessName, name FROM users WHERE role = 'vendor' AND status = 'approved' AND id != ? AND county = ? AND ${orgActiveSql("users.id")} LIMIT 6`)
     .all(vendorId, vendor.county)) as { id: string; businessName: string; name: string }[];
   const similar = (
     await Promise.all(

@@ -1,3 +1,4 @@
+import { UnavailableListing, isUnavailable, type Unavailable } from "../components/UnavailableListing";
 import { usePageTitle } from "../pageTitle";
 import { useEffect, useState, type ReactNode } from "react";
 import { useNavigate, useParams } from "react-router-dom";
@@ -118,17 +119,20 @@ export function ProviderProfilePage() {
   const [profile, setProfile] = useState<ProviderProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
+  // D-01: a provider whose organisation is suspended.
+  const [unavailable, setUnavailable] = useState<Unavailable | null>(null);
   usePageTitle(notFound ? "Provider not found" : profile?.name);
 
   useEffect(() => {
     if (!id) return;
     fetchProviderProfile(id)
-      .then(setProfile)
+      .then((p) => (isUnavailable(p) ? setUnavailable(p) : setProfile(p)))
       .catch(() => setNotFound(true))
       .finally(() => setLoading(false));
   }, [id]);
 
   if (loading) return <PageSpinner />;
+  if (unavailable) return <UnavailableListing item={unavailable} />;
   if (notFound || !profile) {
     return (
       <section className="section-pad" style={{ maxWidth: 640, margin: "0 auto", padding: "60px 24px", textAlign: "center" }}>

@@ -8,6 +8,7 @@ import { useFieldHelp } from "../components/FieldHelp";
 import { HelpLine, LearnMore } from "../components/LearnMore";
 import { PriceRows, PlanRewardsPanel, usePlan } from "../components/PlanRewardsPanel";
 import { Button, ConfirmDialog } from "../components/ui";
+import { ScopedWorkspace } from "../components/workspace/ScopedWorkspace";
 
 // Stage 5f — one Pro details experience for vendors (/vendor/pro) and hosts
 // (/manage/pro). Free → Explore Pro → review exact price → Continue to Stripe
@@ -54,10 +55,19 @@ export function ProDetailsPage({ scope }: { scope: Scope }) {
   }, []);
   const back = scope === "vendor" ? "/vendor" : "/manage";
 
-  if (error === "forbidden") return <Shell back={back}><p role="alert">You don't have access to this organisation's plan.</p></Shell>;
-  if (error) return <Shell back={back}><p role="alert">Couldn't load the plan. <button type="button" onClick={load}>Try again</button></p></Shell>;
-  if (!data) return <Shell back={back}><p aria-busy="true">Loading…</p></Shell>;
-  if (!data.enabled) return <Shell back={back}><p>Pro isn't available right now.</p></Shell>;
+  if (error === "signin")
+    return (
+      <ScopedWorkspace scope={scope} title="HelloCircle Pro">
+        <p role="alert">
+          Sign in to see your plan.{" "}
+          <Link to={scope === "vendor" ? "/login?returnTo=%2Fvendor%2Fpro" : "/signin?returnTo=%2Fmanage%2Fpro"}>{scope === "vendor" ? "Partner log in" : "Sign in"}</Link>
+        </p>
+      </ScopedWorkspace>
+    );
+  if (error === "forbidden") return <ScopedWorkspace scope={scope} title="HelloCircle Pro"><p role="alert">You don't have access to this organisation's plan.</p></ScopedWorkspace>;
+  if (error) return <ScopedWorkspace scope={scope} title="HelloCircle Pro"><p role="alert">Couldn't load the plan. <button type="button" onClick={load}>Try again</button></p></ScopedWorkspace>;
+  if (!data) return <ScopedWorkspace scope={scope} title="HelloCircle Pro"><p aria-busy="true">Loading…</p></ScopedWorkspace>;
+  if (!data.enabled) return <ScopedWorkspace scope={scope} title="HelloCircle Pro"><p>Pro isn't available right now.</p></ScopedWorkspace>;
 
   const subscribed = data.state === "paid_active" || data.state === "cancelling" || data.state === "payment_failed";
   const go = async () => {
@@ -76,8 +86,7 @@ export function ProDetailsPage({ scope }: { scope: Scope }) {
   };
 
   return (
-    <Shell back={back}>
-      <h1 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(32px, 3.8vw, 52px)", margin: "4px 0 6px", letterSpacing: 0 }}>HelloCircle Pro</h1>
+    <ScopedWorkspace scope={scope} title="HelloCircle Pro">
       <HelpLine helpKey="pro_price" />
       {subscribed && (
         <div style={{ margin: "12px 0" }}>
@@ -231,7 +240,7 @@ export function ProDetailsPage({ scope }: { scope: Scope }) {
           />
         </Section>
       )}
-    </Shell>
+    </ScopedWorkspace>
   );
 }
 
@@ -248,15 +257,6 @@ function Benefits() {
         </li>
       ))}
     </ul>
-  );
-}
-
-function Shell({ back, children }: { back: string; children: ReactNode }) {
-  return (
-    <main style={{ maxWidth: 760, margin: "0 auto", padding: "24px 16px 64px", background: colors.bg, color: colors.text }}>
-      <Link to={back} style={{ fontSize: 13.5, color: colors.text, fontWeight: 700 }}>← Back to your dashboard</Link>
-      {children}
-    </main>
   );
 }
 

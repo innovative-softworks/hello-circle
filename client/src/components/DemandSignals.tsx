@@ -50,7 +50,7 @@ export function DemandSignalsView({
   return (
     <Card>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, marginBottom: 4 }}>
-        <h4 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 16, margin: 0 }}>{title}</h4>
+        <h2 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 16, margin: 0 }}>{title}</h2>
         {scope && (
           <div style={{ display: "flex", gap: 4, flex: "none" }}>
             <button onClick={() => scope.onChange("own")} style={scopeButtonStyle(scope.value === "own")}>
@@ -100,7 +100,8 @@ export function IntentClusterView({
   onNotify,
 }: {
   clusters: IntentCluster[] | "forbidden" | null;
-  onNotify: (activityLabel: string, county: string) => Promise<{ notified: number }>;
+  /** Omitted when the admin's role can't notify residents (D-02). */
+  onNotify?: (activityLabel: string, county: string) => Promise<{ notified: number }>;
 }) {
   const [notifying, setNotifying] = useState<string | null>(null);
   const [notified, setNotified] = useState<Record<string, number>>({});
@@ -114,6 +115,7 @@ export function IntentClusterView({
     const key = clusterKey(c);
     setNotifying(key);
     try {
+      if (!onNotify) return;
       const res = await onNotify(c.activityLabel, c.county);
       setNotified((n) => ({ ...n, [key]: res.notified }));
     } finally {
@@ -123,7 +125,7 @@ export function IntentClusterView({
 
   return (
     <Card>
-      <h4 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 16, margin: "0 0 4px" }}>People waiting for something to happen</h4>
+      <h2 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 16, margin: "0 0 4px" }}>People waiting for something to happen</h2>
       <p style={{ fontSize: 12.5, color: colors.mutedLight, margin: "0 0 16px" }}>
         Explicit "I'm interested" signals from residents, grouped by activity + county — notify them directly once enough people want the same thing.
       </p>
@@ -146,7 +148,7 @@ export function IntentClusterView({
                 <span style={{ display: "flex", alignItems: "center", gap: 10 }}>
                   {key in notified ? (
                     <span style={{ fontSize: 12, fontWeight: 700, color: colors.greenText }}>Notified {notified[key]}</span>
-                  ) : c.residentCount === 0 ? (
+                  ) : !onNotify ? null : c.residentCount === 0 ? (
                     <span style={{ fontSize: 12, color: colors.faint }}>No signed-in residents to notify</span>
                   ) : (
                     <Button variant="ghost" style={{ padding: "6px 12px", fontSize: 12 }} disabled={notifying === key} onClick={() => handleNotify(c)}>

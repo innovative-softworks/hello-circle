@@ -1,28 +1,17 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { PlanRewardsPanel } from "../components/PlanRewardsPanel";
-import { useNavigate, useSearchParams } from "react-router-dom";
-import { fetchOrgProfile, fetchVendorListings, fetchVendorNotifications, fetchVendorScheduleItems, fetchVendorStats } from "../api";
+import { useNavigate } from "react-router-dom";
+import { fetchAccountDecision, fetchOrgProfile, fetchVendorListings, fetchVendorNotifications, fetchVendorScheduleItems, fetchVendorStats, type PublicDecision } from "../api";
+import { DecisionExplanation } from "../components/DecisionExplanation";
+import { OrgSuspendedView, RemovedFromOrgView } from "../components/OrgSuspendedView";
 import { useAuth } from "../AuthContext";
 import { vendorLoginHref } from "../authRedirect";
-import { ManageShell } from "../components/ManageShell";
-import {
-  BanIcon,
-  CalendarIcon,
-  CardIcon,
-  ChatIcon,
-  CheckCircleIcon,
-  ClipboardIcon,
-  ClockIcon,
-  EyeIcon,
-  PlusIcon,
-  StarIcon,
-  TagIcon,
-  TreeIconSmall,
-  TrendUpIcon,
-  UsersIcon,
-} from "../components/icons";
+import { WorkspaceShell } from "../components/workspace/WorkspaceShell";
+import { useUrlTab } from "../useUrlTab";
+import { VENDOR_TABS, VENDOR_TAB_KEYS, partnerAccountLine, type VendorTab } from "../components/workspace/PartnerWorkspace";
+import { BanIcon, ClockIcon, PlusIcon } from "../components/icons";
 import { VendorSetupChecklist } from "../components/VendorSetupChecklist";
-import { Button, LinkButton, ManageCard as Card, DashboardTopPanel, PageSpinner } from "../components/ui";
+import { Button, ManageCard as Card, LoadErrorState, PageSpinner } from "../components/ui";
 import { BookingsTab, DemandTab } from "../components/VendorBookings";
 import { VendorExperiencesTab } from "../components/VendorExperiences";
 import { ListingsTab } from "../components/VendorListings";
@@ -44,36 +33,13 @@ import type { VendorListingSummary, VendorScheduleItem, VendorStats } from "../t
 // lives in its own file under components/Vendor*.tsx (split out of what
 // used to be a single 1826-line file; see CLAUDE.md).
 
-type VendorTab = "overview" | "listings" | "messages" | "bookings" | "earnings" | "programs" | "experiences" | "schedule" | "reviews" | "offers" | "demand" | "org";
-
-// Host Manage spec §2's minimal primary nav ("Overview/Activities/Bookings/
-// Calendar/Messages/Earnings/More") — reorganized using ManageShell's own
-// `group` field (already supported, just unused by Vendor until now, same
-// mechanism Profile.tsx's nav already groups by) rather than building a new
-// flyout/submenu: everything through "earnings" below stays a primary tab,
-// everything after gets grouped under "More".
-const VENDOR_TABS: { key: VendorTab; label: string; icon: ReactNode; group?: string }[] = [
-  { key: "overview", label: "Overview", icon: <EyeIcon size={15} /> },
-  { key: "listings", label: "Listings", icon: <ClipboardIcon size={15} /> },
-  { key: "programs", label: "Programmes", icon: <CalendarIcon size={15} /> },
-  { key: "experiences", label: "Adventures & Experiences", icon: <TreeIconSmall size={15} /> },
-  { key: "schedule", label: "Calendar", icon: <CalendarIcon size={15} /> },
-  { key: "messages", label: "Messages", icon: <ChatIcon size={15} /> },
-  { key: "bookings", label: "Bookings", icon: <CalendarIcon size={15} /> },
-  { key: "earnings", label: "Earnings", icon: <CardIcon size={15} /> },
-  { key: "reviews", label: "Reviews", icon: <StarIcon size={15} />, group: "More" },
-  { key: "offers", label: "Offers", icon: <TagIcon size={15} />, group: "More" },
-  { key: "demand", label: "Demand", icon: <TrendUpIcon size={15} />, group: "More" },
-  { key: "org", label: "Organisation", icon: <UsersIcon size={15} />, group: "More" },
-];
-
 export function VendorDashboard() {
   const { user, loading } = useAuth();
   const navigate = useNavigate();
   const toast = useToast();
-  const [searchParams] = useSearchParams();
-  const initialTab = searchParams.get("tab");
-  const [tab, setTab] = useState<VendorTab>(VENDOR_TABS.some((o) => o.key === initialTab) ? (initialTab as VendorTab) : "overview");
+  // The tab lives in the URL (?tab=), so Back/Forward, refresh and shared links keep it.
+  const [tab, setTab] = useUrlTab<VendorTab>(VENDOR_TAB_KEYS, "overview");
+  const [loadError, setLoadError] = useState(false);
   const [listings, setListings] = useState<{ centres: VendorListingSummary[]; clubs: VendorListingSummary[] }>({ centres: [], clubs: [] });
   const [stats, setStats] = useState<VendorStats | null>(null);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -90,18 +56,26 @@ export function VendorDashboard() {
   const loadUnreadCount = () => fetchVendorNotifications().then((rows) => setUnreadCount(rows.filter((r) => !r.read).length));
 
   const reload = () => {
-    fetchVendorListings().then(setListings);
-    fetchVendorStats().then(setStats);
-    loadUnreadCount();
+    setLoadError(false);
+    fetchVendorListings()
+      .then(setListings)
+      .catch(() => setLoadError(true));
+    fetchVendorStats()
+      .then(setStats)
+      .catch(() => setLoadError(true));
+    loadUnreadCount().catch(() => {});
     fetchVendorScheduleItems()
       .then(setScheduleItems)
       .catch(() => setScheduleItemsError(true));
   };
 
   useEffect(() => {
-    if (user?.role === "vendor" && user.status === "approved") {
+    // D-01 / D-08: a suspended organisation or a removed member gets its own read-only page instead.
+    if (user?.role === "vendor" && user.status === "approved" && user.orgStatus !== "suspended" && !(user.invitedStaff && !user.orgId)) {
       reload();
-      fetchOrgProfile().then((p) => setProgramsEnabled(p.flags.programs));
+      fetchOrgProfile()
+        .then((p) => setProgramsEnabled(p.flags.programs))
+        .catch(() => {});
     }
   }, [user]);
 
@@ -128,14 +102,23 @@ export function VendorDashboard() {
             <p style={{ color: colors.muted, fontSize: 15, lineHeight: 1.5 }}>
               {user.status === "pending"
                 ? "An admin reviews your details before your listing can go live. Nothing more is needed from you right now — you'll be able to edit your listing once you're approved."
-                : "Your vendor account has been suspended. Contact the site admin for details."}
+                : "Your partner account is suspended, so the workspace and your listings' tools are unavailable."}
             </p>
+            {user.status === "suspended" && <SuspensionReason />}
+            {user.status !== "pending" && (
+              <Button variant="ghost" onClick={() => navigate("/contact")}>
+                Contact HelloCircle
+              </Button>
+            )}
             {user.status === "pending" && <VendorSetupChecklist variant="pending" />}
           </Card>
         </section>
       </div>
     );
   }
+
+  if (user.orgStatus === "suspended") return <OrgSuspendedView />;
+  if (user.invitedStaff && !user.orgId) return <RemovedFromOrgView />;
 
   // "Listings" reads like inventory management, which is misleading for the
   // overwhelmingly common case of a vendor with a single location — swap in
@@ -164,114 +147,43 @@ export function VendorDashboard() {
     if (canSee(t)) setTab(t);
     else toast.info("Your staff role doesn't include this. Ask your organisation owner if you need access.");
   };
-  const displayTabs = VENDOR_TABS.filter((t) => canSee(t.key)).map((t) => (t.key === "listings" ? { ...t, label: listingsTabLabel } : t));
+  const displayTabs = VENDOR_TABS.filter((t) => canSee(t.key)).map((t) => ({
+    ...t,
+    label: t.key === "listings" ? listingsTabLabel : t.label,
+    count: t.key === "messages" && unreadCount > 0 ? unreadCount : undefined,
+  }));
+  const active = displayTabs.find((t) => t.key === activeTab)!;
+  const overviewSubtitle =
+    scheduleItems === null
+      ? active.summary
+      : `${greeting()}, ${user.businessName || user.name}. ${summarizeUpcomingWeek(scheduleItems)}`;
 
   return (
-    <ManageShell
-      navTitle="HelloCircle Manage"
-      navOptions={displayTabs}
-      activeKey={activeTab}
-      onNavChange={goTab}
-      contextLabel={user?.businessName ? `Managing ${user.businessName}` : "Managing Vendor account"}
-      pageTitle={displayTabs.find((t) => t.key === activeTab)?.label}
-      headerActions={
+    <WorkspaceShell
+      workspaceLabel="Partner workspace"
+      account={partnerAccountLine(user)}
+      externalLink={{ label: "View public profile", to: `/provider/${user.id}`, newTab: true }}
+      navItems={displayTabs}
+      active={activeTab}
+      onNavigate={goTab}
+      title={active.label}
+      subtitle={activeTab === "overview" ? overviewSubtitle : active.summary}
+      actions={
         activeTab === "programs" ? (
           <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4 }}>
             <Button onClick={() => navigate("/vendor/programs/new")} disabled={!programsEnabled}>
-              <PlusIcon size={14} /> Add program
+              <PlusIcon size={14} /> Add programme
             </Button>
-            {!programsEnabled && (
-              <span style={{ fontSize: 11, color: colors.orangeDark }}>Not enabled for your organisation</span>
-            )}
-          </div>
-        ) : undefined
-      }
-      banner={
-        activeTab === "overview" ? (
-          <div style={{ borderBottom: `1px solid ${colors.border}`, paddingBottom: 24, marginBottom: 32 }}>
-            <DashboardTopPanel
-              title={user.name}
-              subtitle={
-                scheduleItems === null
-                  ? `HelloCircle Manage · ${user.email}`
-                  : `${greeting()}, ${user.businessName || user.name}. ${summarizeUpcomingWeek(scheduleItems)}`
-              }
-              avatarName={user.name}
-              accent="green"
-              eyebrow="/ Vendor"
-              tabs={displayTabs}
-              activeTab={activeTab}
-              onTabChange={goTab}
-              bottomSpacing={0}
-              hideTabs
-              badge={
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-                  {user.providerTier !== "standard" && (
-                    <span style={{ display: "inline-flex", alignItems: "center", gap: 4, background: colors.greenBg, color: colors.greenText, borderRadius: 16, padding: "3px 10px 3px 8px", fontSize: 12, fontWeight: 700 }}>
-                      <CheckCircleIcon size={13} /> Verified vendor
-                    </span>
-                  )}
-                  <span style={{ display: "inline-flex", alignItems: "center", background: colors.panel, color: colors.muted, borderRadius: 16, padding: "3px 10px", fontSize: 12, fontWeight: 600 }}>
-                    Member since {formatMemberSince(user.createdAt)}
-                  </span>
-                </div>
-              }
-              actions={
-                <>
-                  <LinkButton variant="orange" href={`/provider/${user.id}`} target="_blank" style={{ padding: "10px 18px", fontSize: 13.5 }}>
-                    View public profile ↗
-                  </LinkButton>
-                  {canSee("messages") && (
-                    <button
-                      onClick={() => goTab("messages")}
-                      aria-label={unreadCount > 0 ? `${unreadCount} unread messages` : "Messages"}
-                      style={{
-                        position: "relative",
-                        width: 40,
-                        height: 40,
-                        borderRadius: "50%",
-                        border: `1px solid ${colors.borderStrong}`,
-                        background: colors.surface,
-                        color: colors.text,
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        cursor: "pointer",
-                        flex: "none",
-                      }}
-                    >
-                      <ChatIcon size={16} />
-                      {unreadCount > 0 && (
-                        <span
-                          style={{
-                            position: "absolute",
-                            top: -4,
-                            right: -4,
-                            minWidth: 16,
-                            height: 16,
-                            borderRadius: 10,
-                            background: colors.orange,
-                            color: "#fff",
-                            fontSize: 10,
-                            fontWeight: 700,
-                            display: "flex",
-                            alignItems: "center",
-                            justifyContent: "center",
-                            padding: "0 3px",
-                          }}
-                        >
-                          {unreadCount}
-                        </span>
-                      )}
-                    </button>
-                  )}
-                </>
-              }
-            />
+            {!programsEnabled && <span style={{ fontSize: 12, color: colors.mutedLight }}>Programmes aren't enabled for your organisation</span>}
           </div>
         ) : undefined
       }
     >
+      {loadError && (activeTab === "overview" || activeTab === "listings") && (
+        <div style={{ marginBottom: 16 }}>
+          <LoadErrorState title="Couldn't load your listings and figures." detail="What's shown may be incomplete. Nothing has changed on your listings." onRetry={reload} />
+        </div>
+      )}
       {activeTab === "overview" && <VendorSetupChecklist variant="approved" />}
       {activeTab === "overview" && (
         <div style={{ marginBottom: 16 }}>
@@ -287,6 +199,9 @@ export function VendorDashboard() {
           itemsError={scheduleItemsError}
           onNavigateTab={goTab}
         />
+      )}
+      {activeTab === "overview" && (
+        <p style={{ fontSize: 12.5, color: colors.mutedLight, margin: "18px 0 0" }}>Partner since {formatMemberSince(user.createdAt)}</p>
       )}
 
       {activeTab === "listings" && (
@@ -311,6 +226,17 @@ export function VendorDashboard() {
       {activeTab === "experiences" && <VendorExperiencesTab onOpenExperience={(id) => navigate(`/vendor/experiences/${id}`)} />}
       {activeTab === "schedule" && <VendorScheduleTab onNavigateItem={goTab} />}
       {activeTab === "org" && <VendorOrgTab />}
-    </ManageShell>
+    </WorkspaceShell>
   );
+}
+
+// D-03 — why the account is suspended (category + explanation, never the internal note).
+function SuspensionReason() {
+  const [state, setState] = useState<{ latest: PublicDecision | null } | null>(null);
+  useEffect(() => {
+    fetchAccountDecision()
+      .then((d) => setState({ latest: d.latest?.action === "partner.suspended" ? d.latest : null }))
+      .catch(() => setState({ latest: null }));
+  }, []);
+  return <div style={{ marginBottom: 16 }}>{state && <DecisionExplanation decision={state.latest} />}</div>;
 }

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { fetchHostInsights } from "../api";
 import { Card, PageSpinner } from "./ui";
-import { colors, fonts } from "../theme";
+import { colors, fonts, radius } from "../theme";
 import type { HostInsights } from "../types";
 
 // Host Experience Polish — mirrors VendorOrg.tsx's InsightsPanel exactly in
@@ -45,7 +45,7 @@ export function HostInsightsTab() {
         </Card>
       )}
       <Card>
-        <h4 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 15, margin: "0 0 14px" }}>Participation</h4>
+        <h2 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 15, margin: "0 0 14px" }}>Participation</h2>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 14 }}>
           {[
             { label: "Sessions hosted", value: totals.totalSessions },
@@ -62,14 +62,14 @@ export function HostInsightsTab() {
         </div>
       </Card>
       <Card>
-        <h4 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 15, margin: "0 0 4px" }}>When you host</h4>
+        <h2 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 15, margin: "0 0 4px" }}>When you host</h2>
         <p style={{ fontSize: 12.5, color: colors.mutedLight, margin: "0 0 14px" }}>Your sessions by day of week and starting hour.</p>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
           {insights.utilisation.length === 0 ? (
             <span style={{ fontSize: 13, color: colors.faint }}>Nothing hosted yet.</span>
           ) : (
             insights.utilisation.map((u, i) => (
-              <span key={i} style={{ fontSize: 12, background: colors.greenBg, color: colors.greenText, borderRadius: 10, padding: "5px 9px", fontWeight: 700 }}>
+              <span key={i} style={{ fontSize: 12, background: colors.greenBg, color: colors.greenText, borderRadius: radius.control, padding: "5px 9px", fontWeight: 700 }}>
                 {DAY_NAMES[(u.dayOfWeek - 1) % 7]} {u.hour}:00 — {u.n}
               </span>
             ))

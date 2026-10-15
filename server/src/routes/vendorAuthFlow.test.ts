@@ -164,6 +164,7 @@ describe("Vendor signup -> pending -> admin approval -> vendor access", () => {
       headers: { "Content-Type": "application/json", Cookie: cookie },
       body: JSON.stringify({ status: "approved" }),
     });
-    expect(res.status).toBe(401);
+    // D-02: a signed-in vendor is authenticated but not an admin → 403.
+    expect(res.status).toBe(403);
   });
 });

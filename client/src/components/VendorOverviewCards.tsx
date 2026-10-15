@@ -1,7 +1,7 @@
 import { BallIcon, BuildingIcon, CalendarIcon, PinIcon, TreeIconSmall } from "./icons";
 import { ManageCard as Card } from "./ui";
 import { formatScheduleCount, formatScheduleWhen, SOURCE_TYPE_LABELS } from "../vendorSchedule";
-import { colors, fonts } from "../theme";
+import { colors, fonts, radius } from "../theme";
 import type { VendorScheduleItem } from "../types";
 
 // Vendor Experience Polish — "Next Up" hero + "Upcoming" cards for
@@ -36,7 +36,7 @@ export function StatusPill({ status }: { status: string }) {
         fontWeight: 700,
         color: cancelled ? colors.danger : colors.greenText,
         background: cancelled ? colors.dangerBg : colors.greenBg,
-        borderRadius: 999,
+        borderRadius: radius.pill,
         padding: "2px 8px",
         flex: "none",
         textTransform: "capitalize",
@@ -76,7 +76,7 @@ export function VendorNextUpHero({ item, onManage }: { item: VendorScheduleItem;
       {count && <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 14 }}>{count}</div>}
       <button
         onClick={onManage}
-        style={{ background: colors.green, color: "#fff", border: "none", borderRadius: 999, padding: "9px 18px", fontSize: 13.5, fontWeight: 700, cursor: "pointer" }}
+        style={{ background: colors.green, color: "#fff", border: "none", borderRadius: radius.pill, padding: "9px 18px", fontSize: 13.5, fontWeight: 700, cursor: "pointer" }}
       >
         Manage →
       </button>

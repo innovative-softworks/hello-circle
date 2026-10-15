@@ -41,10 +41,14 @@ function AttentionRow({ item }: { item: AttentionItem }) {
 export function HostAttentionPanel({ residentId, onGoToActivities }: { residentId: string; onGoToActivities: () => void }) {
   const navigate = useNavigate();
   const [games, setGames] = useState<Game[] | null>(null);
+  const [failed, setFailed] = useState(false);
   const [pendingJoinRequests, setPendingJoinRequests] = useState<{ id: string; slug: string | null; name: string; count: number }[]>([]);
 
   useEffect(() => {
-    fetchMyGames({ hostedOnly: true }).then(setGames).catch(() => setGames([]));
+    setFailed(false);
+    fetchMyGames({ hostedOnly: true })
+      .then(setGames)
+      .catch(() => setFailed(true));
     fetchMyCircles()
       .then(async (circles) => {
         const organising = circles.filter((c) => c.myRole === "organiser");
@@ -59,6 +63,12 @@ export function HostAttentionPanel({ residentId, onGoToActivities }: { residentI
       .catch(() => setPendingJoinRequests([]));
   }, [residentId]);
 
+  if (failed)
+    return (
+      <p role="alert" style={{ fontSize: 13.5, margin: 0 }}>
+        Couldn't check which activities need you. Refresh the page to try again.
+      </p>
+    );
   if (games === null) return null;
 
   const todayIso = irelandToday();
@@ -99,7 +109,7 @@ export function HostAttentionPanel({ residentId, onGoToActivities }: { residentI
     <Card>
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14 }}>
         <BellIcon size={16} style={{ color: colors.orangeDark }} />
-        <h3 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 16, margin: 0 }}>Needs your attention</h3>
+        <h2 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 16, margin: 0 }}>Needs your attention</h2>
       </div>
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         {items.map((item) => (

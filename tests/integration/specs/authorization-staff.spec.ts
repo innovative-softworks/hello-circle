@@ -31,7 +31,8 @@ test("RBAC-STAFF: read-only staff cannot mutate own organisation listing or elev
       await unchanged();
       expect((await staff.put("/api/vendor/org", { data: { role: "admin", invitedStaff: false, platformRole: "centre_manager", orgId: owner[0].org_id } })).status()).toBe(403);
       await identity();
-      expect((await staff.get("/api/admin/stats")).status()).toBe(401);
+      // D-02: a signed-in partner staff member is authenticated but not an admin → 403.
+      expect((await staff.get("/api/admin/stats")).status()).toBe(403);
     } finally { await staff.dispose(); }
   });
 });

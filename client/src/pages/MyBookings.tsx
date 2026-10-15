@@ -536,6 +536,10 @@ export function MyBookings() {
   const reloadExperienceBookings = () => { fetchMyExperienceBookings().then(setExperienceBookings).catch(() => {}); };
   const reloadProgramEnrollments = () => { fetchMyProgramEnrollments().then(setProgramEnrollments).catch(() => {}); };
   const [loading, setLoading] = useState(true);
+  // Validation 2026-10-14 — a failed source must never read as an empty My
+  // Life (or leave the skeleton up forever): count failures, show an alert
+  // with retry, and keep the empty state out of it.
+  const [failedSources, setFailedSources] = useState(0);
 
   const [residentFull, setResidentFull] = useState<ResidentFull | null>(null);
   const [interestsNudgeDismissed, setInterestsNudgeDismissed] = useState(() => localStorage.getItem(INTERESTS_NUDGE_DISMISSED_KEY) === "1");
@@ -573,21 +577,35 @@ export function MyBookings() {
 
   const loadMyStuff = () => {
     setLoading(true);
+    let failures = 0;
+    const settle = <T,>(p: Promise<T>, apply: (v: T) => void) =>
+      p.then(apply).catch((e: unknown) => {
+        // Signed-out guests get 401s from resident-only sources: expected, not a failure.
+        const status = (e as { status?: number })?.status;
+        if (status !== 401 && status !== 403) failures += 1;
+      });
     return Promise.all([
-      fetchMyBookings().then(setBookings),
-      fetchMyRegistrations().then(setRegs),
-      fetchMyProgramEnrollments().then(setProgramEnrollments),
-      fetchMyGames().then(setGames).catch(() => setGames([])),
-      fetchMyCircles().then(setCircles).catch(() => setCircles([])),
-      fetchMyExperienceBookings().then(setExperienceBookings).catch(() => setExperienceBookings([])),
-      fetchResidentFull().then(({ resident: r }) => setResidentFull(r)).catch(() => setResidentFull(null)),
-      fetchRoutineSuggestions().then(setRoutineSuggestions).catch(() => setRoutineSuggestions([])),
-      fetchMyIntents().then(setIntents).catch(() => setIntents([])),
-      fetchMyParticipation().then(setParticipation).catch(() => setParticipation([])),
-      fetchFavourites().then(setFavourites).catch(() => setFavourites([])),
-      fetchMyFollows().then(setFollows).catch(() => setFollows([])),
-      fetchNeedsAttention().then(setNeedsAttention).catch(() => setNeedsAttention([])),
-    ]).then(() => setLoading(false));
+      settle(fetchMyBookings(), setBookings),
+      settle(fetchMyRegistrations(), setRegs),
+      settle(fetchMyProgramEnrollments(), setProgramEnrollments),
+      settle(fetchMyGames(), setGames),
+      settle(fetchMyCircles(), setCircles),
+      settle(fetchMyExperienceBookings(), setExperienceBookings),
+      // Profile (/residents/me) failures already show the account-level error
+      // above (HC-QA-064) — not counted again as missing activity.
+      fetchResidentFull()
+        .then(({ resident: r }) => setResidentFull(r))
+        .catch(() => setResidentFull(null)),
+      settle(fetchRoutineSuggestions(), setRoutineSuggestions),
+      settle(fetchMyIntents(), setIntents),
+      settle(fetchMyParticipation(), setParticipation),
+      settle(fetchFavourites(), setFavourites),
+      settle(fetchMyFollows(), setFollows),
+      settle(fetchNeedsAttention(), setNeedsAttention),
+    ]).then(() => {
+      setFailedSources(failures);
+      setLoading(false);
+    });
   };
 
   useEffect(() => {
@@ -672,6 +690,7 @@ export function MyBookings() {
 
   const hasNone =
     !loading &&
+    failedSources === 0 &&
     bookings.length === 0 &&
     regs.length === 0 &&
     games.length === 0 &&
@@ -1025,6 +1044,15 @@ export function MyBookings() {
           </div>
         )}
 
+        {failedSources > 0 && !loading && (
+          <div style={{ marginBottom: 24 }}>
+            <LoadErrorState
+              title="Some of your activity couldn't load."
+              detail="What's shown below may be incomplete — nothing has been cancelled or changed."
+              onRetry={() => void loadMyStuff()}
+            />
+          </div>
+        )}
         {resident && <MyInvitationsPanel />}
 
         {hasNone && resident ? (

@@ -1,3 +1,4 @@
+import { UnavailableListing, isUnavailable, type Unavailable } from "../components/UnavailableListing";
 import { usePageTitle } from "../pageTitle";
 import { PAID_CLOSED_MESSAGE, usePaidCheckoutOpen } from "../paidCheckout";
 import { useEffect, useMemo, useState } from "react";
@@ -146,6 +147,8 @@ export function ExperienceDetail() {
   const location = useLocation();
   const { resident } = useGuest();
   const [experience, setExperience] = useState<Experience | null>(null);
+  // D-01: an experience whose organisation is suspended.
+  const [unavailable, setUnavailable] = useState<Unavailable | null>(null);
   usePageTitle(experience?.title);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
@@ -160,6 +163,10 @@ export function ExperienceDetail() {
   const [quote, setQuote] = useState<BookingQuote | null>(null);
   // Stage 5b — the signed-in resident's HelloCircle credit (0 when none / switched off).
   const [creditMinor, setCreditMinor] = useState(0);
+  // "unavailable" = the balance couldn't be checked (not the same as €0):
+  // credit stays off, card checkout still works, and the person can retry.
+  const [creditCheck, setCreditCheck] = useState<"idle" | "ok" | "unavailable">("idle");
+  const [creditAttempt, setCreditAttempt] = useState(0);
   const [useCredits, setUseCredits] = useState(false);
   // Stage 5f — coupon at experience checkout (validated by the server quote).
   const [couponInput, setCouponInput] = useState("");
@@ -180,7 +187,7 @@ export function ExperienceDetail() {
     setActivePhoto(0);
     setDescriptionExpanded(false);
     fetchExperience(idOrSlug)
-      .then(setExperience)
+      .then((x) => (isUnavailable(x) ? setUnavailable(x) : setExperience(x)))
       .catch(() => setLoadError(true))
       .finally(() => setLoading(false));
   };
@@ -254,11 +261,22 @@ export function ExperienceDetail() {
   };
 
   useEffect(() => {
-    if (!resident) return setCreditMinor(0);
+    if (!resident) {
+      setCreditMinor(0);
+      setCreditCheck("idle");
+      return;
+    }
     fetchMyCredits()
-      .then((c) => setCreditMinor(c.enabled ? c.balanceMinor : 0))
-      .catch(() => setCreditMinor(0));
-  }, [resident]);
+      .then((c) => {
+        setCreditMinor(c.enabled ? c.balanceMinor : 0);
+        setCreditCheck("ok");
+      })
+      .catch(() => {
+        setCreditMinor(0);
+        setUseCredits(false);
+        setCreditCheck("unavailable");
+      });
+  }, [resident, creditAttempt]);
 
   const handleToggleSave = async () => {
     if (!experience) return;
@@ -346,6 +364,7 @@ export function ExperienceDetail() {
     );
   }
 
+  if (unavailable) return <UnavailableListing item={unavailable} />;
   if (!experience) {
     return (
       <section className="section-pad" style={{ maxWidth: 560, margin: "0 auto", padding: "80px 24px", textAlign: "center" }}>
@@ -548,6 +567,14 @@ export function ExperienceDetail() {
           </div>
           {couponError && <p id="exp-coupon-error" role="alert" style={{ color: colors.danger, fontSize: 13, margin: "6px 0 0" }} data-testid="coupon-error">{couponError}</p>}
         </div>
+      )}
+      {creditCheck === "unavailable" && !!experience?.priceCents && (
+        <p role="status" style={{ fontSize: 13, color: colors.textSoft, margin: "14px 0 0", display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+          We couldn't check your HelloCircle credit just now, so none is applied. You can still book and pay by card.
+          <button type="button" onClick={() => setCreditAttempt((n) => n + 1)} style={{ background: "none", border: "none", padding: 0, color: colors.greenText, fontWeight: 700, textDecoration: "underline", cursor: "pointer", font: "inherit", fontSize: 13 }}>
+            Check again
+          </button>
+        </p>
       )}
       {creditMinor > 0 && !!experience?.priceCents && (
         <label style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 14, marginTop: 14 }}>

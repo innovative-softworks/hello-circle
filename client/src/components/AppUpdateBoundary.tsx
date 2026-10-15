@@ -1,6 +1,7 @@
 import { Component, type ReactNode } from "react";
 import { isChunkLoadError, isPageLeaving, isStaleReloadInProgress, recoverFromStaleBuild } from "../chunkRecovery";
 import { LoadErrorState } from "./ui";
+import { reportClientError } from "../errorReporting";
 
 // HC-QA-090 — the app had no error boundary at all, so one failed lazy chunk
 // (an open tab after a deploy) unmounted everything: a blank page. A stale
@@ -25,6 +26,7 @@ export class AppUpdateBoundary extends Component<Props, State> {
 
   componentDidCatch(error: unknown) {
     if (isChunkLoadError(error) && recoverFromStaleBuild()) this.setState({ reloading: true });
+    else if (!isChunkLoadError(error)) reportClientError("render", error);
   }
 
   render() {

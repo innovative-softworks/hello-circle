@@ -121,6 +121,16 @@ test("SANDBOX-RECONCILE: local records match Stripe to the cent", async ({ playw
       const [local] = await rows(f, "SELECT id FROM payment_records WHERE payment_intent_id = ?", [pi.id]);
       if (local) continue;
       const charge = pi.latest_charge ? await stripe.charges.retrieve(String(pi.latest_charge)) : null;
+      // D-10: a payment held for review is recorded on its payment review (not as a payment record) —
+      // it must match Stripe to the cent, refunds included.
+      const [review] = await rows(f, "SELECT id, source_type AS t, source_ref AS ref, received_minor AS m, received_currency AS c FROM payment_reviews WHERE payment_intent_id = ?", [pi.id]);
+      if (review && charge) {
+        check(`review #${review.id}: received`, [Number(review.m), String(review.c)], [charge.amount, charge.currency.toUpperCase()]);
+        const [{ s: refunded }] = await rows(f, "SELECT COALESCE(SUM(amount_minor), 0) AS s FROM refunds WHERE source_type = ? AND source_ref = ? AND status IN ('succeeded', 'reconciled', 'pending')", [review.t, review.ref]);
+        check(`review #${review.id}: refunded`, Number(refunded), charge.amount_refunded);
+        explained.push({ paymentIntent: pi.id, reason: `held for finance review (D-10), recorded on payment review #${review.id}` });
+        continue;
+      }
       if (charge && charge.amount_refunded === charge.amount) explained.push({ paymentIntent: pi.id, reason: "paid after its hold lapsed (STRIPE-LATE-SUCCESS) and fully refunded" });
       else unexplained.push(pi.id);
     }

@@ -30,7 +30,7 @@ test("SANDBOX-CONNECT-A: Accounts v2 company vendor + individual host — creati
 
       // Company vendor: one Accounts v2 Express recipient account.
       const v1 = await f.actors.QA_VENDOR.post("/api/vendor/payout-account/onboarding", { data: { country: "IE" } });
-      expect(v1.status(), "onboarding link created").toBe(200);
+      expect(v1.status(), `onboarding link created: ${v1.status() === 200 ? "" : (await v1.json().catch(() => ({}))).error ?? ""}`).toBe(200);
       const link = await v1.json();
       expect([new URL(link.url).host, link.purpose]).toEqual(["connect.stripe.com", "onboarding"]);
       expect(new Date(link.expiresAt).getTime()).toBeGreaterThan(Date.now());
@@ -43,14 +43,23 @@ test("SANDBOX-CONNECT-A: Accounts v2 company vendor + individual host — creati
       expect([acct.defaults?.responsibilities?.fees_collector, acct.defaults?.responsibilities?.losses_collector]).toEqual(["application", "application"]);
       expect(acct.metadata).toMatchObject({ hc_qa_run: RUN, party_type: "org", party_id: orgId, hc_creation_key: row.k });
       expect([row.m, row.c, row.d, row.b, row.s]).toEqual(["v2", "recipient", "express", "company", "onboarding_incomplete"]);
-      expect(JSON.parse(row.pd).length, "real requirements from Stripe").toBeGreaterThan(0);
+      // Mirrors Stripe exactly. Stripe now lists requirements lazily (a brand-new
+      // account can have none yet — verified 2026-10-14), so assert equality
+      // with what Stripe returns rather than assuming a count.
+      const stripePastDue = ((acct.requirements as any)?.entries ?? []).filter((e: any) => e.awaiting_action_from === "user" && e.minimum_deadline?.status === "past_due").length;
+      expect(JSON.parse(row.pd).length, "past-due requirements mirror Stripe").toBe(stripePastDue);
       // Retry: the same account (and a fresh single-use link).
       const v2 = await (await f.actors.QA_VENDOR.post("/api/vendor/payout-account/onboarding", { data: { country: "IE" } })).json();
       expect(new URL(v2.url).host).toBe("connect.stripe.com");
       expect((await rows(f, "SELECT COUNT(*) AS n FROM connected_accounts WHERE party_type = 'org' AND party_id = ?", [orgId]))[0].n).toBe(1);
       // Overview: incomplete onboarding, transfers and bank payouts not yet available.
       const ov = await (await f.actors.QA_VENDOR.get("/api/vendor/payout-account")).json();
-      expect([ov.state, ov.account.transfersCapability, ov.account.payoutsCapability]).toEqual(["onboarding_incomplete", "restricted", "restricted"]);
+      // Capability statuses mirror Stripe (a new account is "pending" or
+      // "restricted" depending on Stripe's current behaviour) and are never active.
+      const caps = (acct.configuration as any)?.recipient?.capabilities?.stripe_balance ?? {};
+      expect(ov.state).toBe("onboarding_incomplete");
+      expect([ov.account.transfersCapability, ov.account.payoutsCapability]).toEqual([String(caps.stripe_transfers?.status ?? "inactive"), String(caps.payouts?.status ?? "inactive")]);
+      expect([ov.account.transfersCapability, ov.account.payoutsCapability]).not.toContain("active");
       expect(ov.readiness.join(" ")).toMatch(/can't receive transfers/);
       expect((await f.actors.QA_VENDOR.post("/api/vendor/payout-account/dashboard", { data: {} })).status(), "no dashboard before onboarding").toBe(409);
 
@@ -86,7 +95,11 @@ test("SANDBOX-CONNECT-A: Accounts v2 company vendor + individual host — creati
         const returned = page2.waitForResponse((r) => r.url().endsWith("/api/host/payout-account/refresh"));
         await page2.goto("/manage?tab=earnings&payouts=return");
         expect((await returned).status()).toBe(200);
-        await expect(page2.getByTestId("payout-state")).toHaveAttribute("data-state", "onboarding_incomplete");
+        // Returning without finishing: Stripe may not have listed requirements yet (it computes them lazily
+        // and reports transfers "pending" both before and after submission), so the state is
+        // onboarding_incomplete or under_review. Either way the partner must be able to continue.
+        await expect(page2.getByTestId("payout-state")).toHaveAttribute("data-state", /^(onboarding_incomplete|under_review)$/);
+        await expect(page2.getByRole("button", { name: "Continue setup with Stripe" })).toBeVisible();
       } finally {
         await ui.close();
       }

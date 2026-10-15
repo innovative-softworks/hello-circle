@@ -35,6 +35,10 @@ html {
 }
 
 :root {
+  /* Corner radii (theme.ts `radius`). Workspaces override these below. */
+  --radius-control: 10px;
+  --radius-card: 16px;
+  --radius-pill: 999px;
   /* Floating UI (toasts) sits above whatever fixed bar is at the bottom —
      BottomChromeSync.tsx sets --bottom-chrome to the mobile tab bar's
      height; without a bar it's just the safe-area inset. */
@@ -1159,6 +1163,9 @@ textarea:focus {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .fade-panel,
+  .slide-in-left,
+  .slide-in-right,
   .heart-pop,
   .pop-in,
   .pop-in-up,
@@ -1255,4 +1262,67 @@ main#main-content:focus { outline: none; }
   nav {
     display: none !important;
   }
+}
+
+/* Anchored overflow menu (components/ActionMenu.tsx). Corners follow the
+   radius tokens, so it is square inside the workspaces. */
+.action-menu {
+  min-width: 200px;
+  max-width: min(320px, calc(100vw - 16px));
+  max-height: calc(100vh - 16px);
+  overflow-y: auto;
+  background: var(--color-surface, #fff);
+  border: 1px solid var(--color-border-strong, #d9d4c8);
+  border-radius: var(--radius-card);
+  box-shadow: 0 12px 32px rgba(20, 22, 20, 0.16);
+  padding: 4px;
+}
+.action-menu-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  border-radius: var(--radius-control);
+  padding: 10px 12px;
+  font: inherit;
+  font-size: 14px;
+  color: var(--color-text, #172019);
+  cursor: pointer;
+}
+.action-menu-item:hover,
+.action-menu-item:focus-visible {
+  background: var(--color-panel, #f3efe6);
+  outline: 2px solid transparent;
+}
+.action-menu-item:focus-visible {
+  box-shadow: inset 0 0 0 2px var(--color-focus, #172019);
+}
+.action-menu-item[aria-disabled="true"] {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.action-menu-item--danger {
+  color: var(--color-danger, #b42318);
+}
+.action-menu-sep {
+  height: 1px;
+  background: var(--color-border, #e5e1d8);
+  margin: 4px 0;
+}
+
+/* The form error summary takes focus after a failed save (form.tsx). */
+.form-error-summary:focus {
+  outline: 3px solid var(--color-danger, #b00020);
+  outline-offset: 2px;
+}
+
+/* D-01 — the suspended organisation's obligations table stacks into labelled
+   rows on a phone instead of scrolling sideways. */
+@media (max-width: 640px) {
+  .hc-stack-table thead { position: absolute; left: -9999px; }
+  .hc-stack-table, .hc-stack-table tbody, .hc-stack-table tr, .hc-stack-table td { display: block; width: 100%; }
+  .hc-stack-table tr { border-bottom: 1px solid var(--color-border); padding: 8px 0; }
+  .hc-stack-table td { display: flex; justify-content: space-between; gap: 12px; padding: 3px 0 !important; text-align: right; }
+  .hc-stack-table td::before { content: attr(data-label); font-weight: 600; text-align: left; }
 }

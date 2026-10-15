@@ -1,3 +1,4 @@
+import { PartnerOrgGate } from "./components/OrgSuspendedView";
 import { lazy, Suspense, useEffect, useRef } from "react";
 import { AppUpdateBoundary } from "./components/AppUpdateBoundary";
 import { VENUE_PAGES_PUBLIC } from "./venueLaunch";
@@ -115,6 +116,7 @@ const VendorRewardsPage = lazy(() => import("./pages/RewardsHistoryPage").then((
 const HostRewardsPage = lazy(() => import("./pages/RewardsHistoryPage").then((m) => ({ default: m.HostRewardsPage })));
 const ManageCircle = lazy(() => import("./pages/ManageCircle").then((m) => ({ default: m.ManageCircle })));
 const ManageHome = lazy(() => import("./pages/ManageHome").then((m) => ({ default: m.ManageHome })));
+const ReceiptPage = lazy(() => import("./pages/ReceiptPage").then((m) => ({ default: m.ReceiptPage })));
 const StartCirclePage = lazy(() => import("./pages/StartCirclePage").then((m) => ({ default: m.StartCirclePage })));
 
 // Pre-launch lockdown (no real vendor/resident data yet — see CLAUDE.md's
@@ -159,7 +161,7 @@ function isExemptFromLaunchGate(pathname: string): boolean {
   // resident on /coming-soon the moment they log in.
   // /my-life is the same page as /bookings under a second route (Phase 1
   // "Connect" — see the route table below), so it needs the same exemption.
-  if (pathname === "/profile" || pathname === "/bookings" || pathname === "/my-life" || pathname.startsWith("/manage")) return true;
+  if (pathname === "/profile" || pathname === "/bookings" || pathname === "/my-life" || pathname.startsWith("/manage") || pathname.startsWith("/receipts/")) return true;
   if (pathname.startsWith("/games/") || pathname.startsWith("/circles/")) return true;
   if (pathname.startsWith("/host/")) return true;
   // A personal invitation link (Universal Sharing system §12) is real
@@ -187,6 +189,11 @@ function isVenueGatedPath(pathname: string): boolean {
     pathname.startsWith("/book/") ||
     pathname.startsWith("/register/")
   );
+}
+
+/** Routes rendered inside the cream workspace shell (admin, partner, host). */
+function isWorkspacePath(pathname: string): boolean {
+  return pathname.startsWith("/admin") || (pathname.startsWith("/vendor") && pathname !== "/vendor/signup") || pathname.startsWith("/manage");
 }
 
 export function App() {
@@ -368,6 +375,7 @@ export function App() {
                     would have to remember to forward), while /my-life gives the
                     "My Life" nav label a URL that actually matches it. */}
                 <Route path="/my-life" element={<MyBookings />} />
+                <Route path="/receipts/:ref" element={<ReceiptPage />} />
                 <Route path="/profile" element={<Profile />} />
                 <Route path="/chats" element={<Chats />} />
                 <Route path="/signin" element={<SignIn />} />
@@ -404,10 +412,10 @@ export function App() {
                 <Route path="/pricing" element={<Pricing />} />
                 <Route path="/become-a-host" element={<BecomeAHost />} />
                 <Route path="/vendor/signup" element={<VendorSignup />} />
-                <Route path="/vendor/centres/:id" element={<VendorCentreEditPage />} />
-                <Route path="/vendor/clubs/:id" element={<VendorClubEditPage />} />
-                <Route path="/vendor/programs/:id" element={<VendorProgramEditPage />} />
-                <Route path="/vendor/experiences/:id" element={<VendorExperienceEditPage />} />
+                <Route path="/vendor/centres/:id" element={<PartnerOrgGate><VendorCentreEditPage /></PartnerOrgGate>} />
+                <Route path="/vendor/clubs/:id" element={<PartnerOrgGate><VendorClubEditPage /></PartnerOrgGate>} />
+                <Route path="/vendor/programs/:id" element={<PartnerOrgGate><VendorProgramEditPage /></PartnerOrgGate>} />
+                <Route path="/vendor/experiences/:id" element={<PartnerOrgGate><VendorExperienceEditPage /></PartnerOrgGate>} />
                 {/* HelloCircle Manage — /manage is the resident (Host)
                     dashboard (Overview/Activities/Circles tabs, one page,
                     same shape as VendorDashboard.tsx; ManageHome.tsx
@@ -425,8 +433,8 @@ export function App() {
                 <Route path="/manage/activities" element={<Navigate to="/manage?tab=activities" replace />} />
                 <Route path="/manage/circles/:id" element={<ManageCircle />} />
                 <Route path="/vendor" element={<VendorDashboard />} />
-                <Route path="/vendor/pro" element={<VendorProPage />} />
-                <Route path="/vendor/rewards" element={<VendorRewardsPage />} />
+                <Route path="/vendor/pro" element={<PartnerOrgGate><VendorProPage /></PartnerOrgGate>} />
+                <Route path="/vendor/rewards" element={<PartnerOrgGate><VendorRewardsPage /></PartnerOrgGate>} />
                 <Route path="/admin" element={<AdminDashboard />} />
                 {/* Revenue & Connect Stage 4 — CMS-published versions once they exist; the existing pages until then. */}
                 <Route path="/privacy" element={<CmsPolicy docKey="privacy-policy" fallback={<PrivacyPolicy />} />} />
@@ -453,7 +461,9 @@ export function App() {
               </AppUpdateBoundary>
               )}
             </main>
-            {!isStandaloneLanding && !isAuthPage && !isComingSoon && <Footer />}
+            {/* Workspaces (admin, partner, host) are tools, not marketing pages —
+                they render their own compact footer instead. */}
+            {!isStandaloneLanding && !isAuthPage && !isComingSoon && !isWorkspacePath(location.pathname) && <Footer />}
             <AccountSetupGate />
             <PolicyAcceptanceGate />
             <CookieNotice />

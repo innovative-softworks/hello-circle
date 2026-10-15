@@ -42,7 +42,8 @@ for (const viewport of ["desktop", "mobile"] as const) {
         await expect(page.getByRole("heading", { name: "Disputes" })).toBeVisible();
         await page.getByRole("tab", { name: "Plans & promotions" }).click();
         await expect(page.getByText(/Free: 9%/)).toBeVisible();
-        await page.getByRole("tab", { name: "Admin roles" }).click();
+        // Admin roles moved from Finance to Settings in the admin redesign (2026-10-14).
+        await page.goto("/admin?tab=settings");
         await expect(page.getByRole("heading", { name: "Admin roles" })).toBeVisible();
         await fitsViewport(page);
       } finally {
@@ -81,14 +82,13 @@ for (const viewport of ["desktop", "mobile"] as const) {
         page.setDefaultTimeout(10_000);
         await page.goto("/admin?tab=finance");
         await page.getByRole("tab", { name: "Transfers" }).click();
-        // Per-booking allocations of the transfer.
-        const transferRow = page.getByRole("row").filter({ hasText: orgId }).filter({ has: page.getByRole("button", { name: "Bookings…" }) }).first();
-        const bookings = transferRow.getByRole("button", { name: "Bookings…" });
-        await bookings.evaluate((el) => el.scrollIntoView({ block: "center" }));
-        await bookings.click();
-        const allocations = page.getByRole("dialog");
-        await expect(allocations.getByText(`experience QA-${tag}`)).toBeVisible();
-        await allocations.getByRole("button", { name: /close/i }).first().click();
+        // Per-booking allocations of the transfer — its own record page since the UI completion pass.
+        const open = page.getByRole("button", { name: `Open transfer ${transferId}` });
+        await open.evaluate((el) => el.scrollIntoView({ block: "center" }));
+        await open.click();
+        await expect(page.getByRole("heading", { level: 1, name: `Transfer #${transferId}` })).toBeVisible();
+        await expect(page.getByText(`experience QA-${tag}`)).toBeVisible();
+        await page.getByRole("button", { name: /Back to transfers/ }).click();
         // Open the debt from the connected account row.
         const accountRow = page.getByRole("row").filter({ hasText: `acct_qa_${tag}` });
         const openDebt = accountRow.getByRole("button", { name: "Open partner debt…" });
@@ -126,8 +126,8 @@ for (const viewport of ["desktop", "mobile"] as const) {
       try {
         const { page } = ui;
         page.setDefaultTimeout(10_000);
-        await page.goto("/admin?tab=finance");
-        await page.getByRole("tab", { name: "Field help" }).click();
+        // Field help moved from Finance to Settings in the admin redesign (2026-10-14).
+        await page.goto("/admin?tab=settings");
         const row = page.getByRole("row").filter({ has: page.getByRole("cell", { name: "Fee base", exact: true }) });
         const edit = row.getByRole("button", { name: "Edit" });
         await edit.evaluate((el) => el.scrollIntoView({ block: "center" }));

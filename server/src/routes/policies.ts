@@ -23,6 +23,7 @@ import {
   updateDraft,
   type Subject,
 } from "../policy/cms.js";
+import { requireAdminPermission } from "../adminPermissions.js";
 
 // Revenue & Connect Stage 4 — Policy Centre.
 //   /api/policies               public: published documents, history, acceptance
@@ -106,9 +107,9 @@ policiesRouter.get("/:key", async (req, res) => {
 
 export const adminPoliciesRouter = Router();
 
-const actorOf = (req: import("express").Request) => ({ userId: req.user!.id, role: req.user!.adminRole ?? "super" });
+const actorOf = (req: import("express").Request) => ({ userId: req.user!.id, role: req.user!.adminRole ?? null });
 
-adminPoliciesRouter.get("/", async (_req, res) => {
+adminPoliciesRouter.get("/", requireAdminPermission("policies.manage"), async (_req, res) => {
   const [docs, values] = await Promise.all([listDocuments(), placeholderValues()]);
   res.json({
     documents: docs,
@@ -120,11 +121,11 @@ adminPoliciesRouter.get("/", async (_req, res) => {
 /** Company profile completeness for the admin checklist: every field with
  * its value and whether it's missing, set but not yet in a published
  * policy, or published (and so shown on the public pages). */
-adminPoliciesRouter.get("/company-profile", async (_req, res) => {
+adminPoliciesRouter.get("/company-profile", requireAdminPermission("policies.manage"), async (_req, res) => {
   res.json(await companyProfile());
 });
 
-adminPoliciesRouter.put("/placeholders/:name", async (req, res) => {
+adminPoliciesRouter.put("/placeholders/:name", requireAdminPermission("policies.manage"), async (req, res) => {
   try {
     await setPlaceholderValue(req.params.name, String(req.body?.value ?? ""), actorOf(req), String(req.body?.reason ?? ""));
     res.json({ ok: true });
@@ -133,12 +134,12 @@ adminPoliciesRouter.put("/placeholders/:name", async (req, res) => {
   }
 });
 
-adminPoliciesRouter.get("/:key/versions", async (req, res) => {
+adminPoliciesRouter.get("/:key/versions", requireAdminPermission("policies.manage"), async (req, res) => {
   if (!(await getDocument(req.params.key))) return res.status(404).json({ error: "Unknown policy" });
   res.json(await listVersions(req.params.key));
 });
 
-adminPoliciesRouter.post("/:key/drafts", async (req, res) => {
+adminPoliciesRouter.post("/:key/drafts", requireAdminPermission("policies.manage"), async (req, res) => {
   try {
     res.json({ id: await createDraft(req.params.key, actorOf(req), req.body ?? {}) });
   } catch (e) {
@@ -147,14 +148,14 @@ adminPoliciesRouter.post("/:key/drafts", async (req, res) => {
 });
 
 /** The version's text with current placeholder values substituted, plus what still blocks publishing. */
-adminPoliciesRouter.get("/versions/:id/preview", async (req, res) => {
+adminPoliciesRouter.get("/versions/:id/preview", requireAdminPermission("policies.manage"), async (req, res) => {
   const v = await getVersion(Number(req.params.id));
   if (!v) return res.status(404).json({ error: "Policy version not found" });
   const rendered = v.publishedBody ?? substitute(v.body, await placeholderValues());
   res.json({ ...v, rendered, blockers: { placeholders: placeholdersIn(rendered), notes: editorialNotesIn(rendered), legalReview: !v.legalReviewedAt } });
 });
 
-adminPoliciesRouter.put("/versions/:id", async (req, res) => {
+adminPoliciesRouter.put("/versions/:id", requireAdminPermission("policies.manage"), async (req, res) => {
   try {
     await updateDraft(Number(req.params.id), actorOf(req), req.body ?? {});
     res.json({ ok: true });
@@ -165,7 +166,7 @@ adminPoliciesRouter.put("/versions/:id", async (req, res) => {
 
 const ACTIONS = ["submit", "approve", "reject", "legal_signoff", "publish", "discard"] as const;
 
-adminPoliciesRouter.post("/versions/:id/:action", async (req, res) => {
+adminPoliciesRouter.post("/versions/:id/:action", requireAdminPermission("policies.manage"), async (req, res) => {
   const action = req.params.action as (typeof ACTIONS)[number];
   if (!ACTIONS.includes(action)) return res.status(404).json({ error: "Unknown action" });
   try {

@@ -77,3 +77,7 @@ export const couponValidateLimiter = simpleRateLimit({ windowMs: 15 * 60 * 1000,
  * one client can create them (the booking form re-quotes on every party-size
  * change, so this is generous). */
 export const commerceQuoteLimiter = simpleRateLimit({ windowMs: 15 * 60 * 1000, max: 120 });
+
+/** Client error reports (POST /api/client-errors): enough for a burst of real
+ * errors from one browser, not enough to use the log as a write channel. */
+export const clientErrorLimiter = simpleRateLimit({ windowMs: 15 * 60 * 1000, max: 30 });

@@ -1,3 +1,4 @@
+import { useAdminCan } from "./admin/adminPermissions";
 import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
 import {
   adjustPartnerPoints,
@@ -12,7 +13,6 @@ import {
   type AdminRewardRow,
   assignPartnerPlan,
   createCampaign,
-  decideDisputeRecovery,
   enrollInCampaign,
   fetchAdmins,
   fetchConnectedAccounts,
@@ -23,12 +23,9 @@ import {
   type AdminSubscription,
   fetchTransfers,
   fetchPartnerDebts,
-  fetchTransferAllocations,
   openPartnerDebt,
   retryPartnerDebt,
-  reverseTransferAllocation,
   type PartnerDebt,
-  type TransferAllocation,
   runTransfersApi,
   type AdminConnectedAccount,
   type AdminTransfer,
@@ -42,9 +39,9 @@ import {
   fetchRefunds,
   fetchSettlements,
   fetchWebhookEvents,
+  fetchPaymentReviews,
   issueAdminRefund,
   reconcileFees,
-  replayWebhookEvent,
   runSettlementApi,
   setAdminRole,
   simulatePlans,
@@ -61,8 +58,12 @@ import {
   type SettlementRunResult,
   type SimulationResult,
   type WebhookEventRow,
+  type PaymentReviewRow,
 } from "../api";
 import { useAuth } from "../AuthContext";
+import { LoadFailed, useLoadFailure } from "./admin/loadFailure";
+import { FinanceRecordPage, HOLD_LABEL, REVIEW_REASON, bookingState } from "./admin/FinanceRecords";
+import { useRecordParam, useUrlParam } from "../useUrlTab";
 import { HYPOTHETICAL_PLAN_MODEL_NOTE } from "../partnerPricing";
 import { irelandToday } from "../irelandDate";
 import { colors, fonts, radius } from "../theme";
@@ -131,29 +132,36 @@ function ReasonDialog({ title, note, confirm, danger, onClose, onConfirm }: { ti
       }
     >
       <label style={{ display: "block" }}>
-        <span style={labelStyle}>Reason (required, audited)</span>
-        <textarea rows={3} value={reason} onChange={(e) => setReason(e.target.value)} style={{ ...inputStyle, resize: "vertical" }} />
+        <span style={labelStyle}>
+          Reason <span aria-hidden="true">*</span>
+        </span>
+        <textarea rows={3} required aria-describedby="finance-reason-hint" value={reason} onChange={(e) => setReason(e.target.value)} style={{ ...inputStyle, resize: "vertical" }} />
       </label>
-      {error && <p style={errStyle}>{error}</p>}
+      <p id="finance-reason-hint" style={{ ...hint, margin: "4px 0 0" }}>Required, at least 5 characters. Saved in the audit log.</p>
+      {error && <p role="alert" style={errStyle}>{error}</p>}
     </Modal>
   );
 }
 
+
+
 // --- overview -----------------------------------------------------------------
 
 function OverviewSection() {
+  const { failed, track } = useLoadFailure();
   const [data, setData] = useState<{ balanced: boolean; accounts: LedgerBalance[] } | null>(null);
   const [fees, setFees] = useState<string | null>(null);
-  const load = () => fetchLedgerBalances().then(setData).catch(() => setData(null));
+  const load = () => track(fetchLedgerBalances(), setData);
   useEffect(() => {
     load();
   }, []);
   return (
     <Card style={{ padding: 22 }}>
       <h3 style={h3}>Ledger</h3>
+      <LoadFailed failed={failed} onRetry={load} />
       <p style={hint}>Balances from the append-only ledger (debits positive). Turn on "Financial ledger" in Commercial rules → Switches to start posting.</p>
       {!data ? (
-        <p style={hint}>Loading…</p>
+        !failed && <p style={hint}>Loading…</p>
       ) : (
         <>
           <p style={{ fontSize: 13.5, fontWeight: 700, color: data.balanced ? colors.greenText : colors.danger, margin: "0 0 10px" }}>
@@ -280,18 +288,20 @@ function SimulatorSection() {
 
 // --- settlements ----------------------------------------------------------------
 
-function SettlementsSection() {
+function SettlementsSection({ onOpen }: { onOpen: (key: string) => void }) {
+  const { failed, track } = useLoadFailure();
   const [runKey, setRunKey] = useState(() => `week-${irelandToday()}`);
   const [preview, setPreview] = useState<SettlementRunResult | null>(null);
   const [rows, setRows] = useState<Awaited<ReturnType<typeof fetchSettlements>>>([]);
   const [dialog, setDialog] = useState<null | "preview" | "run">(null);
-  const load = () => fetchSettlements().then(setRows).catch(() => setRows([]));
+  const load = () => track(fetchSettlements(), setRows);
   useEffect(() => {
     load();
   }, []);
   return (
     <Card style={{ padding: 22 }}>
       <h3 style={h3}>Weekly settlement</h3>
+      <LoadFailed failed={failed} onRetry={load} />
       <p style={hint}>Releases completed orders (after the review period), then settles each partner at or above the minimum payout. Always preview first. No money moves until transfers are switched on.</p>
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "end" }}>
         <Field label="Run key"><input value={runKey} onChange={(e) => setRunKey(e.target.value)} style={inputStyle} /></Field>
@@ -307,10 +317,10 @@ function SettlementsSection() {
       {rows.length > 0 && (
         <div style={{ overflowX: "auto", marginTop: 14 }}>
           <table style={tableStyle}>
-            <thead><tr><th style={thStyle}>Run</th><th style={thStyle}>Partner</th><th style={thStyle}>Amount</th><th style={thStyle}>Status</th><th style={thStyle}>When</th></tr></thead>
+            <thead><tr><th style={thStyle}>Run</th><th style={thStyle}>Partner</th><th style={thStyle}>Amount</th><th style={thStyle}>Settlement</th><th style={thStyle}>When</th><th style={thStyle}><span className="adm-visually-hidden">Open</span></th></tr></thead>
             <tbody>
               {rows.map((s) => (
-                <tr key={s.id}><td style={tdStyle}>{s.runKey}</td><td style={tdStyle}>{s.partyType}:{s.partyId}</td><td style={{ ...tdStyle, fontWeight: 600 }}>{euro(s.netMinor)}</td><td style={tdStyle}>{s.status}</td><td style={tdStyle}>{when(s.createdAt)}</td></tr>
+                <tr key={s.id}><td style={tdStyle}>{s.runKey}</td><td style={tdStyle}>{s.partyType}:{s.partyId}</td><td style={{ ...tdStyle, fontWeight: 600 }}>{euro(s.netMinor)}</td><td style={tdStyle}>{s.status}</td><td style={tdStyle}>{when(s.createdAt)}</td><td style={tdStyle}><Button variant="ghost" onClick={() => onOpen(`settlement:${s.id}`)} aria-label={`Open settlement ${s.id}`}>Open</Button></td></tr>
               ))}
             </tbody>
           </table>
@@ -335,21 +345,22 @@ function SettlementsSection() {
 
 // --- Stage 5a: transfers and connected accounts -----------------------------------------
 
-function TransfersSection() {
+function TransfersSection({ onOpen }: { onOpen: (key: string) => void }) {
+  const { failed, track } = useLoadFailure();
   const [rows, setRows] = useState<AdminTransfer[]>([]);
   const [accounts, setAccounts] = useState<AdminConnectedAccount[]>([]);
   const [result, setResult] = useState<TransferRunResult | null>(null);
   const [dialog, setDialog] = useState<null | "preview" | "run" | { kind: string; id: string }>(null);
-  const [allocFor, setAllocFor] = useState<AdminTransfer | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const load = () => {
-    fetchTransfers().then(setRows).catch(() => setRows([]));
-    fetchConnectedAccounts().then(setAccounts).catch(() => setAccounts([]));
+    track(fetchTransfers(), setRows);
+    track(fetchConnectedAccounts(), setAccounts);
   };
   useEffect(load, []);
   return (
     <Card style={{ padding: 22 }}>
       <h3 style={h3}>Transfers to partners (Stripe Connect)</h3>
+      <LoadFailed failed={failed} onRetry={load} />
       <p style={hint}>
         Sends each "due" settlement to the partner's Stripe account. A partner is held until their payout account is verified and their trader details are self-certified. Turn on "Stripe Connect payouts" in Commercial rules → Switches first. Preview
         before running.
@@ -386,10 +397,10 @@ function TransfersSection() {
                 <td style={{ ...tdStyle, fontWeight: 600 }}>{euro(t.amountMinor)}{Number(t.reversedMinor) > 0 ? ` (−${euro(t.reversedMinor)})` : ""}</td>
                 <td style={{ ...tdStyle, color: t.status === "failed" || t.status === "unknown" ? colors.danger : colors.text }}>{t.status}{t.error ? ` — ${t.error}` : ""}</td>
                 <td style={{ ...tdStyle, fontSize: 12.5 }}>{when(t.createdAt)}</td>
-                <td style={tdStyle}>{t.providerTransferId && <Button variant="ghost" onClick={() => setAllocFor(t)}>Bookings…</Button>}</td>
+                <td style={tdStyle}><Button variant="ghost" onClick={() => onOpen(`transfer:${t.id}`)} aria-label={`Open transfer ${t.id}`}>Open</Button></td>
               </tr>
             ))}
-            {rows.length === 0 && <tr><td style={tdStyle} colSpan={6}>No transfers yet.</td></tr>}
+            {rows.length === 0 && !failed && <tr><td style={tdStyle} colSpan={6}>No transfers yet.</td></tr>}
           </tbody>
         </table>
       </div>
@@ -406,7 +417,7 @@ function TransfersSection() {
                 <td style={tdStyle}><Button variant="ghost" onClick={() => setDialog({ kind: a.partyType, id: a.partyId })}>Open partner debt…</Button></td>
               </tr>
             ))}
-            {accounts.length === 0 && <tr><td style={tdStyle} colSpan={4}>No partner has connected a payout account yet.</td></tr>}
+            {accounts.length === 0 && !failed && <tr><td style={tdStyle} colSpan={4}>No partner has connected a payout account yet.</td></tr>}
           </tbody>
         </table>
       </div>
@@ -436,71 +447,24 @@ function TransfersSection() {
           }}
         />
       ) : null}
-      {allocFor && <AllocationsDialog transfer={allocFor} onClose={() => { setAllocFor(null); load(); }} />}
     </Card>
   );
 }
 
-/** Stage 5c — a transfer's immutable per-booking allocations, with partial reversal towards an open debt. */
-function AllocationsDialog({ transfer, onClose }: { transfer: AdminTransfer; onClose: () => void }) {
-  const [rows, setRows] = useState<TransferAllocation[]>([]);
-  const [rev, setRev] = useState<TransferAllocation | null>(null);
-  const [amount, setAmount] = useState("");
-  const [message, setMessage] = useState<string | null>(null);
-  const load = () => fetchTransferAllocations(transfer.id).then(setRows).catch(() => setRows([]));
-  useEffect(() => {
-    load();
-  }, [transfer.id]);
-  return (
-    <Modal open size="wide" onClose={onClose} title={`Transfer for settlement #${transfer.settlementId}`} subtitle={`${transfer.partyType}:${transfer.partyId} · ${euro(transfer.amountMinor)} · allocation rows are never edited; reversals are recorded beside them`}>
-      <div style={{ overflowX: "auto" }}>
-        <table style={tableStyle}>
-          <thead><tr><th style={thStyle}>Kind</th><th style={thStyle}>Booking</th><th style={thStyle}>Amount</th><th style={thStyle}>Reversed</th><th style={thStyle} /></tr></thead>
-          <tbody>
-            {rows.map((a) => (
-              <tr key={a.id}>
-                <td style={tdStyle}>{a.kind}</td>
-                <td style={{ ...tdStyle, fontSize: 12.5 }}>{a.sourceType ? `${a.sourceType} ${a.sourceRef}` : "—"}</td>
-                <td style={{ ...tdStyle, fontWeight: 600 }}>{euro(a.amountMinor)}</td>
-                <td style={tdStyle}>{euro(a.reversedMinor)}</td>
-                <td style={tdStyle}>{Number(a.amountMinor) > Number(a.reversedMinor) && Number(a.amountMinor) > 0 && <Button variant="ghost" onClick={() => { setRev(a); setAmount(""); }}>Reverse part…</Button>}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      {rev && (
-        <div style={{ marginTop: 12 }}>
-          <Field label={`Amount to reverse from ${rev.sourceRef ?? "this allocation"} (€) — only towards this partner's open debt`}>
-            <input value={amount} onChange={(e) => setAmount(e.target.value)} style={{ ...inputStyle, maxWidth: 200 }} inputMode="decimal" />
-          </Field>
-          <ReasonInline
-            onSave={async (reason) => {
-              const r = await reverseTransferAllocation(rev.id, toMinor(amount) ?? 0, reason);
-              setMessage(`Recovered ${euro(r.recoveredMinor)}; still owed ${euro(r.unrecoveredMinor)}.`);
-              setRev(null);
-              load();
-            }}
-          />
-        </div>
-      )}
-      {message && <p style={{ fontSize: 13 }}>{message}</p>}
-    </Modal>
-  );
-}
-
 function DebtsSection() {
+  const { failed, track } = useLoadFailure();
   const [status, setStatus] = useState("open");
   const [rows, setRows] = useState<PartnerDebt[]>([]);
   const [retry, setRetry] = useState<PartnerDebt | null>(null);
   const [message, setMessage] = useState<string | null>(null);
-  const load = () => fetchPartnerDebts(status || undefined).then(setRows).catch(() => setRows([]));
+  const load = () => track(fetchPartnerDebts(status || undefined), setRows);
   useEffect(() => {
     load();
   }, [status]);
   return (
     <Card style={{ padding: 22 }}>
       <h3 style={h3}>Partner debts</h3>
+      <LoadFailed failed={failed} onRetry={load} />
       <p style={hint}>
         What partners owe back after a refund or chargeback that came after their transfer. While a debt is open the partner's earnings are frozen. It closes when recovered by reversing that partner's own transfers, or offset by their own new earnings.
       </p>
@@ -528,7 +492,7 @@ function DebtsSection() {
                 <td style={tdStyle}>{d.status === "open" && <Button variant="ghost" onClick={() => setRetry(d)}>Retry recovery…</Button>}</td>
               </tr>
             ))}
-            {rows.length === 0 && <tr><td style={tdStyle} colSpan={8}>Nothing here.</td></tr>}
+            {rows.length === 0 && !failed && <tr><td style={tdStyle} colSpan={8}>Nothing here.</td></tr>}
           </tbody>
         </table>
       </div>
@@ -552,6 +516,7 @@ function DebtsSection() {
 // --- Stage 5b: customer credits and Pro subscriptions ------------------------------------
 
 function CreditsProSection() {
+  const { failed, track } = useLoadFailure();
   const [email, setEmail] = useState("");
   const [amount, setAmount] = useState("10");
   const [kind, setKind] = useState<"goodwill" | "promotional" | "refund">("goodwill");
@@ -563,8 +528,8 @@ function CreditsProSection() {
   const [subs, setSubs] = useState<AdminSubscription[]>([]);
   const [dialog, setDialog] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
-  const loadSubs = () => fetchSubscriptions().then(setSubs).catch(() => setSubs([]));
-  const loadSummary = () => fetchCreditSummary().then(setSummary).catch(() => setSummary(null));
+  const loadSubs = () => track(fetchSubscriptions(), setSubs);
+  const loadSummary = () => track(fetchCreditSummary(), setSummary);
   useEffect(() => {
     loadSubs();
     loadSummary();
@@ -572,6 +537,7 @@ function CreditsProSection() {
   return (
     <Card style={{ padding: 22 }}>
       <h3 style={h3}>Customer credits</h3>
+      <LoadFailed failed={failed} onRetry={() => { loadSubs(); loadSummary(); }} />
       <p style={hint}>HelloCircle-funded credit a resident can use at checkout (engine-priced bookings). No cash value; expires as set in Commercial rules → Customer credits. Turn on "Customer credits" in Switches first.</p>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: 10, alignItems: "end" }}>
         <Field label="Resident email"><input type="email" value={email} onChange={(e) => setEmail(e.target.value.trim())} style={inputStyle} /></Field>
@@ -650,7 +616,7 @@ function CreditsProSection() {
                 <td style={{ ...tdStyle, fontSize: 12.5 }}>{when(x.graceUntil)}</td>
               </tr>
             ))}
-            {subs.length === 0 && <tr><td style={tdStyle} colSpan={5}>No subscriptions yet.</td></tr>}
+            {subs.length === 0 && !failed && <tr><td style={tdStyle} colSpan={5}>No subscriptions yet.</td></tr>}
           </tbody>
         </table>
       </div>
@@ -661,6 +627,7 @@ function CreditsProSection() {
 // --- Stage 5f: reward points, coupons, bank payouts -----------------------------------
 
 function RewardsSection() {
+  const { failed, track } = useLoadFailure();
   const [rows, setRows] = useState<AdminRewardRow[] | null>(null);
   const [open, setOpen] = useState<AdminRewardRow | null>(null);
   const [history, setHistory] = useState<Awaited<ReturnType<typeof fetchAdminRewardHistory>>>([]);
@@ -668,18 +635,19 @@ function RewardsSection() {
   const [adjustKey, setAdjustKey] = useState("");
   const [dialog, setDialog] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
-  const load = () => fetchAdminRewards().then(setRows).catch(() => setRows([]));
+  const load = () => track(fetchAdminRewards(), setRows);
   useEffect(() => {
     load();
   }, []);
   const show = (r: AdminRewardRow) => {
     setOpen(r);
     setMessage(null);
-    fetchAdminRewardHistory(r.partyType, r.partyId).then(setHistory).catch(() => setHistory([]));
+    track(fetchAdminRewardHistory(r.partyType, r.partyId), setHistory);
   };
   return (
     <Card style={{ padding: 22 }}>
       <h3 style={h3}>Partner reward points</h3>
+      <LoadFailed failed={failed} onRetry={load} />
       <p style={hint}>Points partners earn on settled sales (not customer credit). Adjustments need a reason and are audited.</p>
       <div style={{ overflowX: "auto" }}>
         <table style={tableStyle}>
@@ -695,7 +663,7 @@ function RewardsSection() {
                 <td style={tdStyle}><Button variant="ghost" onClick={() => show(r)}>History…</Button></td>
               </tr>
             ))}
-            {rows && rows.length === 0 && <tr><td style={tdStyle} colSpan={6}>No points yet.</td></tr>}
+            {rows && rows.length === 0 && !failed && <tr><td style={tdStyle} colSpan={6}>No points yet.</td></tr>}
           </tbody>
         </table>
       </div>
@@ -736,13 +704,16 @@ function RewardsSection() {
 }
 
 function CouponsUsageSection({ onEditCoupons }: { onEditCoupons?: () => void }) {
+  const { failed, track } = useLoadFailure();
   const [rows, setRows] = useState<AdminCouponUsage[] | null>(null);
-  useEffect(() => {
-    fetchCouponUsage().then(setRows).catch(() => setRows([]));
-  }, []);
+  const load = () => {
+    track(fetchCouponUsage(), setRows);
+  };
+  useEffect(load, []);
   return (
     <Card style={{ padding: 22 }}>
       <h3 style={h3}>Coupon usage</h3>
+      <LoadFailed failed={failed} onRetry={load} />
       <p style={hint}>
         From the redemption ledger. "Returned" = released after an unpaid checkout or reversed on refund.
         {onEditCoupons && (
@@ -770,7 +741,7 @@ function CouponsUsageSection({ onEditCoupons }: { onEditCoupons?: () => void }) 
                 <td style={{ ...tdStyle, fontSize: 12.5 }}>{when(r.lastUsedAt)}</td>
               </tr>
             ))}
-            {rows && rows.length === 0 && <tr><td style={tdStyle} colSpan={7}>No coupon use yet.</td></tr>}
+            {rows && rows.length === 0 && !failed && <tr><td style={tdStyle} colSpan={7}>No coupon use yet.</td></tr>}
           </tbody>
         </table>
       </div>
@@ -779,13 +750,16 @@ function CouponsUsageSection({ onEditCoupons }: { onEditCoupons?: () => void }) 
 }
 
 function BankPayoutsSection() {
+  const { failed, track } = useLoadFailure();
   const [rows, setRows] = useState<AdminBankPayout[] | null>(null);
-  useEffect(() => {
-    fetchBankPayouts().then(setRows).catch(() => setRows([]));
-  }, []);
+  const load = () => {
+    track(fetchBankPayouts(), setRows);
+  };
+  useEffect(load, []);
   return (
     <Card style={{ padding: 22 }}>
       <h3 style={h3}>Bank payouts</h3>
+      <LoadFailed failed={failed} onRetry={load} />
       <p style={hint}>Stripe paying a partner's Stripe balance to their bank (Stripe's schedule) — separate from HelloCircle's transfers.</p>
       <div style={{ overflowX: "auto" }}>
         <table style={tableStyle}>
@@ -800,7 +774,7 @@ function BankPayoutsSection() {
                 <td style={{ ...tdStyle, fontSize: 12.5 }}>{when(r.arrivalDate)}</td>
               </tr>
             ))}
-            {rows && rows.length === 0 && <tr><td style={tdStyle} colSpan={5}>No bank payouts yet.</td></tr>}
+            {rows && rows.length === 0 && !failed && <tr><td style={tdStyle} colSpan={5}>No bank payouts yet.</td></tr>}
           </tbody>
         </table>
       </div>
@@ -810,17 +784,21 @@ function BankPayoutsSection() {
 
 // --- webhooks / refunds / disputes ---------------------------------------------------
 
-function WebhooksSection() {
-  const [status, setStatus] = useState("manual_review");
+function WebhooksSection({ onOpen }: { onOpen: (key: string) => void }) {
+  const { failed, track } = useLoadFailure();
+  // The filter lives in the URL so Back from an event returns to the same view.
+  const [statusParam, setStatusParam] = useUrlParam<string>("events", "manual_review");
+  const status = statusParam === "all" ? "" : statusParam;
+  const setStatus = (v: string) => setStatusParam(v === "" ? "all" : v);
   const [rows, setRows] = useState<WebhookEventRow[]>([]);
-  const [replay, setReplay] = useState<WebhookEventRow | null>(null);
-  const load = () => fetchWebhookEvents(status || undefined).then(setRows).catch(() => setRows([]));
+  const load = () => track(fetchWebhookEvents(status || undefined), setRows);
   useEffect(() => {
     load();
   }, [status]);
   return (
     <Card style={{ padding: 22 }}>
       <h3 style={h3}>Payment events</h3>
+      <LoadFailed failed={failed} onRetry={load} />
       <p style={hint}>Every verified Stripe event, stored once. Failed events retry automatically; after five attempts (or when one can't be matched) they wait here for review.</p>
       <Field label="Show">
         <select value={status} onChange={(e) => setStatus(e.target.value)} style={{ ...inputStyle, maxWidth: 260 }}>
@@ -828,6 +806,7 @@ function WebhooksSection() {
           <option value="failed">Failed (will retry)</option>
           <option value="processed">Processed</option>
           <option value="ignored">Stored, no action</option>
+          <option value="resolved">Resolved by a payment review</option>
           <option value="">All</option>
         </select>
       </Field>
@@ -841,46 +820,110 @@ function WebhooksSection() {
                 <td style={{ ...tdStyle, fontSize: 12.5 }}>{e.eventType}<div style={{ color: colors.mutedLight }}>{e.eventId}</div></td>
                 <td style={tdStyle}>{e.status} ({e.attempts})</td>
                 <td style={{ ...tdStyle, fontSize: 12.5, maxWidth: 280 }}>{e.lastError ?? ""}</td>
-                <td style={tdStyle}>{(e.status === "failed" || e.status === "manual_review") && <Button variant="ghost" onClick={() => setReplay(e)}>Replay</Button>}</td>
+                <td style={tdStyle}><Button variant="ghost" onClick={() => onOpen(`event:${e.id}`)} aria-label={`Open event ${e.id}`}>{e.status === "failed" || e.status === "manual_review" ? "Review" : "Open"}</Button></td>
               </tr>
             ))}
-            {rows.length === 0 && <tr><td style={tdStyle} colSpan={5}>Nothing here.</td></tr>}
+            {rows.length === 0 && !failed && <tr><td style={tdStyle} colSpan={5}>Nothing here.</td></tr>}
           </tbody>
         </table>
       </div>
-      {replay && <ReasonDialog title={`Replay ${replay.eventType}`} note="Re-fetches the event from Stripe and processes it again. Handlers are idempotent." confirm="Replay" onClose={() => setReplay(null)} onConfirm={async (reason) => { await replayWebhookEvent(replay.id, reason); load(); }} />}
     </Card>
   );
 }
 
-function RefundsSection() {
+/** D-10 / D-11 — payments received that couldn't simply be confirmed. The
+ * review is the finance record of the money; the order, its capacity hold and
+ * the review are shown as separate facts. Urgent ones first. */
+function PaymentReviewsSection({ onOpen }: { onOpen: (key: string) => void }) {
+  const { failed, track } = useLoadFailure();
+  const [statusParam, setStatusParam] = useUrlParam<string>("reviews", "open");
+  const status = (["open", "resolved", "all"].includes(statusParam) ? statusParam : "open") as "open" | "resolved" | "all";
+  const [rows, setRows] = useState<PaymentReviewRow[]>([]);
+  const load = () => track(fetchPaymentReviews(status), setRows);
+  useEffect(() => {
+    load();
+  }, [status]);
+  return (
+    <Card style={{ padding: 22 }}>
+      <h3 style={h3}>Payment reviews</h3>
+      <LoadFailed failed={failed} onRetry={load} />
+      <p style={hint}>Payments Stripe confirmed that couldn't simply confirm a booking: the amount differed, the place was gone, the organisation was suspended, or it arrived too late. Each one is the record of the money received. Places are held only until the deadline; expiry never refunds. Close a review with Recheck with Stripe after any refund.</p>
+      <Field label="Show">
+        <select value={status} onChange={(e) => setStatusParam(e.target.value)} style={{ ...inputStyle, maxWidth: 260 }}>
+          <option value="open">Open</option>
+          <option value="resolved">Closed</option>
+          <option value="all">All</option>
+        </select>
+      </Field>
+      <div style={{ overflowX: "auto", marginTop: 12 }}>
+        <table style={tableStyle}>
+          <thead>
+            <tr>
+              <th style={thStyle}>Flagged</th>
+              <th style={thStyle}>Order</th>
+              <th style={thStyle}>Received</th>
+              <th style={thStyle}>Why</th>
+              <th style={thStyle}>Booking</th>
+              <th style={thStyle}>Place</th>
+              <th style={thStyle}><span className="adm-visually-hidden">Open</span></th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r) => {
+              const urgent = r.urgency === "within_lead" || r.urgency === "after_start";
+              return (
+                <tr key={r.id}>
+                  <td style={{ ...tdStyle, fontSize: 12.5 }}>{when(r.flaggedAt)}{urgent && r.status === "open" && <div style={{ color: colors.danger, fontWeight: 700 }}>Urgent</div>}</td>
+                  <td style={{ ...tdStyle, fontSize: 12.5 }}>{r.sourceType && r.sourceRef ? `${r.sourceType} ${r.sourceRef}` : "Not linked"}</td>
+                  <td style={{ ...tdStyle, fontWeight: 600 }}>{r.receivedMinor !== null ? euro(r.receivedMinor) : "—"}</td>
+                  <td style={{ ...tdStyle, fontSize: 12.5 }}>{REVIEW_REASON[r.reason] ?? r.reason}{r.status !== "open" && <div style={{ color: colors.mutedLight }}>Closed — {r.resolution}</div>}</td>
+                  <td style={{ ...tdStyle, fontSize: 12.5 }}>{bookingState(r.order)}</td>
+                  <td style={{ ...tdStyle, fontSize: 12.5 }}>{HOLD_LABEL[r.holdStatus] ?? r.holdStatus}{r.holdStatus === "held" && r.reviewHoldUntil && <div style={{ color: colors.mutedLight }}>until {when(r.reviewHoldUntil)}</div>}</td>
+                  <td style={tdStyle}><Button variant="ghost" onClick={() => onOpen(`review:${r.id}`)} aria-label={`Open payment review ${r.id}`}>Open</Button></td>
+                </tr>
+              );
+            })}
+            {rows.length === 0 && !failed && <tr><td style={tdStyle} colSpan={7}>Nothing here.</td></tr>}
+          </tbody>
+        </table>
+      </div>
+    </Card>
+  );
+}
+
+function RefundsSection({ onOpen }: { onOpen: (key: string) => void }) {
+  const { failed, track } = useLoadFailure();
   const [rows, setRows] = useState<RefundRow[]>([]);
   const [form, setForm] = useState({ sourceType: "booking", ref: "", amount: "", responsible: "platform" });
   const [open, setOpen] = useState(false);
   const [result, setResult] = useState<string | null>(null);
-  const load = () => fetchRefunds().then(setRows).catch(() => setRows([]));
+  const load = () => track(fetchRefunds(), setRows);
+  const canRefund = useAdminCan()("finance.operate");
   useEffect(() => {
     load();
   }, []);
   return (
     <Card style={{ padding: 22 }}>
       <h3 style={h3}>Refunds</h3>
+      {!canRefund && <p style={hint}>Read-only for your admin role: you can see refund state, but only finance can issue refunds.</p>}
+      <LoadFailed failed={failed} onRetry={load} />
       <p style={hint}>Full, partial or remaining refunds of any online order. Leave the amount empty to refund everything still refundable.</p>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))", gap: 10, alignItems: "end" }}>
         <Field label="Order type"><select value={form.sourceType} onChange={(e) => setForm({ ...form, sourceType: e.target.value })} style={inputStyle}>{["booking", "registration", "program", "experience", "game"].map((t) => <option key={t} value={t}>{t}</option>)}</select></Field>
         <Field label="Reference"><input value={form.ref} onChange={(e) => setForm({ ...form, ref: e.target.value.trim() })} style={inputStyle} /></Field>
         <Field label="Amount (€, optional)"><input value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} style={inputStyle} inputMode="decimal" /></Field>
         <Field label="Responsible"><select value={form.responsible} onChange={(e) => setForm({ ...form, responsible: e.target.value })} style={inputStyle}><option value="platform">HelloCircle</option><option value="partner">Partner</option><option value="customer">Customer</option></select></Field>
-        <Button disabled={!form.ref} onClick={() => setOpen(true)}>Refund…</Button>
+        {canRefund && <Button disabled={!form.ref} onClick={() => setOpen(true)}>Refund…</Button>}
       </div>
       {result && <p style={{ fontSize: 13, margin: "10px 0 0" }}>{result}</p>}
       <div style={{ overflowX: "auto", marginTop: 14 }}>
         <table style={tableStyle}>
-          <thead><tr><th style={thStyle}>Order</th><th style={thStyle}>Amount</th><th style={thStyle}>Kind</th><th style={thStyle}>Origin</th><th style={thStyle}>Status</th><th style={thStyle}>Reason</th></tr></thead>
+          <thead><tr><th style={thStyle}>Order</th><th style={thStyle}>Amount</th><th style={thStyle}>Kind</th><th style={thStyle}>Origin</th><th style={thStyle}>Refund</th><th style={thStyle}>Reason</th><th style={thStyle}><span className="adm-visually-hidden">Open</span></th></tr></thead>
           <tbody>
             {rows.map((r) => (
-              <tr key={r.id}><td style={tdStyle}>{r.source_type} {r.source_ref}</td><td style={{ ...tdStyle, fontWeight: 600 }}>{euro(r.amount_minor)}</td><td style={tdStyle}>{r.kind}</td><td style={tdStyle}>{r.origin}</td><td style={tdStyle}>{r.status}</td><td style={{ ...tdStyle, fontSize: 12.5 }}>{r.reason}</td></tr>
+              <tr key={r.id}><td style={tdStyle}>{r.source_type} {r.source_ref}</td><td style={{ ...tdStyle, fontWeight: 600 }}>{euro(r.amount_minor)}</td><td style={tdStyle}>{r.kind}</td><td style={tdStyle}>{r.origin}</td><td style={tdStyle}>{r.status}</td><td style={{ ...tdStyle, fontSize: 12.5 }}>{r.reason}</td><td style={tdStyle}>{canRefund && <Button variant="ghost" onClick={() => onOpen(`refund:${r.id}`)} aria-label={`Open refund ${r.id}`}>Open</Button>}</td></tr>
             ))}
+            {rows.length === 0 && !failed && <tr><td style={tdStyle} colSpan={7}>No refunds yet.</td></tr>}
           </tbody>
         </table>
       </div>
@@ -903,16 +946,17 @@ function RefundsSection() {
   );
 }
 
-function DisputesSection() {
+function DisputesSection({ onOpen }: { onOpen: (key: string) => void }) {
+  const { failed, track } = useLoadFailure();
   const [rows, setRows] = useState<DisputeRow[]>([]);
-  const [decide, setDecide] = useState<{ row: DisputeRow; responsible: "partner" | "platform" } | null>(null);
-  const load = () => fetchDisputes().then(setRows).catch(() => setRows([]));
+  const load = () => track(fetchDisputes(), setRows);
   useEffect(() => {
     load();
   }, []);
   return (
     <Card style={{ padding: 22 }}>
       <h3 style={h3}>Disputes</h3>
+      <LoadFailed failed={failed} onRetry={load} />
       <p style={hint}>When a dispute is lost, decide who bears it: a partner-caused loss is recovered from the partner's available balance; a platform-caused loss is absorbed by HelloCircle.</p>
       <div style={{ overflowX: "auto" }}>
         <table style={tableStyle}>
@@ -926,20 +970,16 @@ function DisputesSection() {
                 <td style={tdStyle}>{d.status}</td>
                 <td style={tdStyle}>{d.recovery_status}{d.responsible ? ` (${d.responsible})` : ""}</td>
                 <td style={{ ...tdStyle, whiteSpace: "nowrap" }}>
-                  {d.status === "lost" && d.recovery_status === "pending" && (
-                    <>
-                      <Button variant="ghost" onClick={() => setDecide({ row: d, responsible: "partner" })}>Recover from partner</Button>{" "}
-                      <Button variant="ghost" onClick={() => setDecide({ row: d, responsible: "platform" })}>HelloCircle absorbs</Button>
-                    </>
-                  )}
+                  <Button variant="ghost" onClick={() => onOpen(`dispute:${d.id}`)} aria-label={`Open dispute ${d.provider_dispute_id}`}>
+                    {d.status === "lost" && d.recovery_status === "pending" ? "Decide recovery" : "Open"}
+                  </Button>
                 </td>
               </tr>
             ))}
-            {rows.length === 0 && <tr><td style={tdStyle} colSpan={6}>No disputes.</td></tr>}
+            {rows.length === 0 && !failed && <tr><td style={tdStyle} colSpan={6}>No disputes.</td></tr>}
           </tbody>
         </table>
       </div>
-      {decide && <ReasonDialog title={decide.responsible === "partner" ? "Recover from the partner" : "HelloCircle absorbs the loss"} note="This decision is final and audited." confirm="Confirm" danger={decide.responsible === "partner"} onClose={() => setDecide(null)} onConfirm={async (reason) => { await decideDisputeRecovery(decide.row.id, decide.responsible, reason); load(); }} />}
     </Card>
   );
 }
@@ -947,6 +987,7 @@ function DisputesSection() {
 // --- plans, promotions, roles, help -------------------------------------------------
 
 function PlansSection() {
+  const { failed, track } = useLoadFailure();
   const [overview, setOverview] = useState<PlansOverview | null>(null);
   const [campaigns, setCampaigns] = useState<CampaignRow[]>([]);
   const [partner, setPartner] = useState({ kind: "org", id: "", plan: "pro" });
@@ -956,14 +997,15 @@ function PlansSection() {
   const [dialog, setDialog] = useState<null | "assign" | "campaign" | "enrol">(null);
   const [message, setMessage] = useState<string | null>(null);
   const load = () => {
-    fetchPlansOverview().then(setOverview).catch(() => setOverview(null));
-    fetchCampaigns().then(setCampaigns).catch(() => setCampaigns([]));
+    track(fetchPlansOverview(), setOverview);
+    track(fetchCampaigns(), setCampaigns);
   };
   useEffect(load, []);
   const pct = (bps: unknown) => `${Number(bps) / 100}%`;
   return (
     <Card style={{ padding: 22 }}>
       <h3 style={h3}>Plans and promotions</h3>
+      <LoadFailed failed={failed} onRetry={load} />
       {overview && (
         <p style={hint}>
           Free: {pct(overview.free.successFeeBps)} (min {euro(overview.free.minFeeMinor as number)}) · Pro: {euro(overview.pro.subscriptionMonthlyMinor as number)}/month, {pct(overview.pro.successFeeBps)} (min {euro(overview.pro.minFeeMinor as number)})
@@ -988,7 +1030,7 @@ function PlansSection() {
             {campaigns.map((c) => (
               <tr key={c.id}><td style={tdStyle}>{c.campaignKey} (#{c.id})</td><td style={tdStyle}>{c.planKey} for {c.benefitDays} days</td><td style={tdStyle}>{c.commissionPlanKey}</td><td style={tdStyle}>{c.enrolled}/{c.maxEnrollments}</td><td style={{ ...tdStyle, fontSize: 12.5 }}>{when(c.startsAt)} → {when(c.endsAt)}</td></tr>
             ))}
-            {campaigns.length === 0 && <tr><td style={tdStyle} colSpan={5}>No campaigns yet.</td></tr>}
+            {campaigns.length === 0 && !failed && <tr><td style={tdStyle} colSpan={5}>No campaigns yet.</td></tr>}
           </tbody>
         </table>
       </div>
@@ -1026,27 +1068,33 @@ function PlansSection() {
   );
 }
 
-function RolesSection() {
+/** Exported for Admin → Settings (admin redesign 2026-10-14), its home now. */
+export function RolesSection() {
+  const { failed, track } = useLoadFailure();
   const [admins, setAdmins] = useState<AdminAccount[] | null>(null);
   const [change, setChange] = useState<{ admin: AdminAccount; role: string } | null>(null);
-  const load = () => fetchAdmins().then(setAdmins).catch(() => setAdmins(null));
+  const load = () => track(fetchAdmins(), setAdmins);
   useEffect(() => {
     load();
   }, []);
-  if (!admins) return null; // only super admins can list roles
+  // Only super admins can list roles: a 401/403 hides the section; any other
+  // failure is shown, not silently dropped.
+  if (!admins && (!failed || failed.forbidden)) return null;
   return (
     <Card style={{ padding: 22 }}>
       <h3 style={h3}>Admin roles</h3>
+      <LoadFailed failed={failed && !failed.forbidden ? failed : null} onRetry={load} />
       <p style={hint}>Super: everything. Finance: money, rules, coupons. Support: moderation and support. Legal: policies and help content. Only a super admin changes roles; at least one super admin always remains.</p>
       <div style={{ overflowX: "auto" }}>
         <table style={tableStyle}>
           <thead><tr><th style={thStyle}>Admin</th><th style={thStyle}>Role</th></tr></thead>
           <tbody>
-            {admins.map((a) => (
+            {(admins ?? []).map((a) => (
               <tr key={a.id}>
                 <td style={tdStyle}>{a.name || a.email}<div style={{ fontSize: 12, color: colors.mutedLight }}>{a.email}</div></td>
                 <td style={tdStyle}>
-                  <select value={a.adminRole} onChange={(e) => setChange({ admin: a, role: e.target.value })} style={{ ...inputStyle, maxWidth: 160 }} aria-label={`Role for ${a.email}`}>
+                  <select value={a.adminRole ?? ""} onChange={(e) => e.target.value && setChange({ admin: a, role: e.target.value })} style={{ ...inputStyle, maxWidth: 160 }} aria-label={`Role for ${a.email}`}>
+                    {!a.adminRole && <option value="" disabled>No role (no access)</option>}
                     {["super", "finance", "support", "legal"].map((r) => <option key={r} value={r}>{r}</option>)}
                   </select>
                 </td>
@@ -1060,17 +1108,20 @@ function RolesSection() {
   );
 }
 
-function HelpSection() {
+/** Exported for Admin → Settings (admin redesign 2026-10-14), its home now. */
+export function HelpSection() {
+  const { failed, track } = useLoadFailure();
   const [entries, setEntries] = useState<FieldHelpEntry[]>([]);
   const [edit, setEdit] = useState<FieldHelpEntry | null>(null);
   const [draft, setDraft] = useState<FieldHelpEntry | null>(null);
-  const load = () => fetchFieldHelp().then(setEntries).catch(() => setEntries([]));
+  const load = () => track(fetchFieldHelp(), setEntries);
   useEffect(() => {
     load();
   }, []);
   return (
     <Card style={{ padding: 22 }}>
       <h3 style={h3}>Field help</h3>
+      <LoadFailed failed={failed} onRetry={load} />
       <p style={hint}>The explanations behind every ⓘ on pricing and earnings screens. Each edit creates a new version.</p>
       <div style={{ overflowX: "auto" }}>
         <table style={tableStyle}>
@@ -1122,39 +1173,43 @@ function ReasonInline({ onSave }: { onSave: (reason: string) => Promise<void> })
 // --- the tab -------------------------------------------------------------------------
 
 const SECTIONS = [
-  { key: "overview", label: "Overview", roles: ["super", "finance"] },
-  { key: "simulator", label: "Simulator", roles: ["super", "finance"] },
-  { key: "settlements", label: "Settlements", roles: ["super", "finance"] },
-  { key: "transfers", label: "Transfers", roles: ["super", "finance"] },
-  { key: "debts", label: "Partner debts", roles: ["super", "finance"] },
-  { key: "credits", label: "Credits & Pro", roles: ["super", "finance"] },
-  { key: "rewards", label: "Reward points", roles: ["super", "finance"] },
-  { key: "coupons", label: "Coupons", roles: ["super", "finance"] },
-  { key: "payouts", label: "Bank payouts", roles: ["super", "finance"] },
-  { key: "events", label: "Payment events", roles: ["super", "finance"] },
-  { key: "refunds", label: "Refunds", roles: ["super", "finance"] },
-  { key: "disputes", label: "Disputes", roles: ["super", "finance"] },
-  { key: "plans", label: "Plans & promotions", roles: ["super", "finance"] },
-  { key: "help", label: "Field help", roles: ["super", "legal"] },
-  { key: "roles", label: "Admin roles", roles: ["super"] },
+  { key: "overview", label: "Overview", permission: "finance.operate" },
+  { key: "simulator", label: "Simulator", permission: "finance.operate" },
+  { key: "settlements", label: "Settlements", permission: "finance.operate" },
+  { key: "transfers", label: "Transfers", permission: "finance.operate" },
+  { key: "debts", label: "Partner debts", permission: "finance.operate" },
+  { key: "credits", label: "Credits & Pro", permission: "finance.operate" },
+  { key: "rewards", label: "Reward points", permission: "finance.operate" },
+  { key: "coupons", label: "Coupons", permission: "finance.operate" },
+  { key: "payouts", label: "Bank payouts", permission: "finance.operate" },
+  { key: "reviews", label: "Payment reviews", permission: "finance.operate" },
+  { key: "events", label: "Payment events", permission: "finance.operate" },
+  { key: "refunds", label: "Refunds", permission: "finance.payment_state.view" },
+  { key: "disputes", label: "Disputes", permission: "finance.operate" },
+  { key: "plans", label: "Plans & promotions", permission: "finance.operate" },
 ] as const;
 
-export function AdminFinanceTab({ initialSection, onEditCoupons }: { initialSection?: string; onEditCoupons?: () => void } = {}) {
-  const { user } = useAuth();
-  const role = user?.adminRole ?? "super";
-  const visible = SECTIONS.filter((s) => (s.roles as readonly string[]).includes(role));
-  const [section, setSection] = useState<string>(visible.some((s) => s.key === initialSection) ? initialSection! : visible[0]?.key ?? "help");
+export function AdminFinanceTab({ onEditCoupons }: { initialSection?: string; onEditCoupons?: () => void } = {}) {
+  // D-02: sections follow the admin's permissions (support sees refunds read-only).
+  const can = useAdminCan();
+  const visible = SECTIONS.filter((s) => can(s.permission));
+  // Section, list filters and the open record are URL state (UI completion):
+  // a record is its own page and Back returns to the same section and filter.
+  const [sectionParam, setSectionParam] = useUrlParam<string>("section", visible[0]?.key ?? "overview");
+  const section = visible.some((s) => s.key === sectionParam) ? sectionParam : visible[0]?.key ?? "overview";
+  const setSection = (k: string) => setSectionParam(k);
+  const [record, openRecord, closeRecord] = useRecordParam();
   if (!visible.length) return <p style={hint}>Your admin role doesn't include finance tools.</p>;
+  if (record) return <FinanceRecordPage record={record} section={section} onBack={closeRecord} onOpen={openRecord} />;
   return (
     <div className="fade-panel" style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-      <div role="tablist" aria-label="Finance sections" style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+      <div role="tablist" aria-label="Finance sections" className="adm-subnav">
         {visible.map((s) => (
           <button
             key={s.key}
             role="tab"
             aria-selected={section === s.key}
             onClick={() => setSection(s.key)}
-            style={{ border: `1px solid ${section === s.key ? colors.green : colors.border}`, background: section === s.key ? colors.greenBg : "transparent", color: section === s.key ? colors.greenText : colors.text, borderRadius: 999, padding: "6px 12px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}
           >
             {s.label}
           </button>
@@ -1162,19 +1217,18 @@ export function AdminFinanceTab({ initialSection, onEditCoupons }: { initialSect
       </div>
       {section === "overview" && <OverviewSection />}
       {section === "simulator" && <SimulatorSection />}
-      {section === "settlements" && <SettlementsSection />}
-      {section === "transfers" && <TransfersSection />}
+      {section === "settlements" && <SettlementsSection onOpen={openRecord} />}
+      {section === "transfers" && <TransfersSection onOpen={openRecord} />}
       {section === "debts" && <DebtsSection />}
       {section === "credits" && <CreditsProSection />}
       {section === "rewards" && <RewardsSection />}
       {section === "coupons" && <CouponsUsageSection onEditCoupons={onEditCoupons} />}
       {section === "payouts" && <BankPayoutsSection />}
-      {section === "events" && <WebhooksSection />}
-      {section === "refunds" && <RefundsSection />}
-      {section === "disputes" && <DisputesSection />}
+      {section === "reviews" && <PaymentReviewsSection onOpen={openRecord} />}
+      {section === "events" && <WebhooksSection onOpen={openRecord} />}
+      {section === "refunds" && <RefundsSection onOpen={openRecord} />}
+      {section === "disputes" && <DisputesSection onOpen={openRecord} />}
       {section === "plans" && <PlansSection />}
-      {section === "help" && <HelpSection />}
-      {section === "roles" && <RolesSection />}
     </div>
   );
 }

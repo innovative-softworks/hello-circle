@@ -79,7 +79,7 @@ export function VendorCheckInScreen({
               </div>
               <div style={{ fontSize: 12.5, color: colors.mutedLight, fontWeight: 700, letterSpacing: 0, textTransform: "uppercase" }}>Checked in</div>
             </div>
-            <div aria-hidden="true" style={{ height: 6, borderRadius: 6, background: colors.panel, overflow: "hidden" }}>
+            <div aria-hidden="true" style={{ height: 6, borderRadius: radius.control, background: colors.panel, overflow: "hidden" }}>
               <div style={{ height: "100%", width: `${active.length ? (checkedInCount / active.length) * 100 : 0}%`, background: colors.green, transition: "width .3s ease" }} />
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: 8, background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: radius.control, padding: "10px 14px" }}>

@@ -48,13 +48,17 @@ the same browser at once. Nothing here changes for an unlinked account — this 
   transactional core (booking/registering/joining).
 - **Sign in via magic link** (optional, not required to book): enter an email, get a one-time link, click it
   → verified → a `residents` row is found-or-created for that email (`findOrCreateResident()` in
-  `server/src/residents.ts`) and a 30-day session cookie is issued. No password, ever, for this identity.
+  `server/src/residents.ts`) and a 30-day session cookie is issued. _Updated 2026-10-14:_ residents can also
+  sign up and sign in with a **password** (`/api/guest/signup`, `/login`, password reset) or **Google**
+  (Firebase) — magic link is one of three methods, not the only one.
 - Once signed in as a resident, unlocks:
   - **Household members** — add children/dependents (name, DOB, notes) to book/register on their behalf
     from one account, rather than re-entering child details every time.
   - **Favourites** — save a centre/club for later.
   - **Receipts** — one unified view across all four paid participation types (bookings, registrations, game
-    joins, passes) via `GET /residents/me/receipts`, since there's no single shared payments table.
+    joins, passes) via `GET /residents/me/receipts`, since there's no single shared payments table. Each receipt opens as its own
+    page, `/receipts/:ref` (since 2026-10-14; was a side drawer), which asks a signed-out visitor to sign in and
+    shows "not found" for someone else's receipt.
   - **Onboarding preferences** (signal-only today) — home county, search radius, interests, availability.
     Skippable at every step; nothing here is ever required to keep using the app, and it doesn't yet drive
     any real personalization (see CLAUDE.md's "Known gaps").
@@ -63,8 +67,8 @@ the same browser at once. Nothing here changes for an unlinked account — this 
     else uses) or join one someone else hosted, subject to capacity (row-locked to prevent overbooking the
     last spot) and an optional waitlist.
   - **Circles** — create or join a persistent group anchored to a recurring activity (e.g. "Sunday
-    Runners"). Deliberately not a social feed: no posts/likes, just membership plus upcoming Games that match
-    the Circle's activity label and area.
+    Runners"). Not a social feed (no likes or follower posts), but Circles now have plans and plan ideas,
+    polls, moments, recent activity and a members' chat, plus upcoming activities linked to the Circle.
   - **Passes** — pre-purchase a credit pack for a specific club at its per-registration price.
 - **Leave a rating + review** on a centre/club — no login needed, but only after actually booking that centre
   or registering for that club (checked server-side, either against the resident id if signed in or the
@@ -135,10 +139,20 @@ the same browser at once. Nothing here changes for an unlinked account — this 
 ## 4. Admin flow
 
 **Login**
-- Admin accounts are seeded/created directly (`admin@hellocircle.ie` by default), separate from vendor
+- Admin accounts are seeded/created directly (`itadmin@hellocircle.ie` by default), separate from vendor
   accounts — there's no public admin signup.
 
 **Admin dashboard** (`AdminDashboard.tsx` / `routes/admin.ts`)
+- _Since 2026-10-14_ a listing, a partner account and a report case each open as a record page in the admin
+  workspace (`?record=centre:<id>` / `vendor:<id>` / `report:<id>`), not a side panel; list filters stay in the URL
+  so Back returns to the same filtered list. Decisions go through confirmations that state what is (and isn't)
+  recorded — no rejection or suspension reason is captured yet (see `hellocircle-operating-decisions.md`, D-03).
+- _Since the 2026-10-14 second pass_ listing claims, Verified Host applications and place suggestions are reviewed on
+  their own record pages (`?record=claim:<id>` / `host:<residentId>` / `suggestion:<id>`); the queue rows only have a
+  Review button, and every decision is confirmed with its real consequence (none of these endpoints takes a reason, and
+  none notifies the person automatically). Finance → settlements, transfers, payment events, refunds and disputes, and
+  an order's payment summary (`record=order:<type>:<ref>`), are record pages too; a paid checkout that didn't match its
+  agreement is investigated from its payment-event page (there is no override — D-10/D-11).
 - **Vendor management**: view all vendor accounts, approve/reject new signups, suspend a vendor.
 - **Listing moderation**: queue of pending Centres/Clubs awaiting approval; approve, reject with a reason.
 - **Full CRUD on everything**: create/edit/delete any Centre or Club, including ones owned by a vendor.
@@ -185,9 +199,9 @@ stats/moderation/audit. It has been **removed** — that functionality was folde
   (`reviewStats()` in `server/src/db/queries.ts`) — never a static stored number.
 - Real file upload (`/api/uploads`, Multer, mimetype-derived extension to prevent spoofing) replaced the
   original plain `image: string` hotlinked-stock-photo field.
-- **Still no messaging/inbox feature** in the original sense this doc used to describe (guest↔vendor
-  back-and-forth) — vendors can send a one-way targeted message to a guest who's booked/registered
-  (`routes/vendor.ts` `/messages`), but there's no threaded reply.
+- **Messaging** (_updated 2026-10-14_): group chats exist per activity, Circle, booking, programme and club
+  (`chat_messages`, `/api/chat`, `/chats`), alongside the vendor one-way broadcast (`/vendor/messages`) and
+  in-app notifications.
 
 ---
 
@@ -224,15 +238,18 @@ via a workspace switcher in the header's account menu. Built in five phases, all
 
 **Venue Manager** (`/vendor`, unchanged route, `ManageShell`-based since this initiative)
 - The vendor dashboard's Bookings tab gained a List/Calendar toggle (reusing the same month-grid pattern
-  already used for program sessions) and a Booking Detail drawer — room, duration, event type, guest count,
-  notes, price, payment/status, and a vendor-side Cancel action (status-only, no Stripe refund, matching the
-  existing off-platform-refund convention everywhere else).
+  already used for program sessions) and a booking detail — _since 2026-10-14 a dedicated record page_
+  (`/vendor?tab=bookings&record=booking:<ref>`) with separate booking, payment, refund and check-in statuses.
+  A vendor-side cancel **automatically refunds an online payment in full** (`providerCancelRefund.ts`,
+  refund-once); a failed refund is left "refund pending" under Action needed.
 
-**Host MVP** (`/manage/activities`, `client/src/pages/ManageActivities.tsx`)
+**Host MVP** (`/manage?tab=activities` — `ManageActivities.tsx` was folded into `ManageHome.tsx`/`HostActivitiesTab.tsx`;
+`/manage/activities` redirects)
 - A resident who hosts Games gets a real management list instead of the old "Cancel + post an update" bolted
   onto the consumer Game Detail page: edit a game's own fields after creation (`PUT /games/:id` — date, time,
   location, capacity, description, etc.; price locks once anyone besides the host has joined, to avoid a
-  billing mismatch for someone who already paid), a Participants drawer with a per-person Remove action, and
+  billing mismatch for someone who already paid), an activity record page (`?record=activity:<id>`, was a
+  Participants drawer) with per-person Remove/Refund, waitlist offers and check-in, and
   the existing post-update/cancel actions, all from one list. The consumer Game Detail page's own controls are
   untouched — still useful when a host is already looking at their own game's public page.
 

@@ -1,12 +1,14 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { fetchVendorExperience } from "../api";
+import { fetchVendorExperience, publishVendorExperience } from "../api";
 import { useAuth } from "../AuthContext";
 import { BackLink } from "../components/BackLink";
+import { PartnerWorkspace } from "../components/workspace/PartnerWorkspace";
 import { BookingsPanel, ExperienceEditor, SessionsManager } from "../components/VendorExperiences";
 import { ExperienceCreationWizard } from "../components/ExperienceCreationWizard";
 import { useUnsavedChangesGuard } from "../components/form";
-import { PageSpinner, Tabs } from "../components/ui";
+import { ListingReviewNotice } from "../components/ListingReviewNotice";
+import { LoadErrorState, PageSpinner, Tabs } from "../components/ui";
 import { fonts } from "../theme";
 import type { Experience } from "../types";
 
@@ -31,18 +33,24 @@ export function VendorExperienceEditPage() {
   const [tab, setTab] = useState<ExperienceTab>("details");
   const [experience, setExperience] = useState<Experience | null>(null);
   const [loading, setLoading] = useState(experienceId !== "new");
+  const [loadError, setLoadError] = useState(false);
   const [wizardMode, setWizardMode] = useState(experienceId === "new");
   const [dirty, setDirty] = useState(false);
   const { requestNavigation, dialog: unsavedDialog } = useUnsavedChangesGuard(dirty);
 
-  useEffect(() => {
-    if (experienceId !== "new") {
-      fetchVendorExperience(experienceId).then((e) => {
+  const loadExperience = () => {
+    setLoadError(false);
+    fetchVendorExperience(experienceId)
+      .then((e) => {
         setExperience(e);
         setWizardMode(e.status === "draft");
-        setLoading(false);
-      });
-    }
+      })
+      .catch(() => setLoadError(true))
+      .finally(() => setLoading(false));
+  };
+
+  useEffect(() => {
+    if (experienceId !== "new") loadExperience();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [experienceId]);
 
@@ -61,10 +69,18 @@ export function VendorExperienceEditPage() {
   if (!user || user.role !== "vendor" || user.status !== "approved") return null;
 
   const title = experienceId === "new" ? "New adventure/experience" : (experience?.title ?? "Edit listing");
+  if (loadError) {
+    return (
+      <PartnerWorkspace user={user} active="experiences" title={title}>
+        <BackLink onClick={() => navigate("/vendor?tab=experiences")}>Back to Adventures & Experiences</BackLink>
+        <LoadErrorState title="Couldn't load this listing" onRetry={loadExperience} />
+      </PartnerWorkspace>
+    );
+  }
 
   return (
-    <div className="fade-panel">
-      <section className="section-pad" style={{ maxWidth: 920, margin: "0 auto", padding: "40px 24px 90px" }}>
+    <PartnerWorkspace user={user} active="experiences" title={title} guard={requestNavigation}>
+      <div style={{ maxWidth: 920 }}>
         <BackLink onClick={() => requestNavigation(() => navigate("/vendor?tab=experiences"))}>Back to Adventures & Experiences</BackLink>
 
         {wizardMode ? (
@@ -78,7 +94,15 @@ export function VendorExperienceEditPage() {
           />
         ) : (
           <>
-            <h1 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: "clamp(24px, 2.4vw, 30px)", margin: "0 0 18px", letterSpacing: 0 }}>{title}</h1>
+            <ListingReviewNotice
+              listing={{ type: "experience", id: experienceId }}
+              status={experience?.status}
+              dirty={dirty}
+              onResubmit={async () => {
+                await publishVendorExperience(experienceId);
+                setExperience(await fetchVendorExperience(experienceId));
+              }}
+            />
             <div style={{ marginBottom: 22 }}>
               <Tabs
                 value={tab}
@@ -96,8 +120,8 @@ export function VendorExperienceEditPage() {
             {tab === "bookings" && <BookingsPanel experienceId={experienceId} />}
           </>
         )}
-      </section>
+      </div>
       {unsavedDialog}
-    </div>
+    </PartnerWorkspace>
   );
 }

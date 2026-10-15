@@ -2,6 +2,8 @@ import { EarningsSections } from "./EarningsSummary";
 import { TraderProfileForm } from "./TraderProfileForm";
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { useRecordParam, useUrlParam } from "../useUrlTab";
+import { StaffMemberRecord } from "./StaffMemberRecord";
 import { useAuth } from "../AuthContext";
 import { useGoogleSignIn } from "../googleSignIn";
 import { getMediaUrl } from "../media";
@@ -96,7 +98,7 @@ function LogoPanel({ profile, reload }: { profile: OrgProfile; reload: () => voi
 
   return (
     <Card>
-      <h4 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 15, margin: "0 0 4px" }}>Public profile logo</h4>
+      <h2 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 15, margin: "0 0 4px" }}>Public profile logo</h2>
       <p style={{ fontSize: 12.5, color: colors.mutedLight, margin: "0 0 14px" }}>
         Shown on your public provider profile page. JPEG, PNG, WebP or GIF, up to 8MB.
       </p>
@@ -202,7 +204,7 @@ function SettingsPanel({ profile, reload }: { profile: OrgProfile; reload: () =>
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       <Card>
-        <h4 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 15, margin: "0 0 14px" }}>Organisation profile</h4>
+        <h2 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 15, margin: "0 0 14px" }}>Organisation profile</h2>
         {!profile.isOwner && <p style={{ fontSize: 12.5, color: colors.orangeDark, marginBottom: 12 }}>Only the organisation owner can edit these settings.</p>}
         <label htmlFor="org-settings-name" style={labelStyle}>Name</label>
         <input id="org-settings-name" value={name} onChange={(e) => { setName(e.target.value); clearFeedback(); }} disabled={!profile.isOwner} style={{ ...inputStyle, marginBottom: 14 }} />
@@ -251,7 +253,7 @@ function SettingsPanel({ profile, reload }: { profile: OrgProfile; reload: () =>
       </Card>
       <LogoPanel profile={profile} reload={reload} />
       <Card>
-        <h4 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 15, margin: "0 0 14px" }}>Locations</h4>
+        <h2 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 15, margin: "0 0 14px" }}>Locations</h2>
         <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
           {profile.locations.map((l) => (
             <div key={`${l.type}:${l.id}`} style={{ fontSize: 13.5, background: colors.bg, borderRadius: radius.control, padding: "8px 12px" }}>
@@ -355,7 +357,7 @@ function AccountSettingsPanel() {
 
   return (
     <Card>
-      <h4 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 15, margin: "0 0 14px" }}>Account</h4>
+      <h2 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 15, margin: "0 0 14px" }}>Account</h2>
       <label htmlFor="vendor-current-password" style={labelStyle}>Current password</label>
       <input id="vendor-current-password" type="password" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} style={{ ...inputStyle, marginBottom: 10 }} />
       <label htmlFor="vendor-new-password" style={labelStyle}>New password</label>
@@ -366,7 +368,7 @@ function AccountSettingsPanel() {
         {pwSaved && <span style={{ fontSize: 13, color: colors.greenText, fontWeight: 600 }}>Saved</span>}
       </div>
       <div style={{ borderTop: `1px solid ${colors.border}`, paddingTop: 18, marginBottom: 22 }}>
-        <h4 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 15, margin: "0 0 8px" }}>Google sign-in</h4>
+        <h2 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 15, margin: "0 0 8px" }}>Google sign-in</h2>
         <p style={{ fontSize: 12.5, color: colors.mutedLight, margin: "0 0 10px" }}>
           Link your Google account so you can log in with it instead of your password.
         </p>
@@ -374,14 +376,14 @@ function AccountSettingsPanel() {
           type="button"
           onClick={linkGoogle}
           disabled={googleLinking || googleLinked}
-          style={{ display: "inline-flex", alignItems: "center", gap: 8, padding: "9px 14px", border: `1px solid ${colors.inputBorder}`, borderRadius: 10, background: colors.surface, fontSize: 13.5, fontWeight: 700, color: colors.text, cursor: googleLinking || googleLinked ? "default" : "pointer", opacity: googleLinking ? 0.7 : 1 }}
+          style={{ display: "inline-flex", alignItems: "center", gap: 8, padding: "9px 14px", border: `1px solid ${colors.inputBorder}`, borderRadius: radius.control, background: colors.surface, fontSize: 13.5, fontWeight: 700, color: colors.text, cursor: googleLinking || googleLinked ? "default" : "pointer", opacity: googleLinking ? 0.7 : 1 }}
         >
           <GoogleIcon size={16} /> {googleLinked ? "Linked ✓" : googleLinking ? "Linking…" : "Link Google account"}
         </button>
         {googleLinkError && <p style={{ color: colors.danger, fontSize: 12.5, margin: "8px 0 0" }}>{googleLinkError}</p>}
       </div>
       <div style={{ borderTop: `1px solid ${colors.border}`, paddingTop: 18, marginBottom: 22 }}>
-        <h4 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 15, margin: "0 0 8px" }}>Linked HelloCircle account</h4>
+        <h2 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 15, margin: "0 0 8px" }}>Linked HelloCircle account</h2>
         {user?.residentId ? (
           <p style={{ fontSize: 12.5, color: colors.mutedLight, margin: 0 }}>
             This vendor login is linked to a personal HelloCircle account — switch between them any time from the account menu.
@@ -425,7 +427,7 @@ function AccountSettingsPanel() {
   );
 }
 
-function StaffPanel({ profile, reload }: { profile: OrgProfile; reload: () => void }) {
+function StaffPanel({ profile, reload, onOpenMember }: { profile: OrgProfile; reload: () => void; onOpenMember: (id: string) => void }) {
   const [email, setEmail] = useState("");
   const [role, setRole] = useState<string>(PLATFORM_ROLES[0]);
   const [inviting, setInviting] = useState(false);
@@ -454,7 +456,7 @@ function StaffPanel({ profile, reload }: { profile: OrgProfile; reload: () => vo
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       {profile.isOwner && (
         <Card>
-          <h4 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 15, margin: "0 0 14px" }}>Invite staff</h4>
+          <h2 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 15, margin: "0 0 14px" }}>Invite staff</h2>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "flex-end" }}>
             <div style={{ flex: "1 1 220px" }}>
               <label htmlFor="org-staff-invite-email" style={labelStyle}>Email</label>
@@ -480,7 +482,7 @@ function StaffPanel({ profile, reload }: { profile: OrgProfile; reload: () => vo
         </Card>
       )}
       <Card>
-        <h4 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 15, margin: "0 0 14px" }}>Team</h4>
+        <h2 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 15, margin: "0 0 14px" }}>Team</h2>
         <div style={{ overflowX: "auto" }}>
           <table style={tableStyle}>
             <thead>
@@ -488,6 +490,8 @@ function StaffPanel({ profile, reload }: { profile: OrgProfile; reload: () => vo
                 <th style={thStyle}>Name</th>
                 <th style={thStyle}>Email</th>
                 <th style={thStyle}>Role</th>
+                <th style={thStyle}>Joined</th>
+                {profile.isOwner && <th style={thStyle}><span style={{ position: "absolute", left: -9999 }}>Manage</span></th>}
               </tr>
             </thead>
             <tbody>
@@ -495,7 +499,17 @@ function StaffPanel({ profile, reload }: { profile: OrgProfile; reload: () => vo
                 <tr key={s.id}>
                   <td style={tdStyle}>{s.name || "—"}</td>
                   <td style={tdStyle}>{s.email}</td>
-                  <td style={{ ...tdStyle, fontWeight: 700 }}>{roleLabel(s.platformRole)}</td>
+                  <td style={{ ...tdStyle, fontWeight: 700 }}>{s.invitedStaff ? roleLabel(s.platformRole) : "Owner"}</td>
+                  <td style={tdStyle}>{s.joinedAt ? formatDate(s.joinedAt) : "—"}</td>
+                  {profile.isOwner && (
+                    <td style={tdStyle}>
+                      {s.invitedStaff && (
+                        <Button variant="ghost" onClick={() => onOpenMember(s.id)} aria-label={`Manage ${s.name || s.email}`}>
+                          Manage
+                        </Button>
+                      )}
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>
@@ -503,7 +517,7 @@ function StaffPanel({ profile, reload }: { profile: OrgProfile; reload: () => vo
         </div>
         {profile.pendingInvites.length > 0 && (
           <>
-            <h4 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 13, margin: "18px 0 10px", color: colors.muted }}>PENDING INVITES</h4>
+            <h2 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 13, margin: "18px 0 10px", color: colors.muted }}>PENDING INVITES</h2>
             <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
               {profile.pendingInvites.map((i) => (
                 <div key={i.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 13.5, background: colors.orangeBg, borderRadius: radius.control, padding: "8px 12px" }}>
@@ -609,7 +623,7 @@ function InsightsPanel() {
         </Card>
       )}
       <Card>
-        <h4 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 15, margin: "0 0 14px" }}>Participation</h4>
+        <h2 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 15, margin: "0 0 14px" }}>Participation</h2>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 14 }}>
           {[
             { label: "Hall bookings", value: totals.totalBookings },
@@ -625,14 +639,14 @@ function InsightsPanel() {
         </div>
       </Card>
       <Card>
-        <h4 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 15, margin: "0 0 4px" }}>Hall booking utilisation</h4>
+        <h2 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 15, margin: "0 0 4px" }}>Hall booking utilisation</h2>
         <p style={{ fontSize: 12.5, color: colors.mutedLight, margin: "0 0 14px" }}>Paid bookings by day of week and starting hour.</p>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
           {insights.utilisation.length === 0 ? (
             <span style={{ fontSize: 13, color: colors.faint }}>No bookings yet.</span>
           ) : (
             insights.utilisation.map((u, i) => (
-              <span key={i} style={{ fontSize: 12, background: colors.greenBg, color: colors.greenText, borderRadius: 10, padding: "5px 9px", fontWeight: 700 }}>
+              <span key={i} style={{ fontSize: 12, background: colors.greenBg, color: colors.greenText, borderRadius: radius.control, padding: "5px 9px", fontWeight: 700 }}>
                 {DAY_NAMES[(u.dayOfWeek - 1) % 7]} {u.hour}:00 — {u.n}
               </span>
             ))
@@ -762,9 +776,16 @@ export function PaymentsPanel() {
   );
 }
 
+type OrgSection = "settings" | "trader" | "staff" | "participants" | "insights";
+const ORG_SECTIONS: OrgSection[] = ["settings", "trader", "staff", "participants", "insights"];
+
 export function VendorOrgTab() {
   const [profile, setProfile] = useState<OrgProfile | null>(null);
-  const [subTab, setSubTab] = useState<"settings" | "trader" | "staff" | "participants" | "insights">("settings");
+  // D-08: the section is in the URL, so "Staff & roles" is a page of its own
+  // and a member opens as a record page (?record=member:<id>) with Back.
+  const [sectionParam, setSubTab] = useUrlParam<string>("section", "settings");
+  const subTab: OrgSection = (ORG_SECTIONS as string[]).includes(sectionParam) ? (sectionParam as OrgSection) : "settings";
+  const [record, openRecord, closeRecord] = useRecordParam();
 
   const load = () => fetchOrgProfile().then(setProfile);
   useEffect(() => {
@@ -772,13 +793,17 @@ export function VendorOrgTab() {
   }, []);
 
   if (!profile) return <PageSpinner />;
+  if (subTab === "staff" && record?.startsWith("member:") && profile.isOwner) {
+    const member = profile.staff.find((m) => m.id === record.slice(7)) ?? null;
+    return <StaffMemberRecord key={`${member?.id}:${member?.rowVersion}`} member={member} onBack={closeRecord} onChanged={load} />;
+  }
 
   return (
     <div className="fade-panel">
       <div style={{ marginBottom: 20 }}>
         <Tabs
           value={subTab}
-          onChange={setSubTab}
+          onChange={(k) => setSubTab(k)}
           options={[
             { key: "settings", label: "Settings" },
             { key: "trader", label: "Trader details" },
@@ -790,7 +815,7 @@ export function VendorOrgTab() {
       </div>
       {subTab === "settings" && <SettingsPanel profile={profile} reload={load} />}
       {subTab === "trader" && <TraderProfileForm scope="vendor" />}
-      {subTab === "staff" && <StaffPanel profile={profile} reload={load} />}
+      {subTab === "staff" && <StaffPanel profile={profile} reload={load} onOpenMember={(id) => openRecord(`member:${id}`)} />}
       {subTab === "participants" && <ParticipantsPanel />}
       {subTab === "insights" && <InsightsPanel />}
     </div>

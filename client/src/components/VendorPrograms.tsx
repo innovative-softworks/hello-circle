@@ -19,7 +19,7 @@ import {
 import { CalendarIcon, PlusIcon, TrashIcon, UsersIcon } from "./icons";
 import { SingleImageUpload } from "./SingleImageUpload";
 import { VendorCheckInScreen } from "./VendorCheckInScreen";
-import { FormErrorSummary } from "./form";
+import { FieldError, FieldLabel, FormErrorSummary, RequiredNote, useFormErrors } from "./form";
 import { MonthCalendar } from "./MonthCalendar";
 import { SourceTypeBadge, StatusPill } from "./VendorOverviewCards";
 import { Button, ManageCard as Card, ConfirmDialog, EmptyState, inputStyle, labelStyle } from "./ui";
@@ -202,10 +202,10 @@ export function ProgramManager({ programId, onChanged }: { programId: string; on
         <VendorParticipationEditor type="program" id={programId} />
       </div>
 
-      <h3 style={{ fontSize: 13, fontWeight: 700, color: colors.muted, margin: "0 0 10px" }}>SESSIONS</h3>
+      <h2 style={{ fontSize: 13, fontWeight: 700, color: colors.muted, margin: "0 0 10px" }}>SESSIONS</h2>
       <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 16 }}>
         {program.sessions.map((s) => (
-          <div key={s.id} style={{ border: `1px solid ${colors.border}`, borderRadius: 10, padding: 12 }}>
+          <div key={s.id} style={{ border: `1px solid ${colors.border}`, borderRadius: radius.control, padding: 12 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               <span style={{ fontWeight: 600, fontSize: 14 }}>
                 {s.date} · {s.time} ({s.durationMinutes}min)
@@ -312,7 +312,7 @@ export function ProgramManager({ programId, onChanged }: { programId: string; on
         </div>
       )}
 
-      <h4 style={{ fontSize: 13, fontWeight: 700, color: colors.muted, margin: "0 0 10px" }}>ENROLLMENTS ({enrollments.length})</h4>
+      <h3 style={{ fontSize: 13, fontWeight: 700, color: colors.muted, margin: "0 0 10px" }}>ENROLLMENTS ({enrollments.length})</h3>
       {enrollments.length === 0 ? (
         <EmptyState icon={<UsersIcon size={20} />} title="No enrollments yet" />
       ) : (
@@ -354,8 +354,7 @@ export function ProgramCreateForm({
   onDirtyChange?: (dirty: boolean) => void;
 }) {
   const [creating, setCreating] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [fieldErrors, setFieldErrors] = useState<{ field: string; message: string; fieldId: string }[]>([]);
+  const fe = useFormErrors();
   // Release 6 — "Create a program" from a Host Opportunity prefills the
   // activity; read once, not synced.
   const [searchParams] = useSearchParams();
@@ -377,9 +376,9 @@ export function ProgramCreateForm({
   // See HostGamePage.tsx's identical wrapper — clears a stale FormErrorSummary
   // the moment the user edits anything, instead of it lingering until the
   // next submit attempt re-validates.
-  const setForm = (updater: SetStateAction<typeof form>) => {
+  const setForm = (updater: SetStateAction<typeof form>, fieldId?: string) => {
     setFormRaw(updater);
-    setFieldErrors([]);
+    if (fieldId) fe.clearField(fieldId);
     onDirtyChange?.(true);
   };
   const [equipmentText, setEquipmentTextRaw] = useState("");
@@ -395,11 +394,11 @@ export function ProgramCreateForm({
     if (!form.listingId) errors.push({ field: "listingId", message: "Choose which listing this program attaches to", fieldId: "program-listing" });
     if (!form.title.trim()) errors.push({ field: "title", message: "Title is required", fieldId: "program-title" });
     if (!form.description.trim()) errors.push({ field: "description", message: "Description is required", fieldId: "program-description" });
-    setFieldErrors(errors);
-    if (errors.length > 0) return;
+    if (errors.length > 0) return fe.fail(errors);
+    if (creating) return;
 
+    fe.clear();
     setCreating(true);
-    setError(null);
     try {
       const created = await createVendorProgram({
         fromDemand,
@@ -420,7 +419,8 @@ export function ProgramCreateForm({
       onDirtyChange?.(false);
       onCreated(created.id);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Couldn't create that program");
+      // Everything typed stays in the form; the reason goes in the summary.
+      fe.fail([{ field: "save", message: `Couldn't create the programme: ${e instanceof Error ? e.message : "please try again"}` }]);
     } finally {
       setCreating(false);
     }
@@ -431,46 +431,50 @@ export function ProgramCreateForm({
       <p style={{ fontSize: 12.5, color: colors.mutedLight, margin: "0 0 14px" }}>
         A multi-session activity (e.g. an 8-week course) — one sign-up covers every session you add below.
       </p>
+      <RequiredNote />
       <div className="grid-responsive" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 12 }}>
         <div>
-          <label htmlFor="program-attach-to" style={labelStyle}>Attach to</label>
+          <FieldLabel htmlFor="program-attach-to">Attach to</FieldLabel>
           <select id="program-attach-to" value={form.listingType} onChange={(e) => setForm((f) => ({ ...f, listingType: e.target.value as "centre" | "club", listingId: "" }))} style={inputStyle}>
             <option value="centre">Community centre</option>
             <option value="club">Sports club</option>
           </select>
         </div>
         <div>
-          <label htmlFor="program-listing" style={labelStyle}>Listing</label>
-          <select id="program-listing" value={form.listingId} onChange={(e) => setForm((f) => ({ ...f, listingId: e.target.value }))} style={inputStyle}>
+          <FieldLabel htmlFor="program-listing" required>Listing</FieldLabel>
+          <select {...fe.control("program-listing")} required value={form.listingId} onChange={(e) => setForm((f) => ({ ...f, listingId: e.target.value }), "program-listing")} style={inputStyle}>
             <option value="">— choose —</option>
             {options.map((o) => (
               <option key={o.id} value={o.id}>{o.name}</option>
             ))}
           </select>
+          <FieldError fieldId="program-listing" message={fe.messageFor("program-listing")} />
         </div>
         <div style={{ gridColumn: "1 / -1" }}>
-          <label htmlFor="program-title" style={labelStyle}>Title</label>
-          <input id="program-title" value={form.title} onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))} style={inputStyle} />
+          <FieldLabel htmlFor="program-title" required>Title</FieldLabel>
+          <input {...fe.control("program-title")} required value={form.title} onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }), "program-title")} style={inputStyle} />
+          <FieldError fieldId="program-title" message={fe.messageFor("program-title")} />
         </div>
         <div style={{ gridColumn: "1 / -1" }}>
-          <label htmlFor="program-description" style={labelStyle}>Description</label>
-          <textarea id="program-description" value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))} rows={2} style={{ ...inputStyle, resize: "vertical" }} />
+          <FieldLabel htmlFor="program-description" required>Description</FieldLabel>
+          <textarea {...fe.control("program-description")} required value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }), "program-description")} rows={2} style={{ ...inputStyle, resize: "vertical" }} />
+          <FieldError fieldId="program-description" message={fe.messageFor("program-description")} />
         </div>
         <div>
-          <label htmlFor="program-age-range" style={labelStyle}>Age range</label>
+          <FieldLabel htmlFor="program-age-range" optional>Age range</FieldLabel>
           <input id="program-age-range" value={form.ageRange} onChange={(e) => setForm((f) => ({ ...f, ageRange: e.target.value }))} placeholder="e.g. 8-12" style={inputStyle} />
         </div>
         <div>
-          <label htmlFor="program-price-total" style={labelStyle}>Price (€, total)</label>
+          <FieldLabel htmlFor="program-price-total" optional>Price (€, total; blank or 0 = free)</FieldLabel>
           <input id="program-price-total" value={form.priceCents} onChange={(e) => setForm((f) => ({ ...f, priceCents: e.target.value }))} placeholder="0 = free" style={{ ...inputStyle, maxWidth: 140 }} />
           <PaidClosedPriceNotice amount={form.priceCents} />
         </div>
         <div>
-          <label htmlFor="program-capacity" style={labelStyle}>Capacity</label>
+          <FieldLabel htmlFor="program-capacity" optional>Capacity (blank = unlimited)</FieldLabel>
           <input id="program-capacity" value={form.capacity} onChange={(e) => setForm((f) => ({ ...f, capacity: e.target.value }))} placeholder="Unlimited" style={{ ...inputStyle, maxWidth: 140 }} />
         </div>
         <div>
-          <label htmlFor="program-category" style={labelStyle}>Category</label>
+          <FieldLabel htmlFor="program-category" optional>Category</FieldLabel>
           <select id="program-category" value={form.category} onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))} style={inputStyle}>
             <option value="">— none —</option>
             {ACTIVITY_CATEGORIES.map((c) => (
@@ -479,7 +483,7 @@ export function ProgramCreateForm({
           </select>
         </div>
         <div>
-          <label htmlFor="program-skill-level" style={labelStyle}>Skill level</label>
+          <FieldLabel htmlFor="program-skill-level" optional>Skill level</FieldLabel>
           <select id="program-skill-level" value={form.skillLevel} onChange={(e) => setForm((f) => ({ ...f, skillLevel: e.target.value }))} style={inputStyle}>
             <option value="">— none —</option>
             {SKILL_LEVELS.map((s) => (
@@ -488,25 +492,24 @@ export function ProgramCreateForm({
           </select>
         </div>
         <div>
-          <label htmlFor="program-instructor" style={labelStyle}>Instructor (optional)</label>
+          <FieldLabel htmlFor="program-instructor" optional>Instructor</FieldLabel>
           <input id="program-instructor" value={form.instructorName} onChange={(e) => setForm((f) => ({ ...f, instructorName: e.target.value }))} style={inputStyle} />
         </div>
         <div style={{ gridColumn: "1 / -1" }}>
-          <label htmlFor="program-equipment" style={labelStyle}>Equipment needed (one per line, optional)</label>
+          <FieldLabel htmlFor="program-equipment" optional>Equipment needed (one per line)</FieldLabel>
           <textarea id="program-equipment" value={equipmentText} onChange={(e) => setEquipmentText(e.target.value)} rows={2} style={{ ...inputStyle, resize: "vertical" }} />
         </div>
         <div style={{ gridColumn: "1 / -1" }}>
-          <label htmlFor="program-guardian-rules" style={labelStyle}>Guardian rules (optional — for programs involving children/dependants)</label>
+          <FieldLabel htmlFor="program-guardian-rules" optional>Guardian rules (for programmes involving children or dependants)</FieldLabel>
           <textarea id="program-guardian-rules" value={form.guardianRules} onChange={(e) => setForm((f) => ({ ...f, guardianRules: e.target.value }))} rows={2} style={{ ...inputStyle, resize: "vertical" }} />
         </div>
         <div style={{ gridColumn: "1 / -1" }}>
-          <label htmlFor="program-safeguarding-info" style={labelStyle}>Safeguarding info (optional)</label>
+          <FieldLabel htmlFor="program-safeguarding-info" optional>Safeguarding info</FieldLabel>
           <textarea id="program-safeguarding-info" value={form.safeguardingInfo} onChange={(e) => setForm((f) => ({ ...f, safeguardingInfo: e.target.value }))} rows={2} style={{ ...inputStyle, resize: "vertical" }} />
         </div>
       </div>
-      <FormErrorSummary errors={fieldErrors} />
-      {error && <p style={{ fontSize: 12.5, color: colors.orangeDark, margin: "0 0 12px" }}>{error}</p>}
-      <Button onClick={create} disabled={creating}>
+      <FormErrorSummary errors={fe.errors} focusKey={fe.focusKey} />
+      <Button onClick={create} disabled={creating} aria-busy={creating || undefined}>
         {creating ? "Creating…" : "Create program"}
       </Button>
     </>
@@ -661,7 +664,7 @@ export function VendorScheduleTab({ onNavigateItem }: { onNavigateItem?: (tab: V
       ) : (
         <>
           <Card>
-            <h4 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 16, margin: "0 0 14px" }}>Today</h4>
+            <h3 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 16, margin: "0 0 14px" }}>Today</h3>
             {todayItems.length === 0 ? (
               <EmptyState icon={<CalendarIcon size={22} />} title="Nothing scheduled today" />
             ) : (
@@ -669,7 +672,7 @@ export function VendorScheduleTab({ onNavigateItem }: { onNavigateItem?: (tab: V
             )}
           </Card>
           <Card>
-            <h4 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 16, margin: "0 0 14px" }}>Upcoming (next 30 days)</h4>
+            <h3 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 16, margin: "0 0 14px" }}>Upcoming (next 30 days)</h3>
             {upcoming.length === 0 ? (
               <EmptyState icon={<CalendarIcon size={22} />} title="Nothing else scheduled" />
             ) : (

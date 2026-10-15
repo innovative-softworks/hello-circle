@@ -16,6 +16,9 @@ interface SessionUser {
   role: "vendor" | "admin";
   status: string;
   residentId?: string | null;
+  orgStatus?: string | null;
+  invitedStaff?: boolean;
+  orgId?: string | null;
 }
 
 /** Re-run `load` when the window regains focus — instead of on every route
@@ -34,7 +37,10 @@ function useOnFocus(load: () => void, enabled: boolean) {
 // Everything the header shows that comes from the server. All counts are the
 // server's own figures — nothing is estimated client-side.
 export function useHeaderData(user: SessionUser | null, resident: Resident | null) {
-  const hostOnly = !resident && user?.role === "vendor";
+  // D-01 / D-08: a member of a suspended organisation, or a removed member,
+  // has no partner workspace — don't poll partner endpoints for them.
+  const partnerActive = user?.role === "vendor" && user.status === "approved" && user.orgStatus !== "suspended" && !(user.invitedStaff && !user.orgId);
+  const hostOnly = !resident && partnerActive;
   // The workspace switcher only applies when the vendor/admin session and the
   // resident session are the same person (see Header.tsx history: plain `!user`
   // hid the entries after switching to Personal).
@@ -47,7 +53,7 @@ export function useHeaderData(user: SessionUser | null, resident: Resident | nul
       fetchAdminPendingListings()
         .then((d) => setBusinessCount(d.centres.length + d.clubs.length))
         .catch(() => setBusinessCount(0));
-    } else if (user?.role === "vendor" && user.status === "approved") {
+    } else if (partnerActive) {
       fetchVendorListings()
         .then((d) => {
           const attention = (rows: { status: string }[]) => rows.filter((r) => r.status === "pending" || r.status === "rejected").length;
@@ -55,21 +61,21 @@ export function useHeaderData(user: SessionUser | null, resident: Resident | nul
         })
         .catch(() => setBusinessCount(0));
     } else setBusinessCount(0);
-  }, [user?.role, user?.status]);
+  }, [user?.role, user?.status, partnerActive]);
   useEffect(loadBusiness, [loadBusiness]);
   useOnFocus(loadBusiness, !!user);
 
   // Vendor business notifications (the dashboard's Messages tab) — real unread rows.
   const [vendorUnread, setVendorUnread] = useState(0);
   const loadVendorNotifs = useCallback(() => {
-    if (user?.role === "vendor" && user.status === "approved")
+    if (partnerActive)
       fetchVendorNotifications()
         .then((rows) => setVendorUnread(rows.filter((r) => !r.read).length))
         .catch(() => setVendorUnread(0));
     else setVendorUnread(0);
-  }, [user?.role, user?.status]);
+  }, [partnerActive]);
   useEffect(loadVendorNotifs, [loadVendorNotifs]);
-  useOnFocus(loadVendorNotifs, user?.role === "vendor");
+  useOnFocus(loadVendorNotifs, partnerActive);
 
   // Group-chat unread — the resident's own, or the host inbox for a vendor-only session.
   const [chatUnread, setChatUnread] = useState(0);

@@ -1,3 +1,4 @@
+import { UnavailableListing, isUnavailable, type Unavailable } from "../components/UnavailableListing";
 import { usePageTitle } from "../pageTitle";
 import { usePaidCheckoutOpen } from "../paidCheckout";
 import { useEffect, useState } from "react";
@@ -37,6 +38,8 @@ export function ClubDetail() {
   const navigate = useNavigate();
   const { resident } = useGuest();
   const [club, setClub] = useState<Club | null>(null);
+  // D-01: a listing whose organisation is suspended.
+  const [unavailable, setUnavailable] = useState<Unavailable | null>(null);
   usePageTitle(club?.name);
   const [favourited, setFavourited] = useState(false);
   const [passLoading, setPassLoading] = useState(false);
@@ -44,7 +47,7 @@ export function ClubDetail() {
   const [programs, setPrograms] = useState<Program[]>([]);
 
   useEffect(() => {
-    if (idOrSlug) fetchClub(idOrSlug).then(setClub);
+    if (idOrSlug) fetchClub(idOrSlug).then((x) => (isUnavailable(x) ? setUnavailable(x) : setClub(x)));
   }, [idOrSlug]);
 
   useEffect(() => {
@@ -100,9 +103,10 @@ export function ClubDetail() {
   };
 
   const reloadRating = () => {
-    if (idOrSlug) fetchClub(idOrSlug).then(setClub);
+    if (idOrSlug) fetchClub(idOrSlug).then((x) => (isUnavailable(x) ? setUnavailable(x) : setClub(x)));
   };
 
+  if (unavailable) return <UnavailableListing item={unavailable} />;
   if (!club) return <ListingDetailSkeleton />;
 
   return (

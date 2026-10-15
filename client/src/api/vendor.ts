@@ -830,3 +830,23 @@ export function fetchRewardHistory(scope: "vendor" | "host", opts: { limit?: num
 export function redeemRewardPoints(scope: "vendor" | "host"): Promise<{ redemptionId: number; proFrom: string; proUntil: string }> {
   return request(`/${scope}/plan/rewards/redeem`, { method: "POST", body: "{}" });
 }
+
+/** D-03 — the latest moderation decision on one of your own listings (never the internal note); null for older decisions. */
+export function fetchVendorListingDecision(type: "centre" | "club" | "experience", id: string): Promise<{ latest: import("./admin").PublicDecision | null }> {
+  return request(`/vendor/decisions/${type}/${encodeURIComponent(id)}`);
+}
+
+/** D-01 — the organisation's existing obligations; the one partner API available while suspended. */
+export function fetchVendorObligations(): Promise<import("../types").VendorObligations> {
+  return request(`/vendor/obligations`);
+}
+
+/** D-08 — owner changes an accepted member's role. rowVersion from the Staff page (409 if stale). */
+export function changeStaffRole(memberId: string, platformRole: string, rowVersion: number): Promise<{ ok: boolean; changed: boolean; platformRole: string; rowVersion: number }> {
+  return request(`/vendor/org/staff/${encodeURIComponent(memberId)}`, { method: "PUT", body: JSON.stringify({ platformRole, rowVersion }) });
+}
+
+/** D-08 — owner removes a member from the organisation. */
+export function removeStaffMember(memberId: string, rowVersion: number): Promise<{ ok: boolean }> {
+  return request(`/vendor/org/staff/${encodeURIComponent(memberId)}`, { method: "DELETE", body: JSON.stringify({ rowVersion }) });
+}

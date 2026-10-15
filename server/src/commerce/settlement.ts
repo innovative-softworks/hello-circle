@@ -14,6 +14,7 @@
 // settlement is an amount due; the transfer to the partner's Stripe account is
 // payments/connect.ts (and the bank payout after that is Stripe's).
 
+import { scrub } from "../errorReporting.js";
 import { db } from "../db/index.js";
 import { debtGate } from "./debts.js";
 import { awardForSettlement } from "./rewards.js";
@@ -187,8 +188,11 @@ async function availableByParty(tx: Tx) {
     .prepare(
       `SELECT e.party_type as partyType, e.party_id as partyId, e.group_id as groupId, g.description, SUM(e.amount_minor) as amount
        FROM ledger_entries e JOIN ledger_entry_groups g ON g.id = e.group_id
-       LEFT JOIN settlement_items si ON si.ledger_group_id = e.group_id
-       WHERE e.account_code = 'partner_available' AND si.id IS NULL AND g.source_type != 'settlement'
+       WHERE e.account_code = 'partner_available' AND g.source_type != 'settlement'
+         -- Settled for THIS party (an item without a party, written before the
+         -- 2026-10-15 fix or by older code, still means "settled", as before).
+         AND NOT EXISTS (SELECT 1 FROM settlement_items si WHERE si.ledger_group_id = e.group_id
+                           AND (si.party_type IS NULL OR (si.party_type = e.party_type AND si.party_id = e.party_id)))
        GROUP BY e.party_type, e.party_id, e.group_id, g.description, g.created_at ORDER BY g.created_at`
     )
     .all()) as { partyType: string; partyId: string; groupId: string; description: string; amount: number | string }[];
@@ -220,7 +224,10 @@ export async function runSettlement(input: { runKey: string; dryRun: boolean; ac
     .prepare(`INSERT INTO settlement_runs (run_key, dry_run, status, started_by, reason) VALUES (?, ?, 'running', ?, ?)`)
     .run(input.runKey, input.dryRun ? 1 : 0, input.actorId, input.reason.trim());
   const runId = Number(runInfo.lastInsertRowid);
+  let step = "release_completed";
+  try {
   const { released } = await releaseCompleted(now, { dryRun: input.dryRun });
+  step = "collect_balances";
   const parties = await availableByParty(db);
   // A dry run releases nothing, so add what the real run would release to
   // each payee's preview (the preview must match what the run would do).
@@ -239,6 +246,7 @@ export async function runSettlement(input: { runKey: string; dryRun: boolean; ac
   const settled: { partyType: string; partyId: string; netMinor: number; settlementId: number | null }[] = [];
   const carried: { partyType: string; partyId: string; netMinor: number; frozenByDebtId?: number }[] = [];
   for (const p of parties) {
+    step = `debt_gate ${p.partyType} ${p.partyId}`;
     // Stage 5c — an open partner debt freezes the partner's earnings until
     // their own balance covers it (then it closes as offset).
     const gate = await debtGate(p, p.netMinor, input.dryRun);
@@ -255,13 +263,14 @@ export async function runSettlement(input: { runKey: string; dryRun: boolean; ac
       settled.push({ partyType: p.partyType, partyId: p.partyId, netMinor: p.netMinor, settlementId: null });
       continue;
     }
+    step = `settle ${p.partyType} ${p.partyId}`;
     const settlementId = await db.transaction(async (tx) => {
       const info = await tx
         .prepare(`INSERT INTO settlements (run_id, party_type, party_id, currency, net_minor, status) VALUES (?, ?, ?, 'EUR', ?, 'due')`)
         .run(runId, p.partyType, p.partyId, p.netMinor);
       const id = Number(info.lastInsertRowid);
       for (const item of p.items) {
-        await tx.prepare(`INSERT INTO settlement_items (settlement_id, ledger_group_id, description, amount_minor) VALUES (?, ?, ?, ?)`).run(id, item.groupId, item.description.slice(0, 255), item.amountMinor);
+        await tx.prepare(`INSERT INTO settlement_items (settlement_id, ledger_group_id, party_type, party_id, description, amount_minor) VALUES (?, ?, ?, ?, ?, ?)`).run(id, item.groupId, p.partyType, p.partyId, item.description.slice(0, 255), item.amountMinor);
       }
       const g = await postGroup(tx, {
         idempotencyKey: `settlement:${id}`,
@@ -287,11 +296,26 @@ export async function runSettlement(input: { runKey: string; dryRun: boolean; ac
       if (st.settlementId) await awardForSettlement(st.settlementId).catch((e) => console.error(`[rewards] award failed for settlement ${st.settlementId}:`, e));
     }
   }
+  step = "complete_run";
   const summary = { released, settled, carried };
   await db
     .prepare(`UPDATE settlement_runs SET status = 'completed', released_count = ?, settlement_count = ?, carried_forward_count = ?, summary = ?, finished_at = NOW() WHERE id = ?`)
     .run(released.length, settled.length, carried.length, JSON.stringify(summary), runId);
   return { runId, dryRun: input.dryRun, ...summary };
+  } catch (e) {
+    // Diagnosable instead of a run left "running": the failing step and a
+    // scrubbed error are stored on the run and returned to the caller.
+    const code = (e as { code?: string }).code ?? (e as { name?: string }).name ?? "Error";
+    const failure = scrub(`${code}: ${(e as Error)?.message ?? String(e)}`.replace(/'[^']*'/g, "'…'"), 500);
+    await db.prepare(`UPDATE settlement_runs SET status = 'failed', failed_step = ?, failure = ?, finished_at = NOW() WHERE id = ?`).run(step.slice(0, 120), failure, runId).catch(() => undefined);
+    throw new SettlementRunError(runId, step, code, failure, e);
+  }
+}
+
+export class SettlementRunError extends Error {
+  constructor(readonly runId: number, readonly step: string, readonly code: string, readonly failure: string, readonly cause?: unknown) {
+    super(`Settlement run ${runId} failed at ${step}: ${failure}`);
+  }
 }
 
 /** Finance decides who bears a lost dispute. Partner-caused losses are
@@ -362,7 +386,17 @@ export async function reconcilePaymentFees(opts: { limit?: number } = {}): Promi
   let reconciled = 0;
   let skipped = 0;
   for (const r of rows) {
-    const actual = await provider.paymentFee(r.pi);
+    // One payment the provider can't find (or refuses) must not abort the
+    // whole reconciliation: it is left unreconciled and counted as skipped,
+    // and is retried on the next run. Nothing is guessed.
+    let actual: Awaited<ReturnType<typeof provider.paymentFee>>;
+    try {
+      actual = await provider.paymentFee(r.pi);
+    } catch (e) {
+      console.error(`[fees] couldn't read the fee for ${r.type} ${r.ref}:`, e instanceof Error ? e.message : e);
+      skipped++;
+      continue;
+    }
     if (actual === null) {
       skipped++;
       continue;

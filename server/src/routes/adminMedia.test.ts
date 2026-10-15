@@ -41,7 +41,8 @@ beforeAll(async () => {
   app.use((req, _res, next) => {
     const userId = req.header("X-Test-User-Id");
     if (userId) {
-      (req as any).user = { id: userId, role: req.header("X-Test-User-Role") ?? "vendor", status: req.header("X-Test-User-Status") ?? "approved", invitedStaff: false, orgId: null };
+      const role = req.header("X-Test-User-Role") ?? "vendor";
+      (req as any).user = { id: userId, role, adminRole: role === "admin" ? "super" : null, status: req.header("X-Test-User-Status") ?? "approved", invitedStaff: false, orgId: null };
     }
     next();
   });
@@ -66,7 +67,7 @@ afterAll(async () => {
 describe("adminMediaRouter authorization", () => {
   it("rejects a non-admin", async () => {
     const res = await fetch(`${baseUrl}/admin/media/usage`, { headers: asVendor() });
-    expect(res.status).toBe(401); // requireAdmin returns 401 for "authenticated but wrong role" too, not just "no session"
+    expect(res.status).toBe(403); // D-02: authenticated but not an admin → 403; no session → 401 (next test)
   });
 
   it("rejects an unauthenticated caller", async () => {

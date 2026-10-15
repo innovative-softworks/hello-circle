@@ -11,11 +11,12 @@ import {
   resumeVendorCentre,
   resumeVendorClub,
 } from "../api";
-import { BallIcon, BuildingIcon, CheckCircleIcon, CopyIcon, EditIcon, EyeIcon, PauseIcon, PinIcon, PlayIcon, PlusIcon, ShareIcon, StarIcon, TrashIcon } from "./icons";
+import { BallIcon, BuildingIcon, CheckCircleIcon, EditIcon, EyeIcon, PinIcon, PlusIcon, StarIcon } from "./icons";
 import { VENUE_NOT_PUBLIC_HELP, VENUE_NOT_PUBLIC_LABEL, VENUE_PAGES_PUBLIC } from "../venueLaunch";
 import { Button, ManageCard as Card, ConfirmDialog, LinkButton, StatusBadge, tableStyle, tdStyle, thStyle } from "./ui";
+import { ActionMenu } from "./ActionMenu";
 import { getMediaUrl } from "../media";
-import { colors, fonts } from "../theme";
+import { colors, fonts, radius } from "../theme";
 import type { VendorListingSummary, VendorType } from "../types";
 
 // Host Manage spec §7's Listings actions (Duplicate/Pause/Share) — didn't
@@ -74,7 +75,7 @@ export function SetupChecklist({ vendorType, listings }: { vendorType: VendorTyp
 
   return (
     <Card style={{ padding: "16px 20px", marginBottom: 24 }}>
-      <h3 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 15, margin: "0 0 4px" }}>Finish setting up</h3>
+      <h2 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 15, margin: "0 0 4px" }}>Finish setting up</h2>
       <p style={{ color: colors.mutedLight, fontSize: 12.5, margin: "0 0 4px" }}>A few steps left before your {noun} is fully live.</p>
       <ChecklistStep done={hasListing} label={`Add your first ${noun}`} />
       <ChecklistStep done={hasPhoto} label="Add a photo" />
@@ -140,7 +141,7 @@ function ListingProfileCard({
         </div>
         <div style={{ flex: "1 1 320px", padding: 24, display: "flex", flexDirection: "column", gap: 10 }}>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 10, alignItems: "center" }}>
-            <h3 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 19, margin: 0, letterSpacing: 0 }}>{listing.name}</h3>
+            <h2 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 19, margin: 0, letterSpacing: 0 }}>{listing.name}</h2>
             <StatusBadge status={listing.status} label={approvedButGated ? VENUE_NOT_PUBLIC_LABEL : undefined} />
           </div>
           {!publiclyOpen && (listing.status === "approved" || listing.status === "paused") && (
@@ -177,39 +178,22 @@ function ListingProfileCard({
             <Button onClick={onEdit}>
               <EditIcon size={14} /> {listing.status === "approved" ? "Edit details" : "Finish setup"}
             </Button>
-            {listing.status === "approved" || listing.status === "paused" ? (
-              <>
-                {publiclyOpen && (
-                  <>
-                    <LinkButton variant="ghost" href={publicHref} target="_blank">
-                      <EyeIcon size={14} /> View live listing
-                    </LinkButton>
-                    <Button variant="ghost" onClick={() => copyPublicLink(kind, listing.id)}>
-                      <ShareIcon size={14} /> Share
-                    </Button>
-                  </>
-                )}
-                <Button variant="ghost" onClick={onPauseResume}>
-                  {listing.status === "paused" ? (
-                    <>
-                      <PlayIcon size={14} /> Resume
-                    </>
-                  ) : (
-                    <>
-                      <PauseIcon size={14} /> Pause
-                    </>
-                  )}
-                </Button>
-              </>
-            ) : (
-              <span style={{ fontSize: 12.5, color: colors.faint }}>Preview available once approved</span>
+            {(listing.status === "approved" || listing.status === "paused") && publiclyOpen && (
+              <LinkButton variant="ghost" href={publicHref} target="_blank">
+                <EyeIcon size={14} /> View live listing
+              </LinkButton>
             )}
-            <Button variant="ghost" onClick={onDuplicate}>
-              <CopyIcon size={14} /> Duplicate
-            </Button>
-            <Button variant="danger" onClick={onDelete} style={{ marginLeft: "auto" }}>
-              <TrashIcon size={14} /> Delete
-            </Button>
+            {listing.status !== "approved" && listing.status !== "paused" && <span style={{ fontSize: 12.5, color: colors.faint }}>Preview available once approved</span>}
+            {/* UI completion — secondary actions in one anchored menu. */}
+            <ActionMenu
+              label={`More actions for ${listing.name}`}
+              items={[
+                ...((listing.status === "approved" || listing.status === "paused") && publiclyOpen ? [{ label: "Copy public link", onSelect: () => copyPublicLink(kind, listing.id) }] : []),
+                ...(listing.status === "approved" || listing.status === "paused" ? [{ label: listing.status === "paused" ? "Resume bookings" : "Pause bookings", onSelect: onPauseResume }] : []),
+                { label: "Duplicate", onSelect: onDuplicate },
+                { label: "Delete listing…", onSelect: onDelete, danger: true },
+              ]}
+            />
           </div>
         </div>
       </div>
@@ -249,9 +233,9 @@ function ListingsTable({
           <Card key={r.id} onClick={() => onEdit(r.id)} style={{ cursor: "pointer" }}>
             <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
               {r.image ? (
-                <img src={getMediaUrl(r.image, "thumbnail")} alt="" style={{ width: 48, height: 48, borderRadius: 10, objectFit: "cover", flex: "none" }} />
+                <img src={getMediaUrl(r.image, "thumbnail")} alt="" style={{ width: 48, height: 48, borderRadius: radius.control, objectFit: "cover", flex: "none" }} />
               ) : (
-                <div style={{ width: 48, height: 48, borderRadius: 10, background: colors.panel, flex: "none" }} />
+                <div style={{ width: 48, height: 48, borderRadius: radius.control, background: colors.panel, flex: "none" }} />
               )}
               <div style={{ minWidth: 0, flex: 1 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
@@ -292,9 +276,9 @@ function ListingsTable({
             <tr key={r.id}>
               <td style={{ ...tdStyle, width: 44 }}>
                 {r.image ? (
-                  <img src={getMediaUrl(r.image, "thumbnail")} alt="" style={{ width: 36, height: 36, borderRadius: 10, objectFit: "cover", display: "block" }} />
+                  <img src={getMediaUrl(r.image, "thumbnail")} alt="" style={{ width: 36, height: 36, borderRadius: radius.control, objectFit: "cover", display: "block" }} />
                 ) : (
-                  <div style={{ width: 36, height: 36, borderRadius: 10, background: colors.panel }} />
+                  <div style={{ width: 36, height: 36, borderRadius: radius.control, background: colors.panel }} />
                 )}
               </td>
               <td style={tdStyle}>
@@ -310,27 +294,18 @@ function ListingsTable({
               <td style={tdStyle}>{r.views}</td>
               <td style={{ ...tdStyle, textAlign: "right" }}>
                 <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-                  <Button variant="ghost" onClick={() => onEdit(r.id)}>
-                    <EditIcon size={13} />
+                  <Button variant="ghost" onClick={() => onEdit(r.id)} aria-label={`Edit ${r.name}`}>
+                    <EditIcon size={13} /> Edit
                   </Button>
-                  {(r.status === "approved" || r.status === "paused") && (
-                    <>
-                      {VENUE_PAGES_PUBLIC && (
-                        <Button variant="ghost" onClick={() => copyPublicLink(kind, r.id)} aria-label={`Share ${r.name}`}>
-                          <ShareIcon size={13} />
-                        </Button>
-                      )}
-                      <Button variant="ghost" onClick={() => onPauseResume(r.id)}>
-                        {r.status === "paused" ? <PlayIcon size={13} /> : <PauseIcon size={13} />}
-                      </Button>
-                    </>
-                  )}
-                  <Button variant="ghost" onClick={() => onDuplicate(r.id)}>
-                    <CopyIcon size={13} />
-                  </Button>
-                  <Button variant="danger" onClick={() => onDelete(r.id, r.name)}>
-                    <TrashIcon size={13} />
-                  </Button>
+                  <ActionMenu
+                    label={`More actions for ${r.name}`}
+                    items={[
+                      ...((r.status === "approved" || r.status === "paused") && VENUE_PAGES_PUBLIC ? [{ label: "Copy public link", onSelect: () => copyPublicLink(kind, r.id) }] : []),
+                      ...(r.status === "approved" || r.status === "paused" ? [{ label: r.status === "paused" ? "Resume bookings" : "Pause bookings", onSelect: () => onPauseResume(r.id) }] : []),
+                      { label: "Duplicate", onSelect: () => onDuplicate(r.id) },
+                      { label: "Delete listing…", onSelect: () => onDelete(r.id, r.name), danger: true },
+                    ]}
+                  />
                 </div>
               </td>
             </tr>
@@ -371,7 +346,7 @@ function ListingSection({
   if (rows.length === 1) {
     return (
       <div>
-        <h3 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 18, margin: "0 0 14px", letterSpacing: 0 }}>{title}</h3>
+        <h2 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 18, margin: "0 0 14px", letterSpacing: 0 }}>{title}</h2>
         <ListingProfileCard
           kind={kind}
           listing={rows[0]}
@@ -387,7 +362,7 @@ function ListingSection({
   return (
     <div>
       <div style={{ display: "flex", flexWrap: "wrap", gap: 10, justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
-        <h3 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 18, margin: 0, letterSpacing: 0 }}>{title}</h3>
+        <h2 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 18, margin: 0, letterSpacing: 0 }}>{title}</h2>
         <Button variant={addButtonVariant} onClick={onNew}>
           {addLabel}
         </Button>

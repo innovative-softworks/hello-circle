@@ -94,7 +94,9 @@ test("SANDBOX-DELIVERY-G: real Stripe deliveries via the CLI — payment, refund
       const acct = await createVerifiedRecipient("individual", "delivery");
       await attachAccount(f, host, acct, "individual");
       await v2core().accounts.update(acct, { display_name: `QA delivery ${RUN.slice(-6)} updated` });
-      const thin = await arrived(f, "provider = 'stripe_v2' AND connected_account = ?", [acct], "v2 account event");
+      // Creation-time events can land before the account is attached (and are rightly ignored), so
+      // wait for the post-attach update to be processed rather than taking the first arrival.
+      const thin = await arrived(f, "provider = 'stripe_v2' AND connected_account = ? AND status = 'processed'", [acct], "processed v2 account event");
       expect(thin.some((e: any) => e.status === "processed"), "a v2 account event was processed (account re-fetched)").toBe(true);
       expect((await rows(f, "SELECT COUNT(*) AS n FROM connected_account_syncs WHERE account_id = ? AND source = 'webhook'", [acct]))[0].n).toBeGreaterThan(0);
       const tr = await stripe.transfers.create({ amount: 300, currency: "eur", destination: acct, metadata: { hc_qa_run: RUN, purpose: "stage5e-delivery" } }, { idempotencyKey: `qa5e:${RUN}:delivery-transfer` });

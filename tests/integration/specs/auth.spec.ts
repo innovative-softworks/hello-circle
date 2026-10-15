@@ -46,7 +46,8 @@ for (const persona of ["QA_HOST", "QA_VENDOR", "QA_ADMIN"] as const) {
     if (persona === "QA_VENDOR") expect((await page.request.get("/api/vendor/listings")).status()).toBe(200);
     if (persona === "QA_ADMIN") expect((await page.request.get("/api/admin/stats")).status()).toBe(200);
     else {
-      expect((await page.request.get("/api/admin/stats")).status()).toBe(401);
+      // D-02: no partner/admin session → 401; a signed-in partner (authenticated, not an admin) → 403.
+      expect((await page.request.get("/api/admin/stats")).status()).toBe(persona === "QA_VENDOR" ? 403 : 401);
       await page.goto("/admin");
       await expect(page).toHaveURL(/\/login(?:\?|$)/);
     }

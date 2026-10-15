@@ -1,5 +1,6 @@
 import { Router } from "express";
-import { requireAdmin } from "../auth.js";
+import { writeAudit } from "../audit.js";
+import { requireAdminPermission } from "../adminPermissions.js";
 import { db } from "../db/index.js";
 import { getCentre, getClub } from "../db/queries.js";
 import { BadRequestError, clientIdFrom } from "../util.js";
@@ -202,8 +203,11 @@ reviewsRouter.post("/", async (req, res) => {
   res.status(201).json(toReview(row));
 });
 
-reviewsRouter.delete("/:id", requireAdmin, async (req, res) => {
+// D-02: despite the verb this only hides the review (reversible, unhide is
+// PUT /api/admin/reviews/:id/unhide), so it is moderation, not a destructive delete.
+reviewsRouter.delete("/:id", requireAdminPermission("reviews.moderate"), async (req, res) => {
   const info = await db.prepare(`UPDATE reviews SET hidden = 1 WHERE id = ?`).run(req.params.id);
   if (info.changes === 0) return res.status(404).json({ error: "Review not found" });
+  await writeAudit({ actorUserId: req.user!.id, action: "review.hidden", objectType: "review", objectId: req.params.id, previousValue: { hidden: false }, newValue: { hidden: true } });
   res.json({ ok: true });
 });

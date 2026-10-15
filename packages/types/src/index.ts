@@ -391,6 +391,8 @@ export interface AuthUser {
   /** Admin sub-role (Revenue & Connect Stage 2a); null for non-admins. */
   adminRole?: "super" | "finance" | "support" | "legal" | null;
   invitedStaff: boolean;
+  /** D-01 — the status of the member's organisation ("active" | "suspended"); null without one. */
+  orgStatus?: string | null;
   providerTier: "standard" | "verified" | "featured";
   createdAt: string;
   /** Onboarding audit E1 — set by GET /auth/me; null = no Terms acceptance on file. */
@@ -453,6 +455,7 @@ export interface VendorStats {
 export interface AdminStats {
   centresPending: number;
   clubsPending: number;
+  experiencesPending: number;
   vendorCount: number;
   totalListings: number;
   reviewCount: number;
@@ -513,7 +516,7 @@ export interface Favourite {
 
 export interface ResidentNotification {
   id: number;
-  kind: "booking" | "registration" | "program" | "experience" | "waitlist" | "game" | "intent_match" | "circle" | "invite" | "invite_withdrawn";
+  kind: "booking" | "registration" | "program" | "experience" | "waitlist" | "game" | "intent_match" | "circle" | "invite" | "invite_withdrawn" | "moderation";
   title: string;
   body: string;
   /** Platform Pre-Launch Polish — Changeset 2. Widened to match the
@@ -522,7 +525,7 @@ export interface ResidentNotification {
    * the server has sent notifications carrying them since the Follow
    * feature shipped; the in-app notification list's own type didn't
    * represent that, on top of notificationLink.ts's separate route-map gap. */
-  listingType: "centre" | "club" | "game" | "intent" | "circle" | "vendor" | "host" | "experience" | "program";
+  listingType: "centre" | "club" | "game" | "intent" | "circle" | "vendor" | "host" | "experience" | "program" | "place_suggestion";
   listingId: string;
   ref: string;
   read: number;
@@ -1411,6 +1414,33 @@ export interface AdminOrganisation {
   name: string;
   kind: string;
   createdAt: string;
+  /** D-01 — "active" | "suspended". */
+  status?: string;
+  statusChangedAt?: string | null;
+  memberCount?: number;
+}
+
+/** D-01 — admin organisation record (GET /api/admin/organisations/:id). */
+export interface AdminOrganisationRecord {
+  id: string;
+  name: string;
+  kind: string;
+  status: string;
+  statusChangedAt: string | null;
+  members: { id: string; name: string; email: string; status: string; platformRole: string | null; invitedStaff: boolean }[];
+  listings: { type: string; status: string; n: number }[];
+  upcoming: { bookings: number; registrations: number; enrolments: number; experienceBookings: number; passes: number; total: number };
+}
+
+/** D-01 — a suspended organisation's read-only obligations (GET /api/vendor/obligations). */
+export interface VendorObligations {
+  orgStatus: string;
+  decision: ModerationDecisionPublic | null;
+  /** True for roles that see per-booking detail (owner, managers, finance). */
+  detail: boolean;
+  items: { kind: "booking" | "registration" | "enrolment" | "experience"; listing: string; date: string | null; time: string | null; ref?: string; customerFirstName?: string; paymentState?: string }[];
+  summary: { date: string | null; listing: string; count: number }[];
+  support: { contact: string; complaints: string };
 }
 
 // --- resident onboarding / preferences (Phase A) ----------------------
@@ -1427,6 +1457,8 @@ export interface ResidentFull extends Resident {
   searchRadiusKm: number;
   /** "Host" trust tier (IA spec five-layer audit) — badge-only. */
   hostStatus: HostStatus;
+  /** D-03 — why the last host application was declined (category + explanation; never the internal note). Null = not declined, or declined before reasons were recorded. */
+  hostDecision?: ModerationDecisionPublic | null;
   hostBio: string;
   hostPhone: string;
   /** Onboarding §2 (IA spec) — goals + participation comfort. Empty string
@@ -1520,6 +1552,19 @@ export interface PlaceSuggestion {
   status: "pending" | "approved" | "rejected";
   publishedListingId: string | null;
   createdAt: string;
+  /** D-03 — the reason a rejected suggestion was declined; null for older decisions. */
+  decision?: ModerationDecisionPublic | null;
+}
+
+/** D-03 — a moderation decision as the affected partner or applicant sees it. */
+export interface ModerationDecisionPublic {
+  id: number;
+  action: string;
+  newState: string;
+  category: string | null;
+  categoryLabel: string | null;
+  explanation: string | null;
+  decidedAt: string;
 }
 
 export interface NotificationPrefs {
@@ -1872,7 +1917,8 @@ export interface CentreHoursRow {
 export interface OrgProfile {
   org: { id: string; name: string; kind: string } | null;
   policies: { cancellationHours: number; bookingWindowDays: number; refundPolicyText: string | null; taxNumber: string | null; businessRegistrationNumber: string | null };
-  staff: { id: string; name: string; email: string; platformRole: string | null; status: string }[];
+  /** D-08 — invitedStaff false = the owner; rowVersion guards role changes and removal against stale screens. */
+  staff: { id: string; name: string; email: string; platformRole: string | null; status: string; invitedStaff: boolean; rowVersion: number; joinedAt: string }[];
   pendingInvites: { id: string; email: string; platformRole: string; status: string; createdAt: string; expiresAt: string }[];
   locations: { id: string; name: string; type: "centre" | "club" }[];
   isOwner: boolean;
@@ -2013,6 +2059,8 @@ export interface AuditEntry {
   objectId: string;
   previousValue: string | null;
   newValue: string | null;
+  /** Why the change was made, when the action records one (coupons, roles, …). */
+  reason?: string | null;
   createdAt: string;
 }
 

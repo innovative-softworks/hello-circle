@@ -43,12 +43,19 @@ export function Complaints() {
   const [error, setError] = useState<string | null>(null);
   const [sent, setSent] = useState<number | null>(null);
   const [mine, setMine] = useState<ComplaintRow[]>([]);
+  const [mineFailed, setMineFailed] = useState(false);
 
   useEffect(() => {
     document.title = "Complaints and appeals | HelloCircle";
   }, []);
   useEffect(() => {
-    if (signedIn) fetchMyComplaints().then(setMine).catch(() => setMine([]));
+    if (signedIn)
+      fetchMyComplaints()
+        .then((rows) => {
+          setMine(rows);
+          setMineFailed(false);
+        })
+        .catch(() => setMineFailed(true));
   }, [signedIn, sent]);
 
   const submit = async () => {
@@ -125,6 +132,11 @@ export function Complaints() {
           </div>
         )}
       </Card>
+      {signedIn && mineFailed && (
+        <p role="alert" style={{ fontSize: 14 }}>
+          We couldn't load your earlier requests. They're safe — refresh the page to try again.
+        </p>
+      )}
       {signedIn && mine.length > 0 && (
         <section style={{ marginTop: 26 }}>
           <h2 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 18, margin: "0 0 10px" }}>Your requests</h2>

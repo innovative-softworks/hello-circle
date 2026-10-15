@@ -31,6 +31,7 @@ export function PayoutAccountCard({ scope }: { scope: "vendor" | "host" }) {
   const [data, setData] = useState<PayoutsOverview | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [loadFailed, setLoadFailed] = useState(false);
   const [help, setHelp] = useState<Record<string, FieldHelpEntry>>({});
   const [params] = useSearchParams();
   const returning = params.get("payouts");
@@ -41,12 +42,15 @@ export function PayoutAccountCard({ scope }: { scope: "vendor" | "host" }) {
     if (returning === "refresh") {
       startPayoutOnboarding(scope)
         .then(({ url }) => window.location.assign(url))
-        .catch(() => fetchPayouts(scope).then(setData).catch(() => setData(null)));
+        .catch(() => fetchPayouts(scope).then(setData).catch(() => setLoadFailed(true)));
       return;
     }
     // Coming back from Stripe (return_url): re-read the account status straight away.
     const load = returning === "return" ? refreshPayoutAccount(scope, "return").catch(() => fetchPayouts(scope)) : fetchPayouts(scope);
-    load.then(setData).catch(() => setData(null));
+    load.then(setData).catch((e: unknown) => {
+      // 403 = this role has no payout section; anything else is a real failure.
+      if ((e as { status?: number })?.status !== 403) setLoadFailed(true);
+    });
   }, [scope, returning]);
 
   useEffect(() => {
@@ -55,6 +59,12 @@ export function PayoutAccountCard({ scope }: { scope: "vendor" | "host" }) {
       .catch(() => setHelp({}));
   }, []);
 
+  if (loadFailed && !data)
+    return (
+      <p role="alert" style={{ fontSize: 13.5 }}>
+        Couldn't load your payout account status. Refresh the page to try again — nothing has changed with your payouts.
+      </p>
+    );
   if (!data || !data.enabled) return null;
 
   const go = async (fn: () => Promise<{ url: string }>) => {
@@ -76,6 +86,10 @@ export function PayoutAccountCard({ scope }: { scope: "vendor" | "host" }) {
   const toneColor = tone === "ok" ? colors.greenText : tone === "stop" ? colors.danger : colors.orangeDark;
   const a = data.account;
   const needsStripe = state === "not_started" || state === "onboarding_incomplete" || state === "more_information_required";
+  // Stripe reports a fresh account and one it is reviewing the same way (transfers "pending",
+  // requirements listed lazily), so "under review" before onboarding has completed may also mean
+  // the partner left Stripe's pages early. Keep the way back open until it has completed.
+  const mayContinue = state === "under_review" && !!a && !a.onboardingCompleted;
   const onStripeLabel = state === "not_started" ? "Set up payouts with Stripe" : state === "more_information_required" ? "Give Stripe the information it needs" : "Continue setup with Stripe";
   const capability = (c: string | undefined) => (c === "active" ? "Active" : c === "pending" ? "Being checked" : "Not yet");
 
@@ -83,7 +97,7 @@ export function PayoutAccountCard({ scope }: { scope: "vendor" | "host" }) {
     <>
     <Card style={{ padding: 20, marginBottom: 16 }}>
       <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
-        <h3 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 17, margin: 0 }}>Payout account</h3>
+        <h2 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 17, margin: 0 }}>Payout account</h2>
         <span data-testid="payout-state" data-state={state} style={{ fontSize: 12.5, fontWeight: 700, color: toneColor }}>{stateName}</span>
       </div>
       {stateHelp && <p style={{ fontSize: 13.5, margin: "8px 0 4px", lineHeight: 1.5 }}>{stateHelp.definition}</p>}
@@ -111,13 +125,24 @@ export function PayoutAccountCard({ scope }: { scope: "vendor" | "host" }) {
           ))}
         </ul>
       )}
+      {mayContinue && (
+        <p id="payout-may-continue" style={{ fontSize: 12.5, color: colors.mutedLight, margin: "0 0 10px", lineHeight: 1.5 }}>
+          If you left Stripe's pages before finishing, continue there. Otherwise there's nothing to do — Stripe is checking your details.
+        </p>
+      )}
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
         {needsStripe && (
           <Button disabled={busy} onClick={() => go(() => startPayoutOnboarding(scope))}>
             {onStripeLabel}
           </Button>
         )}
-        {a && (a.onboardingCompleted || a.detailsSubmitted) && (
+        {mayContinue && (
+          <Button variant="ghost" disabled={busy} onClick={() => go(() => startPayoutOnboarding(scope))} aria-describedby="payout-may-continue">
+            Continue setup with Stripe
+          </Button>
+        )}
+        {/* Same rule as the server (connect.ts dashboardLink): v2 needs a completed onboarding. */}
+        {a && (a.onboardingCompleted || (a.apiModel === "v1" && a.detailsSubmitted)) && (
           <Button variant="ghost" disabled={busy} onClick={() => go(() => payoutDashboardLink(scope))}>
             Bank details and payouts (Stripe)
           </Button>

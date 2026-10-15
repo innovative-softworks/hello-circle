@@ -74,7 +74,7 @@ function BenefitList() {
 
 export function usePlan(scope: Scope) {
   const [data, setData] = useState<PartnerPlanOverview | null>(null);
-  const [error, setError] = useState<"forbidden" | "failed" | null>(null);
+  const [error, setError] = useState<"signin" | "forbidden" | "failed" | null>(null);
   const load = useCallback(
     () =>
       fetchMyPlan(scope)
@@ -82,7 +82,10 @@ export function usePlan(scope: Scope) {
           setData(d);
           setError(null);
         })
-        .catch((e) => setError((e as { status?: number })?.status === 403 ? "forbidden" : "failed")),
+        .catch((e) => {
+          const status = (e as { status?: number })?.status;
+          setError(status === 401 ? "signin" : status === 403 ? "forbidden" : "failed");
+        }),
     [scope]
   );
   useEffect(() => {
@@ -128,7 +131,7 @@ export function PlanRewardsPanel({ scope, variant }: { scope: Scope; variant: "c
     tick();
   }, [returned]);
 
-  if (error === "forbidden") return null; // other staff: not their section (server returns 403)
+  if (error === "forbidden" || error === "signin") return null; // other staff (403) / signed out (401): not their section
   if (error)
     return (
       <section style={panel} aria-label="Plan & rewards">

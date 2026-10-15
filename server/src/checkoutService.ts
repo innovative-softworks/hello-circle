@@ -6,6 +6,7 @@ import { db } from "./db/index.js";
 import { CLIENT_URL } from "./stripe.js";
 import { paymentProvider, qaProviderStubEnabled } from "./payments/provider.js";
 import { PENDING_HOLD_MINUTES } from "./bookingIntegrity.js";
+import { recordCheckoutAgreement } from "./payments/checkoutAgreement.js";
 import { recordStripeFailure } from "./stripeDiagnostics.js";
 import { syncOrderFromSource } from "./commerce/engine.js";
 import { postRefund, refundedSoFar } from "./commerce/payments.js";
@@ -165,6 +166,9 @@ export async function createCheckoutSession(params: {
       // the capacity hold its pending row represents (bookingIntegrity.ts).
       expiresAt: Math.floor(Date.now() / 1000) + PENDING_HOLD_MINUTES * 60,
     });
+    // What this session was created to charge — the webhook confirms a payment
+    // only against this agreement (payments/checkoutAgreement.ts).
+    await recordCheckoutAgreement({ sessionId: session.id, type: params.type, ref: params.ref, amountMinor: params.lineItems.reduce((sum, li) => sum + li.unitAmountCents, 0), currency: "EUR" });
     if (provider.name === "stripe") void logEvent("booking_started", { residentId: params.residentId ?? null, metadata: { type: params.type, ref: params.ref } });
     return { ok: true, session: { id: session.id, url: session.url } };
   } catch (e) {

@@ -8,6 +8,8 @@ import { centreFor, staffLogin } from "../stage-b-fixture";
 // role (including invited read-only and manager staff) is denied high-risk
 // admin mutations with every targeted row unchanged; admin is the positive
 // control and has no implicit resident/vendor powers.
+// D-02: no partner/admin session → 401; a signed-in partner or staff member
+// (authenticated, but not an admin) → 403.
 
 test("STAGE-B-ADMIN: guest, user, host, vendor, read-only staff and manager cannot perform admin mutations", async ({ playwright }) => {
   const opened: APIRequestContext[] = [];
@@ -20,7 +22,7 @@ test("STAGE-B-ADMIN: guest, user, host, vendor, read-only staff and manager cann
       await f.connection.execute("INSERT INTO organisations (id, name, kind) VALUES (?, 'QA admin target org', 'vendor')", [orgId]);
       await f.connection.execute("INSERT INTO users (id, email, password_hash, role, status, name, org_id) VALUES (?, ?, 'x', 'vendor', 'pending', 'QA admin target', ?)", [vendorId, `qa_admin_target_${vendorId}@example.test`, orgId]);
       await f.connection.execute("INSERT INTO residents (id, email, name, host_status, host_applied_at) VALUES (?, ?, 'QA host applicant', 'pending', NOW())", [residentId, `qa_admin_applicant_${residentId}@example.test`]);
-      for (const [table, column, id] of [["organisations", "id", orgId], ["users", "id", vendorId], ["residents", "id", residentId], ["feature_flags", "org_id", orgId], ["audit_log", "object_id", vendorId], ["audit_log", "object_id", residentId], ["audit_log", "object_id", orgId]]) f.track(table, column, id);
+      for (const [table, column, id] of [["organisations", "id", orgId], ["users", "id", vendorId], ["residents", "id", residentId], ["feature_flags", "org_id", orgId], ["audit_log", "object_id", vendorId], ["audit_log", "object_id", residentId], ["audit_log", "object_id", orgId], ["moderation_decisions", "object_id", vendorId], ["moderation_decisions", "object_id", residentId], ["notifications", "resident_id", residentId]]) f.track(table, column, id);
       const centre = await centreFor(f, "QA_VENDOR");
       f.track("audit_log", "object_id", analyst.id);
       const invariants = await Promise.all([
@@ -51,12 +53,13 @@ test("STAGE-B-ADMIN: guest, user, host, vendor, read-only staff and manager cann
         [() => X.get(`/api/admin/support/search?q=${encodeURIComponent("qa")}`), "support search"],
       ];
       const results: Record<string, number[]> = {};
+      const expected: Record<string, number> = { GUEST: 401, QA_USER: 401, QA_HOST: 401, QA_VENDOR: 403, READ_ONLY_STAFF: 403, MANAGER: 403 };
       for (const [role, actor] of [["GUEST", f.actors.GUEST], ["QA_USER", f.actors.QA_USER], ["QA_HOST", f.actors.QA_HOST], ["QA_VENDOR", f.actors.QA_VENDOR], ["READ_ONLY_STAFF", analyst.context], ["MANAGER", manager.context]] as [string, APIRequestContext][]) {
         results[role] = [];
         for (const [call, label] of mutations(actor)) {
           const status = (await call()).status();
           results[role].push(status);
-          expect(status, `${role} ${label}`).toBe(401);
+          expect(status, `${role} ${label}`).toBe(expected[role]);
           for (const unchanged of invariants) await unchanged();
         }
       }

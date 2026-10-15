@@ -141,6 +141,8 @@ export interface AdminListingSummary {
   ages?: string;
   price?: number;
   unit?: string;
+  // experience-only (price is in cents, as `from`)
+  kind?: string;
   /** Bounded "featured" flag (IA spec §16), MySQL tinyint 0/1. */
   featured: number;
 }
@@ -153,8 +155,68 @@ export function fetchAdminStats(): Promise<AdminStats> {
   return request(`/admin/stats`);
 }
 
-export function setVendorStatus(id: string, status: "pending" | "approved" | "suspended"): Promise<{ ok: boolean }> {
-  return request(`/admin/vendors/${id}/status`, { method: "PUT", body: JSON.stringify({ status }) });
+// --- D-03 decision reasons -------------------------------------------------------
+/** Sent with a rejection/suspension: category + partner-visible explanation; the note stays internal. */
+export interface DecisionReasonInput {
+  reasonCategory?: string;
+  explanation?: string;
+  internalNote?: string;
+}
+export type ReasonKind = "listing_rejection" | "suspension" | "application_rejection";
+/** Mirrors server/src/moderationDecisions.ts REASON_CATEGORIES (keep in sync). */
+export const REASON_CATEGORIES: Record<ReasonKind, { value: string; label: string }[]> = {
+  listing_rejection: [
+    { value: "incomplete", label: "Incomplete details" },
+    { value: "misleading", label: "Misleading or inaccurate" },
+    { value: "ineligible", label: "Not an eligible activity" },
+    { value: "safety", label: "Safety concern" },
+    { value: "duplicate", label: "Duplicate listing" },
+    { value: "other", label: "Other" },
+  ],
+  suspension: [
+    { value: "terms_breach", label: "Breach of terms" },
+    { value: "safety", label: "Safety concern" },
+    { value: "payment_risk", label: "Payment or fraud risk" },
+    { value: "legal_request", label: "Legal request" },
+    { value: "verification_failed", label: "Verification failed" },
+    { value: "other", label: "Other" },
+  ],
+  application_rejection: [
+    { value: "incomplete", label: "Incomplete details" },
+    { value: "ineligible", label: "Doesn't meet the criteria" },
+    { value: "duplicate", label: "Duplicate" },
+    { value: "safety", label: "Safety concern" },
+    { value: "other", label: "Other" },
+  ],
+};
+export const EXPLANATION_MIN = 20;
+export const EXPLANATION_MAX = 2000;
+export const NOTE_MAX = 4000;
+/** A decision as the partner/applicant sees it (no internal note). */
+export interface PublicDecision {
+  id: number;
+  action: string;
+  newState: string;
+  category: string | null;
+  categoryLabel: string | null;
+  explanation: string | null;
+  decidedAt: string;
+}
+export interface AdminDecision extends PublicDecision {
+  previousState: string | null;
+  actorEmail: string | null;
+  internalNote?: string | null;
+}
+export function fetchDecisionHistory(objectType: string, objectId: string): Promise<{ includesInternalNotes: boolean; decisions: AdminDecision[] }> {
+  return request(`/admin/decisions?objectType=${encodeURIComponent(objectType)}&objectId=${encodeURIComponent(objectId)}`);
+}
+/** D-02 — the signed-in admin's permissions (the server decides every request itself). */
+export function fetchAdminPermissions(): Promise<{ role: string | null; permissions: string[] }> {
+  return request(`/admin/permissions`);
+}
+
+export function setVendorStatus(id: string, status: "pending" | "approved" | "suspended", reason: DecisionReasonInput = {}): Promise<{ ok: boolean }> {
+  return request(`/admin/vendors/${id}/status`, { method: "PUT", body: JSON.stringify({ status, ...reason }) });
 }
 
 export function fetchAdminPendingListings(): Promise<{ centres: AdminListingSummary[]; clubs: AdminListingSummary[] }> {
@@ -176,11 +238,11 @@ export function fetchHostApplications(): Promise<HostApplication[]> {
   return request(`/admin/host-applications`);
 }
 
-export function setHostApplicationStatus(residentId: string, status: "verified" | "rejected"): Promise<{ ok: boolean }> {
-  return request(`/admin/host-applications/${residentId}/status`, { method: "PUT", body: JSON.stringify({ status }) });
+export function setHostApplicationStatus(residentId: string, status: "verified" | "rejected", reason: DecisionReasonInput = {}): Promise<{ ok: boolean }> {
+  return request(`/admin/host-applications/${residentId}/status`, { method: "PUT", body: JSON.stringify({ status, ...reason }) });
 }
 
-export function fetchAdminListings(): Promise<{ centres: AdminListingSummary[]; clubs: AdminListingSummary[] }> {
+export function fetchAdminListings(): Promise<{ centres: AdminListingSummary[]; clubs: AdminListingSummary[]; experiences?: AdminListingSummary[] }> {
   return request(`/admin/listings`);
 }
 
@@ -202,16 +264,23 @@ export function fetchClaims(): Promise<ClaimSummary[]> {
   return request(`/admin/claims`);
 }
 
-export function setClaimStatus(id: number, status: "approved" | "rejected"): Promise<{ ok: boolean }> {
-  return request(`/admin/claims/${id}/status`, { method: "PUT", body: JSON.stringify({ status }) });
+export function setClaimStatus(id: number, status: "approved" | "rejected", reason: DecisionReasonInput = {}): Promise<{ ok: boolean }> {
+  return request(`/admin/claims/${id}/status`, { method: "PUT", body: JSON.stringify({ status, ...reason }) });
 }
 
-export function setCentreStatus(id: string, status: string): Promise<Centre> {
-  return request(`/admin/centres/${id}/status`, { method: "PUT", body: JSON.stringify({ status }) });
+export function setCentreStatus(id: string, status: string, reason: DecisionReasonInput = {}): Promise<Centre> {
+  return request(`/admin/centres/${id}/status`, { method: "PUT", body: JSON.stringify({ status, ...reason }) });
 }
 
-export function setClubStatus(id: string, status: string): Promise<Club> {
-  return request(`/admin/clubs/${id}/status`, { method: "PUT", body: JSON.stringify({ status }) });
+export function setClubStatus(id: string, status: string, reason: DecisionReasonInput = {}): Promise<Club> {
+  return request(`/admin/clubs/${id}/status`, { method: "PUT", body: JSON.stringify({ status, ...reason }) });
+}
+
+/** Admin redesign (2026-10-14) — the server route has existed since the
+ * Experiences feature; the dashboard never called it, so pending
+ * experiences couldn't be decided from the UI (audit finding 1). */
+export function setExperienceStatus(id: string, status: "approved" | "rejected" | "pending" | "deleted", reason: DecisionReasonInput = {}): Promise<{ ok: boolean }> {
+  return request(`/admin/experiences/${encodeURIComponent(id)}/status`, { method: "PUT", body: JSON.stringify({ status, ...reason }) });
 }
 
 export function adminUpdateCentre(id: string, input: Partial<CentreInput>): Promise<Centre> {
@@ -360,8 +429,8 @@ export function fetchAdminPlaceSuggestions(all = false): Promise<PlaceSuggestion
   return request(`/admin/place-suggestions${all ? "?status=all" : ""}`);
 }
 
-export function setPlaceSuggestionStatus(id: string, status: "approved" | "rejected"): Promise<{ ok: boolean }> {
-  return request(`/admin/place-suggestions/${id}/status`, { method: "PUT", body: JSON.stringify({ status }) });
+export function setPlaceSuggestionStatus(id: string, status: "approved" | "rejected", reason: DecisionReasonInput = {}): Promise<{ ok: boolean }> {
+  return request(`/admin/place-suggestions/${id}/status`, { method: "PUT", body: JSON.stringify({ status, ...reason }) });
 }
 
 // --- Media (Cloudinary/R2 architecture pass) — usage visibility, the
@@ -462,6 +531,8 @@ export interface CommerceRuleKeySpec {
   key: string;
   label: string;
   description: string;
+  /** Where the rule actually takes effect today (server catalogue). */
+  appliesTo?: string;
   scopes: CommerceScopeType[];
   fields: Record<string, CommerceFieldSpec>;
   v1: Record<string, number | string>;
@@ -672,6 +743,25 @@ export function fetchSettlements(): Promise<{ id: number; runKey: string; partyT
   return request(`/admin/finance/settlements`);
 }
 
+/** One settlement with its line items (GET /admin/finance/settlements/:id — raw columns). */
+export interface SettlementDetail {
+  settlement: { id: number; run_id: number; party_type: string; party_id: string; currency: string; net_minor: number; status: string; ledger_group_id: string | null; transfer_id: string | null; paid_reference: string | null; created_at: string; updated_at: string };
+  items: { groupId: string; description: string; amountMinor: number }[];
+}
+export function fetchSettlement(id: number | string): Promise<SettlementDetail> {
+  return request(`/admin/finance/settlements/${encodeURIComponent(String(id))}`);
+}
+/** Payment records matching an order ref, payment intent or checkout session (GET /admin/finance/payments?ref=). */
+export interface PaymentRecordRow { id: number; source_type: string; source_ref: string; provider: string; checkout_session_id: string | null; payment_intent_id: string | null; amount_minor: number; currency: string; status: string; fee_estimate_minor: number | null; created_at: string; updated_at: string }
+export function fetchPaymentRecords(ref: string): Promise<PaymentRecordRow[]> {
+  return request(`/admin/finance/payments?ref=${encodeURIComponent(ref)}`);
+}
+/** An order's frozen allocation (who is owed what), 404 when none was frozen. */
+export interface OrderAllocation { snapshot: Record<string, unknown>; lines: { role: string; partyType: string | null; partyId: string | null; amountMinor: number }[]; releases: { partyType: string; partyId: string; releasedMinor: number; releasedAt: string }[] }
+export function fetchOrderAllocation(type: string, ref: string): Promise<OrderAllocation> {
+  return request(`/admin/finance/allocations/${encodeURIComponent(type)}/${encodeURIComponent(ref)}`);
+}
+
 export interface WebhookEventRow { id: number; provider: string; eventId: string; eventType: string; status: string; attempts: number; lastError: string | null; summary: Record<string, unknown>; receivedAt: string; processedAt: string | null }
 export function fetchWebhookEvents(status?: string): Promise<WebhookEventRow[]> {
   return request(`/admin/finance/webhooks${status ? `?status=${encodeURIComponent(status)}` : ""}`);
@@ -680,7 +770,45 @@ export function replayWebhookEvent(id: number, reason: string): Promise<{ ok: bo
   return request(`/admin/finance/webhooks/${id}/replay`, { method: "POST", body: JSON.stringify({ reason }) });
 }
 
-export interface RefundRow { id: number; source_type: string; source_ref: string; amount_minor: number; kind: string; origin: string; responsible: string; reason: string; status: string; created_at: string }
+// D-10 / D-11 — payment reviews (Finance → Payment reviews).
+export interface PaymentReviewOrder { status?: string | null; paymentStatus?: string; totalMinor?: number; reviewHoldUntil?: string | null; sessionId?: string | null; missing?: boolean }
+export interface PaymentReviewRow {
+  id: number;
+  checkoutSessionId: string;
+  sourceType: string | null;
+  sourceRef: string | null;
+  receivedMinor: number | null;
+  receivedCurrency: string | null;
+  reason: string;
+  holdStatus: string;
+  reviewHoldUntil: string | null;
+  urgency: string;
+  autoRefund: string;
+  status: string;
+  resolution: string | null;
+  flaggedAt: string;
+  order: PaymentReviewOrder | null;
+}
+export interface PaymentReviewDetail {
+  review: PaymentReviewRow & { paymentIntentId: string | null; chargeId: string | null; agreedMinor: number | null; agreedCurrency: string | null; providerPayment: string; detail: string | null; startAt: string | null; autoRefundNote: string | null; resolvedAt: string | null; resolvedBy: string | null; firstEventId: string | null; lastRecheckAt: string | null; lastRecheckOutcome: string | null };
+  order: PaymentReviewOrder | null;
+  payment: { id: number; amountMinor: number; currency: string; status: string; paymentIntentId: string | null; createdAt: string } | null;
+  refunds: { id: number; amountMinor: number; currency: string; kind: string; origin: string; status: string; providerRefundId: string | null; idempotencyKey: string; lastError: string | null; reason: string; createdAt: string; updatedAt: string }[];
+  events: { id: number; eventId: string; eventType: string; status: string; attempts: number; lastError: string | null; resolution: string | null; receivedAt: string; resolvedAt: string | null }[];
+  alerts: { kind: string; createdAt: string }[];
+}
+export interface RecheckResult { outcome: "closed" | "open"; reason: string; association: boolean; chargedMinor: number | null; succeededMinor: number; pendingMinor: number; failedMinor: number; disputed: boolean; recordedRefunds: number; updatedRefunds: number }
+export function fetchPaymentReviews(status: "open" | "resolved" | "all" = "open"): Promise<PaymentReviewRow[]> {
+  return request(`/admin/finance/payment-reviews?status=${status}`);
+}
+export function fetchPaymentReview(id: number | string): Promise<PaymentReviewDetail> {
+  return request(`/admin/finance/payment-reviews/${id}`);
+}
+export function recheckPaymentReview(id: number | string, reason: string): Promise<RecheckResult> {
+  return request(`/admin/finance/payment-reviews/${id}/recheck`, { method: "POST", body: JSON.stringify({ reason }) });
+}
+
+export interface RefundRow { id: number; source_type: string; source_ref: string; amount_minor: number; currency?: string; kind: string; origin: string; responsible: string; reason: string; status: string; provider_refund_id?: string | null; payment_record_id?: number | null; initiated_by?: string | null; created_at: string; updated_at?: string }
 export function fetchRefunds(): Promise<RefundRow[]> {
   return request(`/admin/finance/refunds`);
 }
@@ -688,7 +816,7 @@ export function issueAdminRefund(input: { sourceType: string; ref: string; amoun
   return request(`/admin/finance/refunds`, { method: "POST", body: JSON.stringify(input) });
 }
 
-export interface DisputeRow { id: number; provider_dispute_id: string; source_type: string | null; source_ref: string | null; amount_minor: number; reason: string; status: string; recovery_status: string; responsible: string | null; evidence_due_by: string | null }
+export interface DisputeRow { id: number; provider_dispute_id: string; source_type: string | null; source_ref: string | null; payment_intent_id?: string | null; amount_minor: number; currency?: string; reason: string; status: string; recovery_status: string; responsible: string | null; evidence_due_by: string | null; created_at?: string; updated_at?: string }
 export function fetchDisputes(): Promise<DisputeRow[]> {
   return request(`/admin/finance/disputes`);
 }
@@ -721,7 +849,7 @@ export function enrollInCampaign(id: number, input: { partnerKind: string; partn
   return request(`/admin/commerce/campaigns/${id}/enroll`, { method: "POST", body: JSON.stringify(input) });
 }
 
-export interface AdminAccount { id: string; email: string; name: string; adminRole: "super" | "finance" | "support" | "legal"; createdAt: string }
+export interface AdminAccount { id: string; email: string; name: string; adminRole: "super" | "finance" | "support" | "legal" | null; createdAt: string }
 export function fetchAdmins(): Promise<AdminAccount[]> {
   return request(`/admin/admins`);
 }
@@ -879,4 +1007,14 @@ export function fetchSubscriptions(): Promise<AdminSubscription[]> {
 }
 export function sweepSubscriptionsApi(): Promise<{ ended: number }> {
   return request(`/admin/finance/subscriptions/sweep`, { method: "POST", body: "{}" });
+}
+
+/** D-01 — one organisation: members, listings by status, upcoming obligations. */
+export function fetchAdminOrganisation(id: string): Promise<import("../types").AdminOrganisationRecord> {
+  return request(`/admin/organisations/${encodeURIComponent(id)}`);
+}
+
+/** D-01 — suspend (reason required) or reinstate (optional message) a whole organisation. Super only. */
+export function setOrganisationStatus(id: string, status: "suspended" | "active", reason: DecisionReasonInput = {}): Promise<{ ok: boolean; status: string; changed: boolean }> {
+  return request(`/admin/organisations/${encodeURIComponent(id)}/status`, { method: "PUT", body: JSON.stringify({ status, ...reason }) });
 }

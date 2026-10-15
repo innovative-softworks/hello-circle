@@ -184,6 +184,9 @@ export function Circles() {
   // ---- Data ----
   const [circles, setCircles] = useState<Circle[]>([]);
   const [allCircles, setAllCircles] = useState<Circle[]>([]); // aggregates for the lower sections
+  // Counts derived from allCircles are only shown once it has really loaded —
+  // a failed or pending request must never read as "0 Circles" (HC-QA-063).
+  const [aggregatesLoaded, setAggregatesLoaded] = useState(false);
   const [games, setGames] = useState<Game[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadFailed, setLoadFailed] = useState(false);
@@ -264,7 +267,10 @@ export function Circles() {
 
   useEffect(() => {
     fetchCircles()
-      .then((rows) => setAllCircles(rows.filter((c) => c.status === "active")))
+      .then((rows) => {
+        setAllCircles(rows.filter((c) => c.status === "active"));
+        setAggregatesLoaded(true);
+      })
       .catch(() => setAllCircles([]));
     const day = irelandDaysFromToday;
     fetchGamesPage({ dateFrom: day(0), dateTo: day(7), limit: 100 })
@@ -443,7 +449,7 @@ export function Circles() {
     quick.has("new") && { key: "new", label: "New Circles", clear: () => toggleQuick("new") },
   ].filter(Boolean) as { key: string; label: string; clear: () => void }[];
 
-  const resultCount = loading ? "Searching…" : `${sorted.length}${nextCursor && !stillLoading ? "+" : ""} Circle${sorted.length === 1 ? "" : "s"} ${county === "All" ? "across Ireland" : `in ${county}`}${stillLoading ? " · checking more…" : ""}`;
+  const resultCount = loading ? "Searching…" : loadFailed ? "Circles couldn't load" : `${sorted.length}${nextCursor && !stillLoading ? "+" : ""} Circle${sorted.length === 1 ? "" : "s"} ${county === "All" ? "across Ireland" : `in ${county}`}${stillLoading ? " · checking more…" : ""}`;
 
   // Hero stats — verified counts, one quiet line.
   const thisWeekGames = useMemo(() => games.filter((g) => daysUntil(g.date) <= 7 && daysUntil(g.date) >= 0), [games]);
@@ -889,7 +895,7 @@ export function Circles() {
                   <span>
                     <strong>All of Ireland</strong>
                     <small>
-                      {allCircles.length} Circle{allCircles.length === 1 ? "" : "s"} · Browse
+                      {aggregatesLoaded ? `${allCircles.length} Circle${allCircles.length === 1 ? "" : "s"} · Browse` : "Browse all"}
                     </small>
                   </span>
                   <span className="hx-round" aria-hidden="true">
@@ -1017,7 +1023,7 @@ export function Circles() {
                   scrollToResults();
                 }}
               >
-                Show {loading ? "" : `${sorted.length}${stillLoading ? "+" : ""} `}Circle{sorted.length === 1 ? "" : "s"}
+                Show {loading || loadFailed ? "" : `${sorted.length}${stillLoading ? "+" : ""} `}Circle{sorted.length === 1 && !loadFailed ? "" : "s"}
               </button>
             </div>
           </div>

@@ -30,7 +30,7 @@ let server: Server;
 let baseUrl: string;
 
 beforeAll(async () => {
-  await db.prepare(`INSERT INTO users (id, email, password_hash, role, status, name) VALUES (?, ?, 'x', 'admin', 'approved', 'A')`).run(adminId, `${adminId}@example.test`);
+  await db.prepare(`INSERT INTO users (id, email, password_hash, role, status, name, admin_role) VALUES (?, ?, 'x', 'admin', 'approved', 'A', 'super')`).run(adminId, `${adminId}@example.test`);
   await db.prepare(`INSERT INTO users (id, email, password_hash, role, status, name) VALUES (?, ?, 'x', 'vendor', 'approved', 'V')`).run(vendorId, `${vendorId}@example.test`);
   const insertExp = (id: string, method: string) =>
     db
@@ -49,7 +49,7 @@ beforeAll(async () => {
   app.use(express.json());
   app.use((req, _res, next) => {
     const role = req.header("X-Test-Role");
-    if (role === "admin") (req as any).user = { id: adminId, role: "admin", status: "approved" };
+    if (role === "admin") (req as any).user = { id: adminId, role: "admin", status: "approved", adminRole: "super" };
     if (role === "vendor") {
       (req as any).user = { id: vendorId, role: "vendor", status: "approved", invitedStaff: false };
       (req as any).vendorIds = [vendorId];

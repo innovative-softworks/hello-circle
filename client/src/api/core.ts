@@ -88,6 +88,16 @@ async function send(path: string, init?: RequestInit): Promise<Settled> {
   if (!res.ok) {
     const body = await res.json().catch(() => ({ error: res.statusText }));
     reportIfSessionExpired(path, res.status);
+    // D-01 / D-08: the organisation was suspended, or this member was removed,
+    // while the page was open — tell the app to re-read the session so it
+    // shows the matching read-only page instead of a broken workspace.
+    if (res.status === 403 && body && typeof body === "object" && ((body as Record<string, unknown>).orgSuspended || (body as Record<string, unknown>).removedFromOrg)) {
+      try {
+        window.dispatchEvent(new Event("hc:partner-access-changed"));
+      } catch {
+        /* not in a browser */
+      }
+    }
     return { ok: false, status: res.status, body };
   }
   return { ok: true, status: res.status, body: await res.json() };
