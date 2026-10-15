@@ -1,5 +1,5 @@
 import { BrandLogo } from "./BrandLogo";
-import { Fragment, useEffect, useId, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
+import { Fragment, useEffect, useId, useRef, useState, type ButtonHTMLAttributes, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { Link, useNavigate } from "react-router-dom";
 import { CheckIcon, CloseIcon, StarIcon } from "./icons";
@@ -91,7 +91,7 @@ type ButtonVariant = "primary" | "orange" | "dark" | "ghost" | "danger";
 
 // Design-system consistency pass: pill buttons; primary = brand orange with
 // forest text (white on #ff4b24 fails contrast), dark = forest night.
-const buttonBase: CSSProperties = {
+export const buttonBase: CSSProperties = {
   borderRadius: radius.pill,
   fontWeight: 700,
   fontSize: 14,
@@ -102,7 +102,7 @@ const buttonBase: CSSProperties = {
   gap: 6,
 };
 
-const buttonVariants: Record<ButtonVariant, CSSProperties> = {
+export const buttonVariants: Record<ButtonVariant, CSSProperties> = {
   primary: { background: colors.green, color: "#fff", border: "none" },
   orange: { background: colors.orange, color: "#fff", border: "none" },
   dark: { background: colors.dark, color: "#fff", border: "none" },
@@ -126,6 +126,7 @@ export function Button({
   style,
   type = "button",
   full,
+  ...aria
 }: {
   variant?: ButtonVariant;
   disabled?: boolean;
@@ -134,9 +135,11 @@ export function Button({
   style?: CSSProperties;
   type?: "button" | "submit";
   full?: boolean;
-}) {
+} & Pick<ButtonHTMLAttributes<HTMLButtonElement>, "aria-label" | "aria-describedby" | "aria-busy" | "aria-expanded" | "aria-controls" | "aria-pressed">) {
+  // aria-* used to be accepted by JSX but silently dropped here (2026-10-14).
   return (
     <button
+      {...aria}
       type={type}
       onClick={onClick}
       disabled={disabled}
@@ -292,7 +295,7 @@ export function StatusBadge({ status, label }: { status: string; label?: string 
       style={{
         background: s.bg,
         color: s.fg,
-        borderRadius: 16,
+        borderRadius: radius.card,
         padding: "3px 11px",
         fontSize: 12,
         fontWeight: 700,
@@ -526,7 +529,7 @@ export function Skeleton({
 /** Stands in for CentreCard/ClubCard while a listing grid loads. */
 export function CardSkeleton({ photoHeight = 140 }: { photoHeight?: number }) {
   return (
-    <div style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 16, overflow: "hidden" }}>
+    <div style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: radius.card, overflow: "hidden" }}>
       <Skeleton height={photoHeight} radius={0} />
       <div style={{ padding: "16px 18px 18px" }}>
         <Skeleton width={90} height={13} style={{ marginBottom: 12 }} />
@@ -558,7 +561,7 @@ export function ListingDetailSkeleton() {
           <Skeleton height={14} style={{ marginBottom: 8 }} />
           <Skeleton width="80%" height={14} />
         </div>
-        <div style={{ border: `1px solid ${colors.border}`, borderRadius: 16, padding: 22 }}>
+        <div style={{ border: `1px solid ${colors.border}`, borderRadius: radius.card, padding: 22 }}>
           <Skeleton width={100} height={13} style={{ marginBottom: 10 }} />
           <Skeleton width={120} height={30} style={{ marginBottom: 20 }} />
           <Skeleton height={46} radius={12} />
@@ -1070,7 +1073,7 @@ export const inputStyle: CSSProperties = {
   width: "100%",
   padding: "11px 13px",
   border: `1px solid ${colors.inputBorder}`,
-  borderRadius: 10,
+  borderRadius: radius.control,
   fontSize: 14,
   background: colors.surface,
   color: colors.text,
@@ -1108,32 +1111,11 @@ export const thStyle: CSSProperties = {
 export const tdStyle: CSSProperties = { padding: "10px", borderBottom: `1px solid ${colors.border}`, verticalAlign: "middle" };
 
 // --- Drawer --------------------------------------------------------------
-// Now reserved for phone-only edge panels (filter sheets, the tab bar's
-// Explore/Start menus) — everything else uses Modal below, a centred popup.
-// Generalizes PhotoGallery.tsx's Lightbox overlay mechanics (portal to
-// document.body, fixed scrim, Escape/backdrop-click to close) into a
-// reusable slide-over panel for entity detail views — the list behind it
-// stays visible/scrolled in place rather than being replaced or navigated
-// away from. z-index 300 is one level above the lightbox's existing 200 so
-// a drawer can never be hidden behind an open photo lightbox (they're not
-// expected to be open together, but this keeps the ordering unambiguous).
-
-function useIsMobile() {
-  const [mobile, setMobile] = useState(() => typeof window !== "undefined" && window.matchMedia("(max-width: 720px)").matches);
-  useEffect(() => {
-    const mq = window.matchMedia("(max-width: 720px)");
-    const on = () => setMobile(mq.matches);
-    mq.addEventListener("change", on);
-    return () => mq.removeEventListener("change", on);
-  }, []);
-  return mobile;
-}
-
-const DRAWER_EXIT_MS = 220;
-const SHEET_DISMISS_PX = 110;
-
-// Desktop: right-hand slide-over. Mobile (<=720px): bottom sheet with a
-// spring entrance and drag-down-to-dismiss. Both animate out before unmounting.
+/** Formerly a side/bottom sliding drawer. Task and record content no longer
+ * slides in from the side (UI completion 2026-10-14): every existing caller
+ * now gets the shared centred dialog (`Modal`), which keeps focus inside,
+ * restores focus, closes on Escape and scrolls within the viewport on small
+ * screens. Kept as a name so existing call sites keep working. */
 export function Drawer({
   open,
   onClose,
@@ -1145,192 +1127,21 @@ export function Drawer({
   onClose: () => void;
   title: string;
   children: ReactNode;
-  /** "wide" is for content that genuinely needs the room — a multi-field
-   * edit form — rather than a compact detail/actions view. */
+  /** "wide" for content that genuinely needs the room. */
   size?: "default" | "wide";
 }) {
-  const mobile = useIsMobile();
-  const [render, setRender] = useState(open);
-  const [closing, setClosing] = useState(false);
-  const panelRef = useRef<HTMLDivElement>(null);
-  const dragStartY = useRef<number | null>(null);
-  const titleId = useId();
-  // Dialog focus: move into the panel on open, return to the opener on close.
-  const openerRef = useRef<HTMLElement | null>(null);
-  useEffect(() => {
-    if (!open) return;
-    openerRef.current = document.activeElement as HTMLElement | null;
-    // Leave an autoFocus field inside the panel alone.
-    const t = window.setTimeout(() => {
-      if (!panelRef.current?.contains(document.activeElement)) panelRef.current?.focus();
-    }, 0);
-    return () => {
-      window.clearTimeout(t);
-      openerRef.current?.focus?.();
-    };
-  }, [open]);
-  const trapTab = (e: ReactKeyboardEvent<HTMLDivElement>) => {
-    if (e.key !== "Tab" || !panelRef.current) return;
-    const focusables = panelRef.current.querySelectorAll<HTMLElement>('a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])');
-    if (!focusables.length) return;
-    const first = focusables[0];
-    const last = focusables[focusables.length - 1];
-    if (e.shiftKey && (document.activeElement === first || document.activeElement === panelRef.current)) {
-      e.preventDefault();
-      last.focus();
-    } else if (!e.shiftKey && document.activeElement === last) {
-      e.preventDefault();
-      first.focus();
-    }
-  };
-
-  useEffect(() => {
-    if (open) {
-      setRender(true);
-      setClosing(false);
-      return;
-    }
-    if (!render) return;
-    setClosing(true);
-    const t = window.setTimeout(() => {
-      setRender(false);
-      setClosing(false);
-    }, DRAWER_EXIT_MS);
-    return () => window.clearTimeout(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open]);
-
-  useEffect(() => {
-    if (!open) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [open, onClose]);
-
-  if (!render) return null;
-
-  const onDragStart = (e: React.PointerEvent) => {
-    if (!mobile) return;
-    dragStartY.current = e.clientY;
-    e.currentTarget.setPointerCapture(e.pointerId);
-    if (panelRef.current) panelRef.current.style.transition = "none";
-  };
-  const onDragMove = (e: React.PointerEvent) => {
-    if (dragStartY.current === null || !panelRef.current) return;
-    const dy = Math.max(0, e.clientY - dragStartY.current);
-    panelRef.current.style.transform = `translateY(${dy}px)`;
-  };
-  const onDragEnd = (e: React.PointerEvent) => {
-    if (dragStartY.current === null || !panelRef.current) return;
-    const dy = Math.max(0, e.clientY - dragStartY.current);
-    dragStartY.current = null;
-    const panel = panelRef.current;
-    panel.style.transition = "transform .3s cubic-bezier(.34,1.56,.64,1)";
-    if (dy > SHEET_DISMISS_PX) {
-      panel.style.transform = "translateY(100%)";
-      onClose();
-    } else {
-      panel.style.transform = "";
-    }
-  };
-
-  const panelClass = mobile ? (closing ? "sheet-out" : "sheet-in") : closing ? "slide-out-right" : "slide-in-right";
-  const panelStyle: CSSProperties = mobile
-    ? {
-        position: "absolute",
-        left: 0,
-        right: 0,
-        bottom: 0,
-        maxHeight: "90vh",
-        background: colors.bg,
-        borderRadius: "20px 20px 0 0",
-        boxShadow: "0 -16px 40px rgba(20,22,20,.18)",
-        display: "flex",
-        flexDirection: "column",
-      }
-    : {
-        position: "absolute",
-        right: 0,
-        top: 0,
-        bottom: 0,
-        width: size === "wide" ? "min(680px, 94vw)" : "min(480px, 92vw)",
-        background: colors.bg,
-        boxShadow: "-16px 0 40px rgba(20,22,20,.18)",
-        display: "flex",
-        flexDirection: "column",
-      };
-
-  return createPortal(
-    <div
-      className={closing ? "backdrop-out" : "backdrop-in"}
-      style={{ position: "fixed", inset: 0, zIndex: zIndex.drawer, background: "rgba(20,22,20,.45)" }}
-      onClick={onClose}
-    >
-      <div ref={panelRef} role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1} onKeyDown={trapTab} className={panelClass} style={{ ...panelStyle, outline: "none" }} onClick={(e) => e.stopPropagation()}>
-        {mobile && (
-          <div
-            onPointerDown={onDragStart}
-            onPointerMove={onDragMove}
-            onPointerUp={onDragEnd}
-            onPointerCancel={onDragEnd}
-            style={{ flex: "none", padding: "10px 0 2px", cursor: "grab", touchAction: "none" }}
-            aria-hidden="true"
-          >
-            <div style={{ width: 40, height: 4, borderRadius: 4, background: colors.borderStrong, margin: "0 auto" }} />
-          </div>
-        )}
-        <div
-          onPointerDown={onDragStart}
-          onPointerMove={onDragMove}
-          onPointerUp={onDragEnd}
-          onPointerCancel={onDragEnd}
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            padding: "18px 22px",
-            borderBottom: `1px solid ${colors.border}`,
-            flex: "none",
-            touchAction: mobile ? "none" : undefined,
-          }}
-        >
-          <span id={titleId} style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 17 }}>{title}</span>
-          <button
-            onClick={onClose}
-            onPointerDown={(e) => e.stopPropagation()}
-            aria-label="Close"
-            style={{
-              background: colors.panel,
-              border: "none",
-              borderRadius: "50%",
-              width: 34,
-              height: 34,
-              color: colors.text,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              cursor: "pointer",
-              flex: "none",
-            }}
-          >
-            <CloseIcon size={16} />
-          </button>
-        </div>
-        <div style={{ flex: 1, overflowY: "auto", padding: "20px 22px" }}>{children}</div>
-      </div>
-    </div>,
-    document.body
+  return (
+    <Modal open={open} onClose={onClose} title={title} size={size}>
+      {children}
+    </Modal>
   );
 }
 
 // --- Modal ---------------------------------------------------------------
 // The default overlay for a focused task or detail view — a centred popup
 // (booking/enrol forms, share/invite, participant lists, check-in, admin
-// detail). Same props as Drawer, so switching between them is a one-word
-// change. Drawer is kept only for phone-only panels that belong at the edge
-// of the screen (filter sheets, the tab bar's menus). Same scrim, Escape and
+// detail). `Drawer` now renders this too — nothing slides in from the side
+// (UI completion 2026-10-14). Same scrim, Escape and
 // backdrop-click behaviour as Drawer; z-index matches Drawer's so a
 // ConfirmDialog (modal layer) still opens above it. On a phone it's the
 // same centred card with a 16px gutter, scrolling inside if it's tall.
@@ -1381,6 +1192,7 @@ export function useDialogFocus(open: boolean, panelRef: { current: HTMLElement |
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 }
+
 
 export function Modal({
   open,
@@ -1643,30 +1455,57 @@ export function ConfirmDialog({
   /** Extra content between the message and the action buttons — e.g. a
    * reason select for a destructive action that needs one (spec §56). */
   children?: ReactNode;
-  onConfirm: () => void;
+  /** May return a promise: the dialog then shows progress, blocks a second
+   * click (and Escape) until it settles, and stays open with the error if it
+   * rejects. Resolving to `false` also keeps it open (the caller reported the
+   * failure itself). Closing on success stays the caller's job. */
+  onConfirm: () => unknown;
   onCancel: () => void;
 }) {
   const panelRef = useRef<HTMLDivElement>(null);
   const titleId = useId();
   const messageId = useId();
+  const [pending, setPending] = useState(false);
+  const [failure, setFailure] = useState<string | null>(null);
+  useEffect(() => {
+    if (!open) {
+      setPending(false);
+      setFailure(null);
+    }
+  }, [open]);
+  const working = !!busy || pending;
+  const confirm = () => {
+    if (working) return;
+    setFailure(null);
+    const result = onConfirm();
+    if (result && typeof (result as Promise<unknown>).then === "function") {
+      setPending(true);
+      (result as Promise<unknown>)
+        .then(() => setPending(false))
+        .catch((e: unknown) => {
+          setPending(false);
+          setFailure(e instanceof Error && e.message ? e.message : "That didn't work. Nothing was changed — try again.");
+        });
+    }
+  };
   // HC-QA-069 — focus moves in (a field if present, else the least
   // destructive action), Tab stays inside, focus returns to the trigger.
   useDialogFocus(open, panelRef, { initial: () => panelRef.current?.querySelector<HTMLButtonElement>("[data-confirm-actions] button") ?? null });
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onCancel();
+      if (e.key === "Escape" && !working) onCancel();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [open, onCancel]);
+  }, [open, onCancel, working]);
 
   if (!open) return null;
 
   return createPortal(
     <div
       style={{ position: "fixed", inset: 0, zIndex: zIndex.modal, background: "rgba(20,22,20,.45)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}
-      onClick={onCancel}
+      onClick={() => !working && onCancel()}
     >
       <div
         ref={panelRef}
@@ -1677,18 +1516,24 @@ export function ConfirmDialog({
         aria-describedby={messageId}
         tabIndex={-1}
         className="modal-in"
-        style={{ background: colors.surface, borderRadius: radius.card, padding: 24, maxWidth: 380, width: "100%", boxShadow: "0 20px 60px rgba(20,22,20,.25)" }}
+        aria-busy={working || undefined}
+        style={{ background: colors.surface, borderRadius: radius.card, padding: 24, maxWidth: 440, width: "100%", maxHeight: "calc(100dvh - 40px)", overflowY: "auto", boxShadow: "0 20px 60px rgba(20,22,20,.25)" }}
         onClick={(e) => e.stopPropagation()}
       >
         <h3 id={titleId} style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 17, margin: "0 0 8px" }}>{title}</h3>
         <div id={messageId} style={{ fontSize: 14, color: colors.muted, lineHeight: 1.5, marginBottom: children ? 16 : 20 }}>{message}</div>
         {children && <div style={{ marginBottom: 20 }}>{children}</div>}
-        <div data-confirm-actions style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
-          <Button variant="ghost" onClick={onCancel} disabled={busy}>
+        {failure && (
+          <div role="alert" style={{ fontSize: 13.5, color: colors.danger, fontWeight: 600, margin: "-8px 0 16px" }}>
+            {failure}
+          </div>
+        )}
+        <div data-confirm-actions style={{ display: "flex", gap: 10, justifyContent: "flex-end", flexWrap: "wrap" }}>
+          <Button variant="ghost" onClick={onCancel} disabled={working}>
             {cancelLabel}
           </Button>
-          <Button variant="dark" onClick={onConfirm} disabled={busy || confirmDisabled} style={tone === "danger" ? { background: colors.dangerSolid } : undefined}>
-            {busy ? "…" : confirmLabel}
+          <Button variant="dark" onClick={confirm} disabled={working || confirmDisabled} aria-busy={working || undefined} style={tone === "danger" ? { background: colors.dangerSolid } : undefined}>
+            {working ? "Working…" : confirmLabel}
           </Button>
         </div>
       </div>
@@ -1878,19 +1723,18 @@ export function NavSidebar<T extends string>({
   if (!open) return null;
 
   return createPortal(
+    // Full-screen section menu (UI completion 2026-10-14: no side drawers).
     <div
       ref={panelRef}
-      className="slide-in-left"
+      role="dialog"
+      aria-modal="true"
+      aria-label={`${title} sections`}
       style={{
         position: "fixed",
-        left: 0,
-        top: 0,
-        bottom: 0,
+        inset: 0,
         zIndex: zIndex.drawer,
-        width: "min(240px, 80vw)",
+        width: "100%",
         background: colors.bg,
-        borderRight: `1px solid ${colors.border}`,
-        boxShadow: "16px 0 40px rgba(20,22,20,.12)",
         display: "flex",
         flexDirection: "column",
       }}
@@ -1907,6 +1751,7 @@ export function NavSidebar<T extends string>({
       >
         <span style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 15 }}>{title}</span>
         <button
+          autoFocus
           onClick={onClose}
           aria-label="Close menu"
           style={{

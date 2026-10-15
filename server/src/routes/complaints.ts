@@ -3,6 +3,7 @@ import { writeAudit } from "../audit.js";
 import { db } from "../db/index.js";
 import { simpleRateLimit } from "../rateLimit.js";
 import { isValidEmail } from "../util.js";
+import { requireAdminPermission } from "../adminPermissions.js";
 
 // Revenue & Connect Stage 4 — complaints, notices and appeals (DSA notice
 // and action + internal complaint handling). Anyone can submit; signed-in
@@ -66,7 +67,7 @@ complaintsRouter.get("/mine", async (req, res) => {
 
 export const adminComplaintsRouter = Router();
 
-adminComplaintsRouter.get("/", async (req, res) => {
+adminComplaintsRouter.get("/", requireAdminPermission("complaints.handle"), async (req, res) => {
   const status = typeof req.query.status === "string" && ["open", "in_review", "closed"].includes(req.query.status) ? req.query.status : null;
   res.json(
     await db
@@ -78,7 +79,7 @@ adminComplaintsRouter.get("/", async (req, res) => {
   );
 });
 
-adminComplaintsRouter.put("/:id", async (req, res) => {
+adminComplaintsRouter.put("/:id", requireAdminPermission("complaints.handle"), async (req, res) => {
   const { status, decision, statementOfReasons } = (req.body ?? {}) as { status?: string; decision?: string; statementOfReasons?: string };
   const id = Number(req.params.id);
   const row = (await db.prepare(`SELECT id, status, report_id as reportId, kind FROM complaints WHERE id = ?`).get(id)) as { id: number; status: string; reportId: number | null; kind: string } | undefined;

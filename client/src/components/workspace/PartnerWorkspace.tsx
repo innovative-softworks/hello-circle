@@ -1,0 +1,93 @@
+import type { ReactNode } from "react";
+import { useNavigate } from "react-router-dom";
+import { BarChart3, Building2, CalendarDays, ClipboardList, Compass, GraduationCap, LayoutDashboard, MessageSquare, Star, Tag, Users, Wallet } from "lucide-react";
+import type { AuthUser as AuthedUser } from "../../types";
+import { vendorTabVisible } from "../../vendorTabAccess";
+import { WorkspaceShell } from "./WorkspaceShell";
+
+// The partner (vendor) workspace: one navigation catalogue shared by the
+// dashboard (/vendor) and the full-page editors (/vendor/centres|clubs|
+// programs|experiences/:id), so the editors sit inside the same shell.
+
+export type VendorTab = "overview" | "listings" | "messages" | "bookings" | "earnings" | "programs" | "experiences" | "schedule" | "reviews" | "offers" | "demand" | "org";
+
+const I = { size: 18, strokeWidth: 1.9, "aria-hidden": true } as const;
+// Keys are unchanged so existing ?tab= links keep working.
+export const VENDOR_TABS: { key: VendorTab; label: string; icon: ReactNode; group: string; summary: string }[] = [
+  { key: "overview", label: "Overview", icon: <LayoutDashboard {...I} />, group: "Run", summary: "What needs doing next across your venues, clubs and activities." },
+  { key: "schedule", label: "Calendar", icon: <CalendarDays {...I} />, group: "Run", summary: "Everything booked or scheduled, by day." },
+  { key: "bookings", label: "Bookings", icon: <ClipboardList {...I} />, group: "Run", summary: "Hall bookings and club registrations: check-in, cancel, refund." },
+  { key: "messages", label: "Messages", icon: <MessageSquare {...I} />, group: "Run", summary: "Booking notifications, and messages to the people who booked." },
+  { key: "listings", label: "Listings", icon: <Building2 {...I} />, group: "Listings", summary: "Your community centres and sports clubs." },
+  { key: "programs", label: "Programmes", icon: <GraduationCap {...I} />, group: "Listings", summary: "Multi-week courses: sessions, enrolments and attendance." },
+  { key: "experiences", label: "Experiences", icon: <Compass {...I} />, group: "Listings", summary: "Bookable adventures and experiences, and their departures." },
+  { key: "earnings", label: "Earnings", icon: <Wallet {...I} />, group: "Business", summary: "Payments received, refunds and payout status." },
+  { key: "offers", label: "Offers", icon: <Tag {...I} />, group: "Business", summary: "Discount codes you fund for your own listings." },
+  { key: "reviews", label: "Reviews", icon: <Star {...I} />, group: "Business", summary: "What people say about your listings, and your public replies." },
+  { key: "demand", label: "Demand", icon: <BarChart3 {...I} />, group: "Business", summary: "What people nearby search for that isn't on offer yet." },
+  { key: "org", label: "Organisation", icon: <Users {...I} />, group: "Organisation", summary: "Profile, policies, staff and roles, trader details." },
+];
+export const VENDOR_TAB_KEYS = VENDOR_TABS.map((t) => t.key);
+
+export const STAFF_ROLE_LABEL: Record<string, string> = {
+  centre_manager: "Centre manager",
+  facility_manager: "Facility manager",
+  finance: "Finance",
+  communications: "Communications",
+  read_only_analyst: "Read-only analyst",
+};
+
+export function partnerAccountLine(user: Pick<AuthedUser, "invitedStaff" | "platformRole" | "businessName" | "name" | "email" | "providerTier">) {
+  const role = user.invitedStaff ? (STAFF_ROLE_LABEL[user.platformRole ?? ""] ?? "Staff") : "Owner";
+  return `${role} · ${user.businessName || user.name} · ${user.email}${user.providerTier !== "standard" ? " · Verified partner" : ""}`;
+}
+
+/** A page inside the partner workspace that isn't the dashboard itself (an
+ * editor). Navigating away goes through `guard` (unsaved-changes check). */
+export function PartnerWorkspace({
+  user,
+  active,
+  title,
+  subtitle,
+  crumbs,
+  actions,
+  guard,
+  children,
+}: {
+  user: AuthedUser;
+  active: VendorTab;
+  title: string;
+  subtitle?: ReactNode;
+  crumbs?: { label: string; onClick?: () => void }[];
+  actions?: ReactNode;
+  /** Wraps every navigation (e.g. the editor's unsaved-changes guard). */
+  guard?: (go: () => void) => void;
+  children: ReactNode;
+}) {
+  const navigate = useNavigate();
+  const go = (to: string) => (guard ? guard(() => navigate(to)) : navigate(to));
+  const items = VENDOR_TABS.filter((t) => vendorTabVisible(t.key, user));
+  const activeItem = VENDOR_TABS.find((t) => t.key === active)!;
+  return (
+    <WorkspaceShell
+      workspaceLabel="Partner workspace"
+      account={partnerAccountLine(user)}
+      externalLink={{ label: "View public profile", to: `/provider/${user.id}`, newTab: true }}
+      navItems={items}
+      active={active}
+      onNavigate={(k) => go(k === "overview" ? "/vendor" : `/vendor?tab=${k}`)}
+      title={title}
+      subtitle={subtitle}
+      crumbs={
+        crumbs ?? [
+          { label: "Partner workspace", onClick: () => go("/vendor") },
+          { label: activeItem.label, onClick: () => go(`/vendor?tab=${active}`) },
+          { label: title },
+        ]
+      }
+      actions={actions}
+    >
+      {children}
+    </WorkspaceShell>
+  );
+}

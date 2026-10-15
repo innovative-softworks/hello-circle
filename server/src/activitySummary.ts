@@ -1,3 +1,4 @@
+import { orgActiveSql } from "./orgSql.js";
 import { db } from "./db/index.js";
 import {
   ASSUMED_DURATION_MINUTES,
@@ -192,7 +193,7 @@ export async function listUpcomingExperienceSessionRows(opts: { county?: string;
        FROM experience_sessions es
        JOIN experiences e ON e.id = es.experience_id
        JOIN users u ON u.id = e.vendor_id
-       WHERE es.status = 'scheduled' AND e.status = 'approved' AND es.date >= ? AND es.date <= ?
+       WHERE es.status = 'scheduled' AND e.status = 'approved' AND ${orgActiveSql("e.vendor_id")} AND es.date >= ? AND es.date <= ?
        ${opts.county ? "AND e.county = ?" : ""}`
     )
     .all(...(opts.county ? [fromIso, toIso, opts.county] : [fromIso, toIso]))) as (ExperienceSessionRow & { experience_capacity: number })[];

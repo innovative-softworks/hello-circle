@@ -1,3 +1,4 @@
+import { assertCreatorStillMember } from "../orgStatus.js";
 import crypto from "node:crypto";
 import { refundOnProviderCancel } from "../providerCancelRefund.js";
 import { releaseCoupon, releaseRedemption } from "../bookingIntegrity.js";
@@ -195,6 +196,8 @@ vendorExperiencesRouter.post("/experiences", requirePlatformRole(...EXPERIENCE_R
   // or the column's own 'unknown' default (nothing supplied yet).
   const locationSource = b.lat !== undefined && b.lng !== undefined && b.lat !== null && b.lng !== null ? "confirmed" : undefined;
   await db.transaction(async (tx) => {
+    // D-08: refuse if the creator was removed from the organisation meanwhile.
+    await assertCreatorStillMember(tx, req.user!);
     await tx
       .prepare(
         `INSERT INTO experiences (id, vendor_id, kind, title, area, county, lat, lng, location_source, meeting_point, blurb, description,
@@ -336,12 +339,13 @@ vendorExperiencesRouter.post("/experiences/:id/publish", requirePlatformRole(...
     | { title: string; blurb: string; status: string }
     | undefined;
   if (!row) return res.status(404).json({ error: "Listing not found" });
-  if (row.status !== "draft") return res.status(400).json({ error: "This listing has already been submitted" });
+  if (row.status !== "draft" && row.status !== "rejected") return res.status(400).json({ error: "This listing has already been submitted" });
   const missing = [!row.title && "a title", !row.blurb && "a short blurb"].filter(Boolean) as string[];
   if (missing.length) {
     return res.status(400).json({ error: `This listing is missing ${missing.join(", ")} — go back and fill that in before publishing.` });
   }
   await db.prepare(`UPDATE experiences SET status = 'pending' WHERE id = ?`).run(req.params.id);
+  writeAudit({ actorUserId: req.user!.id, action: "experience.published", objectType: "experience", objectId: req.params.id, previousValue: { status: row.status }, newValue: { title: row.title } });
   res.json(await db.prepare(`SELECT id FROM experiences WHERE id = ?`).get(req.params.id));
 });
 

@@ -1,3 +1,4 @@
+import { unavailableListing } from "../orgStatus.js";
 import { Router } from "express";
 import { logView } from "../analytics.js";
 import { db } from "../db/index.js";
@@ -17,7 +18,12 @@ centresRouter.get("/", async (req, res) => {
 
 centresRouter.get("/:id", async (req, res) => {
   const centre = await getApprovedCentre(req.params.id);
-  if (!centre) return res.status(404).json({ error: "Centre not found" });
+  if (!centre) {
+    // D-01: a live listing of a suspended organisation shows an unavailable state.
+    const unavailable = await unavailableListing("centre", req.params.id);
+    if (unavailable) return res.json(unavailable);
+    return res.status(404).json({ error: "Centre not found" });
+  }
   logView("place_viewed", req, { kind: "centre", id: centre.id });
 
   // Venue-level Follow (Follow feature) — kept out of getApprovedCentre

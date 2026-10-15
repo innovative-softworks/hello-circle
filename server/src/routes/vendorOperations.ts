@@ -1,3 +1,4 @@
+import { MembershipChangedError, assertCreatorStillMember } from "../orgStatus.js";
 import { Router } from "express";
 import { activeLinkedGames } from "./bookings.js";
 import { cancelGameAndNotify } from "./games.js";
@@ -1025,7 +1026,10 @@ vendorOperationsRouter.post("/coupons", requirePlatformRole("finance"), async (r
   const limits = parseCouponLimits(req.body as Record<string, unknown>);
   if (!limits.ok) return res.status(400).json({ error: limits.error });
   try {
-    await db
+    await db.transaction(async (tx) => {
+    // D-08: refuse if the creator was removed from the organisation meanwhile.
+    await assertCreatorStillMember(tx, req.user!);
+    await tx
       .prepare(
         `INSERT INTO coupons (code, kind, amount, max_uses, expires_at, created_by_vendor_id, eligible_listing_type, eligible_listing_id,
                               funding, platform_share_bps, min_spend_cents, max_discount_cents, per_customer_limit, starts_at)
@@ -1033,8 +1037,10 @@ vendorOperationsRouter.post("/coupons", requirePlatformRole("finance"), async (r
       )
       .run(b.code.trim().toUpperCase(), b.kind, b.amount, b.maxUses ?? null, b.expiresAt ?? null, req.user!.id, b.eligibleListingType ?? null, b.eligibleListingId ?? null,
         limits.limits.minSpendCents, limits.limits.maxDiscountCents, limits.limits.perCustomerLimit, limits.limits.startsAt);
+    });
     res.status(201).json({ ok: true });
   } catch (e) {
+    if (e instanceof MembershipChangedError) return res.status(403).json({ error: e.message, removedFromOrg: true });
     res.status(409).json({ error: e instanceof Error && e.message.includes("Duplicate") ? "That code is already in use" : "Couldn't create the coupon" });
   }
 });

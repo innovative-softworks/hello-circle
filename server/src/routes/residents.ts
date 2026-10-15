@@ -24,6 +24,7 @@ import { googleAuthLimiter, magicLinkLimiter, passwordLoginLimiter } from "../ra
 import { CLIENT_URL } from "../stripe.js";
 import { TERMS_VERSION } from "../terms.js";
 import { BadRequestError, clientIdFrom } from "../util.js";
+import { latestPublicDecision } from "../moderationDecisions.js";
 
 export const residentsRouter = Router();
 
@@ -395,6 +396,8 @@ residentsRouter.get("/me", async (req, res) => {
       accessibilityPrefs: row.accessibilityPrefs ? JSON.parse(row.accessibilityPrefs) : [],
       searchRadiusKm: row.searchRadiusKm,
       hostStatus: row.hostStatus,
+      // D-03 — why a Verified Host application was declined (no internal note); null when none recorded.
+      hostDecision: row.hostStatus === "rejected" ? await latestPublicDecision("host_application", req.resident.id, ["host_application.rejected"]) : null,
       hostBio: row.hostBio ?? "",
       hostPhone: row.hostPhone,
       goals: row.goals ? row.goals.split(",").filter(Boolean) : [],

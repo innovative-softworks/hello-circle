@@ -1,3 +1,4 @@
+import { orgOfVendor } from "../orgStatus.js";
 import crypto from "node:crypto";
 import { matchClubSessionSupply } from "../participationIntents.js";
 import { Router } from "express";
@@ -60,7 +61,9 @@ clubSessionsRouter.get("/", async (req, res) => {
   // An empty schedule (same as an unknown id before this fix) — never a
   // signal that distinguishes "hidden" from "doesn't exist".
   if (!club) return res.json([]);
-  if (club.status !== "approved") {
+  // D-01: a suspended organisation's club schedule is hidden like a non-approved club's.
+  const clubOwner = (await db.prepare(`SELECT vendor_id FROM clubs WHERE id = ?`).get(clubId)) as { vendor_id: string | null } | undefined;
+  if (club.status !== "approved" || (await orgOfVendor(clubOwner?.vendor_id))?.status === "suspended") {
     const owner = req.user?.role === "vendor" && req.user.status === "approved" && (await ownsClub(await orgVendorIds(req.user), clubId));
     if (!owner) return res.json([]);
   }

@@ -151,13 +151,13 @@ export function MultiImageUpload({
               </div>
             )}
             {i === 0 ? (
-              <span style={{ position: "absolute", left: 5, bottom: 5, background: "rgba(20,22,20,.7)", color: "#fff", fontSize: 10, fontWeight: 700, borderRadius: 5, padding: "2px 6px", display: "inline-flex", alignItems: "center", gap: 3 }}>
+              <span style={{ position: "absolute", left: 5, bottom: 5, background: "rgba(20,22,20,.7)", color: "#fff", fontSize: 10, fontWeight: 700, borderRadius: radius.control, padding: "2px 6px", display: "inline-flex", alignItems: "center", gap: 3 }}>
                 <StarIcon size={9} /> Cover
               </span>
             ) : (
               <button
                 onClick={() => setCover(i)}
-                style={{ position: "absolute", left: 5, bottom: 5, background: "rgba(20,22,20,.7)", color: "#fff", fontSize: 10, fontWeight: 700, border: "none", borderRadius: 5, padding: "2px 6px", cursor: "pointer" }}
+                style={{ position: "absolute", left: 5, bottom: 5, background: "rgba(20,22,20,.7)", color: "#fff", fontSize: 10, fontWeight: 700, border: "none", borderRadius: radius.control, padding: "2px 6px", cursor: "pointer" }}
               >
                 Set as cover
               </button>

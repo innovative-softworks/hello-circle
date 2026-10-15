@@ -1,3 +1,4 @@
+import { offeringSellable } from "./orgStatus.js";
 import { db } from "./db/index.js";
 import { gameSeatSql } from "./bookingIntegrity.js";
 import { sendMail } from "./email.js";
@@ -62,6 +63,12 @@ export async function promoteNextWaitlistEntry(listingType: "club" | "game", lis
       // place, then offer only a spot that genuinely exists.
       await closeJoinedGameWaitlistEntries(listingId);
       if (!(await gameHasFreeSpot(listingId))) return;
+    }
+    // D-01: no offers for a club whose organisation can't sell right now; the
+    // queue is kept as it is and resumes after reinstatement.
+    if (listingType === "club") {
+      const club = (await db.prepare(`SELECT vendor_id FROM clubs WHERE id = ?`).get(listingId)) as { vendor_id: string | null } | undefined;
+      if (!(await offeringSellable(club?.vendor_id))) return;
     }
     const next = (await db
       .prepare(

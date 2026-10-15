@@ -1,3 +1,4 @@
+import { orgActiveSql } from "../orgSql.js";
 import { Router } from "express";
 import { db } from "../db/index.js";
 import { requireResident } from "../residents.js";
@@ -22,11 +23,11 @@ type NotificationLevel = (typeof LEVELS)[number];
 
 async function isFollowable(type: FollowedType, id: string): Promise<boolean> {
   if (type === "vendor") {
-    const row = await db.prepare(`SELECT id FROM users WHERE id = ? AND role = 'vendor' AND status = 'approved'`).get(id);
+    const row = await db.prepare(`SELECT id FROM users WHERE id = ? AND role = 'vendor' AND status = 'approved' AND ${orgActiveSql("users.id")}`).get(id);
     return !!row;
   }
   if (type === "centre") {
-    const row = await db.prepare(`SELECT id FROM centres WHERE id = ? AND status = 'approved'`).get(id);
+    const row = await db.prepare(`SELECT id FROM centres WHERE id = ? AND status = 'approved' AND ${orgActiveSql("vendor_id")}`).get(id);
     return !!row;
   }
   const row = await db.prepare(`SELECT id FROM residents WHERE id = ? AND host_status = 'verified'`).get(id);

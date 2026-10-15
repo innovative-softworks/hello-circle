@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
-import { googleLogin, login } from "../api";
+import { ApiError, googleLogin, login, type PublicDecision } from "../api";
+import { DecisionExplanation } from "../components/DecisionExplanation";
 import { useAuth } from "../AuthContext";
 import { safeReturnTo } from "../authRedirect";
 import { AuthEditorialHeader, AuthEditorialShell } from "../components/AuthEditorialShell";
@@ -38,6 +39,12 @@ export function Login() {
   const [error, setError] = useState<string | null>(null);
   const errorRef = useFocusOnError(error);
   const [submitting, setSubmitting] = useState(false);
+  // D-03 — a suspended partner who signed in correctly sees why (category +
+  // explanation; the server sends it only after the password or Google check).
+  const [suspension, setSuspension] = useState<{ decision: PublicDecision | null } | null>(null);
+  const noteSuspension = (e: unknown) => {
+    if (e instanceof ApiError && e.status === 403 && e.body.suspended) setSuspension({ decision: (e.body.decision as PublicDecision | null) ?? null });
+  };
   const { notice, trigger: triggerApple } = useOAuthNotice();
 
   const destinationFor = (role: "vendor" | "admin") => safeReturnTo(searchParams.get("returnTo"), role === "admin" ? "/admin" : "/vendor");
@@ -47,7 +54,11 @@ export function Login() {
   // for that Google account…") surfaced here the same way any other failed
   // login would be; see server/src/routes/auth.ts's POST /google.
   const { busy: googleBusy, error: googleError, trigger: triggerGoogle } = useGoogleSignIn(async (idToken) => {
-    const { user } = await googleLogin(idToken);
+    setSuspension(null);
+    const { user } = await googleLogin(idToken).catch((e) => {
+      noteSuspension(e);
+      throw e;
+    });
     await refresh();
     navigate(destinationFor(user.role));
   });
@@ -56,12 +67,14 @@ export function Login() {
     if (submitting || googleBusy) return;
     if (!email || !password) return;
     setError(null);
+    setSuspension(null);
     setSubmitting(true);
     try {
       const { user } = await login({ email, password });
       await refresh();
       navigate(destinationFor(user.role));
     } catch (e) {
+      noteSuspension(e);
       setError(e instanceof Error ? e.message : "Couldn't log in");
     } finally {
       setSubmitting(false);
@@ -144,6 +157,7 @@ export function Login() {
         </div>
 
         {error && <AuthFormError id="vendor-login-error" innerRef={errorRef} message={error} />}
+        {suspension && <DecisionExplanation decision={suspension.decision} />}
 
         <Button type="submit" variant="orange" full disabled={submitting || googleBusy || !email || !password}>
           {submitting ? "Logging in…" : "Sign in →"}

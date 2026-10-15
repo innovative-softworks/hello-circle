@@ -152,7 +152,7 @@ test("HC-QA-058: vendor approval sends exactly one approval email (retries and c
       expect(approvals[0].linkOrigins).toEqual([env.CLIENT_URL]);
       expect(approvals[0].tokenLink).toBe(false);
       // Suspending never emails "approved".
-      expect((await f.actors.QA_ADMIN.put(`/api/admin/vendors/${vendorId}/status`, { data: { status: "suspended" } })).status()).toBe(200);
+      expect((await f.actors.QA_ADMIN.put(`/api/admin/vendors/${vendorId}/status`, { data: { status: "suspended", reasonCategory: "other", explanation: "QA validation: suspension after approval." } })).status()).toBe(200);
       expect((await mailTo(request, email)).filter((m) => /approved/i.test(m.subject)).length).toBe(1);
       // Unknown vendor id still 404s.
       expect((await f.actors.QA_ADMIN.put(`/api/admin/vendors/${randomUUID()}/status`, { data: { status: "approved" } })).status()).toBe(404);

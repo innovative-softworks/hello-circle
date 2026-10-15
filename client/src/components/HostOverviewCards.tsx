@@ -3,7 +3,7 @@ import { deriveActivityStatus } from "../activityStatus";
 import { CalendarIcon, PinIcon } from "./icons";
 import { Photo } from "./Photo";
 import { Button, Card, ProgressBar } from "./ui";
-import { colors, fonts, placeholderStripes } from "../theme";
+import { colors, fonts, placeholderStripes, radius } from "../theme";
 import type { Game } from "../types";
 
 // Host Experience Polish — "Next Up" hero + "Upcoming activities" cards for
@@ -17,7 +17,7 @@ import type { Game } from "../types";
 
 function StatusBadge({ game }: { game: Game }) {
   const s = deriveActivityStatus(game);
-  return <span style={{ fontSize: 11, fontWeight: 700, color: s.fg, background: s.bg, borderRadius: 999, padding: "2px 8px", flex: "none" }}>{s.label}</span>;
+  return <span style={{ fontSize: 11, fontWeight: 700, color: s.fg, background: s.bg, borderRadius: radius.pill, padding: "2px 8px", flex: "none" }}>{s.label}</span>;
 }
 
 export function HostNextUpHero({ game, onManage }: { game: Game; onManage: () => void }) {

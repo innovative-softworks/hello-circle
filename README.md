@@ -110,13 +110,13 @@ Open the client URL printed in the terminal (usually **http://localhost:5173**).
 
 On first run, the server:
 - creates the schema on the configured MySQL database and seeds it with sample centres/clubs
-- seeds one admin account: `admin@hellocircle.ie` / `changeme123` (override via env vars — see below)
+- seeds one admin account: `itadmin@hellocircle.ie` / `changeme123` (override via env vars — see below)
 
 ### Test accounts
 
 | Role | Email | Password | Notes |
 |---|---|---|---|
-| Admin | `admin@hellocircle.ie` (or `HELLO_CIRCLE_ADMIN_EMAIL`) | `changeme123` (or `HELLO_CIRCLE_ADMIN_PASSWORD`) | Seeded automatically |
+| Admin | `itadmin@hellocircle.ie` (or `HELLO_CIRCLE_ADMIN_EMAIL`) | `changeme123` (or `HELLO_CIRCLE_ADMIN_PASSWORD`) | Seeded automatically |
 | Vendor | sign up at `/vendor/signup` | — | New vendors start `pending` until an admin approves them from the Admin dashboard |
 | User (guest) | — | — | No account needed — bookings/registrations are scoped by a random id in `localStorage` |
 
@@ -144,11 +144,14 @@ cp server/.env.example server/.env
 | `SMTP_USER` | no | SMTP auth username |
 | `SMTP_PASS` | no | SMTP auth password. **For Gmail/Google Workspace, this must be an [App Password](https://myaccount.google.com/apppasswords), not the account's normal login password** — SMTP auth is rejected otherwise once 2-Step Verification is on. |
 | `MAIL_FROM` | no (falls back to `SMTP_USER`) | The "from" address on outgoing mail |
-| `HELLO_CIRCLE_ADMIN_EMAIL` | no (default `admin@hellocircle.ie`) | Email of the auto-seeded admin account |
+| `HELLO_CIRCLE_ADMIN_EMAIL` | no (default `itadmin@hellocircle.ie`) | Email of the auto-seeded admin account |
 | `HELLO_CIRCLE_ADMIN_PASSWORD` | no (default `changeme123`) | Password of the auto-seeded admin account — **change this before any real deployment** |
 | `STRIPE_SECRET_KEY` | no (checkout returns 503 without it) | Stripe secret key — `sk_test_...` for test mode, `sk_live_...` for real charges |
 | `PAID_CHECKOUT` | no | Commercial release gate for paid customer checkout (`server/src/commerce/releaseGates.ts`). `open` allows it, `closed` refuses it (503). **Unset = closed when `NODE_ENV=production`**, open otherwise. Free, cash and €0 orders are unaffected. Paid bookings are NO-GO until the R3B decisions — leave unset or `closed` in production |
 | `STRIPE_WEBHOOK_SECRET` | no in dev, **required in production** (`NODE_ENV=production`) | Signing secret from the Stripe webhook endpoint (`whsec_...`) — without it in production, the webhook is refused rather than accepting unverified events |
+| `PAYMENT_REVIEW_WINDOW_HOURS` | no (default `24`) | D-10 review window W: a verified payment under review keeps its place until the earlier of flagging + W and the start − L. Applies to reviews opened after the change only (stored deadlines are never recomputed); `0` = new reviews hold no place. Not a rollback — see `docs/hellocircle-d10-d11-validation.md` §1a |
+| `PAYMENT_REVIEW_LEAD_HOURS` | no (default `2`) | D-10 lead time L before the start; a payment flagged later than start − L holds no place and is marked urgent |
+| `PAYMENT_REFUND_TIMEOUT_MS` | no (default `20000`) | How long an automatic (D-10) refund waits for Stripe's answer before recording the outcome as unknown for finance — it is never re-sent automatically |
 | `CLIENT_URL` | no (default `http://localhost:5173`) | Public origin used for Stripe Checkout success/cancel redirect URLs — must be the real deployed domain in production |
 | `PUBLIC_ORIGINS` (or `PUBLIC_ORIGIN`) | no (falls back to reflecting the request origin) | Comma-separated list of allowed CORS origins — **set this to the real deployed domain(s) in production**, since the fallback (reflecting any origin) is broader than a production deploy needs |
 | `TRUST_PROXY_HOPS` | no (default off) | Number of trusted reverse-proxy hops in front of the process — set this behind a load balancer/CDN so the rate limiter keys on the real client IP (`X-Forwarded-For`) instead of the proxy's |

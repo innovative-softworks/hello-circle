@@ -14,7 +14,10 @@ import {
   resendRegistrationConfirmation,
 } from "../api";
 import { AwardIcon, CalendarIcon, CheckIcon, SearchIcon } from "./icons";
-import { Avatar, Button, ConfirmDialog, EmptyState, ManageCard as Card, Modal, tableStyle, tdStyle, thStyle } from "./ui";
+import { Avatar, Button, ConfirmDialog, EmptyState, LoadErrorState, ManageCard as Card, tableStyle, tdStyle, thStyle } from "./ui";
+import { RecordState, RecordView } from "./workspace/RecordView";
+import { Facts, SectionLabel } from "./admin/adminUi";
+import { useRecordParam, useUrlParam } from "../useUrlTab";
 import { DemandSignalsView } from "./DemandSignals";
 import { VendorActionNeeded } from "./VendorActionNeeded";
 import { MonthCalendar } from "./MonthCalendar";
@@ -145,7 +148,7 @@ function filterPillStyle(active: boolean) {
     fontSize: 11.5,
     fontWeight: 700,
     padding: "4px 10px",
-    borderRadius: 999,
+    borderRadius: radius.pill,
     border: "none",
     cursor: "pointer",
     background: active ? colors.dark : colors.panel,
@@ -243,176 +246,216 @@ function TimelineStep({ label, achieved, time }: { label: string; achieved: bool
   );
 }
 
-function BookingDetailModal({ booking, onClose, onCancelled, onRefunded }: { booking: VendorBookingRow | null; onClose: () => void; onCancelled: (ref: string) => void; onRefunded: (ref: string) => void }) {
+/** Separate, labelled statuses for one hall booking — never one ambiguous badge. */
+function bookingStatusLabels(b: VendorBookingRow) {
+  const booking = b.status === "cancelled" ? { text: "Cancelled", tone: "danger" } : { text: "Confirmed", tone: "ok" };
+  const payment =
+    b.paymentStatus === "paid"
+      ? { text: b.hasStripePayment ? "Paid online" : "Paid", tone: "ok" }
+      : b.paymentStatus === "refunded"
+        ? { text: "Refunded", tone: "neutral" }
+        : b.paymentStatus === "pending"
+          ? { text: b.hasStripePayment ? "Awaiting online payment" : "Pay at venue", tone: "warn" }
+          : b.paymentStatus === "failed"
+            ? { text: "Payment failed", tone: "danger" }
+            : { text: b.paymentStatus, tone: "neutral" };
+  // A cancelled booking that was paid online and not refunded is waiting for its refund.
+  const refund = b.status === "cancelled" && b.paymentStatus === "paid" && b.hasStripePayment ? { text: "Refund pending", tone: "warn" } : null;
+  return { booking, payment, refund };
+}
+
+function StatusChip({ label, value }: { label: string; value: { text: string; tone: string } }) {
+  const style =
+    value.tone === "danger"
+      ? { color: colors.danger, background: colors.dangerBg }
+      : value.tone === "ok"
+        ? { color: colors.greenText, background: colors.greenBg }
+        : value.tone === "warn"
+          ? { color: colors.orangeDark, background: colors.orangeBg }
+          : { color: colors.text, background: colors.panel };
+  return (
+    <span style={{ display: "inline-flex", gap: 6, alignItems: "center", fontSize: 12.5 }}>
+      <span style={{ color: colors.mutedLight }}>{label}:</span>
+      <span style={{ ...style, fontWeight: 700, borderRadius: radius.pill, padding: "2px 8px" }}>{value.text}</span>
+    </span>
+  );
+}
+
+// Booking record page (was a modal). Addressed by `?record=booking:<ref>`, so
+// it can be shared and refreshed; "Back" returns to the filtered list.
+function BookingRecord({ booking, onBack, onCancelled, onRefunded }: { booking: VendorBookingRow; onBack: () => void; onCancelled: (ref: string) => void; onRefunded: (ref: string) => void }) {
   const [confirming, setConfirming] = useState(false);
   const [refundConfirming, setRefundConfirming] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [refundBusy, setRefundBusy] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [refundError, setRefundError] = useState<string | null>(null);
+  const [resendBusy, setResendBusy] = useState(false);
   const [resent, setResent] = useState(false);
   const [checkIn, setCheckIn] = useState<{ checkedIn: boolean; checkedInAt: string | null; cancelledAt: string | null } | null>(null);
+  const [checkInFailed, setCheckInFailed] = useState(false);
 
+  const loadCheckIn = () => {
+    setCheckInFailed(false);
+    fetchCheckInStatus("booking", booking.ref)
+      .then(setCheckIn)
+      .catch(() => setCheckInFailed(true));
+  };
   useEffect(() => {
     setResent(false);
     setCheckIn(null);
-    if (booking) fetchCheckInStatus("booking", booking.ref).then(setCheckIn).catch(() => setCheckIn(null));
-  }, [booking?.ref]);
+    loadCheckIn();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [booking.ref]);
 
+  // Throwing keeps the confirmation open with the message (ConfirmDialog).
   const handleCancel = async () => {
-    if (!booking) return;
-    setBusy(true);
-    setError(null);
-    try {
-      const result = await cancelVendorBooking(booking.ref);
-      setConfirming(false);
-      onCancelled(booking.ref);
-      // The cancellation stands either way; a failed refund waits under "Action needed".
-      if (result.refund === "failed") setError(`Cancelled, but the refund didn't go through (${result.refundError ?? "provider error"}). It's listed under Action needed.`);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Couldn't cancel this booking");
-    } finally {
-      setBusy(false);
-    }
+    const result = await cancelVendorBooking(booking.ref);
+    setConfirming(false);
+    onCancelled(booking.ref);
+    // The cancellation stands either way; a failed refund waits under "Action needed".
+    if (result.refund === "failed") setNotice(`Cancelled, but the refund didn't go through (${result.refundError ?? "provider error"}). It's listed under Action needed.`);
+    else setNotice(result.refund === "refunded" ? "Booking cancelled and refunded in full." : "Booking cancelled. The guest has been notified.");
   };
-
   const handleRefund = async () => {
-    if (!booking) return;
-    setRefundBusy(true);
-    setRefundError(null);
-    try {
-      await refundVendorBooking(booking.ref);
-      setRefundConfirming(false);
-      onRefunded(booking.ref);
-    } catch (e) {
-      setRefundError(e instanceof Error ? e.message : "Couldn't issue this refund");
-    } finally {
-      setRefundBusy(false);
-    }
+    await refundVendorBooking(booking.ref);
+    setRefundConfirming(false);
+    onRefunded(booking.ref);
+    setNotice("Refund issued.");
   };
-
   const handleResend = async () => {
-    if (!booking) return;
     setError(null);
+    setResendBusy(true);
     try {
       await resendBookingConfirmation(booking.ref);
       setResent(true);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Couldn't resend the confirmation");
+    } finally {
+      setResendBusy(false);
     }
   };
 
-  const row = (label: string, value: ReactNode) => (
-    <div style={{ display: "flex", justifyContent: "space-between", gap: 12, padding: "9px 0", borderBottom: `1px solid ${colors.border}`, fontSize: 13.5 }}>
-      <span style={{ color: colors.mutedLight }}>{label}</span>
-      <span style={{ fontWeight: 600, textAlign: "right" }}>{value}</span>
-    </div>
-  );
+  const st = bookingStatusLabels(booking);
+  const canRefund = booking.paymentStatus === "paid" && Boolean(booking.hasStripePayment);
+  const total = `€${(booking.totalCents / 100).toFixed(2)}`;
 
   return (
-    <Modal
-      open={!!booking}
-      onClose={onClose}
-      title={booking ? booking.name : "Booking detail"}
-      subtitle={booking ? `${dateLabel(booking.date)} · ${booking.time} · ${booking.ref}` : undefined}
-      footer={
-        booking && (booking.status !== "cancelled" || (booking.paymentStatus === "paid" && booking.hasStripePayment)) ? (
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
-            {booking.status !== "cancelled" ? (
-              <button
-                onClick={() => setConfirming(true)}
-                style={{ background: "none", border: "none", color: colors.danger, fontWeight: 700, fontSize: 13, cursor: "pointer", padding: 0 }}
-              >
-                Cancel booking
-              </button>
-            ) : (
-              <span />
-            )}
-            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-              {booking.paymentStatus === "paid" && booking.hasStripePayment && (
-                <Button variant="ghost" onClick={() => setRefundConfirming(true)}>
-                  Issue refund
-                </Button>
-              )}
-              {booking.status !== "cancelled" && (
-                <Button onClick={handleResend} disabled={resent}>
-                  {resent ? "Confirmation resent" : "Resend confirmation"}
-                </Button>
-              )}
-            </div>
-          </div>
-        ) : undefined
+    <RecordView
+      title={booking.name}
+      reference={
+        <>
+          Hall booking · {dateLabel(booking.date)} · {booking.time} · <span className="adm-mono">{booking.ref}</span>
+        </>
+      }
+      backLabel="Bookings"
+      onBack={onBack}
+      statuses={
+        <>
+          <StatusChip label="Booking" value={st.booking} />
+          <StatusChip label="Payment" value={st.payment} />
+          {st.refund && <StatusChip label="Refund" value={st.refund} />}
+          <StatusChip label="Check-in" value={checkIn?.checkedIn ? { text: "Checked in", tone: "ok" } : { text: checkInFailed ? "Unknown" : "Not checked in", tone: "neutral" }} />
+        </>
+      }
+      actions={
+        <>
+          {booking.status !== "cancelled" && (
+            <Button variant="ghost" onClick={handleResend} disabled={resent || resendBusy} aria-busy={resendBusy || undefined}>
+              {resent ? "Confirmation resent" : resendBusy ? "Sending…" : "Resend confirmation"}
+            </Button>
+          )}
+          {canRefund && (
+            <Button variant="ghost" onClick={() => setRefundConfirming(true)}>
+              Issue refund
+            </Button>
+          )}
+          {booking.status !== "cancelled" && (
+            <Button onClick={() => setConfirming(true)} style={{ background: colors.dangerSolid }}>
+              Cancel booking
+            </Button>
+          )}
+        </>
       }
     >
-      {booking && (
-        <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+      {notice && (
+        <p role="status" style={{ background: colors.panel, padding: "10px 12px", margin: "0 0 16px", fontSize: 13.5 }}>
+          {notice}
+        </p>
+      )}
+      {error && (
+        <p role="alert" style={{ color: colors.danger, fontSize: 13.5, margin: "0 0 16px" }}>
+          {error}
+        </p>
+      )}
+      <div className="adm-record-grid">
+        <div>
+          <SectionLabel>Booking</SectionLabel>
+          <Facts
+            rows={[
+              ["Venue", booking.centreName],
+              ["Room", booking.roomName ?? "—"],
+              ["Date and time", `${dateLabel(booking.date)} · ${booking.time}`],
+              ["Duration", `${booking.duration} hour${booking.duration === 1 ? "" : "s"}`],
+              ["Event type", booking.eventType || "—"],
+              ["Guests", String(booking.guests)],
+              ["Notes", booking.notes || "—"],
+            ]}
+          />
+          <SectionLabel>Payment</SectionLabel>
+          <Facts
+            rows={[
+              ["Total", total],
+              ["How it was paid", booking.hasStripePayment ? "Online (Stripe)" : "At the venue / free"],
+              ["Payment status", st.payment.text],
+              ["Refund", booking.paymentStatus === "refunded" ? "Refunded" : st.refund ? "Pending — cancelled after online payment" : "None"],
+            ]}
+          />
+          <p className="adm-note" style={{ marginTop: 6 }}>
+            Settlement and payout to your bank are shown under Earnings; they aren't tracked per booking.
+          </p>
+        </div>
+        <div>
+          <SectionLabel>Guest</SectionLabel>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
             <Avatar name={booking.name} size={36} />
-            <div style={{ display: "flex", flexDirection: "column", gap: 2, fontSize: 13 }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: 2, fontSize: 13.5 }}>
               <a href={`mailto:${booking.email}`} style={{ color: colors.text, fontWeight: 600 }}>{booking.email}</a>
               {booking.phone && <a href={`tel:${booking.phone}`} style={{ color: colors.mutedLight }}>{booking.phone}</a>}
             </div>
           </div>
-
-          <div>
-            <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: 0, textTransform: "uppercase", color: colors.mutedLight, marginBottom: 4 }}>Timeline</div>
-            <TimelineStep label="Booked" achieved time={booking.createdAt} />
-            <TimelineStep label="Payment received" achieved={booking.paymentStatus === "paid"} />
-            <TimelineStep label="Checked in" achieved={!!checkIn?.checkedIn} time={checkIn?.checkedInAt} />
-            {booking.status === "cancelled" && <TimelineStep label="Cancelled" achieved time={checkIn?.cancelledAt} />}
-          </div>
-
-          <div>
-            {row("Ref", booking.ref)}
-            {row("Centre", booking.centreName)}
-            {row("Room", booking.roomName ?? "—")}
-            {row("Date / time", `${dateLabel(booking.date)} · ${booking.time}`)}
-            {row("Duration", `${booking.duration}h`)}
-            {row("Event type", booking.eventType || "—")}
-            {row("Guests", booking.guests)}
-            {row("Notes", booking.notes || "—")}
-            {row("Total", `€${(booking.totalCents / 100).toFixed(2)}`)}
-            {row("Payment", booking.paymentStatus)}
-            {row(
-              "Status",
-              booking.status === "cancelled" ? (
-                <span style={{ fontSize: 11, fontWeight: 700, color: colors.danger, background: colors.dangerBg, borderRadius: radius.pill, padding: "2px 8px" }}>Cancelled</span>
-              ) : (
-                <span style={{ fontSize: 11, fontWeight: 700, color: colors.greenText, background: colors.greenBg, borderRadius: radius.pill, padding: "2px 8px" }}>Confirmed</span>
-              )
-            )}
-          </div>
-
-          {error && !confirming && (
-            <p role="alert" style={{ color: colors.danger, fontSize: 13, margin: 0 }}>
-              {error}
+          <SectionLabel>History</SectionLabel>
+          <TimelineStep label="Booked" achieved time={booking.createdAt} />
+          <TimelineStep label="Payment received" achieved={booking.paymentStatus === "paid" || booking.paymentStatus === "refunded"} />
+          <TimelineStep label="Checked in" achieved={!!checkIn?.checkedIn} time={checkIn?.checkedInAt} />
+          {booking.status === "cancelled" && <TimelineStep label="Cancelled" achieved time={checkIn?.cancelledAt} />}
+          {booking.paymentStatus === "refunded" && <TimelineStep label="Refunded" achieved />}
+          {checkInFailed && (
+            <p role="alert" style={{ fontSize: 13, color: colors.danger, margin: "8px 0 0" }}>
+              Couldn't load check-in history.{" "}
+              <button type="button" className="btn-reset" onClick={loadCheckIn} style={{ textDecoration: "underline", fontWeight: 600 }}>
+                Try again
+              </button>
             </p>
           )}
         </div>
-      )}
+      </div>
       <ConfirmDialog
         open={confirming}
-        title="Cancel this booking?"
-        message="The guest will be notified. If they paid online, they're refunded in full automatically."
-        confirmLabel={busy ? "Cancelling…" : "Cancel booking"}
-        busy={busy}
+        title={`Cancel ${booking.name}'s booking?`}
+        message={`${dateLabel(booking.date)} · ${booking.time} · ${booking.centreName}. The guest is notified. ${booking.hasStripePayment && booking.paymentStatus === "paid" ? `They paid ${total} online, so they're refunded in full automatically.` : "Nothing was paid online, so there's nothing to refund."}`}
+        confirmLabel="Cancel booking"
+        cancelLabel="Keep booking"
         onConfirm={handleCancel}
         onCancel={() => setConfirming(false)}
-      >
-        {error && <p style={{ color: colors.danger, fontSize: 13 }}>{error}</p>}
-      </ConfirmDialog>
+      />
       <ConfirmDialog
         open={refundConfirming}
-        title="Issue a refund?"
-        message={`This refunds ${booking ? `€${(booking.totalCents / 100).toFixed(2)}` : "the full amount"} to the guest via Stripe — this can't be undone.`}
-        confirmLabel={refundBusy ? "Refunding…" : "Issue refund"}
-        busy={refundBusy}
+        title={`Refund ${total} to ${booking.name}?`}
+        message="This refunds whatever is still refundable on this booking through Stripe. It can't be undone, and it doesn't cancel the booking."
+        confirmLabel="Issue refund"
         onConfirm={handleRefund}
         onCancel={() => setRefundConfirming(false)}
-      >
-        {refundError && <p style={{ color: colors.danger, fontSize: 13 }}>{refundError}</p>}
-      </ConfirmDialog>
-    </Modal>
+      />
+    </RecordView>
   );
 }
 
@@ -424,12 +467,17 @@ function BookingDetailModal({ booking, onClose, onCancelled, onRefunded }: { boo
 export function BookingsTab({ centreId, clubId }: { centreId?: string; clubId?: string } = {}) {
   const [bookings, setBookings] = useState<VendorBookingRow[]>([]);
   const [registrations, setRegistrations] = useState<(MyRegistration & { email: string; phone: string })[]>([]);
-  const [view, setView] = useState<"list" | "calendar">("list");
-  const [openRef, setOpenRef] = useState<string | null>(null);
+  const [view, setView] = useUrlParam<"list" | "calendar">("bview", "list");
+  // The open booking is a page addressed by the URL (`?record=booking:<ref>`).
+  const [record, openRecord, closeRecord] = useRecordParam();
+  const openRef = record?.startsWith("booking:") ? record.slice(8) : null;
+  const setOpenRef = (ref: string | null) => (ref ? openRecord(`booking:${ref}`) : closeRecord());
+  const [loaded, setLoaded] = useState({ bookings: false, registrations: false });
+  const [loadError, setLoadError] = useState<{ bookings: boolean; registrations: boolean }>({ bookings: false, registrations: false });
 
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
-  const [whenFilter, setWhenFilter] = useState<WhenFilter>("upcoming");
-  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useUrlParam<StatusFilter>("bstatus", "all");
+  const [whenFilter, setWhenFilter] = useUrlParam<WhenFilter>("bwhen", "upcoming");
+  const [search, setSearch] = useUrlParam<string>("bq", "");
 
   const [checkedInRefs, setCheckedInRefs] = useState<Set<string>>(new Set());
   const [noShowRefs, setNoShowRefs] = useState<Set<string>>(new Set());
@@ -460,17 +508,29 @@ export function BookingsTab({ centreId, clubId }: { centreId?: string; clubId?: 
     });
   };
 
-  useEffect(() => {
-    if (showBookings)
-      fetchVendorBookings(centreId).then((rows) => {
+  const loadBookings = () => {
+    setLoadError((e) => ({ ...e, bookings: false }));
+    fetchVendorBookings(centreId)
+      .then((rows) => {
         setBookings(rows);
         preloadAttendance("booking", rows);
-      });
-    if (showRegistrations)
-      fetchVendorRegistrations(clubId).then((rows) => {
+        setLoaded((l) => ({ ...l, bookings: true }));
+      })
+      .catch(() => setLoadError((e) => ({ ...e, bookings: true })));
+  };
+  const loadRegistrations = () => {
+    setLoadError((e) => ({ ...e, registrations: false }));
+    fetchVendorRegistrations(clubId)
+      .then((rows) => {
         setRegistrations(rows);
         preloadAttendance("registration", rows);
-      });
+        setLoaded((l) => ({ ...l, registrations: true }));
+      })
+      .catch(() => setLoadError((e) => ({ ...e, registrations: true })));
+  };
+  useEffect(() => {
+    if (showBookings) loadBookings();
+    if (showRegistrations) loadRegistrations();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [centreId, clubId]);
 
@@ -675,7 +735,7 @@ export function BookingsTab({ centreId, clubId }: { centreId?: string; clubId?: 
                 onNoShow={(ref) => markNoShow("registration", ref)}
               />
               <ResendConfirmationButton onResend={() => resendRegistrationConfirmation(r.ref).then(() => {})} />
-              {r.paymentStatus === "paid" && r.hasStripePayment && (
+              {r.paymentStatus === "paid" && Boolean(r.hasStripePayment) && (
                 <button
                   onClick={() => setRefundRegistrationRef(r.ref)}
                   style={{ fontSize: 11, fontWeight: 700, color: colors.muted, background: colors.panel, border: "none", borderRadius: radius.pill, padding: "3px 10px", cursor: "pointer" }}
@@ -696,6 +756,13 @@ export function BookingsTab({ centreId, clubId }: { centreId?: string; clubId?: 
     </Card>
   );
 
+  if (openRef) {
+    if (loadError.bookings && !loaded.bookings) return <RecordState state="error" backLabel="Bookings" onBack={closeRecord} onRetry={loadBookings} />;
+    if (!loaded.bookings) return <RecordState state="loading" backLabel="Bookings" onBack={closeRecord} />;
+    if (!openBooking) return <RecordState state="missing" backLabel="Bookings" onBack={closeRecord} message="It may belong to another organisation, or the reference is wrong." />;
+    return <BookingRecord booking={openBooking} onBack={closeRecord} onCancelled={handleCancelled} onRefunded={handleRefunded} />;
+  }
+
   return (
     <div className="fade-panel" style={{ display: "flex", flexDirection: "column", gap: 24 }}>
       {/* Booking UX Phase 6 — refunds and deposits still owed, across every order type (org-wide view only). */}
@@ -706,7 +773,7 @@ export function BookingsTab({ centreId, clubId }: { centreId?: string; clubId?: 
       {showBookings && (
       <Card>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
-          <h4 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 16, margin: 0 }}>Hall bookings</h4>
+          <h2 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 16, margin: 0 }}>Hall bookings</h2>
           <div style={{ display: "flex", gap: 6 }}>
             {(["list", "calendar"] as const).map((v) => (
               <button
@@ -722,7 +789,11 @@ export function BookingsTab({ centreId, clubId }: { centreId?: string; clubId?: 
             ))}
           </div>
         </div>
-        {filteredBookings.length === 0 ? (
+        {loadError.bookings ? (
+          <LoadErrorState title="Couldn't load hall bookings." onRetry={loadBookings} />
+        ) : !loaded.bookings ? (
+          <p role="status" aria-busy="true" style={{ fontSize: 13.5, color: colors.mutedLight }}>Loading bookings…</p>
+        ) : filteredBookings.length === 0 ? (
           <EmptyState icon={<CalendarIcon size={26} />} title={bookings.length === 0 ? "No bookings yet" : "No bookings match these filters"} />
         ) : view === "calendar" ? (
           <MonthCalendar items={filteredBookings.map((b) => ({ date: b.date, el: bookingRow(b) }))} />
@@ -794,11 +865,14 @@ export function BookingsTab({ centreId, clubId }: { centreId?: string; clubId?: 
         )}
       </Card>
       )}
-      {showBookings && <BookingDetailModal booking={openBooking} onClose={() => setOpenRef(null)} onCancelled={handleCancelled} onRefunded={handleRefunded} />}
       {showRegistrations && (
       <Card>
-        <h4 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 16, margin: "0 0 14px" }}>Club registrations</h4>
-        {filteredRegistrations.length === 0 ? (
+        <h2 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 16, margin: "0 0 14px" }}>Club registrations</h2>
+        {loadError.registrations ? (
+          <LoadErrorState title="Couldn't load club registrations." onRetry={loadRegistrations} />
+        ) : !loaded.registrations ? (
+          <p role="status" aria-busy="true" style={{ fontSize: 13.5, color: colors.mutedLight }}>Loading registrations…</p>
+        ) : filteredRegistrations.length === 0 ? (
           <EmptyState icon={<AwardIcon size={26} />} title={registrations.length === 0 ? "No registrations yet" : "No registrations match these filters"} />
         ) : (
           <>
@@ -861,7 +935,7 @@ export function BookingsTab({ centreId, clubId }: { centreId?: string; clubId?: 
                         {r.status !== "cancelled" && (
                           <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
                             <ResendConfirmationButton onResend={() => resendRegistrationConfirmation(r.ref).then(() => {})} />
-                            {r.paymentStatus === "paid" && r.hasStripePayment && (
+                            {r.paymentStatus === "paid" && Boolean(r.hasStripePayment) && (
                               <button
                                 onClick={() => setRefundRegistrationRef(r.ref)}
                                 style={{ fontSize: 11, fontWeight: 700, color: colors.muted, background: colors.panel, border: "none", borderRadius: radius.pill, padding: "3px 10px", cursor: "pointer" }}

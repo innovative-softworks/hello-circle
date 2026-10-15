@@ -2464,11 +2464,52 @@ async function initCommerceSchema(
   // and a retired state (statuses are strings; only reviewed_by is new).
   await ensureColumn("commerce_rule_versions", "reviewed_by", "reviewed_by VARCHAR(191) NULL");
 
-  // Admin sub-roles (risk P1-1): super | finance | support | legal. Existing
-  // admins become super so nobody loses access on upgrade.
+  // Admin sub-roles (risk P1-1): super | finance | support | legal. Admins
+  // that existed before roles become super so nobody loses access on upgrade.
+  // D-02: this upgrade backfill runs ONCE per database (marker in
+  // app_settings), not on every boot. A role-less admin is denied everything
+  // (deny by default), and a restart must not quietly make them super.
   await ensureColumn("users", "admin_role", "admin_role VARCHAR(20) NULL");
-  await db.exec(`UPDATE users SET admin_role = 'super' WHERE role = 'admin' AND admin_role IS NULL`);
+  // Exactly the admin rows with no role at that first run are promoted (the
+  // admins who already had full access before roles existed), each recorded
+  // in the audit log as a system action so the promotion is traceable.
+  if (!(await db.prepare("SELECT 1 AS done FROM app_settings WHERE `key` = 'migration.admin_role_backfill'").get())) {
+    const legacy = (await db.prepare(`SELECT id FROM users WHERE role = 'admin' AND admin_role IS NULL`).all()) as { id: string }[];
+    for (const { id } of legacy) {
+      const info = await db.prepare(`UPDATE users SET admin_role = 'super' WHERE id = ? AND role = 'admin' AND admin_role IS NULL`).run(id);
+      if (info.changes === 1) {
+        await db
+          .prepare(
+            `INSERT INTO audit_log (actor_user_id, actor_kind, action, object_type, object_id, previous_value, new_value, reason)
+             VALUES (NULL, 'system', 'admin.role_backfilled', 'user', ?, '{"adminRole":null}', '{"adminRole":"super"}', 'One-time upgrade: admin account created before admin roles existed (D-02)')`
+          )
+          .run(id);
+      }
+    }
+    await db.prepare("INSERT IGNORE INTO app_settings (`key`, value) VALUES ('migration.admin_role_backfill', 'done')").run();
+  }
   await ensureColumn("audit_log", "actor_role", "actor_role VARCHAR(30) NULL");
+
+  // D-01 — organisation suspension (approved for local implementation
+  // 2026-10-15). An organisation's own status, separate from any member's
+  // account status. Every existing organisation is 'active' (the column
+  // default); nothing is converted from per-user suspensions.
+  // Listing statuses are never changed by an organisation suspension: public
+  // reads and every sale path check the owning organisation instead (see
+  // orgStatus.ts), so reinstatement restores exactly what was there.
+  await ensureColumn("organisations", "status", "status VARCHAR(20) NOT NULL DEFAULT 'active'");
+  await ensureColumn("organisations", "status_changed_at", "status_changed_at DATETIME NULL");
+  await ensureColumn("organisations", "status_decision_id", "status_decision_id INT NULL");
+
+  // D-08 — stale-screen protection for owner staff changes: a role change or
+  // removal must quote the member's current row_version (409 otherwise).
+  await ensureColumn("users", "row_version", "row_version INT NOT NULL DEFAULT 0");
+
+  // D-08 — when a removed member's listings move to the organisation owner
+  // (ownership follows membership: listing.vendor_id → users.org_id), the
+  // person who created them is kept here. NULL = the vendor_id is still the
+  // original creator.
+  for (const t of ["centres", "clubs", "experiences", "programs"]) await ensureColumn(t, "created_by_user_id", "created_by_user_id VARCHAR(191) NULL");
 
   // Plans: identity + availability only; prices, fees and entitlements are
   // versioned rules (plan_free / plan_pro / entitlements_*).
@@ -3506,6 +3547,46 @@ async function initCommerceSchema(
   await ensureColumn("connected_accounts", "requirements_past_due", "requirements_past_due TEXT NULL");
   await ensureColumn("connected_accounts", "requirements_pending", "requirements_pending TEXT NULL");
   await ensureColumn("connected_accounts", "onboarding_completed_at", "onboarding_completed_at DATETIME NULL");
+  // UI completion 2026-10-14 — first time the partner came back from Stripe's
+  // hosted onboarding (return_url). Stripe computes requirements lazily, so a
+  // never-submitted account can look like "nothing outstanding"; this is the
+  // evidence that the partner actually went through the form.
+  await ensureColumn("connected_accounts", "onboarding_returned_at", "onboarding_returned_at DATETIME NULL");
+  // Webhook reconciliation — what each Checkout session was created to charge
+  // (payments/checkoutAgreement.ts). Additive; sessions created before this
+  // existed fall back to the order row's stored session id.
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS checkout_agreements (
+      session_id VARCHAR(255) PRIMARY KEY,
+      source_type VARCHAR(20) NOT NULL,
+      source_ref VARCHAR(191) NOT NULL,
+      amount_minor BIGINT NOT NULL,
+      currency CHAR(3) NOT NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      KEY idx_checkout_agreement_source (source_type, source_ref)
+    )
+  `);
+  // D-03 (2026-10-14) — moderation decision history: one append-only row per
+  // listing / partner / claim / host-application / place-suggestion decision.
+  // explanation is shown to the affected partner or applicant; internal_note
+  // never is (moderationDecisions.ts). TEXT columns carry no DEFAULT (MySQL
+  // rejects TEXT defaults). Older decisions have no row: "No reason recorded".
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS moderation_decisions (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      object_type VARCHAR(30) NOT NULL,
+      object_id VARCHAR(191) NOT NULL,
+      action VARCHAR(40) NOT NULL,
+      previous_state VARCHAR(30) NULL,
+      new_state VARCHAR(30) NOT NULL,
+      reason_category VARCHAR(40) NULL,
+      explanation TEXT NULL,
+      internal_note TEXT NULL,
+      actor_user_id VARCHAR(191) NOT NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      KEY idx_moderation_decision_object (object_type, object_id, id)
+    )
+  `);
   await ensureColumn("connected_accounts", "last_synced_at", "last_synced_at DATETIME(3) NULL");
   await ensureColumn("connected_accounts", "last_event_id", "last_event_id VARCHAR(255) NULL");
   await ensureColumn("connected_accounts", "last_event_created_at", "last_event_created_at DATETIME NULL");
@@ -3779,6 +3860,105 @@ async function initCommerceSchema(
   await ensureIndex("experience_bookings", "idx_exp_bookings_session", "(session_id)");
   await ensureIndex("experience_bookings", "idx_exp_bookings_experience", "(experience_id)");
   await ensureIndex("games", "idx_games_booking_ref", "(booking_ref)");
+
+  // D-10 / D-11 (2026-10-15) — paid orders under review. One payment_reviews
+  // row per Checkout session whose verified payment couldn't simply be
+  // confirmed: it is the durable record that the money was received, kept
+  // apart from the order's own status (booking), its capacity hold and the
+  // review itself (payments/paymentReview.ts). review_hold_until on the order
+  // tables is the D-10 deadline that keeps the place (occupiesCapacitySql /
+  // gameSeatSql); it is set once and only ever shortened. Alerts are recorded
+  // once per (review, kind) so sweeps, retries and restarts can't repeat them.
+  // TEXT columns carry no DEFAULT (MySQL rejects TEXT defaults).
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS payment_reviews (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      checkout_session_id VARCHAR(255) NOT NULL,
+      source_type VARCHAR(20) NULL,
+      source_ref VARCHAR(191) NULL,
+      payment_intent_id VARCHAR(255) NULL,
+      charge_id VARCHAR(255) NULL,
+      received_minor BIGINT NULL,
+      received_currency CHAR(3) NULL,
+      agreed_minor BIGINT NULL,
+      agreed_currency CHAR(3) NULL,
+      provider_payment VARCHAR(20) NOT NULL DEFAULT 'verified_paid',
+      reason VARCHAR(40) NOT NULL,
+      detail VARCHAR(500) NULL,
+      hold_status VARCHAR(20) NOT NULL DEFAULT 'none',
+      review_hold_until DATETIME NULL,
+      start_at DATETIME NULL,
+      urgency VARCHAR(20) NOT NULL DEFAULT 'none',
+      auto_refund VARCHAR(20) NOT NULL DEFAULT 'not_applicable',
+      auto_refund_note VARCHAR(255) NULL,
+      status VARCHAR(20) NOT NULL DEFAULT 'open',
+      resolution VARCHAR(40) NULL,
+      resolved_at DATETIME NULL,
+      resolved_by VARCHAR(191) NULL,
+      first_event_id VARCHAR(255) NULL,
+      last_recheck_at DATETIME NULL,
+      last_recheck_outcome VARCHAR(500) NULL,
+      recheck_claim VARCHAR(64) NULL,
+      recheck_claimed_at DATETIME NULL,
+      flagged_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      UNIQUE KEY uq_payment_review_session (checkout_session_id),
+      KEY idx_payment_review_source (source_type, source_ref),
+      KEY idx_payment_review_hold (hold_status, review_hold_until),
+      KEY idx_payment_review_status (status, flagged_at),
+      KEY idx_payment_review_pi (payment_intent_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS payment_review_alerts (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      review_id INT NOT NULL,
+      kind VARCHAR(30) NOT NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE KEY uq_payment_review_alert (review_id, kind)
+    );
+  `);
+  for (const t of ["bookings", "registrations", "program_enrollments", "experience_bookings", "game_participants"]) {
+    await ensureColumn(t, "review_hold_until", "review_hold_until DATETIME NULL");
+    await ensureIndex(t, `idx_${t}_review_hold`, "(review_hold_until)");
+  }
+  await ensureColumn("webhook_events", "resolved_at", "resolved_at DATETIME NULL");
+  await ensureColumn("webhook_events", "resolution", "resolution VARCHAR(255) NULL");
+  await ensureColumn("refunds", "last_error", "last_error VARCHAR(500) NULL");
+  await db.exec(`
+    INSERT IGNORE INTO ledger_accounts (code, name, account_type) VALUES
+      ('unapplied_receipts', 'Customer payments received but not applied to an order (under review)', 'liability')
+  `);
+
+  // Settlement fix (2026-10-15) — a ledger group can carry partner_available
+  // lines for two parties (a split venue/host booking refunded or disputed
+  // after completion). Settlement items were unique per ledger group, so only
+  // the first party's share could ever be settled: the second either failed
+  // the run (same run, duplicate key) or was silently left out of every later
+  // settlement. Items are now unique per (ledger group, party). Forward-only:
+  // existing items are backfilled from their settlement's party; a share that
+  // was left out becomes available to the next settlement run.
+  await ensureColumn("settlement_items", "party_type", "party_type VARCHAR(10) NULL");
+  await ensureColumn("settlement_items", "party_id", "party_id VARCHAR(191) NULL");
+  await db.prepare(`UPDATE settlement_items i JOIN settlements s ON s.id = i.settlement_id SET i.party_type = s.party_type, i.party_id = s.party_id WHERE i.party_type IS NULL`).run();
+  const itemIndex = async (name: string) =>
+    ((await db.prepare(`SELECT 1 FROM INFORMATION_SCHEMA.STATISTICS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'settlement_items' AND INDEX_NAME = ? LIMIT 1`).all(name)) as unknown[]).length > 0;
+  if (!(await itemIndex("uniq_settlement_item_party"))) {
+    try {
+      await db.exec(`CREATE UNIQUE INDEX uniq_settlement_item_party ON settlement_items (ledger_group_id, party_type, party_id)`);
+    } catch (e) {
+      if ((e as { code?: string }).code !== "ER_DUP_KEYNAME") throw e;
+    }
+  }
+  if (await itemIndex("uniq_settlement_item_group")) {
+    try {
+      await db.exec(`ALTER TABLE settlement_items DROP INDEX uniq_settlement_item_group`);
+    } catch (e) {
+      if ((e as { code?: string }).code !== "ER_CANT_DROP_FIELD_OR_KEY") throw e;
+    }
+  }
+  // A settlement run that throws is marked failed with the step and a scrubbed error (was left "running").
+  await ensureColumn("settlement_runs", "failed_step", "failed_step VARCHAR(120) NULL");
+  await ensureColumn("settlement_runs", "failure", "failure VARCHAR(500) NULL");
 }
 
 export const COUNTY_CENTROIDS: Record<string, { lat: number; lng: number }> = {

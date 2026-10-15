@@ -3,7 +3,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { Router } from "express";
 import multer from "multer";
-import { requireVendorOrAdmin } from "../auth.js";
+import { orgSuspended, removedStaff, requireVendorOrAdmin } from "../auth.js";
+import { adminCan } from "../adminPermissions.js";
 import { dataDir } from "../dataDir.js";
 import { verifyStoredImage } from "../localUploads.js";
 
@@ -41,7 +42,19 @@ const upload = multer({
   },
 });
 
-uploadsRouter.post("/", requireVendorOrAdmin, upload.single("file"), (req, res) => {
+// D-02 — an admin uploads images only as part of editing listing content or
+// the editorial library, so it needs one of those permissions; an admin with
+// no role or an unknown role is refused before any file is written.
+function adminMayUpload(req: import("express").Request, res: import("express").Response, next: import("express").NextFunction) {
+  if (req.user?.role === "admin" && !adminCan(req.user, "listings.edit") && !adminCan(req.user, "media.editorial")) {
+    return res.status(403).json({ error: "Not included in your admin role" });
+  }
+  // D-01 / D-08: no partner uploads while the organisation is suspended or after removal from it.
+  if (orgSuspended(req.user) || removedStaff(req.user)) return res.status(403).json({ error: "Not available for your account right now" });
+  next();
+}
+
+uploadsRouter.post("/", requireVendorOrAdmin, adminMayUpload, upload.single("file"), (req, res) => {
   if (!req.file) return res.status(400).json({ error: "No file uploaded" });
   // HC-QA-062 adjacent — the declared Content-Type alone isn't proof; the
   // file's own bytes must be the image type it claims to be.

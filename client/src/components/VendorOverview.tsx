@@ -29,7 +29,7 @@ function TipsPanel() {
           <div style={{ width: 34, height: 34, borderRadius: radius.control, background: "#FFF3D6", color: "#9A6B00", display: "flex", alignItems: "center", justifyContent: "center", flex: "none" }}>
             <LightbulbIcon size={17} />
           </div>
-          <h3 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 16, margin: 0 }}>Tips to get more bookings</h3>
+          <h2 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 16, margin: 0 }}>Tips to get more bookings</h2>
         </div>
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
           {TIPS.map((t) => (
@@ -99,7 +99,7 @@ export function VendorOverviewTab({
           <VendorNextUpHero item={nextItem} onManage={() => onNavigateTab(manageTargetFor(nextItem))} />
           {restItems.length > 0 && (
             <div>
-              <h3 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 15, margin: "0 0 10px" }}>Coming up</h3>
+              <h2 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 15, margin: "0 0 10px" }}>Coming up</h2>
               <VendorUpcomingList items={restItems.slice(0, 8)} onManage={(item) => onNavigateTab(manageTargetFor(item))} />
             </div>
           )}
@@ -127,12 +127,18 @@ export function VendorOverviewTab({
           <KpiHero icon={<CalendarIcon size={19} />} value={stats.totalBookings} label="Total bookings" sublabel="All time" sublabelColor={colors.mutedLight} />
         }
       >
-        <StatTile icon={<BuildingIcon size={19} />} value={stats.centresLive} label="Community centres" sublabel={VENUE_PAGES_PUBLIC ? "Live listings" : "Approved · not public yet"} sublabelColor={colors.greenText} />
-        <StatTile icon={<BallIcon size={19} />} value={stats.clubsLive} label="Sports clubs" sublabel={VENUE_PAGES_PUBLIC ? "Live listings" : "Approved · not public yet"} sublabelColor={colors.orangeDark} />
-        <StatTile icon={<EyeIcon size={19} />} value={stats.totalViews} label="Total views" sublabel="All time" sublabelColor={colors.mutedLight} />
-        <StatTile icon={<ChatIcon size={19} />} value={unreadCount} label="Unread messages" sublabel="From users" sublabelColor={colors.mutedLight} />
+        <StatTile icon={<BuildingIcon size={19} />} value={stats.centresLive} label="Approved centres" sublabel={approvedCaption(stats.centresLive)} sublabelColor={colors.mutedLight} />
+        <StatTile icon={<BallIcon size={19} />} value={stats.clubsLive} label="Approved clubs" sublabel={approvedCaption(stats.clubsLive)} sublabelColor={colors.mutedLight} />
+        <StatTile icon={<EyeIcon size={19} />} value={stats.totalViews} label="Listing views" sublabel="All time" sublabelColor={colors.mutedLight} />
+        <StatTile icon={<ChatIcon size={19} />} value={unreadCount} label="Unread notifications" sublabel="Bookings and updates" sublabelColor={colors.mutedLight} />
       </KpiStrip>
       <TipsPanel />
     </div>
   );
+}
+
+/** Caption under an approved-listing count: never "approved" under a zero. */
+function approvedCaption(n: number) {
+  if (n === 0) return "None approved yet";
+  return VENUE_PAGES_PUBLIC ? "Live to the public" : "Approved · venue pages not public yet";
 }

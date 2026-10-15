@@ -99,10 +99,16 @@ export function fetchVendorSetupStatus(): Promise<VendorSetupStatus> {
   return request(`/auth/setup-status`);
 }
 
-export function fetchInviteDetails(token: string): Promise<{ email: string; platformRole: string; orgName: string }> {
+/** `rejoin`: a previously removed staff member — they accept with their existing password (D-08 follow-up). */
+export function fetchInviteDetails(token: string): Promise<{ email: string; platformRole: string; orgName: string; rejoin?: boolean }> {
   return request(`/invites/${token}`);
 }
 
-export function acceptInvite(input: { token: string; name: string; password: string; termsAccepted: boolean; marketingConsent: boolean }): Promise<{ user: AuthUser }> {
+export function acceptInvite(input: { token: string; name: string; password: string; termsAccepted: boolean; marketingConsent: boolean }): Promise<{ user: AuthUser; rejoined?: boolean }> {
   return request(`/auth/accept-invite`, { method: "POST", body: JSON.stringify(input) });
+}
+
+/** D-03 — the signed-in partner's latest account decision (suspension/reinstatement), or null. */
+export function fetchAccountDecision(): Promise<{ latest: import("./admin").PublicDecision | null }> {
+  return request(`/auth/account-decision`);
 }

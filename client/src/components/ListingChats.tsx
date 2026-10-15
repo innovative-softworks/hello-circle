@@ -78,9 +78,9 @@ export function ListingChatButton({
         {!iconOnly && "Chat"}
         {unread > 0 &&
           (iconOnly ? (
-            <span aria-hidden="true" style={{ position: "absolute", top: -2, right: -3, width: 9, height: 9, borderRadius: 5, background: colors.orange, border: `2px solid ${colors.bg}` }} />
+            <span aria-hidden="true" style={{ position: "absolute", top: -2, right: -3, width: 9, height: 9, borderRadius: radius.control, background: colors.orange, border: `2px solid ${colors.bg}` }} />
           ) : (
-            <span style={{ minWidth: 18, height: 18, borderRadius: 9, background: colors.orange, color: "#fff", fontSize: 11, fontWeight: 800, display: "inline-flex", alignItems: "center", justifyContent: "center", padding: "0 5px" }}>
+            <span style={{ minWidth: 18, height: 18, borderRadius: radius.control, background: colors.orange, color: "#fff", fontSize: 11, fontWeight: 800, display: "inline-flex", alignItems: "center", justifyContent: "center", padding: "0 5px" }}>
               {unread > 99 ? "99+" : unread}
             </span>
           ))}

@@ -3,7 +3,7 @@ import { checkReviewEligibility, fetchReviews, submitReport, submitReview, type 
 import { colors, fonts } from "../theme";
 import type { Review } from "../types";
 import { CheckCircleIcon, StarIcon } from "./icons";
-import { Avatar, Button, Card, ConfirmDialog, EmptyState, StarDisplay, StarPicker, inputStyle } from "./ui";
+import { Avatar, Button, Card, ConfirmDialog, EmptyState, LoadErrorState, StarDisplay, StarPicker, inputStyle } from "./ui";
 
 const REPORT_REASONS = ["Spam or fake", "Inappropriate content", "Harassment or abuse", "Other"];
 
@@ -33,7 +33,12 @@ export function Reviews({ listingType, listingId, accent, onReviewPosted }: Prop
   const accentVariant = accent === "green" ? "primary" : "orange";
 
   const [reviews, setReviews] = useState<Review[]>([]);
-  const [eligible, setEligible] = useState<boolean | null>(null);
+  const [reviewsFailed, setReviewsFailed] = useState(false);
+  // null = still checking; "unknown" = the check itself failed — not the same
+  // as "not eligible", so it gets its own message and a retry. The server
+  // still enforces eligibility when a review is posted.
+  const [eligible, setEligible] = useState<boolean | "unknown" | null>(null);
+  const [loadAttempt, setLoadAttempt] = useState(0);
   const [reviewName, setReviewName] = useState("");
   const [rating, setRating] = useState(5);
   const [comment, setComment] = useState("");
@@ -48,11 +53,16 @@ export function Reviews({ listingType, listingId, accent, onReviewPosted }: Prop
   const [reportedIds, setReportedIds] = useState<Set<number>>(new Set());
 
   useEffect(() => {
-    fetchReviews(listingType, listingId).then(setReviews);
+    setReviewsFailed(false);
+    fetchReviews(listingType, listingId)
+      .then(setReviews)
+      .catch(() => setReviewsFailed(true));
+    setEligible(null);
     checkReviewEligibility(listingType, listingId)
       .then((r) => setEligible(r.eligible))
-      .catch(() => setEligible(false));
-  }, [listingType, listingId]);
+      .catch(() => setEligible("unknown"));
+  }, [listingType, listingId, loadAttempt]);
+  const retry = () => setLoadAttempt((n) => n + 1);
 
   const submitTheReview = async () => {
     if (!reviewName || !rating) return;
@@ -104,7 +114,11 @@ export function Reviews({ listingType, listingId, accent, onReviewPosted }: Prop
       </div>
 
       <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 22 }}>
-        {reviews.length === 0 && <EmptyState icon={<StarIcon size={26} />} title="No reviews yet" subtitle="Be the first to share how it went." />}
+        {reviewsFailed ? (
+          <LoadErrorState title="Couldn't load reviews." onRetry={retry} />
+        ) : (
+          reviews.length === 0 && <EmptyState icon={<StarIcon size={26} />} title="No reviews yet" subtitle="Be the first to share how it went." />
+        )}
         {reviews.map((r) => (
           <Card key={r.id} hover style={{ padding: "14px 16px", display: "flex", gap: 12 }}>
             <Avatar name={r.name} size={34} />
@@ -159,21 +173,33 @@ export function Reviews({ listingType, listingId, accent, onReviewPosted }: Prop
         </Card>
       )}
 
-      {eligible && !reviewSent && (
+      {eligible === "unknown" && !reviewSent && (
+        <Card style={{ padding: 18, background: colors.bg }}>
+          <p role="status" style={{ fontSize: 13, color: colors.mutedLight, margin: 0, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+            We couldn't check whether you can review this right now.
+            <button type="button" onClick={retry} style={{ background: "none", border: "none", padding: 0, color: colors.greenText, fontWeight: 700, textDecoration: "underline", cursor: "pointer", font: "inherit", fontSize: 13 }}>
+              Try again
+            </button>
+          </p>
+        </Card>
+      )}
+
+      {eligible === true && !reviewSent && (
         <Card style={{ padding: 20, background: colors.bg }}>
           <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 14 }}>Leave a review</div>
           <div style={{ display: "flex", gap: 10, marginBottom: 12, flexWrap: "wrap", alignItems: "center" }}>
-            <input placeholder="Your name" value={reviewName} onChange={(e) => setReviewName(e.target.value)} style={{ ...inputStyle, flex: 1, minWidth: 160 }} />
+            <input aria-label="Your name" required placeholder="Your name" value={reviewName} onChange={(e) => setReviewName(e.target.value)} style={{ ...inputStyle, flex: 1, minWidth: 160 }} />
             <StarPicker value={rating} onChange={setRating} />
           </div>
           <textarea
+            aria-label="Your review (optional)"
             placeholder="What was it like?"
             value={comment}
             onChange={(e) => setComment(e.target.value)}
             rows={3}
             style={{ ...inputStyle, resize: "vertical", marginBottom: 12 }}
           />
-          {reviewError && <p className="pop-in" style={{ color: colors.danger, fontSize: 13, margin: "0 0 12px", background: colors.dangerBg, padding: "8px 11px", borderRadius: 9 }}>{reviewError}</p>}
+          {reviewError && <p role="alert" className="pop-in" style={{ color: colors.danger, fontSize: 13, margin: "0 0 12px", background: colors.dangerBg, padding: "8px 11px", borderRadius: 9 }}>{reviewError}</p>}
           <Button variant={accentVariant} disabled={reviewSubmitting || !reviewName} onClick={submitTheReview}>
             {reviewSubmitting ? "Posting…" : "Post review"}
           </Button>

@@ -101,6 +101,7 @@ export function GameCard({ game, onJoin, onLeave, joining }: { game: Game; onJoi
     <ListingCard
       href={href}
       title={game.activityLabel}
+      headingLevel={2}
       image={game.imageUrl}
       ph={placeholderStripes.green}
       icon={<BallIcon size={22} />}
@@ -330,6 +331,7 @@ function JoinGameCard({
     <ListingCard
       href={href}
       title={game.activityLabel}
+      headingLevel={2}
       image={game.imageUrl}
       ph={placeholderStripes.green}
       icon={<BallIcon size={24} />}

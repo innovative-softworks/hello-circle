@@ -4,10 +4,12 @@ import { withActors } from "../authorization-fixture";
 test("RBAC-001: non-admin roles cannot read or mutate admin resources; admin positive control", async ({ playwright }) => {
   await withActors(playwright, ["GUEST", "QA_USER", "QA_HOST", "QA_VENDOR", "QA_ADMIN"], async ({ actors, snapshot }) => {
     const unchanged = await snapshot("SELECT * FROM users WHERE id = ?", [personas.QA_VENDOR.id]);
+    // D-02: no partner/admin session → 401; a signed-in partner → 403.
     for (const role of ["GUEST", "QA_USER", "QA_HOST", "QA_VENDOR"]) {
       const actor = actors[role];
-      expect((await actor.get("/api/admin/vendors")).status()).toBe(401);
-      expect((await actor.put(`/api/admin/vendors/${personas.QA_VENDOR.id}/status`, { data: { status: "suspended" } })).status()).toBe(401);
+      const denied = role === "QA_VENDOR" ? 403 : 401;
+      expect((await actor.get("/api/admin/vendors")).status()).toBe(denied);
+      expect((await actor.put(`/api/admin/vendors/${personas.QA_VENDOR.id}/status`, { data: { status: "suspended", reasonCategory: "other", explanation: "Authorization boundary probe, must be refused." } })).status()).toBe(denied);
       await unchanged();
     }
     expect((await actors.QA_ADMIN.get("/api/admin/vendors")).status()).toBe(200);

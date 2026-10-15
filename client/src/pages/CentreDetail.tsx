@@ -1,3 +1,4 @@
+import { UnavailableListing, isUnavailable, type Unavailable } from "../components/UnavailableListing";
 import { usePageTitle } from "../pageTitle";
 import { useEffect, useState } from "react";
 import { isMinAgeRefusal } from "../gameCta";
@@ -35,6 +36,8 @@ export function CentreDetail() {
   const navigate = useNavigate();
   const { resident } = useGuest();
   const [centre, setCentre] = useState<Centre | null>(null);
+  // D-01: a listing whose organisation is suspended.
+  const [unavailable, setUnavailable] = useState<Unavailable | null>(null);
   usePageTitle(centre?.name);
   const [favourited, setFavourited] = useState(false);
   const [games, setGames] = useState<Game[]>([]);
@@ -44,7 +47,7 @@ export function CentreDetail() {
   const [programs, setPrograms] = useState<Program[]>([]);
 
   useEffect(() => {
-    if (idOrSlug) fetchCentre(idOrSlug).then(setCentre);
+    if (idOrSlug) fetchCentre(idOrSlug).then((x) => (isUnavailable(x) ? setUnavailable(x) : setCentre(x)));
   }, [idOrSlug]);
 
   // Server-backed favourites when signed in (MVP); localStorage otherwise —
@@ -99,9 +102,10 @@ export function CentreDetail() {
   };
 
   const reloadRating = () => {
-    if (idOrSlug) fetchCentre(idOrSlug).then(setCentre);
+    if (idOrSlug) fetchCentre(idOrSlug).then((x) => (isUnavailable(x) ? setUnavailable(x) : setCentre(x)));
   };
 
+  if (unavailable) return <UnavailableListing item={unavailable} />;
   if (!centre) return <ListingDetailSkeleton />;
 
   return (

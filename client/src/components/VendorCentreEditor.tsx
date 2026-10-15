@@ -13,8 +13,8 @@ import {
 } from "../api";
 import { AddressSearch, MapConfirm } from "./AddressSearch";
 import { CalendarIcon, PlusIcon } from "./icons";
-import { Field, FormErrorSummary, NumberStepper, SettingsSection, TextInput } from "./form";
-import { Button, ConfirmDialog, EmptyState, Modal, inputStyle, labelStyle } from "./ui";
+import { Field, FieldError, FieldLabel, FormErrorSummary, NumberStepper, RequiredNote, SettingsSection, TextInput, useFormErrors } from "./form";
+import { Button, ConfirmDialog, EmptyState, LoadErrorState, Modal, inputStyle, labelStyle } from "./ui";
 import { MultiImageUpload } from "./VendorImageUpload";
 import { formatDate } from "../vendorFormat";
 import { colors, fonts, radius } from "../theme";
@@ -63,24 +63,31 @@ export function CentreEditor({
   const [amenitiesText, setAmenitiesText] = useState("");
   const [accessibilityText, setAccessibilityText] = useState("");
   const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
-  const [fieldErrors, setFieldErrors] = useState<{ field: string; message: string; fieldId: string }[]>([]);
+  // null = loading; a failed load hides the form so a blank form can't be saved over the real listing.
+  const [loadState, setLoadState] = useState<"loading" | "ready" | "failed">("loading");
+  const fe = useFormErrors();
 
-  useEffect(() => {
-    fetchVendorCentre(centreId).then((c) => {
-      setForm(centreToInput(c));
-      setLocationConfirmed(false);
-      setAmenitiesText(c.amenities.join("\n"));
-      setAccessibilityText(c.accessibility.join("\n"));
-    });
-  }, [centreId]);
+  const load = () => {
+    setLoadState("loading");
+    fetchVendorCentre(centreId)
+      .then((c) => {
+        setForm(centreToInput(c));
+        setLocationConfirmed(false);
+        setAmenitiesText(c.amenities.join("\n"));
+        setAccessibilityText(c.accessibility.join("\n"));
+        setLoadState("ready");
+      })
+      .catch(() => setLoadState("failed"));
+  };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(load, [centreId]);
 
   const markDirty = () => onDirtyChange?.(true);
 
   const set = <K extends keyof CentreInput>(k: K, v: CentreInput[K]) => {
     setForm((f) => ({ ...f, [k]: v }));
-    setFieldErrors([]);
+    fe.clearField(`centre-${String(k)}`);
     markDirty();
   };
 
@@ -90,11 +97,11 @@ export function CentreEditor({
     if (!form.area.trim()) errors.push({ field: "area", message: "Area is required", fieldId: "centre-area" });
     if (!form.county.trim()) errors.push({ field: "county", message: "County is required", fieldId: "centre-county" });
     if (!form.blurb.trim()) errors.push({ field: "blurb", message: "A short description is required", fieldId: "centre-blurb" });
-    setFieldErrors(errors);
-    if (errors.length > 0) return;
+    if (errors.length > 0) return fe.fail(errors);
+    if (saving) return;
 
+    fe.clear();
     setSaving(true);
-    setError(null);
     setSaved(false);
     try {
       const amenities = amenitiesText.split("\n").map((s) => s.trim()).filter(Boolean);
@@ -107,7 +114,9 @@ export function CentreEditor({
       onDirtyChange?.(false);
       onSaved(updated);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Couldn't save");
+      // Everything typed stays in the form; the reason goes in the summary.
+      const message = e instanceof Error ? e.message : "Couldn't save";
+      fe.fail([{ field: "save", message: `Couldn't save: ${message}` }]);
     } finally {
       setSaving(false);
     }
@@ -119,19 +128,21 @@ export function CentreEditor({
     <>
       <div className="grid-responsive" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 14 }}>
         <div>
-          <label style={labelStyle}>Name</label>
-          <input id="centre-name" value={form.name} onChange={(e) => set("name", e.target.value)} style={inputStyle} />
+          <FieldLabel htmlFor="centre-name" required>Name</FieldLabel>
+          <input {...fe.control("centre-name")} required value={form.name} onChange={(e) => set("name", e.target.value)} style={inputStyle} />
+          <FieldError fieldId="centre-name" message={fe.messageFor("centre-name")} />
         </div>
         <div>
-          <label style={labelStyle}>Managed by</label>
-          <input value={form.managedBy} onChange={(e) => set("managedBy", e.target.value)} style={inputStyle} />
+          <FieldLabel htmlFor="centre-managed-by" optional>Managed by</FieldLabel>
+          <input id="centre-managed-by" value={form.managedBy} onChange={(e) => set("managedBy", e.target.value)} style={inputStyle} />
         </div>
       </div>
-      <label style={labelStyle}>Description</label>
-      <p style={{ fontSize: 12, color: colors.mutedLight, margin: "-4px 0 8px" }}>
+      <FieldLabel htmlFor="centre-blurb" required>Description</FieldLabel>
+      <p id="centre-blurb-helper" style={{ fontSize: 12, color: colors.mutedLight, margin: "-4px 0 8px" }}>
         Help people understand what this place is like — e.g. "Local sports centre with two badminton courts, changing rooms and free parking."
       </p>
-      <textarea id="centre-blurb" value={form.blurb} onChange={(e) => set("blurb", e.target.value)} rows={3} style={{ ...inputStyle, resize: "vertical" }} />
+      <textarea {...fe.control("centre-blurb", "centre-blurb-helper")} required value={form.blurb} onChange={(e) => set("blurb", e.target.value)} rows={3} style={{ ...inputStyle, resize: "vertical" }} />
+      <FieldError fieldId="centre-blurb" message={fe.messageFor("centre-blurb")} />
     </>
   );
 
@@ -142,22 +153,25 @@ export function CentreEditor({
           onSelect={(r) => {
             setForm((f) => ({ ...f, area: r.area || f.area, county: r.county || f.county, lat: r.lat, lng: r.lng }));
             setLocationConfirmed(true);
-            setFieldErrors([]);
+            fe.clearField("centre-area");
+            fe.clearField("centre-county");
             markDirty();
           }}
         />
       </div>
       <div>
-        <label style={labelStyle}>Area</label>
-        <input id="centre-area" value={form.area} onChange={(e) => set("area", e.target.value)} style={inputStyle} />
+        <FieldLabel htmlFor="centre-area" required>Area</FieldLabel>
+        <input {...fe.control("centre-area")} required value={form.area} onChange={(e) => set("area", e.target.value)} style={inputStyle} />
+        <FieldError fieldId="centre-area" message={fe.messageFor("centre-area")} />
       </div>
       <div>
-        <label style={labelStyle}>County</label>
-        <input id="centre-county" value={form.county} onChange={(e) => set("county", e.target.value)} style={inputStyle} />
+        <FieldLabel htmlFor="centre-county" required>County</FieldLabel>
+        <input {...fe.control("centre-county")} required value={form.county} onChange={(e) => set("county", e.target.value)} style={inputStyle} />
+        <FieldError fieldId="centre-county" message={fe.messageFor("centre-county")} />
       </div>
       <div style={{ gridColumn: "1 / -1" }}>
-        <label style={labelStyle}>Map link (optional)</label>
-        <input value={form.mapUrl ?? ""} onChange={(e) => set("mapUrl", e.target.value)} placeholder="Google Maps link" style={inputStyle} />
+        <FieldLabel htmlFor="centre-map-url" optional>Map link</FieldLabel>
+        <input id="centre-map-url" value={form.mapUrl ?? ""} onChange={(e) => set("mapUrl", e.target.value)} placeholder="Google Maps link" style={inputStyle} />
       </div>
       {form.lat !== undefined && form.lng !== undefined && (
         <div style={{ gridColumn: "1 / -1" }}>
@@ -169,32 +183,32 @@ export function CentreEditor({
 
   const contactField = (
     <div>
-      <label style={labelStyle}>Contact phone (optional)</label>
-      <input value={form.phone ?? ""} onChange={(e) => set("phone", e.target.value)} placeholder="e.g. 01 234 5678" style={inputStyle} />
+      <FieldLabel htmlFor="centre-phone" optional>Contact phone</FieldLabel>
+      <input id="centre-phone" type="tel" value={form.phone ?? ""} onChange={(e) => set("phone", e.target.value)} placeholder="e.g. 01 234 5678" style={inputStyle} />
     </div>
   );
 
   const bookingFields = (
     <div className="grid-responsive" style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 14 }}>
       <div>
-        <label style={labelStyle}>Opens at</label>
-        <select value={form.opensAt ?? "09:00"} onChange={(e) => set("opensAt", e.target.value)} style={inputStyle}>
+        <FieldLabel htmlFor="centre-opens">Opens at</FieldLabel>
+        <select id="centre-opens" value={form.opensAt ?? "09:00"} onChange={(e) => set("opensAt", e.target.value)} style={inputStyle}>
           {HOUR_OPTIONS.slice(0, -1).map((h) => (
             <option key={h} value={h}>{h}</option>
           ))}
         </select>
       </div>
       <div>
-        <label style={labelStyle}>Closes at</label>
-        <select value={form.closesAt ?? "21:00"} onChange={(e) => set("closesAt", e.target.value)} style={inputStyle}>
+        <FieldLabel htmlFor="centre-closes">Closes at</FieldLabel>
+        <select id="centre-closes" value={form.closesAt ?? "21:00"} onChange={(e) => set("closesAt", e.target.value)} style={inputStyle}>
           {HOUR_OPTIONS.slice(1).map((h) => (
             <option key={h} value={h}>{h}</option>
           ))}
         </select>
       </div>
       <div>
-        <label style={labelStyle}>Taking bookings?</label>
-        <select value={form.isOpen === false ? "closed" : "open"} onChange={(e) => set("isOpen", e.target.value === "open")} style={inputStyle}>
+        <FieldLabel htmlFor="centre-is-open">Taking bookings?</FieldLabel>
+        <select id="centre-is-open" value={form.isOpen === false ? "closed" : "open"} onChange={(e) => set("isOpen", e.target.value === "open")} style={inputStyle}>
           <option value="open">Open</option>
           <option value="closed">Closed (hide the Book button)</option>
         </select>
@@ -204,15 +218,15 @@ export function CentreEditor({
 
   const amenitiesField = (
     <div>
-      <label style={labelStyle}>Amenities (one per line)</label>
-      <textarea value={amenitiesText} onChange={(e) => { setAmenitiesText(e.target.value); setFieldErrors([]); markDirty(); }} rows={4} style={{ ...inputStyle, resize: "vertical" }} />
+      <FieldLabel htmlFor="centre-amenities" optional>Amenities, one per line</FieldLabel>
+      <textarea id="centre-amenities" value={amenitiesText} onChange={(e) => { setAmenitiesText(e.target.value); markDirty(); }} rows={4} style={{ ...inputStyle, resize: "vertical" }} />
     </div>
   );
 
   const accessibilityField = (
     <div>
-      <label style={labelStyle}>Accessibility (one per line, e.g. "Wheelchair accessible entrance")</label>
-      <textarea value={accessibilityText} onChange={(e) => { setAccessibilityText(e.target.value); setFieldErrors([]); markDirty(); }} rows={3} style={{ ...inputStyle, resize: "vertical" }} />
+      <FieldLabel htmlFor="centre-accessibility" optional>Accessibility, one per line (e.g. "Wheelchair accessible entrance")</FieldLabel>
+      <textarea id="centre-accessibility" value={accessibilityText} onChange={(e) => { setAccessibilityText(e.target.value); markDirty(); }} rows={3} style={{ ...inputStyle, resize: "vertical" }} />
     </div>
   );
 
@@ -222,11 +236,10 @@ export function CentreEditor({
 
   const footer = (
     <>
-      <FormErrorSummary errors={fieldErrors} />
-      {error && <p className="pop-in" style={{ color: colors.danger, fontSize: 13, margin: "0 0 12px", background: colors.dangerBg, padding: "9px 12px", borderRadius: radius.control }}>{error}</p>}
+      <FormErrorSummary errors={fe.errors} focusKey={fe.focusKey} />
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 18 }}>
-        <Button disabled={saving} onClick={save}>
-          Save changes
+        <Button disabled={saving} onClick={save} aria-busy={saving || undefined}>
+          {saving ? "Saving…" : "Save changes"}
         </Button>
         {saved && <span style={{ fontSize: 13, color: colors.greenText, fontWeight: 600 }}>Saved</span>}
       </div>
@@ -236,12 +249,16 @@ export function CentreEditor({
   const amenitiesList = amenitiesText.split("\n").map((s) => s.trim()).filter(Boolean);
   const accessibilityList = accessibilityText.split("\n").map((s) => s.trim()).filter(Boolean);
 
+  if (loadState === "failed") return <LoadErrorState title="Couldn't load this venue's details." onRetry={load} />;
+  if (loadState === "loading") return <p style={{ fontSize: 13.5, color: colors.mutedLight }}>Loading venue details…</p>;
+
   return (
     <>
-      <SettingsSection title="General" summary={<>{form.name || "Not set"}{form.blurb && <div style={{ color: colors.mutedLight, fontSize: 13, marginTop: 2 }}>{form.blurb}</div>}</>}>
+      <RequiredNote />
+      <SettingsSection title="General" forceOpen={fe.has("centre-name", "centre-blurb")} summary={<>{form.name || "Not set"}{form.blurb && <div style={{ color: colors.mutedLight, fontSize: 13, marginTop: 2 }}>{form.blurb}</div>}</>}>
         {generalFields}
       </SettingsSection>
-      <SettingsSection title="Location" summary={[form.area, form.county].filter(Boolean).join(", ") || "Not set"}>
+      <SettingsSection title="Location" forceOpen={fe.has("centre-area", "centre-county")} summary={[form.area, form.county].filter(Boolean).join(", ") || "Not set"}>
         {locationFields}
       </SettingsSection>
       <SettingsSection title="Contact" summary={form.phone || "Not added"}>
@@ -284,6 +301,9 @@ export function RoomsManager({ centreId, rooms, onChanged }: { centreId: string;
       setForm({ name: "", cap: "", rate: "", paymentMethod: "online" });
       setAddOpen(false);
       onChanged();
+    } catch (e) {
+      // The typed room stays in the form so it can be retried.
+      setError(e instanceof Error ? e.message : "Couldn't add this room");
     } finally {
       setAdding(false);
     }
@@ -294,15 +314,25 @@ export function RoomsManager({ centreId, rooms, onChanged }: { centreId: string;
     setEditForm({ name: r.name, cap: String(r.cap), rate: String(r.rate), paymentMethod: r.paymentMethod });
   };
 
+  const [savingEdit, setSavingEdit] = useState(false);
   const saveEdit = async (roomId: string) => {
-    await updateVendorRoom(centreId, roomId, {
-      name: editForm.name,
-      cap: Number(editForm.cap) || 0,
-      rate: Number(editForm.rate) || 0,
-      paymentMethod: editForm.paymentMethod,
-    });
-    setEditingId(null);
-    onChanged();
+    if (savingEdit) return;
+    setSavingEdit(true);
+    setError(null);
+    try {
+      await updateVendorRoom(centreId, roomId, {
+        name: editForm.name,
+        cap: Number(editForm.cap) || 0,
+        rate: Number(editForm.rate) || 0,
+        paymentMethod: editForm.paymentMethod,
+      });
+      setEditingId(null);
+      onChanged();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Couldn't save this room");
+    } finally {
+      setSavingEdit(false);
+    }
   };
 
   const toggleActive = async (r: Room) => {
@@ -324,17 +354,17 @@ export function RoomsManager({ centreId, rooms, onChanged }: { centreId: string;
 
   return (
     <div style={{ marginTop: 26, borderTop: `1px solid ${colors.border}`, paddingTop: 20 }}>
-      <h4 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 15, margin: "0 0 4px" }}>Rooms</h4>
+      <h2 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 15, margin: "0 0 4px" }}>Rooms</h2>
       <p style={{ fontSize: 13, color: colors.mutedLight, margin: "0 0 12px" }}>
         Guests pick one of these when booking. Each has its own capacity, rate and payment method.
       </p>
 
-      {error && <p className="pop-in" style={{ color: colors.danger, fontSize: 13, margin: "0 0 12px", background: colors.dangerBg, padding: "9px 12px", borderRadius: radius.control }}>{error}</p>}
+      {error && <p role="alert" className="pop-in" style={{ color: colors.danger, fontSize: 13, margin: "0 0 12px", background: colors.dangerBg, padding: "9px 12px", borderRadius: radius.control }}>{error}</p>}
 
       <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 16 }}>
         {rooms.map((r) =>
           editingId === r.id ? (
-            <div key={r.id} className="grid-responsive" style={{ display: "grid", gridTemplateColumns: "1.3fr .8fr .8fr 1fr auto auto", gap: 8, alignItems: "center", border: `1px solid ${colors.border}`, borderRadius: 10, padding: "10px 14px" }}>
+            <div key={r.id} className="grid-responsive" style={{ display: "grid", gridTemplateColumns: "1.3fr .8fr .8fr 1fr auto auto", gap: 8, alignItems: "center", border: `1px solid ${colors.border}`, borderRadius: radius.control, padding: "10px 14px" }}>
               <input value={editForm.name} onChange={(e) => setEditForm((f) => ({ ...f, name: e.target.value }))} style={inputStyle} />
               <input type="number" value={editForm.cap} onChange={(e) => setEditForm((f) => ({ ...f, cap: e.target.value }))} placeholder="Capacity" style={inputStyle} />
               <input type="number" value={editForm.rate} onChange={(e) => setEditForm((f) => ({ ...f, rate: e.target.value }))} placeholder="€/hour" style={inputStyle} />
@@ -342,14 +372,14 @@ export function RoomsManager({ centreId, rooms, onChanged }: { centreId: string;
                 <option value="online">Online payment</option>
                 <option value="cash">Cash on arrival</option>
               </select>
-              <Button onClick={() => saveEdit(r.id)}>Save</Button>
+              <Button disabled={savingEdit} onClick={() => saveEdit(r.id)}>{savingEdit ? "Saving…" : "Save"}</Button>
               <Button variant="ghost" onClick={() => setEditingId(null)}>Cancel</Button>
             </div>
           ) : (
             <div
               key={r.id}
               className="card-surface card-hover"
-              style={{ display: "flex", justifyContent: "space-between", alignItems: "center", border: `1px solid ${colors.border}`, borderRadius: 10, padding: "10px 14px", opacity: r.active ? 1 : 0.5 }}
+              style={{ display: "flex", justifyContent: "space-between", alignItems: "center", border: `1px solid ${colors.border}`, borderRadius: radius.control, padding: "10px 14px", opacity: r.active ? 1 : 0.5 }}
             >
               <div style={{ fontSize: 13 }}>
                 <strong>{r.name}</strong> — cap {r.cap} · €{r.rate}/hr · {r.paymentMethod === "cash" ? "Cash on arrival" : "Online payment"}
@@ -367,7 +397,7 @@ export function RoomsManager({ centreId, rooms, onChanged }: { centreId: string;
       </div>
 
       {addOpen ? (
-        <div style={{ border: `1px solid ${colors.border}`, borderRadius: 10, padding: 14, display: "flex", flexDirection: "column", gap: 14 }}>
+        <div style={{ border: `1px solid ${colors.border}`, borderRadius: radius.control, padding: 14, display: "flex", flexDirection: "column", gap: 14 }}>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 14, alignItems: "flex-end" }}>
             <TextInput label="Room name" width="md" placeholder="e.g. Main Hall" value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
             <NumberStepper label="Capacity" value={Number(form.cap) || 0} onChange={(n) => setForm((f) => ({ ...f, cap: String(n) }))} min={0} />
@@ -445,7 +475,7 @@ export function AvailabilityBlocksManager({ centreId, rooms }: { centreId: strin
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, marginBottom: 12 }}>
         <div>
-          <h4 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 15, margin: "0 0 4px" }}>Availability</h4>
+          <h2 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 15, margin: "0 0 4px" }}>Availability</h2>
           <p style={{ fontSize: 13, color: colors.mutedLight, margin: 0 }}>
             Close a date (e.g. a festival) so guests can't book it — for one room, or the whole centre.
           </p>
@@ -459,7 +489,7 @@ export function AvailabilityBlocksManager({ centreId, rooms }: { centreId: strin
           <div
             key={b.id}
             className="card-surface card-hover"
-            style={{ display: "flex", justifyContent: "space-between", alignItems: "center", border: `1px solid ${colors.border}`, borderRadius: 10, padding: "10px 14px" }}
+            style={{ display: "flex", justifyContent: "space-between", alignItems: "center", border: `1px solid ${colors.border}`, borderRadius: radius.control, padding: "10px 14px" }}
           >
             <div style={{ fontSize: 13 }}>
               <strong>{formatDate(b.date)}</strong>
@@ -558,7 +588,7 @@ export function FacilityHoursEditor({ centreId }: { centreId: string }) {
 
   return (
     <div style={{ marginTop: 26, borderTop: `1px solid ${colors.border}`, paddingTop: 20 }}>
-      <h4 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 15, margin: "0 0 4px" }}>Per-day hours (optional)</h4>
+      <h2 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 15, margin: "0 0 4px" }}>Per-day hours (optional)</h2>
       <p style={{ fontSize: 13, color: colors.mutedLight, margin: "0 0 12px" }}>
         Leave unset to keep using the single opening-hours window above for every day.
       </p>

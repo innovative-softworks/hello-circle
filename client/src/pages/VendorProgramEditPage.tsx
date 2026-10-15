@@ -6,8 +6,9 @@ import { useAuth } from "../AuthContext";
 import { BackLink } from "../components/BackLink";
 import { ProgramCreateForm, ProgramManager } from "../components/VendorPrograms";
 import { useUnsavedChangesGuard } from "../components/form";
-import { PageSpinner } from "../components/ui";
-import { colors, fonts, radius } from "../theme";
+import { LoadErrorState, PageSpinner } from "../components/ui";
+import { PartnerWorkspace } from "../components/workspace/PartnerWorkspace";
+import { colors, radius } from "../theme";
 import type { VendorListingSummary } from "../types";
 
 // Dedicated page for a Program — was two separate wide Drawers (create form,
@@ -23,13 +24,23 @@ export function VendorProgramEditPage() {
   const { user, loading: authLoading } = useAuth();
   const [listings, setListings] = useState<{ centres: VendorListingSummary[]; clubs: VendorListingSummary[] }>({ centres: [], clubs: [] });
   const [title, setTitle] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState(false);
   const [dirty, setDirty] = useState(false);
   const { requestNavigation, dialog: unsavedDialog } = useUnsavedChangesGuard(dirty);
 
-  useEffect(() => {
-    if (programId === "new") fetchVendorListings().then(setListings);
-    else fetchVendorProgram(programId).then((p) => setTitle(p.title));
-  }, [programId]);
+  const load = () => {
+    setLoadError(false);
+    if (programId === "new")
+      fetchVendorListings()
+        .then(setListings)
+        .catch(() => setLoadError(true));
+    else
+      fetchVendorProgram(programId)
+        .then((p) => setTitle(p.title))
+        .catch(() => setLoadError(true));
+  };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(load, [programId]);
 
   // See VendorDashboard.tsx's identical comment — navigate() belongs in an
   // effect, not called directly during render.
@@ -40,24 +51,30 @@ export function VendorProgramEditPage() {
   if (authLoading) return <PageSpinner />;
   if (!user || user.role !== "vendor" || user.status !== "approved") return null;
 
+  const pageTitle = programId === "new" ? "New programme" : (title ?? "Programme");
   return (
-    <div className="fade-panel">
-      <section className="section-pad" style={{ maxWidth: 920, margin: "0 auto", padding: "40px 24px 90px" }}>
-        <BackLink onClick={() => requestNavigation(() => navigate("/vendor?tab=programs"))}>Back to programs</BackLink>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap", margin: "0 0 18px" }}>
-          <h1 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: "clamp(24px, 2.4vw, 30px)", margin: 0, letterSpacing: 0 }}>
-            {programId === "new" ? "New program" : (title ?? "Program")}
-          </h1>
-          {programId !== "new" && <HostChatButton scopeType="program" scopeId={programId} title={title ?? "Program chat"} label="Group chat" style={{ border: `1px solid ${colors.borderStrong}`, borderRadius: radius.pill, padding: "8px 14px", fontSize: 13.5, color: colors.text, background: colors.surface }} />}
-        </div>
-
-        {programId === "new" ? (
+    <PartnerWorkspace
+      user={user}
+      active="programs"
+      title={pageTitle}
+      guard={requestNavigation}
+      actions={
+        programId !== "new" ? (
+          <HostChatButton scopeType="program" scopeId={programId} title={title ?? "Programme chat"} label="Group chat" style={{ border: `1px solid ${colors.borderStrong}`, borderRadius: radius.pill, padding: "8px 14px", fontSize: 13.5, color: colors.text, background: colors.surface }} />
+        ) : undefined
+      }
+    >
+      <div style={{ maxWidth: 920 }}>
+        <BackLink onClick={() => requestNavigation(() => navigate("/vendor?tab=programs"))}>Back to programmes</BackLink>
+        {loadError ? (
+          <LoadErrorState title={programId === "new" ? "Couldn't load your listings." : "Couldn't load this programme."} onRetry={load} />
+        ) : programId === "new" ? (
           <ProgramCreateForm listings={listings} onCreated={(newId) => navigate(`/vendor/programs/${newId}`, { replace: true })} onDirtyChange={setDirty} />
         ) : (
-          <ProgramManager programId={programId} onChanged={() => fetchVendorProgram(programId).then((p) => setTitle(p.title))} />
+          <ProgramManager programId={programId} onChanged={() => fetchVendorProgram(programId).then((p) => setTitle(p.title)).catch(() => {})} />
         )}
-      </section>
+      </div>
       {unsavedDialog}
-    </div>
+    </PartnerWorkspace>
   );
 }

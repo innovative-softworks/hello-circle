@@ -47,6 +47,8 @@ export interface RuleKeySpec {
   key: string;
   label: string;
   description: string;
+  /** Where the rule actually takes effect today (shown to finance admins). */
+  appliesTo: string;
   scopes: ScopeType[];
   fields: Record<string, FieldSpec>;
   /** Version 1 — today's live behaviour. */
@@ -58,6 +60,7 @@ export const RULE_KEYS: Record<string, RuleKeySpec> = {
     key: "pricing",
     label: "Pricing & fees",
     description: "How a customer price is built and how it is allocated between partner, HelloCircle and tax.",
+    appliesTo: "Experience checkout only, and only while both “Commerce engine” switches are on (shadow pricing also compares against it). Venue hire, club registration, programme, activity and pass checkout don't read this rule: they use fixed pricing in code (23% VAT and a 5% customer fee added on top, €100 deposit on online venue bookings).",
     scopes: ["global", "scenario", "category", "partner"],
     fields: {
       customerFeeBps: { kind: "bps", label: "Customer platform fee", help: "Added on top of the price the customer sees. 0 = no customer fee.", min: 0, max: 3000 },
@@ -90,6 +93,7 @@ export const RULE_KEYS: Record<string, RuleKeySpec> = {
     key: "checkout",
     label: "Checkout holds",
     description: "How long a pending paid checkout holds capacity (and how long its Stripe Checkout session lives).",
+    appliesTo: "Not applied yet. The pending capacity hold is fixed in code at 30 minutes; changing this rule has no effect.",
     scopes: ["global"],
     fields: {
       pendingHoldMinutes: { kind: "int", label: "Pending capacity hold", unit: "minutes", help: "Stripe Checkout sessions must live 30 minutes to 24 hours.", min: 30, max: 1440 },
@@ -100,6 +104,7 @@ export const RULE_KEYS: Record<string, RuleKeySpec> = {
     key: "cancellation",
     label: "Cancellation defaults",
     description: "Platform defaults used when an organisation hasn't set its own policy (org_policies still wins for that organisation).",
+    appliesTo: "Not applied yet. Self-cancel cut-offs and booking windows come from each partner organisation's own policy (Organisation → Settings), or 48 hours / 90 days when it hasn't set one. Changing this rule has no effect.",
     scopes: ["global", "scenario", "category"],
     fields: {
       cancellationHours: { kind: "int", label: "Self-cancel cut-off", unit: "hours before start", min: 0, max: 720 },
@@ -116,6 +121,7 @@ export const RULE_KEYS: Record<string, RuleKeySpec> = {
     key: "plan_free",
     label: "Free plan",
     description: "Free partner plan: no subscription, higher success fee, minimum fee per paid order.",
+    appliesTo: "Partner fees on the Free plan: financial-ledger postings and settlements (while “Financial ledger” is on), engine-priced experience checkout, and the plan pages partners see. Not used by the fixed legacy checkout pricing.",
     scopes: ["global", "partner"],
     fields: {
       successFeeBps: { kind: "bps", label: "Success fee (excl. VAT)", help: "Charged on the fee base of each completed paid order.", min: 0, max: 5000 },
@@ -129,6 +135,7 @@ export const RULE_KEYS: Record<string, RuleKeySpec> = {
     key: "plan_pro",
     label: "Pro plan",
     description: "Optional partner subscription with a lower success fee.",
+    appliesTo: "Partner fees and the subscription price on the Pro plan. Pro can't be bought until the partner fee model is approved (a code release, not a switch).",
     scopes: ["global", "partner"],
     fields: {
       successFeeBps: { kind: "bps", label: "Success fee (excl. VAT)", help: "Charged on the fee base of each completed paid order.", min: 0, max: 5000 },
@@ -142,6 +149,7 @@ export const RULE_KEYS: Record<string, RuleKeySpec> = {
     key: "plan_rules",
     label: "Plan changes",
     description: "When plan changes take effect and how long a failed Pro payment keeps Pro rates.",
+    appliesTo: "Not applied yet: no code reads these values. The grace period actually used comes from “Pro subscription policy”.",
     scopes: ["global"],
     fields: {
       upgradeTakesEffect: { kind: "enum", label: "Upgrade takes effect", values: ["next_booking", "immediately"] },
@@ -154,6 +162,7 @@ export const RULE_KEYS: Record<string, RuleKeySpec> = {
     key: "entitlements_free",
     label: "Free plan features",
     description: "Features available on the Free plan. Never switch off a feature partners use today without notice.",
+    appliesTo: "Which features the plan pages show for the Free plan.",
     scopes: ["global"],
     fields: {
       advancedAnalytics: { kind: "enum", label: "Advanced analytics", values: ENTITLEMENT_VALUES },
@@ -174,6 +183,7 @@ export const RULE_KEYS: Record<string, RuleKeySpec> = {
     key: "entitlements_pro",
     label: "Pro plan features",
     description: "Features available on the Pro plan.",
+    appliesTo: "Which features the plan pages show for Pro (Pro stays unavailable until the fee model is approved).",
     scopes: ["global"],
     fields: {
       advancedAnalytics: { kind: "enum", label: "Advanced analytics", values: ENTITLEMENT_VALUES },
@@ -194,6 +204,7 @@ export const RULE_KEYS: Record<string, RuleKeySpec> = {
     key: "tax_vat",
     label: "VAT on HelloCircle fees",
     description: "VAT on HelloCircle's own platform fee and subscription. The activity's own VAT is the partner's and is kept separate. Confirm with an Irish accountant before relying on it.",
+    appliesTo: "VAT on HelloCircle's own fees: ledger and settlement figures, engine-priced checkout and Pro subscription prices. Customer VAT on the fixed legacy checkout is 23% in code.",
     scopes: ["global", "partner"],
     fields: {
       vatBps: { kind: "bps", label: "VAT rate", min: 0, max: 5000 },
@@ -206,6 +217,7 @@ export const RULE_KEYS: Record<string, RuleKeySpec> = {
     key: "payment_costs",
     label: "Payment cost estimates",
     description: "HelloCircle's own estimates of Stripe costs, used for contribution and margin warnings. Actual Stripe fees replace them through reconciliation.",
+    appliesTo: "Processing-cost estimates recorded with confirmed payments and used in settlement and contribution reports. Never charged to customers.",
     scopes: ["global"],
     fields: {
       cardBps: { kind: "bps", label: "Card processing (%)", min: 0, max: 1000 },
@@ -224,6 +236,7 @@ export const RULE_KEYS: Record<string, RuleKeySpec> = {
     key: "settlement",
     label: "Settlement and payouts",
     description: "Transfer eligibility begins after the activity is completed and the review period has passed.",
+    appliesTo: "Weekly settlement runs (started manually in Finance → Settlements); only meaningful while “Financial ledger” is on.",
     scopes: ["global", "partner"],
     fields: {
       reviewHours: { kind: "int", label: "Review period after completion", unit: "hours", min: 0, max: 720 },
@@ -240,6 +253,7 @@ export const RULE_KEYS: Record<string, RuleKeySpec> = {
     key: "venue_split",
     label: "Venue / host split",
     description: "How the partner share of a host's paid game at a partner venue is divided. The agreed split is frozen into each booking at payment; changing this rule only affects later payments.",
+    appliesTo: "Venue/host split proposals and their payouts, only while “Venue + Host split payout” is on.",
     scopes: ["global"],
     fields: {
       roundingOwner: { kind: "enum", label: "Rounding remainder goes to", values: ["venue", "host", "platform"], help: "A percentage split can leave one cent that can't be divided exactly; it is given to this party and recorded on the booking's allocation." },
@@ -251,6 +265,7 @@ export const RULE_KEYS: Record<string, RuleKeySpec> = {
     key: "subscription_policy",
     label: "Pro subscription policy",
     description: "Grace period after a failed Pro payment (Pro continues meanwhile). The value in force when a payment fails is frozen on that subscription.",
+    appliesTo: "The grace period after a failed Pro payment (Pro is unavailable until the fee model is approved).",
     scopes: ["global"],
     fields: {
       graceDays: { kind: "int", label: "Grace period after a failed payment", unit: "days", min: 1, max: 30 },
@@ -261,6 +276,7 @@ export const RULE_KEYS: Record<string, RuleKeySpec> = {
     key: "split_rewards",
     label: "Reward points on venue/host split bookings",
     description: "Both partners earn points, each only on their own settled eligible allocation, after settlement. The rate is the reward points rule's points per €1.",
+    appliesTo: "Reward points on venue/host split bookings, only while “Partner reward points” is on.",
     scopes: ["global"],
     fields: {
       basis: { kind: "enum", label: "Points are earned on", values: ["eligible_allocation"], help: "The partner's own allocation, excluding VAT, HelloCircle fees, Stripe fees, HelloCircle-funded coupons, customer credits, refunded amounts and disputed amounts." },
@@ -273,6 +289,7 @@ export const RULE_KEYS: Record<string, RuleKeySpec> = {
     key: "vat_treatment",
     label: "VAT treatment of bookings (record only)",
     description: "Who owns the VAT liability on a customer booking, as recorded on its allocation snapshot. Recording only — no VAT amounts are calculated from this. Provisional until confirmed by Irish tax advice.",
+    appliesTo: "Recorded on split-booking allocation snapshots for reference. It doesn't change any price.",
     scopes: ["global"],
     fields: {
       liabilityOwner: { kind: "enum", label: "VAT liability owner", values: ["helloCircle", "partner"], help: "HelloCircle is the merchant of record for online bookings (separate charges and transfers)." },
@@ -284,6 +301,7 @@ export const RULE_KEYS: Record<string, RuleKeySpec> = {
     key: "rewards",
     label: "Partner reward points",
     description: "Points earned on settled GMV, redeemable for a free Pro month. Points are not cash and not transferable.",
+    appliesTo: "Partner reward points, only while “Partner reward points” is on (also blocked until the fee model is approved).",
     scopes: ["global"],
     fields: {
       pointsPerEuro: { kind: "int", label: "Points per €1 of settled GMV", unit: "points", min: 0, max: 100 },
@@ -297,6 +315,7 @@ export const RULE_KEYS: Record<string, RuleKeySpec> = {
     key: "credits",
     label: "Customer credits",
     description: "Credits are liabilities with a named funding owner. Not convertible to cash.",
+    appliesTo: "Customer credit grants and expiry, only while “Customer credits” is on. Credit can only be spent in engine-priced experience checkout.",
     scopes: ["global"],
     fields: {
       defaultExpiryMonths: { kind: "int", label: "Default credit expiry", unit: "months", min: 1, max: 60 },
@@ -310,6 +329,7 @@ export const RULE_KEYS: Record<string, RuleKeySpec> = {
     key: "availability",
     label: "Countries and currencies",
     description: "Where partners can be paid. MVP: Ireland and EUR only.",
+    appliesTo: "Country and currency checks for customer credits and partner payout accounts.",
     scopes: ["global"],
     fields: {
       partnerCountry: { kind: "enum", label: "Partner country", values: ["IE"] },
@@ -400,6 +420,7 @@ export const COMMERCE_SWITCHES: CommerceSwitch[] = [
   { key: "commerce.customer_credits", label: "Customer credits (CUSTOMER_CREDITS)", description: "Finance can grant HelloCircle-funded credits to residents, who can apply them at checkout (engine-priced bookings). No cash value.", defaultValue: false, activeFromPhase: null, whenOn: "Customers: Profile → Credit (wallet) and a HelloCircle credit line in experience checkout. Finance can grant credit." },
   { key: "commerce.boost_vouchers", label: "Boost vouchers (BOOST_VOUCHERS)", description: "Promotional visibility credits.", defaultValue: false, activeFromPhase: 7, whenOn: "No visible effect yet: nothing reads this switch until Phase 7." },
   { key: "commerce.open_booking", label: "Open Booking & Make It Happen (cost-sharing)", description: "Lets a booker open spare places that other residents pay into; Make It Happen books this way too. Off until cost-sharing is repriced: joiners are currently charged VAT and the fee on a share that already includes them (booking audit 2026-10-11). Each organisation's own Open Booking flag still applies when this is on.", defaultValue: false, activeFromPhase: null, whenOn: "Not launch-ready — keep off. Turning it on puts the Open Booking option and Make It Happen back in front of customers with the cost-sharing price that is still wrong (joiners are charged VAT and the platform fee on a share that already includes them — booking audit 2026-10-11, P0). Only for an isolated test environment until cost-sharing is repriced and signed off. Each organisation’s own Open Booking flag still applies." },
+  { key: "commerce.auto_refund_unfulfillable", label: "Automatic refunds for paid orders that can't be fulfilled (D-10)", description: "When a correctly matched payment arrives after its place was taken, or for a suspended organisation, refund it in full automatically — only if Stripe confirms the agreed amount and currency, no earlier refund and no dispute. Off: those payments wait for finance.", defaultValue: true, activeFromPhase: null, whenOn: "Customers: a paid order that can't be fulfilled is refunded in full straight away, with an email. Off: it waits in Finance → Payment reviews for a person." },
   { key: "commerce.venue_host_split_payout", label: "Venue + Host split payout (VENUE_HOST_SPLIT_PAYOUT)", description: "One platform fee, payout split between venue and host. Off: hosts can't propose splits and every booking pays the host alone (accepted agreements are kept but not applied).", defaultValue: false, activeFromPhase: null, whenOn: "Hosts can propose a venue/host split in Earnings → Balance; venues accept or decline there. Accepted splits apply to payouts." },
 ];
 

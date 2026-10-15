@@ -2,7 +2,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { fetchPolicies, fetchPolicy, type PolicyDocument, type PolicySummary } from "../api";
 import { PolicyMarkdown } from "../components/PolicyMarkdown";
-import { PageSpinner } from "../components/ui";
+import { LoadErrorState, PageSpinner } from "../components/ui";
 import { colors, fonts, radius } from "../theme";
 
 // Revenue & Connect Stage 4 — Policy Centre. Only published (or, in the
@@ -14,9 +14,16 @@ const wrap = { maxWidth: 820, margin: "0 auto", padding: "32px 16px 64px" } as c
 
 export function PolicyIndex() {
   const [docs, setDocs] = useState<PolicySummary[] | null>(null);
+  const [failed, setFailed] = useState(false);
+  const load = () => {
+    setFailed(false);
+    fetchPolicies()
+      .then(setDocs)
+      .catch(() => setFailed(true));
+  };
   useEffect(() => {
     document.title = "Policy Centre | HelloCircle";
-    fetchPolicies().then(setDocs).catch(() => setDocs([]));
+    load();
   }, []);
   const groups: [string, string][] = [
     ["everyone", "For everyone"],
@@ -25,12 +32,14 @@ export function PolicyIndex() {
     ["hosts", "For hosts"],
   ];
   return (
-    <main style={wrap}>
+    <section style={wrap}>
       <h1 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(32px, 3.8vw, 52px)", margin: "0 0 8px" }}>Policy Centre</h1>
       <p style={{ color: colors.textSoft, fontSize: 15, margin: "0 0 26px" }}>
         The terms and policies that apply to using HelloCircle. Questions or problems? <Link to="/complaints" style={{ color: colors.greenText, fontWeight: 600 }}>Contact us or appeal a decision</Link>.
       </p>
-      {!docs ? (
+      {failed ? (
+        <LoadErrorState title="We couldn't load the policies." onRetry={load} />
+      ) : !docs ? (
         <PageSpinner />
       ) : (
         groups.map(([aud, label]) => {
@@ -53,7 +62,7 @@ export function PolicyIndex() {
           );
         })
       )}
-    </main>
+    </section>
   );
 }
 
@@ -73,16 +82,16 @@ function PolicyView({ docKey, version, extra, fallback }: { docKey: string; vers
   if (doc === "error" || !doc.published) {
     if (fallback) return <>{fallback}</>;
     return (
-      <main style={wrap}>
+      <section style={wrap}>
         <h1 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(32px, 3.8vw, 52px)", margin: "0 0 10px" }}>{doc === "error" ? "Policy not found" : doc.title}</h1>
         <p style={{ color: colors.textSoft }}>{doc === "error" ? "We couldn't find that policy." : "This document is being prepared and hasn't been published yet."}</p>
         <Link to="/policies" style={{ color: colors.greenText, fontWeight: 600 }}>All policies</Link>
-      </main>
+      </section>
     );
   }
   const pub = doc.published;
   return (
-    <main style={wrap}>
+    <section style={wrap}>
       <div className="no-print" style={{ display: "flex", justifyContent: "space-between", gap: 10, marginBottom: 14, flexWrap: "wrap" }}>
         <Link to="/policies" style={{ color: colors.greenText, fontWeight: 600, fontSize: 14 }}>← Policy Centre</Link>
         <button type="button" onClick={() => window.print()} style={{ border: `1px solid ${colors.border}`, background: "transparent", borderRadius: radius.control, padding: "6px 12px", cursor: "pointer", fontSize: 13 }}>
@@ -115,7 +124,7 @@ function PolicyView({ docKey, version, extra, fallback }: { docKey: string; vers
           <p style={{ fontSize: 11.5, color: colors.mutedLight, marginTop: 10, wordBreak: "break-all" }}>Content fingerprint (SHA-256): {pub.contentHash}</p>
         </section>
       )}
-    </main>
+    </section>
   );
 }
 

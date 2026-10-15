@@ -1,3 +1,4 @@
+import { unavailableListing } from "../orgStatus.js";
 import { Router } from "express";
 import { logView } from "../analytics.js";
 import { db } from "../db/index.js";
@@ -19,7 +20,12 @@ clubsRouter.get("/", async (req, res) => {
 
 clubsRouter.get("/:id", async (req, res) => {
   const club = await getApprovedClub(req.params.id);
-  if (!club) return res.status(404).json({ error: "Club not found" });
+  if (!club) {
+    // D-01: a live listing of a suspended organisation shows an unavailable state.
+    const unavailable = await unavailableListing("club", req.params.id);
+    if (unavailable) return res.json(unavailable);
+    return res.status(404).json({ error: "Club not found" });
+  }
   logView("place_viewed", req, { kind: "club", id: club.id });
   res.json({ ...club, participationAttributes: await getListingAttributes("club", club.id), ...(await officialCircleSummary("clubs", club.id)) });
 });

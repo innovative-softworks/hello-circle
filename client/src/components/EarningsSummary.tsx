@@ -45,7 +45,7 @@ export function EarningsSummary({ load, payoutsLive = true }: { load: () => Prom
   if (!data) return null;
   return (
     <Card style={{ padding: 20, marginBottom: 16 }}>
-      <h3 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 17, margin: "0 0 4px" }}>Your balance</h3>
+      <h2 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 17, margin: "0 0 4px" }}>Your balance</h2>
       <p style={{ fontSize: 12.5, color: colors.mutedLight, margin: "0 0 14px" }}>
         {payoutsLive
           ? "Transfer eligibility begins after the activity is completed and the review period has passed. Settled earnings are transferred weekly to your Stripe account; Stripe then pays out to your bank."

@@ -1,7 +1,8 @@
+import { ActionMenu } from "../components/ActionMenu";
 import { usePageTitle } from "../pageTitle";
 import { useEffect, useState } from "react";
 import { useConfirm } from "../components/ConfirmProvider";
-import { useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 import {
   cancelGame,
   demoteCircleMember,
@@ -26,11 +27,13 @@ import {
 import type { CircleInvitationSummary, CircleJoinRequest } from "../api";
 import { signInHref } from "../authRedirect";
 import { CalendarIcon, PlusIcon, UsersIcon } from "../components/icons";
-import { ManageShell } from "../components/ManageShell";
+import { WorkspaceShell } from "../components/workspace/WorkspaceShell";
+import { useUrlTab } from "../useUrlTab";
+import { ArrowLeft, CalendarDays, Settings, UsersRound } from "lucide-react";
 import { ResidentPicker } from "../components/ResidentPicker";
 import { SingleImageUpload } from "../components/SingleImageUpload";
 import { getCircleCoverUrl } from "../media";
-import { Avatar, Button, Card, ConfirmDialog, EmptyState, Modal, PageSpinner, inputStyle, labelStyle } from "../components/ui";
+import { Avatar, Button, Card, ConfirmDialog, EmptyState, LoadErrorState, Modal, PageSpinner, inputStyle, labelStyle } from "../components/ui";
 import { useGuest } from "../GuestContext";
 import { colors, fonts, radius } from "../theme";
 import type { Centre, Circle, ManageCircleMember, ManageCirclePlan, ManageParticipant } from "../types";
@@ -46,12 +49,14 @@ import type { Centre, Circle, ManageCircleMember, ManageCirclePlan, ManagePartic
 
 type CircleTab = "plans" | "members" | "settings";
 type CircleNavKey = CircleTab | "overview";
-const NAV_OPTIONS: { key: CircleNavKey; label: string; icon?: undefined }[] = [
-  { key: "overview", label: "Overview" },
-  { key: "plans", label: "Plans" },
-  { key: "members", label: "Members" },
-  { key: "settings", label: "Settings" },
+const I = { size: 18, strokeWidth: 1.9, "aria-hidden": true } as const;
+const NAV_OPTIONS: { key: CircleNavKey; label: string; icon: JSX.Element; group: string; summary?: string }[] = [
+  { key: "plans", label: "Plans", icon: <CalendarDays {...I} />, group: "This Circle", summary: "Official plans for this Circle, and ideas members have suggested." },
+  { key: "members", label: "Members", icon: <UsersRound {...I} />, group: "This Circle", summary: "Members, join requests, invitations and organiser roles." },
+  { key: "settings", label: "Settings", icon: <Settings {...I} />, group: "This Circle", summary: "Name, description, cover, how people join, and closing the Circle." },
+  { key: "overview", label: "Back to Host workspace", icon: <ArrowLeft {...I} />, group: "Host workspace" },
 ];
+const CIRCLE_TABS: CircleTab[] = ["plans", "members", "settings"];
 
 function statusBadge(status: string) {
   const map: Record<string, { bg: string; fg: string; label: string }> = {
@@ -243,13 +248,16 @@ function PlanRow({ plan, circleId, onChanged, onManageParticipants }: { plan: Ma
           </div>
         </div>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          <Button variant="ghost" onClick={onManageParticipants}>Participants</Button>
+          <Button variant="ghost" onClick={onManageParticipants} aria-label={`Participants of ${plan.activityLabel}`}>Participants</Button>
           {isLive && (
-            <>
-              <Button variant="ghost" onClick={() => navigate(`/games/host/${plan.id}`)}>Edit</Button>
-              <Button variant="ghost" onClick={() => setPosting((v) => !v)}>Post update</Button>
-              <Button variant="danger" onClick={() => setConfirmingCancel(true)}>Cancel</Button>
-            </>
+            <ActionMenu
+              label={`More actions for ${plan.activityLabel}`}
+              items={[
+                { label: "Edit plan", onSelect: () => navigate(`/games/host/${plan.id}`) },
+                { label: posting ? "Hide update form" : "Post an update", onSelect: () => setPosting((v) => !v) },
+                { label: "Cancel plan…", onSelect: () => setConfirmingCancel(true), danger: true },
+              ]}
+            />
           )}
         </div>
       </div>
@@ -805,7 +813,6 @@ export function ManageCircle() {
   const { resident, loading } = useGuest();
   const navigate = useNavigate();
   const { id } = useParams<{ id: string }>();
-  const [searchParams] = useSearchParams();
   const [circle, setCircle] = useState<Circle | null>(null);
   usePageTitle(circle ? `Manage ${circle.name}` : null);
   const [circleLoading, setCircleLoading] = useState(true);
@@ -813,23 +820,31 @@ export function ManageCircle() {
   // Circle Experience Polish — Changeset 3A. Lets the post-creation success
   // screen (StartCirclePage.tsx) and any other future deep link land an
   // organiser directly on a specific tab, e.g. ?tab=members.
-  const initialTab = searchParams.get("tab");
-  const [tab, setTab] = useState<CircleTab>(initialTab === "members" || initialTab === "settings" ? initialTab : "plans");
+  // URL-synced (?tab=), so Back/Forward, refresh and shared links keep it.
+  const [tab, setTab] = useUrlTab<CircleTab>(CIRCLE_TABS, "plans");
+  const [restricted, setRestricted] = useState(false);
 
-  useEffect(() => {
+  const loadCircle = () => {
     if (!resident || !id) return;
     setCircleLoading(true);
+    setCircleError(null);
+    setRestricted(false);
     fetchCircle(id)
       .then((c) => {
         if (c.myRole !== "organiser" && c.createdByResidentId !== resident.id) {
-          setCircleError("Only the organiser can manage this Circle");
+          setRestricted(true);
           return;
         }
         setCircle(c);
       })
-      .catch((e) => setCircleError(e instanceof Error ? e.message : "Couldn't load this Circle"))
+      .catch((e) => {
+        const status = (e as { status?: number })?.status;
+        if (status === 403 || status === 404) setRestricted(true);
+        else setCircleError(e instanceof Error ? e.message : "Couldn't load this Circle");
+      })
       .finally(() => setCircleLoading(false));
-  }, [id, resident?.id]);
+  };
+  useEffect(loadCircle, [id, resident?.id]);
 
   // See VendorDashboard.tsx's identical comment — navigate() belongs in an
   // effect, not called directly during render.
@@ -842,21 +857,26 @@ export function ManageCircle() {
   if (!resident) return null;
 
   return (
-    <ManageShell
-      navTitle="HelloCircle Manage"
-      navOptions={NAV_OPTIONS}
-      activeKey={tab}
-      onNavChange={(key) => {
-        if (key === "overview") navigate("/manage");
+    <WorkspaceShell
+      workspaceLabel="Host workspace"
+      account={`Circle organiser · ${resident.name} · ${resident.email}`}
+      externalLink={circle ? { label: "View Circle page", to: `/circles/${circle.slug ?? circle.id}` } : undefined}
+      navItems={NAV_OPTIONS}
+      active={tab}
+      onNavigate={(key) => {
+        if (key === "overview") navigate("/manage?tab=circles");
         else setTab(key);
       }}
-      contextLabel="Managing Circle"
-      pageTitle={circle?.name ?? "Circle"}
+      title={circle?.name ?? "Circle"}
+      subtitle={NAV_OPTIONS.find((o) => o.key === tab)?.summary}
+      crumbs={[{ label: "Host workspace", onClick: () => navigate("/manage") }, { label: "Circles", onClick: () => navigate("/manage?tab=circles") }, { label: circle?.name ?? "Circle" }]}
     >
       {circleLoading ? (
         <PageSpinner />
+      ) : restricted ? (
+        <EmptyState icon={<UsersIcon size={26} />} title="Only this Circle's organisers can manage it" subtitle="You can still see it on its public page if it's open to you." />
       ) : circleError || !circle ? (
-        <EmptyState icon={<UsersIcon size={26} />} title={circleError ?? "Circle not found"} />
+        <LoadErrorState title="Couldn't load this Circle" detail={circleError ?? undefined} onRetry={loadCircle} />
       ) : tab === "plans" ? (
         <PlansTab circle={circle} />
       ) : tab === "members" ? (
@@ -864,6 +884,6 @@ export function ManageCircle() {
       ) : (
         <SettingsTab circle={circle} onSaved={setCircle} />
       )}
-    </ManageShell>
+    </WorkspaceShell>
   );
 }

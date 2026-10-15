@@ -16,17 +16,19 @@ import { allocate } from "./commerce/money.js";
  * Expiry is read-time: no job is needed for capacity to come back. */
 export const PENDING_HOLD_MINUTES = 30;
 
-/** SQL predicate: this row currently consumes capacity (paid, or a live
- * pending hold), for tables with payment_status + created_at + status. */
+/** SQL predicate: this row currently consumes capacity (paid, a live
+ * pending hold, or a D-10 review hold whose deadline hasn't passed), for
+ * tables with payment_status + created_at + status + review_hold_until. */
 export function occupiesCapacitySql(alias = ""): string {
   const a = alias ? `${alias}.` : "";
-  return `(${a}status != 'cancelled' AND (${a}payment_status = 'paid' OR (${a}payment_status = 'pending' AND ${a}created_at > NOW() - INTERVAL ${PENDING_HOLD_MINUTES} MINUTE)))`;
+  return `(${a}status != 'cancelled' AND (${a}payment_status = 'paid' OR (${a}payment_status = 'pending' AND (${a}created_at > NOW() - INTERVAL ${PENDING_HOLD_MINUTES} MINUTE OR ${a}review_hold_until > NOW()))))`;
 }
 
-/** Activities: joined, or a live pending_payment hold (joined_at is the hold start). */
+/** Activities: joined, or a live pending_payment hold (joined_at is the hold
+ * start), or a D-10 review hold whose deadline hasn't passed. */
 export function gameSeatSql(alias = ""): string {
   const a = alias ? `${alias}.` : "";
-  return `(${a}status = 'joined' OR (${a}status = 'pending_payment' AND ${a}joined_at > NOW() - INTERVAL ${PENDING_HOLD_MINUTES} MINUTE))`;
+  return `(${a}status = 'joined' OR (${a}status = 'pending_payment' AND (${a}joined_at > NOW() - INTERVAL ${PENDING_HOLD_MINUTES} MINUTE OR ${a}review_hold_until > NOW())))`;
 }
 
 /** True while a row created at `createdAt` is still a live hold. */
@@ -112,6 +114,13 @@ export async function releaseCoupon(tx: Tx, code: string | null | undefined) {
 }
 
 type PendingTable = "bookings" | "registrations" | "program_enrollments" | "experience_bookings" | "game_participants";
+const PENDING_TABLE_TYPE: Record<PendingTable, string> = {
+  bookings: "booking",
+  registrations: "registration",
+  program_enrollments: "program",
+  experience_bookings: "experience",
+  game_participants: "game",
+};
 
 /** HC-QA-050 — end a still-pending paid hold exactly once and release its
  * reserved coupon use with it. `delete` removes the row (provider session
@@ -122,6 +131,9 @@ export async function endPendingHold(table: PendingTable, ref: string, mode: "de
   return db.transaction(async (tx) => {
     const row = (await tx.prepare(`SELECT coupon_code, payment_status FROM ${table} WHERE ref = ? FOR UPDATE`).get(ref)) as { coupon_code: string | null; payment_status: string } | undefined;
     if (!row || row.payment_status !== "pending") return false;
+    // D-10 — money was received for this order and is under review: an
+    // expiry or failure event for its checkout never removes or fails it.
+    if (await tx.prepare(`SELECT id FROM payment_reviews WHERE source_type = ? AND source_ref = ? AND status = 'open' AND reason != 'association_unverified' LIMIT 1`).get(PENDING_TABLE_TYPE[table], ref)) return false;
     const info = mode === "delete"
       ? await tx.prepare(`DELETE FROM ${table} WHERE ref = ? AND payment_status = 'pending'`).run(ref)
       : await tx.prepare(`UPDATE ${table} SET payment_status = 'failed' WHERE ref = ? AND payment_status = 'pending'`).run(ref);

@@ -1,3 +1,4 @@
+import { useAdminCan } from "./admin/adminPermissions";
 import { useEffect, useRef, useState } from "react";
 import { useConfirm } from "./ConfirmProvider";
 import {
@@ -41,6 +42,7 @@ function ToggleRow({ label, hint, checked, onChange, disabled }: { label: string
 }
 
 export function AdminMediaTab() {
+  const can = useAdminCan();
   const [usage, setUsage] = useState<MediaUsageResponse | null>(null);
   const [images, setImages] = useState<EditorialImage[] | null>(null);
   const [uploadsEnabled, setUploadsEnabledState] = useState<boolean | null>(null);
@@ -106,6 +108,7 @@ export function AdminMediaTab() {
               label="New uploads enabled"
               hint="Global pause — turning this off blocks every new upload (any provider) but never touches images already stored."
               checked={uploadsEnabled}
+              disabled={!can("platform.settings")}
               onChange={async (v) => setUploadsEnabledState((await setMediaUploadsEnabled(v)).enabled)}
             />
             <ToggleRow
@@ -118,7 +121,7 @@ export function AdminMediaTab() {
                   : "No Cloudinary credentials configured for this deployment — nothing to enable yet."
               }
               checked={cloudinaryState.enabled}
-              disabled={!cloudinaryState.credentialsPresent || !cloudinaryState.configuredByEnv}
+              disabled={!can("platform.settings") || !cloudinaryState.credentialsPresent || !cloudinaryState.configuredByEnv}
               onChange={async (v) => {
                 await setCloudinaryUploadsEnabled(v);
                 setCloudinaryState(await fetchCloudinaryUploadsEnabled());
@@ -162,7 +165,7 @@ export function AdminMediaTab() {
           A small set of platform/editorial images (e.g. county guides, homepage features) — not tied to any listing.
           JPEG/PNG/WebP, up to 8MB.
         </p>
-        <div style={{ display: "flex", gap: 8, marginBottom: 14, flexWrap: "wrap" }}>
+        {can("media.editorial") && <div style={{ display: "flex", gap: 8, marginBottom: 14, flexWrap: "wrap" }}>
           <input
             value={caption}
             onChange={(e) => setCaption(e.target.value)}
@@ -170,7 +173,7 @@ export function AdminMediaTab() {
             style={{ flex: "1 1 220px", padding: "8px 10px", borderRadius: radius.control, border: `1px solid ${colors.border}`, fontSize: 13 }}
           />
           <input ref={fileInputRef} type="file" accept="image/jpeg,image/png,image/webp" onChange={(e) => onFiles(e.target.files)} disabled={uploading} style={{ fontSize: 12 }} />
-        </div>
+        </div>}
         {uploading && <p style={{ fontSize: 12, color: colors.mutedLight }}>Uploading…</p>}
         {error && <p style={{ fontSize: 12, color: colors.danger }}>{error}</p>}
         {!images ? (
@@ -186,13 +189,13 @@ export function AdminMediaTab() {
                   {img.caption && <div style={{ fontSize: 11.5, marginBottom: 2 }}>{img.caption}</div>}
                   <div style={{ fontSize: 10.5, color: colors.faint }}>{img.bytes ? `${bytesToMb(img.bytes)} MB` : ""}</div>
                 </div>
-                <button
+                {can("media.delete") && <button
                   onClick={() => remove(img.id)}
                   aria-label="Delete"
                   style={{ position: "absolute", top: 5, right: 5, width: 22, height: 22, borderRadius: "50%", border: "none", background: "rgba(20,22,20,.7)", color: "#fff", cursor: "pointer" }}
                 >
                   ×
-                </button>
+                </button>}
               </div>
             ))}
           </div>

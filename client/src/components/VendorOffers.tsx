@@ -52,7 +52,7 @@ function NewCouponForm({ listings, onCreated }: { listings: { centres: VendorLis
 
   return (
     <Card style={{ marginBottom: 20 }}>
-      <h4 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 16, margin: "0 0 14px" }}>Create an offer</h4>
+      <h2 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 16, margin: "0 0 14px" }}>Create an offer</h2>
       <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 12 }}>
         <div style={{ flex: "1 1 140px" }}>
           <label style={labelStyle}>Code</label>

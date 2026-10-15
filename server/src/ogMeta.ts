@@ -1,3 +1,4 @@
+import { orgActiveSql } from "./orgSql.js";
 import { CORPORATE_BRAND, CORPORATE_BRAND_URL, LEGAL_OPERATOR, PRODUCT_BRAND } from "./companyIdentity.js";
 import { venuePagesPublic, isVenuePath } from "./venueLaunch.js";
 import { db } from "./db/index.js";
@@ -277,7 +278,7 @@ async function resolveOgMetaInner(pathName: string, viewerResidentId: string | n
   const canonicalPath = (slug: string | null | undefined) => `${CLIENT_URL}/${kind}/${slug || idOrSlug}`;
 
   if (kind === "centres") {
-    const row = (await db.prepare(`SELECT name, blurb, image_url, area, county, slug FROM centres WHERE (slug = ? OR id = ?) AND status = 'approved'`).get(idOrSlug, idOrSlug)) as
+    const row = (await db.prepare(`SELECT name, blurb, image_url, area, county, slug FROM centres WHERE (slug = ? OR id = ?) AND status = 'approved' AND ${orgActiveSql("vendor_id")}`).get(idOrSlug, idOrSlug)) as
       | { name: string; blurb: string; image_url: string; area: string; county: string; slug: string | null }
       | undefined;
     if (!row) return null;
@@ -301,7 +302,7 @@ async function resolveOgMetaInner(pathName: string, viewerResidentId: string | n
   }
 
   if (kind === "clubs") {
-    const row = (await db.prepare(`SELECT name, blurb, image_url, area, county, slug FROM clubs WHERE (slug = ? OR id = ?) AND status = 'approved'`).get(idOrSlug, idOrSlug)) as
+    const row = (await db.prepare(`SELECT name, blurb, image_url, area, county, slug FROM clubs WHERE (slug = ? OR id = ?) AND status = 'approved' AND ${orgActiveSql("vendor_id")}`).get(idOrSlug, idOrSlug)) as
       | { name: string; blurb: string; image_url: string; area: string; county: string; slug: string | null }
       | undefined;
     if (!row) return null;
@@ -369,7 +370,7 @@ async function resolveOgMetaInner(pathName: string, viewerResidentId: string | n
   }
 
   if (kind === "experiences" || kind === "adventures") {
-    const row = (await db.prepare(`SELECT title, blurb, image_url, slug FROM experiences WHERE (slug = ? OR id = ?) AND status = 'approved'`).get(idOrSlug, idOrSlug)) as
+    const row = (await db.prepare(`SELECT title, blurb, image_url, slug FROM experiences WHERE (slug = ? OR id = ?) AND status = 'approved' AND ${orgActiveSql("vendor_id")}`).get(idOrSlug, idOrSlug)) as
       | { title: string; blurb: string; image_url: string; slug: string | null }
       | undefined;
     if (!row) return null;
@@ -380,7 +381,7 @@ async function resolveOgMetaInner(pathName: string, viewerResidentId: string | n
   }
 
   if (kind === "programs") {
-    const row = (await db.prepare(`SELECT title, description, image_url FROM programs WHERE id = ? AND status = 'published'`).get(idOrSlug)) as
+    const row = (await db.prepare(`SELECT title, description, image_url FROM programs WHERE id = ? AND status = 'published' AND ${orgActiveSql("vendor_id")}`).get(idOrSlug)) as
       | { title: string; description: string; image_url: string }
       | undefined;
     if (!row) return null;
@@ -401,7 +402,7 @@ async function resolveOgMetaInner(pathName: string, viewerResidentId: string | n
   }
 
   if (kind === "provider") {
-    const row = (await db.prepare(`SELECT name, business_name as businessName, description, logo FROM users WHERE id = ? AND role = 'vendor' AND status = 'approved'`).get(idOrSlug)) as
+    const row = (await db.prepare(`SELECT name, business_name as businessName, description, logo FROM users WHERE id = ? AND role = 'vendor' AND status = 'approved' AND ${orgActiveSql("users.id")}`).get(idOrSlug)) as
       | { name: string; businessName: string; description: string; logo: string | null }
       | undefined;
     if (!row) return null;
@@ -598,17 +599,17 @@ export async function generateSitemapUrls(): Promise<string[]> {
 
   const todayIso = irelandTodayIso();
   const [centres, clubs, circles, experiences, programs, hosts, providers, games, localPages] = await Promise.all([
-    db.prepare(`SELECT COALESCE(slug, id) as slug FROM centres WHERE status = 'approved'`).all() as Promise<{ slug: string }[]>,
-    db.prepare(`SELECT COALESCE(slug, id) as slug FROM clubs WHERE status = 'approved'`).all() as Promise<{ slug: string }[]>,
+    db.prepare(`SELECT COALESCE(slug, id) as slug FROM centres WHERE status = 'approved' AND ${orgActiveSql("vendor_id")}`).all() as Promise<{ slug: string }[]>,
+    db.prepare(`SELECT COALESCE(slug, id) as slug FROM clubs WHERE status = 'approved' AND ${orgActiveSql("vendor_id")}`).all() as Promise<{ slug: string }[]>,
     // 'open'-only — same reasoning as the games query below: an approval/
     // invite Circle must never end up in a crawlable public sitemap (Media
     // plan Task 2 closed this same leak in the Circle JSON responses
     // themselves; this query had the identical gap independently).
     db.prepare(`SELECT COALESCE(slug, id) as slug FROM circles WHERE status = 'active' AND join_mode = 'open'`).all() as Promise<{ slug: string }[]>,
-    db.prepare(`SELECT COALESCE(slug, id) as slug FROM experiences WHERE status = 'approved'`).all() as Promise<{ slug: string }[]>,
-    db.prepare(`SELECT id FROM programs WHERE status = 'published'`).all() as Promise<{ id: string }[]>,
+    db.prepare(`SELECT COALESCE(slug, id) as slug FROM experiences WHERE status = 'approved' AND ${orgActiveSql("vendor_id")}`).all() as Promise<{ slug: string }[]>,
+    db.prepare(`SELECT id FROM programs WHERE status = 'published' AND ${orgActiveSql("vendor_id")}`).all() as Promise<{ id: string }[]>,
     db.prepare(`SELECT id FROM residents WHERE host_status = 'verified'`).all() as Promise<{ id: string }[]>,
-    db.prepare(`SELECT id FROM users WHERE role = 'vendor' AND status = 'approved'`).all() as Promise<{ id: string }[]>,
+    db.prepare(`SELECT id FROM users WHERE role = 'vendor' AND status = 'approved' AND ${orgActiveSql("users.id")}`).all() as Promise<{ id: string }[]>,
     // 'public'-only — a circle-only/invite-only game must never end up in a
     // crawlable public sitemap (Universal Sharing system §21/§22: privacy
     // can't leak just because a link exists somewhere). `lifecycle != 'draft'`

@@ -1,3 +1,4 @@
+import { useAdminCan } from "./admin/adminPermissions";
 import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import {
   commerceRuleAction,
@@ -25,6 +26,7 @@ import {
 } from "../api/admin";
 import { euro } from "../euro";
 import { colors, fonts, radius } from "../theme";
+import { LoadFailed, useLoadFailure } from "./admin/loadFailure";
 import { Button, ManageCard as Card, Modal, inputStyle, labelStyle, tableStyle, tdStyle, thStyle } from "./ui";
 
 // Commerce Engine Phase 1 — admin view of the versioned commercial rules
@@ -103,7 +105,7 @@ const LIFECYCLE_STYLE: Record<string, { bg: string; fg: string; label: string }>
 
 function LifecycleBadge({ lifecycle }: { lifecycle: string }) {
   const s = LIFECYCLE_STYLE[lifecycle] ?? LIFECYCLE_STYLE.draft;
-  return <span style={{ background: s.bg, color: s.fg, fontSize: 11.5, fontWeight: 700, padding: "3px 8px", borderRadius: 999, whiteSpace: "nowrap" }}>{s.label}</span>;
+  return <span style={{ background: s.bg, color: s.fg, fontSize: 11.5, fontWeight: 700, padding: "3px 8px", borderRadius: radius.pill, whiteSpace: "nowrap" }}>{s.label}</span>;
 }
 
 // --- reason / date action dialog ---------------------------------------------
@@ -346,7 +348,10 @@ function DetailsModal({ version, spec, onClose }: { version: CommerceRuleVersion
     setPreview(null);
     setError(null);
     if (!version) return;
-    fetchCommerceRule(version.id).then((r) => setVsPrevious(r.changesFromPrevious)).catch(() => setVsPrevious([]));
+    // A failed comparison is an error, never "no changes".
+    fetchCommerceRule(version.id)
+      .then((r) => setVsPrevious(r.changesFromPrevious))
+      .catch((e) => setError(`Couldn't load the comparison with the previous version: ${e instanceof Error ? e.message : "request failed"}`));
     if (version.status === "draft" || version.status === "review" || version.status === "approved") {
       previewCommerceRule(version.id).then(setPreview).catch((e) => setError(e instanceof Error ? e.message : "Preview failed"));
     }
@@ -457,6 +462,11 @@ function RuleCard({
         <div>
           <h3 style={h3}>{spec.label}</h3>
           <p style={hint}>{spec.description}</p>
+          {spec.appliesTo && (
+            <p style={{ ...hint, color: /^Not applied yet/.test(spec.appliesTo) ? colors.danger : colors.text }}>
+              <strong>Where this takes effect:</strong> {spec.appliesTo}
+            </p>
+          )}
         </div>
         <Button onClick={() => onNew(base)}>New version</Button>
       </div>
@@ -523,7 +533,12 @@ function RuleCard({
 
 // --- switches + audit ----------------------------------------------------------------
 
+// D-02 — mirrors GOVERNANCE_SWITCHES in server/src/routes/adminCommerce.ts:
+// switches that aren't financial stay Super-only.
+const GOVERNANCE_SWITCHES = new Set(["commerce.require_second_approver", "commerce.paid_games_require_verified_host", "commerce.open_booking"]);
+
 function SwitchesCard({ catalog, onChanged }: { catalog: CommerceCatalog; onChanged: () => void }) {
+  const canGovernance = useAdminCan()("commerce.governance_switches");
   const [pending, setPending] = useState<{ key: string; label: string; enabled: boolean } | null>(null);
   const [reason, setReason] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -556,6 +571,9 @@ function SwitchesCard({ catalog, onChanged }: { catalog: CommerceCatalog; onChan
                 <strong>When on:</strong> {s.whenOn}
               </div>
             )}
+            {GOVERNANCE_SWITCHES.has(s.key) && !canGovernance && (
+              <div style={{ fontSize: 12, color: colors.mutedLight, marginTop: 2 }}>Only a super admin can change this switch.</div>
+            )}
             {(catalog.switchDependencies?.[s.key] ?? []).length > 0 && (
               <div style={{ fontSize: 12, marginTop: 2 }} data-testid={`switch-needs-${s.key}`}>
                 Needs: {(catalog.switchDependencies?.[s.key] ?? []).map((d) => catalog.switches.find((x) => x.key === d)?.label ?? d).join(", ")}
@@ -566,6 +584,7 @@ function SwitchesCard({ catalog, onChanged }: { catalog: CommerceCatalog; onChan
             type="checkbox"
             aria-label={s.label}
             checked={s.enabled}
+            disabled={GOVERNANCE_SWITCHES.has(s.key) && !canGovernance}
             onChange={(e) => { setPending({ key: s.key, label: s.label, enabled: e.target.checked }); setReason(""); setError(null); }}
             style={{ accentColor: colors.green, width: 18, height: 18, flex: "none" }}
           />
@@ -679,13 +698,15 @@ function ShadowCard({ report }: { report: CommerceShadowReport | null }) {
 function OrdersCard() {
   const [orders, setOrders] = useState<CommerceOrderRow[] | null>(null);
   const [q, setQ] = useState("");
-  const load = (query?: string) => fetchCommerceOrders(query).then(setOrders).catch(() => setOrders([]));
+  const { failed, track } = useLoadFailure();
+  const load = (query?: string) => track(fetchCommerceOrders(query), setOrders);
   useEffect(() => {
     load();
   }, []);
   return (
     <Card style={{ padding: 22 }}>
       <h3 style={h3}>Orders</h3>
+      <LoadFailed failed={failed} onRetry={() => load(q.trim() || undefined)} />
       <p style={hint}>Orders priced by the commerce engine, each with its frozen pricing snapshot. Search by order id, booking reference, Stripe session or partner id.</p>
       <form
         onSubmit={(e) => {
@@ -698,8 +719,8 @@ function OrdersCard() {
         <Button type="submit" variant="ghost">Search</Button>
       </form>
       {!orders ? (
-        <p style={hint}>Loading…</p>
-      ) : orders.length === 0 ? (
+        failed ? null : <p style={hint}>Loading…</p>
+      ) : orders.length === 0 && failed ? null : orders.length === 0 ? (
         <p style={hint}>No engine-priced orders yet. They appear once the engine is switched on for a resource type.</p>
       ) : (
         <div style={{ overflowX: "auto" }}>
@@ -745,7 +766,7 @@ const SECTIONS: { id: string; title: string; keys?: string[]; note?: string }[] 
   { id: "credit", title: "Customer credit", keys: ["credits"], note: "Customer credit is granted in Admin → Finance → Credits & Pro." },
   { id: "coupons", title: "Coupons", note: "Coupon codes, limits and funding are managed in Admin → Coupons; usage is in Admin → Finance → Coupons." },
   { id: "tax", title: "VAT and tax", keys: ["tax_vat", "vat_treatment"], note: "VAT treatment is provisional pending Irish tax review." },
-  { id: "help", title: "Help content", note: "Explanations shown to partners and customers are edited in Admin → Finance → Field help (versioned)." },
+  { id: "help", title: "Help content", note: "Explanations shown to partners and customers are edited in Admin → Settings → Field help (versioned)." },
   { id: "other", title: "Checkout, settlement and payouts", keys: ["pricing", "checkout", "cancellation", "payment_costs", "settlement", "venue_split", "availability"] },
   { id: "history", title: "Version history", note: "Every rule and switch change, with who, when and why." },
 ];

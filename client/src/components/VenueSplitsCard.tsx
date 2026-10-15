@@ -32,10 +32,20 @@ function VenueSide() {
   const [reason, setReason] = useState<Record<number, string>>({});
   const [error, setError] = useState<string | null>(null);
   const help = useSplitHelp();
-  const load = () => fetchVenueSplits().then(setRows).catch(() => setRows(null));
+  const [loadFailed, setLoadFailed] = useState(false);
+  const load = () =>
+    fetchVenueSplits()
+      .then((r) => {
+        setRows(r);
+        setLoadFailed(false);
+      })
+      .catch((e: unknown) => {
+        if ((e as { status?: number })?.status !== 403) setLoadFailed(true);
+      });
   useEffect(() => {
     load();
   }, []);
+  if (loadFailed && !rows) return <p role="alert" style={{ fontSize: 13.5 }}>Couldn't load venue/host split proposals. Refresh to try again.</p>;
   if (!rows || rows.length === 0) return null;
   const decide = async (id: number, accept: boolean) => {
     setError(null);
@@ -48,7 +58,7 @@ function VenueSide() {
   };
   return (
     <Card style={{ padding: 20 }}>
-      <h3 data-testid="venue-splits" style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 17, margin: "0 0 4px" }}>Venue / host splits</h3>
+      <h2 data-testid="venue-splits" style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 17, margin: "0 0 4px" }}>Venue / host splits</h2>
       {help && <p style={{ fontSize: 12.5, color: colors.mutedLight, margin: "0 0 12px", lineHeight: 1.5 }}>{help.definition}</p>}
       <div style={{ overflowX: "auto" }}>
         <table style={tableStyle}>
@@ -113,7 +123,7 @@ function HostSide() {
   };
   return (
     <Card style={{ padding: 20 }}>
-      <h3 data-testid="host-splits" style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 17, margin: "0 0 4px" }}>Splits with venues</h3>
+      <h2 data-testid="host-splits" style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 17, margin: "0 0 4px" }}>Splits with venues</h2>
       {help && <p style={{ fontSize: 12.5, color: colors.mutedLight, margin: "0 0 12px", lineHeight: 1.5 }}>{help.definition}</p>}
       {games.map((g) => {
         const current = (splits[g.id] ?? [])[0];

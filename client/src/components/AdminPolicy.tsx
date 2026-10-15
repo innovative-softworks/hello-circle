@@ -1,3 +1,4 @@
+import { useAdminCan } from "./admin/adminPermissions";
 import { useEffect, useState, type CSSProperties } from "react";
 import {
   createPolicyDraft,
@@ -21,6 +22,7 @@ import {
   type PolicyAction,
 } from "../api";
 import { useAuth } from "../AuthContext";
+import { LoadFailed, useLoadFailure } from "./admin/loadFailure";
 import { colors, fonts, radius } from "../theme";
 import { PolicyMarkdown } from "./PolicyMarkdown";
 import { Button, ManageCard as Card, Modal, inputStyle, labelStyle, tableStyle, tdStyle, thStyle } from "./ui";
@@ -52,7 +54,7 @@ function VersionEditor({ id, onClose, onChanged }: { id: number; onClose: () => 
   const [effective, setEffective] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const canSignOff = (user?.adminRole ?? "super") === "legal" || (user?.adminRole ?? "super") === "super";
+  const canSignOff = useAdminCan()("policies.manage");
 
   const load = () =>
     previewPolicyVersion(id).then((p) => {
@@ -94,7 +96,7 @@ function VersionEditor({ id, onClose, onChanged }: { id: number; onClose: () => 
       )}
       <div role="tablist" style={{ display: "flex", gap: 6, marginBottom: 10 }}>
         {(["edit", "preview"] as const).map((k) => (
-          <button key={k} role="tab" aria-selected={view === k} onClick={() => setView(k)} style={{ border: `1px solid ${view === k ? colors.green : colors.border}`, background: view === k ? colors.greenBg : "transparent", borderRadius: 999, padding: "5px 12px", fontSize: 13, cursor: "pointer" }}>
+          <button key={k} role="tab" aria-selected={view === k} onClick={() => setView(k)} style={{ border: `1px solid ${view === k ? colors.green : colors.border}`, background: view === k ? colors.greenBg : "transparent", borderRadius: radius.pill, padding: "5px 12px", fontSize: 13, cursor: "pointer" }}>
             {k === "edit" ? (editable ? "Edit" : "Source") : "Preview"}
           </button>
         ))}
@@ -386,19 +388,21 @@ function PlaceholdersSection({ overview, reload }: { overview: AdminPolicyOvervi
 // --- complaints ---------------------------------------------------------------------------
 
 function ComplaintsSection() {
+  const { failed, track } = useLoadFailure();
   const [status, setStatus] = useState("open");
   const [rows, setRows] = useState<AdminComplaint[]>([]);
   const [decide, setDecide] = useState<AdminComplaint | null>(null);
   const [decision, setDecision] = useState<"upheld" | "rejected" | "resolved">("resolved");
   const [reasons, setReasons] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const load = () => fetchAdminComplaints(status || undefined).then(setRows).catch(() => setRows([]));
+  const load = () => track(fetchAdminComplaints(status || undefined), setRows);
   useEffect(() => {
     load();
   }, [status]);
   return (
     <Card style={{ padding: 22 }}>
       <h3 style={h3}>Complaints, notices and appeals</h3>
+      <LoadFailed failed={failed} onRetry={load} />
       <p style={hint}>Every decision needs a statement of reasons; the submitter sees it. An appeal against a moderation decision must be decided by someone other than the admin who made the original decision.</p>
       <label><span style={labelStyle}>Show</span>
         <select value={status} onChange={(e) => setStatus(e.target.value)} style={{ ...inputStyle, maxWidth: 220 }}>
@@ -426,7 +430,7 @@ function ComplaintsSection() {
             )}
           </div>
         ))}
-        {rows.length === 0 && <p style={hint}>Nothing here.</p>}
+        {rows.length === 0 && !failed && <p style={hint}>Nothing here.</p>}
       </div>
       {decide && (
         <Modal
@@ -473,18 +477,20 @@ function ComplaintsSection() {
 // --- traders --------------------------------------------------------------------------------
 
 function TradersSection() {
+  const { failed, track } = useLoadFailure();
   const [status, setStatus] = useState("unverified");
   const [rows, setRows] = useState<AdminTrader[]>([]);
   const [act, setAct] = useState<{ t: AdminTrader; status: "verified" | "rejected" } | null>(null);
   const [note, setNote] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const load = () => fetchAdminTraders(status || undefined).then(setRows).catch(() => setRows([]));
+  const load = () => track(fetchAdminTraders(status || undefined), setRows);
   useEffect(() => {
     load();
   }, [status]);
   return (
     <Card style={{ padding: 22 }}>
       <h3 style={h3}>Trader verification</h3>
+      <LoadFailed failed={failed} onRetry={load} />
       <p style={hint}>Sellers' DSA/DAC7 details. Tax numbers are masked. Changing a seller's name, address or company number resets them to unverified.</p>
       <label><span style={labelStyle}>Show</span>
         <select value={status} onChange={(e) => setStatus(e.target.value)} style={{ ...inputStyle, maxWidth: 220 }}>
@@ -509,7 +515,7 @@ function TradersSection() {
                 </td>
               </tr>
             ))}
-            {rows.length === 0 && <tr><td style={tdStyle} colSpan={4}>Nothing here.</td></tr>}
+            {rows.length === 0 && !failed && <tr><td style={tdStyle} colSpan={4}>Nothing here.</td></tr>}
           </tbody>
         </table>
       </div>
@@ -551,33 +557,35 @@ function TradersSection() {
 // --- the tab ----------------------------------------------------------------------------------
 
 const SECTIONS = [
-  { key: "documents", label: "Policy documents", roles: ["super", "legal"] },
-  { key: "values", label: "Company details", roles: ["super", "legal"] },
-  { key: "complaints", label: "Complaints & appeals", roles: ["super", "support"] },
-  { key: "traders", label: "Trader verification", roles: ["super", "legal", "support"] },
+  { key: "documents", label: "Policy documents", permission: "policies.manage" },
+  { key: "values", label: "Company details", permission: "policies.manage" },
+  { key: "complaints", label: "Complaints & appeals", permission: "complaints.handle" },
+  { key: "traders", label: "Trader verification", permission: "traders.view" },
 ] as const;
 
 export function AdminPolicyTab() {
-  const { user } = useAuth();
-  const role = user?.adminRole ?? "super";
-  const visible = SECTIONS.filter((s) => (s.roles as readonly string[]).includes(role));
+  const { failed, track } = useLoadFailure();
+  // D-02: sections follow the admin's permissions.
+  const can = useAdminCan();
+  const canPolicies = can("policies.manage");
+  const visible = SECTIONS.filter((s) => can(s.permission));
   const [section, setSection] = useState<string>(visible[0]?.key ?? "");
   const [overview, setOverview] = useState<AdminPolicyOverview | null>(null);
-  const reload = () => fetchAdminPolicies().then(setOverview).catch(() => setOverview(null));
+  const reload = () => track(fetchAdminPolicies(), setOverview);
   useEffect(() => {
-    if (role === "super" || role === "legal") reload();
-  }, [role]);
+    if (canPolicies) reload();
+  }, [canPolicies]);
   if (!visible.length) return <p style={hint}>Your admin role doesn't include policy or trust tools.</p>;
   return (
     <div className="fade-panel" style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-      <div role="tablist" aria-label="Policy and trust sections" style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+      <LoadFailed failed={failed && !failed.forbidden ? failed : null} onRetry={reload} />
+      <div role="tablist" aria-label="Policy and trust sections" className="adm-subnav">
         {visible.map((s) => (
           <button
             key={s.key}
             role="tab"
             aria-selected={section === s.key}
             onClick={() => setSection(s.key)}
-            style={{ border: `1px solid ${section === s.key ? colors.green : colors.border}`, background: section === s.key ? colors.greenBg : "transparent", color: section === s.key ? colors.greenText : colors.text, borderRadius: 999, padding: "6px 12px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}
           >
             {s.label}
           </button>

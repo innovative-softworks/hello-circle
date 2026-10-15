@@ -169,6 +169,14 @@ export function CookieNotice() {
     >
       <p id="cookie-notice-text" style={{ margin: 0, fontSize: 13.5, lineHeight: 1.5, flex: "1 1 320px" }}>
         We use strictly necessary cookies and local storage to run this site.{" "}
+        {/* The compact phone form still names both optional purposes before
+            any choice is offered (consent must be informed at the first
+            layer); the fuller explanation stays one tap away. */}
+        {brief && (
+          <>
+            <strong>Analytics</strong> and <strong>advertising</strong> cookies are optional and only used if you allow them.{" "}
+          </>
+        )}
         {!brief && (
           <>
             With your permission we'd also use <strong>analytics</strong> cookies (Google Analytics, to understand how the site is used) and, separately,{" "}

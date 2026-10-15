@@ -397,7 +397,7 @@ export function ClubCreationWizard({
             </div>
           </div>
 
-          <label style={{ display: "flex", alignItems: "center", gap: 9, fontSize: 14, background: colors.bg, border: `1px solid ${colors.border}`, borderRadius: 10, padding: "10px 13px", cursor: "pointer" }}>
+          <label style={{ display: "flex", alignItems: "center", gap: 9, fontSize: 14, background: colors.bg, border: `1px solid ${colors.border}`, borderRadius: radius.control, padding: "10px 13px", cursor: "pointer" }}>
             <input type="checkbox" checked={form.trial} onChange={(e) => setForm({ trial: e.target.checked })} style={{ accentColor: colors.orange, width: 16, height: 16 }} />
             Offers a free trial session
           </label>

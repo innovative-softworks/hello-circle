@@ -3,7 +3,7 @@ import { expect, personas } from "../fixtures";
 import { rows, test, withActors } from "../lifecycle-fixture";
 import { deliver, stripe, stripeProfile } from "../stripe-fixture";
 import { experienceFor } from "../stage-b-fixture";
-import { ageSession, assertSandbox, ledgerBalanced, paidExperienceBooking, payHosted, record, runKey, setSwitch, sleep } from "../stripe-sandbox-fixture";
+import { ageSession, assertSandbox, ledgerBalanced, noteServerFailure, paidExperienceBooking, payHosted, record, runKey, setSwitch, sleep } from "../stripe-sandbox-fixture";
 
 // Revenue & Connect Stage 5d — B (direct vendor booking), D (refunds before
 // transfer, reward reversal, credit restoration) and H (weekly settlement)
@@ -17,7 +17,9 @@ const reason = "Stage 5d sandbox validation";
 
 async function admin(a: APIRequestContext, method: "post" | "get", url: string, data?: unknown) {
   const r = method === "post" ? await a.post(url, { data }) : await a.get(url);
-  return { status: r.status(), body: await r.json().catch(() => ({})) };
+  const out = { status: r.status(), body: await r.json().catch(() => ({})) };
+  await noteServerFailure(`money ${method} ${url.split("?")[0]}`, out.status, out.body);
+  return out;
 }
 
 async function stripeFee(paymentIntentId: string) {

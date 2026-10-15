@@ -7,7 +7,12 @@ import { rehostHref } from "../rehost";
 import { CalendarIcon, SearchIcon } from "./icons";
 import { HostCheckInScreen } from "./HostCheckInScreen";
 import { ShareButton } from "./ShareButton";
-import { Avatar, Button, Card, ConfirmDialog, EmptyState, Modal, PageSpinner, ProgressBar } from "./ui";
+import { Avatar, Button, Card, ConfirmDialog, EmptyState, LoadErrorState, PageSpinner, ProgressBar } from "./ui";
+import { RecordState, RecordView } from "./workspace/RecordView";
+import { ActionMenu } from "./ActionMenu";
+import { Facts, SectionLabel } from "./admin/adminUi";
+import { useRecordParam, useUrlParam } from "../useUrlTab";
+import { euro } from "../euro";
 import { colors, fonts, radius } from "../theme";
 import type { Game, ManageParticipant, WaitlistEntry } from "../types";
 import { irelandToday } from "../irelandDate";
@@ -62,7 +67,7 @@ function activityFilterPillStyle(active: boolean) {
     fontSize: 11.5,
     fontWeight: 700,
     padding: "4px 10px",
-    borderRadius: 999,
+    borderRadius: radius.pill,
     border: "none",
     cursor: "pointer",
     background: active ? colors.dark : colors.panel,
@@ -129,199 +134,205 @@ function statusBadge(game: Pick<Game, "status" | "date" | "spotsLeft" | "capacit
   return <span style={{ fontSize: 11, fontWeight: 700, color: s.fg, background: s.bg, borderRadius: radius.pill, padding: "2px 8px" }}>{s.label}</span>;
 }
 
-function ParticipantsModal({ game, onClose }: { game: Game | null; onClose: () => void }) {
-  const [participants, setParticipants] = useState<ManageParticipant[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [removeTarget, setRemoveTarget] = useState<ManageParticipant | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  // Platform Pre-Launch Polish — Changeset 4D.
-  const [refundTarget, setRefundTarget] = useState<ManageParticipant | null>(null);
-  const [refundBusy, setRefundBusy] = useState(false);
-  const [refundError, setRefundError] = useState<string | null>(null);
-  // Host-visible waitlist + targeted invite (Vendor-parity pass) — mirrors
-  // ClubWaitlistPanel; only relevant once the game is actually full, but
-  // cheap to fetch alongside participants either way.
-  const [waitlist, setWaitlist] = useState<WaitlistEntry[]>([]);
-  const [invitingId, setInvitingId] = useState<number | null>(null);
+function joinLabel(p: ManageParticipant) {
+  return p.status === "cancelled" ? "Cancelled" : p.status === "pending_payment" ? "Payment pending" : "Joined";
+}
+function paymentLabel(p: ManageParticipant, paid: boolean) {
+  if (!paid) return "Free";
+  return p.paymentStatus === "paid" ? "Paid" : p.paymentStatus === "refunded" ? "Refunded" : p.paymentStatus === "pending" ? "Awaiting payment" : p.paymentStatus;
+}
 
-  useEffect(() => {
-    if (!game) return;
-    setLoading(true);
+// Activity record page in the Host workspace (was a "Participants" modal).
+// Addressed by `?tab=activities&record=activity:<id>`, so it survives refresh
+// and Back returns to the filtered list.
+function ActivityRecord({ game, onBack, onCheckIn }: { game: Game; onBack: () => void; onCheckIn: () => void }) {
+  const navigate = useNavigate();
+  const [participants, setParticipants] = useState<ManageParticipant[] | null>(null);
+  const [participantsFailed, setParticipantsFailed] = useState(false);
+  const [removeTarget, setRemoveTarget] = useState<ManageParticipant | null>(null);
+  const [refundTarget, setRefundTarget] = useState<ManageParticipant | null>(null);
+  const [waitlist, setWaitlist] = useState<WaitlistEntry[] | null>(null);
+  const [waitlistFailed, setWaitlistFailed] = useState(false);
+  const [invitingId, setInvitingId] = useState<number | null>(null);
+  const [inviteError, setInviteError] = useState<string | null>(null);
+  const paid = (game.priceCents ?? 0) > 0;
+
+  const loadParticipants = () => {
+    setParticipantsFailed(false);
     fetchGameParticipantsForManage(game.id)
       .then(setParticipants)
-      .finally(() => setLoading(false));
-    fetchGameWaitlist(game.id).then(setWaitlist).catch(() => setWaitlist([]));
-  }, [game]);
+      .catch(() => setParticipantsFailed(true));
+  };
+  const loadWaitlist = () => {
+    setWaitlistFailed(false);
+    fetchGameWaitlist(game.id)
+      .then(setWaitlist)
+      .catch(() => setWaitlistFailed(true));
+  };
+  useEffect(() => {
+    loadParticipants();
+    loadWaitlist();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [game.id]);
 
   const invite = async (entryId: number) => {
-    if (!game) return;
     setInvitingId(entryId);
+    setInviteError(null);
     try {
       await offerGameWaitlistEntry(game.id, entryId);
-      fetchGameWaitlist(game.id).then(setWaitlist).catch(() => {});
+      loadWaitlist();
+    } catch (e) {
+      setInviteError(e instanceof Error ? e.message : "Couldn't offer that place");
     } finally {
       setInvitingId(null);
     }
   };
-
+  // Throwing keeps the confirmation open with the message (ConfirmDialog).
   const handleRemove = async () => {
-    if (!game || !removeTarget) return;
-    setBusy(true);
-    setError(null);
-    try {
-      await removeGameParticipant(game.id, removeTarget.residentId);
-      setParticipants((prev) => prev.map((p) => (p.residentId === removeTarget.residentId ? { ...p, status: "cancelled" } : p)));
-      setRemoveTarget(null);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Couldn't remove this participant");
-    } finally {
-      setBusy(false);
-    }
+    if (!removeTarget) return;
+    await removeGameParticipant(game.id, removeTarget.residentId);
+    setParticipants((prev) => (prev ?? []).map((p) => (p.residentId === removeTarget.residentId ? { ...p, status: "cancelled" } : p)));
+    setRemoveTarget(null);
   };
-
-  // Platform Pre-Launch Polish — Changeset 4C/4D.
   const handleRefund = async () => {
-    if (!game || !refundTarget) return;
-    setRefundBusy(true);
-    setRefundError(null);
-    try {
-      await refundGameParticipant(game.id, refundTarget.residentId);
-      setParticipants((prev) => prev.map((p) => (p.residentId === refundTarget.residentId ? { ...p, paymentStatus: "refunded" } : p)));
-      setRefundTarget(null);
-    } catch (e) {
-      setRefundError(e instanceof Error ? e.message : "Couldn't issue this refund");
-    } finally {
-      setRefundBusy(false);
-    }
+    if (!refundTarget) return;
+    await refundGameParticipant(game.id, refundTarget.residentId);
+    setParticipants((prev) => (prev ?? []).map((p) => (p.residentId === refundTarget.residentId ? { ...p, paymentStatus: "refunded" } : p)));
+    setRefundTarget(null);
   };
 
+  const joined = (participants ?? []).filter((p) => p.status !== "cancelled").length;
+  const s = deriveActivityStatus(game);
   return (
-    <Modal
-      open={!!game}
-      onClose={onClose}
-      title="Participants"
-      subtitle={
-        game
-          ? `${game.activityLabel} · ${dateLabel(game.date)} · ${game.time} · ${participants.filter((p) => p.status !== "cancelled").length} of ${game.capacity} joined`
-          : undefined
+    <RecordView
+      title={game.activityLabel}
+      reference={
+        <>
+          {dateLabel(game.date)} · {game.time} · {game.centreName ?? game.locationText}
+        </>
       }
-      footer={
-        <div style={{ display: "flex", justifyContent: "flex-end" }}>
-          <Button onClick={onClose}>Done</Button>
-        </div>
+      backLabel="Activities"
+      onBack={onBack}
+      statuses={
+        <>
+          <span style={{ fontSize: 12.5, color: colors.mutedLight }}>Activity:</span> {statusBadge(game)}
+          <span style={{ fontSize: 12.5, color: colors.mutedLight }}>Places:</span>
+          <span style={{ fontSize: 12.5, fontWeight: 700 }}>{participants ? `${joined} of ${game.capacity} taken` : `${game.capacity} places`}</span>
+          <span style={{ fontSize: 12.5, color: colors.mutedLight }}>Price:</span>
+          <span style={{ fontSize: 12.5, fontWeight: 700 }}>{paid ? euro(game.priceCents ?? 0) : "Free"}</span>
+        </>
+      }
+      actions={
+        <>
+          <Button variant="ghost" onClick={() => navigate(`/games/${game.id}`)}>View public page</Button>
+          {s.label !== "Cancelled" && game.status !== "cancelled" && (
+            <>
+              <Button variant="ghost" onClick={onCheckIn}>Check-in</Button>
+              <Button onClick={() => navigate(`/games/host/${game.id}`)}>Edit activity</Button>
+            </>
+          )}
+        </>
       }
     >
-      {loading ? (
-        <PageSpinner />
-      ) : participants.length === 0 ? (
-        <EmptyState icon={<CalendarIcon size={26} />} title="No one's joined yet" />
-      ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          {participants.map((p) => {
-            // Platform Pre-Launch Polish — Changeset 4D/4E. Cancelled/removed
-            // participants now stay in this list (soft-cancel, not a hard
-            // delete) instead of just vanishing — their real status/payment
-            // state is shown honestly rather than implying an active,
-            // unpaid-for spot.
-            const canRefund = p.paymentStatus === "paid";
-            const statusLabel =
-              p.status === "cancelled"
-                ? "Cancelled"
-                : p.status === "pending_payment"
-                ? "Payment pending"
-                : "Joined";
-            return (
-              <div key={p.residentId} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10, background: colors.bg, borderRadius: radius.control, padding: "10px 14px" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                  <Avatar name={p.name} size={30} />
-                  <div>
-                    <div style={{ fontWeight: 700, fontSize: 13.5 }}>{p.name}</div>
-                    <div style={{ fontSize: 11.5, color: colors.mutedLight }}>
-                      {statusLabel}
-                      {p.paymentStatus === "refunded" ? " · Refunded" : ""}
-                      {p.checkedInAt ? " · Checked in" : ""}
-                      {game && p.residentId === game.hostResidentId ? " · Host" : ""}
+      <div className="adm-record-grid">
+        <div>
+          <SectionLabel>Participants</SectionLabel>
+          {participantsFailed ? (
+            <LoadErrorState title="Couldn't load participants." onRetry={loadParticipants} />
+          ) : participants === null ? (
+            <p role="status" aria-busy="true" style={{ fontSize: 13.5, color: colors.mutedLight }}>Loading participants…</p>
+          ) : participants.length === 0 ? (
+            <EmptyState icon={<CalendarIcon size={26} />} title="No one's joined yet" />
+          ) : (
+            <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: 8 }}>
+              {participants.map((p) => {
+                const isHost = p.residentId === game.hostResidentId;
+                return (
+                  <li key={p.residentId} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10, background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: radius.control, padding: "10px 14px" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
+                      <Avatar name={p.name} size={30} />
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ fontWeight: 700, fontSize: 13.5 }}>{p.name}{isHost ? " (host)" : ""}</div>
+                        <div style={{ fontSize: 12, color: colors.mutedLight }}>
+                          Place: {joinLabel(p)} · Payment: {paymentLabel(p, paid)} · Check-in: {p.checkedInAt ? "Checked in" : "Not yet"}
+                        </div>
+                      </div>
                     </div>
-                  </div>
-                </div>
-                {game && p.residentId !== game.hostResidentId && (
-                  <div style={{ display: "flex", gap: 14, alignItems: "center" }}>
-                    {canRefund && (
-                      <button
-                        onClick={() => setRefundTarget(p)}
-                        style={{ background: "none", border: "none", color: colors.text, fontWeight: 700, fontSize: 12.5, cursor: "pointer" }}
-                      >
-                        Refund
-                      </button>
+                    {!isHost && (
+                      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                        {p.paymentStatus === "paid" && paid && (
+                          <Button variant="ghost" onClick={() => setRefundTarget(p)} aria-label={`Refund ${p.name}`}>
+                            Refund
+                          </Button>
+                        )}
+                        {p.status !== "cancelled" && (
+                          <Button variant="ghost" onClick={() => setRemoveTarget(p)} aria-label={`Remove ${p.name}`} style={{ color: colors.danger }}>
+                            Remove
+                          </Button>
+                        )}
+                      </div>
                     )}
-                    {p.status !== "cancelled" && (
-                      <button
-                        onClick={() => setRemoveTarget(p)}
-                        style={{ background: "none", border: "none", color: colors.danger, fontWeight: 700, fontSize: 12.5, cursor: "pointer" }}
-                      >
-                        Remove
-                      </button>
-                    )}
-                  </div>
-                )}
-              </div>
-            );
-          })}
+                  </li>
+                );
+              })}
+            </ul>
+          )}
         </div>
-      )}
-      {waitlist.length > 0 && (
-        <div style={{ marginTop: 20, paddingTop: 16, borderTop: `1px solid ${colors.border}` }}>
-          <h4 style={{ fontSize: 13, fontWeight: 700, color: colors.muted, margin: "0 0 10px" }}>WAITLIST</h4>
-          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-            {waitlist.map((w) => (
-              <div key={w.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, background: colors.bg, borderRadius: radius.control, padding: "8px 12px", fontSize: 13.5 }}>
-                <span>{w.name || w.email || "Anonymous"}</span>
-                {w.status === "offered" ? (
-                  <span style={{ fontSize: 11, fontWeight: 700, borderRadius: radius.pill, padding: "3px 10px", background: colors.orangeBg, color: colors.orangeDark, flex: "none" }}>
-                    Offered a spot
-                  </span>
-                ) : (
-                  <button
-                    onClick={() => invite(w.id)}
-                    disabled={invitingId === w.id}
-                    style={{ fontSize: 11.5, fontWeight: 700, color: colors.muted, background: colors.panel, border: "none", borderRadius: radius.pill, padding: "4px 10px", cursor: "pointer", flex: "none" }}
-                  >
-                    {invitingId === w.id ? "…" : "Invite"}
-                  </button>
-                )}
-              </div>
-            ))}
-          </div>
+        <div>
+          <SectionLabel>Details</SectionLabel>
+          <Facts
+            rows={[
+              ["When", `${dateLabel(game.date)} · ${game.time}`],
+              ["Where", game.centreName ?? game.locationText],
+              ["Capacity", `${game.capacity} places`],
+              ["Price", paid ? `${euro(game.priceCents ?? 0)} per place` : "Free"],
+            ]}
+          />
+          <SectionLabel>Waitlist</SectionLabel>
+          {waitlistFailed ? (
+            <LoadErrorState title="Couldn't load the waitlist." onRetry={loadWaitlist} />
+          ) : waitlist === null ? (
+            <p role="status" aria-busy="true" style={{ fontSize: 13.5, color: colors.mutedLight }}>Loading…</p>
+          ) : waitlist.length === 0 ? (
+            <p style={{ fontSize: 13.5, color: colors.mutedLight, margin: 0 }}>No one is waiting.</p>
+          ) : (
+            <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: 6 }}>
+              {waitlist.map((w) => (
+                <li key={w.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, border: `1px solid ${colors.border}`, borderRadius: radius.control, padding: "8px 12px", fontSize: 13.5 }}>
+                  <span>{w.name || w.email || "Anonymous"}</span>
+                  {w.status === "offered" ? (
+                    <span style={{ fontSize: 12, fontWeight: 700 }}>Place offered</span>
+                  ) : (
+                    <Button variant="ghost" onClick={() => invite(w.id)} disabled={invitingId === w.id} aria-busy={invitingId === w.id || undefined}>
+                      {invitingId === w.id ? "Offering…" : "Offer a place"}
+                    </Button>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+          {inviteError && <p role="alert" style={{ color: colors.danger, fontSize: 13 }}>{inviteError}</p>}
         </div>
-      )}
+      </div>
       <ConfirmDialog
         open={!!removeTarget}
-        title="Remove this participant?"
-        message={`${removeTarget?.name ?? "This participant"} will be notified and their spot will open up. This doesn't process a refund.`}
-        confirmLabel={busy ? "Removing…" : "Remove"}
-        busy={busy}
+        title={`Remove ${removeTarget?.name ?? "this participant"}?`}
+        message={`They're notified and their place opens up. ${paid ? "This doesn't refund them — use Refund separately if you want to." : ""}`}
+        confirmLabel="Remove participant"
         onConfirm={handleRemove}
         onCancel={() => setRemoveTarget(null)}
-      >
-        {error && <p style={{ color: colors.danger, fontSize: 13 }}>{error}</p>}
-      </ConfirmDialog>
-      {/* Platform Pre-Launch Polish — Changeset 4D. Full refund only, no
-          partial amounts this phase — a Game's price is the same for every
-          participant, so game.priceCents is the whole, correct figure. */}
+      />
+      {/* Full refund only — every participant pays the same price. */}
       <ConfirmDialog
         open={!!refundTarget}
-        title={`Refund €${((game?.priceCents ?? 0) / 100).toFixed(2)}?`}
-        message="This will return the full payment to the participant."
-        confirmLabel={refundBusy ? "Refunding…" : "Refund"}
+        title={`Refund ${euro(game.priceCents ?? 0)} to ${refundTarget?.name ?? "this participant"}?`}
+        message="Returns their full payment through Stripe. It can't be undone and doesn't remove them from the activity."
+        confirmLabel="Issue refund"
         tone="neutral"
-        busy={refundBusy}
         onConfirm={handleRefund}
         onCancel={() => setRefundTarget(null)}
-      >
-        {refundError && <p style={{ color: colors.danger, fontSize: 13 }}>{refundError}</p>}
-      </ConfirmDialog>
-    </Modal>
+      />
+    </RecordView>
   );
 }
 
@@ -392,7 +403,7 @@ function ActivityRow({ game, onChanged, onManage, onCheckIn }: { game: Game; onC
           </div>
         </div>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          <Button variant="ghost" onClick={onManage}>Participants</Button>
+          <Button variant="ghost" onClick={onManage} aria-label={`Manage ${game.activityLabel}`}>Manage activity</Button>
           {/* HC-QA-053 — drafts are private (the share API 404s them by
               design), same rule as HostGamePage's create confirmation. */}
           {game.effectiveLifecycle !== "draft" && <ShareButton entityType="game" entityId={game.id} variant="ghost" />}
@@ -400,15 +411,21 @@ function ActivityRow({ game, onChanged, onManage, onCheckIn }: { game: Game; onC
               same param-carrying logic as GameDetail.tsx's "Do it again"
               via the shared rehost.ts helper. "Host again" below is the
               same action, just labeled for a past activity's context. */}
-          <Button variant="ghost" onClick={() => navigate(rehostHref(game))}>{isPast ? "Host again" : "Duplicate"}</Button>
-          {isLive && !isPast && (
-            <>
-              <Button variant="ghost" onClick={onCheckIn}>Check-in</Button>
-              <Button variant="ghost" onClick={() => navigate(`/games/host/${game.id}`)}>Edit</Button>
-              <Button variant="ghost" onClick={() => setPosting((v) => !v)}>Post update</Button>
-              <Button variant="danger" onClick={() => setConfirmingCancel(true)}>Cancel</Button>
-            </>
-          )}
+          {/* UI completion — secondary actions in one anchored menu. */}
+          <ActionMenu
+            label={`More actions for ${game.activityLabel}`}
+            items={[
+              ...(isLive && !isPast
+                ? [
+                    { label: "Check-in", onSelect: onCheckIn },
+                    { label: "Edit activity", onSelect: () => navigate(`/games/host/${game.id}`) },
+                    { label: posting ? "Hide update form" : "Post an update", onSelect: () => setPosting((v) => !v) },
+                  ]
+                : []),
+              { label: isPast ? "Host again" : "Duplicate", onSelect: () => navigate(rehostHref(game)) },
+              ...(isLive && !isPast ? [{ label: "Cancel activity…", onSelect: () => setConfirmingCancel(true), danger: true }] : []),
+            ]}
+          />
         </div>
       </div>
       {posting && (
@@ -453,16 +470,21 @@ export function ActivitiesTab() {
   const navigate = useNavigate();
   const [games, setGames] = useState<Game[]>([]);
   const [gamesLoading, setGamesLoading] = useState(true);
-  const [managingGame, setManagingGame] = useState<Game | null>(null);
+  const [gamesFailed, setGamesFailed] = useState(false);
+  // The managed activity is a page addressed by the URL (`?record=activity:<id>`).
+  const [record, openRecord, closeRecord] = useRecordParam();
+  const managingId = record?.startsWith("activity:") ? record.slice(9) : null;
   const [checkingInGame, setCheckingInGame] = useState<Game | null>(null);
-  const [statusFilter, setStatusFilter] = useState<ActivityStatusFilter>("all");
-  const [whenFilter, setWhenFilter] = useState<ActivityWhenFilter>("upcoming");
-  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useUrlParam<ActivityStatusFilter>("astatus", "all");
+  const [whenFilter, setWhenFilter] = useUrlParam<ActivityWhenFilter>("awhen", "upcoming");
+  const [search, setSearch] = useUrlParam<string>("aq", "");
 
   const reload = () => {
     setGamesLoading(true);
+    setGamesFailed(false);
     fetchMyGames({ hostedOnly: true })
       .then(setGames)
+      .catch(() => setGamesFailed(true))
       .finally(() => setGamesLoading(false));
   };
 
@@ -480,7 +502,21 @@ export function ActivitiesTab() {
   });
   const sorted = [...filtered].sort((a, b) => (whenFilter === "past" ? (b.date + b.time).localeCompare(a.date + a.time) : (a.date + a.time).localeCompare(b.date + b.time)));
 
+  if (managingId) {
+    const managed = games.find((g) => g.id === managingId);
+    if (gamesFailed) return <RecordState state="error" backLabel="Activities" onBack={closeRecord} onRetry={reload} />;
+    if (gamesLoading && !managed) return <RecordState state="loading" backLabel="Activities" onBack={closeRecord} />;
+    if (!managed) return <RecordState state="missing" backLabel="Activities" onBack={closeRecord} message="Only activities you host can be managed here." />;
+    return (
+      <>
+        <ActivityRecord game={managed} onBack={closeRecord} onCheckIn={() => setCheckingInGame(managed)} />
+        <HostCheckInScreen game={checkingInGame} onClose={() => setCheckingInGame(null)} />
+      </>
+    );
+  }
+
   if (gamesLoading) return <PageSpinner />;
+  if (gamesFailed) return <LoadErrorState title="Couldn't load your activities." onRetry={reload} />;
 
   return (
     <>
@@ -499,13 +535,12 @@ export function ActivitiesTab() {
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
               {sorted.map((g) => (
-                <ActivityRow key={g.id} game={g} onChanged={reload} onManage={() => setManagingGame(g)} onCheckIn={() => setCheckingInGame(g)} />
+                <ActivityRow key={g.id} game={g} onChanged={reload} onManage={() => openRecord(`activity:${g.id}`)} onCheckIn={() => setCheckingInGame(g)} />
               ))}
             </div>
           )}
         </div>
       )}
-      <ParticipantsModal game={managingGame} onClose={() => setManagingGame(null)} />
       <HostCheckInScreen game={checkingInGame} onClose={() => setCheckingInGame(null)} />
     </>
   );

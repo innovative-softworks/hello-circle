@@ -1,4 +1,5 @@
 import { db } from "./index.js";
+import { orgActiveSql } from "../orgSql.js";
 import { haversineKm, type RadiusFilter } from "../geo.js";
 import { irelandWallTimeToUtc } from "../irelandTime.js";
 import { discoverableGameSql } from "../gameVisibility.js";
@@ -239,8 +240,8 @@ function applyRadiusFilter<T extends { lat: number | null; lng: number | null; l
 export async function listCentres(county?: string, radius?: RadiusFilter): Promise<Centre[]> {
   const rows = (
     county && county !== "All"
-      ? await db.prepare(`SELECT * FROM centres WHERE status = 'approved' AND county = ? ORDER BY featured DESC, name`).all(county)
-      : await db.prepare(`SELECT * FROM centres WHERE status = 'approved' ORDER BY featured DESC, name`).all()
+      ? await db.prepare(`SELECT * FROM centres WHERE status = 'approved' AND ${orgActiveSql("vendor_id")} AND county = ? ORDER BY featured DESC, name`).all(county)
+      : await db.prepare(`SELECT * FROM centres WHERE status = 'approved' AND ${orgActiveSql("vendor_id")} ORDER BY featured DESC, name`).all()
   ) as CentreRow[];
   const centres = await Promise.all(rows.map(toCentre));
   return applyRadiusFilter(centres, radius);
@@ -259,7 +260,7 @@ const bumpCentreViews = db.prepare(`UPDATE centres SET views = views + 1 WHERE i
 // working forever; getCentre() above stays id-only for internal callers
 // (bookings.ts, admin routes) that always already hold the real id.
 export async function getApprovedCentre(idOrSlug: string): Promise<Centre | null> {
-  const row = (await db.prepare(`SELECT * FROM centres WHERE (slug = ? OR id = ?) AND status = 'approved'`).get(idOrSlug, idOrSlug)) as
+  const row = (await db.prepare(`SELECT * FROM centres WHERE (slug = ? OR id = ?) AND status = 'approved' AND ${orgActiveSql("vendor_id")}`).get(idOrSlug, idOrSlug)) as
     | CentreRow
     | undefined;
   if (!row) return null;
@@ -268,7 +269,7 @@ export async function getApprovedCentre(idOrSlug: string): Promise<Centre | null
 }
 
 export async function listClubs(county?: string, sport?: string, radius?: RadiusFilter): Promise<Club[]> {
-  const clauses: string[] = ["status = 'approved'"];
+  const clauses: string[] = ["status = 'approved'", orgActiveSql("vendor_id")];
   const params: string[] = [];
   if (county && county !== "All") {
     clauses.push("county = ?");
@@ -296,7 +297,7 @@ const bumpClubViews = db.prepare(`UPDATE clubs SET views = views + 1 WHERE id = 
 // comment; same slug-or-id resolution, same "old UUID link still works"
 // guarantee.
 export async function getApprovedClub(idOrSlug: string): Promise<Club | null> {
-  const row = (await db.prepare(`SELECT * FROM clubs WHERE (slug = ? OR id = ?) AND status = 'approved'`).get(idOrSlug, idOrSlug)) as ClubRow | undefined;
+  const row = (await db.prepare(`SELECT * FROM clubs WHERE (slug = ? OR id = ?) AND status = 'approved' AND ${orgActiveSql("vendor_id")}`).get(idOrSlug, idOrSlug)) as ClubRow | undefined;
   if (!row) return null;
   await bumpClubViews.run(row.id);
   return toClub(row);
@@ -361,7 +362,7 @@ export async function listMapMarkers(bounds: MapBounds, types: ReadonlySet<MapMa
   const markers: MapMarker[] = [];
 
   if (types.has("centre")) {
-    const clauses = ["status = 'approved'", "lat IS NOT NULL", "lng IS NOT NULL", "lat BETWEEN ? AND ?", "lng BETWEEN ? AND ?"];
+    const clauses = ["status = 'approved'", orgActiveSql("vendor_id"), "lat IS NOT NULL", "lng IS NOT NULL", "lat BETWEEN ? AND ?", "lng BETWEEN ? AND ?"];
     const params: (string | number)[] = [south, north, west, east];
     if (q) {
       clauses.push("name LIKE ?");
@@ -408,7 +409,7 @@ export async function listMapMarkers(bounds: MapBounds, types: ReadonlySet<MapMa
   }
 
   if (types.has("club")) {
-    const clubClauses = ["status = 'approved'", "lat IS NOT NULL", "lng IS NOT NULL", "lat BETWEEN ? AND ?", "lng BETWEEN ? AND ?"];
+    const clubClauses = ["status = 'approved'", orgActiveSql("vendor_id"), "lat IS NOT NULL", "lng IS NOT NULL", "lat BETWEEN ? AND ?", "lng BETWEEN ? AND ?"];
     const clubParams: (string | number)[] = [south, north, west, east];
     if (q) {
       clubClauses.push("name LIKE ?");
@@ -457,7 +458,7 @@ export async function listMapMarkers(bounds: MapBounds, types: ReadonlySet<MapMa
   }
 
   if (types.has("experience")) {
-    const expClauses = ["status = 'approved'", "lat IS NOT NULL", "lng IS NOT NULL", "lat BETWEEN ? AND ?", "lng BETWEEN ? AND ?"];
+    const expClauses = ["status = 'approved'", orgActiveSql("vendor_id"), "lat IS NOT NULL", "lng IS NOT NULL", "lat BETWEEN ? AND ?", "lng BETWEEN ? AND ?"];
     const expParams: (string | number)[] = [south, north, west, east];
     if (q) {
       expClauses.push("title LIKE ?");
@@ -1268,7 +1269,7 @@ export async function listScheduledActivities(opts: { county?: string; from: Dat
        JOIN programs p ON p.id = ps.program_id
        LEFT JOIN centres c ON p.listing_type = 'centre' AND c.id = p.listing_id
        LEFT JOIN clubs cl ON p.listing_type = 'club' AND cl.id = p.listing_id
-       WHERE p.status = 'published' AND ps.status != 'cancelled' AND ps.date >= ? AND ps.date <= ?
+       WHERE p.status = 'published' AND ${orgActiveSql("p.vendor_id")} AND ps.status != 'cancelled' AND ps.date >= ? AND ps.date <= ?
        ${county ? "AND COALESCE(c.county, cl.county) = ?" : ""}`
     )
     .all(...(county ? [fromIso, toIso, county] : [fromIso, toIso]))) as ProgramSessionRow[];
@@ -1277,7 +1278,7 @@ export async function listScheduledActivities(opts: { county?: string; from: Dat
     .prepare(
       `SELECT cs.id, cs.day_of_week, cs.time, cs.label, cs.image_url, cl.id as club_id, cl.name as club_name, cl.area, cl.county, cl.price, cl.lat, cl.lng, cl.location_source, cl.circle_id
        FROM club_sessions cs JOIN clubs cl ON cl.id = cs.club_id
-       WHERE cs.active = 1 ${county ? "AND cl.county = ?" : ""}`
+       WHERE cs.active = 1 AND cl.status = 'approved' AND ${orgActiveSql("cl.vendor_id")} ${county ? "AND cl.county = ?" : ""}`
     )
     .all(...(county ? [county] : []))) as ClubSessionRow[];
 
@@ -1372,7 +1373,7 @@ export async function listScheduledActivities(opts: { county?: string; from: Dat
                 e.location_source, e.duration_minutes, e.circle_id, e.capacity, es.capacity as session_capacity,
                 (SELECT COALESCE(SUM(eb.party_size), 0) FROM experience_bookings eb WHERE eb.session_id = es.id AND eb.payment_status = 'paid' AND eb.status != 'cancelled') as booked
          FROM experience_sessions es JOIN experiences e ON e.id = es.experience_id
-         WHERE e.status = 'approved' AND es.status = 'scheduled' AND es.date >= ? AND es.date <= ? ${county ? "AND e.county = ?" : ""}`
+         WHERE e.status = 'approved' AND ${orgActiveSql("e.vendor_id")} AND es.status = 'scheduled' AND es.date >= ? AND es.date <= ? ${county ? "AND e.county = ?" : ""}`
       )
       .all(...(county ? [fromIso, toIso, county] : [fromIso, toIso]))) as {
       id: string; date: string; time: string; experience_id: string; slug: string | null; title: string; kind: string; price_cents: number; image_url: string;
@@ -1547,7 +1548,7 @@ export async function getProviderUpcoming(vendorId: string, limit = 6): Promise<
       `SELECT es.id, es.date, es.time, es.capacity as session_capacity, e.id as experience_id, e.title, e.image_url, e.price_cents, e.capacity as experience_capacity, e.slug,
               (SELECT COALESCE(SUM(eb.party_size), 0) FROM experience_bookings eb WHERE eb.session_id = es.id AND eb.payment_status = 'paid' AND eb.status != 'cancelled') as booked
        FROM experience_sessions es JOIN experiences e ON e.id = es.experience_id
-       WHERE e.vendor_id = ? AND e.status = 'approved' AND es.status = 'scheduled' AND es.date >= CURDATE()
+       WHERE e.vendor_id = ? AND e.status = 'approved' AND ${orgActiveSql("e.vendor_id")} AND es.status = 'scheduled' AND es.date >= CURDATE()
        ORDER BY es.date, es.time LIMIT ?`
     )
     .all(vendorId, limit)) as {
@@ -1558,7 +1559,7 @@ export async function getProviderUpcoming(vendorId: string, limit = 6): Promise<
     .prepare(
       `SELECT ps.id, ps.date, ps.time, p.id as program_id, p.title, p.image_url, p.price_cents, p.capacity
        FROM program_sessions ps JOIN programs p ON p.id = ps.program_id
-       WHERE p.vendor_id = ? AND p.status = 'published' AND ps.status != 'cancelled' AND ps.date >= CURDATE()
+       WHERE p.vendor_id = ? AND p.status = 'published' AND ${orgActiveSql("p.vendor_id")} AND ps.status != 'cancelled' AND ps.date >= CURDATE()
        ORDER BY ps.date, ps.time LIMIT ?`
     )
     .all(vendorId, limit)) as { id: string; date: string; time: string; program_id: string; title: string; image_url: string; price_cents: number; capacity: number | null }[];
@@ -1567,7 +1568,7 @@ export async function getProviderUpcoming(vendorId: string, limit = 6): Promise<
     .prepare(
       `SELECT cs.id, cs.day_of_week, cs.time, cs.label, cs.capacity, cl.id as club_id, cl.name as club_name, cl.image_url, cl.price
        FROM club_sessions cs JOIN clubs cl ON cl.id = cs.club_id
-       WHERE cl.vendor_id = ? AND cs.active = 1
+       WHERE cl.vendor_id = ? AND cs.active = 1 AND cl.status = 'approved' AND ${orgActiveSql("cl.vendor_id")}
        LIMIT ?`
     )
     .all(vendorId, limit)) as { id: string; day_of_week: number; time: string; label: string; capacity: number | null; club_id: string; club_name: string; image_url: string; price: number }[];

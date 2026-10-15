@@ -94,7 +94,7 @@ test("STRIPE-DECLINE: a declined test card never confirms; expiry then releases 
   });
 });
 
-test("STRIPE-LATE-SUCCESS: payment completing after the hold lapsed and the place was taken → refund-required + audit, no overbooking", async ({ playwright, browser }) => {
+test("STRIPE-LATE-SUCCESS: payment completing after the hold lapsed and the place was taken → refunded automatically once (D-10 case 4) + audit, no overbooking", async ({ playwright, browser }) => {
   test.skip(!stripeProfile, "qa:stripe only");
   test.setTimeout(180_000);
   await withActors(playwright, ["QA_VENDOR"], async f => {
@@ -114,10 +114,20 @@ test("STRIPE-LATE-SUCCESS: payment completing after the hold lapsed and the plac
       f.track("audit_log", "object_id", refB);
       expect((await deliver(a.ctx, "checkout.session.completed", paid.session)).status).toBe(200);
       await sleep(800);
-      expect(await localRow(f, "programme", ref)).toMatchObject({ status: "cancelled", payment_status: "paid" });
+      // D-10 case 4 (approved 2026-10-15): received, not fulfilled, refunded in full automatically.
+      expect(await localRow(f, "programme", ref)).toMatchObject({ status: "cancelled", payment_status: "refunded" });
       expect((await rows(f, "SELECT id FROM audit_log WHERE action = 'program.refund_required' AND object_id = ?", [ref])).length).toBe(1);
       expect((await rows(f, "SELECT id FROM program_enrollments WHERE program_id = ? AND payment_status = 'paid' AND status != 'cancelled'", [(listing as any).id])).length, "no paid overbooking").toBe(0);
-      await evidence("stripe-late-success", { local: "cancelled+paid", audit: "program.refund_required", overbooking: false });
+      const pi = typeof paid.session.payment_intent === "string" ? paid.session.payment_intent : paid.session.payment_intent!.id;
+      const atStripe = (await stripe.refunds.list({ payment_intent: pi })).data;
+      expect(atStripe.map((r) => r.amount)).toEqual([paid.session.amount_total]);
+      expect(await rows(f, "SELECT origin, status, provider_refund_id AS pid FROM refunds WHERE source_ref = ?", [ref])).toEqual([{ origin: "auto", status: "succeeded", pid: atStripe[0].id }]);
+      const [review] = await rows(f, "SELECT id FROM payment_reviews WHERE source_ref = ?", [ref]);
+      for (const [t, c] of [["payment_review_alerts", "review_id"], ["notifications", "listing_id"]]) f.track(t, c, String(review.id));
+      f.track("audit_log", "object_id", `review-${review.id}`);
+      expect((await deliver(a.ctx, "checkout.session.completed", paid.session)).status).toBe(200); // a replay refunds nothing more
+      expect((await stripe.refunds.list({ payment_intent: pi })).data).toHaveLength(1);
+      await evidence("stripe-late-success", { local: "cancelled+refunded", audit: "program.refund_required", stripeRefunds: 1, overbooking: false });
     } finally { for (const x of opened) await x.dispose(); }
   });
 });

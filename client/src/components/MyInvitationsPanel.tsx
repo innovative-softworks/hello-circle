@@ -25,10 +25,13 @@ export function MyInvitationsPanel() {
   const navigate = useNavigate();
   const [invitations, setInvitations] = useState<MyInvitation[]>([]);
   const [respondingId, setRespondingId] = useState<string | null>(null);
+  const [failed, setFailed] = useState(false);
   const confirm = useConfirm();
 
   useEffect(() => {
-    fetchMyInvitations().then(setInvitations).catch(() => setInvitations([]));
+    fetchMyInvitations()
+      .then(setInvitations)
+      .catch(() => setFailed(true));
   }, []);
 
   const respond = async (invite: MyInvitation, response: "accepted" | "maybe" | "declined") => {
@@ -43,6 +46,12 @@ export function MyInvitationsPanel() {
     }
   };
 
+  if (failed)
+    return (
+      <p role="alert" style={{ fontSize: 13.5, margin: "0 0 16px" }}>
+        We couldn't check for invitations. Refresh the page to try again.
+      </p>
+    );
   if (invitations.length === 0) return null;
 
   return (

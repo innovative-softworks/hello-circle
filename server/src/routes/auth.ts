@@ -1,3 +1,4 @@
+import { writeAudit } from "../audit.js";
 import crypto from "node:crypto";
 import { Router } from "express";
 import { recordConsent } from "../consent.js";
@@ -20,6 +21,7 @@ import { GoogleAuthNotConfigured, verifyGoogleIdToken } from "../googleAuth.js";
 import { googleAuthLimiter, magicLinkLimiter, passwordLoginLimiter } from "../rateLimit.js";
 import { CLIENT_URL } from "../stripe.js";
 import { TERMS_VERSION } from "../terms.js";
+import { latestPublicDecision } from "../moderationDecisions.js";
 
 export const authRouter = Router();
 
@@ -207,6 +209,14 @@ authRouter.post("/signup-google", googleAuthLimiter, async (req, res) => {
   }
 });
 
+// D-03 — a signed-in partner's own latest account decision (e.g. the
+// suspension shown on the workspace's "account suspended" screen).
+authRouter.get("/account-decision", async (req, res) => {
+  if (!req.user) return res.status(401).json({ error: "Login required" });
+  if (req.user.role !== "vendor") return res.json({ latest: null });
+  res.json({ latest: await latestPublicDecision("vendor", req.user.id, ["partner.suspended", "partner.reinstated"]) });
+});
+
 authRouter.post("/login", passwordLoginLimiter, async (req, res) => {
   const { email, password } = req.body as { email?: string; password?: string };
   if (!email || !password) return res.status(400).json({ error: "Email and password are required" });
@@ -215,7 +225,12 @@ authRouter.post("/login", passwordLoginLimiter, async (req, res) => {
   if (!found || !verifyPassword(password, found.passwordHash)) {
     return res.status(401).json({ error: "Incorrect email or password" });
   }
-  if (found.status === "suspended") return res.status(403).json({ error: "This account has been suspended" });
+  // D-03 — the password was correct, so the account holder may see why the
+  // account is suspended (category + explanation; never the internal note).
+  if (found.status === "suspended") {
+    const decision = await latestPublicDecision("vendor", found.id, ["partner.suspended"]);
+    return res.status(403).json({ error: "This account has been suspended", suspended: true, decision });
+  }
 
   // Same "soft, self-reversing" deactivation as residents (guestAuth.ts) —
   // signing back in is itself the reactivation, no separate flow needed.
@@ -268,7 +283,11 @@ authRouter.post("/google", googleAuthLimiter, async (req, res) => {
       .status(404)
       .json({ error: "No HelloCircle account found for that Google account — list your venue or club to get started.", noAccount: true });
   }
-  if (user.status === "suspended") return res.status(403).json({ error: "This account has been suspended" });
+  if (user.status === "suspended") {
+    // Google verified the account holder's identity, same as a correct password (D-03).
+    const decision = await latestPublicDecision("vendor", user.id, ["partner.suspended"]);
+    return res.status(403).json({ error: "This account has been suspended", suspended: true, decision });
+  }
 
   // Same "soft, self-reversing" reactivation as POST /login above.
   await db.prepare(`UPDATE users SET deactivated_at = NULL WHERE id = ?`).run(user.id);
@@ -364,17 +383,27 @@ authRouter.get("/setup-status", async (req, res) => {
   const approved = u.status === "approved";
 
   type Step = { key: string; label: string; done: boolean; phase: "submitted" | "review" | "after_approval" };
+  const first = centre ?? club;
+  // Account approval and listing approval are separate decisions (an admin
+  // approves the partner account first, then each listing) — named apart so
+  // the checklist never ticks "approved" while the listing still waits.
+  const listingSteps: Step[] = first
+    ? [
+        { key: "photo", label: "Add a cover photo", done: !!first.imageUrl, phase: "after_approval" },
+        centre
+          ? { key: "capacity", label: "Set your room capacity", done: centre.capacity > 0, phase: "after_approval" }
+          : { key: "club_details", label: "Add your sport and age range", done: !!(club?.sport && club?.ages), phase: "after_approval" },
+        { key: "submitted", label: "Listing submitted for review", done: ["pending", "approved", "paused"].includes(first.status), phase: "after_approval" },
+        { key: "live", label: "Listing approved by HelloCircle", done: first.status === "approved", phase: "after_approval" },
+      ]
+    : [{ key: "first_listing", label: "Create your first listing", done: false, phase: "after_approval" }];
   const steps: Step[] = [
     { key: "account", label: "Account created", done: true, phase: "submitted" },
     { key: "terms", label: "Terms accepted", done: !!u.termsAcceptedAt, phase: "submitted" },
     { key: "details", label: "Business details submitted", done: detailsDone, phase: "submitted" },
     { key: "listing", label: "Listing draft created", done: !!listing, phase: "submitted" },
-    { key: "review", label: "Admin review", done: approved, phase: "review" },
-    { key: "photo", label: "Add a cover photo", done: !!(centre?.imageUrl || club?.imageUrl), phase: "after_approval" },
-    centre
-      ? { key: "capacity", label: "Set your room capacity", done: centre.capacity > 0, phase: "after_approval" as const }
-      : { key: "club_details", label: "Add your sport and age range", done: !!(club?.sport && club?.ages), phase: "after_approval" as const },
-    { key: "live", label: "Listing live to the public", done: (centre ?? club)?.status === "approved", phase: "after_approval" },
+    { key: "review", label: "Account approved by HelloCircle", done: approved, phase: "review" },
+    ...listingSteps,
   ];
   res.json({ accountStatus: u.status, listing, steps, complete: steps.every((s) => s.done) });
 });
@@ -424,7 +453,7 @@ authRouter.post("/accept-invite", passwordLoginLimiter, async (req, res) => {
     termsAccepted?: boolean;
     marketingConsent?: boolean;
   };
-  if (!token || !name || !password) return res.status(400).json({ error: "Name and password are required" });
+  if (!token || !password) return res.status(400).json({ error: "A password is required" });
   if (password.length < 8) return res.status(400).json({ error: "Password must be at least 8 characters" });
   if (!termsAccepted) return res.status(400).json({ error: "Please accept the Terms to continue" });
 
@@ -436,8 +465,33 @@ authRouter.post("/accept-invite", passwordLoginLimiter, async (req, res) => {
     if (identities.some(email => email.toLowerCase().trim() !== recipient)) {
       return { status: 403, error: "This invitation cannot be accepted in the current session" };
     }
-    if (await tx.prepare(`SELECT id FROM users WHERE email = ?`).get(recipient)) return { status: 409, error: "An account with that email already exists" };
-    if (!await tx.prepare(`SELECT id FROM organisations WHERE id = ?`).get(invite.orgId)) return { status: 400, error: "This invite has expired or is no longer valid" };
+    const inviteOrg = (await tx.prepare(`SELECT id, status FROM organisations WHERE id = ? LOCK IN SHARE MODE`).get(invite.orgId)) as { id: string; status: string } | undefined;
+    if (!inviteOrg) return { status: 400, error: "This invite has expired or is no longer valid" };
+    // D-01 / D-08: a suspended organisation can't gain members; the invite stays pending.
+    if (inviteOrg.status === "suspended") return { status: 409, error: "This organisation can't add team members right now. Please try again later or contact the person who invited you." };
+
+    const existing = (await tx
+      .prepare(`SELECT id, password_hash AS hash, role, status, org_id AS orgId, invited_staff AS invitedStaff, platform_role AS platformRole FROM users WHERE email = ? FOR UPDATE`)
+      .get(recipient)) as { id: string; hash: string; role: string; status: string; orgId: string | null; invitedStaff: number; platformRole: string | null } | undefined;
+    if (existing) {
+      // D-08 follow-up — a previously removed staff member (an approved partner
+      // account with no organisation) may rejoin through a NEW invitation, by
+      // proving it's their account with its existing password. Any other
+      // existing account (a member of another organisation, an owner, an admin)
+      // is refused exactly as before, so no other membership is ever touched.
+      const rejoinable = existing.role === "vendor" && existing.status === "approved" && !!existing.invitedStaff && !existing.orgId;
+      if (!rejoinable) return { status: 409, error: "An account with that email already exists" };
+      if (!verifyPassword(password, existing.hash)) return { status: 401, error: "That isn't the password for your HelloCircle account" };
+      const joined = await tx
+        .prepare(`UPDATE users SET org_id = ?, platform_role = ?, row_version = row_version + 1 WHERE id = ? AND org_id IS NULL`)
+        .run(invite.orgId, invite.platformRole, existing.id);
+      if (joined.changes !== 1) return { status: 409, error: "This account has already joined an organisation" };
+      await tx.prepare(`UPDATE org_invites SET status = 'accepted' WHERE token = ? AND status = 'pending'`).run(token);
+      await tx.prepare(`UPDATE org_invites SET status = 'replaced' WHERE org_id = ? AND LOWER(email) = ? AND status = 'pending'`).run(invite.orgId, recipient);
+      return { userId: existing.id, rejoined: true as const, orgId: invite.orgId, platformRole: invite.platformRole, previousRole: existing.platformRole };
+    }
+
+    if (!name || !name.trim()) return { status: 400, error: "Name and password are required" };
     const u = await createUser(invite.email, password, name, "vendor", "approved", undefined, tx, {
       orgId: invite.orgId,
       platformRole: invite.platformRole,
@@ -446,18 +500,32 @@ authRouter.post("/accept-invite", passwordLoginLimiter, async (req, res) => {
     await tx.prepare(`UPDATE users SET terms_accepted_at = NOW(), terms_version = ?, marketing_consent = ? WHERE id = ?`).run(TERMS_VERSION, marketingConsent ? 1 : 0, u.id);
     await recordConsent({ type: "user", id: u.id }, "marketing_email", !!marketingConsent, "staff_invite", null, tx);
     await tx.prepare(`UPDATE org_invites SET status = 'accepted' WHERE token = ? AND status = 'pending'`).run(token);
-    return { user: u };
+    await tx.prepare(`UPDATE org_invites SET status = 'replaced' WHERE org_id = ? AND LOWER(email) = ? AND status = 'pending'`).run(invite.orgId, recipient);
+    return { userId: u.id, rejoined: false as const };
   }).catch((error: unknown) => {
     // A separate invitation/signup may concurrently claim the same email.
     if ((error as { code?: string })?.code === "ER_DUP_ENTRY") return { status: 409, error: "An account with that email already exists" };
     throw error;
   });
   if ("error" in outcome) return res.status(outcome.status!).json({ error: outcome.error });
-  const user = outcome.user;
-  const { token: sessionToken } = await createSession(user.id);
+  if (outcome.rejoined) {
+    await writeAudit({
+      actorUserId: outcome.userId,
+      action: "org.staff_rejoined",
+      objectType: "user",
+      objectId: outcome.userId,
+      previousValue: { orgId: null, membership: "removed", platformRole: outcome.previousRole },
+      newValue: { orgId: outcome.orgId, membership: "member", platformRole: outcome.platformRole, via: "invitation" },
+    });
+  }
+  const { token: sessionToken } = await createSession(outcome.userId);
   res.cookie(SESSION_COOKIE, sessionToken, cookieOpts);
-  res.status(201).json({ user });
+  const user = await findUserByEmail((await db.prepare(`SELECT email FROM users WHERE id = ?`).get(outcome.userId) as { email: string }).email);
+  if (!user) return res.status(500).json({ error: "Couldn't load your account" });
+  const { passwordHash: _omit, ...publicUser } = user;
+  res.status(201).json({ user: publicUser, rejoined: outcome.rejoined });
 });
+
 
 authRouter.post("/reset-password", passwordLoginLimiter, async (req, res) => {
   const { token, password } = req.body as { token?: string; password?: string };

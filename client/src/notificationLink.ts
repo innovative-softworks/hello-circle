@@ -30,6 +30,9 @@ export function notificationHref(n: Pick<ResidentNotification, "kind" | "listing
   if (n.kind === "booking" || n.kind === "registration" || n.kind === "program" || n.kind === "experience") {
     return `/bookings?ref=${n.ref}`;
   }
+  // D-03 — mirrors the server: a decision on your own host application or
+  // place suggestion opens where the explanation is shown.
+  if (n.kind === "moderation") return n.listingType === "place_suggestion" ? "/suggest-place" : "/profile?tab=hosting";
   const base = DETAIL_PATH_BY_LISTING_TYPE[n.listingType];
   return base ? `${base}${n.listingId}` : null;
 }

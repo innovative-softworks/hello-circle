@@ -47,3 +47,10 @@ describe("notificationHref", () => {
     expect(notificationHref({ kind: "waitlist", listingType: "program", listingId: "prog-1", ref: "prog-1" })).toBe("/programs/prog-1");
   });
 });
+
+describe("D-03 moderation notices", () => {
+  it("open where the resident can read the explanation", () => {
+    expect(notificationHref({ kind: "moderation", listingType: "host", listingId: "r1", ref: "" })).toBe("/profile?tab=hosting");
+    expect(notificationHref({ kind: "moderation", listingType: "place_suggestion", listingId: "s1", ref: "" })).toBe("/suggest-place");
+  });
+});

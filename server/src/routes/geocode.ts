@@ -103,7 +103,7 @@ geocodeRouter.get("/search", geocodeLimiter, async (req, res) => {
       url.searchParams.set("countrycodes", "ie");
       url.searchParams.set("limit", "5");
       url.searchParams.set("q", q);
-      const r = await fetch(url, { headers: { "User-Agent": "HelloCircle/1.0 (community activity platform, contact: admin@hellocircle.ie)" } });
+      const r = await fetch(url, { headers: { "User-Agent": "HelloCircle/1.0 (community activity platform, contact: itadmin@hellocircle.ie)" } });
       if (!r.ok) throw new Error(`Geocoder returned ${r.status}`);
       return (await r.json()) as NominatimResult[];
     });

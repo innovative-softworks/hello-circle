@@ -1,3 +1,4 @@
+import { assertCreatorStillMember } from "../orgStatus.js";
 import crypto from "node:crypto";
 import { Router } from "express";
 import { requirePlatformRole } from "../auth.js";
@@ -7,7 +8,8 @@ import { getCentre, getClub } from "../db/queries.js";
 import { exceedsGalleryLimit, GALLERY_LIMITS } from "../media/quotas.js";
 import { generateSlug } from "../slugify.js";
 import { invalidCoordinateReason } from "../util.js";
-import { inClause, ownsCentre, ownsClub, recomputeCentreRollup } from "./vendorHelpers.js";
+import { inClause, ownsCentre, ownsClub, ownsListing, recomputeCentreRollup } from "./vendorHelpers.js";
+import { latestPublicDecision } from "../moderationDecisions.js";
 
 // Own-listing CRUD: overview/stats, claims, centres (+ rooms, blocked
 // dates, per-day hours), clubs — split out of the original single
@@ -99,6 +101,19 @@ interface ClaimInput {
   message?: string;
 }
 
+// D-03 — the latest moderation decision on one of the organisation's own
+// listings (category + explanation; never the internal note). Older decisions
+// made before reasons existed return null → the client shows "No reason recorded".
+vendorListingsRouter.get("/decisions/:type(centre|club|experience)/:id", async (req, res) => {
+  const type = req.params.type as "centre" | "club" | "experience";
+  const owned =
+    type === "experience"
+      ? !!(await db.prepare(`SELECT id FROM experiences WHERE id = ? AND vendor_id IN (${req.vendorIds!.map(() => "?").join(",")})`).get(req.params.id, ...req.vendorIds!))
+      : await ownsListing(req.vendorIds!, type, req.params.id);
+  if (!owned) return res.status(403).json({ error: "Not your listing" });
+  res.json({ latest: await latestPublicDecision(type, req.params.id, ["listing.rejected", "listing.approved", "listing.pending", "listing.deleted"]) });
+});
+
 vendorListingsRouter.post("/claims", async (req, res) => {
   const b = req.body as ClaimInput;
   if (!b.listingType || !b.listingId || !["centre", "club"].includes(b.listingType)) {
@@ -187,6 +202,8 @@ vendorListingsRouter.post("/centres", requirePlatformRole("centre_manager"), asy
   const locationSource = vendorSuppliedCoords ? "confirmed" : "approximate";
   const slug = await generateSlug("centres", b.name);
   await db.transaction(async (tx) => {
+    // D-08: refuse if the creator was removed from the organisation meanwhile.
+    await assertCreatorStillMember(tx, req.user!);
     await tx.prepare(
       `INSERT INTO centres (id, name, area, county, rating, reviews, capacity, from_price, managed_by, ph, image_url, blurb, vendor_id, status, created_at, opens_at, closes_at, payment_method, map_url, lat, lng, location_source, phone, accessibility, slug)
        VALUES (?, ?, ?, ?, 0, 0, ?, ?, ?, '', ?, ?, ?, 'draft', NOW(), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
@@ -310,7 +327,9 @@ vendorListingsRouter.post("/centres/:id/publish", requirePlatformRole("centre_ma
     | { name: string; area: string; county: string; blurb: string; status: string }
     | undefined;
   if (!row) return res.status(404).json({ error: "Centre not found" });
-  if (row.status !== "draft") return res.status(400).json({ error: "This centre has already been submitted" });
+  // A rejected listing goes back to review once the vendor has changed it
+  // (the dashboard tells them it "needs changes before it can go live").
+  if (row.status !== "draft" && row.status !== "rejected") return res.status(400).json({ error: "This centre has already been submitted" });
   const missing = [
     !row.name && "a name",
     !row.area && "an area",
@@ -321,7 +340,7 @@ vendorListingsRouter.post("/centres/:id/publish", requirePlatformRole("centre_ma
     return res.status(400).json({ error: `This venue is missing ${missing.join(", ")} — go back and fill that in before publishing.` });
   }
   await db.prepare(`UPDATE centres SET status = 'pending' WHERE id = ?`).run(req.params.id);
-  writeAudit({ actorUserId: req.user!.id, action: "centre.published", objectType: "centre", objectId: req.params.id, newValue: { name: row.name } });
+  writeAudit({ actorUserId: req.user!.id, action: "centre.published", objectType: "centre", objectId: req.params.id, previousValue: { status: row.status }, newValue: { name: row.name, status: "pending" } });
   res.json(await getCentre(req.params.id));
 });
 
@@ -368,6 +387,8 @@ vendorListingsRouter.post("/centres/:id/duplicate", requirePlatformRole("centre_
   const id = crypto.randomUUID();
   const slug = await generateSlug("centres", `${source.name} (copy)`);
   await db.transaction(async (tx) => {
+    // D-08: refuse if the creator was removed from the organisation meanwhile.
+    await assertCreatorStillMember(tx, req.user!);
     await tx
       .prepare(
         `INSERT INTO centres (id, name, area, county, rating, reviews, capacity, from_price, managed_by, ph, image_url, blurb, vendor_id, status, created_at, opens_at, closes_at, payment_method, map_url, lat, lng, location_source, phone, accessibility, slug)
@@ -619,6 +640,8 @@ vendorListingsRouter.post("/clubs", requirePlatformRole("facility_manager"), asy
   const locationSource = vendorSuppliedCoords ? "confirmed" : "approximate";
   const slug = await generateSlug("clubs", b.name);
   await db.transaction(async (tx) => {
+    // D-08: refuse if the creator was removed from the organisation meanwhile.
+    await assertCreatorStillMember(tx, req.user!);
     await tx.prepare(
       `INSERT INTO clubs (id, name, sport, area, county, ages, price, unit, trial, ph, image_url, blurb, vendor_id, status, created_at, payment_method, map_url, capacity, lat, lng, location_source, phone, accessibility, category, slug, audience)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, '', ?, ?, ?, 'draft', NOW(), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
@@ -709,7 +732,9 @@ vendorListingsRouter.post("/clubs/:id/publish", requirePlatformRole("facility_ma
     | { name: string; sport: string; area: string; county: string; blurb: string; status: string }
     | undefined;
   if (!row) return res.status(404).json({ error: "Club not found" });
-  if (row.status !== "draft") return res.status(400).json({ error: "This club has already been submitted" });
+  // A rejected listing goes back to review once the vendor has changed it
+  // (the dashboard tells them it "needs changes before it can go live").
+  if (row.status !== "draft" && row.status !== "rejected") return res.status(400).json({ error: "This club has already been submitted" });
   const missing = [
     !row.name && "a name",
     !row.sport && "a sport",
@@ -721,7 +746,7 @@ vendorListingsRouter.post("/clubs/:id/publish", requirePlatformRole("facility_ma
     return res.status(400).json({ error: `This club is missing ${missing.join(", ")} — go back and fill that in before publishing.` });
   }
   await db.prepare(`UPDATE clubs SET status = 'pending' WHERE id = ?`).run(req.params.id);
-  writeAudit({ actorUserId: req.user!.id, action: "club.published", objectType: "club", objectId: req.params.id, newValue: { name: row.name } });
+  writeAudit({ actorUserId: req.user!.id, action: "club.published", objectType: "club", objectId: req.params.id, previousValue: { status: row.status }, newValue: { name: row.name, status: "pending" } });
   res.json(await getClub(req.params.id));
 });
 
@@ -755,6 +780,8 @@ vendorListingsRouter.post("/clubs/:id/duplicate", requirePlatformRole("facility_
   const id = crypto.randomUUID();
   const slug = await generateSlug("clubs", `${source.name} (copy)`);
   await db.transaction(async (tx) => {
+    // D-08: refuse if the creator was removed from the organisation meanwhile.
+    await assertCreatorStillMember(tx, req.user!);
     await tx
       .prepare(
         `INSERT INTO clubs (id, name, sport, area, county, ages, price, unit, trial, ph, image_url, blurb, vendor_id, status, created_at, payment_method, map_url, capacity, lat, lng, location_source, phone, accessibility, category, slug, audience)

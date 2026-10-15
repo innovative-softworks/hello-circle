@@ -6,6 +6,7 @@ import { colors, fonts } from "../theme";
 import { HelpLine, LearnMore } from "../components/LearnMore";
 import { HISTORY_LABEL, PlanRewardsPanel } from "../components/PlanRewardsPanel";
 import { Button } from "../components/ui";
+import { ScopedWorkspace } from "../components/workspace/ScopedWorkspace";
 
 // Stage 5f — the partner's full reward-points history (vendors /vendor/rewards,
 // hosts /manage/rewards). Every entry is a frozen record — points are never
@@ -18,6 +19,7 @@ export function RewardsHistoryPage({ scope }: { scope: Scope }) {
   const [items, setItems] = useState<RewardHistoryEntry[] | null>(null);
   const [more, setMore] = useState(true);
   const [error, setError] = useState(false);
+  const [signedOut, setSignedOut] = useState(false);
   const [busy, setBusy] = useState(false);
   const page = 50;
   const load = async (before?: string, beforeId?: string) => {
@@ -27,8 +29,10 @@ export function RewardsHistoryPage({ scope }: { scope: Scope }) {
       setItems((cur) => (before && cur ? [...cur, ...rows] : rows));
       setMore(rows.length === page);
       setError(false);
-    } catch {
-      setError(true);
+      setSignedOut(false);
+    } catch (e) {
+      if ((e as { status?: number })?.status === 401) setSignedOut(true);
+      else setError(true);
     } finally {
       setBusy(false);
     }
@@ -39,9 +43,7 @@ export function RewardsHistoryPage({ scope }: { scope: Scope }) {
   }, [scope]);
 
   return (
-    <main style={{ maxWidth: 820, margin: "0 auto", padding: "24px 16px 64px", background: colors.bg, color: colors.text }}>
-      <Link to={scope === "vendor" ? "/vendor" : "/manage"} style={{ fontSize: 13.5, color: colors.text, fontWeight: 700 }}>← Back to your dashboard</Link>
-      <h1 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(32px, 3.8vw, 52px)", margin: "6px 0" }}>Reward points</h1>
+    <ScopedWorkspace scope={scope} title="Reward points">
       <HelpLine helpKey="points_earning" />
       <div style={{ display: "flex", gap: 16, flexWrap: "wrap", margin: "4px 0 16px" }}>
         <LearnMore helpKey="points_pending" label="Pending vs available" />
@@ -55,7 +57,13 @@ export function RewardsHistoryPage({ scope }: { scope: Scope }) {
           Couldn't load your history. <Button variant="ghost" onClick={() => load()}>Try again</Button>
         </p>
       )}
-      {!items && !error && <p aria-busy="true">Loading…</p>}
+      {signedOut && (
+        <p role="alert">
+          Sign in to see your reward history.{" "}
+          <Link to={scope === "vendor" ? "/login?returnTo=%2Fvendor%2Frewards" : "/signin?returnTo=%2Fmanage%2Frewards"}>{scope === "vendor" ? "Partner log in" : "Sign in"}</Link>
+        </p>
+      )}
+      {!items && !error && !signedOut && <p aria-busy="true">Loading…</p>}
       {items && items.length === 0 && <p style={{ color: colors.muted }} data-testid="history-empty">No points yet — they're added when your earnings are settled.</p>}
       {items && items.length > 0 && (
         <div style={{ overflowX: "auto" }}>
@@ -92,7 +100,7 @@ export function RewardsHistoryPage({ scope }: { scope: Scope }) {
           </Button>
         </div>
       )}
-    </main>
+    </ScopedWorkspace>
   );
 }
 

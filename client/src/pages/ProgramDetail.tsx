@@ -1,3 +1,4 @@
+import { UnavailableListing, isUnavailable, type Unavailable } from "../components/UnavailableListing";
 import { usePageTitle } from "../pageTitle";
 import { PAID_CLOSED_MESSAGE, usePaidCheckoutOpen } from "../paidCheckout";
 import { useEffect, useMemo, useState } from "react";
@@ -82,6 +83,8 @@ export function ProgramDetail() {
   const navigate = useNavigate();
   const { resident } = useGuest();
   const [program, setProgram] = useState<Program | null>(null);
+  // D-01: a programme whose organisation is suspended.
+  const [unavailable, setUnavailable] = useState<Unavailable | null>(null);
   usePageTitle(program?.title);
   const [loading, setLoading] = useState(true);
   const [similar, setSimilar] = useState<ProgramSummary[]>([]);
@@ -150,6 +153,7 @@ export function ProgramDetail() {
     setLoading(true);
     fetchProgram(id)
       .then((p) => {
+        if (isUnavailable(p)) return setUnavailable(p);
         setProgram(p);
         // "More like this" — other programs with upcoming dates, same
         // category (or same county when uncategorised), this one excluded.
@@ -202,6 +206,7 @@ export function ProgramDetail() {
   };
 
   if (loading) return <PageSpinner />;
+  if (unavailable) return <UnavailableListing item={unavailable} />;
   if (!program) {
     return (
       <section className="section-pad" style={{ maxWidth: 560, margin: "0 auto", padding: "80px 24px", textAlign: "center" }}>

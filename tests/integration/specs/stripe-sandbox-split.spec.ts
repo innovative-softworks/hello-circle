@@ -4,7 +4,7 @@ import { expect, personas } from "../fixtures";
 import { createActivity, rows, test, withActors } from "../lifecycle-fixture";
 import { bookableCentre } from "../booking-fixture";
 import { deliver, stripe, stripeProfile } from "../stripe-fixture";
-import { attachAccount, createVerifiedRecipient, deliverReal, IBAN, ledgerBalanced, payHosted, realEvents, record, RUN, runKey, setSwitch, sleep } from "../stripe-sandbox-fixture";
+import { attachAccount, createVerifiedRecipient, deliverReal, IBAN, ledgerBalanced, noteServerFailure, payHosted, realEvents, record, RUN, runKey, setSwitch, sleep } from "../stripe-sandbox-fixture";
 
 // Revenue & Connect Stage 5e — B/C/D/E/H on real Stripe TEST money with two
 // connected accounts: a company venue (QA_VENDOR_B's organisation — QA_VENDOR's
@@ -27,7 +27,12 @@ test("SANDBOX-SPLIT: venue/host split — snapshot, independent settlement and t
     const [{ org_id: orgId }] = await rows(f, "SELECT org_id FROM users WHERE id = ?", [personas.QA_VENDOR_B.id]);
     const venue = { partyType: "org", partyId: orgId as string };
     const host = { partyType: "host", partyId: personas.QA_HOST.id };
-    const admin = (path: string, data: Record<string, unknown>) => f.actors.QA_ADMIN.post(`/api/admin/finance${path}`, { data: { reason, ...data } }).then(async (r) => ({ status: r.status(), body: await r.json() }));
+    const admin = (path: string, data: Record<string, unknown>) =>
+      f.actors.QA_ADMIN.post(`/api/admin/finance${path}`, { data: { reason, ...data } }).then(async (r) => {
+        const out = { status: r.status(), body: await r.json().catch(() => ({})) };
+        await noteServerFailure(`split ${path}`, out.status, out.body);
+        return out;
+      });
     const available = async (p: { partyType: string; partyId: string }) => -Number((await rows(f, "SELECT COALESCE(SUM(amount_minor), 0) AS s FROM ledger_entries WHERE account_code = 'partner_available' AND party_type = ? AND party_id = ?", [p.partyType, p.partyId]))[0].s);
     const cleanParty = async (p: { partyType: string; partyId: string }) => {
       await f.connection.execute("DELETE FROM partner_debts WHERE party_type = ? AND party_id = ?", [p.partyType, p.partyId]);

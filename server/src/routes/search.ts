@@ -1,3 +1,4 @@
+import { orgActiveSql } from "../orgSql.js";
 import { Router } from "express";
 import { logEvent } from "../analytics.js";
 import { db } from "../db/index.js";
@@ -84,8 +85,8 @@ export async function runStructuredSearch(q: string, residentId: string | null, 
     listCentres(parsed.county ?? undefined),
     listClubs(parsed.county ?? undefined),
     parsed.county
-      ? db.prepare(`SELECT id, kind, title, area, county, blurb, price_cents, image_url FROM experiences WHERE status = 'approved' AND county = ?`).all(parsed.county)
-      : db.prepare(`SELECT id, kind, title, area, county, blurb, price_cents, image_url FROM experiences WHERE status = 'approved'`).all(),
+      ? db.prepare(`SELECT id, kind, title, area, county, blurb, price_cents, image_url FROM experiences WHERE status = 'approved' AND ${orgActiveSql("vendor_id")} AND county = ?`).all(parsed.county)
+      : db.prepare(`SELECT id, kind, title, area, county, blurb, price_cents, image_url FROM experiences WHERE status = 'approved' AND ${orgActiveSql("vendor_id")}`).all(),
   ]);
   const allExperiences = allExperiencesRaw as ExperienceSearchRow[];
 

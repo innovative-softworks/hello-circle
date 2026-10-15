@@ -31,7 +31,7 @@ test("HC-QA-053: a draft activity offers no Share; sharing never spins forever",
     try {
       const { page } = ui;
       await page.goto("/manage?tab=activities");
-      const row = (label: string) => page.locator("div").filter({ hasText: label }).filter({ has: page.getByRole("button", { name: "Participants" }) }).last();
+      const row = (label: string) => page.locator("div").filter({ hasText: label }).filter({ has: page.getByRole("button", { name: /^Manage / }) }).last();
       await expect(row(draft.activityLabel)).toBeVisible();
       await expect(row(draft.activityLabel).getByRole("button", { name: /Share/ }), "draft rows offer no Share (drafts are private)").toHaveCount(0);
       await expect(row(live.activityLabel).getByRole("button", { name: /Share/ })).toHaveCount(1);
@@ -49,7 +49,7 @@ test("HC-QA-053-ERROR-STATE: a failed share load shows an error with a way out, 
       await page.route(`**/api/share/game/${live.id}`, (route) => route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ error: "Internal" }) }));
       // The Manage row's Share is the ShareSheet trigger the finding names.
       await page.goto("/manage?tab=activities");
-      const row = page.locator("div").filter({ hasText: live.activityLabel }).filter({ has: page.getByRole("button", { name: "Participants" }) }).last();
+      const row = page.locator("div").filter({ hasText: live.activityLabel }).filter({ has: page.getByRole("button", { name: /^Manage / }) }).last();
       await row.getByRole("button", { name: /Share/ }).click();
       const dialog = page.getByRole("dialog");
       await expect(dialog.getByRole("alert")).toContainText(/couldn't|can't|unable/i, { timeout: 5_000 });

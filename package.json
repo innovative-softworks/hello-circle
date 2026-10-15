@@ -31,7 +31,8 @@
     "qa:stripe": "tsx tests/integration/run.ts stripe",
     "qa:product": "tsx tests/integration/run.ts product",
     "qa:browsers": "tsx tests/integration/run.ts browsers",
-    "qa:revenue": "tsx tests/integration/run.ts revenue"
+    "qa:revenue": "tsx tests/integration/run.ts revenue",
+    "qa:validation": "tsx tests/integration/run.ts validation"
   },
   "devDependencies": {
     "@playwright/test": "^1.63.0",

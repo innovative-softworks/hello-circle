@@ -51,7 +51,14 @@ export function MessageComposer({
   const [result, setResult] = useState<string | null>(null);
   const [sent, setSent] = useState<{ id: number; listingType: string; listingId: string; subject: string; body: string; createdAt: string }[]>([]);
 
-  const loadSent = () => fetchVendorMessages().then(setSent).catch(() => {});
+  const [sentFailed, setSentFailed] = useState(false);
+  const loadSent = () =>
+    fetchVendorMessages()
+      .then((rows) => {
+        setSent(rows);
+        setSentFailed(false);
+      })
+      .catch(() => setSentFailed(true));
   useEffect(() => {
     loadSent();
   }, []);
@@ -88,7 +95,7 @@ export function MessageComposer({
 
   return (
     <Card style={{ marginBottom: 20 }}>
-      <h4 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 16, margin: "0 0 14px" }}>Message your participants</h4>
+      <h2 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 16, margin: "0 0 14px" }}>Message your participants</h2>
       {!lockTo && (
         <>
           <label style={labelStyle}>Listing</label>
@@ -120,6 +127,14 @@ export function MessageComposer({
         {sending ? "Sending…" : "Send to everyone with a paid booking"}
       </Button>
 
+      {sentFailed && (
+        <p role="alert" style={{ fontSize: 13, marginTop: 16 }}>
+          Couldn't load messages you've already sent.{" "}
+          <button type="button" className="btn-reset" onClick={() => void loadSent()} style={{ textDecoration: "underline", fontWeight: 600 }}>
+            Try again
+          </button>
+        </p>
+      )}
       {sentForThisListing.length > 0 && (
         <div style={{ marginTop: 20, paddingTop: 16, borderTop: `1px solid ${colors.border}` }}>
           <div style={{ fontSize: 12, fontWeight: 700, color: colors.muted, marginBottom: 10 }}>SENT</div>
