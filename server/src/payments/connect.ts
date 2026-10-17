@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { noticeFailedPayout } from "../financialExceptions.js";
 import { writeAudit } from "../audit.js";
 import { db } from "../db/index.js";
 import { postGroup } from "../commerce/ledger.js";
@@ -735,6 +736,9 @@ export async function processConnectEvent(event: IncomingEvent): Promise<"proces
              status = IF(${PAYOUT_RANK.replace("%s", "VALUES(status)")} >= ${PAYOUT_RANK.replace("%s", "status")}, VALUES(status), status)`
         )
         .run(o.id, event.account, Number(o.amount ?? 0), String(o.currency ?? "eur").toUpperCase(), String(o.status ?? "pending"), o.arrival_date ? new Date(o.arrival_date * 1000) : null, o.failure_code ?? null, o.failure_message ?? null);
+      // OG-05 — a failed or cancelled bank payout is announced to the partner once.
+      // A notice that can't be sent never fails the payout event itself.
+      await noticeFailedPayout(String(o.id)).catch((e) => console.error("[payout-notice] failed:", e instanceof Error ? e.message : "unknown"));
       return "processed";
     }
     case "connect.transfer.reversed_externally": {

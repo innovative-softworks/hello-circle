@@ -1,4 +1,5 @@
 import { proPurchaseAllowed } from "./releaseGates.js";
+import { noticePastDue } from "../financialExceptions.js";
 import { writeAudit } from "../audit.js";
 import { db } from "../db/index.js";
 import { paymentProvider } from "../payments/provider.js";
@@ -169,6 +170,8 @@ export async function applySubscriptionUpdate(sub: { id: string; status: string;
   await db
     .prepare(`UPDATE partner_subscriptions SET status = ?, current_period_end = COALESCE(?, current_period_end), cancel_at_period_end = ?, grace_until = ?, grace_days = COALESCE(?, grace_days) WHERE id = ?`)
     .run(status, periodEndSec ? new Date(periodEndSec * 1000) : null, sub.cancel_at_period_end ? 1 : 0, grace, days, row.id);
+  // OG-05 — the first failed Pro payment is announced to the partner once.
+  if (status === "past_due") await noticePastDue(row.id).catch((e) => console.error("[past-due-notice] failed:", e instanceof Error ? e.message : "unknown"));
   return "processed" as const;
 }
 
