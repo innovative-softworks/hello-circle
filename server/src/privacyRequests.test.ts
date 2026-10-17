@@ -37,14 +37,30 @@ describe("privacy requests", () => {
     expect(((await listPrivacyRequests("open")) as { id: number }[]).some((r) => r.id === id)).toBe(true);
   });
 
-  it("closing needs a reply, emails it, and deletes nothing", async () => {
-    await expect(updatePrivacyRequest(id, admin, "completed", "short")).rejects.toThrow(/at least 10/);
-    await updatePrivacyRequest(id, admin, "in_progress", "");
-    await updatePrivacyRequest(id, admin, "completed", "We've recorded your request; deletion follows our published rules.");
+  it("an erasure request is never 'completed' (nothing is deleted); a reply keeps it open; declining closes it", async () => {
+    await expect(updatePrivacyRequest(id, admin, "refused", "short")).rejects.toThrow(/at least 10/);
+    await expect(updatePrivacyRequest(id, admin, "completed", "We've recorded your request; deletion follows our published rules.")).rejects.toThrow(/can't be marked completed/);
+    expect(await privacyRequestDetail(id)).toMatchObject({ status: "received" });
+    const before = sent.length;
+    await updatePrivacyRequest(id, admin, "in_progress", "We've recorded your request. Deletion isn't available yet; we'll write again.");
+    expect(sent.length).toBe(before + 1);
+    expect(sent.at(-1)).toMatchObject({ to: resident.email, subject: "An update on your privacy request" });
+    expect(sent.at(-1)!.text).toMatch(/still open/);
+    expect(sent.at(-1)!.text).not.toMatch(/completed/);
+    expect(await myPrivacyRequests(resident.id)).toEqual([expect.objectContaining({ id, status: "in_progress", response: expect.stringContaining("Deletion isn't available yet") })]);
+    await updatePrivacyRequest(id, admin, "refused", "We can't delete this account while bookings are open.");
     await expect(updatePrivacyRequest(id, admin, "refused", "Changing my mind here")).rejects.toThrow(/already closed/);
-    expect(sent.at(-1)).toMatchObject({ to: resident.email });
+    expect(sent.at(-1)!.text).toMatch(/declined/);
     expect(await db.prepare(`SELECT id FROM residents WHERE id = ?`).get(resident.id)).toBeTruthy();
-    expect(await privacyRequestDetail(id)).toMatchObject({ status: "completed", consents: { marketing_email: expect.objectContaining({ granted: true }) } });
+    expect(await privacyRequestDetail(id)).toMatchObject({ status: "refused", consents: { marketing_email: expect.objectContaining({ granted: true }) } });
+  });
+
+  it("other kinds still complete with a reply", async () => {
+    const { id: access } = await submitPrivacyRequest(resident, "access", "Copy please");
+    await expect(updatePrivacyRequest(access, admin, "completed", "short")).rejects.toThrow(/at least 10/);
+    await updatePrivacyRequest(access, admin, "completed", "Your export is in Profile → Your data.");
+    expect(sent.at(-1)!.text).toMatch(/has been completed/);
+    expect(await privacyRequestDetail(access)).toMatchObject({ status: "completed" });
   });
 });
 

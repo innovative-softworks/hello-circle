@@ -563,9 +563,9 @@ export function SessionsManager({ experienceId }: { experienceId: string }) {
       )}
       {addOpen ? (
         <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "flex-end" }}>
-          <input type="date" value={date} onChange={(e) => setDate(e.target.value)} style={{ ...inputStyle, width: 150 }} />
-          <input type="time" value={time} onChange={(e) => setTime(e.target.value)} style={{ ...inputStyle, width: 110 }} />
-          <input value={capacity} onChange={(e) => setCapacity(e.target.value)} placeholder="Cap (default listing cap)" type="number" style={{ ...inputStyle, width: 180 }} />
+          <input type="date" value={date} onChange={(e) => setDate(e.target.value)} aria-label="Departure date" style={{ ...inputStyle, width: 150 }} />
+          <input type="time" value={time} onChange={(e) => setTime(e.target.value)} aria-label="Departure time" style={{ ...inputStyle, width: 110 }} />
+          <input value={capacity} onChange={(e) => setCapacity(e.target.value)} placeholder="Cap (default listing cap)" aria-label="Capacity (default: the listing's capacity)" type="number" style={{ ...inputStyle, width: 180 }} />
           <input value={repeatWeeks} onChange={(e) => setRepeatWeeks(e.target.value)} aria-label="Repeat weekly for this many weeks" title="Repeat weekly for this many weeks" type="number" min={1} max={26} style={{ ...inputStyle, width: 90 }} />
           <input value={closeHours} onChange={(e) => setCloseHours(e.target.value)} placeholder="Stop sales (hours before)" aria-label="Stop sales this many hours before" type="number" min={0} style={{ ...inputStyle, width: 190 }} />
           <Button variant="ghost" onClick={add}>

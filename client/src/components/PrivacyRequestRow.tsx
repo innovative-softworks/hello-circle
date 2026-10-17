@@ -78,6 +78,7 @@ export function PrivacyRequestRow() {
           {requests.map((r) => (
             <li key={r.id}>
               <strong>{KINDS.find((k) => k.value === r.kind)?.label}</strong> · {dateLabel(r.createdAt.slice(0, 10))} · {STATUS[r.status]}
+              {r.kind === "erasure" && r.status !== "refused" && <span style={{ color: colors.mutedLight }}> · nothing deleted yet</span>}
               {r.response && <div style={{ color: colors.mutedLight, marginTop: 2 }}>{r.response}</div>}
             </li>
           ))}

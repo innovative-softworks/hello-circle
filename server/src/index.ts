@@ -83,6 +83,7 @@ import { stagingGate } from "./stagingGate.js";
 import { reportError, reportException } from "./errorReporting.js";
 import { clientErrorLimiter } from "./rateLimit.js";
 import { sweepExpiredWaitlistOffers } from "./waitlist.js";
+import { mfaKeyProblem } from "./adminMfa.js";
 
 // MySQL access is async, so the schema/seed must finish before the server
 // starts accepting requests — top-level await (supported by this project's
@@ -96,6 +97,13 @@ if (!(process.env.NODE_ENV === "test" && process.env.QA_E2E_ENABLED === "true"))
   await seedAdminIfMissing();
 }
 await backfillSlugs();
+
+// OG-07 — say at boot (not at the first admin sign-in) when the two-step key is
+// missing or malformed on a deployed server. Logs the problem, never the key.
+{
+  const problem = mfaKeyProblem();
+  if (problem) console.error(`[mfa] ${problem}`);
+}
 
 // A route handler throwing inside an unawaited/uncaught async path (e.g. a
 // third-party API call like Stripe rejecting) would otherwise crash the

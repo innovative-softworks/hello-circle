@@ -1286,3 +1286,42 @@ export function updatePrivacyRequest(id: number, input: { status: Exclude<Privac
 export function fetchConsentsForEmail(email: string): Promise<ConsentSubjectView[]> {
   return request(`/admin/privacy/consents?email=${encodeURIComponent(email)}`);
 }
+
+// --- OG-24 — Vendors and All listings as numbered server pages ------------------------
+
+export interface NumberedPage<T, C> {
+  items: T[];
+  total: number;
+  page: number;
+  pageSize: number;
+  pageCount: number;
+  counts: C;
+}
+export type AdminListingType = "centre" | "club" | "experience";
+export interface AdminListingRowData {
+  type: AdminListingType;
+  item: AdminListingSummary;
+}
+export interface AdminVendorRow extends AdminVendor {
+  /** Centres + clubs + experiences, not deleted. */
+  listingCount: number;
+}
+
+export function fetchAdminVendorPage(f: { q?: string; view?: string; type?: string; page: number; pageSize?: number }): Promise<NumberedPage<AdminVendorRow, { all: number; pending: number; approved: number; suspended: number }>> {
+  return request(`/admin/vendors${qs({ q: f.q, view: f.view === "all" ? undefined : f.view, type: f.type === "all" ? undefined : f.type, page: String(f.page), pageSize: String(f.pageSize ?? 20) })}`);
+}
+export function fetchAdminVendor(id: string): Promise<AdminVendorRow & { orgMemberCount: number }> {
+  return request(`/admin/vendors/${encodeURIComponent(id)}/summary`);
+}
+export function fetchAdminVendorListings(id: string): Promise<AdminListingRowData[]> {
+  return request(`/admin/vendors/${encodeURIComponent(id)}/listings`);
+}
+export function fetchAdminListingPage(f: { q?: string; type?: string; view?: string; county?: string; show?: string; sort?: string; page: number; pageSize?: number }): Promise<
+  NumberedPage<AdminListingRowData, { all: number; pending: number; approved: number; rejected: number; other: number }> & { typeCounts: Record<AdminListingType, number>; counties: string[] }
+> {
+  const all = (v?: string) => (v === "all" ? undefined : v);
+  return request(`/admin/listings${qs({ q: f.q, type: all(f.type), view: all(f.view), county: all(f.county), show: all(f.show), sort: f.sort, page: String(f.page), pageSize: String(f.pageSize ?? 20) })}`);
+}
+export function fetchAdminListingSummary(type: string, id: string): Promise<AdminListingRowData> {
+  return request(`/admin/listings/${encodeURIComponent(type)}/${encodeURIComponent(id)}/summary`);
+}

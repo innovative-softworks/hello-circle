@@ -274,6 +274,24 @@ export function usePaged<T>(items: T[], pageSize: number, resetKey: unknown, url
   return { page: current, pageCount, setPage, slice, total: items.length, pageSize };
 }
 
+/** OG-24 — the page number of a list the server pages (kept in the URL like
+ * `usePaged`), back to page 1 whenever `resetKey` (the filters) changes. */
+export function useUrlPage(resetKey: unknown, urlParam = "page") {
+  const [urlPage, setUrlPage] = useUrlParam<string>(urlParam, "1");
+  const page = Math.max(1, Number(urlPage) || 1);
+  const setPage = useCallback((p: number) => setUrlPage(String(p)), [setUrlPage]);
+  const firstKey = useRef(true);
+  useEffect(() => {
+    if (firstKey.current) {
+      firstKey.current = false;
+      return;
+    }
+    setPage(1);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [resetKey]);
+  return [page, setPage] as const;
+}
+
 export function Pager({ page, pageCount, total, pageSize, setPage, noun = "items" }: { page: number; pageCount: number; total: number; pageSize: number; setPage: (p: number) => void; noun?: string }) {
   if (total === 0) return null;
   const from = (page - 1) * pageSize + 1;

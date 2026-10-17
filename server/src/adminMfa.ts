@@ -78,9 +78,27 @@ function seal(plain: string): string {
 function unseal(sealed: string): string {
   const [v, iv, tag, body] = sealed.split(".");
   if (v !== "v1" || !iv || !tag || !body) throw new MfaError("Stored two-step secret is unreadable", 500);
-  const decipher = crypto.createDecipheriv("aes-256-gcm", encryptionKey(), Buffer.from(iv, "base64"));
-  decipher.setAuthTag(Buffer.from(tag, "base64"));
-  return Buffer.concat([decipher.update(Buffer.from(body, "base64")), decipher.final()]).toString("utf8");
+  const key = encryptionKey();
+  try {
+    const decipher = crypto.createDecipheriv("aes-256-gcm", key, Buffer.from(iv, "base64"));
+    decipher.setAuthTag(Buffer.from(tag, "base64"));
+    return Buffer.concat([decipher.update(Buffer.from(body, "base64")), decipher.final()]).toString("utf8");
+  } catch {
+    // GCM authentication failed: the secret was sealed with a different key.
+    throw new MfaError(
+      "This server's HELLO_CIRCLE_MFA_KEY can't read the stored two-step secret (the key changed). Restore the previous key, or sign in with a recovery code and ask another super admin to reset two-step sign-in.",
+      500
+    );
+  }
+}
+
+/** What's wrong with the configured key, for a boot-time log line — never the key itself. */
+export function mfaKeyProblem(env: NodeJS.ProcessEnv = process.env): string | null {
+  const raw = env.HELLO_CIRCLE_MFA_KEY;
+  const deployed = env.NODE_ENV === "production" || env.APP_ENV === "staging";
+  if (!raw) return deployed ? "HELLO_CIRCLE_MFA_KEY is missing: admin two-step sign-in will refuse every admin until it is set" : null;
+  if (!/^[A-Za-z0-9+/]+={0,2}$/.test(raw.trim()) || Buffer.from(raw, "base64").length !== 32) return "HELLO_CIRCLE_MFA_KEY must be exactly 32 random bytes, base64-encoded (openssl rand -base64 32)";
+  return null;
 }
 
 export class MfaError extends Error {

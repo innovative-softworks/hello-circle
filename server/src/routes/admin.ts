@@ -28,6 +28,7 @@ import { isValidEmail } from "../util.js";
 import { InviteError, createAdminInvite, listAdminInvites, revokeAdminInvite } from "../adminInvites.js";
 import { MfaError, resetMfa } from "../adminMfa.js";
 import { decodeCursor, encodeCursor, pageLimit } from "../supportLookup.js";
+import { listingPage, listingSummary, listingsOfVendor, vendorPage, vendorRecord } from "../adminListPages.js";
 import { ModerationError, REASON_REQUIRED, applyReportAction, reinstateListing, resolveReportTarget, unhideChatMessage, type ReportTargetType } from "../reportModeration.js";
 import { NEXT_STEPS, notifyApplicant, notifyPartner } from "../moderationNotify.js";
 import { orgSummary, setOrgStatus } from "../orgSuspension.js";
@@ -222,6 +223,12 @@ adminRouter.get("/stats", requireAdminPermission("workspace.view"), async (_req,
 // --- vendor management -------------------------------------------------
 
 adminRouter.get("/vendors", requireAdminPermission("partners.view"), async (req, res) => {
+  // OG-24 — numbered pages (?page, with ?q, ?view, ?type): what the Vendors
+  // page shows, with its status-tab counts (adminListPages.ts).
+  if (req.query.page !== undefined) {
+    const { q, view, type, page, pageSize } = req.query;
+    return res.json(await vendorPage({ q: String(q ?? ""), view: String(view ?? ""), type: String(type ?? ""), page, pageSize }));
+  }
   // OG-24 — paged mode (?limit / ?cursor, with ?q and ?status); the
   // unparameterised call returns every partner as before.
   if (req.query.limit !== undefined || req.query.cursor !== undefined) {
@@ -264,6 +271,17 @@ adminRouter.get("/vendors", requireAdminPermission("partners.view"), async (req,
     )
     .all();
   res.json(rows);
+});
+
+// OG-24 — one partner's record page, without loading every partner.
+adminRouter.get("/vendors/:id/summary", requireAdminPermission("partners.view"), async (req, res) => {
+  const vendor = await vendorRecord(req.params.id);
+  if (!vendor) return res.status(404).json({ error: "Vendor not found" });
+  res.json(vendor);
+});
+
+adminRouter.get("/vendors/:id/listings", requireAdminPermission("listings.view"), async (req, res) => {
+  res.json(await listingsOfVendor(req.params.id));
 });
 
 adminRouter.put("/vendors/:id/status", requireAdminPermission("partners.approve"), async (req, res) => {
@@ -441,6 +459,12 @@ adminRouter.get("/listings/pending", requireAdminPermission("listings.view"), as
 // triage sees what needs a decision without scanning the whole
 // alphabetical list — everything else stays alphabetical within its group.
 adminRouter.get("/listings", requireAdminPermission("listings.view"), async (req, res) => {
+  // OG-24 — numbered pages (?page, with ?q, ?type, ?view, ?county, ?show,
+  // ?sort): what the All listings page shows, with its counts.
+  if (req.query.page !== undefined) {
+    const { q, type, view, county, show, sort, page, pageSize } = req.query;
+    return res.json(await listingPage({ q: String(q ?? ""), type: String(type ?? ""), view: String(view ?? ""), county: String(county ?? ""), show: String(show ?? ""), sort: String(sort ?? ""), page, pageSize }));
+  }
   // OG-24 — paged mode (?limit / ?cursor, with ?q, ?type and ?status): one
   // newest-first list across centres, clubs and experiences. The
   // unparameterised call keeps returning every listing grouped by type.
@@ -502,6 +526,13 @@ adminRouter.get("/listings", requireAdminPermission("listings.view"), async (req
     )
     .all();
   res.json({ centres, clubs, experiences });
+});
+
+// OG-24 — one listing's summary row (its record page, opened from a paged list).
+adminRouter.get("/listings/:type/:id/summary", requireAdminPermission("listings.view"), async (req, res) => {
+  const row = await listingSummary(req.params.type, req.params.id);
+  if (!row) return res.status(404).json({ error: "Listing not found" });
+  res.json(row);
 });
 
 // Everything a reviewer needs to see before publishing a listing (admin

@@ -5,6 +5,8 @@ import {
   adminDeleteClub,
   fetchAdminListingDetail,
   fetchAdminListings,
+  fetchAdminListingPage,
+  fetchAdminListingSummary,
   fetchAdminOrganisations,
   setCentreOrganisation,
   setCentreStatus,
@@ -44,6 +46,8 @@ import {
   usePaged,
   AdminModal,
   type AdminData,
+  useDebounced,
+  useUrlPage,
 } from "./adminUi";
 import { listingChecks, similarListings } from "./listingReview";
 import { time, waitingLabel } from "./timeLabels";
@@ -64,6 +68,7 @@ export interface ListingRow {
   item: AdminListingSummary;
 }
 
+const PAGE_SIZE = 20;
 const TYPE_LABEL: Record<ListingType, string> = { centre: "Community centre", club: "Sports club", experience: "Experience" };
 const TABLE: Record<ListingType, "centres" | "clubs" | "experiences"> = { centre: "centres", club: "clubs", experience: "experiences" };
 
@@ -637,13 +642,8 @@ export function AdminListingsPage({
   /** Lets the dashboard refresh its nav badge counts after a decision. */
   onCountsChanged?: () => void;
 }) {
-  const state = useAdminData(fetchAdminListings);
+  const isAll = mode === "all";
   const orgs = useAdminData(fetchAdminOrganisations);
-  const reload = () => {
-    state.reload();
-    onCountsChanged?.();
-  };
-  const decisions = useListingDecisions(reload);
   const toast = useToast();
   const [rowConfirm, setRowConfirm] = useState<{ kind: "reject" | "delete"; row: ListingRow } | null>(null);
   // Bulk decisions: only pending rows can be selected (spec: the bulk toolbar
@@ -673,9 +673,47 @@ export function AdminListingsPage({
     }
   }, [openKey, onOpenHandled, openRecord]);
 
+  // OG-24 — All listings is searched, counted, sorted and paged on the server;
+  // its record page loads just that listing. The pending queue (and a pending
+  // record, for "similar listings" and "next to review") still reads the whole
+  // set, which is what that review flow compares against.
+  const query = useDebounced(q.trim());
+  const [serverPage, setServerPage] = useUrlPage(`${query}|${type}|${view}|${county}|${sort}|${show}`);
+  const pageState = useAdminData(
+    () => (isAll ? fetchAdminListingPage({ q: query || undefined, type, view, county, show, sort, page: serverPage, pageSize: PAGE_SIZE }) : Promise.resolve(null)),
+    [isAll, query, type, view, county, show, sort, serverPage]
+  );
+  const recordState = useAdminData(() => {
+    const at = openId ? openId.indexOf(":") : -1;
+    return isAll && openId && at > 0 ? fetchAdminListingSummary(openId.slice(0, at), openId.slice(at + 1)) : Promise.resolve(null);
+  }, [isAll, openId]);
+  const serverRecord = recordState.data && rowKey(recordState.data) === openId ? (recordState.data as ListingRow) : null;
+  const needFull = !isAll || serverRecord?.item.status === "pending";
+  const state = useAdminData(() => (needFull ? fetchAdminListings() : Promise.resolve(null)), [needFull]);
+  const reload = () => {
+    if (needFull) state.reload();
+    if (isAll) {
+      pageState.reload();
+      if (openId) recordState.reload();
+    }
+    onCountsChanged?.();
+  };
+  const decisions = useListingDecisions(reload);
+  const pageRows = useMemo(() => (pageState.data?.items ?? []) as ListingRow[], [pageState.data]);
+  // Rows seen on any loaded page, so a selection can span pages.
+  const [seen, setSeen] = useState<Map<string, ListingRow>>(new Map());
+  useEffect(() => {
+    if (!pageRows.length) return;
+    setSeen((cur) => {
+      const next = new Map(cur);
+      for (const r of pageRows) next.set(rowKey(r), r);
+      return next;
+    });
+  }, [pageRows]);
+
   const rows = useMemo(() => (state.data ? flattenListings(state.data) : []), [state.data]);
   const scoped = mode === "pending" ? rows.filter((r) => r.item.status === "pending") : rows;
-  const counties = useMemo(() => Array.from(new Set(rows.map((r) => r.item.county).filter(Boolean))).sort(), [rows]);
+  const counties = useMemo(() => (isAll ? pageState.data?.counties ?? [] : Array.from(new Set(rows.map((r) => r.item.county).filter(Boolean))).sort()), [isAll, pageState.data, rows]);
   const showOk = (r: ListingRow) => show === "all" || (show === "featured" ? !!r.item.featured : show === "unclaimed" ? !r.item.vendorId : !!r.item.vendorId);
   const base = scoped.filter((r) => (type === "all" || r.type === type) && (county === "all" || r.item.county === county) && showOk(r) && matches(q, r.item.name, r.item.vendorName, r.item.vendorEmail, r.item.area, r.item.county));
   const filtered = base
@@ -689,8 +727,9 @@ export function AdminListingsPage({
       // triage: pending first, then name (the server's own order, kept across types)
       return Number(b.item.status === "pending") - Number(a.item.status === "pending") || a.item.name.localeCompare(b.item.name);
     });
-  const paged = usePaged(filtered, 20, `${q}|${type}|${view}|${county}|${sort}|${show}`, "page");
-  const openRow = openId ? rows.find((r) => rowKey(r) === openId) ?? null : null;
+  const paged = usePaged(filtered, PAGE_SIZE, `${q}|${type}|${view}|${county}|${sort}|${show}`, isAll ? undefined : "page");
+  const openRow = openId ? (isAll ? serverRecord : rows.find((r) => rowKey(r) === openId) ?? null) : null;
+  const shown = isAll ? pageRows : paged.slice;
   // Review flow: the pending queue oldest first, and the one after the open record.
   const pendingQueue = useMemo(() => rows.filter((r) => r.item.status === "pending").sort(byOldest), [rows]);
   const nextPending = (() => {
@@ -701,17 +740,26 @@ export function AdminListingsPage({
     return at >= 0 ? pendingQueue.slice(at + 1)[0] ?? others[0] : others[0];
   })();
 
-  const typeCounts = (t: ListingType) => scoped.filter((r) => r.type === t).length;
+  const typeCounts = (t: ListingType) => (isAll ? pageState.data?.typeCounts[t] ?? 0 : scoped.filter((r) => r.type === t).length);
+  const typeTotal = isAll ? (["centre", "club", "experience"] as const).reduce((a, t) => a + typeCounts(t), 0) : scoped.length;
 
   // Drop selections that are no longer pending (decided, or filtered away after reload).
   useEffect(() => {
+    if (isAll) return;
     setSelected((cur) => {
       const pendingKeys = new Set(rows.filter((r) => r.item.status === "pending").map(rowKey));
       const next = new Set([...cur].filter((k) => pendingKeys.has(k)));
       return next.size === cur.size ? cur : next;
     });
-  }, [rows]);
-  const selectable = paged.slice.filter((r) => r.item.status === "pending");
+  }, [rows, isAll]);
+  useEffect(() => {
+    if (!isAll) return;
+    setSelected((cur) => {
+      const next = new Set([...cur].filter((k) => seen.get(k)?.item.status === "pending"));
+      return next.size === cur.size ? cur : next;
+    });
+  }, [seen, isAll]);
+  const selectable = shown.filter((r) => r.item.status === "pending");
   const allOnPageSelected = selectable.length > 0 && selectable.every((r) => selected.has(rowKey(r)));
   const toggleRow = (k: string) =>
     setSelected((cur) => {
@@ -729,7 +777,7 @@ export function AdminListingsPage({
       }
       return next;
     });
-  const selectedRows = rows.filter((r) => selected.has(rowKey(r)));
+  const selectedRows = isAll ? [...selected].flatMap((k) => seen.get(k) ?? []) : rows.filter((r) => selected.has(rowKey(r)));
   const eligibleForApproval = selectedRows.filter((r) => !vendorBlocksApproval(r.item));
   const runBulk = async (status: "approved" | "rejected", reason?: ReasonDraft) => {
     const targets = status === "approved" ? eligibleForApproval : selectedRows;
@@ -760,8 +808,12 @@ export function AdminListingsPage({
 
   const backLabel = mode === "pending" ? "Pending approvals" : "All listings";
   if (openId) {
-    if (state.error && !state.data) return <RecordState state="error" backLabel={backLabel} onBack={closeRecord} onRetry={state.reload} />;
-    if (!state.data) return <RecordState state="loading" backLabel={backLabel} onBack={closeRecord} />;
+    if (isAll) {
+      if (recordState.error && !serverRecord) return <RecordState state={(recordState.error as { status?: number }).status === 404 ? "missing" : "error"} backLabel={backLabel} onBack={closeRecord} onRetry={recordState.reload} />;
+      if (!serverRecord) return <RecordState state={openId.includes(":") ? "loading" : "missing"} backLabel={backLabel} onBack={closeRecord} />;
+    }
+    if (needFull && state.error && !state.data) return <RecordState state="error" backLabel={backLabel} onBack={closeRecord} onRetry={state.reload} />;
+    if (needFull && !state.data) return <RecordState state="loading" backLabel={backLabel} onBack={closeRecord} />;
     if (!openRow) return <RecordState state="missing" backLabel={backLabel} onBack={closeRecord} />;
     return (
       <ListingRecord
@@ -787,10 +839,10 @@ export function AdminListingsPage({
             label="Listing status"
             value={view}
             onChange={setView}
-            views={STATUS_VIEWS.filter((v) => v.key !== "other" || view === "other" || base.some((r) => inView(r.item.status, "other"))).map((v) => ({
+            views={STATUS_VIEWS.filter((v) => v.key !== "other" || view === "other" || (pageState.data?.counts.other ?? 0) > 0).map((v) => ({
               key: v.key,
               label: v.key === "other" ? "Draft / removed" : v.label,
-              count: state.data ? base.filter((r) => inView(r.item.status, v.key)).length : undefined,
+              count: pageState.data ? pageState.data.counts[v.key] : undefined,
             }))}
           />
         )}
@@ -816,7 +868,7 @@ export function AdminListingsPage({
             value={type}
             onChange={setType}
             options={[
-              { value: "all", label: `All types (${scoped.length})` },
+              { value: "all", label: `All types (${typeTotal})` },
               { value: "centre", label: `Community centres (${typeCounts("centre")})` },
               { value: "club", label: `Sports clubs (${typeCounts("club")})` },
               { value: "experience", label: `Experiences (${typeCounts("experience")})` },
@@ -850,9 +902,9 @@ export function AdminListingsPage({
           </>
           )}
         </Toolbar>
-        <Loaded state={state} rows={6}>
+        <Loaded state={(isAll ? pageState : state) as typeof state} rows={6}>
           {() =>
-            filtered.length === 0 ? (
+            (isAll ? pageRows.length === 0 : filtered.length === 0) ? (
               mode === "pending" && scoped.length === 0 ? (
                 <EmptyMessage icon={<ClipboardCheck size={22} strokeWidth={1.9} aria-hidden="true" />} title="All caught up" detail="No listings are waiting for a decision." />
               ) : (
@@ -897,7 +949,7 @@ export function AdminListingsPage({
                     <thead>
                       <tr>
                         <th scope="col" className="adm-col-check">
-                          {filtered.some((r) => r.item.status === "pending") ? (
+                          {(isAll ? pageRows : filtered).some((r) => r.item.status === "pending") ? (
                             <input type="checkbox" className="adm-check" checked={allOnPageSelected} onChange={toggleAllOnPage} disabled={selectable.length === 0} aria-label="Select all pending listings on this page" />
                           ) : (
                             <span className="adm-visually-hidden">Select</span>
@@ -913,7 +965,7 @@ export function AdminListingsPage({
                       </tr>
                     </thead>
                     <tbody>
-                      {paged.slice.map((r) => {
+                      {shown.map((r) => {
                         const k = rowKey(r);
                         const blocked = vendorBlocksApproval(r.item);
                         return (
@@ -985,7 +1037,11 @@ export function AdminListingsPage({
                     </tbody>
                   </table>
                 </div>
-                <Pager {...paged} noun="listings" />
+                {isAll && pageState.data ? (
+                  <Pager page={pageState.data.page} pageCount={pageState.data.pageCount} total={pageState.data.total} pageSize={pageState.data.pageSize} setPage={setServerPage} noun="listings" />
+                ) : (
+                  <Pager {...paged} noun="listings" />
+                )}
               </>
             )
           }

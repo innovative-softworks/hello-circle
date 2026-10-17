@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { Store } from "lucide-react";
-import { fetchAdminListings, fetchAdminOrganisations, fetchAdminVendors, setVendorPlatformRole, setVendorProviderTier, setVendorStatus, type AdminVendor } from "../../api";
+import { fetchAdminOrganisations, fetchAdminVendor, fetchAdminVendorListings, fetchAdminVendorPage, setVendorPlatformRole, setVendorProviderTier, setVendorStatus, type AdminVendor } from "../../api";
 import { PLATFORM_ROLE_LABELS } from "../../types";
 import { ConfirmDialog } from "../ui";
 import { ObjectActivity } from "./AdminAudit";
@@ -9,7 +9,7 @@ import { useAdminCan } from "./adminPermissions";
 import { useToast } from "../Toast";
 import { RecordState, RecordView } from "../workspace/RecordView";
 import { useRecordParam, useUrlParam } from "../../useUrlTab";
-import { flattenListings, rowKey } from "./AdminListings";
+import { rowKey } from "./AdminListings";
 import type { AdminTab } from "./adminNav";
 import {
   AdminButton,
@@ -26,10 +26,10 @@ import {
   Toolbar,
   ViewTabs,
   formatDate,
-  matches,
   useAdminAction,
   useAdminData,
-  usePaged,
+  useDebounced,
+  useUrlPage,
   AdminModal,
 } from "./adminUi";
 
@@ -39,27 +39,29 @@ import {
 
 const PLATFORM_ROLES = ["centre_manager", "facility_manager", "finance", "communications", "read_only_analyst"] as const;
 const TYPE_LABEL = { community: "Community", sports: "Sports club" } as const;
+const PAGE_SIZE = 20;
 const TIER_LABEL = { standard: "Standard", verified: "Verified", featured: "Featured" } as const;
 const TYPE_NAMES = { centre: "Community centre", club: "Sports club", experience: "Experience" } as const;
 
 // Record page (was a slide-in panel).
 function VendorPanel({
   vendor,
-  vendors,
+  memberCount,
   onClose,
   onChanged,
   onOpenListing,
   onNavigate,
 }: {
   vendor: AdminVendor;
-  vendors: AdminVendor[];
+  /** People in this partner's organisation (OG-24: counted on the server). */
+  memberCount: number;
   onClose: () => void;
   onChanged: () => void;
   onOpenListing: (key: string) => void;
   onNavigate?: (tab: AdminTab, extra?: Record<string, string>) => void;
 }) {
   const orgs = useAdminData(fetchAdminOrganisations);
-  const listings = useAdminData(fetchAdminListings);
+  const listings = useAdminData(() => fetchAdminVendorListings(vendor.id), [vendor.id]);
   const { run, busy } = useAdminAction();
   const [confirmSuspend, setConfirmSuspend] = useState(false);
   const [confirmReinstate, setConfirmReinstate] = useState(false);
@@ -76,8 +78,8 @@ function VendorPanel({
   }, [vendor.id, vendor.platformRole, vendor.providerTier]);
 
   const org = (orgs.data ?? []).find((o) => o.id === vendor.orgId) ?? null;
-  const members = vendor.orgId ? vendors.filter((v) => v.orgId === vendor.orgId).length : 0;
-  const own = useMemo(() => (listings.data ? flattenListings(listings.data).filter((r) => r.item.vendorId === vendor.id) : []), [listings.data, vendor.id]);
+  const members = vendor.orgId ? memberCount : 0;
+  const own = listings.data ?? [];
   const roleDirty = role !== (vendor.platformRole ?? "none") || tier !== vendor.providerTier;
 
   const decide = (status: "approved" | "suspended", success: string) =>
@@ -345,14 +347,6 @@ export function AdminVendorsPage({
   onCountsChanged?: () => void;
   onNavigate?: (tab: AdminTab, extra?: Record<string, string>) => void;
 }) {
-  const state = useAdminData(fetchAdminVendors);
-  // Listing counts across all three types (the vendor summary only counts centres and clubs).
-  const allListings = useAdminData(fetchAdminListings);
-  const listingCount = useMemo(() => {
-    const m = new Map<string, number>();
-    if (allListings.data) for (const r of flattenListings(allListings.data)) if (r.item.vendorId && r.item.status !== "deleted") m.set(r.item.vendorId, (m.get(r.item.vendorId) ?? 0) + 1);
-    return m;
-  }, [allListings.data]);
   // Filters, page and the open record live in the URL (shareable, Back-safe).
   const [q, setQ] = useUrlParam<string>("q", "");
   const [view, setView] = useUrlParam<(typeof VIEWS)[number]["key"]>("view", "all");
@@ -366,22 +360,26 @@ export function AdminVendorsPage({
     }
   }, [openRequest, onOpenHandled, openRecord]);
 
-  const vendors = state.data ?? [];
-  const base = vendors.filter((v) => (type === "all" || v.vendorType === type) && matches(q, v.name, v.email, v.businessName, v.county));
-  const filtered = base.filter((v) => view === "all" || v.status === view).sort((a, b) => Number(b.status === "pending") - Number(a.status === "pending") || b.createdAt.localeCompare(a.createdAt));
-  const paged = usePaged(filtered, 20, `${q}|${view}|${type}`, "page");
-  const open = vendors.find((v) => v.id === openId) ?? null;
+  // OG-24 — searched, counted, sorted (pending first, then newest) and paged on the server.
+  const query = useDebounced(q.trim());
+  const [page, setPage] = useUrlPage(`${query}|${view}|${type}`);
+  const state = useAdminData(() => fetchAdminVendorPage({ q: query || undefined, view, type, page, pageSize: PAGE_SIZE }), [query, view, type, page]);
+  // The record page loads just this partner.
+  const record = useAdminData(() => (openId ? fetchAdminVendor(openId) : Promise.resolve(null)), [openId]);
+  const vendors = state.data?.items ?? [];
+  const filtering = !!query || type !== "all";
 
   if (openId) {
-    if (state.error && !state.data) return <RecordState state="error" backLabel="Vendors" onBack={closeRecord} onRetry={state.reload} />;
-    if (!state.data) return <RecordState state="loading" backLabel="Vendors" onBack={closeRecord} />;
-    if (!open) return <RecordState state="missing" backLabel="Vendors" onBack={closeRecord} />;
+    const open = record.data && record.data.id === openId ? record.data : null;
+    if (record.error && !open) return <RecordState state={(record.error as { status?: number }).status === 404 ? "missing" : "error"} backLabel="Vendors" onBack={closeRecord} onRetry={record.reload} />;
+    if (!open) return <RecordState state="loading" backLabel="Vendors" onBack={closeRecord} />;
     return (
       <VendorPanel
         vendor={open}
-        vendors={vendors}
+        memberCount={open.orgMemberCount}
         onClose={closeRecord}
         onChanged={() => {
+          record.reload();
           state.reload();
           onCountsChanged?.();
         }}
@@ -394,7 +392,7 @@ export function AdminVendorsPage({
   return (
     <div className="adm-stack">
       <Box flush>
-        <ViewTabs label="Account status" value={view} onChange={setView} views={VIEWS.map((v) => ({ key: v.key, label: v.label, count: state.data ? base.filter((x) => v.key === "all" || x.status === v.key).length : undefined }))} />
+        <ViewTabs label="Account status" value={view} onChange={setView} views={VIEWS.map((v) => ({ key: v.key, label: v.label, count: state.data ? state.data.counts[v.key] : undefined }))} />
         <Toolbar label="Filter vendors">
           <SearchField label="Search partners" value={q} onChange={setQ} placeholder="Name, business, email or county" />
           <SelectField
@@ -409,9 +407,9 @@ export function AdminVendorsPage({
           />
         </Toolbar>
         <Loaded state={state}>
-          {() =>
-            filtered.length === 0 ? (
-              <EmptyMessage icon={<Store size={22} strokeWidth={1.9} aria-hidden="true" />} title={vendors.length ? "No partners match" : "No partners yet"} detail={vendors.length ? "Try a different search or status." : undefined} />
+          {(page) =>
+            page.items.length === 0 ? (
+              <EmptyMessage icon={<Store size={22} strokeWidth={1.9} aria-hidden="true" />} title={filtering || page.counts.all ? "No partners match" : "No partners yet"} detail={filtering || page.counts.all ? "Try a different search or status." : undefined} />
             ) : (
               <>
                 <div className="adm-table-wrap">
@@ -431,7 +429,7 @@ export function AdminVendorsPage({
                       </tr>
                     </thead>
                     <tbody>
-                      {paged.slice.map((v) => (
+                      {vendors.map((v) => (
                         <tr key={v.id}>
                           <td data-label="Partner">
                             <button type="button" className="adm-row-button" onClick={() => setOpenId(v.id)}>
@@ -448,7 +446,7 @@ export function AdminVendorsPage({
                           </td>
                           <td data-label="Tier">{TIER_LABEL[v.providerTier]}</td>
                           <td data-label="Listings" className="adm-num">
-                            {allListings.data ? listingCount.get(v.id) ?? 0 : Number(v.centreCount) + Number(v.clubCount)}
+                            {Number(v.listingCount)}
                           </td>
                           <td data-label="Signed up">{formatDate(v.createdAt)}</td>
                           <td>
@@ -463,7 +461,7 @@ export function AdminVendorsPage({
                     </tbody>
                   </table>
                 </div>
-                <Pager {...paged} noun="partners" />
+                <Pager page={page.page} pageCount={page.pageCount} total={page.total} pageSize={page.pageSize} setPage={setPage} noun="partners" />
               </>
             )
           }

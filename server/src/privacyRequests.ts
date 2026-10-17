@@ -81,8 +81,22 @@ export async function updatePrivacyRequest(id: number, actorUserId: string, stat
   const before = (await db.prepare(`SELECT status, email, kind FROM privacy_requests WHERE id = ?`).get(id)) as { status: string; email: string; kind: PrivacyKind } | undefined;
   if (!before) throw new PrivacyError("Request not found", 404);
   if (before.status === "completed" || before.status === "refused") throw new PrivacyError("This request is already closed", 409);
+  // Nothing can be deleted yet (D-07, DEC-14), so an erasure request is never
+  // "completed": that would tell the person their data is gone. It stays open
+  // (a reply can still be sent) or is declined.
+  if (before.kind === "erasure" && status === "completed") {
+    throw new PrivacyError("An erasure request can't be marked completed: nothing is deleted until the deletion rules (D-07) and retention periods are decided. Send your reply and keep it open, or decline it.", 409);
+  }
   await db.prepare(`UPDATE privacy_requests SET status = ?, response = COALESCE(NULLIF(?, ''), response), handled_by = ? WHERE id = ?`).run(status, text, actorUserId, id);
-  await writeAudit({ actorUserId, action: "privacy_request.updated", objectType: "privacy_request", objectId: String(id), previousValue: { status: before.status }, newValue: { status } });
+  await writeAudit({ actorUserId, action: "privacy_request.updated", objectType: "privacy_request", objectId: String(id), previousValue: { status: before.status }, newValue: { status, replied: !!text } });
+  if (status === "in_progress" && text) {
+    // A reply on a request that stays open says so.
+    await sendMail({
+      to: before.email,
+      subject: "An update on your privacy request",
+      text: `An update on your request for ${KIND_LABEL[before.kind]} (reference PR-${id}). It is still open.\n\n${text}`,
+    }).catch(() => {});
+  }
   if (status === "completed" || status === "refused") {
     await sendMail({
       to: before.email,

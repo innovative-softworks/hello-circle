@@ -131,13 +131,14 @@ function PrivacyRequestRecord({ id, onBack }: { id: number; onBack: () => void }
   if (!state.data) return <RecordState state="loading" backLabel="Privacy requests" onBack={onBack} />;
   const r = state.data;
   const open = r.status === "received" || r.status === "in_progress";
-  const act = async (status: "in_progress" | "completed" | "refused") => {
-    if (status !== "in_progress" && response.trim().length < 10) return setError("Write the reply the person will get (at least 10 characters)");
+  const erasure = r.kind === "erasure";
+  const act = async (status: "in_progress" | "completed" | "refused", reply = false) => {
+    if ((status !== "in_progress" || reply) && response.trim().length < 10) return setError("Write the reply the person will get (at least 10 characters)");
     setBusy(true);
     setError(null);
     try {
       await updatePrivacyRequest(id, { status, response: response.trim() || undefined });
-      toast.success(status === "in_progress" ? "Marked in progress" : "Reply sent and request closed");
+      toast.success(status !== "in_progress" ? "Reply sent and request closed" : reply ? "Reply sent — the request stays open" : "Marked in progress");
       setResponse("");
       state.reload();
     } catch (e) {
@@ -161,7 +162,7 @@ function PrivacyRequestRecord({ id, onBack }: { id: number; onBack: () => void }
           />
           {r.kind === "erasure" && (
             <p className="adm-note" style={{ marginTop: 12 }}>
-              Completing this records the decision and emails your reply. It doesn't delete anything: deletion rules (D-07) and retention periods haven't been decided yet.
+              Nothing can be deleted yet: deletion rules (D-07) and retention periods haven't been decided. So this request can't be marked completed — send your reply and keep it open, or decline it. The person sees it as still open.
             </p>
           )}
           {r.kind === "access" && (
@@ -177,13 +178,19 @@ function PrivacyRequestRecord({ id, onBack }: { id: number; onBack: () => void }
         )}
         {open && (
           <Box title="Reply">
-            <FormField label="Reply to the person" hint="Emailed to them when you complete or decline the request." error={error}>
+            <FormField label="Reply to the person" hint={erasure ? "Emailed to them when you send it or decline the request." : "Emailed to them when you complete or decline the request."} error={error}>
               {(p) => <textarea {...p} rows={4} className="adm-input" value={response} onChange={(e) => setResponse(e.target.value)} style={{ resize: "vertical" }} />}
             </FormField>
             <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 12 }}>
-              <AdminButton variant="primary" disabled={busy} onClick={() => act("completed")}>
-                Complete and send
-              </AdminButton>
+              {erasure ? (
+                <AdminButton variant="primary" disabled={busy} onClick={() => act("in_progress", true)}>
+                  Send reply, keep open
+                </AdminButton>
+              ) : (
+                <AdminButton variant="primary" disabled={busy} onClick={() => act("completed")}>
+                  Complete and send
+                </AdminButton>
+              )}
               <AdminButton disabled={busy} onClick={() => act("refused")}>
                 Decline and send
               </AdminButton>
