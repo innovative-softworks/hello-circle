@@ -119,8 +119,8 @@ for (const viewport of ["desktop", "mobile"] as const) {
         const { page } = ui;
         page.setDefaultTimeout(15_000);
         await page.goto("/admin?tab=commerce");
-        const sections = page.getByRole("navigation", { name: "Commercial rules sections" });
-        for (const name of ["Feature switches", "Pro pricing", "Reward points", "Customer credit", "Coupons", "VAT and tax"]) await expect(sections.getByRole("link", { name })).toBeVisible();
+        const sections = page.getByRole("tablist", { name: "Commercial rules sections" });
+        for (const name of ["Feature switches", "Pro pricing", "Reward points", "Customer credit", "Coupons", "VAT and tax"]) await expect(sections.getByRole("tab", { name })).toBeVisible();
         await expect(page.getByTestId("switch-needs-commerce.circle_credits")).toContainText("Needs:");
         await page.getByRole("checkbox", { name: "Partner reward points" }).click(); // controlled: changes only after the reason is confirmed
         const dialog = page.getByRole("dialog");
@@ -130,19 +130,24 @@ for (const viewport of ["desktop", "mobile"] as const) {
         await shot(page, `admin-switch-refused-${viewport}`);
         expect(await rows(f, "SELECT value FROM app_settings WHERE `key` = 'commerce.circle_credits'", [])).toEqual([{ value: "false" }]);
         await dialog.getByRole("button", { name: "Cancel" }).click();
-        await page.goto("/admin?tab=finance");
-        for (const tab of ["Reward points", "Coupons", "Bank payouts"]) {
+        // Finance split 2026-10-16: Reward points on Plans & credit, coupon usage on the Coupons page, Bank payouts on Finance.
+        for (const [tab, url] of [["Reward points", "/admin?tab=plansCredit&section=rewards"], ["Usage & cost", "/admin?tab=coupons&section=usage"], ["Bank payouts", "/admin?tab=finance&section=payouts"]] as const) {
+          await page.goto(url);
           await page.getByRole("tab", { name: tab }).click();
-          await expect(page.getByRole("heading", { name: tab === "Reward points" ? "Partner reward points" : tab === "Coupons" ? "Coupon usage" : "Bank payouts" })).toBeVisible();
+          await expect(page.getByRole("heading", { name: tab === "Reward points" ? "Partner reward points" : tab === "Usage & cost" ? "Coupon usage" : "Bank payouts" })).toBeVisible();
         }
+        await page.goto("/admin?tab=plansCredit&section=credits");
         await page.getByRole("tab", { name: "Credits & Pro" }).click();
+        // The grant form is a popup since 2026-10-16.
+        await page.getByRole("button", { name: "New credit grant" }).click();
         await page.getByLabel("Resident email").fill(env.QA_USER_EMAIL);
         await page.getByLabel("Amount (€)").fill("4");
         await expect(page.getByLabel("Currency")).toHaveValue("EUR");
         await page.getByLabel("Funded by").selectOption("partner");
         await page.getByLabel("Expires (optional)").fill("2027-03-31");
         await page.getByRole("button", { name: "Grant credit…" }).click();
-        const grant = page.getByRole("dialog");
+        // The form popup closes as the reason dialog opens; target the reason dialog.
+        const grant = page.getByRole("dialog").filter({ hasText: "Reason" });
         await expect(grant).toContainText("funded by the partner, expiring 2027-03-31");
         await grant.getByLabel(/Reason/).fill(note);
         await grant.getByRole("button", { name: "Grant", exact: true }).click();

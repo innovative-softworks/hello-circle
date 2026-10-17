@@ -5,7 +5,7 @@ import type { Browser, BrowserContext, Page } from "@playwright/test";
 import { test, expect, env, personas } from "../fixtures";
 import { withActors, evidence } from "../authorization-fixture";
 import { connectedPreflight } from "../runtime";
-import { VIEWPORTS, uiActor, noHorizontalScroll } from "../lifecycle-ui-fixture";
+import { VIEWPORTS, uiActor, noHorizontalScroll, overflowingElements } from "../lifecycle-ui-fixture";
 
 // Full validation 2026-10-14 — workspace UX against the real stack (real
 // React app, real Express + isolated MySQL). Route interception is used only
@@ -52,9 +52,9 @@ async function atEachViewport(page: Page, url: string, label: string, name: stri
   for (const vp of ["desktop", "tablet", "mobile"] as const) {
     await page.setViewportSize(VIEWPORTS[vp]);
     await page.goto(url);
-    await expect(page.locator(".adm-strip-label")).toHaveText(label);
+    await expect(page.locator(".hc-ws-label")).toHaveText(label);
     await expect(page.locator("h1")).toHaveCount(1);
-    expect(await noHorizontalScroll(page), `${name} ${vp}: no page overflow`).toBe(true);
+    expect(await noHorizontalScroll(page), `${name} ${vp}: no page overflow (${(await overflowingElements(page)).join(" | ")})`).toBe(true);
     // Navigation stays reachable: sidebar on desktop, "Sections" sheet below 1025px.
     if (vp === "desktop") await expect(page.locator(".adm-side nav")).toBeVisible();
     else await expect(page.getByRole("button", { name: "Sections" })).toBeVisible();

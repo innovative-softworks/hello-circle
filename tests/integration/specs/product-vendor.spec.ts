@@ -48,19 +48,12 @@ test("HC-QA-061-EDIT: edit, reload, legitimate zero and invalid values keep the 
       await page.goto(`/vendor/experiences/${id}`);
       await expect(page.getByText("€25.00/person · cap 8 · 180 min")).toBeVisible();
       // Edit the price to a decimal value through the settings editor.
-      // Settings sections: the "Edit →" right after the PRICING & CAPACITY summary.
-      const edits = page.getByRole("button", { name: /^Edit/ });
-      const pricingIndex = await page.evaluate(() => {
-        const buttons = Array.from(document.querySelectorAll("button")).filter((b) => /^Edit/.test(b.textContent?.trim() ?? ""));
-        return buttons.findIndex((b) => /PRICING & CAPACITY/i.test(b.parentElement?.parentElement?.textContent ?? ""));
-      });
-      expect(pricingIndex, "pricing section Edit found").toBeGreaterThanOrEqual(0);
-      await edits.nth(pricingIndex).focus();
-      await page.keyboard.press("Enter");
+      // Workspace editors (option A): each section's Edit opens its fields in a popup.
+      await page.getByRole("button", { name: "Edit pricing & capacity" }).click();
       const price = page.getByLabel("Price per person (€)");
       await expect(price).toHaveValue("25", { timeout: 5_000 });
       await price.fill("12.5");
-      const save = page.getByRole("button", { name: /^Save/ }).last();
+      const save = page.getByRole("dialog").getByRole("button", { name: "Save", exact: true });
       await save.focus({ timeout: 5_000 });
       await page.keyboard.press("Enter");
       await expect.poll(async () => (await rows(f, "SELECT price_cents FROM experiences WHERE id = ?", [id]))[0].price_cents).toBe(1250);

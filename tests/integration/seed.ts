@@ -53,6 +53,11 @@ async function main() {
   if (!await findUserByEmail(suspendedEmail)) await createUser(suspendedEmail, env.QA_VENDOR_B_PASSWORD, "QA suspended control", "vendor", "suspended");
   const suspended = await findUserByEmail(suspendedEmail);
   if (!suspended || suspended.status !== "suspended" || !verifyPassword(env.QA_VENDOR_B_PASSWORD, suspended.passwordHash)) throw new Error("QA SAFETY ABORT: Suspended control verification failed.");
+  // OG-07 — admin two-step sign-in is on by default. The isolated QA database
+  // turns it off for the general suites (their admin persona signs in many
+  // times a minute, and a TOTP code is single-use); the MFA spec turns it back
+  // on for its own run. There is no API or screen that changes this setting.
+  await db.prepare("INSERT INTO app_settings (`key`, value) VALUES ('security.admin_mfa_required', 'false') ON DUPLICATE KEY UPDATE value = 'false'").run();
   writeFileSync(path.join(manifest.secretsDir, "personas.json"), JSON.stringify(personas), { mode: 0o600 });
   console.log("QA SAFE: seven unique personas and one suspended-account control verified with production password hashing. Existing seed identities preserved.");
   process.exit(0); // Application pool has no public close helper.

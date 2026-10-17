@@ -20,7 +20,7 @@ for (const viewport of ["desktop", "mobile"] as const) {
         const { page } = ui;
         await page.goto("/vendor?tab=earnings");
         await expect(page.getByRole("heading", { name: "Your balance" })).toBeVisible();
-        const balance = page.locator("div").filter({ has: page.getByRole("heading", { name: "Your balance" }) }).last();
+        const balance = page.getByRole("region", { name: "Your balance" });
         for (const label of ["Pending", "Available", "Settled — transfer due", "Transferred to your Stripe account"]) await expect(balance.getByText(label).first()).toBeVisible();
         await expect(page.getByText(/transferred weekly to your Stripe account; Stripe then pays out to your bank/)).toBeVisible();
         // Commercial UX R1: the payout account lives in Earnings → Payouts (a real tab, switched on above).

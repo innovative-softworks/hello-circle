@@ -44,6 +44,11 @@ test("SANDBOX-SPLIT: venue/host split — snapshot, independent settlement and t
     // Restore the venue org's trader profile exactly as it was (other specs rely on it).
     const [traderBefore] = await rows(f, "SELECT * FROM trader_profiles WHERE party_type = 'org' AND party_id = ?", [orgId]);
     try {
+      // Isolation: the debt assertions below ("host had no transfer", one venue reversal) only hold when
+      // neither partner has transfers from an earlier run. cleanParty never deletes money rows, so this spec
+      // passes once per disposable QA database — refuse up front instead of failing deep in the run.
+      const prior = await rows(f, "SELECT party_type AS t, COUNT(*) AS n FROM transfers WHERE (party_type = 'org' AND party_id = ?) OR (party_type = 'host' AND party_id = ?) GROUP BY party_type", [venue.partyId, host.partyId]);
+      expect(prior.map((p: any) => `${p.t}:${p.n}`), "split partners start with no transfers (provision a fresh QA database: npm run qa:db:reset && npm run qa:db:seed)").toEqual([]);
       // --- connected accounts (verified v2 test doubles) ---------------------------------
       const venueAcct = await createVerifiedRecipient("company", "venue", IBAN.ok);
       const hostAcct = await createVerifiedRecipient("individual", "host", IBAN.closed);

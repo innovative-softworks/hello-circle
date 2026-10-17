@@ -27,23 +27,29 @@ for (const viewport of ["desktop", "mobile"] as const) {
       try {
         const { page } = ui;
         page.setDefaultTimeout(10_000);
-        await page.goto("/admin?tab=finance");
+        // Finance is two pages since 2026-10-16: Payouts (settlements…) and Payments (events, refunds, disputes).
+        await page.goto("/admin?tab=finance&section=settlements");
         await page.getByRole("tab", { name: "Settlements" }).click();
         await page.getByLabel("Run key").fill(runKey);
         await page.getByRole("button", { name: "Preview (dry run)" }).click();
         await reason(page, "Preview");
         await expect(page.getByText(/^Preview: \d+ orders released/)).toBeVisible();
         expect(await rows(f, "SELECT dry_run FROM settlement_runs WHERE run_key = ?", [runKey])).toEqual([{ dry_run: 1 }]); // a preview never settles
+        await page.goto("/admin?tab=finance&section=events");
         await page.getByRole("tab", { name: "Payment events" }).click();
         await expect(page.getByRole("heading", { name: "Payment events" })).toBeVisible();
         await page.getByRole("tab", { name: "Refunds" }).click();
+        // The refund form is a popup since 2026-10-16.
+        await page.getByRole("button", { name: "Issue a refund" }).click();
         await expect(page.getByRole("button", { name: "Refund…" })).toBeDisabled(); // no order reference yet
+        await page.getByRole("dialog").getByRole("button", { name: "Cancel" }).click();
         await page.getByRole("tab", { name: "Disputes" }).click();
         await expect(page.getByRole("heading", { name: "Disputes" })).toBeVisible();
+        await page.goto("/admin?tab=plansCredit&section=plans");
         await page.getByRole("tab", { name: "Plans & promotions" }).click();
         await expect(page.getByText(/Free: 9%/)).toBeVisible();
         // Admin roles moved from Finance to Settings in the admin redesign (2026-10-14).
-        await page.goto("/admin?tab=settings");
+        await page.goto("/admin?tab=settings&section=roles");
         await expect(page.getByRole("heading", { name: "Admin roles" })).toBeVisible();
         await fitsViewport(page);
       } finally {
@@ -80,7 +86,7 @@ for (const viewport of ["desktop", "mobile"] as const) {
       try {
         const { page } = ui;
         page.setDefaultTimeout(10_000);
-        await page.goto("/admin?tab=finance");
+        await page.goto("/admin?tab=finance&section=transfers");
         await page.getByRole("tab", { name: "Transfers" }).click();
         // Per-booking allocations of the transfer — its own record page since the UI completion pass.
         const open = page.getByRole("button", { name: `Open transfer ${transferId}` });
@@ -127,14 +133,19 @@ for (const viewport of ["desktop", "mobile"] as const) {
         const { page } = ui;
         page.setDefaultTimeout(10_000);
         // Field help moved from Finance to Settings in the admin redesign (2026-10-14).
-        await page.goto("/admin?tab=settings");
+        await page.goto("/admin?tab=settings&section=help");
         const row = page.getByRole("row").filter({ has: page.getByRole("cell", { name: "Fee base", exact: true }) });
         const edit = row.getByRole("button", { name: "Edit" });
         await edit.evaluate((el) => el.scrollIntoView({ block: "center" }));
         await edit.click();
         const dialog = page.getByRole("dialog");
-        await dialog.getByLabel("example").fill(`€100 with your €10 coupon → €90 (QA ${viewport})`);
+        const example = `€100 with your €10 coupon → €90 (QA ${viewport})`;
+        await dialog.getByLabel("example").fill(example);
+        // Diagnostic checkpoints (2026-10-17): one run in five saved the old example. These pin down
+        // whether the typed text is lost before Save (the dialog state reset) or after it.
+        await expect(dialog.getByLabel("example"), "example kept after typing").toHaveValue(example);
         await dialog.getByLabel("Reason (required)").fill("QA wording check");
+        await expect(dialog.getByLabel("example"), "example still kept before Save").toHaveValue(example);
         await dialog.getByRole("button", { name: "Save new version" }).click();
         await expect(dialog).toHaveCount(0);
         expect(await rows(f, "SELECT version, example FROM help_entries WHERE help_key = 'fee_base' ORDER BY version DESC LIMIT 1", [])).toEqual([{ version: Number(v) + 1, example: `€100 with your €10 coupon → €90 (QA ${viewport})` }]);

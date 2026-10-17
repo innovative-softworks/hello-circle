@@ -20,22 +20,25 @@ test("HC-QA-100: programme sessions added in an Irish-time browser keep the pick
       const { page } = vendor;
       expect(await page.evaluate(() => Intl.DateTimeFormat().resolvedOptions().timeZone)).toBe("Europe/Dublin");
       await page.goto(`/vendor/programs/${prog.id}`);
-      await expect(page.getByRole("heading", { name: "SESSIONS" })).toBeVisible({ timeout: 20_000 });
-      // The session form is collapsed behind an "Add session" toggle.
+      await expect(page.getByRole("heading", { name: /^Sessions/ })).toBeVisible({ timeout: 20_000 });
+      // The session form is a popup behind "Add sessions" (option A, 2026-10-16).
+      const dialog = page.getByRole("dialog", { name: "Add sessions" });
       const openForm = async () => {
-        if (await page.getByLabel("Session date").isVisible()) return;
-        await page.getByRole("button", { name: "Add session" }).first().click({ timeout: 10_000 });
-        await expect(page.getByLabel("Session date"), "session form is shown").toBeVisible({ timeout: 10_000 });
+        if (await dialog.isVisible()) return;
+        await page.getByRole("button", { name: "Add sessions" }).first().click({ timeout: 10_000 });
+        await expect(dialog.getByLabel("Date"), "session form is shown").toBeVisible({ timeout: 10_000 });
       };
       const add = async (date: string, repeat: "none" | "weekly", n?: number) => {
         const before = (await stored()).length;
         await openForm();
-        await page.getByLabel("Session date").fill(date, { timeout: 10_000 });
-        await page.getByLabel("Session start time").fill("18:00", { timeout: 10_000 });
-        await page.getByLabel("Repeat").selectOption(repeat, { timeout: 10_000 });
-        if (n) await page.getByPlaceholder("Times").fill(String(n), { timeout: 10_000 });
-        await page.getByRole("button", { name: repeat === "none" ? "Add session" : `Add ${n} sessions` }).first().click({ timeout: 10_000 });
+        await dialog.getByLabel("Date").fill(date, { timeout: 10_000 });
+        await dialog.getByLabel("Starts at").fill("18:00", { timeout: 10_000 });
+        await dialog.getByLabel("Repeat").selectOption(repeat, { timeout: 10_000 });
+        if (n) await dialog.getByLabel("How many sessions").fill(String(n), { timeout: 10_000 });
+        await dialog.getByRole("button", { name: repeat === "none" ? "Add session" : `Add ${n} sessions` }).click({ timeout: 10_000 });
         await expect.poll(async () => (await stored()).length, { timeout: 15_000 }).toBe(before + (n ?? 1));
+        // Saving closes the dialog; wait for it so the next add reopens it rather than typing into a closing one.
+        await expect(dialog).toBeHidden({ timeout: 10_000 });
       };
       await add("2027-07-15", "none");          // Thursday, Irish summer time (UTC+1)
       await add("2027-08-05", "weekly", 3);     // Thursdays 5, 12, 19 August

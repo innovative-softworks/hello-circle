@@ -48,7 +48,7 @@ test("COMPLETE-ADMIN: listing, vendor and report record pages with return contex
       await page.getByRole("button", { name: new RegExp(row.name) }).first().click();
       await expect(page).toHaveURL(/record=centre/);
       await expect(page.getByRole("heading", { level: 1, name: row.name })).toBeVisible();
-      await expect(page.getByRole("group", { name: "Status" })).toContainText("Listing review");
+      await expect(page.getByRole("group", { name: "Status" })).toContainText("Listing:"); // redesigned admin listing record (2026-10-16)
       await noSideDrawers(page);
       await shot(page, "admin-listing-record");
       await page.getByRole("button", { name: /Back to all listings/ }).click();
@@ -104,7 +104,7 @@ test("COMPLETE-PARTNER: booking record, cancel confirmation, editor in the shell
       await expect(dialog).toHaveCount(0);
       // Editor inside the partner workspace shell.
       await page.goto(`/vendor/centres/${centre.id}`);
-      await expect(page.locator(".adm-strip-label")).toHaveText("Partner workspace");
+      await expect(page.locator(".hc-ws-label")).toHaveText("Partner workspace");
       await expect(page.getByRole("heading", { level: 1, name: row.name })).toBeVisible();
       await expect(page.locator("h1")).toHaveCount(1);
       await shot(page, "partner-centre-editor");

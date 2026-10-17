@@ -56,6 +56,8 @@ for (const viewport of ["desktop", "mobile"] as const) {
         const { page } = ui;
         await page.goto("/manage?tab=earnings");
         await expect(page.getByRole("heading", { name: "Your balance" })).toBeVisible();
+        // Workspace redesign 2026-10-16: trader details are their own Earnings section.
+        await page.getByRole("tab", { name: "Trader details" }).click();
         await expect(page.getByRole("heading", { name: "Trader details" })).toBeVisible();
         await expect(page.getByLabel("Selling as")).toHaveValue("individual");
         await expect(page.getByLabel("Date of birth")).toBeVisible();

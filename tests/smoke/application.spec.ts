@@ -1,7 +1,8 @@
 import { test, expect } from "../fixtures/browser";
 
 test("QA-SMK-002: landing assets and partner navigation @mock", async ({ page }) => {
-  await page.goto("/");
+  // In public launch mode "/" is the resident Home; the partner pitch lives at /partners.
+  await page.goto("/partners");
   await expect(page.getByRole("heading", { level: 1, name: /Get discovered.*Get booked.*Grow your community/i })).toBeVisible();
   await page.getByRole("button", { name: "Necessary only", exact: true }).click();
   const logo = await page.request.get("/favicon.svg");

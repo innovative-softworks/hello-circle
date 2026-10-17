@@ -82,10 +82,12 @@ test("COMPLETE-QUEUES: claim, host application and place suggestion open as reco
       await decline.getByLabel(/Reason category/).selectOption("incomplete");
       await decline.getByLabel(/^Explanation/).fill("Please add a short bio about the sessions you host.");
       await decline.getByRole("button", { name: "Decline application" }).click();
-      await expect(page.getByRole("group", { name: "Status" })).toContainText("Declined");
-      expect((await f.connection.query<any[]>("SELECT host_status FROM residents WHERE id = ?", [residentId]))[0][0].host_status).toBe("rejected");
+      // Since the admin page-by-page pass (2026-10-16) a decision moves on to the
+      // next waiting item, or back to the list when none is left.
+      await expect(page).not.toHaveURL(new RegExp(`record=host:${residentId}`));
+      await expect.poll(async () => (await f.connection.query<any[]>("SELECT host_status FROM residents WHERE id = ?", [residentId]))[0][0].host_status).toBe("rejected");
       // The queue no longer lists it, so its URL now says why it can't be opened.
-      await page.reload();
+      await page.goto(`/admin?tab=hostApplications&record=host:${residentId}`);
       await expect(page.getByRole("heading", { level: 1, name: /doesn't exist/ })).toBeVisible();
       await expect(page.getByText("Only applications waiting for a decision can be opened here")).toBeVisible();
 

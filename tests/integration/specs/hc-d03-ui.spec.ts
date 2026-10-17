@@ -39,9 +39,11 @@ test("D03-UI: reason fields in the centred confirmation, text kept on failure, p
     const admin = await businessUiActor(browser, "QA_ADMIN", "desktop");
     try {
       const { page } = admin;
+      page.setDefaultTimeout(15_000); // a missing control fails at its step, not at the test timeout
       await page.goto(`/admin?tab=pending&record=centre:${centreId}`);
       await expect(page.getByRole("heading", { level: 1, name })).toBeVisible();
-      await page.getByRole("button", { name: "Reject listing" }).click();
+      // Pending approvals redesign (2026-10-16): "Reject…", or "Reject & next…" when more are waiting.
+      await page.getByRole("button", { name: /^Reject( & next)?…$/ }).click();
       const dialog = page.getByRole("alertdialog", { name: `Reject ${name}?` });
       await expect(dialog).toBeVisible();
       await expect(dialog).toContainText("Visible to the partner");
@@ -77,6 +79,8 @@ test("D03-UI: reason fields in the centred confirmation, text kept on failure, p
       await expect(dialog).toHaveCount(0);
       const [[{ n }]] = await f.connection.query<any[]>("SELECT COUNT(*) AS n FROM moderation_decisions WHERE object_id = ?", [centreId]);
       expect(Number(n)).toBe(1);
+      // "Reject & next" moves on to the next waiting listing; the decision is on this listing's record.
+      await page.goto(`/admin?tab=listings&record=centre:${centreId}`);
       await expect(page.getByText(explanation)).toBeVisible();
       await expect(page.getByText(NOTE)).toBeVisible(); // super admin: internal notes shown in the history
       await shot(page, "d03-listing-decision-history");
@@ -109,8 +113,14 @@ test("D03-UI: reason fields in the centred confirmation, text kept on failure, p
       await page.goto(`/admin?tab=listings&record=centre:${bulkIds[0]}`);
       const decline = page.getByRole("button", { name: "Back to pending", exact: false }).or(page.getByRole("button", { name: "Approve & publish" }));
       await expect(decline.first()).toBeVisible();
-      const del = page.getByRole("button", { name: "Delete listing" });
+      // Delete lives in the record's "More actions" menu (admin redesign 2026-10-16):
+      // open it from the keyboard, End jumps to the destructive item, Enter chooses it.
+      const del = page.getByRole("button", { name: /^More actions for / });
       await del.focus();
+      await page.keyboard.press("Enter");
+      await expect(page.getByRole("menuitem", { name: "Delete listing…" })).toBeVisible();
+      await page.keyboard.press("End");
+      await expect(page.getByRole("menuitem", { name: "Delete listing…" })).toBeFocused();
       await page.keyboard.press("Enter");
       const delDialog = page.getByRole("alertdialog");
       await expect(delDialog).toBeVisible();

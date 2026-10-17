@@ -9,6 +9,10 @@ const guestResponses: Record<string, unknown> = {
   "/api/residents/me/participation": [],
   "/api/config": { mapsEnabled: false },
 };
+// The cookie banner records the visitor's choice server-side (consent_records).
+const guestWrites: Record<string, unknown> = {
+  "POST /api/consents/cookies": { ok: true },
+};
 
 export const test = base.extend<BrowserFixtures>({
   expectedResponses: [[], { option: true }],
@@ -57,7 +61,9 @@ export const test = base.extend<BrowserFixtures>({
       }
       if (url.pathname.startsWith("/api/")) {
         const body = guestResponses[url.pathname];
+        const write = guestWrites[`${request.method()} ${url.pathname}`];
         if (request.method() === "GET" && body !== undefined) await route.fulfill({ json: body });
+        else if (write !== undefined) await route.fulfill({ json: write });
         else {
           failures.push(`Unmocked API: ${request.method()} ${url.pathname}`);
           await route.fulfill({ status: 501, json: { error: "QA fixture missing; no backend request was sent" } });

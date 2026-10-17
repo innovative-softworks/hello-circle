@@ -118,6 +118,18 @@ async function main() {
       ["validation-d08-reinvite", "hc-d08-reinvite\\.spec\\.ts$"],
       ["validation-d08-rejoin-ui", "hc-d08-rejoin-ui\\.spec\\.ts$"],
       ["validation-d01-d08-ui", "hc-d01-d08-ui\\.spec\\.ts$"],
+      // OG-01…OG-32 pass (local, 2026-10-16): new workspace journeys and the 9-width responsive sweep.
+      ["validation-og-features", "hc-og-features-ui\\.spec\\.ts$"],
+      ["validation-og-responsive", "hc-og-responsive\\.spec\\.ts$"],
+      // Final QA pass (2026-10-17): dedicated browser specs for OG-01, OG-13, OG-19, OG-15 and OG-24.
+      ["validation-og01-switch", "hc-og01-switch\\.spec\\.ts$"],
+      ["validation-og13-orders", "hc-og13-orders\\.spec\\.ts$"],
+      ["validation-og19-departures", "hc-og19-departures\\.spec\\.ts$"],
+      ["validation-og15-24-admin", "hc-og15-24-admin\\.spec\\.ts$"],
+      ["validation-og-isolation", "hc-og-isolation\\.spec\\.ts$"],
+      // Security decision Option A (2026-10-17): customer personal data by partner staff role.
+      ["validation-pii-roles", "hc-pii-roles\\.spec\\.ts$"],
+      ["validation-pii-ui", "hc-pii-ui\\.spec\\.ts$"],
     ] : revenue ? [
       // Network-free provider stub for every revenue batch; never a Stripe key.
       ["revenue-public", "revenue-public\\.spec\\.ts$"],

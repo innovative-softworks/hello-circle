@@ -31,20 +31,22 @@ test("COMPLETE-FORMS: the editor's error summary takes focus, links to fields, k
     try {
       const { page } = vendor;
       await page.goto(`/vendor/centres/${centre.id}`);
-      await expect(page.getByText("Fields marked * are required.")).toBeVisible();
+      // Workspace editors (option A, 2026-10-16): each section edits in a popup
+      // that saves the whole form; the error summary lives inside the popup.
       await page.getByRole("button", { name: "Edit general" }).click();
+      const dialog = page.getByRole("dialog");
+      await expect(dialog.getByText("Fields marked * are required.")).toBeVisible();
       const name = page.locator("#centre-name");
       const blurb = page.locator("#centre-blurb");
       await expect(name).toHaveAttribute("required", "");
       await name.fill("");
       await blurb.fill("");
-      await page.getByRole("button", { name: "Save changes" }).click();
+      await dialog.getByRole("button", { name: "Save", exact: true }).click();
       // Client validation: summary focused, linked problems (the fixture centre has no area/county
-      // either, so four), inline messages tied to the fields, and the Location section opened.
+      // either, so four), inline messages tied to the fields.
       const summary = page.locator(".form-error-summary");
       await expect(summary).toBeFocused();
       await expect(page.getByRole("group", { name: "There are 4 things to fix before saving" })).toBeVisible();
-      await expect(page.locator("#centre-area")).toBeVisible();
       await expect(name).toHaveAttribute("aria-invalid", "true");
       await expect(name).toHaveAttribute("aria-describedby", /centre-name-error/);
       await shot(page, "partner-form-error-summary");
@@ -54,6 +56,10 @@ test("COMPLETE-FORMS: the editor's error summary takes focus, links to fields, k
       await name.fill("QA renamed hall");
       await expect(summary.getByRole("link")).toHaveCount(3);
       await blurb.fill("QA description kept after a failure");
+      // A problem in another section: its link opens that section's popup, keeping what was typed.
+      await summary.getByRole("link", { name: "Area is required" }).click();
+      await expect(page.getByRole("dialog", { name: "Location" })).toBeVisible();
+      await expect(page.locator("#centre-area")).toBeVisible();
       await page.locator("#centre-area").fill("QA area");
       await page.locator("#centre-county").fill("Dublin");
       await expect(summary).toHaveCount(0);
@@ -65,19 +71,19 @@ test("COMPLETE-FORMS: the editor's error summary takes focus, links to fields, k
         await new Promise((res) => setTimeout(res, 400));
         await r.fulfill({ status: 500, contentType: "application/json", body: '{"error":"Server error"}' });
       });
-      const save = page.getByRole("button", { name: /Save changes|Saving…/ });
+      const save = page.getByRole("dialog", { name: "Location" }).getByRole("button", { name: /^(Save|Saving…)$/ });
       await save.click();
       await save.click({ force: true }).catch(() => undefined); // second click while saving
       await expect(page.getByRole("group", { name: "There's 1 thing to fix before saving" })).toContainText("Couldn't save");
       expect(puts, "one request despite two clicks").toBe(1);
-      await expect(name).toHaveValue("QA renamed hall");
-      await expect(blurb).toHaveValue("QA description kept after a failure");
+      await expect(page.locator("#centre-area")).toHaveValue("QA area");
       await shot(page, "partner-form-save-failed");
-      // Unsaved changes: leaving through the workspace sidebar asks first.
-      await page.getByRole("navigation").getByRole("button", { name: "Overview" }).first().click();
-      const leave = page.getByRole("alertdialog", { name: "Leave without saving?" });
+      // Unsaved changes: closing the popup asks first.
+      await page.keyboard.press("Escape");
+      const leave = page.getByRole("alertdialog", { name: "Discard your changes?" });
       await expect(leave).toBeVisible();
-      await leave.getByRole("button", { name: "Keep editing" }).click();
+      await leave.getByRole("button", { name: /Keep editing|Cancel|Keep/ }).first().click();
+      await expect(page.locator("#centre-area")).toHaveValue("QA area");
       await expect(page).toHaveURL(new RegExp(`/vendor/centres/${centre.id}`));
       await page.unroute((u) => u.pathname === `/api/vendor/centres/${centre.id}`);
     } finally {
