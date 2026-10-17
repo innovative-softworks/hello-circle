@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { listFinancialExceptions } from "../financialExceptions.js";
 import { reportException } from "../errorReporting.js";
 import { SettlementRunError } from "../commerce/settlement.js";
 import { RecheckError, getReview, recheckReview } from "../payments/paymentReview.js";
@@ -170,6 +171,12 @@ adminFinanceRouter.get("/payments", requireAdminPermission("finance.payment_stat
 
 adminFinanceRouter.get("/refunds", requireAdminPermission("finance.payment_state.view"), async (_req, res) => {
   res.json(await db.prepare(`SELECT * FROM refunds ORDER BY id DESC LIMIT 200`).all());
+});
+
+// OG-05 / OG-15 — every open money exception in one list (read-only; each item
+// links to the Finance page that resolves it).
+adminFinanceRouter.get("/exceptions", requireAdminPermission("finance.payment_state.view"), async (_req, res) => {
+  res.json(await listFinancialExceptions());
 });
 
 adminFinanceRouter.post("/refunds", requireAdminPermission("finance.operate"), async (req, res) => {

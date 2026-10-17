@@ -146,6 +146,7 @@ cp server/.env.example server/.env
 | `MAIL_FROM` | no (falls back to `SMTP_USER`) | The "from" address on outgoing mail |
 | `HELLO_CIRCLE_ADMIN_EMAIL` | no (default `itadmin@hellocircle.ie`) | Email of the auto-seeded admin account |
 | `HELLO_CIRCLE_ADMIN_PASSWORD` | no (default `changeme123`) | Password of the auto-seeded admin account — **change this before any real deployment** |
+| `HELLO_CIRCLE_MFA_KEY` | **yes in production/staging** | 32 random bytes, base64 (`openssl rand -base64 32`). Encrypts admin two-step sign-in secrets at rest. Missing → admin sign-in stops at "two-step sign-in isn't configured"; local dev falls back to a fixed development key. Keep it stable: changing it invalidates every admin's two-step set-up |
 | `STRIPE_SECRET_KEY` | no (checkout returns 503 without it) | Stripe secret key — `sk_test_...` for test mode, `sk_live_...` for real charges |
 | `PAID_CHECKOUT` | no | Commercial release gate for paid customer checkout (`server/src/commerce/releaseGates.ts`). `open` allows it, `closed` refuses it (503). **Unset = closed when `NODE_ENV=production`**, open otherwise. Free, cash and €0 orders are unaffected. Paid bookings are NO-GO until the R3B decisions — leave unset or `closed` in production |
 | `STRIPE_WEBHOOK_SECRET` | no in dev, **required in production** (`NODE_ENV=production`) | Signing secret from the Stripe webhook endpoint (`whsec_...`) — without it in production, the webhook is refused rather than accepting unverified events |

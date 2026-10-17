@@ -3959,6 +3959,170 @@ async function initCommerceSchema(
   // A settlement run that throws is marked failed with the step and a scrubbed error (was left "running").
   await ensureColumn("settlement_runs", "failed_step", "failed_step VARCHAR(120) NULL");
   await ensureColumn("settlement_runs", "failure", "failure VARCHAR(500) NULL");
+
+  // --- Operational platform (2026-10-16, docs/hellocircle-implementation-tracker.md) ---
+  // Additive only, like everything above. No column is TEXT with a DEFAULT
+  // (MySQL rejects that); secrets and hashes are fixed-width VARCHARs.
+
+  // OG-04 — a time-range closure is one room_blocks row per hour; group_id ties them together.
+  await ensureColumn("room_blocks", "group_id", "group_id VARCHAR(64) NULL");
+  await ensureIndex("room_blocks", "idx_room_blocks_centre_date", "(centre_id, date)");
+
+  // OG-03 / OG-18 — moderation that changes the content's state. A hidden chat
+  // message keeps its body as evidence; reads show it as removed.
+  await ensureColumn("chat_messages", "hidden_at", "hidden_at DATETIME NULL");
+  await ensureColumn("chat_messages", "hidden_by", "hidden_by VARCHAR(191) NULL");
+  await ensureColumn("chat_messages", "hidden_by_kind", "hidden_by_kind VARCHAR(20) NULL");
+  await ensureColumn("chat_messages", "hidden_reason", "hidden_reason VARCHAR(500) NULL");
+  await ensureColumn("circle_members", "muted_until", "muted_until DATETIME NULL");
+  await ensureColumn("circle_members", "muted_by", "muted_by VARCHAR(191) NULL");
+  await ensureColumn("reports", "action_taken", "action_taken VARCHAR(60) NULL");
+  // A listing suspended by HelloCircle moderation remembers its previous status
+  // so a reinstatement restores it (a partner can't "resume" it themselves).
+  for (const t of ["centres", "clubs", "experiences"]) {
+    await ensureColumn(t, "moderation_prior_status", "moderation_prior_status VARCHAR(20) NULL");
+  }
+
+  // OG-07 — admin two-step sign-in (adminMfa.ts).
+  await ensureColumn("users", "mfa_secret_enc", "mfa_secret_enc VARCHAR(512) NULL");
+  await ensureColumn("users", "mfa_pending_secret_enc", "mfa_pending_secret_enc VARCHAR(512) NULL");
+  await ensureColumn("users", "mfa_enabled_at", "mfa_enabled_at DATETIME NULL");
+  await ensureColumn("users", "mfa_last_step", "mfa_last_step BIGINT NULL");
+  await ensureColumn("users", "mfa_failures", "mfa_failures INT NULL");
+  await ensureColumn("users", "mfa_locked_until", "mfa_locked_until DATETIME NULL");
+  await ensureColumn("sessions", "mfa_verified_at", "mfa_verified_at DATETIME NULL");
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS admin_mfa_recovery_codes (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      user_id VARCHAR(191) NOT NULL,
+      code_hash VARCHAR(100) NOT NULL,
+      used_at DATETIME NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      KEY idx_mfa_recovery_user (user_id, used_at)
+    );
+
+    -- OG-06 — admin invitations (adminInvites.ts). Only the token's SHA-256 is stored.
+    CREATE TABLE IF NOT EXISTS admin_invites (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      token_hash CHAR(64) NOT NULL,
+      email VARCHAR(191) NOT NULL,
+      admin_role VARCHAR(20) NOT NULL,
+      invited_by VARCHAR(191) NOT NULL,
+      status VARCHAR(20) NOT NULL DEFAULT 'pending',
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      expires_at DATETIME NOT NULL,
+      accepted_at DATETIME NULL,
+      accepted_user_id VARCHAR(191) NULL,
+      revoked_at DATETIME NULL,
+      UNIQUE KEY uq_admin_invite_token (token_hash),
+      KEY idx_admin_invite_email (email, status)
+    );
+
+    -- OG-11 / DEC-17 — a partner proposes a new time for a hall booking; the
+    -- booking only moves when the customer accepts.
+    CREATE TABLE IF NOT EXISTS booking_change_proposals (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      booking_ref VARCHAR(191) NOT NULL,
+      token_hash CHAR(64) NOT NULL,
+      old_date VARCHAR(20) NOT NULL,
+      old_time VARCHAR(20) NOT NULL,
+      proposed_date VARCHAR(20) NOT NULL,
+      proposed_time VARCHAR(20) NOT NULL,
+      message VARCHAR(1000) NOT NULL DEFAULT '',
+      status VARCHAR(20) NOT NULL DEFAULT 'proposed',
+      proposed_by VARCHAR(191) NOT NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      expires_at DATETIME NOT NULL,
+      responded_at DATETIME NULL,
+      response_note VARCHAR(500) NULL,
+      UNIQUE KEY uq_booking_change_token (token_hash),
+      KEY idx_booking_change_ref (booking_ref, status)
+    );
+
+    -- OG-08 — resident restrictions. The data model and checks exist; creating a
+    -- restriction stays switched off until decision D-07 is approved.
+    CREATE TABLE IF NOT EXISTS resident_restrictions (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      resident_id VARCHAR(191) NOT NULL,
+      kind VARCHAR(20) NOT NULL,
+      reason_category VARCHAR(40) NOT NULL,
+      explanation VARCHAR(2000) NOT NULL,
+      internal_note VARCHAR(2000) NULL,
+      starts_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      ends_at DATETIME NULL,
+      created_by VARCHAR(191) NOT NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      lifted_at DATETIME NULL,
+      lifted_by VARCHAR(191) NULL,
+      lift_reason VARCHAR(1000) NULL,
+      KEY idx_resident_restriction (resident_id, lifted_at)
+    );
+
+    -- OG-29 — privacy requests (access, export, erasure). Erasure is recorded and
+    -- reviewed; nothing is deleted automatically until retention/deletion rules
+    -- are approved (DEC-14, D-07).
+    CREATE TABLE IF NOT EXISTS privacy_requests (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      resident_id VARCHAR(191) NULL,
+      email VARCHAR(191) NOT NULL,
+      kind VARCHAR(20) NOT NULL,
+      details VARCHAR(2000) NOT NULL DEFAULT '',
+      status VARCHAR(20) NOT NULL DEFAULT 'received',
+      response VARCHAR(2000) NULL,
+      handled_by VARCHAR(191) NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      KEY idx_privacy_status (status, created_at),
+      KEY idx_privacy_resident (resident_id)
+    );
+
+    -- OG-26 — weekly activity series; each occurrence is an ordinary games row
+    -- (its own capacity, participants and payments) carrying series_id.
+    CREATE TABLE IF NOT EXISTS game_series (
+      id VARCHAR(191) PRIMARY KEY,
+      host_resident_id VARCHAR(191) NOT NULL,
+      weekdays VARCHAR(20) NOT NULL,
+      start_date VARCHAR(20) NOT NULL,
+      end_date VARCHAR(20) NOT NULL,
+      time VARCHAR(20) NOT NULL,
+      status VARCHAR(20) NOT NULL DEFAULT 'active',
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      KEY idx_game_series_host (host_resident_id)
+    );
+  `);
+  await ensureColumn("games", "series_id", "series_id VARCHAR(191) NULL");
+  await ensureIndex("games", "idx_games_series", "(series_id, date)");
+  // OG-27 — "approval" activities: a join is a request the host approves (free activities only).
+  await ensureColumn("games", "join_mode", "join_mode VARCHAR(20) NOT NULL DEFAULT 'open'");
+  // OG-27 — a request to join an approval activity. Not a seat: it never
+  // counts towards capacity; approving it creates the ordinary participant row.
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS game_join_requests (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      game_id VARCHAR(191) NOT NULL,
+      resident_id VARCHAR(191) NOT NULL,
+      status VARCHAR(20) NOT NULL DEFAULT 'requested',
+      message VARCHAR(500) NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      decided_at DATETIME NULL,
+      UNIQUE KEY uniq_game_join_request (game_id, resident_id),
+      KEY idx_game_join_requests_game (game_id, status)
+    );
+  `);
+  // OG-19 — experience departures: their own sales cut-off, and the series they were created in.
+  await ensureColumn("experience_sessions", "sales_close_at", "sales_close_at DATETIME NULL");
+  await ensureColumn("experience_sessions", "series_id", "series_id VARCHAR(64) NULL");
+  // OG-17 — a complaint about a business or a host is routed to them (summary + response only).
+  await ensureColumn("complaints", "subject_vendor_id", "subject_vendor_id VARCHAR(191) NULL");
+  await ensureColumn("complaints", "subject_host_resident_id", "subject_host_resident_id VARCHAR(191) NULL");
+  await ensureColumn("complaints", "partner_response", "partner_response VARCHAR(4000) NULL");
+  await ensureColumn("complaints", "partner_responded_at", "partner_responded_at DATETIME NULL");
+  await ensureColumn("complaints", "partner_responded_by", "partner_responded_by VARCHAR(191) NULL");
+  await ensureIndex("complaints", "idx_complaints_vendor", "(subject_vendor_id, created_at)");
+  await ensureIndex("complaints", "idx_complaints_host", "(subject_host_resident_id, created_at)");
+  // OG-05 — each money exception is announced to the partner once.
+  await ensureColumn("connected_payouts", "failure_notified_at", "failure_notified_at DATETIME NULL");
+  await ensureColumn("partner_subscriptions", "past_due_notified_at", "past_due_notified_at DATETIME NULL");
 }
 
 export const COUNTY_CENTROIDS: Record<string, { lat: number; lng: number }> = {

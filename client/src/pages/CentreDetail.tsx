@@ -1,4 +1,6 @@
 import { UnavailableListing, isUnavailable, type Unavailable } from "../components/UnavailableListing";
+import { ReportContentButton } from "../components/ReportContentButton";
+import { Flag } from "lucide-react";
 import { usePageTitle } from "../pageTitle";
 import { useEffect, useState } from "react";
 import { isMinAgeRefusal } from "../gameCta";
@@ -155,6 +157,16 @@ export function CentreDetail() {
                 </button>
               )}
             />
+            <ReportContentButton
+              targetType="centre"
+              targetId={centre.id}
+              what="this listing"
+              render={(onClick, done) => (
+                <button onClick={onClick} disabled={done} aria-label={done ? "Reported" : "Report this listing"} title={done ? "Reported" : "Report"} style={{ background: "none", border: "none", cursor: done ? "default" : "pointer", padding: 0, display: "inline-flex", color: colors.faint }}>
+                  <Flag size={18} strokeWidth={1.9} aria-hidden="true" />
+                </button>
+              )}
+            />
           </h1>
           <p style={{ color: colors.mutedLight, fontSize: 16, margin: "0 0 22px", display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
             <span>
@@ -219,7 +231,7 @@ export function CentreDetail() {
               <h3 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 20, margin: "0 0 12px", letterSpacing: 0 }}>
                 Location
               </h3>
-              <div style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 16, padding: "16px 18px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap", marginBottom: 12 }}>
+              <div style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: radius.card, padding: "16px 18px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap", marginBottom: 12 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                   <PinIcon size={16} style={{ color: colors.mutedLight, flex: "none" }} />
                   <div>
@@ -267,7 +279,7 @@ export function CentreDetail() {
                   <Link
                     key={p.id}
                     to={`/programs/${p.id}`}
-                    style={{ textAlign: "left", textDecoration: "none", color: "inherit", border: `1px solid ${colors.border}`, borderRadius: 16, padding: "14px 16px", cursor: "pointer", background: colors.surface, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, width: "100%" }}
+                    style={{ textAlign: "left", textDecoration: "none", color: "inherit", border: `1px solid ${colors.border}`, borderRadius: radius.card, padding: "14px 16px", cursor: "pointer", background: colors.surface, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, width: "100%" }}
                   >
                     <div>
                       <div style={{ fontWeight: 700 }}>{p.title}</div>
@@ -290,7 +302,7 @@ export function CentreDetail() {
               </p>
               <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 32 }}>
                 {games.map((g) => (
-                  <div key={g.id} style={{ border: `1px solid ${colors.border}`, borderRadius: 16, padding: "14px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+                  <div key={g.id} style={{ border: `1px solid ${colors.border}`, borderRadius: radius.card, padding: "14px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
                     <div>
                       <div style={{ fontWeight: 700 }}>{g.activityLabel}</div>
                       <div style={{ fontSize: 13, color: colors.mutedLight, display: "flex", gap: 12, marginTop: 2 }}>
@@ -311,7 +323,7 @@ export function CentreDetail() {
         </div>
         <div
           className="sticky-aside"
-          style={{ position: "sticky", top: 90, background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 16, padding: 22, boxShadow: "0 8px 30px rgba(30,40,32,.05)" }}
+          style={{ position: "sticky", top: 90, background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: radius.card, padding: 22, boxShadow: "0 8px 30px rgba(30,40,32,.05)" }}
         >
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
             <div style={{ fontSize: 14, color: colors.mutedLight }}>Hire from</div>
@@ -333,7 +345,7 @@ export function CentreDetail() {
               Check availability
             </Button>
           ) : (
-            <div style={{ width: "100%", background: colors.panel, color: colors.muted, border: "none", borderRadius: 10, padding: 14, fontSize: 14, fontWeight: 600, textAlign: "center", marginBottom: 10 }}>
+            <div style={{ width: "100%", background: colors.panel, color: colors.muted, border: "none", borderRadius: radius.control, padding: 14, fontSize: 14, fontWeight: 600, textAlign: "center", marginBottom: 10 }}>
               Not currently taking bookings
             </div>
           )}

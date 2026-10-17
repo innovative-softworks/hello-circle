@@ -17,10 +17,10 @@ describe("vendor tab access", () => {
   });
 
   it("each role sees the tabs it can act in", () => {
-    expect(visibleFor("centre_manager").sort()).toEqual(["bookings", "experiences", "listings", "org", "overview", "programs", "schedule"]);
-    expect(visibleFor("facility_manager").sort()).toEqual(["bookings", "experiences", "listings", "org", "overview", "programs", "schedule"]);
-    expect(visibleFor("finance").sort()).toEqual(["bookings", "demand", "earnings", "offers", "org", "overview", "schedule"]);
-    expect(visibleFor("communications").sort()).toEqual(["messages", "org", "overview", "reviews", "schedule"]);
+    expect(visibleFor("centre_manager").sort()).toEqual(["bookings", "customers", "experiences", "listings", "org", "overview", "programs", "schedule"]);
+    expect(visibleFor("facility_manager").sort()).toEqual(["bookings", "customers", "experiences", "listings", "org", "overview", "programs", "schedule"]);
+    expect(visibleFor("finance").sort()).toEqual(["bookings", "customers", "demand", "earnings", "offers", "org", "overview", "schedule"]);
+    expect(visibleFor("communications").sort()).toEqual(["customers", "messages", "org", "overview", "reviews", "schedule"]);
   });
 
   it("staff with no role (or an unknown one) see only the read-only tabs", () => {

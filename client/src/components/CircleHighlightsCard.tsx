@@ -2,7 +2,7 @@ import { useNavigate } from "react-router-dom";
 import { CalendarIcon } from "./icons";
 import { Card } from "./ui";
 import { dateLabel } from "../euro";
-import { colors, fonts } from "../theme";
+import { colors, fonts, radius } from "../theme";
 import type { Circle, CirclePlanPreview } from "../types";
 
 // Right-rail "Upcoming highlights" (reference §26) — compact rows of the
@@ -26,7 +26,7 @@ export function CircleHighlightsCard({ circle, plans }: { circle: Circle; plans:
             onClick={() => navigate(`/games/${p.id}`)}
             style={{ display: "flex", alignItems: "center", gap: 10, width: "100%", textAlign: "left", background: "none", border: "none", borderTop: `1px solid ${colors.border}`, padding: "10px 0", cursor: "pointer" }}
           >
-            <div style={{ flex: "none", width: 34, height: 34, borderRadius: 10, background: colors.greenBg, color: colors.greenText, display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <div style={{ flex: "none", width: 34, height: 34, borderRadius: radius.control, background: colors.greenBg, color: colors.greenText, display: "flex", alignItems: "center", justifyContent: "center" }}>
               <CalendarIcon size={15} />
             </div>
             <div style={{ minWidth: 0, flex: 1 }}>

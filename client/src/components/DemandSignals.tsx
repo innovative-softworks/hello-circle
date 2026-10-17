@@ -3,6 +3,8 @@ import type { DemandRow, IntentCluster } from "../types";
 import { colors, fonts, radius } from "../theme";
 import { SearchIcon } from "./icons";
 import { Button, ManageCard as Card, EmptyState, PageSpinner } from "./ui";
+import { Box } from "./admin/adminUi";
+import { useInWorkspace } from "./workspace/inWorkspace";
 
 // Shared by VendorDashboard's demand tab (scoped to the vendor's own
 // listing type/county, with a toggle to widen it) and AdminDashboard's
@@ -15,7 +17,7 @@ function scopeButtonStyle(active: boolean): CSSProperties {
     fontSize: 11.5,
     fontWeight: 700,
     padding: "4px 10px",
-    borderRadius: 999,
+    borderRadius: radius.pill,
     border: "none",
     cursor: "pointer",
     background: active ? colors.dark : colors.panel,
@@ -35,6 +37,7 @@ export function DemandSignalsView({
   /** Present only for the vendor view — lets them widen past their own county/listing type. */
   scope?: { value: "own" | "all"; onChange: (scope: "own" | "all") => void };
 }) {
+  const inWorkspace = useInWorkspace();
   if (rows === null) return <PageSpinner />;
 
   if (rows === "forbidden") {
@@ -44,6 +47,65 @@ export function DemandSignalsView({
         title="Restricted"
         subtitle="This tab needs the finance or read-only analyst role — ask the organisation owner for access."
       />
+    );
+  }
+
+  // Workspaces: a ranked table in the admin style.
+  if (inWorkspace) {
+    const max = Math.max(1, ...rows.map((r) => r.count));
+    return (
+      <Box
+        flush
+        title={title}
+        subtitle={subtitle}
+        actions={
+          scope && (
+            <div className="ws-seg" role="group" aria-label="Where">
+              <button type="button" aria-pressed={scope.value === "own"} onClick={() => scope.onChange("own")}>
+                Your county
+              </button>
+              <button type="button" aria-pressed={scope.value === "all"} onClick={() => scope.onChange("all")}>
+                All Ireland
+              </button>
+            </div>
+          )
+        }
+      >
+        {rows.length === 0 ? (
+          <EmptyState icon={<SearchIcon size={20} />} title="No unmet demand logged yet" />
+        ) : (
+          <div className="adm-table-wrap">
+            <table className="adm-table adm-table--stack">
+              <caption className="adm-visually-hidden">{title}</caption>
+              <thead>
+                <tr>
+                  <th scope="col">Search</th>
+                  <th scope="col">Area</th>
+                  <th scope="col">This week</th>
+                  <th scope="col">All searches</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((r, i) => (
+                  <tr key={i}>
+                    <td data-label="Search">
+                      <strong>"{r.queryText}"</strong>
+                    </td>
+                    <td data-label="Area">{r.county || "Anywhere"}</td>
+                    <td data-label="This week">{r.recentCount > 0 ? <span className="adm-chip" data-tone="warn">{r.recentCount} this week</span> : <span className="adm-note">—</span>}</td>
+                    <td data-label="All searches">
+                      <span className="ws-bar" aria-hidden="true">
+                        <span style={{ width: `${(r.count / max) * 100}%` }} />
+                      </span>
+                      <span style={{ fontVariantNumeric: "tabular-nums", fontWeight: 600 }}>{r.count}</span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Box>
     );
   }
 
@@ -77,7 +139,7 @@ export function DemandSignalsView({
               </span>
               <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
                 {r.recentCount > 0 && (
-                  <span style={{ fontSize: 11, fontWeight: 700, color: colors.orangeDark, background: colors.orangeBg, borderRadius: 999, padding: "2px 7px" }}>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: colors.orangeDark, background: colors.orangeBg, borderRadius: radius.pill, padding: "2px 7px" }}>
                     {r.recentCount} this week
                   </span>
                 )}

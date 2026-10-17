@@ -4,6 +4,7 @@ import { fetchVendorCentre, fetchVendorListings, fetchVendorRooms, publishVendor
 import { useAuth } from "../AuthContext";
 import { BackLink } from "../components/BackLink";
 import { PartnerWorkspace } from "../components/workspace/PartnerWorkspace";
+import { ListingMeta } from "../components/workspace/ListingMeta";
 import { BookingsTab } from "../components/VendorBookings";
 import { AvailabilityBlocksManager, CentreEditor, FacilityHoursEditor, RoomsManager } from "../components/VendorCentreEditor";
 import { CentreCreationWizard } from "../components/CentreCreationWizard";
@@ -104,9 +105,15 @@ export function VendorCentreEditPage() {
   }
 
   return (
-    <PartnerWorkspace user={user} active="listings" title={title} guard={requestNavigation}>
-      <div style={{ maxWidth: 920 }}>
-        <BackLink onClick={() => requestNavigation(() => navigate("/vendor?tab=listings"))}>Back to listings</BackLink>
+    <PartnerWorkspace
+      user={user}
+      active="listings"
+      title={title}
+      guard={requestNavigation}
+      subtitle={!wizardMode && centre ? <ListingMeta status={centre.status} kind="Centre" place={[centre.area, centre.county].filter(Boolean).join(", ")} /> : undefined}
+      actions={undefined}
+    >
+      <div>
 
         {wizardMode ? (
           <CentreCreationWizard
@@ -142,7 +149,7 @@ export function VendorCentreEditPage() {
 
             {tab === "details" && <CentreEditor centreId={centreId} onSaved={onSaved} onDirtyChange={setDirty} />}
             {tab === "rooms" && <RoomsManager centreId={centreId} rooms={rooms} onChanged={reloadRooms} />}
-            {tab === "availability" && <AvailabilityBlocksManager centreId={centreId} rooms={rooms} />}
+            {tab === "availability" && <AvailabilityBlocksManager centreId={centreId} centreName={title} rooms={rooms} />}
             {tab === "hours" && <FacilityHoursEditor centreId={centreId} />}
             {tab === "bookings" && <BookingsTab centreId={centreId} />}
             {tab === "messages" && centre && (

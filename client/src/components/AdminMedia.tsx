@@ -1,4 +1,6 @@
 import { useAdminCan } from "./admin/adminPermissions";
+import { ChartColumn, Images, Upload } from "lucide-react";
+import { AdminButton, AdminModal, ErrorMessage, IconTile } from "./admin/adminUi";
 import { useEffect, useRef, useState } from "react";
 import { useConfirm } from "./ConfirmProvider";
 import {
@@ -15,7 +17,7 @@ import {
 } from "../api/admin";
 import { getMediaUrl } from "../media";
 import { colors, fonts, radius } from "../theme";
-import { Button, ManageCard as Card } from "./ui";
+import { ManageCard as Card } from "./ui";
 
 // Media architecture pass — usage visibility (application-measured, never
 // presented as provider billing), the pause switches, and the small
@@ -49,15 +51,20 @@ export function AdminMediaTab() {
   const [cloudinaryState, setCloudinaryState] = useState<{ enabled: boolean; configuredByEnv: boolean; credentialsPresent: boolean } | null>(null);
   const [caption, setCaption] = useState("");
   const [uploading, setUploading] = useState(false);
+  const [uploadOpen, setUploadOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const confirm = useConfirm();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  const [loadError, setLoadError] = useState<unknown>(null);
   const load = () => {
-    fetchMediaUsage().then(setUsage);
-    fetchEditorialImages().then((r) => setImages(r.images));
-    fetchMediaUploadsEnabled().then((r) => setUploadsEnabledState(r.enabled));
-    fetchCloudinaryUploadsEnabled().then(setCloudinaryState);
+    setLoadError(null);
+    Promise.all([
+      fetchMediaUsage().then(setUsage),
+      fetchEditorialImages().then((r) => setImages(r.images)),
+      fetchMediaUploadsEnabled().then((r) => setUploadsEnabledState(r.enabled)),
+      fetchCloudinaryUploadsEnabled().then(setCloudinaryState),
+    ]).catch(setLoadError);
   };
   useEffect(load, []);
 
@@ -69,6 +76,7 @@ export function AdminMediaTab() {
       await uploadEditorialImage(files[0], caption);
       setCaption("");
       if (fileInputRef.current) fileInputRef.current.value = "";
+      setUploadOpen(false);
       load();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Upload failed");
@@ -92,21 +100,21 @@ export function AdminMediaTab() {
   return (
     <div className="fade-panel" style={{ display: "flex", flexDirection: "column", gap: 20 }}>
       <p style={{ fontSize: 13, color: colors.mutedLight, margin: 0, maxWidth: 680 }}>
-        Every ordinary upload (avatars, listing galleries, covers) stays on Cloudflare R2 by default — this tab is
-        about a small, admin-curated editorial image collection that can optionally use Cloudinary instead, plus
-        application-level usage visibility and the pause switches for new uploads. Nothing here affects delivery of
-        images that are already uploaded.
+        Ordinary uploads (avatars, listing photos, covers) are stored on Cloudflare R2. This page holds the switches
+        that pause new uploads, upload usage, and a small editorial image collection that can use Cloudinary. Nothing
+        here changes images that are already uploaded.
       </p>
+      {loadError ? <ErrorMessage error={loadError} onRetry={load} title="Couldn't load media settings" /> : null}
 
       <Card>
-        <h3 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 16, margin: "0 0 4px" }}>Uploads</h3>
+        <div style={{ display: "flex", gap: 12, alignItems: "center", marginBottom: 6 }}><IconTile icon={Upload} /><h3 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 16, margin: 0 }}>Uploads</h3></div>
         {uploadsEnabled === null || !cloudinaryState ? (
           <span style={{ fontSize: 12, color: colors.faint }}>Loading…</span>
         ) : (
           <>
             <ToggleRow
               label="New uploads enabled"
-              hint="Global pause — turning this off blocks every new upload (any provider) but never touches images already stored."
+              hint="Global pause: turning this off blocks every new upload (any provider) but never touches images already stored."
               checked={uploadsEnabled}
               disabled={!can("platform.settings")}
               onChange={async (v) => setUploadsEnabledState((await setMediaUploadsEnabled(v)).enabled)}
@@ -117,8 +125,8 @@ export function AdminMediaTab() {
                 cloudinaryState.credentialsPresent
                   ? cloudinaryState.configuredByEnv
                     ? "Pauses new editorial uploads to Cloudinary specifically. Existing Cloudinary images keep rendering either way."
-                    : "CLOUDINARY_UPLOADS_ENABLED is not set to true in this deployment — this can only be switched off here until an operator changes that env var."
-                  : "No Cloudinary credentials configured for this deployment — nothing to enable yet."
+                    : "CLOUDINARY_UPLOADS_ENABLED isn't set to true on this server, so this can only be switched off here until an operator changes it."
+                  : "No Cloudinary credentials are configured on this server, so there's nothing to enable yet."
               }
               checked={cloudinaryState.enabled}
               disabled={!can("platform.settings") || !cloudinaryState.credentialsPresent || !cloudinaryState.configuredByEnv}
@@ -132,7 +140,7 @@ export function AdminMediaTab() {
       </Card>
 
       <Card>
-        <h3 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 16, margin: "0 0 4px" }}>Usage (application-measured)</h3>
+        <div style={{ display: "flex", gap: 12, alignItems: "center", marginBottom: 6 }}><IconTile icon={ChartColumn} /><h3 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 16, margin: 0 }}>Usage (application-measured)</h3></div>
         {!usage ? (
           <span style={{ fontSize: 12, color: colors.faint }}>Loading…</span>
         ) : (
@@ -144,7 +152,7 @@ export function AdminMediaTab() {
               ) : (
                 usage.application.byProviderAndStatus.map((row) => (
                   <div key={`${row.provider}-${row.status}`} style={{ padding: "8px 12px", borderRadius: radius.control, background: colors.bg, fontSize: 12 }}>
-                    <strong>{row.provider}</strong> · {row.status} — {row.count} file{row.count === 1 ? "" : "s"}, {bytesToMb(row.bytes)} MB
+                    <strong>{row.provider}</strong> · {row.status}: {row.count} file{row.count === 1 ? "" : "s"}, {bytesToMb(row.bytes)} MB
                   </div>
                 ))
               )}
@@ -152,29 +160,49 @@ export function AdminMediaTab() {
             <div style={{ fontSize: 12, color: colors.mutedLight, display: "flex", flexDirection: "column", gap: 4 }}>
               <span>Cloudflare R2 account usage: {usage.providerReported.r2.note}</span>
               <span>Cloudinary account usage: {usage.providerReported.cloudinary.note}</span>
-              {usage.hasPendingR2Cleanup && <span style={{ color: colors.danger }}>Pending uploads awaiting cleanup — run `npm run media-cleanup --workspace server`.</span>}
-              {usage.hasPendingDeletionRetries && <span style={{ color: colors.danger }}>Failed provider deletions awaiting retry — run `npm run media-cleanup --workspace server`.</span>}
+              {usage.hasPendingR2Cleanup && <span style={{ color: colors.danger }}>Pending uploads awaiting cleanup. Run `npm run media-cleanup --workspace server`.</span>}
+              {usage.hasPendingDeletionRetries && <span style={{ color: colors.danger }}>Failed provider deletions awaiting retry. Run `npm run media-cleanup --workspace server`.</span>}
             </div>
           </>
         )}
       </Card>
 
       <Card>
-        <h3 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 16, margin: "0 0 4px" }}>Editorial collection</h3>
+        <div style={{ display: "flex", gap: 12, alignItems: "center", marginBottom: 6 }}><IconTile icon={Images} /><h3 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 16, margin: 0 }}>Editorial collection</h3></div>
         <p style={{ fontSize: 12, color: colors.mutedLight, margin: "0 0 12px" }}>
-          A small set of platform/editorial images (e.g. county guides, homepage features) — not tied to any listing.
-          JPEG/PNG/WebP, up to 8MB.
+          Platform images such as county guides and homepage features, not tied to any listing. JPEG, PNG or WebP, up to 8 MB.
         </p>
-        {can("media.editorial") && <div style={{ display: "flex", gap: 8, marginBottom: 14, flexWrap: "wrap" }}>
-          <input
-            value={caption}
-            onChange={(e) => setCaption(e.target.value)}
-            placeholder="Caption (optional)"
-            style={{ flex: "1 1 220px", padding: "8px 10px", borderRadius: radius.control, border: `1px solid ${colors.border}`, fontSize: 13 }}
-          />
-          <input ref={fileInputRef} type="file" accept="image/jpeg,image/png,image/webp" onChange={(e) => onFiles(e.target.files)} disabled={uploading} style={{ fontSize: 12 }} />
-        </div>}
-        {uploading && <p style={{ fontSize: 12, color: colors.mutedLight }}>Uploading…</p>}
+        {can("media.editorial") && (
+          <div style={{ marginBottom: 14 }}>
+            <AdminButton variant="primary" onClick={() => setUploadOpen(true)}>
+              Upload image
+            </AdminButton>
+          </div>
+        )}
+        <AdminModal
+          open={uploadOpen}
+          onClose={() => setUploadOpen(false)}
+          title="Upload an editorial image"
+          subtitle="JPEG, PNG or WebP, up to 8 MB."
+          footer={
+            <>
+              <AdminButton variant="quiet" onClick={() => setUploadOpen(false)}>
+                Cancel
+              </AdminButton>
+              {/* Visually a button; the real file input stays in the label for keyboard and screen readers. */}
+              <label className="adm-btn adm-btn--primary" style={{ cursor: uploading ? "default" : "pointer", opacity: uploading ? 0.6 : 1 }}>
+                {uploading ? "Uploading…" : "Choose image…"}
+                <input ref={fileInputRef} type="file" accept="image/jpeg,image/png,image/webp" onChange={(e) => onFiles(e.target.files)} disabled={uploading} className="adm-visually-hidden" />
+              </label>
+            </>
+          }
+        >
+          <div className="adm-field">
+            <label htmlFor="adm-media-caption">Caption (optional)</label>
+            <input id="adm-media-caption" className="adm-input" value={caption} onChange={(e) => setCaption(e.target.value)} placeholder="e.g. Cork county guide" />
+          </div>
+          {error && <p style={{ fontSize: 12.5, color: colors.danger, margin: "10px 0 0" }}>{error}</p>}
+        </AdminModal>
         {error && <p style={{ fontSize: 12, color: colors.danger }}>{error}</p>}
         {!images ? (
           <span style={{ fontSize: 12, color: colors.faint }}>Loading…</span>
@@ -191,7 +219,7 @@ export function AdminMediaTab() {
                 </div>
                 {can("media.delete") && <button
                   onClick={() => remove(img.id)}
-                  aria-label="Delete"
+                  aria-label={`Delete image${img.caption ? ` ${img.caption}` : ""}`}
                   style={{ position: "absolute", top: 5, right: 5, width: 22, height: 22, borderRadius: "50%", border: "none", background: "rgba(20,22,20,.7)", color: "#fff", cursor: "pointer" }}
                 >
                   ×
@@ -201,9 +229,6 @@ export function AdminMediaTab() {
           </div>
         )}
       </Card>
-      <div>
-        <Button variant="ghost" onClick={load}>Refresh</Button>
-      </div>
     </div>
   );
 }

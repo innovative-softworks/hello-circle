@@ -1,4 +1,5 @@
 import { writeAudit } from "../audit.js";
+import { adminMfaRequired } from "../adminMfa.js";
 import crypto from "node:crypto";
 import { Router } from "express";
 import { recordConsent } from "../consent.js";
@@ -25,7 +26,15 @@ import { latestPublicDecision } from "../moderationDecisions.js";
 
 export const authRouter = Router();
 
-const cookieOpts = {
+/** OG-07 — a fresh admin session hasn't entered its two-step code yet; the
+ * client uses this to ask for one (or to set it up) right after sign-in. */
+async function withMfaState<T extends { id: string; role: string }>(user: T): Promise<T & { mfa?: { required: boolean; enrolled: boolean; verifiedMinutesAgo: null } }> {
+  if (user.role !== "admin") return user;
+  const row = (await db.prepare(`SELECT mfa_secret_enc IS NOT NULL AS enrolled FROM users WHERE id = ?`).get(user.id)) as { enrolled: number } | undefined;
+  return { ...user, mfa: { required: await adminMfaRequired(), enrolled: Number(row?.enrolled) === 1, verifiedMinutesAgo: null } };
+}
+
+export const cookieOpts = {
   httpOnly: true,
   sameSite: "lax" as const,
   secure: process.env.NODE_ENV === "production",
@@ -239,7 +248,7 @@ authRouter.post("/login", passwordLoginLimiter, async (req, res) => {
   const { token } = await createSession(found.id);
   res.cookie(SESSION_COOKIE, token, cookieOpts);
   const { passwordHash: _passwordHash, ...user } = found;
-  res.json({ user });
+  res.json({ user: await withMfaState(user) });
 });
 
 // Google sign-in — login only, never signup: a vendor account requires the
@@ -294,7 +303,7 @@ authRouter.post("/google", googleAuthLimiter, async (req, res) => {
 
   const { token } = await createSession(user.id);
   res.cookie(SESSION_COOKIE, token, cookieOpts);
-  res.json({ user });
+  res.json({ user: await withMfaState(user) });
 });
 
 // Explicit "link my Google account" from an already-authenticated session —

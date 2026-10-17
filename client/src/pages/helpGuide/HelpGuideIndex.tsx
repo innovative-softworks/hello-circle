@@ -1,7 +1,7 @@
 import { useNavigate } from "react-router-dom";
 import { ChevronRightIcon } from "../../components/icons";
 import { GUIDE_SECTIONS } from "../../components/helpGuide/sections";
-import { colors, fonts } from "../../theme";
+import { colors, fonts, radius } from "../../theme";
 import { HelpGuideShell } from "./HelpGuideShell";
 
 export function HelpGuideIndex() {
@@ -25,7 +25,7 @@ export function HelpGuideIndex() {
               textAlign: "left",
               background: colors.surface,
               border: `1px solid ${colors.border}`,
-              borderRadius: 16,
+              borderRadius: radius.card,
               padding: "22px 22px 20px",
               cursor: "pointer",
             }}
@@ -39,7 +39,7 @@ export function HelpGuideIndex() {
         ))}
       </div>
 
-      <div style={{ marginTop: 36, padding: "18px 20px", background: colors.greenBg, border: `1px solid ${colors.border}`, borderRadius: 16, fontSize: 13.5, color: colors.greenText, lineHeight: 1.55 }}>
+      <div style={{ marginTop: 36, padding: "18px 20px", background: colors.greenBg, border: `1px solid ${colors.border}`, borderRadius: radius.card, fontSize: 13.5, color: colors.greenText, lineHeight: 1.55 }}>
         Can't find what you're after here? The <a href="/profile?tab=help" style={{ color: "inherit", fontWeight: 700 }}>Help &amp; Support</a> FAQ covers quick
         questions (cancellations, refunds, Verified Host), or email{" "}
         <a href="mailto:support@hellocircle.ie" style={{ color: "inherit", fontWeight: 700 }}>support@hellocircle.ie</a> directly.

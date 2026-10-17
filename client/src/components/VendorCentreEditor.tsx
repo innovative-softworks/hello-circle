@@ -1,6 +1,10 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { Building2 } from "lucide-react";
+import { useInWorkspace } from "./workspace/inWorkspace";
+import { SectionSaveContext, type SectionSave } from "./workspace/sectionSave";
+import { ReadinessRail } from "./workspace/SectionCard";
+import { getMediaUrl } from "../media";
 import {
-  createVendorBlock,
   createVendorRoom,
   deleteVendorBlock,
   fetchCentreHours,
@@ -14,8 +18,10 @@ import {
 import { AddressSearch, MapConfirm } from "./AddressSearch";
 import { CalendarIcon, PlusIcon } from "./icons";
 import { Field, FieldError, FieldLabel, FormErrorSummary, NumberStepper, RequiredNote, SettingsSection, TextInput, useFormErrors } from "./form";
-import { Button, ConfirmDialog, EmptyState, LoadErrorState, Modal, inputStyle, labelStyle } from "./ui";
+import { Button, ConfirmDialog, EmptyState, LoadErrorState, inputStyle, labelStyle } from "./ui";
 import { MultiImageUpload } from "./VendorImageUpload";
+import { VendorBlockTimeDialog } from "./VendorBlockTimeDialog";
+import { Loaded, useAdminData } from "./admin/adminUi";
 import { formatDate } from "../vendorFormat";
 import { colors, fonts, radius } from "../theme";
 import type { Centre, Room, RoomBlock } from "../types";
@@ -91,14 +97,17 @@ export function CentreEditor({
     markDirty();
   };
 
-  const save = async () => {
+  const save = async (): Promise<boolean> => {
     const errors: { field: string; message: string; fieldId: string }[] = [];
     if (!form.name.trim()) errors.push({ field: "name", message: "Venue name is required", fieldId: "centre-name" });
     if (!form.area.trim()) errors.push({ field: "area", message: "Area is required", fieldId: "centre-area" });
     if (!form.county.trim()) errors.push({ field: "county", message: "County is required", fieldId: "centre-county" });
     if (!form.blurb.trim()) errors.push({ field: "blurb", message: "A short description is required", fieldId: "centre-blurb" });
-    if (errors.length > 0) return fe.fail(errors);
-    if (saving) return;
+    if (errors.length > 0) {
+      fe.fail(errors);
+      return false;
+    }
+    if (saving) return false;
 
     fe.clear();
     setSaving(true);
@@ -113,14 +122,44 @@ export function CentreEditor({
       setSaved(true);
       onDirtyChange?.(false);
       onSaved(updated);
+      return true;
     } catch (e) {
       // Everything typed stays in the form; the reason goes in the summary.
       const message = e instanceof Error ? e.message : "Couldn't save";
       fe.fail([{ field: "save", message: `Couldn't save: ${message}` }]);
+      return false;
     } finally {
       setSaving(false);
     }
   };
+
+  // Workspace popups (option A): each section edits in a popup that saves the
+  // whole form; Cancel puts back what was there when the popup opened.
+  const snapshot = useRef<{ form: CentreInput; amenitiesText: string; accessibilityText: string } | null>(null);
+  const [openKey, setOpenKey] = useState<string | null>(null);
+  const currentSnapshot = () => ({ form, amenitiesText, accessibilityText });
+  const sectionSave: SectionSave = {
+    save,
+    saving,
+    errors: fe.errors,
+    focusKey: fe.focusKey,
+    isDirty: () => JSON.stringify(snapshot.current) !== JSON.stringify(currentSnapshot()),
+    openKey,
+    setOpenKey,
+    begin: () => {
+      snapshot.current = { form, amenitiesText, accessibilityText };
+    },
+    cancel: () => {
+      if (snapshot.current) {
+        setForm(snapshot.current.form);
+        setAmenitiesText(snapshot.current.amenitiesText);
+        setAccessibilityText(snapshot.current.accessibilityText);
+      }
+      fe.clear();
+      onDirtyChange?.(false);
+    },
+  };
+  const inWorkspace = useInWorkspace();
 
   // --- field groups, composed differently depending on mode below ---------
 
@@ -252,13 +291,60 @@ export function CentreEditor({
   if (loadState === "failed") return <LoadErrorState title="Couldn't load this venue's details." onRetry={load} />;
   if (loadState === "loading") return <p style={{ fontSize: 13.5, color: colors.mutedLight }}>Loading venue details…</p>;
 
+  if (inWorkspace) {
+    const checks = [
+      { label: "Name and description", done: !!form.name.trim() && !!form.blurb.trim(), section: "General" },
+      { label: "Location", done: !!form.area.trim() && !!form.county.trim(), section: "Location" },
+      { label: "Contact phone", done: !!form.phone?.trim(), section: "Contact" },
+      { label: "Opening hours", done: !!form.opensAt && !!form.closesAt, section: "Booking" },
+      { label: "Amenities", done: amenitiesList.length > 0, section: "Amenities" },
+      { label: "Accessibility", done: accessibilityList.length > 0, section: "Accessibility" },
+      { label: "Photos", done: (form.images ?? []).length > 0, section: "Photos" },
+    ];
+    const cover = (form.images ?? [])[0] || form.image;
+    return (
+      <SectionSaveContext.Provider value={sectionSave}>
+        <div className="ws-editor">
+          <div className="ws-sec-grid">
+      <SettingsSection title="General" forceOpen={fe.has("centre-name", "centre-blurb")} fieldIds={["centre-name", "centre-blurb"]} summary={<>{form.name || "Not set"}{form.blurb && <div style={{ color: colors.mutedLight, fontSize: 13, marginTop: 2 }}>{form.blurb}</div>}</>}>
+        {generalFields}
+      </SettingsSection>
+      <SettingsSection title="Location" forceOpen={fe.has("centre-area", "centre-county")} fieldIds={["centre-area", "centre-county"]} summary={[form.area, form.county].filter(Boolean).join(", ") || "Not set"}>
+        {locationFields}
+      </SettingsSection>
+      <SettingsSection title="Contact" summary={form.phone || "Not added"}>
+        {contactField}
+      </SettingsSection>
+      <SettingsSection title="Booking" summary={`${form.isOpen === false ? "Closed" : "Open"} · ${form.opensAt}–${form.closesAt}`}>
+        {bookingFields}
+      </SettingsSection>
+      <SettingsSection title="Amenities" summary={amenitiesList.length > 0 ? amenitiesList.join(" · ") : "None added"}>
+        {amenitiesField}
+      </SettingsSection>
+      <SettingsSection title="Accessibility" summary={accessibilityList.length > 0 ? accessibilityList.join(" · ") : "None added"}>
+        {accessibilityField}
+      </SettingsSection>
+      <SettingsSection title="Photos" summary={`${(form.images ?? []).length} photo${(form.images ?? []).length === 1 ? "" : "s"}`}>
+        {photosField}
+      </SettingsSection>
+          </div>
+          <ReadinessRail
+            checks={checks}
+            onFix={setOpenKey}
+            preview={{ image: cover ? getMediaUrl(cover, "card") : null, title: form.name || "Your venue", meta: [form.area, form.county].filter(Boolean).join(", ") || "Location not set", icon: Building2 }}
+          />
+        </div>
+      </SectionSaveContext.Provider>
+    );
+  }
+
   return (
     <>
       <RequiredNote />
-      <SettingsSection title="General" forceOpen={fe.has("centre-name", "centre-blurb")} summary={<>{form.name || "Not set"}{form.blurb && <div style={{ color: colors.mutedLight, fontSize: 13, marginTop: 2 }}>{form.blurb}</div>}</>}>
+      <SettingsSection title="General" forceOpen={fe.has("centre-name", "centre-blurb")} fieldIds={["centre-name", "centre-blurb"]} summary={<>{form.name || "Not set"}{form.blurb && <div style={{ color: colors.mutedLight, fontSize: 13, marginTop: 2 }}>{form.blurb}</div>}</>}>
         {generalFields}
       </SettingsSection>
-      <SettingsSection title="Location" forceOpen={fe.has("centre-area", "centre-county")} summary={[form.area, form.county].filter(Boolean).join(", ") || "Not set"}>
+      <SettingsSection title="Location" forceOpen={fe.has("centre-area", "centre-county")} fieldIds={["centre-area", "centre-county"]} summary={[form.area, form.county].filter(Boolean).join(", ") || "Not set"}>
         {locationFields}
       </SettingsSection>
       <SettingsSection title="Contact" summary={form.phone || "Not added"}>
@@ -435,40 +521,19 @@ export function RoomsManager({ centreId, rooms, onChanged }: { centreId: string;
   );
 }
 
-// --- availability blocks (close a date for one room, or the whole centre) --
+// --- availability blocks (close a day or some hours, for one room or the
+// whole centre). Adding goes through the shared Block time dialog, which shows
+// any bookings the closure covers before anything changes (OG-04). --------
 
-export function AvailabilityBlocksManager({ centreId, rooms }: { centreId: string; rooms: Room[] }) {
-  const [blocks, setBlocks] = useState<RoomBlock[]>([]);
+export function AvailabilityBlocksManager({ centreId, centreName, rooms }: { centreId: string; centreName?: string; rooms: Room[] }) {
+  const state = useAdminData<RoomBlock[]>(() => fetchVendorBlocks(centreId), [centreId]);
   const [blockOpen, setBlockOpen] = useState(false);
-  const [blockForm, setBlockForm] = useState({ date: "", reason: "", roomId: "" });
   const [confirmingBlockId, setConfirmingBlockId] = useState<number | null>(null);
-  const [blockError, setBlockError] = useState<string | null>(null);
-
-  useEffect(() => {
-    fetchVendorBlocks(centreId).then(setBlocks);
-  }, [centreId]);
-
-  const addBlock = async () => {
-    setBlockError(null);
-    if (!blockForm.date) {
-      setBlockError("Pick a date first");
-      return;
-    }
-    try {
-      await createVendorBlock(centreId, { date: blockForm.date, reason: blockForm.reason, roomId: blockForm.roomId || undefined });
-    } catch (e) {
-      setBlockError(e instanceof Error ? e.message : "Couldn't add that block");
-      return;
-    }
-    fetchVendorBlocks(centreId).then(setBlocks);
-    setBlockForm({ date: "", reason: "", roomId: "" });
-    setBlockOpen(false);
-  };
 
   const removeBlock = async (blockId: number) => {
     await deleteVendorBlock(centreId, blockId);
-    setBlocks((rows) => rows.filter((r) => r.id !== blockId));
     setConfirmingBlockId(null);
+    state.reload();
   };
 
   return (
@@ -477,63 +542,43 @@ export function AvailabilityBlocksManager({ centreId, rooms }: { centreId: strin
         <div>
           <h2 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 15, margin: "0 0 4px" }}>Availability</h2>
           <p style={{ fontSize: 13, color: colors.mutedLight, margin: 0 }}>
-            Close a date (e.g. a festival) so guests can't book it — for one room, or the whole centre.
+            Close a day or some hours (e.g. a festival or maintenance) so guests can't book them, for one room or the whole centre.
           </p>
         </div>
         <Button variant="ghost" onClick={() => setBlockOpen(true)} style={{ flex: "none" }}>
           <PlusIcon size={14} /> Block time
         </Button>
       </div>
-      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-        {blocks.map((b) => (
-          <div
-            key={b.id}
-            className="card-surface card-hover"
-            style={{ display: "flex", justifyContent: "space-between", alignItems: "center", border: `1px solid ${colors.border}`, borderRadius: radius.control, padding: "10px 14px" }}
-          >
-            <div style={{ fontSize: 13 }}>
-              <strong>{formatDate(b.date)}</strong>
-              {" — "}
-              {b.roomId ? rooms.find((r) => r.id === b.roomId)?.name ?? "a room" : "Whole centre"}
-              {b.reason && <> · {b.reason}</>}
-            </div>
-            <Button variant="danger" onClick={() => setConfirmingBlockId(b.id)}>Delete</Button>
+      <Loaded state={state} title="Couldn't load the closed dates">
+        {(blocks) => (
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {blocks.map((b) => (
+              <div
+                key={b.id}
+                className="card-surface card-hover"
+                style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, border: `1px solid ${colors.border}`, borderRadius: radius.control, padding: "10px 14px" }}
+              >
+                <div style={{ fontSize: 13 }}>
+                  <strong>{formatDate(b.date)}</strong>
+                  {b.startTime && b.endTime ? `, ${b.startTime}–${b.endTime}` : ", all day"}
+                  {" — "}
+                  {b.roomId ? rooms.find((r) => r.id === b.roomId)?.name ?? "a room" : "Whole centre"}
+                  {b.reason && <> · {b.reason}</>}
+                </div>
+                <Button variant="danger" onClick={() => setConfirmingBlockId(b.id)}>Remove</Button>
+              </div>
+            ))}
+            {blocks.length === 0 && <EmptyState icon={<CalendarIcon size={26} />} title="Nothing blocked" subtitle="Every open date is bookable." />}
           </div>
-        ))}
-        {blocks.length === 0 && <EmptyState icon={<CalendarIcon size={26} />} title="Nothing blocked" subtitle="Every open date is bookable." />}
-      </div>
+        )}
+      </Loaded>
 
-      <Modal
-        open={blockOpen}
-        onClose={() => setBlockOpen(false)}
-        title="Block time"
-        subtitle="Stops new bookings on that date. Existing bookings aren't affected."
-        footer={
-          <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
-            <Button variant="ghost" onClick={() => setBlockOpen(false)}>Cancel</Button>
-            <Button onClick={addBlock}>Block time</Button>
-          </div>
-        }
-      >
-        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-          <TextInput label="Date" type="date" value={blockForm.date} onChange={(e) => setBlockForm((f) => ({ ...f, date: e.target.value }))} />
-          <Field label="Space">
-            <select value={blockForm.roomId} onChange={(e) => setBlockForm((f) => ({ ...f, roomId: e.target.value }))} style={inputStyle}>
-              <option value="">Whole centre</option>
-              {rooms.filter((r) => r.active).map((r) => (
-                <option key={r.id} value={r.id}>{r.name}</option>
-              ))}
-            </select>
-          </Field>
-          <TextInput label="Reason (optional)" placeholder="e.g. Festival, maintenance" value={blockForm.reason} onChange={(e) => setBlockForm((f) => ({ ...f, reason: e.target.value }))} />
-          {blockError && <p role="alert" style={{ color: colors.danger, fontSize: 13, margin: 0 }}>{blockError}</p>}
-        </div>
-      </Modal>
+      <VendorBlockTimeDialog open={blockOpen} onClose={() => setBlockOpen(false)} fixedCentre={{ id: centreId, name: centreName ?? "this centre", rooms }} onCreated={state.reload} />
 
       <ConfirmDialog
         open={confirmingBlockId !== null}
-        title="Remove this block?"
-        message="That date becomes bookable again. This is just a calendar block, not a real booking — nothing else is affected."
+        title="Remove this closure?"
+        message="That time becomes bookable again. Bookings cancelled when it was closed stay cancelled."
         confirmLabel="Remove"
         onConfirm={() => confirmingBlockId !== null && removeBlock(confirmingBlockId)}
         onCancel={() => setConfirmingBlockId(null)}

@@ -169,6 +169,13 @@ describe("PayoutHistory", () => {
     expect(m).toContain("Transfer to your Stripe account");
   });
 
+  it("a failed bank payout is called out with Stripe's reason (OG-05)", () => {
+    const m = html(<PayoutHistory scope="vendor" history={{ status: "ready", data: PAYOUTS_ACTIVE }} onOpenStripe={noop} />);
+    expect(m).toMatch(/role="alert"[^>]*><strong>A bank payout didn&#x27;t go through/);
+    expect(m).toContain("the account is closed");
+    expect(html(<PayoutHistory scope="vendor" history={{ status: "ready", data: PAYOUTS_EMPTY }} />)).not.toContain("didn&#x27;t go through");
+  });
+
   it("restricted: an alert with the Stripe action", () => {
     const m = html(<PayoutHistory scope="vendor" history={{ status: "ready", data: PAYOUTS_RESTRICTED }} onOpenStripe={noop} />);
     expect(m).toMatch(/role="alert"[^>]*><strong>Payouts are paused/);

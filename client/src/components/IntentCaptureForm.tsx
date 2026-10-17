@@ -4,7 +4,7 @@ import { useConfirm } from "./ConfirmProvider";
 import { useNavigate } from "react-router-dom";
 import { cancelIntent, fetchIntentCount, submitIntent } from "../api/public";
 import { splitDemandQuery } from "../demandQuery";
-import { colors } from "../theme";
+import { colors, radius } from "../theme";
 import type { IntentCount } from "../types";
 import { Button, inputStyle } from "./ui";
 
@@ -29,7 +29,7 @@ const chip = (active: boolean) => ({
   border: `1px solid ${active ? colors.green : colors.border}`,
   background: active ? colors.greenBg : colors.surface,
   color: active ? colors.greenText : colors.text,
-  borderRadius: 999,
+  borderRadius: radius.pill,
   padding: "4px 10px",
   fontSize: 12,
   fontWeight: 600,
@@ -160,7 +160,7 @@ export function IntentCaptureForm({
   return (
     <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 10, maxWidth: 340, margin: "0 auto" }}>
       {others > 0 && (
-        <div style={{ fontSize: 12, fontWeight: 700, color: colors.orangeDark, background: colors.orangeBg, borderRadius: 999, padding: "3px 10px", textAlign: "center" }}>
+        <div style={{ fontSize: 12, fontWeight: 700, color: colors.orangeDark, background: colors.orangeBg, borderRadius: radius.pill, padding: "3px 10px", textAlign: "center" }}>
           {others} {others === 1 ? "person already wants" : "people already want"} something similar{county ? ` in ${county}` : ""}
         </div>
       )}

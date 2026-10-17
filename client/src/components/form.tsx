@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useId, useRef, useState, type CSSProperties, type InputHTMLAttributes, type MouseEvent as ReactMouseEvent, type ReactNode, type TextareaHTMLAttributes } from "react";
 import { MinusIcon, PlusIcon } from "./icons";
 import { ConfirmDialog } from "./ui";
+import { useInWorkspace } from "./workspace/inWorkspace";
+import { useSectionSave } from "./workspace/sectionSave";
+import { SectionCard } from "./workspace/SectionCard";
 import { colors, fonts, radius } from "../theme";
 
 // Shared form primitives (Form System Audit, Phase 2) — every form in the
@@ -403,7 +406,16 @@ export function FieldError({ fieldId, message }: { fieldId: string; message?: st
   );
 }
 
-export function FormErrorSummary({ errors, focusKey }: { errors: FormError[]; focusKey?: number }) {
+export function FormErrorSummary({
+  errors,
+  focusKey,
+  onMissingField,
+}: {
+  errors: FormError[];
+  focusKey?: number;
+  /** Called for a link whose field isn't on screen (e.g. it's in another section's popup). */
+  onMissingField?: (fieldId: string) => void;
+}) {
   const ref = useRef<HTMLDivElement>(null);
   const headingId = useId();
   const hasErrors = errors.length > 0;
@@ -415,7 +427,13 @@ export function FormErrorSummary({ errors, focusKey }: { errors: FormError[]; fo
   if (!hasErrors) return null;
   const jump = (e: ReactMouseEvent, fieldId: string) => {
     const el = document.getElementById(fieldId);
-    if (!el) return;
+    if (!el) {
+      if (onMissingField) {
+        e.preventDefault();
+        onMissingField(fieldId);
+      }
+      return;
+    }
     e.preventDefault();
     el.scrollIntoView({ behavior: "smooth", block: "center" });
     (el as HTMLElement).focus({ preventScroll: true });
@@ -463,7 +481,10 @@ export function SettingsSection({
   children,
   defaultOpen = false,
   forceOpen = false,
+  fieldIds,
 }: {
+  /** The required fields inside, so an error summary elsewhere can open this section. */
+  fieldIds?: string[];
   title: string;
   summary: ReactNode;
   children: ReactNode;
@@ -473,9 +494,18 @@ export function SettingsSection({
   forceOpen?: boolean;
 }) {
   const [open, setOpen] = useState(defaultOpen || forceOpen);
+  const sectionSave = useSectionSave();
+  const inWorkspace = useInWorkspace();
   useEffect(() => {
     if (forceOpen) setOpen(true);
   }, [forceOpen]);
+  // Workspace editors that provide a SectionSave get cards that edit in popups.
+  if (inWorkspace && sectionSave)
+    return (
+      <SectionCard title={title} summary={summary} ctx={sectionSave} hasErrors={forceOpen} fieldIds={fieldIds}>
+        {children}
+      </SectionCard>
+    );
   return (
     <div style={{ borderTop: `1px solid ${colors.border}`, padding: "18px 0" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 16 }}>

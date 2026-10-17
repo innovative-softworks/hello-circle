@@ -33,6 +33,7 @@ const NEVER_INTERRUPT = [
   "/signin",
   "/login",
   "/accept-invite",
+  "/admin-invite",
   "/forgot-password",
   "/reset-password",
   "/vendor/signup",

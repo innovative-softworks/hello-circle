@@ -1,4 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
+import { VendorCustomersTab } from "../components/VendorCustomers";
 import { PlanRewardsPanel } from "../components/PlanRewardsPanel";
 import { useNavigate } from "react-router-dom";
 import { fetchAccountDecision, fetchOrgProfile, fetchVendorListings, fetchVendorNotifications, fetchVendorScheduleItems, fetchVendorStats, type PublicDecision } from "../api";
@@ -10,6 +11,9 @@ import { WorkspaceShell } from "../components/workspace/WorkspaceShell";
 import { useUrlTab } from "../useUrlTab";
 import { VENDOR_TABS, VENDOR_TAB_KEYS, partnerAccountLine, type VendorTab } from "../components/workspace/PartnerWorkspace";
 import { BanIcon, ClockIcon, PlusIcon } from "../components/icons";
+import { CalendarX2, PenSquare } from "lucide-react";
+import { useCreateParam } from "../components/workspace/OfferParts";
+import { VendorBlockTimeDialog } from "../components/VendorBlockTimeDialog";
 import { VendorSetupChecklist } from "../components/VendorSetupChecklist";
 import { Button, ManageCard as Card, LoadErrorState, PageSpinner } from "../components/ui";
 import { BookingsTab, DemandTab } from "../components/VendorBookings";
@@ -40,6 +44,9 @@ export function VendorDashboard() {
   // The tab lives in the URL (?tab=), so Back/Forward, refresh and shared links keep it.
   const [tab, setTab] = useUrlTab<VendorTab>(VENDOR_TAB_KEYS, "overview");
   const [loadError, setLoadError] = useState(false);
+  const [blockOpen, setBlockOpen] = useState(false);
+  const [composeOpen, setComposeOpen] = useState(false);
+  const [, setCreateParam] = useCreateParam();
   const [listings, setListings] = useState<{ centres: VendorListingSummary[]; clubs: VendorListingSummary[] }>({ centres: [], clubs: [] });
   const [stats, setStats] = useState<VendorStats | null>(null);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -52,6 +59,7 @@ export function VendorDashboard() {
   // enabled while loading so the button doesn't flash disabled-then-enabled
   // on every page load for the common case.
   const [programsEnabled, setProgramsEnabled] = useState(true);
+  const [experiencesEnabled, setExperiencesEnabled] = useState(true);
 
   const loadUnreadCount = () => fetchVendorNotifications().then((rows) => setUnreadCount(rows.filter((r) => !r.read).length));
 
@@ -74,7 +82,10 @@ export function VendorDashboard() {
     if (user?.role === "vendor" && user.status === "approved" && user.orgStatus !== "suspended" && !(user.invitedStaff && !user.orgId)) {
       reload();
       fetchOrgProfile()
-        .then((p) => setProgramsEnabled(p.flags.programs))
+        .then((p) => {
+          setProgramsEnabled(p.flags.programs);
+          setExperiencesEnabled(p.flags.experiences);
+        })
         .catch(() => {});
     }
   }, [user]);
@@ -127,6 +138,8 @@ export function VendorDashboard() {
   // Both listing types are always manageable regardless of the vendor's
   // signup-time vendorType (that only picks the type of their initial
   // listing) — see ListingsTab, which shows both sections unconditionally.
+  // Centres a date can be blocked on from the Calendar header.
+  const blockableCentres = listings.centres.filter((c) => c.status !== "deleted");
   const activeCentresCount = listings.centres.filter((c) => c.status !== "deleted").length;
   const activeClubsCount = listings.clubs.filter((c) => c.status !== "deleted").length;
   const shownListingsCount = activeCentresCount + activeClubsCount;
@@ -176,6 +189,31 @@ export function VendorDashboard() {
             </Button>
             {!programsEnabled && <span style={{ fontSize: 12, color: colors.mutedLight }}>Programmes aren't enabled for your organisation</span>}
           </div>
+        ) : activeTab === "experiences" ? (
+          <Button onClick={() => navigate("/vendor/experiences/new")} disabled={!experiencesEnabled}>
+            <PlusIcon size={14} /> Add experience
+          </Button>
+        ) : activeTab === "offers" ? (
+          <Button onClick={() => setCreateParam(true)}>
+            <PlusIcon size={14} /> New offer
+          </Button>
+        ) : activeTab === "listings" ? (
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <Button onClick={() => navigate("/vendor/centres/new")}>
+              <PlusIcon size={14} /> Add centre
+            </Button>
+            <Button variant="ghost" onClick={() => navigate("/vendor/clubs/new")}>
+              <PlusIcon size={14} /> Add club
+            </Button>
+          </div>
+        ) : activeTab === "messages" ? (
+          <Button onClick={() => setComposeOpen(true)}>
+            <PenSquare size={15} aria-hidden="true" /> New message
+          </Button>
+        ) : activeTab === "schedule" && blockableCentres.length > 0 ? (
+          <Button onClick={() => setBlockOpen(true)}>
+            <CalendarX2 size={15} aria-hidden="true" /> Block time
+          </Button>
         ) : undefined
       }
     >
@@ -184,7 +222,6 @@ export function VendorDashboard() {
           <LoadErrorState title="Couldn't load your listings and figures." detail="What's shown may be incomplete. Nothing has changed on your listings." onRetry={reload} />
         </div>
       )}
-      {activeTab === "overview" && <VendorSetupChecklist variant="approved" />}
       {activeTab === "overview" && (
         <div style={{ marginBottom: 16 }}>
           <PlanRewardsPanel scope="vendor" variant="compact" />
@@ -216,8 +253,9 @@ export function VendorDashboard() {
         />
       )}
 
-      {activeTab === "messages" && <MessagesTab onRead={loadUnreadCount} listings={listings} />}
+      {activeTab === "messages" && <MessagesTab onRead={loadUnreadCount} listings={listings} composeOpen={composeOpen} onCloseCompose={() => setComposeOpen(false)} />}
       {activeTab === "bookings" && <BookingsTab />}
+      {activeTab === "customers" && <VendorCustomersTab onOpenBooking={(ref) => navigate(`/vendor?tab=bookings&record=booking:${ref}`)} />}
       {activeTab === "earnings" && <PaymentsPanel />}
       {activeTab === "reviews" && <VendorReviewsTab />}
       {activeTab === "offers" && <VendorOffersTab />}
@@ -225,6 +263,7 @@ export function VendorDashboard() {
       {activeTab === "programs" && <VendorProgramsTab onOpenProgram={(id) => navigate(`/vendor/programs/${id}`)} />}
       {activeTab === "experiences" && <VendorExperiencesTab onOpenExperience={(id) => navigate(`/vendor/experiences/${id}`)} />}
       {activeTab === "schedule" && <VendorScheduleTab onNavigateItem={goTab} />}
+      <VendorBlockTimeDialog open={blockOpen} onClose={() => setBlockOpen(false)} centres={blockableCentres} />
       {activeTab === "org" && <VendorOrgTab />}
     </WorkspaceShell>
   );

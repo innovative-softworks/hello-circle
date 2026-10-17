@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { blockResident, fetchChatMessages, postChatMessage, reportChatMessage } from "../api";
+import { blockResident, fetchChatMessages, hideChatMessage, postChatMessage, reportChatMessage } from "../api";
 import { useConfirm } from "./ConfirmProvider";
 import { ChatIcon } from "./icons";
 import { Button, ConfirmDialog, Modal, inputStyle } from "./ui";
@@ -70,6 +70,9 @@ export function ChatModal({
   const [sendError, setSendError] = useState<string | null>(null);
   const [blockedIds, setBlockedIds] = useState<Set<string>>(new Set());
   const [reportTarget, setReportTarget] = useState<ChatMessage | null>(null);
+  const [canModerate, setCanModerate] = useState(false);
+  const [removeTarget, setRemoveTarget] = useState<ChatMessage | null>(null);
+  const [removeReason, setRemoveReason] = useState("");
   const [reportReason, setReportReason] = useState(REPORT_REASONS[0]);
   const [reporting, setReporting] = useState(false);
   const lastIdRef = useRef(0);
@@ -94,6 +97,7 @@ export function ChatModal({
           setCanPost(feed.canPost);
           setBlockedReason(feed.postBlockedReason ?? null);
           setViewerRole(feed.viewerRole ?? "resident");
+          setCanModerate(!!feed.canModerate);
           setLoaded(true);
         })
         .catch((e) => {
@@ -274,11 +278,16 @@ export function ChatModal({
                       wordBreak: "break-word",
                     }}
                   >
-                    {m.body}
+                    {m.hidden ? <em style={{ opacity: 0.75 }}>{m.hidden === "admin" ? "Message removed by HelloCircle" : "Message removed by an organiser"}</em> : m.body}
                   </div>
                   <div style={{ display: "flex", gap: 10, fontSize: 11, color: colors.faint, marginTop: 3 }}>
                     <span>{timeLabel(m.createdAt)}</span>
-                    {!mine && (
+                    {!mine && !m.hidden && canModerate && (
+                      <button onClick={() => setRemoveTarget(m)} style={{ background: "none", border: "none", padding: 0, fontSize: 11, color: colors.faint, textDecoration: "underline", cursor: "pointer" }}>
+                        Remove
+                      </button>
+                    )}
+                    {!mine && !m.hidden && (
                       <button onClick={() => setReportTarget(m)} style={{ background: "none", border: "none", padding: 0, fontSize: 11, color: colors.faint, textDecoration: "underline", cursor: "pointer" }}>
                         Report
                       </button>
@@ -301,6 +310,26 @@ export function ChatModal({
         </div>
       )}
 
+      <ConfirmDialog
+        open={!!removeTarget}
+        title="Remove this message?"
+        message="It's hidden for everyone in this chat. HelloCircle keeps a copy in case it's reported."
+        confirmLabel="Remove"
+        confirmDisabled={!removeReason.trim()}
+        onConfirm={async () => {
+          if (!removeTarget) return;
+          await hideChatMessage(removeTarget.id, removeReason.trim());
+          setMessages((prev) => prev.map((p) => (p.id === removeTarget.id ? { ...p, body: "", hidden: "organiser" } : p)));
+          setRemoveTarget(null);
+          setRemoveReason("");
+        }}
+        onCancel={() => setRemoveTarget(null)}
+      >
+        <label htmlFor="chat-remove-reason" style={{ display: "block", fontSize: 13, fontWeight: 600, marginBottom: 4 }}>
+          Why? (kept with the record)
+        </label>
+        <input id="chat-remove-reason" value={removeReason} onChange={(e) => setRemoveReason(e.target.value)} placeholder="e.g. Spam, abusive language" style={inputStyle} />
+      </ConfirmDialog>
       <ConfirmDialog
         open={!!reportTarget}
         title="Report this message?"
@@ -345,7 +374,7 @@ export function ChatButton({
       <Button variant={variant} full={full} onClick={() => setOpen(true)}>
         <ChatIcon size={15} /> {label}
         {unread > 0 && (
-          <span style={{ marginLeft: 6, minWidth: 18, height: 18, borderRadius: 9, background: colors.orange, color: "#fff", fontSize: 11, fontWeight: 800, display: "inline-flex", alignItems: "center", justifyContent: "center", padding: "0 5px" }}>
+          <span style={{ marginLeft: 6, minWidth: 18, height: 18, borderRadius: radius.pill, background: colors.orange, color: "#fff", fontSize: 11, fontWeight: 800, display: "inline-flex", alignItems: "center", justifyContent: "center", padding: "0 5px" }}>
             {unread > 99 ? "99+" : unread}
           </span>
         )}

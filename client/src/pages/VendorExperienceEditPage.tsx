@@ -4,6 +4,7 @@ import { fetchVendorExperience, publishVendorExperience } from "../api";
 import { useAuth } from "../AuthContext";
 import { BackLink } from "../components/BackLink";
 import { PartnerWorkspace } from "../components/workspace/PartnerWorkspace";
+import { ListingMeta } from "../components/workspace/ListingMeta";
 import { BookingsPanel, ExperienceEditor, SessionsManager } from "../components/VendorExperiences";
 import { ExperienceCreationWizard } from "../components/ExperienceCreationWizard";
 import { useUnsavedChangesGuard } from "../components/form";
@@ -79,9 +80,14 @@ export function VendorExperienceEditPage() {
   }
 
   return (
-    <PartnerWorkspace user={user} active="experiences" title={title} guard={requestNavigation}>
-      <div style={{ maxWidth: 920 }}>
-        <BackLink onClick={() => requestNavigation(() => navigate("/vendor?tab=experiences"))}>Back to Adventures & Experiences</BackLink>
+    <PartnerWorkspace
+      user={user}
+      active="experiences"
+      title={title}
+      guard={requestNavigation}
+      subtitle={!wizardMode && experience ? <ListingMeta status={experience.status} kind={experience.kind === "adventure" ? "Adventure" : experience.kind === "volunteer" ? "Volunteer" : "Experience"} place={[experience.area, experience.county].filter(Boolean).join(", ")} /> : undefined}
+    >
+      <div>
 
         {wizardMode ? (
           <ExperienceCreationWizard

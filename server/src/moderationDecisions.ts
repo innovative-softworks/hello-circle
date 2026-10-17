@@ -55,7 +55,7 @@ export interface DecisionReason {
   internalNote: string | null;
 }
 
-export type DecisionObjectType = "centre" | "club" | "experience" | "vendor" | "claim" | "host_application" | "place_suggestion" | "organisation";
+export type DecisionObjectType = "centre" | "club" | "experience" | "vendor" | "claim" | "host_application" | "place_suggestion" | "organisation" | "game" | "chat_message";
 
 /**
  * Reads `reasonCategory`, `explanation` and `internalNote` from a request

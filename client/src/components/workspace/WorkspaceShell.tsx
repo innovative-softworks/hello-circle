@@ -1,11 +1,12 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { ExternalLink, Lock, Menu, PanelLeftClose, PanelLeftOpen, X } from "lucide-react";
+import { Lock, Menu, X } from "lucide-react";
 import { Link } from "react-router-dom";
 import { useDashboardNav } from "../../DashboardNavContext";
 import { PageHeader } from "../admin/adminUi";
 import "@fontsource-variable/inter";
 import "../admin/admin.css";
+import { InWorkspaceContext } from "./inWorkspace";
 
 // Approved cream workspace shell (2026-10-14) for the Partner (/vendor) and
 // Host (/manage, /manage/circles/:id) workspaces — the same strip, grouped
@@ -201,11 +202,19 @@ export function WorkspaceShell<T extends string>({
       writeCollapsed(collapseKey, !c);
       return !c;
     });
-  const { setOpenNav } = useDashboardNav();
+  const { setOpenNav, setWorkspace } = useDashboardNav();
   useEffect(() => {
     setOpenNav(() => setSheetOpen(true));
     return () => setOpenNav(null);
   }, [setOpenNav]);
+  // The workspace name, account line, "View platform" and the collapse toggle
+  // live in the global header (2026-10-16), not in a strip under it.
+  const link = externalLink ?? { label: "View platform", to: "/" };
+  useEffect(() => {
+    setWorkspace({ label: workspaceLabel, account, link, collapsed, onToggleCollapse: toggleCollapsed });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [workspaceLabel, account, link.label, link.to, link.newTab, collapsed, setWorkspace]);
+  useEffect(() => () => setWorkspace(null), [setWorkspace]);
   // Dialogs and menus opened from the workspace are portaled to <body>; this
   // class gives them the workspace's corner tokens too (admin.css).
   useEffect(() => {
@@ -224,47 +233,13 @@ export function WorkspaceShell<T extends string>({
     ...(activeItem?.group ? [{ label: activeItem.group }] : []),
     { label: title },
   ];
-  const link = externalLink ?? { label: "View platform", to: "/" };
   const headerCtx = useMemo(() => ({ workspaceLabel, toolLabel: title, setRecordShown }), [workspaceLabel, title]);
   const sectionsLabel = `${workspaceLabel} sections`;
 
   return (
     <div className="adm ws">
-      <div className="adm-strip">
-        <div className="adm-strip-inner">
-          <span className="adm-strip-label">{workspaceLabel}</span>
-          <div className="adm-strip-meta">
-            <span className="adm-strip-account">{account}</span>
-            {link.newTab ? (
-              <a href={link.to} target="_blank" rel="noreferrer">
-                {link.label} <ExternalLink size={13} strokeWidth={1.9} aria-hidden="true" />
-                <span className="adm-visually-hidden"> (opens in a new tab)</span>
-              </a>
-            ) : (
-              <Link to={link.to}>
-                {link.label} <ExternalLink size={13} strokeWidth={1.9} aria-hidden="true" />
-              </Link>
-            )}
-          </div>
-        </div>
-      </div>
-
       <div className="adm-layout" data-collapsed={collapsed || undefined}>
         <aside className="adm-side">
-          <div className="adm-side-toggle">
-            <button
-              type="button"
-              className="adm-btn adm-btn--quiet"
-              onClick={toggleCollapsed}
-              aria-expanded={!collapsed}
-              aria-controls="ws-side-nav"
-              aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-              title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-            >
-              {collapsed ? <PanelLeftOpen size={18} strokeWidth={1.9} aria-hidden="true" /> : <PanelLeftClose size={18} strokeWidth={1.9} aria-hidden="true" />}
-              {!collapsed && <span>Collapse</span>}
-            </button>
-          </div>
           <nav aria-label={sectionsLabel} id="ws-side-nav">
             <NavList items={navItems} defaultGroup={defaultGroup} active={active} onSelect={go} collapsed={collapsed} idPrefix="ws-nav" countLabel={countLabel} />
           </nav>
@@ -277,7 +252,9 @@ export function WorkspaceShell<T extends string>({
             </button>
           </div>
           {!recordShown && <PageHeader title={title} subtitle={subtitle} crumbs={crumbs ?? defaultCrumbs} actions={actions} />}
-          <HeaderContext.Provider value={headerCtx}>{children}</HeaderContext.Provider>
+          <HeaderContext.Provider value={headerCtx}>
+            <InWorkspaceContext.Provider value={true}>{children}</InWorkspaceContext.Provider>
+          </HeaderContext.Provider>
         </div>
       </div>
 

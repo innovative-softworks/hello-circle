@@ -1,18 +1,19 @@
 import type { ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
-import { BarChart3, CalendarDays, LayoutDashboard, Star, Tag, Ticket, UsersRound, Wallet } from "lucide-react";
+import { BarChart3, Building2, CalendarDays, LayoutDashboard, Star, Tag, Ticket, UsersRound, Wallet } from "lucide-react";
 import { WorkspaceShell } from "./WorkspaceShell";
 
 // The host workspace: one navigation catalogue for /manage and the host pages
 // that live outside it (Pro, rewards), so they share the same shell.
 
-export type HostTab = "overview" | "activities" | "circles" | "calendar" | "insights" | "earnings" | "reviews" | "offers";
+export type HostTab = "overview" | "activities" | "reservations" | "circles" | "calendar" | "insights" | "earnings" | "reviews" | "offers";
 
 const I = { size: 18, strokeWidth: 1.9, "aria-hidden": true } as const;
 // Keys are unchanged so existing ?tab= links still work.
 export const HOST_TABS: { key: HostTab; label: string; icon: ReactNode; group: string; summary: string }[] = [
   { key: "overview", label: "Overview", icon: <LayoutDashboard {...I} />, group: "Hosting", summary: "What's coming up and what needs you." },
   { key: "activities", label: "Activities", icon: <Ticket {...I} />, group: "Hosting", summary: "Activities you host: participants, waitlists, updates and check-in." },
+  { key: "reservations", label: "Reservations", icon: <Building2 {...I} />, group: "Hosting", summary: "Venues you've booked, and the activity held on each." },
   { key: "calendar", label: "Calendar", icon: <CalendarDays {...I} />, group: "Hosting", summary: "Everything you host, by day." },
   { key: "circles", label: "Circles", icon: <UsersRound {...I} />, group: "Community", summary: "Circles you organise: plans, members and settings." },
   { key: "insights", label: "Insights", icon: <BarChart3 {...I} />, group: "Results", summary: "Turnout and repeat attendance across your activities." },

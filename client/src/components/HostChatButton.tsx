@@ -28,12 +28,15 @@ export function HostChatButton({
   title,
   label = "Chat",
   style,
+  className,
 }: {
   scopeType: ChatScopeType;
   scopeId: string;
   title: string;
   label?: string;
   style?: CSSProperties;
+  /** When set (e.g. "adm-btn"), the class styles the button instead of the inline link look. */
+  className?: string;
 }) {
   const [unread, setUnread] = useState(0);
   const [open, setOpen] = useState(false);
@@ -61,7 +64,8 @@ export function HostChatButton({
           setOpen(true);
         }}
         aria-label={unread > 0 ? `${label}, ${unread} unread` : label}
-        style={{ display: "inline-flex", alignItems: "center", gap: 5, background: "none", border: "none", padding: 0, cursor: "pointer", color: colors.greenText, fontSize: 12.5, fontWeight: 700, ...style }}
+        className={className}
+        style={className ? style : { display: "inline-flex", alignItems: "center", gap: 5, background: "none", border: "none", padding: 0, cursor: "pointer", color: colors.greenText, fontSize: 12.5, fontWeight: 700, ...style }}
       >
         <ChatIcon size={14} /> {label}
         {unread > 0 && (
@@ -92,7 +96,9 @@ export function VendorChatsCard() {
   const [openItem, setOpenItem] = useState<ChatInboxItem | null>(null);
 
   useEffect(() => {
-    hostInbox().then(setItems);
+    // A summary card: hidden when there's nothing to show, or if it can't load
+    // (the full list stays reachable from Messages).
+    hostInbox().then(setItems).catch(() => setItems([]));
   }, []);
 
   if (!items || items.length === 0) return null;

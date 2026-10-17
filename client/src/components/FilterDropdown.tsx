@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { ChevronDownIcon } from "./icons";
-import { colors } from "../theme";
+import { colors, radius } from "../theme";
 
 // A single reusable "chip that opens a panel" — replaces the pattern of
 // dumping every option as its own inline chip (Browse.tsx's county/
@@ -47,7 +47,7 @@ export function FilterDropdown({
           border: `1.5px solid ${active ? colors.dark : colors.borderStrong}`,
           background: active ? colors.dark : colors.surface,
           color: active ? colors.onNight : colors.textSoft,
-          borderRadius: 999,
+          borderRadius: radius.pill,
           padding: "8px 14px",
           fontSize: 14,
           fontWeight: 600,
@@ -66,7 +66,7 @@ export function FilterDropdown({
             zIndex: 30,
             background: colors.surface,
             border: `1px solid ${colors.border}`,
-            borderRadius: 16,
+            borderRadius: radius.card,
             padding: 8,
             minWidth: 230,
             maxHeight: 320,
@@ -93,7 +93,7 @@ export function DropdownOption({ label, active, onClick }: { label: ReactNode; a
         textAlign: "left",
         background: active ? colors.orangeBg : "none",
         border: "none",
-        borderRadius: 10,
+        borderRadius: radius.control,
         padding: "8px 10px",
         fontSize: 14,
         fontWeight: active ? 700 : 500,
@@ -110,7 +110,7 @@ export function DropdownOption({ label, active, onClick }: { label: ReactNode; a
  * amenities/accessibility — every checked box must match, AND not OR). */
 export function DropdownCheckbox({ label, checked, onChange }: { label: ReactNode; checked: boolean; onChange: () => void }) {
   return (
-    <label style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 10px", fontSize: 13.5, color: colors.textSoft, cursor: "pointer", borderRadius: 10 }}>
+    <label style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 10px", fontSize: 13.5, color: colors.textSoft, cursor: "pointer", borderRadius: radius.control }}>
       <input type="checkbox" checked={checked} onChange={onChange} />
       {label}
     </label>

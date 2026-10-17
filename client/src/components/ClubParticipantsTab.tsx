@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { fetchClubParticipants } from "../api";
 import { UsersIcon } from "./icons";
-import { Avatar, ManageCard as Card, EmptyState, PageSpinner, tableStyle, tdStyle, thStyle } from "./ui";
+import { Avatar, ManageCard as Card, EmptyState, PageSpinner, tableStyle, tdStyle, thStyle, StackTable } from "./ui";
 import { colors, radius } from "../theme";
 import type { ClubParticipant } from "../types";
 
@@ -23,7 +23,7 @@ export function ClubParticipantsTab({ clubId }: { clubId: string }) {
   return (
     <Card>
       <div style={{ overflowX: "auto" }}>
-        <table style={tableStyle}>
+        <StackTable>
           <thead>
             <tr>
               <th style={thStyle}>Child</th>
@@ -53,7 +53,7 @@ export function ClubParticipantsTab({ clubId }: { clubId: string }) {
               </tr>
             ))}
           </tbody>
-        </table>
+        </StackTable>
       </div>
     </Card>
   );

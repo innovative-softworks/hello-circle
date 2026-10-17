@@ -127,6 +127,9 @@ describe("Vendor signup -> pending -> admin approval -> vendor access", () => {
     });
     expect(adminLogin.status).toBe(200);
     const adminCookie = extractCookie(adminLogin);
+    // OG-07 — an admin session opens the admin tools only after two-step
+    // sign-in (covered in adminAccess.test.ts); stand in for that step here.
+    await db.prepare(`UPDATE sessions SET mfa_verified_at = NOW() WHERE token = ?`).run(adminCookie.split("=")[1]);
 
     const approveRes = await fetch(`${baseUrl}/admin/vendors/${vendorUserId}/status`, {
       method: "PUT",

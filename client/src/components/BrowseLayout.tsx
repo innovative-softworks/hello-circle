@@ -351,7 +351,7 @@ export function BrowseLayout({ config }: { config: BrowseConfig }) {
             type="date"
             value={whenDate}
             onChange={(e) => setWhenDate(e.target.value)}
-            style={{ marginTop: 4, fontSize: 13, padding: "7px 9px", width: "100%", border: `1px solid ${colors.inputBorder}`, borderRadius: 10, boxSizing: "border-box" }}
+            style={{ marginTop: 4, fontSize: 13, padding: "7px 9px", width: "100%", border: `1px solid ${colors.inputBorder}`, borderRadius: radius.control, boxSizing: "border-box" }}
           />
         )}
       </div>
@@ -467,7 +467,7 @@ export function BrowseLayout({ config }: { config: BrowseConfig }) {
                 <button
                   className="games-filter-trigger"
                   onClick={() => setFiltersOpen(true)}
-                  style={{ display: "inline-flex", alignItems: "center", gap: 6, border: `1.5px solid ${colors.borderStrong}`, background: "#fff", color: colors.textSoft, borderRadius: 16, padding: "8px 14px", fontSize: 14, fontWeight: 600 }}
+                  style={{ display: "inline-flex", alignItems: "center", gap: 6, border: `1.5px solid ${colors.borderStrong}`, background: "#fff", color: colors.textSoft, borderRadius: radius.card, padding: "8px 14px", fontSize: 14, fontWeight: 600 }}
                 >
                   Filters{activeCount > 0 ? ` (${activeCount})` : ""}
                 </button>
@@ -507,7 +507,7 @@ export function BrowseLayout({ config }: { config: BrowseConfig }) {
             </div>
 
             {!loading && config.supportsFeatured && sort === "featured" && sorted.length > 0 && (
-              <div style={{ display: "flex", alignItems: "flex-start", gap: 10, background: "rgba(232,163,58,.12)", border: "1px solid rgba(232,163,58,.3)", borderRadius: 10, padding: "12px 16px", marginBottom: 20 }}>
+              <div style={{ display: "flex", alignItems: "flex-start", gap: 10, background: "rgba(232,163,58,.12)", border: "1px solid rgba(232,163,58,.3)", borderRadius: radius.control, padding: "12px 16px", marginBottom: 20 }}>
                 <LightbulbIcon size={16} style={{ color: colors.gold, flex: "none", marginTop: 1 }} />
                 <div>
                   <div style={{ fontSize: 13.5, fontWeight: 700, color: colors.text }}>Showing our top picks first</div>
@@ -522,7 +522,7 @@ export function BrowseLayout({ config }: { config: BrowseConfig }) {
                   <button
                     key={c.key}
                     onClick={c.onRemove}
-                    style={{ display: "inline-flex", alignItems: "center", gap: 5, background: colors.greenBg, color: colors.greenText, border: "none", borderRadius: 16, padding: "5px 10px 5px 12px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}
+                    style={{ display: "inline-flex", alignItems: "center", gap: 5, background: colors.greenBg, color: colors.greenText, border: "none", borderRadius: radius.card, padding: "5px 10px 5px 12px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}
                   >
                     {c.label} <CloseIcon size={12} />
                   </button>

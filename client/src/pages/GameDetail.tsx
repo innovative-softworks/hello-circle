@@ -1,4 +1,5 @@
 import { usePageTitle } from "../pageTitle";
+import { ReportContentButton } from "../components/ReportContentButton";
 import { useEffect, useState } from "react";
 import { TraderInfo } from "../components/TraderInfo";
 import { useToast } from "../components/Toast";
@@ -211,11 +212,14 @@ export function GameDetail() {
             <button onClick={() => setSaved(toggleFavorite("game", game.id))} style={{ ...outlineButtonStyle, color: saved ? colors.orange : colors.text }}>
               <HeartIcon size={14} filled={saved} /> {saved ? "Saved" : "Save"}
             </button>
+            {!isHost && (
+              <ReportContentButton targetType="game" targetId={game.id} what="this activity" render={(onClick, done) => <button onClick={onClick} disabled={done} style={outlineButtonStyle}>{done ? "Reported" : "Report"}</button>} />
+            )}
           </div>
         </div>
 
         {cancelled && (
-          <div style={{ display: "flex", alignItems: "center", gap: 10, background: colors.dangerBg, borderRadius: 10, padding: "12px 16px", marginBottom: 20 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, background: colors.dangerBg, borderRadius: radius.control, padding: "12px 16px", marginBottom: 20 }}>
             <span style={{ fontSize: 11.5, fontWeight: 800, letterSpacing: 0, textTransform: "uppercase", color: colors.danger }}>Plan cancelled</span>
             <span style={{ fontSize: 13.5, color: colors.danger }}>This plan is no longer happening.</span>
           </div>
@@ -233,7 +237,7 @@ export function GameDetail() {
               variant="hero"
               eager
               sharedHero
-              style={{ aspectRatio: cardImageRatio.hero, borderRadius: 16, marginBottom: 24 }}
+              style={{ aspectRatio: cardImageRatio.hero, borderRadius: radius.card, marginBottom: 24 }}
               contentStyle={{ padding: 16, display: "flex", alignItems: "flex-start", justifyContent: "space-between" }}
             >
               <span style={{ display: "inline-flex", alignItems: "center", gap: 6, background: "rgba(255,255,255,.92)", color: colors.text, borderRadius: radius.pill, padding: "6px 12px", fontSize: 13, fontWeight: 700 }}>
@@ -289,12 +293,12 @@ export function GameDetail() {
             <ParticipationBlock attributes={game.participationAttributes} going={cancelled ? 0 : game.joined} firstTimers={game.firstTimerCount} />
 
             {game.bookingRef && (
-              <div style={{ background: colors.panel, color: colors.muted, borderRadius: 10, padding: "10px 14px", fontSize: 13, margin: "16px 0" }}>
+              <div style={{ background: colors.panel, color: colors.muted, borderRadius: radius.control, padding: "10px 14px", fontSize: 13, margin: "16px 0" }}>
                 This session is happening as part of the host's existing room booking — you'll pay your own share to join.
               </div>
             )}
             {pending && !cancelled && (
-              <div style={{ background: colors.orangeBg, color: colors.orangeDark, borderRadius: 10, padding: "10px 14px", fontWeight: 700, fontSize: 13.5, margin: "16px 0" }}>
+              <div style={{ background: colors.orangeBg, color: colors.orangeDark, borderRadius: radius.control, padding: "10px 14px", fontWeight: 700, fontSize: 13.5, margin: "16px 0" }}>
                 Needs {Math.max(0, (game.minParticipants ?? 0) - game.joined)} more player{Math.max(0, (game.minParticipants ?? 0) - game.joined) === 1 ? "" : "s"} to confirm — still joinable while waiting.
                 {game.confirmationDeadline && (
                   <div style={{ fontWeight: 500, marginTop: 4 }}>
@@ -304,12 +308,12 @@ export function GameDetail() {
               </div>
             )}
             {!cancelled && !!game.familiarCount && (
-              <div style={{ background: colors.greenBg, color: colors.greenText, borderRadius: 10, padding: "10px 14px", fontWeight: 700, fontSize: 13.5, margin: "16px 0" }}>
+              <div style={{ background: colors.greenBg, color: colors.greenText, borderRadius: radius.control, padding: "10px 14px", fontWeight: 700, fontSize: 13.5, margin: "16px 0" }}>
                 {game.familiarCount} {game.familiarCount === 1 ? "person" : "people"} you've played with before {game.familiarCount === 1 ? "is" : "are"} joining.
               </div>
             )}
             {game.meetingInstructions && (
-              <div style={{ background: colors.greenBg, color: colors.greenText, borderRadius: 10, padding: "10px 14px", fontSize: 13.5, margin: "16px 0" }}>
+              <div style={{ background: colors.greenBg, color: colors.greenText, borderRadius: radius.control, padding: "10px 14px", fontSize: 13.5, margin: "16px 0" }}>
                 <strong>Meeting point:</strong> {game.meetingInstructions}
               </div>
             )}

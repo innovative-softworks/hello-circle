@@ -1,4 +1,6 @@
-import { useEffect, useRef, type ReactNode, type RefObject } from "react";
+import { useEffect, useId, useRef, type ReactNode, type RefObject } from "react";
+import { AdminButton } from "./admin/adminUi";
+import { useInWorkspace } from "./workspace/inWorkspace";
 import { Stepper } from "./Stepper";
 import { Button } from "./ui";
 import { colors, fonts, radius } from "../theme";
@@ -70,11 +72,77 @@ export function GuidedFlow({
   const headingRef = useRef<HTMLHeadingElement>(null);
   const Heading = headingLevel === 1 ? "h1" : "h2";
   const previousStep = useRef(currentStep);
+  const inWorkspace = useInWorkspace();
+  const idBase = useId();
   useEffect(() => {
     if (previousStep.current === currentStep) return;
     previousStep.current = currentStep;
     headingRef.current?.focus({ preventScroll: false });
   }, [currentStep]);
+  // Workspaces (option A, 2026-10-16): the step as a card, progress in a rail.
+  if (inWorkspace) {
+    const pct = Math.round(((currentStep - 1) / stepLabels.length) * 100);
+    return (
+      <div className="ws-editor">
+        <section className="ws-sec" aria-labelledby={`${idBase}-h`}>
+          <div className="ws-sec-head">
+            <span className="adm-itile" aria-hidden="true" style={{ fontWeight: 700 }}>
+              {currentStep}
+            </span>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <Heading id={`${idBase}-h`} ref={headingRef} tabIndex={-1} className="ws-sec-title" style={{ outline: "none" }}>
+                {title}
+              </Heading>
+              {subtitle && <p className="adm-note" style={{ margin: "2px 0 0" }}>{subtitle}</p>}
+            </div>
+          </div>
+          <div className="ws-sec-body">{children}</div>
+          {error && (
+            <p id={errorId} ref={errorRef} tabIndex={-1} role="alert" className="ws-sec-errors" style={{ margin: "0 18px 14px", outline: "none" }}>
+              {error}
+            </p>
+          )}
+          <div className="ws-sec-foot">
+            {showBack && (
+              <AdminButton variant="quiet" onClick={onBack} disabled={continueBusy}>
+                ← Back
+              </AdminButton>
+            )}
+            <AdminButton type={continueType} variant="primary" onClick={continueType === "submit" ? undefined : onContinue} disabled={continueDisabled || continueBusy}>
+              {continueBusy ? "Saving…" : continueLabel}
+            </AdminButton>
+          </div>
+        </section>
+        <aside className="ws-rail ws-rail--steps">
+          <div className="adm-box ws-rail-card">
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+              <strong>
+                Step {currentStep} of {stepLabels.length}
+              </strong>
+              <span className="adm-note">{pct}%</span>
+            </div>
+            <div className="ws-meter" aria-hidden="true">
+              <span style={{ width: `${pct}%` }} />
+            </div>
+            <ol className="ws-steps">
+              {stepLabels.map((l, i) => {
+                const n = i + 1;
+                const state = n < currentStep ? "done" : n === currentStep ? "current" : "todo";
+                return (
+                  <li key={l} data-state={state} aria-current={state === "current" ? "step" : undefined}>
+                    <span aria-hidden="true">{state === "done" ? "✓" : n}</span>
+                    {l}
+                  </li>
+                );
+              })}
+            </ol>
+            <p className="adm-note" style={{ margin: "12px 0 0" }}>Your progress is saved as a draft at each step.</p>
+          </div>
+        </aside>
+      </div>
+    );
+  }
+
   return (
     <div>
       <Stepper labels={stepLabels} current={currentStep} accent={accent} />

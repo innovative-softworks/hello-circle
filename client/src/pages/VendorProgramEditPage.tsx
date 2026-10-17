@@ -60,12 +60,11 @@ export function VendorProgramEditPage() {
       guard={requestNavigation}
       actions={
         programId !== "new" ? (
-          <HostChatButton scopeType="program" scopeId={programId} title={title ?? "Programme chat"} label="Group chat" style={{ border: `1px solid ${colors.borderStrong}`, borderRadius: radius.pill, padding: "8px 14px", fontSize: 13.5, color: colors.text, background: colors.surface }} />
+          <HostChatButton scopeType="program" scopeId={programId} title={title ?? "Programme chat"} label="Group chat" className="adm-btn" />
         ) : undefined
       }
     >
-      <div style={{ maxWidth: 920 }}>
-        <BackLink onClick={() => requestNavigation(() => navigate("/vendor?tab=programs"))}>Back to programmes</BackLink>
+      <div>
         {loadError ? (
           <LoadErrorState title={programId === "new" ? "Couldn't load your listings." : "Couldn't load this programme."} onRetry={load} />
         ) : programId === "new" ? (

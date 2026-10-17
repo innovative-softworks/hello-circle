@@ -53,6 +53,8 @@ const STATIC_TITLES: Record<string, string> = {
   "/forgot-password": "Forgot password",
   "/reset-password": "Reset password",
   "/accept-invite": "Accept invitation",
+  "/admin-invite": "Admin invitation",
+  "/booking-change": "Booking change",
   "/manage/link-confirm": "Link accounts",
   "/become-a-host": "Become a host",
   "/vendor/signup": "Become a provider",

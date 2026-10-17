@@ -1,7 +1,7 @@
 import { useNavigate } from "react-router-dom";
 import { openOnboarding } from "./AccountSetupGate";
 import { Button } from "./ui";
-import { colors, fonts } from "../theme";
+import { colors, fonts, radius } from "../theme";
 
 // Brand-new-user state (My Life redesign §36/§56-58) — never 0 plans/0
 // Circles/empty charts. Three real, working destinations instead.
@@ -21,7 +21,7 @@ export function MyLifeEmptyState() {
       </h1>
       <div className="grid-responsive-3" style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 16, marginBottom: 32 }}>
         {STEPS.map((s) => (
-          <div key={s.n} style={{ border: `1px solid ${colors.border}`, borderRadius: 10, padding: 20 }}>
+          <div key={s.n} style={{ border: `1px solid ${colors.border}`, borderRadius: radius.control, padding: 20 }}>
             <div style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 22, color: colors.faint, marginBottom: 10 }}>{s.n}</div>
             <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 14 }}>{s.title}</div>
             <Button variant="ghost" onClick={() => (s.href ? navigate(s.href) : openOnboarding())}>{s.cta}</Button>

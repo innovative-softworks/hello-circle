@@ -2,7 +2,9 @@ import { useEffect, useMemo, useState } from "react";
 import { dateLabel } from "../euro";
 import { checkInGameParticipant, fetchGameParticipantsForManage } from "../api";
 import { CheckIcon, SearchIcon } from "./icons";
-import { Avatar, Button, EmptyState, Modal, PageSpinner } from "./ui";
+import { Avatar, Button, EmptyState, LoadErrorState, Modal, PageSpinner } from "./ui";
+import { useToast } from "./Toast";
+import { errorMessage } from "./admin/adminUi";
 import { colors, fonts, radius } from "../theme";
 import type { Game, ManageParticipant } from "../types";
 
@@ -16,11 +18,18 @@ export function HostCheckInScreen({ game, onClose }: { game: Game | null; onClos
   const [participants, setParticipants] = useState<ManageParticipant[] | null>(null);
   const [search, setSearch] = useState("");
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [loadFailed, setLoadFailed] = useState(false);
+  const toast = useToast();
 
-  useEffect(() => {
+  const load = () => {
     setParticipants(null);
+    setLoadFailed(false);
+    if (game) fetchGameParticipantsForManage(game.id).then(setParticipants).catch(() => setLoadFailed(true));
+  };
+  useEffect(() => {
     setSearch("");
-    if (game) fetchGameParticipantsForManage(game.id).then(setParticipants);
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [game?.id]);
 
   const joined = useMemo(() => (participants ?? []).filter((p) => p.status === "joined" || p.status === "pending_payment"), [participants]);
@@ -33,6 +42,8 @@ export function HostCheckInScreen({ game, onClose }: { game: Game | null; onClos
     try {
       await checkInGameParticipant(game.id, residentId);
       setParticipants((prev) => prev && prev.map((p) => (p.residentId === residentId ? { ...p, checkedInAt: new Date().toISOString() } : p)));
+    } catch (e) {
+      toast.error(errorMessage(e, "Couldn't check them in. Try again."));
     } finally {
       setBusyId(null);
     }
@@ -75,7 +86,9 @@ export function HostCheckInScreen({ game, onClose }: { game: Game | null; onClos
         </div>
       }
     >
-      {!participants ? (
+      {loadFailed ? (
+        <LoadErrorState title="Couldn't load the participant list" onRetry={load} />
+      ) : !participants ? (
         <PageSpinner />
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>

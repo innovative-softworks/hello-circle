@@ -1,5 +1,5 @@
 import { Button } from "../ui";
-import { colors, fonts } from "../../theme";
+import { colors, fonts, radius } from "../../theme";
 import { FV_ACCENT, FV_ACCENT_DARK, FV_MAX_WIDTH, FV_MONO } from "./constants";
 import { RevealText } from "../RevealText";
 
@@ -32,7 +32,7 @@ export function VendorFinalCTA({ onPrimaryCta }: { onPrimaryCta: () => void }) {
             <a
               href="mailto:partners@hellocircle.ie"
               style={{
-                borderRadius: 10,
+                borderRadius: radius.control,
                 fontWeight: 700,
                 fontSize: 15,
                 padding: "13px 24px",

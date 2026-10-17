@@ -1,4 +1,5 @@
 import bcrypt from "bcryptjs";
+import { STEP_UP_MINUTES, adminMfaRequired } from "./adminMfa.js";
 import crypto from "node:crypto";
 import type { NextFunction, Request, Response } from "express";
 import { db } from "./db/index.js";
@@ -50,6 +51,8 @@ export interface AuthedUser {
    * applies to existing sessions on their next request. Undefined/null when
    * the member has no organisation or the row wasn't loaded with it. */
   orgStatus?: string | null;
+  /** OG-07 — an admin session's two-step state (set for admin sessions only). */
+  mfa?: { required: boolean; enrolled: boolean; verifiedMinutesAgo: number | null };
 }
 
 export const ADMIN_ROLES = ["super", "finance", "support", "legal"] as const;
@@ -77,6 +80,8 @@ interface UserRow {
   resident_id: string | null;
   admin_role: AdminRole | null;
   org_status?: string | null;
+  mfa_enrolled?: number | null;
+  mfa_age?: number | null;
 }
 
 declare global {
@@ -250,12 +255,17 @@ async function userFromToken(token: string): Promise<AuthedUser | null> {
   const row = (await db
     .prepare(
       `SELECT u.id, u.email, u.role, u.status, u.name, u.vendor_type, u.business_name, u.address, u.county, u.mobile, u.landline, u.description, u.org_id, u.platform_role, u.invited_staff, u.provider_tier, u.created_at, u.resident_id, u.admin_role,
-              o.status AS org_status
+              o.status AS org_status, u.mfa_secret_enc IS NOT NULL AS mfa_enrolled, TIMESTAMPDIFF(MINUTE, s.mfa_verified_at, NOW()) AS mfa_age
        FROM sessions s JOIN users u ON u.id = s.user_id LEFT JOIN organisations o ON o.id = u.org_id
        WHERE s.token = ? AND s.expires_at > NOW()`
     )
     .get(token)) as UserRow | undefined;
-  return row ? rowToUser(row) : null;
+  if (!row) return null;
+  const user = rowToUser(row);
+  if (user.role === "admin") {
+    user.mfa = { required: await adminMfaRequired(), enrolled: Number(row.mfa_enrolled) === 1, verifiedMinutesAgo: row.mfa_age === null || row.mfa_age === undefined ? null : Number(row.mfa_age) };
+  }
+  return user;
 }
 
 /** Reads the session cookie (if any) and attaches req.user. Never rejects. */
@@ -298,7 +308,19 @@ export function requireVendor(req: Request, res: Response, next: NextFunction) {
 export function requireAdmin(req: Request, res: Response, next: NextFunction) {
   if (!req.user) return res.status(401).json({ error: "Admin login required" });
   if (req.user.role !== "admin") return res.status(403).json({ error: "Admin access only" });
+  if (mfaPending(req.user)) return res.status(403).json({ error: MFA_PENDING_ERROR, mfaRequired: true });
   next();
+}
+
+// OG-07 — an admin session opens nothing until two-step sign-in is done.
+export const MFA_PENDING_ERROR = "Finish two-step sign-in to use the admin tools";
+/** True for an admin session that still has to enter a code. */
+export function mfaPending(user: AuthedUser | undefined | null): boolean {
+  return !!user && user.role === "admin" && !!user.mfa?.required && user.mfa.verifiedMinutesAgo === null;
+}
+/** True when a sensitive action needs a fresh code (verified more than STEP_UP_MINUTES ago). */
+export function mfaStale(user: AuthedUser | undefined | null): boolean {
+  return !!user && user.role === "admin" && !!user.mfa?.required && (user.mfa.verifiedMinutesAgo === null || user.mfa.verifiedMinutesAgo > STEP_UP_MINUTES);
 }
 
 // D-02: the old role guards (hasAdminRole / requireAdminRole) were removed.

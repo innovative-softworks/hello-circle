@@ -33,19 +33,21 @@ export function AdminShell({
 }) {
   const can = useAdminCan();
   const navItems: WorkspaceNavItem<AdminTab>[] = ADMIN_NAV.flatMap((group) =>
-    group.items.map((item) => {
+    group.items.filter((item) => !item.hidden).map((item) => {
       const Icon = item.icon;
       return { key: item.key, label: item.label, icon: <Icon {...ICON} />, group: group.label, count: counts[item.key], locked: !canUse(can, item) };
     })
   );
-  const item = navItem(active);
+  // A hidden alias (e.g. `?tab=demand`) highlights the page that now holds it.
+  const shown = navItem(active).aliasOf ?? active;
+  const item = navItem(shown);
   return (
     <WorkspaceShell
       workspaceLabel="Admin workspace"
       account={`${role ? ADMIN_ROLE_LABEL[role] : "No admin role"} · ${account.email}`}
       navItems={navItems}
       defaultGroup="Admin"
-      active={active}
+      active={shown}
       onNavigate={onNavigate}
       title={item.label}
       subtitle={item.summary}

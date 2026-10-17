@@ -10,6 +10,7 @@ import { useToast } from "../Toast";
 import { RecordState, RecordView } from "../workspace/RecordView";
 import { useRecordParam, useUrlParam } from "../../useUrlTab";
 import { flattenListings, rowKey } from "./AdminListings";
+import type { AdminTab } from "./adminNav";
 import {
   AdminButton,
   Badge,
@@ -29,6 +30,7 @@ import {
   useAdminAction,
   useAdminData,
   usePaged,
+  AdminModal,
 } from "./adminUi";
 
 // Vendors (admin redesign 2026-10-14): partner list + onboarding details.
@@ -38,6 +40,7 @@ import {
 const PLATFORM_ROLES = ["centre_manager", "facility_manager", "finance", "communications", "read_only_analyst"] as const;
 const TYPE_LABEL = { community: "Community", sports: "Sports club" } as const;
 const TIER_LABEL = { standard: "Standard", verified: "Verified", featured: "Featured" } as const;
+const TYPE_NAMES = { centre: "Community centre", club: "Sports club", experience: "Experience" } as const;
 
 // Record page (was a slide-in panel).
 function VendorPanel({
@@ -46,12 +49,14 @@ function VendorPanel({
   onClose,
   onChanged,
   onOpenListing,
+  onNavigate,
 }: {
   vendor: AdminVendor;
   vendors: AdminVendor[];
   onClose: () => void;
   onChanged: () => void;
   onOpenListing: (key: string) => void;
+  onNavigate?: (tab: AdminTab, extra?: Record<string, string>) => void;
 }) {
   const orgs = useAdminData(fetchAdminOrganisations);
   const listings = useAdminData(fetchAdminListings);
@@ -63,6 +68,7 @@ function VendorPanel({
   const can = useAdminCan();
   const toast = useToast();
   const [role, setRole] = useState(vendor.platformRole ?? "none");
+  const [editRole, setEditRole] = useState(false);
   const [tier, setTier] = useState(vendor.providerTier);
   useEffect(() => {
     setRole(vendor.platformRole ?? "none");
@@ -96,137 +102,202 @@ function VendorPanel({
       "role",
       () => Promise.all([setVendorPlatformRole(vendor.id, role === "none" ? null : role), setVendorProviderTier(vendor.id, tier)]),
       { success: "Role and tier saved" }
-    ).then((ok) => ok && onChanged());
+    ).then((ok) => {
+      if (ok) onChanged();
+      return ok;
+    });
 
   return (
     <RecordView
       title={vendor.businessName || vendor.name}
-      reference={
-        <>
-          Partner account · <span className="adm-mono">{vendor.id}</span>
-        </>
-      }
+      reference={vendor.businessName ? `Partner account · ${vendor.name}` : "Partner account"}
       backLabel="Vendors"
       onBack={onClose}
       statuses={
         <>
-          <span className="adm-note">Account:</span> <StatusTag status={vendor.status} />
+          <span className="adm-note">Account:</span> <StatusTag status={vendor.status} label={vendor.status === "approved" ? "Approved" : undefined} />
           {vendor.vendorType && <Badge tone="outline">{TYPE_LABEL[vendor.vendorType]}</Badge>}
-        </>
-      }
-      actions={
-        <>
-          {vendor.status !== "suspended" && can("partners.suspend") && (
-            <AdminButton variant="danger" onClick={() => setConfirmSuspend(true)} disabled={!!busy}>
-              Suspend account
-            </AdminButton>
-          )}
-          {vendor.status === "suspended" && can("partners.suspend") && (
-            <AdminButton onClick={() => setConfirmReinstate(true)} disabled={!!busy}>
-              Reinstate account
-            </AdminButton>
-          )}
-          {vendor.status === "pending" && can("partners.approve") && (
-            <AdminButton variant="primary" onClick={() => decide("approved", `${vendor.name} approved`)} disabled={!!busy}>
-              {busy === "status:approved" ? "Approving…" : "Approve account"}
-            </AdminButton>
-          )}
+          <Badge tone="outline">{TIER_LABEL[vendor.providerTier]} tier</Badge>
         </>
       }
     >
-      <SectionLabel>Onboarding details</SectionLabel>
-      <Facts
-        rows={[
-          ["Contact", vendor.name],
-          ["Email", vendor.email],
-          ["Business", vendor.businessName || null],
-          ["Type", vendor.vendorType ? TYPE_LABEL[vendor.vendorType] : null],
-          ["Address", [vendor.address, vendor.county].filter(Boolean).join(", ") || null],
-          ["Mobile", vendor.mobile || null],
-          ["Landline", vendor.landline || null],
-          ["About", vendor.description || null],
-          ["Signed up", formatDate(vendor.createdAt, true)],
-          ["Account kind", vendor.invitedStaff ? "Invited staff member" : "Organisation owner"],
-        ]}
-      />
+      <div className="adm-review">
+        <div className="adm-review-main">
+          <SectionLabel>Onboarding details</SectionLabel>
+          <Facts
+            rows={[
+              ["Contact", vendor.name],
+              ["Email", vendor.email],
+              ["Business", vendor.businessName || null],
+              ["Type", vendor.vendorType ? TYPE_LABEL[vendor.vendorType] : null],
+              ["Address", [vendor.address, vendor.county].filter(Boolean).join(", ") || null],
+              ["Mobile", vendor.mobile || null],
+              ["Landline", vendor.landline || null],
+              ["About", vendor.description || null],
+              ["Signed up", formatDate(vendor.createdAt, true)],
+              ["Account kind", vendor.invitedStaff ? "Invited staff member" : "Organisation owner"],
+              ["Reference", <span className="adm-mono">{vendor.id}</span>],
+            ]}
+          />
+          <p className="adm-note" style={{ marginTop: 8 }}>Partner signup doesn't collect documents. Approval is based on these details and the listings below.</p>
 
-      <SectionLabel>Documents</SectionLabel>
-      <p className="adm-note">Partner signup doesn't collect documents — account approval is based on the onboarding details above.</p>
+          <SectionLabel>Listings{listings.data ? ` (${own.length})` : ""}</SectionLabel>
+          {listings.error ? (
+            <p className="adm-note">Couldn't load listings.</p>
+          ) : listings.data === null ? (
+            <p className="adm-note">Loading…</p>
+          ) : own.length === 0 ? (
+            <p className="adm-note">No listings yet.</p>
+          ) : (
+            <ul className="adm-ov-list adm-box" style={{ padding: 0 }}>
+              {own.map((l) => (
+                <li key={rowKey(l)} className="adm-ov-row adm-ov-row--3">
+                  <div className="adm-ov-main">
+                    <div className="adm-ov-title">{l.item.name}</div>
+                    <div className="adm-ov-detail">{[TYPE_NAMES[l.type], l.item.area, l.item.county].filter(Boolean).join(" · ")}</div>
+                  </div>
+                  <StatusTag status={l.item.status} />
+                  <AdminButton size="sm" onClick={() => onOpenListing(rowKey(l))} aria-label={`Open ${l.item.name}`}>
+                    Open
+                  </AdminButton>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
 
-      <SectionLabel>Platform role &amp; provider tier</SectionLabel>
-      {!vendor.invitedStaff && <p className="adm-note" style={{ marginBottom: 8 }}>Organisation owners always have full access; a role only restricts invited staff.</p>}
-      <div style={{ display: "flex", gap: 8, alignItems: "flex-end", flexWrap: "wrap" }}>
-        <div className="adm-field">
-          <label htmlFor="adm-v-role">Platform role</label>
-          <select id="adm-v-role" className="adm-select" value={role} onChange={(e) => setRole(e.target.value)}>
-            <option value="none">No role</option>
-            {PLATFORM_ROLES.map((r) => (
-              <option key={r} value={r}>
-                {PLATFORM_ROLE_LABELS[r]}
-              </option>
-            ))}
-          </select>
+        <aside className="adm-review-side" aria-label="Account actions and settings">
+          <section className="adm-review-card">
+            <h2 className="adm-review-h">Account</h2>
+            <p className="adm-note" style={{ margin: "0 0 12px" }}>
+              {vendor.status === "pending"
+                ? "Waiting for approval. Their listings can't go live until the account is approved."
+                : vendor.status === "suspended"
+                  ? "Suspended: they can't sign in and their own listings refuse new bookings."
+                  : "Approved: they can sign in and publish listings after review."}
+            </p>
+            <div className="adm-review-actions">
+              {vendor.status === "pending" && can("partners.approve") && (
+                <AdminButton variant="primary" onClick={() => decide("approved", `${vendor.name} approved`)} disabled={!!busy}>
+                  {busy === "status:approved" ? "Approving…" : "Approve account"}
+                </AdminButton>
+              )}
+              {vendor.status === "suspended" && can("partners.suspend") && (
+                <AdminButton onClick={() => setConfirmReinstate(true)} disabled={!!busy}>
+                  Reinstate account
+                </AdminButton>
+              )}
+              {vendor.status !== "suspended" && can("partners.suspend") && (
+                <AdminButton variant="danger" onClick={() => setConfirmSuspend(true)} disabled={!!busy}>
+                  Suspend account…
+                </AdminButton>
+              )}
+            </div>
+          </section>
+
+          <section className="adm-review-card">
+            <h2 className="adm-review-h">Role &amp; tier</h2>
+            <Facts
+              rows={[
+                ["Platform role", vendor.platformRole ? PLATFORM_ROLE_LABELS[vendor.platformRole as keyof typeof PLATFORM_ROLE_LABELS] ?? vendor.platformRole : "No role"],
+                ["Provider tier", TIER_LABEL[vendor.providerTier]],
+              ]}
+            />
+            {!vendor.invitedStaff && <p className="adm-note" style={{ margin: "8px 0 10px" }}>Organisation owners always have full access; a role only restricts invited staff.</p>}
+            {can("partners.platform_role") && can("partners.tier") ? (
+              <AdminButton size="sm" onClick={() => setEditRole(true)}>
+                Change role or tier
+              </AdminButton>
+            ) : (
+              <span className="adm-note">Only a super admin can change these.</span>
+            )}
+            <AdminModal
+              open={editRole}
+              onClose={() => {
+                setEditRole(false);
+                setRole(vendor.platformRole ?? "none");
+                setTier(vendor.providerTier);
+              }}
+              dirty={roleDirty}
+              title="Change role and tier"
+              subtitle={vendor.businessName || vendor.name}
+              footer={
+                <>
+                  <AdminButton variant="quiet" onClick={() => setEditRole(false)}>
+                    Cancel
+                  </AdminButton>
+                  <AdminButton variant="primary" onClick={() => saveRole().then((ok) => ok && setEditRole(false))} disabled={!roleDirty || !!busy}>
+                    {busy === "role" ? "Saving…" : "Save"}
+                  </AdminButton>
+                </>
+              }
+            >
+              <div style={{ display: "grid", gap: 14 }}>
+                <div className="adm-field">
+                  <label htmlFor="adm-v-role">Platform role</label>
+                  <select id="adm-v-role" className="adm-select" value={role} onChange={(e) => setRole(e.target.value)}>
+                    <option value="none">No role</option>
+                    {PLATFORM_ROLES.map((r) => (
+                      <option key={r} value={r}>
+                        {PLATFORM_ROLE_LABELS[r]}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="adm-field">
+                  <label htmlFor="adm-v-tier">Provider tier</label>
+                  <select id="adm-v-tier" className="adm-select" value={tier} onChange={(e) => setTier(e.target.value as AdminVendor["providerTier"])}>
+                    {Object.entries(TIER_LABEL).map(([k, v]) => (
+                      <option key={k} value={k}>
+                        {v}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                {!vendor.invitedStaff && <p className="adm-note" style={{ margin: 0 }}>This is the organisation owner, so the role has no effect on their access.</p>}
+              </div>
+            </AdminModal>
+          </section>
+
+          <section className="adm-review-card">
+            <h2 className="adm-review-h">Organisation</h2>
+            {orgs.data === null ? (
+              <p className="adm-note" style={{ margin: 0 }}>Loading…</p>
+            ) : org ? (
+              <>
+                <div className="adm-cell-title">{org.name}</div>
+                <div className="adm-cell-sub" style={{ marginBottom: 10 }}>
+                  {members} {members === 1 ? "member" : "members"}
+                </div>
+                {onNavigate && (
+                  <AdminButton size="sm" onClick={() => onNavigate("organisations", { record: `org:${org.id}` })}>
+                    Open organisation
+                  </AdminButton>
+                )}
+              </>
+            ) : (
+              <p className="adm-note" style={{ margin: 0 }}>No organisation linked.</p>
+            )}
+          </section>
+
+          {onNavigate && can("support.search") && (
+            <section className="adm-review-card">
+              <h2 className="adm-review-h">Support</h2>
+              <p className="adm-note" style={{ margin: "0 0 10px" }}>Orders and accounts for {vendor.email}.</p>
+              <AdminButton size="sm" onClick={() => onNavigate("support", { q: vendor.email, record: `person:${vendor.email}` })}>
+                Open in Support
+              </AdminButton>
+            </section>
+          )}
+        </aside>
+
+        <div className="adm-review-history">
+          <SectionLabel>Decisions</SectionLabel>
+          <DecisionHistory objectType="vendor" objectId={vendor.id} currentNeedsReason={vendor.status === "suspended"} refreshKey={vendor.status} />
+          <SectionLabel>Activity</SectionLabel>
+          <ObjectActivity objectIds={[vendor.id]} note="Account status, platform-role and provider-tier changes are recorded." />
         </div>
-        <div className="adm-field">
-          <label htmlFor="adm-v-tier">Provider tier</label>
-          <select id="adm-v-tier" className="adm-select" value={tier} onChange={(e) => setTier(e.target.value as AdminVendor["providerTier"])}>
-            {Object.entries(TIER_LABEL).map(([k, v]) => (
-              <option key={k} value={k}>
-                {v}
-              </option>
-            ))}
-          </select>
-        </div>
-        {can("partners.platform_role") && can("partners.tier") ? (
-          <AdminButton onClick={saveRole} disabled={!roleDirty || !!busy}>
-            {busy === "role" ? "Saving…" : "Save"}
-          </AdminButton>
-        ) : (
-          <span className="adm-note">Only a super admin can change the platform role and provider tier.</span>
-        )}
       </div>
-
-      <SectionLabel>Organisation</SectionLabel>
-      {orgs.data === null ? (
-        <p className="adm-note">Loading…</p>
-      ) : org ? (
-        <p style={{ margin: 0, fontSize: 13.5 }}>
-          {org.name} · {members} {members === 1 ? "member" : "members"}
-        </p>
-      ) : (
-        <p className="adm-note">No organisation linked.</p>
-      )}
-
-      <SectionLabel>Listings{listings.data ? ` (${own.length})` : ""}</SectionLabel>
-      {listings.error ? (
-        <p className="adm-note">Couldn't load listings.</p>
-      ) : listings.data === null ? (
-        <p className="adm-note">Loading…</p>
-      ) : own.length === 0 ? (
-        <p className="adm-note">No listings yet.</p>
-      ) : (
-        <ul style={{ listStyle: "none", margin: 0, padding: 0, border: "1px solid var(--color-border)" }}>
-          {own.map((l) => (
-            <li key={rowKey(l)} style={{ borderBottom: "1px solid var(--color-border)" }}>
-              <button
-                type="button"
-                className="adm-row-button"
-                onClick={() => onOpenListing(rowKey(l))}
-                style={{ width: "100%", display: "flex", justifyContent: "space-between", gap: 10, padding: "10px 12px", alignItems: "center", fontSize: 13.5 }}
-              >
-                <span className="adm-cell-title">{l.item.name}</span>
-                <StatusTag status={l.item.status} />
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
-
-      <SectionLabel>Decisions</SectionLabel>
-      <DecisionHistory objectType="vendor" objectId={vendor.id} currentNeedsReason={vendor.status === "suspended"} refreshKey={vendor.status} />
-
-      <SectionLabel>Activity</SectionLabel>
-      <ObjectActivity objectIds={[vendor.id]} note="Account status, platform-role and provider-tier changes are recorded." />
 
       <ConfirmDialog
         open={confirmSuspend}
@@ -266,13 +337,22 @@ export function AdminVendorsPage({
   onOpenHandled,
   onOpenListing,
   onCountsChanged,
+  onNavigate,
 }: {
   openId?: string | null;
   onOpenHandled?: () => void;
   onOpenListing: (key: string) => void;
   onCountsChanged?: () => void;
+  onNavigate?: (tab: AdminTab, extra?: Record<string, string>) => void;
 }) {
   const state = useAdminData(fetchAdminVendors);
+  // Listing counts across all three types (the vendor summary only counts centres and clubs).
+  const allListings = useAdminData(fetchAdminListings);
+  const listingCount = useMemo(() => {
+    const m = new Map<string, number>();
+    if (allListings.data) for (const r of flattenListings(allListings.data)) if (r.item.vendorId && r.item.status !== "deleted") m.set(r.item.vendorId, (m.get(r.item.vendorId) ?? 0) + 1);
+    return m;
+  }, [allListings.data]);
   // Filters, page and the open record live in the URL (shareable, Back-safe).
   const [q, setQ] = useUrlParam<string>("q", "");
   const [view, setView] = useUrlParam<(typeof VIEWS)[number]["key"]>("view", "all");
@@ -306,6 +386,7 @@ export function AdminVendorsPage({
           onCountsChanged?.();
         }}
         onOpenListing={onOpenListing}
+        onNavigate={onNavigate}
       />
     );
   }
@@ -367,13 +448,13 @@ export function AdminVendorsPage({
                           </td>
                           <td data-label="Tier">{TIER_LABEL[v.providerTier]}</td>
                           <td data-label="Listings" className="adm-num">
-                            {Number(v.centreCount) + Number(v.clubCount)}
+                            {allListings.data ? listingCount.get(v.id) ?? 0 : Number(v.centreCount) + Number(v.clubCount)}
                           </td>
                           <td data-label="Signed up">{formatDate(v.createdAt)}</td>
                           <td>
                             <div className="adm-cell-actions">
-                              <AdminButton size="sm" variant={v.status === "pending" ? "primary" : "secondary"} onClick={() => setOpenId(v.id)} aria-label={`${v.status === "pending" ? "Review" : "View"} ${v.name}`}>
-                                {v.status === "pending" ? "Review" : "View"}
+                              <AdminButton size="sm" variant={v.status === "pending" ? "primary" : "secondary"} onClick={() => setOpenId(v.id)} aria-label={`${v.status === "pending" ? "Review" : "Open"} ${v.name}`}>
+                                {v.status === "pending" ? "Review" : "Open"}
                               </AdminButton>
                             </div>
                           </td>
@@ -388,7 +469,6 @@ export function AdminVendorsPage({
           }
         </Loaded>
       </Box>
-      <p className="adm-note">Listing counts cover community centres and sports clubs (the account summary the server returns); the account page lists experiences too.</p>
     </div>
   );
 }

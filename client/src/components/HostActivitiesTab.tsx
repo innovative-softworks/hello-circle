@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { dateLabel } from "../euro";
 import { useNavigate } from "react-router-dom";
-import { cancelGame, fetchGameParticipantsForManage, fetchGameWaitlist, fetchMyGames, offerGameWaitlistEntry, postGameUpdate, refundGameParticipant, removeGameParticipant } from "../api";
+import { answerGameJoinRequest, cancelGame, cancelRemainingGameSeries, fetchGameSeries, fetchActivityMoney, fetchGameJoinRequests, updateGameBookingSettings, moveGameWithVenue, fetchGameParticipantsForManage, fetchGameWaitlist, fetchMyGames, offerGameWaitlistEntry, postGameUpdate, refundGameParticipant, removeGameParticipant } from "../api";
 import { deriveActivityStatus } from "../activityStatus";
 import { rehostHref } from "../rehost";
 import { CalendarIcon, SearchIcon } from "./icons";
@@ -10,12 +10,15 @@ import { ShareButton } from "./ShareButton";
 import { Avatar, Button, Card, ConfirmDialog, EmptyState, LoadErrorState, PageSpinner, ProgressBar } from "./ui";
 import { RecordState, RecordView } from "./workspace/RecordView";
 import { ActionMenu } from "./ActionMenu";
+import { useToast } from "./Toast";
 import { Facts, SectionLabel } from "./admin/adminUi";
 import { useRecordParam, useUrlParam } from "../useUrlTab";
 import { euro } from "../euro";
 import { colors, fonts, radius } from "../theme";
 import type { Game, ManageParticipant, WaitlistEntry } from "../types";
-import { irelandToday } from "../irelandDate";
+import { irelandToday, irelandWallTimeToUtc } from "../irelandDate";
+import { X } from "lucide-react";
+import { AdminButton, AdminModal, Box, FormField, Loaded, SearchField, SelectField, Toolbar, useAdminData } from "./admin/adminUi";
 
 // HelloCircle Manage — Activities tab body, extracted from the standalone
 // /manage/activities page (Phase 3, Host MVP) so it can render as one tab of
@@ -62,19 +65,10 @@ function matchesStatusFilter(g: Game, filter: ActivityStatusFilter): boolean {
   return live && g.status === filter;
 }
 
-function activityFilterPillStyle(active: boolean) {
-  return {
-    fontSize: 11.5,
-    fontWeight: 700,
-    padding: "4px 10px",
-    borderRadius: radius.pill,
-    border: "none",
-    cursor: "pointer",
-    background: active ? colors.dark : colors.panel,
-    color: active ? "#fff" : colors.muted,
-  } as const;
-}
+const WHEN_LABELS: Record<ActivityWhenFilter, string> = { upcoming: "Upcoming", past: "Past", all: "All dates" };
 
+// "When" leads (Upcoming/Past is the primary distinction); status is a
+// second, combinable refinement. Non-default filters show as removable chips.
 function ActivitiesFilterBar({
   status,
   onStatus,
@@ -90,37 +84,32 @@ function ActivitiesFilterBar({
   search: string;
   onSearch: (v: string) => void;
 }) {
+  const chips: { label: string; clear: () => void }[] = [];
+  if (when !== "upcoming") chips.push({ label: WHEN_LABELS[when], clear: () => onWhen("upcoming") });
+  if (status !== "all") chips.push({ label: STATUS_FILTER_LABELS[status], clear: () => onStatus("all") });
+  if (search) chips.push({ label: `"${search}"`, clear: () => onSearch("") });
   return (
-    <Card style={{ display: "flex", flexWrap: "wrap", gap: 12, alignItems: "center" }}>
-      {/* Host Experience Polish — "when" leads (Upcoming/Past/Cancelled is
-          the primary distinction the brief's tab language wants); "status"
-          stays a secondary refinement rather than merging both into one
-          flat tab set, which would lose the ability to combine them (e.g.
-          "past AND cancelled"). */}
-      <div style={{ display: "flex", gap: 4 }}>
-        {(["upcoming", "past", "all"] as const).map((w) => (
-          <button key={w} onClick={() => onWhen(w)} style={activityFilterPillStyle(when === w)}>
-            {w === "all" ? "All dates" : w === "upcoming" ? "Upcoming" : "Past"}
-          </button>
-        ))}
-      </div>
-      <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
-        {(["all", "draft", "coming_soon", "open", "pending_participants", "cancelled"] as const).map((s) => (
-          <button key={s} onClick={() => onStatus(s)} style={activityFilterPillStyle(status === s)} aria-pressed={status === s}>
-            {STATUS_FILTER_LABELS[s]}
-          </button>
-        ))}
-      </div>
-      <div style={{ display: "flex", alignItems: "center", gap: 6, flex: "1 1 200px", minWidth: 160 }}>
-        <SearchIcon size={13} style={{ color: colors.faint, flex: "none" }} />
-        <input aria-label="Search activities"
-          value={search}
-          onChange={(e) => onSearch(e.target.value)}
-          placeholder="Search activity or venue"
-          style={{ flex: 1, border: `1px solid ${colors.border}`, borderRadius: radius.control, padding: "6px 10px", fontSize: 12.5 }}
+    <div>
+      <Toolbar label="Filter activities">
+        <SearchField label="Search" placeholder="Activity or venue" value={search} onChange={onSearch} />
+        <SelectField label="When" value={when} onChange={onWhen} options={(["upcoming", "past", "all"] as const).map((v) => ({ value: v, label: WHEN_LABELS[v] }))} />
+        <SelectField
+          label="Status"
+          value={status}
+          onChange={onStatus}
+          options={(["all", "draft", "coming_soon", "open", "pending_participants", "cancelled"] as const).map((v) => ({ value: v, label: v === "all" ? "All statuses" : STATUS_FILTER_LABELS[v] }))}
         />
-      </div>
-    </Card>
+      </Toolbar>
+      {chips.length > 0 && (
+        <div className="ws-fchips" aria-label="Active filters">
+          {chips.map((c) => (
+            <button key={c.label} type="button" className="adm-chip ws-fchip" onClick={c.clear} aria-label={`Remove filter ${c.label}`}>
+              {c.label} <X size={12} aria-hidden="true" />
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -145,8 +134,27 @@ function paymentLabel(p: ManageParticipant, paid: boolean) {
 // Activity record page in the Host workspace (was a "Participants" modal).
 // Addressed by `?tab=activities&record=activity:<id>`, so it survives refresh
 // and Back returns to the filtered list.
-function ActivityRecord({ game, onBack, onCheckIn }: { game: Game; onBack: () => void; onCheckIn: () => void }) {
+function ActivityRecord({ game, onBack, onCheckIn, onChanged }: { game: Game; onBack: () => void; onCheckIn: () => void; onChanged: () => void }) {
   const navigate = useNavigate();
+  const toast = useToast();
+  const [moving, setMoving] = useState(false);
+  const [moveTo, setMoveTo] = useState({ date: game.date, time: game.time });
+  const [moveError, setMoveError] = useState<string | null>(null);
+  const [moveBusy, setMoveBusy] = useState(false);
+  const doMove = async () => {
+    setMoveBusy(true);
+    setMoveError(null);
+    try {
+      await moveGameWithVenue(game.id, moveTo.date, moveTo.time);
+      toast.success(`Moved to ${dateLabel(moveTo.date)} at ${moveTo.time}, with the venue booking`);
+      setMoving(false);
+      onChanged();
+    } catch (e) {
+      setMoveError(e instanceof Error ? e.message : "Couldn't move it");
+    } finally {
+      setMoveBusy(false);
+    }
+  };
   const [participants, setParticipants] = useState<ManageParticipant[] | null>(null);
   const [participantsFailed, setParticipantsFailed] = useState(false);
   const [removeTarget, setRemoveTarget] = useState<ManageParticipant | null>(null);
@@ -219,7 +227,7 @@ function ActivityRecord({ game, onBack, onCheckIn }: { game: Game; onBack: () =>
           <span style={{ fontSize: 12.5, color: colors.mutedLight }}>Places:</span>
           <span style={{ fontSize: 12.5, fontWeight: 700 }}>{participants ? `${joined} of ${game.capacity} taken` : `${game.capacity} places`}</span>
           <span style={{ fontSize: 12.5, color: colors.mutedLight }}>Price:</span>
-          <span style={{ fontSize: 12.5, fontWeight: 700 }}>{paid ? euro(game.priceCents ?? 0) : "Free"}</span>
+          <span style={{ fontSize: 12.5, fontWeight: 700 }}>{paid ? euro((game.priceCents ?? 0) / 100) : "Free"}</span>
         </>
       }
       actions={
@@ -228,6 +236,11 @@ function ActivityRecord({ game, onBack, onCheckIn }: { game: Game; onBack: () =>
           {s.label !== "Cancelled" && game.status !== "cancelled" && (
             <>
               <Button variant="ghost" onClick={onCheckIn}>Check-in</Button>
+              {game.bookingRef && game.date >= irelandToday() && (
+                <Button variant="ghost" onClick={() => setMoving(true)}>
+                  Move with venue booking
+                </Button>
+              )}
               <Button onClick={() => navigate(`/games/host/${game.id}`)}>Edit activity</Button>
             </>
           )}
@@ -285,7 +298,7 @@ function ActivityRecord({ game, onBack, onCheckIn }: { game: Game; onBack: () =>
               ["When", `${dateLabel(game.date)} · ${game.time}`],
               ["Where", game.centreName ?? game.locationText],
               ["Capacity", `${game.capacity} places`],
-              ["Price", paid ? `${euro(game.priceCents ?? 0)} per place` : "Free"],
+              ["Price", paid ? `${euro((game.priceCents ?? 0) / 100)} per place` : "Free"],
             ]}
           />
           <SectionLabel>Waitlist</SectionLabel>
@@ -325,13 +338,48 @@ function ActivityRecord({ game, onBack, onCheckIn }: { game: Game; onBack: () =>
       {/* Full refund only — every participant pays the same price. */}
       <ConfirmDialog
         open={!!refundTarget}
-        title={`Refund ${euro(game.priceCents ?? 0)} to ${refundTarget?.name ?? "this participant"}?`}
+        title={`Refund ${euro((game.priceCents ?? 0) / 100)} to ${refundTarget?.name ?? "this participant"}?`}
         message="Returns their full payment through Stripe. It can't be undone and doesn't remove them from the activity."
         confirmLabel="Issue refund"
         tone="neutral"
         onConfirm={handleRefund}
         onCancel={() => setRefundTarget(null)}
       />
+      {game.seriesId && <ActivitySeriesPanel seriesId={game.seriesId} currentId={game.id} onChanged={onChanged} />}
+      {game.status !== "cancelled" && !isPastGame(game) && <ActivityBookingSettings game={game} onChanged={() => { onChanged(); loadParticipants(); }} />}
+      {paid || game.bookingRef ? <ActivityMoneyPanel gameId={game.id} /> : null}
+      {/* OG-12 — the activity and its venue booking move together, or not at all. */}
+      <AdminModal
+        open={moving}
+        onClose={() => setMoving(false)}
+        title="Move to a new time"
+        subtitle="The venue booking moves with it (the venue's usual rules apply), participants and the venue are told, and nothing about payments changes. Anyone who can't make it can leave."
+        footer={
+          <>
+            <AdminButton variant="quiet" onClick={() => setMoving(false)}>
+              Cancel
+            </AdminButton>
+            <AdminButton variant="primary" onClick={doMove} disabled={moveBusy || (moveTo.date === game.date && moveTo.time === game.time)}>
+              {moveBusy ? "Moving…" : "Move both"}
+            </AdminButton>
+          </>
+        }
+      >
+        <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+          <FormField label="New date" required>
+            {(p) => <input {...p} type="date" className="adm-input" value={moveTo.date} onChange={(e) => setMoveTo((m) => ({ ...m, date: e.target.value }))} />}
+          </FormField>
+          <FormField label="New start time" required error={moveError}>
+            {(p) => (
+              <select {...p} className="adm-select" value={moveTo.time} onChange={(e) => setMoveTo((m) => ({ ...m, time: e.target.value }))}>
+                {["09:00", "10:00", "11:00", "12:00", "13:00", "14:00", "15:00", "16:00", "17:00", "18:00", "19:00", "20:00"].map((t) => (
+                  <option key={t}>{t}</option>
+                ))}
+              </select>
+            )}
+          </FormField>
+        </div>
+      </AdminModal>
     </RecordView>
   );
 }
@@ -377,82 +425,93 @@ function ActivityRow({ game, onChanged, onManage, onCheckIn }: { game: Game; onC
   const isPast = game.date < irelandToday();
 
   return (
-    <Card>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, flexWrap: "wrap" }}>
-        <div style={{ flex: "1 1 260px", minWidth: 200 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4, flexWrap: "wrap" }}>
-            <span style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 15 }}>{game.activityLabel}</span>
-            {statusBadge(game)}
-            {game.circleId && (
-              <button
-                onClick={() => navigate(`/manage/circles/${game.circleSlug ?? game.circleId}`)}
-                style={{ fontSize: 11, fontWeight: 700, color: colors.greenText, background: colors.greenBg, borderRadius: radius.pill, padding: "2px 8px", border: "none", cursor: "pointer" }}
-              >
-                Part of {game.circleName}
-              </button>
-            )}
-          </div>
-          <div style={{ fontSize: 12.5, color: colors.mutedLight, marginBottom: 8 }}>
-            {game.date} · {game.time} · {game.centreName ?? game.locationText}
-          </div>
-          {/* Host Experience Polish — capacity as a visual fill, not just
-              raw "N/M joined" text (no such component existed before this). */}
-          <div style={{ display: "flex", alignItems: "center", gap: 8, maxWidth: 220 }}>
-            <ProgressBar occupied={game.joined} capacity={game.capacity} style={{ flex: 1 }} />
-            <span style={{ fontSize: 11.5, color: colors.mutedLight, flex: "none" }}>{game.joined}/{game.capacity}</span>
-          </div>
+    <li className="ws-act-row">
+      <div className="ws-act-main">
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          <button type="button" className="btn-reset" onClick={onManage} style={{ fontWeight: 700, fontSize: 15 }}>
+            {game.activityLabel}
+          </button>
+          {statusBadge(game)}
+          {game.circleId && (
+            <button type="button" className="adm-chip ws-fchip" onClick={() => navigate(`/manage/circles/${game.circleSlug ?? game.circleId}`)}>
+              Part of {game.circleName}
+            </button>
+          )}
         </div>
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          <Button variant="ghost" onClick={onManage} aria-label={`Manage ${game.activityLabel}`}>Manage activity</Button>
-          {/* HC-QA-053 — drafts are private (the share API 404s them by
-              design), same rule as HostGamePage's create confirmation. */}
-          {game.effectiveLifecycle !== "draft" && <ShareButton entityType="game" entityId={game.id} variant="ghost" />}
-          {/* Duplicate (Host Experience Polish) — any status, reuses the
-              same param-carrying logic as GameDetail.tsx's "Do it again"
-              via the shared rehost.ts helper. "Host again" below is the
-              same action, just labeled for a past activity's context. */}
-          {/* UI completion — secondary actions in one anchored menu. */}
-          <ActionMenu
-            label={`More actions for ${game.activityLabel}`}
-            items={[
-              ...(isLive && !isPast
-                ? [
-                    { label: "Check-in", onSelect: onCheckIn },
-                    { label: "Edit activity", onSelect: () => navigate(`/games/host/${game.id}`) },
-                    { label: posting ? "Hide update form" : "Post an update", onSelect: () => setPosting((v) => !v) },
-                  ]
-                : []),
-              { label: isPast ? "Host again" : "Duplicate", onSelect: () => navigate(rehostHref(game)) },
-              ...(isLive && !isPast ? [{ label: "Cancel activity…", onSelect: () => setConfirmingCancel(true), danger: true }] : []),
-            ]}
-          />
+        <div className="adm-note">
+          {dateLabel(game.date)} · {game.time} · {game.centreName ?? game.locationText}
         </div>
+        {/* Capacity as a visual fill, not just raw "N/M joined" text. */}
+        <div style={{ display: "flex", alignItems: "center", gap: 8, maxWidth: 240 }}>
+          <ProgressBar occupied={game.joined} capacity={game.capacity} style={{ flex: 1 }} />
+          <span className="adm-note" style={{ flex: "none" }}>
+            {game.joined}/{game.capacity} going
+          </span>
+        </div>
+        {error && (
+          <p role="alert" className="adm-field-error" style={{ margin: 0 }}>
+            {error}
+          </p>
+        )}
       </div>
-      {posting && (
-        <div style={{ marginTop: 12 }}>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
-            {UPDATE_TEMPLATES.map((t) => (
-              <button
-                key={t.key}
-                onClick={() => setMessage(t.text(game.activityLabel))}
-                style={{ fontSize: 11.5, fontWeight: 700, color: colors.muted, background: colors.panel, border: "none", borderRadius: radius.pill, padding: "4px 10px", cursor: "pointer" }}
-              >
-                {t.label}
-              </button>
-            ))}
+      <div className="ws-act-actions">
+        <AdminButton size="sm" onClick={onManage} aria-label={`Manage ${game.activityLabel}`}>
+          Manage
+        </AdminButton>
+        {/* HC-QA-053 — drafts are private (the share API 404s them by design). */}
+        {game.effectiveLifecycle !== "draft" && <ShareButton entityType="game" entityId={game.id} variant="ghost" />}
+        {/* Duplicate reuses GameDetail.tsx's "Do it again" via rehost.ts;
+            "Host again" is the same action for a past activity. */}
+        <ActionMenu
+          label={`More actions for ${game.activityLabel}`}
+          buttonText=""
+          className="ws-icon-menu"
+          items={[
+            ...(isLive && !isPast
+              ? [
+                  { label: "Check-in", onSelect: onCheckIn },
+                  { label: "Edit activity", onSelect: () => navigate(`/games/host/${game.id}`) },
+                  { label: "Post an update", onSelect: () => setPosting(true) },
+                ]
+              : []),
+            { label: isPast ? "Host again" : "Duplicate", onSelect: () => navigate(rehostHref(game)) },
+            ...(isLive && !isPast ? [{ label: "Cancel activity…", onSelect: () => setConfirmingCancel(true), danger: true }] : []),
+          ]}
+        />
+      </div>
+      <AdminModal
+        open={posting}
+        onClose={() => setPosting(false)}
+        dirty={message.trim().length > 0}
+        title="Post an update"
+        subtitle={`Everyone going to ${game.activityLabel} on ${dateLabel(game.date)} sees it.`}
+        footer={
+          <>
+            <AdminButton variant="quiet" onClick={() => setPosting(false)}>
+              Cancel
+            </AdminButton>
+            <AdminButton variant="primary" onClick={handlePostUpdate} disabled={busy || !message.trim()}>
+              {busy ? "Posting…" : "Post update"}
+            </AdminButton>
+          </>
+        }
+      >
+        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+          <div className="adm-field">
+            <span>Start from a template</span>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+              {UPDATE_TEMPLATES.map((t) => (
+                <button key={t.key} type="button" className="adm-chip ws-fchip" onClick={() => setMessage(t.text(game.activityLabel))}>
+                  {t.label}
+                </button>
+              ))}
+            </div>
           </div>
-          <div style={{ display: "flex", gap: 8 }}>
-            <input aria-label="Update message"
-              value={message}
-              onChange={(e) => setMessage(e.target.value)}
-              placeholder="What's changed, or what should people know?"
-              style={{ flex: 1, border: `1px solid ${colors.border}`, borderRadius: radius.control, padding: "8px 12px", fontSize: 13.5 }}
-            />
-            <Button onClick={handlePostUpdate} disabled={busy || !message.trim()}>{busy ? "Posting…" : "Post"}</Button>
-          </div>
+          <FormField label="Update" required error={posting ? error : null}>
+            {(p) => <textarea {...p} className="adm-input" rows={4} value={message} onChange={(e) => setMessage(e.target.value)} placeholder="What's changed, or what should people know?" style={{ resize: "vertical" }} />}
+          </FormField>
         </div>
-      )}
-      {error && <p style={{ color: colors.danger, fontSize: 12.5, marginTop: 8 }}>{error}</p>}
+      </AdminModal>
       <ConfirmDialog
         open={confirmingCancel}
         title="Cancel this session?"
@@ -462,7 +521,7 @@ function ActivityRow({ game, onChanged, onManage, onCheckIn }: { game: Game; onC
         onConfirm={handleCancel}
         onCancel={() => setConfirmingCancel(false)}
       />
-    </Card>
+    </li>
   );
 }
 
@@ -509,7 +568,7 @@ export function ActivitiesTab() {
     if (!managed) return <RecordState state="missing" backLabel="Activities" onBack={closeRecord} message="Only activities you host can be managed here." />;
     return (
       <>
-        <ActivityRecord game={managed} onBack={closeRecord} onCheckIn={() => setCheckingInGame(managed)} />
+        <ActivityRecord game={managed} onBack={closeRecord} onCheckIn={() => setCheckingInGame(managed)} onChanged={reload} />
         <HostCheckInScreen game={checkingInGame} onClose={() => setCheckingInGame(null)} />
       </>
     );
@@ -525,23 +584,245 @@ export function ActivitiesTab() {
           icon={<CalendarIcon size={26} />}
           title="Host something people will remember."
           subtitle="Create a session, invite people, and start building your community."
-          action={<Button onClick={() => navigate("/games/host")}>Create your first activity</Button>}
+          action={<Button onClick={() => navigate("/games/host?from=manage")}>Create your first activity</Button>}
         />
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
           <ActivitiesFilterBar status={statusFilter} onStatus={setStatusFilter} when={whenFilter} onWhen={setWhenFilter} search={search} onSearch={setSearch} />
           {sorted.length === 0 ? (
-            <EmptyState icon={<CalendarIcon size={22} />} title="Nothing matches these filters" />
+            <Box>
+              <EmptyState icon={<CalendarIcon size={22} />} title="Nothing matches these filters" />
+            </Box>
           ) : (
-            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-              {sorted.map((g) => (
-                <ActivityRow key={g.id} game={g} onChanged={reload} onManage={() => openRecord(`activity:${g.id}`)} onCheckIn={() => setCheckingInGame(g)} />
-              ))}
-            </div>
+            <Box title={`${WHEN_LABELS[whenFilter]} · ${sorted.length}`} flush>
+              <ul className="adm-ov-list">
+                {sorted.map((g) => (
+                  <ActivityRow key={g.id} game={g} onChanged={reload} onManage={() => openRecord(`activity:${g.id}`)} onCheckIn={() => setCheckingInGame(g)} />
+                ))}
+              </ul>
+            </Box>
           )}
         </div>
       )}
       <HostCheckInScreen game={checkingInGame} onClose={() => setCheckingInGame(null)} />
     </>
+  );
+}
+
+/** OG-28 — what's recorded for this activity, side by side. Not netted: a
+ * profit figure would need an approved rule for shared costs and timing. */
+function ActivityMoneyPanel({ gameId }: { gameId: string }) {
+  const state = useAdminData(() => fetchActivityMoney(gameId), [gameId]);
+  const money = (cents: number) => `€${(cents / 100).toFixed(2)}`;
+  return (
+    <div style={{ marginTop: 20 }}>
+      <Box title="Money for this activity" subtitle="Amounts as recorded, side by side. Payouts are made per settlement for all your activities together; see Earnings.">
+        <Loaded state={state} title="Couldn't load the money for this activity">
+          {(m) => (
+            <Facts
+              rows={[
+                ["Participants paid", `${money(m.ticketPayments.minor)} (${m.ticketPayments.count} payment${m.ticketPayments.count === 1 ? "" : "s"})`],
+                ["Refunded to participants", money(m.refundedMinor)],
+                ["Fees recorded", m.recordedOn ? `${money(m.customerFeesMinor + m.platformFeesMinor)} on ${m.recordedOn} payment${m.recordedOn === 1 ? "" : "s"}` : "Not recorded per payment"],
+                ["Your share recorded", m.recordedOn ? money(m.partnerShareMinor) : "Not recorded per payment"],
+                [
+                  "Venue booking",
+                  m.venueBooking
+                    ? `${m.venueBooking.centreName} · ${m.venueBooking.totalCents ? money(m.venueBooking.totalCents) : "free"}${m.venueBooking.refundedCents ? ` (${money(m.venueBooking.refundedCents)} refunded)` : ""}${m.venueBooking.status === "cancelled" ? " · cancelled" : ""}`
+                    : "None",
+                ],
+              ]}
+            />
+          )}
+        </Loaded>
+      </Box>
+    </div>
+  );
+}
+
+function isPastGame(game: Game) {
+  return irelandWallTimeToUtc(game.date, game.time).getTime() <= Date.now();
+}
+
+const closeLabel = (iso: string) => new Date(iso).toLocaleString("en-IE", { timeZone: "Europe/Dublin", weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+
+// OG-27 — who can join and when bookings close, plus the join requests on an
+// approval activity. Approval is for free activities only (a paid join goes
+// straight to checkout); closing bookings never removes anyone already in.
+function ActivityBookingSettings({ game, onChanged }: { game: Game; onChanged: () => void }) {
+  const toast = useToast();
+  const paid = !!game.priceCents && game.priceCents > 0;
+  const approval = game.joinMode === "approval";
+  const requests = useAdminData(() => fetchGameJoinRequests(game.id), [game.id, approval]);
+  const [busy, setBusy] = useState(false);
+  const [closeHours, setCloseHours] = useState("");
+  const closed = game.effectiveLifecycle === "paused" && !!game.bookingCloseAt && new Date(game.bookingCloseAt).getTime() <= Date.now();
+  const save = async (input: Parameters<typeof updateGameBookingSettings>[1], done: string) => {
+    setBusy(true);
+    try {
+      await updateGameBookingSettings(game.id, input);
+      toast.success(done);
+      onChanged();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Couldn't save that");
+    } finally {
+      setBusy(false);
+    }
+  };
+  const scheduleClose = () => {
+    const h = Number(closeHours);
+    if (!Number.isInteger(h) || h < 0 || h > 720) return toast.error("Enter a whole number of hours between 0 and 720");
+    const at = new Date(irelandWallTimeToUtc(game.date, game.time).getTime() - h * 3_600_000);
+    void save({ bookingCloseAt: at.toISOString() }, h === 0 ? "Bookings close at the start" : `Bookings close ${closeLabel(at.toISOString())}`);
+    setCloseHours("");
+  };
+  const answer = async (residentId: string, decision: "approve" | "decline") => {
+    setBusy(true);
+    try {
+      await answerGameJoinRequest(game.id, residentId, decision);
+      toast.success(decision === "approve" ? "Approved — they're in" : "Request declined");
+      requests.reload();
+      onChanged();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Couldn't answer that request");
+    } finally {
+      setBusy(false);
+    }
+  };
+  const pending = (requests.data ?? []).filter((r) => r.status === "requested");
+  return (
+    <div style={{ marginTop: 20 }}>
+      <Box title="Who can join" subtitle="People already in keep their place whatever you change here.">
+        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
+            <div>
+              <strong>{approval ? "You approve each person" : "Anyone can join straight away"}</strong>
+              <div className="adm-note">{paid ? "Join approval is only for free activities." : approval ? "People ask to join; they're in once you approve." : "Turn on approval to choose who joins."}</div>
+            </div>
+            {!paid && (
+              <AdminButton disabled={busy} onClick={() => save({ joinMode: approval ? "open" : "approval" }, approval ? "Anyone can join now" : "You'll approve each person")}>
+                {approval ? "Let anyone join" : "Approve each person"}
+              </AdminButton>
+            )}
+          </div>
+          <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap", alignItems: "flex-end" }}>
+            <div>
+              <strong>{closed ? "Bookings are closed" : game.bookingCloseAt ? `Bookings close ${closeLabel(game.bookingCloseAt)}` : "Bookings stay open until the start"}</strong>
+              <div className="adm-note">Closing stops new joins and requests.</div>
+            </div>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-end" }}>
+              {closed || game.bookingCloseAt ? (
+                <AdminButton disabled={busy} onClick={() => save({ bookingCloseAt: null }, "Bookings are open until the start")}>
+                  {closed ? "Reopen bookings" : "Remove closing time"}
+                </AdminButton>
+              ) : (
+                <>
+                  <FormField label="Hours before the start">
+                    {(p) => <input {...p} type="number" min={0} max={720} className="adm-input" style={{ width: 110 }} value={closeHours} onChange={(e) => setCloseHours(e.target.value)} />}
+                  </FormField>
+                  <AdminButton disabled={busy || closeHours === ""} onClick={scheduleClose}>
+                    Set closing time
+                  </AdminButton>
+                  <AdminButton disabled={busy} onClick={() => save({ bookingCloseAt: new Date().toISOString() }, "Bookings closed")}>
+                    Close now
+                  </AdminButton>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      </Box>
+      {(approval || (requests.data?.length ?? 0) > 0) && (
+        <div style={{ marginTop: 20 }}>
+          <Box flush title={`Join requests${pending.length ? ` (${pending.length})` : ""}`}>
+            <Loaded state={requests} title="Couldn't load join requests">
+              {(rows) =>
+                rows.length === 0 ? (
+                  <p className="adm-note" style={{ padding: "12px 24px", margin: 0 }}>No requests yet.</p>
+                ) : (
+                  <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
+                    {rows.map((r) => (
+                      <li key={r.residentId} style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap", alignItems: "center", padding: "12px 24px", borderTop: "1px solid var(--adm-line)" }}>
+                        <div>
+                          <strong>{r.name}</strong>
+                          <div className="adm-note">
+                            {r.status === "requested" ? "Waiting for you" : r.status === "approved" ? "Approved" : r.status === "declined" ? "Declined" : "Withdrawn"}
+                            {r.message ? ` · "${r.message}"` : ""}
+                          </div>
+                        </div>
+                        {r.status === "requested" && (
+                          <div style={{ display: "flex", gap: 8 }}>
+                            <AdminButton size="sm" variant="primary" disabled={busy} onClick={() => answer(r.residentId, "approve")} aria-label={`Approve ${r.name}`}>
+                              Approve
+                            </AdminButton>
+                            <AdminButton size="sm" disabled={busy} onClick={() => answer(r.residentId, "decline")} aria-label={`Decline ${r.name}`}>
+                              Decline
+                            </AdminButton>
+                          </div>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                )
+              }
+            </Loaded>
+          </Box>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// OG-26 — the weekly series this activity is part of. Each date is still an
+// ordinary activity; cancelling the rest cancels each upcoming date exactly as
+// a single cancel would (participants are told; the usual refund handling).
+function ActivitySeriesPanel({ seriesId, currentId, onChanged }: { seriesId: string; currentId: string; onChanged: () => void }) {
+  const toast = useToast();
+  const state = useAdminData(() => fetchGameSeries(seriesId), [seriesId]);
+  const [confirming, setConfirming] = useState(false);
+  return (
+    <div style={{ marginTop: 20 }}>
+      <Box flush title="Weekly series" subtitle="Each date has its own places and participants.">
+        <Loaded state={state} title="Couldn't load this series">
+          {(series) => {
+            const upcoming = series.games.filter((g) => g.status !== "cancelled" && !isPastGame(g));
+            return (
+              <>
+                <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
+                  {series.games.map((g) => (
+                    <li key={g.id} style={{ display: "flex", justifyContent: "space-between", gap: 12, padding: "10px 24px", borderTop: "1px solid var(--adm-line)", fontSize: 13.5 }}>
+                      <span style={{ fontWeight: g.id === currentId ? 700 : 400 }}>
+                        {dateLabel(g.date)} · {g.time}
+                        {g.id === currentId ? " (this one)" : ""}
+                      </span>
+                      <span className="adm-note">{g.status === "cancelled" ? "Cancelled" : isPastGame(g) ? "Done" : `${g.joined}/${g.capacity} joined`}</span>
+                    </li>
+                  ))}
+                </ul>
+                {upcoming.length > 0 && (
+                  <div style={{ padding: "12px 24px", borderTop: "1px solid var(--adm-line)" }}>
+                    <AdminButton onClick={() => setConfirming(true)}>Cancel the {upcoming.length} remaining date{upcoming.length === 1 ? "" : "s"}</AdminButton>
+                  </div>
+                )}
+                <ConfirmDialog
+                  open={confirming}
+                  title={`Cancel ${upcoming.length} remaining date${upcoming.length === 1 ? "" : "s"}?`}
+                  message="Everyone who joined those dates is told, and each is handled exactly like cancelling it on its own. Dates that have already happened stay as they are."
+                  confirmLabel="Cancel remaining dates"
+                  onConfirm={async () => {
+                    const r = await cancelRemainingGameSeries(seriesId);
+                    toast.success(`${r.cancelled} date${r.cancelled === 1 ? "" : "s"} cancelled`);
+                    setConfirming(false);
+                    state.reload();
+                    onChanged();
+                  }}
+                  onCancel={() => setConfirming(false)}
+                />
+              </>
+            );
+          }}
+        </Loaded>
+      </Box>
+    </div>
   );
 }

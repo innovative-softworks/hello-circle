@@ -809,3 +809,21 @@ export function recordCookieConsent(input: { analytics: boolean; advertising: bo
 export function acknowledgePolicy(docKey: string, version: number, as: "user" | "resident"): Promise<{ docKey: string; version: number }> {
   return request(`/policies/${encodeURIComponent(docKey)}/acknowledge`, { method: "POST", body: JSON.stringify({ version, as }) });
 }
+
+// --- OG-11 — answering a venue's proposed booking change (emailed link) -----
+
+export interface BookingChangeView {
+  ref: string;
+  venue: string;
+  from: { date: string; time: string };
+  to: { date: string; time: string };
+  message: string;
+  status: "proposed" | "accepted" | "declined" | "withdrawn" | "expired";
+  bookingCancelled: boolean;
+}
+export function fetchBookingChange(token: string): Promise<BookingChangeView> {
+  return request(`/booking-changes?token=${encodeURIComponent(token)}`);
+}
+export function respondToBookingChange(token: string, accept: boolean, note?: string): Promise<{ status: string; date: string; time: string }> {
+  return request(`/booking-changes/respond`, { method: "POST", body: JSON.stringify({ token, accept, note }) });
+}

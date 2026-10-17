@@ -10,7 +10,7 @@ import { PageTitle } from "../components/PageTitle";
 import { signInHref } from "../authRedirect";
 import { clearContinuePlanning, saveContinuePlanning } from "../continuePlanning";
 import { useGuest } from "../GuestContext";
-import { colors, fonts } from "../theme";
+import { colors, fonts, radius } from "../theme";
 import { fallbackCopy } from "../copy";
 import { useOpenBookingOpen } from "../paidCheckout";
 
@@ -258,7 +258,7 @@ export function MakeItHappen() {
 
         {step === "details" && chosen && (
           <Card>
-            <div style={{ background: colors.panel, borderRadius: 10, padding: "12px 16px", marginBottom: 16, fontSize: 13.5 }}>
+            <div style={{ background: colors.panel, borderRadius: radius.control, padding: "12px 16px", marginBottom: 16, fontSize: 13.5 }}>
               <div style={{ fontWeight: 700, marginBottom: 4 }}>{chosen.centreName} — {chosen.roomName}</div>
               <div style={{ display: "flex", alignItems: "center", gap: 6, color: colors.muted }}><CalendarIcon size={13} /> {date}</div>
               <div style={{ display: "flex", alignItems: "center", gap: 6, color: colors.muted }}><ClockIcon size={13} /> {time} · {duration}h</div>
@@ -291,7 +291,7 @@ export function MakeItHappen() {
         )}
 
         {step === "done" && bookedRef && (
-          <div style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 16, padding: 32, textAlign: "center" }}>
+          <div style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: radius.card, padding: 32, textAlign: "center" }}>
             <p style={{ fontSize: 16, fontWeight: 700, margin: "0 0 8px" }}>It's happening — venue secured.</p>
             <p style={{ color: colors.mutedLight, fontSize: 14, margin: "0 0 20px" }}>
               Booking reference <strong>{bookedRef}</strong>. We've opened the rest of the spots for others to join —

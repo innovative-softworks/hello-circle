@@ -28,12 +28,16 @@ export function ActionMenu({
   items,
   buttonText = "More",
   className,
+  appearance = "default",
 }: {
   /** Accessible name, naming the record, e.g. "More actions for Yoga in the park". */
   label: string;
   items: ActionMenuItem[];
   buttonText?: string;
   className?: string;
+  /** OG-21 — "icon": the admin workspace's compact "…" button (the one menu
+   * implementation is shared; only the trigger's look differs). */
+  appearance?: "default" | "icon";
 }) {
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0);
@@ -136,17 +140,18 @@ export function ActionMenu({
       <button
         ref={buttonRef}
         type="button"
-        className={`btn btn-ghost action-menu-button${className ? ` ${className}` : ""}`}
+        className={appearance === "icon" ? `adm-btn adm-btn--quiet adm-btn--sm${className ? ` ${className}` : ""}` : `btn btn-ghost action-menu-button${className ? ` ${className}` : ""}`}
+        title={appearance === "icon" ? label : undefined}
         aria-haspopup="menu"
         aria-expanded={open}
         aria-controls={open ? menuId : undefined}
         aria-label={label}
         onClick={() => (open ? close(false) : openAt("first"))}
         onKeyDown={onButtonKey}
-        style={{ ...buttonBase, ...buttonVariants.ghost, cursor: "pointer" }}
+        style={appearance === "icon" ? undefined : { ...buttonBase, ...buttonVariants.ghost, cursor: "pointer" }}
       >
-        <MoreHorizontal size={16} strokeWidth={1.9} aria-hidden="true" />
-        <span>{buttonText}</span>
+        <MoreHorizontal size={appearance === "icon" ? 18 : 16} strokeWidth={1.9} aria-hidden="true" />
+        {appearance !== "icon" && <span>{buttonText}</span>}
       </button>
       {open &&
         createPortal(

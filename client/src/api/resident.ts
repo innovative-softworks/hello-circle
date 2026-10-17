@@ -512,6 +512,29 @@ export function createGame(input: CreateGameInput): Promise<Game> {
   return request(`/games`, { method: "POST", body: JSON.stringify(input) });
 }
 
+/** OG-26 — a linked series (N weeks, or chosen weekdays to an end date; up to 12 weeks; address-based only); each date is an ordinary activity. */
+export function createGameSeries(input: CreateGameInput & ({ repeatWeeks: number } | { weekdays: number[]; endDate: string })): Promise<{ seriesId: string; games: Game[] }> {
+  return request(`/games/series`, { method: "POST", body: JSON.stringify(input) });
+}
+
+export interface GameSeriesView {
+  id: string;
+  startDate: string;
+  endDate: string;
+  time: string;
+  status: string;
+  games: Game[];
+}
+
+export function fetchGameSeries(seriesId: string): Promise<GameSeriesView> {
+  return request(`/games/series/${seriesId}`);
+}
+
+/** OG-26 — cancels every date that hasn't started (each exactly like a single cancel). */
+export function cancelRemainingGameSeries(seriesId: string, reason?: string): Promise<{ ok: boolean; cancelled: number }> {
+  return request(`/games/series/${seriesId}/cancel-remaining`, { method: "POST", body: JSON.stringify({ reason }) });
+}
+
 /** Host-only edit — same field set as createGame's input. Price is silently
  * frozen server-side once anyone besides the host has joined. */
 export function updateGame(id: string, input: CreateGameInput): Promise<Game> {
@@ -562,8 +585,36 @@ export function postGameUpdate(id: string, message: string): Promise<GameUpdate>
 /** Free/cash games resolve `{ ok: true }` immediately; a priced game
  * (NEXT) instead returns a Stripe `url` to redirect to. */
 /** `meetsMinAge` — Booking UX Phase 4: required (true) when the activity has a minimum age. */
-export function joinGame(id: string, couponCode?: string, meetsMinAge?: boolean): Promise<{ ok?: boolean; ref?: string; url?: string; totalEuro?: number }> {
-  return request(`/games/${id}/join`, { method: "POST", body: JSON.stringify({ couponCode, meetsMinAge }) });
+export function joinGame(id: string, couponCode?: string, meetsMinAge?: boolean, message?: string): Promise<{ ok?: boolean; ref?: string; url?: string; totalEuro?: number; requested?: boolean }> {
+  return request(`/games/${id}/join`, { method: "POST", body: JSON.stringify({ couponCode, meetsMinAge, message }) });
+}
+
+/** OG-27 — withdraw your own pending request to join an approval activity. */
+export function withdrawGameJoinRequest(id: string): Promise<{ ok: boolean }> {
+  return request(`/games/${id}/join-request`, { method: "DELETE" });
+}
+
+export interface GameJoinRequest {
+  residentId: string;
+  name: string;
+  status: "requested" | "approved" | "declined" | "withdrawn";
+  message: string | null;
+  createdAt: string;
+  decidedAt: string | null;
+}
+
+/** OG-27 — host only. */
+export function fetchGameJoinRequests(id: string): Promise<GameJoinRequest[]> {
+  return request(`/games/${id}/join-requests`);
+}
+
+export function answerGameJoinRequest(id: string, residentId: string, decision: "approve" | "decline"): Promise<{ ok: boolean }> {
+  return request(`/games/${id}/join-requests/${encodeURIComponent(residentId)}/${decision}`, { method: "POST" });
+}
+
+/** OG-27 — host only: join approval (free activities) and when bookings close (ISO instant; null reopens). */
+export function updateGameBookingSettings(id: string, input: { joinMode?: "open" | "approval"; bookingCloseAt?: string | null }): Promise<Game> {
+  return request(`/games/${id}/booking-settings`, { method: "POST", body: JSON.stringify(input) });
 }
 
 /** Polled by PaymentSuccess.tsx after a paid game join's Stripe redirect —
@@ -844,6 +895,32 @@ export function removeCircleMember(id: string, residentId: string): Promise<{ ok
 /** Co-organisers (Vendor-parity pass, Phase 26) — no schema change, `role`
  * already supported more than one organiser; only the write path was
  * missing. Demote 409s if the target is the Circle's last organiser. */
+/** OG-18 — pause a member's chat messages in a Circle you organise. */
+/** OG-18 — organiser-only moderation view of a Circle's chat (never names who reported). */
+export interface CircleModerationView {
+  reported: { id: number; body: string; createdAt: string; hiddenAt: string | null; author: string; reports: number; lastReportedAt: string; latestReason: string }[];
+  hidden: { id: number; body: string; createdAt: string; hiddenAt: string; hiddenByKind: string | null; reason: string | null; author: string }[];
+  muted: { residentId: string; name: string; mutedUntil: string }[];
+  history: { action: string; newValue: Record<string, unknown> | null; reason: string | null; createdAt: string; actor: string }[];
+}
+
+export function fetchCircleModeration(id: string): Promise<CircleModerationView> {
+  return request(`/circles/${id}/moderation`);
+}
+
+/** OG-18 — an announcement to every member (notifications + the Circle chat). */
+export function sendCircleAnnouncement(id: string, message: string): Promise<{ ok: boolean; recipients: number }> {
+  return request(`/circles/${id}/announcements`, { method: "POST", body: JSON.stringify({ message }) });
+}
+
+export function muteCircleMember(id: string, residentId: string, hours: number, reason?: string): Promise<{ ok: boolean }> {
+  return request(`/circles/${id}/members/${residentId}/mute`, { method: "POST", body: JSON.stringify({ hours, reason }) });
+}
+
+export function unmuteCircleMember(id: string, residentId: string): Promise<{ ok: boolean }> {
+  return request(`/circles/${id}/members/${residentId}/unmute`, { method: "POST" });
+}
+
 export function promoteCircleMember(id: string, residentId: string): Promise<{ ok: boolean }> {
   return request(`/circles/${id}/members/${residentId}/promote`, { method: "POST" });
 }
@@ -937,6 +1014,11 @@ export function fetchChatMessages(scopeType: ChatScopeType, scopeId: string, aft
  * for the provider view when a browser holds both sessions. */
 export function fetchChatInbox(asHost = false): Promise<{ items: ChatInboxItem[]; unread: number; viewerRole: "resident" | "host" }> {
   return request(`/chat/mine${asHost ? "?as=host" : ""}`);
+}
+
+/** OG-18 — an organiser (or the activity's host) removes a message from their chat. */
+export function hideChatMessage(id: number, reason: string): Promise<{ ok: boolean }> {
+  return request(`/chat/messages/${id}/hide`, { method: "POST", body: JSON.stringify({ reason }) });
 }
 
 export function reportChatMessage(id: number, reason: string): Promise<{ ok: boolean }> {
@@ -1191,4 +1273,75 @@ export function fetchGameSplits(gameId: string): Promise<import("./vendor").Venu
 }
 export function proposeGameSplit(gameId: string, terms: { mode: "percentage" | "fixed_venue" | "fixed_host"; venueBps?: number; venueFixedMinor?: number; hostFixedMinor?: number }): Promise<import("./vendor").VenueSplitAgreement> {
   return request(`/host/game-splits/${encodeURIComponent(gameId)}`, { method: "POST", body: JSON.stringify(terms) });
+}
+
+/** OG-12 — move a venue-based activity together with its venue booking. */
+export function moveGameWithVenue(id: string, date: string, time: string): Promise<Game> {
+  return request(`/games/${encodeURIComponent(id)}/move`, { method: "POST", body: JSON.stringify({ date, time }) });
+}
+
+/** OG-16 — the host's own venue reservations (bookings they made). */
+export interface HostReservation {
+  ref: string;
+  centreId: string;
+  centreName: string;
+  centreSlug: string | null;
+  roomName: string | null;
+  date: string;
+  time: string;
+  duration: number;
+  guests: number;
+  status: string;
+  paymentStatus: string;
+  totalCents: number;
+  refundedCents: number;
+  paidOnline: boolean;
+  createdAt: string;
+  gameId: string | null;
+  activityLabel: string | null;
+  gameStatus: string | null;
+}
+export function fetchHostReservations(): Promise<HostReservation[]> {
+  return request(`/games/host/reservations`);
+}
+
+/** OG-28 — money recorded for one hosted activity (not netted). */
+export interface ActivityMoney {
+  ticketPayments: { count: number; minor: number };
+  refundedMinor: number;
+  recordedOn: number;
+  customerFeesMinor: number;
+  platformFeesMinor: number;
+  partnerShareMinor: number;
+  venueBooking: { ref: string; centreName: string; totalCents: number; paymentStatus: string; status: string; refundedCents: number } | null;
+}
+export function fetchActivityMoney(gameId: string): Promise<ActivityMoney> {
+  return request(`/games/${encodeURIComponent(gameId)}/money`);
+}
+
+/** OG-17 — complaints about activities or Circles this resident hosts. */
+export function fetchHostComplaints(): Promise<import("./vendor").ComplaintAboutYou[]> {
+  return request(`/residents/me/complaints-about-me`);
+}
+export function respondToHostComplaint(id: number, response: string): Promise<{ ok: boolean }> {
+  return request(`/residents/me/complaints-about-me/${id}/response`, { method: "POST", body: JSON.stringify({ response }) });
+}
+
+/** OG-29 — the resident's own privacy requests (recorded and answered by the privacy team). */
+export interface MyPrivacyRequest {
+  id: number;
+  kind: "access" | "correction" | "erasure" | "objection";
+  status: "received" | "in_progress" | "completed" | "refused";
+  details: string;
+  response: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export function fetchMyPrivacyRequests(): Promise<MyPrivacyRequest[]> {
+  return request(`/residents/me/privacy-requests`);
+}
+
+export function submitPrivacyRequest(kind: MyPrivacyRequest["kind"], details: string): Promise<{ id: number }> {
+  return request(`/residents/me/privacy-requests`, { method: "POST", body: JSON.stringify({ kind, details }) });
 }

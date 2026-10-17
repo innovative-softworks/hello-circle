@@ -1,9 +1,11 @@
 import { useAdminCan } from "./adminPermissions";
 import { useState } from "react";
-import { Ticket } from "lucide-react";
+import { ChartColumn, Ticket } from "lucide-react";
+import { CouponsUsageSection } from "../AdminFinance";
+import { useUrlParam } from "../../useUrlTab";
 import { archiveAdminCoupon, createAdminCoupon, fetchAdminCoupons, setAdminCouponActive, type AdminCoupon } from "../../api";
 import { ConfirmDialog } from "../ui";
-import { AdminButton, Box, EmptyMessage, FormField, Loaded, OverflowMenu, Pager, SearchField, StatusTag, Toolbar, ViewTabs, Visibility, errorMessage, matches, useAdminAction, useAdminData, usePaged } from "./adminUi";
+import { AdminButton, Box, EmptyMessage, FormField, Loaded, OverflowMenu, Pager, SearchField, StatusTag, Toolbar, ViewTabs, Visibility, errorMessage, matches, useAdminAction, useAdminData, usePaged, AdminModal, IconTabs } from "./adminUi";
 
 // Coupons (admin redesign 2026-10-14). Same create / pause / resume /
 // archive calls; every change still requires a reason (≥5 characters,
@@ -38,7 +40,30 @@ function validate(f: typeof EMPTY): FormErrors {
   return e;
 }
 
-export function AdminCouponsPage({ onViewUsage }: { onViewUsage: () => void }) {
+/** Coupons (2026-10-16): codes and their usage & cost on one page, as tabs. */
+export function AdminCouponsPage() {
+  const can = useAdminCan();
+  // "coupons" is the old Finance section name for usage, kept for old links.
+  const [sectionParam, setSection] = useUrlParam<string>("section", "codes");
+  const section = sectionParam === "usage" || sectionParam === "coupons" ? "usage" : "codes";
+  const canUsage = can("finance.operate");
+  return (
+    <div className="adm-stack">
+      <IconTabs
+        label="Coupon sections"
+        value={section}
+        onChange={(k) => setSection(k)}
+        items={[
+          { key: "codes" as const, label: "Codes", icon: Ticket },
+          ...(canUsage ? [{ key: "usage" as const, label: "Usage & cost", icon: ChartColumn }] : []),
+        ]}
+      />
+      {section === "usage" && canUsage ? <CouponsUsageSection onEditCoupons={() => setSection("codes")} /> : <CouponCodes onViewUsage={canUsage ? () => setSection("usage") : undefined} />}
+    </div>
+  );
+}
+
+function CouponCodes({ onViewUsage }: { onViewUsage?: () => void }) {
   // D-02: archiving (DELETE) is super-only; finance can create, pause and resume.
   const canArchive = useAdminCan()("coupons.delete");
   const state = useAdminData(fetchAdminCoupons);
@@ -49,6 +74,13 @@ export function AdminCouponsPage({ onViewUsage }: { onViewUsage: () => void }) {
   const [reason, setReason] = useState("");
   const [q, setQ] = useState("");
   const [view, setView] = useState<"all" | "active" | "paused">("all");
+  // The list is the everyday view; the form opens on demand (2026-10-16).
+  const [showForm, setShowForm] = useState(false);
+  const closeForm = () => {
+    setShowForm(false);
+    setSubmitted(false);
+    setCreateError(null);
+  };
   const set = (patch: Partial<typeof EMPTY>) => setForm((f) => ({ ...f, ...patch }));
 
   // Errors show beside each field after the first submit attempt, then live.
@@ -83,6 +115,7 @@ export function AdminCouponsPage({ onViewUsage }: { onViewUsage: () => void }) {
     if (ok) {
       setForm(EMPTY);
       setSubmitted(false);
+      setShowForm(false);
       state.reload();
     }
   };
@@ -104,16 +137,26 @@ export function AdminCouponsPage({ onViewUsage }: { onViewUsage: () => void }) {
 
   return (
     <div className="adm-stack">
-      <p className="adm-note">
-        Create and manage codes here. Uses, returns and discount given are in{" "}
-        <button type="button" className="adm-metric-link" style={{ margin: 0 }} onClick={onViewUsage}>
-          Finance → Coupon usage
-        </button>
-        .
-      </p>
-
-      <Box title="New coupon" subtitle="Applies to the pre-VAT/fee subtotal. HelloCircle-funded discounts are paid back to the partner, so partners keep their full price. Partners create their own coupons from their dashboards.">
+      <AdminModal
+        open={showForm}
+        onClose={closeForm}
+        wide
+        dirty={JSON.stringify(form) !== JSON.stringify(EMPTY)}
+        title="New coupon"
+        subtitle="Applies to the pre-VAT/fee subtotal. HelloCircle-funded discounts are paid back to the partner, so partners keep their full price."
+        footer={
+          <>
+            <AdminButton variant="quiet" onClick={closeForm}>
+              Cancel
+            </AdminButton>
+            <AdminButton type="submit" form="adm-new-coupon" variant="primary" disabled={busy === "create"}>
+              {busy === "create" ? "Creating…" : "Create coupon"}
+            </AdminButton>
+          </>
+        }
+      >
         <form
+          id="adm-new-coupon"
           noValidate
           onSubmit={(e) => {
             e.preventDefault();
@@ -124,7 +167,7 @@ export function AdminCouponsPage({ onViewUsage }: { onViewUsage: () => void }) {
             Fields marked <span className="adm-req" aria-hidden="true">*</span>
             <span className="adm-visually-hidden">with an asterisk</span> are required.
           </p>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: 16, alignItems: "start" }}>
+          <div className="adm-dlg-grid">
             <FormField label="Code" required error={errors.code}>
               {(p) => <input {...p} className="adm-input" placeholder="WELCOME10" value={form.code} onChange={(e) => set({ code: e.target.value.toUpperCase() })} style={{ textTransform: "uppercase" }} />}
             </FormField>
@@ -163,9 +206,6 @@ export function AdminCouponsPage({ onViewUsage }: { onViewUsage: () => void }) {
             <FormField label="Reason" required error={errors.reason} hint={<Visibility who="internal" />} style={{ flex: "1 1 280px" }}>
               {(p) => <input {...p} className="adm-input" style={{ width: "100%" }} placeholder="e.g. Autumn launch campaign" value={form.reason} onChange={(e) => set({ reason: e.target.value })} />}
             </FormField>
-            <AdminButton type="submit" variant="primary" disabled={busy === "create"} style={{ marginTop: 25 }}>
-              {busy === "create" ? "Creating…" : "Create coupon"}
-            </AdminButton>
           </div>
         </form>
         {createError && (
@@ -173,9 +213,25 @@ export function AdminCouponsPage({ onViewUsage }: { onViewUsage: () => void }) {
             {createError}
           </div>
         )}
-      </Box>
+      </AdminModal>
 
-      <Box title="Coupons" flush>
+      <Box
+        icon={Ticket}
+        title="Coupons"
+        subtitle={
+          onViewUsage ? (
+            <>
+              Uses, returns and discount given are under{" "}
+              <button type="button" className="adm-metric-link" style={{ margin: 0 }} onClick={onViewUsage}>
+                Usage &amp; cost
+              </button>
+              .
+            </>
+          ) : undefined
+        }
+        actions={<AdminButton variant="primary" onClick={() => setShowForm(true)}>New coupon</AdminButton>}
+        flush
+      >
         <ViewTabs
           label="Coupon state"
           value={view}
@@ -192,7 +248,7 @@ export function AdminCouponsPage({ onViewUsage }: { onViewUsage: () => void }) {
         <Loaded state={state}>
           {() =>
             rows.length === 0 ? (
-              <EmptyMessage icon={<Ticket size={22} strokeWidth={1.9} aria-hidden="true" />} title={visible.length ? "No coupons match" : "No coupons yet"} detail={visible.length ? undefined : "Create one above."} />
+              <EmptyMessage icon={<Ticket size={22} strokeWidth={1.9} aria-hidden="true" />} title={visible.length ? "No coupons match" : "No coupons yet"} detail={visible.length ? undefined : "Use New coupon to create the first code."} />
             ) : (
               <>
                 <div className="adm-table-wrap">

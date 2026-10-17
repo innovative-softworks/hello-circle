@@ -81,10 +81,10 @@ async function toExperienceJson(row: ExperienceRow) {
     .all(row.id)) as { url: string }[];
   const sessions = (await db
     .prepare(
-      `SELECT id, date, time, capacity, status FROM experience_sessions
+      `SELECT id, date, time, capacity, status, sales_close_at as salesCloseAt, sales_close_at IS NOT NULL AND sales_close_at <= NOW() as salesClosed FROM experience_sessions
        WHERE experience_id = ? AND status = 'scheduled' AND date >= CURDATE() ORDER BY date, time`
     )
-    .all(row.id)) as { id: string; date: string; time: string; capacity: number | null; status: string }[];
+    .all(row.id)) as { id: string; date: string; time: string; capacity: number | null; status: string; salesCloseAt: string | null; salesClosed: number | boolean }[];
   const withAvailability = await Promise.all(
     sessions.map(async (s) => {
       const cap = s.capacity ?? row.capacity;
@@ -94,7 +94,7 @@ async function toExperienceJson(row: ExperienceRow) {
            WHERE session_id = ? AND payment_status = 'paid' AND status != 'cancelled'`
         )
         .get(s.id)) as { n: number };
-      return { id: s.id, date: s.date, time: s.time, capacity: cap, spotsLeft: Math.max(0, cap - Number(booked)) };
+      return { id: s.id, date: s.date, time: s.time, capacity: cap, spotsLeft: Math.max(0, cap - Number(booked)), salesClosed: Number(s.salesClosed) === 1 };
     })
   );
   return {
@@ -367,8 +367,8 @@ experiencesRouter.post("/:id/sessions/:sessionId/checkout", async (req, res) => 
   if (!(await offeringSellable(experience.vendor_id))) return res.status(409).json({ error: VENDOR_SUSPENDED_ERROR });
 
   const session = (await db
-    .prepare(`SELECT id, capacity, status, date, time FROM experience_sessions WHERE id = ? AND experience_id = ?`)
-    .get(req.params.sessionId, experience.id)) as { id: string; capacity: number | null; status: string; date: string; time: string } | undefined;
+    .prepare(`SELECT id, capacity, status, date, time, sales_close_at as salesCloseAt FROM experience_sessions WHERE id = ? AND experience_id = ?`)
+    .get(req.params.sessionId, experience.id)) as { id: string; capacity: number | null; status: string; date: string; time: string; salesCloseAt: string | Date | null } | undefined;
   if (!session) return res.status(404).json({ error: "Session not found" });
   if (session.status !== "scheduled") return res.status(409).json({ error: "This session is no longer open for booking" });
   // Booking UX Phase 4 — minimum age (a declaration) and named seats.
@@ -378,6 +378,8 @@ experiencesRouter.post("/:id/sessions/:sessionId/checkout", async (req, res) => 
   if (seatNames && "error" in seatNames) return res.status(400).json({ error: seatNames.error });
   // HC-QA-045 — a session that has already started can't take new bookings.
   if (!startIsInFuture(session.date, session.time)) return res.status(409).json({ error: "This session has already started" });
+  // OG-19 — the partner can close bookings for a departure ahead of its start.
+  if (session.salesCloseAt && new Date(session.salesCloseAt).getTime() <= Date.now()) return res.status(409).json({ error: "Booking has closed for this date" });
 
   const isCash = experience.payment_method === "cash";
   // Commerce Engine Phase 2 — with the engine on, the published rules price

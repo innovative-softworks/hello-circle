@@ -11,6 +11,7 @@ import { HOST_TABS, HOST_TAB_KEYS, hostAccountLine } from "../components/workspa
 import { ActivitiesTab } from "../components/HostActivitiesTab";
 import { HostAttentionPanel } from "../components/HostAttention";
 import { HostCalendarTab } from "../components/HostCalendarTab";
+import { HostReservationsTab } from "../components/HostReservationsTab";
 import { CirclesTab } from "../components/HostCirclesTab";
 import { HostEarningsTab } from "../components/HostEarningsTab";
 import { HostInsightsTab } from "../components/HostInsightsTab";
@@ -18,12 +19,16 @@ import { HostNextUpHero, HostUpcomingList } from "../components/HostOverviewCard
 import { HostOffersTab } from "../components/HostOffersTab";
 import { HostReviewsTab } from "../components/HostReviewsTab";
 import { WorkspaceShell } from "../components/workspace/WorkspaceShell";
+import { PersonalAccountGate } from "../components/workspace/PersonalAccountGate";
 import { useUrlTab } from "../useUrlTab";
 import { Button, ManageCard as Card, LoadErrorState, PageSpinner } from "../components/ui";
 import { greeting } from "../greeting";
 import { colors, fonts } from "../theme";
 import type { Game, HostStatus } from "../types";
 import { irelandDaysFromToday, irelandToday } from "../irelandDate";
+import { useCreateParam } from "../components/workspace/OfferParts";
+import { BadgeCheck, CalendarDays, Users } from "lucide-react";
+import { AdminButton } from "../components/admin/adminUi";
 
 // HelloCircle Manage — resident (Host) dashboard. One page with local tab
 // state (Overview/Activities/Circles), the same shape as VendorDashboard.tsx
@@ -61,6 +66,7 @@ export function ManageHome() {
   const { user, loading: authLoading } = useAuth();
   const { resident, loading: guestLoading } = useGuest();
   const navigate = useNavigate();
+  const [, setCreateParam] = useCreateParam();
   // The tab lives in the URL (?tab=), so Back/Forward, refresh and shared links keep it.
   const [tab, setTab] = useUrlTab<ManageHomeTab>(NAV_KEYS, "overview");
   const [gamesFailed, setGamesFailed] = useState(false);
@@ -103,8 +109,16 @@ export function ManageHome() {
   }, [authLoading, guestLoading, user, resident]);
 
   if (authLoading || guestLoading) return <PageSpinner />;
-  if (user) return <Navigate to="/vendor" replace />;
-  if (!resident) return null;
+  // OG-01 — the Host workspace runs on the resident session. A browser can hold
+  // a business and a personal session at once (Manage switching); the personal
+  // one wins here. Only a business-only session is redirected: to the switch
+  // prompt when the business account is linked to a personal one, else to its
+  // own workspace.
+  if (!resident) {
+    if (user?.role === "vendor" && user.residentId) return <PersonalAccountGate user={user} />;
+    if (user) return <Navigate to={user.role === "admin" ? "/admin" : "/vendor"} replace />;
+    return null;
+  }
 
   const status = hostStatusCopy(hostStatus);
   const statusColor = status.tone === "green" ? colors.greenText : status.tone === "orange" ? colors.orangeDark : colors.mutedLight;
@@ -131,7 +145,17 @@ export function ManageHome() {
       onNavigate={setTab}
       title={activeItem.label}
       subtitle={tab === "overview" ? overviewSubtitle : activeItem.summary}
-      actions={tab === "overview" || tab === "activities" ? <Button onClick={() => navigate("/games/host")}>Host a session</Button> : undefined}
+      actions={
+        tab === "overview" || tab === "activities" ? (
+          <Button onClick={() => navigate("/games/host?from=manage")}>Host a session</Button>
+        ) : tab === "offers" ? (
+          <Button onClick={() => setCreateParam(true)}>New offer</Button>
+        ) : tab === "circles" ? (
+          <Button onClick={() => navigate("/circles/start")}>Start a Circle</Button>
+        ) : tab === "calendar" ? (
+          <Button onClick={() => navigate("/games/host?from=manage")}>Host a session</Button>
+        ) : undefined
+      }
     >
       {tab === "overview" && (
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
@@ -140,18 +164,17 @@ export function ManageHome() {
           {hostStatus === "verified" && <PlanRewardsPanel scope="host" variant="compact" />}
           {hostStatus === "verified" && <OpportunitiesCard audience="host" />}
 
-          <Card>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
-              <AwardIcon size={16} style={{ color: colors.greenText }} />
-              <span style={{ fontFamily: fonts.display, fontSize: 15, fontWeight: 700 }}>Host status</span>
-            </div>
-            <p style={{ fontSize: 13, color: statusColor, margin: "8px 0 0" }}>{status.text}</p>
+          <div className="ws-line" data-tone={hostStatus === "verified" ? "good" : undefined}>
+            <BadgeCheck size={17} strokeWidth={1.9} aria-hidden="true" />
+            <span>
+              <strong>Host status:</strong> {status.text}
+            </span>
             {(hostStatus === "none" || hostStatus === "rejected") && (
-              <div style={{ marginTop: 12 }}>
-                <Button variant="ghost" onClick={() => navigate("/profile")}>Go to your profile →</Button>
-              </div>
+              <AdminButton size="sm" className="ws-line-link" onClick={() => navigate("/profile")}>
+                Go to your profile
+              </AdminButton>
             )}
-          </Card>
+          </div>
 
           {nextGame && <HostNextUpHero game={nextGame} onManage={() => setTab("activities")} />}
 
@@ -166,31 +189,32 @@ export function ManageHome() {
           )}
 
           {upcomingGames !== null && upcomingGames.length === 0 && (
-            <Card>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <CalendarIcon size={16} style={{ color: colors.greenText }} />
-                  <span style={{ fontFamily: fonts.display, fontSize: 15, fontWeight: 700 }}>Nothing coming up</span>
-                </div>
-                <Button variant="ghost" onClick={() => navigate("/games/host")}>Host a session →</Button>
-              </div>
-            </Card>
+            <div className="ws-line">
+              <CalendarDays size={17} strokeWidth={1.9} aria-hidden="true" />
+              <span>
+                <strong>Nothing coming up.</strong> Sessions you host will show here.
+              </span>
+              <AdminButton size="sm" className="ws-line-link" onClick={() => navigate("/games/host?from=manage")}>
+                Host a session
+              </AdminButton>
+            </div>
           )}
 
-          <Card>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <UsersIcon size={16} style={{ color: colors.greenText }} />
-                <span style={{ fontFamily: fonts.display, fontSize: 15, fontWeight: 700 }}>Your circles</span>
-              </div>
-              <Button variant="ghost" onClick={() => setTab("circles")}>Manage your circles →</Button>
-            </div>
-          </Card>
+          <div className="ws-line">
+            <Users size={17} strokeWidth={1.9} aria-hidden="true" />
+            <span>
+              <strong>Your circles.</strong> Plans, members and join requests.
+            </span>
+            <AdminButton size="sm" className="ws-line-link" onClick={() => setTab("circles")}>
+              Manage circles
+            </AdminButton>
+          </div>
         </div>
       )}
 
       {tab === "activities" && <ActivitiesTab />}
       {tab === "circles" && <CirclesTab />}
+      {tab === "reservations" && <HostReservationsTab />}
       {tab === "calendar" && <HostCalendarTab />}
       {tab === "insights" && <HostInsightsTab />}
       {tab === "reviews" && <HostReviewsTab />}

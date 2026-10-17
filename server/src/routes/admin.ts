@@ -8,7 +8,7 @@ import { ADMIN_ROLES, requireAdmin } from "../auth.js";
 import { writeAudit } from "../audit.js";
 import { approximateCoords, db, getSetting, setSetting } from "../db/index.js";
 import { FEATURE_FLAG_KEYS, getAnalyticsFunnel, getCentre, getClub, getDemandSignals, getIntentClusters, getLiquidityScores, getMarketCategories, getParticipationStats, getReferralAttribution, getSupplyOverview, MARKET_CATEGORIES, orgFeatureFlagsById, type MarketCategory } from "../db/queries.js";
-import { endOfIrelandDay } from "../irelandTime.js";
+import { endOfIrelandDay, irelandTodayIso, irelandWallTimeToUtc } from "../irelandTime.js";
 import { couponAmountError, parseCouponLimits } from "../pricing.js";
 import { adminCommerceRouter } from "./adminCommerce.js";
 import { adminFinanceRouter } from "./adminFinance.js";
@@ -22,8 +22,16 @@ import { notifyVendorFollowers } from "./follows.js";
 import { generateSlug } from "../slugify.js";
 import { adminCan, adminRoleOf, ensureAdminCan, permissionsOf, requireAdminPermission } from "../adminPermissions.js";
 import { EXPLANATION_MAX, NOTE_MAX, decisionHistory, parseDecisionReason, recordDecision, type DecisionReason } from "../moderationDecisions.js";
+import { adminOperationsRouter } from "./adminOperations.js";
+import { adminPrivacyRouter } from "./adminPrivacy.js";
+import { isValidEmail } from "../util.js";
+import { InviteError, createAdminInvite, listAdminInvites, revokeAdminInvite } from "../adminInvites.js";
+import { MfaError, resetMfa } from "../adminMfa.js";
+import { decodeCursor, encodeCursor, pageLimit } from "../supportLookup.js";
+import { ModerationError, REASON_REQUIRED, applyReportAction, reinstateListing, resolveReportTarget, unhideChatMessage, type ReportTargetType } from "../reportModeration.js";
 import { NEXT_STEPS, notifyApplicant, notifyPartner } from "../moderationNotify.js";
 import { orgSummary, setOrgStatus } from "../orgSuspension.js";
+import { ORDER_KINDS, orderDetail, ordersForPerson, searchOrders, type OrderKind } from "../supportLookup.js";
 
 export const adminRouter = Router();
 // Authentication only (401 / 403 for non-admins). What each admin may do is
@@ -34,6 +42,8 @@ export const adminRouter = Router();
 adminRouter.use(requireAdmin);
 adminRouter.use("/commerce", adminCommerceRouter);
 adminRouter.use("/finance", adminFinanceRouter);
+adminRouter.use("/operations", adminOperationsRouter);
+adminRouter.use("/privacy", adminPrivacyRouter);
 adminRouter.use("/help", adminHelpRouter);
 adminRouter.use("/policies", adminPoliciesRouter);
 adminRouter.use("/complaints", adminComplaintsRouter);
@@ -64,9 +74,49 @@ adminRouter.get("/decisions", requireAdminPermission("decisions.view"), async (r
 adminRouter.get("/admins", requireAdminPermission("admins.manage"), async (_req, res) => {
   const rows = await db
     // D-02: an empty or unknown role is shown as such (it grants nothing), never as super.
-    .prepare(`SELECT id, email, name, admin_role as adminRole, created_at as createdAt FROM users WHERE role = 'admin' ORDER BY created_at`)
+    .prepare(`SELECT id, email, name, admin_role as adminRole, created_at as createdAt, mfa_secret_enc IS NOT NULL as mfaEnrolled FROM users WHERE role = 'admin' ORDER BY created_at`)
     .all();
-  res.json(rows);
+  res.json((rows as { mfaEnrolled: number }[]).map((r) => ({ ...r, mfaEnrolled: Number(r.mfaEnrolled) === 1 })));
+});
+
+// OG-06 — admin invitations (adminInvites.ts): super only, 72-hour single-use links.
+adminRouter.get("/admins/invites", requireAdminPermission("admins.manage"), async (_req, res) => {
+  res.json(await listAdminInvites());
+});
+
+adminRouter.post("/admins/invites", requireAdminPermission("admins.manage"), async (req, res) => {
+  const email = typeof req.body?.email === "string" ? req.body.email.trim() : "";
+  if (!isValidEmail(email)) return res.status(400).json({ error: "Enter a valid email address" });
+  try {
+    res.status(201).json(await createAdminInvite({ email, adminRole: String(req.body?.adminRole ?? ""), inviter: req.user! }));
+  } catch (e) {
+    if (e instanceof InviteError) return res.status(e.status).json({ error: e.message });
+    throw e;
+  }
+});
+
+adminRouter.delete("/admins/invites/:id", requireAdminPermission("admins.manage"), async (req, res) => {
+  try {
+    await revokeAdminInvite(Number(req.params.id), req.user!);
+    res.json({ ok: true });
+  } catch (e) {
+    if (e instanceof InviteError) return res.status(e.status).json({ error: e.message });
+    throw e;
+  }
+});
+
+// OG-07 — recovery when an admin has lost both their phone and recovery codes:
+// another super admin resets their two-step sign-in (they set it up again).
+adminRouter.post("/admins/:id/mfa/reset", requireAdminPermission("admins.manage"), async (req, res) => {
+  const reason = typeof req.body?.reason === "string" ? req.body.reason.trim() : "";
+  if (reason.length < 10) return res.status(400).json({ error: "Give a reason of at least 10 characters" });
+  try {
+    await resetMfa(req.params.id, req.user!.id, reason.slice(0, 500));
+    res.json({ ok: true });
+  } catch (e) {
+    if (e instanceof MfaError) return res.status(e.status).json({ error: e.message });
+    throw e;
+  }
 });
 
 adminRouter.put("/admins/:id/role", requireAdminPermission("admins.manage"), async (req, res) => {
@@ -115,8 +165,29 @@ adminRouter.get("/stats", requireAdminPermission("workspace.view"), async (_req,
     )
     .get()) as { n: number };
   const reviewCount = (await db.prepare(`SELECT COUNT(*) as n FROM reviews`).get()) as { n: number };
-  // Folded in from the old /platform-admin dashboard — genuinely new signals,
-  // not shown anywhere else in this dashboard.
+  // Folded in from the old /platform-admin dashboard. "Today" is the Irish
+  // calendar day (DATETIMEs are UTC, so a bare CURDATE() would be the
+  // server's day), and it counts all five participation tables plus passes,
+  // not only hall bookings and club registrations.
+  const dayStart = irelandWallTimeToUtc(irelandTodayIso());
+  const dayEnd = new Date(dayStart.getTime() + 24 * 3600 * 1000);
+  const ORDER_TABLES = [
+    ["bookings", "created_at"],
+    ["registrations", "created_at"],
+    ["program_enrollments", "created_at"],
+    ["game_participants", "joined_at"],
+    ["experience_bookings", "created_at"],
+    ["passes", "created_at"],
+  ] as const;
+  const countAcross = async (where: (col: string) => string, params: unknown[]) => {
+    const sql = ORDER_TABLES.map(([t, col]) => `(SELECT COUNT(*) FROM ${t} WHERE ${where(col)})`).join(" + ");
+    const row = (await db.prepare(`SELECT ${sql} as n`).get(...ORDER_TABLES.flatMap(() => params))) as { n: number | string };
+    return Number(row.n);
+  };
+  const newToday = await countAcross((col) => `${col} >= ? AND ${col} < ?`, [dayStart, dayEnd]);
+  const weekAgo = new Date(Date.now() - 7 * 24 * 3600 * 1000);
+  const failedPayments7d = await countAcross((col) => `payment_status = 'failed' AND ${col} >= ?`, [weekAgo]);
+  // Kept for older clients (same meaning as before: server date, two tables, all time).
   const bookingsToday = (await db
     .prepare(
       `SELECT
@@ -143,12 +214,45 @@ adminRouter.get("/stats", requireAdminPermission("workspace.view"), async (_req,
     bookingsToday: bookingsToday.n,
     paymentFailures: paymentFailures.n,
     openReports: openReports.n,
+    newToday,
+    failedPayments7d,
   });
 });
 
 // --- vendor management -------------------------------------------------
 
-adminRouter.get("/vendors", requireAdminPermission("partners.view"), async (_req, res) => {
+adminRouter.get("/vendors", requireAdminPermission("partners.view"), async (req, res) => {
+  // OG-24 — paged mode (?limit / ?cursor, with ?q and ?status); the
+  // unparameterised call returns every partner as before.
+  if (req.query.limit !== undefined || req.query.cursor !== undefined) {
+    const where = [`role = 'vendor'`];
+    const params: unknown[] = [];
+    if (typeof req.query.status === "string" && ["pending", "approved", "suspended"].includes(req.query.status)) {
+      where.push(`status = ?`);
+      params.push(req.query.status);
+    }
+    if (typeof req.query.q === "string" && req.query.q.trim()) {
+      const like = `%${req.query.q.trim().slice(0, 100)}%`;
+      where.push(`(email LIKE ? OR name LIKE ? OR business_name LIKE ?)`);
+      params.push(like, like, like);
+    }
+    const after = decodeCursor(req.query.cursor);
+    if (after) {
+      where.push(`(created_at < ? OR (created_at = ? AND id < ?))`);
+      params.push(after.at, after.at, after.key);
+    }
+    const limit = pageLimit(req.query.limit);
+    const rows = (await db
+      .prepare(
+        `SELECT id, email, name, status, created_at as createdAt, vendor_type as vendorType, business_name as businessName, county, org_id as orgId, provider_tier as providerTier, invited_staff as invitedStaff,
+                (SELECT COUNT(*) FROM centres WHERE vendor_id = users.id) as centreCount, (SELECT COUNT(*) FROM clubs WHERE vendor_id = users.id) as clubCount
+         FROM users WHERE ${where.join(" AND ")} ORDER BY created_at DESC, id DESC LIMIT ${limit + 1}`
+      )
+      .all(...params)) as { id: string; createdAt: string }[];
+    const items = rows.slice(0, limit);
+    const last = items[items.length - 1];
+    return res.json({ items, nextCursor: rows.length > limit && last ? encodeCursor(last.createdAt, last.id) : null });
+  }
   const rows = await db
     .prepare(
       `SELECT id, email, name, status, created_at as createdAt,
@@ -303,13 +407,13 @@ adminRouter.put("/host-applications/:id/status", requireAdminPermission("queues.
 // --- listing moderation --------------------------------------------------
 
 const PENDING_CENTRE_COLUMNS = `c.id, c.name, c.status, c.area, c.county, c.capacity, c.from_price as \`from\`, c.managed_by as managedBy,
-              c.ph, c.image_url as image, c.blurb, c.vendor_id as vendorId, u.email as vendorEmail, u.name as vendorName, u.status as vendorStatus, c.featured`;
+              c.ph, c.image_url as image, c.blurb, c.vendor_id as vendorId, u.email as vendorEmail, u.name as vendorName, u.status as vendorStatus, c.featured, c.created_at as createdAt`;
 const PENDING_CLUB_COLUMNS = `c.id, c.name, c.status, c.sport, c.area, c.county, c.ages, c.price, c.unit,
-              c.ph, c.image_url as image, c.blurb, c.vendor_id as vendorId, u.email as vendorEmail, u.name as vendorName, u.status as vendorStatus, c.featured`;
+              c.ph, c.image_url as image, c.blurb, c.vendor_id as vendorId, u.email as vendorEmail, u.name as vendorName, u.status as vendorStatus, c.featured, c.created_at as createdAt`;
 // experiences has no `ph`/`sport` — image_url/blurb/kind/price_cents stand
 // in as the fields an admin triage card needs at a glance.
 const PENDING_EXPERIENCE_COLUMNS = `c.id, c.name, c.status, c.kind, c.area, c.county, c.price_cents as \`from\`,
-              c.image_url as image, c.blurb, c.vendor_id as vendorId, u.email as vendorEmail, u.name as vendorName, u.status as vendorStatus, c.featured`;
+              c.image_url as image, c.blurb, c.vendor_id as vendorId, u.email as vendorEmail, u.name as vendorName, u.status as vendorStatus, c.featured, c.created_at as createdAt`;
 
 adminRouter.get("/listings/pending", requireAdminPermission("listings.view"), async (_req, res) => {
   const centres = await db
@@ -336,7 +440,49 @@ adminRouter.get("/listings/pending", requireAdminPermission("listings.view"), as
 // Pending listings sort first (regardless of name) so an admin doing
 // triage sees what needs a decision without scanning the whole
 // alphabetical list — everything else stays alphabetical within its group.
-adminRouter.get("/listings", requireAdminPermission("listings.view"), async (_req, res) => {
+adminRouter.get("/listings", requireAdminPermission("listings.view"), async (req, res) => {
+  // OG-24 — paged mode (?limit / ?cursor, with ?q, ?type and ?status): one
+  // newest-first list across centres, clubs and experiences. The
+  // unparameterised call keeps returning every listing grouped by type.
+  if (req.query.limit !== undefined || req.query.cursor !== undefined) {
+    const types = (["centre", "club", "experience"] as const).filter((t) => !req.query.type || req.query.type === t);
+    const after = decodeCursor(req.query.cursor);
+    const limit = pageLimit(req.query.limit);
+    const q = typeof req.query.q === "string" ? req.query.q.trim().slice(0, 100) : "";
+    const status = typeof req.query.status === "string" ? req.query.status.slice(0, 20) : "";
+    const per = await Promise.all(
+      types.map(async (type) => {
+        const table = type === "centre" ? "centres" : type === "club" ? "clubs" : "experiences";
+        const nameCol = type === "experience" ? "l.title" : "l.name";
+        const where: string[] = [];
+        const params: unknown[] = [];
+        if (q) {
+          where.push(`(${nameCol} LIKE ? OR l.county LIKE ? OR u.business_name LIKE ?)`);
+          params.push(`%${q}%`, `%${q}%`, `%${q}%`);
+        }
+        if (status) {
+          where.push(`l.status = ?`);
+          params.push(status);
+        }
+        if (after) {
+          where.push(`(COALESCE(l.created_at, CAST('2000-01-01 00:00:00' AS DATETIME)) < ? OR (COALESCE(l.created_at, CAST('2000-01-01 00:00:00' AS DATETIME)) = ? AND l.id < ?))`);
+          params.push(after.at, after.at, after.key);
+        }
+        return (await db
+          .prepare(
+            `SELECT '${type}' as type, l.id, ${nameCol} as name, l.status, l.county, l.vendor_id as vendorId, u.business_name as partnerName,
+                    COALESCE(l.created_at, CAST('2000-01-01 00:00:00' AS DATETIME)) as createdAt
+             FROM ${table} l LEFT JOIN users u ON u.id = l.vendor_id ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
+             ORDER BY COALESCE(l.created_at, CAST('2000-01-01 00:00:00' AS DATETIME)) DESC, l.id DESC LIMIT ${limit + 1}`
+          )
+          .all(...params)) as { type: string; id: string; createdAt: string | Date }[];
+      })
+    );
+    const merged = per.flat().sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime() || (a.id < b.id ? 1 : a.id > b.id ? -1 : 0));
+    const items = merged.slice(0, limit);
+    const last = items[items.length - 1];
+    return res.json({ items, nextCursor: merged.length > limit && last ? encodeCursor(last.createdAt, last.id) : null });
+  }
   const centres = await db
     .prepare(
       `SELECT ${PENDING_CENTRE_COLUMNS}
@@ -356,6 +502,50 @@ adminRouter.get("/listings", requireAdminPermission("listings.view"), async (_re
     )
     .all();
   res.json({ centres, clubs, experiences });
+});
+
+// Everything a reviewer needs to see before publishing a listing (admin
+// "Pending approvals" review page): photos, the full description and what
+// can actually be booked. Read-only, any status (pending included).
+adminRouter.get("/listings/:type/:id/detail", requireAdminPermission("listings.view"), async (req, res) => {
+  const { type, id } = req.params;
+  const images = async (table: string, col: string) =>
+    ((await db.prepare(`SELECT url FROM ${table} WHERE ${col} = ? ORDER BY sort_order`).all(id)) as { url: string }[]).map((r) => r.url);
+  if (type === "centre") {
+    const c = (await db.prepare(`SELECT image_url, blurb, opens_at, closes_at FROM centres WHERE id = ?`).get(id)) as { image_url: string; blurb: string; opens_at: string; closes_at: string } | undefined;
+    if (!c) return res.status(404).json({ error: "Listing not found" });
+    const rooms = await db.prepare(`SELECT name, cap AS capacity, rate, \`desc\` AS description, payment_method AS paymentMethod, active FROM rooms WHERE centre_id = ? ORDER BY sort_order`).all(id);
+    const hours = await db.prepare(`SELECT day_of_week AS day, opens_at AS opensAt, closes_at AS closesAt, closed FROM centre_hours WHERE centre_id = ? ORDER BY day_of_week`).all(id);
+    const amenities = ((await db.prepare(`SELECT amenity FROM centre_amenities WHERE centre_id = ? ORDER BY sort_order`).all(id)) as { amenity: string }[]).map((r) => r.amenity);
+    const gallery = await images("centre_images", "centre_id");
+    return res.json({ type, images: gallery.length ? gallery : c.image_url ? [c.image_url] : [], description: c.blurb, centre: { rooms, hours, opensAt: c.opens_at, closesAt: c.closes_at, amenities } });
+  }
+  if (type === "club") {
+    const c = (await db.prepare(`SELECT image_url, blurb, sport, ages, price, unit, trial FROM clubs WHERE id = ?`).get(id)) as { image_url: string; blurb: string; sport: string; ages: string; price: number; unit: string; trial: number } | undefined;
+    if (!c) return res.status(404).json({ error: "Listing not found" });
+    const sessions = await db.prepare(`SELECT day_of_week AS day, time, label, capacity, active FROM club_sessions WHERE club_id = ? ORDER BY day_of_week, time`).all(id);
+    const includes = ((await db.prepare(`SELECT item FROM club_includes WHERE club_id = ? ORDER BY sort_order`).all(id)) as { item: string }[]).map((r) => r.item);
+    const gallery = await images("club_images", "club_id");
+    return res.json({ type, images: gallery.length ? gallery : c.image_url ? [c.image_url] : [], description: c.blurb, club: { sport: c.sport, ages: c.ages, price: c.price, unit: c.unit, trial: !!c.trial, includes, sessions } });
+  }
+  if (type === "experience") {
+    const e = (await db
+      .prepare(`SELECT image_url, blurb, description, kind, price_cents, capacity, duration_minutes, meeting_point, difficulty FROM experiences WHERE id = ?`)
+      .get(id)) as { image_url: string; blurb: string; description: string; kind: string; price_cents: number; capacity: number; duration_minutes: number; meeting_point: string; difficulty: string } | undefined;
+    if (!e) return res.status(404).json({ error: "Listing not found" });
+    const sessions = await db
+      .prepare(`SELECT date, time, capacity, status FROM experience_sessions WHERE experience_id = ? AND date >= ? ORDER BY date, time LIMIT 6`)
+      .all(id, irelandTodayIso());
+    const total = (await db.prepare(`SELECT COUNT(*) AS n FROM experience_sessions WHERE experience_id = ?`).get(id)) as { n: number | string };
+    const gallery = await images("experience_images", "experience_id");
+    return res.json({
+      type,
+      images: gallery.length ? gallery : e.image_url ? [e.image_url] : [],
+      description: e.description || e.blurb,
+      experience: { kind: e.kind, priceCents: e.price_cents, capacity: e.capacity, durationMinutes: e.duration_minutes, meetingPoint: e.meeting_point, difficulty: e.difficulty, upcomingSessions: sessions, totalSessions: Number(total.n) },
+    });
+  }
+  res.status(400).json({ error: "Unknown listing type" });
 });
 
 /** A listing can't go live before the vendor account behind it has been
@@ -1085,12 +1275,8 @@ adminRouter.get("/reports/:id/case", requireAdminPermission("reports.view"), asy
     .get(req.params.id)) as { id: number; targetType: string; targetId: string; reason: string; status: string; adminNotes: string | null; reporterClientId: string; createdAt: string } | undefined;
   if (!report) return res.status(404).json({ error: "Report not found" });
 
-  let target: Record<string, unknown> | null = null;
-  if (report.targetType === "circle") {
-    target = (await db.prepare(`SELECT id, name, status, created_by_resident_id as createdByResidentId FROM circles WHERE id = ?`).get(report.targetId)) as Record<string, unknown> | undefined ?? null;
-  } else if (report.targetType === "review") {
-    target = (await db.prepare(`SELECT id, listing_type as listingType, listing_id as listingId, name, comment, hidden FROM reviews WHERE id = ?`).get(report.targetId)) as Record<string, unknown> | undefined ?? null;
-  }
+  // OG-03 — every reportable type resolves, with what acting on it would affect.
+  const target = await resolveReportTarget(report.targetType, report.targetId);
 
   // Every other report ever filed against the same target — the
   // "case-linking" the spec asks for, so a pattern of repeat complaints is
@@ -1109,37 +1295,125 @@ adminRouter.put("/reports/:id", requireAdminPermission("reports.moderate"), asyn
   }
   if (!status && notes === undefined) return res.status(400).json({ error: "Nothing to update" });
 
+  // OG-03 / DEC-10 — "suspended" changes the reported content's state (type by
+  // type, reportModeration.ts). The report is only updated when that change
+  // actually happened; otherwise the admin is told why and nothing is recorded.
   let suspendedAction: string | null = null;
+  let actionTaken: string | null = null;
   if (status === "suspended") {
-    const report = (await db.prepare(`SELECT target_type as targetType, target_id as targetId FROM reports WHERE id = ?`).get(req.params.id)) as
-      | { targetType: string; targetId: string }
+    const report = (await db.prepare(`SELECT id, target_type as targetType, target_id as targetId, status FROM reports WHERE id = ?`).get(req.params.id)) as
+      | { id: number; targetType: string; targetId: string; status: string }
       | undefined;
     if (!report) return res.status(404).json({ error: "Report not found" });
-    if (report.targetType === "circle") {
-      await db.prepare(`UPDATE circles SET status = 'closed' WHERE id = ?`).run(report.targetId);
-      suspendedAction = "circle closed";
-    } else if (report.targetType === "review") {
-      await db.prepare(`UPDATE reviews SET hidden = 1 WHERE id = ?`).run(report.targetId);
-      suspendedAction = "review hidden";
+    const parsed = parseDecisionReason(req.body, "suspension", REASON_REQUIRED.includes(report.targetType as ReportTargetType));
+    if (!parsed.ok) return res.status(400).json({ error: parsed.error });
+    try {
+      const done = await applyReportAction(report, req.user!.id, parsed.reason);
+      suspendedAction = done.summary;
+      actionTaken = done.action;
+    } catch (e) {
+      if (e instanceof ModerationError) return res.status(e.status).json({ error: e.message });
+      throw e;
     }
-    await writeAudit({ actorUserId: req.user!.id, action: "suspend_by_report", objectType: report.targetType, objectId: report.targetId, newValue: { reportId: req.params.id } });
   }
 
   const info = await db
     .prepare(
-      `UPDATE reports SET status = COALESCE(?, status), admin_notes = COALESCE(?, admin_notes),
+      `UPDATE reports SET status = COALESCE(?, status), admin_notes = COALESCE(?, admin_notes), action_taken = COALESCE(?, action_taken),
         statement_of_reasons = COALESCE(?, statement_of_reasons), decided_by = IF(? IS NULL, decided_by, ?), decided_at = IF(? IS NULL, decided_at, NOW()) WHERE id = ?`
     )
     // Stage 4 — the statement of reasons (DSA art. 17) and decider are kept with the decision; the decider can't later decide an appeal of it.
-    .run(status, notes, typeof statementOfReasons === "string" && statementOfReasons.trim() ? statementOfReasons.trim().slice(0, 5000) : null, status ?? null, req.user!.id, status ?? null, req.params.id);
+    .run(
+      status,
+      notes,
+      actionTaken,
+      typeof statementOfReasons === "string" && statementOfReasons.trim()
+        ? statementOfReasons.trim().slice(0, 5000)
+        : typeof req.body?.explanation === "string" && status === "suspended"
+          ? req.body.explanation.trim().slice(0, 5000)
+          : null,
+      status ?? null,
+      req.user!.id,
+      status ?? null,
+      req.params.id
+    );
   if (info.changes === 0) return res.status(404).json({ error: "Report not found" });
   res.json({ ok: true, suspendedAction });
+});
+
+// OG-03 — reversing a moderation action. A suspended listing goes back to the
+// status it had; a hidden chat message is shown again. Both are audited.
+adminRouter.post("/moderation/:type(centre|club|experience)/:id/reinstate", requireAdminPermission("listings.moderate"), async (req, res) => {
+  // Reinstatement has no category: an optional message to the partner (recorded).
+  const explanation = typeof req.body?.explanation === "string" ? req.body.explanation.trim().slice(0, EXPLANATION_MAX) : "";
+  const reason: DecisionReason | null = explanation ? { category: "", explanation, internalNote: null } : null;
+  try {
+    res.json(await reinstateListing(req.params.type as "centre" | "club" | "experience", req.params.id, req.user!.id, reason));
+  } catch (e) {
+    if (e instanceof ModerationError) return res.status(e.status).json({ error: e.message });
+    throw e;
+  }
+});
+
+adminRouter.post("/moderation/chat-messages/:id/unhide", requireAdminPermission("reports.moderate"), async (req, res) => {
+  const reason = typeof req.body?.reason === "string" ? req.body.reason.trim() : "";
+  if (reason.length < 5) return res.status(400).json({ error: "A reason (at least 5 characters) is required" });
+  try {
+    await unhideChatMessage(req.params.id, req.user!.id, reason.slice(0, 500));
+    res.json({ ok: true });
+  } catch (e) {
+    if (e instanceof ModerationError) return res.status(e.status).json({ error: e.message });
+    throw e;
+  }
 });
 
 // --- audit log (moved from platformAdmin.ts) ----------------------------
 
 adminRouter.get("/audit", requireAdminPermission("audit.view"), async (req, res) => {
   const actorUserId = typeof req.query.actorUserId === "string" ? req.query.actorUserId : undefined;
+  // OG-24 — paged mode (?limit / ?cursor): the whole history, newest first,
+  // with filters; the unparameterised call below is kept for older callers.
+  if (req.query.limit !== undefined || req.query.cursor !== undefined) {
+    const where: string[] = [];
+    const params: unknown[] = [];
+    if (actorUserId) {
+      where.push(`al.actor_user_id = ?`);
+      params.push(actorUserId);
+    }
+    for (const [key, col] of [["objectType", "al.object_type"], ["objectId", "al.object_id"]] as const) {
+      const v = req.query[key];
+      if (typeof v === "string" && v) {
+        where.push(`${col} = ?`);
+        params.push(v.slice(0, 191));
+      }
+    }
+    if (typeof req.query.action === "string" && req.query.action) {
+      where.push(`al.action LIKE ?`);
+      params.push(`${req.query.action.slice(0, 80)}%`);
+    }
+    if (typeof req.query.q === "string" && req.query.q.trim()) {
+      const like = `%${req.query.q.trim().slice(0, 100)}%`;
+      where.push(`(al.action LIKE ? OR al.object_id LIKE ? OR u.email LIKE ? OR al.reason LIKE ?)`);
+      params.push(like, like, like, like);
+    }
+    const after = decodeCursor(req.query.cursor);
+    if (after) {
+      where.push(`(al.created_at < ? OR (al.created_at = ? AND al.id < ?))`);
+      params.push(after.at, after.at, Number(after.key));
+    }
+    const limit = pageLimit(req.query.limit, 50);
+    const rows = (await db
+      .prepare(
+        `SELECT al.id, al.actor_user_id as actorUserId, u.email as actorEmail, al.action, al.object_type as objectType, al.object_id as objectId,
+                al.previous_value as previousValue, al.new_value as newValue, al.reason, al.created_at as createdAt
+         FROM audit_log al LEFT JOIN users u ON u.id = al.actor_user_id ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
+         ORDER BY al.created_at DESC, al.id DESC LIMIT ${limit + 1}`
+      )
+      .all(...params)) as { id: number; createdAt: string }[];
+    const items = rows.slice(0, limit);
+    const last = items[items.length - 1];
+    return res.json({ items, nextCursor: rows.length > limit && last ? encodeCursor(last.createdAt, String(last.id)) : null });
+  }
   const rows = actorUserId
     ? await db
         .prepare(
@@ -1165,25 +1439,67 @@ adminRouter.get("/audit", requireAdminPermission("audit.view"), async (req, res)
 // admin support search entirely) and to browse recent activity with no
 // query, not just search-by-ref/email. Still bounded (LIMIT 20 per type,
 // 'recent' capped the same way) — a real audit/export tool, not this.
+// Support console (2026-10-16): one search across all six kinds of order,
+// residents (magic-link customers), partner/admin accounts, games and
+// circles. Matches an exact reference, or part of an email, name or listing.
+// Blank query = the most recent orders only. Read-only.
 adminRouter.get("/support/search", requireAdminPermission("support.search"), async (req, res) => {
-  const q = typeof req.query.q === "string" ? req.query.q.trim() : "";
+  const q = typeof req.query.q === "string" ? req.query.q.trim().slice(0, 200) : "";
   const like = `%${q}%`;
-  const [bookings, registrations, users, games, circles] = await Promise.all([
-    q
-      ? db.prepare(`SELECT ref, name, email, date, time, status, payment_status as paymentStatus FROM bookings WHERE ref = ? OR email LIKE ? LIMIT 20`).all(q, like)
-      : db.prepare(`SELECT ref, name, email, date, time, status, payment_status as paymentStatus FROM bookings ORDER BY created_at DESC LIMIT 20`).all(),
-    q
-      ? db.prepare(`SELECT ref, g_first as gFirst, g_last as gLast, email, status, payment_status as paymentStatus FROM registrations WHERE ref = ? OR email LIKE ? LIMIT 20`).all(q, like)
-      : db.prepare(`SELECT ref, g_first as gFirst, g_last as gLast, email, status, payment_status as paymentStatus FROM registrations ORDER BY created_at DESC LIMIT 20`).all(),
-    q ? db.prepare(`SELECT id, email, name, role, status FROM users WHERE email LIKE ? LIMIT 20`).all(like) : [],
-    q
-      ? db.prepare(`SELECT id, activity_label as activityLabel, date, time, status, booking_ref as bookingRef FROM games WHERE id = ? OR activity_label LIKE ? LIMIT 20`).all(q, like)
-      : db.prepare(`SELECT id, activity_label as activityLabel, date, time, status, booking_ref as bookingRef FROM games ORDER BY created_at DESC LIMIT 20`).all(),
-    q
-      ? db.prepare(`SELECT id, name, activity_label as activityLabel, status, created_at as createdAt FROM circles WHERE id = ? OR name LIKE ? LIMIT 20`).all(q, like)
-      : db.prepare(`SELECT id, name, activity_label as activityLabel, status, created_at as createdAt FROM circles ORDER BY created_at DESC LIMIT 20`).all(),
+  const orders = await searchOrders(q, q ? 40 : 20);
+  if (!q) return res.json({ query: "", people: [], orders, games: [], circles: [] });
+  const [residents, users, games, circles] = await Promise.all([
+    db.prepare(`SELECT id, email, name, home_county AS county, created_at AS createdAt FROM residents WHERE email LIKE ? OR name LIKE ? ORDER BY created_at DESC LIMIT 20`).all(like, like) as Promise<{ id: string; email: string; name: string; county: string; createdAt: string }[]>,
+    db.prepare(`SELECT id, email, name, role, status, created_at AS createdAt FROM users WHERE email LIKE ? OR name LIKE ? ORDER BY created_at DESC LIMIT 20`).all(like, like) as Promise<{ id: string; email: string; name: string; role: string; status: string; createdAt: string }[]>,
+    db.prepare(`SELECT id, activity_label AS activityLabel, date, time, status, booking_ref AS bookingRef, location_text AS place FROM games WHERE id = ? OR activity_label LIKE ? OR booking_ref = ? ORDER BY created_at DESC LIMIT 20`).all(q, like, q),
+    db
+      .prepare(`SELECT c.id, c.name, c.activity_label AS activityLabel, c.status, c.county, (SELECT COUNT(*) FROM circle_members cm WHERE cm.circle_id = c.id) AS memberCount FROM circles c WHERE c.id = ? OR c.name LIKE ? ORDER BY c.created_at DESC LIMIT 20`)
+      .all(q, like),
   ]);
-  res.json({ bookings, registrations, users, games, circles });
+  // One "person" per email: a resident account and a partner/admin login with
+  // the same email are the same human, shown once.
+  const byEmail = new Map<string, { email: string; name: string; resident: boolean; account: { role: string; status: string } | null; createdAt: string }>();
+  for (const r of residents) byEmail.set(r.email.toLowerCase(), { email: r.email, name: r.name, resident: true, account: null, createdAt: r.createdAt });
+  for (const u of users) {
+    const k = u.email.toLowerCase();
+    const cur = byEmail.get(k);
+    if (cur) cur.account = { role: u.role, status: u.status };
+    else byEmail.set(k, { email: u.email, name: u.name, resident: false, account: { role: u.role, status: u.status }, createdAt: u.createdAt });
+  }
+  // Customers who ordered without ever signing in only exist on their orders.
+  for (const o of orders) {
+    if (!o.email) continue;
+    const k = o.email.toLowerCase();
+    if (!byEmail.has(k) && (o.email.toLowerCase().includes(q.toLowerCase()) || (o.name ?? "").toLowerCase().includes(q.toLowerCase()))) byEmail.set(k, { email: o.email, name: o.name ?? "", resident: false, account: null, createdAt: o.createdAt });
+  }
+  res.json({ query: q, people: [...byEmail.values()].slice(0, 20), orders, games, circles: (circles as { memberCount: unknown }[]).map((c) => ({ ...c, memberCount: Number(c.memberCount) })) });
+});
+
+/** Everything support needs about one email address. */
+adminRouter.get("/support/people/:email", requireAdminPermission("support.search"), async (req, res) => {
+  const email = String(req.params.email).trim();
+  if (!email) return res.status(400).json({ error: "Email required" });
+  const resident = (await db.prepare(`SELECT id, name, home_county AS county, created_at AS createdAt FROM residents WHERE email = ?`).get(email)) as { id: string; name: string; county: string; createdAt: string } | undefined;
+  const account = (await db.prepare(`SELECT id, name, role, status, created_at AS createdAt FROM users WHERE email = ?`).get(email)) as { id: string; name: string; role: string; status: string; createdAt: string } | undefined;
+  const household = resident ? ((await db.prepare(`SELECT COUNT(*) AS n FROM household_members WHERE resident_id = ?`).get(resident.id)) as { n: number | string }) : null;
+  const orders = await ordersForPerson(email, resident?.id ?? null);
+  if (!resident && !account && orders.length === 0) return res.status(404).json({ error: "Nobody with that email" });
+  res.json({
+    email,
+    name: resident?.name || account?.name || orders.find((o) => o.name)?.name || "",
+    resident: resident ? { ...resident, householdMembers: Number(household?.n ?? 0) } : null,
+    account: account ?? null,
+    orders,
+  });
+});
+
+/** One order, read-only, for support (no ledger or provider detail). */
+adminRouter.get("/support/orders/:kind/:ref", requireAdminPermission("support.search"), async (req, res) => {
+  const kind = req.params.kind as OrderKind;
+  if (!ORDER_KINDS.includes(kind)) return res.status(400).json({ error: "Unknown order type" });
+  const detail = await orderDetail(kind, String(req.params.ref));
+  if (!detail) return res.status(404).json({ error: "Order not found" });
+  res.json(detail);
 });
 
 // Open Bookings & Circle activity (IA spec §16) — a bounded admin view of

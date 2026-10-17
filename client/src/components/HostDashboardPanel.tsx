@@ -20,8 +20,10 @@ export function HostDashboardPanel({ residentId, manageLinks }: { residentId: st
   const [circles, setCircles] = useState<Circle[] | null>(null);
 
   useEffect(() => {
-    fetchMyGames().then(setGames);
-    fetchMyCircles().then(setCircles);
+    // A summary panel: it stays hidden if either list can't load (both lists
+    // are reachable, with their own error states, in the Host workspace).
+    fetchMyGames().then(setGames).catch(() => setGames([]));
+    fetchMyCircles().then(setCircles).catch(() => setCircles([]));
   }, []);
 
   if (games === null || circles === null) return null;

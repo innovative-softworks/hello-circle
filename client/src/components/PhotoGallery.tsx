@@ -31,7 +31,7 @@ export function PhotoGallery({ images, alt, ph, height = 380, sharedHero }: Phot
         style={{
           position: "relative",
           height,
-          borderRadius: 16,
+          borderRadius: radius.card,
           overflow: "hidden",
           display: "grid",
           gridTemplateColumns: photos.length > 1 ? "1.5fr 1fr" : "1fr",
@@ -187,7 +187,7 @@ function Lightbox({
         <img
           src={getMediaUrl(photos[index], "hero")}
           alt={`${alt} photo ${index + 1}`}
-          style={{ maxWidth: "100%", maxHeight: "100%", borderRadius: 10, objectFit: "contain" }}
+          style={{ maxWidth: "100%", maxHeight: "100%", borderRadius: radius.control, objectFit: "contain" }}
         />
         {photos.length > 1 && (
           <button onClick={() => onIndex((index + 1) % photos.length)} aria-label="Next photo" style={{ ...navBtnStyle, right: 12 }}>

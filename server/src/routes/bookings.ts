@@ -19,6 +19,7 @@ import { recordOrderAcknowledgements } from "../orderAcknowledgements.js";
 import { BadRequestError, ConflictError, bookingEndHour, clientIdFrom, generateRef, hoursOverlap, isValidEmail } from "../util.js";
 import { VENDOR_SUSPENDED_ERROR, consumeCoupon, customerKeyOf, endPendingHold, isPositiveInt, occupiesCapacitySql, startIsInFuture, validateFutureDate } from "../bookingIntegrity.js";
 import { assertSellable, offeringSellable } from "../orgStatus.js";
+import { moveBookingSlot } from "../bookingMove.js";
 
 export const bookingsRouter = Router();
 
@@ -734,27 +735,10 @@ bookingsRouter.post("/:ref/reschedule", lookupLimiter, async (req, res) => {
   }
 
   try {
+    // Shared with accepted venue proposals and host activity moves (bookingMove.ts):
+    // the same room lock, overlap and closure checks as checkout.
     await db.transaction(async (tx) => {
-      // rooms.id is only unique per-centre (PRIMARY KEY (centre_id, id)) —
-      // scope both the lock and the overlap check by row.centreId (already
-      // fetched above), same fix as availability.ts/queries.ts/programs.ts.
-      await tx.prepare(`SELECT id FROM rooms WHERE id = ? AND centre_id = ? FOR UPDATE`).get(row.roomId, row.centreId);
-      const overlapping = (await tx
-        .prepare(`SELECT ref, time, duration FROM bookings WHERE room_id = ? AND centre_id = ? AND date = ? AND ref != ? AND ${occupiesCapacitySql()}`)
-        .all(row.roomId, row.centreId, date, row.ref)) as { ref: string; time: string; duration: number }[];
-      const clashes = overlapping.some((b) => {
-        const bStart = parseInt(b.time.slice(0, 2), 10);
-        return hoursOverlap(startHour, reqEnd, bStart, bookingEndHour(bStart, b.duration));
-      });
-      if (clashes) throw new ConflictError("That new time is no longer available");
-
-      const blocks = (await tx
-        .prepare(`SELECT time FROM room_blocks WHERE centre_id = ? AND date = ? AND (room_id = ? OR room_id IS NULL)`)
-        .all(row.centreId, date, row.roomId)) as { time: string | null }[];
-      const blocked = blocks.some((b) => (b.time === null ? true : parseInt(b.time.slice(0, 2), 10) >= startHour && parseInt(b.time.slice(0, 2), 10) < reqEnd));
-      if (blocked) throw new ConflictError("The vendor has closed that date/time");
-
-      await tx.prepare(`UPDATE bookings SET date = ?, time = ? WHERE ref = ?`).run(date, time, row.ref);
+      await moveBookingSlot(tx, row, date, time);
     });
   } catch (e) {
     if (e instanceof ConflictError) return res.status(409).json({ error: e.message });

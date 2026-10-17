@@ -1,7 +1,7 @@
 import { heldRefsFor, shortenReviewHolds } from "../payments/paymentReview.js";
+import { cancelProgramEnrollmentAsProvider } from "../hallBookingCancel.js";
 import { assertCreatorStillMember } from "../orgStatus.js";
 import crypto from "node:crypto";
-import { refundOnProviderCancel } from "../providerCancelRefund.js";
 import { logEvent } from "../analytics.js";
 import { matchProgramSupply } from "../participationIntents.js";
 import { Router } from "express";
@@ -10,7 +10,7 @@ import { writeAudit } from "../audit.js";
 import { refundPaidOnce } from "../checkoutService.js";
 import { db } from "../db/index.js";
 import { orgFeatureFlags } from "../db/queries.js";
-import { notifyCancellation, notifyRefund, notifyResident } from "../notifications.js";
+import { notifyRefund, notifyResident } from "../notifications.js";
 import { irelandTodayIso } from "../irelandTime.js";
 import { inClause, ownsListing } from "./vendorHelpers.js";
 import { notifyCentreFollowers, notifyVendorFollowers } from "./follows.js";
@@ -315,51 +315,12 @@ vendorProgramsRouter.post("/programs/:programId/enrollments/:enrollmentId/cancel
   const { owns, requiredRole } = await programOwnership(req.vendorIds!, req.params.programId);
   if (!owns) return res.status(403).json({ error: "Not your program" });
   if (!assertPlatformRole(req, res, requiredRole!)) return;
-
-  const row = (await db
-    .prepare(
-      `SELECT pe.ref, pe.status, pe.participant_name as participantName, pe.email, pe.resident_id as residentId,
-              p.title, p.listing_type as listingType, p.listing_id as listingId, p.vendor_id as vendorId
-       FROM program_enrollments pe JOIN programs p ON p.id = pe.program_id
-       WHERE pe.id = ? AND pe.program_id = ?`
-    )
-    .get(req.params.enrollmentId, req.params.programId)) as
-    | { ref: string; status: string; participantName: string; email: string; residentId: string | null; title: string; listingType: "centre" | "club"; listingId: string; vendorId: string }
-    | undefined;
-  if (!row) return res.status(404).json({ error: "Enrollment not found" });
-  if (row.status === "cancelled") return res.status(409).json({ error: "This enrollment is already cancelled" });
-
-  // HC-QA-046 — atomic transition: only the request that actually flips the row
-  // runs the side effects (capacity release, audit, notifications, promotion).
-  const flipped = await db.prepare(`UPDATE program_enrollments SET status = 'cancelled' WHERE ref = ? AND status != 'cancelled'`).run(row.ref);
-  if (flipped.changes !== 1) return res.status(409).json({ error: "This enrollment is already cancelled" });
-
-  await writeAudit({
-    actorUserId: req.user!.id,
-    action: "program_enrollment.cancelled_by_vendor",
-    objectType: "program_enrollment",
-    objectId: row.ref,
-    previousValue: { status: row.status },
-    newValue: { status: "cancelled" },
-  });
-
-  const notifyParams = {
-    kind: "program",
-    listingType: row.listingType,
-    listingId: row.listingId,
-    listingName: row.title,
-    vendorId: row.vendorId,
-    guestName: row.participantName,
-    guestEmail: row.email,
-    ref: row.ref,
-    detailsText: row.title,
-    residentId: row.residentId,
-  } as const;
-  notifyCancellation(notifyParams).catch((e) => console.error("[notifications] vendor program enrollment cancellation notify failed:", e));
-
-  // Booking UX Phase 6 (B13) — a provider cancellation refunds a paid online order in full.
-  const refund = await refundOnProviderCancel({ table: "program_enrollments", ref: row.ref, actorUserId: req.user!.id, objectType: "program_enrollment", notify: notifyParams });
-  res.json({ ok: true, refund: refund.refund, ...(refund.refund === "failed" ? { refundError: refund.error } : {}) });
+  const found = (await db.prepare(`SELECT ref FROM program_enrollments WHERE id = ? AND program_id = ?`).get(req.params.enrollmentId, req.params.programId)) as { ref: string } | undefined;
+  if (!found) return res.status(404).json({ error: "Enrollment not found" });
+  // Shared with HelloCircle admin cancellations (hallBookingCancel.ts).
+  const result = await cancelProgramEnrollmentAsProvider({ ref: found.ref, actorUserId: req.user!.id, vendorIds: req.vendorIds!, action: "program_enrollment.cancelled_by_vendor" });
+  if (!result.ok) return res.status(result.status).json({ error: result.error });
+  res.json({ ok: true, refund: result.refund, ...(result.refundError ? { refundError: result.refundError } : {}) });
 });
 
 vendorProgramsRouter.post("/programs/:programId/enrollments/:enrollmentId/refund", async (req, res) => {

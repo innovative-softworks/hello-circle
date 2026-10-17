@@ -33,7 +33,7 @@ export const HISTORY_LABEL: Record<RewardHistoryEntry["kind"], string> = {
   adjustment: "Manual adjustment",
 };
 
-const panel = { background: colors.surface, border: `1px solid ${colors.borderStrong}`, borderRadius: 0, padding: 20 } as const;
+const panel = { background: colors.surface, border: `1px solid ${colors.borderStrong}`, borderRadius: "var(--radius-manage-card)", padding: 20 } as const;
 const eyebrow = { fontSize: 11.5, fontWeight: 700, letterSpacing: 0, textTransform: "uppercase" as const, color: colors.muted, margin: 0 };
 
 export function PriceRows({ price, totalLabel = "Total each month" }: { price: PartnerPlanOverview["price"]; totalLabel?: string }) {
@@ -52,7 +52,7 @@ export function PriceRows({ price, totalLabel = "Total each month" }: { price: P
 function Badge({ children, tone }: { children: ReactNode; tone: "ok" | "warn" | "info" }) {
   const bg = tone === "ok" ? colors.greenBg : tone === "warn" ? colors.dangerBg : colors.orangeBg;
   const fg = tone === "ok" ? colors.greenText : tone === "warn" ? colors.danger : colors.text;
-  return <span style={{ background: bg, color: fg, fontSize: 12, fontWeight: 700, padding: "3px 8px", borderRadius: 0 }}>{children}</span>;
+  return <span style={{ background: bg, color: fg, fontSize: 12, fontWeight: 700, padding: "3px 8px", borderRadius: "var(--radius-manage-card)" }}>{children}</span>;
 }
 
 function BenefitList() {
@@ -370,7 +370,7 @@ export function PlanRewardsPanel({ scope, variant }: { scope: Scope; variant: "c
 }
 
 const linkBtn = { fontSize: 14, fontWeight: 700, color: colors.text, textDecoration: "underline", padding: "8px 0" } as const;
-const primaryLink = { background: colors.orange, color: "#fff", textDecoration: "none", padding: "10px 16px", borderRadius: 0 } as const;
+const primaryLink = { background: colors.orange, color: "#fff", textDecoration: "none", padding: "10px 16px", borderRadius: "var(--radius-manage-card)" } as const;
 
 function Stat({ label, value, help }: { label: string; value: string; help?: string }) {
   return (

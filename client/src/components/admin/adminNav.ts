@@ -1,11 +1,17 @@
 import {
   Activity,
+  AlertTriangle,
+  Receipt,
+  UserRound,
+  UsersRound,
+  CalendarCheck,
   Award,
   Building2,
   ClipboardCheck,
   Images,
   KeyRound,
   Landmark,
+  PiggyBank,
   LayoutDashboard,
   LifeBuoy,
   List,
@@ -13,6 +19,7 @@ import {
   MapPin,
   Scale,
   ScrollText,
+  FileLock2,
   Settings,
   ShieldCheck,
   Star,
@@ -33,6 +40,12 @@ export type AdminTab =
   | "overview"
   | "pending"
   | "support"
+  | "exceptions"
+  | "people"
+  | "orders"
+  | "activities"
+  | "circles"
+  | "hosts"
   | "listings"
   | "vendors"
   | "claims"
@@ -44,11 +57,13 @@ export type AdminTab =
   | "coupons"
   | "commerce"
   | "finance"
+  | "plansCredit"
   | "reviews"
   | "policies"
   | "audit"
   | "notificationTemplates"
   | "media"
+  | "privacy"
   | "settings";
 
 export type AdminRoleName = "super" | "finance" | "support" | "legal";
@@ -59,6 +74,11 @@ export interface AdminNavItem {
   icon: LucideIcon;
   /** Shown under the page title. */
   summary: string;
+  /** Kept as a valid `?tab=` key for old links, but not shown in the sidebar
+   * (its content lives inside another page now). */
+  hidden?: boolean;
+  /** For a hidden item: the sidebar item to highlight instead. */
+  aliasOf?: AdminTab;
   /** D-02: the item is usable when the admin holds any of these permissions
    * (names from server/src/adminPermissions.ts; the server enforces them). */
   permissions: string[];
@@ -75,7 +95,20 @@ export const ADMIN_NAV: AdminNavGroup[] = [
     items: [
       { key: "overview", label: "Overview", icon: LayoutDashboard, summary: "What needs a decision, and how the platform is doing.", permissions: ["workspace.view"] },
       { key: "pending", label: "Pending approvals", icon: ClipboardCheck, summary: "Listings submitted by partners that are waiting for a publish decision.", permissions: ["listings.view"] },
-      { key: "support", label: "Support", icon: LifeBuoy, summary: "Look up bookings, registrations, accounts, sessions and circles.", permissions: ["support.search"] },
+      { key: "support", label: "Support", icon: LifeBuoy, summary: "Find any customer, order, game or circle, and see everything about it.", permissions: ["support.search"] },
+    ],
+  },
+  {
+    // Operational platform (OG-14 / OG-15): the inbox of open money problems
+    // and server-paged directories; rows open existing record pages.
+    label: "Operations",
+    items: [
+      { key: "exceptions", label: "Exceptions", icon: AlertTriangle, summary: "Money problems that need a person: payments under review, disputes, refunds due, failed payouts and Pro payments.", permissions: ["finance.payment_state.view"] },
+      { key: "people", label: "People", icon: UserRound, summary: "Everyone with a personal HelloCircle account.", permissions: ["support.search"] },
+      { key: "orders", label: "Orders", icon: Receipt, summary: "Every booking, registration, enrolment, activity place, experience booking and pass.", permissions: ["support.search"] },
+      { key: "activities", label: "Activities", icon: CalendarCheck, summary: "Activities hosted by residents.", permissions: ["support.search"] },
+      { key: "circles", label: "Circles", icon: UsersRound, summary: "Every Circle and its organiser.", permissions: ["support.search"] },
+      { key: "hosts", label: "Hosts", icon: Award, summary: "Residents who host activities or applied for the Verified Host badge.", permissions: ["support.search"] },
     ],
   },
   {
@@ -87,16 +120,17 @@ export const ADMIN_NAV: AdminNavGroup[] = [
       { key: "hostApplications", label: "Host applications", icon: Award, summary: "Residents applying for the Verified Host badge.", permissions: ["queues.view"] },
       { key: "placeSuggestions", label: "Place suggestions", icon: MapPin, summary: "Places suggested by residents, waiting to be published or declined.", permissions: ["queues.view"] },
       { key: "organisations", label: "Organisations", icon: Building2, summary: "Partner organisations, their feature flags, and custom organisations.", permissions: ["orgs.view"] },
-      { key: "demand", label: "Demand", icon: TrendingUp, summary: "What residents are looking for that nobody offers yet.", permissions: ["insights.view"] },
-      { key: "marketplaceHealth", label: "Marketplace health", icon: Activity, summary: "Liquidity, referrals and the participation funnel.", permissions: ["insights.view"] },
+      { key: "marketplaceHealth", label: "Insights", icon: Activity, summary: "Marketplace health, unmet demand and the participation funnel.", permissions: ["insights.view"] },
+      { key: "demand", label: "Insights", icon: TrendingUp, summary: "Marketplace health, unmet demand and the participation funnel.", permissions: ["insights.view"], hidden: true, aliasOf: "marketplaceHealth" },
     ],
   },
   {
     label: "Business",
     items: [
-      { key: "coupons", label: "Coupons", icon: Ticket, summary: "HelloCircle-funded and split discount codes.", permissions: ["coupons.manage"] },
+      { key: "coupons", label: "Coupons", icon: Ticket, summary: "Discount codes, and what they have been used for and cost.", permissions: ["coupons.manage"] },
       { key: "commerce", label: "Commercial rules", icon: Scale, summary: "Versioned fees, rates and feature switches.", permissions: ["commerce.operate"] },
-      { key: "finance", label: "Finance", icon: Landmark, summary: "Ledger, settlements, payouts, refunds and disputes.", permissions: ["finance.operate", "finance.payment_state.view"] },
+      { key: "finance", label: "Finance", icon: Landmark, summary: "Payment problems, refunds, settlements, transfers, bank payouts and the ledger.", permissions: ["finance.operate", "finance.payment_state.view"] },
+      { key: "plansCredit", label: "Plans & credit", icon: PiggyBank, summary: "Customer credit, partner reward points, plans and promotions, and the price simulator.", permissions: ["finance.operate"] },
     ],
   },
   {
@@ -106,6 +140,7 @@ export const ADMIN_NAV: AdminNavGroup[] = [
       { key: "policies", label: "Policies & trust", icon: ShieldCheck, summary: "Policy documents, company details, complaints and trader checks.", permissions: ["policies.manage", "complaints.handle", "traders.view"] },
       { key: "audit", label: "Audit log", icon: ScrollText, summary: "Who changed what, and when.", permissions: ["audit.view"] },
       { key: "notificationTemplates", label: "Notification templates", icon: Mail, summary: "Wording of booking and registration confirmation and cancellation messages.", permissions: ["templates.view"] },
+      { key: "privacy", label: "Privacy requests", icon: FileLock2, summary: "Requests people made about their data, and the consent choices on record.", permissions: ["privacy.requests"] },
       { key: "media", label: "Media", icon: Images, summary: "Upload switches and the editorial image library.", permissions: ["media.view"] },
       { key: "settings", label: "Settings", icon: Settings, summary: "System status, admin roles, field help, market categories and recommendation weights.", permissions: ["workspace.view"] },
     ],

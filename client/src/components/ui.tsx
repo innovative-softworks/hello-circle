@@ -6,6 +6,7 @@ import { CheckIcon, CloseIcon, StarIcon } from "./icons";
 import { getMediaUrl } from "../media";
 import { navigateWithSharedImage } from "../sharedElementTransition";
 import { colors, fonts, maxWidth, radius, zIndex } from "../theme";
+import { useInWorkspace } from "./workspace/inWorkspace";
 
 // Shared, reusable building blocks for the vendor/admin/reviews UI — kept in
 // one place so button/card/badge styling can't drift between dashboards.
@@ -249,7 +250,7 @@ export function Card({
   );
 }
 
-/** Vendor/Admin-only `Card` variant — same primitive, `radius.swiss.card`'s
+/** Vendor/Admin-only `Card` variant — same primitive, `--radius-manage-card`'s
  * sharper 2px corners (Home.tsx's already-shipped editorial language)
  * instead of the general 16px scale, per the dashboard redesign pass.
  * `Card` itself is left untouched: it's shared by ~40 other, non-dashboard
@@ -258,7 +259,7 @@ export function Card({
  * files import this aliased as `Card` so no call site needs to change. */
 export function ManageCard({ children, hover, style, onClick }: { children: ReactNode; hover?: boolean; style?: CSSProperties; onClick?: () => void }) {
   return (
-    <Card hover={hover} onClick={onClick} style={{ borderRadius: radius.swiss.card, ...style }}>
+    <Card hover={hover} onClick={onClick} style={{ borderRadius: "var(--radius-manage-card)", ...style }}>
       {children}
     </Card>
   );
@@ -618,6 +619,18 @@ export function LoadMoreControl({ loadingMore, failed, onLoadMore, label = "Load
 }
 
 export function EmptyState({ icon, title, subtitle, action }: { icon: ReactNode; title: string; subtitle?: string; action?: ReactNode }) {
+  // Workspaces (admin / partner / host): no dashed frame, icon in a tile.
+  if (useInWorkspace())
+    return (
+      <div className="ws-empty">
+        <span className="ws-empty-icon" aria-hidden="true">
+          {icon}
+        </span>
+        <div className="ws-empty-title">{title}</div>
+        {subtitle && <div className="ws-empty-sub">{subtitle}</div>}
+        {action && <div style={{ marginTop: 14 }}>{action}</div>}
+      </div>
+    );
   return (
     <div
       style={{
@@ -723,6 +736,18 @@ export function Tabs<T extends string>({
   onChange: (v: T) => void;
   options: { key: T; label: string; icon?: ReactNode }[];
 }) {
+  // Workspaces: the admin's underline tabs (same buttons, same behaviour).
+  if (useInWorkspace())
+    return (
+      <div className="adm-itabs ws-tabs">
+        {options.map((o) => (
+          <button key={o.key} type="button" aria-pressed={o.key === value} onClick={() => onChange(o.key)}>
+            {o.icon && <span style={{ display: "flex" }}>{o.icon}</span>}
+            {o.label}
+          </button>
+        ))}
+      </div>
+    );
   return (
     <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
       {options.map((o) => {
@@ -767,6 +792,7 @@ export function SectionTabs<T extends string>({
   idBase: string;
 }) {
   const refs = useRef<Record<string, HTMLButtonElement | null>>({});
+  const inWorkspace = useInWorkspace();
   const move = (e: ReactKeyboardEvent, index: number) => {
     const last = options.length - 1;
     const next = e.key === "ArrowRight" ? (index === last ? 0 : index + 1) : e.key === "ArrowLeft" ? (index === 0 ? last : index - 1) : e.key === "Home" ? 0 : e.key === "End" ? last : null;
@@ -777,7 +803,7 @@ export function SectionTabs<T extends string>({
     refs.current[key]?.focus();
   };
   return (
-    <div role="tablist" aria-label={label} className="section-tabs" style={{ display: "flex", gap: 8, overflowX: "auto", paddingBottom: 2 }}>
+    <div role="tablist" aria-label={label} className={inWorkspace ? "adm-itabs ws-tabs" : "section-tabs"} style={inWorkspace ? undefined : { display: "flex", gap: 8, overflowX: "auto", paddingBottom: 2 }}>
       {options.map((o, i) => {
         const active = o.key === value;
         return (
@@ -794,8 +820,8 @@ export function SectionTabs<T extends string>({
             tabIndex={active ? 0 : -1}
             onClick={() => onChange(o.key)}
             onKeyDown={(e) => move(e, i)}
-            className={`tab-btn ${active ? "tab-btn-active" : ""}`}
-            style={{
+            className={inWorkspace ? undefined : `tab-btn ${active ? "tab-btn-active" : ""}`}
+            style={inWorkspace ? undefined : {
               ...buttonBase,
               flex: "0 0 auto",
               minHeight: 44,
@@ -935,6 +961,22 @@ export function StatTile({
   sublabel: string;
   sublabelColor: string;
 }) {
+  // Workspaces: an icon card, like the admin Overview's number cards.
+  if (useInWorkspace())
+    return (
+      <div className="ws-stat">
+        {icon && (
+          <span className="ws-stat-icon" aria-hidden="true">
+            {icon}
+          </span>
+        )}
+        <span className="ws-stat-value">{value}</span>
+        <span className="ws-stat-label">{label}</span>
+        <span className="ws-stat-sub" style={{ color: sublabelColor }}>
+          {sublabel}
+        </span>
+      </div>
+    );
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 6, padding: "18px 22px", flex: 1, minWidth: 170 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 7, color: colors.faint }}>
@@ -968,6 +1010,7 @@ export function KpiHero({
   sublabel: string;
   sublabelColor: string;
 }) {
+  if (useInWorkspace()) return <StatTile icon={icon} value={value} label={label} sublabel={sublabel} sublabelColor={sublabelColor} />;
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 7, color: colors.faint }}>
@@ -985,6 +1028,14 @@ export function KpiHero({
  * above on narrow screens, via `.kpi-strip` in index.css), `children` are
  * the ordinary-size `StatTile`s that make up the rest of the KPI row. */
 export function KpiStrip({ hero, children, marginBottom = 34 }: { hero: ReactNode; children: ReactNode; marginBottom?: number }) {
+  // Workspaces: one row of equal icon cards.
+  if (useInWorkspace())
+    return (
+      <div className="ws-stats" style={{ marginBottom }}>
+        {hero}
+        {children}
+      </div>
+    );
   return (
     <div
       className="kpi-strip"
@@ -1095,6 +1146,37 @@ export const labelStyle: CSSProperties = {
 // prop-driven abstraction more than it's helped by one. Wrap every table in
 // a `<div style={{ overflowX: "auto" }}>` so it scrolls on narrow viewports
 // instead of breaking layout.
+
+/** OG-23 — a data table that stacks into labelled rows on a phone instead of
+ * scrolling sideways (`.hc-stack-table` in index.css). Each cell's label is
+ * copied from its column header, kept in step as rows load or change. */
+export function StackTable({ children, style, ...rest }: React.TableHTMLAttributes<HTMLTableElement>) {
+  const ref = useRef<HTMLTableElement>(null);
+  useEffect(() => {
+    const table = ref.current;
+    if (!table) return;
+    const label = () => {
+      const heads = Array.from(table.querySelectorAll("thead th")).map((th) => th.textContent?.trim() ?? "");
+      table.querySelectorAll("tbody tr").forEach((tr) => {
+        let col = 0;
+        Array.from(tr.children).forEach((cell) => {
+          const head = heads[col] ?? "";
+          if (head && cell.getAttribute("data-label") !== head) cell.setAttribute("data-label", head);
+          col += Number((cell as HTMLTableCellElement).colSpan) || 1;
+        });
+      });
+    };
+    label();
+    const obs = new MutationObserver(label);
+    obs.observe(table, { childList: true, subtree: true });
+    return () => obs.disconnect();
+  }, []);
+  return (
+    <table ref={ref} className="hc-stack-table" style={{ ...tableStyle, ...style }} {...rest}>
+      {children}
+    </table>
+  );
+}
 
 export const tableStyle: CSSProperties = { width: "100%", borderCollapse: "collapse", fontSize: 13.5 };
 export const thStyle: CSSProperties = {

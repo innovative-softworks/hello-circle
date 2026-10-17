@@ -1,7 +1,7 @@
 import { useRef, useState } from "react";
 import { ApiError } from "../api/core";
 import type { SelfCancelResult } from "../api/public";
-import { colors } from "../theme";
+import { colors, radius } from "../theme";
 import { ConfirmDialog } from "./ui";
 
 // Phase 11B — resident self-cancel for experience bookings and programme
@@ -33,7 +33,7 @@ export function RefundStatus({ refundState }: { refundState: RefundState | undef
         fontWeight: 700,
         color: done ? colors.greenText : colors.orangeDark,
         background: done ? colors.greenBg : colors.orangeBg,
-        borderRadius: 999,
+        borderRadius: radius.pill,
         padding: "2px 8px",
         whiteSpace: "nowrap",
       }}

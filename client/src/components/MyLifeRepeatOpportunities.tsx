@@ -1,6 +1,6 @@
 import { useNavigate } from "react-router-dom";
 import { Button } from "./ui";
-import { colors, fonts } from "../theme";
+import { colors, fonts, radius } from "../theme";
 import type { RoutineSuggestion } from "../types";
 
 const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
@@ -22,7 +22,7 @@ export function MyLifeRepeatOpportunities({ suggestions }: { suggestions: Routin
       {suggestions.slice(0, 2).map((s) => {
         const key = `${s.activityLabel}::${s.dayOfWeek}`;
         return (
-          <div key={key} style={{ background: colors.greenBg, borderRadius: 10, padding: "18px 20px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
+          <div key={key} style={{ background: colors.greenBg, borderRadius: radius.control, padding: "18px 20px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
             <div>
               <div style={{ fontSize: 10.5, fontWeight: 700, color: colors.greenText, textTransform: "uppercase", letterSpacing: 0, marginBottom: 4 }}>
                 {s.activityLabel}

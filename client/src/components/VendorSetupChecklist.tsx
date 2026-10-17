@@ -59,6 +59,31 @@ const WAITING: Record<string, string> = {
   terms: "Accept the Terms when you're next asked to continue.",
 };
 
+/** Setup progress for the Overview queue: the next step, what the partner can do
+ * about it (or what HelloCircle is waiting on), and how far along they are.
+ * Null while loading, on error, or once every step is done. */
+export function useVendorSetupNext() {
+  const [status, setStatus] = useState<VendorSetupStatus | null>(null);
+  useEffect(() => {
+    fetchVendorSetupStatus()
+      .then(setStatus)
+      .catch(() => setStatus(null));
+  }, []);
+  if (!status || status.complete) return null;
+  const phases = ["submitted", "review", "after_approval"];
+  const all = phases.flatMap((ph) => status.steps.filter((s) => s.phase === ph));
+  const next = all.find((s) => !s.done);
+  if (!next) return null;
+  const editPath = status.listing ? `/vendor/${status.listing.type === "centre" ? "centres" : "clubs"}/${status.listing.id}` : null;
+  return {
+    done: all.filter((s) => s.done).length,
+    total: all.length,
+    next,
+    action: nextAction(next, editPath),
+    waiting: WAITING[next.key] ?? null,
+  };
+}
+
 export function VendorSetupChecklist({ variant }: { variant: "pending" | "approved" }) {
   const navigate = useNavigate();
   const [status, setStatus] = useState<VendorSetupStatus | null>(null);

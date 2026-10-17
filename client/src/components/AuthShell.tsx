@@ -1,6 +1,6 @@
 import { BrandLogo } from "./BrandLogo";
 import type { AuthIntentContext } from "../authRedirect";
-import { colors } from "../theme";
+import { colors, radius } from "../theme";
 
 // AuthBrand/AuthContextCard are shared by every full-page auth screen —
 // resident (/signin, /signin/create, /signin/email-link) and vendor/admin
@@ -27,7 +27,7 @@ export function AuthBrand() {
 // GameJoinCard, ...) supplied real data about a real Circle/game.
 export function AuthContextCard({ context }: { context: AuthIntentContext }) {
   return (
-    <div style={{ background: colors.panel, borderRadius: 10, padding: "13px 16px", marginBottom: 24, maxWidth: 340 }}>
+    <div style={{ background: colors.panel, borderRadius: radius.control, padding: "13px 16px", marginBottom: 24, maxWidth: 340 }}>
       <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0, textTransform: "uppercase", color: colors.mutedLight, marginBottom: 5 }}>
         You're joining
       </div>

@@ -11,12 +11,15 @@ import {
   resumeVendorCentre,
   resumeVendorClub,
 } from "../api";
-import { BallIcon, BuildingIcon, CheckCircleIcon, EditIcon, EyeIcon, PinIcon, PlusIcon, StarIcon } from "./icons";
+import { Building2, LayoutList, Plus, Volleyball } from "lucide-react";
+import { CheckCircleIcon } from "./icons";
+import { AdminButton, Box, IconTabs } from "./admin/adminUi";
+import { useUrlParam } from "../useUrlTab";
 import { VENUE_NOT_PUBLIC_HELP, VENUE_NOT_PUBLIC_LABEL, VENUE_PAGES_PUBLIC } from "../venueLaunch";
-import { Button, ManageCard as Card, ConfirmDialog, LinkButton, StatusBadge, tableStyle, tdStyle, thStyle } from "./ui";
+import { ManageCard as Card, ConfirmDialog, EmptyState } from "./ui";
 import { ActionMenu } from "./ActionMenu";
 import { getMediaUrl } from "../media";
-import { colors, fonts, radius } from "../theme";
+import { colors, fonts } from "../theme";
 import type { VendorListingSummary, VendorType } from "../types";
 
 // Host Manage spec §7's Listings actions (Duplicate/Pause/Share) — didn't
@@ -35,10 +38,10 @@ function useCopyPublicLink() {
   };
 }
 
-// The Listings tab (deliberately NOT a uniform CRUD list: for the common
-// case — one listing of a given type — this renders a rich profile view of
-// that listing instead of a table) plus the Overview tab's setup checklist
-// — split out of the original single VendorDashboard.tsx (see CLAUDE.md).
+// The Listings tab — one table of every centre and club (type tabs when there
+// are both; Add centre / Add club live in the page header) plus the setup
+// checklist — split out of the original single VendorDashboard.tsx (see
+// CLAUDE.md).
 
 function ChecklistStep({ done, label }: { done: boolean; label: string }) {
   return (
@@ -84,292 +87,40 @@ export function SetupChecklist({ vendorType, listings }: { vendorType: VendorTyp
   );
 }
 
-function ListingFactsStrip({ kind, listing }: { kind: "centre" | "club"; listing: VendorListingSummary }) {
+type Kind = "centre" | "club";
+type Row = VendorListingSummary & { kind: Kind };
+
+const STATUS_CHIP: Record<VendorListingSummary["status"], { label: string; tone?: "good" | "warn" }> = {
+  approved: { label: "Live", tone: "good" },
+  pending: { label: "Pending review", tone: "warn" },
+  rejected: { label: "Changes needed", tone: "warn" },
+  draft: { label: "Draft" },
+  paused: { label: "Paused" },
+  deleted: { label: "Deleted" },
+};
+
+function ListingStatusChip({ status }: { status: VendorListingSummary["status"] }) {
+  // HC-QA-059 — while venue pages are gated, "approved" isn't publicly visible.
+  const chip = status === "approved" && !VENUE_PAGES_PUBLIC ? { label: VENUE_NOT_PUBLIC_LABEL, tone: "good" as const } : STATUS_CHIP[status];
   return (
-    <span style={{ display: "flex", flexWrap: "wrap", gap: 14, fontSize: 12.5, color: colors.mutedLight }}>
-      {kind === "centre" ? (
-        <>
-          {listing.capacity != null && <span>Capacity {listing.capacity}</span>}
-          {listing.fromPrice != null && <span>from €{listing.fromPrice}/hr</span>}
-        </>
-      ) : (
-        <>
-          {listing.ages && <span>{listing.ages}</span>}
-          {listing.price != null && listing.unit && (
-            <span>
-              €{listing.price} / {listing.unit}
-            </span>
-          )}
-        </>
-      )}
+    <span className="adm-chip" data-tone={chip.tone}>
+      {chip.label}
     </span>
   );
 }
 
-function ListingProfileCard({
-  kind,
-  listing,
-  onEdit,
-  onDelete,
-  onPauseResume,
-  onDuplicate,
-}: {
-  kind: "centre" | "club";
-  listing: VendorListingSummary;
-  onEdit: () => void;
-  onDelete: () => void;
-  onPauseResume: () => void;
-  onDuplicate: () => void;
-}) {
-  const copyPublicLink = useCopyPublicLink();
-  const publicHref = kind === "centre" ? `/centres/${listing.id}` : `/clubs/${listing.id}`;
-  // HC-QA-059 — while venue pages are gated, an approved listing is not
-  // something the public can open: say so, and don't offer dead links.
-  const publiclyOpen = VENUE_PAGES_PUBLIC;
-  const approvedButGated = !publiclyOpen && listing.status === "approved";
-  return (
-    <Card style={{ padding: 0, overflow: "hidden" }}>
-      <div style={{ display: "flex", flexWrap: "wrap" }}>
-        <div style={{ flex: "0 0 260px", minHeight: 200, background: colors.panel }}>
-          {listing.image ? (
-            <img src={getMediaUrl(listing.image, "card")} alt="" style={{ width: "100%", height: "100%", minHeight: 200, objectFit: "cover", display: "block" }} />
-          ) : (
-            <div style={{ width: "100%", height: "100%", minHeight: 200, display: "flex", alignItems: "center", justifyContent: "center", color: colors.faint }}>
-              {kind === "centre" ? <BuildingIcon size={32} /> : <BallIcon size={32} />}
-            </div>
-          )}
-        </div>
-        <div style={{ flex: "1 1 320px", padding: 24, display: "flex", flexDirection: "column", gap: 10 }}>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 10, alignItems: "center" }}>
-            <h2 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 19, margin: 0, letterSpacing: 0 }}>{listing.name}</h2>
-            <StatusBadge status={listing.status} label={approvedButGated ? VENUE_NOT_PUBLIC_LABEL : undefined} />
-          </div>
-          {!publiclyOpen && (listing.status === "approved" || listing.status === "paused") && (
-            <p style={{ margin: 0, fontSize: 12.5, color: colors.mutedLight }}>{VENUE_NOT_PUBLIC_HELP}</p>
-          )}
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 14, fontSize: 13, color: colors.mutedLight }}>
-            <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
-              <PinIcon size={13} />
-              {listing.area}, {listing.county}
-            </span>
-            {listing.reviews > 0 && (
-              <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
-                <StarIcon size={13} />
-                {listing.rating.toFixed(1)} ({listing.reviews})
-              </span>
-            )}
-          </div>
-          <ListingFactsStrip kind={kind} listing={listing} />
-          <p
-            style={{
-              fontSize: 13.5,
-              color: listing.blurb ? colors.text : colors.faint,
-              margin: 0,
-              lineHeight: 1.5,
-              display: "-webkit-box",
-              WebkitLineClamp: 2,
-              WebkitBoxOrient: "vertical",
-              overflow: "hidden",
-            }}
-          >
-            {listing.blurb || "No description yet — add one so families know what to expect."}
-          </p>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 10, alignItems: "center", marginTop: "auto", paddingTop: 6 }}>
-            <Button onClick={onEdit}>
-              <EditIcon size={14} /> {listing.status === "approved" ? "Edit details" : "Finish setup"}
-            </Button>
-            {(listing.status === "approved" || listing.status === "paused") && publiclyOpen && (
-              <LinkButton variant="ghost" href={publicHref} target="_blank">
-                <EyeIcon size={14} /> View live listing
-              </LinkButton>
-            )}
-            {listing.status !== "approved" && listing.status !== "paused" && <span style={{ fontSize: 12.5, color: colors.faint }}>Preview available once approved</span>}
-            {/* UI completion — secondary actions in one anchored menu. */}
-            <ActionMenu
-              label={`More actions for ${listing.name}`}
-              items={[
-                ...((listing.status === "approved" || listing.status === "paused") && publiclyOpen ? [{ label: "Copy public link", onSelect: () => copyPublicLink(kind, listing.id) }] : []),
-                ...(listing.status === "approved" || listing.status === "paused" ? [{ label: listing.status === "paused" ? "Resume bookings" : "Pause bookings", onSelect: onPauseResume }] : []),
-                { label: "Duplicate", onSelect: onDuplicate },
-                { label: "Delete listing…", onSelect: onDelete, danger: true },
-              ]}
-            />
-          </div>
-        </div>
-      </div>
-    </Card>
-  );
+/** The same seven checks as the listing editor's readiness rail
+ * (VendorCentreEditor.tsx / VendorClubEditor.tsx). */
+function profileChecks(r: Row): boolean[] {
+  const named = r.kind === "centre" ? !!r.name.trim() && !!r.blurb?.trim() : !!r.name.trim() && !!r.sport?.trim() && !!r.blurb?.trim();
+  const fifth = r.kind === "centre" ? !!r.opensAt : r.price != null;
+  return [named, !!(r.area && r.county), !!r.phone?.trim(), fifth, (r.extrasCount ?? 0) > 0, !!r.hasAccessibility, (r.imagesCount ?? 0) > 0 || !!r.image];
 }
 
-function ListingsTable({
-  kind,
-  rows,
-  onEdit,
-  onDelete,
-  onPauseResume,
-  onDuplicate,
-}: {
-  kind: "centre" | "club";
-  rows: VendorListingSummary[];
-  onEdit: (id: string) => void;
-  onDelete: (id: string, name: string) => void;
-  onPauseResume: (id: string) => void;
-  onDuplicate: (id: string) => void;
-}) {
-  const copyPublicLink = useCopyPublicLink();
-  // HC-QA-059 — same rule as the single-listing card: while venue pages are
-  // gated an approved listing isn't publicly visible, and has no public link.
-  const gatedLabel = (status: string) => (!VENUE_PAGES_PUBLIC && status === "approved" ? VENUE_NOT_PUBLIC_LABEL : undefined);
-  const anyApproved = rows.some((r) => r.status === "approved" || r.status === "paused");
-  return (
-    <>
-      {!VENUE_PAGES_PUBLIC && anyApproved && <p style={{ margin: "0 0 12px", fontSize: 12.5, color: colors.mutedLight }}>{VENUE_NOT_PUBLIC_HELP}</p>}
-      {/* Vendor Experience Polish — mobile card fallback. Only "Manage"
-          (→ the full editor) surfaces here; Share/Pause/Duplicate/Delete stay
-          reachable from inside the editor rather than five icon-only tap
-          targets crowded onto a phone-width card. */}
-      <div className="mobile-cards">
-        {rows.map((r) => (
-          <Card key={r.id} onClick={() => onEdit(r.id)} style={{ cursor: "pointer" }}>
-            <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-              {r.image ? (
-                <img src={getMediaUrl(r.image, "thumbnail")} alt="" style={{ width: 48, height: 48, borderRadius: radius.control, objectFit: "cover", flex: "none" }} />
-              ) : (
-                <div style={{ width: 48, height: 48, borderRadius: radius.control, background: colors.panel, flex: "none" }} />
-              )}
-              <div style={{ minWidth: 0, flex: 1 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                  <span style={{ fontWeight: 700, fontSize: 14 }}>{r.name}</span>
-                  <StatusBadge status={r.status} label={gatedLabel(r.status)} />
-                </div>
-                <div style={{ fontSize: 11.5, color: colors.mutedLight }}>
-                  {kind === "centre" ? "Centre" : "Club"} · {r.area}, {r.county}
-                </div>
-              </div>
-            </div>
-            <div style={{ marginTop: 10, fontSize: 12.5, color: colors.muted, display: "flex", justifyContent: "space-between" }}>
-              <span>{r.bookingsCount} {kind === "centre" ? "bookings" : "registrations"}</span>
-              <span>{r.views} views</span>
-            </div>
-            <div style={{ marginTop: 12 }} onClick={(e) => e.stopPropagation()}>
-              <Button variant="ghost" onClick={() => onEdit(r.id)} style={{ width: "100%", justifyContent: "center" }}>
-                Manage
-              </Button>
-            </div>
-          </Card>
-        ))}
-      </div>
-      <div className="hide-mobile" style={{ overflowX: "auto" }}>
-      <table style={tableStyle}>
-        <thead>
-          <tr>
-            <th style={thStyle}></th>
-            <th style={thStyle}>Name</th>
-            <th style={thStyle}>Location</th>
-            <th style={thStyle}>{kind === "centre" ? "Bookings" : "Registrations"}</th>
-            <th style={thStyle}>Views</th>
-            <th style={thStyle}></th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((r) => (
-            <tr key={r.id}>
-              <td style={{ ...tdStyle, width: 44 }}>
-                {r.image ? (
-                  <img src={getMediaUrl(r.image, "thumbnail")} alt="" style={{ width: 36, height: 36, borderRadius: radius.control, objectFit: "cover", display: "block" }} />
-                ) : (
-                  <div style={{ width: 36, height: 36, borderRadius: radius.control, background: colors.panel }} />
-                )}
-              </td>
-              <td style={tdStyle}>
-                <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                  <span style={{ fontWeight: 700 }}>{r.name}</span>
-                  <StatusBadge status={r.status} label={gatedLabel(r.status)} />
-                </div>
-              </td>
-              <td style={tdStyle}>
-                {r.area}, {r.county}
-              </td>
-              <td style={tdStyle}>{r.bookingsCount}</td>
-              <td style={tdStyle}>{r.views}</td>
-              <td style={{ ...tdStyle, textAlign: "right" }}>
-                <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-                  <Button variant="ghost" onClick={() => onEdit(r.id)} aria-label={`Edit ${r.name}`}>
-                    <EditIcon size={13} /> Edit
-                  </Button>
-                  <ActionMenu
-                    label={`More actions for ${r.name}`}
-                    items={[
-                      ...((r.status === "approved" || r.status === "paused") && VENUE_PAGES_PUBLIC ? [{ label: "Copy public link", onSelect: () => copyPublicLink(kind, r.id) }] : []),
-                      ...(r.status === "approved" || r.status === "paused" ? [{ label: r.status === "paused" ? "Resume bookings" : "Pause bookings", onSelect: () => onPauseResume(r.id) }] : []),
-                      { label: "Duplicate", onSelect: () => onDuplicate(r.id) },
-                      { label: "Delete listing…", onSelect: () => onDelete(r.id, r.name), danger: true },
-                    ]}
-                  />
-                </div>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      </div>
-    </>
-  );
-}
-
-// Renders only when there's at least one listing of this type — a type
-// with zero listings gets no section at all (see ListingsTab's shared
-// bottom action bar instead of a per-type empty-state placeholder).
-function ListingSection({
-  kind,
-  title,
-  addLabel,
-  addButtonVariant,
-  rows,
-  onEdit,
-  onNew,
-  onDelete,
-  onPauseResume,
-  onDuplicate,
-}: {
-  kind: "centre" | "club";
-  title: string;
-  addLabel: string;
-  addButtonVariant?: "primary" | "orange";
-  rows: VendorListingSummary[];
-  onEdit: (id: string) => void;
-  onNew: () => void;
-  onDelete: (id: string, name: string) => void;
-  onPauseResume: (id: string) => void;
-  onDuplicate: (id: string) => void;
-}) {
-  if (rows.length === 1) {
-    return (
-      <div>
-        <h2 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 18, margin: "0 0 14px", letterSpacing: 0 }}>{title}</h2>
-        <ListingProfileCard
-          kind={kind}
-          listing={rows[0]}
-          onEdit={() => onEdit(rows[0].id)}
-          onDelete={() => onDelete(rows[0].id, rows[0].name)}
-          onPauseResume={() => onPauseResume(rows[0].id)}
-          onDuplicate={() => onDuplicate(rows[0].id)}
-        />
-      </div>
-    );
-  }
-
-  return (
-    <div>
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 10, justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
-        <h2 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 18, margin: 0, letterSpacing: 0 }}>{title}</h2>
-        <Button variant={addButtonVariant} onClick={onNew}>
-          {addLabel}
-        </Button>
-      </div>
-      <ListingsTable kind={kind} rows={rows} onEdit={onEdit} onDelete={onDelete} onPauseResume={onPauseResume} onDuplicate={onDuplicate} />
-    </div>
-  );
+/** Price / capacity / ages in one short line. */
+function factsLine(r: Row) {
+  if (r.kind === "centre") return [r.capacity != null ? `Up to ${r.capacity}` : null, r.fromPrice != null ? `from €${r.fromPrice}/hr` : null].filter(Boolean).join(" · ");
+  return [r.ages, r.price != null && r.unit ? `€${r.price} / ${r.unit}` : null].filter(Boolean).join(" · ");
 }
 
 export function ListingsTab({
@@ -394,6 +145,8 @@ export function ListingsTab({
   const activeClubs = listings.clubs.filter((c) => c.status !== "deleted");
   const [confirming, setConfirming] = useState<{ type: "centre" | "club"; id: string; name: string } | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [typeFilter, setTypeFilter] = useUrlParam<"all" | Kind>("ltype", "all");
+  const copyPublicLink = useCopyPublicLink();
 
   const confirmDelete = async () => {
     if (!confirming) return;
@@ -438,60 +191,127 @@ export function ListingsTab({
     }
   };
 
+  const all: Row[] = [...activeCentres.map((c) => ({ ...c, kind: "centre" as const })), ...activeClubs.map((c) => ({ ...c, kind: "club" as const }))];
+  const shown = typeFilter === "all" ? all : all.filter((r) => r.kind === typeFilter);
+  const edit = (r: Row) => (r.kind === "centre" ? onEditCentre(r.id) : onEditClub(r.id));
+  const live = (r: Row) => r.status === "approved" || r.status === "paused";
+
   return (
-    <div className="fade-panel" style={{ display: "flex", flexDirection: "column", gap: 30 }}>
+    <div className="fade-panel" style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       {vendorType && <SetupChecklist vendorType={vendorType} listings={listings} />}
-      {activeCentres.length > 0 && (
-        <ListingSection
-          kind="centre"
-          title="Community centres"
-          addLabel="+ Add centre"
-          rows={activeCentres}
-          onEdit={onEditCentre}
-          onNew={onNewCentre}
-          onDelete={(id, name) => setConfirming({ type: "centre", id, name })}
-          onPauseResume={(id) => togglePause("centre", id)}
-          onDuplicate={(id) => duplicate("centre", id)}
+      {activeCentres.length > 0 && activeClubs.length > 0 && (
+        <IconTabs
+          label="Listing type"
+          value={typeFilter}
+          onChange={setTypeFilter}
+          items={[
+            { key: "all", label: "All", icon: LayoutList, count: all.length },
+            { key: "centre", label: "Centres", icon: Building2, count: activeCentres.length },
+            { key: "club", label: "Clubs", icon: Volleyball, count: activeClubs.length },
+          ]}
         />
       )}
+      {!VENUE_PAGES_PUBLIC && all.some(live) && <p className="adm-note" style={{ margin: 0 }}>{VENUE_NOT_PUBLIC_HELP}</p>}
 
-      {activeClubs.length > 0 && (
-        <ListingSection
-          kind="club"
-          title="Sports clubs"
-          addLabel="+ Add club"
-          addButtonVariant="orange"
-          rows={activeClubs}
-          onEdit={onEditClub}
-          onNew={onNewClub}
-          onDelete={(id, name) => setConfirming({ type: "club", id, name })}
-          onPauseResume={(id) => togglePause("club", id)}
-          onDuplicate={(id) => duplicate("club", id)}
-        />
+      {all.length === 0 ? (
+        <Box>
+          <EmptyState
+            icon={<Building2 size={20} />}
+            title="No listings yet"
+            subtitle="Add the centre or club people will book. It goes to HelloCircle for a quick review before it's live."
+            action={
+              <div style={{ display: "flex", gap: 8, justifyContent: "center", flexWrap: "wrap" }}>
+                <AdminButton variant="primary" onClick={onNewCentre}>
+                  Add centre
+                </AdminButton>
+                <AdminButton onClick={onNewClub}>Add club</AdminButton>
+              </div>
+            }
+          />
+        </Box>
+      ) : (
+        <div className="ws-cards">
+          {shown.map((r) => {
+            const Icon = r.kind === "centre" ? Building2 : Volleyball;
+            const checks = profileChecks(r);
+            const done = checks.filter(Boolean).length;
+            const pct = Math.round((done / checks.length) * 100);
+            return (
+              <article key={`${r.kind}:${r.id}`} className="ws-card" aria-label={r.name}>
+                <button type="button" className="btn-reset ws-card-cover" onClick={() => edit(r)} tabIndex={-1} aria-hidden="true">
+                  {r.image ? <img src={getMediaUrl(r.image, "card")} alt="" /> : <Icon size={30} strokeWidth={1.6} />}
+                </button>
+                <div className="ws-card-body">
+                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                    <ListingStatusChip status={r.status} />
+                    <span className="adm-chip">{r.kind === "centre" ? "Centre" : "Club"}</span>
+                  </div>
+                  <h2 className="ws-card-title">
+                    <button type="button" className="btn-reset" onClick={() => edit(r)}>
+                      {r.name}
+                    </button>
+                  </h2>
+                  <div className="adm-note">{[`${r.area}, ${r.county}`, factsLine(r)].filter(Boolean).join(" · ")}</div>
+                  <div className="ws-card-progress">
+                    <span>Profile {pct}% complete</span>
+                    <span className="adm-note">{checks.length - done ? `${checks.length - done} to do` : "All done"}</span>
+                  </div>
+                  <span className="ws-meter" aria-hidden="true">
+                    <span style={{ width: `${pct}%` }} />
+                  </span>
+                  <div className="ws-card-stats">
+                    <span>
+                      <b>{r.bookingsCount}</b> {r.kind === "centre" ? "bookings" : "sign-ups"}
+                    </span>
+                    <span>
+                      <b>{r.views}</b> views
+                    </span>
+                    <span>
+                      <b>{r.reviews > 0 ? r.rating.toFixed(1) : "—"}</b> rating
+                    </span>
+                  </div>
+                  <div className="ws-card-actions">
+                    <AdminButton size="sm" variant="primary" onClick={() => edit(r)} aria-label={`${live(r) ? "Open" : "Finish setup for"} ${r.name}`}>
+                      {live(r) ? "Open" : "Finish setup"}
+                    </AdminButton>
+                    {live(r) && VENUE_PAGES_PUBLIC && (
+                      <AdminButton size="sm" onClick={() => window.open(r.kind === "centre" ? `/centres/${r.id}` : `/clubs/${r.id}`, "_blank")}>
+                        View page
+                      </AdminButton>
+                    )}
+                    <ActionMenu
+                      label={`More actions for ${r.name}`}
+                      buttonText=""
+                      className="ws-icon-menu"
+                      items={[
+                        ...(live(r) && VENUE_PAGES_PUBLIC ? [{ label: "Copy public link", onSelect: () => copyPublicLink(r.kind, r.id) }] : []),
+                        ...(live(r) ? [{ label: r.status === "paused" ? "Resume bookings" : "Pause bookings", onSelect: () => togglePause(r.kind, r.id) }] : []),
+                        { label: "Duplicate", onSelect: () => duplicate(r.kind, r.id) },
+                        { label: "Delete listing…", onSelect: () => setConfirming({ type: r.kind, id: r.id, name: r.name }), danger: true },
+                      ]}
+                    />
+                  </div>
+                </div>
+              </article>
+            );
+          })}
+          <div className="ws-card ws-card--add">
+            <span className="adm-itile" aria-hidden="true">
+              <Plus size={17} strokeWidth={1.9} />
+            </span>
+            <strong>Add another place</strong>
+            <span className="adm-note">A second centre, or a club you run.</span>
+            <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+              <AdminButton size="sm" onClick={onNewCentre}>
+                Add centre
+              </AdminButton>
+              <AdminButton size="sm" onClick={onNewClub}>
+                Add club
+              </AdminButton>
+            </div>
+          </div>
+        </div>
       )}
-
-      {/* Single shared "add a location" bar — covers both the true empty
-          case (no listings of either type) and growing into a second type
-          or another location of one you already have, rather than a
-          separate empty-state placeholder per missing type. Plain inline
-          text links, not full buttons — this is a rare, low-emphasis action. */}
-      <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: "center", gap: 16 }}>
-        <span style={{ fontSize: 14, color: colors.mutedLight }}>Manage another location?</span>
-        <button
-          onClick={onNewCentre}
-          className="link-accent"
-          style={{ background: "none", border: "none", cursor: "pointer", fontSize: 14, fontWeight: 700, color: colors.greenText, display: "inline-flex", alignItems: "center", gap: 4, padding: 0 }}
-        >
-          <PlusIcon size={13} /> Add centre
-        </button>
-        <button
-          onClick={onNewClub}
-          className="link-accent"
-          style={{ background: "none", border: "none", cursor: "pointer", fontSize: 14, fontWeight: 700, color: colors.orangeDark, display: "inline-flex", alignItems: "center", gap: 4, padding: 0 }}
-        >
-          <PlusIcon size={13} /> Add club
-        </button>
-      </div>
 
       <ConfirmDialog
         open={!!confirming}

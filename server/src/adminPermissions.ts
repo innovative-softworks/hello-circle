@@ -1,5 +1,5 @@
 import type { NextFunction, Request, Response } from "express";
-import { ADMIN_ROLES, type AdminRole, type AuthedUser } from "./auth.js";
+import { ADMIN_ROLES, MFA_PENDING_ERROR, mfaPending, mfaStale, type AdminRole, type AuthedUser } from "./auth.js";
 
 // D-02 — admin action permissions (approved for local implementation,
 // 2026-10-14; docs/hellocircle-operating-decisions.md).
@@ -90,9 +90,33 @@ export const ADMIN_PERMISSIONS = {
   "commerce.governance_switches": [S],
   "coupons.manage": [S, F],
   "coupons.delete": [S], // destructive; deactivating stays with finance
+
+  // Operational platform (2026-10-16, docs/hellocircle-implementation-tracker.md)
+  "activities.moderate": [S, U], // OG-14 cancel a harmful activity (participants refunded in full, as any cancellation)
+  "orders.cancel": [S, F, U], // OG-10 cancel or move an order on the provider's behalf (existing cancel/refund rules)
+  "privacy.requests": [S, L], // OG-29 review data access / export / erasure requests
+  "residents.restrict": [S, U], // OG-08 resident restrictions — creation stays off until D-07 is approved
 } as const satisfies Record<string, readonly AdminRole[]>;
 
 export type AdminPermission = keyof typeof ADMIN_PERMISSIONS;
+
+/** OG-07 — changes to these need a recent two-step code ("step up"): money,
+ * suspensions, admin access, platform settings and destructive deletes. */
+export const STEP_UP_PERMISSIONS: ReadonlySet<string> = new Set([
+  "admins.manage",
+  "partners.suspend",
+  "orgs.suspend",
+  "finance.operate",
+  "commerce.operate",
+  "commerce.governance_switches",
+  "coupons.delete",
+  "listings.delete",
+  "media.delete",
+  "templates.delete",
+  "platform.settings",
+  "orders.cancel",
+  "activities.moderate",
+]);
 
 export function isAdminPermission(name: string): name is AdminPermission {
   return Object.prototype.hasOwnProperty.call(ADMIN_PERMISSIONS, name);
@@ -108,6 +132,8 @@ export function adminRoleOf(user: AuthedUser | undefined | null): AdminRole | nu
 /** Deny-by-default check. Unknown permission, non-admin, empty or unknown role → false. */
 export function adminCan(user: AuthedUser | undefined | null, permission: string): boolean {
   if (!isAdminPermission(permission)) return false;
+  // OG-07 — an admin session that hasn't entered its two-step code holds nothing.
+  if (mfaPending(user)) return false;
   const role = adminRoleOf(user);
   if (!role) return false;
   return (ADMIN_PERMISSIONS[permission] as readonly AdminRole[]).includes(role);
@@ -129,7 +155,12 @@ export function requireAdminPermission(permission: AdminPermission): PermissionH
   const handler = ((req: Request, res: Response, next: NextFunction) => {
     if (!req.user) return res.status(401).json({ error: "Admin login required" });
     if (req.user.role !== "admin") return res.status(403).json({ error: "Admin access only" });
+    if (mfaPending(req.user)) return res.status(403).json({ error: MFA_PENDING_ERROR, mfaRequired: true });
     if (!adminCan(req.user, permission)) return res.status(403).json({ error: "Not included in your admin role", permission });
+    // OG-07 — a sensitive change needs a code entered in the last 30 minutes.
+    if (req.method !== "GET" && STEP_UP_PERMISSIONS.has(permission) && mfaStale(req.user)) {
+      return res.status(403).json({ error: "Enter a fresh two-step code to confirm this change", mfaReauth: true });
+    }
     next();
   }) as PermissionHandler;
   handler.adminPermission = permission;

@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { fetchCircleJoinRequests, fetchMyCircles, fetchMyGames } from "../api";
-import { BellIcon, CalendarIcon, UsersIcon } from "./icons";
-import { Button, ManageCard as Card } from "./ui";
-import { colors, fonts, radius } from "../theme";
+import { AlertTriangle, CalendarClock, UserRoundPlus, Users } from "lucide-react";
+import { AttentionQueue, type AttentionItem } from "./workspace/AttentionQueue";
+import { dateLabel } from "../euro";
 import type { Game } from "../types";
 import { irelandDaysFromToday, irelandToday } from "../irelandDate";
 
@@ -16,52 +16,40 @@ import { irelandDaysFromToday, irelandToday } from "../irelandDate";
 const NEARLY_FULL_WINDOW_DAYS = 7;
 const NEARLY_FULL_SPOTS_LEFT = 2;
 
-interface AttentionItem {
-  key: string;
-  icon: React.ReactNode;
-  text: string;
-  cta: string;
-  onClick: () => void;
-}
-
-function AttentionRow({ item }: { item: AttentionItem }) {
-  return (
-    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, background: colors.bg, borderRadius: radius.control, padding: "10px 14px" }}>
-      <span style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 13.5 }}>
-        <span style={{ color: colors.orangeDark, flex: "none", display: "flex" }}>{item.icon}</span>
-        {item.text}
-      </span>
-      <Button variant="ghost" style={{ padding: "6px 12px", fontSize: 12, flex: "none" }} onClick={item.onClick}>
-        {item.cta}
-      </Button>
-    </div>
-  );
-}
-
 export function HostAttentionPanel({ residentId, onGoToActivities }: { residentId: string; onGoToActivities: () => void }) {
   const navigate = useNavigate();
   const [games, setGames] = useState<Game[] | null>(null);
   const [failed, setFailed] = useState(false);
   const [pendingJoinRequests, setPendingJoinRequests] = useState<{ id: string; slug: string | null; name: string; count: number }[]>([]);
+  // A failed join-request check is shown as its own item, never as "nobody waiting".
+  const [joinCheckFailed, setJoinCheckFailed] = useState(false);
+  const [joinCheckRun, setJoinCheckRun] = useState(0);
 
   useEffect(() => {
     setFailed(false);
     fetchMyGames({ hostedOnly: true })
       .then(setGames)
       .catch(() => setFailed(true));
+  }, [residentId]);
+
+  useEffect(() => {
+    setJoinCheckFailed(false);
     fetchMyCircles()
       .then(async (circles) => {
         const organising = circles.filter((c) => c.myRole === "organiser");
         const results = await Promise.all(
           organising.map(async (c) => {
-            const requests = await fetchCircleJoinRequests(c.id).catch(() => []);
+            const requests = await fetchCircleJoinRequests(c.id);
             return { id: c.id, slug: c.slug, name: c.name, count: requests.length };
           })
         );
         setPendingJoinRequests(results.filter((r) => r.count > 0));
       })
-      .catch(() => setPendingJoinRequests([]));
-  }, [residentId]);
+      .catch(() => {
+        setPendingJoinRequests([]);
+        setJoinCheckFailed(true);
+      });
+  }, [residentId, joinCheckRun]);
 
   if (failed)
     return (
@@ -82,40 +70,40 @@ export function HostAttentionPanel({ residentId, onGoToActivities }: { residentI
   const items: AttentionItem[] = [
     ...nearlyFull.map((g) => ({
       key: `full-${g.id}`,
-      icon: <CalendarIcon size={15} />,
-      text: `${g.activityLabel} has ${g.spotsLeft} spot${g.spotsLeft === 1 ? "" : "s"} left — ${g.date}`,
-      cta: "Manage",
-      onClick: onGoToActivities,
+      icon: CalendarClock,
+      title: `${g.activityLabel}: ${g.spotsLeft} spot${g.spotsLeft === 1 ? "" : "s"} left`,
+      detail: `${dateLabel(g.date)} · ${g.time} · nearly full`,
+      action: { label: "Manage", onClick: onGoToActivities },
     })),
     ...needsPlayers.map((g) => ({
       key: `pending-${g.id}`,
-      icon: <CalendarIcon size={15} />,
-      text: `${g.activityLabel} still needs players — ${g.date}`,
-      cta: "Manage",
-      onClick: onGoToActivities,
+      icon: UserRoundPlus,
+      urgent: true,
+      title: `${g.activityLabel} still needs players`,
+      detail: `${dateLabel(g.date)} · ${g.time} · it only goes ahead with enough people`,
+      action: { label: "Manage", onClick: onGoToActivities },
     })),
     ...pendingJoinRequests.map((r) => ({
       key: `join-${r.id}`,
-      icon: <UsersIcon size={15} />,
-      text: `${r.count} ${r.count === 1 ? "person" : "people"} waiting to join ${r.name}`,
-      cta: "Review",
-      onClick: () => navigate(`/manage/circles/${r.slug ?? r.id}`),
+      icon: Users,
+      urgent: true,
+      title: `${r.count} ${r.count === 1 ? "person" : "people"} waiting to join ${r.name}`,
+      detail: "Circle join requests",
+      action: { label: "Review", onClick: () => navigate(`/manage/circles/${r.slug ?? r.id}`) },
     })),
+    ...(joinCheckFailed
+      ? [
+          {
+            key: "join-check-failed",
+            icon: AlertTriangle,
+            urgent: true,
+            title: "Couldn't check your Circles for join requests",
+            detail: "Someone may be waiting to join. Try again, or open each Circle.",
+            action: { label: "Try again", onClick: () => setJoinCheckRun((n) => n + 1) },
+          },
+        ]
+      : []),
   ];
 
-  if (items.length === 0) return null;
-
-  return (
-    <Card>
-      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14 }}>
-        <BellIcon size={16} style={{ color: colors.orangeDark }} />
-        <h2 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 16, margin: 0 }}>Needs your attention</h2>
-      </div>
-      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-        {items.map((item) => (
-          <AttentionRow key={item.key} item={item} />
-        ))}
-      </div>
-    </Card>
-  );
+  return <AttentionQueue items={items} />;
 }

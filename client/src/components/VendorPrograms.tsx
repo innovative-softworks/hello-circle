@@ -21,6 +21,12 @@ import { SingleImageUpload } from "./SingleImageUpload";
 import { VendorCheckInScreen } from "./VendorCheckInScreen";
 import { FieldError, FieldLabel, FormErrorSummary, RequiredNote, useFormErrors } from "./form";
 import { MonthCalendar } from "./MonthCalendar";
+import { CalendarDays, GraduationCap, List, UsersRound } from "lucide-react";
+import { ActionMenu } from "./ActionMenu";
+import { dateLabel } from "../euro";
+import { StatusChipText, WsListTable } from "./workspace/WsListTable";
+import { formatDate } from "../vendorFormat";
+import { AdminButton, AdminModal, Box, ErrorMessage, FormField, IconTabs, LoadingRows, Loaded, useAdminData } from "./admin/adminUi";
 import { SourceTypeBadge, StatusPill } from "./VendorOverviewCards";
 import { Button, ManageCard as Card, ConfirmDialog, EmptyState, inputStyle, labelStyle } from "./ui";
 import { ACTIVITY_CATEGORIES, ATTENDANCE_STATUSES, ATTENDANCE_STATUS_LABELS, PROGRAM_STATUSES, SKILL_LEVELS } from "../constants";
@@ -46,7 +52,9 @@ const ATTENDANCE_STATUS_COLORS: Record<AttendanceStatus, { fg: string; bg: strin
 
 export function ProgramManager({ programId, onChanged }: { programId: string; onChanged: () => void }) {
   const [program, setProgram] = useState<Program | null>(null);
-  const [enrollments, setEnrollments] = useState<ProgramEnrollment[]>([]);
+  const [enrollmentsState, setEnrollmentsState] = useState<{ rows: ProgramEnrollment[] | null; error: unknown }>({ rows: null, error: null });
+  const enrollments = enrollmentsState.rows ?? [];
+  const [programError, setProgramError] = useState<unknown>(null);
   const [date, setDate] = useState("");
   const [time, setTime] = useState("10:00");
   const [duration, setDuration] = useState(60);
@@ -70,12 +78,22 @@ export function ProgramManager({ programId, onChanged }: { programId: string; on
   const [checkingInSession, setCheckingInSession] = useState<{ id: string; date: string; time: string } | null>(null);
   const [addOpen, setAddOpen] = useState(false);
 
+  const loadEnrollments = () => {
+    setEnrollmentsState((prev) => ({ rows: prev.rows, error: null }));
+    fetchProgramEnrollments(programId)
+      .then((rows) => setEnrollmentsState({ rows, error: null }))
+      .catch((error) => setEnrollmentsState({ rows: null, error }));
+  };
   const load = () => {
-    fetchVendorProgram(programId).then((p) => {
-      setProgram(p);
-      if (p.listingType === "centre") fetchVendorRooms(p.listingId).then(setRooms).catch(() => {});
-    });
-    fetchProgramEnrollments(programId).then(setEnrollments);
+    setProgramError(null);
+    fetchVendorProgram(programId)
+      .then((p) => {
+        setProgram(p);
+        // Rooms only fill the session form's room picker.
+        if (p.listingType === "centre") fetchVendorRooms(p.listingId).then(setRooms).catch(() => {});
+      })
+      .catch(setProgramError);
+    loadEnrollments();
   };
   useEffect(load, [programId]);
 
@@ -151,180 +169,253 @@ export function ProgramManager({ programId, onChanged }: { programId: string; on
     }
   };
 
-  if (!program) return null;
+  if (programError && !program) return <ErrorMessage error={programError} onRetry={load} title="Couldn't load this programme" />;
+  if (!program) return <LoadingRows rows={5} label="Loading programme" />;
 
+  const STATUS_LABEL: Record<ProgramStatus, string> = { draft: "Draft", published: "Published", paused: "Paused", archived: "Archived" };
+  const sessionCount = repeat === "none" ? 1 : Math.max(1, Math.min(52, occurrences));
+
+  // Option A (2026-10-16): sessions and enrolments as panels, status / cover /
+  // facts in the rail, adding sessions in a popup.
   return (
-    <>
-      {error && <p style={{ fontSize: 12.5, color: colors.orangeDark, margin: "0 0 12px" }}>{error}</p>}
+    <div className="ws-editor">
+      <div style={{ display: "flex", flexDirection: "column", gap: 14, minWidth: 0 }}>
+        {error && (
+          <p role="alert" className="ws-sec-errors" style={{ margin: 0 }}>
+            {error}
+          </p>
+        )}
+        <Box
+          flush
+          icon={CalendarDays}
+          title={`Sessions · ${program.sessions.length}`}
+          subtitle="One sign-up covers every session."
+          actions={
+            <AdminButton size="sm" variant="primary" onClick={() => setAddOpen(true)}>
+              <PlusIcon size={13} /> Add sessions
+            </AdminButton>
+          }
+        >
+          {program.sessions.length === 0 ? (
+            <EmptyState icon={<CalendarDays size={20} />} title="No sessions yet" subtitle="Add the dates people will come. You can repeat one weekly." />
+          ) : (
+            <ul className="adm-ov-list">
+              {program.sessions.map((s) => (
+                <li key={s.id} className="ws-prog-session">
+                  <div className="adm-ov-row ws-sched-row" style={{ gridTemplateColumns: "170px minmax(0,1fr) auto 40px", borderBottom: attendance[s.id] ? "none" : undefined }}>
+                    <span className="ws-sched-when">
+                      {dateLabel(s.date)} · {s.time}
+                    </span>
+                    <div className="adm-ov-main">
+                      <div className="adm-ov-title" style={{ fontWeight: 600 }}>
+                        {s.durationMinutes} min
+                      </div>
+                      <div className="adm-ov-detail">{[s.instructorName, s.roomName].filter(Boolean).join(" · ") || "No instructor or room set"}</div>
+                    </div>
+                    <AdminButton size="sm" onClick={() => setCheckingInSession({ id: s.id, date: s.date, time: s.time })}>
+                      Check-in
+                    </AdminButton>
+                    <ActionMenu
+                      label={`More actions for the ${s.date} session`}
+                      buttonText=""
+                      className="ws-icon-menu"
+                      items={[
+                        { label: attendance[s.id] ? "Refresh attendance" : "Mark attendance", onSelect: () => loadAttendance(s.id) },
+                        { label: "Remove session…", danger: true, onSelect: () => setConfirmingSessionId(s.id) },
+                      ]}
+                    />
+                  </div>
+                  {attendance[s.id] && (
+                    <div className="ws-attendance">
+                      {enrollments.length === 0 && <span className="adm-note">No one has enrolled yet.</span>}
+                      {enrollments.map((e) => {
+                        const status = attendance[s.id][String(e.id)];
+                        return (
+                          <div key={e.id} className="ws-attendance-row">
+                            <span>{e.participantName}</span>
+                            <div className="ws-seg" role="group" aria-label={`Attendance for ${e.participantName}`}>
+                              {ATTENDANCE_STATUSES.map((st) => (
+                                <button key={st} type="button" aria-pressed={status === st} onClick={() => setAttendanceStatus(s.id, e.id, st)}>
+                                  {ATTENDANCE_STATUS_LABELS[st]}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+        </Box>
 
-      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 18, flexWrap: "wrap" }}>
-        <span style={{ fontSize: 13, fontWeight: 700, color: colors.muted }}>STATUS</span>
-        {PROGRAM_STATUSES.map((s) => (
-          <button
-            key={s}
-            onClick={() => setStatus(s)}
-            disabled={statusSaving || program.status === s}
-            style={{
-              border: "none",
-              borderRadius: radius.pill,
-              padding: "5px 12px",
-              fontSize: 12.5,
-              fontWeight: 700,
-              cursor: statusSaving || program.status === s ? "default" : "pointer",
-              background: program.status === s ? colors.green : colors.panel,
-              color: program.status === s ? "#fff" : colors.muted,
-              textTransform: "capitalize",
-            }}
-          >
-            {s}
-          </button>
-        ))}
-      </div>
-      {program.status === "draft" && (
-        <p style={{ fontSize: 12.5, color: colors.mutedLight, margin: "-12px 0 16px" }}>
-          Draft programs aren't visible to guests yet — publish when ready.
-        </p>
-      )}
+        <Box flush icon={UsersRound} title={enrollmentsState.rows ? `Enrolments · ${enrollments.length}` : "Enrolments"}>
+          {enrollmentsState.error ? (
+            <ErrorMessage error={enrollmentsState.error} onRetry={loadEnrollments} title="Couldn't load enrolments" />
+          ) : !enrollmentsState.rows ? (
+            <LoadingRows rows={3} label="Loading enrolments" />
+          ) : enrollments.length === 0 ? (
+            <EmptyState icon={<UsersRound size={20} />} title="No enrolments yet" subtitle="People who sign up show here, with what they paid." />
+          ) : (
+            <div className="adm-table-wrap">
+              <table className="adm-table adm-table--stack">
+                <caption className="adm-visually-hidden">Enrolments</caption>
+                <thead>
+                  <tr>
+                    <th scope="col">Participant</th>
+                    <th scope="col">Email</th>
+                    <th scope="col" className="adm-num">
+                      Paid
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {enrollments.map((e) => (
+                    <tr key={e.id}>
+                      <td data-label="Participant">{e.participantName}</td>
+                      <td data-label="Email" style={{ color: "var(--adm-muted)" }}>
+                        {e.email}
+                      </td>
+                      <td data-label="Paid" className="adm-num" style={{ fontWeight: 700 }}>
+                        €{(e.totalCents / 100).toFixed(2)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </Box>
 
-      <div style={{ marginBottom: 20 }}>
-        <SingleImageUpload
-          value={program.imageUrl || null}
-          onChange={async (url) => {
-            await updateVendorProgram(programId, { imageUrl: url ?? "" });
-            load();
-          }}
-          mediaEntityType="program-cover"
-          mediaEntityId={programId}
-        />
-      </div>
-
-      <div style={{ marginBottom: 18 }}>
         <VendorParticipationEditor type="program" id={programId} />
       </div>
 
-      <h2 style={{ fontSize: 13, fontWeight: 700, color: colors.muted, margin: "0 0 10px" }}>SESSIONS</h2>
-      <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 16 }}>
-        {program.sessions.map((s) => (
-          <div key={s.id} style={{ border: `1px solid ${colors.border}`, borderRadius: radius.control, padding: 12 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <span style={{ fontWeight: 600, fontSize: 14 }}>
-                {s.date} · {s.time} ({s.durationMinutes}min)
-                {s.instructorName && <span style={{ fontWeight: 400, color: colors.mutedLight }}> · {s.instructorName}</span>}
-                {s.roomName && <span style={{ fontWeight: 400, color: colors.mutedLight }}> · {s.roomName}</span>}
-              </span>
-              <div style={{ display: "flex", gap: 8 }}>
-                <button onClick={() => setCheckingInSession({ id: s.id, date: s.date, time: s.time })} style={{ background: "none", border: "none", cursor: "pointer", color: colors.greenText, fontSize: 12.5, fontWeight: 700 }}>
-                  Check-in
-                </button>
-                <button onClick={() => loadAttendance(s.id)} style={{ background: "none", border: "none", cursor: "pointer", color: colors.greenText, fontSize: 12.5, fontWeight: 700 }}>
-                  Attendance
-                </button>
-                <button onClick={() => setConfirmingSessionId(s.id)} style={{ background: "none", border: "none", cursor: "pointer", color: colors.faint }}>
-                  <TrashIcon size={14} />
-                </button>
-              </div>
-            </div>
-            {attendance[s.id] && (
-              <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 8 }}>
-                {enrollments.map((e) => {
-                  const status = attendance[s.id][String(e.id)];
-                  return (
-                    <div key={e.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
-                      <span style={{ fontSize: 13 }}>{e.participantName}</span>
-                      <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
-                        {ATTENDANCE_STATUSES.map((st) => {
-                          const active = status === st;
-                          const palette = ATTENDANCE_STATUS_COLORS[st];
-                          return (
-                            <button
-                              key={st}
-                              onClick={() => setAttendanceStatus(s.id, e.id, st)}
-                              disabled={active}
-                              style={{
-                                border: "none",
-                                borderRadius: radius.pill,
-                                padding: "3px 9px",
-                                fontSize: 11,
-                                fontWeight: 700,
-                                cursor: active ? "default" : "pointer",
-                                background: active ? palette.bg : colors.panel,
-                                color: active ? palette.fg : colors.muted,
-                              }}
-                            >
-                              {ATTENDANCE_STATUS_LABELS[st]}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  );
-                })}
-                {enrollments.length === 0 && <span style={{ fontSize: 12.5, color: colors.faint }}>No enrollments yet.</span>}
-              </div>
-            )}
-          </div>
-        ))}
-        {program.sessions.length === 0 && <span style={{ fontSize: 13, color: colors.faint }}>No sessions yet — add one below.</span>}
-      </div>
-      {addOpen ? (
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "flex-end", marginBottom: 20 }}>
-          <input aria-label="Session date" type="date" value={date} onChange={(e) => setDate(e.target.value)} style={{ ...inputStyle, width: 150 }} />
-          <input aria-label="Session start time" type="time" value={time} onChange={(e) => setTime(e.target.value)} style={{ ...inputStyle, width: 110 }} />
-          <input aria-label="Duration in minutes" type="number" value={duration} onChange={(e) => setDuration(Number(e.target.value))} placeholder="Minutes" style={{ ...inputStyle, width: 90 }} />
-          <input aria-label="Capacity" value={capacity} onChange={(e) => setCapacity(e.target.value)} placeholder="Cap" type="number" style={{ ...inputStyle, width: 70 }} />
-          <input aria-label="Instructor (optional)" value={sessionInstructor} onChange={(e) => setSessionInstructor(e.target.value)} placeholder="Instructor (optional)" style={{ ...inputStyle, width: 150 }} />
-          {program.listingType === "centre" && (
-            <select aria-label="Room" value={sessionRoomId} onChange={(e) => setSessionRoomId(e.target.value)} style={{ ...inputStyle, width: 150 }}>
-              <option value="">No room set</option>
-              {rooms.filter((r) => r.active).map((r) => (
-                <option key={r.id} value={r.id}>{r.name}</option>
-              ))}
-            </select>
-          )}
-          <select aria-label="Repeat" value={repeat} onChange={(e) => setRepeat(e.target.value as typeof repeat)} style={{ ...inputStyle, width: 130 }}>
-            <option value="none">Doesn't repeat</option>
-            <option value="weekly">Every week</option>
-            <option value="biweekly">Every 2 weeks</option>
-            <option value="monthly">Monthly</option>
+      <aside className="ws-rail">
+        <div className="adm-box ws-rail-card">
+          <label htmlFor="program-status" style={{ fontWeight: 700, display: "block", marginBottom: 8 }}>
+            Status
+          </label>
+          <select id="program-status" className="adm-select" value={program.status} disabled={statusSaving} onChange={(e) => setStatus(e.target.value as ProgramStatus)} style={{ width: "100%" }}>
+            {!PROGRAM_STATUSES.includes(program.status as (typeof PROGRAM_STATUSES)[number]) && <option value={program.status}>{program.status}</option>}
+            {PROGRAM_STATUSES.map((st) => (
+              <option key={st} value={st}>
+                {STATUS_LABEL[st]}
+              </option>
+            ))}
           </select>
-          {repeat !== "none" && (
-            <input
-              type="number"
-              min={1}
-              max={52}
-              value={occurrences}
-              onChange={(e) => setOccurrences(Number(e.target.value))}
-              aria-label="Number of sessions"
-              placeholder="Times"
-              style={{ ...inputStyle, width: 80 }}
-            />
-          )}
-          <Button variant="ghost" onClick={addSession}>
-            <PlusIcon size={14} /> {repeat === "none" ? "Add session" : `Add ${Math.max(1, Math.min(52, occurrences))} sessions`}
-          </Button>
-          <Button variant="ghost" onClick={() => setAddOpen(false)}>Cancel</Button>
+          <p className="adm-note" style={{ margin: "8px 0 0" }}>
+            {program.status === "draft"
+              ? "Not visible to people yet. Publish when it's ready."
+              : program.status === "published"
+                ? "Visible, and people can sign up."
+                : program.status === "paused"
+                  ? "Visible, but sign-ups are closed."
+                  : "Hidden. Enrolments and attendance are kept."}
+          </p>
         </div>
-      ) : (
-        <div style={{ marginBottom: 20 }}>
-          <Button variant="ghost" onClick={() => setAddOpen(true)}>
-            <PlusIcon size={14} /> Add session
-          </Button>
+        <div className="adm-box ws-rail-card">
+          <SingleImageUpload
+            value={program.imageUrl || null}
+            onChange={async (url) => {
+              await updateVendorProgram(programId, { imageUrl: url ?? "" });
+              load();
+            }}
+            mediaEntityType="program-cover"
+            mediaEntityId={programId}
+          />
         </div>
-      )}
-
-      <h3 style={{ fontSize: 13, fontWeight: 700, color: colors.muted, margin: "0 0 10px" }}>ENROLLMENTS ({enrollments.length})</h3>
-      {enrollments.length === 0 ? (
-        <EmptyState icon={<UsersIcon size={20} />} title="No enrollments yet" />
-      ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-          {enrollments.map((e) => (
-            <div key={e.id} style={{ fontSize: 13.5, display: "flex", justifyContent: "space-between", background: colors.bg, borderRadius: radius.control, padding: "8px 12px" }}>
-              <span>{e.participantName} · {e.email}</span>
-              <span style={{ fontWeight: 700 }}>€{(e.totalCents / 100).toFixed(2)}</span>
+        <div className="adm-box ws-rail-card ws-facts">
+          <strong style={{ display: "block", marginBottom: 6 }}>At a glance</strong>
+          <div>
+            <span>Price</span>
+            {program.priceCents > 0 ? `€${(program.priceCents / 100).toFixed(2)} for the course` : "Free"}
+          </div>
+          <div>
+            <span>Places</span>
+            {program.capacity ?? "Unlimited"}
+          </div>
+          {program.ageRange && (
+            <div>
+              <span>Ages</span>
+              {program.ageRange}
             </div>
-          ))}
+          )}
+          <div>
+            <span>Sessions</span>
+            {program.sessions.length}
+          </div>
         </div>
-      )}
+      </aside>
+
+      <AdminModal
+        open={addOpen}
+        onClose={() => setAddOpen(false)}
+        dirty={!!date}
+        wide
+        title="Add sessions"
+        subtitle="Repeat a session to add several dates at once."
+        footer={
+          <>
+            <AdminButton variant="quiet" onClick={() => setAddOpen(false)}>
+              Cancel
+            </AdminButton>
+            <AdminButton variant="primary" disabled={!date} onClick={addSession}>
+              {sessionCount === 1 ? "Add session" : `Add ${sessionCount} sessions`}
+            </AdminButton>
+          </>
+        }
+      >
+        <div className="adm-dlg-grid">
+          <FormField label="Date" required>
+            {(p) => <input {...p} type="date" className="adm-input" value={date} onChange={(e) => setDate(e.target.value)} />}
+          </FormField>
+          <FormField label="Starts at">
+            {(p) => <input {...p} type="time" className="adm-input" value={time} onChange={(e) => setTime(e.target.value)} />}
+          </FormField>
+          <FormField label="Length (minutes)">
+            {(p) => <input {...p} type="number" min={5} className="adm-input" value={duration} onChange={(e) => setDuration(Number(e.target.value))} />}
+          </FormField>
+          <FormField label="Places (optional)">
+            {(p) => <input {...p} type="number" min={1} className="adm-input" placeholder="Same as the programme" value={capacity} onChange={(e) => setCapacity(e.target.value)} />}
+          </FormField>
+          <FormField label="Instructor (optional)">
+            {(p) => <input {...p} className="adm-input" value={sessionInstructor} onChange={(e) => setSessionInstructor(e.target.value)} />}
+          </FormField>
+          {program.listingType === "centre" && (
+            <FormField label="Room (optional)">
+              {(p) => (
+                <select {...p} className="adm-select" value={sessionRoomId} onChange={(e) => setSessionRoomId(e.target.value)}>
+                  <option value="">No room set</option>
+                  {rooms
+                    .filter((r) => r.active)
+                    .map((r) => (
+                      <option key={r.id} value={r.id}>
+                        {r.name}
+                      </option>
+                    ))}
+                </select>
+              )}
+            </FormField>
+          )}
+          <FormField label="Repeat">
+            {(p) => (
+              <select {...p} className="adm-select" value={repeat} onChange={(e) => setRepeat(e.target.value as typeof repeat)}>
+                <option value="none">Doesn't repeat</option>
+                <option value="weekly">Every week</option>
+                <option value="biweekly">Every 2 weeks</option>
+                <option value="monthly">Monthly</option>
+              </select>
+            )}
+          </FormField>
+          {repeat !== "none" && (
+            <FormField label="How many sessions">
+              {(p) => <input {...p} type="number" min={1} max={52} className="adm-input" value={occurrences} onChange={(e) => setOccurrences(Number(e.target.value))} />}
+            </FormField>
+          )}
+        </div>
+      </AdminModal>
 
       <ConfirmDialog
         open={confirmingSessionId !== null}
@@ -335,7 +426,7 @@ export function ProgramManager({ programId, onChanged }: { programId: string; on
         onCancel={() => setConfirmingSessionId(null)}
       />
       <VendorCheckInScreen programId={programId} session={checkingInSession} onClose={() => setCheckingInSession(null)} />
-    </>
+    </div>
   );
 }
 
@@ -343,6 +434,28 @@ export function ProgramManager({ programId, onChanged }: { programId: string; on
 // "new"; a plain create form here rather than a Drawer since it's the
 // pre-cursor to the sessions/attendance/enrollments management view below,
 // which already needs the room a full page gives it. -----------------------
+
+/** A numbered panel in a create form (option A). `collapsible` starts closed. */
+function FormPanel({ n, title, note, collapsible, children }: { n: number; title: string; note?: string; collapsible?: boolean; children: React.ReactNode }) {
+  const [open, setOpen] = useState(!collapsible);
+  return (
+    <section className="ws-sec" aria-label={title}>
+      <div className="ws-sec-head">
+        <span className="adm-itile" aria-hidden="true" style={{ fontWeight: 700 }}>
+          {n}
+        </span>
+        <h2 className="ws-sec-title">{title}</h2>
+        {note && <span className="adm-note">{note}</span>}
+        {collapsible && (
+          <AdminButton size="sm" variant="quiet" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
+            {open ? "Hide" : "Add"}
+          </AdminButton>
+        )}
+      </div>
+      {open && <div className="ws-sec-body">{children}</div>}
+    </section>
+  );
+}
 
 export function ProgramCreateForm({
   listings,
@@ -426,111 +539,166 @@ export function ProgramCreateForm({
     }
   };
 
+  const venueName = (form.listingType === "centre" ? listings.centres : listings.clubs).find((o) => o.id === form.listingId)?.name;
+  const price = form.priceCents ? parseFloat(form.priceCents) : 0;
+
+  // Option A (2026-10-16): the fields in four numbered panels, with a live
+  // preview of the programme card on the right.
   return (
-    <>
-      <p style={{ fontSize: 12.5, color: colors.mutedLight, margin: "0 0 14px" }}>
-        A multi-session activity (e.g. an 8-week course) — one sign-up covers every session you add below.
-      </p>
-      <RequiredNote />
-      <div className="grid-responsive" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 12 }}>
+    <div className="ws-editor">
+      <div style={{ display: "flex", flexDirection: "column", gap: 14, minWidth: 0 }}>
+        <RequiredNote />
+        <FormPanel n={1} title="What it is" note="Where it runs and what people will do.">
+          <div className="grid-responsive" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+            <div>
+              <FieldLabel htmlFor="program-listing" required>Runs at</FieldLabel>
+              <select
+                {...fe.control("program-listing")}
+                required
+                value={form.listingId ? `${form.listingType}:${form.listingId}` : ""}
+                onChange={(e) => {
+                  const [listingType, listingId] = e.target.value.split(":") as ["centre" | "club", string];
+                  setForm((f) => ({ ...f, listingType: listingType || f.listingType, listingId: listingId ?? "" }), "program-listing");
+                }}
+                style={inputStyle}
+              >
+                <option value="">Choose a centre or club</option>
+                {listings.centres.length > 0 && (
+                  <optgroup label="Centres">
+                    {listings.centres.map((o) => (
+                      <option key={o.id} value={`centre:${o.id}`}>{o.name}</option>
+                    ))}
+                  </optgroup>
+                )}
+                {listings.clubs.length > 0 && (
+                  <optgroup label="Clubs">
+                    {listings.clubs.map((o) => (
+                      <option key={o.id} value={`club:${o.id}`}>{o.name}</option>
+                    ))}
+                  </optgroup>
+                )}
+              </select>
+              <FieldError fieldId="program-listing" message={fe.messageFor("program-listing")} />
+            </div>
+            <div>
+              <FieldLabel htmlFor="program-category" optional>Category</FieldLabel>
+              <select id="program-category" value={form.category} onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))} style={inputStyle}>
+                <option value="">None</option>
+                {ACTIVITY_CATEGORIES.map((c) => (
+                  <option key={c} value={c}>{c}</option>
+                ))}
+              </select>
+            </div>
+            <div style={{ gridColumn: "1 / -1" }}>
+              <FieldLabel htmlFor="program-title" required>Title</FieldLabel>
+              <input {...fe.control("program-title")} required value={form.title} onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }), "program-title")} placeholder="e.g. Beginners' yoga, 8 weeks" style={inputStyle} />
+              <FieldError fieldId="program-title" message={fe.messageFor("program-title")} />
+            </div>
+            <div style={{ gridColumn: "1 / -1" }}>
+              <FieldLabel htmlFor="program-description" required>Description</FieldLabel>
+              <textarea {...fe.control("program-description")} required value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }), "program-description")} rows={3} placeholder="What happens each week, and what people come away with." style={{ ...inputStyle, resize: "vertical" }} />
+              <FieldError fieldId="program-description" message={fe.messageFor("program-description")} />
+            </div>
+          </div>
+        </FormPanel>
+
+        <FormPanel n={2} title="Who it's for" note="Optional">
+          <div className="grid-responsive" style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
+            <div>
+              <FieldLabel htmlFor="program-age-range" optional>Ages</FieldLabel>
+              <input id="program-age-range" value={form.ageRange} onChange={(e) => setForm((f) => ({ ...f, ageRange: e.target.value }))} placeholder="e.g. 8–12" style={inputStyle} />
+            </div>
+            <div>
+              <FieldLabel htmlFor="program-skill-level" optional>Level</FieldLabel>
+              <select id="program-skill-level" value={form.skillLevel} onChange={(e) => setForm((f) => ({ ...f, skillLevel: e.target.value }))} style={inputStyle}>
+                <option value="">Any level</option>
+                {SKILL_LEVELS.map((sk) => (
+                  <option key={sk} value={sk}>{sk}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <FieldLabel htmlFor="program-instructor" optional>Instructor</FieldLabel>
+              <input id="program-instructor" value={form.instructorName} onChange={(e) => setForm((f) => ({ ...f, instructorName: e.target.value }))} placeholder="Name" style={inputStyle} />
+            </div>
+          </div>
+        </FormPanel>
+
+        <FormPanel n={3} title="Price & places">
+          <div className="grid-responsive" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+            <div>
+              <FieldLabel htmlFor="program-price-total" optional>Price for the whole course (€)</FieldLabel>
+              <input id="program-price-total" inputMode="decimal" value={form.priceCents} onChange={(e) => setForm((f) => ({ ...f, priceCents: e.target.value }))} placeholder="0" style={inputStyle} />
+              <p className="adm-note" style={{ margin: "4px 0 0" }}>Leave at 0 for a free programme.</p>
+              <PaidClosedPriceNotice amount={form.priceCents} />
+            </div>
+            <div>
+              <FieldLabel htmlFor="program-capacity" optional>Places</FieldLabel>
+              <input id="program-capacity" inputMode="numeric" value={form.capacity} onChange={(e) => setForm((f) => ({ ...f, capacity: e.target.value }))} placeholder="Unlimited" style={inputStyle} />
+            </div>
+          </div>
+        </FormPanel>
+
+        <FormPanel n={4} title="Safety & kit" note="Optional" collapsible>
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            <div>
+              <FieldLabel htmlFor="program-equipment" optional>Equipment needed (one per line)</FieldLabel>
+              <textarea id="program-equipment" value={equipmentText} onChange={(e) => setEquipmentText(e.target.value)} rows={2} style={{ ...inputStyle, resize: "vertical" }} />
+            </div>
+            <div>
+              <FieldLabel htmlFor="program-guardian-rules" optional>Guardian rules (for programmes involving children or dependants)</FieldLabel>
+              <textarea id="program-guardian-rules" value={form.guardianRules} onChange={(e) => setForm((f) => ({ ...f, guardianRules: e.target.value }))} rows={2} style={{ ...inputStyle, resize: "vertical" }} />
+            </div>
+            <div>
+              <FieldLabel htmlFor="program-safeguarding-info" optional>Safeguarding info</FieldLabel>
+              <textarea id="program-safeguarding-info" value={form.safeguardingInfo} onChange={(e) => setForm((f) => ({ ...f, safeguardingInfo: e.target.value }))} rows={2} style={{ ...inputStyle, resize: "vertical" }} />
+            </div>
+          </div>
+        </FormPanel>
+
+        <FormErrorSummary errors={fe.errors} focusKey={fe.focusKey} />
         <div>
-          <FieldLabel htmlFor="program-attach-to">Attach to</FieldLabel>
-          <select id="program-attach-to" value={form.listingType} onChange={(e) => setForm((f) => ({ ...f, listingType: e.target.value as "centre" | "club", listingId: "" }))} style={inputStyle}>
-            <option value="centre">Community centre</option>
-            <option value="club">Sports club</option>
-          </select>
-        </div>
-        <div>
-          <FieldLabel htmlFor="program-listing" required>Listing</FieldLabel>
-          <select {...fe.control("program-listing")} required value={form.listingId} onChange={(e) => setForm((f) => ({ ...f, listingId: e.target.value }), "program-listing")} style={inputStyle}>
-            <option value="">— choose —</option>
-            {options.map((o) => (
-              <option key={o.id} value={o.id}>{o.name}</option>
-            ))}
-          </select>
-          <FieldError fieldId="program-listing" message={fe.messageFor("program-listing")} />
-        </div>
-        <div style={{ gridColumn: "1 / -1" }}>
-          <FieldLabel htmlFor="program-title" required>Title</FieldLabel>
-          <input {...fe.control("program-title")} required value={form.title} onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }), "program-title")} style={inputStyle} />
-          <FieldError fieldId="program-title" message={fe.messageFor("program-title")} />
-        </div>
-        <div style={{ gridColumn: "1 / -1" }}>
-          <FieldLabel htmlFor="program-description" required>Description</FieldLabel>
-          <textarea {...fe.control("program-description")} required value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }), "program-description")} rows={2} style={{ ...inputStyle, resize: "vertical" }} />
-          <FieldError fieldId="program-description" message={fe.messageFor("program-description")} />
-        </div>
-        <div>
-          <FieldLabel htmlFor="program-age-range" optional>Age range</FieldLabel>
-          <input id="program-age-range" value={form.ageRange} onChange={(e) => setForm((f) => ({ ...f, ageRange: e.target.value }))} placeholder="e.g. 8-12" style={inputStyle} />
-        </div>
-        <div>
-          <FieldLabel htmlFor="program-price-total" optional>Price (€, total; blank or 0 = free)</FieldLabel>
-          <input id="program-price-total" value={form.priceCents} onChange={(e) => setForm((f) => ({ ...f, priceCents: e.target.value }))} placeholder="0 = free" style={{ ...inputStyle, maxWidth: 140 }} />
-          <PaidClosedPriceNotice amount={form.priceCents} />
-        </div>
-        <div>
-          <FieldLabel htmlFor="program-capacity" optional>Capacity (blank = unlimited)</FieldLabel>
-          <input id="program-capacity" value={form.capacity} onChange={(e) => setForm((f) => ({ ...f, capacity: e.target.value }))} placeholder="Unlimited" style={{ ...inputStyle, maxWidth: 140 }} />
-        </div>
-        <div>
-          <FieldLabel htmlFor="program-category" optional>Category</FieldLabel>
-          <select id="program-category" value={form.category} onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))} style={inputStyle}>
-            <option value="">— none —</option>
-            {ACTIVITY_CATEGORIES.map((c) => (
-              <option key={c} value={c}>{c}</option>
-            ))}
-          </select>
-        </div>
-        <div>
-          <FieldLabel htmlFor="program-skill-level" optional>Skill level</FieldLabel>
-          <select id="program-skill-level" value={form.skillLevel} onChange={(e) => setForm((f) => ({ ...f, skillLevel: e.target.value }))} style={inputStyle}>
-            <option value="">— none —</option>
-            {SKILL_LEVELS.map((s) => (
-              <option key={s} value={s}>{s}</option>
-            ))}
-          </select>
-        </div>
-        <div>
-          <FieldLabel htmlFor="program-instructor" optional>Instructor</FieldLabel>
-          <input id="program-instructor" value={form.instructorName} onChange={(e) => setForm((f) => ({ ...f, instructorName: e.target.value }))} style={inputStyle} />
-        </div>
-        <div style={{ gridColumn: "1 / -1" }}>
-          <FieldLabel htmlFor="program-equipment" optional>Equipment needed (one per line)</FieldLabel>
-          <textarea id="program-equipment" value={equipmentText} onChange={(e) => setEquipmentText(e.target.value)} rows={2} style={{ ...inputStyle, resize: "vertical" }} />
-        </div>
-        <div style={{ gridColumn: "1 / -1" }}>
-          <FieldLabel htmlFor="program-guardian-rules" optional>Guardian rules (for programmes involving children or dependants)</FieldLabel>
-          <textarea id="program-guardian-rules" value={form.guardianRules} onChange={(e) => setForm((f) => ({ ...f, guardianRules: e.target.value }))} rows={2} style={{ ...inputStyle, resize: "vertical" }} />
-        </div>
-        <div style={{ gridColumn: "1 / -1" }}>
-          <FieldLabel htmlFor="program-safeguarding-info" optional>Safeguarding info</FieldLabel>
-          <textarea id="program-safeguarding-info" value={form.safeguardingInfo} onChange={(e) => setForm((f) => ({ ...f, safeguardingInfo: e.target.value }))} rows={2} style={{ ...inputStyle, resize: "vertical" }} />
+          <AdminButton variant="primary" onClick={create} disabled={creating} aria-busy={creating || undefined}>
+            {creating ? "Creating…" : "Create programme"}
+          </AdminButton>
+          <p className="adm-note" style={{ margin: "8px 0 0" }}>Next you'll add the sessions. One sign-up covers all of them.</p>
         </div>
       </div>
-      <FormErrorSummary errors={fe.errors} focusKey={fe.focusKey} />
-      <Button onClick={create} disabled={creating} aria-busy={creating || undefined}>
-        {creating ? "Creating…" : "Create program"}
-      </Button>
-    </>
+      <aside className="ws-rail">
+        <div className="adm-box ws-rail-card">
+          <strong style={{ fontSize: 13 }}>Preview</strong>
+          <div className="ws-rail-img ws-thumb--empty">
+            <GraduationCap size={26} strokeWidth={1.6} aria-hidden="true" />
+          </div>
+          {form.category && <span className="adm-chip" style={{ marginTop: 10 }}>{form.category}</span>}
+          <strong style={{ display: "block", marginTop: 8, fontSize: 16 }}>{form.title || "Your programme"}</strong>
+          <span className="adm-note">{venueName ?? "Choose where it runs"}</span>
+          <div style={{ marginTop: 10, fontWeight: 700 }}>
+            {price > 0 ? (
+              <>
+                €{price.toFixed(2)} <span className="adm-note" style={{ fontWeight: 400 }}>for the course</span>
+              </>
+            ) : (
+              "Free"
+            )}
+          </div>
+          {(form.ageRange || form.skillLevel) && <div className="adm-note">{[form.ageRange && `Ages ${form.ageRange}`, form.skillLevel].filter(Boolean).join(" · ")}</div>}
+        </div>
+      </aside>
+    </div>
   );
 }
 
 export function VendorProgramsTab({ onOpenProgram }: { onOpenProgram: (id: string) => void }) {
-  const [programs, setPrograms] = useState<VendorProgramSummary[]>([]);
+  const state = useAdminData<VendorProgramSummary[]>(() => fetchVendorPrograms());
   const [error, setError] = useState<string | null>(null);
   const [confirmingProgramId, setConfirmingProgramId] = useState<string | null>(null);
-
-  const load = () => fetchVendorPrograms().then(setPrograms);
-  useEffect(() => {
-    load();
-  }, []);
 
   const remove = async (id: string) => {
     setError(null);
     try {
       await deleteVendorProgram(id);
-      load();
+      state.reload();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Couldn't remove that program");
     } finally {
@@ -539,30 +707,38 @@ export function VendorProgramsTab({ onOpenProgram }: { onOpenProgram: (id: strin
   };
 
   return (
-    <div className="fade-panel" style={{ display: "flex", flexDirection: "column", gap: 20 }}>
-      {error && <p style={{ fontSize: 12.5, color: colors.orangeDark, margin: 0 }}>{error}</p>}
-      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-        {programs.map((p) => (
-          <Card key={p.id} hover style={{ padding: 15, display: "flex", justifyContent: "space-between", alignItems: "center" }} onClick={() => onOpenProgram(p.id)}>
-            <div>
-              <div style={{ fontWeight: 700, fontSize: 14 }}>{p.title}</div>
-              <div style={{ fontSize: 12, color: colors.mutedLight, display: "flex", alignItems: "center", gap: 6, marginTop: 2 }}>
-                <CalendarIcon size={12} /> {p.status} · {formatPrice(p.priceCents)}
-              </div>
-            </div>
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                setConfirmingProgramId(p.id);
-              }}
-              style={{ background: "none", border: "none", cursor: "pointer", color: colors.faint }}
-            >
-              <TrashIcon size={16} />
-            </button>
-          </Card>
-        ))}
-        {programs.length === 0 && <EmptyState icon={<CalendarIcon size={26} />} title="No programs yet" subtitle="Create one above." />}
-      </div>
+    <div className="fade-panel" style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      {error && (
+        <p role="alert" className="adm-field-error" style={{ margin: 0 }}>
+          {error}
+        </p>
+      )}
+      <Box flush>
+        <Loaded state={state} title="Couldn't load your programmes">
+          {(programs) => programs.length === 0 ? (
+            <EmptyState icon={<GraduationCap size={20} />} title="No programmes yet" subtitle="A programme is a multi-week course people enrol on once. Use Add programme to create one." />
+          ) : (
+            <WsListTable
+              caption="Your programmes"
+              columns={[{ label: "Programme" }, { label: "Status" }, { label: "Price", num: true }, { label: "Places", num: true }, { label: "Created" }]}
+              rows={programs.map((p) => ({
+                key: p.id,
+                name: p.title,
+                title: p.title,
+                leading: (
+                  <span className="ws-thumb ws-thumb--empty" aria-hidden="true">
+                    <GraduationCap size={18} strokeWidth={1.9} />
+                  </span>
+                ),
+                cells: [<StatusChipText status={p.status} />, formatPrice(p.priceCents), p.capacity ?? "—", formatDate(p.createdAt)],
+                onOpen: () => onOpenProgram(p.id),
+                openLabel: "Manage",
+                menu: [{ label: "Delete programme…", danger: true, onSelect: () => setConfirmingProgramId(p.id) }],
+              }))}
+            />
+          )}
+        </Loaded>
+      </Box>
 
       <ConfirmDialog
         open={confirmingProgramId !== null}
@@ -588,6 +764,13 @@ export function VendorProgramsTab({ onOpenProgram }: { onOpenProgram: (id: strin
 // jumps to that item's real management context (Bookings/Calendar's own
 // Club section/Programs/Experiences) via `onNavigateItem` rather than a new
 // generic management screen.
+
+const SOURCE_LABEL: Record<VendorScheduleItem["sourceType"], string> = {
+  centre: "Hall booking",
+  club: "Club session",
+  program: "Programme",
+  experience: "Experience",
+};
 
 export function VendorScheduleTab({ onNavigateItem }: { onNavigateItem?: (tab: VendorScheduleNavTarget) => void }) {
   const [items, setItems] = useState<VendorScheduleItem[]>([]);
@@ -638,47 +821,74 @@ export function VendorScheduleTab({ onNavigateItem }: { onNavigateItem?: (tab: V
     </div>
   );
 
+  // List rows: when | what | count | status | Manage — the workspace queue style.
+  const listRow = (item: VendorScheduleItem) => {
+    const count = formatScheduleCount(item);
+    const cancelled = item.status === "cancelled";
+    return (
+      <li key={item.id} className="adm-ov-row ws-sched-row">
+        <span className="ws-sched-when">{formatScheduleWhen(item.startDateTime)}</span>
+        <div className="adm-ov-main">
+          <div className="adm-ov-title">{item.title}</div>
+          <div className="adm-ov-detail">
+            {SOURCE_LABEL[item.sourceType]}
+            {item.listingName && item.listingName !== item.title ? ` · ${item.listingName}` : ""}
+            {item.spaceName ? ` · ${item.spaceName}` : ""}
+          </div>
+        </div>
+        <span className="ws-sched-count">{count && <span className="adm-chip">{count}</span>}</span>
+        <span className="adm-chip" data-tone={cancelled ? "warn" : "good"} style={{ textTransform: "capitalize" }}>
+          {item.status}
+        </span>
+        {onNavigateItem ? (
+          <AdminButton size="sm" onClick={() => goManage(item)} aria-label={`Manage ${item.title}`}>
+            Manage
+          </AdminButton>
+        ) : (
+          <span />
+        )}
+      </li>
+    );
+  };
+
+  const section = (title: string, rows: VendorScheduleItem[], empty: string) =>
+    rows.length === 0 ? (
+      <div className="ws-line">
+        <CalendarDays size={17} strokeWidth={1.9} aria-hidden="true" />
+        <span>
+          <strong>{title}:</strong> {empty}
+        </span>
+      </div>
+    ) : (
+      <Box title={`${title} · ${rows.length}`} flush>
+        <ul className="adm-ov-list">{rows.map(listRow)}</ul>
+      </Box>
+    );
+
   const calendarItems = items.map((item) => ({ date: scheduleItemDateKey(item), el: itemRow(item) }));
 
   return (
-    <div className="fade-panel" style={{ display: "flex", flexDirection: "column", gap: 24 }}>
-      <div style={{ display: "flex", gap: 6 }}>
-        {(["list", "calendar"] as const).map((v) => (
-          <button
-            key={v}
-            onClick={() => setView(v)}
-            style={{
-              border: "none", borderRadius: radius.pill, padding: "6px 14px", fontSize: 12.5, fontWeight: 700, cursor: "pointer", textTransform: "capitalize",
-              background: view === v ? colors.dark : colors.panel, color: view === v ? "#fff" : colors.muted,
-            }}
-          >
-            {v}
-          </button>
-        ))}
-      </div>
+    <div className="fade-panel" style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      <IconTabs
+        label="Calendar view"
+        value={view}
+        onChange={setView}
+        items={[
+          { key: "list", label: "List", icon: List },
+          { key: "calendar", label: "Month", icon: CalendarDays },
+        ]}
+      />
 
       {view === "calendar" ? (
-        <Card>
-          <MonthCalendar items={calendarItems} />
-        </Card>
+        <Box flush>
+          <div style={{ padding: 16 }}>
+            <MonthCalendar items={calendarItems} />
+          </div>
+        </Box>
       ) : (
         <>
-          <Card>
-            <h3 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 16, margin: "0 0 14px" }}>Today</h3>
-            {todayItems.length === 0 ? (
-              <EmptyState icon={<CalendarIcon size={22} />} title="Nothing scheduled today" />
-            ) : (
-              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>{todayItems.map(itemRow)}</div>
-            )}
-          </Card>
-          <Card>
-            <h3 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 16, margin: "0 0 14px" }}>Upcoming (next 30 days)</h3>
-            {upcoming.length === 0 ? (
-              <EmptyState icon={<CalendarIcon size={22} />} title="Nothing else scheduled" />
-            ) : (
-              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>{upcoming.map(itemRow)}</div>
-            )}
-          </Card>
+          {section("Today", todayItems, "nothing scheduled.")}
+          {section("Next 30 days", upcoming, "nothing else scheduled.")}
         </>
       )}
     </div>

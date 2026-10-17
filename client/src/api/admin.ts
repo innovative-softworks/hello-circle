@@ -20,11 +20,6 @@ import type {
   PlaceSuggestion,
   ReportCase,
   Review,
-  SupportBooking,
-  SupportCircle,
-  SupportGame,
-  SupportRegistration,
-  SupportUser,
 } from "../types";
 import { request } from "./core";
 import type { CentreInput, ClubInput } from "./vendor";
@@ -145,6 +140,8 @@ export interface AdminListingSummary {
   kind?: string;
   /** Bounded "featured" flag (IA spec §16), MySQL tinyint 0/1. */
   featured: number;
+  /** When the listing row was created (UTC); null for old seed rows. */
+  createdAt?: string | null;
 }
 
 export function fetchAdminVendors(): Promise<AdminVendor[]> {
@@ -240,6 +237,34 @@ export function fetchHostApplications(): Promise<HostApplication[]> {
 
 export function setHostApplicationStatus(residentId: string, status: "verified" | "rejected", reason: DecisionReasonInput = {}): Promise<{ ok: boolean }> {
   return request(`/admin/host-applications/${residentId}/status`, { method: "PUT", body: JSON.stringify({ status, ...reason }) });
+}
+
+/** Full listing content for the admin review page (any status). */
+export interface AdminListingDetail {
+  type: "centre" | "club" | "experience";
+  images: string[];
+  description: string;
+  centre?: {
+    rooms: { name: string; capacity: number; rate: number; description: string; paymentMethod: string; active: number }[];
+    hours: { day: number; opensAt: string; closesAt: string; closed: number }[];
+    opensAt: string;
+    closesAt: string;
+    amenities: string[];
+  };
+  club?: { sport: string; ages: string; price: number; unit: string; trial: boolean; includes: string[]; sessions: { day: number; time: string; label: string; capacity: number | null; active: number }[] };
+  experience?: {
+    kind: string;
+    priceCents: number;
+    capacity: number;
+    durationMinutes: number;
+    meetingPoint: string;
+    difficulty: string;
+    upcomingSessions: { date: string; time: string; capacity: number | null; status: string }[];
+    totalSessions: number;
+  };
+}
+export function fetchAdminListingDetail(type: string, id: string): Promise<AdminListingDetail> {
+  return request(`/admin/listings/${encodeURIComponent(type)}/${encodeURIComponent(id)}/detail`);
 }
 
 export function fetchAdminListings(): Promise<{ centres: AdminListingSummary[]; clubs: AdminListingSummary[]; experiences?: AdminListingSummary[] }> {
@@ -380,18 +405,80 @@ export function fetchReportCase(id: number): Promise<ReportCase> {
 // Trust & Safety (IA spec §16) — 'suspended' also acts on the underlying
 // target (closes the circle / hides the review — see routes/admin.ts).
 // `notes` can be saved on its own (status omitted) as an investigation log.
-export function resolveReport(id: number, input: { status?: "dismissed" | "actioned" | "suspended"; notes?: string; statementOfReasons?: string }): Promise<{ ok: boolean; suspendedAction: string | null }> {
+export function resolveReport(
+  id: number,
+  input: { status?: "dismissed" | "actioned" | "suspended"; notes?: string; statementOfReasons?: string } & Partial<DecisionReasonInput>
+): Promise<{ ok: boolean; suspendedAction: string | null }> {
   return request(`/admin/reports/${id}`, { method: "PUT", body: JSON.stringify(input) });
+}
+
+/** OG-03 — undo a moderation suspension: the listing returns to its previous status. */
+export function reinstateModeratedListing(type: "centre" | "club" | "experience", id: string, input: Partial<DecisionReasonInput> = {}): Promise<{ status: string }> {
+  return request(`/admin/moderation/${type}/${encodeURIComponent(id)}/reinstate`, { method: "POST", body: JSON.stringify(input) });
+}
+
+/** OG-03 — show a chat message that moderation hid. */
+export function unhideChatMessage(id: string, reason: string): Promise<{ ok: boolean }> {
+  return request(`/admin/moderation/chat-messages/${encodeURIComponent(id)}/unhide`, { method: "POST", body: JSON.stringify({ reason }) });
 }
 
 export function fetchAuditLog(actorUserId?: string): Promise<AuditEntry[]> {
   return request(`/admin/audit${actorUserId ? `?actorUserId=${actorUserId}` : ""}`);
 }
 
-export function supportSearch(
-  q: string
-): Promise<{ bookings: SupportBooking[]; registrations: SupportRegistration[]; users: SupportUser[]; games: SupportGame[]; circles: SupportCircle[] }> {
+// Support console (2026-10-16): one search across every kind of order,
+// people (residents + partner/admin logins, one per email), games, circles.
+export type SupportOrderKind = "booking" | "registration" | "program" | "game" | "experience" | "pass";
+export interface SupportOrder {
+  kind: SupportOrderKind;
+  ref: string;
+  name: string | null;
+  email: string | null;
+  listingName: string | null;
+  whenText: string | null;
+  amountCents: number | null;
+  paymentStatus: string | null;
+  status: string | null;
+  createdAt: string;
+  residentId: string | null;
+}
+export interface SupportPerson {
+  email: string;
+  name: string;
+  /** Has a resident (email sign-in) account. */
+  resident: boolean;
+  /** Partner/admin login with the same email. */
+  account: { role: string; status: string } | null;
+  createdAt: string;
+}
+export interface SupportSearchResult {
+  query: string;
+  people: SupportPerson[];
+  orders: SupportOrder[];
+  games: { id: string; activityLabel: string; date: string; time: string; status: string; bookingRef: string | null; place: string | null }[];
+  circles: { id: string; name: string; activityLabel: string; status: string; county: string; memberCount: number }[];
+}
+export function supportSearch(q: string): Promise<SupportSearchResult> {
   return request(`/admin/support/search${q ? `?q=${encodeURIComponent(q)}` : ""}`);
+}
+export interface SupportPersonDetail {
+  email: string;
+  name: string;
+  resident: { id: string; name: string; county: string; createdAt: string; householdMembers: number } | null;
+  account: { id: string; name: string; role: string; status: string; createdAt: string } | null;
+  orders: SupportOrder[];
+}
+export function fetchSupportPerson(email: string): Promise<SupportPersonDetail> {
+  return request(`/admin/support/people/${encodeURIComponent(email)}`);
+}
+export interface SupportOrderDetail {
+  order: SupportOrder;
+  extra: Record<string, string | number | null>;
+  refunds: { amountMinor: number; currency: string; kind: string; status: string; reason: string; createdAt: string }[];
+  underReview: boolean;
+}
+export function fetchSupportOrder(kind: string, ref: string): Promise<SupportOrderDetail> {
+  return request(`/admin/support/orders/${encodeURIComponent(kind)}/${encodeURIComponent(ref)}`);
 }
 
 export function fetchActivityOverview(): Promise<{ openBookings: OpenBookingActivity[]; circleActivity: CircleActivity[] }> {
@@ -849,7 +936,7 @@ export function enrollInCampaign(id: number, input: { partnerKind: string; partn
   return request(`/admin/commerce/campaigns/${id}/enroll`, { method: "POST", body: JSON.stringify(input) });
 }
 
-export interface AdminAccount { id: string; email: string; name: string; adminRole: "super" | "finance" | "support" | "legal" | null; createdAt: string }
+export interface AdminAccount { id: string; email: string; name: string; adminRole: "super" | "finance" | "support" | "legal" | null; createdAt: string; mfaEnrolled?: boolean }
 export function fetchAdmins(): Promise<AdminAccount[]> {
   return request(`/admin/admins`);
 }
@@ -1017,4 +1104,185 @@ export function fetchAdminOrganisation(id: string): Promise<import("../types").A
 /** D-01 — suspend (reason required) or reinstate (optional message) a whole organisation. Super only. */
 export function setOrganisationStatus(id: string, status: "suspended" | "active", reason: DecisionReasonInput = {}): Promise<{ ok: boolean; status: string; changed: boolean }> {
   return request(`/admin/organisations/${encodeURIComponent(id)}/status`, { method: "PUT", body: JSON.stringify({ status, ...reason }) });
+}
+
+// --- Operations (OG-05 / OG-10 / OG-14 / OG-15 / OG-24) ------------------------------
+
+export interface ServerPage<T> {
+  items: T[];
+  nextCursor: string | null;
+}
+
+const qs = (params: Record<string, string | undefined | null>) => {
+  const p = new URLSearchParams();
+  for (const [k, v] of Object.entries(params)) if (v) p.set(k, v);
+  const s = p.toString();
+  return s ? `?${s}` : "";
+};
+
+export interface OperationalException {
+  id: string;
+  kind: "payment_review" | "dispute" | "refund_pending" | "refund_stuck" | "webhook_failed" | "payout_failed" | "subscription_past_due" | "partner_debt";
+  severity: "high" | "medium";
+  team: "Finance";
+  title: string;
+  detail: string;
+  status: string;
+  amountMinor: number | null;
+  createdAt: string;
+  party: { type: string; id: string; name: string | null } | null;
+  link: string;
+}
+
+export function fetchOperationalExceptions(): Promise<OperationalException[]> {
+  return request(`/admin/finance/exceptions`);
+}
+
+export interface PersonRow {
+  id: string;
+  name: string;
+  email: string;
+  county: string;
+  hostStatus: string;
+  deactivated: boolean;
+  createdAt: string;
+}
+export function fetchPeoplePage(f: { q?: string; filter?: string; cursor?: string | null }): Promise<ServerPage<PersonRow>> {
+  return request(`/admin/operations/people${qs({ q: f.q, filter: f.filter, cursor: f.cursor, limit: "25" })}`);
+}
+
+export function fetchOrdersPage(f: { q?: string; kind?: string; status?: string; paymentStatus?: string; from?: string; to?: string; cursor?: string | null }): Promise<ServerPage<SupportOrder>> {
+  return request(`/admin/operations/orders${qs({ ...f, cursor: f.cursor ?? undefined, limit: "25" })}`);
+}
+
+export interface ActivityRow {
+  id: string;
+  activityLabel: string;
+  date: string;
+  time: string;
+  status: string;
+  lifecycle: string;
+  hostResidentId: string;
+  hostName: string | null;
+  place: string;
+  capacity: number;
+  joined: number;
+  priceCents: number | null;
+  reports: number;
+  createdAt: string;
+}
+export function fetchActivitiesPage(f: { q?: string; status?: string; when?: string; cursor?: string | null }): Promise<ServerPage<ActivityRow>> {
+  return request(`/admin/operations/activities${qs({ ...f, cursor: f.cursor ?? undefined, limit: "25" })}`);
+}
+export interface AdminActivityDetail {
+  activity: Record<string, unknown> & { id: string; activityLabel: string; status: string; hostName: string | null; hostEmail: string | null; date: string; time: string };
+  participants: { residentId: string; name: string | null; email: string | null; status: string; paymentStatus: string; totalCents: number | null; joinedAt: string; checkedInAt: string | null }[];
+  reports: { id: number; reason: string; status: string; createdAt: string }[];
+}
+export function fetchAdminActivity(id: string): Promise<AdminActivityDetail> {
+  return request(`/admin/operations/activities/${encodeURIComponent(id)}`);
+}
+export function cancelActivityAsAdmin(id: string, reason: DecisionReasonInput): Promise<{ ok: boolean }> {
+  return request(`/admin/operations/activities/${encodeURIComponent(id)}/cancel`, { method: "POST", body: JSON.stringify(reason) });
+}
+
+export interface CircleRow {
+  id: string;
+  slug: string | null;
+  name: string;
+  activityLabel: string;
+  county: string;
+  status: string;
+  joinMode: string;
+  members: number;
+  organiserName: string | null;
+  reports: number;
+  createdAt: string;
+}
+export function fetchAdminCirclesPage(f: { q?: string; status?: string; cursor?: string | null }): Promise<ServerPage<CircleRow>> {
+  return request(`/admin/operations/circles${qs({ ...f, cursor: f.cursor ?? undefined, limit: "25" })}`);
+}
+
+export interface HostRow {
+  id: string;
+  name: string;
+  email: string;
+  hostStatus: string;
+  hosted: number;
+  upcoming: number;
+  paidActivities: number;
+  createdAt: string;
+}
+export function fetchHostsPage(f: { q?: string; status?: string; cursor?: string | null }): Promise<ServerPage<HostRow>> {
+  return request(`/admin/operations/hosts${qs({ ...f, cursor: f.cursor ?? undefined, limit: "25" })}`);
+}
+
+export function cancelOrderAsAdmin(kind: string, ref: string, reason: string): Promise<{ ok: boolean; refund: "none" | "refunded" | "failed"; refundError?: string }> {
+  return request(`/admin/operations/orders/${encodeURIComponent(kind)}/${encodeURIComponent(ref)}/cancel`, { method: "POST", body: JSON.stringify({ reason }) });
+}
+
+export function fetchAuditPage(f: { q?: string; action?: string; objectType?: string; objectId?: string; cursor?: string | null }): Promise<ServerPage<AuditEntry>> {
+  return request(`/admin/audit${qs({ ...f, cursor: f.cursor ?? undefined, limit: "50" })}`);
+}
+
+export function proposeBookingChangeAsAdmin(ref: string, input: { date: string; time: string; message: string }): Promise<{ id: number }> {
+  return request(`/admin/operations/orders/booking/${encodeURIComponent(ref)}/propose-change`, { method: "POST", body: JSON.stringify(input) });
+}
+
+// --- OG-31 — maps switch (runtime; server/src/routes/admin.ts) ---------------
+export function fetchMapsEnabled(): Promise<{ enabled: boolean }> {
+  return request(`/admin/config/maps-enabled`);
+}
+
+export function setMapsEnabled(enabled: boolean): Promise<{ enabled: boolean }> {
+  return request(`/admin/config/maps-enabled`, { method: "PUT", body: JSON.stringify({ enabled }) });
+}
+
+// --- OG-29 / OG-31 — privacy requests and consent records (recording only) ---
+export type PrivacyKind = "access" | "correction" | "erasure" | "objection";
+export type PrivacyStatus = "received" | "in_progress" | "completed" | "refused";
+export interface ConsentState {
+  granted: boolean;
+  source: string | null;
+  policyDocKey: string | null;
+  policyVersion: number | null;
+  at: string | null;
+}
+export interface PrivacyRequestRow {
+  id: number;
+  kind: PrivacyKind;
+  status: PrivacyStatus;
+  email: string;
+  residentId: string | null;
+  name: string;
+  createdAt: string;
+  updatedAt: string;
+}
+export interface PrivacyRequestDetail extends PrivacyRequestRow {
+  details: string;
+  response: string | null;
+  handledBy: string | null;
+  consents: Record<string, ConsentState> | null;
+}
+export interface ConsentSubjectView {
+  kind: "resident" | "partner" | "admin";
+  name: string;
+  current: Record<string, ConsentState>;
+  history: { purpose: string; granted: number; source: string; policyDocKey: string | null; policyVersion: number | null; at: string }[];
+}
+
+export function fetchPrivacyRequests(status: "open" | PrivacyStatus | "all" = "open"): Promise<PrivacyRequestRow[]> {
+  return request(`/admin/privacy/requests${status === "all" ? "" : `?status=${status}`}`);
+}
+
+export function fetchPrivacyRequest(id: number): Promise<PrivacyRequestDetail> {
+  return request(`/admin/privacy/requests/${id}`);
+}
+
+export function updatePrivacyRequest(id: number, input: { status: Exclude<PrivacyStatus, "received">; response?: string }): Promise<PrivacyRequestDetail> {
+  return request(`/admin/privacy/requests/${id}`, { method: "POST", body: JSON.stringify(input) });
+}
+
+export function fetchConsentsForEmail(email: string): Promise<ConsentSubjectView[]> {
+  return request(`/admin/privacy/consents?email=${encodeURIComponent(email)}`);
 }

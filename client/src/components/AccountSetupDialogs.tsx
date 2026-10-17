@@ -338,7 +338,7 @@ function OnboardingDialog({ resident, onSaved, onClose }: { resident: ResidentFu
             type="button"
             onClick={useMyLocation}
             disabled={locating}
-            style={{ display: "inline-flex", alignItems: "center", gap: 8, background: "none", border: `1px solid ${colors.border}`, borderRadius: 10, padding: "9px 14px", fontSize: 13.5, fontWeight: 700, color: colors.text, cursor: locating ? "default" : "pointer", marginBottom: 12 }}
+            style={{ display: "inline-flex", alignItems: "center", gap: 8, background: "none", border: `1px solid ${colors.border}`, borderRadius: radius.control, padding: "9px 14px", fontSize: 13.5, fontWeight: 700, color: colors.text, cursor: locating ? "default" : "pointer", marginBottom: 12 }}
           >
             <PinIcon size={15} /> {locating ? "Finding you…" : "Use my current location"}
           </button>
@@ -403,7 +403,7 @@ function OnboardingDialog({ resident, onSaved, onClose }: { resident: ResidentFu
                   if (!live) {
                     const done = requested.includes(i);
                     return (
-                      <button key={i} type="button" onClick={() => requestCategory(i)} disabled={done} style={{ border: `1.5px dashed ${colors.border}`, background: colors.surface, color: colors.mutedLight, borderRadius: 10, padding: "11px 12px", fontSize: 13, fontWeight: 600, textAlign: "left", cursor: done ? "default" : "pointer" }}>
+                      <button key={i} type="button" onClick={() => requestCategory(i)} disabled={done} style={{ border: `1.5px dashed ${colors.border}`, background: colors.surface, color: colors.mutedLight, borderRadius: radius.control, padding: "11px 12px", fontSize: 13, fontWeight: 600, textAlign: "left", cursor: done ? "default" : "pointer" }}>
                         {i} — {done ? "Requested" : "not yet here"}
                       </button>
                     );
@@ -415,7 +415,7 @@ function OnboardingDialog({ resident, onSaved, onClose }: { resident: ResidentFu
                       type="button"
                       aria-pressed={active}
                       onClick={() => toggleInterest(i)}
-                      style={{ display: "flex", alignItems: "center", justifyContent: "space-between", border: `1.5px solid ${active ? colors.green : colors.border}`, background: active ? colors.greenBg : colors.surface, borderRadius: 10, padding: "11px 12px", fontSize: 14, fontWeight: 700, color: active ? colors.greenText : colors.text, cursor: "pointer", textAlign: "left" }}
+                      style={{ display: "flex", alignItems: "center", justifyContent: "space-between", border: `1.5px solid ${active ? colors.green : colors.border}`, background: active ? colors.greenBg : colors.surface, borderRadius: radius.control, padding: "11px 12px", fontSize: 14, fontWeight: 700, color: active ? colors.greenText : colors.text, cursor: "pointer", textAlign: "left" }}
                     >
                       {i}
                       {active && <CheckIcon size={15} />}

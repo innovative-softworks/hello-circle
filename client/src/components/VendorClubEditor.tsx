@@ -1,4 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { Volleyball } from "lucide-react";
+import { useInWorkspace } from "./workspace/inWorkspace";
+import { SectionSaveContext, type SectionSave } from "./workspace/sectionSave";
+import { ReadinessRail } from "./workspace/SectionCard";
+import { getMediaUrl } from "../media";
 import { useConfirm } from "./ConfirmProvider";
 import { VendorParticipationEditor } from "./VendorParticipationEditor";
 import {
@@ -82,15 +87,18 @@ export function ClubEditor({
     markDirty();
   };
 
-  const save = async () => {
+  const save = async (): Promise<boolean> => {
     const errors: { field: string; message: string; fieldId: string }[] = [];
     if (!form.name.trim()) errors.push({ field: "name", message: "Club name is required", fieldId: "club-name" });
     if (!form.sport.trim()) errors.push({ field: "sport", message: "Sport is required", fieldId: "club-sport" });
     if (!form.area.trim()) errors.push({ field: "area", message: "Area is required", fieldId: "club-area" });
     if (!form.county.trim()) errors.push({ field: "county", message: "County is required", fieldId: "club-county" });
     if (!form.blurb.trim()) errors.push({ field: "blurb", message: "A short description is required", fieldId: "club-blurb" });
-    if (errors.length > 0) return fe.fail(errors);
-    if (saving) return;
+    if (errors.length > 0) {
+      fe.fail(errors);
+      return false;
+    }
+    if (saving) return false;
 
     fe.clear();
     setSaving(true);
@@ -103,13 +111,42 @@ export function ClubEditor({
       setSaved(true);
       onDirtyChange?.(false);
       onSaved(updated);
+      return true;
     } catch (e) {
       // Everything typed stays in the form; the reason goes in the summary.
       fe.fail([{ field: "save", message: `Couldn't save: ${e instanceof Error ? e.message : "please try again"}` }]);
+      return false;
     } finally {
       setSaving(false);
     }
   };
+
+  // Workspace popups (option A) — see VendorCentreEditor.tsx's identical block.
+  const snapshot = useRef<{ form: ClubInput; includesText: string; accessibilityText: string } | null>(null);
+  const [openKey, setOpenKey] = useState<string | null>(null);
+  const currentSnapshot = () => ({ form, includesText, accessibilityText });
+  const sectionSave: SectionSave = {
+    save,
+    saving,
+    errors: fe.errors,
+    focusKey: fe.focusKey,
+    isDirty: () => JSON.stringify(snapshot.current) !== JSON.stringify(currentSnapshot()),
+    openKey,
+    setOpenKey,
+    begin: () => {
+      snapshot.current = { form, includesText, accessibilityText };
+    },
+    cancel: () => {
+      if (snapshot.current) {
+        setForm(snapshot.current.form);
+        setIncludesText(snapshot.current.includesText);
+        setAccessibilityText(snapshot.current.accessibilityText);
+      }
+      fe.clear();
+      onDirtyChange?.(false);
+    },
+  };
+  const inWorkspace = useInWorkspace();
 
   // --- field groups, composed differently depending on mode below ---------
 
@@ -281,13 +318,61 @@ export function ClubEditor({
   if (loadState === "failed") return <LoadErrorState title="Couldn't load this club's details." onRetry={load} />;
   if (loadState === "loading") return <p style={{ fontSize: 13.5, color: colors.mutedLight }}>Loading club details…</p>;
 
+  if (inWorkspace) {
+    const checks = [
+      { label: "Name, sport and description", done: !!form.name.trim() && !!form.sport.trim() && !!form.blurb.trim(), section: "General" },
+      { label: "Location", done: !!form.area.trim() && !!form.county.trim(), section: "Location" },
+      { label: "Contact phone", done: !!form.phone?.trim(), section: "Contact" },
+      { label: "Price", done: form.price != null && String(form.price) !== "", section: "Membership & pricing" },
+      { label: "What's included", done: includesList.length > 0, section: "What's included" },
+      { label: "Accessibility", done: accessibilityList.length > 0, section: "Accessibility" },
+      { label: "Photos", done: (form.images ?? []).length > 0, section: "Photos" },
+    ];
+    const cover = (form.images ?? [])[0] || form.image;
+    return (
+      <SectionSaveContext.Provider value={sectionSave}>
+        <div className="ws-editor">
+          <div className="ws-sec-grid">
+      <SettingsSection title="General" forceOpen={fe.has("club-name", "club-sport", "club-blurb")} fieldIds={["club-name", "club-sport", "club-blurb"]} summary={<>{form.name || "Not set"}{form.blurb && <div style={{ color: colors.mutedLight, fontSize: 13, marginTop: 2 }}>{form.blurb}</div>}</>}>
+        {generalFields}
+      </SettingsSection>
+      <SettingsSection title="Location" forceOpen={fe.has("club-area", "club-county")} fieldIds={["club-area", "club-county"]} summary={[form.area, form.county].filter(Boolean).join(", ") || "Not set"}>
+        {locationFields}
+      </SettingsSection>
+      <SettingsSection title="Contact" summary={form.phone || "Not added"}>
+        {contactField}
+      </SettingsSection>
+      <SettingsSection title="Membership & pricing" summary={`€${form.price}/${form.unit} · ${form.capacity ? `capped at ${form.capacity}` : "unlimited"}`}>
+        {membershipFields}
+      </SettingsSection>
+      <SettingsSection title="What's included" summary={includesList.length > 0 ? includesList.join(" · ") : "None added"}>
+        {includesField}
+      </SettingsSection>
+      <SettingsSection title="Accessibility" summary={accessibilityList.length > 0 ? accessibilityList.join(" · ") : "None added"}>
+        {accessibilityField}
+      </SettingsSection>
+      <VendorParticipationEditor type="club" id={clubId} />
+      <SettingsSection title="Photos" summary={`${(form.images ?? []).length} photo${(form.images ?? []).length === 1 ? "" : "s"}`}>
+        {photosField}
+      </SettingsSection>
+          </div>
+          <ReadinessRail
+            checks={checks}
+            onFix={setOpenKey}
+            preview={{ image: cover ? getMediaUrl(cover, "card") : null, title: form.name || "Your club", meta: [form.area, form.ages, form.price ? `€${form.price}/${form.unit}` : null].filter(Boolean).join(" · "), icon: Volleyball }}
+          />
+        </div>
+      </SectionSaveContext.Provider>
+    );
+  }
+
   return (
     <>
       <RequiredNote />
-      <SettingsSection title="General" forceOpen={fe.has("club-name", "club-sport", "club-blurb")} summary={<>{form.name || "Not set"}{form.blurb && <div style={{ color: colors.mutedLight, fontSize: 13, marginTop: 2 }}>{form.blurb}</div>}</>}>
+      <SettingsSection title="General" forceOpen={fe.has("club-name", "club-sport", "club-blurb")} fieldIds={["club-name", "club-sport", "club-blurb"]} summary={<>{form.name || "Not set"}{form.blurb && <div style={{ color: colors.mutedLight, fontSize: 13, marginTop: 2 }}>{form.blurb}</div>}</>}>
         {generalFields}
       </SettingsSection>
-      <SettingsSection title="Location" forceOpen={fe.has("club-area", "club-county")} summary={[form.area, form.county].filter(Boolean).join(", ") || "Not set"}>
+      <SettingsSection title="Location" forceOpen={fe.has("club-area", "club-county")} fieldIds={["club-area", "club-county"]} summary={[form.area, form.county].filter(Boolean).join(", ") || "Not set"}>
         {locationFields}
       </SettingsSection>
       <SettingsSection title="Contact" summary={form.phone || "Not added"}>

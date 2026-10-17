@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
-import { ClipboardCheck, Star } from "lucide-react";
+import { AlertTriangle, ArrowRight, Check, ClipboardCheck, ImageOff, MapPin, Star, X } from "lucide-react";
 import {
   adminDeleteCentre,
   adminDeleteClub,
+  fetchAdminListingDetail,
   fetchAdminListings,
   fetchAdminOrganisations,
   setCentreOrganisation,
@@ -11,6 +12,7 @@ import {
   setClubStatus,
   setExperienceStatus,
   setListingFeatured,
+  type AdminListingDetail,
   type AdminListingSummary,
 } from "../../api";
 import { getMediaUrl } from "../../media";
@@ -22,7 +24,8 @@ import {
   Badge,
   Box,
   EmptyMessage,
-  Facts,
+  ErrorMessage,
+  LoadingRows,
   Loaded,
   OverflowMenu,
   Pager,
@@ -33,11 +36,17 @@ import {
   Toolbar,
   ViewTabs,
   errorMessage,
+  formatDate,
+  statusLabel,
   matches,
   useAdminAction,
   useAdminData,
   usePaged,
+  AdminModal,
+  type AdminData,
 } from "./adminUi";
+import { listingChecks, similarListings } from "./listingReview";
+import { time, waitingLabel } from "./timeLabels";
 import { ObjectActivity } from "./AdminAudit";
 import { DecisionHistory, DecisionReasonFields, emptyReason, reasonComplete, toReasonInput, type ReasonDraft } from "./DecisionReason";
 import { useAdminCan } from "./adminPermissions";
@@ -104,7 +113,13 @@ function inView(status: string, view: StatusView) {
   return status === view;
 }
 
-type SortKey = "triage" | "name" | "nameDesc" | "partner";
+type SortKey = "triage" | "oldest" | "newest" | "name" | "nameDesc" | "partner";
+type ShowKey = "all" | "featured" | "unclaimed" | "partner";
+
+/** Oldest submission first; rows without a date go last. */
+function byOldest(a: ListingRow, b: ListingRow) {
+  return (time(a.item.createdAt) ?? Number.MAX_SAFE_INTEGER) - (time(b.item.createdAt) ?? Number.MAX_SAFE_INTEGER) || a.item.name.localeCompare(b.item.name);
+}
 
 // --- decision hook shared by rows and the panel ---------------------------
 
@@ -137,21 +152,211 @@ function useListingDecisions(reload: () => void) {
   return { setStatus, reject, toggleFeatured, remove, run, busy };
 }
 
-// --- record page (was a slide-in panel) ----------------------------------
+// --- record page: review layout (2026-10-16) -----------------------------
+// Left: the listing as the public will see it (photos, description, what can
+// be booked). Right: the decision panel (checks, partner, similar listings,
+// Approve / Reject, then on to the next pending listing). For a listing that
+// is already decided, the panel holds its status and settings instead.
+
+const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const euros = (n: number) => `€${n.toLocaleString("en-IE", { maximumFractionDigits: 2 })}`;
+const CHECK_ICON = { pass: Check, warn: AlertTriangle, fail: X } as const;
+
+function ListingPreview({ row, detail }: { row: ListingRow; detail: AdminData<AdminListingDetail> }) {
+  const { item } = row;
+  const photos = detail.data?.images ?? (item.image ? [item.image] : []);
+  const description = detail.data?.description ?? item.blurb;
+  const facts: string[] = [];
+  const d = detail.data;
+  if (d?.centre) {
+    const rooms = d.centre.rooms.filter((r) => r.active);
+    const maxCap = Math.max(0, ...rooms.map((r) => r.capacity));
+    const minRate = rooms.filter((r) => r.rate > 0).reduce((m, r) => Math.min(m, r.rate), Infinity);
+    facts.push(maxCap ? `Up to ${maxCap} people` : "Capacity not set", Number.isFinite(minRate) ? `From ${euros(minRate)}/hr` : "No hourly rate", `${rooms.length} room${rooms.length === 1 ? "" : "s"}`);
+  } else if (d?.club) {
+    facts.push(d.club.sport, d.club.ages ? `Ages ${d.club.ages}` : "", d.club.price ? `${euros(d.club.price)}/${d.club.unit}` : "Free", d.club.trial ? "Free trial" : "");
+  } else if (d?.experience) {
+    const e = d.experience;
+    facts.push(e.kind.charAt(0).toUpperCase() + e.kind.slice(1), `${Math.round(e.durationMinutes / 6) / 10} h`, e.priceCents ? euros(e.priceCents / 100) : "Free", `Groups of up to ${e.capacity}`, e.difficulty);
+  }
+  return (
+    <div className="adm-review-main">
+      <section aria-label="Photos">
+        {photos.length ? (
+          <div className="adm-gallery" data-count={Math.min(photos.length, 5)}>
+            {photos.slice(0, 5).map((src, i) => (
+              <img key={src + i} src={getMediaUrl(src, i === 0 ? "card" : "thumbnail")} alt={i === 0 ? `Cover photo for ${item.name}` : `Photo ${i + 1} of ${item.name}`} />
+            ))}
+          </div>
+        ) : (
+          <div className="adm-gallery-empty">
+            <ImageOff size={22} strokeWidth={1.9} aria-hidden="true" />
+            No photos uploaded
+          </div>
+        )}
+      </section>
+      <p className="adm-review-loc">
+        <MapPin size={16} strokeWidth={1.9} aria-hidden="true" /> {location(item) || "No location given"}
+      </p>
+      {facts.filter(Boolean).length > 0 && (
+        <ul className="adm-review-facts" aria-label="Key facts">
+          {facts.filter(Boolean).map((f) => (
+            <li key={f}>{f}</li>
+          ))}
+        </ul>
+      )}
+      <SectionLabel>Description</SectionLabel>
+      <p className="adm-review-text">{description || <span className="adm-note">No description.</span>}</p>
+
+      {detail.error ? (
+        <ErrorMessage error={detail.error} onRetry={detail.reload} title="Couldn't load the full listing" />
+      ) : !d ? (
+        <LoadingRows rows={3} label="Loading the full listing" />
+      ) : (
+        <>
+          {d.centre && (
+            <>
+              <SectionLabel>Rooms</SectionLabel>
+              {d.centre.rooms.length ? (
+                <div className="adm-table-wrap">
+                  <table className="adm-table adm-table--stack">
+                    <thead>
+                      <tr>
+                        <th scope="col">Room</th>
+                        <th scope="col">Capacity</th>
+                        <th scope="col">Rate</th>
+                        <th scope="col">Payment</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {d.centre.rooms.map((r) => (
+                        <tr key={r.name} style={r.active ? undefined : { opacity: 0.55 }}>
+                          <td data-label="Room">
+                            <div className="adm-cell-title">
+                              {r.name}
+                              {!r.active && " (inactive)"}
+                            </div>
+                            {r.description && <div className="adm-cell-sub">{r.description}</div>}
+                          </td>
+                          <td data-label="Capacity" data-warn={r.capacity <= 0 || undefined}>{r.capacity > 0 ? r.capacity : "Not set"}</td>
+                          <td data-label="Rate" data-warn={r.rate <= 0 || undefined}>{r.rate > 0 ? `${euros(r.rate)}/hr` : "€0"}</td>
+                          <td data-label="Payment">{r.paymentMethod === "cash" ? "Pay on the day" : "Online"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <p className="adm-note">No rooms.</p>
+              )}
+              <SectionLabel>Opening hours</SectionLabel>
+              {d.centre.hours.length ? (
+                <ul className="adm-review-hours">
+                  {d.centre.hours.map((h) => (
+                    <li key={h.day}>
+                      <span>{DAYS[h.day]}</span>
+                      {h.closed ? "Closed" : `${h.opensAt}–${h.closesAt}`}
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="adm-review-text">
+                  Every day, {d.centre.opensAt}–{d.centre.closesAt}
+                </p>
+              )}
+              {d.centre.amenities.length > 0 && (
+                <>
+                  <SectionLabel>Amenities</SectionLabel>
+                  <ul className="adm-review-facts">
+                    {d.centre.amenities.map((a) => (
+                      <li key={a}>{a}</li>
+                    ))}
+                  </ul>
+                </>
+              )}
+            </>
+          )}
+          {d.club && (
+            <>
+              {d.club.includes.length > 0 && (
+                <>
+                  <SectionLabel>What's included</SectionLabel>
+                  <ul className="adm-review-facts">
+                    {d.club.includes.map((a) => (
+                      <li key={a}>{a}</li>
+                    ))}
+                  </ul>
+                </>
+              )}
+              <SectionLabel>Weekly sessions</SectionLabel>
+              {d.club.sessions.length ? (
+                <ul className="adm-review-hours">
+                  {d.club.sessions.map((s, i) => (
+                    <li key={i} style={s.active ? undefined : { opacity: 0.55 }}>
+                      <span>{DAYS[s.day]}</span>
+                      {s.time}
+                      {s.label ? ` · ${s.label}` : ""}
+                      {s.capacity ? ` · ${s.capacity} places` : ""}
+                      {!s.active && " (paused)"}
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="adm-note">No weekly sessions yet.</p>
+              )}
+            </>
+          )}
+          {d.experience && (
+            <>
+              {d.experience.meetingPoint && (
+                <>
+                  <SectionLabel>Meeting point</SectionLabel>
+                  <p className="adm-review-text">{d.experience.meetingPoint}</p>
+                </>
+              )}
+              <SectionLabel>Upcoming dates</SectionLabel>
+              {d.experience.upcomingSessions.length ? (
+                <ul className="adm-review-hours">
+                  {d.experience.upcomingSessions.map((s, i) => (
+                    <li key={i}>
+                      <span>{formatDate(s.date)}</span>
+                      {s.time}
+                      {s.capacity ? ` · ${s.capacity} places` : ""}
+                      {s.status !== "scheduled" ? ` · ${s.status}` : ""}
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="adm-note">No upcoming dates{d.experience.totalSessions ? ` (${d.experience.totalSessions} in the past)` : ""}.</p>
+              )}
+            </>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
 
 function ListingRecord({
   row,
+  allRows,
+  next,
   organisations,
   onClose,
+  onOpen,
   onChanged,
   onOpenVendor,
   decisions,
   backLabel,
 }: {
   row: ListingRow;
+  allRows: ListingRow[];
+  /** The next pending listing to review after this one (oldest first). */
+  next: ListingRow | null;
   backLabel: string;
   organisations: AdminOrganisation[];
   onClose: () => void;
+  onOpen: (key: string) => void;
   onChanged: () => void;
   onOpenVendor: (vendorId: string) => void;
   decisions: ReturnType<typeof useListingDecisions>;
@@ -159,12 +364,30 @@ function ListingRecord({
   const [confirm, setConfirm] = useState<"reject" | "delete" | null>(null);
   const [reason, setReason] = useState<ReasonDraft>(emptyReason);
   const can = useAdminCan();
+  const toast = useToast();
   const [orgId, setOrgId] = useState("");
+  const [orgOpen, setOrgOpen] = useState(false);
   useEffect(() => setOrgId(""), [row.item.id]);
   const { item, type } = row;
+  const detail = useAdminData(() => fetchAdminListingDetail(type, item.id), [type, item.id]);
   const blocked = vendorBlocksApproval(item);
   const key = rowKey(row);
   const { busy, run } = decisions;
+  const pending = item.status === "pending";
+  const checks = listingChecks(item, detail.data);
+  // Only useful before publishing: "is this a re-creation of an existing place?"
+  const similar = pending ? similarListings(item, allRows) : [];
+  const warnings = checks.filter((c) => c.state !== "pass").length;
+  const waiting = waitingLabel(item.createdAt ?? null);
+
+  // After a decision on a pending listing, carry on with the next one.
+  const afterDecision = () => {
+    if (next) onOpen(rowKey(next));
+    else {
+      toast.success("All caught up: no more listings waiting");
+      onClose();
+    }
+  };
 
   const del = () =>
     run(`${key}:delete`, () => (type === "centre" ? adminDeleteCentre(item.id) : adminDeleteClub(item.id)), { success: `${item.name} was deleted` }).then((ok) => {
@@ -176,7 +399,15 @@ function ListingRecord({
   const assignOrg = () =>
     run(`${key}:org`, () => (type === "centre" ? setCentreOrganisation(item.id, orgId === "none" ? null : orgId) : setClubOrganisation(item.id, orgId === "none" ? null : orgId)), {
       success: orgId === "none" ? "Organisation removed" : "Organisation assigned",
-    }).then((ok) => ok && onChanged());
+    }).then((ok) => {
+      if (ok) onChanged();
+      return ok;
+    });
+
+  const menu = [
+    ...(item.status === "approved" && can("listings.moderate") ? [{ label: "Unpublish (reject)…", onSelect: () => setConfirm("reject"), disabled: !!busy }] : []),
+    ...(type !== "experience" && can("listings.delete") ? [{ label: "Delete listing…", danger: true, onSelect: () => setConfirm("delete"), disabled: !!busy }] : []),
+  ];
 
   return (
     <RecordView
@@ -190,144 +421,185 @@ function ListingRecord({
       onBack={onClose}
       statuses={
         <>
-          <span className="adm-note">Listing review:</span> <StatusTag status={item.status} />
+          <span className="adm-note">Listing:</span> <StatusTag status={item.status} />
           {item.vendorId && (
             <>
-              <span className="adm-note">Partner account:</span> <StatusTag status={item.vendorStatus ?? "unknown"} />
+              <span className="adm-note">Partner account:</span> <StatusTag status={item.vendorStatus ?? "unknown"} label={item.vendorStatus === "approved" ? "Approved" : undefined} />
             </>
           )}
           {!!item.featured && <Badge tone="outline">Featured</Badge>}
         </>
       }
-      actions={
-        <>
-          {type !== "experience" && can("listings.delete") && (
-            <AdminButton variant="danger" onClick={() => setConfirm("delete")} disabled={!!busy}>
-              Delete listing
-            </AdminButton>
-          )}
-          {item.status !== "rejected" && can("listings.moderate") && (
-            <AdminButton onClick={() => setConfirm("reject")} disabled={!!busy}>
-              Reject listing
-            </AdminButton>
-          )}
-          {item.status !== "approved" && can("listings.moderate") && (
-            <AdminButton variant="primary" disabled={blocked || !!busy} onClick={() => decisions.setStatus(row, "approved")} aria-describedby={blocked ? "adm-blocked-note" : undefined}>
-              {busy === `${key}:approved` ? "Approving…" : "Approve & publish"}
-            </AdminButton>
-          )}
-        </>
-      }
+      actions={menu.length ? <OverflowMenu label={`More actions for ${item.name}`} actions={menu} /> : undefined}
     >
-      {blocked && item.status !== "approved" && (
-        <div className="adm-callout" id="adm-blocked-note" style={{ marginBottom: 16 }}>
-          The partner account behind this listing is <strong>{item.vendorStatus}</strong>. Approve the account first — a listing can't go live before its partner is approved.
-          {item.vendorId && (
-            <div style={{ marginTop: 8 }}>
-              <AdminButton size="sm" onClick={() => onOpenVendor(item.vendorId!)}>
-                Open partner account
-              </AdminButton>
-            </div>
+      <div className="adm-review">
+        <ListingPreview row={row} detail={detail} />
+
+        <aside className="adm-review-side" aria-label={pending ? "Review decision" : "Listing status and settings"}>
+          {pending && (
+            <section className="adm-review-card">
+              <h2 className="adm-review-h">Decision</h2>
+              {waiting && <p className="adm-note" style={{ margin: "0 0 12px" }}>Submitted {waiting.replace("Waiting ", "")} ago</p>}
+              <ul className="adm-checks" aria-label="Automatic checks">
+                {checks.map((c) => {
+                  const Icon = CHECK_ICON[c.state];
+                  return (
+                    <li key={c.key} data-state={c.state}>
+                      <Icon size={16} strokeWidth={2.2} aria-hidden="true" />
+                      <div>
+                        <span className="adm-visually-hidden">{c.state === "pass" ? "Passed: " : c.state === "warn" ? "Check: " : "Blocking: "}</span>
+                        {c.label}
+                        {c.detail && <div className="adm-cell-sub">{c.detail}</div>}
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+              <p className="adm-note" style={{ margin: "8px 0 16px" }}>
+                {blocked ? "Approve the partner account before publishing." : warnings ? `${warnings} thing${warnings === 1 ? "" : "s"} to look at. These checks are advice; you decide.` : "Everything checked looks fine."}
+              </p>
+              {can("listings.moderate") ? (
+                <div className="adm-review-actions">
+                  <AdminButton variant="primary" disabled={blocked || !!busy} onClick={() => decisions.setStatus(row, "approved").then((ok) => ok && afterDecision())}>
+                    {busy === `${key}:approved` ? "Approving…" : next ? "Approve & next" : "Approve & publish"}
+                  </AdminButton>
+                  <AdminButton onClick={() => setConfirm("reject")} disabled={!!busy}>
+                    {next ? "Reject & next…" : "Reject…"}
+                  </AdminButton>
+                  {next && (
+                    <AdminButton variant="quiet" size="sm" onClick={() => onOpen(rowKey(next))}>
+                      Skip to next <ArrowRight size={16} strokeWidth={1.9} aria-hidden="true" />
+                    </AdminButton>
+                  )}
+                </div>
+              ) : (
+                <p className="adm-note">Your admin role can view listings but not approve or reject them.</p>
+              )}
+            </section>
           )}
-        </div>
-      )}
-      <SectionLabel>Information</SectionLabel>
-      <Facts
-        rows={[
-          ["Type", TYPE_LABEL[type]],
-          ["Location", location(item) || "Not given"],
-          ["Details", priceFacts(row) || null],
-          ["Description", item.blurb || null],
-          ["Reference", <span className="adm-mono">{item.id}</span>],
-        ]}
-      />
 
-      <SectionLabel>Documents &amp; media</SectionLabel>
-      {item.image ? (
-        <img src={getMediaUrl(item.image, "card")} alt={`Cover photo for ${item.name}`} style={{ width: "100%", height: 180, objectFit: "cover", display: "block" }} />
-      ) : (
-        <p className="adm-note">No cover photo uploaded.</p>
-      )}
-      <p className="adm-note" style={{ marginTop: 8 }}>
-        Listing submissions don't include documents — approval is based on the listing details and the partner account.
-      </p>
-
-      <SectionLabel>Partner</SectionLabel>
-      {item.vendorId ? (
-        <Facts
-          rows={[
-            ["Name", item.vendorName ?? null],
-            ["Email", item.vendorEmail],
-            ["Account", item.vendorStatus ? <StatusTag status={item.vendorStatus} label={item.vendorStatus === "approved" ? "Approved" : undefined} /> : null],
-            [
-              "",
-              <AdminButton size="sm" onClick={() => onOpenVendor(item.vendorId!)}>
-                View partner
-              </AdminButton>,
-            ],
-          ]}
-        />
-      ) : (
-        <p className="adm-note">No partner account — a seeded or unclaimed listing.</p>
-      )}
-
-      <SectionLabel>Settings</SectionLabel>
-      <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-        {can("listings.feature") ? (
-        <AdminButton aria-pressed={!!item.featured} onClick={() => decisions.toggleFeatured(row)} disabled={!!busy}>
-          <Star size={18} strokeWidth={1.9} aria-hidden="true" fill={item.featured ? "currentColor" : "none"} />
-          {item.featured ? "Featured — remove" : "Feature this listing"}
-        </AdminButton>
-        ) : (
-          <span className="adm-note">{item.featured ? "Featured." : "Not featured."}</span>
-        )}
-        <span className="adm-note">Featured listings sort first on public pages.</span>
-      </div>
-
-      {type !== "experience" && organisations.length > 0 && can("orgs.manage") && (
-        <>
-          <p className="adm-note" style={{ margin: "16px 0 8px" }}>
-            Experimental — assigning an organisation doesn't affect visibility or access yet.
-          </p>
-          <div style={{ display: "flex", gap: 8, alignItems: "flex-end", flexWrap: "wrap" }}>
-            <div className="adm-field">
-              <label htmlFor="adm-org-assign">Assign organisation</label>
-              <select id="adm-org-assign" className="adm-select" value={orgId} onChange={(e) => setOrgId(e.target.value)} style={{ minWidth: 220 }}>
-                <option value="" disabled>
-                  Choose…
-                </option>
-                <option value="none">— No organisation —</option>
-                {organisations.map((o) => (
-                  <option key={o.id} value={o.id}>
-                    {o.name}
-                  </option>
+          {similar.length > 0 && (
+            <section className="adm-review-card" data-tone="warn">
+              <h2 className="adm-review-h">Similar listing{similar.length === 1 ? "" : "s"} in {item.county}</h2>
+              <p className="adm-note" style={{ margin: "0 0 8px" }}>If it's the same place, the partner should claim the existing listing instead.</p>
+              <ul className="adm-similar">
+                {similar.map((s) => (
+                  <li key={rowKey(s)}>
+                    <button type="button" className="adm-linkish" onClick={() => onOpen(rowKey(s))}>
+                      {s.item.name}
+                    </button>
+                    <span className="adm-cell-sub">
+                      {location(s.item)} · {s.item.vendorName ?? "Unclaimed"} · {statusLabel(s.item.status)}
+                    </span>
+                  </li>
                 ))}
-              </select>
-            </div>
-            <AdminButton onClick={assignOrg} disabled={!orgId || !!busy}>
-              Save
-            </AdminButton>
-          </div>
-        </>
-      )}
+              </ul>
+            </section>
+          )}
 
-      <SectionLabel>Decisions</SectionLabel>
-      <DecisionHistory objectType={type} objectId={item.id} currentNeedsReason={item.status === "rejected"} refreshKey={item.status} />
+          {!pending && can("listings.moderate") && item.status !== "approved" && (
+            <section className="adm-review-card">
+              <h2 className="adm-review-h">Publish</h2>
+              <p className="adm-note" style={{ margin: "0 0 12px" }}>This listing is {statusLabel(item.status).toLowerCase()}.</p>
+              <AdminButton variant="primary" disabled={blocked || !!busy} onClick={() => decisions.setStatus(row, "approved")}>
+                {busy === `${key}:approved` ? "Approving…" : "Approve & publish"}
+              </AdminButton>
+            </section>
+          )}
 
-      <SectionLabel>Activity</SectionLabel>
-      <ObjectActivity objectIds={[item.id]} note="Submissions, review decisions, featuring, edits, organisation changes and deletions are recorded." />
+          <section className="adm-review-card">
+            <h2 className="adm-review-h">Partner</h2>
+            {item.vendorId ? (
+              <>
+                <div className="adm-cell-title">{item.vendorName || item.vendorEmail}</div>
+                {item.vendorName && <div className="adm-cell-sub">{item.vendorEmail}</div>}
+                <div style={{ margin: "8px 0 12px" }}>
+                  <StatusTag status={item.vendorStatus ?? "unknown"} label={item.vendorStatus === "approved" ? "Approved" : undefined} />
+                </div>
+                <AdminButton size="sm" onClick={() => onOpenVendor(item.vendorId!)}>
+                  {blocked ? "Open partner account to approve it" : "View partner"}
+                </AdminButton>
+              </>
+            ) : (
+              <p className="adm-note" style={{ margin: 0 }}>No partner account. This is a seeded or unclaimed listing.</p>
+            )}
+          </section>
+
+          {item.status === "approved" && (
+            <section className="adm-review-card">
+              <h2 className="adm-review-h">Settings</h2>
+              {can("listings.feature") ? (
+                <AdminButton aria-pressed={!!item.featured} onClick={() => decisions.toggleFeatured(row)} disabled={!!busy}>
+                  <Star size={18} strokeWidth={1.9} aria-hidden="true" fill={item.featured ? "currentColor" : "none"} />
+                  {item.featured ? "Featured: remove" : "Feature this listing"}
+                </AdminButton>
+              ) : (
+                <span className="adm-note">{item.featured ? "Featured." : "Not featured."}</span>
+              )}
+              <p className="adm-note" style={{ margin: "6px 0 0" }}>Featured listings sort first on public pages.</p>
+              {type !== "experience" && organisations.length > 0 && can("orgs.manage") && (
+                <div style={{ marginTop: 16 }}>
+                  <AdminButton size="sm" onClick={() => setOrgOpen(true)}>
+                    Assign organisation…
+                  </AdminButton>
+                  <AdminModal
+                    open={orgOpen}
+                    onClose={() => setOrgOpen(false)}
+                    dirty={!!orgId}
+                    title="Assign an organisation"
+                    subtitle="Experimental: this doesn't affect visibility or access yet."
+                    footer={
+                      <>
+                        <AdminButton variant="quiet" onClick={() => setOrgOpen(false)}>
+                          Cancel
+                        </AdminButton>
+                        <AdminButton variant="primary" onClick={() => assignOrg().then((ok) => ok && setOrgOpen(false))} disabled={!orgId || !!busy}>
+                          Save
+                        </AdminButton>
+                      </>
+                    }
+                  >
+                    <div className="adm-field">
+                      <label htmlFor="adm-org-assign">Organisation</label>
+                      <select id="adm-org-assign" className="adm-select" value={orgId} onChange={(e) => setOrgId(e.target.value)}>
+                        <option value="" disabled>
+                          Choose…
+                        </option>
+                        <option value="none">No organisation</option>
+                        {organisations.map((o) => (
+                          <option key={o.id} value={o.id}>
+                            {o.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </AdminModal>
+                </div>
+              )}
+            </section>
+          )}
+        </aside>
+
+        <div className="adm-review-history">
+          <SectionLabel>Decisions</SectionLabel>
+          <DecisionHistory objectType={type} objectId={item.id} currentNeedsReason={item.status === "rejected"} refreshKey={item.status} />
+          <SectionLabel>Activity</SectionLabel>
+          <ObjectActivity objectIds={[item.id]} note="Submissions, review decisions, featuring, edits, organisation changes and deletions are recorded." />
+        </div>
+      </div>
 
       <ConfirmDialog
         open={confirm === "reject"}
-        title={`Reject ${item.name}?`}
-        message="It stays hidden from the public. The partner is told the reason category and your explanation — in their workspace and by email — and can edit the listing and resubmit it for review. The internal note isn't sent to them."
-        confirmLabel="Reject listing"
+        title={item.status === "approved" ? `Unpublish ${item.name}?` : `Reject ${item.name}?`}
+        message="It stays hidden from the public. The partner is told the reason category and your explanation, in their workspace and by email, and can edit the listing and resubmit it for review. The internal note isn't sent to them."
+        confirmLabel={item.status === "approved" ? "Unpublish listing" : "Reject listing"}
         tone="neutral"
         confirmDisabled={!reasonComplete(reason)}
         onConfirm={async () => {
           await decisions.reject(row, reason);
           setConfirm(null);
           setReason(emptyReason());
+          if (pending) afterDecision();
         }}
         onCancel={() => setConfirm(null)}
       >
@@ -387,7 +659,10 @@ export function AdminListingsPage({
   const [type, setType] = useUrlParam<"all" | ListingType>("type", "all");
   const [view, setView] = useUrlParam<StatusView>("view", mode === "pending" ? "pending" : "all");
   const [county, setCounty] = useUrlParam<string>("county", "all");
-  const [sort, setSort] = useUrlParam<SortKey>("sort", "triage");
+  const [show, setShow] = useUrlParam<ShowKey>("show", "all");
+  const [sortParam, setSort] = useUrlParam<SortKey>("sort", mode === "pending" ? "oldest" : "triage");
+  // The pending queue is always worked oldest first.
+  const sort: SortKey = mode === "pending" ? "oldest" : sortParam;
   const [openId, openRecord, closeRecord] = useRecordParam();
   const setOpenId = (k: string | null) => (k ? openRecord(k) : closeRecord());
 
@@ -401,18 +676,30 @@ export function AdminListingsPage({
   const rows = useMemo(() => (state.data ? flattenListings(state.data) : []), [state.data]);
   const scoped = mode === "pending" ? rows.filter((r) => r.item.status === "pending") : rows;
   const counties = useMemo(() => Array.from(new Set(rows.map((r) => r.item.county).filter(Boolean))).sort(), [rows]);
-  const base = scoped.filter((r) => (type === "all" || r.type === type) && (county === "all" || r.item.county === county) && matches(q, r.item.name, r.item.vendorName, r.item.vendorEmail, r.item.area, r.item.county));
+  const showOk = (r: ListingRow) => show === "all" || (show === "featured" ? !!r.item.featured : show === "unclaimed" ? !r.item.vendorId : !!r.item.vendorId);
+  const base = scoped.filter((r) => (type === "all" || r.type === type) && (county === "all" || r.item.county === county) && showOk(r) && matches(q, r.item.name, r.item.vendorName, r.item.vendorEmail, r.item.area, r.item.county));
   const filtered = base
     .filter((r) => inView(r.item.status, view))
     .sort((a, b) => {
       if (sort === "name") return a.item.name.localeCompare(b.item.name);
       if (sort === "nameDesc") return b.item.name.localeCompare(a.item.name);
+      if (sort === "oldest") return byOldest(a, b);
+      if (sort === "newest") return byOldest(b, a);
       if (sort === "partner") return (a.item.vendorName ?? "~").localeCompare(b.item.vendorName ?? "~");
       // triage: pending first, then name (the server's own order, kept across types)
       return Number(b.item.status === "pending") - Number(a.item.status === "pending") || a.item.name.localeCompare(b.item.name);
     });
-  const paged = usePaged(filtered, 20, `${q}|${type}|${view}|${county}|${sort}`, "page");
+  const paged = usePaged(filtered, 20, `${q}|${type}|${view}|${county}|${sort}|${show}`, "page");
   const openRow = openId ? rows.find((r) => rowKey(r) === openId) ?? null : null;
+  // Review flow: the pending queue oldest first, and the one after the open record.
+  const pendingQueue = useMemo(() => rows.filter((r) => r.item.status === "pending").sort(byOldest), [rows]);
+  const nextPending = (() => {
+    if (!openRow) return null;
+    const others = pendingQueue.filter((r) => rowKey(r) !== rowKey(openRow));
+    if (!others.length) return null;
+    const at = pendingQueue.findIndex((r) => rowKey(r) === rowKey(openRow));
+    return at >= 0 ? pendingQueue.slice(at + 1)[0] ?? others[0] : others[0];
+  })();
 
   const typeCounts = (t: ListingType) => scoped.filter((r) => r.type === t).length;
 
@@ -479,6 +766,9 @@ export function AdminListingsPage({
     return (
       <ListingRecord
         row={openRow}
+        allRows={rows}
+        next={nextPending}
+        onOpen={openRecord}
         backLabel={backLabel}
         organisations={orgs.data ?? []}
         onClose={closeRecord}
@@ -497,11 +787,30 @@ export function AdminListingsPage({
             label="Listing status"
             value={view}
             onChange={setView}
-            views={STATUS_VIEWS.map((v) => ({ key: v.key, label: v.label, count: state.data ? base.filter((r) => inView(r.item.status, v.key)).length : undefined }))}
+            views={STATUS_VIEWS.filter((v) => v.key !== "other" || view === "other" || base.some((r) => inView(r.item.status, "other"))).map((v) => ({
+              key: v.key,
+              label: v.key === "other" ? "Draft / removed" : v.label,
+              count: state.data ? base.filter((r) => inView(r.item.status, v.key)).length : undefined,
+            }))}
+          />
+        )}
+        {mode === "pending" && (
+          <ViewTabs
+            label="Listing type"
+            value={type}
+            onChange={setType}
+            views={[
+              { key: "all" as const, label: "All", count: state.data ? scoped.length : undefined },
+              { key: "centre" as const, label: "Community centres", count: state.data ? typeCounts("centre") : undefined },
+              { key: "club" as const, label: "Sports clubs", count: state.data ? typeCounts("club") : undefined },
+              { key: "experience" as const, label: "Experiences", count: state.data ? typeCounts("experience") : undefined },
+            ]}
           />
         )}
         <Toolbar label="Filter listings">
           <SearchField label="Search listings" value={q} onChange={setQ} placeholder="Name, partner, email or area" />
+          {mode === "all" && (
+          <>
           <SelectField
             label="Type"
             value={type}
@@ -513,6 +822,17 @@ export function AdminListingsPage({
               { value: "experience", label: `Experiences (${typeCounts("experience")})` },
             ]}
           />
+          <SelectField
+            label="Show"
+            value={show}
+            onChange={setShow}
+            options={[
+              { value: "all", label: "All listings" },
+              { value: "featured", label: "Featured only" },
+              { value: "unclaimed", label: "Unclaimed (no partner)" },
+              { value: "partner", label: "With a partner" },
+            ]}
+          />
           <SelectField label="County" value={county} onChange={setCounty} options={[{ value: "all", label: "All counties" }, ...counties.map((c) => ({ value: c, label: c }))]} />
           <SelectField
             label="Sort"
@@ -520,11 +840,15 @@ export function AdminListingsPage({
             onChange={setSort}
             options={[
               { value: "triage", label: "Pending first" },
+              { value: "newest", label: "Newest first" },
+              { value: "oldest", label: "Oldest first" },
               { value: "name", label: "Name A–Z" },
               { value: "nameDesc", label: "Name Z–A" },
               { value: "partner", label: "Partner" },
             ]}
           />
+          </>
+          )}
         </Toolbar>
         <Loaded state={state} rows={6}>
           {() =>
@@ -541,6 +865,7 @@ export function AdminListingsPage({
                         setQ("");
                         setType("all");
                         setCounty("all");
+                        setShow("all");
                         setView(mode === "pending" ? "pending" : "all");
                       }}
                     >
@@ -581,7 +906,7 @@ export function AdminListingsPage({
                         <th scope="col">Listing</th>
                         <th scope="col">Type</th>
                         <th scope="col">Partner</th>
-                        <th scope="col">Status</th>
+                        <th scope="col">{mode === "pending" ? "Waiting" : "Status"}</th>
                         <th scope="col">
                           <span className="adm-visually-hidden">Actions</span>
                         </th>
@@ -632,25 +957,17 @@ export function AdminListingsPage({
                                 <span className="adm-cell-sub">Unclaimed</span>
                               )}
                             </td>
-                            <td data-label="Status">
-                              <StatusTag status={r.item.status} />
-                            </td>
+                            {mode === "pending" ? (
+                              <td data-label="Waiting">{waitingLabel(r.item.createdAt ?? null)?.replace("Waiting ", "") ?? "Unknown"}</td>
+                            ) : (
+                              <td data-label="Status">
+                                <StatusTag status={r.item.status} />
+                              </td>
+                            )}
                             <td>
                               <div className="adm-cell-actions">
-                                {r.item.status === "pending" && can("listings.moderate") && (
-                                  <AdminButton
-                                    size="sm"
-                                    variant="primary"
-                                    disabled={blocked || !!decisions.busy}
-                                    title={blocked ? "Approve the partner account first" : undefined}
-                                    onClick={() => decisions.setStatus(r, "approved")}
-                                    aria-label={`Approve ${r.item.name}`}
-                                  >
-                                    Approve
-                                  </AdminButton>
-                                )}
-                                <AdminButton size="sm" onClick={() => setOpenId(k)} aria-label={`Review ${r.item.name}`}>
-                                  Review
+                                <AdminButton size="sm" variant={r.item.status === "pending" ? "primary" : "secondary"} onClick={() => setOpenId(k)} aria-label={`${r.item.status === "pending" ? "Review" : "Open"} ${r.item.name}`}>
+                                  {r.item.status === "pending" ? "Review" : "Open"}
                                 </AdminButton>
                                 <OverflowMenu
                                   label={`More actions for ${r.item.name}`}

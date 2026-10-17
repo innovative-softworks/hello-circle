@@ -1,4 +1,6 @@
 import { PartnerOrgGate } from "./components/OrgSuspendedView";
+import { BookingChangePage } from "./pages/BookingChangePage";
+import { AdminInviteAccept } from "./pages/AdminInviteAccept";
 import { lazy, Suspense, useEffect, useRef } from "react";
 import { AppUpdateBoundary } from "./components/AppUpdateBoundary";
 import { VENUE_PAGES_PUBLIC } from "./venueLaunch";
@@ -149,6 +151,8 @@ const LAUNCH_GATE_ENABLED = import.meta.env.VITE_LAUNCH_MODE !== "public";
 function isExemptFromLaunchGate(pathname: string): boolean {
   if (pathname === "/" || pathname === "/for-venues" || pathname === "/partners" || pathname === "/pricing" || pathname === "/become-a-host" || pathname === "/coming-soon") return true;
   if (pathname === "/login" || pathname === "/forgot-password" || pathname === "/reset-password" || pathname === "/accept-invite") return true;
+  // OG-11 — a venue's proposed booking change, linked from an email.
+  if (pathname === "/booking-change") return true;
   if (pathname === "/privacy" || pathname === "/cookies") return true;
   // Who runs the site and how to reach them — must be reachable pre-launch too (sitemap audit P1-02).
   if (pathname === "/about" || pathname === "/contact") return true;
@@ -291,6 +295,7 @@ export function App() {
     location.pathname === "/forgot-password" ||
     location.pathname === "/reset-password" ||
     location.pathname === "/accept-invite" ||
+    location.pathname === "/admin-invite" ||
     location.pathname === "/vendor/signup";
   const hideHeader = isAuthPage || isStandaloneLanding || isComingSoon;
   // The bottom tab bar is participant-facing primary nav (IA spec's
@@ -405,6 +410,8 @@ export function App() {
                 <Route path="/forgot-password" element={<ForgotPassword />} />
                 <Route path="/reset-password" element={<ResetPassword />} />
                 <Route path="/accept-invite" element={<AcceptInvite />} />
+                <Route path="/admin-invite" element={<AdminInviteAccept />} />
+                <Route path="/booking-change" element={<BookingChangePage />} />
                 <Route path="/manage/link-confirm" element={<ManageLinkConfirm />} />
                 <Route path="/i/:token" element={<InvitationLanding />} />
                 <Route path="/for-venues" element={<ForVenues />} />

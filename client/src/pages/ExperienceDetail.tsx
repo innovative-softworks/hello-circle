@@ -1,4 +1,5 @@
 import { UnavailableListing, isUnavailable, type Unavailable } from "../components/UnavailableListing";
+import { ReportContentButton } from "../components/ReportContentButton";
 import { usePageTitle } from "../pageTitle";
 import { PAID_CLOSED_MESSAGE, usePaidCheckoutOpen } from "../paidCheckout";
 import { useEffect, useMemo, useState } from "react";
@@ -474,7 +475,7 @@ export function ExperienceDetail() {
               textAlign: "left",
               background: colors.surface,
               border: `1.5px solid ${colors.border}`,
-              borderRadius: 10,
+              borderRadius: radius.control,
               padding: "14px 16px",
               display: "flex",
               justifyContent: "space-between",
@@ -583,7 +584,7 @@ export function ExperienceDetail() {
         </label>
       )}
       {paidOpen === false && !!experience?.priceCents && experience.paymentMethod !== "cash" && (
-        <p role="status" style={{ fontSize: 13.5, fontWeight: 600, color: colors.orangeDark, background: colors.orangeBg, borderRadius: 10, padding: "10px 12px", margin: "14px 0 0" }}>
+        <p role="status" style={{ fontSize: 13.5, fontWeight: 600, color: colors.orangeDark, background: colors.orangeBg, borderRadius: radius.control, padding: "10px 12px", margin: "14px 0 0" }}>
           {PAID_CLOSED_MESSAGE}
         </p>
       )}
@@ -650,6 +651,7 @@ export function ExperienceDetail() {
             <button onClick={handleToggleSave} style={{ ...outlineButtonStyle, color: saved ? colors.orange : colors.text }}>
               <HeartIcon size={14} filled={saved} /> {saved ? "Saved" : "Save"}
             </button>
+            <ReportContentButton targetType="experience" targetId={experience.id} what="this listing" render={(onClick, done) => <button onClick={onClick} disabled={done} style={outlineButtonStyle}>{done ? "Reported" : "Report"}</button>} />
           </div>
         </div>
 
@@ -670,7 +672,7 @@ export function ExperienceDetail() {
               variant="hero"
               eager
               sharedHero
-              style={{ aspectRatio: cardImageRatio.hero, borderRadius: 16, marginBottom: photos.length > 1 ? 10 : 24 }}
+              style={{ aspectRatio: cardImageRatio.hero, borderRadius: radius.card, marginBottom: photos.length > 1 ? 10 : 24 }}
               contentStyle={{ padding: 16, display: "flex", alignItems: "flex-start", justifyContent: "space-between" }}
             >
               {session ? (
@@ -741,12 +743,12 @@ export function ExperienceDetail() {
             <OfficialCircleLink circleId={experience.circleId} circleName={experience.circleName} circleSlug={experience.circleSlug} />
 
             {experience.meetingPoint && (
-              <div style={{ background: colors.greenBg, color: colors.greenText, borderRadius: 10, padding: "10px 14px", fontSize: 13.5, margin: "16px 0" }}>
+              <div style={{ background: colors.greenBg, color: colors.greenText, borderRadius: radius.control, padding: "10px 14px", fontSize: 13.5, margin: "16px 0" }}>
                 <strong>Meeting point:</strong> {experience.meetingPoint}
               </div>
             )}
             {!session && (
-              <div style={{ background: colors.panel, color: colors.muted, borderRadius: 10, padding: "10px 14px", fontSize: 13.5, margin: "16px 0" }}>
+              <div style={{ background: colors.panel, color: colors.muted, borderRadius: radius.control, padding: "10px 14px", fontSize: 13.5, margin: "16px 0" }}>
                 No upcoming departures scheduled yet — check back soon.
               </div>
             )}
@@ -859,7 +861,7 @@ export function ExperienceDetail() {
             {experience.vendorName && (
               <div style={{ marginBottom: 28 }}>
                 <SectionHeading title="Hosted by" />
-                <div style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 16, padding: "14px 18px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+                <div style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: radius.card, padding: "14px 18px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                     <span style={{ fontWeight: 700, fontSize: 14.5 }}>{experience.vendorName}</span>
                     {experience.vendorVerified && (
@@ -882,7 +884,7 @@ export function ExperienceDetail() {
             {experience.lat !== null && experience.lng !== null && (
               <div style={{ marginBottom: 28 }}>
                 <SectionHeading title="Meeting point" />
-                <div style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 16, padding: "16px 18px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap", marginBottom: 12 }}>
+                <div style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: radius.card, padding: "16px 18px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap", marginBottom: 12 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                     <PinIcon size={16} style={{ color: colors.mutedLight, flex: "none" }} />
                     <div>

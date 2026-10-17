@@ -1,7 +1,8 @@
 import { useAdminCan } from "./adminPermissions";
 import { useEffect, useState } from "react";
 import { Flag, Star } from "lucide-react";
-import { fetchAdminReviews, fetchModerationReports, fetchReportCase, hideReview, resolveReport, unhideReview } from "../../api";
+import { fetchAdminReviews, fetchModerationReports, fetchReportCase, hideReview, reinstateModeratedListing, resolveReport, unhideChatMessage, unhideReview } from "../../api";
+import { DecisionReasonFields, emptyReason, reasonComplete, toReasonInput, type ReasonDraft } from "./DecisionReason";
 import type { ModerationReport, ReportCase, Review } from "../../types";
 import { ConfirmDialog } from "../ui";
 import {
@@ -73,7 +74,7 @@ function ReviewsBox() {
     run(`${r.id}`, () => (hide ? hideReview(r.id) : unhideReview(r.id)), { success: hide ? "Review hidden" : "Review visible again" }).then((ok) => ok && state.reload());
 
   return (
-    <Box title="Reviews" subtitle="Hidden reviews disappear from the public listing page immediately; you can restore them here." flush>
+    <Box icon={Star} title="Reviews" subtitle="Hidden reviews disappear from the public listing page immediately; you can restore them here." flush>
       <ViewTabs
         label="Review visibility"
         value={view}
@@ -170,6 +171,61 @@ function ReviewsBox() {
 // Report case page (was a slide-in panel) — loads by id, so `?record=report:<id>`
 // works on its own (shared link, refresh). Stays open after a decision so the
 // outcome is visible.
+// OG-03 — what "suspend" does to each kind of reported content, and how it is
+// undone. The server performs exactly this and refuses if nothing would change.
+type Audience = "partner" | "applicant";
+function suspendAction(type: string, t: Record<string, unknown> | null): { label: string; done: string; impact: string; needsReason: boolean; audience: Audience } | null {
+  const n = (k: string) => Number(t?.[k] ?? 0);
+  switch (type) {
+    case "chat_message":
+      return { label: "Hide message", done: "Message hidden", impact: "Hides the message for everyone in the chat. Its text stays stored for this case.", needsReason: true, audience: "applicant" };
+    case "game":
+      return {
+        label: "Cancel activity",
+        done: "Activity cancelled",
+        impact: `Cancels the activity for everyone. ${n("joined")} ${n("joined") === 1 ? "person is" : "people are"} going${n("paidOnline") ? `; ${n("paidOnline")} paid online and will be refunded in full` : ""}. Participants, anyone waiting and the host are told.`,
+        needsReason: true,
+        audience: "applicant",
+      };
+    case "centre":
+    case "club":
+    case "experience":
+      return { label: "Suspend listing", done: "Listing suspended", impact: "Hides the listing and closes it to new bookings. Existing bookings are kept. The partner is told why and can't resume it themselves.", needsReason: true, audience: "partner" };
+    case "circle":
+      return { label: "Close Circle", done: "Circle closed", impact: "Closes the Circle: its chat becomes read-only history.", needsReason: false, audience: "applicant" };
+    case "review":
+      return { label: "Hide review", done: "Review hidden", impact: "Hides the review from the listing page.", needsReason: false, audience: "applicant" };
+    default:
+      return null;
+  }
+}
+
+function reversal(type: string, t: Record<string, unknown> | null): { label: string; done: string; impact: string } | null {
+  if (type === "chat_message" && t?.hiddenAt) return { label: "Show message again", done: "Message shown again", impact: "The message becomes visible in the chat again." };
+  if ((type === "centre" || type === "club" || type === "experience") && t?.status === "suspended") return { label: "Reinstate listing", done: "Listing reinstated", impact: "The listing returns to the status it had before it was suspended, and the partner is told." };
+  return null;
+}
+
+function targetFacts(type: string, t: Record<string, unknown>): [string, React.ReactNode][] {
+  const v = (k: string) => (t[k] === null || t[k] === undefined || t[k] === "" ? "—" : String(t[k]));
+  switch (type) {
+    case "chat_message":
+      return [["Message", v("body")], ["Written by", v("authorName")], ["Chat", `${v("scopeType")} · ${v("scopeId")}`], ["Sent", formatDate(String(t.createdAt), true)], ["Hidden", t.hiddenAt ? `Yes — ${v("hiddenReason")}` : "No"]];
+    case "game":
+      return [["Activity", v("activityLabel")], ["When", `${v("date")} ${v("time")}`], ["Host", v("hostName")], ["Status", v("status")], ["Going", v("joined")], ["Paid online", v("paidOnline")]];
+    case "centre":
+    case "club":
+    case "experience":
+      return [["Listing", v("name")], ["Partner", v("partnerName")], ["Status", v("status")]];
+    case "circle":
+      return [["Circle", v("name")], ["Status", v("status")]];
+    case "review":
+      return [["Review", v("comment")], ["By", v("name")], ["Hidden", Number(t.hidden) ? "Yes" : "No"]];
+    default:
+      return [];
+  }
+}
+
 function ReportCasePage({ reportId, onBack, onResolved }: { reportId: number; onBack: () => void; onResolved: () => void }) {
   const canDecide = useAdminCan()("reports.moderate");
   const [caseData, setCaseData] = useState<ReportCase | null>(null);
@@ -177,6 +233,9 @@ function ReportCasePage({ reportId, onBack, onResolved }: { reportId: number; on
   const [notes, setNotes] = useState("");
   const [reasons, setReasons] = useState("");
   const [confirming, setConfirming] = useState<"dismissed" | "actioned" | "suspended" | null>(null);
+  const [reason, setReason] = useState<ReasonDraft>(emptyReason());
+  const [reversing, setReversing] = useState(false);
+  const [reverseNote, setReverseNote] = useState("");
   const { run, busy } = useAdminAction();
 
   const load = () => {
@@ -191,12 +250,17 @@ function ReportCasePage({ reportId, onBack, onResolved }: { reportId: number; on
   useEffect(load, [reportId]);
 
   const resolve = (status: "dismissed" | "actioned" | "suspended") =>
-    run(status, () => resolveReport(reportId, { status, statementOfReasons: reasons.trim() || undefined }), {
-      success: status === "dismissed" ? "Report dismissed" : status === "suspended" ? "Content suspended and report closed" : "Report marked as actioned",
-    }).then((ok) => {
+    run(
+      status,
+      () => resolveReport(reportId, { status, statementOfReasons: reasons.trim() || undefined, ...(status === "suspended" && action?.needsReason ? toReasonInput(reason) : {}) }),
+      {
+        success: status === "dismissed" ? "Report dismissed" : status === "suspended" ? `${action?.done ?? "Content suspended"} and report closed` : "Report marked as actioned",
+      }
+    ).then((ok) => {
       if (ok) {
         setConfirming(null);
         setReasons("");
+        setReason(emptyReason());
         onResolved();
         load();
       }
@@ -210,6 +274,8 @@ function ReportCasePage({ reportId, onBack, onResolved }: { reportId: number; on
   if (!caseData) return <RecordState state="loading" backLabel="Reviews & reports" onBack={onBack} />;
   const report = caseData.report;
   const pending = report.status === "pending";
+  const action = suspendAction(report.targetType, caseData.target);
+  const reverse = reversal(report.targetType, caseData.target);
 
   return (
     <RecordView
@@ -231,10 +297,16 @@ function ReportCasePage({ reportId, onBack, onResolved }: { reportId: number; on
             <AdminButton disabled={!!busy} onClick={() => setConfirming("actioned")}>
               Mark actioned
             </AdminButton>
-            <AdminButton variant="danger" disabled={!!busy} onClick={() => setConfirming("suspended")}>
-              Suspend content
-            </AdminButton>
+            {action && (
+              <AdminButton variant="danger" disabled={!!busy || !caseData.target} onClick={() => setConfirming("suspended")}>
+                {action.label}
+              </AdminButton>
+            )}
           </>
+        ) : reverse && canDecide ? (
+          <AdminButton disabled={!!busy} onClick={() => setReversing(true)}>
+            {reverse.label}
+          </AdminButton>
         ) : undefined
       }
     >
@@ -250,10 +322,13 @@ function ReportCasePage({ reportId, onBack, onResolved }: { reportId: number; on
           />
           <SectionLabel>Reported content</SectionLabel>
           {caseData.target ? (
-            <details className="adm-tech" open>
+            <>
+            <Facts rows={targetFacts(report.targetType, caseData.target)} />
+            <details className="adm-tech">
               <summary>Record as stored</summary>
               <pre style={{ fontSize: 12, background: "var(--color-surface)", border: "1px solid var(--color-border)", padding: 10, overflowX: "auto", margin: "6px 0 0" }}>{JSON.stringify(caseData.target, null, 2)}</pre>
             </details>
+            </>
           ) : (
             <p className="adm-note">The reported item no longer exists.</p>
           )}
@@ -290,12 +365,12 @@ function ReportCasePage({ reportId, onBack, onResolved }: { reportId: number; on
       </div>
       <ConfirmDialog
         open={confirming !== null}
-        title={confirming === "suspended" ? "Suspend the reported content?" : confirming === "dismissed" ? "Dismiss this report?" : "Mark this report as actioned?"}
+        title={confirming === "suspended" ? `${action?.label ?? "Suspend the content"}?` : confirming === "dismissed" ? "Dismiss this report?" : "Mark this report as actioned?"}
         message={
           <>
             <p style={{ margin: "0 0 10px" }}>
               {confirming === "suspended"
-                ? "Closes the reported Circle, or hides the reported review, and marks the report suspended."
+                ? action?.impact
                 : confirming === "dismissed"
                   ? "Closes the report with no action on the reported item."
                   : "Marks it as actioned and removes it from the open queue. It doesn't change the reported item — use Suspend content for that."}
@@ -304,15 +379,51 @@ function ReportCasePage({ reportId, onBack, onResolved }: { reportId: number; on
               Statement of reasons <span style={{ fontWeight: 400 }}>(optional)</span>
             </label>
             <textarea id="adm-report-reasons" className="adm-input" rows={3} value={reasons} onChange={(e) => setReasons(e.target.value)} placeholder="What was decided, the facts, and the rule relied on." style={{ width: "100%", resize: "vertical" }} />
-            <p style={{ fontSize: 12.5, margin: "6px 0 0" }}>Recorded with the decision for appeals. It isn't currently shown to the reporter or the affected person.</p>
+            <p style={{ fontSize: 12.5, margin: "6px 0 0" }}>Recorded with the decision for appeals. It isn't currently shown to the reporter.</p>
+            {confirming === "suspended" && action?.needsReason && <DecisionReasonFields kind="suspension" value={reason} onChange={setReason} audience={action.audience} />}
           </>
         }
+        confirmDisabled={confirming === "suspended" && !!action?.needsReason && !reasonComplete(reason)}
         confirmLabel={confirming === "suspended" ? "Suspend content" : confirming === "dismissed" ? "Dismiss report" : "Mark actioned"}
         tone={confirming === "suspended" ? "danger" : "neutral"}
         onConfirm={() => {
           if (confirming) return resolve(confirming);
         }}
         onCancel={() => setConfirming(null)}
+      />
+      <ConfirmDialog
+        open={reversing}
+        title={`${reverse?.label ?? "Reverse"}?`}
+        message={
+          <>
+            <p style={{ margin: "0 0 10px" }}>{reverse?.impact}</p>
+            <label htmlFor="adm-report-reverse" style={{ display: "block", fontSize: 13, fontWeight: 600, marginBottom: 4 }}>
+              Reason <span aria-hidden="true">*</span>
+            </label>
+            <textarea id="adm-report-reverse" className="adm-input" rows={3} value={reverseNote} onChange={(e) => setReverseNote(e.target.value)} style={{ width: "100%", resize: "vertical" }} />
+          </>
+        }
+        confirmLabel={reverse?.label ?? "Reverse"}
+        tone="neutral"
+        confirmDisabled={reverseNote.trim().length < 5}
+        onConfirm={() =>
+          run(
+            "reverse",
+            () =>
+              report.targetType === "chat_message"
+                ? unhideChatMessage(report.targetId, reverseNote.trim())
+                : reinstateModeratedListing(report.targetType as "centre" | "club" | "experience", report.targetId, { explanation: reverseNote.trim() }),
+            { success: reverse?.done }
+          ).then((ok) => {
+            if (ok) {
+              setReversing(false);
+              setReverseNote("");
+              load();
+            }
+            return ok;
+          })
+        }
+        onCancel={() => setReversing(false)}
       />
     </RecordView>
   );
@@ -326,13 +437,13 @@ function ReportsBox({ onCountsChanged }: { onCountsChanged?: () => void }) {
   const paged = usePaged(state.data ?? [], 20, view, "reportsPage");
 
   return (
-    <Box title="Reports" subtitle="User-submitted flags on reviews or circles. Open a case to see the reported item, related reports and notes, then decide." flush>
+    <Box icon={Flag} title="Reports" subtitle="User-submitted flags on reviews or circles. Open a case to see the reported item, related reports and notes, then decide." flush>
       <ViewTabs
         label="Report status"
         value={view}
         onChange={setView}
         views={[
-          { key: "pending", label: "Open" },
+          { key: "pending", label: "Open", count: view === "pending" && state.data ? state.data.length : undefined },
           { key: "all", label: "All, including resolved" },
         ]}
       />

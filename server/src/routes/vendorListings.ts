@@ -7,7 +7,8 @@ import { approximateCoords, db } from "../db/index.js";
 import { getCentre, getClub } from "../db/queries.js";
 import { exceedsGalleryLimit, GALLERY_LIMITS } from "../media/quotas.js";
 import { generateSlug } from "../slugify.js";
-import { invalidCoordinateReason } from "../util.js";
+import { ConflictError, invalidCoordinateReason } from "../util.js";
+import { affectedBookings, closureInputError, createClosure, type ClosureInput } from "../venueClosures.js";
 import { inClause, ownsCentre, ownsClub, ownsListing, recomputeCentreRollup } from "./vendorHelpers.js";
 import { latestPublicDecision } from "../moderationDecisions.js";
 
@@ -30,7 +31,10 @@ vendorListingsRouter.get("/listings", async (req, res) => {
   const centres = await db
     .prepare(
       `SELECT c.id, c.name, c.status, c.area, c.county, c.views, c.created_at as createdAt, c.image_url as image,
-              c.blurb, c.capacity, c.from_price as fromPrice,
+              c.blurb, c.capacity, c.from_price as fromPrice, c.phone, c.opens_at as opensAt,
+              (COALESCE(c.accessibility, '') <> '') as hasAccessibility,
+              (SELECT COUNT(*) FROM centre_amenities a WHERE a.centre_id = c.id) as extrasCount,
+              (SELECT COUNT(*) FROM centre_images i WHERE i.centre_id = c.id) as imagesCount,
               COALESCE((SELECT AVG(rv.rating) FROM reviews rv WHERE rv.listing_type = 'centre' AND rv.listing_id = c.id AND rv.hidden = 0), 0) as rating,
               (SELECT COUNT(*) FROM reviews rv WHERE rv.listing_type = 'centre' AND rv.listing_id = c.id AND rv.hidden = 0) as reviews,
               (SELECT COUNT(*) FROM bookings b WHERE b.centre_id = c.id AND b.payment_status = 'paid') as bookingsCount
@@ -40,7 +44,10 @@ vendorListingsRouter.get("/listings", async (req, res) => {
   const clubs = await db
     .prepare(
       `SELECT c.id, c.name, c.status, c.area, c.county, c.views, c.created_at as createdAt, c.image_url as image,
-              c.blurb, c.ages, c.price, c.unit,
+              c.blurb, c.ages, c.price, c.unit, c.phone, c.sport,
+              (COALESCE(c.accessibility, '') <> '') as hasAccessibility,
+              (SELECT COUNT(*) FROM club_includes x WHERE x.club_id = c.id) as extrasCount,
+              (SELECT COUNT(*) FROM club_images i WHERE i.club_id = c.id) as imagesCount,
               COALESCE((SELECT AVG(rv.rating) FROM reviews rv WHERE rv.listing_type = 'club' AND rv.listing_id = c.id AND rv.hidden = 0), 0) as rating,
               (SELECT COUNT(*) FROM reviews rv WHERE rv.listing_type = 'club' AND rv.listing_id = c.id AND rv.hidden = 0) as reviews,
               (SELECT COUNT(*) FROM registrations r WHERE r.club_id = c.id AND r.payment_status = 'paid') as bookingsCount
@@ -49,7 +56,15 @@ vendorListingsRouter.get("/listings", async (req, res) => {
     .all(...ids);
   // mysql2 returns AVG()'s DECIMAL result as a string, not a number, unless
   // decimalNumbers is set on the pool (it isn't) — coerce before sending.
-  const withNumericRating = (rows: any[]) => rows.map((r) => ({ ...r, rating: Math.round(Number(r.rating) * 10) / 10 }));
+  // Same for the profile-completeness inputs (COUNTs / boolean expressions).
+  const withNumericRating = (rows: any[]) =>
+    rows.map((r) => ({
+      ...r,
+      rating: Math.round(Number(r.rating) * 10) / 10,
+      hasAccessibility: Number(r.hasAccessibility) === 1,
+      extrasCount: Number(r.extrasCount),
+      imagesCount: Number(r.imagesCount),
+    }));
   res.json({ centres: withNumericRating(centres), clubs: withNumericRating(clubs) });
 });
 
@@ -517,46 +532,110 @@ vendorListingsRouter.delete("/centres/:id", requirePlatformRole("centre_manager"
   res.json({ ok: true });
 });
 
-// --- blocked dates ("close" a date for a festival) --------------------------
+// --- closures / blocked time (OG-04, venueClosures.ts) ------------------------
+// A closure is a whole day or a range of hours, for one room or the whole
+// centre. It never silently closes a booked slot: the bookings it covers are
+// previewed first, and creating it requires the partner to have seen exactly
+// that list and to choose what happens to them.
 
-interface BlockInput {
-  date: string;
+interface ClosureBody {
+  date?: string;
   reason?: string;
-  /** Omit/undefined = whole-centre block (blocks every room); set = only
-   * that one room stays closed on this date, the rest of the centre's
-   * rooms remain bookable. */
-  roomId?: string;
+  /** Omit = the whole centre (every room); set = only that room. */
+  roomId?: string | null;
+  /** "HH:00" start and end (end exclusive); omit both for the whole day. */
+  startTime?: string | null;
+  endTime?: string | null;
+  /** The booking refs the partner reviewed in the preview. */
+  expectedRefs?: string[];
+  resolution?: "keep" | "cancel_refund" | null;
+}
+
+function closureInput(centreId: string, b: ClosureBody): ClosureInput {
+  return {
+    centreId,
+    roomId: b.roomId || null,
+    date: String(b.date ?? ""),
+    startTime: b.startTime || null,
+    endTime: b.endTime || null,
+    reason: typeof b.reason === "string" ? b.reason.trim() : "",
+  };
 }
 
 vendorListingsRouter.get("/centres/:id/blocks", async (req, res) => {
   if (!(await ownsCentre(req.vendorIds!, req.params.id))) return res.status(403).json({ error: "Not your listing" });
-  const rows = await db
+  // One row per closure: an hour range is stored as one row per hour.
+  const rows = (await db
     .prepare(
-      `SELECT id, date, reason, created_at as createdAt, room_id as roomId
-       FROM room_blocks WHERE centre_id = ? ORDER BY date`
+      `SELECT MIN(id) as id, group_id as groupId, date, MIN(time) as firstHour, MAX(time) as lastHour, MAX(CASE WHEN time IS NULL THEN 1 ELSE 0 END) as wholeDay,
+              MIN(reason) as reason, MIN(created_at) as createdAt, room_id as roomId
+       FROM room_blocks WHERE centre_id = ?
+       GROUP BY COALESCE(group_id, CONCAT('row-', id)), group_id, date, room_id
+       ORDER BY date, firstHour`
     )
-    .all(req.params.id);
-  res.json(rows);
+    .all(req.params.id)) as { id: number; groupId: string | null; date: string; firstHour: string | null; lastHour: string | null; wholeDay: number | string; reason: string; createdAt: string; roomId: string | null }[];
+  res.json(
+    rows.map((r) => {
+      const wholeDay = Number(r.wholeDay) === 1 || !r.firstHour;
+      return {
+        id: r.id,
+        groupId: r.groupId,
+        date: r.date,
+        roomId: r.roomId,
+        reason: r.reason,
+        createdAt: r.createdAt,
+        startTime: wholeDay ? null : r.firstHour,
+        endTime: wholeDay || !r.lastHour ? null : `${String(parseInt(r.lastHour.slice(0, 2), 10) + 1).padStart(2, "0")}:00`,
+      };
+    })
+  );
+});
+
+vendorListingsRouter.post("/centres/:id/blocks/preview", requirePlatformRole("centre_manager"), async (req, res) => {
+  if (!(await ownsCentre(req.vendorIds!, req.params.id))) return res.status(403).json({ error: "Not your listing" });
+  const input = closureInput(req.params.id, req.body as ClosureBody);
+  const problem = closureInputError(input);
+  if (problem) return res.status(400).json({ error: problem });
+  if (input.roomId && !(await db.prepare(`SELECT id FROM rooms WHERE id = ? AND centre_id = ?`).get(input.roomId, req.params.id))) {
+    return res.status(400).json({ error: "That room doesn't belong to this centre" });
+  }
+  res.json({ affected: await affectedBookings(db, input) });
 });
 
 vendorListingsRouter.post("/centres/:id/blocks", requirePlatformRole("centre_manager"), async (req, res) => {
   if (!(await ownsCentre(req.vendorIds!, req.params.id))) return res.status(403).json({ error: "Not your listing" });
-  const b = req.body as BlockInput;
-  if (!b.date) return res.status(400).json({ error: "date is required" });
-  if (b.roomId) {
-    const room = (await db.prepare(`SELECT id FROM rooms WHERE id = ? AND centre_id = ?`).get(b.roomId, req.params.id)) as { id: string } | undefined;
-    if (!room) return res.status(400).json({ error: "That room doesn't belong to this centre" });
+  const b = req.body as ClosureBody;
+  const input = closureInput(req.params.id, b);
+  const problem = closureInputError(input);
+  if (problem) return res.status(400).json({ error: problem });
+  if (b.resolution != null && b.resolution !== "keep" && b.resolution !== "cancel_refund") return res.status(400).json({ error: "resolution must be keep or cancel_refund" });
+  if (input.roomId && !(await db.prepare(`SELECT id FROM rooms WHERE id = ? AND centre_id = ?`).get(input.roomId, req.params.id))) {
+    return res.status(400).json({ error: "That room doesn't belong to this centre" });
   }
-  const info = await db
-    .prepare(`INSERT INTO room_blocks (centre_id, room_id, date, time, reason) VALUES (?, ?, ?, NULL, ?)`)
-    .run(req.params.id, b.roomId ?? null, b.date, b.reason ?? "");
-  res.status(201).json({ id: info.lastInsertRowid });
+  try {
+    const result = await createClosure(input, {
+      actorUserId: req.user!.id,
+      expectedRefs: Array.isArray(b.expectedRefs) ? b.expectedRefs.map(String) : [],
+      resolution: b.resolution ?? null,
+    });
+    res.status(201).json({ id: result.groupId, groupId: result.groupId, affected: result.affected.length, cancelled: result.cancelled });
+  } catch (e) {
+    if (e instanceof ConflictError) return res.status(409).json({ error: e.message, affected: await affectedBookings(db, input) });
+    throw e;
+  }
 });
 
 vendorListingsRouter.delete("/centres/:id/blocks/:blockId", requirePlatformRole("centre_manager"), async (req, res) => {
   if (!(await ownsCentre(req.vendorIds!, req.params.id))) return res.status(403).json({ error: "Not your listing" });
-  const info = await db.prepare(`DELETE FROM room_blocks WHERE id = ? AND centre_id = ?`).run(req.params.blockId, req.params.id);
-  if (info.changes === 0) return res.status(404).json({ error: "Block not found" });
+  const row = (await db.prepare(`SELECT group_id as groupId, date FROM room_blocks WHERE id = ? AND centre_id = ?`).get(req.params.blockId, req.params.id)) as
+    | { groupId: string | null; date: string }
+    | undefined;
+  if (!row) return res.status(404).json({ error: "Block not found" });
+  // Removing a closure removes every hour of it.
+  const info = row.groupId
+    ? await db.prepare(`DELETE FROM room_blocks WHERE group_id = ? AND centre_id = ?`).run(row.groupId, req.params.id)
+    : await db.prepare(`DELETE FROM room_blocks WHERE id = ? AND centre_id = ?`).run(req.params.blockId, req.params.id);
+  writeAudit({ actorUserId: req.user!.id, action: "centre.closure_removed", objectType: "centre", objectId: req.params.id, previousValue: { groupId: row.groupId, date: row.date, rows: info.changes } });
   res.json({ ok: true });
 });
 

@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { REPORT_TARGET_TYPES, isReportTargetType, resolveReportTarget } from "../reportModeration.js";
 import { db } from "../db/index.js";
 import { BadRequestError, clientIdFrom } from "../util.js";
 
@@ -18,6 +19,11 @@ reportsRouter.post("/", async (req, res) => {
   }
   const { targetType, targetId, reason } = req.body as { targetType?: string; targetId?: string; reason?: string };
   if (!targetType || !targetId || !reason) return res.status(400).json({ error: "targetType, targetId and reason are required" });
+  // OG-32 — only content HelloCircle can actually act on can be reported.
+  if (!isReportTargetType(targetType)) return res.status(400).json({ error: `targetType must be one of ${REPORT_TARGET_TYPES.join(", ")}` });
+  if (typeof targetId !== "string" || targetId.length > 191) return res.status(400).json({ error: "targetId is invalid" });
+  if (typeof reason !== "string" || reason.trim().length > 2000) return res.status(400).json({ error: "Keep the reason under 2000 characters" });
+  if (!(await resolveReportTarget(targetType, targetId))) return res.status(404).json({ error: "That content no longer exists" });
   await db.prepare(`INSERT INTO reports (target_type, target_id, reporter_client_id, reason) VALUES (?, ?, ?, ?)`).run(targetType, targetId, clientId, reason);
   res.status(201).json({ ok: true });
 });

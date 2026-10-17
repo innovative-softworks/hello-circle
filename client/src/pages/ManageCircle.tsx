@@ -16,6 +16,8 @@ import {
   inviteToCircle,
   postGameUpdate,
   promoteCircleMember,
+  muteCircleMember,
+  unmuteCircleMember,
   refundGameParticipant,
   removeCircleMember,
   removeGameParticipant,
@@ -29,12 +31,15 @@ import { signInHref } from "../authRedirect";
 import { CalendarIcon, PlusIcon, UsersIcon } from "../components/icons";
 import { WorkspaceShell } from "../components/workspace/WorkspaceShell";
 import { useUrlTab } from "../useUrlTab";
-import { ArrowLeft, CalendarDays, Settings, UsersRound } from "lucide-react";
+import { ArrowLeft, CalendarDays, Settings, ShieldAlert, UsersRound } from "lucide-react";
+import { CircleModerationTab } from "../components/CircleModerationTab";
 import { ResidentPicker } from "../components/ResidentPicker";
 import { SingleImageUpload } from "../components/SingleImageUpload";
 import { getCircleCoverUrl } from "../media";
 import { Avatar, Button, Card, ConfirmDialog, EmptyState, LoadErrorState, Modal, PageSpinner, inputStyle, labelStyle } from "../components/ui";
 import { useGuest } from "../GuestContext";
+import { PersonalAccountGate } from "../components/workspace/PersonalAccountGate";
+import { useAuth } from "../AuthContext";
 import { colors, fonts, radius } from "../theme";
 import type { Centre, Circle, ManageCircleMember, ManageCirclePlan, ManageParticipant } from "../types";
 
@@ -47,16 +52,17 @@ import type { Centre, Circle, ManageCircleMember, ManageCirclePlan, ManagePartic
 // both link into this page for one specific circle; this page's own
 // ManageShell nav is scoped to tabs within that one circle.
 
-type CircleTab = "plans" | "members" | "settings";
+type CircleTab = "plans" | "members" | "moderation" | "settings";
 type CircleNavKey = CircleTab | "overview";
 const I = { size: 18, strokeWidth: 1.9, "aria-hidden": true } as const;
 const NAV_OPTIONS: { key: CircleNavKey; label: string; icon: JSX.Element; group: string; summary?: string }[] = [
   { key: "plans", label: "Plans", icon: <CalendarDays {...I} />, group: "This Circle", summary: "Official plans for this Circle, and ideas members have suggested." },
   { key: "members", label: "Members", icon: <UsersRound {...I} />, group: "This Circle", summary: "Members, join requests, invitations and organiser roles." },
+  { key: "moderation", label: "Moderation", icon: <ShieldAlert {...I} />, group: "This Circle", summary: "Announcements, reported messages, muted members and history." },
   { key: "settings", label: "Settings", icon: <Settings {...I} />, group: "This Circle", summary: "Name, description, cover, how people join, and closing the Circle." },
   { key: "overview", label: "Back to Host workspace", icon: <ArrowLeft {...I} />, group: "Host workspace" },
 ];
-const CIRCLE_TABS: CircleTab[] = ["plans", "members", "settings"];
+const CIRCLE_TABS: CircleTab[] = ["plans", "members", "moderation", "settings"];
 
 function statusBadge(status: string) {
   const map: Record<string, { bg: string; fg: string; label: string }> = {
@@ -492,11 +498,36 @@ function MembersTab({ circle }: { circle: Circle }) {
   const [roleError, setRoleError] = useState<string | null>(null);
   const organiserCount = members.filter((m) => m.role === "organiser").length;
 
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [muteTarget, setMuteTarget] = useState<ManageCircleMember | null>(null);
+  const [muteHours, setMuteHours] = useState(24);
+  const [muteReason, setMuteReason] = useState("");
   const reload = () => {
     setLoading(true);
+    setLoadFailed(false);
     fetchCircleMembers(circle.id, true)
       .then((res) => setMembers(res.members))
+      .catch(() => setLoadFailed(true))
       .finally(() => setLoading(false));
+  };
+  const mute = async () => {
+    if (!muteTarget) return;
+    await muteCircleMember(circle.id, muteTarget.residentId, muteHours, muteReason.trim() || undefined);
+    setMuteTarget(null);
+    setMuteReason("");
+    reload();
+  };
+  const unmute = async (m: ManageCircleMember) => {
+    setRoleActionId(m.residentId);
+    setRoleError(null);
+    try {
+      await unmuteCircleMember(circle.id, m.residentId);
+      setMembers((prev) => prev.map((x) => (x.residentId === m.residentId ? { ...x, mutedUntil: null } : x)));
+    } catch (e) {
+      setRoleError(e instanceof Error ? e.message : "Couldn't unmute this member");
+    } finally {
+      setRoleActionId(null);
+    }
   };
 
   useEffect(reload, [circle.id]);
@@ -559,6 +590,7 @@ function MembersTab({ circle }: { circle: Circle }) {
   };
 
   if (loading) return <PageSpinner />;
+  if (loadFailed) return <LoadErrorState title="Couldn't load the members" onRetry={reload} />;
 
   return (
     <div className="fade-panel" style={{ display: "flex", flexDirection: "column", gap: 24 }}>
@@ -585,6 +617,7 @@ function MembersTab({ circle }: { circle: Circle }) {
                 <div>
                   <div style={{ fontWeight: 700, fontSize: 13.5 }}>{m.name}</div>
                   {m.role === "organiser" && <div style={{ fontSize: 11.5, color: colors.mutedLight }}>Organiser</div>}
+                  {m.mutedUntil && <div style={{ fontSize: 11.5, color: colors.orangeDark }}>Messages paused until {new Date(m.mutedUntil).toLocaleString("en-IE", { dateStyle: "medium", timeStyle: "short" })}</div>}
                 </div>
               </div>
               <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
@@ -599,6 +632,16 @@ function MembersTab({ circle }: { circle: Circle }) {
                     {roleActionId === m.residentId ? "Making organiser…" : "Make organiser"}
                   </button>
                 )}
+                {m.role !== "organiser" &&
+                  (m.mutedUntil ? (
+                    <button onClick={() => unmute(m)} disabled={roleActionId === m.residentId} style={{ background: "none", border: "none", color: colors.muted, fontWeight: 700, fontSize: 12.5, cursor: "pointer" }}>
+                      Unmute
+                    </button>
+                  ) : (
+                    <button onClick={() => setMuteTarget(m)} style={{ background: "none", border: "none", color: colors.muted, fontWeight: 700, fontSize: 12.5, cursor: "pointer" }}>
+                      Mute
+                    </button>
+                  ))}
                 {m.role !== "organiser" && (
                   <button onClick={() => setRemoveTarget(m)} style={{ background: "none", border: "none", color: colors.danger, fontWeight: 700, fontSize: 12.5, cursor: "pointer" }}>
                     Remove
@@ -619,6 +662,26 @@ function MembersTab({ circle }: { circle: Circle }) {
         onCancel={() => setRemoveTarget(null)}
       >
         {error && <p style={{ color: colors.danger, fontSize: 13 }}>{error}</p>}
+      </ConfirmDialog>
+      <ConfirmDialog
+        open={!!muteTarget}
+        title={`Pause ${muteTarget?.name ?? "this member"}'s messages?`}
+        message="They can still read the chat and join plans, but can't post until the time is up. They're told their messages are paused."
+        confirmLabel="Mute"
+        tone="neutral"
+        onConfirm={mute}
+        onCancel={() => setMuteTarget(null)}
+      >
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          <label htmlFor="circle-mute-hours" style={{ fontSize: 13, fontWeight: 600 }}>For how long</label>
+          <select id="circle-mute-hours" value={muteHours} onChange={(e) => setMuteHours(Number(e.target.value))} style={inputStyle}>
+            <option value={1}>1 hour</option>
+            <option value={24}>1 day</option>
+            <option value={168}>7 days</option>
+          </select>
+          <label htmlFor="circle-mute-reason" style={{ fontSize: 13, fontWeight: 600 }}>Reason (optional, kept with the record)</label>
+          <input id="circle-mute-reason" value={muteReason} onChange={(e) => setMuteReason(e.target.value)} style={inputStyle} />
+        </div>
       </ConfirmDialog>
     </div>
   );
@@ -810,7 +873,11 @@ function SettingsTab({ circle, onSaved }: { circle: Circle; onSaved: (c: Circle)
 }
 
 export function ManageCircle() {
-  const { resident, loading } = useGuest();
+  const { resident, loading: guestLoading } = useGuest();
+  const { user, loading: authLoading } = useAuth();
+  const loading = guestLoading || authLoading;
+  // OG-01 — a linked business-only session is offered the switch, not a sign-in.
+  const linkedBusiness = !resident && user?.role === "vendor" && !!user.residentId;
   const navigate = useNavigate();
   const { id } = useParams<{ id: string }>();
   const [circle, setCircle] = useState<Circle | null>(null);
@@ -849,11 +916,12 @@ export function ManageCircle() {
   // See VendorDashboard.tsx's identical comment — navigate() belongs in an
   // effect, not called directly during render.
   useEffect(() => {
-    if (!loading && !resident) navigate(signInHref());
+    if (!loading && !resident && !linkedBusiness) navigate(signInHref());
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loading, resident]);
+  }, [loading, resident, linkedBusiness]);
 
   if (loading) return <PageSpinner />;
+  if (!resident && linkedBusiness && user) return <PersonalAccountGate user={user} what="Managing a Circle" />;
   if (!resident) return null;
 
   return (
@@ -881,6 +949,8 @@ export function ManageCircle() {
         <PlansTab circle={circle} />
       ) : tab === "members" ? (
         <MembersTab circle={circle} />
+      ) : tab === "moderation" ? (
+        <CircleModerationTab circleId={circle.id} />
       ) : (
         <SettingsTab circle={circle} onSaved={setCircle} />
       )}

@@ -1,7 +1,8 @@
-import { useState, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { Award, KeyRound, MapPin } from "lucide-react";
 import {
   ApiError,
+  fetchAdminListings,
   fetchAdminPlaceSuggestions,
   fetchClaims,
   fetchHostApplications,
@@ -20,6 +21,32 @@ import { RecordState, RecordView } from "../workspace/RecordView";
 import { useRecordParam, useUrlParam } from "../../useUrlTab";
 import { AdminButton, Box, EmptyMessage, Facts, Loaded, Pager, SearchField, SectionLabel, StatusTag, Toolbar, ViewTabs, formatDate, matches, useAdminData, usePaged, type AdminData } from "./adminUi";
 import { useToast } from "../Toast";
+import { flattenListings, rowKey as listingKey } from "./AdminListings";
+import { similarListings } from "./listingReview";
+import { time, waitingLabel } from "./timeLabels";
+
+/** "15 h" with the exact date underneath, for the queue lists. */
+function Waiting({ since }: { since: string | null | undefined }) {
+  return (
+    <>
+      <div>{waitingLabel(since ?? null)?.replace("Waiting ", "") ?? "Unknown"}</div>
+      <div className="adm-cell-sub">{formatDate(since ?? null)}</div>
+    </>
+  );
+}
+const oldestFirst = <T,>(at: (r: T) => string | null | undefined) => (a: T, b: T) => (time(at(a)) ?? Number.MAX_SAFE_INTEGER) - (time(at(b)) ?? Number.MAX_SAFE_INTEGER);
+
+/** After a decision: open the next waiting item, or go back to the list. */
+function useNextAfterDecision(openRecord: (k: string) => void, closeRecord: () => void) {
+  const toast = useToast();
+  return (nextKey: string | null) => {
+    if (nextKey) openRecord(nextKey);
+    else {
+      closeRecord();
+      toast.success("All caught up: nothing else waiting here");
+    }
+  };
+}
 
 // Claims, Host applications and Place suggestions (admin redesign
 // 2026-10-14; record pages since the UI completion pass). Each queue is a
@@ -239,7 +266,8 @@ export function AdminClaimsPage({ onOpenVendor, onOpenListing, onCountsChanged }
   const [record, openRecord, closeRecord] = useRecordParam();
   // Snapshot of the record being reviewed, so a decision doesn't make the page vanish.
   const [held, setHeld] = useState<ClaimSummary | null>(null);
-  const rows = (state.data ?? []).filter((c) => matches(q, c.listingName, c.vendorName, c.vendorEmail));
+  const goNext = useNextAfterDecision(openRecord, closeRecord);
+  const rows = (state.data ?? []).filter((c) => matches(q, c.listingName, c.vendorName, c.vendorEmail)).sort(oldestFirst((c) => c.createdAt));
 
   if (record) {
     const id = record.replace(/^claim:/, "");
@@ -256,6 +284,8 @@ export function AdminClaimsPage({ onOpenVendor, onOpenListing, onCountsChanged }
           setHeld(found);
           state.reload();
           onCountsChanged?.();
+          const next = (state.data ?? []).filter((c) => c.id !== found!.id).sort(oldestFirst((c) => c.createdAt))[0];
+          goNext(next ? `claim:${next.id}` : null);
         }}
       />
     );
@@ -292,7 +322,7 @@ export function AdminClaimsPage({ onOpenVendor, onOpenListing, onCountsChanged }
                     </>
                   ),
                 },
-                { label: "Submitted", render: (c) => formatDate(c.createdAt) },
+                { label: "Waiting", render: (c) => <Waiting since={c.createdAt} /> },
               ]}
             />
           )
@@ -404,7 +434,8 @@ export function AdminHostApplicationsPage({ onCountsChanged }: { onCountsChanged
   const [q, setQ] = useUrlParam<string>("q", "");
   const [record, openRecord, closeRecord] = useRecordParam();
   const [held, setHeld] = useState<HostApplication | null>(null);
-  const rows = (state.data ?? []).filter((a) => matches(q, a.name, a.email, a.phone));
+  const goNext = useNextAfterDecision(openRecord, closeRecord);
+  const rows = (state.data ?? []).filter((a) => matches(q, a.name, a.email, a.phone)).sort(oldestFirst((a) => a.appliedAt));
 
   if (record) {
     const id = record.replace(/^host:/, "");
@@ -419,6 +450,8 @@ export function AdminHostApplicationsPage({ onCountsChanged }: { onCountsChanged
           setHeld(found);
           state.reload();
           onCountsChanged?.();
+          const next = (state.data ?? []).filter((a) => a.id !== found!.id).sort(oldestFirst((a) => a.appliedAt))[0];
+          goNext(next ? `host:${next.id}` : null);
         }}
       />
     );
@@ -444,7 +477,7 @@ export function AdminHostApplicationsPage({ onCountsChanged }: { onCountsChanged
               reviewLabel={(a) => `Review ${a.name}'s application`}
               columns={[
                 { label: "Applicant", render: (a) => <><div className="adm-cell-title">{a.name}</div><div className="adm-cell-sub">{[a.email, a.phone].filter(Boolean).join(" · ")}</div><Message text={a.bio} /></> },
-                { label: "Applied", render: (a) => formatDate(a.appliedAt) },
+                { label: "Waiting", render: (a) => <Waiting since={a.appliedAt} /> },
               ]}
             />
           )
@@ -467,6 +500,12 @@ function SuggestionRecord({ s, onBack, onOpenListing, onDecided }: { s: PlaceSug
   const [reason, setReason] = useState<ReasonDraft>(emptyReason);
   const can = useAdminCan();
   const typeLabel = s.category === "club" ? "sports club" : "community centre";
+  // "Not on HelloCircle yet" is the suggester's guess; check it before publishing a duplicate.
+  const listings = useAdminData(fetchAdminListings);
+  const similar = useMemo(
+    () => (listings.data && s.status === "pending" ? similarListings({ id: "", name: s.suggestedName, county: s.county }, flattenListings(listings.data)) : []),
+    [listings.data, s.status, s.suggestedName, s.county]
+  );
   const decide = async (status: "approved" | "rejected") => {
     await setPlaceSuggestionStatus(s.id, status, status === "rejected" ? toReasonInput(reason) : {});
     setReason(emptyReason());
@@ -518,6 +557,24 @@ function SuggestionRecord({ s, onBack, onOpenListing, onDecided }: { s: PlaceSug
           <ObjectActivity objectIds={[s.id]} note="Approval and rejection are recorded." />
         </div>
         <div>
+          {similar.length > 0 && (
+            <section className="adm-review-card" data-tone="warn" style={{ marginTop: 16 }}>
+              <h2 className="adm-review-h">Possibly already listed</h2>
+              <p className="adm-note" style={{ margin: "0 0 8px" }}>Check these before publishing, so the same place isn't listed twice.</p>
+              <ul className="adm-similar">
+                {similar.map((l) => (
+                  <li key={listingKey(l)}>
+                    <button type="button" className="adm-linkish" onClick={() => onOpenListing(listingKey(l))}>
+                      {l.item.name}
+                    </button>
+                    <span className="adm-cell-sub">
+                      {[l.item.area, l.item.county].filter(Boolean).join(", ")} · {l.item.vendorName ?? "Unclaimed"}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
           <SectionLabel>Contact given</SectionLabel>
           <p style={{ margin: 0, fontSize: 13.5 }}>{s.contactInfo || "None"}</p>
           <SectionLabel>Related records</SectionLabel>
@@ -561,7 +618,10 @@ export function AdminPlaceSuggestionsPage({ onOpenListing, onCountsChanged }: { 
   const [record, openRecord, closeRecord] = useRecordParam();
   // A record opened by URL may already be decided, so look it up in the full list.
   const state = useAdminData(() => fetchAdminPlaceSuggestions(view === "all" || !!record), [view, !!record]);
-  const rows = (state.data ?? []).filter((s) => (view === "all" || s.status === "pending") && matches(q, s.suggestedName, s.area, s.county, s.contactInfo));
+  const goNext = useNextAfterDecision(openRecord, closeRecord);
+  const rows = (state.data ?? [])
+    .filter((s) => (view === "all" || s.status === "pending") && matches(q, s.suggestedName, s.area, s.county, s.contactInfo))
+    .sort((a, b) => Number(b.status === "pending") - Number(a.status === "pending") || oldestFirst<PlaceSuggestion>((x) => x.createdAt)(a, b));
 
   if (record) {
     const id = record.replace(/^suggestion:/, "");
@@ -576,6 +636,8 @@ export function AdminPlaceSuggestionsPage({ onOpenListing, onCountsChanged }: { 
         onDecided={() => {
           state.reload();
           onCountsChanged?.();
+          const next = (state.data ?? []).filter((x) => x.status === "pending" && x.id !== found!.id).sort(oldestFirst((x) => x.createdAt))[0];
+          goNext(next ? `suggestion:${next.id}` : null);
         }}
       />
     );
@@ -621,7 +683,7 @@ export function AdminPlaceSuggestionsPage({ onOpenListing, onCountsChanged }: { 
                     </>
                   ),
                 },
-                { label: "Submitted", render: (s) => formatDate(s.createdAt) },
+                { label: "Waiting", render: (s) => (s.status === "pending" ? <Waiting since={s.createdAt} /> : formatDate(s.createdAt)) },
                 { label: "Status", render: (s) => <StatusTag status={s.status} label={s.status === "approved" ? "Published" : undefined} /> },
               ]}
             />

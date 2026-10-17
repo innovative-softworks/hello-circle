@@ -1,4 +1,6 @@
 import { UnavailableListing, isUnavailable, type Unavailable } from "../components/UnavailableListing";
+import { ReportContentButton } from "../components/ReportContentButton";
+import { Flag } from "lucide-react";
 import { usePageTitle } from "../pageTitle";
 import { usePaidCheckoutOpen } from "../paidCheckout";
 import { useEffect, useState } from "react";
@@ -122,7 +124,7 @@ export function ClubDetail() {
               left: 20,
               bottom: 20,
               background: "rgba(255,255,255,.92)",
-              borderRadius: 10,
+              borderRadius: radius.control,
               padding: "6px 12px",
               fontFamily: fonts.display,
               fontWeight: 700,
@@ -143,7 +145,7 @@ export function ClubDetail() {
         <div>
           {club.trial && (
             <span
-              style={{ display: "inline-block", background: colors.greenBg, color: colors.greenText, borderRadius: 16, padding: "4px 12px", fontSize: 13, fontWeight: 700, marginBottom: 12 }}
+              style={{ display: "inline-block", background: colors.greenBg, color: colors.greenText, borderRadius: radius.card, padding: "4px 12px", fontSize: 13, fontWeight: 700, marginBottom: 12 }}
             >
               Free trial session available
             </span>
@@ -166,10 +168,20 @@ export function ClubDetail() {
                 </button>
               )}
             />
+            <ReportContentButton
+              targetType="club"
+              targetId={club.id}
+              what="this listing"
+              render={(onClick, done) => (
+                <button onClick={onClick} disabled={done} aria-label={done ? "Reported" : "Report this listing"} title={done ? "Reported" : "Report"} style={{ background: "none", border: "none", cursor: done ? "default" : "pointer", padding: 0, display: "inline-flex", color: colors.faint }}>
+                  <Flag size={18} strokeWidth={1.9} aria-hidden="true" />
+                </button>
+              )}
+            />
             <ListingChatButton scopeType="club" listingId={club.id} iconOnly style={{ background: "none", border: "none", padding: 0, color: colors.greenText }} />
           </h1>
           {club.capacity !== null && (
-            <span style={{ display: "inline-block", background: colors.panel, color: colors.muted, borderRadius: 16, padding: "3px 11px", fontSize: 12, fontWeight: 700, marginBottom: 8 }}>
+            <span style={{ display: "inline-block", background: colors.panel, color: colors.muted, borderRadius: radius.card, padding: "3px 11px", fontSize: 12, fontWeight: 700, marginBottom: 8 }}>
               Limited to {club.capacity} members
             </span>
           )}
@@ -235,7 +247,7 @@ export function ClubDetail() {
               <h3 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 20, margin: "0 0 12px", letterSpacing: 0 }}>
                 Location
               </h3>
-              <div style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 16, padding: "16px 18px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap", marginBottom: 12 }}>
+              <div style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: radius.card, padding: "16px 18px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap", marginBottom: 12 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                   <PinIcon size={16} style={{ color: colors.mutedLight, flex: "none" }} />
                   <div>
@@ -278,7 +290,7 @@ export function ClubDetail() {
                   <Link
                     key={p.id}
                     to={`/programs/${p.id}`}
-                    style={{ textAlign: "left", textDecoration: "none", color: "inherit", border: `1px solid ${colors.border}`, borderRadius: 16, padding: "14px 16px", cursor: "pointer", background: colors.surface, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, width: "100%" }}
+                    style={{ textAlign: "left", textDecoration: "none", color: "inherit", border: `1px solid ${colors.border}`, borderRadius: radius.card, padding: "14px 16px", cursor: "pointer", background: colors.surface, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, width: "100%" }}
                   >
                     <div>
                       <div style={{ fontWeight: 700 }}>{p.title}</div>
@@ -293,7 +305,7 @@ export function ClubDetail() {
         </div>
         <div
           className="sticky-aside"
-          style={{ position: "sticky", top: 90, background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 16, padding: 22, boxShadow: "0 8px 30px rgba(30,40,32,.05)" }}
+          style={{ position: "sticky", top: 90, background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: radius.card, padding: 22, boxShadow: "0 8px 30px rgba(30,40,32,.05)" }}
         >
           <div style={{ fontSize: 14, color: colors.mutedLight, marginBottom: 4 }}>Membership</div>
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 16 }}>

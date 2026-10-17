@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { colors, fonts } from "../../theme";
+import { colors, fonts, radius } from "../../theme";
 
 // Giant-numeral step treatment, reused from HostHowItWorks.tsx/
 // ChooseYourPathSection.tsx's "01/02/03" language (see also Header.tsx's
@@ -26,7 +26,7 @@ export const guideStepLiStyle: React.CSSProperties = { margin: "0 0 6px" };
 export const guideStepNoteStyle: React.CSSProperties = {
   background: colors.greenBg,
   border: `1px solid ${colors.border}`,
-  borderRadius: 10,
+  borderRadius: radius.control,
   padding: "10px 14px",
   fontSize: 13.5,
   color: colors.greenText,

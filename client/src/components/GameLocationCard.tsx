@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { fetchCentre } from "../api";
 import { PinIcon } from "./icons";
 import { SinglePinMap } from "./SinglePinMap";
-import { colors, fonts } from "../theme";
+import { colors, fonts, radius } from "../theme";
 import type { Game } from "../types";
 
 // Location (Game Detail redesign §17/§18) — reuses SinglePinMap (already
@@ -35,7 +35,7 @@ export function GameLocationCard({ game }: { game: Game }) {
   return (
     <div style={{ marginBottom: 28 }}>
       <h2 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: 18, margin: "0 0 12px" }}>Location</h2>
-      <div style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 16, padding: "16px 18px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap", marginBottom: centre?.lat != null && centre?.lng != null ? 12 : 0 }}>
+      <div style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: radius.card, padding: "16px 18px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap", marginBottom: centre?.lat != null && centre?.lng != null ? 12 : 0 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <PinIcon size={16} style={{ color: colors.mutedLight, flex: "none" }} />
           <div>

@@ -5,7 +5,7 @@ import { signInHref } from "../authRedirect";
 import { Photo } from "../components/Photo";
 import { Button, PageSpinner } from "../components/ui";
 import { useGuest } from "../GuestContext";
-import { colors, fonts } from "../theme";
+import { colors, fonts, radius } from "../theme";
 
 // Universal Sharing & Invitation system §12 — the personal invitation
 // landing experience. Deliberately its own page/route (/i/:token), distinct
@@ -85,7 +85,7 @@ export function InvitationLanding() {
       <h1 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(24px, 2.4vw, 30px)", margin: "0 0 18px", letterSpacing: 0 }}>{entity.title}</h1>
 
       {entity.image && (
-        <Photo src={entity.image} alt={entity.title} ph={colors.panel} style={{ width: "100%", height: 220, borderRadius: 16, overflow: "hidden", marginBottom: 18 }} />
+        <Photo src={entity.image} alt={entity.title} ph={colors.panel} style={{ width: "100%", height: 220, borderRadius: radius.card, overflow: "hidden", marginBottom: 18 }} />
       )}
 
       <div style={{ display: "flex", flexDirection: "column", gap: 4, marginBottom: 24, fontSize: 14.5, color: colors.text }}>

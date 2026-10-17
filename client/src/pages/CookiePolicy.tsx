@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ChevronLeftIcon } from "../components/icons";
 import { CONSENT_KEY, getStoredConsent } from "../components/CookieNotice";
-import { colors, fonts } from "../theme";
+import { colors, fonts, radius } from "../theme";
 
 const LAST_UPDATED = "11 August 2026";
 
@@ -100,7 +100,7 @@ export function CookiePolicy() {
         </h1>
         <p style={{ color: colors.faint, fontSize: 13, margin: "0 0 24px" }}>Last updated {LAST_UPDATED}</p>
 
-        <div style={{ background: colors.greenBg, border: `1px solid ${colors.border}`, borderRadius: 16, padding: "14px 18px", marginBottom: 30, fontSize: 14, color: colors.greenText, lineHeight: 1.6, fontWeight: 600 }}>
+        <div style={{ background: colors.greenBg, border: `1px solid ${colors.border}`, borderRadius: radius.card, padding: "14px 18px", marginBottom: 30, fontSize: 14, color: colors.greenText, lineHeight: 1.6, fontWeight: 600 }}>
           Most of what we store is strictly necessary to run the site. The one exception is Google Analytics, which
           only runs if you accept it in the cookie banner — no advertising cookies, no tracking beyond that.
         </div>
@@ -163,7 +163,7 @@ export function CookiePolicy() {
             style={{
               background: "none",
               border: `1px solid ${colors.border}`,
-              borderRadius: 10,
+              borderRadius: radius.control,
               padding: "9px 16px",
               fontSize: 13.5,
               fontWeight: 700,
@@ -201,7 +201,7 @@ export function CookieChoiceControl() {
           localStorage.removeItem(CONSENT_KEY);
           window.location.reload();
         }}
-        style={{ background: "none", border: `1px solid ${colors.border}`, borderRadius: 10, padding: "9px 16px", fontSize: 13.5, fontWeight: 700, color: colors.text, cursor: "pointer" }}
+        style={{ background: "none", border: `1px solid ${colors.border}`, borderRadius: radius.control, padding: "9px 16px", fontSize: 13.5, fontWeight: 700, color: colors.text, cursor: "pointer" }}
       >
         Change my cookie choice
       </button>

@@ -2,13 +2,13 @@ import { useState } from "react";
 import "mapbox-gl/dist/mapbox-gl.css";
 import Map, { Marker, Popup } from "react-map-gl";
 import { MAPBOX_STYLE, MAPBOX_TOKEN } from "../mapbox";
-import { colors } from "../theme";
+import { colors, radius } from "../theme";
 
 function UnavailableFallback({ height, message }: { height: number; message: string }) {
   return (
     <div
       style={{
-        borderRadius: 16,
+        borderRadius: radius.card,
         border: `1px solid ${colors.border}`,
         height,
         display: "flex",
@@ -43,7 +43,7 @@ export function SinglePinMap({ lat, lng, label, height = 260, zoom = 12 }: { lat
   }
 
   return (
-    <div style={{ borderRadius: 16, overflow: "hidden", border: `1px solid ${colors.border}`, height }}>
+    <div style={{ borderRadius: radius.card, overflow: "hidden", border: `1px solid ${colors.border}`, height }}>
       <Map
         mapboxAccessToken={MAPBOX_TOKEN}
         initialViewState={{ longitude: lng, latitude: lat, zoom }}

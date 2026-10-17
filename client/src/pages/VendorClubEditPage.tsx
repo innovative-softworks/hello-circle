@@ -5,6 +5,7 @@ import { fetchVendorClub, fetchVendorListings, publishVendorClub } from "../api"
 import { useAuth } from "../AuthContext";
 import { BackLink } from "../components/BackLink";
 import { PartnerWorkspace } from "../components/workspace/PartnerWorkspace";
+import { ListingMeta } from "../components/workspace/ListingMeta";
 import { BookingsTab } from "../components/VendorBookings";
 import { ClubParticipantsTab } from "../components/ClubParticipantsTab";
 import { ClubEditor, ClubSessionsManager, ClubWaitlistPanel } from "../components/VendorClubEditor";
@@ -89,9 +90,15 @@ export function VendorClubEditPage() {
   }
 
   return (
-    <PartnerWorkspace user={user} active="listings" title={title} guard={requestNavigation}>
-      <div style={{ maxWidth: 920 }}>
-        <BackLink onClick={() => requestNavigation(() => navigate("/vendor?tab=listings"))}>Back to listings</BackLink>
+    <PartnerWorkspace
+      user={user}
+      active="listings"
+      title={title}
+      guard={requestNavigation}
+      subtitle={!wizardMode && club ? <ListingMeta status={club.status} kind="Club" place={[club.area, club.county].filter(Boolean).join(", ")} /> : undefined}
+      actions={!wizardMode && clubId !== "new" ? <HostChatButton scopeType="club" scopeId={clubId} title={club?.name ?? "Club chat"} label="Members chat" className="adm-btn" /> : undefined}
+    >
+      <div>
 
         {wizardMode ? (
           <ClubCreationWizard
@@ -107,9 +114,6 @@ export function VendorClubEditPage() {
           <PublishedScreen name={club?.name ?? "Your club"} publicHref={`/clubs/${club?.slug ?? clubId}`} onDismiss={() => setJustPublished(false)} />
         ) : (
           <>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap", margin: "0 0 18px" }}>
-              {clubId !== "new" && <HostChatButton scopeType="club" scopeId={clubId} title={club?.name ?? "Club chat"} label="Members chat" style={{ border: `1px solid ${colors.borderStrong}`, borderRadius: radius.pill, padding: "8px 14px", fontSize: 13.5, color: colors.text, background: colors.surface }} />}
-            </div>
             <ListingReviewNotice listing={{ type: "club", id: clubId }} status={club?.status} dirty={dirty} onResubmit={async () => setClub(await publishVendorClub(clubId))} />
             <div style={{ marginBottom: 22 }}>
               <Tabs

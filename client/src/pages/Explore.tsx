@@ -714,7 +714,7 @@ export function Explore() {
                   aria-label="Sort results"
                   value={sort}
                   onChange={(e) => patchParams((p) => p.set("sort", e.target.value))}
-                  style={{ padding: "8px 12px", border: `1px solid ${colors.inputBorder}`, borderRadius: 10, fontSize: 13.5, background: colors.bg, color: colors.text, outline: "none", fontWeight: 600 }}
+                  style={{ padding: "8px 12px", border: `1px solid ${colors.inputBorder}`, borderRadius: radius.control, fontSize: 13.5, background: colors.bg, color: colors.text, outline: "none", fontWeight: 600 }}
                 >
                   {(Object.keys(SORT_LABELS) as SortKey[]).map((k) => (
                     <option key={k} value={k}>

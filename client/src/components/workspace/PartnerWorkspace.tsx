@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
-import { BarChart3, Building2, CalendarDays, ClipboardList, Compass, GraduationCap, LayoutDashboard, MessageSquare, Star, Tag, Users, Wallet } from "lucide-react";
+import { BarChart3, Building2, CalendarDays, ClipboardList, Compass, GraduationCap, LayoutDashboard, MessageSquare, Star, Tag, UserRound, Users, Wallet } from "lucide-react";
 import type { AuthUser as AuthedUser } from "../../types";
 import { vendorTabVisible } from "../../vendorTabAccess";
 import { WorkspaceShell } from "./WorkspaceShell";
@@ -9,7 +9,7 @@ import { WorkspaceShell } from "./WorkspaceShell";
 // dashboard (/vendor) and the full-page editors (/vendor/centres|clubs|
 // programs|experiences/:id), so the editors sit inside the same shell.
 
-export type VendorTab = "overview" | "listings" | "messages" | "bookings" | "earnings" | "programs" | "experiences" | "schedule" | "reviews" | "offers" | "demand" | "org";
+export type VendorTab = "overview" | "listings" | "messages" | "bookings" | "customers" | "earnings" | "programs" | "experiences" | "schedule" | "reviews" | "offers" | "demand" | "org";
 
 const I = { size: 18, strokeWidth: 1.9, "aria-hidden": true } as const;
 // Keys are unchanged so existing ?tab= links keep working.
@@ -17,6 +17,7 @@ export const VENDOR_TABS: { key: VendorTab; label: string; icon: ReactNode; grou
   { key: "overview", label: "Overview", icon: <LayoutDashboard {...I} />, group: "Run", summary: "What needs doing next across your venues, clubs and activities." },
   { key: "schedule", label: "Calendar", icon: <CalendarDays {...I} />, group: "Run", summary: "Everything booked or scheduled, by day." },
   { key: "bookings", label: "Bookings", icon: <ClipboardList {...I} />, group: "Run", summary: "Hall bookings and club registrations: check-in, cancel, refund." },
+  { key: "customers", label: "Customers", icon: <UserRound {...I} />, group: "Run", summary: "Everyone who has booked, registered or enrolled with you." },
   { key: "messages", label: "Messages", icon: <MessageSquare {...I} />, group: "Run", summary: "Booking notifications, and messages to the people who booked." },
   { key: "listings", label: "Listings", icon: <Building2 {...I} />, group: "Listings", summary: "Your community centres and sports clubs." },
   { key: "programs", label: "Programmes", icon: <GraduationCap {...I} />, group: "Listings", summary: "Multi-week courses: sessions, enrolments and attendance." },

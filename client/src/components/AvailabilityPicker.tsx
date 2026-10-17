@@ -82,7 +82,7 @@ export function AvailabilityPicker({ value, onChange }: { value: string[]; onCha
                           style={{
                             width: 36,
                             height: 32,
-                            borderRadius: 10,
+                            borderRadius: radius.control,
                             border: `1px solid ${on ? colors.green : colors.border}`,
                             background: on ? colors.green : colors.surface,
                             cursor: "pointer",

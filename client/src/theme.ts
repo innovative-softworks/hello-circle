@@ -5,11 +5,10 @@ export * from "@hello-circle/design-tokens";
 import { radius as tokenRadius } from "@hello-circle/design-tokens";
 
 /** Corner radii as CSS custom properties (same mechanism as `colors` below):
- * index.css's `:root` holds the consumer values (10 / 16 / pill), and the
- * approved workspace system (admin, partner, host — and any dialog or menu
- * opened from them, via `body.in-workspace`) sets them to its 0–2px corners.
- * One token, two contexts, no per-component overrides. Shadows the shared
- * numeric `radius` (apps/mobile keeps those numbers). */
+ * index.css's `:root` holds the consumer values (10 / 16 / pill); the
+ * admin/partner/host workspaces (and dialogs opened from them, via
+ * `body.in-workspace`) set every one of them to 8px. Use "50%" for true
+ * circles. Shadows the shared numeric `radius` (apps/mobile keeps its own). */
 export const radius = {
   ...tokenRadius,
   control: "var(--radius-control)",

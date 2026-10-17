@@ -14,7 +14,7 @@ import { colors, radius, zIndex } from "../theme";
 // deliberately does NOT auto-retry whatever request failed — it only offers
 // a safe way back in.
 
-const AUTH_PAGE_PREFIXES = ["/login", "/signin", "/accept-invite", "/forgot-password", "/reset-password", "/vendor/signup"];
+const AUTH_PAGE_PREFIXES = ["/login", "/signin", "/accept-invite", "/admin-invite", "/forgot-password", "/reset-password", "/vendor/signup"];
 
 function isOnAuthPage(pathname: string): boolean {
   return AUTH_PAGE_PREFIXES.some((p) => pathname === p || pathname.startsWith(`${p}/`));

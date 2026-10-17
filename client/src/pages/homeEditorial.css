@@ -26,9 +26,10 @@
   /* Corner radii — the app's own tokens (design-tokens radius.control /
      radius.card / radius.pill), as in the reference: pill buttons and
      chips, softly rounded cards, photos and search. */
-  --hx-r-control: 10px;
-  --hx-r-card: 16px;
-  --hx-r-pill: 999px;
+  /* Same values as the app tokens (index.css); kept as aliases. */
+  --hx-r-control: var(--radius-control);
+  --hx-r-card: var(--radius-card);
+  --hx-r-pill: var(--radius-pill);
   --hx-display: "Bricolage Grotesque Variable", "Bricolage Grotesque", system-ui, sans-serif;
   background: var(--hx-cream);
   color: var(--hx-forest);
@@ -1123,7 +1124,7 @@ a:focus-visible .hx-round {
 }
 
 .hx-skel {
-  border-radius: 6px;
+  border-radius: var(--radius-small);
 }
 
 .hx-card--skeleton .hx-skel {

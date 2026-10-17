@@ -1,3 +1,6 @@
+import { Building2, FileText, MessageSquareWarning, ShieldCheck } from "lucide-react";
+import { ErrorMessage, IconTabs, LoadingRows } from "./admin/adminUi";
+import { useUrlParam } from "../useUrlTab";
 import { useAdminCan } from "./admin/adminPermissions";
 import { useEffect, useState, type CSSProperties } from "react";
 import {
@@ -25,7 +28,7 @@ import { useAuth } from "../AuthContext";
 import { LoadFailed, useLoadFailure } from "./admin/loadFailure";
 import { colors, fonts, radius } from "../theme";
 import { PolicyMarkdown } from "./PolicyMarkdown";
-import { Button, ManageCard as Card, Modal, inputStyle, labelStyle, tableStyle, tdStyle, thStyle } from "./ui";
+import { Button, ManageCard as Card, Modal, inputStyle, labelStyle, tableStyle, tdStyle, thStyle, StackTable } from "./ui";
 
 // Revenue & Connect Stage 4 — admin "Policies & trust": the policy CMS
 // (legal), placeholder values (legal), complaints/appeals (support) and
@@ -181,10 +184,14 @@ function VersionEditor({ id, onClose, onChanged }: { id: number; onClose: () => 
 
 function DocumentsSection({ overview, reload }: { overview: AdminPolicyOverview; reload: () => void }) {
   const [open, setOpen] = useState<string | null>(null);
-  const [versions, setVersions] = useState<AdminPolicyVersion[]>([]);
+  const [versionsState, setVersionsState] = useState<{ rows: AdminPolicyVersion[] | null; error: unknown }>({ rows: null, error: null });
+  const versions = versionsState.rows ?? [];
   const [editing, setEditing] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const loadVersions = (key: string) => fetchPolicyVersions(key).then(setVersions);
+  const loadVersions = (key: string) =>
+    fetchPolicyVersions(key)
+      .then((rows) => setVersionsState({ rows, error: null }))
+      .catch((error) => setVersionsState({ rows: null, error }));
 
   return (
     <Card style={{ padding: 22 }}>
@@ -193,29 +200,53 @@ function DocumentsSection({ overview, reload }: { overview: AdminPolicyOverview;
         Every document starts as a structured draft marked "{DRAFT_BANNER}". A version is published only after review, approval, a named legal sign-off, values for every placeholder and no remaining editorial notes. Until a document is
         published, the public site shows "being prepared" (and the existing Privacy and Cookie pages stay in place).
       </p>
+      {(() => {
+        const docs = overview.documents;
+        const published = docs.filter((d) => d.publishedVersion).length;
+        const byStatus = (st: string) => docs.filter((d) => d.latestStatus === st).length;
+        return (
+          <section aria-label="Where the documents stand" className="adm-ov-totals" style={{ margin: "4px 0 16px" }}>
+            <div data-tone={published < docs.length ? "alert" : undefined}>
+              <strong>
+                {published} of {docs.length}
+              </strong>
+              published
+            </div>
+            <div>
+              <strong>{byStatus("draft")}</strong>drafts
+            </div>
+            <div>
+              <strong>{byStatus("review")}</strong>in legal review
+            </div>
+            <div>
+              <strong>{byStatus("approved")}</strong>approved, not yet published
+            </div>
+          </section>
+        );
+      })()}
       <div style={{ overflowX: "auto" }}>
-        <table style={tableStyle}>
+        <StackTable>
           <thead><tr><th style={thStyle}>Document</th><th style={thStyle}>Latest</th><th style={thStyle}>Published</th><th style={thStyle}>Acceptance</th><th style={thStyle} /></tr></thead>
           <tbody>
             {overview.documents.map((d) => (
               <tr key={d.docKey}>
                 <td style={tdStyle}>{d.title}<div style={{ fontSize: 12, color: colors.mutedLight }}>{d.docKey}</div></td>
                 <td style={{ ...tdStyle, color: STATUS_TONE[d.latestStatus] ?? colors.text, fontWeight: 600 }}>v{d.latestVersion} {d.latestStatus}</td>
-                <td style={tdStyle}>{d.publishedVersion ? `v${d.publishedVersion} · ${when(d.publishedAt)}` : "—"}</td>
-                <td style={tdStyle}>{d.acceptanceAudience ?? "—"}</td>
+                <td style={tdStyle}>{d.publishedVersion ? `v${d.publishedVersion} · ${when(d.publishedAt)}` : <span style={{ color: colors.mutedLight }}>Not published</span>}</td>
+                <td style={tdStyle}>{d.acceptanceAudience ? `${d.acceptanceAudience.charAt(0).toUpperCase()}${d.acceptanceAudience.slice(1)}${d.acceptanceAudience === "all" ? " users" : "s"} accept it` : <span style={{ color: colors.mutedLight }}>Not required</span>}</td>
                 <td style={tdStyle}>
-                  <Button variant="ghost" onClick={() => { setOpen(open === d.docKey ? null : d.docKey); loadVersions(d.docKey); }}>{open === d.docKey ? "Hide" : "Versions"}</Button>
+                  <Button variant="ghost" onClick={() => { setOpen(open === d.docKey ? null : d.docKey); setVersionsState({ rows: null, error: null }); loadVersions(d.docKey); }}>{open === d.docKey ? "Hide" : "Versions"}</Button>
                 </td>
               </tr>
             ))}
           </tbody>
-        </table>
+        </StackTable>
       </div>
       {open && (
         <div style={{ marginTop: 14 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
             <h4 style={{ margin: 0, fontSize: 14 }}>Versions of {open}</h4>
-            {!versions.some((x) => ["draft", "review", "approved"].includes(x.status)) && (
+            {versionsState.rows && !versions.some((x) => ["draft", "review", "approved"].includes(x.status)) && (
               <Button
                 variant="ghost"
                 onClick={async () => {
@@ -234,9 +265,14 @@ function DocumentsSection({ overview, reload }: { overview: AdminPolicyOverview;
               </Button>
             )}
           </div>
+          {versionsState.error ? (
+            <ErrorMessage error={versionsState.error} onRetry={() => loadVersions(open)} title="Couldn't load the versions" />
+          ) : !versionsState.rows ? (
+            <LoadingRows rows={2} label="Loading versions" />
+          ) : null}
           {/* Wrapped so a narrow (phone) screen scrolls the table, not the whole page. */}
-          <div style={{ overflowX: "auto", marginTop: 8 }}>
-            <table style={tableStyle}>
+          {versionsState.rows && <div style={{ overflowX: "auto", marginTop: 8 }}>
+            <StackTable>
               <thead><tr><th style={thStyle}>Version</th><th style={thStyle}>Status</th><th style={thStyle}>Changes</th><th style={thStyle}>Legal sign-off</th><th style={thStyle} /></tr></thead>
               <tbody>
                 {versions.map((x) => (
@@ -249,8 +285,8 @@ function DocumentsSection({ overview, reload }: { overview: AdminPolicyOverview;
                   </tr>
                 ))}
               </tbody>
-            </table>
-          </div>
+            </StackTable>
+          </div>}
           {error && <p role="alert" style={errStyle}>{error}</p>}
         </div>
       )}
@@ -338,7 +374,7 @@ function PlaceholdersSection({ overview, reload }: { overview: AdminPolicyOvervi
       <h3 style={h3}>Company details (placeholders)</h3>
       <p style={hint}>Filled into every policy at publish time. Publishing is refused while a document uses a placeholder without a value. Changing a value later does not alter already-published versions.</p>
       <div style={{ overflowX: "auto" }}>
-        <table style={tableStyle}>
+        <StackTable>
           <thead><tr><th style={thStyle}>Placeholder</th><th style={thStyle}>Value</th><th style={thStyle} /></tr></thead>
           <tbody>
             {rows.map((p) => (
@@ -349,7 +385,7 @@ function PlaceholdersSection({ overview, reload }: { overview: AdminPolicyOvervi
               </tr>
             ))}
           </tbody>
-        </table>
+        </StackTable>
       </div>
       {edit && (
         <Modal
@@ -501,7 +537,7 @@ function TradersSection() {
         </select>
       </label>
       <div style={{ overflowX: "auto", marginTop: 12 }}>
-        <table style={tableStyle}>
+        <StackTable>
           <thead><tr><th style={thStyle}>Seller</th><th style={thStyle}>Details</th><th style={thStyle}>Self-certified</th><th style={thStyle} /></tr></thead>
           <tbody>
             {rows.map((t) => (
@@ -517,7 +553,7 @@ function TradersSection() {
             ))}
             {rows.length === 0 && !failed && <tr><td style={tdStyle} colSpan={4}>Nothing here.</td></tr>}
           </tbody>
-        </table>
+        </StackTable>
       </div>
       {act && (
         <Modal
@@ -557,10 +593,10 @@ function TradersSection() {
 // --- the tab ----------------------------------------------------------------------------------
 
 const SECTIONS = [
-  { key: "documents", label: "Policy documents", permission: "policies.manage" },
-  { key: "values", label: "Company details", permission: "policies.manage" },
-  { key: "complaints", label: "Complaints & appeals", permission: "complaints.handle" },
-  { key: "traders", label: "Trader verification", permission: "traders.view" },
+  { key: "documents", label: "Policy documents", permission: "policies.manage", icon: FileText },
+  { key: "values", label: "Company details", permission: "policies.manage", icon: Building2 },
+  { key: "complaints", label: "Complaints & appeals", permission: "complaints.handle", icon: MessageSquareWarning },
+  { key: "traders", label: "Trader verification", permission: "traders.view", icon: ShieldCheck },
 ] as const;
 
 export function AdminPolicyTab() {
@@ -569,7 +605,9 @@ export function AdminPolicyTab() {
   const can = useAdminCan();
   const canPolicies = can("policies.manage");
   const visible = SECTIONS.filter((s) => can(s.permission));
-  const [section, setSection] = useState<string>(visible[0]?.key ?? "");
+  // URL state, so other admin pages (e.g. the Overview queue) can link to a section.
+  const [sectionParam, setSection] = useUrlParam<string>("section", visible[0]?.key ?? "");
+  const section = visible.some((s) => s.key === sectionParam) ? sectionParam : visible[0]?.key ?? "";
   const [overview, setOverview] = useState<AdminPolicyOverview | null>(null);
   const reload = () => track(fetchAdminPolicies(), setOverview);
   useEffect(() => {
@@ -579,18 +617,7 @@ export function AdminPolicyTab() {
   return (
     <div className="fade-panel" style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       <LoadFailed failed={failed && !failed.forbidden ? failed : null} onRetry={reload} />
-      <div role="tablist" aria-label="Policy and trust sections" className="adm-subnav">
-        {visible.map((s) => (
-          <button
-            key={s.key}
-            role="tab"
-            aria-selected={section === s.key}
-            onClick={() => setSection(s.key)}
-          >
-            {s.label}
-          </button>
-        ))}
-      </div>
+      <IconTabs label="Policy and trust sections" value={section} onChange={setSection} items={visible.map((s) => ({ key: s.key as string, label: s.label, icon: s.icon }))} />
       {section === "documents" && overview && <DocumentsSection overview={overview} reload={reload} />}
       {section === "values" && overview && (
         <>

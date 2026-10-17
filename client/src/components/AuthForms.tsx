@@ -181,7 +181,7 @@ export function OAuthDivider({
           onClick={onGoogle}
           disabled={googleBusy}
           aria-label="Continue with Google"
-          style={{ flex: 1, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8, padding: "10px 12px", border: `1px solid ${colors.inputBorder}`, borderRadius: 10, background: colors.surface, fontSize: 13.5, fontWeight: 700, color: colors.text, cursor: googleBusy ? "default" : "pointer", opacity: googleBusy ? 0.7 : 1 }}
+          style={{ flex: 1, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8, padding: "10px 12px", border: `1px solid ${colors.inputBorder}`, borderRadius: radius.control, background: colors.surface, fontSize: 13.5, fontWeight: 700, color: colors.text, cursor: googleBusy ? "default" : "pointer", opacity: googleBusy ? 0.7 : 1 }}
         >
           <GoogleIcon size={16} /> {googleBusy ? "Signing in…" : googleLabel}
         </button>
@@ -189,7 +189,7 @@ export function OAuthDivider({
           type="button"
           className="auth-plain-btn"
           onClick={onApple}
-          style={{ flex: 1, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8, padding: "10px 12px", border: `1px solid ${colors.inputBorder}`, borderRadius: 10, background: colors.surface, fontSize: 13.5, fontWeight: 700, color: colors.text, cursor: "pointer" }}
+          style={{ flex: 1, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8, padding: "10px 12px", border: `1px solid ${colors.inputBorder}`, borderRadius: radius.control, background: colors.surface, fontSize: 13.5, fontWeight: 700, color: colors.text, cursor: "pointer" }}
         >
           <AppleIcon size={16} /> Apple
         </button>}

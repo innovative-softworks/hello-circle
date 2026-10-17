@@ -1,4 +1,11 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { getMediaUrl } from "../media";
+import { Compass } from "lucide-react";
+import { useInWorkspace } from "./workspace/inWorkspace";
+import { SectionSaveContext, type SectionSave } from "./workspace/sectionSave";
+import { ReadinessRail } from "./workspace/SectionCard";
+import { AdminButton, AdminModal, Box, FormField, Loaded, errorMessage, useAdminData } from "./admin/adminUi";
+import { StatusChipText, WsListTable } from "./workspace/WsListTable";
 import { HostChatButton } from "./HostChatButton";
 import { VendorParticipationEditor } from "./VendorParticipationEditor";
 import {
@@ -8,9 +15,11 @@ import {
   fetchVendorExperience,
   fetchVendorExperienceBookings,
   markExperienceAttendance,
+  moveExperienceBooking,
   fetchVendorExperienceSessions,
   fetchVendorExperiences,
   removeExperienceSession,
+  updateExperienceSession,
   updateVendorExperience,
   type ExperienceInput,
 } from "../api";
@@ -142,12 +151,15 @@ export function ExperienceEditor({
     onDirtyChange?.(true);
   };
 
-  const save = async () => {
+  const save = async (): Promise<boolean> => {
     const errors: { field: string; message: string; fieldId: string }[] = [];
     if (!form.title.trim()) errors.push({ field: "title", message: "Title is required", fieldId: "experience-title" });
     if (!form.blurb.trim()) errors.push({ field: "blurb", message: "A short blurb is required", fieldId: "experience-blurb" });
-    if (errors.length > 0) return fe.fail(errors);
-    if (saving) return;
+    if (errors.length > 0) {
+      fe.fail(errors);
+      return false;
+    }
+    if (saving) return false;
 
     fe.clear();
     setSaving(true);
@@ -157,13 +169,38 @@ export function ExperienceEditor({
       setSaved(true);
       onDirtyChange?.(false);
       onSaved(id);
+      return true;
     } catch (e) {
       // Everything typed stays in the form; the reason goes in the summary.
       fe.fail([{ field: "save", message: `Couldn't save: ${e instanceof Error ? e.message : "please try again"}` }]);
+      return false;
     } finally {
       setSaving(false);
     }
   };
+
+  // Workspace popups (option A) — see VendorCentreEditor.tsx's identical block.
+  const snapshot = useRef<ExperienceInput | null>(null);
+  const [openKey, setOpenKey] = useState<string | null>(null);
+  const currentSnapshot = () => (form);
+  const sectionSave: SectionSave = {
+    save,
+    saving,
+    errors: fe.errors,
+    focusKey: fe.focusKey,
+    isDirty: () => JSON.stringify(snapshot.current) !== JSON.stringify(currentSnapshot()),
+    openKey,
+    setOpenKey,
+    begin: () => {
+      snapshot.current = form;
+    },
+    cancel: () => {
+      if (snapshot.current) setForm(snapshot.current);
+      fe.clear();
+      onDirtyChange?.(false);
+    },
+  };
+  const inWorkspace = useInWorkspace();
 
   // --- field groups, composed differently depending on mode below ---------
 
@@ -354,10 +391,59 @@ export function ExperienceEditor({
   if (loadState === "failed") return <LoadErrorState title="Couldn't load this experience's details." onRetry={load} />;
   if (loadState === "loading") return <p style={{ fontSize: 13.5, color: colors.mutedLight }}>Loading experience details…</p>;
 
+  if (inWorkspace) {
+    const checks = [
+      { label: "Title and blurb", done: !!form.title.trim() && !!form.blurb.trim(), section: "General" },
+      { label: "Where it starts", done: !!form.area?.trim() && !!form.county?.trim(), section: "Location & meeting" },
+      { label: "Price and places", done: form.capacity != null, section: "Pricing & capacity" },
+      { label: "Itinerary and kit", done: prepCount >= 2, section: "Itinerary & what to bring" },
+      { label: "Logistics and safety", done: logisticsCount >= 2, section: "Logistics & safety" },
+      { label: "Photos", done: (form.images ?? []).length > 0, section: "Photos" },
+    ];
+    const cover = (form.images ?? [])[0];
+    return (
+      <SectionSaveContext.Provider value={sectionSave}>
+        <div className="ws-editor">
+          <div className="ws-sec-grid">
+      <SettingsSection title="General" forceOpen={fe.has("experience-title", "experience-blurb")} fieldIds={["experience-title", "experience-blurb"]} summary={<>{form.title || "Not set"}{form.blurb && <div style={{ color: colors.mutedLight, fontSize: 13, marginTop: 2 }}>{form.blurb}</div>}</>}>
+        {generalFields}
+      </SettingsSection>
+      <SettingsSection title="Location & meeting" summary={[form.area, form.county].filter(Boolean).join(", ") || "Not set"}>
+        {locationFields}
+      </SettingsSection>
+      <SettingsSection title="Pricing & capacity" summary={`€${((form.priceCents ?? 0) / 100).toFixed(2)}/person · cap ${form.capacity ?? 8} · ${form.durationMinutes ?? 120} min`}>
+        {pricingFields}
+      </SettingsSection>
+      {form.kind === "adventure" && (
+        <SettingsSection title="Adventure details" summary={[form.distanceKm ? `${form.distanceKm}km` : null, form.elevationGainM ? `${form.elevationGainM}m gain` : null, form.terrainType].filter(Boolean).join(" · ") || "Not added"}>
+          {adventureFields}
+        </SettingsSection>
+      )}
+      <SettingsSection title="Itinerary & what to bring" summary={`${prepCount} of 5 details added`}>
+        {prepFields}
+      </SettingsSection>
+      <SettingsSection title="Logistics & safety" summary={`${logisticsCount} of 4 details added`}>
+        {logisticsFields}
+      </SettingsSection>
+      <VendorParticipationEditor type="experience" id={id} />
+      <SettingsSection title="Photos" summary={`${(form.images ?? []).length} photo${(form.images ?? []).length === 1 ? "" : "s"}`}>
+        {photosField}
+      </SettingsSection>
+          </div>
+          <ReadinessRail
+            checks={checks}
+            onFix={setOpenKey}
+            preview={{ image: cover ? getMediaUrl(cover, "card") : null, title: form.title || "Your experience", meta: [form.area, form.kind === "volunteer" ? "Free" : `€${((form.priceCents ?? 0) / 100).toFixed(2)} per person`].filter(Boolean).join(" · "), icon: Compass }}
+          />
+        </div>
+      </SectionSaveContext.Provider>
+    );
+  }
+
   return (
     <>
       <RequiredNote />
-      <SettingsSection title="General" forceOpen={fe.has("experience-title", "experience-blurb")} summary={<>{form.title || "Not set"}{form.blurb && <div style={{ color: colors.mutedLight, fontSize: 13, marginTop: 2 }}>{form.blurb}</div>}</>}>
+      <SettingsSection title="General" forceOpen={fe.has("experience-title", "experience-blurb")} fieldIds={["experience-title", "experience-blurb"]} summary={<>{form.title || "Not set"}{form.blurb && <div style={{ color: colors.mutedLight, fontSize: 13, marginTop: 2 }}>{form.blurb}</div>}</>}>
         {generalFields}
       </SettingsSection>
       <SettingsSection title="Location & meeting" summary={[form.area, form.county].filter(Boolean).join(", ") || "Not set"}>
@@ -393,9 +479,12 @@ export function SessionsManager({ experienceId }: { experienceId: string }) {
   const [date, setDate] = useState("");
   const [time, setTime] = useState("09:00");
   const [capacity, setCapacity] = useState("");
+  const [repeatWeeks, setRepeatWeeks] = useState("1");
+  const [closeHours, setCloseHours] = useState("");
   const [addOpen, setAddOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
+  const [editing, setEditing] = useState<ExperienceSessionRow | null>(null);
 
   const [sessionsFailed, setSessionsFailed] = useState(false);
   const load = () => {
@@ -410,9 +499,17 @@ export function SessionsManager({ experienceId }: { experienceId: string }) {
     if (!date) return;
     setError(null);
     try {
-      await addExperienceSession(experienceId, { date, time, capacity: capacity ? Number(capacity) : undefined });
+      await addExperienceSession(experienceId, {
+        date,
+        time,
+        capacity: capacity ? Number(capacity) : undefined,
+        repeatWeeks: Number(repeatWeeks) || 1,
+        salesCloseHours: closeHours ? Number(closeHours) : undefined,
+      });
       setDate("");
       setCapacity("");
+      setRepeatWeeks("1");
+      setCloseHours("");
       setAddOpen(false);
       load();
     } catch (e) {
@@ -445,9 +542,16 @@ export function SessionsManager({ experienceId }: { experienceId: string }) {
               <span>
                 {s.date} · {s.time}
                 {s.capacity ? ` · cap ${s.capacity}` : ""}
+                {s.salesCloseAt && <span style={{ color: colors.mutedLight }}> · bookings close {closeLabel(s.salesCloseAt)}</span>}
+                {s.seriesId && <span style={{ color: colors.mutedLight }}> · weekly</span>}
                 {s.status !== "scheduled" && <span style={{ color: colors.mutedLight }}> · {s.status}</span>}
               </span>
               <span style={{ display: "flex", alignItems: "center", gap: 14 }}>
+                {s.status === "scheduled" && (
+                  <button onClick={() => setEditing(s)} aria-label={`Edit departure ${s.date} ${s.time}`} style={{ background: "none", border: "none", cursor: "pointer", color: colors.muted, fontSize: 12.5, fontWeight: 700, textDecoration: "underline", padding: 0 }}>
+                    Edit
+                  </button>
+                )}
                 {s.status !== "cancelled" && <HostChatButton scopeType="experience_session" scopeId={s.id} title={`Departure ${s.date} · ${s.time}`} />}
                 <button onClick={() => setConfirmingId(s.id)} aria-label="Cancel departure" style={{ background: "none", border: "none", cursor: "pointer", color: colors.faint, display: "flex" }}>
                   <TrashIcon size={14} />
@@ -462,6 +566,8 @@ export function SessionsManager({ experienceId }: { experienceId: string }) {
           <input type="date" value={date} onChange={(e) => setDate(e.target.value)} style={{ ...inputStyle, width: 150 }} />
           <input type="time" value={time} onChange={(e) => setTime(e.target.value)} style={{ ...inputStyle, width: 110 }} />
           <input value={capacity} onChange={(e) => setCapacity(e.target.value)} placeholder="Cap (default listing cap)" type="number" style={{ ...inputStyle, width: 180 }} />
+          <input value={repeatWeeks} onChange={(e) => setRepeatWeeks(e.target.value)} aria-label="Repeat weekly for this many weeks" title="Repeat weekly for this many weeks" type="number" min={1} max={26} style={{ ...inputStyle, width: 90 }} />
+          <input value={closeHours} onChange={(e) => setCloseHours(e.target.value)} placeholder="Stop sales (hours before)" aria-label="Stop sales this many hours before" type="number" min={0} style={{ ...inputStyle, width: 190 }} />
           <Button variant="ghost" onClick={add}>
             <PlusIcon size={14} /> Add
           </Button>
@@ -481,7 +587,181 @@ export function SessionsManager({ experienceId }: { experienceId: string }) {
         onConfirm={() => confirmingId && remove(confirmingId)}
         onCancel={() => setConfirmingId(null)}
       />
+      {editing && (
+        <EditDepartureDialog
+          session={editing}
+          onClose={() => setEditing(null)}
+          onSave={async (input) => {
+            await updateExperienceSession(experienceId, editing.id, input);
+            load();
+          }}
+        />
+      )}
     </div>
+  );
+}
+
+const closeLabel = (iso: string) =>
+  new Date(iso).toLocaleString("en-IE", { timeZone: "Europe/Dublin", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+
+// OG-19 — one departure's capacity and booking cut-off. The server refuses a
+// capacity below the places already taken.
+function EditDepartureDialog({
+  session,
+  onClose,
+  onSave,
+}: {
+  session: ExperienceSessionRow;
+  onClose: () => void;
+  onSave: (input: { capacity?: number; salesCloseHours?: number | null }) => Promise<void>;
+}) {
+  const [capacity, setCapacity] = useState(session.capacity ? String(session.capacity) : "");
+  const [closeHours, setCloseHours] = useState("");
+  const [clearClose, setClearClose] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const save = async () => {
+    const input: { capacity?: number; salesCloseHours?: number | null } = {};
+    if (capacity) {
+      const n = Number(capacity);
+      if (!Number.isInteger(n) || n < 1) return setError("Capacity must be a whole number of at least 1");
+      input.capacity = n;
+    }
+    if (clearClose) input.salesCloseHours = null;
+    else if (closeHours) {
+      const h = Number(closeHours);
+      if (!Number.isInteger(h) || h < 0 || h > 720) return setError("Close bookings between 0 and 720 hours before the start");
+      input.salesCloseHours = h;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      await onSave(input);
+      onClose();
+    } catch (e) {
+      setError(errorMessage(e, "Couldn't save that departure"));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <AdminModal
+      open
+      onClose={onClose}
+      title="Edit departure"
+      subtitle={`${session.date} · ${session.time}. Prices don't change.`}
+      footer={
+        <>
+          <AdminButton variant="quiet" onClick={onClose}>
+            Cancel
+          </AdminButton>
+          <AdminButton variant="primary" onClick={save} disabled={busy}>
+            {busy ? "Saving…" : "Save departure"}
+          </AdminButton>
+        </>
+      }
+    >
+      <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+        <FormField label="Capacity (optional)" hint="Leave blank to keep the current capacity. It can't go below the places already taken.">
+          {(p) => <input {...p} type="number" min={1} className="adm-input" value={capacity} onChange={(e) => setCapacity(e.target.value)} />}
+        </FormField>
+        <FormField
+          label="Stop bookings this many hours before the start (optional)"
+          hint={session.salesCloseAt ? `Bookings currently close ${closeLabel(session.salesCloseAt)}.` : "Bookings are currently open until the start."}
+          error={error}
+        >
+          {(p) => <input {...p} type="number" min={0} max={720} className="adm-input" value={closeHours} disabled={clearClose} onChange={(e) => setCloseHours(e.target.value)} />}
+        </FormField>
+        {session.salesCloseAt && (
+          <label style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 13.5 }}>
+            <input type="checkbox" checked={clearClose} onChange={(e) => setClearClose(e.target.checked)} /> Keep bookings open until the start
+          </label>
+        )}
+      </div>
+    </AdminModal>
+  );
+}
+
+// OG-19 — move a booking to another departure. Only when the customer asked
+// for it; a change the partner wants needs the customer's agreement (DEC-17),
+// so the dialog says to cancel instead. Same booking, same payment.
+function MoveBookingDialog({
+  booking,
+  departures,
+  onClose,
+  onMove,
+}: {
+  booking: VendorExperienceBooking;
+  departures: ExperienceSessionRow[];
+  onClose: () => void;
+  onMove: (input: { sessionId: string; note?: string }) => Promise<void>;
+}) {
+  const [sessionId, setSessionId] = useState(departures[0]?.id ?? "");
+  const [asked, setAsked] = useState(false);
+  const [note, setNote] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const submit = async () => {
+    if (!sessionId) return setError("Choose the departure to move to");
+    if (!asked) return setError("Confirm the customer asked for this move");
+    setBusy(true);
+    setError(null);
+    try {
+      await onMove({ sessionId, note: note.trim() || undefined });
+      onClose();
+    } catch (e) {
+      setError(errorMessage(e, "Couldn't move that booking"));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <AdminModal
+      open
+      onClose={onClose}
+      dirty={asked || !!note}
+      title={`Move ${booking.participantName}'s booking`}
+      subtitle={`Now ${booking.date} · ${booking.time}, party of ${booking.partySize}. Same booking, same payment. If the customer didn't ask for this, cancel the booking instead — they're refunded in full.`}
+      footer={
+        <>
+          <AdminButton variant="quiet" onClick={onClose}>
+            Cancel
+          </AdminButton>
+          <AdminButton variant="primary" onClick={submit} disabled={busy || departures.length === 0}>
+            {busy ? "Moving…" : "Move booking"}
+          </AdminButton>
+        </>
+      }
+    >
+      {departures.length === 0 ? (
+        <p style={{ margin: 0 }}>There's no other upcoming departure to move to. Add one under Departures first.</p>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+          <FormField label="Move to" required>
+            {(p) => (
+              <select {...p} className="adm-select" value={sessionId} onChange={(e) => setSessionId(e.target.value)}>
+                {departures.map((d) => (
+                  <option key={d.id} value={d.id}>
+                    {d.date} · {d.time}
+                  </option>
+                ))}
+              </select>
+            )}
+          </FormField>
+          <FormField label="Note (optional)" hint="Kept in the activity log.">
+            {(p) => <textarea {...p} rows={2} className="adm-input" value={note} onChange={(e) => setNote(e.target.value)} style={{ resize: "vertical" }} />}
+          </FormField>
+          <label style={{ display: "flex", gap: 8, alignItems: "flex-start", fontSize: 13.5 }}>
+            <input type="checkbox" checked={asked} onChange={(e) => setAsked(e.target.checked)} style={{ marginTop: 3 }} /> The customer asked to move to this departure
+          </label>
+          {error && (
+            <p role="alert" style={{ margin: 0, color: colors.danger, fontSize: 13 }}>
+              {error}
+            </p>
+          )}
+        </div>
+      )}
+    </AdminModal>
   );
 }
 
@@ -518,6 +798,8 @@ function ExperienceAttendance({ status, onMark }: { status: string | null; onMar
 export function BookingsPanel({ experienceId }: { experienceId: string }) {
   const [bookings, setBookings] = useState<VendorExperienceBooking[] | null>(null);
   const [failed, setFailed] = useState(false);
+  const [sessions, setSessions] = useState<ExperienceSessionRow[]>([]);
+  const [moving, setMoving] = useState<VendorExperienceBooking | null>(null);
   const today = irelandToday();
 
   const load = () => {
@@ -525,6 +807,9 @@ export function BookingsPanel({ experienceId }: { experienceId: string }) {
     fetchVendorExperienceBookings(experienceId)
       .then(setBookings)
       .catch(() => setFailed(true));
+    fetchVendorExperienceSessions(experienceId)
+      .then(setSessions)
+      .catch(() => setSessions([]));
   };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(load, [experienceId]);
@@ -552,11 +837,27 @@ export function BookingsPanel({ experienceId }: { experienceId: string }) {
                     }}
                   />
                 )}
+                {b.status !== "cancelled" && b.date >= today && (
+                  <button onClick={() => setMoving(b)} aria-label={`Move ${b.participantName}'s booking`} style={{ fontSize: 12, fontWeight: 700, color: colors.muted, background: "none", border: "none", padding: 0, cursor: "pointer", textDecoration: "underline" }}>
+                    Move
+                  </button>
+                )}
                 <span style={{ fontWeight: 700 }}>€{(b.totalCents / 100).toFixed(2)}</span>
               </span>
             </div>
           ))}
         </div>
+      )}
+      {moving && (
+        <MoveBookingDialog
+          booking={moving}
+          departures={sessions.filter((s) => s.status === "scheduled" && s.id !== moving.sessionId && s.date >= today)}
+          onClose={() => setMoving(null)}
+          onMove={async (input) => {
+            await moveExperienceBooking(experienceId, moving.id, { ...input, customerAsked: true });
+            load();
+          }}
+        />
       )}
     </div>
   );
@@ -565,67 +866,67 @@ export function BookingsPanel({ experienceId }: { experienceId: string }) {
 // --- tab (list only — create/edit lives at VendorExperienceEditPage.tsx) ---
 
 export function VendorExperiencesTab({ onOpenExperience }: { onOpenExperience: (id: string) => void }) {
-  const [experiences, setExperiences] = useState<VendorExperienceSummary[]>([]);
+  const state = useAdminData<VendorExperienceSummary[]>(() => fetchVendorExperiences());
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
   // Feature flags (implementation backlog #5) — read-only here, admin
   // controls it. Only gates creating a new listing, not editing an
   // already-created one (matches the server-side POST-only 403).
   const [experiencesEnabled, setExperiencesEnabled] = useState(true);
 
-  const load = () => {
-    fetchVendorExperiences().then(setExperiences);
-  };
-  useEffect(load, []);
   useEffect(() => {
-    fetchOrgProfile().then((p) => setExperiencesEnabled(p.flags.experiences));
+    // Only decides whether "Add" is offered; the server enforces the flag.
+    fetchOrgProfile()
+      .then((p) => setExperiencesEnabled(p.flags.experiences))
+      .catch(() => {});
   }, []);
 
   const remove = async (id: string) => {
     await deleteVendorExperience(id);
     setConfirmingId(null);
-    load();
+    state.reload();
   };
 
+  const KIND_LABEL = { adventure: "Adventure", volunteer: "Volunteer", experience: "Experience" } as Record<string, string>;
   return (
     <div className="fade-panel" style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-      <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4 }}>
-        <Button onClick={() => onOpenExperience("new")} disabled={!experiencesEnabled}>
-          <PlusIcon size={14} /> Add adventure/experience
-        </Button>
-        {!experiencesEnabled && (
-          <span style={{ fontSize: 11, color: colors.orangeDark }}>Not enabled for your organisation</span>
-        )}
-      </div>
-
-      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-        {experiences.map((e) => {
-          const palette = STATUS_COLORS[e.status] ?? STATUS_COLORS.pending;
-          return (
-            <Card key={e.id} hover style={{ padding: 15, display: "flex", justifyContent: "space-between", alignItems: "center" }} onClick={() => onOpenExperience(e.id)}>
-              <div>
-                <div style={{ fontWeight: 700, fontSize: 14 }}>{e.title}</div>
-                <div style={{ fontSize: 12, color: colors.mutedLight, display: "flex", alignItems: "center", gap: 6, marginTop: 2 }}>
-                  <CalendarIcon size={12} />
-                  {e.kind === "adventure" ? "Adventure" : e.kind === "volunteer" ? "Volunteer" : "Experience"} · {e.kind === "volunteer" ? "Free" : formatPrice(e.priceCents, { each: true })}
-                  <span style={{ fontSize: 11, fontWeight: 700, borderRadius: radius.pill, padding: "2px 8px", background: palette.bg, color: palette.fg, textTransform: "capitalize" }}>{e.status}</span>
-                </div>
-              </div>
-              <button
-                onClick={(ev) => {
-                  ev.stopPropagation();
-                  setConfirmingId(e.id);
-                }}
-                style={{ background: "none", border: "none", cursor: "pointer", color: colors.faint }}
-              >
-                <TrashIcon size={16} />
-              </button>
-            </Card>
-          );
-        })}
-        {experiences.length === 0 && (
-          <EmptyState icon={<TreeIconSmall size={26} />} title="No adventures or experiences yet" subtitle="Add one above." />
-        )}
-      </div>
+      {!experiencesEnabled && <p className="adm-note" style={{ margin: 0 }}>Adventures and experiences aren't enabled for your organisation, so you can't add new ones.</p>}
+      <Box flush>
+        <Loaded state={state} title="Couldn't load your adventures and experiences">
+          {(experiences) => experiences.length === 0 ? (
+            <EmptyState
+              icon={<Compass size={20} />}
+              title="No adventures or experiences yet"
+              subtitle="Guided walks, workshops, trips: anything people book a place on for a set date."
+              action={
+                experiencesEnabled ? (
+                  <AdminButton variant="primary" onClick={() => onOpenExperience("new")}>
+                    Add adventure or experience
+                  </AdminButton>
+                ) : undefined
+              }
+            />
+          ) : (
+            <WsListTable
+              caption="Your adventures and experiences"
+              columns={[{ label: "Listing" }, { label: "Type" }, { label: "Status" }, { label: "Price", num: true }]}
+              rows={experiences.map((e) => ({
+                key: e.id,
+                name: e.title,
+                title: e.title,
+                leading: (
+                  <span className="ws-thumb ws-thumb--empty" aria-hidden="true">
+                    <Compass size={18} strokeWidth={1.9} />
+                  </span>
+                ),
+                cells: [KIND_LABEL[e.kind] ?? "Experience", <StatusChipText status={e.status} />, e.kind === "volunteer" ? "Free" : formatPrice(e.priceCents, { each: true })],
+                onOpen: () => onOpenExperience(e.id),
+                openLabel: "Manage",
+                menu: [{ label: "Delete listing…", danger: true, onSelect: () => setConfirmingId(e.id) }],
+              }))}
+            />
+          )}
+        </Loaded>
+      </Box>
 
       <ConfirmDialog
         open={confirmingId !== null}

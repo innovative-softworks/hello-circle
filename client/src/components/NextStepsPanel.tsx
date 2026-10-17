@@ -19,7 +19,7 @@ import { Button } from "./ui";
 function Row({ icon, title, detail, action }: { icon: ReactNode; title: string; detail: string; action: ReactNode }) {
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 0", borderTop: `1px solid ${colors.border}`, flexWrap: "wrap" }}>
-      <div style={{ width: 36, height: 36, borderRadius: radius.pill, background: colors.greenBg, color: colors.greenText, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+      <div style={{ width: 36, height: 36, borderRadius: "50%", background: colors.greenBg, color: colors.greenText, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
         {icon}
       </div>
       <div style={{ flex: "1 1 160px", minWidth: 0 }}>

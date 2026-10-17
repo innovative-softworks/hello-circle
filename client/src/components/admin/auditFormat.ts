@@ -116,6 +116,14 @@ export function shortValue(raw: string | null | undefined): string | null {
   try {
     const v = JSON.parse(raw) as unknown;
     if (typeof v === "string" || typeof v === "number" || typeof v === "boolean") return String(v);
+    // Objects like {"status":"approved","decisionId":1}: show the first
+    // scalar that isn't an id, so "pending → approved" still reads.
+    if (v && typeof v === "object" && !Array.isArray(v)) {
+      for (const [k, x] of Object.entries(v as Record<string, unknown>)) {
+        if (/id$/i.test(k)) continue;
+        if (typeof x === "string" || typeof x === "number" || typeof x === "boolean") return String(x);
+      }
+    }
     return null;
   } catch {
     return raw.length <= 40 ? raw : null;

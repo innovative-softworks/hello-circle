@@ -1,8 +1,10 @@
+import { ActionMenu } from "../ActionMenu";
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type ButtonHTMLAttributes, type ReactNode } from "react";
-import { AlertTriangle, ChevronLeft, ChevronRight, EyeOff, Inbox, Lock, MoreHorizontal, Search, Users, X } from "lucide-react";
+import { AlertTriangle, ArrowRight, ChevronLeft, ChevronRight, EyeOff, Inbox, Lock, Search, Users, X, type LucideIcon } from "lucide-react";
 import { ApiError } from "../../api/core";
 import { useUrlParam } from "../../useUrlTab";
 import { useToast } from "../Toast";
+import { Modal } from "../ui";
 
 // Admin workspace primitives (2026-10-14 redesign). Styling lives in
 // admin.css under `.adm-*`; everything here is markup + behaviour only, so
@@ -66,7 +68,10 @@ export function Box({
   flush,
   headingLevel = 2,
   id,
+  icon,
 }: {
+  /** Optional Lucide icon shown in a tile before the title. */
+  icon?: LucideIcon;
   title?: ReactNode;
   subtitle?: ReactNode;
   actions?: ReactNode;
@@ -81,9 +86,12 @@ export function Box({
     <section className="adm-box" id={id} aria-label={typeof title === "string" ? title : undefined}>
       {(title || actions) && (
         <div className="adm-box-head">
-          <div style={{ minWidth: 0 }}>
-            {title && <H className="adm-box-title">{title}</H>}
-            {subtitle && <p className="adm-box-sub">{subtitle}</p>}
+          <div style={{ minWidth: 0, display: "flex", gap: 12, alignItems: "flex-start" }}>
+            {icon && <IconTile icon={icon} />}
+            <div style={{ minWidth: 0 }}>
+              {title && <H className="adm-box-title">{title}</H>}
+              {subtitle && <p className="adm-box-sub">{subtitle}</p>}
+            </div>
           </div>
           {actions && <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>{actions}</div>}
         </div>
@@ -321,7 +329,7 @@ export function EmptyMessage({ title, detail, icon, action }: { title: string; d
 }
 
 export function errorMessage(e: unknown, fallback = "Something went wrong."): string {
-  if (e instanceof ApiError && (e.status === 401 || e.status === 403)) return e.message || "Your admin role doesn't include this tool.";
+  if (e instanceof ApiError && (e.status === 401 || e.status === 403)) return e.message || "You don't have access to this.";
   if (e instanceof Error && e.message) return e.message;
   return fallback;
 }
@@ -331,7 +339,7 @@ export function ErrorMessage({ error, onRetry, title = "Couldn't load this" }: {
   return (
     <div className="adm-state" data-tone="error" role="alert">
       {forbidden ? <Lock size={22} strokeWidth={1.9} aria-hidden="true" /> : <AlertTriangle size={22} strokeWidth={1.9} aria-hidden="true" />}
-      <div className="adm-state-title">{forbidden ? "Not available for your admin role" : title}</div>
+      <div className="adm-state-title">{forbidden ? "Not available to you" : title}</div>
       <div>{errorMessage(error, "Check your connection and try again.")}</div>
       {onRetry && !forbidden && (
         <div style={{ marginTop: 14 }}>
@@ -344,8 +352,8 @@ export function ErrorMessage({ error, onRetry, title = "Couldn't load this" }: {
 
 /** Renders loading → error → children(data). Never shows an empty state for a
  * load that hasn't finished or that failed (audit finding 3). */
-export function Loaded<T>({ state, children, rows }: { state: AdminData<T>; children: (data: T) => ReactNode; rows?: number }) {
-  if (state.error) return <ErrorMessage error={state.error} onRetry={state.reload} />;
+export function Loaded<T>({ state, children, rows, title }: { state: AdminData<T>; children: (data: T) => ReactNode; rows?: number; title?: string }) {
+  if (state.error) return <ErrorMessage error={state.error} onRetry={state.reload} title={title} />;
   if (state.data === null) return <LoadingRows rows={rows} />;
   return <>{children(state.data)}</>;
 }
@@ -461,83 +469,12 @@ export interface MenuAction {
 }
 
 /** "More actions" menu for secondary row actions (spec: frequent actions stay
- * visible; the rest go here). Menu-button pattern: arrows move, Escape closes
- * and returns focus, a click outside closes. */
+ * visible; the rest go here). OG-21 — the same ActionMenu partner and host
+ * workspaces use (one keyboard/positioning implementation), with the admin's
+ * compact icon trigger. */
 export function OverflowMenu({ label, actions }: { label: string; actions: MenuAction[] }) {
-  const [open, setOpen] = useState(false);
-  const wrap = useRef<HTMLDivElement>(null);
-  const btn = useRef<HTMLButtonElement>(null);
-  const menuId = useId();
-  const items = () => Array.from(wrap.current?.querySelectorAll<HTMLButtonElement>('[role="menuitem"]:not(:disabled)') ?? []);
-  useEffect(() => {
-    if (!open) return;
-    const t = window.setTimeout(() => items()[0]?.focus(), 0);
-    const onDown = (e: MouseEvent) => {
-      if (wrap.current && !wrap.current.contains(e.target as Node)) setOpen(false);
-    };
-    document.addEventListener("mousedown", onDown);
-    return () => {
-      window.clearTimeout(t);
-      document.removeEventListener("mousedown", onDown);
-    };
-  }, [open]);
-  const onKey = (e: React.KeyboardEvent) => {
-    if (!open) return;
-    const list = items();
-    const i = list.indexOf(document.activeElement as HTMLButtonElement);
-    if (e.key === "Escape") {
-      e.stopPropagation();
-      setOpen(false);
-      btn.current?.focus();
-    } else if (e.key === "ArrowDown") {
-      e.preventDefault();
-      list[(i + 1) % list.length]?.focus();
-    } else if (e.key === "ArrowUp") {
-      e.preventDefault();
-      list[(i - 1 + list.length) % list.length]?.focus();
-    } else if (e.key === "Tab") {
-      setOpen(false);
-    }
-  };
   if (!actions.length) return null;
-  return (
-    <div className="adm-menu" ref={wrap} onKeyDown={onKey}>
-      <button
-        ref={btn}
-        type="button"
-        className="adm-btn adm-btn--quiet adm-btn--sm"
-        aria-haspopup="menu"
-        aria-expanded={open}
-        aria-controls={open ? menuId : undefined}
-        aria-label={label}
-        title={label}
-        onClick={() => setOpen((o) => !o)}
-      >
-        <MoreHorizontal size={18} strokeWidth={1.9} aria-hidden="true" />
-      </button>
-      {open && (
-        <ul className="adm-menu-list" role="menu" id={menuId} aria-label={label}>
-          {actions.map((a) => (
-            <li key={a.label} role="none">
-              <button
-                type="button"
-                role="menuitem"
-                data-danger={a.danger || undefined}
-                disabled={a.disabled}
-                onClick={() => {
-                  setOpen(false);
-                  btn.current?.focus();
-                  a.onSelect();
-                }}
-              >
-                {a.label}
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
-    </div>
-  );
+  return <ActionMenu appearance="icon" label={label} items={actions} />;
 }
 
 // --- form fields -----------------------------------------------------------------
@@ -597,4 +534,172 @@ export function Visibility({ who }: { who: "internal" | "shared" }) {
       {who === "internal" ? "Internal — visible to admins only" : "Shared with the person concerned"}
     </span>
   );
+}
+
+// --- icons, icon tabs, tiles (2026-10-16 icon pass) ------------------------------
+
+/** Square icon tile; `tone="hot"` when something is waiting. */
+export function IconTile({ icon: Icon, tone, size = 36 }: { icon: LucideIcon; tone?: "hot" | "good"; size?: number }) {
+  return (
+    <span className="adm-itile" data-tone={tone} style={{ width: size, height: size }}>
+      <Icon size={Math.round(size / 2)} strokeWidth={1.9} aria-hidden="true" />
+    </span>
+  );
+}
+
+export interface IconTabItem<T extends string> {
+  key: T;
+  label: string;
+  icon: LucideIcon;
+  count?: number;
+  /** Tabs with a different group get a thin divider before them. */
+  group?: string;
+}
+
+/** Section tabs with icons and optional counts (one shared style for every admin page). */
+export function IconTabs<T extends string>({ label, items, value, onChange }: { label: string; items: IconTabItem<T>[]; value: T; onChange: (k: T) => void }) {
+  const ref = useRef<HTMLDivElement>(null);
+  // On phones the row scrolls sideways: keep the selected tab in view.
+  useEffect(() => {
+    const el = ref.current?.querySelector<HTMLElement>('[aria-selected="true"]');
+    const row = ref.current;
+    if (el && row && row.scrollWidth > row.clientWidth) row.scrollLeft = el.offsetLeft - 16;
+  }, [value]);
+  return (
+    <div role="tablist" aria-label={label} className="adm-itabs" ref={ref}>
+      {items.map((t, i) => {
+        const Icon = t.icon;
+        const divider = i > 0 && t.group !== undefined && t.group !== items[i - 1].group;
+        return (
+          <span key={t.key} style={{ display: "contents" }}>
+            {divider && <span className="adm-itabs-sep" aria-hidden="true" />}
+            <button type="button" role="tab" aria-selected={value === t.key} onClick={() => onChange(t.key)}>
+              <Icon size={16} strokeWidth={1.9} aria-hidden="true" />
+              {t.label}
+              {!!t.count && <span className="adm-itabs-count">{t.count}</span>}
+            </button>
+          </span>
+        );
+      })}
+    </div>
+  );
+}
+
+/** Banner for "N things need attention" with one main action. */
+export function AttentionBanner({ icon: Icon, children, action }: { icon: LucideIcon; children: ReactNode; action?: ReactNode }) {
+  return (
+    <div className="adm-attn" role="status">
+      <Icon size={18} strokeWidth={1.9} aria-hidden="true" />
+      <div style={{ flex: 1, minWidth: 0 }}>{children}</div>
+      {action}
+    </div>
+  );
+}
+
+/** A form in a popup, styled as the admin workspace (2026-10-16). Put the main
+ * action in `footer`; pass `dirty` so closing a half-filled form asks first. */
+export function AdminModal({
+  open,
+  onClose,
+  title,
+  subtitle,
+  children,
+  footer,
+  wide,
+  dirty,
+}: {
+  open: boolean;
+  onClose: () => void;
+  title: string;
+  subtitle?: ReactNode;
+  children: ReactNode;
+  footer?: ReactNode;
+  wide?: boolean;
+  dirty?: boolean;
+}) {
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      title={title}
+      subtitle={subtitle}
+      size={wide ? "wide" : "default"}
+      confirmClose={dirty ? { title: "Discard your changes?", message: "What you've typed in this form will be lost." } : undefined}
+      footer={footer ? <div className="adm-dlg adm-dlg-foot">{footer}</div> : undefined}
+    >
+      <div className="adm-dlg">{children}</div>
+    </Modal>
+  );
+}
+
+// --- server-paged lists (OG-24) ----------------------------------------------------
+
+export interface ServerPaged<T> {
+  items: T[];
+  /** First page still loading (nothing to show yet). */
+  loading: boolean;
+  error: unknown;
+  hasMore: boolean;
+  loadingMore: boolean;
+  moreFailed: boolean;
+  loadMore: () => void;
+  reload: () => void;
+}
+
+/** A list the server pages with an opaque cursor. Changing `deps` (filters)
+ * starts again from the first page; a failed "load more" never clears what's
+ * already on screen. */
+export function useServerPage<T>(fetchPage: (cursor: string | null) => Promise<{ items: T[]; nextCursor: string | null }>, deps: unknown[]): ServerPaged<T> {
+  const [items, setItems] = useState<T[]>([]);
+  const [cursor, setCursor] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<unknown>(null);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [moreFailed, setMoreFailed] = useState(false);
+  const fetchRef = useRef(fetchPage);
+  fetchRef.current = fetchPage;
+  const seq = useRef(0);
+  const reload = useCallback(() => {
+    const n = ++seq.current;
+    setLoading(true);
+    setError(null);
+    setMoreFailed(false);
+    fetchRef
+      .current(null)
+      .then((p) => {
+        if (n !== seq.current) return;
+        setItems(p.items);
+        setCursor(p.nextCursor);
+      })
+      .catch((e) => n === seq.current && setError(e))
+      .finally(() => n === seq.current && setLoading(false));
+  }, []);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(reload, deps);
+  const loadMore = useCallback(() => {
+    if (!cursor) return;
+    const n = seq.current;
+    setLoadingMore(true);
+    setMoreFailed(false);
+    fetchRef
+      .current(cursor)
+      .then((p) => {
+        if (n !== seq.current) return;
+        setItems((prev) => [...prev, ...p.items]);
+        setCursor(p.nextCursor);
+      })
+      .catch(() => n === seq.current && setMoreFailed(true))
+      .finally(() => setLoadingMore(false));
+  }, [cursor]);
+  return { items, loading, error, hasMore: !!cursor, loadingMore, moreFailed, loadMore, reload };
+}
+
+/** Debounced text for server searches (so each keystroke isn't a request). */
+export function useDebounced<T>(value: T, ms = 300): T {
+  const [v, setV] = useState(value);
+  useEffect(() => {
+    const id = setTimeout(() => setV(value), ms);
+    return () => clearTimeout(id);
+  }, [value, ms]);
+  return v;
 }

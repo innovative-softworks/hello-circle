@@ -1,4 +1,6 @@
 import { sweepPaymentReviews } from "./payments/paymentReview.js";
+import { bookingChangesRouter } from "./routes/bookingChangeRoutes.js";
+import { adminInviteRouter, adminMfaRouter } from "./routes/adminAccess.js";
 import "dotenv/config";
 import cookieParser from "cookie-parser";
 import { sweepSubscriptions } from "./commerce/subscriptions.js";
@@ -165,6 +167,8 @@ app.use(attachGuestEmail);
 app.use(attachResident);
 app.use("/uploads", express.static(path.join(dataDir, "uploads")));
 
+app.use("/api/auth/mfa", adminMfaRouter);
+app.use("/api/auth/admin-invite", adminInviteRouter);
 app.use("/api/auth", authRouter);
 app.use("/api/guest", guestAuthRouter);
 app.use("/api/residents", residentsRouter);
@@ -187,6 +191,7 @@ app.use("/api/providers", providersRouter);
 app.use("/api/clubs", clubsRouter);
 app.use("/api/club-sessions", clubSessionsRouter);
 app.use("/api/availability", availabilityRouter);
+app.use("/api/booking-changes", bookingChangesRouter);
 app.use("/api/bookings", bookingsRouter);
 app.use("/api/checkout", checkoutAbandonRouter);
 app.use("/api/make-it-happen", makeItHappenRouter);

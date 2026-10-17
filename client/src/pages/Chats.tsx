@@ -129,7 +129,7 @@ export function Chats() {
                 color: colors.text,
               }}
             >
-              <span style={{ width: 42, height: 42, borderRadius: 16, background: i.unread > 0 ? colors.greenBg : colors.panel, color: i.unread > 0 ? colors.greenText : colors.muted, display: "inline-flex", alignItems: "center", justifyContent: "center", flex: "none" }}>
+              <span style={{ width: 42, height: 42, borderRadius: radius.card, background: i.unread > 0 ? colors.greenBg : colors.panel, color: i.unread > 0 ? colors.greenText : colors.muted, display: "inline-flex", alignItems: "center", justifyContent: "center", flex: "none" }}>
                 <ChatIcon size={19} />
               </span>
               <span style={{ flex: 1, minWidth: 0 }}>
@@ -143,7 +143,7 @@ export function Chats() {
                     {i.lastMessage ? `${i.lastMessage.authorName}: ${i.lastMessage.body}` : "No messages yet"}
                   </span>
                   {i.unread > 0 && (
-                    <span style={{ minWidth: 20, height: 20, borderRadius: 10, background: colors.orange, color: "#fff", fontSize: 11, fontWeight: 800, display: "inline-flex", alignItems: "center", justifyContent: "center", padding: "0 6px", flex: "none" }}>
+                    <span style={{ minWidth: 20, height: 20, borderRadius: radius.control, background: colors.orange, color: "#fff", fontSize: 11, fontWeight: 800, display: "inline-flex", alignItems: "center", justifyContent: "center", padding: "0 6px", flex: "none" }}>
                       {i.unread > 99 ? "99+" : i.unread}
                     </span>
                   )}

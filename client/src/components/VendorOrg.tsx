@@ -1,36 +1,20 @@
 import { EarningsSections } from "./EarningsSummary";
 import { TraderProfileForm } from "./TraderProfileForm";
 import { useEffect, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Navigate, useNavigate } from "react-router-dom";
 import { useRecordParam, useUrlParam } from "../useUrlTab";
 import { StaffMemberRecord } from "./StaffMemberRecord";
 import { useAuth } from "../AuthContext";
 import { useGoogleSignIn } from "../googleSignIn";
 import { getMediaUrl } from "../media";
-import {
-  bookingsReportCsvUrl,
-  changePassword,
-  deactivateVendorAccount,
-  fetchOrgProfile,
-  fetchParticipants,
-  fetchVendorInsights,
-  fetchVendorPayments,
-  fetchVendorEarnings,
-  inviteStaff,
-  linkVendorGoogleAccount,
-  requestManageLink,
-  revokeInvite,
-  updateOrgPolicies,
-  updateOrgProfile,
-  updateVendorLogo,
-  uploadMedia,
-  releaseMedia,
-} from "../api";
+import { bookingsReportCsvUrl, changePassword, deactivateVendorAccount, fetchOrgProfile, fetchVendorInsights, fetchVendorPayments, fetchVendorEarnings, inviteStaff, linkVendorGoogleAccount, requestManageLink, revokeInvite, updateOrgPolicies, updateOrgProfile, updateVendorLogo, uploadMedia, releaseMedia } from "../api";
 import { PLATFORM_ROLES, PLATFORM_ROLE_LABELS } from "../types";
-import type { OrgProfile, Participant, VendorInsights, VendorPayments } from "../types";
-import { CameraIcon, CloseIcon, GoogleIcon, PlusIcon, SearchIcon, TrashIcon, TrendUpIcon, UsersIcon } from "./icons";
-import { Button, ManageCard as Card, ConfirmDialog, EmptyState, PageSpinner, Tabs, inputStyle, labelStyle, tableStyle, tdStyle, thStyle } from "./ui";
+import type { OrgProfile, VendorInsights, VendorPayments } from "../types";
+import { CameraIcon, CloseIcon, GoogleIcon, PlusIcon, TrashIcon, TrendUpIcon, UsersIcon } from "./icons";
+import { Button, ManageCard as Card, ConfirmDialog, EmptyState, PageSpinner, Tabs, inputStyle, labelStyle, tableStyle, tdStyle, thStyle, StackTable } from "./ui";
 import { formatDate } from "../vendorFormat";
+import { Activity, Building2, ChartColumn, CreditCard, ImageIcon, KeyRound, MapPin, UserPlus, Users } from "lucide-react";
+import { Box, ErrorMessage, Loaded, useAdminData } from "./admin/adminUi";
 import { colors, fonts, radius } from "../theme";
 
 // Organisation entity + Staff + RBAC (Phase C — Gate 2 from the plan doc).
@@ -97,8 +81,7 @@ function LogoPanel({ profile, reload }: { profile: OrgProfile; reload: () => voi
   if (!profile.isOwner) return null;
 
   return (
-    <Card>
-      <h2 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 15, margin: "0 0 4px" }}>Public profile logo</h2>
+    <Box title="Public profile logo" icon={ImageIcon}>
       <p style={{ fontSize: 12.5, color: colors.mutedLight, margin: "0 0 14px" }}>
         Shown on your public provider profile page. JPEG, PNG, WebP or GIF, up to 8MB.
       </p>
@@ -148,7 +131,7 @@ function LogoPanel({ profile, reload }: { profile: OrgProfile; reload: () => voi
         <input ref={logoInputRef} type="file" accept="image/*" hidden tabIndex={-1} onChange={(e) => { void onFile(e.target.files); e.target.value = ""; }} disabled={uploading} />
       </div>
       {error && <p role="alert" style={{ color: colors.danger, fontSize: 12, margin: "10px 0 0" }}>{error}</p>}
-    </Card>
+    </Box>
   );
 }
 
@@ -203,8 +186,7 @@ function SettingsPanel({ profile, reload }: { profile: OrgProfile; reload: () =>
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-      <Card>
-        <h2 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 15, margin: "0 0 14px" }}>Organisation profile</h2>
+      <Box title="Organisation profile" icon={Building2}>
         {!profile.isOwner && <p style={{ fontSize: 12.5, color: colors.orangeDark, marginBottom: 12 }}>Only the organisation owner can edit these settings.</p>}
         <label htmlFor="org-settings-name" style={labelStyle}>Name</label>
         <input id="org-settings-name" value={name} onChange={(e) => { setName(e.target.value); clearFeedback(); }} disabled={!profile.isOwner} style={{ ...inputStyle, marginBottom: 14 }} />
@@ -250,10 +232,9 @@ function SettingsPanel({ profile, reload }: { profile: OrgProfile; reload: () =>
             {saved && <span style={{ fontSize: 13, color: colors.greenText, fontWeight: 600 }}>Saved</span>}
           </div>
         )}
-      </Card>
+      </Box>
       <LogoPanel profile={profile} reload={reload} />
-      <Card>
-        <h2 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 15, margin: "0 0 14px" }}>Locations</h2>
+      <Box title="Locations" icon={MapPin}>
         <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
           {profile.locations.map((l) => (
             <div key={`${l.type}:${l.id}`} style={{ fontSize: 13.5, background: colors.bg, borderRadius: radius.control, padding: "8px 12px" }}>
@@ -262,7 +243,7 @@ function SettingsPanel({ profile, reload }: { profile: OrgProfile; reload: () =>
           ))}
           {profile.locations.length === 0 && <span style={{ fontSize: 13, color: colors.faint }}>No listings yet.</span>}
         </div>
-      </Card>
+      </Box>
       <AccountSettingsPanel />
     </div>
   );
@@ -356,8 +337,7 @@ function AccountSettingsPanel() {
   };
 
   return (
-    <Card>
-      <h2 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 15, margin: "0 0 14px" }}>Account</h2>
+    <Box title="Account" icon={KeyRound}>
       <label htmlFor="vendor-current-password" style={labelStyle}>Current password</label>
       <input id="vendor-current-password" type="password" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} style={{ ...inputStyle, marginBottom: 10 }} />
       <label htmlFor="vendor-new-password" style={labelStyle}>New password</label>
@@ -423,7 +403,7 @@ function AccountSettingsPanel() {
         onConfirm={deactivate}
         onCancel={() => setConfirmingDeactivate(false)}
       />
-    </Card>
+    </Box>
   );
 }
 
@@ -455,8 +435,7 @@ function StaffPanel({ profile, reload, onOpenMember }: { profile: OrgProfile; re
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       {profile.isOwner && (
-        <Card>
-          <h2 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 15, margin: "0 0 14px" }}>Invite staff</h2>
+        <Box title="Invite staff" icon={UserPlus}>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "flex-end" }}>
             <div style={{ flex: "1 1 220px" }}>
               <label htmlFor="org-staff-invite-email" style={labelStyle}>Email</label>
@@ -479,12 +458,11 @@ function StaffPanel({ profile, reload, onOpenMember }: { profile: OrgProfile; re
           <p style={{ fontSize: 12, color: colors.faint, margin: "10px 0 0" }}>
             RBAC is enforced on: editing/deleting centres and programs on centres (centre manager), editing/deleting clubs, club sessions and programs on clubs (facility manager), check-in (whichever manager matches booking vs. registration), Payments and reports (finance), demand insights (finance/read-only analyst), and sending messages (communications). The org owner always has full access regardless of role.
           </p>
-        </Card>
+        </Box>
       )}
-      <Card>
-        <h2 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 15, margin: "0 0 14px" }}>Team</h2>
+      <Box title="Team" icon={Users}>
         <div style={{ overflowX: "auto" }}>
-          <table style={tableStyle}>
+          <StackTable>
             <thead>
               <tr>
                 <th style={thStyle}>Name</th>
@@ -513,7 +491,7 @@ function StaffPanel({ profile, reload, onOpenMember }: { profile: OrgProfile; re
                 </tr>
               ))}
             </tbody>
-          </table>
+          </StackTable>
         </div>
         {profile.pendingInvites.length > 0 && (
           <>
@@ -532,7 +510,7 @@ function StaffPanel({ profile, reload, onOpenMember }: { profile: OrgProfile; re
             </div>
           </>
         )}
-      </Card>
+      </Box>
 
       <ConfirmDialog
         open={confirmingInviteId !== null}
@@ -546,63 +524,16 @@ function StaffPanel({ profile, reload, onOpenMember }: { profile: OrgProfile; re
   );
 }
 
-function ParticipantsPanel() {
-  const [q, setQ] = useState("");
-  const [rows, setRows] = useState<Participant[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  const load = (query: string) => {
-    setLoading(true);
-    fetchParticipants(query).then(setRows).finally(() => setLoading(false));
-  };
-  useEffect(() => load(""), []);
-
+function InsightsPanel() {
+  const state = useAdminData<VendorInsights>(() => fetchVendorInsights());
   return (
-    <Card>
-      <div style={{ position: "relative", marginBottom: 16 }}>
-        <SearchIcon size={15} style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", color: colors.faint }} />
-        <input
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && load(q)}
-          placeholder="Search participants by name or email"
-          style={{ ...inputStyle, paddingLeft: 36 }}
-        />
-      </div>
-      {loading ? null : rows.length === 0 ? (
-        <EmptyState icon={<UsersIcon size={22} />} title="No participants found" />
-      ) : (
-        <div style={{ overflowX: "auto" }}>
-          <table style={tableStyle}>
-            <thead>
-              <tr>
-                <th style={thStyle}>Name</th>
-                <th style={thStyle}>Email</th>
-                <th style={thStyle}>Listing</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((r, i) => (
-                <tr key={i}>
-                  <td style={tdStyle}>{r.name}</td>
-                  <td style={tdStyle}>{r.email}</td>
-                  <td style={{ ...tdStyle, color: colors.faint }}>{r.listingName}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </Card>
+    <Loaded state={state} title="Couldn't load your insights">
+      {(insights) => <InsightsView insights={insights} />}
+    </Loaded>
   );
 }
 
-function InsightsPanel() {
-  const [insights, setInsights] = useState<VendorInsights | null>(null);
-  useEffect(() => {
-    fetchVendorInsights().then(setInsights);
-  }, []);
-  if (!insights) return <PageSpinner />;
+function InsightsView({ insights }: { insights: VendorInsights }) {
 
   const { totals } = insights;
   const cancellationRate = totals.totalBookings > 0 ? Math.round((totals.cancelledBookings / totals.totalBookings) * 100) : 0;
@@ -622,8 +553,7 @@ function InsightsPanel() {
           )}
         </Card>
       )}
-      <Card>
-        <h2 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 15, margin: "0 0 14px" }}>Participation</h2>
+      <Box title="Participation" icon={Activity}>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 14 }}>
           {[
             { label: "Hall bookings", value: totals.totalBookings },
@@ -637,9 +567,8 @@ function InsightsPanel() {
             </div>
           ))}
         </div>
-      </Card>
-      <Card>
-        <h2 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 15, margin: "0 0 4px" }}>Hall booking utilisation</h2>
+      </Box>
+      <Box title="Hall booking utilisation" icon={ChartColumn}>
         <p style={{ fontSize: 12.5, color: colors.mutedLight, margin: "0 0 14px" }}>Paid bookings by day of week and starting hour.</p>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
           {insights.utilisation.length === 0 ? (
@@ -652,7 +581,7 @@ function InsightsPanel() {
             ))
           )}
         </div>
-      </Card>
+      </Box>
       <Button variant="ghost" onClick={() => window.open(bookingsReportCsvUrl(), "_blank")}>
         Export bookings CSV
       </Button>
@@ -687,91 +616,69 @@ export function PaymentsPanel() {
 
   return (
     <EarningsSections scope="vendor" loadBalance={fetchVendorEarnings}>
-    <Card>
-      <div style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 22, marginBottom: 4 }}>€{(data.totalPaidCents / 100).toFixed(2)}</div>
-      {/* Vendor Experience Polish — totalPaidCents is now a true SUM across
-          every paid booking/registration/enrollment/experience-booking, not
-          derived from the transactions list below (which stays capped for
-          display) — the old "last 200 transactions" caption was actively
-          misleading about what the total represented, so it's dropped. */}
-      <div style={{ fontSize: 12.5, color: colors.mutedLight, marginBottom: 18 }}>Customer payments, all time (including VAT, fees and deposits — not your earnings; see your balance above)</div>
-      {data.transactions.length === 0 ? (
-        <EmptyState icon={<UsersIcon size={22} />} title="No transactions yet" />
-      ) : (
-        <>
-          <div style={{ marginBottom: 14 }}>
-            <Tabs
-              value={filter}
-              onChange={setFilter}
-              options={[
-                { key: "all", label: "All" },
-                { key: "paid", label: "Paid" },
-                { key: "refunded", label: "Refunded" },
-              ]}
-            />
-          </div>
-          {filteredTransactions.length === 0 ? (
-            <EmptyState icon={<UsersIcon size={22} />} title="No transactions match this filter" />
-          ) : (
-            <>
-              {/* Vendor Experience Polish — mobile card fallback, avoids
-                  horizontal scrolling on a phone-width transaction table. */}
-              <div className="mobile-cards">
+      {/* totalPaidCents is a true SUM across every paid booking/registration/
+          enrollment/experience-booking, not derived from the capped list below. */}
+      <Box
+        flush
+        icon={CreditCard}
+        title={`Customer payments · €${(data.totalPaidCents / 100).toFixed(2)}`}
+        subtitle="All time, including VAT, fees and deposits. This isn't what you earn: see your balance above."
+        actions={
+          data.transactions.length > 0 && (
+            <div className="ws-seg" role="group" aria-label="Show payments">
+              {(["all", "paid", "refunded"] as const).map((f) => (
+                <button key={f} type="button" aria-pressed={filter === f} onClick={() => setFilter(f)}>
+                  {f === "all" ? "All" : f === "paid" ? "Paid" : "Refunded"}
+                </button>
+              ))}
+            </div>
+          )
+        }
+      >
+        {data.transactions.length === 0 ? (
+          <EmptyState icon={<CreditCard size={20} />} title="No transactions yet" />
+        ) : filteredTransactions.length === 0 ? (
+          <EmptyState icon={<CreditCard size={20} />} title="No transactions match this filter" />
+        ) : (
+          <div className="adm-table-wrap">
+            <table className="adm-table adm-table--stack">
+              <caption className="adm-visually-hidden">Customer payments</caption>
+              <thead>
+                <tr>
+                  <th scope="col">Listing</th>
+                  <th scope="col">Type</th>
+                  <th scope="col">Ref</th>
+                  <th scope="col">Date</th>
+                  <th scope="col" className="adm-num">
+                    Amount
+                  </th>
+                  <th scope="col">Status</th>
+                </tr>
+              </thead>
+              <tbody>
                 {filteredTransactions.map((t) => (
-                  <Card key={t.ref}>
-                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 6 }}>
-                      <span style={{ fontFamily: "monospace", fontSize: 12.5 }}>{t.ref}</span>
-                      <span
-                        style={{
-                          fontSize: 11,
-                          fontWeight: 700,
-                          color: t.paymentStatus === "refunded" ? colors.muted : colors.greenText,
-                          background: t.paymentStatus === "refunded" ? colors.panel : colors.greenBg,
-                          borderRadius: radius.pill,
-                          padding: "2px 8px",
-                          textTransform: "capitalize",
-                        }}
-                      >
+                  <tr key={t.ref}>
+                    <td data-label="Listing">{t.listingName}</td>
+                    <td data-label="Type">{PAYMENT_KIND_LABELS[t.kind]}</td>
+                    <td data-label="Ref" style={{ fontFamily: "ui-monospace, monospace", fontSize: 12.5 }}>
+                      {t.ref}
+                    </td>
+                    <td data-label="Date">{formatDate(t.createdAt)}</td>
+                    <td data-label="Amount" className="adm-num" style={{ fontWeight: 700 }}>
+                      €{(t.totalCents / 100).toFixed(2)}
+                    </td>
+                    <td data-label="Status">
+                      <span className="adm-chip" data-tone={t.paymentStatus === "paid" ? "good" : undefined} style={{ textTransform: "capitalize" }}>
                         {t.paymentStatus}
                       </span>
-                    </div>
-                    <div style={{ fontSize: 13.5, fontWeight: 700, marginBottom: 2 }}>{t.listingName}</div>
-                    <div style={{ fontSize: 12, color: colors.mutedLight, marginBottom: 8 }}>
-                      {PAYMENT_KIND_LABELS[t.kind]} · {formatDate(t.createdAt)}
-                    </div>
-                    <div style={{ fontWeight: 700, fontSize: 15 }}>€{(t.totalCents / 100).toFixed(2)}</div>
-                  </Card>
-                ))}
-              </div>
-              <div className="hide-mobile" style={{ overflowX: "auto" }}>
-              <table style={tableStyle}>
-                <thead>
-                  <tr>
-                    <th style={thStyle}>Listing</th>
-                    <th style={thStyle}>Type</th>
-                    <th style={thStyle}>Ref</th>
-                    <th style={thStyle}>Amount</th>
-                    <th style={thStyle}>Status</th>
+                    </td>
                   </tr>
-                </thead>
-                <tbody>
-                  {filteredTransactions.map((t) => (
-                    <tr key={t.ref}>
-                      <td style={tdStyle}>{t.listingName}</td>
-                      <td style={{ ...tdStyle, color: colors.mutedLight }}>{PAYMENT_KIND_LABELS[t.kind]}</td>
-                      <td style={{ ...tdStyle, fontFamily: "monospace" }}>{t.ref}</td>
-                      <td style={{ ...tdStyle, fontWeight: 700 }}>€{(t.totalCents / 100).toFixed(2)}</td>
-                      <td style={{ ...tdStyle, color: colors.mutedLight }}>{t.paymentStatus}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              </div>
-            </>
-          )}
-        </>
-      )}
-    </Card>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Box>
     </EarningsSections>
   );
 }
@@ -787,11 +694,19 @@ export function VendorOrgTab() {
   const subTab: OrgSection = (ORG_SECTIONS as string[]).includes(sectionParam) ? (sectionParam as OrgSection) : "settings";
   const [record, openRecord, closeRecord] = useRecordParam();
 
-  const load = () => fetchOrgProfile().then(setProfile);
+  const [profileError, setProfileError] = useState<unknown>(null);
+  const load = () =>
+    fetchOrgProfile()
+      .then((p) => {
+        setProfile(p);
+        setProfileError(null);
+      })
+      .catch((e) => setProfileError(e));
   useEffect(() => {
     load();
   }, []);
 
+  if (profileError && !profile) return <ErrorMessage error={profileError} onRetry={load} title="Couldn't load your organisation" />;
   if (!profile) return <PageSpinner />;
   if (subTab === "staff" && record?.startsWith("member:") && profile.isOwner) {
     const member = profile.staff.find((m) => m.id === record.slice(7)) ?? null;
@@ -808,7 +723,6 @@ export function VendorOrgTab() {
             { key: "settings", label: "Settings" },
             { key: "trader", label: "Trader details" },
             { key: "staff", label: "Staff & roles" },
-            { key: "participants", label: "Participants" },
             { key: "insights", label: "Insights", icon: <TrendUpIcon size={13} /> },
           ]}
         />
@@ -816,7 +730,7 @@ export function VendorOrgTab() {
       {subTab === "settings" && <SettingsPanel profile={profile} reload={load} />}
       {subTab === "trader" && <TraderProfileForm scope="vendor" />}
       {subTab === "staff" && <StaffPanel profile={profile} reload={load} onOpenMember={(id) => openRecord(`member:${id}`)} />}
-      {subTab === "participants" && <ParticipantsPanel />}
+      {subTab === "participants" && <Navigate to="/vendor?tab=customers" replace />}
       {subTab === "insights" && <InsightsPanel />}
     </div>
   );

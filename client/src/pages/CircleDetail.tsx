@@ -986,7 +986,7 @@ export function CircleDetail() {
                   border: `1px solid ${reason === reportReason ? colors.text : colors.border}`,
                   background: reason === reportReason ? colors.text : "transparent",
                   color: reason === reportReason ? colors.surface : colors.muted,
-                  borderRadius: 999,
+                  borderRadius: radius.pill,
                   padding: "6px 12px",
                   fontSize: 12.5,
                   fontWeight: 600,
