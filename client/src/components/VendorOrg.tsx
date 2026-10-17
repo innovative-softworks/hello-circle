@@ -534,6 +534,10 @@ function InsightsPanel() {
 }
 
 function InsightsView({ insights }: { insights: VendorInsights }) {
+  // The CSV export is served to finance and read-only analysts (analysts get it
+  // without customer names/emails — Option A); other staff aren't offered it.
+  const { user } = useAuth();
+  const canExport = !user?.invitedStaff || user.platformRole === "finance" || user.platformRole === "read_only_analyst";
 
   const { totals } = insights;
   const cancellationRate = totals.totalBookings > 0 ? Math.round((totals.cancelledBookings / totals.totalBookings) * 100) : 0;
@@ -582,9 +586,11 @@ function InsightsView({ insights }: { insights: VendorInsights }) {
           )}
         </div>
       </Box>
-      <Button variant="ghost" onClick={() => window.open(bookingsReportCsvUrl(), "_blank")}>
-        Export bookings CSV
-      </Button>
+      {canExport && (
+        <Button variant="ghost" onClick={() => window.open(bookingsReportCsvUrl(), "_blank")}>
+          Export bookings CSV
+        </Button>
+      )}
     </div>
   );
 }

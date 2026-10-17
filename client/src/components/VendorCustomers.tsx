@@ -12,7 +12,9 @@ import { AdminButton, Box, EmptyMessage, Facts, Loaded, SearchField, SectionLabe
 const TYPE: Record<string, string> = { booking: "Hall booking", registration: "Club registration", program: "Programme", experience: "Experience" };
 const euro = (cents: number) => `€${(cents / 100).toFixed(2)}`;
 
-export function VendorCustomersTab({ onOpenBooking }: { onOpenBooking: (ref: string) => void }) {
+// onOpenBooking is left out for staff without the Bookings tab (Option A: the
+// booking record is refused to them), so the order shows as plain text.
+export function VendorCustomersTab({ onOpenBooking }: { onOpenBooking?: (ref: string) => void }) {
   const [record, openRecord, closeRecord] = useRecordParam();
   const [q, setQ] = useUrlParam<string>("cq", "");
   const state = useAdminData(() => fetchVendorCustomers());
@@ -83,7 +85,7 @@ export function VendorCustomersTab({ onOpenBooking }: { onOpenBooking: (ref: str
   );
 }
 
-function CustomerRecord({ email, onBack, onOpenBooking }: { email: string; onBack: () => void; onOpenBooking: (ref: string) => void }) {
+function CustomerRecord({ email, onBack, onOpenBooking }: { email: string; onBack: () => void; onOpenBooking?: (ref: string) => void }) {
   const state = useAdminData(() => fetchVendorCustomer(email), [email]);
   if (state.error) return <RecordState state={(state.error as { status?: number }).status === 404 ? "missing" : "error"} backLabel="Customers" onBack={onBack} onRetry={state.reload} />;
   if (!state.data) return <RecordState state="loading" backLabel="Customers" onBack={onBack} />;
@@ -121,7 +123,7 @@ function CustomerRecord({ email, onBack, onOpenBooking }: { email: string; onBac
                 {c.orders.map((o) => (
                   <tr key={`${o.type}:${o.ref}`}>
                     <td data-label="What">
-                      {o.type === "booking" ? (
+                      {o.type === "booking" && onOpenBooking ? (
                         <button type="button" className="adm-linkish" onClick={() => onOpenBooking(o.ref)}>
                           {o.listingName}
                         </button>

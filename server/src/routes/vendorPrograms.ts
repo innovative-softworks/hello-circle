@@ -5,14 +5,14 @@ import crypto from "node:crypto";
 import { logEvent } from "../analytics.js";
 import { matchProgramSupply } from "../participationIntents.js";
 import { Router } from "express";
-import { assertPlatformRole } from "../auth.js";
+import { assertPlatformRole, requirePlatformRole } from "../auth.js";
 import { writeAudit } from "../audit.js";
 import { refundPaidOnce } from "../checkoutService.js";
 import { db } from "../db/index.js";
 import { orgFeatureFlags } from "../db/queries.js";
 import { notifyRefund, notifyResident } from "../notifications.js";
 import { irelandTodayIso } from "../irelandTime.js";
-import { inClause, ownsListing } from "./vendorHelpers.js";
+import { ROSTER_ROLES, inClause, ownsListing } from "./vendorHelpers.js";
 import { notifyCentreFollowers, notifyVendorFollowers } from "./follows.js";
 import { toProgramJson, type ProgramRow } from "./programs.js";
 
@@ -259,7 +259,7 @@ async function notifySessionCancelled(programId: string, sessionId: string) {
   }
 }
 
-vendorProgramsRouter.get("/programs/:id/enrollments", async (req, res) => {
+vendorProgramsRouter.get("/programs/:id/enrollments", requirePlatformRole(...ROSTER_ROLES), async (req, res) => {
   const { owns } = await programOwnership(req.vendorIds!, req.params.id);
   if (!owns) return res.status(403).json({ error: "Not your program" });
   const rows = await db

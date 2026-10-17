@@ -4,7 +4,7 @@ import { complaintsAbout, respondAsSubject } from "./complaints.js";
 import { ChangeError, bookingForChange, proposalsForBooking, proposeBookingChange, withdrawProposal } from "../bookingChanges.js";
 import { Router } from "express";
 import { cancelHallBookingAsProvider, cancelRegistrationAsProvider } from "../hallBookingCancel.js";
-import { assertPlatformRole, requirePlatformRole } from "../auth.js";
+import { assertPlatformRole, hasPlatformRole, requirePlatformRole } from "../auth.js";
 import { writeAudit } from "../audit.js";
 import { refundPaidOnce } from "../checkoutService.js";
 import { logEvent } from "../analytics.js";
@@ -12,7 +12,7 @@ import { db } from "../db/index.js";
 import { fromAttendanceStatus, HOST_ATTENDANCE_STATUSES } from "../attendanceState.js";
 import { sendMail } from "../email.js";
 import { notifyRefund, resendConfirmationEmail } from "../notifications.js";
-import { inClause, ownsCentre, ownsClub } from "./vendorHelpers.js";
+import { CUSTOMER_ROLES, ORDER_ROLES, ROSTER_ROLES, inClause, ownsCentre, ownsClub } from "./vendorHelpers.js";
 import { irelandTodayIso, irelandWallTimeToUtc } from "../irelandTime.js";
 import { couponAmountError, parseCouponLimits } from "../pricing.js";
 import { RefundError, refundInApp } from "../commerce/payments.js";
@@ -42,7 +42,7 @@ export const vendorOperationsRouter = Router();
  *   deposit_due    — a venue booking whose event has passed and whose
  *                    refundable deposit hasn't been returned yet.
  * Read-only; amounts are the stored order values, never re-priced. */
-vendorOperationsRouter.get("/orders", async (req, res) => {
+vendorOperationsRouter.get("/orders", requirePlatformRole(...ORDER_ROLES), async (req, res) => {
   const ids = req.vendorIds!;
   if (!ids.length) return res.json([]);
   const attentionOnly = req.query.attention === "1";
@@ -111,7 +111,7 @@ vendorOperationsRouter.get("/statements/:month", requirePlatformRole("finance"),
   res.send(statementCsv(statement, org?.name ?? "Your organisation"));
 });
 
-vendorOperationsRouter.get("/bookings", async (req, res) => {
+vendorOperationsRouter.get("/bookings", requirePlatformRole(...ORDER_ROLES), async (req, res) => {
   const ids = req.vendorIds!;
   const centreId = typeof req.query.centreId === "string" ? req.query.centreId : undefined;
   const rows = await db
@@ -160,7 +160,7 @@ vendorOperationsRouter.post("/bookings/:ref/propose-change", requirePlatformRole
   }
 });
 
-vendorOperationsRouter.get("/bookings/:ref/changes", async (req, res) => {
+vendorOperationsRouter.get("/bookings/:ref/changes", requirePlatformRole(...ORDER_ROLES), async (req, res) => {
   try {
     await bookingForChange(req.params.ref, req.vendorIds!);
   } catch (e) {
@@ -432,7 +432,7 @@ vendorOperationsRouter.post("/registrations/:ref/refund", requirePlatformRole("f
 
 // `?clubId=` — same per-listing narrowing as GET /bookings above, used by
 // VendorClubEditPage.tsx's Registrations sub-tab.
-vendorOperationsRouter.get("/registrations", async (req, res) => {
+vendorOperationsRouter.get("/registrations", requirePlatformRole(...ORDER_ROLES), async (req, res) => {
   const ids = req.vendorIds!;
   const clubId = typeof req.query.clubId === "string" ? req.query.clubId : undefined;
   const rows = await db
@@ -457,7 +457,7 @@ vendorOperationsRouter.get("/registrations", async (req, res) => {
  * concept in the schema), so this only exists for clubs, where registrations
  * genuinely group into something new: a roster by child, not a flat list of
  * sign-ups. */
-vendorOperationsRouter.get("/clubs/:id/participants", async (req, res) => {
+vendorOperationsRouter.get("/clubs/:id/participants", requirePlatformRole(...ROSTER_ROLES), async (req, res) => {
   if (!(await ownsClub(req.vendorIds!, req.params.id))) return res.status(403).json({ error: "Not your listing" });
   const rows = (await db
     .prepare(
@@ -558,7 +558,10 @@ vendorOperationsRouter.get("/today", async (req, res) => {
        ORDER BY cs.time`
     )
     .all(...ids, dayOfWeek);
-  res.json({ bookings, clubSessions });
+  // Option A — the booker's name only for staff who may see customer details;
+  // everyone else keeps the operational facts (time, length, guests, venue).
+  const showNames = hasPlatformRole(req.user!, ...CUSTOMER_ROLES);
+  res.json({ bookings: showNames ? bookings : (bookings as Record<string, unknown>[]).map((b) => ({ ...b, name: null })), clubSessions });
 });
 
 // --- unified cross-listing-type schedule (Vendor Experience Polish) -------
@@ -808,7 +811,7 @@ vendorOperationsRouter.get("/schedule-items", async (req, res) => {
 // --- club waitlist visibility (Tier 3 — was genuinely missing, not just
 // missing UI: no route here saw a club's waitlist at all until now) --------
 
-vendorOperationsRouter.get("/clubs/:id/waitlist", async (req, res) => {
+vendorOperationsRouter.get("/clubs/:id/waitlist", requirePlatformRole(...ROSTER_ROLES), async (req, res) => {
   if (!(await ownsClub(req.vendorIds!, req.params.id))) return res.status(403).json({ error: "Not your listing" });
   const rows = await db
     .prepare(

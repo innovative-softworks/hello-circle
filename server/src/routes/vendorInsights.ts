@@ -1,11 +1,11 @@
 import { Router } from "express";
 import { logEvent } from "../analytics.js";
 import { getOpportunities } from "../participationIntents.js";
-import { requirePlatformRole } from "../auth.js";
+import { hasPlatformRole, requirePlatformRole } from "../auth.js";
 import { partnerBalances } from "../commerce/settlement.js";
 import { db } from "../db/index.js";
 import { getDemandSignals } from "../db/queries.js";
-import { inClause } from "./vendorHelpers.js";
+import { CUSTOMER_ROLES, inClause } from "./vendorHelpers.js";
 import { irelandTodayIso } from "../irelandTime.js";
 
 // Phase C: participant directory, insights, CSV export, payments summary,
@@ -20,7 +20,7 @@ export const vendorInsightsRouter = Router();
 // this vendor's own listings — previously only visible inline per-row on
 // the flat Bookings tab.
 
-vendorInsightsRouter.get("/participants", async (req, res) => {
+vendorInsightsRouter.get("/participants", requirePlatformRole(...CUSTOMER_ROLES), async (req, res) => {
   const ids = req.vendorIds!;
   const in1 = inClause(ids);
   const q = typeof req.query.q === "string" ? `%${req.query.q}%` : "%";
@@ -117,10 +117,21 @@ vendorInsightsRouter.get("/reports/bookings.csv", requirePlatformRole("finance",
        FROM bookings b JOIN centres c ON c.id = b.centre_id WHERE c.vendor_id IN (${inClause(ids)}) ORDER BY b.date DESC`
     )
     .all(...ids)) as Record<string, unknown>[];
-  const header = "ref,centre,date,time,duration,guests,name,email,total_euro,status";
+  // Option A — the booker's name and email only for finance (and owners); a
+  // read-only analyst gets the same rows without them. Cells are quoted and
+  // spreadsheet formulas neutralised (free text comes from customers).
+  const withContact = hasPlatformRole(req.user!, "finance");
+  const cell = (v: unknown) => {
+    const s = v === null || v === undefined ? "" : String(v);
+    return `"${(/^[=+\-@]/.test(s) ? `'${s}` : s).replace(/"/g, '""')}"`;
+  };
+  const header = withContact ? "ref,centre,date,time,duration,guests,name,email,total_euro,status" : "ref,centre,date,time,duration,guests,total_euro,status";
   const csvRows = rows.map((r) =>
-    [r.ref, r.centre, r.date, r.time, r.duration, r.guests, r.name, r.email, ((r.totalCents as number) / 100).toFixed(2), r.status]
-      .map((v) => `"${String(v).replace(/"/g, '""')}"`)
+    (withContact
+      ? [r.ref, r.centre, r.date, r.time, r.duration, r.guests, r.name, r.email, ((r.totalCents as number) / 100).toFixed(2), r.status]
+      : [r.ref, r.centre, r.date, r.time, r.duration, r.guests, ((r.totalCents as number) / 100).toFixed(2), r.status]
+    )
+      .map(cell)
       .join(",")
   );
   res.setHeader("Content-Type", "text/csv");
@@ -281,8 +292,8 @@ interface CustomerOrder {
 }
 
 // OG-20 — customer contact details: the roles that serve customers (owners
-// are unrestricted); matches the partner "Customers" tab.
-const CUSTOMER_ROLES = ["centre_manager", "facility_manager", "finance", "communications"] as const;
+// are unrestricted); matches the partner "Customers" tab. CUSTOMER_ROLES is
+// shared from vendorHelpers.ts with the other Option A gates.
 
 vendorInsightsRouter.get("/customers", requirePlatformRole(...CUSTOMER_ROLES), async (req, res) => {
   const ids = req.vendorIds!;

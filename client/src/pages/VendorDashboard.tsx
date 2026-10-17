@@ -255,7 +255,7 @@ export function VendorDashboard() {
 
       {activeTab === "messages" && <MessagesTab onRead={loadUnreadCount} listings={listings} composeOpen={composeOpen} onCloseCompose={() => setComposeOpen(false)} />}
       {activeTab === "bookings" && <BookingsTab />}
-      {activeTab === "customers" && <VendorCustomersTab onOpenBooking={(ref) => navigate(`/vendor?tab=bookings&record=booking:${ref}`)} />}
+      {activeTab === "customers" && <VendorCustomersTab onOpenBooking={canSee("bookings") ? (ref) => navigate(`/vendor?tab=bookings&record=booking:${ref}`) : undefined} />}
       {activeTab === "earnings" && <PaymentsPanel />}
       {activeTab === "reviews" && <VendorReviewsTab />}
       {activeTab === "offers" && <VendorOffersTab />}

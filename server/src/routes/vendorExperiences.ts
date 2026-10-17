@@ -7,6 +7,7 @@ import { syncOrderFromSource } from "../commerce/engine.js";
 import { matchExperienceSupply } from "../participationIntents.js";
 import { Router } from "express";
 import { requirePlatformRole } from "../auth.js";
+import { ROSTER_ROLES } from "./vendorHelpers.js";
 import { writeAudit } from "../audit.js";
 import { refundPaidOnce } from "../checkoutService.js";
 import { logEvent } from "../analytics.js";
@@ -640,7 +641,7 @@ vendorExperiencesRouter.post("/experiences/:id/bookings/:ref/attendance", requir
   res.json({ ok: true, status });
 });
 
-vendorExperiencesRouter.get("/experiences/:id/bookings", async (req, res) => {
+vendorExperiencesRouter.get("/experiences/:id/bookings", requirePlatformRole(...ROSTER_ROLES), async (req, res) => {
   if (!(await ownsExperience(req.vendorIds!, req.params.id))) return res.status(403).json({ error: "Not your listing" });
   const rows = (await db
     .prepare(

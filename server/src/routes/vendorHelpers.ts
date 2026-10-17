@@ -4,6 +4,20 @@ import { db } from "../db/index.js";
 // single vendor.ts (see CLAUDE.md) so each domain file can import just what
 // it needs without re-declaring these.
 
+// Customer personal data (names, emails, phones, children's names, notes) by
+// partner staff role (security decision, Option A, 2026-10-17). Owners are
+// unrestricted (hasPlatformRole). Every route below stays scoped to the
+// organisation's own listings as before; these only narrow which staff role
+// of that organisation may read it.
+/** Order records with contact details — the Bookings tab (hall bookings,
+ * registrations, All orders, a booking's proposed changes). */
+export const ORDER_ROLES = ["centre_manager", "facility_manager", "finance"] as const;
+/** Rosters of one listing (experience bookings, programme enrolments, club
+ * participants and waitlist) — the listing managers who run the session. */
+export const ROSTER_ROLES = ["centre_manager", "facility_manager"] as const;
+/** The Customers directory (OG-20): the order roles plus communications. */
+export const CUSTOMER_ROLES = [...ORDER_ROLES, "communications"] as const;
+
 export function inClause(ids: string[]): string {
   return ids.map(() => "?").join(", ");
 }
