@@ -2,6 +2,19 @@
 // packages/design-tokens (shared with apps/mobile) — re-exported here so
 // every existing `from "./theme"` import keeps working unchanged.
 export * from "@hello-circle/design-tokens";
+import { radius as tokenRadius } from "@hello-circle/design-tokens";
+
+/** Corner radii as CSS custom properties (same mechanism as `colors` below):
+ * index.css's `:root` holds the consumer values (10 / 16 / pill); the
+ * admin/partner/host workspaces (and dialogs opened from them, via
+ * `body.in-workspace`) set every one of them to 8px. Use "50%" for true
+ * circles. Shadows the shared numeric `radius` (apps/mobile keeps its own). */
+export const radius = {
+  ...tokenRadius,
+  control: "var(--radius-control)",
+  card: "var(--radius-card)",
+  pill: "var(--radius-pill)",
+} as const;
 
 // `colors` stays here, NOT in the shared package: every value below is a CSS
 // custom property reference, not a literal hex — the actual light/dark

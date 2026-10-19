@@ -64,6 +64,9 @@ describe("state model", () => {
     expect(deriveOnboardingState({ ...base, transfersCapability: "pending", payoutsCapability: "pending", requirementsPending: ["identity.individual.verification.document"] }, true)).toBe("under_review");
     expect(deriveOnboardingState({ ...base, transfersCapability: "restricted", payoutsCapability: "restricted", disabledReason: "restricted_other" }, true)).toBe("transfers_unavailable");
     expect(deriveOnboardingState({ ...base, payoutsCapability: "restricted", disabledReason: "requirements_past_due" }, true)).toBe("payouts_unavailable");
+    // A fresh account Stripe hasn't listed requirements for yet is not "under review".
+    expect(deriveOnboardingState({ ...base, transfersCapability: "pending", payoutsCapability: "pending", requirementsPending: ["identity"] }, false, false)).toBe("onboarding_incomplete");
+    expect(deriveOnboardingState({ ...base, transfersCapability: "pending", payoutsCapability: "pending", requirementsPending: ["identity"] }, false, true)).toBe("under_review");
   });
 
   it("reads an Accounts v2 recipient account (shape observed in the IE sandbox)", () => {

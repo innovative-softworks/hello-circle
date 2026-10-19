@@ -2,7 +2,7 @@ import { colors, fonts, radius } from "../theme";
 import { formatCents } from "./booking/quoteLines";
 import { PAYOUT_STATUS, PAYOUT_TYPE_LABELS, payoutsRestricted, type PayoutHistoryData, type Remote } from "./commerceDisplay";
 import { ToneChip } from "./ReceiptDrawer";
-import { Button, ManageCard as Card, RowSkeleton, tableStyle, tdStyle, thStyle } from "./ui";
+import { Button, ManageCard as Card, RowSkeleton, tableStyle, tdStyle, thStyle, StackTable } from "./ui";
 
 // Commercial UX R2 (P2) — one chronological list of money leaving
 // HelloCircle for the partner: transfers (HelloCircle → their Stripe account)
@@ -30,9 +30,9 @@ export function PayoutHistory({
   return (
     <Card style={{ padding: 20 }}>
       <section aria-labelledby={`payout-history-${scope}`} aria-busy={history.status === "loading" || undefined} data-testid="payout-history">
-        <h3 id={`payout-history-${scope}`} style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 17, margin: "0 0 4px" }}>
+        <h2 id={`payout-history-${scope}`} style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 17, margin: "0 0 4px" }}>
           Payout history
-        </h3>
+        </h2>
         <p style={{ fontSize: 12.5, color: colors.mutedLight, margin: "0 0 14px", lineHeight: 1.5 }}>
           A transfer moves settled earnings from HelloCircle to your Stripe account. Stripe then makes a bank payout to you.
         </p>
@@ -75,6 +75,24 @@ function HistoryBody({ data, onOpenStripe, showAccountAlert }: { data: PayoutHis
         </div>
       )}
 
+      {/* OG-05 — a failed bank payout is called out, not just a status in the table. */}
+      {data.items.some((i) => i.type === "bank_payout" && i.status === "failed") && (
+        <div role="alert" style={{ background: colors.dangerBg, color: colors.danger, padding: "12px 14px", borderRadius: radius.control, fontSize: 13.5, lineHeight: 1.5, display: "flex", flexDirection: "column", gap: 8 }}>
+          <strong>A bank payout didn't go through</strong>
+          <span>
+            {data.items.find((i) => i.type === "bank_payout" && i.status === "failed")?.failureMessage
+              ? `${data.items.find((i) => i.type === "bank_payout" && i.status === "failed")!.failureMessage} `
+              : ""}
+            The money is still in your Stripe balance. Check your bank details with Stripe; Stripe pays out again once they're fixed.
+          </span>
+          {onOpenStripe && (
+            <Button variant="dark" onClick={onOpenStripe} style={{ alignSelf: "flex-start" }}>
+              Check bank details with Stripe
+            </Button>
+          )}
+        </div>
+      )}
+
       {data.items.length === 0 ? (
         <p style={{ margin: 0, fontSize: 14, color: colors.muted, background: colors.panel, borderRadius: radius.control, padding: "14px 16px", lineHeight: 1.5 }} data-testid="payout-history-empty">
           No payouts yet.{" "}
@@ -85,7 +103,7 @@ function HistoryBody({ data, onOpenStripe, showAccountAlert }: { data: PayoutHis
       ) : (
         <>
           <div className="hide-mobile" style={{ overflowX: "auto" }}>
-            <table style={tableStyle}>
+            <StackTable>
               <thead>
                 <tr>
                   <th style={thStyle}>Date</th>
@@ -117,7 +135,7 @@ function HistoryBody({ data, onOpenStripe, showAccountAlert }: { data: PayoutHis
                   </tr>
                 ))}
               </tbody>
-            </table>
+            </StackTable>
           </div>
           <ul className="mobile-cards" style={{ listStyle: "none", margin: 0, padding: 0 }}>
             {data.items.map((i) => (

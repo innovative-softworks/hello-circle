@@ -168,6 +168,10 @@ export async function ledgerEnabled(): Promise<boolean> {
  * posts it. Called from the webhook after the row is confirmed. */
 export async function recordPaymentConfirmed(input: { type: CheckoutType; ref: string; checkoutSessionId: string | null; paymentIntentId: string | null; amountMinor: number; currency: string; provider: "stripe" | "stub" }): Promise<void> {
   await db.transaction(async (tx) => {
+    // Two deliveries for the same order serialise on the order row first
+    // (the same lock order as refunds), instead of deadlocking on the
+    // payment-record gap lock below.
+    await tx.prepare(`SELECT ref FROM ${SOURCE_TABLES[input.type]} WHERE ref = ? FOR UPDATE`).get(input.ref);
     const existing = (await tx.prepare(`SELECT id FROM payment_records WHERE source_type = ? AND source_ref = ? FOR UPDATE`).get(input.type, input.ref)) as { id: number } | undefined;
     if (existing) {
       await tx
@@ -250,6 +254,8 @@ export async function postRefund(tx: Tx, type: string, ref: string, refundId: nu
   await reverseRewardsForOrder(tx, type, ref, "refund");
 }
 
+const refundedAfterKnown = (refunded: number, paid: number) => paid > 0 && refunded >= paid;
+
 export async function refundedSoFar(tx: Tx, type: string, ref: string): Promise<number> {
   const { s } = (await tx.prepare(`SELECT COALESCE(SUM(amount_minor), 0) as s FROM refunds WHERE source_type = ? AND source_ref = ? AND status IN ('pending', 'succeeded', 'reconciled')`).get(type, ref)) as { s: number | string };
   return Number(s);
@@ -315,7 +321,7 @@ export async function refundInApp(input: {
  * already know about (a Dashboard refund, or the provider side of our own).
  * Takes the same source-row lock as refundInApp, so an in-flight in-app
  * refund is counted once. */
-export async function recordProviderRefunds(input: { paymentIntentId: string; chargeId: string; amountRefundedMinor: number; amountMinor: number; currency: string; providerRefunds?: { id: string; amountMinor: number; status: string }[] }): Promise<{ recordedMinor: number }> {
+export async function recordProviderRefunds(input: { paymentIntentId: string; chargeId: string; amountRefundedMinor: number; amountMinor: number; currency: string; providerRefunds?: { id: string; amountMinor: number; status: string; key?: string | null }[] }): Promise<{ recordedMinor: number }> {
   const payment = (await db.prepare(`SELECT id, source_type as type, source_ref as ref, amount_minor as amount FROM payment_records WHERE payment_intent_id = ?`).get(input.paymentIntentId)) as
     | { id: number; type: CheckoutType; ref: string; amount: number }
     | undefined;
@@ -324,6 +330,21 @@ export async function recordProviderRefunds(input: { paymentIntentId: string; ch
   const out = await db.transaction(async (tx) => {
     const row = (await tx.prepare(`SELECT payment_status as ps FROM ${table} WHERE ref = ? FOR UPDATE`).get(payment.ref)) as { ps: string } | undefined;
     if (!row) throw new NeedsReviewError(`${payment.type} ${payment.ref} no longer exists`);
+    // D-10 — our own refunds (automatic or in-app) carry their key in the
+    // provider's metadata: attach the provider id/status to that row first,
+    // so it is never also recorded as a separate provider refund.
+    for (const r of input.providerRefunds ?? []) {
+      if (!r.key) continue;
+      const mine = (await tx.prepare(`SELECT id, status FROM refunds WHERE idempotency_key = ? AND provider_refund_id IS NULL`).get(r.key)) as { id: number; status: string } | undefined;
+      if (!mine) continue;
+      const status = r.status === "succeeded" ? "succeeded" : r.status === "failed" || r.status === "canceled" ? "failed" : "pending";
+      await tx.prepare(`UPDATE refunds SET provider_refund_id = ?, status = ?, last_error = NULL WHERE id = ?`).run(r.id, status, mine.id);
+      if (status === "succeeded" && mine.status !== "succeeded") {
+        const amt = (await tx.prepare(`SELECT amount_minor AS a FROM refunds WHERE id = ?`).get(mine.id)) as { a: number | string };
+        await postRefund(tx, payment.type, payment.ref, mine.id, Number(amt.a), Number(payment.amount), null);
+        if (refundedAfterKnown(await refundedSoFar(tx, payment.type, payment.ref), Number(payment.amount))) await tx.prepare(`UPDATE ${table} SET payment_status = 'refunded' WHERE ref = ? AND payment_status = 'paid'`).run(payment.ref);
+      }
+    }
     const already = await refundedSoFar(tx, payment.type, payment.ref);
     const delta = input.amountRefundedMinor - already;
     if (delta <= 0) return { recordedMinor: 0 };
@@ -358,7 +379,9 @@ export async function recordProviderRefunds(input: { paymentIntentId: string; ch
  * settlement/transfer stages act on it). */
 export async function recordDispute(input: { disputeId: string; paymentIntentId: string | null; amountMinor: number; currency: string; reason: string; status: string; evidenceDueBy: Date | null; feeMinor?: number }): Promise<void> {
   const payment = input.paymentIntentId
-    ? ((await db.prepare(`SELECT source_type as type, source_ref as ref FROM payment_records WHERE payment_intent_id = ?`).get(input.paymentIntentId)) as { type: string; ref: string } | undefined)
+    ? (((await db.prepare(`SELECT source_type as type, source_ref as ref FROM payment_records WHERE payment_intent_id = ?`).get(input.paymentIntentId)) as { type: string; ref: string } | undefined) ??
+      // D-10 — a payment held for review has no payment record yet; its review ties it to the order.
+      ((await db.prepare(`SELECT source_type as type, source_ref as ref FROM payment_reviews WHERE payment_intent_id = ? AND source_type IS NOT NULL AND reason != 'association_unverified' ORDER BY id DESC LIMIT 1`).get(input.paymentIntentId)) as { type: string; ref: string } | undefined))
     : undefined;
   const closed = input.status === "won" || input.status === "lost";
   await db.transaction(async (tx) => {

@@ -1,11 +1,12 @@
 import { Router } from "express";
 import { logEvent } from "../analytics.js";
 import { getOpportunities } from "../participationIntents.js";
-import { requirePlatformRole } from "../auth.js";
+import { hasPlatformRole, requirePlatformRole } from "../auth.js";
 import { partnerBalances } from "../commerce/settlement.js";
 import { db } from "../db/index.js";
 import { getDemandSignals } from "../db/queries.js";
-import { inClause } from "./vendorHelpers.js";
+import { CUSTOMER_ROLES, inClause } from "./vendorHelpers.js";
+import { irelandTodayIso } from "../irelandTime.js";
 
 // Phase C: participant directory, insights, CSV export, payments summary,
 // demand intelligence — split out of the original single vendor.ts (see
@@ -19,7 +20,7 @@ export const vendorInsightsRouter = Router();
 // this vendor's own listings — previously only visible inline per-row on
 // the flat Bookings tab.
 
-vendorInsightsRouter.get("/participants", async (req, res) => {
+vendorInsightsRouter.get("/participants", requirePlatformRole(...CUSTOMER_ROLES), async (req, res) => {
   const ids = req.vendorIds!;
   const in1 = inClause(ids);
   const q = typeof req.query.q === "string" ? `%${req.query.q}%` : "%";
@@ -116,10 +117,21 @@ vendorInsightsRouter.get("/reports/bookings.csv", requirePlatformRole("finance",
        FROM bookings b JOIN centres c ON c.id = b.centre_id WHERE c.vendor_id IN (${inClause(ids)}) ORDER BY b.date DESC`
     )
     .all(...ids)) as Record<string, unknown>[];
-  const header = "ref,centre,date,time,duration,guests,name,email,total_euro,status";
+  // Option A — the booker's name and email only for finance (and owners); a
+  // read-only analyst gets the same rows without them. Cells are quoted and
+  // spreadsheet formulas neutralised (free text comes from customers).
+  const withContact = hasPlatformRole(req.user!, "finance");
+  const cell = (v: unknown) => {
+    const s = v === null || v === undefined ? "" : String(v);
+    return `"${(/^[=+\-@]/.test(s) ? `'${s}` : s).replace(/"/g, '""')}"`;
+  };
+  const header = withContact ? "ref,centre,date,time,duration,guests,name,email,total_euro,status" : "ref,centre,date,time,duration,guests,total_euro,status";
   const csvRows = rows.map((r) =>
-    [r.ref, r.centre, r.date, r.time, r.duration, r.guests, r.name, r.email, ((r.totalCents as number) / 100).toFixed(2), r.status]
-      .map((v) => `"${String(v).replace(/"/g, '""')}"`)
+    (withContact
+      ? [r.ref, r.centre, r.date, r.time, r.duration, r.guests, r.name, r.email, ((r.totalCents as number) / 100).toFixed(2), r.status]
+      : [r.ref, r.centre, r.date, r.time, r.duration, r.guests, ((r.totalCents as number) / 100).toFixed(2), r.status]
+    )
+      .map(cell)
       .join(",")
   );
   res.setHeader("Content-Type", "text/csv");
@@ -240,4 +252,90 @@ vendorInsightsRouter.get("/demand", requirePlatformRole("finance", "read_only_an
     scopeToOwn ? { listingType, county: req.user!.county || undefined, limit: 25 } : { limit: 25 }
   );
   res.json(rows);
+});
+
+// --- OG-20 — Customers: everyone who has an order with this organisation ------
+// One row per email across hall bookings, club registrations, programme
+// enrolments and experience bookings, all scoped to the organisation's own
+// listings (orgVendorIds). A customer's record lists only their orders with
+// this organisation — never anything else about them.
+
+function customerOrdersSql(ids: string[]) {
+  const inIds = inClause(ids);
+  return `
+    SELECT 'booking' as type, b.ref, LOWER(b.email) as email, b.name, b.phone, c.name as listingName, b.date, b.time, b.status, b.payment_status as paymentStatus, b.total_cents as totalCents, b.created_at as createdAt
+    FROM bookings b JOIN centres c ON c.id = b.centre_id WHERE c.vendor_id IN (${inIds}) AND b.payment_status IN ('paid', 'refunded')
+    UNION ALL
+    SELECT 'registration', r.ref, LOWER(r.email), CONCAT(r.g_first, ' ', r.g_last), r.phone, cl.name, NULL, NULL, r.status, r.payment_status, r.total_cents, r.created_at
+    FROM registrations r JOIN clubs cl ON cl.id = r.club_id WHERE cl.vendor_id IN (${inIds}) AND r.payment_status IN ('paid', 'refunded')
+    UNION ALL
+    SELECT 'program', pe.ref, LOWER(pe.email), pe.participant_name, pe.phone, p.title, NULL, NULL, pe.status, pe.payment_status, pe.total_cents, pe.created_at
+    FROM program_enrollments pe JOIN programs p ON p.id = pe.program_id WHERE p.vendor_id IN (${inIds}) AND pe.payment_status IN ('paid', 'refunded')
+    UNION ALL
+    SELECT 'experience', eb.ref, LOWER(eb.email), eb.participant_name, eb.phone, e.title, es.date, es.time, eb.status, eb.payment_status, eb.total_cents, eb.created_at
+    FROM experience_bookings eb JOIN experiences e ON e.id = eb.experience_id JOIN experience_sessions es ON es.id = eb.session_id WHERE e.vendor_id IN (${inIds}) AND eb.payment_status IN ('paid', 'refunded')`;
+}
+
+interface CustomerOrder {
+  type: string;
+  ref: string;
+  email: string;
+  name: string;
+  phone: string | null;
+  listingName: string;
+  date: string | null;
+  time: string | null;
+  status: string;
+  paymentStatus: string;
+  totalCents: number;
+  createdAt: string;
+}
+
+// OG-20 — customer contact details: the roles that serve customers (owners
+// are unrestricted); matches the partner "Customers" tab. CUSTOMER_ROLES is
+// shared from vendorHelpers.ts with the other Option A gates.
+
+vendorInsightsRouter.get("/customers", requirePlatformRole(...CUSTOMER_ROLES), async (req, res) => {
+  const ids = req.vendorIds!;
+  if (!ids.length) return res.json([]);
+  const q = typeof req.query.q === "string" ? req.query.q.trim().toLowerCase().slice(0, 100) : "";
+  const today = irelandTodayIso();
+  const rows = (await db.prepare(`SELECT * FROM (${customerOrdersSql(ids)}) o ORDER BY createdAt DESC LIMIT 2000`).all(...ids, ...ids, ...ids, ...ids)) as CustomerOrder[];
+  const byEmail = new Map<string, { email: string; name: string; phone: string | null; orders: number; upcoming: number; cancelled: number; spentCents: number; lastActivity: string; listings: Set<string> }>();
+  for (const o of rows) {
+    if (!o.email) continue;
+    if (q && !o.email.includes(q) && !String(o.name ?? "").toLowerCase().includes(q)) continue;
+    const c = byEmail.get(o.email) ?? { email: o.email, name: o.name, phone: o.phone, orders: 0, upcoming: 0, cancelled: 0, spentCents: 0, lastActivity: String(o.createdAt), listings: new Set<string>() };
+    c.orders += 1;
+    if (o.status === "cancelled") c.cancelled += 1;
+    else if (o.date && o.date >= today) c.upcoming += 1;
+    if (o.paymentStatus === "paid" && o.status !== "cancelled") c.spentCents += Number(o.totalCents ?? 0);
+    if (!c.phone && o.phone) c.phone = o.phone;
+    c.listings.add(o.listingName);
+    byEmail.set(o.email, c);
+  }
+  res.json([...byEmail.values()].map((c) => ({ ...c, listings: [...c.listings] })));
+});
+
+vendorInsightsRouter.get("/customers/:email", requirePlatformRole(...CUSTOMER_ROLES), async (req, res) => {
+  const ids = req.vendorIds!;
+  const email = req.params.email.toLowerCase();
+  const orders = ids.length
+    ? ((await db.prepare(`SELECT * FROM (${customerOrdersSql(ids)}) o WHERE o.email = ? ORDER BY createdAt DESC`).all(...ids, ...ids, ...ids, ...ids, email)) as CustomerOrder[])
+    : [];
+  if (!orders.length) return res.status(404).json({ error: "No orders from this customer with your organisation" });
+  const refs = orders.map((o) => o.ref);
+  const attendance = (await db
+    .prepare(`SELECT ref, status FROM attendance WHERE ref IN (${refs.map(() => "?").join(", ")})`)
+    .all(...refs)) as { ref: string; status: string }[];
+  const att = new Map(attendance.map((a) => [a.ref, a.status]));
+  const latest = orders[0];
+  res.json({
+    email,
+    name: latest.name,
+    phone: orders.find((o) => o.phone)?.phone ?? null,
+    attended: attendance.filter((a) => a.status === "present" || a.status === "late").length,
+    noShows: attendance.filter((a) => a.status === "no_show").length,
+    orders: orders.map((o) => ({ ...o, totalCents: Number(o.totalCents ?? 0), attendance: att.get(o.ref) ?? null })),
+  });
 });

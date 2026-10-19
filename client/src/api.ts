@@ -16,5 +16,6 @@ export * from "./api/admin";
 export * from "./api/manage";
 export * from "./api/sharing";
 export * from "./api/invitations";
+export * from "./api/adminAccess";
 
 export type { Role };

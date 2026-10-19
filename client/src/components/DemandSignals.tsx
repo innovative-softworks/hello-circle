@@ -3,6 +3,8 @@ import type { DemandRow, IntentCluster } from "../types";
 import { colors, fonts, radius } from "../theme";
 import { SearchIcon } from "./icons";
 import { Button, ManageCard as Card, EmptyState, PageSpinner } from "./ui";
+import { Box } from "./admin/adminUi";
+import { useInWorkspace } from "./workspace/inWorkspace";
 
 // Shared by VendorDashboard's demand tab (scoped to the vendor's own
 // listing type/county, with a toggle to widen it) and AdminDashboard's
@@ -15,7 +17,7 @@ function scopeButtonStyle(active: boolean): CSSProperties {
     fontSize: 11.5,
     fontWeight: 700,
     padding: "4px 10px",
-    borderRadius: 999,
+    borderRadius: radius.pill,
     border: "none",
     cursor: "pointer",
     background: active ? colors.dark : colors.panel,
@@ -35,6 +37,7 @@ export function DemandSignalsView({
   /** Present only for the vendor view — lets them widen past their own county/listing type. */
   scope?: { value: "own" | "all"; onChange: (scope: "own" | "all") => void };
 }) {
+  const inWorkspace = useInWorkspace();
   if (rows === null) return <PageSpinner />;
 
   if (rows === "forbidden") {
@@ -47,10 +50,69 @@ export function DemandSignalsView({
     );
   }
 
+  // Workspaces: a ranked table in the admin style.
+  if (inWorkspace) {
+    const max = Math.max(1, ...rows.map((r) => r.count));
+    return (
+      <Box
+        flush
+        title={title}
+        subtitle={subtitle}
+        actions={
+          scope && (
+            <div className="ws-seg" role="group" aria-label="Where">
+              <button type="button" aria-pressed={scope.value === "own"} onClick={() => scope.onChange("own")}>
+                Your county
+              </button>
+              <button type="button" aria-pressed={scope.value === "all"} onClick={() => scope.onChange("all")}>
+                All Ireland
+              </button>
+            </div>
+          )
+        }
+      >
+        {rows.length === 0 ? (
+          <EmptyState icon={<SearchIcon size={20} />} title="No unmet demand logged yet" />
+        ) : (
+          <div className="adm-table-wrap">
+            <table className="adm-table adm-table--stack">
+              <caption className="adm-visually-hidden">{title}</caption>
+              <thead>
+                <tr>
+                  <th scope="col">Search</th>
+                  <th scope="col">Area</th>
+                  <th scope="col">This week</th>
+                  <th scope="col">All searches</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((r, i) => (
+                  <tr key={i}>
+                    <td data-label="Search">
+                      <strong>"{r.queryText}"</strong>
+                    </td>
+                    <td data-label="Area">{r.county || "Anywhere"}</td>
+                    <td data-label="This week">{r.recentCount > 0 ? <span className="adm-chip" data-tone="warn">{r.recentCount} this week</span> : <span className="adm-note">—</span>}</td>
+                    <td data-label="All searches">
+                      <span className="ws-bar" aria-hidden="true">
+                        <span style={{ width: `${(r.count / max) * 100}%` }} />
+                      </span>
+                      <span style={{ fontVariantNumeric: "tabular-nums", fontWeight: 600 }}>{r.count}</span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Box>
+    );
+  }
+
   return (
     <Card>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, marginBottom: 4 }}>
-        <h4 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 16, margin: 0 }}>{title}</h4>
+        <h2 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 16, margin: 0 }}>{title}</h2>
         {scope && (
           <div style={{ display: "flex", gap: 4, flex: "none" }}>
             <button onClick={() => scope.onChange("own")} style={scopeButtonStyle(scope.value === "own")}>
@@ -77,7 +139,7 @@ export function DemandSignalsView({
               </span>
               <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
                 {r.recentCount > 0 && (
-                  <span style={{ fontSize: 11, fontWeight: 700, color: colors.orangeDark, background: colors.orangeBg, borderRadius: 999, padding: "2px 7px" }}>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: colors.orangeDark, background: colors.orangeBg, borderRadius: radius.pill, padding: "2px 7px" }}>
                     {r.recentCount} this week
                   </span>
                 )}
@@ -100,7 +162,8 @@ export function IntentClusterView({
   onNotify,
 }: {
   clusters: IntentCluster[] | "forbidden" | null;
-  onNotify: (activityLabel: string, county: string) => Promise<{ notified: number }>;
+  /** Omitted when the admin's role can't notify residents (D-02). */
+  onNotify?: (activityLabel: string, county: string) => Promise<{ notified: number }>;
 }) {
   const [notifying, setNotifying] = useState<string | null>(null);
   const [notified, setNotified] = useState<Record<string, number>>({});
@@ -114,6 +177,7 @@ export function IntentClusterView({
     const key = clusterKey(c);
     setNotifying(key);
     try {
+      if (!onNotify) return;
       const res = await onNotify(c.activityLabel, c.county);
       setNotified((n) => ({ ...n, [key]: res.notified }));
     } finally {
@@ -123,7 +187,7 @@ export function IntentClusterView({
 
   return (
     <Card>
-      <h4 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 16, margin: "0 0 4px" }}>People waiting for something to happen</h4>
+      <h2 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 16, margin: "0 0 4px" }}>People waiting for something to happen</h2>
       <p style={{ fontSize: 12.5, color: colors.mutedLight, margin: "0 0 16px" }}>
         Explicit "I'm interested" signals from residents, grouped by activity + county — notify them directly once enough people want the same thing.
       </p>
@@ -146,7 +210,7 @@ export function IntentClusterView({
                 <span style={{ display: "flex", alignItems: "center", gap: 10 }}>
                   {key in notified ? (
                     <span style={{ fontSize: 12, fontWeight: 700, color: colors.greenText }}>Notified {notified[key]}</span>
-                  ) : c.residentCount === 0 ? (
+                  ) : !onNotify ? null : c.residentCount === 0 ? (
                     <span style={{ fontSize: 12, color: colors.faint }}>No signed-in residents to notify</span>
                   ) : (
                     <Button variant="ghost" style={{ padding: "6px 12px", fontSize: 12 }} disabled={notifying === key} onClick={() => handleNotify(c)}>

@@ -81,10 +81,10 @@ export async function residentAllows(residentId: string, prefKey: string): Promi
 
 interface NotifyResidentParams {
   residentId: string;
-  kind: "booking" | "registration" | "program" | "experience" | "waitlist" | "game" | "intent_match" | "circle" | "provider_update" | "host_update" | "centre_update" | "invite" | "share";
+  kind: "booking" | "registration" | "program" | "experience" | "waitlist" | "game" | "intent_match" | "circle" | "provider_update" | "host_update" | "centre_update" | "invite" | "share" | "moderation" | "payment";
   title: string;
   body: string;
-  listingType: "centre" | "club" | "game" | "intent" | "circle" | "vendor" | "host" | "experience" | "program";
+  listingType: "centre" | "club" | "game" | "intent" | "circle" | "vendor" | "host" | "experience" | "program" | "place_suggestion" | "account";
   listingId: string;
   ref: string;
 }
@@ -114,6 +114,11 @@ function pushPathFor(params: NotifyResidentParams): string | undefined {
   if (params.kind === "booking" || params.kind === "registration" || params.kind === "program" || params.kind === "experience") {
     return `/bookings?ref=${params.ref}`;
   }
+  // D-03 — a decision on the resident's own host application or place
+  // suggestion opens where they can read the explanation, not a public page.
+  // OG-05 — a payout or Pro payment problem opens the host's Earnings.
+  if (params.kind === "payment") return "/manage?tab=earnings";
+  if (params.kind === "moderation") return params.listingType === "place_suggestion" ? "/suggest-place" : "/profile?tab=hosting";
   const base = DETAIL_PATH_BY_LISTING_TYPE[params.listingType];
   return base ? `${base}${params.listingId}` : undefined;
 }

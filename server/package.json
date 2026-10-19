@@ -30,6 +30,7 @@
     "multer": "^2.2.0",
     "mysql2": "^3.11.5",
     "nodemailer": "^9.0.3",
+    "otpauth": "9.5.1",
     "satori": "^0.33.4",
     "sharp": "^0.34.5",
     "stripe": "^22.3.2"

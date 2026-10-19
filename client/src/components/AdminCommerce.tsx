@@ -1,4 +1,7 @@
-import { useEffect, useMemo, useState, type CSSProperties } from "react";
+import { useAdminCan } from "./admin/adminPermissions";
+import { AlertTriangle, Award, Eye, BadgeCheck, CalendarSync, CalendarX, Calculator, Check, CircleQuestionMark, CreditCard, Crown, FileClock, FilePen, Globe, ListChecks, Percent, PiggyBank, Receipt, ReceiptEuro, Settings2, ShoppingCart, Split, TicketPercent, Timer, ToggleRight, type LucideIcon } from "lucide-react";
+import { AdminButton, AttentionBanner, IconTabs, IconTile } from "./admin/adminUi";
+import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from "react";
 import {
   commerceRuleAction,
   createCommerceDraft,
@@ -24,8 +27,10 @@ import {
   type CommerceScopeType,
 } from "../api/admin";
 import { euro } from "../euro";
+import { useUrlParam } from "../useUrlTab";
 import { colors, fonts, radius } from "../theme";
-import { Button, ManageCard as Card, Modal, inputStyle, labelStyle, tableStyle, tdStyle, thStyle } from "./ui";
+import { LoadFailed, useLoadFailure } from "./admin/loadFailure";
+import { Button, ManageCard as Card, Modal, inputStyle, labelStyle, tableStyle, tdStyle, thStyle, StackTable } from "./ui";
 
 // Commerce Engine Phase 1 — admin view of the versioned commercial rules
 // (server/src/commerce/*, routes/adminCommerce.ts). The server is the only
@@ -35,6 +40,15 @@ import { Button, ManageCard as Card, Modal, inputStyle, labelStyle, tableStyle, 
 // today's pricing, and the engine doesn't price real orders until Phase 2.
 
 const h3: CSSProperties = { fontFamily: fonts.display, fontWeight: 700, fontSize: 17, margin: "0 0 6px", letterSpacing: 0 };
+/** Panel heading with an icon tile (2026-10-16 icon pass). */
+function CardTitle({ icon, children }: { icon: LucideIcon; children: ReactNode }) {
+  return (
+    <div style={{ display: "flex", gap: 12, alignItems: "center", marginBottom: 8 }}>
+      <IconTile icon={icon} />
+      <h3 style={{ ...h3, margin: 0 }}>{children}</h3>
+    </div>
+  );
+}
 const hint: CSSProperties = { fontSize: 12.5, color: colors.mutedLight, margin: "0 0 14px", lineHeight: 1.5 };
 
 function isMultiplier(spec: CommerceFieldSpec) {
@@ -103,7 +117,7 @@ const LIFECYCLE_STYLE: Record<string, { bg: string; fg: string; label: string }>
 
 function LifecycleBadge({ lifecycle }: { lifecycle: string }) {
   const s = LIFECYCLE_STYLE[lifecycle] ?? LIFECYCLE_STYLE.draft;
-  return <span style={{ background: s.bg, color: s.fg, fontSize: 11.5, fontWeight: 700, padding: "3px 8px", borderRadius: 999, whiteSpace: "nowrap" }}>{s.label}</span>;
+  return <span style={{ background: s.bg, color: s.fg, fontSize: 11.5, fontWeight: 700, padding: "3px 8px", borderRadius: radius.pill, whiteSpace: "nowrap" }}>{s.label}</span>;
 }
 
 // --- reason / date action dialog ---------------------------------------------
@@ -319,7 +333,7 @@ function ChangesTable({ spec, changes }: { spec: CommerceRuleKeySpec | undefined
   if (!changes.length) return <p style={hint}>No value changes.</p>;
   return (
     <div style={{ overflowX: "auto" }}>
-      <table style={tableStyle}>
+      <StackTable>
         <thead><tr><th style={thStyle}>Value</th><th style={thStyle}>From</th><th style={thStyle}>To</th></tr></thead>
         <tbody>
           {changes.map((c) => (
@@ -330,7 +344,7 @@ function ChangesTable({ spec, changes }: { spec: CommerceRuleKeySpec | undefined
             </tr>
           ))}
         </tbody>
-      </table>
+      </StackTable>
     </div>
   );
 }
@@ -346,7 +360,10 @@ function DetailsModal({ version, spec, onClose }: { version: CommerceRuleVersion
     setPreview(null);
     setError(null);
     if (!version) return;
-    fetchCommerceRule(version.id).then((r) => setVsPrevious(r.changesFromPrevious)).catch(() => setVsPrevious([]));
+    // A failed comparison is an error, never "no changes".
+    fetchCommerceRule(version.id)
+      .then((r) => setVsPrevious(r.changesFromPrevious))
+      .catch((e) => setError(`Couldn't load the comparison with the previous version: ${e instanceof Error ? e.message : "request failed"}`));
     if (version.status === "draft" || version.status === "review" || version.status === "approved") {
       previewCommerceRule(version.id).then(setPreview).catch((e) => setError(e instanceof Error ? e.message : "Preview failed"));
     }
@@ -356,13 +373,13 @@ function DetailsModal({ version, spec, onClose }: { version: CommerceRuleVersion
     <Modal open onClose={onClose} size="wide" title={`${spec?.label ?? version.ruleKey} — v${version.version}`} subtitle={`${scopeLabel(version)} · ${version.changeReason}`}>
       <h5 style={{ ...h3, fontSize: 14 }}>Values</h5>
       <div style={{ overflowX: "auto", marginBottom: 18 }}>
-        <table style={tableStyle}>
+        <StackTable>
           <tbody>
             {Object.entries(version.payload).map(([k, v]) => (
               <tr key={k}><td style={tdStyle}>{spec?.fields[k]?.label ?? k}</td><td style={{ ...tdStyle, fontWeight: 600 }}>{formatRuleValue(spec?.fields[k], v)}</td></tr>
             ))}
           </tbody>
-        </table>
+        </StackTable>
       </div>
       <h5 style={{ ...h3, fontSize: 14 }}>Compared with the version before it</h5>
       {vsPrevious ? <ChangesTable spec={spec} changes={vsPrevious} /> : <p style={hint}>Loading…</p>}
@@ -375,7 +392,7 @@ function DetailsModal({ version, spec, onClose }: { version: CommerceRuleVersion
               <ChangesTable spec={spec} changes={preview.changes} />
               {preview.samples.length > 0 && (
                 <div style={{ overflowX: "auto", marginTop: 12 }}>
-                  <table style={tableStyle}>
+                  <StackTable>
                     <thead>
                       <tr>
                         <th style={thStyle}>List price</th>
@@ -396,14 +413,14 @@ function DetailsModal({ version, spec, onClose }: { version: CommerceRuleVersion
                         </tr>
                       ))}
                     </tbody>
-                  </table>
+                  </StackTable>
                 </div>
               )}
               {preview.recentOrders.length > 0 && (
                 <>
                   <p style={{ ...hint, marginTop: 14 }}>Recent paid orders re-priced under this draft (illustration only — their real charges never change):</p>
                   <div style={{ overflowX: "auto" }}>
-                    <table style={tableStyle}>
+                    <StackTable>
                       <thead><tr><th style={thStyle}>Order</th><th style={thStyle}>Charged</th><th style={thStyle}>Would charge</th><th style={thStyle}>Partner payout</th><th style={thStyle}>HelloCircle revenue</th></tr></thead>
                       <tbody>
                         {preview.recentOrders.map((o) => (
@@ -416,7 +433,7 @@ function DetailsModal({ version, spec, onClose }: { version: CommerceRuleVersion
                           </tr>
                         ))}
                       </tbody>
-                    </table>
+                    </StackTable>
                   </div>
                 </>
               )}
@@ -450,26 +467,82 @@ function RuleCard({
   const global = versions.find((v) => v.scopeType === "global" && v.inForce);
   const base = global?.payload ?? spec.v1;
   const [showHistory, setShowHistory] = useState(false);
+  // Versions waiting for someone (draft, in review, approved, scheduled) keep the table open.
+  const needsAttention = versions.some((v) => v.status === "draft" || v.status === "review" || v.status === "approved" || v.lifecycle === "scheduled");
+  const [showVersions, setShowVersions] = useState(needsAttention);
+  // Compact row by default (2026-10-16); the full rule opens under it.
+  const [open, setOpen] = useState(false);
   const visible = showHistory ? versions : versions.filter((v) => !["superseded", "ended", "discarded", "retired"].includes(v.lifecycle));
+  const notApplied = !!spec.appliesTo && /^Not applied yet/.test(spec.appliesTo);
+  const summary = Object.entries(spec.fields)
+    .slice(0, 3)
+    .map(([k, f]) => `${f.label} ${formatRuleValue(f, base[k])}`)
+    .join(" · ");
   return (
-    <Card style={{ padding: 22 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, flexWrap: "wrap" }}>
-        <div>
-          <h3 style={h3}>{spec.label}</h3>
-          <p style={hint}>{spec.description}</p>
+    <div className="adm-rule" data-open={open || undefined}>
+      <div className="adm-rule-row">
+        <IconTile icon={RULE_ICON[spec.key] ?? Settings2} tone={needsAttention ? "hot" : undefined} />
+        <div style={{ minWidth: 0 }}>
+          <div className="adm-rule-name">
+            {spec.label}
+            {notApplied && (
+              <span className="adm-chip" data-tone="warn">
+                <AlertTriangle size={13} strokeWidth={2} aria-hidden="true" />
+                Not applied yet
+              </span>
+            )}
+          </div>
+          <div className="adm-rule-sum">{summary}</div>
         </div>
-        <Button onClick={() => onNew(base)}>New version</Button>
+        {needsAttention ? (
+          <span className="adm-chip" data-tone="warn">
+            <FilePen size={13} strokeWidth={2} aria-hidden="true" />
+            Draft waiting
+          </span>
+        ) : global ? (
+          <span className="adm-chip" data-tone="good">
+            <Check size={13} strokeWidth={2} aria-hidden="true" />v{global.version} in force
+          </span>
+        ) : (
+          <span className="adm-chip">Built-in defaults</span>
+        )}
+        <AdminButton size="sm" aria-expanded={open} onClick={() => setOpen(!open)} aria-label={`${open ? "Close" : needsAttention ? "Review draft for" : "Open"} ${spec.label}`}>
+          {open ? "Close" : needsAttention ? "Review draft" : "Open"}
+        </AdminButton>
+      </div>
+      {open && (
+      <div className="adm-rule-body">
+      <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) auto", alignItems: "start", gap: 12 }}>
+        <div>
+          <p style={hint}>{spec.description}</p>
+          {spec.appliesTo && (
+            <p style={{ ...hint, color: /^Not applied yet/.test(spec.appliesTo) ? colors.danger : colors.text }}>
+              <strong>Where this takes effect:</strong> {spec.appliesTo}
+            </p>
+          )}
+        </div>
+        <Button variant="ghost" onClick={() => onNew(base)}>New version</Button>
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: 10, marginBottom: 16 }}>
         {Object.entries(spec.fields).map(([k, f]) => (
-          <div key={k} style={{ background: colors.panel, borderRadius: radius.swiss.card, padding: "10px 12px" }}>
+          <div key={k} style={{ background: colors.panel, borderRadius: radius.card, padding: "10px 12px" }}>
             <div style={{ fontSize: 11.5, color: colors.mutedLight }}>{f.label}</div>
             <div style={{ fontSize: 15, fontWeight: 700, marginTop: 2 }}>{formatRuleValue(f, base[k])}</div>
           </div>
         ))}
       </div>
-      <div style={{ overflowX: "auto" }}>
-        <table style={tableStyle}>
+      <p style={{ ...hint, margin: 0 }}>
+        {global ? `In force: v${global.version}${global.effectiveFrom ? ` since ${when(global.effectiveFrom)}` : ""}` : "Using the built-in defaults (no published version yet)"}
+        {needsAttention ? " · a version is waiting for review or publishing" : ""}
+        {" · "}
+        <button type="button" onClick={() => setShowVersions(!showVersions)} aria-expanded={showVersions} style={{ background: "none", border: "none", padding: 0, color: colors.greenText, fontWeight: 600, cursor: "pointer", font: "inherit" }}>
+          {showVersions ? "Hide versions" : `Show versions (${versions.length})`}
+        </button>
+      </p>
+      {showVersions && (
+      <>
+      <div style={{ overflowX: "auto", marginTop: 12 }}>
+        <StackTable>
           <thead>
             <tr>
               <th style={thStyle}>Version</th>
@@ -512,18 +585,27 @@ function RuleCard({
               );
             })}
           </tbody>
-        </table>
+        </StackTable>
       </div>
       <button type="button" onClick={() => setShowHistory(!showHistory)} style={{ background: "none", border: "none", color: colors.greenText, fontSize: 12.5, fontWeight: 600, cursor: "pointer", padding: "10px 0 0" }}>
-        {showHistory ? "Hide history" : `Show full history (${versions.length} versions)`}
+        {showHistory ? "Hide older versions" : `Include older versions (${versions.length} in total)`}
       </button>
-    </Card>
+      </>
+      )}
+      </div>
+      )}
+    </div>
   );
 }
 
 // --- switches + audit ----------------------------------------------------------------
 
+// D-02 — mirrors GOVERNANCE_SWITCHES in server/src/routes/adminCommerce.ts:
+// switches that aren't financial stay Super-only.
+const GOVERNANCE_SWITCHES = new Set(["commerce.require_second_approver", "commerce.paid_games_require_verified_host", "commerce.open_booking"]);
+
 function SwitchesCard({ catalog, onChanged }: { catalog: CommerceCatalog; onChanged: () => void }) {
+  const canGovernance = useAdminCan()("commerce.governance_switches");
   const [pending, setPending] = useState<{ key: string; label: string; enabled: boolean } | null>(null);
   const [reason, setReason] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -541,7 +623,7 @@ function SwitchesCard({ catalog, onChanged }: { catalog: CommerceCatalog; onChan
   };
   return (
     <Card style={{ padding: 22 }}>
-      <h3 style={h3}>Switches</h3>
+      <CardTitle icon={ToggleRight}>Switches</CardTitle>
       <p style={hint}>Rollout switches stay off and do nothing until the phase that uses them ships. With every rollout switch off, checkout runs exactly as before.</p>
       {catalog.switches.map((s) => (
         <div key={s.key} style={{ display: "flex", justifyContent: "space-between", gap: 16, padding: "10px 0", borderBottom: `1px solid ${colors.border}` }}>
@@ -556,6 +638,9 @@ function SwitchesCard({ catalog, onChanged }: { catalog: CommerceCatalog; onChan
                 <strong>When on:</strong> {s.whenOn}
               </div>
             )}
+            {GOVERNANCE_SWITCHES.has(s.key) && !canGovernance && (
+              <div style={{ fontSize: 12, color: colors.mutedLight, marginTop: 2 }}>Only a super admin can change this switch.</div>
+            )}
             {(catalog.switchDependencies?.[s.key] ?? []).length > 0 && (
               <div style={{ fontSize: 12, marginTop: 2 }} data-testid={`switch-needs-${s.key}`}>
                 Needs: {(catalog.switchDependencies?.[s.key] ?? []).map((d) => catalog.switches.find((x) => x.key === d)?.label ?? d).join(", ")}
@@ -566,6 +651,7 @@ function SwitchesCard({ catalog, onChanged }: { catalog: CommerceCatalog; onChan
             type="checkbox"
             aria-label={s.label}
             checked={s.enabled}
+            disabled={GOVERNANCE_SWITCHES.has(s.key) && !canGovernance}
             onChange={(e) => { setPending({ key: s.key, label: s.label, enabled: e.target.checked }); setReason(""); setError(null); }}
             style={{ accentColor: colors.green, width: 18, height: 18, flex: "none" }}
           />
@@ -597,13 +683,13 @@ function SwitchesCard({ catalog, onChanged }: { catalog: CommerceCatalog; onChan
 function AuditCard({ entries }: { entries: CommerceAuditEntry[] }) {
   return (
     <Card style={{ padding: 22 }}>
-      <h3 style={h3}>Change log</h3>
+      <CardTitle icon={FileClock}>Change log</CardTitle>
       <p style={hint}>Every commercial change, who made it and why. Read-only.</p>
       {entries.length === 0 ? (
         <p style={hint}>No changes yet.</p>
       ) : (
         <div style={{ overflowX: "auto" }}>
-          <table style={tableStyle}>
+          <StackTable>
             <thead><tr><th style={thStyle}>When</th><th style={thStyle}>Who</th><th style={thStyle}>What</th><th style={thStyle}>Reason</th></tr></thead>
             <tbody>
               {entries.map((a) => (
@@ -615,7 +701,7 @@ function AuditCard({ entries }: { entries: CommerceAuditEntry[] }) {
                 </tr>
               ))}
             </tbody>
-          </table>
+          </StackTable>
         </div>
       )}
     </Card>
@@ -627,16 +713,16 @@ function AuditCard({ entries }: { entries: CommerceAuditEntry[] }) {
 function ShadowCard({ report }: { report: CommerceShadowReport | null }) {
   return (
     <Card style={{ padding: 22 }}>
-      <h3 style={h3}>Shadow pricing</h3>
+      <CardTitle icon={Eye}>Shadow pricing</CardTitle>
       <p style={hint}>
         With the shadow switch on, every checkout is also priced by the published rules and compared with what the customer was actually charged.
         A resource type is ready for the engine only once it shows zero unexplained mismatches. Last 30 days:
       </p>
       {!report || report.summary.length === 0 ? (
-        <p style={hint}>No shadow comparisons yet. Turn on "Shadow pricing" in Switches above to start collecting them (types already on the engine aren't shadowed).</p>
+        <p style={hint}>No shadow comparisons yet. Turn on "Shadow pricing" in Feature switches to start collecting them (types already on the engine aren't shadowed).</p>
       ) : (
         <div style={{ overflowX: "auto" }}>
-          <table style={tableStyle}>
+          <StackTable>
             <thead><tr><th style={thStyle}>Type</th><th style={thStyle}>Matched</th><th style={thStyle}>Mismatched</th><th style={thStyle}>Last checkout</th></tr></thead>
             <tbody>
               {report.summary.map((s) => (
@@ -648,14 +734,14 @@ function ShadowCard({ report }: { report: CommerceShadowReport | null }) {
                 </tr>
               ))}
             </tbody>
-          </table>
+          </StackTable>
         </div>
       )}
       {report && report.mismatches.length > 0 && (
         <>
           <p style={{ ...hint, marginTop: 14 }}>Most recent mismatches (an expected result if a rule was deliberately changed for that type):</p>
           <div style={{ overflowX: "auto" }}>
-            <table style={tableStyle}>
+            <StackTable>
               <thead><tr><th style={thStyle}>When</th><th style={thStyle}>Order</th><th style={thStyle}>Differs in</th><th style={thStyle}>Charged</th><th style={thStyle}>Rules would charge</th></tr></thead>
               <tbody>
                 {report.mismatches.map((x) => (
@@ -668,7 +754,7 @@ function ShadowCard({ report }: { report: CommerceShadowReport | null }) {
                   </tr>
                 ))}
               </tbody>
-            </table>
+            </StackTable>
           </div>
         </>
       )}
@@ -679,13 +765,15 @@ function ShadowCard({ report }: { report: CommerceShadowReport | null }) {
 function OrdersCard() {
   const [orders, setOrders] = useState<CommerceOrderRow[] | null>(null);
   const [q, setQ] = useState("");
-  const load = (query?: string) => fetchCommerceOrders(query).then(setOrders).catch(() => setOrders([]));
+  const { failed, track } = useLoadFailure();
+  const load = (query?: string) => track(fetchCommerceOrders(query), setOrders);
   useEffect(() => {
     load();
   }, []);
   return (
     <Card style={{ padding: 22 }}>
-      <h3 style={h3}>Orders</h3>
+      <CardTitle icon={ShoppingCart}>Orders</CardTitle>
+      <LoadFailed failed={failed} onRetry={() => load(q.trim() || undefined)} />
       <p style={hint}>Orders priced by the commerce engine, each with its frozen pricing snapshot. Search by order id, booking reference, Stripe session or partner id.</p>
       <form
         onSubmit={(e) => {
@@ -698,12 +786,12 @@ function OrdersCard() {
         <Button type="submit" variant="ghost">Search</Button>
       </form>
       {!orders ? (
-        <p style={hint}>Loading…</p>
-      ) : orders.length === 0 ? (
+        failed ? null : <p style={hint}>Loading…</p>
+      ) : orders.length === 0 && failed ? null : orders.length === 0 ? (
         <p style={hint}>No engine-priced orders yet. They appear once the engine is switched on for a resource type.</p>
       ) : (
         <div style={{ overflowX: "auto" }}>
-          <table style={tableStyle}>
+          <StackTable>
             <thead>
               <tr>
                 <th style={thStyle}>When</th>
@@ -728,7 +816,7 @@ function OrdersCard() {
                 </tr>
               ))}
             </tbody>
-          </table>
+          </StackTable>
         </div>
       )}
     </Card>
@@ -738,16 +826,38 @@ function OrdersCard() {
 // --- the tab -----------------------------------------------------------------------------
 
 // Stage 5f — Admin → Commercial rules sections (keys not listed fall into "Checkout, settlement and payouts").
-const SECTIONS: { id: string; title: string; keys?: string[]; note?: string }[] = [
-  { id: "switches", title: "Feature switches", note: "Each change needs a reason and is audited. Switches that depend on others can't be turned on (or their prerequisites off) in an invalid combination." },
-  { id: "pro", title: "Pro pricing", keys: ["plan_free", "plan_pro", "plan_rules", "entitlements_free", "entitlements_pro", "subscription_policy"], note: "The success-fee and minimum-fee values in the Free/Pro plan rules feed only the estimator and simulator (hypothetical). Checkout and settlement charge with the Pricing rule (customer platform fee + VAT on top, no partner success fee) — R3B finding F1. The Pro subscription price is what Pro billing would charge." },
-  { id: "rewards", title: "Reward points", keys: ["rewards", "split_rewards"], note: "Partner reward points (not customer credit)." },
-  { id: "credit", title: "Customer credit", keys: ["credits"], note: "Customer credit is granted in Admin → Finance → Credits & Pro." },
-  { id: "coupons", title: "Coupons", note: "Coupon codes, limits and funding are managed in Admin → Coupons; usage is in Admin → Finance → Coupons." },
-  { id: "tax", title: "VAT and tax", keys: ["tax_vat", "vat_treatment"], note: "VAT treatment is provisional pending Irish tax review." },
-  { id: "help", title: "Help content", note: "Explanations shown to partners and customers are edited in Admin → Finance → Field help (versioned)." },
-  { id: "other", title: "Checkout, settlement and payouts", keys: ["pricing", "checkout", "cancellation", "payment_costs", "settlement", "venue_split", "availability"] },
-  { id: "history", title: "Version history", note: "Every rule and switch change, with who, when and why." },
+// Icon per rule key (2026-10-16 icon pass); anything new falls back to a settings icon.
+const RULE_ICON: Record<string, LucideIcon> = {
+  pricing: Percent,
+  checkout: Timer,
+  cancellation: CalendarX,
+  payment_costs: CreditCard,
+  settlement: Calculator,
+  venue_split: Split,
+  availability: Globe,
+  plan_free: Crown,
+  plan_pro: Crown,
+  plan_rules: ListChecks,
+  entitlements_free: BadgeCheck,
+  entitlements_pro: BadgeCheck,
+  subscription_policy: CalendarSync,
+  rewards: Award,
+  split_rewards: Split,
+  credits: PiggyBank,
+  tax_vat: ReceiptEuro,
+  vat_treatment: Receipt,
+};
+
+const SECTIONS: { id: string; title: string; icon: LucideIcon; keys?: string[]; note?: string }[] = [
+  { id: "switches", icon: ToggleRight, title: "Feature switches", note: "Each change needs a reason and is audited. Switches that depend on others can't be turned on (or their prerequisites off) in an invalid combination." },
+  { id: "pro", icon: Crown, title: "Pro pricing", keys: ["plan_free", "plan_pro", "plan_rules", "entitlements_free", "entitlements_pro", "subscription_policy"], note: "The success-fee and minimum-fee values in the Free/Pro plan rules feed only the estimator and simulator (hypothetical). Checkout and settlement charge with the Pricing rule (customer platform fee + VAT on top, no partner success fee) — R3B finding F1. The Pro subscription price is what Pro billing would charge." },
+  { id: "rewards", icon: Award, title: "Reward points", keys: ["rewards", "split_rewards"], note: "Partner reward points (not customer credit)." },
+  { id: "credit", icon: PiggyBank, title: "Customer credit", keys: ["credits"], note: "Customer credit is granted in Admin → Payments → Credits & Pro." },
+  { id: "coupons", icon: TicketPercent, title: "Coupons", note: "Coupon codes, limits and funding are managed in Admin → Coupons; usage is in Admin → Payments → Coupons." },
+  { id: "tax", icon: ReceiptEuro, title: "VAT and tax", keys: ["tax_vat", "vat_treatment"], note: "VAT treatment is provisional pending Irish tax review." },
+  { id: "help", icon: CircleQuestionMark, title: "Help content", note: "Explanations shown to partners and customers are edited in Admin → Settings → Field help (versioned)." },
+  { id: "other", icon: ShoppingCart, title: "Checkout & payouts", keys: ["pricing", "checkout", "cancellation", "payment_costs", "settlement", "venue_split", "availability"] },
+  { id: "history", icon: FileClock, title: "Version history", note: "Every rule and switch change, with who, when and why." },
 ];
 
 export function AdminCommerceTab() {
@@ -759,6 +869,9 @@ export function AdminCommerceTab() {
   const [action, setAction] = useState<PendingAction | null>(null);
   const [details, setDetails] = useState<CommerceRuleVersion | null>(null);
   const [shadow, setShadow] = useState<CommerceShadowReport | null>(null);
+  // One section at a time (2026-10-16): the page used to stack every section (~10,800px).
+  const [sectionParam, setSection] = useUrlParam<string>("section", SECTIONS[0].id);
+  const active = SECTIONS.find((x) => x.id === sectionParam) ?? SECTIONS[0];
 
   const load = () => {
     fetchCommerceShadow().then(setShadow).catch(() => setShadow(null));
@@ -779,6 +892,13 @@ export function AdminCommerceTab() {
     return map;
   }, [rules]);
 
+  /** Versions waiting for review or publishing, across these rule keys. */
+  const waitingIn = (keys: string[]) => keys.reduce((n, k) => n + ((byKey.get(k) ?? []).some((v) => v.status === "draft" || v.status === "review" || v.status === "approved") ? 1 : 0), 0);
+  const sectionKeys = (sec: (typeof SECTIONS)[number]): string[] =>
+    sec.id === "other"
+      ? [...(sec.keys ?? []), ...(catalog?.ruleKeys ?? []).map((k) => k.key).filter((k) => !SECTIONS.some((x) => (x.keys ?? []).includes(k)))]
+      : sec.keys ?? [];
+
   if (loadError) return <p style={{ color: colors.danger }}>{loadError}</p>;
   if (!catalog) return <p style={hint}>Loading…</p>;
 
@@ -791,29 +911,37 @@ export function AdminCommerceTab() {
 
   return (
     <div className="fade-panel" style={{ display: "flex", flexDirection: "column", gap: 24 }}>
-      <Card style={{ padding: 22 }}>
-        <h3 style={h3}>Commercial rules</h3>
-        <p style={{ ...hint, marginBottom: 0 }}>
+      <Card style={{ padding: "14px 18px" }}>
+        <p style={{ ...hint, margin: 0 }}>
           Every fee, rate and policy here is versioned. Changes start as drafts, need a reason, and take effect from the moment you publish
           (or a future date you choose), never in the past, so historical orders keep the price they were charged.
           {catalog.secondApproverRequired ? " Two-person approval is on: a different admin must approve a draft before it can be published." : ""}
           {" "}These rules don't price live checkouts yet. Version 1 mirrors today's pricing exactly, and the engine is switched on per resource type in a later phase.
         </p>
       </Card>
-      {/* Stage 5f — clearly separated sections, with an in-page index. */}
-      <nav aria-label="Commercial rules sections" style={{ display: "flex", gap: 14, flexWrap: "wrap", fontSize: 13.5 }}>
-        {SECTIONS.map((sec) => (
-          <a key={sec.id} href={`#cr-${sec.id}`} style={{ color: colors.text, fontWeight: 700 }}>
-            {sec.title}
-          </a>
-        ))}
-      </nav>
-      {SECTIONS.map((sec) => (
+      {(() => {
+        const waitingRule = catalog.ruleKeys.find((k) => waitingIn([k.key]) > 0);
+        const home = waitingRule ? SECTIONS.find((x) => (x.keys ?? []).includes(waitingRule.key)) ?? SECTIONS.find((x) => x.id === "other")! : null;
+        return waitingRule && home ? (
+          <AttentionBanner icon={FilePen} action={home.id !== active.id ? <AdminButton variant="primary" onClick={() => setSection(home.id)}>Review draft</AdminButton> : undefined}>
+            <strong>A draft is waiting:</strong> {waitingRule.label} has a version that needs review before it can be published.
+          </AttentionBanner>
+        ) : null;
+      })()}
+      <IconTabs
+        label="Commercial rules sections"
+        value={active.id}
+        onChange={setSection}
+        items={SECTIONS.map((sec) => ({ key: sec.id, label: sec.title, icon: sec.icon, count: waitingIn(sectionKeys(sec)) || undefined }))}
+      />
+      {[active].map((sec) => (
         <section key={sec.id} id={`cr-${sec.id}`} aria-labelledby={`cr-h-${sec.id}`} style={{ display: "flex", flexDirection: "column", gap: 16, scrollMarginTop: 80 }}>
-          <h3 id={`cr-h-${sec.id}`} style={{ ...h3, fontSize: 19, margin: "8px 0 0" }}>{sec.title}</h3>
+          <h3 id={`cr-h-${sec.id}`} className="adm-visually-hidden">{sec.title}</h3>
           {sec.note && <p style={{ ...hint, margin: 0 }}>{sec.note}</p>}
           {sec.id === "switches" && <SwitchesCard catalog={catalog} onChanged={load} />}
           {sec.id === "history" && <AuditCard entries={audit} />}
+          {(sec.keys ?? []).length > 0 && (
+          <div className="adm-rule-list">
           {(sec.keys ?? [])
             .map((k) => catalog.ruleKeys.find((r) => r.key === k))
             .filter((spec): spec is CommerceRuleKeySpec => !!spec)
@@ -829,6 +957,8 @@ export function AdminCommerceTab() {
                 onDetails={setDetails}
               />
             ))}
+          </div>
+          )}
           {sec.id === "other" &&
             catalog.ruleKeys
               .filter((spec) => !SECTIONS.some((x) => x.id !== "other" && (x.keys ?? []).includes(spec.key)) && !(SECTIONS.find((x) => x.id === "other")?.keys ?? []).includes(spec.key))

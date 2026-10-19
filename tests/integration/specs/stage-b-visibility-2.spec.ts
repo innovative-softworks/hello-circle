@@ -3,6 +3,7 @@ import type { APIRequestContext } from "@playwright/test";
 import { test, expect, personas } from "../fixtures";
 import { withActors, evidence } from "../authorization-fixture";
 import { centreFor, clubFor } from "../stage-b-fixture";
+import { irelandDate } from "../booking-fixture";
 
 // Remediation coverage for the canonical activity visibility policy
 // (server/src/gameVisibility.ts): canViewGame() for detail/relationship views,
@@ -32,7 +33,7 @@ test("VIS-COUNTS: public counts do not change when protected activities are crea
     await f.connection.execute(
       `INSERT INTO bookings (ref, client_id, resident_id, centre_id, room_id, date, time, duration, event_type, guests, name, email, phone, notes, total_cents, payment_status)
        VALUES (?, 'qa-vis', ?, ?, ?, ?, '23:00', 1, 'QA', 1, 'QA host', 'qa@example.test', '', '', 0, 'paid')`,
-      [bookingRef, personas.QA_HOST_B.id, centre.id, centre.room, new Date().toISOString().slice(0, 10)]
+      [bookingRef, personas.QA_HOST_B.id, centre.id, centre.room, irelandDate(0)]
     );
     const created = await f.actors.QA_USER.post("/api/circles", { data: { name: `QA counts ${randomUUID()}`, joinMode: "open", activityLabel: label } });
     const circle = (await created.json()).id;
@@ -44,7 +45,10 @@ test("VIS-COUNTS: public counts do not change when protected activities are crea
       return { momentumHasLabel: momentum.includes(label), plansThisMonth: Number(detail.plansThisMonth), plansCreated: Number(activity.plansCreated) };
     };
     const before = await counts();
-    const today = new Date().toISOString().slice(0, 10);
+    // The server validates activity dates against Ireland's calendar date
+    // (irelandTodayIso); the UTC date is a day behind between 23:00 and 00:00 UTC
+    // in Irish summer time, which made this test fail in that hour.
+    const today = irelandDate(0);
     for (const input of [{ visibility: "invite", lifecycle: "active" }, { visibility: "public", lifecycle: "draft" }, { visibility: "public", lifecycle: "active", publishAt: at(20) }]) {
       await game(f, "QA_HOST_B", { activityLabel: label, centreId: centre.id, bookingRef, capacity: 500, date: today, time: "23:30", ...input });
     }

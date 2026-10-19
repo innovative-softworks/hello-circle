@@ -1,12 +1,13 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { fetchMyPlaceSuggestions, submitPlaceSuggestion } from "../api";
+import { DecisionExplanation } from "../components/DecisionExplanation";
 import { PinIcon } from "../components/icons";
 import { Button, Card, StatusBadge, inputStyle, labelStyle } from "../components/ui";
 import { BackLink } from "../components/BackLink";
 import { PageTitle } from "../components/PageTitle";
 import { IRISH_COUNTY_COORDS } from "../irishCounties";
-import { colors } from "../theme";
+import { colors, radius } from "../theme";
 import type { PlaceSuggestion } from "../types";
 
 // Community-contributed places (master-prompt punch list #4) — anyone
@@ -78,7 +79,7 @@ export function SuggestPlacePage() {
         </p>
 
         {done ? (
-          <div style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 16, padding: 32, textAlign: "center" }}>
+          <div style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: radius.card, padding: 32, textAlign: "center" }}>
             <p style={{ fontSize: 16, fontWeight: 700, margin: "0 0 8px" }}>Thanks — we've got it.</p>
             <p style={{ color: colors.mutedLight, fontSize: 14, margin: "0 0 20px" }}>
               Our team will take a look. If it checks out, it'll be published as a real listing.
@@ -156,12 +157,15 @@ export function SuggestPlacePage() {
             ) : (
               <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                 {mine.map((s) => (
-                  <div key={s.id} style={{ background: "#fff", border: `1px solid ${colors.border}`, borderRadius: 10, padding: "12px 14px", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
-                    <div>
-                      <div style={{ fontWeight: 600, fontSize: 14 }}>{s.suggestedName}</div>
-                      <div style={{ fontSize: 12.5, color: colors.mutedLight }}>{s.area ? `${s.area}, ` : ""}{s.county || "Ireland"}</div>
+                  <div key={s.id} style={{ background: "#fff", border: `1px solid ${colors.border}`, borderRadius: radius.control, padding: "12px 14px" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
+                      <div>
+                        <div style={{ fontWeight: 600, fontSize: 14 }}>{s.suggestedName}</div>
+                        <div style={{ fontSize: 12.5, color: colors.mutedLight }}>{s.area ? `${s.area}, ` : ""}{s.county || "Ireland"}</div>
+                      </div>
+                      <StatusBadge status={s.status} />
                     </div>
-                    <StatusBadge status={s.status} />
+                    {s.status === "rejected" && <DecisionExplanation decision={s.decision} />}
                   </div>
                 ))}
               </div>

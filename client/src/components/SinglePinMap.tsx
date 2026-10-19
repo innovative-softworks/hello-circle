@@ -2,7 +2,7 @@ import { lazy, Suspense, useState } from "react";
 import { PinIcon } from "./icons";
 import { MAPS_ENABLED } from "../mapbox";
 import { useMapsEnabled } from "../mapsConfig";
-import { colors } from "../theme";
+import { colors, radius } from "../theme";
 
 /** A single-pin map for one listing's own detail page (Experience/Adventure
  * "Location" section, GameLocationCard, ProviderProfile, AddressSearch's
@@ -35,7 +35,7 @@ export function SinglePinMap(props: { lat: number; lng: number; label: string; h
     return (
       <div
         style={{
-          borderRadius: 16,
+          borderRadius: radius.card,
           border: `1px solid ${colors.border}`,
           height,
           display: "flex",
@@ -52,7 +52,7 @@ export function SinglePinMap(props: { lat: number; lng: number; label: string; h
     );
   }
   if (runtimeEnabled === null) {
-    return <div style={{ borderRadius: 16, border: `1px solid ${colors.border}`, height, background: colors.panel }} />;
+    return <div style={{ borderRadius: radius.card, border: `1px solid ${colors.border}`, height, background: colors.panel }} />;
   }
 
   if (!open) {
@@ -64,7 +64,7 @@ export function SinglePinMap(props: { lat: number; lng: number; label: string; h
         style={{
           width: "100%",
           height,
-          borderRadius: 16,
+          borderRadius: radius.card,
           border: `1px solid ${colors.border}`,
           background: colors.panel,
           display: "flex",
@@ -83,7 +83,7 @@ export function SinglePinMap(props: { lat: number; lng: number; label: string; h
   }
 
   return (
-    <Suspense fallback={<div style={{ borderRadius: 16, border: `1px solid ${colors.border}`, height, background: colors.panel }} />}>
+    <Suspense fallback={<div style={{ borderRadius: radius.card, border: `1px solid ${colors.border}`, height, background: colors.panel }} />}>
       <SinglePinMapImpl {...props} />
     </Suspense>
   );

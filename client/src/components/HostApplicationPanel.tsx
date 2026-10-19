@@ -3,7 +3,8 @@ import { applyToBecomeHost, updateHostProfile } from "../api";
 import { AwardIcon, CheckCircleIcon } from "./icons";
 import { Button, inputStyle, labelStyle } from "./ui";
 import { colors, fonts, radius } from "../theme";
-import type { HostStatus } from "../types";
+import type { HostStatus, ModerationDecisionPublic } from "../types";
+import { DecisionExplanation } from "./DecisionExplanation";
 
 // Host guidelines (IA spec §15) — static content, no versioning/re-consent
 // flow for v1 (see the plan's own explicit scope note). The checkbox below
@@ -28,11 +29,14 @@ const HOST_GUIDELINES = [
 
 export function HostApplicationPanel({
   hostStatus,
+  hostDecision,
   hostBio,
   hostPhone,
   onApplied,
 }: {
   hostStatus: HostStatus;
+  /** D-03 — why the last application was declined, if a reason was recorded. */
+  hostDecision?: ModerationDecisionPublic | null;
   hostBio: string;
   hostPhone: string;
   onApplied: () => void;
@@ -143,9 +147,10 @@ export function HostApplicationPanel({
             Circle you create — you can host either way, this just adds a trust signal for other participants.
           </p>
           {hostStatus === "rejected" && (
-            <p style={{ fontSize: 12.5, color: colors.orangeDark, margin: "0 0 12px" }}>
-              Your last application wasn't approved — you're welcome to apply again.
-            </p>
+            <div style={{ fontSize: 12.5, margin: "0 0 12px" }}>
+              <p style={{ color: colors.orangeDark, margin: 0 }}>Your last application wasn't approved — you're welcome to apply again.</p>
+              <DecisionExplanation decision={hostDecision} />
+            </div>
           )}
           <label style={labelStyle}>Short bio</label>
           <textarea

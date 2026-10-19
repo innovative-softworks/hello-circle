@@ -43,7 +43,8 @@ for (const scheme of ["light", "dark"] as const) {
       await page.waitForLoadState("networkidle").catch(() => {});
       const facts = await contrastFacts(page);
       await page.goto("/explore");
-      const logo = await page.locator("header img[alt='HelloCircle']").first().getAttribute("src");
+      // The header logo is a decorative image inside the labelled home link (header redesign).
+      const logo = await page.locator("header img[src^='/illustrations/Logo']").first().getAttribute("src");
       await evidence(`hc-qa-071-072-${scheme}`, { ...facts, logo: logo ?? "none" });
       expect(facts.inputBorderVsBehind, "rendered input border vs what's behind it").toBeGreaterThanOrEqual(3);
       expect(facts.inputBorderTokenVsBg).toBeGreaterThanOrEqual(3);

@@ -88,12 +88,51 @@ async function send(path: string, init?: RequestInit): Promise<Settled> {
   if (!res.ok) {
     const body = await res.json().catch(() => ({ error: res.statusText }));
     reportIfSessionExpired(path, res.status);
+    // D-01 / D-08: the organisation was suspended, or this member was removed,
+    // while the page was open — tell the app to re-read the session so it
+    // shows the matching read-only page instead of a broken workspace.
+    if (res.status === 403 && body && typeof body === "object" && ((body as Record<string, unknown>).orgSuspended || (body as Record<string, unknown>).removedFromOrg)) {
+      try {
+        window.dispatchEvent(new Event("hc:partner-access-changed"));
+      } catch {
+        /* not in a browser */
+      }
+    }
     return { ok: false, status: res.status, body };
   }
   return { ok: true, status: res.status, body: await res.json() };
 }
 
+// --- OG-07 admin two-step sign-in --------------------------------------------
+// A sensitive admin change refused with `mfaReauth` asks the one registered
+// handler (AdminShell's code prompt) for a fresh code, then retries once. A
+// refusal with `mfaRequired` (the session isn't verified at all) tells the app
+// to re-read the session, which shows the two-step screen.
+type MfaReauthHandler = () => Promise<boolean>;
+let mfaReauthHandler: MfaReauthHandler | null = null;
+export function setMfaReauthHandler(handler: MfaReauthHandler | null): void {
+  mfaReauthHandler = handler;
+}
+
 export async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  try {
+    return await requestOnce<T>(path, init);
+  } catch (e) {
+    if (e instanceof ApiError && e.status === 403 && e.body.mfaRequired) {
+      try {
+        window.dispatchEvent(new Event("hc:admin-mfa-required"));
+      } catch {
+        /* not in a browser */
+      }
+    }
+    if (e instanceof ApiError && e.status === 403 && e.body.mfaReauth && mfaReauthHandler && (await mfaReauthHandler())) {
+      return requestOnce<T>(path, init);
+    }
+    throw e;
+  }
+}
+
+async function requestOnce<T>(path: string, init?: RequestInit): Promise<T> {
   let pending: Promise<Settled>;
   if (coalescible(init)) {
     const existing = inflight.get(path);

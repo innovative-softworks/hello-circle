@@ -50,7 +50,7 @@ test("STRIPE-WEBHOOK-UNKNOWN: signed events for unknown refs / unhandled types c
   test.skip(!stripeProfile, "qa:stripe only");
   await withActors(playwright, ["QA_VENDOR"], async f => {
     const actor = f.actors.QA_VENDOR;
-    const counts = async () => JSON.stringify(await rows(f, `SELECT (SELECT COUNT(*) FROM bookings) b, (SELECT COUNT(*) FROM registrations) r, (SELECT COUNT(*) FROM program_enrollments) p, (SELECT COUNT(*) FROM experience_bookings) e, (SELECT COUNT(*) FROM game_participants) g, (SELECT COUNT(*) FROM notifications) n, (SELECT COALESCE(SUM(used_count),0) FROM coupons) c`));
+    const counts = async () => JSON.stringify(await rows(f, `SELECT (SELECT COUNT(*) FROM bookings) b, (SELECT COUNT(*) FROM registrations) r, (SELECT COUNT(*) FROM program_enrollments) p, (SELECT COUNT(*) FROM experience_bookings) e, (SELECT COUNT(*) FROM game_participants) g, (SELECT COUNT(*) FROM notifications WHERE kind != 'payment_review') n, (SELECT COUNT(*) FROM refunds) rf, (SELECT COUNT(*) FROM payment_records) pr, (SELECT COALESCE(SUM(used_count),0) FROM coupons) c`));
     const before = await counts();
     const ghost = (type: string, ref: string) => ({ id: `cs_test_qa_ghost_${ref}`, object: "checkout.session", livemode: false, payment_status: "paid", status: "complete", metadata: { type, ref }, amount_total: 100, currency: "eur" });
     const results = [];
@@ -62,7 +62,17 @@ test("STRIPE-WEBHOOK-UNKNOWN: signed events for unknown refs / unhandled types c
     results.push((await deliver(actor, "charge.refunded", { id: "ch_qa_unknown", object: "charge" })).status);
     expect(results.every(s => s === 200), `statuses ${results}`).toBe(true);
     await sleep(500);
-    expect(await counts(), "no mutation").toBe(before);
+    expect(await counts(), "no order, notification (other than finance's), refund or payment-record mutation").toBe(before);
+    // D-10 case 2: a verified paid session that can't be tied to an order is recorded for finance (alerted once),
+    // never holds a place and is never refunded.
+    const ghosts = await rows(f, "SELECT id, reason, hold_status AS h, auto_refund AS a FROM payment_reviews WHERE checkout_session_id LIKE 'cs_test_qa_ghost_%'", []);
+    for (const g of ghosts) {
+      for (const [t, c] of [["payment_review_alerts", "review_id"], ["notifications", "listing_id"]]) f.track(t, c, String(g.id));
+      f.track("audit_log", "object_id", `review-${g.id}`);
+      f.track("payment_reviews", "id", g.id);
+    }
+    expect(ghosts.length).toBeGreaterThan(0);
+    for (const g of ghosts) expect(g).toMatchObject({ reason: "association_unverified", h: "none", a: "not_applicable" });
     expect((await actor.get("/api/__qa/identity")).status(), "server alive").toBe(200);
     await evidence("stripe-webhook-unknown", { statuses: results.join(","), mutation: false });
   });

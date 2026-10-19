@@ -76,15 +76,18 @@ test("HC-QA-069-ADJACENT: other ConfirmDialog uses (host cancel) trap focus the 
       const { page } = ui;
       // Host cancel = ConfirmDialog; it must trap focus like the join dialog.
       await page.goto("/manage?tab=activities");
-      const row = page.locator("div").filter({ hasText: game.activityLabel }).filter({ has: page.getByRole("button", { name: "Participants" }) }).last();
-      await row.getByRole("button", { name: "Cancel" }).focus();
+      const row = page.getByRole("listitem").filter({ hasText: game.activityLabel }).filter({ has: page.getByRole("button", { name: /^Manage / }) });
+      // Since the UI completion pass, Cancel lives in the row's action menu.
+      await row.getByRole("button", { name: `More actions for ${game.activityLabel}` }).focus();
       await page.keyboard.press("Enter");
+      await page.getByRole("menuitem", { name: "Cancel activity…" }).press("Enter");
       const confirm = page.getByRole("alertdialog");
       await expect(confirm).toBeVisible();
       await expect.poll(async () => (await focused(page)).inDialog).toBe(true);
       for (let i = 0; i < 6; i++) { await page.keyboard.press("Tab"); expect((await focused(page)).inDialog).toBe(true); }
       await page.keyboard.press("Escape");
       await expect(confirm).toBeHidden();
+      expect((await focused(page)).name, "focus returns to the menu button").toBe(`More actions for ${game.activityLabel}`);
     } finally { await ui.close(); }
   });
 });

@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState, type ChangeEvent, type CSSProperties, type ReactNode } from "react";
 import { CreditWallet } from "../components/CreditWallet";
 import { useConfirm } from "../components/ConfirmProvider";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
+import { useUrlTab } from "../useUrlTab";
 import {
   addHouseholdMember,
   changeResidentPassword,
@@ -41,7 +42,7 @@ import {
   uploadAvatar,
 } from "../api";
 import { RECEIPT_KIND_LABELS, receiptListStatus, type ReceiptDetail, type Remote } from "../components/commerceDisplay";
-import { ReceiptDrawer, ToneChip } from "../components/ReceiptDrawer";
+import { ToneChip } from "../components/ReceiptDrawer";
 import type { FollowedEntity, NotificationLevel } from "../api";
 import {
   AwardIcon,
@@ -72,6 +73,7 @@ import { HostApplicationPanel } from "../components/HostApplicationPanel";
 import { BecomeProviderPanel } from "../components/BecomeProviderPanel";
 import { ManageShell } from "../components/ManageShell";
 import { PaymentMethodsPanel } from "../components/PaymentMethodsPanel";
+import { PrivacyRequestRow } from "../components/PrivacyRequestRow";
 import { Photo } from "../components/Photo";
 import { SearchAlertsPanel } from "../components/SearchAlertsPanel";
 import { Avatar, Button, ConfirmDialog, EmptyState, LoadErrorState, LoadMoreControl, RowSkeleton, Switch, inputStyle, labelStyle } from "../components/ui";
@@ -85,7 +87,7 @@ import { colors, fonts, radius } from "../theme";
 import { ACCESSIBILITY_OPTIONS, BUDGET_OPTIONS, GROUP_SIZE_OPTIONS, INTEREST_OPTIONS } from "../types";
 import { GOALS, MAX_GOALS, toggleGoal } from "../participationVocab";
 import { AvailabilityPicker } from "../components/AvailabilityPicker";
-import type { BlockedResident, Favourite, HostStatus, HouseholdMember, NotificationPrefs, Pass, Receipt, ReportRecord, ResidentNotification, Routine, RoutineSuggestion } from "../types";
+import type { BlockedResident, Favourite, HostStatus, HouseholdMember, NotificationPrefs, Pass, Receipt, ReportRecord, ResidentNotification, Routine, RoutineSuggestion, ModerationDecisionPublic } from "../types";
 
 // Profile & settings (My Life redesign §46, restructured again in the
 // dashboard-nav pass below) — split out of what used to be MyBookings.tsx's
@@ -117,7 +119,7 @@ function ProfileIdentityBanner({ onEdit }: { onEdit: () => void }) {
     <div
       style={{
         display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap",
-        background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 16,
+        background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: radius.card,
         padding: "20px 22px", marginBottom: 28,
       }}
     >
@@ -279,7 +281,7 @@ function HouseholdPanel() {
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
           {members.map((m) => (
-            <div key={m.id} style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 16, padding: "14px 18px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <div key={m.id} style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: radius.card, padding: "14px 18px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
               <div>
                 <div style={{ fontWeight: 700 }}>{m.firstName} {m.lastName}</div>
                 {m.dob && <div style={{ fontSize: 13, color: colors.mutedLight }}>Born {m.dob}</div>}
@@ -390,7 +392,7 @@ function FavouritesPanel() {
             const next = NEXT_STATUS[f.status];
             const detailHref = favouriteDetailHref(f);
             return (
-              <div key={`${f.listingType}:${f.listingId}`} style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 16, padding: "14px 18px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+              <div key={`${f.listingType}:${f.listingId}`} style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: radius.card, padding: "14px 18px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
                 <button
                   onClick={() => detailHref && navigate(detailHref)}
                   disabled={!detailHref}
@@ -474,7 +476,7 @@ function FollowingPanel() {
       {follows.map((f) => (
         <div
           key={key(f)}
-          style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 16, padding: "14px 18px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}
+          style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: radius.card, padding: "14px 18px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}
         >
           <button
             onClick={() => navigate(f.href)}
@@ -595,7 +597,7 @@ function NotificationInboxPanel() {
               <div style={{ fontSize: 13.5, color: colors.mutedLight, marginTop: 2 }}>{n.body}</div>
             </>
           );
-          const boxStyle = { display: "block", width: "100%", textAlign: "left" as const, background: n.read ? colors.surface : colors.greenBg, border: `1px solid ${colors.border}`, borderRadius: 16, padding: "14px 18px" };
+          const boxStyle = { display: "block", width: "100%", textAlign: "left" as const, background: n.read ? colors.surface : colors.greenBg, border: `1px solid ${colors.border}`, borderRadius: radius.card, padding: "14px 18px" };
           return (
             <li key={n.id}>
               {actionable ? (
@@ -681,7 +683,7 @@ function RoutinesPanel() {
             {visibleSuggestions.map((s) => {
               const key = `${s.activityLabel}::${s.dayOfWeek}`;
               return (
-                <div key={key} style={{ background: colors.greenBg, borderRadius: 16, padding: "14px 18px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+                <div key={key} style={{ background: colors.greenBg, borderRadius: radius.card, padding: "14px 18px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
                   <div>
                     <div style={{ fontWeight: 700, fontSize: 14 }}>{s.activityLabel}</div>
                     <div style={{ fontSize: 12.5, color: colors.mutedLight, marginTop: 2 }}>
@@ -706,7 +708,7 @@ function RoutinesPanel() {
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             {routines.map((r) => (
-              <div key={r.id} style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 16, padding: "14px 18px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+              <div key={r.id} style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: radius.card, padding: "14px 18px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
                 <div>
                   <div style={{ fontWeight: 700, fontSize: 14 }}>{r.activityLabel}</div>
                   <div style={{ fontSize: 12.5, color: colors.mutedLight, marginTop: 2 }}>
@@ -751,7 +753,7 @@ function PassesPanel() {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
       {passes.map((p) => (
-        <div key={p.id} style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 16, padding: "14px 18px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <div key={p.id} style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: radius.card, padding: "14px 18px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <div>
             <div style={{ fontWeight: 700 }}>{p.listingName}</div>
             <div style={{ fontSize: 13, color: colors.mutedLight }}>{p.creditsTotal - p.creditsUsed} of {p.creditsTotal} credits left</div>
@@ -768,29 +770,25 @@ function PassesPanel() {
 // actually charged, and a detail drawer with the recorded price and refunds.
 
 function ReceiptsPanel() {
+  const navigate = useNavigate();
   const [receipts, setReceipts] = useState<Receipt[]>([]);
   const [loading, setLoading] = useState(true);
-  const [open, setOpen] = useState<string | null>(null);
-  const [detail, setDetail] = useState<Remote<ReceiptDetail>>({ status: "loading" });
+  const [failed, setFailed] = useState(false);
 
-  useEffect(() => {
+  const loadList = () => {
+    setLoading(true);
+    setFailed(false);
     fetchReceipts()
       .then(setReceipts)
+      .catch(() => setFailed(true))
       .finally(() => setLoading(false));
-  }, []);
-
-  const load = (ref: string) => {
-    setDetail({ status: "loading" });
-    fetchReceiptDetail(ref)
-      .then((data) => setDetail({ status: "ready", data }))
-      .catch((e) => setDetail({ status: "error", error: e instanceof Error ? e.message : "Check your connection and try again." }));
   };
-  const show = (ref: string) => {
-    setOpen(ref);
-    load(ref);
-  };
+  useEffect(loadList, []);
+  // Each receipt is its own page (/receipts/:ref) — no slide-in drawer.
+  const show = (ref: string) => navigate(`/receipts/${encodeURIComponent(ref)}`);
 
   if (loading) return <RowSkeleton />;
+  if (failed) return <LoadErrorState title="We couldn't load your receipts." onRetry={loadList} />;
   if (receipts.length === 0) {
     return <EmptyState icon={<ChevronRightIcon size={20} />} title="No payments yet" />;
   }
@@ -807,7 +805,7 @@ function ReceiptsPanel() {
                 className="btn-reset row-link"
                 onClick={() => show(r.ref)}
                 aria-label={`Receipt for ${r.label}, ${euro(r.totalCents / 100)}, ${st.label}`}
-                style={{ width: "100%", textAlign: "left", cursor: "pointer", background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 16, padding: "14px 18px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}
+                style={{ width: "100%", textAlign: "left", cursor: "pointer", background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: radius.card, padding: "14px 18px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}
               >
                 <div style={{ minWidth: 0 }}>
                   <div style={{ fontWeight: 700 }}>{r.label}</div>
@@ -824,7 +822,6 @@ function ReceiptsPanel() {
           );
         })}
       </ul>
-      <ReceiptDrawer open={open !== null} onClose={() => setOpen(null)} receipt={detail} onRetry={open ? () => load(open) : undefined} />
     </>
   );
 }
@@ -891,7 +888,7 @@ function EditableValue({ value, empty, onEdit, editLabel }: { value: ReactNode; 
         onClick={onEdit}
         aria-label={editLabel}
         title={editLabel}
-        style={{ background: "none", border: "none", cursor: "pointer", color: colors.muted, padding: 5, borderRadius: 6, display: "flex" }}
+        style={{ background: "none", border: "none", cursor: "pointer", color: colors.muted, padding: 5, borderRadius: "var(--radius-small)", display: "flex" }}
       >
         <EditIcon size={14} />
       </button>
@@ -1178,6 +1175,7 @@ function AccountDetailsPanel() {
           description="A copy of your profile, household, favourites, notifications and safety-centre history as a JSON file"
           control={<Button variant="ghost" onClick={handleExport} disabled={exporting}>{exporting ? "Preparing…" : "Download"}</Button>}
         />
+        <PrivacyRequestRow />
         <SettingsRow
           label="Deactivate account"
           description="Hides you from familiar-faces counts and Circle invites. Signing back in with your email reactivates it — nothing is deleted."
@@ -1590,6 +1588,7 @@ function HostingPanel() {
   const [hostStatus, setHostStatus] = useState<HostStatus>("none");
   const [hostBio, setHostBio] = useState("");
   const [hostPhone, setHostPhone] = useState("");
+  const [hostDecision, setHostDecision] = useState<ModerationDecisionPublic | null>(null);
 
   const load = () => {
     fetchResidentFull().then(({ resident: r }) => {
@@ -1597,6 +1596,7 @@ function HostingPanel() {
       setHostStatus(r.hostStatus);
       setHostBio(r.hostBio);
       setHostPhone(r.hostPhone);
+      setHostDecision(r.hostDecision ?? null);
     });
   };
 
@@ -1613,7 +1613,7 @@ function HostingPanel() {
           a way in — /manage's own empty states cover a resident who's
           hosted nothing yet. */}
       <Button variant="ghost" onClick={() => navigate("/manage")}>Go to your Hosting dashboard →</Button>
-      <HostApplicationPanel hostStatus={hostStatus} hostBio={hostBio} hostPhone={hostPhone} onApplied={load} />
+      <HostApplicationPanel hostStatus={hostStatus} hostDecision={hostDecision} hostBio={hostBio} hostPhone={hostPhone} onApplied={load} />
       <BecomeProviderPanel hostStatus={hostStatus} />
       <SearchAlertsPanel />
     </div>
@@ -1709,12 +1709,12 @@ function HelpSupportPanel() {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14, maxWidth: 560 }}>
       {HELP_FAQS.map((f) => (
-        <div key={f.q} style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 16, padding: "16px 18px" }}>
+        <div key={f.q} style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: radius.card, padding: "16px 18px" }}>
           <div style={{ fontWeight: 700, fontSize: 14.5, marginBottom: 6 }}>{f.q}</div>
           <div style={{ fontSize: 13.5, color: colors.mutedLight, lineHeight: 1.5 }}>{f.a}</div>
         </div>
       ))}
-      <div style={{ background: colors.panel, borderRadius: 16, padding: "16px 18px", fontSize: 13.5, color: colors.muted }}>
+      <div style={{ background: colors.panel, borderRadius: radius.card, padding: "16px 18px", fontSize: 13.5, color: colors.muted }}>
         Still stuck? Email us at{" "}
         <a href="mailto:support@hellocircle.ie" style={{ color: colors.greenText, fontWeight: 700 }}>support@hellocircle.ie</a>.
       </div>
@@ -1758,12 +1758,8 @@ export function Profile() {
   const { resident, loading: guestLoading } = useGuest();
   // ?tab= lets other screens deep-link a section (e.g. My Life's "Add availability" -> preferences).
   // Read reactively, so a footer link clicked while already on /profile still switches section.
-  const [searchParams] = useSearchParams();
-  const tabParam = searchParams.get("tab");
-  const [section, setSection] = useState<ProfileSection>(() => (tabParam && NAV_SECTION_KEYS.has(tabParam) ? (tabParam as ProfileSection) : "account"));
-  useEffect(() => {
-    if (tabParam && NAV_SECTION_KEYS.has(tabParam)) setSection(tabParam as ProfileSection);
-  }, [tabParam]);
+  // URL-synced, so Back/Forward and refresh keep the section too.
+  const [section, setSection] = useUrlTab<ProfileSection>([...NAV_SECTION_KEYS] as ProfileSection[], "account");
 
   if (!guestLoading && !resident) {
     return (

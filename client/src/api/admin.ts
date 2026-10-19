@@ -20,11 +20,6 @@ import type {
   PlaceSuggestion,
   ReportCase,
   Review,
-  SupportBooking,
-  SupportCircle,
-  SupportGame,
-  SupportRegistration,
-  SupportUser,
 } from "../types";
 import { request } from "./core";
 import type { CentreInput, ClubInput } from "./vendor";
@@ -141,8 +136,12 @@ export interface AdminListingSummary {
   ages?: string;
   price?: number;
   unit?: string;
+  // experience-only (price is in cents, as `from`)
+  kind?: string;
   /** Bounded "featured" flag (IA spec §16), MySQL tinyint 0/1. */
   featured: number;
+  /** When the listing row was created (UTC); null for old seed rows. */
+  createdAt?: string | null;
 }
 
 export function fetchAdminVendors(): Promise<AdminVendor[]> {
@@ -153,8 +152,68 @@ export function fetchAdminStats(): Promise<AdminStats> {
   return request(`/admin/stats`);
 }
 
-export function setVendorStatus(id: string, status: "pending" | "approved" | "suspended"): Promise<{ ok: boolean }> {
-  return request(`/admin/vendors/${id}/status`, { method: "PUT", body: JSON.stringify({ status }) });
+// --- D-03 decision reasons -------------------------------------------------------
+/** Sent with a rejection/suspension: category + partner-visible explanation; the note stays internal. */
+export interface DecisionReasonInput {
+  reasonCategory?: string;
+  explanation?: string;
+  internalNote?: string;
+}
+export type ReasonKind = "listing_rejection" | "suspension" | "application_rejection";
+/** Mirrors server/src/moderationDecisions.ts REASON_CATEGORIES (keep in sync). */
+export const REASON_CATEGORIES: Record<ReasonKind, { value: string; label: string }[]> = {
+  listing_rejection: [
+    { value: "incomplete", label: "Incomplete details" },
+    { value: "misleading", label: "Misleading or inaccurate" },
+    { value: "ineligible", label: "Not an eligible activity" },
+    { value: "safety", label: "Safety concern" },
+    { value: "duplicate", label: "Duplicate listing" },
+    { value: "other", label: "Other" },
+  ],
+  suspension: [
+    { value: "terms_breach", label: "Breach of terms" },
+    { value: "safety", label: "Safety concern" },
+    { value: "payment_risk", label: "Payment or fraud risk" },
+    { value: "legal_request", label: "Legal request" },
+    { value: "verification_failed", label: "Verification failed" },
+    { value: "other", label: "Other" },
+  ],
+  application_rejection: [
+    { value: "incomplete", label: "Incomplete details" },
+    { value: "ineligible", label: "Doesn't meet the criteria" },
+    { value: "duplicate", label: "Duplicate" },
+    { value: "safety", label: "Safety concern" },
+    { value: "other", label: "Other" },
+  ],
+};
+export const EXPLANATION_MIN = 20;
+export const EXPLANATION_MAX = 2000;
+export const NOTE_MAX = 4000;
+/** A decision as the partner/applicant sees it (no internal note). */
+export interface PublicDecision {
+  id: number;
+  action: string;
+  newState: string;
+  category: string | null;
+  categoryLabel: string | null;
+  explanation: string | null;
+  decidedAt: string;
+}
+export interface AdminDecision extends PublicDecision {
+  previousState: string | null;
+  actorEmail: string | null;
+  internalNote?: string | null;
+}
+export function fetchDecisionHistory(objectType: string, objectId: string): Promise<{ includesInternalNotes: boolean; decisions: AdminDecision[] }> {
+  return request(`/admin/decisions?objectType=${encodeURIComponent(objectType)}&objectId=${encodeURIComponent(objectId)}`);
+}
+/** D-02 — the signed-in admin's permissions (the server decides every request itself). */
+export function fetchAdminPermissions(): Promise<{ role: string | null; permissions: string[] }> {
+  return request(`/admin/permissions`);
+}
+
+export function setVendorStatus(id: string, status: "pending" | "approved" | "suspended", reason: DecisionReasonInput = {}): Promise<{ ok: boolean }> {
+  return request(`/admin/vendors/${id}/status`, { method: "PUT", body: JSON.stringify({ status, ...reason }) });
 }
 
 export function fetchAdminPendingListings(): Promise<{ centres: AdminListingSummary[]; clubs: AdminListingSummary[] }> {
@@ -176,11 +235,39 @@ export function fetchHostApplications(): Promise<HostApplication[]> {
   return request(`/admin/host-applications`);
 }
 
-export function setHostApplicationStatus(residentId: string, status: "verified" | "rejected"): Promise<{ ok: boolean }> {
-  return request(`/admin/host-applications/${residentId}/status`, { method: "PUT", body: JSON.stringify({ status }) });
+export function setHostApplicationStatus(residentId: string, status: "verified" | "rejected", reason: DecisionReasonInput = {}): Promise<{ ok: boolean }> {
+  return request(`/admin/host-applications/${residentId}/status`, { method: "PUT", body: JSON.stringify({ status, ...reason }) });
 }
 
-export function fetchAdminListings(): Promise<{ centres: AdminListingSummary[]; clubs: AdminListingSummary[] }> {
+/** Full listing content for the admin review page (any status). */
+export interface AdminListingDetail {
+  type: "centre" | "club" | "experience";
+  images: string[];
+  description: string;
+  centre?: {
+    rooms: { name: string; capacity: number; rate: number; description: string; paymentMethod: string; active: number }[];
+    hours: { day: number; opensAt: string; closesAt: string; closed: number }[];
+    opensAt: string;
+    closesAt: string;
+    amenities: string[];
+  };
+  club?: { sport: string; ages: string; price: number; unit: string; trial: boolean; includes: string[]; sessions: { day: number; time: string; label: string; capacity: number | null; active: number }[] };
+  experience?: {
+    kind: string;
+    priceCents: number;
+    capacity: number;
+    durationMinutes: number;
+    meetingPoint: string;
+    difficulty: string;
+    upcomingSessions: { date: string; time: string; capacity: number | null; status: string }[];
+    totalSessions: number;
+  };
+}
+export function fetchAdminListingDetail(type: string, id: string): Promise<AdminListingDetail> {
+  return request(`/admin/listings/${encodeURIComponent(type)}/${encodeURIComponent(id)}/detail`);
+}
+
+export function fetchAdminListings(): Promise<{ centres: AdminListingSummary[]; clubs: AdminListingSummary[]; experiences?: AdminListingSummary[] }> {
   return request(`/admin/listings`);
 }
 
@@ -202,16 +289,23 @@ export function fetchClaims(): Promise<ClaimSummary[]> {
   return request(`/admin/claims`);
 }
 
-export function setClaimStatus(id: number, status: "approved" | "rejected"): Promise<{ ok: boolean }> {
-  return request(`/admin/claims/${id}/status`, { method: "PUT", body: JSON.stringify({ status }) });
+export function setClaimStatus(id: number, status: "approved" | "rejected", reason: DecisionReasonInput = {}): Promise<{ ok: boolean }> {
+  return request(`/admin/claims/${id}/status`, { method: "PUT", body: JSON.stringify({ status, ...reason }) });
 }
 
-export function setCentreStatus(id: string, status: string): Promise<Centre> {
-  return request(`/admin/centres/${id}/status`, { method: "PUT", body: JSON.stringify({ status }) });
+export function setCentreStatus(id: string, status: string, reason: DecisionReasonInput = {}): Promise<Centre> {
+  return request(`/admin/centres/${id}/status`, { method: "PUT", body: JSON.stringify({ status, ...reason }) });
 }
 
-export function setClubStatus(id: string, status: string): Promise<Club> {
-  return request(`/admin/clubs/${id}/status`, { method: "PUT", body: JSON.stringify({ status }) });
+export function setClubStatus(id: string, status: string, reason: DecisionReasonInput = {}): Promise<Club> {
+  return request(`/admin/clubs/${id}/status`, { method: "PUT", body: JSON.stringify({ status, ...reason }) });
+}
+
+/** Admin redesign (2026-10-14) — the server route has existed since the
+ * Experiences feature; the dashboard never called it, so pending
+ * experiences couldn't be decided from the UI (audit finding 1). */
+export function setExperienceStatus(id: string, status: "approved" | "rejected" | "pending" | "deleted", reason: DecisionReasonInput = {}): Promise<{ ok: boolean }> {
+  return request(`/admin/experiences/${encodeURIComponent(id)}/status`, { method: "PUT", body: JSON.stringify({ status, ...reason }) });
 }
 
 export function adminUpdateCentre(id: string, input: Partial<CentreInput>): Promise<Centre> {
@@ -311,18 +405,80 @@ export function fetchReportCase(id: number): Promise<ReportCase> {
 // Trust & Safety (IA spec §16) — 'suspended' also acts on the underlying
 // target (closes the circle / hides the review — see routes/admin.ts).
 // `notes` can be saved on its own (status omitted) as an investigation log.
-export function resolveReport(id: number, input: { status?: "dismissed" | "actioned" | "suspended"; notes?: string; statementOfReasons?: string }): Promise<{ ok: boolean; suspendedAction: string | null }> {
+export function resolveReport(
+  id: number,
+  input: { status?: "dismissed" | "actioned" | "suspended"; notes?: string; statementOfReasons?: string } & Partial<DecisionReasonInput>
+): Promise<{ ok: boolean; suspendedAction: string | null }> {
   return request(`/admin/reports/${id}`, { method: "PUT", body: JSON.stringify(input) });
+}
+
+/** OG-03 — undo a moderation suspension: the listing returns to its previous status. */
+export function reinstateModeratedListing(type: "centre" | "club" | "experience", id: string, input: Partial<DecisionReasonInput> = {}): Promise<{ status: string }> {
+  return request(`/admin/moderation/${type}/${encodeURIComponent(id)}/reinstate`, { method: "POST", body: JSON.stringify(input) });
+}
+
+/** OG-03 — show a chat message that moderation hid. */
+export function unhideChatMessage(id: string, reason: string): Promise<{ ok: boolean }> {
+  return request(`/admin/moderation/chat-messages/${encodeURIComponent(id)}/unhide`, { method: "POST", body: JSON.stringify({ reason }) });
 }
 
 export function fetchAuditLog(actorUserId?: string): Promise<AuditEntry[]> {
   return request(`/admin/audit${actorUserId ? `?actorUserId=${actorUserId}` : ""}`);
 }
 
-export function supportSearch(
-  q: string
-): Promise<{ bookings: SupportBooking[]; registrations: SupportRegistration[]; users: SupportUser[]; games: SupportGame[]; circles: SupportCircle[] }> {
+// Support console (2026-10-16): one search across every kind of order,
+// people (residents + partner/admin logins, one per email), games, circles.
+export type SupportOrderKind = "booking" | "registration" | "program" | "game" | "experience" | "pass";
+export interface SupportOrder {
+  kind: SupportOrderKind;
+  ref: string;
+  name: string | null;
+  email: string | null;
+  listingName: string | null;
+  whenText: string | null;
+  amountCents: number | null;
+  paymentStatus: string | null;
+  status: string | null;
+  createdAt: string;
+  residentId: string | null;
+}
+export interface SupportPerson {
+  email: string;
+  name: string;
+  /** Has a resident (email sign-in) account. */
+  resident: boolean;
+  /** Partner/admin login with the same email. */
+  account: { role: string; status: string } | null;
+  createdAt: string;
+}
+export interface SupportSearchResult {
+  query: string;
+  people: SupportPerson[];
+  orders: SupportOrder[];
+  games: { id: string; activityLabel: string; date: string; time: string; status: string; bookingRef: string | null; place: string | null }[];
+  circles: { id: string; name: string; activityLabel: string; status: string; county: string; memberCount: number }[];
+}
+export function supportSearch(q: string): Promise<SupportSearchResult> {
   return request(`/admin/support/search${q ? `?q=${encodeURIComponent(q)}` : ""}`);
+}
+export interface SupportPersonDetail {
+  email: string;
+  name: string;
+  resident: { id: string; name: string; county: string; createdAt: string; householdMembers: number } | null;
+  account: { id: string; name: string; role: string; status: string; createdAt: string } | null;
+  orders: SupportOrder[];
+}
+export function fetchSupportPerson(email: string): Promise<SupportPersonDetail> {
+  return request(`/admin/support/people/${encodeURIComponent(email)}`);
+}
+export interface SupportOrderDetail {
+  order: SupportOrder;
+  extra: Record<string, string | number | null>;
+  refunds: { amountMinor: number; currency: string; kind: string; status: string; reason: string; createdAt: string }[];
+  underReview: boolean;
+}
+export function fetchSupportOrder(kind: string, ref: string): Promise<SupportOrderDetail> {
+  return request(`/admin/support/orders/${encodeURIComponent(kind)}/${encodeURIComponent(ref)}`);
 }
 
 export function fetchActivityOverview(): Promise<{ openBookings: OpenBookingActivity[]; circleActivity: CircleActivity[] }> {
@@ -360,8 +516,8 @@ export function fetchAdminPlaceSuggestions(all = false): Promise<PlaceSuggestion
   return request(`/admin/place-suggestions${all ? "?status=all" : ""}`);
 }
 
-export function setPlaceSuggestionStatus(id: string, status: "approved" | "rejected"): Promise<{ ok: boolean }> {
-  return request(`/admin/place-suggestions/${id}/status`, { method: "PUT", body: JSON.stringify({ status }) });
+export function setPlaceSuggestionStatus(id: string, status: "approved" | "rejected", reason: DecisionReasonInput = {}): Promise<{ ok: boolean }> {
+  return request(`/admin/place-suggestions/${id}/status`, { method: "PUT", body: JSON.stringify({ status, ...reason }) });
 }
 
 // --- Media (Cloudinary/R2 architecture pass) — usage visibility, the
@@ -462,6 +618,8 @@ export interface CommerceRuleKeySpec {
   key: string;
   label: string;
   description: string;
+  /** Where the rule actually takes effect today (server catalogue). */
+  appliesTo?: string;
   scopes: CommerceScopeType[];
   fields: Record<string, CommerceFieldSpec>;
   v1: Record<string, number | string>;
@@ -672,6 +830,25 @@ export function fetchSettlements(): Promise<{ id: number; runKey: string; partyT
   return request(`/admin/finance/settlements`);
 }
 
+/** One settlement with its line items (GET /admin/finance/settlements/:id — raw columns). */
+export interface SettlementDetail {
+  settlement: { id: number; run_id: number; party_type: string; party_id: string; currency: string; net_minor: number; status: string; ledger_group_id: string | null; transfer_id: string | null; paid_reference: string | null; created_at: string; updated_at: string };
+  items: { groupId: string; description: string; amountMinor: number }[];
+}
+export function fetchSettlement(id: number | string): Promise<SettlementDetail> {
+  return request(`/admin/finance/settlements/${encodeURIComponent(String(id))}`);
+}
+/** Payment records matching an order ref, payment intent or checkout session (GET /admin/finance/payments?ref=). */
+export interface PaymentRecordRow { id: number; source_type: string; source_ref: string; provider: string; checkout_session_id: string | null; payment_intent_id: string | null; amount_minor: number; currency: string; status: string; fee_estimate_minor: number | null; created_at: string; updated_at: string }
+export function fetchPaymentRecords(ref: string): Promise<PaymentRecordRow[]> {
+  return request(`/admin/finance/payments?ref=${encodeURIComponent(ref)}`);
+}
+/** An order's frozen allocation (who is owed what), 404 when none was frozen. */
+export interface OrderAllocation { snapshot: Record<string, unknown>; lines: { role: string; partyType: string | null; partyId: string | null; amountMinor: number }[]; releases: { partyType: string; partyId: string; releasedMinor: number; releasedAt: string }[] }
+export function fetchOrderAllocation(type: string, ref: string): Promise<OrderAllocation> {
+  return request(`/admin/finance/allocations/${encodeURIComponent(type)}/${encodeURIComponent(ref)}`);
+}
+
 export interface WebhookEventRow { id: number; provider: string; eventId: string; eventType: string; status: string; attempts: number; lastError: string | null; summary: Record<string, unknown>; receivedAt: string; processedAt: string | null }
 export function fetchWebhookEvents(status?: string): Promise<WebhookEventRow[]> {
   return request(`/admin/finance/webhooks${status ? `?status=${encodeURIComponent(status)}` : ""}`);
@@ -680,7 +857,45 @@ export function replayWebhookEvent(id: number, reason: string): Promise<{ ok: bo
   return request(`/admin/finance/webhooks/${id}/replay`, { method: "POST", body: JSON.stringify({ reason }) });
 }
 
-export interface RefundRow { id: number; source_type: string; source_ref: string; amount_minor: number; kind: string; origin: string; responsible: string; reason: string; status: string; created_at: string }
+// D-10 / D-11 — payment reviews (Finance → Payment reviews).
+export interface PaymentReviewOrder { status?: string | null; paymentStatus?: string; totalMinor?: number; reviewHoldUntil?: string | null; sessionId?: string | null; missing?: boolean }
+export interface PaymentReviewRow {
+  id: number;
+  checkoutSessionId: string;
+  sourceType: string | null;
+  sourceRef: string | null;
+  receivedMinor: number | null;
+  receivedCurrency: string | null;
+  reason: string;
+  holdStatus: string;
+  reviewHoldUntil: string | null;
+  urgency: string;
+  autoRefund: string;
+  status: string;
+  resolution: string | null;
+  flaggedAt: string;
+  order: PaymentReviewOrder | null;
+}
+export interface PaymentReviewDetail {
+  review: PaymentReviewRow & { paymentIntentId: string | null; chargeId: string | null; agreedMinor: number | null; agreedCurrency: string | null; providerPayment: string; detail: string | null; startAt: string | null; autoRefundNote: string | null; resolvedAt: string | null; resolvedBy: string | null; firstEventId: string | null; lastRecheckAt: string | null; lastRecheckOutcome: string | null };
+  order: PaymentReviewOrder | null;
+  payment: { id: number; amountMinor: number; currency: string; status: string; paymentIntentId: string | null; createdAt: string } | null;
+  refunds: { id: number; amountMinor: number; currency: string; kind: string; origin: string; status: string; providerRefundId: string | null; idempotencyKey: string; lastError: string | null; reason: string; createdAt: string; updatedAt: string }[];
+  events: { id: number; eventId: string; eventType: string; status: string; attempts: number; lastError: string | null; resolution: string | null; receivedAt: string; resolvedAt: string | null }[];
+  alerts: { kind: string; createdAt: string }[];
+}
+export interface RecheckResult { outcome: "closed" | "open"; reason: string; association: boolean; chargedMinor: number | null; succeededMinor: number; pendingMinor: number; failedMinor: number; disputed: boolean; recordedRefunds: number; updatedRefunds: number }
+export function fetchPaymentReviews(status: "open" | "resolved" | "all" = "open"): Promise<PaymentReviewRow[]> {
+  return request(`/admin/finance/payment-reviews?status=${status}`);
+}
+export function fetchPaymentReview(id: number | string): Promise<PaymentReviewDetail> {
+  return request(`/admin/finance/payment-reviews/${id}`);
+}
+export function recheckPaymentReview(id: number | string, reason: string): Promise<RecheckResult> {
+  return request(`/admin/finance/payment-reviews/${id}/recheck`, { method: "POST", body: JSON.stringify({ reason }) });
+}
+
+export interface RefundRow { id: number; source_type: string; source_ref: string; amount_minor: number; currency?: string; kind: string; origin: string; responsible: string; reason: string; status: string; provider_refund_id?: string | null; payment_record_id?: number | null; initiated_by?: string | null; created_at: string; updated_at?: string }
 export function fetchRefunds(): Promise<RefundRow[]> {
   return request(`/admin/finance/refunds`);
 }
@@ -688,7 +903,7 @@ export function issueAdminRefund(input: { sourceType: string; ref: string; amoun
   return request(`/admin/finance/refunds`, { method: "POST", body: JSON.stringify(input) });
 }
 
-export interface DisputeRow { id: number; provider_dispute_id: string; source_type: string | null; source_ref: string | null; amount_minor: number; reason: string; status: string; recovery_status: string; responsible: string | null; evidence_due_by: string | null }
+export interface DisputeRow { id: number; provider_dispute_id: string; source_type: string | null; source_ref: string | null; payment_intent_id?: string | null; amount_minor: number; currency?: string; reason: string; status: string; recovery_status: string; responsible: string | null; evidence_due_by: string | null; created_at?: string; updated_at?: string }
 export function fetchDisputes(): Promise<DisputeRow[]> {
   return request(`/admin/finance/disputes`);
 }
@@ -721,7 +936,7 @@ export function enrollInCampaign(id: number, input: { partnerKind: string; partn
   return request(`/admin/commerce/campaigns/${id}/enroll`, { method: "POST", body: JSON.stringify(input) });
 }
 
-export interface AdminAccount { id: string; email: string; name: string; adminRole: "super" | "finance" | "support" | "legal"; createdAt: string }
+export interface AdminAccount { id: string; email: string; name: string; adminRole: "super" | "finance" | "support" | "legal" | null; createdAt: string; mfaEnrolled?: boolean }
 export function fetchAdmins(): Promise<AdminAccount[]> {
   return request(`/admin/admins`);
 }
@@ -879,4 +1094,234 @@ export function fetchSubscriptions(): Promise<AdminSubscription[]> {
 }
 export function sweepSubscriptionsApi(): Promise<{ ended: number }> {
   return request(`/admin/finance/subscriptions/sweep`, { method: "POST", body: "{}" });
+}
+
+/** D-01 — one organisation: members, listings by status, upcoming obligations. */
+export function fetchAdminOrganisation(id: string): Promise<import("../types").AdminOrganisationRecord> {
+  return request(`/admin/organisations/${encodeURIComponent(id)}`);
+}
+
+/** D-01 — suspend (reason required) or reinstate (optional message) a whole organisation. Super only. */
+export function setOrganisationStatus(id: string, status: "suspended" | "active", reason: DecisionReasonInput = {}): Promise<{ ok: boolean; status: string; changed: boolean }> {
+  return request(`/admin/organisations/${encodeURIComponent(id)}/status`, { method: "PUT", body: JSON.stringify({ status, ...reason }) });
+}
+
+// --- Operations (OG-05 / OG-10 / OG-14 / OG-15 / OG-24) ------------------------------
+
+export interface ServerPage<T> {
+  items: T[];
+  nextCursor: string | null;
+}
+
+const qs = (params: Record<string, string | undefined | null>) => {
+  const p = new URLSearchParams();
+  for (const [k, v] of Object.entries(params)) if (v) p.set(k, v);
+  const s = p.toString();
+  return s ? `?${s}` : "";
+};
+
+export interface OperationalException {
+  id: string;
+  kind: "payment_review" | "dispute" | "refund_pending" | "refund_stuck" | "webhook_failed" | "payout_failed" | "subscription_past_due" | "partner_debt";
+  severity: "high" | "medium";
+  team: "Finance";
+  title: string;
+  detail: string;
+  status: string;
+  amountMinor: number | null;
+  createdAt: string;
+  party: { type: string; id: string; name: string | null } | null;
+  link: string;
+}
+
+export function fetchOperationalExceptions(): Promise<OperationalException[]> {
+  return request(`/admin/finance/exceptions`);
+}
+
+export interface PersonRow {
+  id: string;
+  name: string;
+  email: string;
+  county: string;
+  hostStatus: string;
+  deactivated: boolean;
+  createdAt: string;
+}
+export function fetchPeoplePage(f: { q?: string; filter?: string; cursor?: string | null }): Promise<ServerPage<PersonRow>> {
+  return request(`/admin/operations/people${qs({ q: f.q, filter: f.filter, cursor: f.cursor, limit: "25" })}`);
+}
+
+export function fetchOrdersPage(f: { q?: string; kind?: string; status?: string; paymentStatus?: string; from?: string; to?: string; cursor?: string | null }): Promise<ServerPage<SupportOrder>> {
+  return request(`/admin/operations/orders${qs({ ...f, cursor: f.cursor ?? undefined, limit: "25" })}`);
+}
+
+export interface ActivityRow {
+  id: string;
+  activityLabel: string;
+  date: string;
+  time: string;
+  status: string;
+  lifecycle: string;
+  hostResidentId: string;
+  hostName: string | null;
+  place: string;
+  capacity: number;
+  joined: number;
+  priceCents: number | null;
+  reports: number;
+  createdAt: string;
+}
+export function fetchActivitiesPage(f: { q?: string; status?: string; when?: string; cursor?: string | null }): Promise<ServerPage<ActivityRow>> {
+  return request(`/admin/operations/activities${qs({ ...f, cursor: f.cursor ?? undefined, limit: "25" })}`);
+}
+export interface AdminActivityDetail {
+  activity: Record<string, unknown> & { id: string; activityLabel: string; status: string; hostName: string | null; hostEmail: string | null; date: string; time: string };
+  participants: { residentId: string; name: string | null; email: string | null; status: string; paymentStatus: string; totalCents: number | null; joinedAt: string; checkedInAt: string | null }[];
+  reports: { id: number; reason: string; status: string; createdAt: string }[];
+}
+export function fetchAdminActivity(id: string): Promise<AdminActivityDetail> {
+  return request(`/admin/operations/activities/${encodeURIComponent(id)}`);
+}
+export function cancelActivityAsAdmin(id: string, reason: DecisionReasonInput): Promise<{ ok: boolean }> {
+  return request(`/admin/operations/activities/${encodeURIComponent(id)}/cancel`, { method: "POST", body: JSON.stringify(reason) });
+}
+
+export interface CircleRow {
+  id: string;
+  slug: string | null;
+  name: string;
+  activityLabel: string;
+  county: string;
+  status: string;
+  joinMode: string;
+  members: number;
+  organiserName: string | null;
+  reports: number;
+  createdAt: string;
+}
+export function fetchAdminCirclesPage(f: { q?: string; status?: string; cursor?: string | null }): Promise<ServerPage<CircleRow>> {
+  return request(`/admin/operations/circles${qs({ ...f, cursor: f.cursor ?? undefined, limit: "25" })}`);
+}
+
+export interface HostRow {
+  id: string;
+  name: string;
+  email: string;
+  hostStatus: string;
+  hosted: number;
+  upcoming: number;
+  paidActivities: number;
+  createdAt: string;
+}
+export function fetchHostsPage(f: { q?: string; status?: string; cursor?: string | null }): Promise<ServerPage<HostRow>> {
+  return request(`/admin/operations/hosts${qs({ ...f, cursor: f.cursor ?? undefined, limit: "25" })}`);
+}
+
+export function cancelOrderAsAdmin(kind: string, ref: string, reason: string): Promise<{ ok: boolean; refund: "none" | "refunded" | "failed"; refundError?: string }> {
+  return request(`/admin/operations/orders/${encodeURIComponent(kind)}/${encodeURIComponent(ref)}/cancel`, { method: "POST", body: JSON.stringify({ reason }) });
+}
+
+export function fetchAuditPage(f: { q?: string; action?: string; objectType?: string; objectId?: string; cursor?: string | null }): Promise<ServerPage<AuditEntry>> {
+  return request(`/admin/audit${qs({ ...f, cursor: f.cursor ?? undefined, limit: "50" })}`);
+}
+
+export function proposeBookingChangeAsAdmin(ref: string, input: { date: string; time: string; message: string }): Promise<{ id: number }> {
+  return request(`/admin/operations/orders/booking/${encodeURIComponent(ref)}/propose-change`, { method: "POST", body: JSON.stringify(input) });
+}
+
+// --- OG-31 — maps switch (runtime; server/src/routes/admin.ts) ---------------
+export function fetchMapsEnabled(): Promise<{ enabled: boolean }> {
+  return request(`/admin/config/maps-enabled`);
+}
+
+export function setMapsEnabled(enabled: boolean): Promise<{ enabled: boolean }> {
+  return request(`/admin/config/maps-enabled`, { method: "PUT", body: JSON.stringify({ enabled }) });
+}
+
+// --- OG-29 / OG-31 — privacy requests and consent records (recording only) ---
+export type PrivacyKind = "access" | "correction" | "erasure" | "objection";
+export type PrivacyStatus = "received" | "in_progress" | "completed" | "refused";
+export interface ConsentState {
+  granted: boolean;
+  source: string | null;
+  policyDocKey: string | null;
+  policyVersion: number | null;
+  at: string | null;
+}
+export interface PrivacyRequestRow {
+  id: number;
+  kind: PrivacyKind;
+  status: PrivacyStatus;
+  email: string;
+  residentId: string | null;
+  name: string;
+  createdAt: string;
+  updatedAt: string;
+}
+export interface PrivacyRequestDetail extends PrivacyRequestRow {
+  details: string;
+  response: string | null;
+  handledBy: string | null;
+  consents: Record<string, ConsentState> | null;
+}
+export interface ConsentSubjectView {
+  kind: "resident" | "partner" | "admin";
+  name: string;
+  current: Record<string, ConsentState>;
+  history: { purpose: string; granted: number; source: string; policyDocKey: string | null; policyVersion: number | null; at: string }[];
+}
+
+export function fetchPrivacyRequests(status: "open" | PrivacyStatus | "all" = "open"): Promise<PrivacyRequestRow[]> {
+  return request(`/admin/privacy/requests${status === "all" ? "" : `?status=${status}`}`);
+}
+
+export function fetchPrivacyRequest(id: number): Promise<PrivacyRequestDetail> {
+  return request(`/admin/privacy/requests/${id}`);
+}
+
+export function updatePrivacyRequest(id: number, input: { status: Exclude<PrivacyStatus, "received">; response?: string }): Promise<PrivacyRequestDetail> {
+  return request(`/admin/privacy/requests/${id}`, { method: "POST", body: JSON.stringify(input) });
+}
+
+export function fetchConsentsForEmail(email: string): Promise<ConsentSubjectView[]> {
+  return request(`/admin/privacy/consents?email=${encodeURIComponent(email)}`);
+}
+
+// --- OG-24 — Vendors and All listings as numbered server pages ------------------------
+
+export interface NumberedPage<T, C> {
+  items: T[];
+  total: number;
+  page: number;
+  pageSize: number;
+  pageCount: number;
+  counts: C;
+}
+export type AdminListingType = "centre" | "club" | "experience";
+export interface AdminListingRowData {
+  type: AdminListingType;
+  item: AdminListingSummary;
+}
+export interface AdminVendorRow extends AdminVendor {
+  /** Centres + clubs + experiences, not deleted. */
+  listingCount: number;
+}
+
+export function fetchAdminVendorPage(f: { q?: string; view?: string; type?: string; page: number; pageSize?: number }): Promise<NumberedPage<AdminVendorRow, { all: number; pending: number; approved: number; suspended: number }>> {
+  return request(`/admin/vendors${qs({ q: f.q, view: f.view === "all" ? undefined : f.view, type: f.type === "all" ? undefined : f.type, page: String(f.page), pageSize: String(f.pageSize ?? 20) })}`);
+}
+export function fetchAdminVendor(id: string): Promise<AdminVendorRow & { orgMemberCount: number }> {
+  return request(`/admin/vendors/${encodeURIComponent(id)}/summary`);
+}
+export function fetchAdminVendorListings(id: string): Promise<AdminListingRowData[]> {
+  return request(`/admin/vendors/${encodeURIComponent(id)}/listings`);
+}
+export function fetchAdminListingPage(f: { q?: string; type?: string; view?: string; county?: string; show?: string; sort?: string; page: number; pageSize?: number }): Promise<
+  NumberedPage<AdminListingRowData, { all: number; pending: number; approved: number; rejected: number; other: number }> & { typeCounts: Record<AdminListingType, number>; counties: string[] }
+> {
+  const all = (v?: string) => (v === "all" ? undefined : v);
+  return request(`/admin/listings${qs({ q: f.q, type: all(f.type), view: all(f.view), county: all(f.county), show: all(f.show), sort: f.sort, page: String(f.page), pageSize: String(f.pageSize ?? 20) })}`);
+}
+export function fetchAdminListingSummary(type: string, id: string): Promise<AdminListingRowData> {
+  return request(`/admin/listings/${encodeURIComponent(type)}/${encodeURIComponent(id)}/summary`);
 }

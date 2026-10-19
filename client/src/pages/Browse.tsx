@@ -279,7 +279,7 @@ export function Browse() {
                 )}
               </div>
             </div>
-            <div style={{ display: "flex", border: `1px solid ${colors.inputBorder}`, borderRadius: 10, overflow: "hidden", flex: "none" }}>
+            <div style={{ display: "flex", border: `1px solid ${colors.inputBorder}`, borderRadius: radius.control, overflow: "hidden", flex: "none" }}>
               {(["list", "map"] as const).map((v) => (
                 <button
                   key={v}
@@ -372,7 +372,7 @@ export function Browse() {
                   style={{
                     padding: "9px 12px 9px 32px",
                     border: `1px solid ${colors.inputBorder}`,
-                    borderRadius: 10,
+                    borderRadius: radius.control,
                     fontSize: 14,
                     background: colors.bg,
                     color: colors.text,
@@ -387,7 +387,7 @@ export function Browse() {
                 style={{
                   padding: "9px 12px",
                   border: `1px solid ${colors.inputBorder}`,
-                  borderRadius: 10,
+                  borderRadius: radius.control,
                   fontSize: 14,
                   background: colors.bg,
                   color: colors.text,

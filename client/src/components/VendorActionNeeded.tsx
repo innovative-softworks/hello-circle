@@ -29,13 +29,25 @@ export function VendorActionNeeded() {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{ tone: "ok" | "error"; text: string } | null>(null);
 
+  const [failed, setFailed] = useState(false);
   const load = useCallback(() => {
+    setFailed(false);
     fetchVendorOrders(true)
       .then(setOrders)
-      .catch(() => setOrders([]));
+      .catch(() => setFailed(true));
   }, []);
   useEffect(load, [load]);
 
+  // Refunds and deposits still owed: a failed check must never read as "nothing owed".
+  if (failed)
+    return (
+      <p role="alert" style={{ fontSize: 13.5, margin: 0 }}>
+        Couldn't check for refunds or deposits still owed.{" "}
+        <button type="button" className="btn-reset" onClick={load} style={{ textDecoration: "underline", fontWeight: 600 }}>
+          Try again
+        </button>
+      </p>
+    );
   if (!orders || orders.length === 0) return message ? <p role="status" style={{ fontSize: 13.5, color: colors.greenText, fontWeight: 600 }}>{message.text}</p> : null;
 
   const confirm = async () => {

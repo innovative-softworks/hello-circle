@@ -4,6 +4,7 @@ import { writeAudit } from "../audit.js";
 import { db } from "../db/index.js";
 import { requireResident } from "../residents.js";
 import { isValidEmail } from "../util.js";
+import { requireAdminPermission } from "../adminPermissions.js";
 
 // Revenue & Connect Stage 4 — trader profiles (DSA art. 30 traceability and
 // DAC7 seller data). One profile per selling party: a vendor organisation
@@ -125,7 +126,7 @@ publicTraderRouter.get("/listing/:type/:id", async (req, res) => {
 
 // Admin (legal or support) — review and verify.
 export const adminTraderRouter = Router();
-adminTraderRouter.get("/", async (req, res) => {
+adminTraderRouter.get("/", requireAdminPermission("traders.view"), async (req, res) => {
   const status = typeof req.query.status === "string" && ["unverified", "verified", "rejected"].includes(req.query.status) ? req.query.status : null;
   const rows = (await db
     .prepare(`SELECT party_type as partyType, party_id as partyId, ${OWN_FIELDS} FROM trader_profiles ${status ? "WHERE verification_status = ?" : ""} ORDER BY updated_at DESC LIMIT 200`)
@@ -133,7 +134,7 @@ adminTraderRouter.get("/", async (req, res) => {
   res.json(rows.map((r) => ({ ...r, tin: mask(r.tin), hasTin: !!r.tin })));
 });
 
-adminTraderRouter.put("/:type/:id/verification", async (req, res) => {
+adminTraderRouter.put("/:type/:id/verification", requireAdminPermission("traders.verify"), async (req, res) => {
   const { status, note } = (req.body ?? {}) as { status?: string; note?: string };
   if (!["verified", "rejected", "unverified"].includes(status ?? "")) return res.status(400).json({ error: "Status must be verified, rejected or unverified" });
   const why = (note ?? "").trim();

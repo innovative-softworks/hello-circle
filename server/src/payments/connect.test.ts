@@ -154,6 +154,27 @@ describe("onboarding and readiness", () => {
     expect(created).toHaveLength(1);
   });
 
+  it("never treats a fresh account as onboarded just because Stripe hasn't listed requirements yet", async () => {
+    // Real Stripe (test mode, 2026-10-14): a new v2 recipient account can come
+    // back with no requirement entries at all. That must still produce an
+    // onboarding link, not an `account_update` one (which Stripe refuses).
+    const { account_id: acct } = (await db.prepare(`SELECT account_id FROM connected_accounts WHERE party_id = ?`).get(org)) as { account_id: string };
+    const original = await stubProvider.retrieveConnectedAccount(acct);
+    stubProvider.setAccount(acct, { requirementsDue: [], requirementsPastDue: [], transfersCapability: "inactive", detailsSubmitted: true, disabledReason: null });
+    expect((await call("POST", "/vendor/payout-account/refresh", {}, "vendor")).status).toBe(200);
+    const fresh = await call("POST", "/vendor/payout-account/onboarding", {}, "vendor");
+    expect(fresh.body.url).toMatch(/\/onboarding\//);
+    // Once Stripe has activated transfers, the next link is an update link.
+    stubProvider.setAccount(acct, { transfersCapability: "active" });
+    await call("POST", "/vendor/payout-account/refresh", {}, "vendor");
+    const later = await call("POST", "/vendor/payout-account/onboarding", {}, "vendor");
+    expect(later.body.url).toMatch(/\/update\//);
+    // Restore the starting state for the tests below.
+    stubProvider.setAccount(acct, original);
+    await db.prepare(`UPDATE connected_accounts SET onboarding_completed_at = NULL WHERE account_id = ?`).run(acct);
+    await call("POST", "/vendor/payout-account/refresh", {}, "vendor");
+  });
+
   it("holds transfers until the account is verified and trader details are self-certified", async () => {
     const reasons = await payoutReadiness(party);
     expect(reasons).toEqual(expect.arrayContaining([expect.stringMatching(/can't receive transfers/), expect.stringMatching(/Trader details/)]));

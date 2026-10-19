@@ -1,3 +1,4 @@
+import { Fragment } from "react";
 import type { AnalyticsFunnelRow, LiquidityLabel, LiquidityScore, MarketplaceHealth as MarketplaceHealthData, ReferralAttributionRow } from "../types";
 import { colors, fonts, radius } from "../theme";
 import { SearchIcon } from "./icons";
@@ -19,7 +20,7 @@ const LABEL_STYLE: Record<LiquidityLabel, { bg: string; color: string }> = {
 export function LiquidityBadge({ label }: { label: LiquidityLabel }) {
   const s = LABEL_STYLE[label];
   return (
-    <span style={{ fontSize: 11, fontWeight: 700, color: s.color, background: s.bg, borderRadius: 999, padding: "3px 10px", flex: "none" }}>{label}</span>
+    <span style={{ fontSize: 11, fontWeight: 700, color: s.color, background: s.bg, borderRadius: radius.pill, padding: "3px 10px", flex: "none" }}>{label}</span>
   );
 }
 
@@ -43,7 +44,22 @@ const FUNNEL_LABELS: Record<string, string> = {
   circle_joined: "Joined a Circle",
   attended: "Attended",
   repeat_joined: "Repeat join",
+  activity_viewed: "Activity viewed",
+  place_viewed: "Place viewed",
+  circle_viewed: "Circle viewed",
+  activity_saved: "Activity saved",
+  request_interest_added: "Asked to be told",
+  booking_started: "Booking started",
+  checkout_abandoned: "Checkout abandoned",
+  booking_completed: "Booking completed",
+  feedback_submitted: "Feedback given",
+  circle_created: "Circle created",
+  attendance_confirmed: "Attendance confirmed",
+  host_opportunity_viewed: "Host saw a demand opportunity",
+  host_created_from_demand: "Host created from demand",
 };
+/** Readable label for any funnel event, including ones added later. */
+const funnelLabel = (t: string) => FUNNEL_LABELS[t] ?? t.charAt(0).toUpperCase() + t.slice(1).replace(/_/g, " ");
 
 export function MarketplaceHealthView({
   data,
@@ -113,7 +129,7 @@ export function MarketplaceHealthView({
 
       {referrals !== undefined && (
         <Card>
-          <h4 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 16, margin: "0 0 4px" }}>Referrals — estimated attribution</h4>
+          <h4 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 16, margin: "0 0 4px" }}>Referrals (estimated)</h4>
           <p style={{ fontSize: 12.5, color: colors.mutedLight, margin: "0 0 16px" }}>
             A visitor landed with a share link, then made a real booking, registration, or game join within 7 days — a best-effort estimate, not a hard
             link (an anonymous visitor's game join still can't be traced, since that only works once they're signed in).
@@ -133,7 +149,7 @@ export function MarketplaceHealthView({
                     {r.source || "unknown source"} · landed {new Date(r.landedAt).toLocaleDateString("en-IE")}
                   </span>
                   {r.converted ? (
-                    <span style={{ fontSize: 11, fontWeight: 700, color: colors.greenText, background: colors.greenBg, borderRadius: 999, padding: "3px 10px" }}>
+                    <span style={{ fontSize: 11, fontWeight: 700, color: colors.greenText, background: colors.greenBg, borderRadius: radius.pill, padding: "3px 10px" }}>
                       Converted ({r.convertedKind})
                     </span>
                   ) : (
@@ -150,7 +166,7 @@ export function MarketplaceHealthView({
         <Card>
           <h4 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 16, margin: "0 0 4px" }}>Funnel (last 30 days)</h4>
           <p style={{ fontSize: 12.5, color: colors.mutedLight, margin: "0 0 16px" }}>
-            Raw event counts — search, intent, match, join, attend, repeat. A minimal first-party log, not a full analytics product.
+            Event counts from search to repeat participation. A minimal first-party log, not a full analytics product.
           </p>
           {!funnel ? (
             <EmptyState icon={<SearchIcon size={22} />} title="Loading…" />
@@ -158,7 +174,7 @@ export function MarketplaceHealthView({
             <EmptyState icon={<SearchIcon size={22} />} title="No events logged yet" />
           ) : (
             <div style={{ display: "flex", flexWrap: "wrap" }}>
-              {funnel.map((row) => statBlock(row.count, FUNNEL_LABELS[row.eventType] ?? row.eventType))}
+              {funnel.map((row) => <Fragment key={row.eventType}>{statBlock(row.count, funnelLabel(row.eventType))}</Fragment>)}
             </div>
           )}
         </Card>

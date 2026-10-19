@@ -1,5 +1,7 @@
 import { Router } from "express";
 import { attachVendorIds, requireVendor } from "../auth.js";
+import { latestPublicDecision } from "../moderationDecisions.js";
+import { canSeeObligationDetail, orgObligations } from "../orgSuspension.js";
 import { vendorExperiencesRouter } from "./vendorExperiences.js";
 import { vendorInsightsRouter } from "./vendorInsights.js";
 import { vendorListingsRouter } from "./vendorListings.js";
@@ -20,6 +22,26 @@ vendorRouter.use(requireVendor);
 // id in that set, not just your own — this is what lets an invited staff
 // member actually see/manage the owner's listings (see auth.ts orgVendorIds).
 vendorRouter.use(attachVendorIds);
+
+// D-01 — read-only view of the organisation's existing obligations, the one
+// partner API allowed while the organisation is suspended (see requireVendor).
+// Customer detail (first name, reference, payment state) only for the roles
+// that see bookings in the workspace today; everyone else gets the schedule-
+// level summary (date, listing, count). No email, phone or amounts.
+vendorRouter.get("/obligations", async (req, res) => {
+  const orgId = req.user!.orgId;
+  if (!orgId) return res.status(403).json({ error: "No organisation" });
+  const detail = canSeeObligationDetail(req.user!);
+  const { items, summary } = await orgObligations(orgId, detail);
+  res.json({
+    orgStatus: req.user!.orgStatus ?? "active",
+    decision: req.user!.orgStatus === "suspended" ? await latestPublicDecision("organisation", orgId, ["org.suspended"]) : null,
+    detail,
+    items,
+    summary,
+    support: { contact: "/contact", complaints: "/complaints" },
+  });
+});
 
 // Every sub-router below inherits req.user/req.vendorIds from the two
 // .use() calls above — none of them re-applies requireVendor/attachVendorIds

@@ -1,18 +1,21 @@
 import { useEffect, useState } from "react";
 import { HostChatButton } from "../components/HostChatButton";
 import { useNavigate, useParams } from "react-router-dom";
-import { fetchVendorClub, fetchVendorListings } from "../api";
+import { fetchVendorClub, fetchVendorListings, publishVendorClub } from "../api";
 import { useAuth } from "../AuthContext";
 import { BackLink } from "../components/BackLink";
+import { PartnerWorkspace } from "../components/workspace/PartnerWorkspace";
+import { ListingMeta } from "../components/workspace/ListingMeta";
 import { BookingsTab } from "../components/VendorBookings";
 import { ClubParticipantsTab } from "../components/ClubParticipantsTab";
 import { ClubEditor, ClubSessionsManager, ClubWaitlistPanel } from "../components/VendorClubEditor";
 import { ClubCreationWizard } from "../components/ClubCreationWizard";
 import { useUnsavedChangesGuard } from "../components/form";
+import { ListingReviewNotice } from "../components/ListingReviewNotice";
 import { MessageComposer } from "../components/VendorMessages";
 import { PublishedScreen } from "../components/PublishedScreen";
 import { VendorListingPerformance } from "../components/VendorListingPerformance";
-import { PageSpinner, Tabs } from "../components/ui";
+import { LoadErrorState, PageSpinner, Tabs } from "../components/ui";
 import { colors, fonts, radius } from "../theme";
 import type { Club, VendorListingSummary } from "../types";
 
@@ -36,19 +39,27 @@ export function VendorClubEditPage() {
   const [tab, setTab] = useState<ClubTab>("details");
   const [club, setClub] = useState<Club | null>(null);
   const [loading, setLoading] = useState(clubId !== "new");
+  const [loadError, setLoadError] = useState(false);
   const [wizardMode, setWizardMode] = useState(clubId === "new");
   const [justPublished, setJustPublished] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [listingSummary, setListingSummary] = useState<VendorListingSummary | undefined>(undefined);
   const { requestNavigation, dialog: unsavedDialog } = useUnsavedChangesGuard(dirty);
 
-  useEffect(() => {
-    if (clubId !== "new") {
-      fetchVendorClub(clubId).then((c) => {
+  const loadClub = () => {
+    setLoadError(false);
+    fetchVendorClub(clubId)
+      .then((c) => {
         setClub(c);
         setWizardMode(c.status === "draft");
-        setLoading(false);
-      });
+      })
+      .catch(() => setLoadError(true))
+      .finally(() => setLoading(false));
+  };
+
+  useEffect(() => {
+    if (clubId !== "new") {
+      loadClub();
       fetchVendorListings().then((l) => setListingSummary(l.clubs.find((c) => c.id === clubId)));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -69,11 +80,25 @@ export function VendorClubEditPage() {
   if (!user || user.role !== "vendor" || user.status !== "approved") return null;
 
   const title = clubId === "new" ? "New sports club" : (club?.name ?? "Edit sports club");
+  if (loadError) {
+    return (
+      <PartnerWorkspace user={user} active="listings" title={title}>
+        <BackLink onClick={() => navigate("/vendor?tab=listings")}>Back to listings</BackLink>
+        <LoadErrorState title="Couldn't load this club" onRetry={loadClub} />
+      </PartnerWorkspace>
+    );
+  }
 
   return (
-    <div className="fade-panel">
-      <section className="section-pad" style={{ maxWidth: 920, margin: "0 auto", padding: "40px 24px 90px" }}>
-        <BackLink onClick={() => requestNavigation(() => navigate("/vendor?tab=listings"))}>Back to listings</BackLink>
+    <PartnerWorkspace
+      user={user}
+      active="listings"
+      title={title}
+      guard={requestNavigation}
+      subtitle={!wizardMode && club ? <ListingMeta status={club.status} kind="Club" place={[club.area, club.county].filter(Boolean).join(", ")} /> : undefined}
+      actions={!wizardMode && clubId !== "new" ? <HostChatButton scopeType="club" scopeId={clubId} title={club?.name ?? "Club chat"} label="Members chat" className="adm-btn" /> : undefined}
+    >
+      <div>
 
         {wizardMode ? (
           <ClubCreationWizard
@@ -89,10 +114,7 @@ export function VendorClubEditPage() {
           <PublishedScreen name={club?.name ?? "Your club"} publicHref={`/clubs/${club?.slug ?? clubId}`} onDismiss={() => setJustPublished(false)} />
         ) : (
           <>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap", margin: "0 0 18px" }}>
-              <h1 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: "clamp(24px, 2.4vw, 30px)", margin: 0, letterSpacing: 0 }}>{title}</h1>
-              {clubId !== "new" && <HostChatButton scopeType="club" scopeId={clubId} title={club?.name ?? "Club chat"} label="Members chat" style={{ border: `1px solid ${colors.borderStrong}`, borderRadius: radius.pill, padding: "8px 14px", fontSize: 13.5, color: colors.text, background: colors.surface }} />}
-            </div>
+            <ListingReviewNotice listing={{ type: "club", id: clubId }} status={club?.status} dirty={dirty} onResubmit={async () => setClub(await publishVendorClub(clubId))} />
             <div style={{ marginBottom: 22 }}>
               <Tabs
                 value={tab}
@@ -120,8 +142,8 @@ export function VendorClubEditPage() {
             {tab === "performance" && <VendorListingPerformance summary={listingSummary} />}
           </>
         )}
-      </section>
+      </div>
       {unsavedDialog}
-    </div>
+    </PartnerWorkspace>
   );
 }

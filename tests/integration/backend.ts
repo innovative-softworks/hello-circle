@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import net from "node:net";
 import http from "node:http";
 import { connectedPreflight } from "./runtime";
@@ -77,12 +78,77 @@ async function main() {
             const { type, ref, outcome } = JSON.parse(Buffer.concat(chunks).toString("utf8")) as { type: string; ref: string; outcome: "success" | "failure" | "expired" };
             if (!["booking", "registration", "game", "program", "experience", "pass"].includes(type) || !["success", "failure", "expired"].includes(outcome) || typeof ref !== "string") throw new Error("bad input");
             const { processProviderOutcome } = await import("../../server/src/routes/stripeWebhook");
+            // D-10: a payment already held for review is re-read from the provider before it
+            // can confirm. A real held payment always has a charge at the provider, so the
+            // stub records one for it here (the seam otherwise models no provider state).
+            if (outcome === "success") {
+              const tables: Record<string, string> = { booking: "bookings", registration: "registrations", game: "game_participants", program: "program_enrollments", experience: "experience_bookings", pass: "passes" };
+              const held = (await db.prepare(`SELECT o.stripe_session_id AS sid, r.received_minor AS amount FROM ${tables[type]} o JOIN payment_reviews r ON r.checkout_session_id = o.stripe_session_id AND r.status = 'open' WHERE o.ref = ?`).get(ref)) as { sid: string; amount: number | string | null } | undefined;
+              if (held?.sid) {
+                const { stubProvider } = await import("../../server/src/payments/provider");
+                stubProvider.markPaid(held.sid, Number(held.amount ?? 0));
+              }
+            }
             await processProviderOutcome(type, ref, outcome);
             response.setHeader("Content-Type", "application/json");
             response.end(JSON.stringify({ processed: true }));
           } catch {
             response.statusCode = 400;
             response.end(JSON.stringify({ processed: false }));
+          }
+        });
+        return true;
+      }
+      // D-10 / D-11 (stub batches only): a paid Checkout event for an order's own
+      // stub session, delivered through the real webhook pipeline (store once,
+      // claim, process, park). `amountMinor` other than the agreed amount gives a
+      // case-1 mismatch. Also: a refund made "in the provider's dashboard" and a
+      // review sweep on demand (the server runs it every 5 minutes anyway).
+      if (request.url === "/api/__qa/payment" && request.method === "POST" && process.env.QA_PAYMENT_PROVIDER_STUB === "1") {
+        const chunks: Buffer[] = [];
+        request.on("data", (c: Buffer) => chunks.push(c));
+        request.on("end", async () => {
+          try {
+            const body = JSON.parse(Buffer.concat(chunks).toString("utf8")) as { action: string; type?: string; ref?: string; amountMinor?: number; status?: string };
+            const tables: Record<string, string> = { booking: "bookings", registration: "registrations", game: "game_participants", program: "program_enrollments", experience: "experience_bookings", pass: "passes" };
+            const { stubProvider } = await import("../../server/src/payments/provider");
+            const { sweepPaymentReviews } = await import("../../server/src/payments/paymentReview");
+            let out: Record<string, unknown> = {};
+            if (body.action === "sweep") out = await sweepPaymentReviews();
+            else {
+              if (!body.type || !tables[body.type] || typeof body.ref !== "string") throw new Error("bad input");
+              const [rowsFound] = (await db.prepare(`SELECT stripe_session_id AS sid FROM ${tables[body.type]} WHERE ref = ?`).all(body.ref)) as { sid: string | null }[];
+              const sid = rowsFound?.sid;
+              if (!sid) throw new Error("no session");
+              if (body.action === "paid") {
+                const agreed = (await db.prepare(`SELECT amount_minor AS a FROM checkout_agreements WHERE session_id = ?`).get(sid)) as { a: number | string } | undefined;
+                const amount = typeof body.amountMinor === "number" ? body.amountMinor : Number(agreed?.a ?? 0);
+                stubProvider.markPaid(sid, amount);
+                stubProvider.setSessionCharge(sid, amount, "eur", { type: body.type, ref: body.ref });
+                const event = { id: `evt_qa_stub_${randomUUID().replace(/-/g, "")}`, type: "checkout.session.completed", created: Math.floor(Date.now() / 1000), livemode: false, account: null, data: { object: { id: sid, object: "checkout.session", payment_status: "paid", amount_total: amount, currency: "eur", payment_intent: `pi_stub_${sid}`, metadata: { type: body.type, ref: body.ref } } } };
+                const { beginEvent, finishEvent, failEvent } = await import("../../server/src/payments/webhookEvents");
+                const { processStripeEvent } = await import("../../server/src/routes/stripeWebhook");
+                const { NeedsReviewError } = await import("../../server/src/commerce/payments");
+                const begin = await beginEvent("stripe", event as never, JSON.stringify(event));
+                if (begin.action !== "process") out = { result: begin.action };
+                else {
+                  try {
+                    await finishEvent(begin.rowId, await processStripeEvent(event as never));
+                    out = { result: "processed", eventId: event.id };
+                  } catch (e) {
+                    await failEvent(begin.rowId, e, { needsReview: e instanceof NeedsReviewError });
+                    out = { result: e instanceof NeedsReviewError ? "parked" : "failed", eventId: event.id };
+                  }
+                }
+              } else if (body.action === "dashboard_refund" && typeof body.amountMinor === "number") {
+                out = { refund: stubProvider.addExternalRefund(sid, body.amountMinor, body.status ?? "succeeded") };
+              } else throw new Error("bad input");
+            }
+            response.setHeader("Content-Type", "application/json");
+            response.end(JSON.stringify(out));
+          } catch {
+            response.statusCode = 400;
+            response.end(JSON.stringify({ ok: false }));
           }
         });
         return true;

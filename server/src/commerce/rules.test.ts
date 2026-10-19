@@ -23,14 +23,18 @@ let baseUrl: string;
 
 beforeAll(async () => {
   for (const [id, role] of [[adminA, "admin"], [adminB, "admin"], [vendorUser, "vendor"]] as const) {
-    await db.prepare(`INSERT INTO users (id, email, password_hash, role, status, name) VALUES (?, ?, 'x', ?, 'approved', 'T')`).run(id, `${id}@example.test`, role);
+    // D-02: an admin always has an explicit role (an empty role grants nothing).
+    await db.prepare(`INSERT INTO users (id, email, password_hash, role, status, name, admin_role) VALUES (?, ?, 'x', ?, 'approved', 'T', ?)`).run(id, `${id}@example.test`, role, role === "admin" ? "super" : null);
   }
   await db.prepare(`INSERT INTO organisations (id, name) VALUES (?, 'Rules Test Org')`).run(orgId);
   const app = express();
   app.use(express.json());
   app.use((req, _res, next) => {
     const id = req.header("X-Test-User-Id");
-    if (id) (req as any).user = { id, role: req.header("X-Test-Role") ?? "admin", status: "approved" };
+    if (id) {
+      const role = req.header("X-Test-Role") ?? "admin";
+      (req as any).user = { id, role, status: "approved", adminRole: req.header("X-Test-Admin-Role") ?? (role === "admin" ? "super" : null) };
+    }
     next();
   });
   app.use("/admin", adminRouter);
@@ -93,8 +97,9 @@ describe("seeded state", () => {
 
 describe("authorisation", () => {
   it("non-admins can't read or change commercial rules", async () => {
-    expect((await call("GET", "/rules", undefined, vendorUser, "vendor")).status).toBe(401);
-    expect((await call("POST", "/rules/drafts", { key: "pricing", scopeType: "scenario", scopeId: "free", payload: { customerFeeBps: 0 }, reason: "nope nope" }, vendorUser, "vendor")).status).toBe(401);
+    // D-02: a signed-in non-admin is refused with 403 (401 is for no session).
+    expect((await call("GET", "/rules", undefined, vendorUser, "vendor")).status).toBe(403);
+    expect((await call("POST", "/rules/drafts", { key: "pricing", scopeType: "scenario", scopeId: "free", payload: { customerFeeBps: 0 }, reason: "nope nope" }, vendorUser, "vendor")).status).toBe(403);
   });
 });
 
@@ -246,6 +251,25 @@ describe("preview and audit", () => {
       expect(a.environment).toBeTruthy();
     }
     expect(mine.map((a: any) => a.action)).toEqual(expect.arrayContaining(["commerce_rule.draft_created", "commerce_rule.published", "commerce_rule.override_ended"]));
+  });
+
+  it("D-02: finance can flip financial switches but not the governance ones (Super-only)", async () => {
+    const asFinance = (key: string, enabled: boolean) =>
+      fetch(`${baseUrl}/admin/commerce/switches/${key}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", "X-Test-User-Id": adminB, "X-Test-Role": "admin", "X-Test-Admin-Role": "finance" },
+        body: JSON.stringify({ enabled, reason: "finance switch probe" }),
+      });
+    const { GOVERNANCE_SWITCHES } = await import("../routes/adminCommerce.js");
+    const { COMMERCE_SWITCHES } = await import("./catalog.js");
+    for (const key of GOVERNANCE_SWITCHES) {
+      expect(COMMERCE_SWITCHES.some((s) => s.key === key), key).toBe(true);
+      const before = await db.prepare("SELECT value FROM app_settings WHERE `key` = ?").get(key);
+      expect((await asFinance(key, true)).status, key).toBe(403);
+      expect(await db.prepare("SELECT value FROM app_settings WHERE `key` = ?").get(key)).toEqual(before);
+    }
+    const shadowBefore = (await db.prepare("SELECT value FROM app_settings WHERE `key` = 'commerce.shadow_pricing'").get()) as { value: string } | undefined;
+    expect((await asFinance("commerce.shadow_pricing", shadowBefore?.value === "true")).status).toBe(200);
   });
 
   it("switches need a reason and are audited", async () => {

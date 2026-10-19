@@ -3,7 +3,7 @@ import { PAID_CLOSED_MESSAGE, usePaidCheckoutOpen } from "../paidCheckout";
 import { leaveWaitlistConfirm } from "../confirmCopy";
 import { useConfirm } from "./ConfirmProvider";
 import { useNavigate } from "react-router-dom";
-import { cancelGame, downloadGameIcs, fetchGameNotifyMe, fetchGameParticipants, joinGame, joinGameWaitlist, leaveGame, leaveGameWaitlist, quoteGame, subscribeGameNotifyMe, unsubscribeGameNotifyMe, validateCoupon, type PriceQuote } from "../api";
+import { cancelGame, withdrawGameJoinRequest, downloadGameIcs, fetchGameNotifyMe, fetchGameParticipants, joinGame, joinGameWaitlist, leaveGame, leaveGameWaitlist, quoteGame, subscribeGameNotifyMe, unsubscribeGameNotifyMe, validateCoupon, type PriceQuote } from "../api";
 import { signInHref } from "../authRedirect";
 import { openCheckout } from "../native";
 import { CalendarIcon, CheckIcon, PinIcon, UsersIcon } from "./icons";
@@ -30,7 +30,7 @@ import { formatPrice } from "../formatters";
 // their own Coming Soon activity still gets the normal "host" controls
 // (e.g. Cancel) here — the host's own publishing controls (open now/pause/
 // edit schedule) live in Manage, not this public-facing card.
-type JoinState = "cancelled" | "host" | "coming-soon" | "signed-out" | "joined" | "waitlisted" | "full" | "available";
+type JoinState = "cancelled" | "host" | "coming-soon" | "signed-out" | "joined" | "requested" | "declined" | "closed" | "waitlisted" | "full" | "available";
 
 function computeState(game: Game, resident: Resident | null, isHost: boolean): JoinState {
   if (game.status === "cancelled") return "cancelled";
@@ -38,12 +38,17 @@ function computeState(game: Game, resident: Resident | null, isHost: boolean): J
   if (game.effectiveLifecycle === "coming_soon") return "coming-soon";
   if (!resident) return "signed-out";
   if (game.joinedByMe) return "joined";
+  // OG-27 — approval activities: a sent request, or one the host declined.
+  if (game.joinRequestByMe === "requested") return "requested";
+  if (game.joinRequestByMe === "declined" && game.joinMode === "approval") return "declined";
+  // OG-27 — the host closed bookings (or a booking cut-off passed).
+  if (game.effectiveLifecycle === "paused") return "closed";
   if (game.spotsLeft === 0) return game.waitlistedByMe ? "waitlisted" : "full";
   return "available";
 }
 
 function ctaLabel(game: Game, state: JoinState): string {
-  if (state === "available") return gamePrimaryCtaLabel(game);
+  if (state === "available") return game.joinMode === "approval" && !game.priceCents ? "Ask to join" : gamePrimaryCtaLabel(game);
   if (state === "full") return "Join waitlist";
   return "";
 }
@@ -226,6 +231,30 @@ function JoinHeadline({ game, state }: { game: Game; state: JoinState }) {
   if (state === "waitlisted") {
     return <h2 style={h2Style}>On the waitlist</h2>;
   }
+  if (state === "requested") {
+    return (
+      <>
+        <h2 style={h2Style}>Request sent</h2>
+        <p style={subStyle}>The host approves each person for this activity. We'll let you know when they reply.</p>
+      </>
+    );
+  }
+  if (state === "declined") {
+    return (
+      <>
+        <h2 style={h2Style}>Not this time</h2>
+        <p style={subStyle}>The host couldn't take you for this activity.</p>
+      </>
+    );
+  }
+  if (state === "closed") {
+    return (
+      <>
+        <h2 style={h2Style}>Bookings closed</h2>
+        <p style={subStyle}>The host isn't taking new people for this one.</p>
+      </>
+    );
+  }
   if (state === "host") {
     return <h2 style={{ ...h2Style, fontSize: 20 }}>{game.activityLabel}</h2>;
   }
@@ -282,6 +311,7 @@ export function GameJoinCard({ game, resident, isHost, onRefresh }: JoinCardProp
   const [couponCode, setCouponCode] = useState<string | null>(null);
   const [ageOk, setAgeOk] = useState(false);
   const [leaveConfirmOpen, setLeaveConfirmOpen] = useState(false);
+  const [requestNote, setRequestNote] = useState("");
 
   const state = computeState(game, resident, isHost);
   const notify = useGameNotifyMe(game.id, resident, state === "coming-soon");
@@ -316,11 +346,20 @@ export function GameJoinCard({ game, resident, isHost, onRefresh }: JoinCardProp
   };
 
   const handleConfirmJoin = () => {
-    run(() => joinGame(game.id, couponCode ?? undefined, game.minAge ? ageOk : undefined), () => {
-      setConfirmOpen(false);
-      setCouponCode(null);
-      if (!game.priceCents) setJustJoined(true);
-    });
+    let requested = false;
+    run(
+      () =>
+        joinGame(game.id, couponCode ?? undefined, game.minAge ? ageOk : undefined, requestNote.trim() || undefined).then((r) => {
+          requested = !!r.requested;
+          return r;
+        }),
+      () => {
+        setConfirmOpen(false);
+        setCouponCode(null);
+        setRequestNote("");
+        if (!game.priceCents && !requested) setJustJoined(true);
+      }
+    );
   };
 
   const handleConfirmCancel = () => {
@@ -447,6 +486,11 @@ export function GameJoinCard({ game, resident, isHost, onRefresh }: JoinCardProp
           {state === "full" && (
             <Button variant="orange" full onClick={() => run(() => joinGameWaitlist(game.id))} disabled={busy}>Join waitlist</Button>
           )}
+          {state === "requested" && (
+            <Button variant="ghost" full onClick={() => run(() => withdrawGameJoinRequest(game.id))} disabled={busy}>
+              Withdraw request
+            </Button>
+          )}
           {state === "available" && (
             <Button full onClick={() => setConfirmOpen(true)} disabled={busy}>{ctaLabel(game, state)}</Button>
           )}
@@ -465,16 +509,25 @@ export function GameJoinCard({ game, resident, isHost, onRefresh }: JoinCardProp
 
       <ConfirmDialog
         open={confirmOpen}
-        title={`Join ${game.activityLabel}?`}
+        title={game.joinMode === "approval" && !game.priceCents ? `Ask to join ${game.activityLabel}?` : `Join ${game.activityLabel}?`}
         message={
           <>
             <PlanRecap game={game} couponCode={couponCode} />
             {!!game.priceCents && <GameCouponField gameId={game.id} subtotalCents={game.priceCents} onApplied={setCouponCode} />}
             {!!game.minAge && <MinAgeConfirm minAge={game.minAge} checked={ageOk} onChange={setAgeOk} />}
+            {game.joinMode === "approval" && !game.priceCents && (
+              <div style={{ marginTop: 12 }}>
+                <label htmlFor="join-request-note" style={labelStyle}>
+                  Note to the host (optional)
+                </label>
+                <textarea id="join-request-note" rows={2} maxLength={500} value={requestNote} onChange={(e) => setRequestNote(e.target.value)} style={{ ...inputStyle, resize: "vertical" }} />
+                <p style={{ margin: "6px 0 0", fontSize: 12.5, color: colors.mutedLight }}>The host approves each person. You're not in until they do.</p>
+              </div>
+            )}
             {paidClosed && <p role="status" style={{ margin: "10px 0 0", fontSize: 13.5, fontWeight: 600, color: colors.orangeDark }}>{PAID_CLOSED_MESSAGE}</p>}
           </>
         }
-        confirmLabel={game.priceCents ? "Continue to payment" : "Confirm I'm in"}
+        confirmLabel={game.priceCents ? "Continue to payment" : game.joinMode === "approval" ? "Send request" : "Confirm I'm in"}
         cancelLabel="Cancel"
         tone="neutral"
         busy={busy}
@@ -533,7 +586,7 @@ export function MobileJoinBar({ game, resident, isHost, onRefresh }: JoinCardPro
 
   const state = computeState(game, resident, isHost);
   const notify = useGameNotifyMe(game.id, resident, state === "coming-soon");
-  if (state === "cancelled" || state === "host" || state === "joined") return null;
+  if (state === "cancelled" || state === "host" || state === "joined" || state === "requested" || state === "declined" || state === "closed") return null;
 
   if (state === "coming-soon") {
     const onNotify = () => {
@@ -578,7 +631,7 @@ export function MobileJoinBar({ game, resident, isHost, onRefresh }: JoinCardPro
       </div>
       <ConfirmDialog
         open={confirmOpen}
-        title={`Join ${game.activityLabel}?`}
+        title={game.joinMode === "approval" && !game.priceCents ? `Ask to join ${game.activityLabel}?` : `Join ${game.activityLabel}?`}
         message={
           <>
             <PlanRecap game={game} couponCode={couponCode} />
@@ -587,7 +640,7 @@ export function MobileJoinBar({ game, resident, isHost, onRefresh }: JoinCardPro
             {paidClosed && <p role="status" style={{ margin: "10px 0 0", fontSize: 13.5, fontWeight: 600, color: colors.orangeDark }}>{PAID_CLOSED_MESSAGE}</p>}
           </>
         }
-        confirmLabel={game.priceCents ? "Continue to payment" : "Confirm I'm in"}
+        confirmLabel={game.priceCents ? "Continue to payment" : game.joinMode === "approval" ? "Send request" : "Confirm I'm in"}
         cancelLabel="Cancel"
         tone="neutral"
         busy={busy}

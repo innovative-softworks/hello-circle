@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { writeAudit } from "../audit.js";
 import { db } from "../db/index.js";
+import { requireAdminPermission } from "../adminPermissions.js";
 
 // Revenue & Connect Stage 3 — financial field help (brief §19D). Public read
 // (latest version per key); edits go through the admin router (legal or
@@ -26,14 +27,14 @@ helpRouter.get("/fields", async (req, res) => {
   res.json(await latestHelp(keys));
 });
 
-/** Admin edit (mounted under /api/admin/help behind requireAdminRole("legal")). */
+/** Admin edit (mounted under /api/admin/help behind requireAdminPermission("help.edit")). */
 export const adminHelpRouter = Router();
 
-adminHelpRouter.get("/:key/versions", async (req, res) => {
+adminHelpRouter.get("/:key/versions", requireAdminPermission("help.edit"), async (req, res) => {
   res.json(await db.prepare(`SELECT ${FIELDS}, h.created_by as createdBy, h.reason FROM help_entries h WHERE h.help_key = ? ORDER BY h.version DESC`).all(req.params.key));
 });
 
-adminHelpRouter.put("/:key", async (req, res) => {
+adminHelpRouter.put("/:key", requireAdminPermission("help.edit"), async (req, res) => {
   const b = req.body as Record<string, unknown>;
   const reason = typeof b.reason === "string" ? b.reason.trim() : "";
   if (reason.length < 5) return res.status(400).json({ error: "A reason (at least 5 characters) is required" });

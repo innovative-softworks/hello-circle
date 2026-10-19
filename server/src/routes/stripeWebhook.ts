@@ -9,9 +9,8 @@ import { db } from "../db/index.js";
 import { sendMail } from "../email.js";
 import { notifyNewBookingOrRegistration, notifyResident } from "../notifications.js";
 import { claimWaitlistOffer } from "../waitlist.js";
-import { endPendingHold, gameSeatSql, holdIsLive, occupiesCapacitySql } from "../bookingIntegrity.js";
+import { endPendingHold } from "../bookingIntegrity.js";
 import { writeAudit } from "../audit.js";
-import { bookingEndHour, hoursOverlap } from "../util.js";
 import { CLIENT_URL, STRIPE_CONNECT_WEBHOOK_SECRET, STRIPE_V2_WEBHOOK_SECRET, STRIPE_WEBHOOK_SECRET, stripe } from "../stripe.js";
 import { CONNECT_EVENT_TYPES, processConnectEvent, processThinConnectEvent } from "../payments/connect.js";
 import { paymentProvider } from "../payments/provider.js";
@@ -19,6 +18,10 @@ import { unsignedStripeWebhooksAllowed } from "../stripeWebhookPolicy.js";
 import type Stripe from "stripe";
 import type { CheckoutType } from "../checkoutService.js";
 import { SOURCE_TABLES, syncOrderFromSource } from "../commerce/engine.js";
+import { checkCheckoutAgreement } from "../payments/checkoutAgreement.js";
+import { HOLDING_TYPES, ORDER_TABLE, ORDER_TOTAL, PARENT_LOCK, isOrderType, listingEligible, orderFits, orderHoldLive, orderStart, type OrderType } from "../payments/orderState.js";
+import { autoRefundSwitchOn, handleUnfulfilled, hasOpenReview, openReview, recordRefundsForReview, recordUnmatchedPayment, resolveConfirmed, reviewForSession, type AutoRefund, type PaymentFacts, type ReviewReason } from "../payments/paymentReview.js";
+import { orgSuspendedForVendor, orgSuspendedReviewMessage, supplyVendorForOrder } from "../orgStatus.js";
 import { NeedsReviewError, recordDispute, recordPaymentConfirmed, recordProviderRefunds } from "../commerce/payments.js";
 import { beginEvent, failEvent, finishEvent, type IncomingEvent } from "../payments/webhookEvents.js";
 
@@ -54,77 +57,164 @@ interface RegistrationForNotify {
   total_cents: number;
 }
 
-/** Phase 8 (HC-QA-041) — settle one pending paid row under its parent's row
- * lock. Duplicate/replayed delivery is a no-op (only 'pending' rows settle).
- * A live hold confirms; a stale hold (past PENDING_HOLD_MINUTES) confirms only
- * if capacity still allows, otherwise it becomes status='cancelled' with
- * payment_status='paid' — the existing "refund required" state the vendor
- * refund route acts on (no refund is performed or fabricated here). */
-type Settle = "confirmed" | "refund_required" | "noop";
-async function settlePending(kind: "booking" | "registration" | "program" | "experience", ref: string): Promise<Settle> {
-  return db.transaction(async (tx) => {
-    const spec = {
-      booking: { table: "bookings", parent: `SELECT r.id FROM rooms r JOIN bookings b ON b.room_id = r.id AND b.centre_id = r.centre_id WHERE b.ref = ? FOR UPDATE` },
-      registration: { table: "registrations", parent: `SELECT c.id FROM clubs c JOIN registrations r ON r.club_id = c.id WHERE r.ref = ? FOR UPDATE` },
-      program: { table: "program_enrollments", parent: `SELECT p.id FROM programs p JOIN program_enrollments e ON e.program_id = p.id WHERE e.ref = ? FOR UPDATE` },
-      experience: { table: "experience_bookings", parent: `SELECT s.id FROM experience_sessions s JOIN experience_bookings b ON b.session_id = s.id WHERE b.ref = ? FOR UPDATE` },
-    }[kind];
-    await tx.prepare(spec.parent).get(ref);
-    const row = (await tx.prepare(`SELECT * FROM ${spec.table} WHERE ref = ? FOR UPDATE`).get(ref)) as Record<string, any> | undefined;
-    if (!row || row.payment_status !== "pending") return "noop";
-    let fits = row.status !== "cancelled";
-    if (fits && !holdIsLive(row.created_at)) fits = await stillFits(tx, kind, row);
-    if (fits) {
-      await tx.prepare(`UPDATE ${spec.table} SET payment_status = 'paid' WHERE ref = ? AND payment_status = 'pending'`).run(ref);
-      return "confirmed";
+/** What the provider told us about this payment (event or QA seam). */
+export interface PaymentCtx {
+  sessionId: string | null;
+  paymentIntentId: string | null;
+  amountMinor: number | null;
+  currency: string | null;
+  eventId: string | null;
+  agreed: { amountMinor: number; currency: string } | null;
+}
+const NO_CTX: PaymentCtx = { sessionId: null, paymentIntentId: null, amountMinor: null, currency: null, eventId: null, agreed: null };
+
+/** Phase 8 (HC-QA-041) + D-10 — settle one pending paid row under its
+ * parent's row lock. Duplicate/replayed delivery is a no-op (only 'pending'
+ * rows settle), so a cancelled or refunded order is never resurrected.
+ * Confirmation re-checks, at this moment: the organisation (D-01), the
+ * order's own cancellation, the provider's refund/dispute state for a payment
+ * that was held for review, the listing's eligibility, the start time and —
+ * once its hold has lapsed — capacity. A matching payment that fails any of
+ * these is recorded as received but not fulfilled (paid + cancelled) and a
+ * payment review is opened; capacity (case 4) and suspension (case 4b) may be
+ * refunded automatically (payments/paymentReview.ts). */
+type Settle =
+  | { kind: "confirmed" }
+  | { kind: "noop" }
+  | { kind: "org_suspended"; reviewId: number }
+  | { kind: "unfulfilled"; reason: ReviewReason; reviewId: number }
+  | { kind: "held"; reviewId: number };
+
+async function settleOrder(type: OrderType, ref: string, ctx: PaymentCtx): Promise<Settle> {
+  // A payment held for review is re-proved at the provider before it can confirm.
+  let providerBlock: string | null = null;
+  const held = ctx.sessionId ? await reviewForSession(ctx.sessionId) : null;
+  if (held && held.status === "open") {
+    const provider = paymentProvider();
+    // Without a provider (local tests) the recorded refunds and disputes are
+    // what's checked (below and here); with one, the provider is re-read.
+    if (!provider) {
+      if (held.paymentIntentId && (await db.prepare(`SELECT id FROM disputes WHERE payment_intent_id = ? LIMIT 1`).get(held.paymentIntentId))) providerBlock = "the payment is disputed";
+    } else {
+      const snap = await provider.paymentSnapshot(ctx.sessionId!);
+      if (!snap.charge || snap.charge.status !== "succeeded") providerBlock = "Stripe doesn't show a settled charge";
+      else if (snap.charge.amountRefundedMinor > 0 || snap.refunds.length) providerBlock = "Stripe shows a refund on this payment";
+      else if (snap.charge.disputed || snap.disputes.length) providerBlock = "the payment is disputed";
     }
-    await tx.prepare(`UPDATE ${spec.table} SET payment_status = 'paid', status = 'cancelled' WHERE ref = ? AND payment_status = 'pending'`).run(ref);
-    return "refund_required";
+  }
+  return db.transaction(async (tx) => {
+    await tx.prepare(PARENT_LOCK[type]).get(ref);
+    const row = (await tx.prepare(`SELECT * FROM ${ORDER_TABLE[type]} WHERE ref = ? FOR UPDATE`).get(ref)) as Record<string, any> | undefined;
+    if (!row || row.payment_status !== "pending") return { kind: "noop" as const };
+    const facts: PaymentFacts = {
+      sessionId: ctx.sessionId ?? row.stripe_session_id ?? `order:${type}:${ref}`,
+      type,
+      ref,
+      paymentIntentId: ctx.paymentIntentId,
+      receivedMinor: ctx.amountMinor ?? Number(row[ORDER_TOTAL[type]] ?? 0),
+      receivedCurrency: ctx.currency ?? "EUR",
+      eventId: ctx.eventId,
+    };
+    // D-01: a sale for a suspended organisation is never confirmed. The row
+    // stays pending; the review records the received payment (case 4b).
+    if (type !== "game" && (await orgSuspendedForVendor(tx, await supplyVendorForOrder(type, ref, tx)))) {
+      const { review } = await openReview(tx, facts, "org_suspended", { agreed: ctx.agreed, autoRefund: type === "pass" ? "not_applicable" : (await autoRefundSwitchOn()) ? "pending_check" : "disabled" });
+      return { kind: "org_suspended" as const, reviewId: review.id };
+    }
+    let reason: ReviewReason | null = null;
+    let detail: string | null = null;
+    if (row.status === "cancelled") reason = "order_cancelled";
+    else if (providerBlock) [reason, detail] = ["provider_state", providerBlock];
+    else if (await tx.prepare(`SELECT id FROM refunds WHERE source_type = ? AND source_ref = ? LIMIT 1`).get(type, ref)) [reason, detail] = ["provider_state", "a refund is already recorded for this order"];
+    else if (!(await listingEligible(tx, type, row))) reason = "listing_unavailable";
+    else {
+      const start = await orderStart(tx, type, ref);
+      if (start.started) reason = "after_start";
+      // Joining a programme part-way: allowed for an on-time payment (as
+      // before); a late or held one isn't confirmed by itself.
+      else if (type === "program" && start.midProgramme && !orderHoldLive(type, row)) reason = "mid_programme";
+      else if (HOLDING_TYPES.includes(type) && !orderHoldLive(type, row) && !(await orderFits(tx, type, row))) reason = "capacity_unavailable";
+    }
+    if (!reason) {
+      if (type === "game") await tx.prepare(`UPDATE game_participants SET status = 'joined', payment_status = 'paid', review_hold_until = NULL WHERE ref = ? AND payment_status = 'pending'`).run(ref);
+      else if (type === "pass") await tx.prepare(`UPDATE passes SET payment_status = 'paid' WHERE ref = ? AND payment_status = 'pending'`).run(ref);
+      else await tx.prepare(`UPDATE ${ORDER_TABLE[type]} SET payment_status = 'paid', review_hold_until = NULL WHERE ref = ? AND payment_status = 'pending'`).run(ref);
+      return { kind: "confirmed" as const };
+    }
+    if (type === "pass") {
+      // A pass has no "cancelled" state to record: it stays pending (never active) for finance.
+      const { review } = await openReview(tx, facts, reason, { detail, agreed: ctx.agreed });
+      return { kind: "held" as const, reviewId: review.id };
+    }
+    // Received but not fulfilled: paid + cancelled (the existing "refund required" state).
+    await tx.prepare(`UPDATE ${ORDER_TABLE[type]} SET payment_status = 'paid', status = 'cancelled', review_hold_until = NULL WHERE ref = ? AND payment_status = 'pending'`).run(ref);
+    const auto: AutoRefund = reason === "capacity_unavailable" ? ((await autoRefundSwitchOn()) ? "pending_check" : "disabled") : "not_applicable";
+    const { review } = await openReview(tx, facts, reason, { detail, agreed: ctx.agreed, autoRefund: auto });
+    return { kind: "unfulfilled" as const, reason, reviewId: review.id };
   });
 }
 
-/** Re-proves capacity for a stale hold, excluding the row itself. */
-async function stillFits(tx: Pick<typeof db, "prepare">, kind: string, row: Record<string, any>): Promise<boolean> {
-  const occ = occupiesCapacitySql();
-  if (kind === "booking") {
-    const others = (await tx.prepare(`SELECT time, duration FROM bookings WHERE room_id = ? AND centre_id = ? AND date = ? AND ref != ? AND ${occ}`).all(row.room_id, row.centre_id, row.date, row.ref)) as { time: string; duration: number }[];
-    const start = parseInt(String(row.time).slice(0, 2), 10);
-    const end = bookingEndHour(start, row.duration);
-    return !others.some((b) => { const bs = parseInt(b.time.slice(0, 2), 10); return hoursOverlap(start, end, bs, bookingEndHour(bs, b.duration)); });
-  }
-  if (kind === "registration") {
-    const club = (await tx.prepare(`SELECT capacity FROM clubs WHERE id = ?`).get(row.club_id)) as { capacity: number | null };
-    const { n } = (await tx.prepare(`SELECT COUNT(*) as n FROM registrations WHERE club_id = ? AND ref != ? AND ${occ}`).get(row.club_id, row.ref)) as { n: number };
-    if (computeCapacity(club.capacity, Number(n)).isFull) return false;
-    if (row.session_id) {
-      const session = (await tx.prepare(`SELECT capacity, active FROM club_sessions WHERE id = ?`).get(row.session_id)) as { capacity: number | null; active: number } | undefined;
-      if (!session || !session.active) return false;
-      const { n: sn } = (await tx.prepare(`SELECT COUNT(*) as n FROM registrations WHERE session_id = ? AND ref != ? AND ${occ}`).get(row.session_id, row.ref)) as { n: number };
-      if (computeCapacity(session.capacity, Number(sn)).isFull) return false;
-    }
-    return true;
-  }
-  if (kind === "program") {
-    const program = (await tx.prepare(`SELECT capacity, status FROM programs WHERE id = ?`).get(row.program_id)) as { capacity: number | null; status: string };
-    if (program.status !== "published") return false;
-    if (program.capacity === null) return true;
-    const { n } = (await tx.prepare(`SELECT COUNT(*) as n FROM program_enrollments WHERE program_id = ? AND ref != ? AND ${occ}`).get(row.program_id, row.ref)) as { n: number };
-    return Number(n) < program.capacity;
-  }
-  const session = (await tx.prepare(`SELECT s.capacity, s.status, e.capacity as expCapacity FROM experience_sessions s JOIN experiences e ON e.id = s.experience_id WHERE s.id = ?`).get(row.session_id)) as { capacity: number | null; status: string; expCapacity: number };
-  if (session.status !== "scheduled") return false;
-  const { n } = (await tx.prepare(`SELECT COALESCE(SUM(party_size), 0) as n FROM experience_bookings WHERE session_id = ? AND ref != ? AND ${occ}`).get(row.session_id, row.ref)) as { n: number };
-  return Number(n) + row.party_size <= (session.capacity ?? session.expCapacity);
+/** D-01 — the paid order can't be fulfilled because its organisation is
+ * suspended and it wasn't refunded automatically (D-10 preconditions not met,
+ * or automatic refunds switched off): audit it, then park the event for
+ * finance review. The order stays pending; the payment review records the
+ * received payment. */
+async function holdForOrgSuspension(kind: string, ref: string): Promise<never> {
+  // Two separate states are kept: the ORDER stays pending (not confirmed, not
+  // fulfilled), while the PROVIDER payment is verified as paid — the signed
+  // event matched its checkout agreement before we got here. The agreement's
+  // facts are recorded with the hold; the parked event keeps the payment
+  // intent and amount (webhook_events.summary).
+  const agreement = (await db
+    .prepare(`SELECT session_id AS sessionId, amount_minor AS amountMinor, currency FROM checkout_agreements WHERE source_type = ? AND source_ref = ? ORDER BY session_id LIMIT 1`)
+    .get(kind, ref)) as { sessionId: string; amountMinor: number | string; currency: string } | undefined;
+  await writeAudit({
+    actorUserId: null,
+    action: `${kind}.held_org_suspended`,
+    objectType: kind,
+    objectId: ref,
+    newValue: {
+      orderPaymentStatus: "pending",
+      providerPayment: "verified_paid",
+      checkoutSessionId: agreement?.sessionId ?? null,
+      amountMinor: agreement ? Number(agreement.amountMinor) : null,
+      currency: agreement?.currency ?? null,
+      reason: "organisation_suspended_at_confirmation",
+    },
+  });
+  throw new NeedsReviewError(orgSuspendedReviewMessage(kind, ref));
 }
 
-async function refundRequired(kind: string, ref: string) {
-  await writeAudit({ actorUserId: null, action: `${kind}.refund_required`, objectType: kind, objectId: ref, newValue: { status: "cancelled", paymentStatus: "paid", reason: "capacity_unavailable_at_confirmation" } });
-  console.error(`[payments] ${kind} ${ref}: paid after its hold expired and capacity was gone — marked cancelled/paid for refund`);
+async function refundRequired(kind: string, ref: string, reason: ReviewReason) {
+  await writeAudit({ actorUserId: null, action: `${kind}.refund_required`, objectType: kind, objectId: ref, newValue: { status: "cancelled", paymentStatus: "paid", reason: reason === "capacity_unavailable" ? "capacity_unavailable_at_confirmation" : `${reason}_at_confirmation` } });
+  console.error(`[payments] ${kind} ${ref}: paid but not fulfilled (${reason}) — marked cancelled/paid for refund`);
 }
 
-export async function confirmBooking(ref: string) {
-  const settled = await settlePending("booking", ref);
-  if (settled !== "confirmed") { if (settled === "refund_required") await refundRequired("booking", ref); return; }
+/** After settling: record the payment when the order is now paid, then deal
+ * with a review (automatic refund for cases 4/4b, finance otherwise). */
+async function afterSettle(type: OrderType, ref: string, settled: Settle, ctx: PaymentCtx, provider: "stripe" | "stub") {
+  await afterPaid({ type, ref }, { checkoutSessionId: ctx.sessionId, paymentIntentId: ctx.paymentIntentId, amountMinor: ctx.amountMinor, currency: ctx.currency ?? "eur", provider });
+  if (settled.kind === "confirmed") return resolveConfirmed(ctx.sessionId, type, ref);
+  if (settled.kind === "unfulfilled") {
+    await refundRequired(type, ref, settled.reason);
+    await handleUnfulfilled(settled.reviewId);
+    return;
+  }
+  if (settled.kind === "org_suspended") {
+    await handleUnfulfilled(settled.reviewId);
+    const row = (await db.prepare(`SELECT payment_status AS ps FROM ${ORDER_TABLE[type]} WHERE ref = ?`).get(ref)) as { ps: string } | undefined;
+    if (row?.ps === "pending") await holdForOrgSuspension(type, ref);
+    return;
+  }
+  if (settled.kind === "held") throw new NeedsReviewError(`Payment held for review — ${type} ${ref} wasn't confirmed (payment review #${settled.reviewId})`);
+  // noop: a redelivery after a crash between settling and the automatic-refund check resumes it.
+  const review = ctx.sessionId ? await reviewForSession(ctx.sessionId) : null;
+  if (review && review.status === "open" && review.autoRefund === "pending_check") await handleUnfulfilled(review.id);
+}
+
+export async function confirmBooking(ref: string, ctx: PaymentCtx = NO_CTX): Promise<Settle> {
+  const settled = await settleOrder("booking", ref, ctx);
+  if (settled.kind !== "confirmed") return settled;
   void logEvent("booking_completed", { metadata: { type: "booking", ref, via: "stripe" } });
 
   const row = (await db
@@ -135,7 +225,7 @@ export async function confirmBooking(ref: string) {
        WHERE b.ref = ?`
     )
     .get(ref)) as (BookingForNotify & { resident_id: string | null }) | undefined;
-  if (!row) return;
+  if (!row) return settled;
 
   // Coupon use was reserved with the hold at checkout (HC-QA-050) — never consumed again here.
   notifyNewBookingOrRegistration({
@@ -153,11 +243,12 @@ export async function confirmBooking(ref: string) {
 
   if (row.resident_id) await upgradeFavouriteStatus(row.resident_id, "centre", row.centre_id);
   await createGameFromOpenBooking(row.ref);
+  return settled;
 }
 
-export async function confirmRegistration(ref: string) {
-  const settled = await settlePending("registration", ref);
-  if (settled !== "confirmed") { if (settled === "refund_required") await refundRequired("registration", ref); return; }
+export async function confirmRegistration(ref: string, ctx: PaymentCtx = NO_CTX): Promise<Settle> {
+  const settled = await settleOrder("registration", ref, ctx);
+  if (settled.kind !== "confirmed") return settled;
   void logEvent("booking_completed", { metadata: { type: "registration", ref, via: "stripe" } });
 
   const row = (await db
@@ -167,7 +258,7 @@ export async function confirmRegistration(ref: string) {
        FROM registrations r JOIN clubs c ON c.id = r.club_id WHERE r.ref = ?`
     )
     .get(ref)) as (RegistrationForNotify & { resident_id: string | null; client_id: string }) | undefined;
-  if (!row) return;
+  if (!row) return settled;
 
   // Coupon use was reserved with the hold at checkout (HC-QA-050) — never consumed again here.
   await claimWaitlistOffer("club", row.club_id, row.client_id, row.resident_id);
@@ -185,6 +276,7 @@ export async function confirmRegistration(ref: string) {
   }).catch((e) => console.error("[notifications] registration notify failed:", e));
 
   if (row.resident_id) await upgradeFavouriteStatus(row.resident_id, "club", row.club_id);
+  return settled;
 }
 
 interface GameJoinForNotify {
@@ -207,30 +299,11 @@ interface GameJoinForNotify {
 /** Paid Join-a-Game confirmation (NEXT). Same idempotent
  * only-flip-if-still-pending pattern as confirmBooking/confirmRegistration
  * above — a retried webhook delivery is a safe no-op. */
-export async function confirmGameJoin(ref: string) {
-  // HC-QA-041 (cross-model) — settle under the game's row lock: a live hold
-  // confirms; a stale one confirms only if a seat is still free, otherwise it
-  // becomes cancelled/paid (refund required). Replays are no-ops.
-  const settled: Settle = await db.transaction(async (tx) => {
-    await tx.prepare(`SELECT g.id FROM games g JOIN game_participants gp ON gp.game_id = g.id WHERE gp.ref = ? FOR UPDATE`).get(ref);
-    const p = (await tx.prepare(`SELECT game_id, payment_status, status, joined_at FROM game_participants WHERE ref = ? FOR UPDATE`).get(ref)) as
-      | { game_id: string; payment_status: string; status: string; joined_at: string }
-      | undefined;
-    if (!p || p.payment_status !== "pending") return "noop";
-    let fits = p.status === "pending_payment";
-    if (fits && !holdIsLive(p.joined_at)) {
-      const g = (await tx.prepare(`SELECT capacity, status FROM games WHERE id = ?`).get(p.game_id)) as { capacity: number; status: string };
-      const { n } = (await tx.prepare(`SELECT COUNT(*) as n FROM game_participants WHERE game_id = ? AND ref != ? AND ${gameSeatSql()}`).get(p.game_id, ref)) as { n: number };
-      fits = g.status !== "cancelled" && Number(n) < g.capacity;
-    }
-    if (fits) {
-      await tx.prepare(`UPDATE game_participants SET status = 'joined', payment_status = 'paid' WHERE ref = ? AND payment_status = 'pending'`).run(ref);
-      return "confirmed";
-    }
-    await tx.prepare(`UPDATE game_participants SET status = 'cancelled', payment_status = 'paid' WHERE ref = ? AND payment_status = 'pending'`).run(ref);
-    return "refund_required";
-  });
-  if (settled !== "confirmed") { if (settled === "refund_required") await refundRequired("game", ref); return; }
+export async function confirmGameJoin(ref: string, ctx: PaymentCtx = NO_CTX): Promise<Settle> {
+  // HC-QA-041 (cross-model) + D-10 — settled under the game's row lock by the
+  // shared rules (settleOrder). Replays are no-ops.
+  const settled = await settleOrder("game", ref, ctx);
+  if (settled.kind !== "confirmed") return settled;
   void logEvent("booking_completed", { metadata: { type: "game", ref, via: "stripe" } });
 
   const row = (await db
@@ -244,7 +317,7 @@ export async function confirmGameJoin(ref: string) {
        WHERE gp.ref = ?`
     )
     .get(ref)) as GameJoinForNotify | undefined;
-  if (!row) return;
+  if (!row) return settled;
 
   // Coupon use was reserved with the hold at checkout (HC-QA-050) — never consumed again here.
   await claimWaitlistOffer("game", row.game_id, null, row.resident_id);
@@ -292,12 +365,13 @@ export async function confirmGameJoin(ref: string) {
   await checkMinParticipantsThreshold(row.game_id);
   await upgradeFavouriteStatus(row.resident_id, "game", row.game_id);
   void logEvent("game_joined", { residentId: row.resident_id, metadata: { gameId: row.game_id, activityLabel: row.activity_label, paid: true } });
+  return settled;
 }
 
 /** Credit-pack pass confirmation (NEXT) — same idempotent pattern. */
-export async function confirmPass(ref: string) {
-  const info = await db.prepare(`UPDATE passes SET payment_status = 'paid' WHERE ref = ? AND payment_status = 'pending'`).run(ref);
-  if (info.changes === 0) return;
+export async function confirmPass(ref: string, ctx: PaymentCtx = NO_CTX): Promise<Settle> {
+  const settled = await settleOrder("pass", ref, ctx);
+  if (settled.kind !== "confirmed") return settled;
   void logEvent("booking_completed", { metadata: { type: "pass", ref, via: "stripe" } });
 
   // Platform Pre-Launch Polish — Changeset 3. This function previously had
@@ -317,7 +391,7 @@ export async function confirmPass(ref: string) {
     .get(ref)) as
     | { residentId: string; clubId: string; clubName: string | null; creditsTotal: number; purchasedCents: number; residentName: string; residentEmail: string }
     | undefined;
-  if (!row) return;
+  if (!row) return settled;
 
   const clubName = row.clubName ?? "your club";
   const amount = `€${(row.purchasedCents / 100).toFixed(2)}`;
@@ -336,12 +410,13 @@ export async function confirmPass(ref: string) {
     subject: `Your pass is confirmed — ${clubName} (${ref})`,
     text: `Hi ${row.residentName},\n\nYour pass for ${clubName} is confirmed.\nReference: ${ref}\n\n${row.creditsTotal} sessions · ${amount} paid\n\nView it any time: ${manageUrl}\n\nThanks for using Hello Circle.`,
   }).catch((e) => console.error("[email] pass confirmation failed:", e));
+  return settled;
 }
 
 /** Program enrollment confirmation (Phase B) — same idempotent pattern. */
-export async function confirmProgramEnrollment(ref: string) {
-  const settled = await settlePending("program", ref);
-  if (settled !== "confirmed") { if (settled === "refund_required") await refundRequired("program", ref); return; }
+export async function confirmProgramEnrollment(ref: string, ctx: PaymentCtx = NO_CTX): Promise<Settle> {
+  const settled = await settleOrder("program", ref, ctx);
+  if (settled.kind !== "confirmed") return settled;
   void logEvent("booking_completed", { metadata: { type: "program", ref, via: "stripe" } });
   const row = (await db
     .prepare(
@@ -351,7 +426,7 @@ export async function confirmProgramEnrollment(ref: string) {
     .get(ref)) as
     | { participantName: string; email: string; title: string; vendorId: string; listingType: "centre" | "club"; listingId: string; totalCents: number; residentId: string | null; couponCode: string | null }
     | undefined;
-  if (!row) return;
+  if (!row) return settled;
   // Coupon use was reserved with the hold at checkout (HC-QA-050) — never consumed again here.
   notifyNewBookingOrRegistration({
     kind: "registration",
@@ -365,13 +440,14 @@ export async function confirmProgramEnrollment(ref: string) {
     detailsText: `${row.participantName} enrolled in ${row.title} · €${(row.totalCents / 100).toFixed(2)} total`,
     residentId: row.residentId,
   }).catch((e) => console.error("[notifications] program enrollment notify failed:", e));
+  return settled;
 }
 
 /** Adventure/Experience session booking confirmation — same idempotent
  * pattern as confirmBooking/confirmRegistration above. */
-export async function confirmExperienceBooking(ref: string) {
-  const settled = await settlePending("experience", ref);
-  if (settled !== "confirmed") { if (settled === "refund_required") await refundRequired("experience", ref); return; }
+export async function confirmExperienceBooking(ref: string, ctx: PaymentCtx = NO_CTX): Promise<Settle> {
+  const settled = await settleOrder("experience", ref, ctx);
+  if (settled.kind !== "confirmed") return settled;
   void logEvent("booking_completed", { metadata: { type: "experience", ref, via: "stripe" } });
 
   const row = (await db
@@ -386,7 +462,7 @@ export async function confirmExperienceBooking(ref: string) {
     .get(ref)) as
     | { ref: string; participantName: string; email: string; partySize: number; totalCents: number; couponCode: string | null; residentId: string | null; experienceId: string; title: string; vendorId: string; date: string; time: string }
     | undefined;
-  if (!row) return;
+  if (!row) return settled;
   // Coupon use was reserved with the hold at checkout (HC-QA-050) — never consumed again here.
 
   notifyNewBookingOrRegistration({
@@ -403,6 +479,7 @@ export async function confirmExperienceBooking(ref: string) {
   }).catch((e) => console.error("[notifications] experience booking notify failed:", e));
 
   if (row.residentId) await upgradeFavouriteStatus(row.residentId, "experience", row.experienceId);
+  return settled;
 }
 
 async function markFailed(metadata: Stripe.Metadata | null | undefined) {
@@ -413,7 +490,7 @@ async function markFailed(metadata: Stripe.Metadata | null | undefined) {
   if (metadata.type === "booking") await endPendingHold("bookings", metadata.ref, "fail");
   else if (metadata.type === "registration") await endPendingHold("registrations", metadata.ref, "fail");
   else if (metadata.type === "game") await endPendingHold("game_participants", metadata.ref, "delete");
-  else if (metadata.type === "pass") await db.prepare(`DELETE FROM passes WHERE ref = ? AND payment_status = 'pending'`).run(metadata.ref);
+  else if (metadata.type === "pass" && !(await hasOpenReview("pass", metadata.ref))) await db.prepare(`DELETE FROM passes WHERE ref = ? AND payment_status = 'pending'`).run(metadata.ref);
   else if (metadata.type === "program") await endPendingHold("program_enrollments", metadata.ref, "delete");
   else if (metadata.type === "experience") await endPendingHold("experience_bookings", metadata.ref, "delete");
   await syncOrder(metadata);
@@ -548,14 +625,25 @@ export async function processStripeEvent(event: IncomingEvent): Promise<"process
         return "processed";
       }
       if (o.payment_status !== "paid") return "ignored";
-      await confirmByType(o.metadata);
-      await afterPaid(o.metadata, {
-        checkoutSessionId: o.id ?? null,
+      // Reconcile against what the session was created to charge before
+      // anything is marked paid. A mismatch is recorded as a payment review
+      // (D-10 case 1, with a bounded place hold; case 2 never holds) and the
+      // event is parked — it can never confirm the order.
+      const paid = { id: o.id ?? null, amount_total: typeof o.amount_total === "number" ? o.amount_total : null, currency: o.currency ?? null, metadata: o.metadata ?? null };
+      const ctx: PaymentCtx = {
+        sessionId: o.id ?? null,
         paymentIntentId: typeof o.payment_intent === "string" ? o.payment_intent : o.payment_intent?.id ?? null,
-        amountMinor: typeof o.amount_total === "number" ? o.amount_total : null,
+        amountMinor: paid.amount_total,
         currency: o.currency ?? "eur",
-        provider: "stripe",
-      });
+        eventId: event.id,
+        agreed: null,
+      };
+      const check = await checkCheckoutAgreement(paid);
+      if (!check.ok) {
+        if (o.id) await recordUnmatchedPayment({ sessionId: o.id, type: o.metadata?.type ?? null, ref: o.metadata?.ref ?? null, paymentIntentId: ctx.paymentIntentId, receivedMinor: ctx.amountMinor, receivedCurrency: ctx.currency, eventId: event.id }, check);
+        throw new NeedsReviewError(`Checkout reconciliation failed — not marked paid: ${check.reason}`);
+      }
+      await confirmByType(o.metadata, { ...ctx, agreed: check.agreed }, "stripe");
       return "processed";
     }
     case "checkout.session.expired":
@@ -579,6 +667,9 @@ export async function processStripeEvent(event: IncomingEvent): Promise<"process
     case "charge.refunded": {
       const pi = typeof o.payment_intent === "string" ? o.payment_intent : o.payment_intent?.id;
       if (!pi) throw new NeedsReviewError(`Refunded charge ${o.id} has no payment intent`);
+      // D-11 — a payment held for review has no payment record: record the
+      // provider's refunds against its review (closing it is finance's recheck).
+      if (!(await db.prepare(`SELECT id FROM payment_records WHERE payment_intent_id = ?`).get(pi)) && (await recordRefundsForReview(pi))) return "processed";
       // Stage 5d — the charge's refunds (by id) from the provider, so each is recorded under its own id.
       const providerRefunds = await paymentProvider()?.chargeRefunds(o.id).catch(() => []) ?? [];
       await recordProviderRefunds({ paymentIntentId: pi, chargeId: o.id, amountRefundedMinor: Number(o.amount_refunded ?? 0), amountMinor: Number(o.amount ?? 0), currency: o.currency ?? "eur", providerRefunds });
@@ -639,19 +730,19 @@ async function afterPaid(
  * success → confirm (idempotent); failure/expired → release the hold. */
 export async function processProviderOutcome(type: string, ref: string, outcome: "success" | "failure" | "expired") {
   if (outcome === "success") {
-    await confirmByType({ type, ref });
-    await afterPaid({ type, ref }, { checkoutSessionId: null, paymentIntentId: null, amountMinor: null, currency: "eur", provider: "stub" });
+    const row = isOrderType(type) ? ((await db.prepare(`SELECT stripe_session_id AS sid FROM ${ORDER_TABLE[type]} WHERE ref = ?`).get(ref)) as { sid: string | null } | undefined) : undefined;
+    await confirmByType({ type, ref }, { ...NO_CTX, sessionId: row?.sid ?? null }, "stub");
   } else await markFailed({ type, ref });
 }
 
-async function confirmByType(metadata: Stripe.Metadata | null | undefined) {
+/** Settles the order, records the payment if it's now paid, and handles a
+ * review (D-10). Throws NeedsReviewError when the event must be parked. */
+async function confirmByType(metadata: Stripe.Metadata | null | undefined, ctx: PaymentCtx = NO_CTX, provider: "stripe" | "stub" = "stripe") {
   const { type, ref } = metadata ?? {};
-  if (!ref) return;
-  if (type === "booking") await confirmBooking(ref);
-  else if (type === "registration") await confirmRegistration(ref);
-  else if (type === "game") await confirmGameJoin(ref);
-  else if (type === "pass") await confirmPass(ref);
-  else if (type === "program") await confirmProgramEnrollment(ref);
-  else if (type === "experience") await confirmExperienceBooking(ref);
+  if (!ref || !isOrderType(type)) return;
+  const confirm = { booking: confirmBooking, registration: confirmRegistration, game: confirmGameJoin, pass: confirmPass, program: confirmProgramEnrollment, experience: confirmExperienceBooking }[type];
+  const settled = await confirm(ref, ctx);
+  await syncOrder(metadata);
+  await afterSettle(type, ref, settled, ctx, provider);
   await syncOrder(metadata);
 }

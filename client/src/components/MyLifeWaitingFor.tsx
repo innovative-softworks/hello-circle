@@ -39,7 +39,7 @@ export function MyLifeWaitingFor({ intents, onChange }: { intents: MyIntent[]; o
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
       {active.map((i) => (
-        <div key={i.id} style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 10, padding: "16px 18px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+        <div key={i.id} style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: radius.control, padding: "16px 18px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
           <div>
             <div style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 15 }}>{i.activityLabel}</div>
             <div style={{ fontSize: 12.5, color: colors.mutedLight, marginTop: 2 }}>

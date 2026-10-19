@@ -5,7 +5,7 @@ import { useAuth } from "../AuthContext";
 import { useGuest } from "../GuestContext";
 import { ChatModal } from "../components/ChatModal";
 import { ChatIcon } from "../components/icons";
-import { Button, EmptyState, PageSpinner, Tabs } from "../components/ui";
+import { Button, EmptyState, LoadErrorState, PageSpinner, Tabs } from "../components/ui";
 import { signInHref } from "../authRedirect";
 import { colors, fonts, radius } from "../theme";
 import type { ChatInboxItem } from "../types";
@@ -42,12 +42,14 @@ export function Chats() {
     if (!resident && isVendor) setView("host");
   }, [resident, isVendor]);
 
+  const [failed, setFailed] = useState(false);
   const load = () => {
     if (view === "personal" && !resident) return setItems([]);
     if (view === "host" && !isVendor) return setItems([]);
+    setFailed(false);
     fetchChatInbox(view === "host")
       .then((r) => setItems(r.items))
-      .catch(() => setItems([]));
+      .catch(() => setFailed(true));
   };
 
   useEffect(() => {
@@ -91,7 +93,9 @@ export function Chats() {
         </div>
       )}
 
-      {!items ? (
+      {failed ? (
+        <LoadErrorState title="We couldn't load your chats." onRetry={load} />
+      ) : !items ? (
         <PageSpinner />
       ) : items.length === 0 ? (
         <EmptyState
@@ -125,7 +129,7 @@ export function Chats() {
                 color: colors.text,
               }}
             >
-              <span style={{ width: 42, height: 42, borderRadius: 16, background: i.unread > 0 ? colors.greenBg : colors.panel, color: i.unread > 0 ? colors.greenText : colors.muted, display: "inline-flex", alignItems: "center", justifyContent: "center", flex: "none" }}>
+              <span style={{ width: 42, height: 42, borderRadius: radius.card, background: i.unread > 0 ? colors.greenBg : colors.panel, color: i.unread > 0 ? colors.greenText : colors.muted, display: "inline-flex", alignItems: "center", justifyContent: "center", flex: "none" }}>
                 <ChatIcon size={19} />
               </span>
               <span style={{ flex: 1, minWidth: 0 }}>
@@ -139,7 +143,7 @@ export function Chats() {
                     {i.lastMessage ? `${i.lastMessage.authorName}: ${i.lastMessage.body}` : "No messages yet"}
                   </span>
                   {i.unread > 0 && (
-                    <span style={{ minWidth: 20, height: 20, borderRadius: 10, background: colors.orange, color: "#fff", fontSize: 11, fontWeight: 800, display: "inline-flex", alignItems: "center", justifyContent: "center", padding: "0 6px", flex: "none" }}>
+                    <span style={{ minWidth: 20, height: 20, borderRadius: radius.control, background: colors.orange, color: "#fff", fontSize: 11, fontWeight: 800, display: "inline-flex", alignItems: "center", justifyContent: "center", padding: "0 6px", flex: "none" }}>
                       {i.unread > 99 ? "99+" : i.unread}
                     </span>
                   )}

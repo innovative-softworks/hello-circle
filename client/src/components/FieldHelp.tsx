@@ -56,7 +56,7 @@ export function FieldHelp({ helpKey, label: fallbackLabel }: { helpKey: string; 
           border: `1px solid ${colors.border}`,
           background: open ? colors.panel : "transparent",
           color: colors.muted,
-          borderRadius: 999,
+          borderRadius: "50%",
           width: 18,
           height: 18,
           fontSize: 11,

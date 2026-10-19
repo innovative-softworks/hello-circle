@@ -4,7 +4,7 @@ import { expect, personas } from "../fixtures";
 import { createActivity, rows, test, withActors } from "../lifecycle-fixture";
 import { bookableCentre } from "../booking-fixture";
 import { deliver, stripe, stripeProfile } from "../stripe-fixture";
-import { attachAccount, createVerifiedRecipient, deliverReal, IBAN, ledgerBalanced, payHosted, realEvents, record, RUN, runKey, setSwitch, sleep } from "../stripe-sandbox-fixture";
+import { attachAccount, createVerifiedRecipient, deliverReal, IBAN, ledgerBalanced, noteServerFailure, payHosted, realEvents, record, RUN, runKey, setSwitch, sleep } from "../stripe-sandbox-fixture";
 
 // Revenue & Connect Stage 5e — B/C/D/E/H on real Stripe TEST money with two
 // connected accounts: a company venue (QA_VENDOR_B's organisation — QA_VENDOR's
@@ -27,7 +27,12 @@ test("SANDBOX-SPLIT: venue/host split — snapshot, independent settlement and t
     const [{ org_id: orgId }] = await rows(f, "SELECT org_id FROM users WHERE id = ?", [personas.QA_VENDOR_B.id]);
     const venue = { partyType: "org", partyId: orgId as string };
     const host = { partyType: "host", partyId: personas.QA_HOST.id };
-    const admin = (path: string, data: Record<string, unknown>) => f.actors.QA_ADMIN.post(`/api/admin/finance${path}`, { data: { reason, ...data } }).then(async (r) => ({ status: r.status(), body: await r.json() }));
+    const admin = (path: string, data: Record<string, unknown>) =>
+      f.actors.QA_ADMIN.post(`/api/admin/finance${path}`, { data: { reason, ...data } }).then(async (r) => {
+        const out = { status: r.status(), body: await r.json().catch(() => ({})) };
+        await noteServerFailure(`split ${path}`, out.status, out.body);
+        return out;
+      });
     const available = async (p: { partyType: string; partyId: string }) => -Number((await rows(f, "SELECT COALESCE(SUM(amount_minor), 0) AS s FROM ledger_entries WHERE account_code = 'partner_available' AND party_type = ? AND party_id = ?", [p.partyType, p.partyId]))[0].s);
     const cleanParty = async (p: { partyType: string; partyId: string }) => {
       await f.connection.execute("DELETE FROM partner_debts WHERE party_type = ? AND party_id = ?", [p.partyType, p.partyId]);
@@ -39,6 +44,11 @@ test("SANDBOX-SPLIT: venue/host split — snapshot, independent settlement and t
     // Restore the venue org's trader profile exactly as it was (other specs rely on it).
     const [traderBefore] = await rows(f, "SELECT * FROM trader_profiles WHERE party_type = 'org' AND party_id = ?", [orgId]);
     try {
+      // Isolation: the debt assertions below ("host had no transfer", one venue reversal) only hold when
+      // neither partner has transfers from an earlier run. cleanParty never deletes money rows, so this spec
+      // passes once per disposable QA database — refuse up front instead of failing deep in the run.
+      const prior = await rows(f, "SELECT party_type AS t, COUNT(*) AS n FROM transfers WHERE (party_type = 'org' AND party_id = ?) OR (party_type = 'host' AND party_id = ?) GROUP BY party_type", [venue.partyId, host.partyId]);
+      expect(prior.map((p: any) => `${p.t}:${p.n}`), "split partners start with no transfers (provision a fresh QA database: npm run qa:db:reset && npm run qa:db:seed)").toEqual([]);
       // --- connected accounts (verified v2 test doubles) ---------------------------------
       const venueAcct = await createVerifiedRecipient("company", "venue", IBAN.ok);
       const hostAcct = await createVerifiedRecipient("individual", "host", IBAN.closed);

@@ -85,7 +85,7 @@ test("HC-QA-088: the shared Modal keeps Tab and Shift+Tab inside the popup (ever
     try {
       const { page } = ui;
       await page.goto("/manage?tab=activities");
-      const row = page.locator("div").filter({ hasText: live.activityLabel }).filter({ has: page.getByRole("button", { name: "Participants" }) }).last();
+      const row = page.getByRole("listitem").filter({ hasText: live.activityLabel }).filter({ has: page.getByRole("button", { name: /^Manage / }) });
       await row.getByRole("button", { name: /Share/ }).focus();
       await page.keyboard.press("Enter");
       const dialog = page.getByRole("dialog");

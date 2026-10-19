@@ -15,7 +15,9 @@ let server: Server;
 let baseUrl: string;
 
 const clientId = `test-client-report-${crypto.randomUUID()}`;
-const reviewId = 999000 + Math.floor(Math.random() * 1000);
+let reviewId = 0;
+const fixtureCircleId = `test-circle-report-target-${crypto.randomUUID()}`;
+const fixtureResident = `test-report-resident-${crypto.randomUUID()}`;
 
 beforeAll(async () => {
   const app = express();
@@ -26,11 +28,19 @@ beforeAll(async () => {
   const address = server.address();
   if (!address || typeof address === "string") throw new Error("Failed to bind test server");
   baseUrl = `http://127.0.0.1:${address.port}`;
+  // OG-32 — a report has to point at real content.
+  const info = await db.prepare(`INSERT INTO reviews (listing_type, listing_id, client_id, name, rating, comment) VALUES ('centre', 'test-report-centre', 'test-report-reviewer', 'Reviewer', 5, 'Nice')`).run();
+  reviewId = Number(info.lastInsertRowid);
+  await db.prepare(`INSERT INTO residents (id, email, name) VALUES (?, ?, 'Report Resident')`).run(fixtureResident, `${fixtureResident}@example.test`);
+  await db.prepare(`INSERT INTO circles (id, name, activity_label, area, county, about, created_by_resident_id) VALUES (?, 'Report Circle', 'Testball', 'Area', 'Dublin', '', ?)`).run(fixtureCircleId, fixtureResident);
 });
 
 afterAll(async () => {
   await new Promise<void>((resolve) => server.close(() => resolve()));
   await db.prepare(`DELETE FROM reports WHERE reporter_client_id = ?`).run(clientId);
+  await db.prepare(`DELETE FROM reviews WHERE id = ?`).run(reviewId);
+  await db.prepare(`DELETE FROM circles WHERE id = ?`).run(fixtureCircleId);
+  await db.prepare(`DELETE FROM residents WHERE id = ?`).run(fixtureResident);
 });
 
 describe("POST /reports — review reporting", () => {
@@ -66,7 +76,7 @@ describe("POST /reports — review reporting", () => {
 // too (the admin-side case-viewer already handled "circle", per the audit).
 describe("POST /reports — circle reporting", () => {
   const circleClientId = `test-client-circle-report-${crypto.randomUUID()}`;
-  const circleTargetId = `test-circle-report-target-${crypto.randomUUID()}`;
+  const circleTargetId = fixtureCircleId;
 
   afterAll(async () => {
     await db.prepare(`DELETE FROM reports WHERE reporter_client_id = ?`).run(circleClientId);

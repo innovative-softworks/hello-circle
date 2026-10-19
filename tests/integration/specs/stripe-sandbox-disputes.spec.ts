@@ -3,7 +3,7 @@ import type Stripe from "stripe";
 import { expect, personas } from "../fixtures";
 import { rows, test, withActors } from "../lifecycle-fixture";
 import { deliver, stripe, stripeProfile } from "../stripe-fixture";
-import { ageSession, assertSandbox, deliverReal, ledgerBalanced, paidExperienceBooking, realEvents, record, runKey, setSwitch, sleep } from "../stripe-sandbox-fixture";
+import { ageSession, assertSandbox, deliverReal, ledgerBalanced, noteServerFailure, paidExperienceBooking, realEvents, record, runKey, setSwitch, sleep } from "../stripe-sandbox-fixture";
 
 // Revenue & Connect Stage 5d — E: real TEST-mode disputes (card
 // 4000000000000259 → fraudulent dispute), won and lost with Stripe's
@@ -41,6 +41,13 @@ async function closeDispute(id: string, evidence: "winning_evidence" | "losing_e
   throw new Error("dispute did not close");
 }
 
+/** Settlement call that keeps the server's sanitised failure (step, code, correlation) on a 5xx. */
+async function settleRun(admin: import("@playwright/test").APIRequestContext, data: Record<string, unknown>) {
+  const r = await admin.post("/api/admin/finance/settlements/run", { data });
+  if (r.status() >= 500) await noteServerFailure("disputes /settlements/run", r.status(), await r.json().catch(() => ({})));
+  return r;
+}
+
 test("SANDBOX-DISPUTES-E: created → earnings frozen → won; delayed dispute after settlement → lost → points reversed → unrecovered partner debt; duplicates are no-ops", async ({ playwright, browser }) => {
   test.skip(!stripeProfile, "qa:stripe only");
   test.setTimeout(600_000);
@@ -62,14 +69,14 @@ test("SANDBOX-DISPUTES-E: created → earnings frozen → won; delayed dispute a
       expect([dup.status, dup.body.duplicate]).toEqual([200, true]);
       expect((await rows(f, "SELECT COUNT(*) AS n FROM disputes WHERE provider_dispute_id = ?", [dw.id]))[0].n).toBe(1);
       await ageSession(f, w.exp.session);
-      const frozen = await f.actors.QA_ADMIN.post("/api/admin/finance/settlements/run", { data: { runKey: runKey("dw"), dryRun: true, reason } });
+      const frozen = await settleRun(f.actors.QA_ADMIN, { runKey: runKey("dw"), dryRun: true, reason });
       expect((await frozen.json()).released.map((r: any) => r.ref), "open dispute: earnings frozen").not.toContain(w.ref);
       const wonDispute = await closeDispute(dw.id, "winning_evidence");
       expect(wonDispute.status).toBe("won");
       const closedW = (await realEvents(dw.id, ["charge.dispute.closed"], since))[0];
       expect((await deliverReal(w.guest.ctx, closedW)).status).toBe(200);
       expect((await rows(f, "SELECT status FROM disputes WHERE provider_dispute_id = ?", [dw.id]))[0].status).toBe("won");
-      const after = await f.actors.QA_ADMIN.post("/api/admin/finance/settlements/run", { data: { runKey: runKey("dw2"), dryRun: true, reason } });
+      const after = await settleRun(f.actors.QA_ADMIN, { runKey: runKey("dw2"), dryRun: true, reason });
       expect((await after.json()).released.map((r: any) => r.ref), "won dispute: released").toContain(w.ref);
       // Out of order: a late "created" after "closed" can't reopen it.
       await deliverReal(w.guest.ctx, (await realEvents(dw.id, ["charge.dispute.created"], since))[0]);
@@ -79,7 +86,7 @@ test("SANDBOX-DISPUTES-E: created → earnings frozen → won; delayed dispute a
       const l = await paidExperienceBooking(playwright, browser, f, opened, { priceCents: 4500, card: DISPUTE_CARD });
       await deliver(l.guest.ctx, "checkout.session.completed", l.session);
       await ageSession(f, l.exp.session);
-      const settled = await (await f.actors.QA_ADMIN.post("/api/admin/finance/settlements/run", { data: { runKey: runKey("dl"), dryRun: false, reason } })).json();
+      const settled = await (await settleRun(f.actors.QA_ADMIN, { runKey: runKey("dl"), dryRun: false, reason })).json();
       const [award] = await rows(f, "SELECT points FROM reward_awards WHERE source_ref = ?", [l.ref]);
       expect(Number(award.points), "points awarded at settlement").toBeGreaterThan(0);
       const dl = await disputeFor(l.paymentIntentId);
@@ -109,7 +116,7 @@ test("SANDBOX-DISPUTES-E: created → earnings frozen → won; delayed dispute a
       expect(debtBody.status, "no transfers to reverse (no connected account) → stays open").toBe("open");
       expect(debtBody.recoveredMinor).toBe(0);
       expect(debtBody.unrecoveredMinor).toBeGreaterThan(0);
-      const frozenRun = await (await f.actors.QA_ADMIN.post("/api/admin/finance/settlements/run", { data: { runKey: runKey("dl2"), dryRun: true, reason } })).json();
+      const frozenRun = await (await settleRun(f.actors.QA_ADMIN, { runKey: runKey("dl2"), dryRun: true, reason })).json();
       expect(frozenRun.carried.find((c: any) => c.partyId === orgId)?.frozenByDebtId, "frozen partner excluded from settlement").toBe(debtBody.debtId);
       await ledgerBalanced(f);
       await record("disputes-e", {

@@ -32,8 +32,9 @@ test("STAGE-B-ORG: staff/manager boundaries, cross-organisation invite managemen
         [() => M.put("/api/vendor/org/logo", { data: { logo: "/uploads/qa.png" } }), 403, "manager logo"],
         [() => M.post("/api/vendor/org/staff/invite", { data: { email: `qa_forbidden_${randomUUID()}@example.test`, platformRole: "finance" } }), 403, "manager invites staff"],
         [() => M.delete(`/api/vendor/org/staff/invite/${managementId}`), 403, "manager revokes invite"],
-        [() => M.get("/api/admin/vendors"), 401, "manager admin read"],
-        [() => M.put(`/api/admin/vendors/${manager.id}/platform-role`, { data: { platformRole: "finance" } }), 401, "manager self role change"],
+        // D-02: signed in (partner staff) but not an admin → 403, not 401.
+        [() => M.get("/api/admin/vendors"), 403, "manager admin read"],
+        [() => M.put(`/api/admin/vendors/${manager.id}/platform-role`, { data: { platformRole: "finance" } }), 403, "manager self role change"],
         // Org-scoped UPDATE: a foreign owner's revoke is a 200 no-op; the
         // snapshot invariants below (invite still pending) are the assertion.
         [() => f.actors.QA_VENDOR_B.delete(`/api/vendor/org/staff/invite/${managementId}`), 200, "foreign owner revokes invite (scoped no-op)"],

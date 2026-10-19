@@ -1,4 +1,5 @@
 import bcrypt from "bcryptjs";
+import { STEP_UP_MINUTES, adminMfaRequired } from "./adminMfa.js";
 import crypto from "node:crypto";
 import type { NextFunction, Request, Response } from "express";
 import { db } from "./db/index.js";
@@ -45,6 +46,13 @@ export interface AuthedUser {
   /** Revenue & Connect Stage 2a — admin sub-role (super | finance | support |
    * legal); null for every non-admin. */
   adminRole: AdminRole | null;
+  /** D-01 — the status of the member's organisation ("active" | "suspended"),
+   * read with the session on every request, so a suspension or reinstatement
+   * applies to existing sessions on their next request. Undefined/null when
+   * the member has no organisation or the row wasn't loaded with it. */
+  orgStatus?: string | null;
+  /** OG-07 — an admin session's two-step state (set for admin sessions only). */
+  mfa?: { required: boolean; enrolled: boolean; verifiedMinutesAgo: number | null };
 }
 
 export const ADMIN_ROLES = ["super", "finance", "support", "legal"] as const;
@@ -71,6 +79,9 @@ interface UserRow {
   created_at: string;
   resident_id: string | null;
   admin_role: AdminRole | null;
+  org_status?: string | null;
+  mfa_enrolled?: number | null;
+  mfa_age?: number | null;
 }
 
 declare global {
@@ -112,8 +123,8 @@ export async function createUser(
   const id = crypto.randomUUID();
   const normalizedEmail = email.toLowerCase().trim();
   await conn.prepare(
-    `INSERT INTO users (id, email, password_hash, role, status, name, vendor_type, business_name, address, county, mobile, landline, description, org_id, platform_role, invited_staff)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    `INSERT INTO users (id, email, password_hash, role, status, name, vendor_type, business_name, address, county, mobile, landline, description, org_id, platform_role, invited_staff, admin_role)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
     id,
     normalizedEmail,
@@ -130,7 +141,11 @@ export async function createUser(
     profile?.description ?? "",
     org?.orgId ?? null,
     org?.platformRole ?? null,
-    org?.invitedStaff ? 1 : 0
+    org?.invitedStaff ? 1 : 0,
+    // D-02: an admin account always carries an explicit role. The seeded and
+    // QA admins are created here, so they get "super" rather than relying on
+    // the boot backfill (which runs before seeding on a fresh database).
+    role === "admin" ? "super" : null
   );
   return {
     id,
@@ -175,7 +190,10 @@ function rowToUser(row: UserRow): AuthedUser {
     providerTier: row.provider_tier,
     createdAt: row.created_at,
     residentId: row.resident_id,
-    adminRole: row.role === "admin" ? row.admin_role ?? "super" : null,
+    // D-02: no implicit "super". A missing or unknown value stays null and is
+    // denied by every admin permission check (adminPermissions.ts).
+    adminRole: row.role === "admin" && (ADMIN_ROLES as readonly string[]).includes(String(row.admin_role)) ? row.admin_role : null,
+    orgStatus: row.org_status ?? null,
   };
 }
 
@@ -236,12 +254,18 @@ export async function destroySession(token: string) {
 async function userFromToken(token: string): Promise<AuthedUser | null> {
   const row = (await db
     .prepare(
-      `SELECT u.id, u.email, u.role, u.status, u.name, u.vendor_type, u.business_name, u.address, u.county, u.mobile, u.landline, u.description, u.org_id, u.platform_role, u.invited_staff, u.provider_tier, u.created_at, u.resident_id, u.admin_role
-       FROM sessions s JOIN users u ON u.id = s.user_id
+      `SELECT u.id, u.email, u.role, u.status, u.name, u.vendor_type, u.business_name, u.address, u.county, u.mobile, u.landline, u.description, u.org_id, u.platform_role, u.invited_staff, u.provider_tier, u.created_at, u.resident_id, u.admin_role,
+              o.status AS org_status, u.mfa_secret_enc IS NOT NULL AS mfa_enrolled, TIMESTAMPDIFF(MINUTE, s.mfa_verified_at, NOW()) AS mfa_age
+       FROM sessions s JOIN users u ON u.id = s.user_id LEFT JOIN organisations o ON o.id = u.org_id
        WHERE s.token = ? AND s.expires_at > NOW()`
     )
     .get(token)) as UserRow | undefined;
-  return row ? rowToUser(row) : null;
+  if (!row) return null;
+  const user = rowToUser(row);
+  if (user.role === "admin") {
+    user.mfa = { required: await adminMfaRequired(), enrolled: Number(row.mfa_enrolled) === 1, verifiedMinutesAgo: row.mfa_age === null || row.mfa_age === undefined ? null : Number(row.mfa_age) };
+  }
+  return user;
 }
 
 /** Reads the session cookie (if any) and attaches req.user. Never rejects. */
@@ -254,34 +278,54 @@ export async function attachUser(req: Request, _res: Response, next: NextFunctio
   next();
 }
 
+/** D-01 — the only partner API a member of a suspended organisation can use:
+ * the read-only obligations view. Account routes (sign-in, password, sign-out)
+ * don't use requireVendor and stay available. */
+const SUSPENDED_ORG_ALLOWED = new Set(["GET /api/vendor/obligations"]);
+export const ORG_SUSPENDED_ERROR = "Your organisation is suspended, so the Partner workspace is read-only. You can still see your upcoming obligations.";
+
+/** D-01 — true when the member's organisation is suspended. */
+export const orgSuspended = (user: AuthedUser | undefined) => user?.orgStatus === "suspended";
+
+/** D-08 — invited staff whose membership was removed (no organisation any
+ * more). Their account remains, but it has no partner workspace. */
+export const removedStaff = (user: AuthedUser | undefined) => !!user && user.role === "vendor" && user.invitedStaff && !user.orgId;
+export const REMOVED_STAFF_ERROR = "You're no longer a member of an organisation on HelloCircle.";
+
 export function requireVendor(req: Request, res: Response, next: NextFunction) {
   if (!req.user || req.user.role !== "vendor") return res.status(401).json({ error: "Vendor login required" });
   if (req.user.status !== "approved") return res.status(403).json({ error: "Vendor account not yet approved" });
+  if (removedStaff(req.user)) return res.status(403).json({ error: REMOVED_STAFF_ERROR, removedFromOrg: true });
+  if (orgSuspended(req.user) && !SUSPENDED_ORG_ALLOWED.has(`${req.method} ${req.originalUrl.split("?")[0]}`)) {
+    return res.status(403).json({ error: ORG_SUSPENDED_ERROR, orgSuspended: true });
+  }
   next();
 }
 
+/** Authentication for the admin area: no session → 401; a signed-in account
+ * that isn't an admin → 403 (D-02). What an admin may *do* is decided per
+ * route by requireAdminPermission (adminPermissions.ts). */
 export function requireAdmin(req: Request, res: Response, next: NextFunction) {
-  if (!req.user || req.user.role !== "admin") return res.status(401).json({ error: "Admin login required" });
+  if (!req.user) return res.status(401).json({ error: "Admin login required" });
+  if (req.user.role !== "admin") return res.status(403).json({ error: "Admin access only" });
+  if (mfaPending(req.user)) return res.status(403).json({ error: MFA_PENDING_ERROR, mfaRequired: true });
   next();
 }
 
-/** Revenue & Connect Stage 2a (risk P1-1) — narrows an admin route to the
- * named sub-roles. `super` always passes. Mount after requireAdmin. A null
- * admin_role (an admin row created before the column existed and not yet
- * backfilled) is treated as super, matching the boot backfill. */
-export function hasAdminRole(user: AuthedUser | undefined, ...roles: AdminRole[]): boolean {
-  if (!user || user.role !== "admin") return false;
-  const role = user.adminRole ?? "super";
-  return role === "super" || roles.includes(role);
+// OG-07 — an admin session opens nothing until two-step sign-in is done.
+export const MFA_PENDING_ERROR = "Finish two-step sign-in to use the admin tools";
+/** True for an admin session that still has to enter a code. */
+export function mfaPending(user: AuthedUser | undefined | null): boolean {
+  return !!user && user.role === "admin" && !!user.mfa?.required && user.mfa.verifiedMinutesAgo === null;
+}
+/** True when a sensitive action needs a fresh code (verified more than STEP_UP_MINUTES ago). */
+export function mfaStale(user: AuthedUser | undefined | null): boolean {
+  return !!user && user.role === "admin" && !!user.mfa?.required && (user.mfa.verifiedMinutesAgo === null || user.mfa.verifiedMinutesAgo > STEP_UP_MINUTES);
 }
 
-export function requireAdminRole(...roles: AdminRole[]) {
-  return (req: Request, res: Response, next: NextFunction) => {
-    if (!req.user || req.user.role !== "admin") return res.status(401).json({ error: "Admin login required" });
-    if (!hasAdminRole(req.user, ...roles)) return res.status(403).json({ error: `This needs the ${roles.join(" or ")} admin role` });
-    next();
-  };
-}
+// D-02: the old role guards (hasAdminRole / requireAdminRole) were removed.
+// Admin routes declare a permission with requireAdminPermission() from
+// adminPermissions.ts, which denies by default.
 
 /** Either an approved vendor or an admin — used for actions (like uploads) that both roles may perform. */
 export function requireVendorOrAdmin(req: Request, res: Response, next: NextFunction) {

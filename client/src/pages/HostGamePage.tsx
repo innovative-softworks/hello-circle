@@ -1,6 +1,6 @@
 import { useEffect, useState, type SetStateAction } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { createGame, fetchGame, fetchGameParticipantsForManage, fetchHostVenueBookings, setGameLifecycle, updateGame, type HostVenueBooking } from "../api";
+import { createGame, createGameSeries, fetchGameSeries, fetchGame, fetchGameParticipantsForManage, fetchHostVenueBookings, setGameLifecycle, updateGame, type HostVenueBooking } from "../api";
 import { signInHref } from "../authRedirect";
 import { BackLink } from "../components/BackLink";
 import { AttributePicker } from "../components/AttributePicker";
@@ -11,6 +11,7 @@ import { SingleImageUpload } from "../components/SingleImageUpload";
 import { CheckCircleIcon } from "../components/icons";
 import { Button, Card, inputStyle, labelStyle } from "../components/ui";
 import { useGuest } from "../GuestContext";
+import { HostWorkspace } from "../components/workspace/HostWorkspace";
 import { colors, radius } from "../theme";
 import { SKILL_LEVELS } from "../constants";
 import { occurrenceDates } from "../irelandDate";
@@ -83,8 +84,14 @@ export function HostGamePage() {
   // Same client-side bulk-create pattern as VendorPrograms.tsx's Repeat
   // selector — no recurrence schema anywhere on `games`, just N individually
   // created rows with computed dates. Create-only; doesn't apply in edit mode.
-  const [repeat, setRepeat] = useState<"none" | "weekly" | "biweekly" | "monthly">("none");
+  const [repeat, setRepeat] = useState<"none" | "weekly" | "biweekly" | "monthly" | "days">("none");
   const [occurrences, setOccurrences] = useState(4);
+  // OG-26 — "On chosen weekdays": a linked series from the start date to an end date.
+  const [weekdays, setWeekdays] = useState<number[]>([]);
+  const [seriesEnd, setSeriesEnd] = useState("");
+  // OG-26 — editing one date of a series can also update the later dates.
+  const [seriesId, setSeriesId] = useState<string | null>(null);
+  const [applyToLater, setApplyToLater] = useState(false);
   const initialPriceCents = qp("priceCents");
   const initialIndoorOutdoor = qp("indoorOutdoor");
   const [form, setFormRaw] = useState({
@@ -170,6 +177,7 @@ export function HostGamePage() {
           return;
         }
         setOriginalDate(game.date);
+        setSeriesId(game.seriesId ?? null);
         if (game.centreId && !game.bookingRef) setLegacyVenue({ centreId: game.centreId, name: game.centreName ?? "Current venue" });
         setFormRaw({
           activityLabel: game.activityLabel,
@@ -261,14 +269,47 @@ export function HostGamePage() {
         // preserve via COALESCE here; an explicit empty string is what
         // actually clears the cover (see games.ts's PUT /:id).
         await updateGame(gameId, { ...baseInput, date: form.date, imageUrl: form.imageUrl ?? "" });
+        // OG-26 — each later date gets the same details but keeps its own
+        // date; every update goes through the same rules as a single edit
+        // (price locked once people joined, capacity never below who's in).
+        if (seriesId && applyToLater) {
+          const series = await fetchGameSeries(seriesId);
+          const later = series.games.filter((g) => g.id !== gameId && g.date > (originalDate ?? form.date) && g.status !== "cancelled");
+          const failed: string[] = [];
+          for (const g of later) {
+            await updateGame(g.id, { ...baseInput, date: g.date, imageUrl: form.imageUrl ?? "" }).catch((e) => failed.push(`${g.date}: ${e instanceof Error ? e.message : "not updated"}`));
+          }
+          if (failed.length) {
+            setDirty(false);
+            setCreateError(`This date was saved, and ${later.length - failed.length} of ${later.length} later dates. Not updated — ${failed.join("; ")}`);
+            return;
+          }
+        }
         setDirty(false);
         navigate("/manage?tab=activities");
+        return;
+      }
+      if (repeat === "days") {
+        const { games } = await createGameSeries({ ...baseInput, date: form.date, weekdays, endDate: seriesEnd });
+        setDirty(false);
+        if (circleId) navigate(`/manage/circles/${circleId}`);
+        else setJustCreated(games[0]);
         return;
       }
       const count = repeat === "none" ? 1 : Math.max(1, Math.min(52, occurrences));
       let firstGame: { id: string; lifecycle?: string } | null = null;
       // HC-QA-100 — calendar arithmetic on the picked date; never via local midnight.
       const dates = occurrenceDates(form.date, repeat, count);
+      // OG-26 — a weekly, address-based repeat of up to 12 dates is created as
+      // one linked series (the host can manage or cancel the rest together,
+      // and followers hear about it once). Other repeats stay separate dates.
+      if (repeat === "weekly" && count >= 2 && count <= 12 && !form.centreId && !planId) {
+        const { games } = await createGameSeries({ ...baseInput, date: form.date, repeatWeeks: count });
+        setDirty(false);
+        if (circleId) navigate(`/manage/circles/${circleId}`);
+        else setJustCreated(games[0]);
+        return;
+      }
       for (let i = 0; i < dates.length; i++) {
         const occurrenceDate = dates[i];
         const game = await createGame({ ...baseInput, date: occurrenceDate });
@@ -327,10 +368,8 @@ export function HostGamePage() {
     });
   };
 
-  return (
-    <div className="fade-panel">
-      <section className="section-pad" style={{ maxWidth: 900, margin: "0 auto", padding: "36px 24px 90px" }}>
-        <BackLink onClick={() => requestNavigation(() => navigate(-1))}>Back</BackLink>
+  const body = (
+    <>
 
         {resident && loadingGame ? null : resident && loadError ? (
           <div style={{ background: colors.dangerBg, border: `1px solid ${colors.danger}`, borderRadius: radius.card, padding: "16px 20px", fontSize: 14, marginTop: 20, color: colors.danger }}>
@@ -449,8 +488,9 @@ export function HostGamePage() {
                         <option value="weekly">Every week</option>
                         <option value="biweekly">Every 2 weeks</option>
                         <option value="monthly">Monthly</option>
+                        {!form.centreId && <option value="days">On chosen weekdays…</option>}
                       </select>
-                      {repeat !== "none" && (
+                      {repeat !== "none" && repeat !== "days" && (
                         <input
                           type="number"
                           min={1}
@@ -462,9 +502,37 @@ export function HostGamePage() {
                         />
                       )}
                     </div>
-                    {repeat !== "none" && (
+                    {repeat === "days" && (
+                      <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 10 }}>
+                        <div role="group" aria-label="Weekdays" style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                          {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((d, i) => {
+                            const on = weekdays.includes(i);
+                            return (
+                              <button
+                                key={d}
+                                type="button"
+                                aria-pressed={on}
+                                onClick={() => setWeekdays((w) => (on ? w.filter((x) => x !== i) : [...w, i].sort()))}
+                                style={{ minWidth: 48, minHeight: 40, border: `1px solid ${on ? colors.text : colors.border}`, background: on ? colors.text : colors.surface, color: on ? colors.surface : colors.text, borderRadius: radius.control, fontWeight: 700, cursor: "pointer" }}
+                              >
+                                {d}
+                              </button>
+                            );
+                          })}
+                        </div>
+                        <div>
+                          <label htmlFor="game-series-end" style={labelStyle}>Last date</label>
+                          <input id="game-series-end" type="date" min={form.date || undefined} value={seriesEnd} onChange={(e) => setSeriesEnd(e.target.value)} style={{ ...inputStyle, maxWidth: 200 }} />
+                        </div>
+                        <p style={{ fontSize: 11.5, color: colors.mutedLight, margin: 0 }}>
+                          Creates one activity for each chosen weekday from {form.date || "the start date"} to the last date (up to 12 weeks), linked as a series. Each date has its own places and can be edited or cancelled on its own.
+                        </p>
+                      </div>
+                    )}
+                    {repeat !== "none" && repeat !== "days" && (
                       <p style={{ fontSize: 11.5, color: colors.mutedLight, margin: "4px 0 0" }}>
                         Creates {Math.max(1, Math.min(52, occurrences))} separate sessions, starting {form.date || "on the date above"} — each is editable/cancellable on its own.
+                        {repeat === "weekly" && !form.centreId && occurrences >= 2 && occurrences <= 12 && " They're linked as a weekly series, so you can cancel the remaining dates together."}
                       </p>
                     )}
                   </div>
@@ -552,10 +620,18 @@ export function HostGamePage() {
               accent="green"
               onBack={goBack}
               onContinue={handleSubmit}
-              continueLabel={gameId ? "Save changes" : repeat === "none" ? "Create session" : `Create ${Math.max(1, Math.min(52, occurrences))} sessions`}
+              continueLabel={gameId ? "Save changes" : repeat === "none" ? "Create session" : repeat === "days" ? "Create series" : `Create ${Math.max(1, Math.min(52, occurrences))} sessions`}
               continueBusy={creating}
               error={createError}
             >
+              {gameId && seriesId && (
+                <label style={{ display: "flex", gap: 8, alignItems: "flex-start", fontSize: 13.5, marginBottom: 16, padding: "10px 12px", border: `1px solid ${colors.border}`, borderRadius: radius.control }}>
+                  <input type="checkbox" checked={applyToLater} onChange={(e) => setApplyToLater(e.target.checked)} style={{ marginTop: 3 }} />
+                  <span>
+                    <strong>Also apply these changes to the later dates in this series.</strong> Each keeps its own date; people who joined those dates are told if the time or place changes.
+                  </span>
+                </label>
+              )}
               <div>
                 <div style={{ marginBottom: 12 }}>
                   <label htmlFor="game-about-this-plan" style={labelStyle}>About this plan (optional)</label>
@@ -691,6 +767,31 @@ export function HostGamePage() {
             to host a session of your own.
           </div>
         )}
+    </>
+  );
+
+  // OG-22 — opened from the host workspace (editing, or "New activity" there),
+  // the form renders inside the workspace shell; the public "Host an
+  // activity" entry stays a consumer page.
+  if (resident && (gameId || searchParams.get("from") === "manage")) {
+    return (
+      <HostWorkspace
+        resident={resident}
+        active="activities"
+        title={gameId ? "Edit activity" : "New activity"}
+        crumbs={[{ label: "Activities", onClick: () => requestNavigation(() => navigate("/manage?tab=activities")) }]}
+      >
+        {body}
+        {unsavedDialog}
+      </HostWorkspace>
+    );
+  }
+
+  return (
+    <div className="fade-panel">
+      <section className="section-pad" style={{ maxWidth: 900, margin: "0 auto", padding: "36px 24px 90px" }}>
+        <BackLink onClick={() => requestNavigation(() => navigate(-1))}>Back</BackLink>
+        {body}
       </section>
       {unsavedDialog}
     </div>

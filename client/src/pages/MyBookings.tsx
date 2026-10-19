@@ -152,7 +152,7 @@ function BookingRow({
   return (
     <div style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: radius.card, padding: "18px 20px", opacity: cancelled ? 0.6 : 1 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 18 }}>
-        <Photo src={booking.image} alt={booking.centreName} ph={booking.ph} style={{ width: 52, height: 52, borderRadius: 10, overflow: "hidden", flex: "none" }} />
+        <Photo src={booking.image} alt={booking.centreName} ph={booking.ph} style={{ width: 52, height: 52, borderRadius: radius.control, overflow: "hidden", flex: "none" }} />
         <div style={{ flex: 1, minWidth: 0, cursor: "pointer" }} {...onActivateProps(() => setExpanded((e) => !e))}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
             <span style={{ fontWeight: 700, fontSize: 16 }}>{booking.centreName}{booking.roomName ? ` — ${booking.roomName}` : ""}</span>
@@ -292,7 +292,7 @@ function RegistrationRow({
   return (
     <div style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: radius.card, padding: "18px 20px", opacity: cancelled ? 0.6 : 1 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 18 }}>
-        <div style={{ width: 52, height: 52, borderRadius: 10, background: colors.orangeBg, flex: "none", display: "flex", alignItems: "center", justifyContent: "center", color: colors.orangeDark, fontWeight: 700, fontSize: 12 }}>
+        <div style={{ width: 52, height: 52, borderRadius: radius.control, background: colors.orangeBg, flex: "none", display: "flex", alignItems: "center", justifyContent: "center", color: colors.orangeDark, fontWeight: 700, fontSize: 12 }}>
           {registration.sport}
         </div>
         <div style={{ flex: 1, minWidth: 0 }}>
@@ -353,7 +353,7 @@ function GameRow({ game }: { game: Game }) {
       style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: radius.card, padding: "18px 20px", opacity: cancelled ? 0.6 : 1 }}
     >
       <div style={{ display: "flex", alignItems: "center", gap: 18 }}>
-        <div style={{ width: 52, height: 52, borderRadius: 10, background: colors.greenBg, flex: "none", display: "flex", alignItems: "center", justifyContent: "center", color: colors.greenText, fontWeight: 700, fontSize: 18 }}>
+        <div style={{ width: 52, height: 52, borderRadius: radius.control, background: colors.greenBg, flex: "none", display: "flex", alignItems: "center", justifyContent: "center", color: colors.greenText, fontWeight: 700, fontSize: 18 }}>
           {game.activityLabel.charAt(0)}
         </div>
         <div style={{ flex: 1, minWidth: 0 }}>
@@ -386,9 +386,9 @@ function ExperienceBookingRow({ booking, onChanged }: { booking: MyExperienceBoo
     >
       <Link to={`/experiences/${booking.experienceId}`} className="row-link" style={{ display: "flex", alignItems: "center", gap: 18 }}>
         {booking.imageUrl ? (
-          <img src={getMediaUrl(booking.imageUrl, "thumbnail")} alt={booking.title} style={{ width: 52, height: 52, borderRadius: 10, objectFit: "cover", flex: "none" }} />
+          <img src={getMediaUrl(booking.imageUrl, "thumbnail")} alt={booking.title} style={{ width: 52, height: 52, borderRadius: radius.control, objectFit: "cover", flex: "none" }} />
         ) : (
-          <div style={{ width: 52, height: 52, borderRadius: 10, background: colors.orangeBg, flex: "none", display: "flex", alignItems: "center", justifyContent: "center", color: colors.orangeDark, fontWeight: 700, fontSize: 18 }}>
+          <div style={{ width: 52, height: 52, borderRadius: radius.control, background: colors.orangeBg, flex: "none", display: "flex", alignItems: "center", justifyContent: "center", color: colors.orangeDark, fontWeight: 700, fontSize: 18 }}>
             {booking.title.charAt(0)}
           </div>
         )}
@@ -438,7 +438,7 @@ function CircleRow({ circle }: { circle: Circle }) {
       style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: radius.card, padding: "18px 20px" }}
     >
       <div style={{ display: "flex", alignItems: "center", gap: 18 }}>
-        <div style={{ width: 52, height: 52, borderRadius: 10, background: colors.orangeBg, flex: "none", display: "flex", alignItems: "center", justifyContent: "center", color: colors.orangeDark, fontWeight: 700, fontSize: 18 }}>
+        <div style={{ width: 52, height: 52, borderRadius: radius.control, background: colors.orangeBg, flex: "none", display: "flex", alignItems: "center", justifyContent: "center", color: colors.orangeDark, fontWeight: 700, fontSize: 18 }}>
           {circle.name.charAt(0)}
         </div>
         <div style={{ flex: 1, minWidth: 0 }}>
@@ -459,7 +459,7 @@ function ProgramEnrollmentRow({ enrollment, onChanged }: { enrollment: MyProgram
   return (
     <div style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: radius.card, padding: "18px 20px", opacity: cancelled ? 0.6 : 1 }}>
       <Link to={`/programs/${enrollment.programId}`} className="row-link" style={{ display: "flex", alignItems: "center", gap: 18 }}>
-        <Photo src={enrollment.imageUrl} alt={enrollment.title} ph={colors.panel} style={{ width: 52, height: 52, borderRadius: 10, overflow: "hidden", flex: "none" }} />
+        <Photo src={enrollment.imageUrl} alt={enrollment.title} ph={colors.panel} style={{ width: 52, height: 52, borderRadius: radius.control, overflow: "hidden", flex: "none" }} />
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
             <span style={{ fontWeight: 700, fontSize: 16 }}>{enrollment.title}</span>
@@ -536,6 +536,10 @@ export function MyBookings() {
   const reloadExperienceBookings = () => { fetchMyExperienceBookings().then(setExperienceBookings).catch(() => {}); };
   const reloadProgramEnrollments = () => { fetchMyProgramEnrollments().then(setProgramEnrollments).catch(() => {}); };
   const [loading, setLoading] = useState(true);
+  // Validation 2026-10-14 — a failed source must never read as an empty My
+  // Life (or leave the skeleton up forever): count failures, show an alert
+  // with retry, and keep the empty state out of it.
+  const [failedSources, setFailedSources] = useState(0);
 
   const [residentFull, setResidentFull] = useState<ResidentFull | null>(null);
   const [interestsNudgeDismissed, setInterestsNudgeDismissed] = useState(() => localStorage.getItem(INTERESTS_NUDGE_DISMISSED_KEY) === "1");
@@ -573,21 +577,35 @@ export function MyBookings() {
 
   const loadMyStuff = () => {
     setLoading(true);
+    let failures = 0;
+    const settle = <T,>(p: Promise<T>, apply: (v: T) => void) =>
+      p.then(apply).catch((e: unknown) => {
+        // Signed-out guests get 401s from resident-only sources: expected, not a failure.
+        const status = (e as { status?: number })?.status;
+        if (status !== 401 && status !== 403) failures += 1;
+      });
     return Promise.all([
-      fetchMyBookings().then(setBookings),
-      fetchMyRegistrations().then(setRegs),
-      fetchMyProgramEnrollments().then(setProgramEnrollments),
-      fetchMyGames().then(setGames).catch(() => setGames([])),
-      fetchMyCircles().then(setCircles).catch(() => setCircles([])),
-      fetchMyExperienceBookings().then(setExperienceBookings).catch(() => setExperienceBookings([])),
-      fetchResidentFull().then(({ resident: r }) => setResidentFull(r)).catch(() => setResidentFull(null)),
-      fetchRoutineSuggestions().then(setRoutineSuggestions).catch(() => setRoutineSuggestions([])),
-      fetchMyIntents().then(setIntents).catch(() => setIntents([])),
-      fetchMyParticipation().then(setParticipation).catch(() => setParticipation([])),
-      fetchFavourites().then(setFavourites).catch(() => setFavourites([])),
-      fetchMyFollows().then(setFollows).catch(() => setFollows([])),
-      fetchNeedsAttention().then(setNeedsAttention).catch(() => setNeedsAttention([])),
-    ]).then(() => setLoading(false));
+      settle(fetchMyBookings(), setBookings),
+      settle(fetchMyRegistrations(), setRegs),
+      settle(fetchMyProgramEnrollments(), setProgramEnrollments),
+      settle(fetchMyGames(), setGames),
+      settle(fetchMyCircles(), setCircles),
+      settle(fetchMyExperienceBookings(), setExperienceBookings),
+      // Profile (/residents/me) failures already show the account-level error
+      // above (HC-QA-064) — not counted again as missing activity.
+      fetchResidentFull()
+        .then(({ resident: r }) => setResidentFull(r))
+        .catch(() => setResidentFull(null)),
+      settle(fetchRoutineSuggestions(), setRoutineSuggestions),
+      settle(fetchMyIntents(), setIntents),
+      settle(fetchMyParticipation(), setParticipation),
+      settle(fetchFavourites(), setFavourites),
+      settle(fetchMyFollows(), setFollows),
+      settle(fetchNeedsAttention(), setNeedsAttention),
+    ]).then(() => {
+      setFailedSources(failures);
+      setLoading(false);
+    });
   };
 
   useEffect(() => {
@@ -672,6 +690,7 @@ export function MyBookings() {
 
   const hasNone =
     !loading &&
+    failedSources === 0 &&
     bookings.length === 0 &&
     regs.length === 0 &&
     games.length === 0 &&
@@ -928,7 +947,7 @@ export function MyBookings() {
           <div
             className="pop-in"
             style={{
-              background: colors.greenBg, borderRadius: 10, padding: "14px 18px", marginBottom: 24,
+              background: colors.greenBg, borderRadius: radius.control, padding: "14px 18px", marginBottom: 24,
               display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, flexWrap: "wrap",
             }}
           >
@@ -958,12 +977,12 @@ export function MyBookings() {
         )}
 
         {verifying && (
-          <div style={{ background: colors.greenBg, color: colors.greenText, borderRadius: 10, padding: "14px 20px", marginBottom: 20, fontSize: 14, fontWeight: 600 }}>
+          <div style={{ background: colors.greenBg, color: colors.greenText, borderRadius: radius.control, padding: "14px 20px", marginBottom: 20, fontSize: 14, fontWeight: 600 }}>
             Signing you in…
           </div>
         )}
         {verifyError && (
-          <div style={{ background: colors.dangerBg, color: colors.danger, borderRadius: 10, padding: "14px 20px", marginBottom: 20, fontSize: 14 }}>
+          <div style={{ background: colors.dangerBg, color: colors.danger, borderRadius: radius.control, padding: "14px 20px", marginBottom: 20, fontSize: 14 }}>
             {verifyError}
           </div>
         )}
@@ -976,7 +995,7 @@ export function MyBookings() {
           </div>
         )}
         {!guestEmail && !guestLoadError && (
-          <div style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 10, padding: "18px 20px", marginBottom: 24, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
+          <div style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: radius.control, padding: "18px 20px", marginBottom: 24, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
             <div>
               <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 2 }}>Sign in to see your life</div>
               <div style={{ fontSize: 13.5, color: colors.mutedLight }}>Your plans, Circles and history, all in one place.</div>
@@ -985,7 +1004,7 @@ export function MyBookings() {
           </div>
         )}
         {lookupOpen && (
-          <div style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 10, padding: "16px 20px", marginBottom: 24 }}>
+          <div style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: radius.control, padding: "16px 20px", marginBottom: 24 }}>
             <div style={{ display: "flex", flexWrap: "wrap", gap: 10, alignItems: "flex-end" }}>
               <div style={{ flex: "1 1 160px" }}>
                 <label style={labelStyle}>Reference</label>
@@ -1025,6 +1044,15 @@ export function MyBookings() {
           </div>
         )}
 
+        {failedSources > 0 && !loading && (
+          <div style={{ marginBottom: 24 }}>
+            <LoadErrorState
+              title="Some of your activity couldn't load."
+              detail="What's shown below may be incomplete — nothing has been cancelled or changed."
+              onRetry={() => void loadMyStuff()}
+            />
+          </div>
+        )}
         {resident && <MyInvitationsPanel />}
 
         {hasNone && resident ? (
@@ -1056,13 +1084,13 @@ export function MyBookings() {
 
               <div className="sticky-aside" style={{ gridColumn: 2, gridRow: "1 / -1", position: "sticky", top: 90, display: "flex", flexDirection: "column", gap: 18 }}>
                 {needsAttention.length > 0 && (
-                  <div style={{ border: `1px solid ${colors.border}`, borderRadius: 10, padding: "16px 18px", background: colors.surface }}>
+                  <div style={{ border: `1px solid ${colors.border}`, borderRadius: radius.control, padding: "16px 18px", background: colors.surface }}>
                     <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0, color: colors.mutedLight, marginBottom: 12 }}>NEEDS YOU</div>
                     <MyLifeNeedsYou items={needsAttention} />
                   </div>
                 )}
                 {(games.some((g) => g.hostResidentId === resident?.id) || circles.some((c) => c.myRole === "organiser")) && (
-                  <div style={{ border: `1px solid ${colors.border}`, borderRadius: 10, padding: "16px 18px", background: colors.surface }}>
+                  <div style={{ border: `1px solid ${colors.border}`, borderRadius: radius.control, padding: "16px 18px", background: colors.surface }}>
                     <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0, color: colors.mutedLight, marginBottom: 10 }}>HOSTING</div>
                     <p style={{ margin: "0 0 12px", fontSize: 13, color: colors.muted }}>Manage the sessions and Circles you run — edit, post updates, or check who's joined.</p>
                     <Button variant="ghost" onClick={() => navigate("/manage")}>Manage your hosting →</Button>
@@ -1071,13 +1099,13 @@ export function MyBookings() {
                 <MyLifeThisMonth entries={participation} />
                 <MyLifeRhythm entries={participation} />
                 {activeIntents.length > 0 && (
-                  <div style={{ border: `1px solid ${colors.border}`, borderRadius: 10, padding: "16px 18px", background: colors.surface }}>
+                  <div style={{ border: `1px solid ${colors.border}`, borderRadius: radius.control, padding: "16px 18px", background: colors.surface }}>
                     <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0, color: colors.mutedLight, marginBottom: 12 }}>WAITING</div>
                     <MyLifeWaitingFor intents={activeIntents.slice(0, 2)} onChange={loadMyStuff} />
                   </div>
                 )}
                 {favourites.length > 0 && (
-                  <div style={{ border: `1px solid ${colors.border}`, borderRadius: 10, padding: "16px 18px", background: colors.surface }}>
+                  <div style={{ border: `1px solid ${colors.border}`, borderRadius: radius.control, padding: "16px 18px", background: colors.surface }}>
                     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
                       <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0, color: colors.mutedLight }}>FOR LATER</div>
                       <button onClick={() => navigate("/profile")} style={{ background: "none", border: "none", padding: 0, fontSize: 12, fontWeight: 700, color: colors.text, cursor: "pointer" }}>View all</button>
@@ -1086,7 +1114,7 @@ export function MyBookings() {
                   </div>
                 )}
                 {follows.length > 0 && (
-                  <div style={{ border: `1px solid ${colors.border}`, borderRadius: 10, padding: "16px 18px", background: colors.surface }}>
+                  <div style={{ border: `1px solid ${colors.border}`, borderRadius: radius.control, padding: "16px 18px", background: colors.surface }}>
                     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
                       <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0, color: colors.mutedLight }}>FOLLOWING</div>
                       <button onClick={() => navigate("/profile")} style={{ background: "none", border: "none", padding: 0, fontSize: 12, fontWeight: 700, color: colors.text, cursor: "pointer" }}>View all</button>

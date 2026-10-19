@@ -72,3 +72,16 @@ export function occurrenceDates(startIso: string, repeat: Repeat, count: number)
     repeat === "weekly" ? addDays(startIso, 7 * i) : repeat === "biweekly" ? addDays(startIso, 14 * i) : repeat === "monthly" ? addMonths(startIso, i) : startIso,
   );
 }
+
+const wallFormat = new Intl.DateTimeFormat("en-GB", { timeZone: IRELAND_TIME_ZONE, hourCycle: "h23", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
+
+/** OG-27 — the UTC instant of an Ireland wall-clock date + "HH:MM" (DST-aware),
+ * mirroring the server's irelandWallTimeToUtc. */
+export function irelandWallTimeToUtc(isoDate: string, time: string): Date {
+  const [y, m, d] = parts(isoDate);
+  const [hh, mm] = time.split(":").map(Number);
+  const guess = Date.UTC(y, m - 1, d, hh, mm);
+  const p = Object.fromEntries(wallFormat.formatToParts(guess).map((x) => [x.type, x.value]));
+  const shown = Date.UTC(Number(p.year), Number(p.month) - 1, Number(p.day), Number(p.hour), Number(p.minute));
+  return new Date(guess - (shown - guess));
+}

@@ -19,7 +19,10 @@ async function main() {
   const browsers = args[0] === "browsers";
   // Revenue & Connect Stage 5c — Stage 3–5 journeys (desktop + mobile), provider stub only.
   const revenue = args[0] === "revenue";
-  if (authorization || gate || lifecycle || booking || stripeMode || product || browsers || revenue) args.shift();
+  // Full validation 2026-10-14 — role matrices, listing lifecycle, suspension
+  // and workspace UX. Same guards; one fresh backend per file (login limiter).
+  const validation = args[0] === "validation";
+  if (authorization || gate || lifecycle || booking || stripeMode || product || browsers || revenue || validation) args.shift();
   // Phase 10A — cross-browser critical journeys. Only these three engine
   // names are accepted; anything else falls back to Chromium.
   const qaBrowser = ["firefox", "webkit"].includes(process.env.QA_BROWSER ?? "") ? process.env.QA_BROWSER! : "chromium";
@@ -94,7 +97,40 @@ async function main() {
     // Phase 7 product-lifecycle suites: same guards, one fresh backend per
     // file so each batch stays within the real 10-login password limiter.
     // Phase 8 booking-integrity suites (no payment provider), same guards.
-    const batches = revenue ? [
+    const batches = validation ? [
+      ["validation-staff", "hc-validation-staff\\.spec\\.ts$"],
+      ["validation-admin", "hc-validation-admin\\.spec\\.ts$"],
+      ["validation-ux", "hc-validation-ux\\.spec\\.ts$"],
+      ["validation-completion-a", "hc-completion-a\\.spec\\.ts$"],
+      ["validation-completion-b", "hc-completion-b\\.spec\\.ts$"],
+      ["validation-completion-c", "hc-completion-c\\.spec\\.ts$"],
+      ["validation-completion-d", "hc-completion-d\\.spec\\.ts$"],
+      // D-02 / D-03 (approved for local implementation 2026-10-14).
+      ["validation-d02", "hc-d02-permissions\\.spec\\.ts$"],
+      ["validation-d03-api", "hc-d03-reasons\\.spec\\.ts$"],
+      ["validation-d03-ui", "hc-d03-ui\\.spec\\.ts$"],
+      // D-01 / D-08 (approved for local implementation 2026-10-15). The sales
+      // batch is named "revenue-…" so it runs with the QA payment provider stub.
+      ["revenue-d01-sales", "hc-d01-sales\\.spec\\.ts$"],
+      // D-10 / D-11 — payment reviews with the provider stub (customer + Finance UI).
+      ["revenue-d10-review", "hc-d10-review\\.spec\\.ts$"],
+      ["validation-d08", "hc-d08-staff\\.spec\\.ts$"],
+      ["validation-d08-reinvite", "hc-d08-reinvite\\.spec\\.ts$"],
+      ["validation-d08-rejoin-ui", "hc-d08-rejoin-ui\\.spec\\.ts$"],
+      ["validation-d01-d08-ui", "hc-d01-d08-ui\\.spec\\.ts$"],
+      // OG-01…OG-32 pass (local, 2026-10-16): new workspace journeys and the 9-width responsive sweep.
+      ["validation-og-features", "hc-og-features-ui\\.spec\\.ts$"],
+      ["validation-og-responsive", "hc-og-responsive\\.spec\\.ts$"],
+      // Final QA pass (2026-10-17): dedicated browser specs for OG-01, OG-13, OG-19, OG-15 and OG-24.
+      ["validation-og01-switch", "hc-og01-switch\\.spec\\.ts$"],
+      ["validation-og13-orders", "hc-og13-orders\\.spec\\.ts$"],
+      ["validation-og19-departures", "hc-og19-departures\\.spec\\.ts$"],
+      ["validation-og15-24-admin", "hc-og15-24-admin\\.spec\\.ts$"],
+      ["validation-og-isolation", "hc-og-isolation\\.spec\\.ts$"],
+      // Security decision Option A (2026-10-17): customer personal data by partner staff role.
+      ["validation-pii-roles", "hc-pii-roles\\.spec\\.ts$"],
+      ["validation-pii-ui", "hc-pii-ui\\.spec\\.ts$"],
+    ] : revenue ? [
       // Network-free provider stub for every revenue batch; never a Stripe key.
       ["revenue-public", "revenue-public\\.spec\\.ts$"],
       ["revenue-partner", "revenue-partner\\.spec\\.ts$"],
@@ -166,6 +202,8 @@ async function main() {
       ["stripe-findings", "stripe-findings\\.spec\\.ts$"],
       // Commercial UX R3A — quote = stored = Stripe amount on the changed paths.
       ["stripe-r3a", "stripe-r3a\\.spec\\.ts$"],
+      // D-01 — suspension during checkout and a late successful payment (TEST mode).
+      ["stripe-d01", "stripe-d01\\.spec\\.ts$"],
       // Stage 5d — local Stripe sandbox validation (Connect, money, disputes, Billing, webhooks, settlement).
       ["stripe-sandbox-connect", "stripe-sandbox-connect\\.spec\\.ts$"],
       ["stripe-sandbox-money", "stripe-sandbox-money\\.spec\\.ts$"],
@@ -288,7 +326,11 @@ async function main() {
       ["flows", "signup-flows\\.spec\\.ts$"],
       ["recovery", "signup-recovery\\.spec\\.ts$"],
     ];
+    // QA_ONLY_BATCH=<name> re-runs one batch of the chosen suite (same guards).
+    const only = process.env.QA_ONLY_BATCH;
+    if (only && !batches.some(([name]) => name === only)) throw new Error(`QA_ONLY_BATCH: no batch named ${only} in this suite.`);
     for (const [batch, files] of batches) {
+      if (only && batch !== only) continue;
       const current = await connectedPreflight();
       await current.connection.end();
       if (current.manifest.runId !== checked.manifest.runId) throw new Error("QA SAFETY ABORT: Run changed between auth batches.");

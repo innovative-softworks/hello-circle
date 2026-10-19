@@ -89,7 +89,7 @@ export function HostProfilePage() {
               <button
                 key={g.id}
                 onClick={() => navigate(`/games/${g.id}`)}
-                style={{ textAlign: "left", background: "#fff", border: `1px solid ${colors.border}`, borderRadius: 10, padding: "12px 14px", cursor: "pointer", display: "flex", justifyContent: "space-between" }}
+                style={{ textAlign: "left", background: "#fff", border: `1px solid ${colors.border}`, borderRadius: radius.control, padding: "12px 14px", cursor: "pointer", display: "flex", justifyContent: "space-between" }}
               >
                 <span style={{ fontWeight: 600, fontSize: 14 }}>{g.activityLabel}</span>
                 <span style={{ fontSize: 12.5, color: colors.mutedLight }}>{g.date} · {g.time}</span>
@@ -108,7 +108,7 @@ export function HostProfilePage() {
                 <button
                   key={c.id}
                   onClick={() => navigate(`/circles/${c.slug ?? c.id}`)}
-                  style={{ textAlign: "left", background: "#fff", border: `1px solid ${colors.border}`, borderRadius: 10, padding: "12px 14px", cursor: "pointer" }}
+                  style={{ textAlign: "left", background: "#fff", border: `1px solid ${colors.border}`, borderRadius: radius.control, padding: "12px 14px", cursor: "pointer" }}
                 >
                   <span style={{ fontWeight: 600, fontSize: 14 }}>{c.name}</span>
                   {c.activityLabel && <span style={{ fontSize: 12.5, color: colors.mutedLight, marginLeft: 8 }}>{c.activityLabel}</span>}

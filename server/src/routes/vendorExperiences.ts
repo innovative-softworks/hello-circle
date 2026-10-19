@@ -1,22 +1,25 @@
+import { assertCreatorStillMember } from "../orgStatus.js";
+import { cancelExperienceBookingAsProvider } from "../hallBookingCancel.js";
 import crypto from "node:crypto";
 import { refundOnProviderCancel } from "../providerCancelRefund.js";
-import { releaseCoupon, releaseRedemption } from "../bookingIntegrity.js";
+import { occupiesCapacitySql, releaseCoupon, releaseRedemption, startIsInFuture } from "../bookingIntegrity.js";
 import { syncOrderFromSource } from "../commerce/engine.js";
 import { matchExperienceSupply } from "../participationIntents.js";
 import { Router } from "express";
 import { requirePlatformRole } from "../auth.js";
+import { ROSTER_ROLES } from "./vendorHelpers.js";
 import { writeAudit } from "../audit.js";
 import { refundPaidOnce } from "../checkoutService.js";
 import { logEvent } from "../analytics.js";
 import { db } from "../db/index.js";
-import { irelandTodayIso } from "../irelandTime.js";
+import { irelandTodayIso, irelandWallTimeToUtc } from "../irelandTime.js";
 import { HOST_ATTENDANCE_STATUSES } from "../attendanceState.js";
 import { orgFeatureFlags } from "../db/queries.js";
 import { exceedsGalleryLimit, GALLERY_LIMITS } from "../media/quotas.js";
 import { notifyCancellation, notifyRefund } from "../notifications.js";
 import { notifyVendorFollowers } from "./follows.js";
 import { generateSlug } from "../slugify.js";
-import { invalidCoordinateReason } from "../util.js";
+import { ConflictError, invalidCoordinateReason } from "../util.js";
 
 // Adventures & Experiences — vendor-side CRUD, split out the same way
 // vendorListings.ts/vendorPrograms.ts are (see CLAUDE.md). Mounted under
@@ -195,6 +198,8 @@ vendorExperiencesRouter.post("/experiences", requirePlatformRole(...EXPERIENCE_R
   // or the column's own 'unknown' default (nothing supplied yet).
   const locationSource = b.lat !== undefined && b.lng !== undefined && b.lat !== null && b.lng !== null ? "confirmed" : undefined;
   await db.transaction(async (tx) => {
+    // D-08: refuse if the creator was removed from the organisation meanwhile.
+    await assertCreatorStillMember(tx, req.user!);
     await tx
       .prepare(
         `INSERT INTO experiences (id, vendor_id, kind, title, area, county, lat, lng, location_source, meeting_point, blurb, description,
@@ -336,12 +341,13 @@ vendorExperiencesRouter.post("/experiences/:id/publish", requirePlatformRole(...
     | { title: string; blurb: string; status: string }
     | undefined;
   if (!row) return res.status(404).json({ error: "Listing not found" });
-  if (row.status !== "draft") return res.status(400).json({ error: "This listing has already been submitted" });
+  if (row.status !== "draft" && row.status !== "rejected") return res.status(400).json({ error: "This listing has already been submitted" });
   const missing = [!row.title && "a title", !row.blurb && "a short blurb"].filter(Boolean) as string[];
   if (missing.length) {
     return res.status(400).json({ error: `This listing is missing ${missing.join(", ")} — go back and fill that in before publishing.` });
   }
   await db.prepare(`UPDATE experiences SET status = 'pending' WHERE id = ?`).run(req.params.id);
+  writeAudit({ actorUserId: req.user!.id, action: "experience.published", objectType: "experience", objectId: req.params.id, previousValue: { status: row.status }, newValue: { title: row.title } });
   res.json(await db.prepare(`SELECT id FROM experiences WHERE id = ?`).get(req.params.id));
 });
 
@@ -356,19 +362,36 @@ vendorExperiencesRouter.delete("/experiences/:id", requirePlatformRole(...EXPERI
 vendorExperiencesRouter.get("/experiences/:id/sessions", async (req, res) => {
   if (!(await ownsExperience(req.vendorIds!, req.params.id))) return res.status(403).json({ error: "Not your listing" });
   const rows = await db
-    .prepare(`SELECT id, date, time, capacity, status FROM experience_sessions WHERE experience_id = ? ORDER BY date, time`)
+    .prepare(`SELECT id, date, time, capacity, status, sales_close_at as salesCloseAt, series_id as seriesId FROM experience_sessions WHERE experience_id = ? ORDER BY date, time`)
     .all(req.params.id);
   res.json(rows);
 });
 
 vendorExperiencesRouter.post("/experiences/:id/sessions", requirePlatformRole(...EXPERIENCE_ROLES), async (req, res) => {
   if (!(await ownsExperience(req.vendorIds!, req.params.id))) return res.status(403).json({ error: "Not your listing" });
-  const { date, time, capacity } = req.body as { date?: string; time?: string; capacity?: number };
+  const { date, time, capacity, repeatWeeks, salesCloseHours } = req.body as { date?: string; time?: string; capacity?: number; repeatWeeks?: number; salesCloseHours?: number };
   if (!date || !time) return res.status(400).json({ error: "date and time are required" });
-  const id = crypto.randomUUID();
-  await db
-    .prepare(`INSERT INTO experience_sessions (id, experience_id, date, time, capacity) VALUES (?, ?, ?, ?, ?)`)
-    .run(id, req.params.id, date, time, capacity ?? null);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !/^\d{2}:\d{2}$/.test(time)) return res.status(400).json({ error: "Use a date (YYYY-MM-DD) and a time (HH:MM)" });
+  // OG-19 — repeating departures: the same time every week for up to 26 weeks.
+  const weeks = repeatWeeks === undefined || repeatWeeks === null ? 1 : Number(repeatWeeks);
+  if (!Number.isInteger(weeks) || weeks < 1 || weeks > 26) return res.status(400).json({ error: "Repeat for between 1 and 26 weeks" });
+  // OG-19 — bookings close this many hours before each departure starts (optional).
+  const closeHours = salesCloseHours === undefined || salesCloseHours === null ? null : Number(salesCloseHours);
+  if (closeHours !== null && (!Number.isInteger(closeHours) || closeHours < 0 || closeHours > 720)) return res.status(400).json({ error: "Close bookings between 0 and 720 hours before the start" });
+  if (capacity !== undefined && capacity !== null && (!Number.isInteger(capacity) || capacity < 1)) return res.status(400).json({ error: "Capacity must be a whole number of at least 1" });
+  const seriesId = weeks > 1 ? crypto.randomUUID() : null;
+  const ids: string[] = [];
+  const [hh, mm] = time.split(":").map(Number);
+  for (let w = 0; w < weeks; w++) {
+    const day = new Date(Date.parse(`${date}T12:00:00Z`) + w * 7 * 86_400_000).toISOString().slice(0, 10);
+    const sid = crypto.randomUUID();
+    const closeAt = closeHours === null ? null : new Date(irelandWallTimeToUtc(day, hh, mm).getTime() - closeHours * 3_600_000);
+    await db
+      .prepare(`INSERT INTO experience_sessions (id, experience_id, date, time, capacity, sales_close_at, series_id) VALUES (?, ?, ?, ?, ?, ?, ?)`)
+      .run(sid, req.params.id, day, time, capacity ?? null, closeAt, seriesId);
+    ids.push(sid);
+  }
+  const id = ids[0];
 
   // Follow feature — a new session on an existing listing only reaches
   // followers who opted into every update, not everyone following this
@@ -380,7 +403,81 @@ vendorExperiencesRouter.post("/experiences/:id/sessions", requirePlatformRole(..
   }
 
   await matchExperienceSupply(req.params.id); // Release 6 — a new date is new supply
-  res.status(201).json({ id });
+  res.status(201).json({ id, ids, seriesId });
+});
+
+// OG-19 — change one departure's capacity or booking cut-off. Capacity can't
+// drop below the places already taken; nothing about prices changes.
+vendorExperiencesRouter.put("/experiences/:id/sessions/:sessionId", requirePlatformRole(...EXPERIENCE_ROLES), async (req, res) => {
+  if (!(await ownsExperience(req.vendorIds!, req.params.id))) return res.status(403).json({ error: "Not your listing" });
+  const { capacity, salesCloseAt, salesCloseHours } = req.body as { capacity?: number | null; salesCloseAt?: string | null; salesCloseHours?: number | null };
+  const result = await db.transaction(async (tx) => {
+    const session = (await tx.prepare(`SELECT id, status, date, time FROM experience_sessions WHERE id = ? AND experience_id = ? FOR UPDATE`).get(req.params.sessionId, req.params.id)) as { id: string; status: string; date: string; time: string } | undefined;
+    if (!session) return { status: 404, error: "Departure not found" };
+    if (session.status !== "scheduled") return { status: 409, error: "This departure is no longer running" };
+    if (capacity !== undefined && capacity !== null) {
+      if (!Number.isInteger(capacity) || capacity < 1) return { status: 400, error: "Capacity must be a whole number of at least 1" };
+      const { n } = (await tx.prepare(`SELECT COALESCE(SUM(party_size), 0) as n FROM experience_bookings WHERE session_id = ? AND ${occupiesCapacitySql()}`).get(session.id)) as { n: number | string };
+      if (capacity < Number(n)) return { status: 409, error: `${n} places are already taken — capacity can't be lower than that` };
+    }
+    // The cut-off can be given as hours before the (Ireland wall-clock) start, or as an instant.
+    if (salesCloseHours !== undefined && salesCloseHours !== null && (!Number.isInteger(salesCloseHours) || salesCloseHours < 0 || salesCloseHours > 720)) return { status: 400, error: "Close bookings between 0 and 720 hours before the start" };
+    const [hh, mm] = session.time.split(":").map(Number);
+    const close =
+      salesCloseHours !== undefined
+        ? salesCloseHours === null
+          ? null
+          : new Date(irelandWallTimeToUtc(session.date, hh, mm).getTime() - salesCloseHours * 3_600_000)
+        : salesCloseAt === undefined
+          ? undefined
+          : salesCloseAt === null || salesCloseAt === ""
+            ? null
+            : new Date(salesCloseAt);
+    if (close instanceof Date && Number.isNaN(close.getTime())) return { status: 400, error: "That closing time isn't valid" };
+    await tx
+      .prepare(`UPDATE experience_sessions SET capacity = COALESCE(?, capacity), sales_close_at = IF(?, ?, sales_close_at) WHERE id = ?`)
+      .run(capacity ?? null, close !== undefined ? 1 : 0, close ?? null, session.id);
+    return { status: 200 };
+  });
+  if (result.status !== 200) return res.status(result.status).json({ error: result.error });
+  await writeAudit({ actorUserId: req.user!.id, action: "experience_session.updated", objectType: "experience_session", objectId: req.params.sessionId, newValue: { capacity, salesCloseAt, salesCloseHours } });
+  res.json({ ok: true });
+});
+
+// OG-19 — move a booking to another departure of the same experience, when
+// the customer asked for it (the partner confirms that; a change the partner
+// wants needs the customer's agreement, DEC-17 — cancel instead otherwise).
+// Same booking, same payment; the target departure's capacity is re-checked
+// under its row lock.
+vendorExperiencesRouter.post("/experiences/:id/bookings/:bookingId/move", requirePlatformRole(...EXPERIENCE_ROLES), async (req, res) => {
+  if (!(await ownsExperience(req.vendorIds!, req.params.id))) return res.status(403).json({ error: "Not your listing" });
+  const { sessionId, customerAsked, note } = req.body as { sessionId?: string; customerAsked?: boolean; note?: string };
+  if (customerAsked !== true) return res.status(400).json({ error: "Confirm the customer asked for this move — otherwise cancel the booking (they're refunded in full)" });
+  if (!sessionId) return res.status(400).json({ error: "Choose the departure to move to" });
+  try {
+    const moved = await db.transaction(async (tx) => {
+      const b = (await tx
+        .prepare(`SELECT eb.ref, eb.session_id as sessionId, eb.party_size as partySize, eb.status, eb.payment_status as paymentStatus FROM experience_bookings eb WHERE eb.id = ? AND eb.experience_id = ? FOR UPDATE`)
+        .get(req.params.bookingId, req.params.id)) as { ref: string; sessionId: string; partySize: number; status: string; paymentStatus: string } | undefined;
+      if (!b) throw new ConflictError("Booking not found");
+      if (b.status === "cancelled" || b.paymentStatus !== "paid") throw new ConflictError("Only a confirmed booking can be moved");
+      if (b.sessionId === sessionId) throw new ConflictError("It's already on that departure");
+      const target = (await tx
+        .prepare(`SELECT es.id, es.date, es.time, es.status, COALESCE(es.capacity, e.capacity) as cap FROM experience_sessions es JOIN experiences e ON e.id = es.experience_id WHERE es.id = ? AND es.experience_id = ? FOR UPDATE`)
+        .get(sessionId, req.params.id)) as { id: string; date: string; time: string; status: string; cap: number } | undefined;
+      if (!target || target.status !== "scheduled") throw new ConflictError("That departure isn't running");
+      if (!startIsInFuture(target.date, target.time)) throw new ConflictError("That departure has already started");
+      const { n } = (await tx.prepare(`SELECT COALESCE(SUM(party_size), 0) as n FROM experience_bookings WHERE session_id = ? AND ${occupiesCapacitySql()}`).get(target.id)) as { n: number | string };
+      if (Number(n) + b.partySize > Number(target.cap)) throw new ConflictError("Not enough places left on that departure");
+      await tx.prepare(`UPDATE experience_bookings SET session_id = ? WHERE ref = ?`).run(target.id, b.ref);
+      return { ref: b.ref, from: b.sessionId, to: target };
+    });
+    await writeAudit({ actorUserId: req.user!.id, action: "experience_booking.moved", objectType: "experience_booking", objectId: moved.ref, previousValue: { sessionId: moved.from }, newValue: { sessionId: moved.to.id, date: moved.to.date, time: moved.to.time, customerAsked: true }, reason: typeof note === "string" && note.trim() ? note.trim().slice(0, 500) : undefined });
+    res.json({ ok: true, date: moved.to.date, time: moved.to.time });
+  } catch (e) {
+    if (e instanceof ConflictError) return res.status(409).json({ error: e.message });
+    throw e;
+  }
 });
 
 vendorExperiencesRouter.delete("/experiences/:id/sessions/:sessionId", requirePlatformRole(...EXPERIENCE_ROLES), async (req, res) => {
@@ -457,54 +554,12 @@ vendorExperiencesRouter.delete("/experiences/:id/sessions/:sessionId", requirePl
 
 vendorExperiencesRouter.post("/experiences/:id/bookings/:bookingId/cancel", requirePlatformRole(...EXPERIENCE_ROLES), async (req, res) => {
   if (!(await ownsExperience(req.vendorIds!, req.params.id))) return res.status(403).json({ error: "Not your listing" });
-
-  const row = (await db
-    .prepare(
-      `SELECT eb.ref, eb.status, eb.participant_name as participantName, eb.email, eb.resident_id as residentId, es.date, es.time,
-              e.title, e.vendor_id as vendorId
-       FROM experience_bookings eb
-       JOIN experience_sessions es ON es.id = eb.session_id
-       JOIN experiences e ON e.id = eb.experience_id
-       WHERE eb.id = ? AND eb.experience_id = ?`
-    )
-    .get(req.params.bookingId, req.params.id)) as
-    | { ref: string; status: string; participantName: string; email: string; residentId: string | null; date: string; time: string; title: string; vendorId: string }
-    | undefined;
-  if (!row) return res.status(404).json({ error: "Booking not found" });
-  if (row.status === "cancelled") return res.status(409).json({ error: "This booking is already cancelled" });
-
-  // HC-QA-046 — atomic transition: only the request that actually flips the row
-  // runs the side effects (capacity release, audit, notifications, promotion).
-  const flipped = await db.prepare(`UPDATE experience_bookings SET status = 'cancelled' WHERE ref = ? AND status != 'cancelled'`).run(row.ref);
-  if (flipped.changes !== 1) return res.status(409).json({ error: "This booking is already cancelled" });
-  await syncOrderFromSource("experience", row.ref);
-
-  await writeAudit({
-    actorUserId: req.user!.id,
-    action: "experience_booking.cancelled_by_vendor",
-    objectType: "experience_booking",
-    objectId: row.ref,
-    previousValue: { status: row.status },
-    newValue: { status: "cancelled" },
-  });
-
-  const notifyParams = {
-    kind: "experience",
-    listingType: "experience",
-    listingId: req.params.id,
-    listingName: row.title,
-    vendorId: row.vendorId,
-    guestName: row.participantName,
-    guestEmail: row.email,
-    ref: row.ref,
-    detailsText: `${row.date} at ${row.time} · ${row.title}`,
-    residentId: row.residentId,
-  } as const;
-  notifyCancellation(notifyParams).catch((e) => console.error("[notifications] vendor experience booking cancellation notify failed:", e));
-
-  // Booking UX Phase 6 (B13) — a provider cancellation refunds a paid online order in full.
-  const refund = await refundOnProviderCancel({ table: "experience_bookings", ref: row.ref, actorUserId: req.user!.id, objectType: "experience_booking", notify: notifyParams });
-  res.json({ ok: true, refund: refund.refund, ...(refund.refund === "failed" ? { refundError: refund.error } : {}) });
+  const found = (await db.prepare(`SELECT ref FROM experience_bookings WHERE id = ? AND experience_id = ?`).get(req.params.bookingId, req.params.id)) as { ref: string } | undefined;
+  if (!found) return res.status(404).json({ error: "Booking not found" });
+  // Shared with HelloCircle admin cancellations (hallBookingCancel.ts).
+  const result = await cancelExperienceBookingAsProvider({ ref: found.ref, actorUserId: req.user!.id, vendorIds: req.vendorIds!, action: "experience_booking.cancelled_by_vendor" });
+  if (!result.ok) return res.status(result.status).json({ error: result.error });
+  res.json({ ok: true, refund: result.refund, ...(result.refundError ? { refundError: result.refundError } : {}) });
 });
 
 vendorExperiencesRouter.post("/experiences/:id/bookings/:bookingId/refund", requirePlatformRole("finance"), async (req, res) => {
@@ -586,12 +641,12 @@ vendorExperiencesRouter.post("/experiences/:id/bookings/:ref/attendance", requir
   res.json({ ok: true, status });
 });
 
-vendorExperiencesRouter.get("/experiences/:id/bookings", async (req, res) => {
+vendorExperiencesRouter.get("/experiences/:id/bookings", requirePlatformRole(...ROSTER_ROLES), async (req, res) => {
   if (!(await ownsExperience(req.vendorIds!, req.params.id))) return res.status(403).json({ error: "Not your listing" });
   const rows = (await db
     .prepare(
       `SELECT eb.id, eb.ref, eb.participant_name as participantName, eb.email, eb.phone, eb.party_size as partySize,
-              eb.total_cents as totalCents, eb.status, eb.created_at as createdAt, es.date, es.time,
+              eb.total_cents as totalCents, eb.status, eb.created_at as createdAt, es.date, es.time, eb.session_id as sessionId,
               (SELECT a.status FROM attendance a WHERE a.kind = 'experience' AND a.ref = eb.ref) as attendance
        FROM experience_bookings eb JOIN experience_sessions es ON es.id = eb.session_id
        WHERE eb.experience_id = ? AND eb.payment_status = 'paid' ORDER BY es.date, es.time`

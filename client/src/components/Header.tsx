@@ -1,7 +1,7 @@
 import { BrandLogo } from "./BrandLogo";
 import { useEffect, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { Bell, ChevronDown, CircleHelp, Heart, Menu, MessageCircle, Plus, Search, Store, type LucideIcon } from "lucide-react";
+import { Bell, ChevronDown, CircleHelp, Heart, Menu, MessageCircle, Plus, Search, Store, type LucideIcon, ExternalLink } from "lucide-react";
 import { guestLogout, logout, switchWorkspace } from "../api";
 import { useAuth } from "../AuthContext";
 import { signInHref, signUpHref } from "../authRedirect";
@@ -47,7 +47,7 @@ export function Header() {
   // a flash of "Log in".
   const authResolved = !authLoading && !guestLoading;
   // Set only while an Admin/Vendor/Manage dashboard is mounted (DashboardNavContext).
-  const { openNav } = useDashboardNav();
+  const { openNav, workspace } = useDashboardNav();
   const { resolvedTheme, setTheme } = useTheme();
   const openBooking = useOpenBookingOpen();
   const data = useHeaderData(user, resident);
@@ -75,6 +75,12 @@ export function Header() {
   const startActive = isUnder(pathname, START_PATHS);
   const exploreActive = isUnder(pathname, EXPLORE_PATHS) && !startActive;
   const onSearchPage = pathname === "/explore";
+  // Inside the admin workspace the header is just logo + account (2026-10-16):
+  // the workspace has its own navigation and a "View platform" link.
+  // Inside a workspace (admin / partner / host) the header carries the
+  // workspace name, account line and sidebar toggle instead of the public
+  // menu and search (2026-10-16; the separate workspace strip was merged in).
+  const inAdmin = pathname === "/admin" || pathname.startsWith("/admin/") || !!workspace;
   const signedIn = !!user || !!guestEmail;
   // My Life is the resident's own home; a guest who has booked on this device
   // also has one (anonymous client id). Not shown to vendor/admin-only sessions.
@@ -299,10 +305,26 @@ export function Header() {
             <NavIcon icon={Menu} />
           </button>
         )}
+        {workspace && (
+          // Sidebar collapse toggle (≥1025px, where the sidebar is shown).
+          <button
+            type="button"
+            className="hc-icon-btn hc-ws-collapse"
+            onClick={workspace.onToggleCollapse}
+            aria-expanded={!workspace.collapsed}
+            aria-controls="ws-side-nav"
+            aria-label={workspace.collapsed ? "Expand sidebar" : "Collapse sidebar"}
+            title={workspace.collapsed ? "Expand sidebar" : "Collapse sidebar"}
+          >
+            <NavIcon icon={Menu} />
+          </button>
+        )}
         <Link to="/" className="hc-logo-link" aria-label="HelloCircle home" aria-current={pathname === "/" || pathname === "/home" ? "page" : undefined}>
           <BrandLogo decorative />
         </Link>
+        {workspace && <span className="hc-ws-label"><span className="hc-ws-label-text">{workspace.label}</span></span>}
 
+        {!inAdmin && (
         <nav className="desktop-nav hc-nav" aria-label="Main">
           <div ref={panelRefs.explore}>
             <button type="button" className={`hc-nav-link${exploreActive ? " is-active" : ""}`} onClick={() => toggle("explore")} aria-expanded={panel === "explore"} aria-controls="hc-explore-menu">
@@ -327,10 +349,11 @@ export function Header() {
             {panel === "start" && startPanel}
           </div>
         </nav>
+        )}
 
         {/* One search entry point → the Explore search page. Not repeated on
             that page itself, which has its own search box. */}
-        {!onSearchPage ? (
+        {!onSearchPage && !inAdmin ? (
           <div className="hc-search-desktop desktop-actions">
             <HeaderSearch />
           </div>
@@ -339,7 +362,21 @@ export function Header() {
         )}
 
         <div className="desktop-actions" style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 4, flex: "none" }}>
-          {!onSearchPage && (
+          {workspace && (
+            <div className="hc-ws-meta">
+              {workspace.account && <span className="hc-ws-account">{workspace.account}</span>}
+              {workspace.link.newTab ? (
+                <a href={workspace.link.to} target="_blank" rel="noreferrer" className="hc-ws-link" aria-label={`${workspace.link.label} (opens in a new tab)`}>
+                  {workspace.link.label} <ExternalLink size={13} strokeWidth={1.9} aria-hidden="true" />
+                </a>
+              ) : (
+                <Link to={workspace.link.to} className="hc-ws-link">
+                  {workspace.link.label} <ExternalLink size={13} strokeWidth={1.9} aria-hidden="true" />
+                </Link>
+              )}
+            </div>
+          )}
+          {!onSearchPage && !inAdmin && (
             <div ref={panelRefs.search} className="hc-search-icon-only" style={{ position: "relative" }}>
               <button type="button" className="hc-icon-btn" aria-label="Search" aria-expanded={panel === "search"} aria-controls="hc-search-menu" onClick={() => toggle("search")}>
                 <NavIcon icon={Search} />
@@ -429,7 +466,7 @@ export function Header() {
         {/* Mobile (≤860px): search, notifications, account. The bottom tab
             bar (MobileTabBar) carries the primary destinations. */}
         <div className="hc-mobile-actions">
-          {!onSearchPage && (
+          {!onSearchPage && !inAdmin && (
             <button type="button" className="hc-icon-btn" aria-label="Search" aria-haspopup="dialog" aria-expanded={searchScreen} onClick={() => setSearchScreen(true)}>
               <NavIcon icon={Search} size={22} />
             </button>

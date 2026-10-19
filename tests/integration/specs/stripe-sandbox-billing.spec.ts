@@ -44,7 +44,7 @@ test("SANDBOX-BILLING-F: Pro €29 net + IE 23% VAT, exempt partner, renewal, fa
     const since = Math.floor(Date.now() / 1000);
     try {
       // F1 — the app's checkout: €29.00 net + VAT 23% = €35.67, paid on hosted Checkout.
-      const co = await f.actors.QA_VENDOR.post("/api/vendor/plan/pro/checkout");
+      const co = await f.actors.QA_VENDOR.post("/api/vendor/plan/pro/checkout", { data: { termsAccepted: true } });
       expect(co.status()).toBe(200);
       const { id: sessionId, url } = await co.json();
       const paid = await payHosted(browser, url, sessionId, "4242424242424242");
@@ -77,7 +77,7 @@ test("SANDBOX-BILLING-F: Pro €29 net + IE 23% VAT, exempt partner, renewal, fa
       const d = await f.actors.QA_ADMIN.post("/api/admin/commerce/rules/drafts", { data: { key: "tax_vat", scopeType: "partner", scopeId: `org:${orgB}`, payload: { vatMode: "exempt" }, reason } });
       const ruleId = (await d.json()).id;
       await f.actors.QA_ADMIN.post(`/api/admin/commerce/rules/${ruleId}/publish`, { data: { reason } });
-      const ex = await f.actors.QA_VENDOR_B.post("/api/vendor/plan/pro/checkout");
+      const ex = await f.actors.QA_VENDOR_B.post("/api/vendor/plan/pro/checkout", { data: { termsAccepted: true } });
       const exS = await stripe.checkout.sessions.retrieve((await ex.json()).id, { expand: ["line_items.data.taxes"] });
       expect([exS.amount_subtotal, exS.total_details?.amount_tax, exS.amount_total], "exempt: no VAT").toEqual([2900, 0, 2900]);
       await stripe.checkout.sessions.expire(exS.id); // our own session, tidied
@@ -88,7 +88,7 @@ test("SANDBOX-BILLING-F: Pro €29 net + IE 23% VAT, exempt partner, renewal, fa
       const rcD = await f.actors.QA_ADMIN.post("/api/admin/commerce/rules/drafts", { data: { key: "tax_vat", scopeType: "partner", scopeId: `org:${orgB}`, payload: { vatMode: "reverse_charge" }, reason } });
       const rcId = (await rcD.json()).id;
       await f.actors.QA_ADMIN.post(`/api/admin/commerce/rules/${rcId}/publish`, { data: { reason } });
-      const rc = await f.actors.QA_VENDOR_B.post("/api/vendor/plan/pro/checkout");
+      const rc = await f.actors.QA_VENDOR_B.post("/api/vendor/plan/pro/checkout", { data: { termsAccepted: true } });
       const rcS = await stripe.checkout.sessions.retrieve((await rc.json()).id, { expand: ["line_items.data.taxes"] });
       expect([rcS.amount_subtotal, rcS.total_details?.amount_tax, rcS.amount_total], "reverse charge: no VAT charged").toEqual([2900, 0, 2900]);
       await stripe.checkout.sessions.expire(rcS.id);

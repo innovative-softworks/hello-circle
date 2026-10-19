@@ -1,3 +1,4 @@
+import { orgActiveSql } from "./orgSql.js";
 import { db } from "./db/index.js";
 import { nextOccurrence } from "./db/queries.js";
 import { irelandTodayIso } from "./irelandTime.js";
@@ -176,7 +177,13 @@ async function loadContext(kind: NextStepsKind, ref: string, viewerId: string | 
       circleId: r.circle_id,
       centreId: null,
       findNext: async () => {
-        const cs = (await db.prepare(`SELECT id, day_of_week, time, label FROM club_sessions WHERE club_id = ? AND active = 1`).all(r.id)) as {
+        // Only a club that is public and whose organisation can sell suggests a next session.
+        const cs = (await db
+          .prepare(
+            `SELECT cs.id, cs.day_of_week, cs.time, cs.label FROM club_sessions cs JOIN clubs cl ON cl.id = cs.club_id
+             WHERE cs.club_id = ? AND cs.active = 1 AND cl.status = 'approved' AND ${orgActiveSql("cl.vendor_id")}`
+          )
+          .all(r.id)) as {
           id: string;
           day_of_week: number;
           time: string;
@@ -214,7 +221,7 @@ async function loadContext(kind: NextStepsKind, ref: string, viewerId: string | 
         const other = (await db
           .prepare(
             `SELECT p2.id, p2.title, ps.date, ps.time FROM programs p2 JOIN program_sessions ps ON ps.program_id = p2.id
-             WHERE p2.id != ? AND p2.status = 'published' AND p2.listing_id = ? AND (? = '' OR p2.category = ?) AND ps.status != 'cancelled' AND ps.date >= ?
+             WHERE p2.id != ? AND p2.status = 'published' AND ${orgActiveSql("p2.vendor_id")} AND p2.listing_id = ? AND (? = '' OR p2.category = ?) AND ps.status != 'cancelled' AND ps.date >= ?
              ORDER BY ps.date, ps.time LIMIT 1`
           )
           .get(p.id, p.listing_id, p.category, p.category, today())) as { id: string; title: string; date: string; time: string } | undefined;

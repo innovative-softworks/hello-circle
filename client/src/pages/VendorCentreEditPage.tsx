@@ -1,16 +1,19 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { fetchVendorCentre, fetchVendorListings, fetchVendorRooms } from "../api";
+import { fetchVendorCentre, fetchVendorListings, fetchVendorRooms, publishVendorCentre } from "../api";
 import { useAuth } from "../AuthContext";
 import { BackLink } from "../components/BackLink";
+import { PartnerWorkspace } from "../components/workspace/PartnerWorkspace";
+import { ListingMeta } from "../components/workspace/ListingMeta";
 import { BookingsTab } from "../components/VendorBookings";
 import { AvailabilityBlocksManager, CentreEditor, FacilityHoursEditor, RoomsManager } from "../components/VendorCentreEditor";
 import { CentreCreationWizard } from "../components/CentreCreationWizard";
 import { useUnsavedChangesGuard } from "../components/form";
+import { ListingReviewNotice } from "../components/ListingReviewNotice";
 import { MessageComposer } from "../components/VendorMessages";
 import { PublishedScreen } from "../components/PublishedScreen";
 import { VendorListingPerformance } from "../components/VendorListingPerformance";
-import { PageSpinner, Tabs } from "../components/ui";
+import { LoadErrorState, PageSpinner, Tabs } from "../components/ui";
 import { fonts } from "../theme";
 import type { Centre, Room, VendorListingSummary } from "../types";
 
@@ -43,6 +46,7 @@ export function VendorCentreEditPage() {
   // completing its "Basics" step and calling navigate(..., {replace:true})
   // doesn't flash a full-page spinner over an in-progress wizard session.
   const [loading, setLoading] = useState(centreId !== "new");
+  const [loadError, setLoadError] = useState(false);
   // Deliberately its OWN state, not a `centreId === "new" || centre?.status
   // === "draft"` expression recomputed every render: right after the
   // wizard's own navigate(..., {replace:true}) call, `centreId` updates to
@@ -59,13 +63,20 @@ export function VendorCentreEditPage() {
     if (centreId !== "new") fetchVendorRooms(centreId).then(setRooms);
   };
 
-  useEffect(() => {
-    if (centreId !== "new") {
-      fetchVendorCentre(centreId).then((c) => {
+  const loadCentre = () => {
+    setLoadError(false);
+    fetchVendorCentre(centreId)
+      .then((c) => {
         setCentre(c);
         setWizardMode(c.status === "draft");
-        setLoading(false);
-      });
+      })
+      .catch(() => setLoadError(true))
+      .finally(() => setLoading(false));
+  };
+
+  useEffect(() => {
+    if (centreId !== "new") {
+      loadCentre();
       reloadRooms();
       fetchVendorListings().then((l) => setListingSummary(l.centres.find((c) => c.id === centreId)));
     }
@@ -84,11 +95,25 @@ export function VendorCentreEditPage() {
   if (!user || user.role !== "vendor" || user.status !== "approved") return null;
 
   const title = centreId === "new" ? "New community centre" : (centre?.name ?? "Edit community centre");
+  if (loadError) {
+    return (
+      <PartnerWorkspace user={user} active="listings" title={title}>
+        <BackLink onClick={() => navigate("/vendor?tab=listings")}>Back to listings</BackLink>
+        <LoadErrorState title="Couldn't load this venue" onRetry={loadCentre} />
+      </PartnerWorkspace>
+    );
+  }
 
   return (
-    <div className="fade-panel">
-      <section className="section-pad" style={{ maxWidth: 920, margin: "0 auto", padding: "40px 24px 90px" }}>
-        <BackLink onClick={() => requestNavigation(() => navigate("/vendor?tab=listings"))}>Back to listings</BackLink>
+    <PartnerWorkspace
+      user={user}
+      active="listings"
+      title={title}
+      guard={requestNavigation}
+      subtitle={!wizardMode && centre ? <ListingMeta status={centre.status} kind="Centre" place={[centre.area, centre.county].filter(Boolean).join(", ")} /> : undefined}
+      actions={undefined}
+    >
+      <div>
 
         {wizardMode ? (
           <CentreCreationWizard
@@ -105,7 +130,7 @@ export function VendorCentreEditPage() {
           <PublishedScreen name={centre?.name ?? "Your venue"} publicHref={`/centres/${centre?.slug ?? centreId}`} onDismiss={() => setJustPublished(false)} />
         ) : (
           <>
-            <h1 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: "clamp(24px, 2.4vw, 30px)", margin: "0 0 18px", letterSpacing: 0 }}>{title}</h1>
+            <ListingReviewNotice listing={{ type: "centre", id: centreId }} status={centre?.status} dirty={dirty} onResubmit={async () => setCentre(await publishVendorCentre(centreId))} />
             <div style={{ marginBottom: 22 }}>
               <Tabs
                 value={tab}
@@ -124,7 +149,7 @@ export function VendorCentreEditPage() {
 
             {tab === "details" && <CentreEditor centreId={centreId} onSaved={onSaved} onDirtyChange={setDirty} />}
             {tab === "rooms" && <RoomsManager centreId={centreId} rooms={rooms} onChanged={reloadRooms} />}
-            {tab === "availability" && <AvailabilityBlocksManager centreId={centreId} rooms={rooms} />}
+            {tab === "availability" && <AvailabilityBlocksManager centreId={centreId} centreName={title} rooms={rooms} />}
             {tab === "hours" && <FacilityHoursEditor centreId={centreId} />}
             {tab === "bookings" && <BookingsTab centreId={centreId} />}
             {tab === "messages" && centre && (
@@ -133,8 +158,8 @@ export function VendorCentreEditPage() {
             {tab === "performance" && <VendorListingPerformance summary={listingSummary} />}
           </>
         )}
-      </section>
+      </div>
       {unsavedDialog}
-    </div>
+    </PartnerWorkspace>
   );
 }

@@ -178,6 +178,24 @@ describe("E1 + G2 — vendor accounts", () => {
     expect(s2.complete).toBe(true);
   });
 
+  it("setup-status names account and listing approval separately and has one step when there's no listing", async () => {
+    const v = await pendingVendor();
+    const s = (await (await call("GET", "/auth/setup-status", undefined, v.h)).json()) as any;
+    const step = (k: string) => s.steps.find((x: any) => x.key === k);
+    expect(step("review").label).toMatch(/Account approved/);
+    expect(step("live").label).toMatch(/Listing approved/);
+    expect(step("submitted").done).toBe(true); // signup submits the first listing as pending
+    await db.prepare(`UPDATE users SET status = 'approved' WHERE id = ?`).run(v.id);
+    const s2 = (await (await call("GET", "/auth/setup-status", undefined, v.h)).json()) as any;
+    // Account approved, listing still pending: never reported as complete.
+    expect(s2.steps.find((x: any) => x.key === "review").done).toBe(true);
+    expect(s2.steps.find((x: any) => x.key === "live").done).toBe(false);
+    await db.prepare(`UPDATE centres SET status = 'deleted' WHERE vendor_id = ?`).run(v.id);
+    const s3 = (await (await call("GET", "/auth/setup-status", undefined, v.h)).json()) as any;
+    expect(s3.listing).toBeNull();
+    expect(s3.steps.filter((x: any) => x.phase === "after_approval").map((x: any) => x.key)).toEqual(["first_listing"]);
+  });
+
   it("setup-status is vendor-only and scoped to the caller's own organisation", async () => {
     expect((await call("GET", "/auth/setup-status")).status).toBe(401);
     const a = await pendingVendor();

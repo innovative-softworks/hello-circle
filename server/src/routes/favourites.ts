@@ -1,3 +1,4 @@
+import { orgActiveSql } from "../orgSql.js";
 import { Router } from "express";
 import { logEvent } from "../analytics.js";
 import { db } from "../db/index.js";
@@ -49,7 +50,7 @@ async function attachListingDetails(rows: FavouriteRow[], viewerId: string) {
       const placeholders = ids.map(() => "?").join(",");
       if (type === "centre" || type === "club") {
         const table = type === "centre" ? "centres" : "clubs";
-        const listingRows = (await db.prepare(`SELECT id, name, image_url as imageUrl FROM ${table} WHERE id IN (${placeholders}) AND status = 'approved'`).all(...ids)) as {
+        const listingRows = (await db.prepare(`SELECT id, name, image_url as imageUrl FROM ${table} WHERE id IN (${placeholders}) AND status = 'approved' AND ${orgActiveSql("vendor_id")}`).all(...ids)) as {
           id: string; name: string; imageUrl: string | null;
         }[];
         for (const l of listingRows) details.set(key(type, l.id), { name: l.name, imageUrl: l.imageUrl, subtitle: null });
@@ -61,7 +62,7 @@ async function attachListingDetails(rows: FavouriteRow[], viewerId: string) {
           if (await canViewGame(l, viewerId)) details.set(key(type, l.id), { name: l.name, imageUrl: l.imageUrl, subtitle: `${l.date} · ${l.time}` });
         }
       } else if (type === "experience") {
-        const listingRows = (await db.prepare(`SELECT id, title as name, image_url as imageUrl FROM experiences WHERE id IN (${placeholders}) AND status = 'approved'`).all(...ids)) as {
+        const listingRows = (await db.prepare(`SELECT id, title as name, image_url as imageUrl FROM experiences WHERE id IN (${placeholders}) AND status = 'approved' AND ${orgActiveSql("vendor_id")}`).all(...ids)) as {
           id: string; name: string; imageUrl: string | null;
         }[];
         for (const l of listingRows) details.set(key(type, l.id), { name: l.name, imageUrl: l.imageUrl, subtitle: null });
@@ -75,7 +76,7 @@ async function attachListingDetails(rows: FavouriteRow[], viewerId: string) {
           .prepare(
             `SELECT ps.id, p.id as programId, p.title as name, p.image_url as imageUrl, ps.date, ps.time
              FROM program_sessions ps JOIN programs p ON p.id = ps.program_id
-             WHERE ps.id IN (${placeholders}) AND p.status = 'published'`
+             WHERE ps.id IN (${placeholders}) AND p.status = 'published' AND ${orgActiveSql("p.vendor_id")}`
           )
           .all(...ids)) as { id: string; programId: string; name: string; imageUrl: string | null; date: string; time: string }[];
         for (const l of listingRows) details.set(key(type, l.id), { name: l.name, imageUrl: l.imageUrl, subtitle: `${l.date} · ${l.time}`, parentId: l.programId });
@@ -84,7 +85,7 @@ async function attachListingDetails(rows: FavouriteRow[], viewerId: string) {
           .prepare(
             `SELECT cs.id, c.id as clubId, COALESCE(cs.label, c.name) as name, COALESCE(cs.image_url, c.image_url) as imageUrl, cs.day_of_week as dayOfWeek, cs.time
              FROM club_sessions cs JOIN clubs c ON c.id = cs.club_id
-             WHERE cs.id IN (${placeholders}) AND c.status = 'approved' AND cs.active = 1`
+             WHERE cs.id IN (${placeholders}) AND c.status = 'approved' AND ${orgActiveSql("c.vendor_id")} AND cs.active = 1`
           )
           .all(...ids)) as { id: string; clubId: string; name: string; imageUrl: string | null; dayOfWeek: number; time: string }[];
         for (const l of listingRows) {

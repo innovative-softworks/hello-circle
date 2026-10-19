@@ -2,7 +2,9 @@ import { useEffect, useState } from "react";
 import { fetchProgramEnrollments, fetchSessionAttendance, markSessionAttendance } from "../api";
 import type { ProgramEnrollment } from "../api";
 import { CheckIcon, SearchIcon } from "./icons";
-import { Avatar, Button, EmptyState, Modal, PageSpinner } from "./ui";
+import { Avatar, Button, EmptyState, LoadErrorState, Modal, PageSpinner } from "./ui";
+import { useToast } from "./Toast";
+import { errorMessage } from "./admin/adminUi";
 import { dateLabel } from "../euro";
 import { colors, fonts, radius } from "../theme";
 import type { AttendanceStatus } from "../types";
@@ -30,18 +32,28 @@ export function VendorCheckInScreen({
   const [search, setSearch] = useState("");
   const [busyId, setBusyId] = useState<number | null>(null);
 
-  useEffect(() => {
+  const [loadFailed, setLoadFailed] = useState(false);
+  const toast = useToast();
+
+  // Enrolments and the attendance already recorded load together: showing the
+  // list without the attendance would make everyone look unmarked at the door.
+  const load = () => {
     setEnrollments(null);
     setAttendance({});
-    setSearch("");
-    if (session) {
-      fetchProgramEnrollments(programId).then(setEnrollments);
-      fetchSessionAttendance(programId, session.id).then((rows) => {
+    setLoadFailed(false);
+    if (!session) return;
+    Promise.all([fetchProgramEnrollments(programId), fetchSessionAttendance(programId, session.id)])
+      .then(([list, rows]) => {
         const byId: Record<string, AttendanceStatus> = {};
         for (const r of rows) byId[r.enrollmentId] = r.status;
         setAttendance(byId);
-      });
-    }
+        setEnrollments(list);
+      })
+      .catch(() => setLoadFailed(true));
+  };
+  useEffect(() => {
+    setSearch("");
+    load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session?.id, programId]);
 
@@ -57,6 +69,8 @@ export function VendorCheckInScreen({
     try {
       await markSessionAttendance(session.id, enrollmentId, status);
       setAttendance((prev) => ({ ...prev, [String(enrollmentId)]: status }));
+    } catch (e) {
+      toast.error(errorMessage(e, "Couldn't save that. Try again."));
     } finally {
       setBusyId(null);
     }
@@ -79,7 +93,7 @@ export function VendorCheckInScreen({
               </div>
               <div style={{ fontSize: 12.5, color: colors.mutedLight, fontWeight: 700, letterSpacing: 0, textTransform: "uppercase" }}>Checked in</div>
             </div>
-            <div aria-hidden="true" style={{ height: 6, borderRadius: 6, background: colors.panel, overflow: "hidden" }}>
+            <div aria-hidden="true" style={{ height: 6, borderRadius: radius.control, background: colors.panel, overflow: "hidden" }}>
               <div style={{ height: "100%", width: `${active.length ? (checkedInCount / active.length) * 100 : 0}%`, background: colors.green, transition: "width .3s ease" }} />
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: 8, background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: radius.control, padding: "10px 14px" }}>
@@ -101,7 +115,9 @@ export function VendorCheckInScreen({
         </div>
       }
     >
-      {!enrollments ? (
+      {loadFailed ? (
+        <LoadErrorState title="Couldn't load this session's list" onRetry={load} />
+      ) : !enrollments ? (
         <PageSpinner />
       ) : filtered.length === 0 ? (
         <EmptyState icon={<SearchIcon size={22} />} title={active.length === 0 ? "No one's enrolled yet" : "No one matches that search"} />

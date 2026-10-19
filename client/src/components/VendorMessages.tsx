@@ -1,9 +1,13 @@
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { Award, Bell, CalendarDays, CheckCheck, Compass, GraduationCap, MessageSquare, Send, type LucideIcon } from "lucide-react";
 import { fetchVendorMessages, fetchVendorNotifications, markVendorNotificationRead, sendVendorMessage } from "../api";
-import { ChatIcon } from "./icons";
-import { Button, ManageCard as Card, EmptyState, inputStyle, labelStyle } from "./ui";
+import { EmptyState, LoadErrorState } from "./ui";
+import { AdminButton, AdminModal, Box, FormField, IconTabs } from "./admin/adminUi";
+import { agoLabel } from "./admin/timeLabels";
+import { useToast } from "./Toast";
+import { useUrlParam } from "../useUrlTab";
 import { formatDate } from "../vendorFormat";
-import { colors, fonts, radius } from "../theme";
 import type { VendorListingSummary, VendorNotification } from "../types";
 
 // Notifications feed (new bookings/registrations) + the vendor-authored
@@ -31,31 +35,39 @@ const MESSAGE_TEMPLATES: { key: string; label: string; subject: (name: string) =
 // picker — used by VendorCentreEditPage.tsx/VendorClubEditPage.tsx's own
 // Messages sub-tab; the dashboard-wide MessagesTab below still passes the
 // full `listings` picker.
-export function MessageComposer({
-  listings,
-  lockTo,
-}: {
-  listings: { centres: VendorListingSummary[]; clubs: VendorListingSummary[] };
-  lockTo?: { listingType: "centre" | "club"; listingId: string; name: string };
-}) {
-  const options = lockTo
-    ? [lockTo]
-    : [
-        ...listings.centres.map((c) => ({ listingType: "centre" as const, listingId: c.id, name: c.name })),
-        ...listings.clubs.map((c) => ({ listingType: "club" as const, listingId: c.id, name: c.name })),
-      ];
+type ListingOption = { listingType: "centre" | "club"; listingId: string; name: string };
+type SentMessage = { id: number; listingType: string; listingId: string; subject: string; body: string; createdAt: string };
+
+function listingOptions(listings: { centres: VendorListingSummary[]; clubs: VendorListingSummary[] }): ListingOption[] {
+  return [
+    ...listings.centres.map((c) => ({ listingType: "centre" as const, listingId: c.id, name: c.name })),
+    ...listings.clubs.map((c) => ({ listingType: "club" as const, listingId: c.id, name: c.name })),
+  ];
+}
+
+function useSentMessages() {
+  const [sent, setSent] = useState<SentMessage[]>([]);
+  const [failed, setFailed] = useState(false);
+  const load = () =>
+    fetchVendorMessages()
+      .then((rows) => {
+        setSent(rows);
+        setFailed(false);
+      })
+      .catch(() => setFailed(true));
+  useEffect(() => {
+    load();
+  }, []);
+  return { sent, failed, load };
+}
+
+/** Listing picker (unless locked), templates, subject, message, send. */
+function ComposerFields({ options, locked, onSent }: { options: ListingOption[]; locked: boolean; onSent: (summary: string) => void }) {
   const [target, setTarget] = useState(options[0] ? `${options[0].listingType}:${options[0].listingId}` : "");
   const [subject, setSubject] = useState("");
   const [body, setBody] = useState("");
   const [sending, setSending] = useState(false);
-  const [result, setResult] = useState<string | null>(null);
-  const [sent, setSent] = useState<{ id: number; listingType: string; listingId: string; subject: string; body: string; createdAt: string }[]>([]);
-
-  const loadSent = () => fetchVendorMessages().then(setSent).catch(() => {});
-  useEffect(() => {
-    loadSent();
-  }, []);
-
+  const [error, setError] = useState<string | null>(null);
   const targetOption = options.find((o) => `${o.listingType}:${o.listingId}` === target);
 
   const applyTemplate = (key: string) => {
@@ -69,129 +81,311 @@ export function MessageComposer({
     const [listingType, listingId] = target.split(":") as ["centre" | "club", string];
     if (!listingType || !listingId || !subject.trim() || !body.trim()) return;
     setSending(true);
-    setResult(null);
+    setError(null);
     try {
       const res = await sendVendorMessage({ listingType, listingId, subject: subject.trim(), body: body.trim() });
-      setResult(`Sent to ${res.recipientCount} ${res.recipientCount === 1 ? "person" : "people"}.`);
       setSubject("");
       setBody("");
-      loadSent();
+      onSent(`Sent to ${res.recipientCount} ${res.recipientCount === 1 ? "person" : "people"}.`);
     } catch {
-      setResult("You don't have permission to send messages — this needs the communications role.");
+      setError("You don't have permission to send messages — this needs the communications role.");
     } finally {
       setSending(false);
     }
   };
 
-  if (options.length === 0) return null;
-  const sentForThisListing = lockTo ? sent.filter((m) => m.listingType === lockTo.listingType && m.listingId === lockTo.listingId) : sent;
-
   return (
-    <Card style={{ marginBottom: 20 }}>
-      <h4 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 16, margin: "0 0 14px" }}>Message your participants</h4>
-      {!lockTo && (
-        <>
-          <label style={labelStyle}>Listing</label>
-          <select value={target} onChange={(e) => setTarget(e.target.value)} style={{ ...inputStyle, marginBottom: 12 }}>
-            {options.map((o) => (
-              <option key={`${o.listingType}:${o.listingId}`} value={`${o.listingType}:${o.listingId}`}>{o.name}</option>
-            ))}
-          </select>
-        </>
+    <form
+      noValidate
+      onSubmit={(e) => {
+        e.preventDefault();
+        send();
+      }}
+      style={{ display: "flex", flexDirection: "column", gap: 14 }}
+    >
+      {!locked && (
+        <FormField label="Listing">
+          {(p) => (
+            <select {...p} className="adm-select" value={target} onChange={(e) => setTarget(e.target.value)}>
+              {options.map((o) => (
+                <option key={`${o.listingType}:${o.listingId}`} value={`${o.listingType}:${o.listingId}`}>
+                  {o.name}
+                </option>
+              ))}
+            </select>
+          )}
+        </FormField>
       )}
-      <label style={labelStyle}>Templates</label>
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 12 }}>
-        {MESSAGE_TEMPLATES.map((t) => (
-          <button
-            key={t.key}
-            onClick={() => applyTemplate(t.key)}
-            style={{ fontSize: 11.5, fontWeight: 700, color: colors.muted, background: colors.panel, border: "none", borderRadius: radius.pill, padding: "4px 10px", cursor: "pointer" }}
-          >
-            {t.label}
-          </button>
-        ))}
-      </div>
-      <label style={labelStyle}>Subject</label>
-      <input value={subject} onChange={(e) => setSubject(e.target.value)} style={{ ...inputStyle, marginBottom: 12 }} />
-      <label style={labelStyle}>Message</label>
-      <textarea value={body} onChange={(e) => setBody(e.target.value)} rows={4} style={{ ...inputStyle, resize: "vertical", marginBottom: 12 }} />
-      {result && <p style={{ fontSize: 13, color: colors.greenText, fontWeight: 600, margin: "0 0 12px" }}>{result}</p>}
-      <Button onClick={send} disabled={sending || !subject.trim() || !body.trim()}>
-        {sending ? "Sending…" : "Send to everyone with a paid booking"}
-      </Button>
-
-      {sentForThisListing.length > 0 && (
-        <div style={{ marginTop: 20, paddingTop: 16, borderTop: `1px solid ${colors.border}` }}>
-          <div style={{ fontSize: 12, fontWeight: 700, color: colors.muted, marginBottom: 10 }}>SENT</div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {sentForThisListing.slice(0, 5).map((m) => (
-              <div key={m.id} style={{ fontSize: 13, background: colors.bg, borderRadius: radius.control, padding: "8px 12px" }}>
-                <strong>{m.subject}</strong>
-                <div style={{ color: colors.mutedLight, fontSize: 12, marginTop: 2 }}>{formatDate(m.createdAt)}</div>
-              </div>
-            ))}
-          </div>
+      <div className="adm-field">
+        <span>Start from a template</span>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+          {MESSAGE_TEMPLATES.map((t) => (
+            <button key={t.key} type="button" className="adm-chip ws-fchip" onClick={() => applyTemplate(t.key)}>
+              {t.label}
+            </button>
+          ))}
         </div>
+      </div>
+      <FormField label="Subject" required>
+        {(p) => <input {...p} className="adm-input" value={subject} onChange={(e) => setSubject(e.target.value)} />}
+      </FormField>
+      <FormField label="Message" required>
+        {(p) => <textarea {...p} className="adm-input" rows={5} value={body} onChange={(e) => setBody(e.target.value)} style={{ resize: "vertical" }} />}
+      </FormField>
+      {error && (
+        <p role="alert" className="adm-field-error" style={{ margin: 0 }}>
+          {error}
+        </p>
       )}
-    </Card>
+      <div>
+        <AdminButton type="submit" variant="primary" disabled={sending || !subject.trim() || !body.trim()}>
+          {sending ? "Sending…" : "Send to everyone with a paid booking"}
+        </AdminButton>
+      </div>
+    </form>
   );
 }
 
-export function MessagesTab({ onRead, listings }: { onRead: () => void; listings: { centres: VendorListingSummary[]; clubs: VendorListingSummary[] } }) {
-  const [notifications, setNotifications] = useState<VendorNotification[]>([]);
+function SentList({ sent, failed, onRetry, names }: { sent: SentMessage[]; failed: boolean; onRetry: () => void; names?: Map<string, string> }) {
+  if (failed)
+    return (
+      <p role="alert" className="adm-note" style={{ padding: 16, margin: 0 }}>
+        Couldn't load messages you've already sent.{" "}
+        <button type="button" className="adm-linkish" onClick={onRetry}>
+          Try again
+        </button>
+      </p>
+    );
+  return (
+    <ul className="adm-ov-list">
+      {sent.slice(0, 10).map((m) => (
+        <li key={m.id} className="adm-ov-row ws-q-row">
+          <span className="adm-ov-tile">
+            <Send size={17} strokeWidth={1.9} aria-hidden="true" />
+          </span>
+          <div className="adm-ov-main">
+            <div className="adm-ov-title">{m.subject}</div>
+            <div className="adm-ov-detail">{[names?.get(`${m.listingType}:${m.listingId}`), m.body].filter(Boolean).join(" · ")}</div>
+          </div>
+          <span className="adm-ov-kind">{formatDate(m.createdAt)}</span>
+        </li>
+      ))}
+    </ul>
+  );
+}
 
-  useEffect(() => {
-    fetchVendorNotifications().then(setNotifications);
-  }, []);
+// Composer (Tier 3) — a vendor-authored message to everyone with a paid
+// booking/registration on one listing. `lockTo` (Host Manage spec §8's
+// per-listing workspace) pins it to one listing: used by
+// VendorCentreEditPage.tsx/VendorClubEditPage.tsx's own Messages sub-tab.
+// The dashboard-wide Messages page opens the same fields in a popup instead.
+export function MessageComposer({
+  listings,
+  lockTo,
+}: {
+  listings: { centres: VendorListingSummary[]; clubs: VendorListingSummary[] };
+  lockTo?: ListingOption;
+}) {
+  const options = lockTo ? [lockTo] : listingOptions(listings);
+  const { sent, failed, load } = useSentMessages();
+  const [result, setResult] = useState<string | null>(null);
+  if (options.length === 0) return null;
+  const sentHere = lockTo ? sent.filter((m) => m.listingType === lockTo.listingType && m.listingId === lockTo.listingId) : sent;
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 16, marginBottom: 20 }}>
+      <Box title="Message your participants" icon={MessageSquare}>
+        <ComposerFields
+          options={options}
+          locked={Boolean(lockTo)}
+          onSent={(summary) => {
+            setResult(summary);
+            load();
+          }}
+        />
+        {result && (
+          <p role="status" style={{ margin: "12px 0 0", fontWeight: 600, color: "var(--color-green-text)" }}>
+            {result}
+          </p>
+        )}
+      </Box>
+      {(sentHere.length > 0 || failed) && (
+        <Box title="Sent" flush>
+          <SentList sent={sentHere} failed={failed} onRetry={load} />
+        </Box>
+      )}
+    </div>
+  );
+}
 
-  const markRead = (n: VendorNotification) => {
-    if (n.read) return;
-    markVendorNotificationRead(n.id).then(() => {
-      setNotifications((rows) => rows.map((r) => (r.id === n.id ? { ...r, read: 1 } : r)));
-      onRead();
-    });
+const KIND_ICON: Record<VendorNotification["kind"], LucideIcon> = {
+  booking: CalendarDays,
+  registration: Award,
+  program: GraduationCap,
+  experience: Compass,
+};
+
+/** Where a notification's order lives in the partner workspace. */
+function notificationLink(n: VendorNotification): string {
+  switch (n.kind) {
+    case "booking":
+      return `/vendor?tab=bookings&record=${encodeURIComponent(`booking:${n.ref}`)}`;
+    case "registration":
+      return "/vendor?tab=bookings&bsec=registrations";
+    case "program":
+      return "/vendor?tab=programs";
+    case "experience":
+      return "/vendor?tab=experiences";
+  }
+}
+
+export function MessagesTab({
+  onRead,
+  listings,
+  composeOpen,
+  onCloseCompose,
+}: {
+  onRead: () => void;
+  listings: { centres: VendorListingSummary[]; clubs: VendorListingSummary[] };
+  composeOpen: boolean;
+  onCloseCompose: () => void;
+}) {
+  const navigate = useNavigate();
+  const toast = useToast();
+  const [notifications, setNotifications] = useState<VendorNotification[] | null>(null);
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [show, setShow] = useUrlParam<"all" | "unread">("mshow", "all");
+  const [section, setSection] = useUrlParam<"inbox" | "sent">("msec", "inbox");
+  const { sent, failed: sentFailed, load: loadSent } = useSentMessages();
+  const options = listingOptions(listings);
+  const names = new Map(options.map((o) => [`${o.listingType}:${o.listingId}`, o.name]));
+
+  const load = () => {
+    setLoadFailed(false);
+    fetchVendorNotifications()
+      .then(setNotifications)
+      .catch(() => setLoadFailed(true));
   };
+  useEffect(load, []);
+
+  const markRead = async (n: VendorNotification) => {
+    if (n.read) return;
+    await markVendorNotificationRead(n.id);
+    setNotifications((rows) => rows && rows.map((r) => (r.id === n.id ? { ...r, read: 1 } : r)));
+    onRead();
+  };
+  const open = (n: VendorNotification) => {
+    markRead(n).catch(() => {});
+    navigate(notificationLink(n));
+  };
+  const unread = (notifications ?? []).filter((n) => !n.read);
+  const markAllRead = async () => {
+    try {
+      await Promise.all(unread.map((n) => markVendorNotificationRead(n.id)));
+      setNotifications((rows) => rows && rows.map((r) => ({ ...r, read: 1 })));
+      onRead();
+    } catch {
+      toast.error("Couldn't mark every notification read — try again");
+    }
+  };
+  const rows = (notifications ?? []).filter((n) => show === "all" || !n.read);
 
   return (
-    <div className="fade-panel">
-      <MessageComposer listings={listings} />
-      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-      {notifications.map((n) => (
-        <Card
-          key={n.id}
-          hover
-          onClick={() => markRead(n)}
-          style={{ padding: 15, display: "flex", gap: 14, alignItems: "flex-start" }}
+    <div className="fade-panel" style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      <IconTabs
+        label="Messages"
+        value={section}
+        onChange={setSection}
+        items={[
+          { key: "inbox", label: "Notifications", icon: Bell, count: unread.length || undefined },
+          { key: "sent", label: "Sent messages", icon: Send },
+        ]}
+      />
+      {section === "inbox" ? (
+        <Box
+          flush
+          title={show === "unread" ? `Unread · ${rows.length}` : "All notifications"}
+          actions={
+            <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+              <div className="ws-seg" role="group" aria-label="Show">
+                {(["all", "unread"] as const).map((v) => (
+                  <button key={v} type="button" aria-pressed={show === v} onClick={() => setShow(v)}>
+                    {v === "all" ? "All" : `Unread${unread.length ? ` (${unread.length})` : ""}`}
+                  </button>
+                ))}
+              </div>
+              <AdminButton size="sm" disabled={unread.length === 0} onClick={markAllRead}>
+                <CheckCheck size={15} aria-hidden="true" /> Mark all read
+              </AdminButton>
+            </div>
+          }
         >
-          <div
-            style={{
-              width: 34,
-              height: 34,
-              borderRadius: "50%",
-              background: n.read ? colors.panel : colors.greenBg,
-              color: n.read ? colors.muted : colors.green,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              flex: "none",
+          {loadFailed ? (
+            <div style={{ padding: 16 }}>
+              <LoadErrorState title="Couldn't load notifications." onRetry={load} />
+            </div>
+          ) : notifications === null ? (
+            <p role="status" className="adm-note" style={{ padding: 16, margin: 0 }}>
+              Loading…
+            </p>
+          ) : rows.length === 0 ? (
+            <EmptyState
+              icon={<Bell size={20} />}
+              title={show === "unread" ? "No unread notifications" : "No notifications yet"}
+              subtitle={show === "unread" ? undefined : "New bookings and registrations will show up here."}
+            />
+          ) : (
+            <ul className="adm-ov-list">
+              {rows.map((n) => {
+                const Icon = KIND_ICON[n.kind] ?? Bell;
+                return (
+                  <li key={n.id} className="adm-ov-row ws-note-row" data-unread={!n.read || undefined}>
+                    <span className="adm-ov-tile">
+                      <Icon size={17} strokeWidth={1.9} aria-hidden="true" />
+                    </span>
+                    <button type="button" className="btn-reset adm-ov-main ws-note-main" onClick={() => open(n)}>
+                      <span className="adm-ov-title">
+                        {!n.read && <span className="ws-dot" aria-label="Unread" />}
+                        {n.title}
+                      </span>
+                      <span className="adm-ov-detail">
+                        {[names.get(`${n.listingType}:${n.listingId}`), n.body].filter(Boolean).join(" · ")}
+                      </span>
+                    </button>
+                    <span className="adm-ov-kind" title={formatDate(n.createdAt)}>
+                      {agoLabel(n.createdAt)}
+                    </span>
+                    <span className="adm-ov-kind">Ref {n.ref}</span>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </Box>
+      ) : (
+        <Box flush title="Sent messages" subtitle="What you've sent to people with a paid booking.">
+          {sent.length === 0 && !sentFailed ? (
+            <EmptyState icon={<Send size={20} />} title="Nothing sent yet" subtitle="Use New message to write to everyone booked on a listing." />
+          ) : (
+            <SentList sent={sent} failed={sentFailed} onRetry={loadSent} names={names} />
+          )}
+        </Box>
+      )}
+
+      <AdminModal open={composeOpen} onClose={onCloseCompose} title="New message" subtitle="Goes by email to everyone with a paid booking or registration on the listing you pick." wide>
+        {options.length === 0 ? (
+          <p className="adm-note">You need an approved listing before you can message participants.</p>
+        ) : (
+          <ComposerFields
+            options={options}
+            locked={false}
+            onSent={(summary) => {
+              toast.success(summary);
+              loadSent();
+              onCloseCompose();
             }}
-          >
-            <ChatIcon size={16} />
-          </div>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-              <span style={{ fontWeight: 700, fontSize: 14 }}>{n.title}</span>
-              {!n.read && <span style={{ width: 7, height: 7, borderRadius: "50%", background: colors.orange, flex: "none" }} />}
-            </div>
-            <div style={{ fontSize: 13, color: colors.mutedLight, marginTop: 2 }}>{n.body}</div>
-            <div style={{ fontSize: 11, color: colors.faint, marginTop: 4 }}>
-              {formatDate(n.createdAt)} · Ref {n.ref}
-            </div>
-          </div>
-        </Card>
-      ))}
-      {notifications.length === 0 && <EmptyState icon={<ChatIcon size={26} />} title="No notifications yet" subtitle="New bookings and registrations will show up here." />}
-      </div>
+          />
+        )}
+      </AdminModal>
     </div>
   );
 }

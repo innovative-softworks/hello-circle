@@ -1,5 +1,6 @@
+import { writeAudit } from "../audit.js";
 import { Router, type Request, type Response } from "express";
-import { orgVendorIds } from "../auth.js";
+import { orgSuspended, orgVendorIds, removedStaff } from "../auth.js";
 import { db } from "../db/index.js";
 import { ASSUMED_DURATION_MINUTES } from "../db/queries.js";
 import { irelandTodayIso, irelandWallTimeToUtc } from "../irelandTime.js";
@@ -42,6 +43,8 @@ const readerKey = (a: Actor) => (a.kind === "resident" ? `r:${a.id}` : `u:${a.us
 interface MembershipCheck {
   allowed: boolean;
   canPost: boolean;
+  /** OG-18 — may hide messages here (the Circle's organisers, the activity's host). */
+  canModerate?: boolean;
   postBlockedReason?: string;
   opensAt?: string;
   archivesAt?: string;
@@ -74,18 +77,26 @@ async function checkGame(gameId: string, actor: Actor): Promise<MembershipCheck 
     row.host_resident_id === actor.id ||
     !!(await db.prepare(`SELECT id FROM game_participants WHERE game_id = ? AND resident_id = ? AND status = 'joined'`).get(gameId, actor.id));
   if (!isParticipant) return NOT_ALLOWED;
-  return windowCheck(row.date, row.time, ASSUMED_DURATION_MINUTES.game, row.status === "cancelled", "session");
+  return { ...windowCheck(row.date, row.time, ASSUMED_DURATION_MINUTES.game, row.status === "cancelled", "session"), canModerate: row.host_resident_id === actor.id };
 }
 
 async function checkCircle(circleId: string, actor: Actor): Promise<MembershipCheck | null> {
   const circle = (await db.prepare(`SELECT status FROM circles WHERE id = ?`).get(circleId)) as { status: string } | undefined;
   if (!circle) return null;
   if (actor.kind !== "resident") return NOT_ALLOWED;
-  const isMember = !!(await db.prepare(`SELECT id FROM circle_members WHERE circle_id = ? AND resident_id = ?`).get(circleId, actor.id));
-  if (!isMember) return NOT_ALLOWED;
+  const member = (await db
+    .prepare(`SELECT role, muted_until > NOW() as muted, muted_until as mutedUntil FROM circle_members WHERE circle_id = ? AND resident_id = ?`)
+    .get(circleId, actor.id)) as { role: string; muted: number | null; mutedUntil: string | Date | null } | undefined;
+  if (!member) return NOT_ALLOWED;
+  const canModerate = member.role === "organiser";
   // A closed Circle is read-only history, not deleted.
-  if (circle.status === "closed") return { allowed: true, canPost: false, postBlockedReason: "This Circle is closed — chat is read-only now." };
-  return { allowed: true, canPost: true };
+  if (circle.status === "closed") return { allowed: true, canPost: false, canModerate, postBlockedReason: "This Circle is closed — chat is read-only now." };
+  // OG-18 — an organiser can mute a member for a while: they can still read.
+  if (Number(member.muted) === 1) {
+    const until = member.mutedUntil ? new Date(member.mutedUntil).toLocaleString("en-IE", { timeZone: "Europe/Dublin", dateStyle: "medium", timeStyle: "short" }) : "";
+    return { allowed: true, canPost: false, canModerate, postBlockedReason: `An organiser has paused your messages in this Circle${until ? ` until ${until}` : ""}.` };
+  }
+  return { allowed: true, canPost: true, canModerate };
 }
 
 async function checkExperienceSession(sessionId: string, actor: Actor): Promise<MembershipCheck | null> {
@@ -177,8 +188,13 @@ async function checkScope(scopeType: ScopeType, scopeId: string, actor: Actor): 
 async function hostActor(req: Request): Promise<Actor | null> {
   const u = req.user;
   if (!u || u.role !== "vendor" || u.status !== "approved") return null;
+  // D-01 / D-08: no partner messaging while the organisation is suspended or after removal from it.
+  if (orgSuspended(u) || removedStaff(u)) return null;
   return { kind: "host", userId: u.id, vendorIds: await orgVendorIds(u), name: u.businessName || u.name };
 }
+
+/** A signed-in partner who is blocked from partner features (organisation suspended or removed). */
+const blockedPartner = (req: Request) => req.user?.role === "vendor" && (orgSuspended(req.user) || removedStaff(req.user));
 
 function residentActor(req: Request): Actor | null {
   const r = req.resident;
@@ -191,7 +207,9 @@ function residentActor(req: Request): Actor | null {
 async function resolve(req: Request, res: Response, scopeType: ScopeType, scopeId: string): Promise<{ actor: Actor; membership: MembershipCheck } | null> {
   const candidates = [residentActor(req), await hostActor(req)].filter((a): a is Actor => !!a);
   if (!candidates.length) {
-    res.status(401).json({ error: "Sign in to chat" });
+    // D-01 / D-08: signed in, but this partner can't use chat right now → 403, not "sign in".
+    if (blockedPartner(req)) res.status(403).json({ error: "Messaging isn't available while your organisation is suspended", orgSuspended: orgSuspended(req.user) || undefined });
+    else res.status(401).json({ error: "Sign in to chat" });
     return null;
   }
   let found = false;
@@ -213,7 +231,8 @@ async function loadMessages(scopeType: ScopeType, scopeId: string, actor: Actor,
   const rows = (await db
     .prepare(
       `SELECT cm.id, cm.resident_id as residentId, cm.author_user_id as authorUserId,
-              COALESCE(NULLIF(u.business_name, ''), u.name, r.name) as residentName, cm.body, cm.created_at as createdAt
+              COALESCE(NULLIF(u.business_name, ''), u.name, r.name) as residentName, cm.body, cm.created_at as createdAt,
+              cm.hidden_at as hiddenAt, cm.hidden_by_kind as hiddenByKind
        FROM chat_messages cm
        LEFT JOIN residents r ON r.id = cm.resident_id
        LEFT JOIN users u ON u.id = cm.author_user_id
@@ -226,13 +245,15 @@ async function loadMessages(scopeType: ScopeType, scopeId: string, actor: Actor,
        ORDER BY cm.id ASC LIMIT 200`
     )
     .all(scopeType, scopeId, after, viewerId, viewerId)) as {
-    id: number; residentId: string; authorUserId: string | null; residentName: string | null; body: string; createdAt: string;
+    id: number; residentId: string; authorUserId: string | null; residentName: string | null; body: string; createdAt: string; hiddenAt: string | null; hiddenByKind: string | null;
   }[];
   return rows.map((m) => ({
     id: m.id,
     residentId: m.residentId,
     residentName: m.residentName || (m.authorUserId ? "Host" : "A resident"),
-    body: m.body,
+    // A hidden message keeps its text in the database (evidence) but no reader gets it.
+    body: m.hiddenAt ? "" : m.body,
+    hidden: m.hiddenAt ? (m.hiddenByKind === "admin" ? "admin" : "organiser") : null,
     createdAt: m.createdAt,
     authorType: m.authorUserId ? "host" : "resident",
     isMine: actor.kind === "resident" ? !m.authorUserId && m.residentId === actor.id : m.authorUserId === actor.userId,
@@ -265,6 +286,7 @@ chatRouter.get("/:scopeType/:scopeId/messages", async (req, res) => {
     opensAt: m.opensAt,
     archivesAt: m.archivesAt,
     viewerRole: resolved.actor.kind,
+    canModerate: !!m.canModerate,
   });
 });
 
@@ -312,6 +334,27 @@ chatRouter.post("/messages/:id/report", async (req, res) => {
     .prepare(`INSERT INTO reports (target_type, target_id, reporter_client_id, reason) VALUES ('chat_message', ?, ?, ?)`)
     .run(req.params.id, readerKey(resolved.actor), reason);
   res.status(201).json({ ok: true });
+});
+
+// OG-18 — a Circle organiser (or the activity's host) hides a message in their
+// own chat. The text is kept for evidence (and for any report about it); the
+// author and everyone else see "removed by an organiser".
+chatRouter.post("/messages/:id/hide", async (req, res) => {
+  const reason = typeof req.body?.reason === "string" ? req.body.reason.trim().slice(0, 500) : "";
+  if (!reason) return res.status(400).json({ error: "Say why you're removing it" });
+  const msg = (await db.prepare(`SELECT scope_type as scopeType, scope_id as scopeId FROM chat_messages WHERE id = ?`).get(req.params.id)) as
+    | { scopeType: string; scopeId: string }
+    | undefined;
+  if (!msg || !isScopeType(msg.scopeType)) return res.status(404).json({ error: "Message not found" });
+  const resolved = await resolve(req, res, msg.scopeType, msg.scopeId);
+  if (!resolved) return;
+  if (!resolved.membership.canModerate || resolved.actor.kind !== "resident") return res.status(403).json({ error: "Only an organiser can remove messages here" });
+  const r = await db
+    .prepare(`UPDATE chat_messages SET hidden_at = NOW(), hidden_by = ?, hidden_by_kind = 'organiser', hidden_reason = ? WHERE id = ? AND hidden_at IS NULL`)
+    .run(resolved.actor.id, reason, req.params.id);
+  if (r.changes !== 1) return res.status(409).json({ error: "That message is already removed" });
+  await writeAudit({ actorUserId: resolved.actor.id, actorKind: "resident", action: "chat_message.hidden", objectType: "chat_message", objectId: String(req.params.id), newValue: { by: "organiser", scopeType: msg.scopeType, scopeId: msg.scopeId }, reason });
+  res.json({ ok: true });
 });
 
 // --- inbox ------------------------------------------------------------------------
@@ -406,7 +449,7 @@ async function buildInbox(actor: Actor) {
     scopes.map(async (s) => {
       const last = (await db
         .prepare(
-          `SELECT cm.id, cm.body, cm.created_at as createdAt, COALESCE(NULLIF(u.business_name, ''), u.name, r.name) as authorName
+          `SELECT cm.id, IF(cm.hidden_at IS NULL, cm.body, 'Message removed') as body, cm.created_at as createdAt, COALESCE(NULLIF(u.business_name, ''), u.name, r.name) as authorName
            FROM chat_messages cm LEFT JOIN residents r ON r.id = cm.resident_id LEFT JOIN users u ON u.id = cm.author_user_id
            WHERE cm.scope_type = ? AND cm.scope_id = ? ORDER BY cm.id DESC LIMIT 1`
         )
@@ -439,7 +482,11 @@ async function buildInbox(actor: Actor) {
  * when a browser holds both sessions. */
 chatRouter.get("/mine", async (req, res) => {
   const actor = req.query.as === "host" ? await hostActor(req) : residentActor(req) ?? (await hostActor(req));
-  if (!actor) return res.status(401).json({ error: "Sign in to see your chats" });
+  if (!actor) {
+    // D-01 / D-08: signed in, but this partner can't use chat right now → 403, not "sign in".
+    if (blockedPartner(req)) return res.status(403).json({ error: "Messaging isn't available while your organisation is suspended" });
+    return res.status(401).json({ error: "Sign in to see your chats" });
+  }
   const items = await buildInbox(actor);
   res.json({ items, unread: items.reduce((n, i) => n + i.unread, 0), viewerRole: actor.kind });
 });

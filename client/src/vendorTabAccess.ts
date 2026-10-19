@@ -25,6 +25,7 @@ export type VendorTabKey =
   | "listings"
   | "messages"
   | "bookings"
+  | "customers"
   | "earnings"
   | "programs"
   | "experiences"
@@ -44,6 +45,8 @@ export const VENDOR_TAB_ROLES: Record<VendorTabKey, "all" | readonly PlatformRol
   programs: MANAGERS,
   experiences: MANAGERS,
   bookings: [...MANAGERS, "finance"],
+  // OG-20 — customer contact details: the roles that serve them.
+  customers: [...MANAGERS, "finance", "communications"],
   messages: ["communications"],
   reviews: ["communications"],
   offers: ["finance"],

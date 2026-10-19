@@ -48,19 +48,12 @@ test("HC-QA-061-EDIT: edit, reload, legitimate zero and invalid values keep the 
       await page.goto(`/vendor/experiences/${id}`);
       await expect(page.getByText("€25.00/person · cap 8 · 180 min")).toBeVisible();
       // Edit the price to a decimal value through the settings editor.
-      // Settings sections: the "Edit →" right after the PRICING & CAPACITY summary.
-      const edits = page.getByRole("button", { name: /^Edit/ });
-      const pricingIndex = await page.evaluate(() => {
-        const buttons = Array.from(document.querySelectorAll("button")).filter((b) => /^Edit/.test(b.textContent?.trim() ?? ""));
-        return buttons.findIndex((b) => /PRICING & CAPACITY/i.test(b.parentElement?.parentElement?.textContent ?? ""));
-      });
-      expect(pricingIndex, "pricing section Edit found").toBeGreaterThanOrEqual(0);
-      await edits.nth(pricingIndex).focus();
-      await page.keyboard.press("Enter");
+      // Workspace editors (option A): each section's Edit opens its fields in a popup.
+      await page.getByRole("button", { name: "Edit pricing & capacity" }).click();
       const price = page.getByLabel("Price per person (€)");
       await expect(price).toHaveValue("25", { timeout: 5_000 });
       await price.fill("12.5");
-      const save = page.getByRole("button", { name: /^Save/ }).last();
+      const save = page.getByRole("dialog").getByRole("button", { name: "Save", exact: true });
       await save.focus({ timeout: 5_000 });
       await page.keyboard.press("Enter");
       await expect.poll(async () => (await rows(f, "SELECT price_cents FROM experiences WHERE id = ?", [id]))[0].price_cents).toBe(1250);
@@ -95,7 +88,13 @@ test("HC-QA-066-VENDOR: a booking's details open from the keyboard (desktop tabl
         await opener.focus();
         expect((await focused(page)).focusVisible, `${viewport}: visible focus`).toBe(true);
         await page.keyboard.press("Enter");
-        await expect(page.getByRole("dialog").filter({ hasText: ref })).toBeVisible();
+        // Booking details are a record page (UI completion 2026-10-14), not a dialog:
+        // shareable URL, the guest as the page heading, Back returns to the list.
+        await expect(page).toHaveURL(new RegExp(`record=booking%3A${ref}|record=booking:${ref}`));
+        await expect(page.getByRole("heading", { level: 1, name: "QA synthetic guest" })).toBeVisible();
+        await expect(page.getByText(ref).first()).toBeVisible();
+        await page.goBack();
+        await expect(page.getByRole("button", { name: /Open booking for QA synthetic guest/ }).filter({ visible: true }).first()).toBeVisible();
       } finally { await ui.close(); }
     }
     await evidence("hc-qa-066-vendor", { keyboardOpensBooking: true });

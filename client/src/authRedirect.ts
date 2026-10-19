@@ -16,7 +16,7 @@ export interface AuthIntentContext {
  * could loop (land you on an auth page whose own success handler sends you
  * right back to that same auth page). Prefix-matched, so `/signin/create`
  * and `/signin/email-link` are covered by the `/signin` entry. */
-const AUTH_PAGE_PATHS = ["/login", "/signin", "/accept-invite", "/forgot-password", "/reset-password", "/vendor/signup"];
+const AUTH_PAGE_PATHS = ["/login", "/signin", "/accept-invite", "/admin-invite", "/forgot-password", "/reset-password", "/vendor/signup"];
 
 function isAuthPagePath(path: string): boolean {
   return AUTH_PAGE_PATHS.some((p) => path === p || path.startsWith(`${p}/`));

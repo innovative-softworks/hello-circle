@@ -1,3 +1,4 @@
+import { assertCreatorStillMember } from "../orgStatus.js";
 import crypto from "node:crypto";
 import { Router } from "express";
 import { requirePlatformRole } from "../auth.js";
@@ -6,8 +7,10 @@ import { approximateCoords, db } from "../db/index.js";
 import { getCentre, getClub } from "../db/queries.js";
 import { exceedsGalleryLimit, GALLERY_LIMITS } from "../media/quotas.js";
 import { generateSlug } from "../slugify.js";
-import { invalidCoordinateReason } from "../util.js";
-import { inClause, ownsCentre, ownsClub, recomputeCentreRollup } from "./vendorHelpers.js";
+import { ConflictError, invalidCoordinateReason } from "../util.js";
+import { affectedBookings, closureInputError, createClosure, type ClosureInput } from "../venueClosures.js";
+import { inClause, ownsCentre, ownsClub, ownsListing, recomputeCentreRollup } from "./vendorHelpers.js";
+import { latestPublicDecision } from "../moderationDecisions.js";
 
 // Own-listing CRUD: overview/stats, claims, centres (+ rooms, blocked
 // dates, per-day hours), clubs — split out of the original single
@@ -28,7 +31,10 @@ vendorListingsRouter.get("/listings", async (req, res) => {
   const centres = await db
     .prepare(
       `SELECT c.id, c.name, c.status, c.area, c.county, c.views, c.created_at as createdAt, c.image_url as image,
-              c.blurb, c.capacity, c.from_price as fromPrice,
+              c.blurb, c.capacity, c.from_price as fromPrice, c.phone, c.opens_at as opensAt,
+              (COALESCE(c.accessibility, '') <> '') as hasAccessibility,
+              (SELECT COUNT(*) FROM centre_amenities a WHERE a.centre_id = c.id) as extrasCount,
+              (SELECT COUNT(*) FROM centre_images i WHERE i.centre_id = c.id) as imagesCount,
               COALESCE((SELECT AVG(rv.rating) FROM reviews rv WHERE rv.listing_type = 'centre' AND rv.listing_id = c.id AND rv.hidden = 0), 0) as rating,
               (SELECT COUNT(*) FROM reviews rv WHERE rv.listing_type = 'centre' AND rv.listing_id = c.id AND rv.hidden = 0) as reviews,
               (SELECT COUNT(*) FROM bookings b WHERE b.centre_id = c.id AND b.payment_status = 'paid') as bookingsCount
@@ -38,7 +44,10 @@ vendorListingsRouter.get("/listings", async (req, res) => {
   const clubs = await db
     .prepare(
       `SELECT c.id, c.name, c.status, c.area, c.county, c.views, c.created_at as createdAt, c.image_url as image,
-              c.blurb, c.ages, c.price, c.unit,
+              c.blurb, c.ages, c.price, c.unit, c.phone, c.sport,
+              (COALESCE(c.accessibility, '') <> '') as hasAccessibility,
+              (SELECT COUNT(*) FROM club_includes x WHERE x.club_id = c.id) as extrasCount,
+              (SELECT COUNT(*) FROM club_images i WHERE i.club_id = c.id) as imagesCount,
               COALESCE((SELECT AVG(rv.rating) FROM reviews rv WHERE rv.listing_type = 'club' AND rv.listing_id = c.id AND rv.hidden = 0), 0) as rating,
               (SELECT COUNT(*) FROM reviews rv WHERE rv.listing_type = 'club' AND rv.listing_id = c.id AND rv.hidden = 0) as reviews,
               (SELECT COUNT(*) FROM registrations r WHERE r.club_id = c.id AND r.payment_status = 'paid') as bookingsCount
@@ -47,7 +56,15 @@ vendorListingsRouter.get("/listings", async (req, res) => {
     .all(...ids);
   // mysql2 returns AVG()'s DECIMAL result as a string, not a number, unless
   // decimalNumbers is set on the pool (it isn't) — coerce before sending.
-  const withNumericRating = (rows: any[]) => rows.map((r) => ({ ...r, rating: Math.round(Number(r.rating) * 10) / 10 }));
+  // Same for the profile-completeness inputs (COUNTs / boolean expressions).
+  const withNumericRating = (rows: any[]) =>
+    rows.map((r) => ({
+      ...r,
+      rating: Math.round(Number(r.rating) * 10) / 10,
+      hasAccessibility: Number(r.hasAccessibility) === 1,
+      extrasCount: Number(r.extrasCount),
+      imagesCount: Number(r.imagesCount),
+    }));
   res.json({ centres: withNumericRating(centres), clubs: withNumericRating(clubs) });
 });
 
@@ -98,6 +115,19 @@ interface ClaimInput {
   listingId: string;
   message?: string;
 }
+
+// D-03 — the latest moderation decision on one of the organisation's own
+// listings (category + explanation; never the internal note). Older decisions
+// made before reasons existed return null → the client shows "No reason recorded".
+vendorListingsRouter.get("/decisions/:type(centre|club|experience)/:id", async (req, res) => {
+  const type = req.params.type as "centre" | "club" | "experience";
+  const owned =
+    type === "experience"
+      ? !!(await db.prepare(`SELECT id FROM experiences WHERE id = ? AND vendor_id IN (${req.vendorIds!.map(() => "?").join(",")})`).get(req.params.id, ...req.vendorIds!))
+      : await ownsListing(req.vendorIds!, type, req.params.id);
+  if (!owned) return res.status(403).json({ error: "Not your listing" });
+  res.json({ latest: await latestPublicDecision(type, req.params.id, ["listing.rejected", "listing.approved", "listing.pending", "listing.deleted"]) });
+});
 
 vendorListingsRouter.post("/claims", async (req, res) => {
   const b = req.body as ClaimInput;
@@ -187,6 +217,8 @@ vendorListingsRouter.post("/centres", requirePlatformRole("centre_manager"), asy
   const locationSource = vendorSuppliedCoords ? "confirmed" : "approximate";
   const slug = await generateSlug("centres", b.name);
   await db.transaction(async (tx) => {
+    // D-08: refuse if the creator was removed from the organisation meanwhile.
+    await assertCreatorStillMember(tx, req.user!);
     await tx.prepare(
       `INSERT INTO centres (id, name, area, county, rating, reviews, capacity, from_price, managed_by, ph, image_url, blurb, vendor_id, status, created_at, opens_at, closes_at, payment_method, map_url, lat, lng, location_source, phone, accessibility, slug)
        VALUES (?, ?, ?, ?, 0, 0, ?, ?, ?, '', ?, ?, ?, 'draft', NOW(), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
@@ -310,7 +342,9 @@ vendorListingsRouter.post("/centres/:id/publish", requirePlatformRole("centre_ma
     | { name: string; area: string; county: string; blurb: string; status: string }
     | undefined;
   if (!row) return res.status(404).json({ error: "Centre not found" });
-  if (row.status !== "draft") return res.status(400).json({ error: "This centre has already been submitted" });
+  // A rejected listing goes back to review once the vendor has changed it
+  // (the dashboard tells them it "needs changes before it can go live").
+  if (row.status !== "draft" && row.status !== "rejected") return res.status(400).json({ error: "This centre has already been submitted" });
   const missing = [
     !row.name && "a name",
     !row.area && "an area",
@@ -321,7 +355,7 @@ vendorListingsRouter.post("/centres/:id/publish", requirePlatformRole("centre_ma
     return res.status(400).json({ error: `This venue is missing ${missing.join(", ")} — go back and fill that in before publishing.` });
   }
   await db.prepare(`UPDATE centres SET status = 'pending' WHERE id = ?`).run(req.params.id);
-  writeAudit({ actorUserId: req.user!.id, action: "centre.published", objectType: "centre", objectId: req.params.id, newValue: { name: row.name } });
+  writeAudit({ actorUserId: req.user!.id, action: "centre.published", objectType: "centre", objectId: req.params.id, previousValue: { status: row.status }, newValue: { name: row.name, status: "pending" } });
   res.json(await getCentre(req.params.id));
 });
 
@@ -368,6 +402,8 @@ vendorListingsRouter.post("/centres/:id/duplicate", requirePlatformRole("centre_
   const id = crypto.randomUUID();
   const slug = await generateSlug("centres", `${source.name} (copy)`);
   await db.transaction(async (tx) => {
+    // D-08: refuse if the creator was removed from the organisation meanwhile.
+    await assertCreatorStillMember(tx, req.user!);
     await tx
       .prepare(
         `INSERT INTO centres (id, name, area, county, rating, reviews, capacity, from_price, managed_by, ph, image_url, blurb, vendor_id, status, created_at, opens_at, closes_at, payment_method, map_url, lat, lng, location_source, phone, accessibility, slug)
@@ -496,46 +532,110 @@ vendorListingsRouter.delete("/centres/:id", requirePlatformRole("centre_manager"
   res.json({ ok: true });
 });
 
-// --- blocked dates ("close" a date for a festival) --------------------------
+// --- closures / blocked time (OG-04, venueClosures.ts) ------------------------
+// A closure is a whole day or a range of hours, for one room or the whole
+// centre. It never silently closes a booked slot: the bookings it covers are
+// previewed first, and creating it requires the partner to have seen exactly
+// that list and to choose what happens to them.
 
-interface BlockInput {
-  date: string;
+interface ClosureBody {
+  date?: string;
   reason?: string;
-  /** Omit/undefined = whole-centre block (blocks every room); set = only
-   * that one room stays closed on this date, the rest of the centre's
-   * rooms remain bookable. */
-  roomId?: string;
+  /** Omit = the whole centre (every room); set = only that room. */
+  roomId?: string | null;
+  /** "HH:00" start and end (end exclusive); omit both for the whole day. */
+  startTime?: string | null;
+  endTime?: string | null;
+  /** The booking refs the partner reviewed in the preview. */
+  expectedRefs?: string[];
+  resolution?: "keep" | "cancel_refund" | null;
+}
+
+function closureInput(centreId: string, b: ClosureBody): ClosureInput {
+  return {
+    centreId,
+    roomId: b.roomId || null,
+    date: String(b.date ?? ""),
+    startTime: b.startTime || null,
+    endTime: b.endTime || null,
+    reason: typeof b.reason === "string" ? b.reason.trim() : "",
+  };
 }
 
 vendorListingsRouter.get("/centres/:id/blocks", async (req, res) => {
   if (!(await ownsCentre(req.vendorIds!, req.params.id))) return res.status(403).json({ error: "Not your listing" });
-  const rows = await db
+  // One row per closure: an hour range is stored as one row per hour.
+  const rows = (await db
     .prepare(
-      `SELECT id, date, reason, created_at as createdAt, room_id as roomId
-       FROM room_blocks WHERE centre_id = ? ORDER BY date`
+      `SELECT MIN(id) as id, group_id as groupId, date, MIN(time) as firstHour, MAX(time) as lastHour, MAX(CASE WHEN time IS NULL THEN 1 ELSE 0 END) as wholeDay,
+              MIN(reason) as reason, MIN(created_at) as createdAt, room_id as roomId
+       FROM room_blocks WHERE centre_id = ?
+       GROUP BY COALESCE(group_id, CONCAT('row-', id)), group_id, date, room_id
+       ORDER BY date, firstHour`
     )
-    .all(req.params.id);
-  res.json(rows);
+    .all(req.params.id)) as { id: number; groupId: string | null; date: string; firstHour: string | null; lastHour: string | null; wholeDay: number | string; reason: string; createdAt: string; roomId: string | null }[];
+  res.json(
+    rows.map((r) => {
+      const wholeDay = Number(r.wholeDay) === 1 || !r.firstHour;
+      return {
+        id: r.id,
+        groupId: r.groupId,
+        date: r.date,
+        roomId: r.roomId,
+        reason: r.reason,
+        createdAt: r.createdAt,
+        startTime: wholeDay ? null : r.firstHour,
+        endTime: wholeDay || !r.lastHour ? null : `${String(parseInt(r.lastHour.slice(0, 2), 10) + 1).padStart(2, "0")}:00`,
+      };
+    })
+  );
+});
+
+vendorListingsRouter.post("/centres/:id/blocks/preview", requirePlatformRole("centre_manager"), async (req, res) => {
+  if (!(await ownsCentre(req.vendorIds!, req.params.id))) return res.status(403).json({ error: "Not your listing" });
+  const input = closureInput(req.params.id, req.body as ClosureBody);
+  const problem = closureInputError(input);
+  if (problem) return res.status(400).json({ error: problem });
+  if (input.roomId && !(await db.prepare(`SELECT id FROM rooms WHERE id = ? AND centre_id = ?`).get(input.roomId, req.params.id))) {
+    return res.status(400).json({ error: "That room doesn't belong to this centre" });
+  }
+  res.json({ affected: await affectedBookings(db, input) });
 });
 
 vendorListingsRouter.post("/centres/:id/blocks", requirePlatformRole("centre_manager"), async (req, res) => {
   if (!(await ownsCentre(req.vendorIds!, req.params.id))) return res.status(403).json({ error: "Not your listing" });
-  const b = req.body as BlockInput;
-  if (!b.date) return res.status(400).json({ error: "date is required" });
-  if (b.roomId) {
-    const room = (await db.prepare(`SELECT id FROM rooms WHERE id = ? AND centre_id = ?`).get(b.roomId, req.params.id)) as { id: string } | undefined;
-    if (!room) return res.status(400).json({ error: "That room doesn't belong to this centre" });
+  const b = req.body as ClosureBody;
+  const input = closureInput(req.params.id, b);
+  const problem = closureInputError(input);
+  if (problem) return res.status(400).json({ error: problem });
+  if (b.resolution != null && b.resolution !== "keep" && b.resolution !== "cancel_refund") return res.status(400).json({ error: "resolution must be keep or cancel_refund" });
+  if (input.roomId && !(await db.prepare(`SELECT id FROM rooms WHERE id = ? AND centre_id = ?`).get(input.roomId, req.params.id))) {
+    return res.status(400).json({ error: "That room doesn't belong to this centre" });
   }
-  const info = await db
-    .prepare(`INSERT INTO room_blocks (centre_id, room_id, date, time, reason) VALUES (?, ?, ?, NULL, ?)`)
-    .run(req.params.id, b.roomId ?? null, b.date, b.reason ?? "");
-  res.status(201).json({ id: info.lastInsertRowid });
+  try {
+    const result = await createClosure(input, {
+      actorUserId: req.user!.id,
+      expectedRefs: Array.isArray(b.expectedRefs) ? b.expectedRefs.map(String) : [],
+      resolution: b.resolution ?? null,
+    });
+    res.status(201).json({ id: result.groupId, groupId: result.groupId, affected: result.affected.length, cancelled: result.cancelled });
+  } catch (e) {
+    if (e instanceof ConflictError) return res.status(409).json({ error: e.message, affected: await affectedBookings(db, input) });
+    throw e;
+  }
 });
 
 vendorListingsRouter.delete("/centres/:id/blocks/:blockId", requirePlatformRole("centre_manager"), async (req, res) => {
   if (!(await ownsCentre(req.vendorIds!, req.params.id))) return res.status(403).json({ error: "Not your listing" });
-  const info = await db.prepare(`DELETE FROM room_blocks WHERE id = ? AND centre_id = ?`).run(req.params.blockId, req.params.id);
-  if (info.changes === 0) return res.status(404).json({ error: "Block not found" });
+  const row = (await db.prepare(`SELECT group_id as groupId, date FROM room_blocks WHERE id = ? AND centre_id = ?`).get(req.params.blockId, req.params.id)) as
+    | { groupId: string | null; date: string }
+    | undefined;
+  if (!row) return res.status(404).json({ error: "Block not found" });
+  // Removing a closure removes every hour of it.
+  const info = row.groupId
+    ? await db.prepare(`DELETE FROM room_blocks WHERE group_id = ? AND centre_id = ?`).run(row.groupId, req.params.id)
+    : await db.prepare(`DELETE FROM room_blocks WHERE id = ? AND centre_id = ?`).run(req.params.blockId, req.params.id);
+  writeAudit({ actorUserId: req.user!.id, action: "centre.closure_removed", objectType: "centre", objectId: req.params.id, previousValue: { groupId: row.groupId, date: row.date, rows: info.changes } });
   res.json({ ok: true });
 });
 
@@ -619,6 +719,8 @@ vendorListingsRouter.post("/clubs", requirePlatformRole("facility_manager"), asy
   const locationSource = vendorSuppliedCoords ? "confirmed" : "approximate";
   const slug = await generateSlug("clubs", b.name);
   await db.transaction(async (tx) => {
+    // D-08: refuse if the creator was removed from the organisation meanwhile.
+    await assertCreatorStillMember(tx, req.user!);
     await tx.prepare(
       `INSERT INTO clubs (id, name, sport, area, county, ages, price, unit, trial, ph, image_url, blurb, vendor_id, status, created_at, payment_method, map_url, capacity, lat, lng, location_source, phone, accessibility, category, slug, audience)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, '', ?, ?, ?, 'draft', NOW(), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
@@ -709,7 +811,9 @@ vendorListingsRouter.post("/clubs/:id/publish", requirePlatformRole("facility_ma
     | { name: string; sport: string; area: string; county: string; blurb: string; status: string }
     | undefined;
   if (!row) return res.status(404).json({ error: "Club not found" });
-  if (row.status !== "draft") return res.status(400).json({ error: "This club has already been submitted" });
+  // A rejected listing goes back to review once the vendor has changed it
+  // (the dashboard tells them it "needs changes before it can go live").
+  if (row.status !== "draft" && row.status !== "rejected") return res.status(400).json({ error: "This club has already been submitted" });
   const missing = [
     !row.name && "a name",
     !row.sport && "a sport",
@@ -721,7 +825,7 @@ vendorListingsRouter.post("/clubs/:id/publish", requirePlatformRole("facility_ma
     return res.status(400).json({ error: `This club is missing ${missing.join(", ")} — go back and fill that in before publishing.` });
   }
   await db.prepare(`UPDATE clubs SET status = 'pending' WHERE id = ?`).run(req.params.id);
-  writeAudit({ actorUserId: req.user!.id, action: "club.published", objectType: "club", objectId: req.params.id, newValue: { name: row.name } });
+  writeAudit({ actorUserId: req.user!.id, action: "club.published", objectType: "club", objectId: req.params.id, previousValue: { status: row.status }, newValue: { name: row.name, status: "pending" } });
   res.json(await getClub(req.params.id));
 });
 
@@ -755,6 +859,8 @@ vendorListingsRouter.post("/clubs/:id/duplicate", requirePlatformRole("facility_
   const id = crypto.randomUUID();
   const slug = await generateSlug("clubs", `${source.name} (copy)`);
   await db.transaction(async (tx) => {
+    // D-08: refuse if the creator was removed from the organisation meanwhile.
+    await assertCreatorStillMember(tx, req.user!);
     await tx
       .prepare(
         `INSERT INTO clubs (id, name, sport, area, county, ages, price, unit, trial, ph, image_url, blurb, vendor_id, status, created_at, payment_method, map_url, capacity, lat, lng, location_source, phone, accessibility, category, slug, audience)

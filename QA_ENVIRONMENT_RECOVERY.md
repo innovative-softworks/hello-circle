@@ -143,3 +143,34 @@ mode remains conditional on booking-integrity success and separately verified
 sandbox configuration; the current auth QA profile prohibits Stripe credentials.
 No next phase began. External integrations, future token-at-rest/identity-writer
 hardening, production migration/deployment, and HC-QA-001 remain separate.
+
+## Recovery 2 — 2026-10-15 (owner-approved, Method B again)
+
+Same symptom: run `qa_64f1060afd291303`'s private directory (`environment.json`, `empty.env`, in `os.tmpdir()`) no
+longer existed and its container had exited when Docker restarted. Cause of the deletion: not established.
+
+- Before retirement the stopped container was checked against the manifest with `verifyContainer`'s identity checks
+  except "running" (id, image, name, run/nonce labels, labelled bridge network, loopback 13306, tmpfs storage): all
+  matched. Under the operation lock the manifest moved to
+  `.qa-data/qa_64f1060afd291303/retired-missing-config-manifest.json`. Container, network and evidence retained; no
+  SQL or old credential used.
+- `qa:db:setup` → run `qa_a35e99a58e09c361` (database `hello_circle_e2e_qa_a35e99a58e09c361`, user
+  `hello_circle_qa`, new generated credentials, none printed). Offline preflight: intended BLOCKED. Connected
+  preflight: PASS before any write. `qa:db:seed`: PASS.
+- Results on this environment: `docs/hellocircle-d02-d03-validation.md`.
+- Recurrence risk: the private directory lives in the OS temp folder. Moving it somewhere durable is a harness change
+  that needs its own approval; not done.
+
+## Reset 3 — 2026-10-15 (owner-approved clean-run recovery)
+
+Purpose: one clean, uninterrupted `qa:stripe` run after repeated diagnostic reruns had left partial settlement state.
+- Before: evidence for the unexplained split-settlement failure preserved under
+  `.qa-data/qa_a35e99a58e09c361/preserved-split-settlement-2026-10-15/` (logs, sanitised results, read-only settlement
+  snapshot). Offline preflight: intended BLOCKED; connected preflight: PASS. Manifest target `hellocircle-qa_a35e99a58e09c361`
+  (container `b699e01bd2a4`) matched; container list recorded.
+- `npm run qa:db:reset` (its own verifyContainer + no-other-connections checks) → new run `qa_566440f1eadeffc6`
+  (database `hello_circle_e2e_qa_566440f1eadeffc6`, new generated QA-only credentials, none printed). `qa:db:seed`:
+  PASS. Connected preflight: PASS. Only the QA container changed; every other container unchanged. Old run's evidence
+  and recovery metadata retained (`retired-manifest.json`). The Stripe test key file was not touched.
+- Result: `qa:stripe` 51/51 uninterrupted — `docs/hellocircle-d10-d11-validation.md` §3.
+

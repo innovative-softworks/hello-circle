@@ -28,6 +28,7 @@ import {
   updateDraft,
   type Actor,
 } from "../commerce/rules.js";
+import { ensureAdminCan, requireAdminPermission } from "../adminPermissions.js";
 
 // Commerce Engine Phase 1 — admin-only commercial configuration. Mounted
 // from admin.ts under /api/admin/commerce, so adminRouter's requireAdmin
@@ -36,7 +37,7 @@ import {
 export const adminCommerceRouter = Router();
 
 function actorOf(req: Request): Actor {
-  return { userId: req.user!.id, correlationId: crypto.randomUUID(), role: req.user!.adminRole ?? "super" };
+  return { userId: req.user!.id, correlationId: crypto.randomUUID(), role: req.user!.adminRole ?? null };
 }
 
 function idParam(req: Request): number {
@@ -55,20 +56,20 @@ async function handle(res: Response, fn: () => Promise<unknown>) {
   }
 }
 
-adminCommerceRouter.get("/catalog", async (_req, res) => {
+adminCommerceRouter.get("/catalog", requireAdminPermission("commerce.operate"), async (_req, res) => {
   const switches = await Promise.all(
     COMMERCE_SWITCHES.map(async (s) => ({ ...s, enabled: (await getSetting(s.key, s.defaultValue ? "true" : "false")) === "true" }))
   );
   res.json({ ruleKeys: Object.values(RULE_KEYS), scenarios: SCENARIOS, categories: CATEGORIES, switches, switchDependencies: SWITCH_DEPENDENCIES, secondApproverRequired: await secondApproverRequired() });
 });
 
-adminCommerceRouter.get("/rules", async (req, res) => {
+adminCommerceRouter.get("/rules", requireAdminPermission("commerce.operate"), async (req, res) => {
   const key = typeof req.query.key === "string" && RULE_KEYS[req.query.key] ? req.query.key : undefined;
   const [rows, active] = await Promise.all([listRuleVersions({ key }), inForceIds()]);
   res.json(rows.map((r) => ({ ...r, lifecycle: lifecycleOf(r, active), inForce: active.has(r.id) })));
 });
 
-adminCommerceRouter.get("/rules/:id", (req, res) =>
+adminCommerceRouter.get("/rules/:id", requireAdminPermission("commerce.operate"), (req, res) =>
   handle(res, async () => {
     const row = await getRuleVersion(idParam(req));
     if (!row) throw new RuleError("Rule version not found", 404);
@@ -77,7 +78,7 @@ adminCommerceRouter.get("/rules/:id", (req, res) =>
   })
 );
 
-adminCommerceRouter.get("/rules/:id/diff/:otherId", (req, res) =>
+adminCommerceRouter.get("/rules/:id/diff/:otherId", requireAdminPermission("commerce.operate"), (req, res) =>
   handle(res, async () => {
     const a = await getRuleVersion(idParam(req));
     const b = await getRuleVersion(Number(req.params.otherId));
@@ -87,26 +88,26 @@ adminCommerceRouter.get("/rules/:id/diff/:otherId", (req, res) =>
   })
 );
 
-adminCommerceRouter.get("/rules/:id/preview", (req, res) => handle(res, () => previewDraft(idParam(req))));
+adminCommerceRouter.get("/rules/:id/preview", requireAdminPermission("commerce.operate"), (req, res) => handle(res, () => previewDraft(idParam(req))));
 
-adminCommerceRouter.post("/rules/drafts", (req, res) =>
+adminCommerceRouter.post("/rules/drafts", requireAdminPermission("commerce.operate"), (req, res) =>
   handle(res, () => {
     const b = req.body as { key?: string; scopeType?: ScopeType; scopeId?: string; payload?: unknown; reason?: unknown };
     return createDraft({ key: String(b.key ?? ""), scopeType: (b.scopeType ?? "global") as ScopeType, scopeId: String(b.scopeId ?? ""), payload: b.payload, reason: b.reason }, actorOf(req));
   })
 );
 
-adminCommerceRouter.put("/rules/:id", (req, res) => handle(res, () => updateDraft(idParam(req), req.body ?? {}, actorOf(req))));
-adminCommerceRouter.post("/rules/:id/discard", (req, res) => handle(res, () => discardDraft(idParam(req), req.body ?? {}, actorOf(req))));
-adminCommerceRouter.post("/rules/:id/review", (req, res) => handle(res, () => submitForReview(idParam(req), req.body ?? {}, actorOf(req))));
-adminCommerceRouter.post("/rules/:id/retire", (req, res) => handle(res, () => retireVersion(idParam(req), req.body ?? {}, actorOf(req))));
-adminCommerceRouter.post("/rules/:id/approve", (req, res) => handle(res, () => approveDraft(idParam(req), req.body ?? {}, actorOf(req))));
-adminCommerceRouter.post("/rules/:id/publish", (req, res) => handle(res, () => publishDraft(idParam(req), req.body ?? {}, actorOf(req))));
-adminCommerceRouter.post("/rules/:id/end", (req, res) => handle(res, () => endOverride(idParam(req), req.body ?? {}, actorOf(req))));
-adminCommerceRouter.post("/rules/:id/rollback", (req, res) => handle(res, () => rollbackTo(idParam(req), req.body ?? {}, actorOf(req))));
+adminCommerceRouter.put("/rules/:id", requireAdminPermission("commerce.operate"), (req, res) => handle(res, () => updateDraft(idParam(req), req.body ?? {}, actorOf(req))));
+adminCommerceRouter.post("/rules/:id/discard", requireAdminPermission("commerce.operate"), (req, res) => handle(res, () => discardDraft(idParam(req), req.body ?? {}, actorOf(req))));
+adminCommerceRouter.post("/rules/:id/review", requireAdminPermission("commerce.operate"), (req, res) => handle(res, () => submitForReview(idParam(req), req.body ?? {}, actorOf(req))));
+adminCommerceRouter.post("/rules/:id/retire", requireAdminPermission("commerce.operate"), (req, res) => handle(res, () => retireVersion(idParam(req), req.body ?? {}, actorOf(req))));
+adminCommerceRouter.post("/rules/:id/approve", requireAdminPermission("commerce.operate"), (req, res) => handle(res, () => approveDraft(idParam(req), req.body ?? {}, actorOf(req))));
+adminCommerceRouter.post("/rules/:id/publish", requireAdminPermission("commerce.operate"), (req, res) => handle(res, () => publishDraft(idParam(req), req.body ?? {}, actorOf(req))));
+adminCommerceRouter.post("/rules/:id/end", requireAdminPermission("commerce.operate"), (req, res) => handle(res, () => endOverride(idParam(req), req.body ?? {}, actorOf(req))));
+adminCommerceRouter.post("/rules/:id/rollback", requireAdminPermission("commerce.operate"), (req, res) => handle(res, () => rollbackTo(idParam(req), req.body ?? {}, actorOf(req))));
 
 /** What a quote in this context would resolve to right now (or at ?at=). */
-adminCommerceRouter.get("/resolve", (req, res) =>
+adminCommerceRouter.get("/resolve", requireAdminPermission("commerce.operate"), (req, res) =>
   handle(res, async () => {
     const q = req.query as Record<string, string | undefined>;
     const key = q.key && RULE_KEYS[q.key] ? q.key : "pricing";
@@ -116,9 +117,15 @@ adminCommerceRouter.get("/resolve", (req, res) =>
   })
 );
 
-adminCommerceRouter.put("/switches/:key", async (req, res) => {
+/** D-02: commerce switches that aren't financial — a control on rule changes
+ * themselves, a trust rule and a launch gate. Super-only (unresolved in the
+ * matrix, which gives finance "financial switches only"). */
+export const GOVERNANCE_SWITCHES: readonly string[] = ["commerce.require_second_approver", "commerce.paid_games_require_verified_host", "commerce.open_booking"];
+
+adminCommerceRouter.put("/switches/:key", requireAdminPermission("commerce.operate"), async (req, res) => {
   const spec = COMMERCE_SWITCHES.find((s) => s.key === req.params.key);
   if (!spec) return res.status(404).json({ error: "Unknown switch" });
+  if (GOVERNANCE_SWITCHES.includes(spec.key) && !ensureAdminCan(req, res, "commerce.governance_switches")) return;
   const { enabled, reason } = req.body as { enabled?: unknown; reason?: unknown };
   if (typeof enabled !== "boolean") return res.status(400).json({ error: "enabled must be true or false" });
   if (typeof reason !== "string" || reason.trim().length < 5) return res.status(400).json({ error: "A change reason (at least 5 characters) is required" });
@@ -138,7 +145,7 @@ adminCommerceRouter.put("/switches/:key", async (req, res) => {
   res.json({ key: spec.key, enabled });
 });
 
-adminCommerceRouter.get("/audit", async (_req, res) => {
+adminCommerceRouter.get("/audit", requireAdminPermission("commerce.operate"), async (_req, res) => {
   const rows = await db
     .prepare(
       `SELECT a.id, a.actor_user_id as actorUserId, u.email as actorEmail, a.action, a.object_type as objectType, a.object_id as objectId,
@@ -156,7 +163,7 @@ adminCommerceRouter.get("/audit", async (_req, res) => {
 /** Engine-priced orders, newest first, searchable by order id, legacy ref,
  * Stripe session id or partner id. Full snapshot (internal allocations
  * included) — admin only. */
-adminCommerceRouter.get("/orders", async (req, res) => {
+adminCommerceRouter.get("/orders", requireAdminPermission("commerce.operate"), async (req, res) => {
   const q = typeof req.query.q === "string" ? req.query.q.trim() : "";
   const where = q ? `WHERE o.id = ? OR o.source_ref = ? OR o.stripe_session_id = ? OR o.partner_id = ?` : "";
   const rows = (await db
@@ -183,7 +190,7 @@ adminCommerceRouter.get("/orders", async (req, res) => {
 /** Shadow-pricing results: per resource type, how many legacy checkouts the
  * rules engine priced identically, plus the most recent mismatches. The
  * Phase 2 go-live gate is "zero unexplained mismatches" for a type. */
-adminCommerceRouter.get("/shadow", async (_req, res) => {
+adminCommerceRouter.get("/shadow", requireAdminPermission("commerce.operate"), async (_req, res) => {
   const summary = (await db
     .prepare(
       `SELECT source_type as sourceType, SUM(matched = 1) as matched, SUM(matched = 0) as mismatched, MAX(created_at) as lastSeen
@@ -204,7 +211,7 @@ adminCommerceRouter.get("/shadow", async (_req, res) => {
 });
 
 // --- Stage 2a: plans, plan assignments, promotions ------------------------------
-// Finance-gated (adminRouter mounts this router behind requireAdminRole("finance")).
+// Each route declares requireAdminPermission("commerce.operate") (D-02).
 
 const PARTNER_KINDS = ["org", "vendor", "host"] as const;
 function partnerParam(req: Request): PartnerKey {
@@ -219,7 +226,7 @@ function optionalDate(v: unknown, label: string): Date | undefined {
   return d;
 }
 
-adminCommerceRouter.get("/plans", (_req, res) =>
+adminCommerceRouter.get("/plans", requireAdminPermission("commerce.operate"), (_req, res) =>
   handle(res, async () => {
     const plans = (await db.prepare(`SELECT plan_key as planKey, name, status FROM pricing_plans ORDER BY sort_order`).all()) as { planKey: string; name: string; status: string }[];
     const free = await resolveRule("plan_free");
@@ -229,7 +236,7 @@ adminCommerceRouter.get("/plans", (_req, res) =>
   })
 );
 
-adminCommerceRouter.get("/partners/:kind/:id/plan", (req, res) =>
+adminCommerceRouter.get("/partners/:kind/:id/plan", requireAdminPermission("commerce.operate"), (req, res) =>
   handle(res, async () => {
     const partner = partnerParam(req);
     const history = await db
@@ -242,7 +249,7 @@ adminCommerceRouter.get("/partners/:kind/:id/plan", (req, res) =>
   })
 );
 
-adminCommerceRouter.post("/partners/:kind/:id/plan", (req, res) =>
+adminCommerceRouter.post("/partners/:kind/:id/plan", requireAdminPermission("commerce.operate"), (req, res) =>
   handle(res, async () => {
     const partner = partnerParam(req);
     const b = req.body as { planKey?: string; feePlanKey?: string | null; effectiveFrom?: string; effectiveTo?: string; reason?: string };
@@ -261,7 +268,7 @@ adminCommerceRouter.post("/partners/:kind/:id/plan", (req, res) =>
   })
 );
 
-adminCommerceRouter.get("/campaigns", async (_req, res) => {
+adminCommerceRouter.get("/campaigns", requireAdminPermission("commerce.operate"), async (_req, res) => {
   const rows = await db
     .prepare(
       `SELECT c.id, c.campaign_key as campaignKey, c.plan_key as planKey, c.commission_plan_key as commissionPlanKey, c.benefit_days as benefitDays,
@@ -273,7 +280,7 @@ adminCommerceRouter.get("/campaigns", async (_req, res) => {
   res.json(rows.map((r) => ({ ...r, enrolled: Number(r.enrolled) })));
 });
 
-adminCommerceRouter.post("/campaigns", (req, res) =>
+adminCommerceRouter.post("/campaigns", requireAdminPermission("commerce.operate"), (req, res) =>
   handle(res, async () => {
     const b = req.body as Record<string, unknown>;
     const reason = typeof b.reason === "string" ? b.reason.trim() : "";
@@ -296,7 +303,7 @@ adminCommerceRouter.post("/campaigns", (req, res) =>
   })
 );
 
-adminCommerceRouter.post("/campaigns/:id/enroll", (req, res) =>
+adminCommerceRouter.post("/campaigns/:id/enroll", requireAdminPermission("commerce.operate"), (req, res) =>
   handle(res, async () => {
     const b = req.body as { partnerKind?: string; partnerId?: string; reason?: string };
     if (!b.partnerKind || !(PARTNER_KINDS as readonly string[]).includes(b.partnerKind) || !b.partnerId) throw new RuleError("partnerKind and partnerId are required");
@@ -313,9 +320,9 @@ adminCommerceRouter.post("/campaigns/:id/enroll", (req, res) =>
 // Any price, plan or partner through the same pe-2 engine checkout will use,
 // with the rule versions it resolved. Full detail, margin warning included.
 
-adminCommerceRouter.post("/simulate", (req, res) => handle(res, () => estimate(parseEstimateBody(req.body ?? {}, { allowPartner: true }))));
+adminCommerceRouter.post("/simulate", requireAdminPermission("commerce.operate"), (req, res) => handle(res, () => estimate(parseEstimateBody(req.body ?? {}, { allowPartner: true }))));
 
-adminCommerceRouter.post("/simulate/plans", (req, res) =>
+adminCommerceRouter.post("/simulate/plans", requireAdminPermission("commerce.operate"), (req, res) =>
   handle(res, async () => {
     const b = req.body as { monthlyGmvMinor?: unknown; orders?: unknown };
     const gmv = Number(b.monthlyGmvMinor);

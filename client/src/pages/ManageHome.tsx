@@ -1,27 +1,34 @@
 import { useEffect, useState } from "react";
 import { PlanRewardsPanel } from "../components/PlanRewardsPanel";
 import { OpportunitiesCard } from "../components/OpportunitiesCard";
-import { Navigate, useNavigate, useSearchParams } from "react-router-dom";
+import { Navigate, useNavigate } from "react-router-dom";
 import { fetchMyGames, fetchResidentFull } from "../api";
 import { useAuth } from "../AuthContext";
 import { useGuest } from "../GuestContext";
 import { signInHref } from "../authRedirect";
-import { AwardIcon, CalendarIcon, CheckCircleIcon, UsersIcon } from "../components/icons";
+import { AwardIcon, CalendarIcon, UsersIcon } from "../components/icons";
+import { HOST_TABS, HOST_TAB_KEYS, hostAccountLine } from "../components/workspace/HostWorkspace";
 import { ActivitiesTab } from "../components/HostActivitiesTab";
 import { HostAttentionPanel } from "../components/HostAttention";
 import { HostCalendarTab } from "../components/HostCalendarTab";
+import { HostReservationsTab } from "../components/HostReservationsTab";
 import { CirclesTab } from "../components/HostCirclesTab";
 import { HostEarningsTab } from "../components/HostEarningsTab";
 import { HostInsightsTab } from "../components/HostInsightsTab";
 import { HostNextUpHero, HostUpcomingList } from "../components/HostOverviewCards";
 import { HostOffersTab } from "../components/HostOffersTab";
 import { HostReviewsTab } from "../components/HostReviewsTab";
-import { ManageShell } from "../components/ManageShell";
-import { Button, ManageCard as Card, DashboardTopPanel, PageSpinner } from "../components/ui";
+import { WorkspaceShell } from "../components/workspace/WorkspaceShell";
+import { PersonalAccountGate } from "../components/workspace/PersonalAccountGate";
+import { useUrlTab } from "../useUrlTab";
+import { Button, ManageCard as Card, LoadErrorState, PageSpinner } from "../components/ui";
 import { greeting } from "../greeting";
 import { colors, fonts } from "../theme";
 import type { Game, HostStatus } from "../types";
 import { irelandDaysFromToday, irelandToday } from "../irelandDate";
+import { useCreateParam } from "../components/workspace/OfferParts";
+import { BadgeCheck, CalendarDays, Users } from "lucide-react";
+import { AdminButton } from "../components/admin/adminUi";
 
 // HelloCircle Manage — resident (Host) dashboard. One page with local tab
 // state (Overview/Activities/Circles), the same shape as VendorDashboard.tsx
@@ -37,7 +44,7 @@ import { irelandDaysFromToday, irelandToday } from "../irelandDate";
 // predating this page); a vendor/admin session still gets that redirect
 // below, a resident session gets this dashboard instead.
 
-type ManageHomeTab = "overview" | "activities" | "circles" | "calendar" | "insights" | "earnings" | "reviews" | "offers";
+type ManageHomeTab = import("../components/workspace/HostWorkspace").HostTab;
 
 // Host Experience Polish — Insights is new and promoted to a top-level tab
 // (same "decisions, not decorative charts" surface Vendor gives its own
@@ -46,16 +53,8 @@ type ManageHomeTab = "overview" | "activities" | "circles" | "calendar" | "insig
 // Vendor's own nav — see ui.tsx's NavSidebar) rather than a bespoke
 // overflow menu, per the brief's own "don't expose too many items at once"
 // instruction without losing anything that was reachable before.
-const NAV_OPTIONS: { key: ManageHomeTab; label: string; icon?: undefined; group?: string }[] = [
-  { key: "overview", label: "Overview" },
-  { key: "activities", label: "Activities" },
-  { key: "circles", label: "Circles" },
-  { key: "calendar", label: "Calendar" },
-  { key: "insights", label: "Insights" },
-  { key: "earnings", label: "Earnings" },
-  { key: "reviews", label: "Reviews", group: "More" },
-  { key: "offers", label: "Offers", group: "More" },
-];
+const NAV_OPTIONS = HOST_TABS;
+const NAV_KEYS = HOST_TAB_KEYS;
 
 function hostStatusCopy(status: HostStatus): { text: string; tone: "green" | "muted" | "orange" } {
   if (status === "verified") return { text: "You're a Verified Host — this badge shows on every Session or Circle you create.", tone: "green" };
@@ -67,9 +66,10 @@ export function ManageHome() {
   const { user, loading: authLoading } = useAuth();
   const { resident, loading: guestLoading } = useGuest();
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
-  const initialTab = searchParams.get("tab");
-  const [tab, setTab] = useState<ManageHomeTab>(NAV_OPTIONS.some((o) => o.key === initialTab) ? (initialTab as ManageHomeTab) : "overview");
+  const [, setCreateParam] = useCreateParam();
+  // The tab lives in the URL (?tab=), so Back/Forward, refresh and shared links keep it.
+  const [tab, setTab] = useUrlTab<ManageHomeTab>(NAV_KEYS, "overview");
+  const [gamesFailed, setGamesFailed] = useState(false);
   const [hostStatus, setHostStatus] = useState<HostStatus>("none");
   // Host Experience Polish — feeds the greeting summary, the "Next Up" hero,
   // and the "Upcoming activities" list below; all three are pure derivations
@@ -78,19 +78,27 @@ export function ManageHome() {
 
   useEffect(() => {
     if (!resident) return;
-    fetchResidentFull().then(({ resident: r }) => {
-      if (r) setHostStatus(r.hostStatus);
-    });
+    fetchResidentFull()
+      .then(({ resident: r }) => {
+        if (r) setHostStatus(r.hostStatus);
+      })
+      .catch(() => {});
   }, [resident?.id]);
 
+  const loadGames = () => {
+    setGamesFailed(false);
+    fetchMyGames({ hostedOnly: true })
+      .then((games) => {
+        const todayIso = irelandToday();
+        setUpcomingGames(
+          games.filter((g) => g.status !== "cancelled" && g.date >= todayIso).sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time))
+        );
+      })
+      .catch(() => setGamesFailed(true));
+  };
   useEffect(() => {
-    if (!resident) return;
-    fetchMyGames({ hostedOnly: true }).then((games) => {
-      const todayIso = irelandToday();
-      setUpcomingGames(
-        games.filter((g) => g.status !== "cancelled" && g.date >= todayIso).sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time))
-      );
-    });
+    if (resident) loadGames();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [resident?.id]);
 
   // See VendorDashboard.tsx's identical comment — navigate() belongs in an
@@ -101,8 +109,16 @@ export function ManageHome() {
   }, [authLoading, guestLoading, user, resident]);
 
   if (authLoading || guestLoading) return <PageSpinner />;
-  if (user) return <Navigate to="/vendor" replace />;
-  if (!resident) return null;
+  // OG-01 — the Host workspace runs on the resident session. A browser can hold
+  // a business and a personal session at once (Manage switching); the personal
+  // one wins here. Only a business-only session is redirected: to the switch
+  // prompt when the business account is linked to a personal one, else to its
+  // own workspace.
+  if (!resident) {
+    if (user?.role === "vendor" && user.residentId) return <PersonalAccountGate user={user} />;
+    if (user) return <Navigate to={user.role === "admin" ? "/admin" : "/vendor"} replace />;
+    return null;
+  }
 
   const status = hostStatusCopy(hostStatus);
   const statusColor = status.tone === "green" ? colors.greenText : status.tone === "orange" ? colors.orangeDark : colors.mutedLight;
@@ -110,67 +126,55 @@ export function ManageHome() {
   const firstName = resident.name.split(" ")[0];
   const weekAheadIso = irelandDaysFromToday(7);
   const thisWeekCount = (upcomingGames ?? []).filter((g) => g.date <= weekAheadIso).length;
+  const activeItem = NAV_OPTIONS.find((o) => o.key === tab)!;
   const overviewSubtitle =
     upcomingGames === null
-      ? `HelloCircle Manage · ${resident.email}`
+      ? activeItem.summary
       : thisWeekCount > 0
         ? `${greeting()}, ${firstName}. You have ${thisWeekCount} activit${thisWeekCount === 1 ? "y" : "ies"} coming up this week.`
         : `${greeting()}, ${firstName}. Nothing on the calendar this week — a good time to host something new.`;
   const [nextGame, ...restGames] = upcomingGames ?? [];
 
   return (
-    <ManageShell
-      navTitle="HelloCircle Manage"
-      navOptions={NAV_OPTIONS}
-      activeKey={tab}
-      onNavChange={setTab}
-      contextLabel="Managing as Host"
-      pageTitle={NAV_OPTIONS.find((o) => o.key === tab)?.label}
-      banner={
-        tab === "overview" ? (
-          <div style={{ borderBottom: `1px solid ${colors.border}`, paddingBottom: 24, marginBottom: 32 }}>
-            <DashboardTopPanel
-              title={resident.name}
-              subtitle={overviewSubtitle}
-              avatarName={resident.name}
-              accent="green"
-              eyebrow="/ Manage"
-              tabs={NAV_OPTIONS}
-              activeTab={tab}
-              onTabChange={setTab}
-              bottomSpacing={0}
-              hideTabs
-              badge={
-                hostStatus === "verified" ? (
-                  <span style={{ display: "inline-flex", alignItems: "center", gap: 4, background: colors.greenBg, color: colors.greenText, borderRadius: 16, padding: "3px 10px 3px 8px", fontSize: 12, fontWeight: 700 }}>
-                    <CheckCircleIcon size={13} /> Verified Host
-                  </span>
-                ) : undefined
-              }
-              actions={<Button onClick={() => navigate("/games/host")}>Host a session</Button>}
-            />
-          </div>
+    <WorkspaceShell
+      workspaceLabel="Host workspace"
+      account={hostAccountLine(resident, hostStatus === "verified")}
+      externalLink={{ label: "View host profile", to: `/host/${resident.id}`, newTab: true }}
+      navItems={NAV_OPTIONS}
+      active={tab}
+      onNavigate={setTab}
+      title={activeItem.label}
+      subtitle={tab === "overview" ? overviewSubtitle : activeItem.summary}
+      actions={
+        tab === "overview" || tab === "activities" ? (
+          <Button onClick={() => navigate("/games/host?from=manage")}>Host a session</Button>
+        ) : tab === "offers" ? (
+          <Button onClick={() => setCreateParam(true)}>New offer</Button>
+        ) : tab === "circles" ? (
+          <Button onClick={() => navigate("/circles/start")}>Start a Circle</Button>
+        ) : tab === "calendar" ? (
+          <Button onClick={() => navigate("/games/host?from=manage")}>Host a session</Button>
         ) : undefined
       }
     >
       {tab === "overview" && (
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+          {gamesFailed && <LoadErrorState title="Couldn't load your upcoming activities." detail="Nothing has changed — try again in a moment." onRetry={loadGames} />}
           <HostAttentionPanel residentId={resident.id} onGoToActivities={() => setTab("activities")} />
           {hostStatus === "verified" && <PlanRewardsPanel scope="host" variant="compact" />}
           {hostStatus === "verified" && <OpportunitiesCard audience="host" />}
 
-          <Card>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
-              <AwardIcon size={16} style={{ color: colors.greenText }} />
-              <span style={{ fontFamily: fonts.display, fontSize: 15, fontWeight: 700 }}>Host status</span>
-            </div>
-            <p style={{ fontSize: 13, color: statusColor, margin: "8px 0 0" }}>{status.text}</p>
+          <div className="ws-line" data-tone={hostStatus === "verified" ? "good" : undefined}>
+            <BadgeCheck size={17} strokeWidth={1.9} aria-hidden="true" />
+            <span>
+              <strong>Host status:</strong> {status.text}
+            </span>
             {(hostStatus === "none" || hostStatus === "rejected") && (
-              <div style={{ marginTop: 12 }}>
-                <Button variant="ghost" onClick={() => navigate("/profile")}>Go to your profile →</Button>
-              </div>
+              <AdminButton size="sm" className="ws-line-link" onClick={() => navigate("/profile")}>
+                Go to your profile
+              </AdminButton>
             )}
-          </Card>
+          </div>
 
           {nextGame && <HostNextUpHero game={nextGame} onManage={() => setTab("activities")} />}
 
@@ -185,36 +189,37 @@ export function ManageHome() {
           )}
 
           {upcomingGames !== null && upcomingGames.length === 0 && (
-            <Card>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <CalendarIcon size={16} style={{ color: colors.greenText }} />
-                  <span style={{ fontFamily: fonts.display, fontSize: 15, fontWeight: 700 }}>Nothing coming up</span>
-                </div>
-                <Button variant="ghost" onClick={() => navigate("/games/host")}>Host a session →</Button>
-              </div>
-            </Card>
+            <div className="ws-line">
+              <CalendarDays size={17} strokeWidth={1.9} aria-hidden="true" />
+              <span>
+                <strong>Nothing coming up.</strong> Sessions you host will show here.
+              </span>
+              <AdminButton size="sm" className="ws-line-link" onClick={() => navigate("/games/host?from=manage")}>
+                Host a session
+              </AdminButton>
+            </div>
           )}
 
-          <Card>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <UsersIcon size={16} style={{ color: colors.greenText }} />
-                <span style={{ fontFamily: fonts.display, fontSize: 15, fontWeight: 700 }}>Your circles</span>
-              </div>
-              <Button variant="ghost" onClick={() => setTab("circles")}>Manage your circles →</Button>
-            </div>
-          </Card>
+          <div className="ws-line">
+            <Users size={17} strokeWidth={1.9} aria-hidden="true" />
+            <span>
+              <strong>Your circles.</strong> Plans, members and join requests.
+            </span>
+            <AdminButton size="sm" className="ws-line-link" onClick={() => setTab("circles")}>
+              Manage circles
+            </AdminButton>
+          </div>
         </div>
       )}
 
       {tab === "activities" && <ActivitiesTab />}
       {tab === "circles" && <CirclesTab />}
+      {tab === "reservations" && <HostReservationsTab />}
       {tab === "calendar" && <HostCalendarTab />}
       {tab === "insights" && <HostInsightsTab />}
       {tab === "reviews" && <HostReviewsTab />}
       {tab === "earnings" && <HostEarningsTab />}
       {tab === "offers" && <HostOffersTab />}
-    </ManageShell>
+    </WorkspaceShell>
   );
 }

@@ -72,7 +72,7 @@ function PreviewCard({ data }: { data: ShareData }) {
   return (
     <div style={{ display: "flex", gap: 12, background: colors.panel, borderRadius: radius.card, padding: 12, marginBottom: 18 }}>
       {data.image !== undefined && (
-        <Photo src={data.image ?? undefined} alt={data.title} ph={colors.surface} style={{ width: 64, height: 64, borderRadius: 10, overflow: "hidden", flex: "none" }} />
+        <Photo src={data.image ?? undefined} alt={data.title} ph={colors.surface} style={{ width: 64, height: 64, borderRadius: radius.control, overflow: "hidden", flex: "none" }} />
       )}
       <div style={{ minWidth: 0 }}>
         <div style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 15, marginBottom: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{data.title}</div>
@@ -296,7 +296,7 @@ export function ShareSheet({ open, onClose, entityType, entityId }: { open: bool
             </button>
             {qrOpen && (
               <div style={{ textAlign: "center", padding: "12px 0" }}>
-                {qrDataUrl ? <img src={qrDataUrl} alt="QR code to this link" width={180} height={180} style={{ borderRadius: 10 }} /> : <PageSpinner />}
+                {qrDataUrl ? <img src={qrDataUrl} alt="QR code to this link" width={180} height={180} style={{ borderRadius: radius.control }} /> : <PageSpinner />}
                 {qrDataUrl && (
                   <div>
                     <a href={qrDataUrl} download={`hellocircle-${entityType}-${entityId}.png`} style={{ fontSize: 12.5, color: colors.mutedLight, textDecoration: "underline" }}>

@@ -35,6 +35,16 @@ html {
 }
 
 :root {
+  /* Corner radii (theme.ts `radius`). Workspaces override these below. */
+  /* Consumer pages: 10px fields, 16px cards, pill buttons (unchanged). The
+     admin/partner/host workspaces override all of these to 8px (admin.css). */
+  --radius-control: 10px;
+  --radius-card: 16px;
+  --radius-pill: 999px;
+  --radius-small: 6px;
+  /* ManageCard (vendor/admin card also used on Pricing and Complaints): sharp
+     2px on consumer pages, 8px inside workspaces. */
+  --radius-manage-card: 2px;
   /* Floating UI (toasts) sits above whatever fixed bar is at the bottom —
      BottomChromeSync.tsx sets --bottom-chrome to the mobile tab bar's
      height; without a bar it's just the safe-area inset. */
@@ -48,6 +58,7 @@ html {
   --color-surface: #ffffff;
   --color-text: #172019;
   --color-muted: #5b635c;
+  --select-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%235b635c' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
   --color-muted-light: #5f675e;
   --color-faint: #656d64;
   --color-text-soft: #3b433c;
@@ -108,6 +119,7 @@ html {
     --color-surface: #1d2220;
     --color-text: #ecefe9;
     --color-muted: #b6bcb1;
+    --select-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23b6bcb1' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
     --color-muted-light: #a3a99d;
     --color-faint: #8b9289;
     --color-text-soft: #c7cdc0;
@@ -179,6 +191,7 @@ html {
   --color-surface: #1d2220;
   --color-text: #ecefe9;
   --color-muted: #b6bcb1;
+  --select-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23b6bcb1' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
   --color-muted-light: #a3a99d;
   --color-faint: #8b9289;
   --color-text-soft: #c7cdc0;
@@ -225,6 +238,7 @@ html {
   --color-surface: #ffffff;
   --color-text: #172019;
   --color-muted: #5b635c;
+  --select-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%235b635c' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
   --color-muted-light: #5f675e;
   --color-faint: #656d64;
   --color-text-soft: #3b433c;
@@ -287,6 +301,25 @@ select,
 textarea,
 button {
   font-family: inherit;
+}
+/* Dropdown chevron (2026-10-16): one consistent arrow for every native
+   <select>, 12px from the right edge with room reserved for it, instead of the
+   browser's default arrow hugging the border. !important because many selects
+   set an inline `background`/`padding` shorthand. Selects that draw their own
+   chevron (homepage/Circles search fields, Coming Soon county) are skipped. */
+select:not([multiple]):not([size]):not(.hx-field select):not(#cs-county) {
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: var(--select-chevron) !important;
+  background-repeat: no-repeat !important;
+  background-position: right 12px center !important;
+  background-size: 16px 16px !important;
+  padding-right: 38px !important;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+select:disabled {
+  cursor: not-allowed;
 }
 input:focus,
 select:focus,
@@ -1026,7 +1059,7 @@ textarea:focus {
   background: rgba(20, 22, 20, 0.34);
   backdrop-filter: blur(6px);
   padding: 14px 8px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   z-index: 2;
 }
 
@@ -1159,6 +1192,9 @@ textarea:focus {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .fade-panel,
+  .slide-in-left,
+  .slide-in-right,
   .heart-pop,
   .pop-in,
   .pop-in-up,
@@ -1235,7 +1271,7 @@ textarea:focus {
   height: auto;
   clip-path: none;
   padding: 10px 16px;
-  border-radius: 10px;
+  border-radius: var(--radius-control);
   background: var(--color-surface, #fff);
   color: var(--color-text, #141614);
   font-weight: 700;
@@ -1255,4 +1291,73 @@ main#main-content:focus { outline: none; }
   nav {
     display: none !important;
   }
+}
+
+/* Anchored overflow menu (components/ActionMenu.tsx). Corners follow the
+   radius tokens, so it is square inside the workspaces. */
+.action-menu {
+  min-width: 200px;
+  max-width: min(320px, calc(100vw - 16px));
+  max-height: calc(100vh - 16px);
+  overflow-y: auto;
+  background: var(--color-surface, #fff);
+  border: 1px solid var(--color-border-strong, #d9d4c8);
+  border-radius: var(--radius-card);
+  box-shadow: 0 12px 32px rgba(20, 22, 20, 0.16);
+  padding: 4px;
+}
+.action-menu-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  border-radius: var(--radius-control);
+  padding: 10px 12px;
+  font: inherit;
+  font-size: 14px;
+  color: var(--color-text, #172019);
+  cursor: pointer;
+}
+.action-menu-item:hover,
+.action-menu-item:focus-visible {
+  background: var(--color-panel, #f3efe6);
+  outline: 2px solid transparent;
+}
+.action-menu-item:focus-visible {
+  box-shadow: inset 0 0 0 2px var(--color-focus, #172019);
+}
+.action-menu-item[aria-disabled="true"] {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.action-menu-item--danger {
+  color: var(--color-danger, #b42318);
+}
+.action-menu-sep {
+  height: 1px;
+  background: var(--color-border, #e5e1d8);
+  margin: 4px 0;
+}
+
+/* The form error summary takes focus after a failed save (form.tsx). */
+.form-error-summary:focus {
+  outline: 3px solid var(--color-danger, #b00020);
+  outline-offset: 2px;
+}
+
+/* D-01 / OG-23 — data tables (the suspended organisation's obligations, and
+   every StackTable) stack into labelled rows on a phone instead of scrolling
+   sideways. */
+@media (max-width: 640px) {
+  .hc-stack-table thead { position: absolute; left: -9999px; }
+  .hc-stack-table, .hc-stack-table tbody, .hc-stack-table tr, .hc-stack-table td { display: block; width: 100%; }
+  .hc-stack-table tr { border-bottom: 1px solid var(--color-border); padding: 8px 0; }
+  .hc-stack-table td { display: flex; justify-content: space-between; gap: 12px; padding: 3px 0 !important; text-align: right; }
+  /* The label is visual only: the alt-text form keeps it out of the cell's
+     accessible name (screen readers already announce the column header). */
+  .hc-stack-table td::before { content: attr(data-label); content: attr(data-label) / ""; font-weight: 600; text-align: left; }
+  /* OG-23 — StackTable cells carry inline row borders for the desktop table. */
+  .hc-stack-table td { border-bottom: none !important; }
+  .hc-stack-table td[colspan] { text-align: left; }
 }

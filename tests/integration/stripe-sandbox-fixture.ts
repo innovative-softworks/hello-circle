@@ -39,6 +39,17 @@ export async function record(section: string, facts: Record<string, unknown>, st
   writeFileSync(file, JSON.stringify(all, null, 2), { mode: 0o600 });
 }
 
+/** Diagnostics (2026-10-15): when a finance call answers 5xx, keep the server's
+ * sanitised failure — failing step, error code, settlement run and the
+ * correlation id of its [error-report] log line — in this run's evidence.
+ * Only these named fields are kept (no bodies, ids of people or secrets). */
+export async function noteServerFailure(label: string, status: number, body: unknown) {
+  if (status < 500) return;
+  const b = (body ?? {}) as Record<string, unknown>;
+  const pick = (k: string) => (typeof b[k] === "string" || typeof b[k] === "number" ? b[k] : null);
+  await record("server-failures", { label, status, error: pick("error"), step: pick("step"), code: pick("code"), failure: pick("failure"), runId: pick("runId"), correlationId: pick("correlationId") }, "stage5e");
+}
+
 /** Every ledger group nets to zero (the whole QA database, not just this test). */
 export async function ledgerBalanced(f: Scope) {
   const bad = await rows(f, "SELECT group_id, SUM(amount_minor) AS s FROM ledger_entries GROUP BY group_id HAVING SUM(amount_minor) <> 0", []);

@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 import { ChevronLeftIcon, ChevronRightIcon } from "../../components/icons";
 import { GUIDE_SECTIONS } from "../../components/helpGuide/sections";
-import { colors, fonts } from "../../theme";
+import { colors, fonts, radius } from "../../theme";
 
 // Same standalone-content-page shell PrivacyPolicy.tsx/CookiePolicy.tsx
 // already use (back button, plain h1, colors.faint meta line) — wider
@@ -52,7 +52,7 @@ export function HelpGuideShell({
             {prev ? (
               <button
                 onClick={() => navigate(`/help-guide/${prev.slug}`)}
-                style={{ display: "flex", alignItems: "center", gap: 8, background: "none", border: `1px solid ${colors.border}`, borderRadius: 10, padding: "12px 18px", cursor: "pointer", textAlign: "left" }}
+                style={{ display: "flex", alignItems: "center", gap: 8, background: "none", border: `1px solid ${colors.border}`, borderRadius: radius.control, padding: "12px 18px", cursor: "pointer", textAlign: "left" }}
               >
                 <ChevronLeftIcon size={14} style={{ color: colors.muted, flex: "none" }} />
                 <span>
@@ -64,7 +64,7 @@ export function HelpGuideShell({
             {next ? (
               <button
                 onClick={() => navigate(`/help-guide/${next.slug}`)}
-                style={{ display: "flex", alignItems: "center", gap: 8, background: "none", border: `1px solid ${colors.border}`, borderRadius: 10, padding: "12px 18px", cursor: "pointer", textAlign: "right" }}
+                style={{ display: "flex", alignItems: "center", gap: 8, background: "none", border: `1px solid ${colors.border}`, borderRadius: radius.control, padding: "12px 18px", cursor: "pointer", textAlign: "right" }}
               >
                 <span>
                   <div style={{ fontSize: 11.5, fontWeight: 700, color: colors.mutedLight, textTransform: "uppercase", letterSpacing: 0 }}>Next</div>

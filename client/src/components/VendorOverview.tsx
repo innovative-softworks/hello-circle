@@ -1,54 +1,60 @@
 import { VENUE_PAGES_PUBLIC } from "../venueLaunch";
-import { BallIcon, BuildingIcon, CalendarIcon, ChatIcon, CheckIcon, EyeIcon, LightbulbIcon } from "./icons";
+import { useState } from "react";
+import { AlertTriangle, Building2, CalendarDays, Eye, Lightbulb, MessageSquare, Volleyball, X, type LucideIcon } from "lucide-react";
+import { AdminButton } from "./admin/adminUi";
 import { OpportunitiesCard } from "./OpportunitiesCard";
 import { VendorChatsCard } from "./HostChatButton";
-import { Button, ManageCard as Card, EmptyState, KpiHero, KpiStrip, StatTile } from "./ui";
-import { CommunityIllustration } from "./illustrations";
 import { VendorAttentionPanel } from "./VendorAttention";
 import { VendorNextUpHero, VendorUpcomingList } from "./VendorOverviewCards";
 import { manageTargetFor, type VendorScheduleNavTarget } from "../vendorSchedule";
-import { colors, fonts, radius } from "../theme";
+import { fonts } from "../theme";
 import type { VendorListingSummary, VendorScheduleItem, VendorStats } from "../types";
 
 // The Overview tab (KPI row, same-day summary, engagement tips) — split
 // out of the original single VendorDashboard.tsx (see CLAUDE.md).
 
-// Static engagement-tips panel at the bottom of Overview — not tied to any
-// fetched data, just evergreen advice for getting more bookings.
+// Evergreen advice for getting more bookings — a compact strip under the
+// totals that the partner can dismiss (remembered in this browser only).
 const TIPS = [
-  { title: "Complete your profile", desc: "Listings with photos, opening hours, and a full description get more clicks." },
-  { title: "Keep your calendar updated", desc: "Block off unavailable dates so guests don't try to book them." },
-  { title: "Respond to messages quickly", desc: "Fast replies build trust and turn enquiries into bookings." },
+  { title: "Complete your profile", desc: "Photos, opening hours and a full description get more clicks." },
+  { title: "Keep your calendar updated", desc: "Block unavailable dates so guests don't try to book them." },
+  { title: "Reply quickly", desc: "Fast replies build trust and turn enquiries into bookings." },
 ];
+const TIPS_KEY = "hc.vendor.tipsDismissed";
 
-function TipsPanel() {
+function TipsStrip() {
+  const [hidden, setHidden] = useState(() => {
+    try {
+      return localStorage.getItem(TIPS_KEY) === "1";
+    } catch {
+      return false;
+    }
+  });
+  if (hidden) return null;
+  const dismiss = () => {
+    setHidden(true);
+    try {
+      localStorage.setItem(TIPS_KEY, "1");
+    } catch {
+      /* private mode: hide for this visit only */
+    }
+  };
   return (
-    <Card style={{ display: "flex", gap: 24, alignItems: "center", flexWrap: "wrap" }}>
-      <div style={{ flex: "1 1 320px" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
-          <div style={{ width: 34, height: 34, borderRadius: radius.control, background: "#FFF3D6", color: "#9A6B00", display: "flex", alignItems: "center", justifyContent: "center", flex: "none" }}>
-            <LightbulbIcon size={17} />
-          </div>
-          <h3 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 16, margin: 0 }}>Tips to get more bookings</h3>
+    <section className="ws-tips" aria-label="Tips to get more bookings">
+      <span className="ws-tips-label">
+        <Lightbulb size={16} strokeWidth={1.9} aria-hidden="true" />
+        Tips
+      </span>
+      {TIPS.map((t) => (
+        <div key={t.title} className="ws-tips-item">
+          <strong>{t.title}</strong>
+          {t.desc}
         </div>
-        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-          {TIPS.map((t) => (
-            <div key={t.title} style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
-              <div style={{ width: 20, height: 20, borderRadius: "50%", background: colors.greenBg, color: colors.greenText, display: "flex", alignItems: "center", justifyContent: "center", flex: "none", marginTop: 1 }}>
-                <CheckIcon size={12} />
-              </div>
-              <div>
-                <div style={{ fontWeight: 700, fontSize: 13.5 }}>{t.title}</div>
-                <div style={{ color: colors.muted, fontSize: 12.5 }}>{t.desc}</div>
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-      <div className="hide-mobile" style={{ width: 170, height: 130, flex: "none" }}>
-        <CommunityIllustration />
-      </div>
-    </Card>
+      ))}
+      <AdminButton variant="quiet" size="sm" className="ws-tips-close" onClick={dismiss} aria-label="Hide tips">
+        <X size={15} aria-hidden="true" />
+      </AdminButton>
+    </section>
   );
 }
 
@@ -79,6 +85,14 @@ export function VendorOverviewTab({
   onNavigateTab: (tab: VendorScheduleNavTarget) => void;
 }) {
   const [nextItem, ...restItems] = items ?? [];
+  // Each total opens the section behind it; only unread messages ask for action.
+  const cards: { label: string; value: number; hint: string; icon: LucideIcon; tab: VendorScheduleNavTarget; hot?: boolean }[] = [
+    { label: "Total bookings", value: stats.totalBookings, hint: "All time", icon: CalendarDays, tab: "bookings" },
+    { label: "Approved centres", value: stats.centresLive, hint: approvedCaption(stats.centresLive), icon: Building2, tab: "listings" },
+    { label: "Approved clubs", value: stats.clubsLive, hint: approvedCaption(stats.clubsLive), icon: Volleyball, tab: "listings" },
+    { label: "Listing views", value: stats.totalViews, hint: "All time", icon: Eye, tab: "listings" },
+    { label: "Unread notifications", value: unreadCount, hint: "Bookings and updates", icon: MessageSquare, tab: "messages", hot: true },
+  ];
 
   return (
     <div className="fade-panel" style={{ display: "flex", flexDirection: "column", gap: 24 }}>
@@ -87,52 +101,69 @@ export function VendorOverviewTab({
       <OpportunitiesCard audience="vendor" />
 
       {itemsError ? (
-        <Card>
-          <p style={{ fontSize: 13, color: colors.orangeDark, margin: 0 }}>Couldn't load your upcoming schedule — try refreshing.</p>
-        </Card>
+        <div className="ws-line" role="alert">
+          <AlertTriangle size={17} strokeWidth={1.9} aria-hidden="true" />
+          Couldn't load your upcoming schedule — try refreshing.
+        </div>
       ) : items === null ? (
-        <Card>
-          <p style={{ fontSize: 13, color: colors.faint, margin: 0 }}>Loading…</p>
-        </Card>
+        <div className="ws-line">Loading your schedule…</div>
       ) : nextItem ? (
         <>
           <VendorNextUpHero item={nextItem} onManage={() => onNavigateTab(manageTargetFor(nextItem))} />
           {restItems.length > 0 && (
             <div>
-              <h3 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 15, margin: "0 0 10px" }}>Coming up</h3>
+              <h2 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 15, margin: "0 0 10px" }}>Coming up</h2>
               <VendorUpcomingList items={restItems.slice(0, 8)} onManage={(item) => onNavigateTab(manageTargetFor(item))} />
             </div>
           )}
         </>
       ) : (
-        <Card>
-          <EmptyState
-            icon={<CalendarIcon size={22} />}
-            title="Nothing scheduled yet."
-            subtitle="Your upcoming bookings, sessions and activities will appear here."
-            action={
-              stats.centresLive + stats.clubsLive === 0 ? (
-                <Button variant="ghost" onClick={() => onNavigateTab("listings")}>
-                  Set up your first listing →
-                </Button>
-              ) : undefined
-            }
-          />
-        </Card>
+        <div className="ws-line">
+          <CalendarDays size={17} strokeWidth={1.9} aria-hidden="true" />
+          <span>
+            <strong>Nothing scheduled yet.</strong> Upcoming bookings, sessions and activities will show here.
+          </span>
+          {stats.centresLive + stats.clubsLive === 0 ? (
+            <AdminButton size="sm" className="ws-line-link" onClick={() => onNavigateTab("listings")}>
+              Set up your first listing
+            </AdminButton>
+          ) : (
+            <AdminButton size="sm" className="ws-line-link" onClick={() => onNavigateTab("schedule")}>
+              Open calendar
+            </AdminButton>
+          )}
+        </div>
       )}
 
-      <KpiStrip
-        marginBottom={0}
-        hero={
-          <KpiHero icon={<CalendarIcon size={19} />} value={stats.totalBookings} label="Total bookings" sublabel="All time" sublabelColor={colors.mutedLight} />
-        }
-      >
-        <StatTile icon={<BuildingIcon size={19} />} value={stats.centresLive} label="Community centres" sublabel={VENUE_PAGES_PUBLIC ? "Live listings" : "Approved · not public yet"} sublabelColor={colors.greenText} />
-        <StatTile icon={<BallIcon size={19} />} value={stats.clubsLive} label="Sports clubs" sublabel={VENUE_PAGES_PUBLIC ? "Live listings" : "Approved · not public yet"} sublabelColor={colors.orangeDark} />
-        <StatTile icon={<EyeIcon size={19} />} value={stats.totalViews} label="Total views" sublabel="All time" sublabelColor={colors.mutedLight} />
-        <StatTile icon={<ChatIcon size={19} />} value={unreadCount} label="Unread messages" sublabel="From users" sublabelColor={colors.mutedLight} />
-      </KpiStrip>
-      <TipsPanel />
+      <section aria-label="Totals" className="adm-ov-cards">
+        {cards.map((c) => {
+          const Icon = c.icon;
+          return (
+            <button
+              key={c.label}
+              type="button"
+              className="adm-ov-card"
+              data-state={c.hot && c.value > 0 ? "hot" : c.value === 0 ? "cold" : undefined}
+              onClick={() => onNavigateTab(c.tab)}
+              aria-label={`${c.label}: ${c.value}. Open ${c.tab}`}
+            >
+              <span className="adm-ov-cardicon">
+                <Icon size={17} strokeWidth={1.9} aria-hidden="true" />
+              </span>
+              <span className="adm-ov-cardvalue">{c.value}</span>
+              <span className="adm-ov-cardlabel">{c.label}</span>
+              <span className="adm-ov-cardhint">{c.hint}</span>
+            </button>
+          );
+        })}
+      </section>
+      <TipsStrip />
     </div>
   );
+}
+
+/** Caption under an approved-listing count: never "approved" under a zero. */
+function approvedCaption(n: number) {
+  if (n === 0) return "None approved yet";
+  return VENUE_PAGES_PUBLIC ? "Live to the public" : "Approved · venue pages not public yet";
 }

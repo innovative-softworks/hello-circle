@@ -32,16 +32,82 @@ function StepRow({ step, muted }: { step: VendorSetupStep; muted?: boolean }) {
   );
 }
 
+/** What the partner can do about a step, or null when it's HelloCircle's move. */
+function nextAction(step: VendorSetupStep, editPath: string | null): { label: string; to: string } | null {
+  switch (step.key) {
+    case "details":
+      return { label: "Add business details", to: "/vendor?tab=org" };
+    case "listing":
+    case "first_listing":
+      return { label: "Create a listing", to: "/vendor?tab=listings" };
+    case "photo":
+      return editPath ? { label: "Add a cover photo", to: editPath } : null;
+    case "capacity":
+      return editPath ? { label: "Set room capacity", to: editPath } : null;
+    case "club_details":
+      return editPath ? { label: "Add sport and ages", to: editPath } : null;
+    case "submitted":
+      return editPath ? { label: "Review and submit", to: editPath } : null;
+    default:
+      return null; // terms (handled by the sign-in gate), account review, listing review
+  }
+}
+
+const WAITING: Record<string, string> = {
+  review: "HelloCircle is reviewing your partner account. You'll get an email when it's approved.",
+  live: "Your listing is with HelloCircle for review. It goes live once it's approved.",
+  terms: "Accept the Terms when you're next asked to continue.",
+};
+
+/** Setup progress for the Overview queue: the next step, what the partner can do
+ * about it (or what HelloCircle is waiting on), and how far along they are.
+ * Null while loading, on error, or once every step is done. */
+export function useVendorSetupNext() {
+  const [status, setStatus] = useState<VendorSetupStatus | null>(null);
+  useEffect(() => {
+    fetchVendorSetupStatus()
+      .then(setStatus)
+      .catch(() => setStatus(null));
+  }, []);
+  if (!status || status.complete) return null;
+  const phases = ["submitted", "review", "after_approval"];
+  const all = phases.flatMap((ph) => status.steps.filter((s) => s.phase === ph));
+  const next = all.find((s) => !s.done);
+  if (!next) return null;
+  const editPath = status.listing ? `/vendor/${status.listing.type === "centre" ? "centres" : "clubs"}/${status.listing.id}` : null;
+  return {
+    done: all.filter((s) => s.done).length,
+    total: all.length,
+    next,
+    action: nextAction(next, editPath),
+    waiting: WAITING[next.key] ?? null,
+  };
+}
+
 export function VendorSetupChecklist({ variant }: { variant: "pending" | "approved" }) {
   const navigate = useNavigate();
   const [status, setStatus] = useState<VendorSetupStatus | null>(null);
   const [failed, setFailed] = useState(false);
 
-  useEffect(() => {
-    fetchVendorSetupStatus().then(setStatus).catch(() => setFailed(true));
-  }, []);
+  const load = () => {
+    setFailed(false);
+    fetchVendorSetupStatus()
+      .then(setStatus)
+      .catch(() => setFailed(true));
+  };
+  useEffect(load, []);
 
-  if (failed || !status) return null;
+  if (failed) {
+    return (
+      <p role="alert" style={{ fontSize: 13.5, margin: "0 0 16px" }}>
+        Couldn't load your setup progress.{" "}
+        <button type="button" className="btn-reset" onClick={load} style={{ textDecoration: "underline", fontWeight: 600 }}>
+          Try again
+        </button>
+      </p>
+    );
+  }
+  if (!status) return null;
   if (variant === "approved" && status.complete) return null;
 
   const submitted = status.steps.filter((s) => s.phase === "submitted");
@@ -52,12 +118,12 @@ export function VendorSetupChecklist({ variant }: { variant: "pending" | "approv
   if (variant === "pending") {
     return (
       <div style={{ textAlign: "left", marginTop: 22, borderTop: `1px solid ${colors.border}`, paddingTop: 18 }}>
-        <div style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 15, marginBottom: 4 }}>What you've submitted</div>
+        <h2 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 15, margin: "0 0 4px" }}>What you've submitted</h2>
         <ul style={{ listStyle: "none", margin: "0 0 14px", padding: 0 }}>
           {[...submitted, ...review].map((s) => <StepRow key={s.key} step={s} />)}
         </ul>
-        <div style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 15, marginBottom: 2 }}>Once you're approved</div>
-        <p style={{ margin: "0 0 4px", fontSize: 12.5, color: colors.mutedLight }}>You can finish these from your dashboard — you can't edit your listing until then.</p>
+        <h2 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 15, margin: "0 0 2px" }}>Once your account is approved</h2>
+        <p style={{ margin: "0 0 4px", fontSize: 12.5, color: colors.mutedLight }}>You can finish these from your workspace — you can't edit your listing until then.</p>
         <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
           {after.map((s) => <StepRow key={s.key} step={s} muted />)}
         </ul>
@@ -65,19 +131,30 @@ export function VendorSetupChecklist({ variant }: { variant: "pending" | "approv
     );
   }
 
-  const remaining = after.filter((s) => !s.done);
+  const all = [...submitted, ...review, ...after];
+  const done = all.filter((s) => s.done).length;
+  const next = all.find((s) => !s.done) ?? null;
+  const action = next ? nextAction(next, editPath) : null;
   return (
-    <div style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: radius.card, padding: "18px 20px", marginBottom: 18 }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10, marginBottom: 4 }}>
-        <div style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 16 }}>Finish setting up your listing</div>
-        {editPath && <Button onClick={() => navigate(editPath)}>{remaining.length ? "Continue setup" : "Open listing"}</Button>}
+    <section aria-labelledby="setup-next" style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: radius.card, padding: "18px 20px", marginBottom: 18 }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10 }}>
+        <div style={{ minWidth: 0 }}>
+          <p style={{ margin: 0, fontSize: 12.5, color: colors.mutedLight }}>
+            Setup · {done} of {all.length} done
+          </p>
+          <h2 id="setup-next" style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 17, margin: "2px 0 0" }}>
+            Next: {next?.label}
+          </h2>
+          {next && !action && WAITING[next.key] && <p style={{ margin: "4px 0 0", fontSize: 13.5, color: colors.mutedLight }}>{WAITING[next.key]}</p>}
+        </div>
+        {action && <Button onClick={() => navigate(action.to)}>{action.label}</Button>}
       </div>
-      <p style={{ margin: "0 0 8px", fontSize: 13, color: colors.mutedLight }}>
-        {remaining.length} {remaining.length === 1 ? "step" : "steps"} left before your listing is fully set up.
-      </p>
-      <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
-        {[...submitted, ...review, ...after].map((s) => <StepRow key={s.key} step={s} />)}
-      </ul>
-    </div>
+      <details style={{ marginTop: 10 }}>
+        <summary style={{ cursor: "pointer", fontSize: 13.5, fontWeight: 600 }}>Show all setup steps</summary>
+        <ul style={{ listStyle: "none", margin: "6px 0 0", padding: 0 }}>
+          {all.map((s) => <StepRow key={s.key} step={s} />)}
+        </ul>
+      </details>
+    </section>
   );
 }

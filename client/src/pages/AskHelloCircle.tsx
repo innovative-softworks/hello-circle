@@ -121,13 +121,13 @@ export function AskHelloCircle() {
               onChange={(e) => setDraft(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && send(draft)}
               placeholder="Ask something…"
-              style={{ width: "100%", padding: "14px 14px 14px 40px", borderRadius: 16, border: `1px solid ${colors.border}`, fontSize: 15, outline: "none", boxShadow: "0 8px 30px rgba(30,40,32,.08)" }}
+              style={{ width: "100%", padding: "14px 14px 14px 40px", borderRadius: radius.card, border: `1px solid ${colors.border}`, fontSize: 15, outline: "none", boxShadow: "0 8px 30px rgba(30,40,32,.08)" }}
             />
           </div>
           <button
             onClick={() => send(draft)}
             disabled={asking || !draft.trim()}
-            style={{ background: colors.green, color: "#fff", border: "none", borderRadius: 16, padding: "0 22px", fontWeight: 700, fontSize: 14.5, cursor: "pointer" }}
+            style={{ background: colors.green, color: "#fff", border: "none", borderRadius: radius.card, padding: "0 22px", fontWeight: 700, fontSize: 14.5, cursor: "pointer" }}
           >
             Ask
           </button>

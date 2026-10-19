@@ -27,7 +27,7 @@ testing.
 
 | Role | Email | Password | Notes |
 |---|---|---|---|
-| Admin | `admin@hellocircle.ie` | `changeme123` | Seeded on first run; override via `HELLO_CIRCLE_ADMIN_EMAIL`/`_PASSWORD` |
+| Admin | `itadmin@hellocircle.ie` | `changeme123` | Seeded on first run; override via `HELLO_CIRCLE_ADMIN_EMAIL`/`_PASSWORD` |
 | Vendor (linked) | `testvendor-formpage@hellocircle.ie` | `TestPassword123!` | Owns "Test Community Centre" + several other test listings. **Linked** to the resident below — see "The fast path" |
 | Resident (linked, host + organiser) | `aoife.byrne.1@hellocircle-demo.ie` | *(passwordless — magic link only)* | Hosts several Games; organises "Dublin Five-a-side Football Circle" |
 
@@ -165,7 +165,7 @@ the resident account menu).
 
 ## 6. Admin
 
-Sign in as `admin@hellocircle.ie` / `changeme123`.
+Sign in as `itadmin@hellocircle.ie` / `changeme123`.
 
 1. Open the sidebar (burger icon, top left) — Admin's tabs are reached this way, not via a `?tab=` URL param
    the way Vendor's are, so navigating directly to `/admin?tab=vendors` will just show Overview; use the

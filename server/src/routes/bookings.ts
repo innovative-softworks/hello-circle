@@ -1,4 +1,6 @@
+import { customerPaymentCase, hasOpenReview } from "../payments/paymentReview.js";
 import crypto from "node:crypto";
+import { paymentUnderReview } from "../payments/checkoutAgreement.js";
 import { shadowLegacy } from "../commerce/engine.js";
 import { Router } from "express";
 import { createCheckoutSession, pricingLineItems } from "../checkoutService.js";
@@ -15,7 +17,9 @@ import { couponValidateLimiter, lookupLimiter } from "../rateLimit.js";
 import { bookingChangeBlock, cancelDeadlineIso, refundStateOf } from "../selfCancel.js";
 import { recordOrderAcknowledgements } from "../orderAcknowledgements.js";
 import { BadRequestError, ConflictError, bookingEndHour, clientIdFrom, generateRef, hoursOverlap, isValidEmail } from "../util.js";
-import { VENDOR_SUSPENDED_ERROR, consumeCoupon, customerKeyOf, endPendingHold, isPositiveInt, occupiesCapacitySql, startIsInFuture, validateFutureDate, vendorSuspended } from "../bookingIntegrity.js";
+import { VENDOR_SUSPENDED_ERROR, consumeCoupon, customerKeyOf, endPendingHold, isPositiveInt, occupiesCapacitySql, startIsInFuture, validateFutureDate } from "../bookingIntegrity.js";
+import { assertSellable, offeringSellable } from "../orgStatus.js";
+import { moveBookingSlot } from "../bookingMove.js";
 
 export const bookingsRouter = Router();
 
@@ -196,7 +200,8 @@ export async function priceBookingRequest(input: BookingPriceInput): Promise<Pri
   }
 
   const centreVendorRow = (await db.prepare(`SELECT vendor_id FROM centres WHERE id = ?`).get(input.centreId)) as { vendor_id: string | null } | undefined;
-  if (await vendorSuspended(centreVendorRow?.vendor_id)) return { ok: false, status: 409, error: VENDOR_SUSPENDED_ERROR };
+  // D-01: the member and their organisation must both be able to sell (re-checked under lock below).
+  if (!(await offeringSellable(centreVendorRow?.vendor_id))) return { ok: false, status: 409, error: VENDOR_SUSPENDED_ERROR };
   const { bookingWindowDays } = await orgPoliciesForVendor(centreVendorRow?.vendor_id ?? null);
   const eventStart = irelandWallTimeToUtc(input.date, startHour);
   if (eventStart.getTime() - Date.now() > bookingWindowDays * 24 * 60 * 60 * 1000) {
@@ -252,6 +257,9 @@ export async function createBookingInternal(input: CreateBookingInternalInput): 
   try {
     await db.transaction(async (tx) => {
       await tx.prepare(`SELECT id FROM rooms WHERE id = ? AND centre_id = ? FOR UPDATE`).get(input.roomId, input.centreId);
+      // D-01: re-check with a shared lock on the organisation row, so a
+      // concurrent suspension and this sale serialise.
+      await assertSellable(tx, priced.vendorId);
 
       // rooms.id is only unique per-centre (PRIMARY KEY (centre_id, id)) —
       // without this, a different centre's booking on a colliding room_id
@@ -485,7 +493,8 @@ bookingsRouter.get("/status/:ref", async (req, res) => {
   // Booking UX Phase 3 — the confirmation page states the deadline (same rule as cancel).
   const { vendorId, ...rest } = row;
   const { cancellationHours } = await orgPoliciesForVendor(vendorId);
-  res.json({ ...rest, cancelDeadline: cancelDeadlineIso(row.date, row.time, cancellationHours) });
+  const paymentReview = row.paymentStatus === "pending" && (await paymentUnderReview("booking", req.params.ref));
+  res.json({ ...rest, cancelDeadline: cancelDeadlineIso(row.date, row.time, cancellationHours), paymentReview, paymentCase: await customerPaymentCase("booking", req.params.ref) });
 });
 
 // "Add to calendar" (IA spec §13) — same client_id ownership gate as
@@ -703,6 +712,9 @@ bookingsRouter.post("/:ref/reschedule", lookupLimiter, async (req, res) => {
       }
     | undefined;
   if (!row) return res.status(404).json({ error: "Booking not found" });
+  // D-10 — a booking whose payment is under review can't be moved (its review
+  // deadline belongs to this slot, and a deadline is never extended).
+  if (await hasOpenReview("booking", row.ref)) return res.status(409).json({ error: "Your payment is still being checked, so this booking can't be moved yet" });
   const { cancellationHours, bookingWindowDays } = await orgPoliciesForVendor(row.vendorId);
   const block = bookingChangeBlock(row, "reschedule", cancellationHours);
   if (block) return res.status(block.status).json({ error: block.error });
@@ -723,27 +735,10 @@ bookingsRouter.post("/:ref/reschedule", lookupLimiter, async (req, res) => {
   }
 
   try {
+    // Shared with accepted venue proposals and host activity moves (bookingMove.ts):
+    // the same room lock, overlap and closure checks as checkout.
     await db.transaction(async (tx) => {
-      // rooms.id is only unique per-centre (PRIMARY KEY (centre_id, id)) —
-      // scope both the lock and the overlap check by row.centreId (already
-      // fetched above), same fix as availability.ts/queries.ts/programs.ts.
-      await tx.prepare(`SELECT id FROM rooms WHERE id = ? AND centre_id = ? FOR UPDATE`).get(row.roomId, row.centreId);
-      const overlapping = (await tx
-        .prepare(`SELECT ref, time, duration FROM bookings WHERE room_id = ? AND centre_id = ? AND date = ? AND ref != ? AND ${occupiesCapacitySql()}`)
-        .all(row.roomId, row.centreId, date, row.ref)) as { ref: string; time: string; duration: number }[];
-      const clashes = overlapping.some((b) => {
-        const bStart = parseInt(b.time.slice(0, 2), 10);
-        return hoursOverlap(startHour, reqEnd, bStart, bookingEndHour(bStart, b.duration));
-      });
-      if (clashes) throw new ConflictError("That new time is no longer available");
-
-      const blocks = (await tx
-        .prepare(`SELECT time FROM room_blocks WHERE centre_id = ? AND date = ? AND (room_id = ? OR room_id IS NULL)`)
-        .all(row.centreId, date, row.roomId)) as { time: string | null }[];
-      const blocked = blocks.some((b) => (b.time === null ? true : parseInt(b.time.slice(0, 2), 10) >= startHour && parseInt(b.time.slice(0, 2), 10) < reqEnd));
-      if (blocked) throw new ConflictError("The vendor has closed that date/time");
-
-      await tx.prepare(`UPDATE bookings SET date = ?, time = ? WHERE ref = ?`).run(date, time, row.ref);
+      await moveBookingSlot(tx, row, date, time);
     });
   } catch (e) {
     if (e instanceof ConflictError) return res.status(409).json({ error: e.message });

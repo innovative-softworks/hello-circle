@@ -22,23 +22,27 @@ for (const viewport of ["desktop", "mobile"] as const) {
       const ui = await businessUiActor(browser, "QA_ADMIN", viewport);
       try {
         const { page } = ui;
-        await page.goto("/admin?tab=finance");
+        page.setDefaultTimeout(15_000); // a missing control fails at its step, not at the test timeout
+        await page.goto("/admin?tab=plansCredit");
         await page.getByRole("tab", { name: "Simulator" }).click();
         // R3B F1 — the simulator is labelled hypothetical (plan model, not what checkout charges).
         await expect(page.getByTestId("simulator-hypothetical")).toContainText(/Hypothetical/);
         await page.getByLabel("Price (€)").fill("100");
         await page.getByRole("button", { name: "Simulate" }).click();
         await expect(page.getByText("€88.93").first()).toBeVisible(); // partner pool, test vector 1
-        await page.getByRole("tab", { name: "Transfers" }).click();
+        // Transfers and partner debts live on the Finance page since the admin redesign (2026-10-14).
+        await page.goto("/admin?tab=finance&section=transfers");
         await expect(page.getByRole("heading", { name: /Transfers to partners/ })).toBeVisible();
         await page.getByRole("button", { name: "Preview transfers" }).click();
         await reason(page, "Preview");
         await expect(page.getByText(/^Preview: \d+ transfer/)).toBeVisible();
-        await page.getByRole("tab", { name: "Partner debts" }).click();
+        await page.goto("/admin?tab=finance&section=debts");
         await expect(page.getByRole("heading", { name: "Partner debts" })).toBeVisible();
-        await page.getByRole("tab", { name: "Credits & Pro" }).click();
-        await page.getByLabel("Resident email").fill(env.QA_USER_EMAIL);
-        await page.getByLabel("Amount (€)").fill("5");
+        await page.goto("/admin?tab=plansCredit&section=credits");
+        // The grant form is a popup since the admin redesign.
+        await page.getByRole("button", { name: "New credit grant" }).click();
+        await page.getByRole("dialog").getByLabel("Resident email").fill(env.QA_USER_EMAIL);
+        await page.getByRole("dialog").getByLabel("Amount (€)").fill("5");
         await page.getByRole("button", { name: "Grant credit…" }).click();
         await reason(page, "Grant");
         await expect(page.getByText(/^Granted\. Expires/)).toBeVisible();

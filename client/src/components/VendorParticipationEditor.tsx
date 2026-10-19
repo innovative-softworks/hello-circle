@@ -1,10 +1,13 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { useInWorkspace } from "./workspace/inWorkspace";
+import { SectionSaveContext, useSectionSave, type SectionSave } from "./workspace/sectionSave";
 import { fetchLinkableCircles, fetchVendorParticipation, saveVendorParticipation, type VendorParticipation, type VendorParticipationType } from "../api";
 import { attributeLabel, splitAttributes } from "../participationVocab";
 import { colors } from "../theme";
 import { AttributePicker } from "./AttributePicker";
 import { SettingsSection } from "./form";
 import { Button, inputStyle, labelStyle } from "./ui";
+import { ErrorMessage } from "./admin/adminUi";
 
 // "Participation experience" for vendor listings (Release 2) — a section
 // that sits alongside the program/experience/club editor's own sections but
@@ -27,16 +30,28 @@ export function VendorParticipationEditor({ type, id }: { type: VendorParticipat
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const outer = useSectionSave();
+  const inWorkspace = useInWorkspace();
+  const snapshot = useRef<VendorParticipation | null>(null);
 
-  useEffect(() => {
-    fetchVendorParticipation(type, id)
-      .then(setData)
-      .catch(() => setData({ attributes: [] }));
+  // A record that failed to load never becomes a blank, saveable form (it
+  // would overwrite the real settings on save).
+  const [loadError, setLoadError] = useState<unknown>(null);
+  const [circlesFailed, setCirclesFailed] = useState(false);
+  const load = () => {
+    setLoadError(null);
+    fetchVendorParticipation(type, id).then(setData).catch(setLoadError);
+    setCirclesFailed(false);
     fetchLinkableCircles()
       .then(setCircles)
-      .catch(() => setCircles([]));
-  }, [type, id]);
+      .catch(() => {
+        setCircles([]);
+        setCirclesFailed(true);
+      });
+  };
+  useEffect(load, [type, id]);
 
+  if (loadError && !data) return <ErrorMessage error={loadError} onRetry={load} title="Couldn't load participation settings" />;
   if (!data) return null;
 
   const update = (patch: Partial<VendorParticipation>) => {
@@ -44,14 +59,16 @@ export function VendorParticipationEditor({ type, id }: { type: VendorParticipat
     setSaved(false);
   };
 
-  const save = async () => {
+  const save = async (): Promise<boolean> => {
     setSaving(true);
     setError(null);
     try {
       setData(await saveVendorParticipation(type, id, data));
       setSaved(true);
+      return true;
     } catch (e) {
       setError(e instanceof Error ? e.message : "Couldn't save");
+      return false;
     } finally {
       setSaving(false);
     }
@@ -60,7 +77,26 @@ export function VendorParticipationEditor({ type, id }: { type: VendorParticipat
   const { primary, rest } = splitAttributes(data.attributes);
   const summary = primary.length ? [...primary.map(attributeLabel), ...(rest.length ? [`+${rest.length} more`] : [])].join(" · ") : "Not added";
 
+  // In a workspace editor this section is a card with its own popup: it saves
+  // separately from the rest of the form, so it gets its own SectionSave.
+  const own: SectionSave = {
+    save,
+    saving,
+    errors: error ? [{ field: "save", message: error }] : [],
+    isDirty: () => JSON.stringify(snapshot.current) !== JSON.stringify(data),
+    openKey: outer?.openKey,
+    setOpenKey: outer?.setOpenKey,
+    begin: () => {
+      snapshot.current = data;
+    },
+    cancel: () => {
+      if (snapshot.current) setData(snapshot.current);
+      setError(null);
+    },
+  };
+  const popup = inWorkspace;
   return (
+    <SectionSaveContext.Provider value={popup ? own : outer}>
     <SettingsSection title="Participation experience" summary={summary}>
       <p style={{ fontSize: 12.5, color: colors.mutedLight, margin: 0 }}>
         Helps people who've never been feel comfortable coming. Tick only what's true of how this runs — the first three show on your listing.
@@ -80,7 +116,14 @@ export function VendorParticipationEditor({ type, id }: { type: VendorParticipat
       ))}
       <div>
         <label style={labelStyle}>Official Circle (optional)</label>
-        {circles.length > 0 ? (
+        {circlesFailed ? (
+          <p role="alert" style={{ fontSize: 12.5, color: colors.danger, margin: 0 }}>
+            Couldn't load the Circles you can link. The current link is kept.{" "}
+            <button type="button" className="btn-reset" style={{ textDecoration: "underline", fontWeight: 700 }} onClick={load}>
+              Try again
+            </button>
+          </p>
+        ) : circles.length > 0 ? (
           <select value={data.circleId ?? ""} onChange={(e) => update({ circleId: e.target.value || null })} style={inputStyle}>
             <option value="">None</option>
             {circles.map((c) => (
@@ -93,11 +136,14 @@ export function VendorParticipationEditor({ type, id }: { type: VendorParticipat
           </p>
         )}
       </div>
-      {error && <div style={{ fontSize: 12.5, color: colors.danger }}>{error}</div>}
-      <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-        <Button onClick={save} disabled={saving}>{saving ? "Saving…" : saved ? "Saved" : "Save participation details"}</Button>
-        <span style={{ fontSize: 12, color: colors.faint }}>Saves separately from the rest of this form.</span>
-      </div>
+      {!popup && error && <div style={{ fontSize: 12.5, color: colors.danger }}>{error}</div>}
+      {!popup && (
+        <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+          <Button onClick={save} disabled={saving}>{saving ? "Saving…" : saved ? "Saved" : "Save participation details"}</Button>
+          <span style={{ fontSize: 12, color: colors.faint }}>Saves separately from the rest of this form.</span>
+        </div>
+      )}
     </SettingsSection>
+    </SectionSaveContext.Provider>
   );
 }

@@ -33,7 +33,7 @@ export const HISTORY_LABEL: Record<RewardHistoryEntry["kind"], string> = {
   adjustment: "Manual adjustment",
 };
 
-const panel = { background: colors.surface, border: `1px solid ${colors.borderStrong}`, borderRadius: 0, padding: 20 } as const;
+const panel = { background: colors.surface, border: `1px solid ${colors.borderStrong}`, borderRadius: "var(--radius-manage-card)", padding: 20 } as const;
 const eyebrow = { fontSize: 11.5, fontWeight: 700, letterSpacing: 0, textTransform: "uppercase" as const, color: colors.muted, margin: 0 };
 
 export function PriceRows({ price, totalLabel = "Total each month" }: { price: PartnerPlanOverview["price"]; totalLabel?: string }) {
@@ -52,7 +52,7 @@ export function PriceRows({ price, totalLabel = "Total each month" }: { price: P
 function Badge({ children, tone }: { children: ReactNode; tone: "ok" | "warn" | "info" }) {
   const bg = tone === "ok" ? colors.greenBg : tone === "warn" ? colors.dangerBg : colors.orangeBg;
   const fg = tone === "ok" ? colors.greenText : tone === "warn" ? colors.danger : colors.text;
-  return <span style={{ background: bg, color: fg, fontSize: 12, fontWeight: 700, padding: "3px 8px", borderRadius: 0 }}>{children}</span>;
+  return <span style={{ background: bg, color: fg, fontSize: 12, fontWeight: 700, padding: "3px 8px", borderRadius: "var(--radius-manage-card)" }}>{children}</span>;
 }
 
 function BenefitList() {
@@ -74,7 +74,7 @@ function BenefitList() {
 
 export function usePlan(scope: Scope) {
   const [data, setData] = useState<PartnerPlanOverview | null>(null);
-  const [error, setError] = useState<"forbidden" | "failed" | null>(null);
+  const [error, setError] = useState<"signin" | "forbidden" | "failed" | null>(null);
   const load = useCallback(
     () =>
       fetchMyPlan(scope)
@@ -82,7 +82,10 @@ export function usePlan(scope: Scope) {
           setData(d);
           setError(null);
         })
-        .catch((e) => setError((e as { status?: number })?.status === 403 ? "forbidden" : "failed")),
+        .catch((e) => {
+          const status = (e as { status?: number })?.status;
+          setError(status === 401 ? "signin" : status === 403 ? "forbidden" : "failed");
+        }),
     [scope]
   );
   useEffect(() => {
@@ -128,7 +131,7 @@ export function PlanRewardsPanel({ scope, variant }: { scope: Scope; variant: "c
     tick();
   }, [returned]);
 
-  if (error === "forbidden") return null; // other staff: not their section (server returns 403)
+  if (error === "forbidden" || error === "signin") return null; // other staff (403) / signed out (401): not their section
   if (error)
     return (
       <section style={panel} aria-label="Plan & rewards">
@@ -367,7 +370,7 @@ export function PlanRewardsPanel({ scope, variant }: { scope: Scope; variant: "c
 }
 
 const linkBtn = { fontSize: 14, fontWeight: 700, color: colors.text, textDecoration: "underline", padding: "8px 0" } as const;
-const primaryLink = { background: colors.orange, color: "#fff", textDecoration: "none", padding: "10px 16px", borderRadius: 0 } as const;
+const primaryLink = { background: colors.orange, color: "#fff", textDecoration: "none", padding: "10px 16px", borderRadius: "var(--radius-manage-card)" } as const;
 
 function Stat({ label, value, help }: { label: string; value: string; help?: string }) {
   return (

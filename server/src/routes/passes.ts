@@ -1,11 +1,14 @@
+import { customerPaymentCase } from "../payments/paymentReview.js";
 import { Router } from "express";
+import { paymentUnderReview } from "../payments/checkoutAgreement.js";
 import { shadowLegacy } from "../commerce/engine.js";
 import { createCheckoutSession, pricingLineItems } from "../checkoutService.js";
 import { db } from "../db/index.js";
-import { VENDOR_SUSPENDED_ERROR, isPositiveInt, vendorSuspended } from "../bookingIntegrity.js";
+import { VENDOR_SUSPENDED_ERROR, isPositiveInt } from "../bookingIntegrity.js";
+import { assertSellable, offeringSellable } from "../orgStatus.js";
 import { computePricing } from "../pricing.js";
 import { requireResident } from "../residents.js";
-import { generateRef } from "../util.js";
+import { ConflictError, generateRef } from "../util.js";
 import { commerceQuoteLimiter } from "../rateLimit.js";
 
 export const passesRouter = Router();
@@ -53,7 +56,7 @@ async function pricePass(listingId: string | undefined, creditsTotal: unknown): 
     | { name: string; price: number; status: string; vendor_id: string | null }
     | undefined;
   if (!club || club.status !== "approved") return { ok: false, status: 404, error: "Club not found" };
-  if (await vendorSuspended(club.vendor_id)) return { ok: false, status: 409, error: VENDOR_SUSPENDED_ERROR };
+  if (!(await offeringSellable(club.vendor_id))) return { ok: false, status: 409, error: VENDOR_SUSPENDED_ERROR };
   if (!(club.price > 0)) return { ok: false, status: 400, error: "This club doesn't sell passes" };
 
   // Simple bulk pricing: credits at the club's per-registration price, no
@@ -91,9 +94,19 @@ passesRouter.post("/checkout", requireResident, async (req, res) => {
   const ref = generateRef("PS");
   shadowLegacy("pass", ref, { vendorUserId: club.vendor_id }, pricing);
 
-  await db
-    .prepare(`INSERT INTO passes (ref, resident_id, listing_type, listing_id, credits_total, purchased_cents, payment_status) VALUES (?, ?, 'club', ?, ?, ?, 'pending')`)
-    .run(ref, req.resident!.id, b.listingId, b.creditsTotal, pricing.totalCents);
+  // D-01: the pending pass is written under a shared lock on the club owner's
+  // organisation row, after re-checking it can still sell.
+  try {
+    await db.transaction(async (tx) => {
+      await assertSellable(tx, club.vendor_id);
+      await tx
+        .prepare(`INSERT INTO passes (ref, resident_id, listing_type, listing_id, credits_total, purchased_cents, payment_status) VALUES (?, ?, 'club', ?, ?, ?, 'pending')`)
+        .run(ref, req.resident!.id, b.listingId, b.creditsTotal, pricing.totalCents);
+    });
+  } catch (e) {
+    if (e instanceof ConflictError) return res.status(409).json({ error: e.message });
+    throw e;
+  }
 
   const result = await createCheckoutSession({
     ref,
@@ -128,5 +141,6 @@ passesRouter.get("/status/:ref", requireResident, async (req, res) => {
     )
     .get(req.params.ref, req.resident!.id);
   if (!row) return res.status(404).json({ error: "Pass not found" });
-  res.json(row);
+  const paymentReview = (row as { paymentStatus?: string }).paymentStatus === "pending" && (await paymentUnderReview("pass", req.params.ref));
+  res.json({ ...row, paymentReview, paymentCase: await customerPaymentCase("pass", req.params.ref) });
 });

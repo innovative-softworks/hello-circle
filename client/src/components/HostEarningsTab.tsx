@@ -1,62 +1,64 @@
-import { useEffect, useState } from "react";
 import { fetchHostBalances, fetchHostGameEarnings } from "../api";
 import { EarningsSections } from "./EarningsSummary";
 import { TraderProfileForm } from "./TraderProfileForm";
 import type { HostGameEarning } from "../api";
-import { CardIcon } from "./icons";
-import { ManageCard as Card, EmptyState, PageSpinner, tableStyle, thStyle, tdStyle } from "./ui";
-import { colors, fonts } from "../theme";
+import { CreditCard } from "lucide-react";
+import { EmptyState } from "./ui";
+import { Box, Loaded, useAdminData } from "./admin/adminUi";
+import { dateLabel } from "../euro";
 
 // Vendor-parity pass, Phase 24 — a Host equivalent of PaymentsPanel
 // (VendorOrg.tsx), scoped to paid Games instead of bookings/registrations.
 // No payout/Stripe Connect concept exists for either surface — this is a
 // read-only transaction list, same as Vendor's.
 export function HostEarningsTab() {
-  const [rows, setRows] = useState<HostGameEarning[] | null>(null);
-
-  useEffect(() => {
-    fetchHostGameEarnings().then(setRows);
-  }, []);
-
-  if (rows === null) return <PageSpinner />;
-
-  const totalCents = rows.reduce((sum, r) => sum + (r.amountCents ?? 0), 0);
+  const state = useAdminData<HostGameEarning[]>(() => fetchHostGameEarnings());
+  const totalCents = (state.data ?? []).reduce((sum, r) => sum + (r.amountCents ?? 0), 0);
 
   return (
-    <EarningsSections scope="host" loadBalance={fetchHostBalances}>
-    <div style={{ marginBottom: 16 }}>
-      <TraderProfileForm scope="host" defaultEntity="individual" />
-    </div>
-    <Card>
-      <div style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 22, marginBottom: 4 }}>€{(totalCents / 100).toFixed(2)}</div>
-      <div style={{ fontSize: 12.5, color: colors.mutedLight, marginBottom: 18 }}>Paid by players across your sessions (what customers paid — your balance above shows what you earn)</div>
-      {rows.length === 0 ? (
-        <EmptyState icon={<CardIcon size={22} />} title="No paid sessions yet" subtitle="Once someone pays to join one of your priced sessions, it'll show up here." />
-      ) : (
-        <div style={{ overflowX: "auto" }}>
-          <table style={tableStyle}>
-            <thead>
-              <tr>
-                <th style={thStyle}>Session</th>
-                <th style={thStyle}>Date</th>
-                <th style={thStyle}>Player</th>
-                <th style={thStyle}>Amount</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((r, i) => (
-                <tr key={`${r.gameId}-${r.participantName}-${i}`}>
-                  <td style={tdStyle}>{r.activityLabel}</td>
-                  <td style={{ ...tdStyle, color: colors.mutedLight }}>{r.date}</td>
-                  <td style={tdStyle}>{r.participantName}</td>
-                  <td style={{ ...tdStyle, fontWeight: 700 }}>€{((r.amountCents ?? 0) / 100).toFixed(2)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </Card>
+    <EarningsSections scope="host" loadBalance={fetchHostBalances} trader={<TraderProfileForm scope="host" defaultEntity="individual" />}>
+      <Box
+        flush
+        icon={CreditCard}
+        title={state.data ? `Customer payments · €${(totalCents / 100).toFixed(2)}` : "Customer payments"}
+        subtitle="What players paid across your sessions. Your balance above shows what you earn."
+      >
+        <Loaded state={state} title="Couldn't load your payments">
+          {(rows) =>
+            rows.length === 0 ? (
+              <EmptyState icon={<CreditCard size={20} />} title="No paid sessions yet" subtitle="Once someone pays to join one of your priced sessions, it'll show up here." />
+            ) : (
+              <div className="adm-table-wrap">
+                <table className="adm-table adm-table--stack">
+                  <caption className="adm-visually-hidden">Customer payments</caption>
+                  <thead>
+                    <tr>
+                      <th scope="col">Session</th>
+                      <th scope="col">Date</th>
+                      <th scope="col">Player</th>
+                      <th scope="col" className="adm-num">
+                        Amount
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rows.map((r, i) => (
+                      <tr key={`${r.gameId}-${r.participantName}-${i}`}>
+                        <td data-label="Session">{r.activityLabel}</td>
+                        <td data-label="Date">{dateLabel(r.date)}</td>
+                        <td data-label="Player">{r.participantName}</td>
+                        <td data-label="Amount" className="adm-num" style={{ fontWeight: 700 }}>
+                          €{((r.amountCents ?? 0) / 100).toFixed(2)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )
+          }
+        </Loaded>
+      </Box>
     </EarningsSections>
   );
 }

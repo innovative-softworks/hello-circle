@@ -501,14 +501,16 @@ circlesRouter.get("/:id/members", async (req, res) => {
   const limit = req.query.full === "1" ? 2000 : MEMBERS_PREVIEW_LIMIT;
   const rows = (await db
     .prepare(
-      `SELECT r.id as residentId, r.name, cm.role FROM circle_members cm
+      `SELECT r.id as residentId, r.name, cm.role, IF(cm.muted_until > NOW(), cm.muted_until, NULL) as mutedUntil FROM circle_members cm
        JOIN residents r ON r.id = cm.resident_id
        WHERE cm.circle_id = ? ${listFilter}
        ORDER BY cm.role = 'organiser' DESC, r.name
        LIMIT ?`
     )
-    .all(circle.id, ...blockParams, limit)) as { residentId: string; name: string; role: string }[];
-  res.json({ members: rows, total });
+    .all(circle.id, ...blockParams, limit)) as { residentId: string; name: string; role: string; mutedUntil: string | null }[];
+  // OG-18 — who is muted is the organisers' business only.
+  const organiserView = !!viewerId && (await isOrganiser(circle.id, viewerId));
+  res.json({ members: organiserView ? rows : rows.map(({ mutedUntil: _m, ...r }) => r), total });
 });
 
 // Upcoming games tagged to this circle's activity + area — Circles don't
@@ -1325,6 +1327,39 @@ circlesRouter.post("/:id/members/:residentId/promote", requireResident, async (r
   res.json({ ok: true });
 });
 
+// OG-18 — an organiser pauses a member's chat messages for a while (they can
+// still read, attend and leave). Organisers can't be muted. Audited.
+circlesRouter.post("/:id/members/:residentId/mute", requireResident, async (req, res) => {
+  if (!(await isOrganiser(req.params.id, req.resident!.id))) return res.status(403).json({ error: "Only an organiser can mute a member" });
+  const hours = Number(req.body?.hours);
+  if (!Number.isInteger(hours) || hours < 1 || hours > 720) return res.status(400).json({ error: "Choose how long: between 1 hour and 30 days" });
+  const reason = typeof req.body?.reason === "string" ? req.body.reason.trim().slice(0, 500) : "";
+  const info = await db
+    .prepare(`UPDATE circle_members SET muted_until = DATE_ADD(NOW(), INTERVAL ? HOUR), muted_by = ? WHERE circle_id = ? AND resident_id = ? AND role != 'organiser'`)
+    .run(hours, req.resident!.id, req.params.id, req.params.residentId);
+  if (info.changes === 0) return res.status(404).json({ error: "That person isn't a member who can be muted" });
+  await writeAudit({ actorUserId: req.resident!.id, actorKind: "resident", action: "circle.member_muted", objectType: "circle", objectId: req.params.id, newValue: { residentId: req.params.residentId, hours }, reason: reason || undefined });
+  const circle = (await db.prepare(`SELECT name FROM circles WHERE id = ?`).get(req.params.id)) as { name: string } | undefined;
+  await notifyResident({
+    residentId: req.params.residentId,
+    kind: "circle",
+    title: `Your messages are paused in ${circle?.name ?? "a Circle"}`,
+    body: `An organiser has paused your chat messages for ${hours >= 24 ? `${Math.round(hours / 24)} day${hours >= 48 ? "s" : ""}` : `${hours} hour${hours === 1 ? "" : "s"}`}. You can still read the chat and take part in plans.`,
+    listingType: "circle",
+    listingId: req.params.id,
+    ref: req.params.id,
+  });
+  res.json({ ok: true });
+});
+
+circlesRouter.post("/:id/members/:residentId/unmute", requireResident, async (req, res) => {
+  if (!(await isOrganiser(req.params.id, req.resident!.id))) return res.status(403).json({ error: "Only an organiser can unmute a member" });
+  const info = await db.prepare(`UPDATE circle_members SET muted_until = NULL, muted_by = NULL WHERE circle_id = ? AND resident_id = ? AND muted_until IS NOT NULL`).run(req.params.id, req.params.residentId);
+  if (info.changes === 0) return res.status(404).json({ error: "That member isn't muted" });
+  await writeAudit({ actorUserId: req.resident!.id, actorKind: "resident", action: "circle.member_unmuted", objectType: "circle", objectId: req.params.id, newValue: { residentId: req.params.residentId } });
+  res.json({ ok: true });
+});
+
 circlesRouter.post("/:id/members/:residentId/demote", requireResident, async (req, res) => {
   if (!(await isOrganiser(req.params.id, req.resident!.id))) return res.status(403).json({ error: "Only an organiser can demote a member" });
 
@@ -1644,4 +1679,64 @@ circlesRouter.post("/:id/polls/:pollId/close", requireResident, async (req, res)
   if (!(await isOrganiser(req.params.id, req.resident!.id))) return res.status(403).json({ error: "Only the organiser can close a poll" });
   await db.prepare(`UPDATE circle_polls SET status = 'closed' WHERE id = ? AND circle_id = ?`).run(req.params.pollId, req.params.id);
   res.json({ ok: true });
+});
+
+// OG-18 — what an organiser needs to moderate their Circle's chat: messages
+// people reported (the report text, never who reported), messages hidden and
+// by whom, current mutes, and the mute history. Organisers only.
+circlesRouter.get("/:id/moderation", requireResident, async (req, res) => {
+  if (!(await isOrganiser(req.params.id, req.resident!.id))) return res.status(403).json({ error: "Only an organiser can see this" });
+  const reported = await db
+    .prepare(
+      `SELECT m.id, m.body, m.created_at as createdAt, m.hidden_at as hiddenAt, COALESCE(NULLIF(r.name, ''), 'A member') as author,
+              COUNT(rep.id) as reports, MAX(rep.created_at) as lastReportedAt,
+              SUBSTRING_INDEX(GROUP_CONCAT(rep.reason ORDER BY rep.id DESC SEPARATOR '\n'), '\n', 1) as latestReason
+       FROM chat_messages m JOIN reports rep ON rep.target_type = 'chat_message' AND rep.target_id = CAST(m.id AS CHAR)
+       LEFT JOIN residents r ON r.id = m.resident_id
+       WHERE m.scope_type = 'circle' AND m.scope_id = ?
+       GROUP BY m.id ORDER BY lastReportedAt DESC LIMIT 100`
+    )
+    .all(req.params.id);
+  const hidden = await db
+    .prepare(
+      `SELECT m.id, m.body, m.created_at as createdAt, m.hidden_at as hiddenAt, m.hidden_by_kind as hiddenByKind, m.hidden_reason as reason,
+              COALESCE(NULLIF(r.name, ''), 'A member') as author
+       FROM chat_messages m LEFT JOIN residents r ON r.id = m.resident_id
+       WHERE m.scope_type = 'circle' AND m.scope_id = ? AND m.hidden_at IS NOT NULL ORDER BY m.hidden_at DESC LIMIT 100`
+    )
+    .all(req.params.id);
+  const muted = await db
+    .prepare(
+      `SELECT cm.resident_id as residentId, COALESCE(NULLIF(r.name, ''), 'A member') as name, cm.muted_until as mutedUntil
+       FROM circle_members cm LEFT JOIN residents r ON r.id = cm.resident_id
+       WHERE cm.circle_id = ? AND cm.muted_until > NOW() ORDER BY cm.muted_until`
+    )
+    .all(req.params.id);
+  const history = (await db
+    .prepare(
+      `SELECT a.action, a.new_value as newValue, a.reason, a.created_at as createdAt, COALESCE(NULLIF(r.name, ''), 'An organiser') as actor
+       FROM audit_log a LEFT JOIN residents r ON r.id = a.actor_user_id
+       WHERE a.object_type = 'circle' AND a.object_id = ? AND a.action IN ('circle.member_muted', 'circle.member_unmuted', 'circle.announcement_sent')
+       ORDER BY a.id DESC LIMIT 100`
+    )
+    .all(req.params.id)) as { action: string; newValue: string | null; reason: string | null; createdAt: string; actor: string }[];
+  res.json({ reported, hidden, muted, history: history.map((h) => ({ ...h, newValue: h.newValue ? JSON.parse(h.newValue) : null })) });
+});
+
+// OG-18 — an organiser sends an announcement to every member: it lands in
+// each member's notifications (and the Circle chat, so it stays in context).
+circlesRouter.post("/:id/announcements", requireResident, async (req, res) => {
+  if (!(await isOrganiser(req.params.id, req.resident!.id))) return res.status(403).json({ error: "Only an organiser can send announcements" });
+  const message = typeof req.body?.message === "string" ? req.body.message.trim() : "";
+  if (message.length < 3 || message.length > 1000) return res.status(400).json({ error: "Write an announcement between 3 and 1,000 characters" });
+  const circle = (await db.prepare(`SELECT name, status FROM circles WHERE id = ?`).get(req.params.id)) as { name: string; status: string } | undefined;
+  if (!circle) return res.status(404).json({ error: "Circle not found" });
+  if (circle.status === "closed") return res.status(409).json({ error: "This Circle is closed" });
+  await db.prepare(`INSERT INTO chat_messages (scope_type, scope_id, resident_id, body) VALUES ('circle', ?, ?, ?)`).run(req.params.id, req.resident!.id, `📣 ${message}`);
+  const members = (await db.prepare(`SELECT resident_id as id FROM circle_members WHERE circle_id = ? AND resident_id != ?`).all(req.params.id, req.resident!.id)) as { id: string }[];
+  for (const m of members) {
+    await notifyResident({ residentId: m.id, kind: "circle", title: `Announcement in ${circle.name}`, body: message.slice(0, 280), listingType: "circle", listingId: req.params.id, ref: req.params.id });
+  }
+  await writeAudit({ actorUserId: req.resident!.id, actorKind: "resident", action: "circle.announcement_sent", objectType: "circle", objectId: req.params.id, newValue: { recipients: members.length } });
+  res.status(201).json({ ok: true, recipients: members.length });
 });

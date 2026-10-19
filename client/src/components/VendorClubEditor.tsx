@@ -1,4 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { Volleyball } from "lucide-react";
+import { useInWorkspace } from "./workspace/inWorkspace";
+import { SectionSaveContext, type SectionSave } from "./workspace/sectionSave";
+import { ReadinessRail } from "./workspace/SectionCard";
+import { getMediaUrl } from "../media";
 import { useConfirm } from "./ConfirmProvider";
 import { VendorParticipationEditor } from "./VendorParticipationEditor";
 import {
@@ -14,8 +19,8 @@ import {
 } from "../api";
 import { AddressSearch, MapConfirm } from "./AddressSearch";
 import { PlusIcon, TrashIcon, UsersIcon } from "./icons";
-import { FormErrorSummary, SettingsSection } from "./form";
-import { Button, ConfirmDialog, EmptyState, inputStyle, labelStyle } from "./ui";
+import { FieldError, FieldLabel, FormErrorSummary, RequiredNote, SettingsSection, useFormErrors } from "./form";
+import { Button, ConfirmDialog, EmptyState, LoadErrorState, inputStyle, labelStyle } from "./ui";
 import { MultiImageUpload } from "./VendorImageUpload";
 import { SingleImageUpload } from "./SingleImageUpload";
 import { ACTIVITY_CATEGORIES } from "../constants";
@@ -54,39 +59,49 @@ export function ClubEditor({
   const [includesText, setIncludesText] = useState("");
   const [accessibilityText, setAccessibilityText] = useState("");
   const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
-  const [fieldErrors, setFieldErrors] = useState<{ field: string; message: string; fieldId: string }[]>([]);
+  const fe = useFormErrors();
+  // A failed load hides the form so a blank form can't be saved over the real listing.
+  const [loadState, setLoadState] = useState<"loading" | "ready" | "failed">("loading");
 
-  useEffect(() => {
-    fetchVendorClub(clubId).then((c) => {
-      setForm(clubToInput(c));
-      setLocationConfirmed(false);
-      setIncludesText(c.includes.join("\n"));
-      setAccessibilityText(c.accessibility.join("\n"));
-    });
-  }, [clubId]);
+  const load = () => {
+    setLoadState("loading");
+    fetchVendorClub(clubId)
+      .then((c) => {
+        setForm(clubToInput(c));
+        setLocationConfirmed(false);
+        setIncludesText(c.includes.join("\n"));
+        setAccessibilityText(c.accessibility.join("\n"));
+        setLoadState("ready");
+      })
+      .catch(() => setLoadState("failed"));
+  };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(load, [clubId]);
 
   const markDirty = () => onDirtyChange?.(true);
 
   const set = <K extends keyof ClubInput>(k: K, v: ClubInput[K]) => {
     setForm((f) => ({ ...f, [k]: v }));
-    setFieldErrors([]);
+    fe.clearField(`club-${String(k)}`);
     markDirty();
   };
 
-  const save = async () => {
+  const save = async (): Promise<boolean> => {
     const errors: { field: string; message: string; fieldId: string }[] = [];
     if (!form.name.trim()) errors.push({ field: "name", message: "Club name is required", fieldId: "club-name" });
     if (!form.sport.trim()) errors.push({ field: "sport", message: "Sport is required", fieldId: "club-sport" });
     if (!form.area.trim()) errors.push({ field: "area", message: "Area is required", fieldId: "club-area" });
     if (!form.county.trim()) errors.push({ field: "county", message: "County is required", fieldId: "club-county" });
     if (!form.blurb.trim()) errors.push({ field: "blurb", message: "A short description is required", fieldId: "club-blurb" });
-    setFieldErrors(errors);
-    if (errors.length > 0) return;
+    if (errors.length > 0) {
+      fe.fail(errors);
+      return false;
+    }
+    if (saving) return false;
 
+    fe.clear();
     setSaving(true);
-    setError(null);
     setSaved(false);
     try {
       const includes = includesText.split("\n").map((s) => s.trim()).filter(Boolean);
@@ -96,12 +111,42 @@ export function ClubEditor({
       setSaved(true);
       onDirtyChange?.(false);
       onSaved(updated);
+      return true;
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Couldn't save");
+      // Everything typed stays in the form; the reason goes in the summary.
+      fe.fail([{ field: "save", message: `Couldn't save: ${e instanceof Error ? e.message : "please try again"}` }]);
+      return false;
     } finally {
       setSaving(false);
     }
   };
+
+  // Workspace popups (option A) — see VendorCentreEditor.tsx's identical block.
+  const snapshot = useRef<{ form: ClubInput; includesText: string; accessibilityText: string } | null>(null);
+  const [openKey, setOpenKey] = useState<string | null>(null);
+  const currentSnapshot = () => ({ form, includesText, accessibilityText });
+  const sectionSave: SectionSave = {
+    save,
+    saving,
+    errors: fe.errors,
+    focusKey: fe.focusKey,
+    isDirty: () => JSON.stringify(snapshot.current) !== JSON.stringify(currentSnapshot()),
+    openKey,
+    setOpenKey,
+    begin: () => {
+      snapshot.current = { form, includesText, accessibilityText };
+    },
+    cancel: () => {
+      if (snapshot.current) {
+        setForm(snapshot.current.form);
+        setIncludesText(snapshot.current.includesText);
+        setAccessibilityText(snapshot.current.accessibilityText);
+      }
+      fe.clear();
+      onDirtyChange?.(false);
+    },
+  };
+  const inWorkspace = useInWorkspace();
 
   // --- field groups, composed differently depending on mode below ---------
 
@@ -109,16 +154,18 @@ export function ClubEditor({
     <>
       <div className="grid-responsive" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 14 }}>
         <div>
-          <label style={labelStyle}>Name</label>
-          <input id="club-name" value={form.name} onChange={(e) => set("name", e.target.value)} style={inputStyle} />
+          <FieldLabel htmlFor="club-name" required>Name</FieldLabel>
+          <input {...fe.control("club-name")} required value={form.name} onChange={(e) => set("name", e.target.value)} style={inputStyle} />
+          <FieldError fieldId="club-name" message={fe.messageFor("club-name")} />
         </div>
         <div>
-          <label style={labelStyle}>Sport</label>
-          <input id="club-sport" value={form.sport} onChange={(e) => set("sport", e.target.value)} style={inputStyle} />
+          <FieldLabel htmlFor="club-sport" required>Sport</FieldLabel>
+          <input {...fe.control("club-sport")} required value={form.sport} onChange={(e) => set("sport", e.target.value)} style={inputStyle} />
+          <FieldError fieldId="club-sport" message={fe.messageFor("club-sport")} />
         </div>
         <div>
-          <label style={labelStyle}>Category</label>
-          <select value={form.category ?? ""} onChange={(e) => set("category", e.target.value)} style={inputStyle}>
+          <FieldLabel htmlFor="club-category" optional>Category</FieldLabel>
+          <select id="club-category" value={form.category ?? ""} onChange={(e) => set("category", e.target.value)} style={inputStyle}>
             <option value="">— none —</option>
             {ACTIVITY_CATEGORIES.map((c) => (
               <option key={c} value={c}>{c}</option>
@@ -126,11 +173,11 @@ export function ClubEditor({
           </select>
         </div>
       </div>
-      <label style={labelStyle}>Description</label>
-      <p style={{ fontSize: 12, color: colors.mutedLight, margin: "-4px 0 8px" }}>
+      <FieldLabel htmlFor="club-blurb" required>Description</FieldLabel>
+      <p id="club-blurb-helper" style={{ fontSize: 12, color: colors.mutedLight, margin: "-4px 0 8px" }}>
         Help families understand what this club is like — e.g. "Friendly under-12s football club, twice-weekly training plus Saturday matches."
       </p>
-      <textarea id="club-blurb" value={form.blurb} onChange={(e) => set("blurb", e.target.value)} rows={3} style={{ ...inputStyle, resize: "vertical" }} />
+      <textarea {...fe.control("club-blurb", "club-blurb-helper")} required value={form.blurb} onChange={(e) => set("blurb", e.target.value)} rows={3} style={{ ...inputStyle, resize: "vertical" }} />
     </>
   );
 
@@ -141,22 +188,25 @@ export function ClubEditor({
           onSelect={(r) => {
             setForm((f) => ({ ...f, area: r.area || f.area, county: r.county || f.county, lat: r.lat, lng: r.lng }));
             setLocationConfirmed(true);
-            setFieldErrors([]);
+            fe.clearField("club-area");
+            fe.clearField("club-county");
             markDirty();
           }}
         />
       </div>
       <div>
-        <label style={labelStyle}>Area</label>
-        <input id="club-area" value={form.area} onChange={(e) => set("area", e.target.value)} style={inputStyle} />
+        <FieldLabel htmlFor="club-area" required>Area</FieldLabel>
+        <input {...fe.control("club-area")} required value={form.area} onChange={(e) => set("area", e.target.value)} style={inputStyle} />
+        <FieldError fieldId="club-area" message={fe.messageFor("club-area")} />
       </div>
       <div>
-        <label style={labelStyle}>County</label>
-        <input id="club-county" value={form.county} onChange={(e) => set("county", e.target.value)} style={inputStyle} />
+        <FieldLabel htmlFor="club-county" required>County</FieldLabel>
+        <input {...fe.control("club-county")} required value={form.county} onChange={(e) => set("county", e.target.value)} style={inputStyle} />
+        <FieldError fieldId="club-county" message={fe.messageFor("club-county")} />
       </div>
       <div style={{ gridColumn: "1 / -1" }}>
-        <label style={labelStyle}>Map link (optional)</label>
-        <input value={form.mapUrl ?? ""} onChange={(e) => set("mapUrl", e.target.value)} placeholder="Google Maps link" style={inputStyle} />
+        <FieldLabel htmlFor="club-map-url" optional>Map link</FieldLabel>
+        <input id="club-map-url" value={form.mapUrl ?? ""} onChange={(e) => set("mapUrl", e.target.value)} placeholder="Google Maps link" style={inputStyle} />
       </div>
       {form.lat !== undefined && form.lng !== undefined && (
         <div style={{ gridColumn: "1 / -1" }}>
@@ -168,8 +218,8 @@ export function ClubEditor({
 
   const contactField = (
     <div>
-      <label style={labelStyle}>Contact phone (optional)</label>
-      <input value={form.phone ?? ""} onChange={(e) => set("phone", e.target.value)} placeholder="e.g. 01 234 5678" style={inputStyle} />
+      <FieldLabel htmlFor="club-phone" optional>Contact phone</FieldLabel>
+      <input id="club-phone" type="tel" value={form.phone ?? ""} onChange={(e) => set("phone", e.target.value)} placeholder="e.g. 01 234 5678" style={inputStyle} />
     </div>
   );
 
@@ -177,25 +227,25 @@ export function ClubEditor({
     <>
       <div className="grid-responsive" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 14 }}>
         <div>
-          <label style={labelStyle}>Ages (e.g. 5-16)</label>
-          <input value={form.ages} onChange={(e) => set("ages", e.target.value)} style={inputStyle} />
+          <FieldLabel htmlFor="club-ages" optional>Ages (e.g. 5-16)</FieldLabel>
+          <input id="club-ages" value={form.ages} onChange={(e) => set("ages", e.target.value)} style={inputStyle} />
         </div>
         <div>
-          <label style={labelStyle}>Who registers</label>
-          <select value={form.audience ?? "kids"} onChange={(e) => set("audience", e.target.value as "kids" | "adults" | "all")} style={inputStyle}>
+          <FieldLabel htmlFor="club-audience">Who registers</FieldLabel>
+          <select id="club-audience" value={form.audience ?? "kids"} onChange={(e) => set("audience", e.target.value as "kids" | "adults" | "all")} style={inputStyle}>
             <option value="kids">Kids — parent/guardian signs a child up</option>
             <option value="adults">Adults — members register themselves</option>
             <option value="all">Both — registrant picks at sign-up</option>
           </select>
         </div>
         <div>
-          <label style={labelStyle}>Price (€)</label>
-          <input type="number" value={form.price} onChange={(e) => set("price", Number(e.target.value))} style={{ ...inputStyle, maxWidth: 140 }} />
+          <FieldLabel htmlFor="club-price">Price (€)</FieldLabel>
+          <input id="club-price" type="number" min={0} value={form.price} onChange={(e) => set("price", Number(e.target.value))} style={{ ...inputStyle, maxWidth: 140 }} />
           <PaidClosedPriceNotice amount={form.price} paymentMethod={form.paymentMethod ?? "online"} />
         </div>
         <div>
-          <label style={labelStyle}>Per</label>
-          <select value={form.unit} onChange={(e) => set("unit", e.target.value)} style={inputStyle}>
+          <FieldLabel htmlFor="club-unit">Per</FieldLabel>
+          <select id="club-unit" value={form.unit} onChange={(e) => set("unit", e.target.value)} style={inputStyle}>
             <option value="year">year</option>
             <option value="term">term</option>
             <option value="lesson">lesson</option>
@@ -204,13 +254,15 @@ export function ClubEditor({
         </div>
       </div>
 
-      <label style={{ display: "flex", alignItems: "center", gap: 9, marginBottom: 16, fontSize: 14, background: colors.bg, border: `1px solid ${colors.border}`, borderRadius: 10, padding: "10px 13px", cursor: "pointer" }}>
+      <label style={{ display: "flex", alignItems: "center", gap: 9, marginBottom: 16, fontSize: 14, background: colors.bg, border: `1px solid ${colors.border}`, borderRadius: radius.control, padding: "10px 13px", cursor: "pointer" }}>
         <input type="checkbox" checked={!!form.trial} onChange={(e) => set("trial", e.target.checked)} style={{ accentColor: colors.orange, width: 16, height: 16 }} />
         Offers a free trial session
       </label>
 
-      <label style={labelStyle}>Membership cap (leave blank for unlimited)</label>
+      <FieldLabel htmlFor="club-capacity" optional>Membership cap (leave blank for unlimited)</FieldLabel>
       <input
+        id="club-capacity"
+        aria-describedby="club-capacity-helper"
         type="number"
         min={0}
         value={form.capacity ?? ""}
@@ -218,12 +270,12 @@ export function ClubEditor({
         placeholder="e.g. 30"
         style={{ ...inputStyle, maxWidth: 140, marginBottom: 4 }}
       />
-      <p style={{ fontSize: 12.5, color: colors.mutedLight, margin: "0 0 14px" }}>
+      <p id="club-capacity-helper" style={{ fontSize: 12.5, color: colors.mutedLight, margin: "0 0 14px" }}>
         Once paid registrations reach this number, new sign-ups are offered a waitlist instead.
       </p>
 
-      <label style={labelStyle}>Registration payment</label>
-      <select value={form.paymentMethod ?? "online"} onChange={(e) => set("paymentMethod", e.target.value as "online" | "cash")} style={inputStyle}>
+      <FieldLabel htmlFor="club-payment">Registration payment</FieldLabel>
+      <select id="club-payment" value={form.paymentMethod ?? "online"} onChange={(e) => set("paymentMethod", e.target.value as "online" | "cash")} style={inputStyle}>
         <option value="online">Online payment</option>
         <option value="cash">Cash on arrival</option>
       </select>
@@ -232,15 +284,15 @@ export function ClubEditor({
 
   const includesField = (
     <div>
-      <label style={labelStyle}>What's included (one per line)</label>
-      <textarea value={includesText} onChange={(e) => { setIncludesText(e.target.value); setFieldErrors([]); markDirty(); }} rows={4} style={{ ...inputStyle, resize: "vertical" }} />
+      <FieldLabel htmlFor="club-includes" optional>What's included, one per line</FieldLabel>
+      <textarea id="club-includes" value={includesText} onChange={(e) => { setIncludesText(e.target.value); markDirty(); }} rows={4} style={{ ...inputStyle, resize: "vertical" }} />
     </div>
   );
 
   const accessibilityField = (
     <div>
-      <label style={labelStyle}>Accessibility (one per line, e.g. "Wheelchair accessible pitch-side access")</label>
-      <textarea value={accessibilityText} onChange={(e) => { setAccessibilityText(e.target.value); setFieldErrors([]); markDirty(); }} rows={3} style={{ ...inputStyle, resize: "vertical" }} />
+      <FieldLabel htmlFor="club-accessibility" optional>Accessibility, one per line (e.g. "Wheelchair accessible pitch-side access")</FieldLabel>
+      <textarea id="club-accessibility" value={accessibilityText} onChange={(e) => { setAccessibilityText(e.target.value); markDirty(); }} rows={3} style={{ ...inputStyle, resize: "vertical" }} />
     </div>
   );
 
@@ -250,11 +302,10 @@ export function ClubEditor({
 
   const footer = (
     <>
-      <FormErrorSummary errors={fieldErrors} />
-      {error && <p className="pop-in" style={{ color: colors.danger, fontSize: 13, margin: "0 0 12px", background: colors.dangerBg, padding: "9px 12px", borderRadius: radius.control }}>{error}</p>}
+      <FormErrorSummary errors={fe.errors} focusKey={fe.focusKey} />
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 18 }}>
-        <Button variant="primary" disabled={saving} onClick={save}>
-          Save changes
+        <Button variant="primary" disabled={saving} onClick={save} aria-busy={saving || undefined}>
+          {saving ? "Saving…" : "Save changes"}
         </Button>
         {saved && <span style={{ fontSize: 13, color: colors.greenText, fontWeight: 600 }}>Saved</span>}
       </div>
@@ -264,12 +315,64 @@ export function ClubEditor({
   const includesList = includesText.split("\n").map((s) => s.trim()).filter(Boolean);
   const accessibilityList = accessibilityText.split("\n").map((s) => s.trim()).filter(Boolean);
 
-  return (
-    <>
-      <SettingsSection title="General" summary={<>{form.name || "Not set"}{form.blurb && <div style={{ color: colors.mutedLight, fontSize: 13, marginTop: 2 }}>{form.blurb}</div>}</>}>
+  if (loadState === "failed") return <LoadErrorState title="Couldn't load this club's details." onRetry={load} />;
+  if (loadState === "loading") return <p style={{ fontSize: 13.5, color: colors.mutedLight }}>Loading club details…</p>;
+
+  if (inWorkspace) {
+    const checks = [
+      { label: "Name, sport and description", done: !!form.name.trim() && !!form.sport.trim() && !!form.blurb.trim(), section: "General" },
+      { label: "Location", done: !!form.area.trim() && !!form.county.trim(), section: "Location" },
+      { label: "Contact phone", done: !!form.phone?.trim(), section: "Contact" },
+      { label: "Price", done: form.price != null && String(form.price) !== "", section: "Membership & pricing" },
+      { label: "What's included", done: includesList.length > 0, section: "What's included" },
+      { label: "Accessibility", done: accessibilityList.length > 0, section: "Accessibility" },
+      { label: "Photos", done: (form.images ?? []).length > 0, section: "Photos" },
+    ];
+    const cover = (form.images ?? [])[0] || form.image;
+    return (
+      <SectionSaveContext.Provider value={sectionSave}>
+        <div className="ws-editor">
+          <div className="ws-sec-grid">
+      <SettingsSection title="General" forceOpen={fe.has("club-name", "club-sport", "club-blurb")} fieldIds={["club-name", "club-sport", "club-blurb"]} summary={<>{form.name || "Not set"}{form.blurb && <div style={{ color: colors.mutedLight, fontSize: 13, marginTop: 2 }}>{form.blurb}</div>}</>}>
         {generalFields}
       </SettingsSection>
-      <SettingsSection title="Location" summary={[form.area, form.county].filter(Boolean).join(", ") || "Not set"}>
+      <SettingsSection title="Location" forceOpen={fe.has("club-area", "club-county")} fieldIds={["club-area", "club-county"]} summary={[form.area, form.county].filter(Boolean).join(", ") || "Not set"}>
+        {locationFields}
+      </SettingsSection>
+      <SettingsSection title="Contact" summary={form.phone || "Not added"}>
+        {contactField}
+      </SettingsSection>
+      <SettingsSection title="Membership & pricing" summary={`€${form.price}/${form.unit} · ${form.capacity ? `capped at ${form.capacity}` : "unlimited"}`}>
+        {membershipFields}
+      </SettingsSection>
+      <SettingsSection title="What's included" summary={includesList.length > 0 ? includesList.join(" · ") : "None added"}>
+        {includesField}
+      </SettingsSection>
+      <SettingsSection title="Accessibility" summary={accessibilityList.length > 0 ? accessibilityList.join(" · ") : "None added"}>
+        {accessibilityField}
+      </SettingsSection>
+      <VendorParticipationEditor type="club" id={clubId} />
+      <SettingsSection title="Photos" summary={`${(form.images ?? []).length} photo${(form.images ?? []).length === 1 ? "" : "s"}`}>
+        {photosField}
+      </SettingsSection>
+          </div>
+          <ReadinessRail
+            checks={checks}
+            onFix={setOpenKey}
+            preview={{ image: cover ? getMediaUrl(cover, "card") : null, title: form.name || "Your club", meta: [form.area, form.ages, form.price ? `€${form.price}/${form.unit}` : null].filter(Boolean).join(" · "), icon: Volleyball }}
+          />
+        </div>
+      </SectionSaveContext.Provider>
+    );
+  }
+
+  return (
+    <>
+      <RequiredNote />
+      <SettingsSection title="General" forceOpen={fe.has("club-name", "club-sport", "club-blurb")} fieldIds={["club-name", "club-sport", "club-blurb"]} summary={<>{form.name || "Not set"}{form.blurb && <div style={{ color: colors.mutedLight, fontSize: 13, marginTop: 2 }}>{form.blurb}</div>}</>}>
+        {generalFields}
+      </SettingsSection>
+      <SettingsSection title="Location" forceOpen={fe.has("club-area", "club-county")} fieldIds={["club-area", "club-county"]} summary={[form.area, form.county].filter(Boolean).join(", ") || "Not set"}>
         {locationFields}
       </SettingsSection>
       <SettingsSection title="Contact" summary={form.phone || "Not added"}>
@@ -311,8 +414,12 @@ export function ClubSessionsManager({ clubId }: { clubId: string }) {
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
   const [editingImageId, setEditingImageId] = useState<string | null>(null);
 
+  const [sessionsFailed, setSessionsFailed] = useState(false);
   const load = () => {
-    fetchClubSessions(clubId).then(setSessions).catch(() => {});
+    setSessionsFailed(false);
+    fetchClubSessions(clubId)
+      .then(setSessions)
+      .catch(() => setSessionsFailed(true));
   };
   useEffect(load, [clubId]);
 
@@ -343,10 +450,15 @@ export function ClubSessionsManager({ clubId }: { clubId: string }) {
 
   return (
     <div style={{ marginTop: 26, paddingTop: 22, borderTop: `1px solid ${colors.border}` }}>
-      <h4 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 15, margin: "0 0 4px" }}>Recurring sessions</h4>
+      <h2 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 15, margin: "0 0 4px" }}>Recurring sessions</h2>
       <p style={{ fontSize: 12.5, color: colors.mutedLight, margin: "0 0 14px" }}>
         Optional — lets a family pick a specific day/time when registering instead of one flat sign-up.
       </p>
+      {sessionsFailed && (
+        <div style={{ marginBottom: 14 }}>
+          <LoadErrorState title="Couldn't load recurring sessions." detail="Existing sessions aren't shown until this loads." onRetry={load} />
+        </div>
+      )}
       {sessions.length > 0 && (
         <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 14 }}>
           {sessions.map((s) => (
@@ -354,7 +466,7 @@ export function ClubSessionsManager({ clubId }: { clubId: string }) {
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 13.5, gap: 10 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
                   {s.imageUrl && (
-                    <img src={s.imageUrl} alt="" style={{ width: 32, height: 32, borderRadius: 6, objectFit: "cover", flexShrink: 0 }} />
+                    <img src={s.imageUrl} alt="" style={{ width: 32, height: 32, borderRadius: radius.control, objectFit: "cover", flexShrink: 0 }} />
                   )}
                   <span>
                     {DAY_NAMES[s.dayOfWeek]} {s.time}
@@ -436,7 +548,13 @@ export function ClubWaitlistPanel({ clubId }: { clubId: string }) {
   const [error, setError] = useState<string | null>(null);
   const confirm = useConfirm();
 
-  const load = () => fetchVendorClubWaitlist(clubId).then(setEntries).catch(() => setEntries([]));
+  const [waitlistFailed, setWaitlistFailed] = useState(false);
+  const load = () => {
+    setWaitlistFailed(false);
+    return fetchVendorClubWaitlist(clubId)
+      .then(setEntries)
+      .catch(() => setWaitlistFailed(true));
+  };
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -465,11 +583,12 @@ export function ClubWaitlistPanel({ clubId }: { clubId: string }) {
     }
   };
 
-  if (entries === null) return null;
+  if (waitlistFailed) return <LoadErrorState title="Couldn't load the waitlist." onRetry={load} />;
+  if (entries === null) return <p role="status" aria-busy="true" style={{ fontSize: 13.5, color: colors.mutedLight }}>Loading waitlist…</p>;
 
   return (
     <div style={{ marginTop: 26, paddingTop: 22, borderTop: `1px solid ${colors.border}` }}>
-      <h4 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 15, margin: "0 0 4px" }}>Waitlist</h4>
+      <h2 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 15, margin: "0 0 4px" }}>Waitlist</h2>
       <p style={{ fontSize: 12.5, color: colors.mutedLight, margin: "0 0 14px" }}>
         Only fills once this club has a membership cap set above and is full. Inviting someone
         gives them 48 hours to claim the place before it's offered on.

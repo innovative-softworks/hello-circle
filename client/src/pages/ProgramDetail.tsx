@@ -1,3 +1,4 @@
+import { UnavailableListing, isUnavailable, type Unavailable } from "../components/UnavailableListing";
 import { usePageTitle } from "../pageTitle";
 import { PAID_CLOSED_MESSAGE, usePaidCheckoutOpen } from "../paidCheckout";
 import { useEffect, useMemo, useState } from "react";
@@ -82,6 +83,8 @@ export function ProgramDetail() {
   const navigate = useNavigate();
   const { resident } = useGuest();
   const [program, setProgram] = useState<Program | null>(null);
+  // D-01: a programme whose organisation is suspended.
+  const [unavailable, setUnavailable] = useState<Unavailable | null>(null);
   usePageTitle(program?.title);
   const [loading, setLoading] = useState(true);
   const [similar, setSimilar] = useState<ProgramSummary[]>([]);
@@ -150,6 +153,7 @@ export function ProgramDetail() {
     setLoading(true);
     fetchProgram(id)
       .then((p) => {
+        if (isUnavailable(p)) return setUnavailable(p);
         setProgram(p);
         // "More like this" — other programs with upcoming dates, same
         // category (or same county when uncategorised), this one excluded.
@@ -202,6 +206,7 @@ export function ProgramDetail() {
   };
 
   if (loading) return <PageSpinner />;
+  if (unavailable) return <UnavailableListing item={unavailable} />;
   if (!program) {
     return (
       <section className="section-pad" style={{ maxWidth: 560, margin: "0 auto", padding: "80px 24px", textAlign: "center" }}>
@@ -390,7 +395,7 @@ export function ProgramDetail() {
               variant="hero"
               eager
               sharedHero
-              style={{ aspectRatio: cardImageRatio.hero, borderRadius: 16, marginBottom: 24 }}
+              style={{ aspectRatio: cardImageRatio.hero, borderRadius: radius.card, marginBottom: 24 }}
               contentStyle={{ padding: 16, display: "flex", alignItems: "flex-start", justifyContent: "space-between" }}
             >
               {next ? (
@@ -457,12 +462,12 @@ export function ProgramDetail() {
             <OfficialCircleLink circleId={program.circleId} circleName={program.circleName} circleSlug={program.circleSlug} />
 
             {program.arrivalInstructions && (
-              <div style={{ background: colors.greenBg, color: colors.greenText, borderRadius: 10, padding: "10px 14px", fontSize: 13.5, margin: "16px 0" }}>
+              <div style={{ background: colors.greenBg, color: colors.greenText, borderRadius: radius.control, padding: "10px 14px", fontSize: 13.5, margin: "16px 0" }}>
                 <strong>Arriving:</strong> {program.arrivalInstructions}
               </div>
             )}
             {!upcoming.length && (
-              <div style={{ background: colors.panel, color: colors.muted, borderRadius: 10, padding: "10px 14px", fontSize: 13.5, margin: "16px 0" }}>
+              <div style={{ background: colors.panel, color: colors.muted, borderRadius: radius.control, padding: "10px 14px", fontSize: 13.5, margin: "16px 0" }}>
                 No upcoming sessions scheduled — check back soon, or tell us you're interested below.
               </div>
             )}
@@ -552,7 +557,7 @@ export function ProgramDetail() {
               <SectionHeading title="Schedule" />
               <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                 {upcoming.map((s, i) => (
-                  <div key={s.id} style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 10, padding: "12px 16px", display: "flex", flexWrap: "wrap", gap: 16, fontSize: 13.5, color: colors.muted }}>
+                  <div key={s.id} style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: radius.control, padding: "12px 16px", display: "flex", flexWrap: "wrap", gap: 16, fontSize: 13.5, color: colors.muted }}>
                     <span style={{ fontWeight: 700, color: colors.text, minWidth: 24 }}>{i + 1}</span>
                     <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><CalendarIcon size={13} /> {dateLabel(s.date)}</span>
                     <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><ClockIcon size={13} /> {s.time} · {formatDuration(s.durationMinutes)}</span>
@@ -568,7 +573,7 @@ export function ProgramDetail() {
                 )}
                 {showPast &&
                   past.map((s) => (
-                    <div key={s.id} style={{ borderRadius: 10, padding: "10px 16px", display: "flex", flexWrap: "wrap", gap: 16, fontSize: 13, color: colors.faint, background: colors.panel }}>
+                    <div key={s.id} style={{ borderRadius: radius.control, padding: "10px 16px", display: "flex", flexWrap: "wrap", gap: 16, fontSize: 13, color: colors.faint, background: colors.panel }}>
                       <span>{dateLabel(s.date)}</span>
                       <span>{s.time}</span>
                     </div>
@@ -580,7 +585,7 @@ export function ProgramDetail() {
             {program.vendorName && (
               <div style={{ marginBottom: 28 }}>
                 <SectionHeading title="Hosted by" />
-                <div style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 16, padding: "14px 18px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+                <div style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: radius.card, padding: "14px 18px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                     <span style={{ fontWeight: 700, fontSize: 14.5 }}>{program.vendorName}</span>
                     {program.vendorVerified && (
@@ -604,7 +609,7 @@ export function ProgramDetail() {
             {/* Where — the venue, with a map when it has coordinates. */}
             <div style={{ marginBottom: 28 }}>
               <SectionHeading title="Where" />
-              <div style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 16, padding: "16px 18px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap", marginBottom: 12 }}>
+              <div style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: radius.card, padding: "16px 18px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap", marginBottom: 12 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                   <PinIcon size={16} style={{ color: colors.mutedLight, flex: "none" }} />
                   <div>

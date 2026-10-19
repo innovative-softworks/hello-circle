@@ -1,21 +1,23 @@
+import { monthBounds, statementCsv, vendorStatement } from "../vendorStatements.js";
+import { MembershipChangedError, assertCreatorStillMember } from "../orgStatus.js";
+import { complaintsAbout, respondAsSubject } from "./complaints.js";
+import { ChangeError, bookingForChange, proposalsForBooking, proposeBookingChange, withdrawProposal } from "../bookingChanges.js";
 import { Router } from "express";
-import { activeLinkedGames } from "./bookings.js";
-import { cancelGameAndNotify } from "./games.js";
-import { refundOnProviderCancel } from "../providerCancelRefund.js";
-import { assertPlatformRole, requirePlatformRole } from "../auth.js";
+import { cancelHallBookingAsProvider, cancelRegistrationAsProvider } from "../hallBookingCancel.js";
+import { assertPlatformRole, hasPlatformRole, requirePlatformRole } from "../auth.js";
 import { writeAudit } from "../audit.js";
 import { refundPaidOnce } from "../checkoutService.js";
 import { logEvent } from "../analytics.js";
 import { db } from "../db/index.js";
 import { fromAttendanceStatus, HOST_ATTENDANCE_STATUSES } from "../attendanceState.js";
 import { sendMail } from "../email.js";
-import { notifyCancellation, notifyRefund, resendConfirmationEmail } from "../notifications.js";
-import { inClause, ownsCentre, ownsClub } from "./vendorHelpers.js";
+import { notifyRefund, resendConfirmationEmail } from "../notifications.js";
+import { CUSTOMER_ROLES, ORDER_ROLES, ROSTER_ROLES, inClause, ownsCentre, ownsClub } from "./vendorHelpers.js";
 import { irelandTodayIso, irelandWallTimeToUtc } from "../irelandTime.js";
 import { couponAmountError, parseCouponLimits } from "../pricing.js";
 import { RefundError, refundInApp } from "../commerce/payments.js";
 import { ASSUMED_DURATION_MINUTES } from "../db/queries.js";
-import { offerToWaitlistEntry, promoteNextWaitlistEntry } from "../waitlist.js";
+import { offerToWaitlistEntry } from "../waitlist.js";
 
 // Day-to-day operational surface: read-only bookings/registrations
 // visibility, notifications, schedule/today, club waitlist, targeted
@@ -40,7 +42,7 @@ export const vendorOperationsRouter = Router();
  *   deposit_due    — a venue booking whose event has passed and whose
  *                    refundable deposit hasn't been returned yet.
  * Read-only; amounts are the stored order values, never re-priced. */
-vendorOperationsRouter.get("/orders", async (req, res) => {
+vendorOperationsRouter.get("/orders", requirePlatformRole(...ORDER_ROLES), async (req, res) => {
   const ids = req.vendorIds!;
   if (!ids.length) return res.json([]);
   const attentionOnly = req.query.attention === "1";
@@ -53,22 +55,22 @@ vendorOperationsRouter.get("/orders", async (req, res) => {
       `SELECT * FROM (
          SELECT 'booking' as type, b.ref, c.name as listingName, b.name as customerName, b.email, b.date, b.time, b.guests as quantity,
                 b.total_cents as totalCents, b.status, b.payment_status as paymentStatus, b.stripe_session_id IS NOT NULL as paidOnline,
-                (b.total_cents - b.subtotal_cents - b.vat_cents - b.platform_fee_cents) as depositCents, ${refundedSql("booking", "b")} as refundedCents, b.created_at as createdAt
+                (b.total_cents - b.subtotal_cents - b.vat_cents - b.platform_fee_cents) as depositCents, ${refundedSql("booking", "b")} as refundedCents, b.created_at as createdAt, b.centre_id as listingId
          FROM bookings b JOIN centres c ON c.id = b.centre_id
          WHERE c.vendor_id IN (${inIds}) AND b.payment_status IN ('paid', 'refunded')
          UNION ALL
          SELECT 'registration', r.ref, cl.name, CONCAT(r.child_first, ' ', r.child_last), r.email, NULL, NULL, 1,
-                r.total_cents, r.status, r.payment_status, r.stripe_session_id IS NOT NULL, 0, ${refundedSql("registration", "r")}, r.created_at
+                r.total_cents, r.status, r.payment_status, r.stripe_session_id IS NOT NULL, 0, ${refundedSql("registration", "r")}, r.created_at, r.club_id
          FROM registrations r JOIN clubs cl ON cl.id = r.club_id
          WHERE cl.vendor_id IN (${inIds}) AND r.payment_status IN ('paid', 'refunded')
          UNION ALL
          SELECT 'program', pe.ref, p.title, pe.participant_name, pe.email, NULL, NULL, 1,
-                pe.total_cents, pe.status, pe.payment_status, pe.stripe_session_id IS NOT NULL, 0, ${refundedSql("program", "pe")}, pe.created_at
+                pe.total_cents, pe.status, pe.payment_status, pe.stripe_session_id IS NOT NULL, 0, ${refundedSql("program", "pe")}, pe.created_at, pe.program_id
          FROM program_enrollments pe JOIN programs p ON p.id = pe.program_id
          WHERE p.vendor_id IN (${inIds}) AND pe.payment_status IN ('paid', 'refunded')
          UNION ALL
          SELECT 'experience', eb.ref, e.title, eb.participant_name, eb.email, es.date, es.time, eb.party_size,
-                eb.total_cents, eb.status, eb.payment_status, eb.stripe_session_id IS NOT NULL, 0, ${refundedSql("experience", "eb")}, eb.created_at
+                eb.total_cents, eb.status, eb.payment_status, eb.stripe_session_id IS NOT NULL, 0, ${refundedSql("experience", "eb")}, eb.created_at, eb.experience_id
          FROM experience_bookings eb JOIN experiences e ON e.id = eb.experience_id JOIN experience_sessions es ON es.id = eb.session_id
          WHERE e.vendor_id IN (${inIds}) AND eb.payment_status IN ('paid', 'refunded')
        ) orders ORDER BY createdAt DESC LIMIT 500`
@@ -97,7 +99,19 @@ vendorOperationsRouter.get("/orders", async (req, res) => {
   res.json(attentionOnly ? out.filter((o) => o.attention.length) : out);
 });
 
-vendorOperationsRouter.get("/bookings", async (req, res) => {
+// OG-25 — a month's statement of recorded orders and refunds (JSON, or CSV
+// with ?format=csv). Not a VAT invoice; see vendorStatements.ts.
+vendorOperationsRouter.get("/statements/:month", requirePlatformRole("finance"), async (req, res) => {
+  if (!monthBounds(req.params.month)) return res.status(400).json({ error: "Use a month like 2026-09" });
+  const org = (await db.prepare(`SELECT o.id, o.name FROM organisations o JOIN users u ON u.org_id = o.id WHERE u.id = ?`).get(req.user!.id)) as { id: string; name: string } | undefined;
+  const statement = await vendorStatement(req.vendorIds!, req.params.month, org?.id ?? null);
+  if (req.query.format !== "csv") return res.json(statement);
+  res.setHeader("Content-Type", "text/csv; charset=utf-8");
+  res.setHeader("Content-Disposition", `attachment; filename="hellocircle-statement-${req.params.month}.csv"`);
+  res.send(statementCsv(statement, org?.name ?? "Your organisation"));
+});
+
+vendorOperationsRouter.get("/bookings", requirePlatformRole(...ORDER_ROLES), async (req, res) => {
   const ids = req.vendorIds!;
   const centreId = typeof req.query.centreId === "string" ? req.query.centreId : undefined;
   const rows = await db
@@ -122,60 +136,56 @@ vendorOperationsRouter.get("/bookings", async (req, res) => {
  * Unlike the resident-facing route, this is ownership-gated by req.vendorIds
  * (the vendor's own org), not by client_id/email, and has no cancellation-cutoff
  * check — a venue manager can cancel their own booking at any time. */
-vendorOperationsRouter.post("/bookings/:ref/cancel", requirePlatformRole("centre_manager"), async (req, res) => {
-  const ids = req.vendorIds!;
-  const row = (await db
-    .prepare(
-      `SELECT b.ref, b.date, b.time, b.duration, b.guests, b.status, b.name, b.email,
-              b.centre_id as centreId, c.name as centreName, c.vendor_id as vendorId, b.resident_id as residentId
-       FROM bookings b JOIN centres c ON c.id = b.centre_id
-       WHERE b.ref = ? AND c.vendor_id IN (${inClause(ids)})`
-    )
-    .get(req.params.ref, ...ids)) as
-    | { ref: string; date: string; time: string; duration: number; guests: number; status: string; name: string; email: string; centreId: string; centreName: string; vendorId: string | null; residentId: string | null }
-    | undefined;
-  if (!row) return res.status(404).json({ error: "Booking not found" });
-  if (row.status === "cancelled") return res.status(409).json({ error: "This booking is already cancelled" });
+// OG-17 / DEC-12 — complaints about this organisation's bookings and listings:
+// the text and outcome (never who complained), and the organisation's response.
+vendorOperationsRouter.get("/complaints", async (req, res) => {
+  res.json(await complaintsAbout({ vendorIds: req.vendorIds! }));
+});
 
-  // HC-QA-046 — atomic transition: only the request that actually flips the row
-  // runs the side effects (capacity release, audit, notifications, promotion).
-  const flipped = await db.prepare(`UPDATE bookings SET status = 'cancelled' WHERE ref = ? AND status != 'cancelled'`).run(row.ref);
-  if (flipped.changes !== 1) return res.status(409).json({ error: "This booking is already cancelled" });
+vendorOperationsRouter.post("/complaints/:id/response", requirePlatformRole("communications"), async (req, res) => {
+  const r = await respondAsSubject(Number(req.params.id), { vendorIds: req.vendorIds! }, req.user!.id, String(req.body?.response ?? ""));
+  if (r.status !== 200) return res.status(r.status).json({ error: r.error });
+  res.json({ ok: true });
+});
 
-  await writeAudit({
-    actorUserId: req.user!.id,
-    action: "booking.cancelled_by_vendor",
-    objectType: "booking",
-    objectId: row.ref,
-    previousValue: { status: row.status },
-    newValue: { status: "cancelled" },
-  });
-
-  // Booking UX Phase 5 (audit E1) — an activity held on this booking can't
-  // go ahead without it: cancel it too and tell its participants (once).
-  for (const g of await activeLinkedGames(row.ref)) {
-    if (await cancelGameAndNotify(g.id, { by: "venue", actorId: req.user!.id })) {
-      await writeAudit({ actorUserId: req.user!.id, action: "game.cancelled_with_venue_booking", objectType: "game", objectId: g.id, newValue: { bookingRef: row.ref } });
-    }
+// OG-11 / DEC-17 — propose a new time; the booking moves only if the customer accepts.
+vendorOperationsRouter.post("/bookings/:ref/propose-change", requirePlatformRole("centre_manager"), async (req, res) => {
+  const b = req.body as { date?: string; time?: string; message?: string };
+  if (!b.date || !b.time) return res.status(400).json({ error: "Choose the new date and time" });
+  try {
+    res.status(201).json(await proposeBookingChange({ ref: req.params.ref, vendorIds: req.vendorIds!, actorUserId: req.user!.id, date: b.date, time: b.time, message: b.message ?? "" }));
+  } catch (e) {
+    if (e instanceof ChangeError) return res.status(e.status).json({ error: e.message });
+    throw e;
   }
+});
 
-  const notifyParams = {
-    kind: "booking",
-    listingType: "centre",
-    listingId: row.centreId,
-    listingName: row.centreName,
-    vendorId: row.vendorId,
-    guestName: row.name,
-    guestEmail: row.email,
-    ref: row.ref,
-    detailsText: `${row.date} at ${row.time} · ${row.duration}h · ${row.guests} guests`,
-    residentId: row.residentId,
-  } as const;
-  notifyCancellation(notifyParams).catch((e) => console.error("[notifications] vendor booking cancellation notify failed:", e));
+vendorOperationsRouter.get("/bookings/:ref/changes", requirePlatformRole(...ORDER_ROLES), async (req, res) => {
+  try {
+    await bookingForChange(req.params.ref, req.vendorIds!);
+  } catch (e) {
+    if (e instanceof ChangeError) return res.status(e.status).json({ error: e.message });
+    throw e;
+  }
+  res.json(await proposalsForBooking(req.params.ref));
+});
 
-  // Booking UX Phase 6 (B13) — a provider cancellation refunds a paid online order in full.
-  const refund = await refundOnProviderCancel({ table: "bookings", ref: row.ref, actorUserId: req.user!.id, objectType: "booking", notify: notifyParams });
-  res.json({ ok: true, refund: refund.refund, ...(refund.refund === "failed" ? { refundError: refund.error } : {}) });
+vendorOperationsRouter.post("/bookings/:ref/changes/:id/withdraw", requirePlatformRole("centre_manager"), async (req, res) => {
+  try {
+    await bookingForChange(req.params.ref, req.vendorIds!);
+    await withdrawProposal(req.params.ref, Number(req.params.id), req.user!.id);
+    res.json({ ok: true });
+  } catch (e) {
+    if (e instanceof ChangeError) return res.status(e.status).json({ error: e.message });
+    throw e;
+  }
+});
+
+vendorOperationsRouter.post("/bookings/:ref/cancel", requirePlatformRole("centre_manager"), async (req, res) => {
+  // Shared with venue closures and admin cancellations (hallBookingCancel.ts).
+  const result = await cancelHallBookingAsProvider({ ref: req.params.ref, actorUserId: req.user!.id, vendorIds: req.vendorIds!, action: "booking.cancelled_by_vendor" });
+  if (!result.ok) return res.status(result.status).json({ error: result.error });
+  res.json({ ok: true, refund: result.refund, ...(result.refundError ? { refundError: result.refundError } : {}) });
 });
 
 /** Registration equivalent of the booking cancel route above — didn't exist
@@ -188,67 +198,10 @@ vendorOperationsRouter.post("/bookings/:ref/cancel", requirePlatformRole("centre
  * this one previously didn't, which meant a vendor-cancelled registration
  * never freed its spot to whoever was waiting. */
 vendorOperationsRouter.post("/registrations/:ref/cancel", requirePlatformRole("facility_manager"), async (req, res) => {
-  const ids = req.vendorIds!;
-  const row = (await db
-    .prepare(
-      `SELECT r.ref, r.child_first as childFirst, r.child_last as childLast, r.team, r.status,
-              r.g_first as gFirst, r.g_last as gLast, r.email,
-              r.club_id as clubId, c.name as clubName, c.vendor_id as vendorId, r.resident_id as residentId
-       FROM registrations r JOIN clubs c ON c.id = r.club_id
-       WHERE r.ref = ? AND c.vendor_id IN (${inClause(ids)})`
-    )
-    .get(req.params.ref, ...ids)) as
-    | {
-        ref: string;
-        childFirst: string;
-        childLast: string;
-        team: string | null;
-        status: string;
-        gFirst: string;
-        gLast: string;
-        email: string;
-        clubId: string;
-        clubName: string;
-        vendorId: string | null;
-        residentId: string | null;
-      }
-    | undefined;
-  if (!row) return res.status(404).json({ error: "Registration not found" });
-  if (row.status === "cancelled") return res.status(409).json({ error: "This registration is already cancelled" });
-
-  // HC-QA-046 — atomic transition: only the request that actually flips the row
-  // runs the side effects (capacity release, audit, notifications, promotion).
-  const flipped = await db.prepare(`UPDATE registrations SET status = 'cancelled' WHERE ref = ? AND status != 'cancelled'`).run(row.ref);
-  if (flipped.changes !== 1) return res.status(409).json({ error: "This registration is already cancelled" });
-
-  await writeAudit({
-    actorUserId: req.user!.id,
-    action: "registration.cancelled_by_vendor",
-    objectType: "registration",
-    objectId: row.ref,
-    previousValue: { status: row.status },
-    newValue: { status: "cancelled" },
-  });
-
-  const notifyParams = {
-    kind: "registration",
-    listingType: "club",
-    listingId: row.clubId,
-    listingName: row.clubName,
-    vendorId: row.vendorId,
-    guestName: `${row.gFirst} ${row.gLast}`,
-    guestEmail: row.email,
-    ref: row.ref,
-    detailsText: `${row.childFirst} ${row.childLast}${row.team ? ` · ${row.team}` : ""}`,
-    residentId: row.residentId,
-  } as const;
-  notifyCancellation(notifyParams).catch((e) => console.error("[notifications] vendor registration cancellation notify failed:", e));
-
-  promoteNextWaitlistEntry("club", row.clubId, row.clubName);
-
-  // Booking UX Phase 6 (B13) — a provider cancellation refunds a paid online order in full.
-  const refund = await refundOnProviderCancel({ table: "registrations", ref: row.ref, actorUserId: req.user!.id, objectType: "registration", notify: notifyParams });
-  res.json({ ok: true, refund: refund.refund, ...(refund.refund === "failed" ? { refundError: refund.error } : {}) });
+  // Shared with HelloCircle admin cancellations (hallBookingCancel.ts).
+  const result = await cancelRegistrationAsProvider({ ref: req.params.ref, actorUserId: req.user!.id, vendorIds: req.vendorIds!, action: "registration.cancelled_by_vendor" });
+  if (!result.ok) return res.status(result.status).json({ error: result.error });
+  res.json({ ok: true, refund: result.refund, ...(result.refundError ? { refundError: result.refundError } : {}) });
 });
 
 /** "Resend confirmation" (Host Manage spec §10) — didn't exist anywhere;
@@ -479,7 +432,7 @@ vendorOperationsRouter.post("/registrations/:ref/refund", requirePlatformRole("f
 
 // `?clubId=` — same per-listing narrowing as GET /bookings above, used by
 // VendorClubEditPage.tsx's Registrations sub-tab.
-vendorOperationsRouter.get("/registrations", async (req, res) => {
+vendorOperationsRouter.get("/registrations", requirePlatformRole(...ORDER_ROLES), async (req, res) => {
   const ids = req.vendorIds!;
   const clubId = typeof req.query.clubId === "string" ? req.query.clubId : undefined;
   const rows = await db
@@ -504,7 +457,7 @@ vendorOperationsRouter.get("/registrations", async (req, res) => {
  * concept in the schema), so this only exists for clubs, where registrations
  * genuinely group into something new: a roster by child, not a flat list of
  * sign-ups. */
-vendorOperationsRouter.get("/clubs/:id/participants", async (req, res) => {
+vendorOperationsRouter.get("/clubs/:id/participants", requirePlatformRole(...ROSTER_ROLES), async (req, res) => {
   if (!(await ownsClub(req.vendorIds!, req.params.id))) return res.status(403).json({ error: "Not your listing" });
   const rows = (await db
     .prepare(
@@ -605,7 +558,10 @@ vendorOperationsRouter.get("/today", async (req, res) => {
        ORDER BY cs.time`
     )
     .all(...ids, dayOfWeek);
-  res.json({ bookings, clubSessions });
+  // Option A — the booker's name only for staff who may see customer details;
+  // everyone else keeps the operational facts (time, length, guests, venue).
+  const showNames = hasPlatformRole(req.user!, ...CUSTOMER_ROLES);
+  res.json({ bookings: showNames ? bookings : (bookings as Record<string, unknown>[]).map((b) => ({ ...b, name: null })), clubSessions });
 });
 
 // --- unified cross-listing-type schedule (Vendor Experience Polish) -------
@@ -855,7 +811,7 @@ vendorOperationsRouter.get("/schedule-items", async (req, res) => {
 // --- club waitlist visibility (Tier 3 — was genuinely missing, not just
 // missing UI: no route here saw a club's waitlist at all until now) --------
 
-vendorOperationsRouter.get("/clubs/:id/waitlist", async (req, res) => {
+vendorOperationsRouter.get("/clubs/:id/waitlist", requirePlatformRole(...ROSTER_ROLES), async (req, res) => {
   if (!(await ownsClub(req.vendorIds!, req.params.id))) return res.status(403).json({ error: "Not your listing" });
   const rows = await db
     .prepare(
@@ -1025,7 +981,10 @@ vendorOperationsRouter.post("/coupons", requirePlatformRole("finance"), async (r
   const limits = parseCouponLimits(req.body as Record<string, unknown>);
   if (!limits.ok) return res.status(400).json({ error: limits.error });
   try {
-    await db
+    await db.transaction(async (tx) => {
+    // D-08: refuse if the creator was removed from the organisation meanwhile.
+    await assertCreatorStillMember(tx, req.user!);
+    await tx
       .prepare(
         `INSERT INTO coupons (code, kind, amount, max_uses, expires_at, created_by_vendor_id, eligible_listing_type, eligible_listing_id,
                               funding, platform_share_bps, min_spend_cents, max_discount_cents, per_customer_limit, starts_at)
@@ -1033,8 +992,10 @@ vendorOperationsRouter.post("/coupons", requirePlatformRole("finance"), async (r
       )
       .run(b.code.trim().toUpperCase(), b.kind, b.amount, b.maxUses ?? null, b.expiresAt ?? null, req.user!.id, b.eligibleListingType ?? null, b.eligibleListingId ?? null,
         limits.limits.minSpendCents, limits.limits.maxDiscountCents, limits.limits.perCustomerLimit, limits.limits.startsAt);
+    });
     res.status(201).json({ ok: true });
   } catch (e) {
+    if (e instanceof MembershipChangedError) return res.status(403).json({ error: e.message, removedFromOrg: true });
     res.status(409).json({ error: e instanceof Error && e.message.includes("Duplicate") ? "That code is already in use" : "Couldn't create the coupon" });
   }
 });

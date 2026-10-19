@@ -1,4 +1,6 @@
 import { PaginationError, parsePageParams, setNextCursor } from "../pagination.js";
+import { PrivacyError, myPrivacyRequests, submitPrivacyRequest } from "../privacyRequests.js";
+import { complaintsAbout, respondAsSubject } from "./complaints.js";
 import { paymentProvider } from "../payments/provider.js";
 import { marketingAllowed, recordConsent } from "../consent.js";
 import { discoverableGameSql } from "../gameVisibility.js";
@@ -24,6 +26,7 @@ import { googleAuthLimiter, magicLinkLimiter, passwordLoginLimiter } from "../ra
 import { CLIENT_URL } from "../stripe.js";
 import { TERMS_VERSION } from "../terms.js";
 import { BadRequestError, clientIdFrom } from "../util.js";
+import { latestPublicDecision } from "../moderationDecisions.js";
 
 export const residentsRouter = Router();
 
@@ -395,6 +398,8 @@ residentsRouter.get("/me", async (req, res) => {
       accessibilityPrefs: row.accessibilityPrefs ? JSON.parse(row.accessibilityPrefs) : [],
       searchRadiusKm: row.searchRadiusKm,
       hostStatus: row.hostStatus,
+      // D-03 — why a Verified Host application was declined (no internal note); null when none recorded.
+      hostDecision: row.hostStatus === "rejected" ? await latestPublicDecision("host_application", req.resident.id, ["host_application.rejected"]) : null,
       hostBio: row.hostBio ?? "",
       hostPhone: row.hostPhone,
       goals: row.goals ? row.goals.split(",").filter(Boolean) : [],
@@ -553,6 +558,17 @@ residentsRouter.use((err: Error, _req: unknown, res: import("express").Response,
 // manual sign-out, since staying "logged in" while deactivated makes no
 // sense — every page here reads req.resident, which a redeactivated row
 // would still populate.
+// OG-17 — complaints about activities or Circles this resident hosts.
+residentsRouter.get("/me/complaints-about-me", requireResident, async (req, res) => {
+  res.json(await complaintsAbout({ hostResidentId: req.resident!.id }));
+});
+
+residentsRouter.post("/me/complaints-about-me/:id/response", requireResident, async (req, res) => {
+  const r = await respondAsSubject(Number(req.params.id), { hostResidentId: req.resident!.id }, req.resident!.id, String(req.body?.response ?? ""));
+  if (r.status !== 200) return res.status(r.status).json({ error: r.error });
+  res.json({ ok: true });
+});
+
 residentsRouter.post("/me/deactivate", requireResident, async (req, res) => {
   await db.prepare(`UPDATE residents SET deactivated_at = NOW() WHERE id = ?`).run(req.resident!.id);
   const token = req.cookies?.[GUEST_SESSION_COOKIE] as string | undefined;
@@ -567,6 +583,22 @@ residentsRouter.post("/me/deactivate", requireResident, async (req, res) => {
 // registrations/receipts already have their own full history under My Life/
 // Receipts and aren't re-aggregated here — this is the account/profile side
 // of "my data", not a GDPR-certified full export of every payment record.
+// OG-29 — the person's own privacy requests (recorded and answered by the
+// privacy team; nothing is deleted automatically — see privacyRequests.ts).
+residentsRouter.get("/me/privacy-requests", requireResident, async (req, res) => {
+  res.json(await myPrivacyRequests(req.resident!.id));
+});
+
+residentsRouter.post("/me/privacy-requests", requireResident, async (req, res) => {
+  try {
+    const { kind, details } = req.body as { kind?: unknown; details?: unknown };
+    res.status(201).json(await submitPrivacyRequest({ id: req.resident!.id, email: req.resident!.email }, kind, details));
+  } catch (e) {
+    if (e instanceof PrivacyError) return res.status(e.status).json({ error: e.message });
+    throw e;
+  }
+});
+
 residentsRouter.get("/me/export", requireResident, async (req, res) => {
   const residentId = req.resident!.id;
   // Reports are keyed by X-Client-Id, not resident id — reporting itself

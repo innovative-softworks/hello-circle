@@ -1,9 +1,12 @@
+import { customerPaymentCase } from "../payments/paymentReview.js";
 import { Router } from "express";
+import { paymentUnderReview } from "../payments/checkoutAgreement.js";
 import { shadowLegacy } from "../commerce/engine.js";
 import { createCheckoutSession, pricingLineItems } from "../checkoutService.js";
 import { logEvent, logView } from "../analytics.js";
 import { db } from "../db/index.js";
-import { VENDOR_SUSPENDED_ERROR, consumeCoupon, customerKeyOf, endPendingHold, occupiesCapacitySql, vendorSuspended } from "../bookingIntegrity.js";
+import { VENDOR_SUSPENDED_ERROR, consumeCoupon, customerKeyOf, endPendingHold, occupiesCapacitySql } from "../bookingIntegrity.js";
+import { assertSellable, offeringSellable, orgActiveSql, unavailableListing } from "../orgStatus.js";
 import { getListingAttributes, officialCircleSummary } from "../listingAttributes.js";
 import { programmeCancelBlock, refundStateOf } from "../selfCancel.js";
 import { recordOrderAcknowledgements } from "../orderAcknowledgements.js";
@@ -11,7 +14,7 @@ import { irelandTodayIso } from "../irelandTime.js";
 import { notifyCancellation, notifyNewBookingOrRegistration } from "../notifications.js";
 import { computePricing, evaluateCoupon } from "../pricing.js";
 import { commerceQuoteLimiter } from "../rateLimit.js";
-import { BadRequestError, clientIdFrom, generateRef, isValidEmail } from "../util.js";
+import { BadRequestError, ConflictError, clientIdFrom, generateRef, isValidEmail } from "../util.js";
 
 export const programsRouter = Router();
 
@@ -115,7 +118,7 @@ async function listProgramsForBrowse(county?: string, category?: string) {
        JOIN program_sessions ns ON ns.id = (
          SELECT ps.id FROM program_sessions ps WHERE ps.program_id = p.id AND ps.status != 'cancelled' AND ps.date >= ? ORDER BY ps.date, ps.time LIMIT 1
        )
-       WHERE p.status = 'published' AND COALESCE(c.id, cl.id) IS NOT NULL
+       WHERE p.status = 'published' AND ${orgActiveSql("p.vendor_id")} AND COALESCE(c.id, cl.id) IS NOT NULL
          ${county ? "AND COALESCE(c.county, cl.county) = ?" : ""}
          ${category ? "AND p.category = ?" : ""}
        ORDER BY ns.date, ns.time
@@ -143,7 +146,7 @@ programsRouter.get("/", async (req, res) => {
     return res.json(await listProgramsForBrowse(county && county !== "All" ? county : undefined, category && category !== "All" ? category : undefined));
   }
   const rows = (await db
-    .prepare(`SELECT * FROM programs WHERE listing_type = ? AND listing_id = ? AND status = 'published' ORDER BY created_at DESC`)
+    .prepare(`SELECT * FROM programs WHERE listing_type = ? AND listing_id = ? AND status = 'published' AND ${orgActiveSql("vendor_id")} ORDER BY created_at DESC`)
     .all(listingType, listingId)) as ProgramRow[];
   res.json(await Promise.all(rows.map(toProgramJson)));
 });
@@ -154,8 +157,13 @@ programsRouter.get("/", async (req, res) => {
 // own programs via GET /vendor/programs instead, so nothing legitimate reads
 // a non-published program through this route.
 programsRouter.get("/:id", async (req, res) => {
-  const row = (await db.prepare(`SELECT * FROM programs WHERE id = ? AND status = 'published'`).get(req.params.id)) as ProgramRow | undefined;
-  if (!row) return res.status(404).json({ error: "Program not found" });
+  const row = (await db.prepare(`SELECT * FROM programs WHERE id = ? AND status = 'published' AND ${orgActiveSql("vendor_id")}`).get(req.params.id)) as ProgramRow | undefined;
+  if (!row) {
+    // D-01: a live programme of a suspended organisation shows an unavailable state.
+    const unavailable = await unavailableListing("programme", req.params.id);
+    if (unavailable) return res.json(unavailable);
+    return res.status(404).json({ error: "Program not found" });
+  }
   logView("activity_viewed", req, { kind: "program", id: row.id });
   // Public detail page only — where it happens (venue area/county/map pin,
   // linkable via slug) and who runs it (provider name + verified flag, same
@@ -200,7 +208,7 @@ interface EnrollBody {
  * the enrolment confirmation; nothing is reserved. */
 // R3A — rate-limited (it evaluates coupon codes), like the other quotes.
 programsRouter.get("/:id/quote", commerceQuoteLimiter, async (req, res) => {
-  const program = (await db.prepare(`SELECT id, price_cents FROM programs WHERE id = ? AND status = 'published'`).get(req.params.id)) as { id: string; price_cents: number } | undefined;
+  const program = (await db.prepare(`SELECT id, price_cents FROM programs WHERE id = ? AND status = 'published' AND ${orgActiveSql("vendor_id")}`).get(req.params.id)) as { id: string; price_cents: number } | undefined;
   if (!program) return res.status(404).json({ error: "Program not found" });
   let discountCents = 0;
   let couponCode: string | null = null;
@@ -230,7 +238,7 @@ programsRouter.post("/:id/enroll", async (req, res) => {
   const program = (await db.prepare(`SELECT * FROM programs WHERE id = ?`).get(req.params.id)) as ProgramRow | undefined;
   if (!program) return res.status(404).json({ error: "Program not found" });
   if (program.status !== "published") return res.status(409).json({ error: "This program is no longer open for enrollment" });
-  if (await vendorSuspended(program.vendor_id)) return res.status(409).json({ error: VENDOR_SUSPENDED_ERROR });
+  if (!(await offeringSellable(program.vendor_id))) return res.status(409).json({ error: VENDOR_SUSPENDED_ERROR });
 
   const ref = generateRef("PR");
   // Resident Experience Polish — Changeset 3. EnrollBody.couponCode was
@@ -259,6 +267,8 @@ programsRouter.post("/:id/enroll", async (req, res) => {
   try {
     await db.transaction(async (tx) => {
       await tx.prepare(`SELECT id FROM programs WHERE id = ? FOR UPDATE`).get(program.id);
+      // D-01: re-check the member and organisation under a shared lock on the organisation row.
+      await assertSellable(tx, program.vendor_id);
       // HC-QA-038 — one active enrolment per owner + participant.
       const duplicate = await tx
         .prepare(
@@ -288,6 +298,7 @@ programsRouter.post("/:id/enroll", async (req, res) => {
       await recordOrderAcknowledgements(tx, { sourceType: "program", ref, clientId, residentId: req.resident?.id ?? null, terms: body.acceptedTerms === true });
     });
   } catch (e) {
+    if (e instanceof ConflictError) return res.status(409).json({ error: e.message });
     if (e instanceof Error && e.message === "PROGRAM_FULL") return res.status(409).json({ error: "This program is full" });
     if (e instanceof Error && e.message === "PROGRAM_DUPLICATE") return res.status(409).json({ error: "This participant is already enrolled", duplicate: true });
     if (e instanceof Error && e.message.startsWith("COUPON_EXHAUSTED")) return res.status(400).json({ error: e.message.slice("COUPON_EXHAUSTED:".length) || "That code has been fully redeemed" });
@@ -482,5 +493,6 @@ programsRouter.get("/enrollments/status/:ref", async (req, res) => {
     )
     .get(req.params.ref, clientId);
   if (!row) return res.status(404).json({ error: "Enrollment not found" });
-  res.json(row);
+  const paymentReview = (row as { paymentStatus?: string }).paymentStatus === "pending" && (await paymentUnderReview("program", req.params.ref));
+  res.json({ ...row, paymentReview, paymentCase: await customerPaymentCase("program", req.params.ref) });
 });

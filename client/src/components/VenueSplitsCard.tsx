@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { decideVenueSplit, fetchFieldHelp, fetchGameSplits, fetchMyGames, fetchSplitStatus, fetchVenueSplits, proposeGameSplit, type FieldHelpEntry, type VenueSplitAgreement } from "../api";
 import type { Game } from "../types";
 import { colors, fonts, radius } from "../theme";
-import { Button, inputStyle, ManageCard as Card, tableStyle, tdStyle, thStyle } from "./ui";
+import { Button, inputStyle, ManageCard as Card, tableStyle, tdStyle, thStyle, StackTable } from "./ui";
 
 // Revenue & Connect Stage 5e — venue/host split agreements (flow C).
 // Host: proposes how the partner share of a paid game at a venue is divided.
@@ -32,10 +32,20 @@ function VenueSide() {
   const [reason, setReason] = useState<Record<number, string>>({});
   const [error, setError] = useState<string | null>(null);
   const help = useSplitHelp();
-  const load = () => fetchVenueSplits().then(setRows).catch(() => setRows(null));
+  const [loadFailed, setLoadFailed] = useState(false);
+  const load = () =>
+    fetchVenueSplits()
+      .then((r) => {
+        setRows(r);
+        setLoadFailed(false);
+      })
+      .catch((e: unknown) => {
+        if ((e as { status?: number })?.status !== 403) setLoadFailed(true);
+      });
   useEffect(() => {
     load();
   }, []);
+  if (loadFailed && !rows) return <p role="alert" style={{ fontSize: 13.5 }}>Couldn't load venue/host split proposals. Refresh to try again.</p>;
   if (!rows || rows.length === 0) return null;
   const decide = async (id: number, accept: boolean) => {
     setError(null);
@@ -48,10 +58,10 @@ function VenueSide() {
   };
   return (
     <Card style={{ padding: 20 }}>
-      <h3 data-testid="venue-splits" style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 17, margin: "0 0 4px" }}>Venue / host splits</h3>
+      <h2 data-testid="venue-splits" style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 17, margin: "0 0 4px" }}>Venue / host splits</h2>
       {help && <p style={{ fontSize: 12.5, color: colors.mutedLight, margin: "0 0 12px", lineHeight: 1.5 }}>{help.definition}</p>}
       <div style={{ overflowX: "auto" }}>
-        <table style={tableStyle}>
+        <StackTable>
           <thead><tr><th style={thStyle}>Game</th><th style={thStyle}>Split</th><th style={thStyle}>Status</th><th style={thStyle}></th></tr></thead>
           <tbody>
             {rows.map((a) => (
@@ -71,7 +81,7 @@ function VenueSide() {
               </tr>
             ))}
           </tbody>
-        </table>
+        </StackTable>
       </div>
       {error && <p role="alert" style={{ color: colors.danger, background: colors.dangerBg, padding: "8px 12px", borderRadius: radius.control, fontSize: 13, marginTop: 10 }}>{error}</p>}
     </Card>
@@ -113,7 +123,7 @@ function HostSide() {
   };
   return (
     <Card style={{ padding: 20 }}>
-      <h3 data-testid="host-splits" style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 17, margin: "0 0 4px" }}>Splits with venues</h3>
+      <h2 data-testid="host-splits" style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 17, margin: "0 0 4px" }}>Splits with venues</h2>
       {help && <p style={{ fontSize: 12.5, color: colors.mutedLight, margin: "0 0 12px", lineHeight: 1.5 }}>{help.definition}</p>}
       {games.map((g) => {
         const current = (splits[g.id] ?? [])[0];

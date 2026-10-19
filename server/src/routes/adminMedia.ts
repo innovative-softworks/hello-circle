@@ -14,6 +14,7 @@ import {
 } from "../media/mediaService.js";
 import { findCleanupCandidates, listEditorialAssets, mediaLedgerStartedAt, mediaUsageByProviderAndStatus } from "../media/mediaAssets.js";
 import { GALLERY_LIMITS } from "../media/quotas.js";
+import { requireAdminPermission } from "../adminPermissions.js";
 
 // Usage visibility + editorial-collection management + pause toggles
 // (Media Cost Controls / Cloudinary pilot pass) — see media_assets' own
@@ -37,7 +38,7 @@ const editorialUpload = multer({
 // media architecture report). Never reports a number as 0 when it's
 // actually "unavailable" — provider-reported fields are always `null` with
 // an explicit `available: false` today.
-adminMediaRouter.get("/usage", async (_req, res) => {
+adminMediaRouter.get("/usage", requireAdminPermission("media.view"), async (_req, res) => {
   const rows = await mediaUsageByProviderAndStatus();
   const uploadsEnabled = await isMediaUploadsEnabled();
   const cloudinaryRuntimeEnabled = await isCloudinaryUploadsRuntimeEnabled();
@@ -74,11 +75,11 @@ adminMediaRouter.get("/usage", async (_req, res) => {
 
 // --- editorial collection (Cloudinary) ----------------------------------
 
-adminMediaRouter.get("/editorial", async (_req, res) => {
+adminMediaRouter.get("/editorial", requireAdminPermission("media.view"), async (_req, res) => {
   res.json({ images: await listEditorialAssets() });
 });
 
-adminMediaRouter.post("/editorial", editorialUpload, async (req, res) => {
+adminMediaRouter.post("/editorial", requireAdminPermission("media.editorial"), editorialUpload, async (req, res) => {
   if (!req.file) return res.status(400).json({ error: "No file uploaded" });
   const caption = typeof req.body?.caption === "string" ? req.body.caption.slice(0, 255) : null;
   try {
@@ -91,7 +92,7 @@ adminMediaRouter.post("/editorial", editorialUpload, async (req, res) => {
   }
 });
 
-adminMediaRouter.delete("/editorial/:id", async (req, res) => {
+adminMediaRouter.delete("/editorial/:id", requireAdminPermission("media.delete"), async (req, res) => {
   try {
     await deleteEditorialImage(req.params.id);
     await writeAudit({ actorUserId: req.user!.id, action: "media.editorial_deleted", objectType: "media_asset", objectId: req.params.id });
@@ -109,11 +110,11 @@ adminMediaRouter.delete("/editorial/:id", async (req, res) => {
 // PhotoGallery keep rendering existing R2/Cloudinary URLs unchanged either
 // way).
 
-adminMediaRouter.get("/config/uploads-enabled", async (_req, res) => {
+adminMediaRouter.get("/config/uploads-enabled", requireAdminPermission("media.view"), async (_req, res) => {
   res.json({ enabled: (await getSetting("media_uploads_enabled", "true")) !== "false" });
 });
 
-adminMediaRouter.put("/config/uploads-enabled", async (req, res) => {
+adminMediaRouter.put("/config/uploads-enabled", requireAdminPermission("platform.settings"), async (req, res) => {
   const { enabled } = req.body as { enabled?: boolean };
   if (typeof enabled !== "boolean") return res.status(400).json({ error: "enabled must be a boolean" });
   const before = (await getSetting("media_uploads_enabled", "true")) !== "false";
@@ -129,7 +130,7 @@ adminMediaRouter.put("/config/uploads-enabled", async (req, res) => {
   res.json({ enabled });
 });
 
-adminMediaRouter.get("/config/cloudinary-enabled", async (_req, res) => {
+adminMediaRouter.get("/config/cloudinary-enabled", requireAdminPermission("media.view"), async (_req, res) => {
   res.json({
     enabled: await isCloudinaryUploadsRuntimeEnabled(),
     configuredByEnv: mediaConfig.cloudinaryUploadsEnabledByEnv,
@@ -137,7 +138,7 @@ adminMediaRouter.get("/config/cloudinary-enabled", async (_req, res) => {
   });
 });
 
-adminMediaRouter.put("/config/cloudinary-enabled", async (req, res) => {
+adminMediaRouter.put("/config/cloudinary-enabled", requireAdminPermission("platform.settings"), async (req, res) => {
   const { enabled } = req.body as { enabled?: boolean };
   if (typeof enabled !== "boolean") return res.status(400).json({ error: "enabled must be a boolean" });
   if (enabled && !mediaConfig.cloudinaryUploadsEnabledByEnv) {

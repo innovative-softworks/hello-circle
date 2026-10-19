@@ -31,7 +31,7 @@ import type {
   VendorToday,
   WaitlistEntry,
 } from "../types";
-import { request } from "./core";
+import { downloadJson, request } from "./core";
 
 // Everything under the vendor dashboard — own-listing CRUD, rooms/blocks/
 // hours, messages/demand/check-in, Programs (vendor side), Organisation/
@@ -153,13 +153,37 @@ export interface BlockInput {
   reason?: string;
   /** Omit = whole-centre block; set = only that one room. */
   roomId?: string;
+  /** "HH:00" start and end (end exclusive); omit both for the whole day. */
+  startTime?: string;
+  endTime?: string;
+}
+
+/** A booking a closure would cover (OG-04). */
+export interface ClosureAffectedBooking {
+  ref: string;
+  roomId: string;
+  roomName: string | null;
+  time: string;
+  duration: number;
+  name: string;
+  guests: number;
+  paymentStatus: string;
+  totalCents: number | null;
+  online: boolean;
+}
+
+export function previewVendorBlock(centreId: string, input: BlockInput): Promise<{ affected: ClosureAffectedBooking[] }> {
+  return request(`/vendor/centres/${centreId}/blocks/preview`, { method: "POST", body: JSON.stringify(input) });
 }
 
 export function fetchVendorBlocks(centreId: string): Promise<RoomBlock[]> {
   return request(`/vendor/centres/${centreId}/blocks`);
 }
 
-export function createVendorBlock(centreId: string, input: BlockInput): Promise<{ id: number }> {
+export function createVendorBlock(
+  centreId: string,
+  input: BlockInput & { expectedRefs?: string[]; resolution?: "keep" | "cancel_refund" }
+): Promise<{ id: string; affected: number; cancelled: { ref: string; refund: string; refundError?: string }[] }> {
   return request(`/vendor/centres/${centreId}/blocks`, { method: "POST", body: JSON.stringify(input) });
 }
 
@@ -579,12 +603,22 @@ export function fetchVendorExperienceSessions(experienceId: string): Promise<Exp
   return request(`/vendor/experiences/${experienceId}/sessions`);
 }
 
-export function addExperienceSession(experienceId: string, input: { date: string; time: string; capacity?: number }): Promise<{ id: string }> {
+export function addExperienceSession(experienceId: string, input: { date: string; time: string; capacity?: number; repeatWeeks?: number; salesCloseHours?: number }): Promise<{ id: string }> {
   return request(`/vendor/experiences/${experienceId}/sessions`, { method: "POST", body: JSON.stringify(input) });
 }
 
 export function removeExperienceSession(experienceId: string, sessionId: string): Promise<{ ok: boolean }> {
   return request(`/vendor/experiences/${experienceId}/sessions/${sessionId}`, { method: "DELETE" });
+}
+
+// OG-19 — one departure's capacity / booking cut-off (salesCloseAt: ISO instant, "" or null clears it).
+export function updateExperienceSession(experienceId: string, sessionId: string, input: { capacity?: number; salesCloseAt?: string | null; salesCloseHours?: number | null }): Promise<{ ok: boolean }> {
+  return request(`/vendor/experiences/${experienceId}/sessions/${sessionId}`, { method: "PUT", body: JSON.stringify(input) });
+}
+
+// OG-19 — move a booking to another departure; only when the customer asked (customerAsked must be true).
+export function moveExperienceBooking(experienceId: string, bookingId: number, input: { sessionId: string; customerAsked: true; note?: string }): Promise<{ ok: boolean; date: string; time: string }> {
+  return request(`/vendor/experiences/${experienceId}/bookings/${bookingId}/move`, { method: "POST", body: JSON.stringify(input) });
 }
 
 export function fetchVendorExperienceBookings(experienceId: string): Promise<VendorExperienceBooking[]> {
@@ -685,6 +719,8 @@ export interface VendorOrder {
   refundedCents: number;
   attention: ("refund_pending" | "deposit_due")[];
   createdAt: string;
+  /** The centre, club, programme or experience the order is for (OG-13). */
+  listingId?: string;
 }
 export function fetchVendorOrders(attentionOnly = false): Promise<VendorOrder[]> {
   return request(`/vendor/orders${attentionOnly ? "?attention=1" : ""}`);
@@ -829,4 +865,115 @@ export function fetchRewardHistory(scope: "vendor" | "host", opts: { limit?: num
 }
 export function redeemRewardPoints(scope: "vendor" | "host"): Promise<{ redemptionId: number; proFrom: string; proUntil: string }> {
   return request(`/${scope}/plan/rewards/redeem`, { method: "POST", body: "{}" });
+}
+
+/** D-03 — the latest moderation decision on one of your own listings (never the internal note); null for older decisions. */
+export function fetchVendorListingDecision(type: "centre" | "club" | "experience", id: string): Promise<{ latest: import("./admin").PublicDecision | null }> {
+  return request(`/vendor/decisions/${type}/${encodeURIComponent(id)}`);
+}
+
+/** D-01 — the organisation's existing obligations; the one partner API available while suspended. */
+export function fetchVendorObligations(): Promise<import("../types").VendorObligations> {
+  return request(`/vendor/obligations`);
+}
+
+/** D-08 — owner changes an accepted member's role. rowVersion from the Staff page (409 if stale). */
+export function changeStaffRole(memberId: string, platformRole: string, rowVersion: number): Promise<{ ok: boolean; changed: boolean; platformRole: string; rowVersion: number }> {
+  return request(`/vendor/org/staff/${encodeURIComponent(memberId)}`, { method: "PUT", body: JSON.stringify({ platformRole, rowVersion }) });
+}
+
+/** D-08 — owner removes a member from the organisation. */
+export function removeStaffMember(memberId: string, rowVersion: number): Promise<{ ok: boolean }> {
+  return request(`/vendor/org/staff/${encodeURIComponent(memberId)}`, { method: "DELETE", body: JSON.stringify({ rowVersion }) });
+}
+
+// --- OG-11 — proposed booking changes (the customer accepts or declines) -----
+
+export interface BookingChangeProposal {
+  id: number;
+  oldDate: string;
+  oldTime: string;
+  proposedDate: string;
+  proposedTime: string;
+  message: string;
+  status: "proposed" | "accepted" | "declined" | "withdrawn" | "expired";
+  createdAt: string;
+  respondedAt: string | null;
+  responseNote: string | null;
+}
+export function proposeVendorBookingChange(ref: string, input: { date: string; time: string; message: string }): Promise<{ id: number }> {
+  return request(`/vendor/bookings/${encodeURIComponent(ref)}/propose-change`, { method: "POST", body: JSON.stringify(input) });
+}
+export function fetchVendorBookingChanges(ref: string): Promise<BookingChangeProposal[]> {
+  return request(`/vendor/bookings/${encodeURIComponent(ref)}/changes`);
+}
+export function withdrawVendorBookingChange(ref: string, id: number): Promise<{ ok: boolean }> {
+  return request(`/vendor/bookings/${encodeURIComponent(ref)}/changes/${id}/withdraw`, { method: "POST" });
+}
+
+// --- OG-20 — Customers ------------------------------------------------------
+
+export interface VendorCustomer {
+  email: string;
+  name: string;
+  phone: string | null;
+  orders: number;
+  upcoming: number;
+  cancelled: number;
+  spentCents: number;
+  lastActivity: string;
+  listings: string[];
+}
+export function fetchVendorCustomers(q?: string): Promise<VendorCustomer[]> {
+  return request(`/vendor/customers${q ? `?q=${encodeURIComponent(q)}` : ""}`);
+}
+export interface VendorCustomerRecord {
+  email: string;
+  name: string;
+  phone: string | null;
+  attended: number;
+  noShows: number;
+  orders: { type: string; ref: string; listingName: string; date: string | null; time: string | null; status: string; paymentStatus: string; totalCents: number; createdAt: string; attendance: string | null }[];
+}
+export function fetchVendorCustomer(email: string): Promise<VendorCustomerRecord> {
+  return request(`/vendor/customers/${encodeURIComponent(email)}`);
+}
+
+// --- OG-17 — complaints about this organisation (text + outcome, never who) --
+export interface ComplaintAboutYou {
+  id: number;
+  kind: string;
+  subjectType: string;
+  subjectRef: string | null;
+  body: string;
+  status: "open" | "in_review" | "closed";
+  decision: string | null;
+  statementOfReasons: string | null;
+  decidedAt: string | null;
+  createdAt: string;
+  response: string | null;
+  respondedAt: string | null;
+}
+export function fetchVendorComplaints(): Promise<ComplaintAboutYou[]> {
+  return request(`/vendor/complaints`);
+}
+export function respondToVendorComplaint(id: number, response: string): Promise<{ ok: boolean }> {
+  return request(`/vendor/complaints/${id}/response`, { method: "POST", body: JSON.stringify({ response }) });
+}
+
+// --- OG-25 — monthly statement of recorded orders (not a VAT invoice) --------
+export interface VendorStatement {
+  month: string;
+  lines: { type: string; ref: string; listingName: string; customerName: string; createdAt: string; totalCents: number; paymentStatus: string; status: string; customerFeeCents: number | null; platformFeeCents: number | null; partnerShareCents: number | null }[];
+  refunds: { type: string; ref: string; amountCents: number; createdAt: string }[];
+  payouts: { id: string; amountCents: number; status: string; arrivalDate: string | null; createdAt: string }[];
+  totals: { orders: number; orderTotalCents: number; refunds: number; refundedCents: number; recordedFeeCents: number; recordedPartnerShareCents: number; payouts: number; paidOutCents: number };
+}
+
+export function fetchVendorStatement(month: string): Promise<VendorStatement> {
+  return request(`/vendor/statements/${month}`);
+}
+
+export function downloadVendorStatement(month: string): Promise<void> {
+  return downloadJson(`/vendor/statements/${month}?format=csv`, `hellocircle-statement-${month}.csv`);
 }

@@ -80,6 +80,10 @@ export interface RoomBlock {
   createdAt: string;
   /** null/undefined = whole-centre block (every room); set = only that room. */
   roomId: string | null;
+  /** OG-04 — an hour range ("HH:00", end exclusive); both null = the whole day. */
+  startTime?: string | null;
+  endTime?: string | null;
+  groupId?: string | null;
 }
 
 export interface Club {
@@ -391,6 +395,8 @@ export interface AuthUser {
   /** Admin sub-role (Revenue & Connect Stage 2a); null for non-admins. */
   adminRole?: "super" | "finance" | "support" | "legal" | null;
   invitedStaff: boolean;
+  /** D-01 — the status of the member's organisation ("active" | "suspended"); null without one. */
+  orgStatus?: string | null;
   providerTier: "standard" | "verified" | "featured";
   createdAt: string;
   /** Onboarding audit E1 — set by GET /auth/me; null = no Terms acceptance on file. */
@@ -399,6 +405,8 @@ export interface AuthUser {
    * (magic-link) account of the same person. Null for every vendor until
    * they deliberately do that (see api/manage.ts). */
   residentId: string | null;
+  /** OG-07 — an admin session's two-step sign-in state (admins only). */
+  mfa?: { required: boolean; enrolled: boolean; verifiedMinutesAgo: number | null };
 }
 
 export interface Review {
@@ -441,6 +449,16 @@ export interface VendorListingSummary {
   price: number | null;
   /** Clubs only. */
   unit: string | null;
+  /** Profile-completeness inputs (the listing editor's readiness checklist). */
+  phone?: string | null;
+  /** Centres only. */
+  opensAt?: string | null;
+  /** Clubs only. */
+  sport?: string | null;
+  hasAccessibility?: boolean;
+  /** Amenities (centre) or "what's included" items (club). */
+  extrasCount?: number;
+  imagesCount?: number;
 }
 
 export interface VendorStats {
@@ -453,12 +471,18 @@ export interface VendorStats {
 export interface AdminStats {
   centresPending: number;
   clubsPending: number;
+  experiencesPending: number;
   vendorCount: number;
   totalListings: number;
   reviewCount: number;
   bookingsToday: number;
   paymentFailures: number;
   openReports: number;
+  /** Orders of every kind (bookings, registrations, programmes, games,
+   * experiences, passes) created today, Irish calendar day. */
+  newToday?: number;
+  /** Orders of every kind whose payment failed, created in the last 7 days. */
+  failedPayments7d?: number;
 }
 
 // --- resident identity / household / favourites (MVP) ---------------------
@@ -513,7 +537,7 @@ export interface Favourite {
 
 export interface ResidentNotification {
   id: number;
-  kind: "booking" | "registration" | "program" | "experience" | "waitlist" | "game" | "intent_match" | "circle" | "invite" | "invite_withdrawn";
+  kind: "booking" | "registration" | "program" | "experience" | "waitlist" | "game" | "intent_match" | "circle" | "invite" | "invite_withdrawn" | "moderation";
   title: string;
   body: string;
   /** Platform Pre-Launch Polish — Changeset 2. Widened to match the
@@ -522,7 +546,7 @@ export interface ResidentNotification {
    * the server has sent notifications carrying them since the Follow
    * feature shipped; the in-app notification list's own type didn't
    * represent that, on top of notificationLink.ts's separate route-map gap. */
-  listingType: "centre" | "club" | "game" | "intent" | "circle" | "vendor" | "host" | "experience" | "program";
+  listingType: "centre" | "club" | "game" | "intent" | "circle" | "vendor" | "host" | "experience" | "program" | "place_suggestion";
   listingId: string;
   ref: string;
   read: number;
@@ -675,6 +699,12 @@ export interface Game {
   publishAt: string | null;
   bookingOpenAt: string | null;
   bookingCloseAt: string | null;
+  /** OG-27 — "approval": a join is a request the host approves (free activities only). */
+  joinMode?: "open" | "approval";
+  /** OG-26 — the weekly series this activity belongs to, if any. */
+  seriesId?: string | null;
+  /** OG-27 — detail fetch only: this resident's own join request, if any. */
+  joinRequestByMe?: "requested" | "approved" | "declined" | "withdrawn" | null;
   effectiveLifecycle: "draft" | "coming_soon" | "active" | "paused" | "completed" | "cancelled" | "archived";
   effectiveAvailability: "not_open" | "open" | "limited" | "full" | "waitlist" | "closed";
   publicLifecycleLabel: string;
@@ -812,7 +842,8 @@ export interface CircleMoment {
  * never email/phone/exact address, same privacy stance as
  * GameParticipantSummary. `total` lets the client render "+N". */
 export interface CircleMemberSummary {
-  members: { residentId: string; name: string; role: string }[];
+  /** mutedUntil is only sent to the Circle's organisers (OG-18). */
+  members: { residentId: string; name: string; role: string; mutedUntil?: string | null }[];
   total: number;
 }
 
@@ -857,6 +888,8 @@ export interface ManageCircleMember {
   residentId: string;
   name: string;
   role: string;
+  /** OG-18 — set while the member's chat messages are paused (organisers only). */
+  mutedUntil?: string | null;
 }
 
 /** "Recently in this Circle" row (§20) — a completed game with a real
@@ -1086,6 +1119,8 @@ export interface ChatMessage {
   authorType?: "resident" | "host";
   /** Whether the viewer wrote it — server-computed, works for hosts too. */
   isMine?: boolean;
+  /** OG-03 / OG-18 — removed by HelloCircle ("admin") or an organiser; the body is then empty. */
+  hidden?: "admin" | "organiser" | null;
 }
 
 export interface ChatFeed {
@@ -1095,6 +1130,8 @@ export interface ChatFeed {
   opensAt?: string;
   archivesAt?: string;
   viewerRole?: "resident" | "host";
+  /** OG-18 — the viewer organises this Circle / hosts this activity and may remove messages. */
+  canModerate?: boolean;
 }
 
 /** GET /chat/mine — one conversation in the inbox. */
@@ -1411,6 +1448,33 @@ export interface AdminOrganisation {
   name: string;
   kind: string;
   createdAt: string;
+  /** D-01 — "active" | "suspended". */
+  status?: string;
+  statusChangedAt?: string | null;
+  memberCount?: number;
+}
+
+/** D-01 — admin organisation record (GET /api/admin/organisations/:id). */
+export interface AdminOrganisationRecord {
+  id: string;
+  name: string;
+  kind: string;
+  status: string;
+  statusChangedAt: string | null;
+  members: { id: string; name: string; email: string; status: string; platformRole: string | null; invitedStaff: boolean }[];
+  listings: { type: string; status: string; n: number }[];
+  upcoming: { bookings: number; registrations: number; enrolments: number; experienceBookings: number; passes: number; total: number };
+}
+
+/** D-01 — a suspended organisation's read-only obligations (GET /api/vendor/obligations). */
+export interface VendorObligations {
+  orgStatus: string;
+  decision: ModerationDecisionPublic | null;
+  /** True for roles that see per-booking detail (owner, managers, finance). */
+  detail: boolean;
+  items: { kind: "booking" | "registration" | "enrolment" | "experience"; listing: string; date: string | null; time: string | null; ref?: string; customerFirstName?: string; paymentState?: string }[];
+  summary: { date: string | null; listing: string; count: number }[];
+  support: { contact: string; complaints: string };
 }
 
 // --- resident onboarding / preferences (Phase A) ----------------------
@@ -1427,6 +1491,8 @@ export interface ResidentFull extends Resident {
   searchRadiusKm: number;
   /** "Host" trust tier (IA spec five-layer audit) — badge-only. */
   hostStatus: HostStatus;
+  /** D-03 — why the last host application was declined (category + explanation; never the internal note). Null = not declined, or declined before reasons were recorded. */
+  hostDecision?: ModerationDecisionPublic | null;
   hostBio: string;
   hostPhone: string;
   /** Onboarding §2 (IA spec) — goals + participation comfort. Empty string
@@ -1520,6 +1586,19 @@ export interface PlaceSuggestion {
   status: "pending" | "approved" | "rejected";
   publishedListingId: string | null;
   createdAt: string;
+  /** D-03 — the reason a rejected suggestion was declined; null for older decisions. */
+  decision?: ModerationDecisionPublic | null;
+}
+
+/** D-03 — a moderation decision as the affected partner or applicant sees it. */
+export interface ModerationDecisionPublic {
+  id: number;
+  action: string;
+  newState: string;
+  category: string | null;
+  categoryLabel: string | null;
+  explanation: string | null;
+  decidedAt: string;
 }
 
 export interface NotificationPrefs {
@@ -1801,6 +1880,10 @@ export interface ExperienceSessionRow {
   time: string;
   capacity: number | null;
   status: string;
+  /** OG-19 — bookings close at this instant (UTC), null = open until the start. */
+  salesCloseAt?: string | null;
+  /** OG-19 — shared by departures created together as a weekly repeat. */
+  seriesId?: string | null;
 }
 
 export interface MyExperienceBooking {
@@ -1842,6 +1925,8 @@ export interface VendorExperienceBooking {
   time: string;
   /** Release 3 — "present"/"no_show", null when not recorded yet. */
   attendance?: string | null;
+  /** OG-19 — the departure this booking is on. */
+  sessionId?: string;
 }
 
 export interface ScheduleEntry {
@@ -1872,7 +1957,8 @@ export interface CentreHoursRow {
 export interface OrgProfile {
   org: { id: string; name: string; kind: string } | null;
   policies: { cancellationHours: number; bookingWindowDays: number; refundPolicyText: string | null; taxNumber: string | null; businessRegistrationNumber: string | null };
-  staff: { id: string; name: string; email: string; platformRole: string | null; status: string }[];
+  /** D-08 — invitedStaff false = the owner; rowVersion guards role changes and removal against stale screens. */
+  staff: { id: string; name: string; email: string; platformRole: string | null; status: string; invitedStaff: boolean; rowVersion: number; joinedAt: string }[];
   pendingInvites: { id: string; email: string; platformRole: string; status: string; createdAt: string; expiresAt: string }[];
   locations: { id: string; name: string; type: "centre" | "club" }[];
   isOwner: boolean;
@@ -2013,6 +2099,8 @@ export interface AuditEntry {
   objectId: string;
   previousValue: string | null;
   newValue: string | null;
+  /** Why the change was made, when the action records one (coupons, roles, …). */
+  reason?: string | null;
   createdAt: string;
 }
 

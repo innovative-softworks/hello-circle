@@ -1,6 +1,6 @@
 import { useNavigate } from "react-router-dom";
 import { Button } from "./ui";
-import { colors, fonts } from "../theme";
+import { colors, fonts, radius } from "../theme";
 
 // "What do you want to do next?" (My Life redesign v2 §54) — ties the hub back
 // to HelloCircle's demand engine. Not IntentCaptureForm here: that
@@ -14,7 +14,7 @@ import { colors, fonts } from "../theme";
 export function MyLifeDiscoveryCTA() {
   const navigate = useNavigate();
   return (
-    <div style={{ background: colors.greenBg, borderRadius: 16, padding: "clamp(32px,4vw,52px)", display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: 28 }}>
+    <div style={{ background: colors.greenBg, borderRadius: radius.card, padding: "clamp(32px,4vw,52px)", display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: 28 }}>
       <div style={{ maxWidth: 480 }}>
         <div style={{ fontSize: 12, fontWeight: 700, color: colors.greenText, letterSpacing: 0, marginBottom: 12 }}>/ WHAT NEXT?</div>
         <h2 style={{ fontFamily: fonts.display, fontWeight: 800, fontSize: "clamp(26px,3.4vw,38px)", letterSpacing: 0, lineHeight: 1.08, margin: "0 0 10px", color: colors.greenText }}>

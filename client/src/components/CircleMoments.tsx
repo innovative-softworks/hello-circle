@@ -65,7 +65,7 @@ export function CircleMoments({ circle }: { circle: Circle }) {
             >
               <CloseIcon size={18} />
             </button>
-            <img src={getMediaUrl(open, "card")} alt="" style={{ maxWidth: "90vw", maxHeight: "85vh", borderRadius: 10, objectFit: "contain" }} onClick={(e) => e.stopPropagation()} />
+            <img src={getMediaUrl(open, "card")} alt="" style={{ maxWidth: "90vw", maxHeight: "85vh", borderRadius: radius.control, objectFit: "contain" }} onClick={(e) => e.stopPropagation()} />
           </div>,
           document.body
         )}

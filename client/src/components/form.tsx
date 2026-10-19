@@ -1,6 +1,9 @@
-import { useEffect, useId, useState, type CSSProperties, type InputHTMLAttributes, type ReactNode, type TextareaHTMLAttributes } from "react";
+import { useCallback, useEffect, useId, useRef, useState, type CSSProperties, type InputHTMLAttributes, type MouseEvent as ReactMouseEvent, type ReactNode, type TextareaHTMLAttributes } from "react";
 import { MinusIcon, PlusIcon } from "./icons";
 import { ConfirmDialog } from "./ui";
+import { useInWorkspace } from "./workspace/inWorkspace";
+import { useSectionSave } from "./workspace/sectionSave";
+import { SectionCard } from "./workspace/SectionCard";
 import { colors, fonts, radius } from "../theme";
 
 // Shared form primitives (Form System Audit, Phase 2) — every form in the
@@ -15,7 +18,7 @@ import { colors, fonts, radius } from "../theme";
 const baseControlStyle: CSSProperties = {
   padding: "11px 13px",
   border: `1px solid ${colors.inputBorder}`,
-  borderRadius: 10,
+  borderRadius: radius.control,
   fontSize: 14,
   background: colors.surface,
   color: colors.text,
@@ -43,10 +46,14 @@ export function Field({
   htmlFor,
   children,
   style,
+  required,
+  optional,
 }: {
   label: string;
   helper?: string;
   error?: string;
+  required?: boolean;
+  optional?: boolean;
   /** "xs" (short numbers/codes), "sm" (short words), "md" (names/emails),
    * "full" (descriptions, addresses, search) — default "full" so existing
    * call sites that don't pass this stay visually unchanged. */
@@ -57,12 +64,12 @@ export function Field({
 }) {
   return (
     <div style={{ width: WIDTH_PX[width], maxWidth: "100%", ...style }}>
-      <label htmlFor={htmlFor} style={{ display: "block", fontSize: 12, fontWeight: 600, color: colors.muted, margin: "0 0 6px", letterSpacing: 0 }}>
+      <FieldLabel htmlFor={htmlFor} required={required} optional={optional}>
         {label}
-      </label>
-      {helper && <p style={{ fontSize: 12, color: colors.mutedLight, margin: "-2px 0 7px", lineHeight: 1.5 }}>{helper}</p>}
+      </FieldLabel>
+      {helper && <p id={htmlFor ? `${htmlFor}-helper` : undefined} style={{ fontSize: 12, color: colors.mutedLight, margin: "-2px 0 7px", lineHeight: 1.5 }}>{helper}</p>}
       {children}
-      {error && <p style={{ fontSize: 12, color: colors.danger, margin: "6px 0 0", fontWeight: 600 }}>{error}</p>}
+      {error && <p id={htmlFor ? `${htmlFor}-error` : undefined} style={{ fontSize: 12, color: colors.danger, margin: "6px 0 0", fontWeight: 600 }}>{error}</p>}
     </div>
   );
 }
@@ -83,12 +90,15 @@ export function TextInput({
   width?: "xs" | "sm" | "md" | "full";
   style?: CSSProperties;
 } & Omit<InputHTMLAttributes<HTMLInputElement>, "style">) {
-  const id = useId();
+  const autoId = useId();
+  const id = inputProps.id ?? autoId;
   return (
-    <Field label={label} helper={helper} error={error} width={width} htmlFor={id}>
+    <Field label={label} helper={helper} error={error} width={width} htmlFor={id} required={inputProps.required}>
       <input
-        id={id}
         {...inputProps}
+        id={id}
+        aria-invalid={error ? true : undefined}
+        aria-describedby={[error ? `${id}-error` : null, helper ? `${id}-helper` : null].filter(Boolean).join(" ") || undefined}
         style={{ ...baseControlStyle, width: "100%", borderColor: error ? colors.danger : colors.inputBorder, ...style }}
       />
     </Field>
@@ -110,14 +120,17 @@ export function TextArea({
   value: string;
   style?: CSSProperties;
 } & Omit<TextareaHTMLAttributes<HTMLTextAreaElement>, "style" | "value">) {
-  const id = useId();
+  const autoId = useId();
+  const id = textareaProps.id ?? autoId;
   return (
-    <Field label={label} helper={helper} error={error} width="full" htmlFor={id}>
+    <Field label={label} helper={helper} error={error} width="full" htmlFor={id} required={textareaProps.required}>
       <textarea
-        id={id}
         value={value}
         maxLength={maxLength}
         {...textareaProps}
+        id={id}
+        aria-invalid={error ? true : undefined}
+        aria-describedby={[error ? `${id}-error` : null, helper ? `${id}-helper` : null].filter(Boolean).join(" ") || undefined}
         style={{ ...baseControlStyle, width: "100%", resize: "vertical", borderColor: error ? colors.danger : colors.inputBorder, ...style }}
       />
       {maxLength !== undefined && (
@@ -320,30 +333,130 @@ export function CheckboxGroup({
   );
 }
 
-// --- FormErrorSummary — jump-to-field, for long forms on submit failure ----
-// Replaces the flat "Missing required fields" string every editor's catch
-// block currently surfaces verbatim from the server.
+// --- Required/optional markers, field errors, error summary ----------------
+// One convention for every editor (UI completion 2026-10-14): a required field
+// shows " *" after its label (and its control carries `required`), an optional
+// one shows "(optional)", and a form with required fields says so once at the
+// top (`RequiredNote`). A failed save lists every problem in a focused
+// `FormErrorSummary` whose entries link to the fields; each field also shows its
+// own message, tied to the control with aria-describedby / aria-invalid.
 
-export function FormErrorSummary({ errors }: { errors: { field: string; message: string; fieldId?: string }[] }) {
-  if (errors.length === 0) return null;
-  const jump = (fieldId?: string) => {
-    if (!fieldId) return;
+export function FieldLabel({
+  htmlFor,
+  required,
+  optional,
+  children,
+  style,
+}: {
+  htmlFor?: string;
+  required?: boolean;
+  optional?: boolean;
+  children: ReactNode;
+  style?: CSSProperties;
+}) {
+  return (
+    <label htmlFor={htmlFor} style={{ display: "block", fontSize: 12, fontWeight: 600, color: colors.muted, margin: "0 0 6px", ...style }}>
+      {children}
+      {required && (
+        <span aria-hidden="true" style={{ color: colors.danger }}>
+          {" "}*
+        </span>
+      )}
+      {optional && <span style={{ fontWeight: 400, color: colors.mutedLight }}> (optional)</span>}
+    </label>
+  );
+}
+
+export function RequiredNote({ style }: { style?: CSSProperties }) {
+  return <p style={{ fontSize: 12.5, color: colors.mutedLight, margin: "0 0 12px", ...style }}>Fields marked * are required.</p>;
+}
+
+export type FormError = { field: string; message: string; fieldId?: string };
+
+/** Field-level errors for a form: the summary list plus per-control props. */
+export function useFormErrors() {
+  const [errors, setErrorsState] = useState<FormError[]>([]);
+  // Bumped on every failed submit so the summary takes focus again.
+  const [focusKey, setFocusKey] = useState(0);
+  const fail = useCallback((list: FormError[]) => {
+    setErrorsState(list);
+    if (list.length) setFocusKey((k) => k + 1);
+  }, []);
+  const clear = useCallback(() => setErrorsState([]), []);
+  /** Drop one field's message once the person edits it (the rest stay). */
+  const clearField = useCallback((fieldId: string) => setErrorsState((list) => (list.some((e) => e.fieldId === fieldId) ? list.filter((e) => e.fieldId !== fieldId) : list)), []);
+  const messageFor = (fieldId: string) => errors.find((e) => e.fieldId === fieldId)?.message;
+  /** Spread onto the control: id, aria-invalid and aria-describedby. */
+  const control = (fieldId: string, extraDescribedBy?: string) => {
+    const msg = messageFor(fieldId);
+    const describedBy = [msg ? `${fieldId}-error` : null, extraDescribedBy].filter(Boolean).join(" ") || undefined;
+    return { id: fieldId, "aria-invalid": msg ? (true as const) : undefined, "aria-describedby": describedBy };
+  };
+  const has = (...fieldIds: string[]) => errors.some((e) => e.fieldId && fieldIds.includes(e.fieldId));
+  return { errors, focusKey, fail, clear, clearField, messageFor, control, has };
+}
+
+/** The inline message under a control (id = `${fieldId}-error`). */
+export function FieldError({ fieldId, message }: { fieldId: string; message?: string }) {
+  if (!message) return null;
+  return (
+    <p id={`${fieldId}-error`} style={{ fontSize: 12, color: colors.danger, margin: "6px 0 0", fontWeight: 600 }}>
+      {message}
+    </p>
+  );
+}
+
+export function FormErrorSummary({
+  errors,
+  focusKey,
+  onMissingField,
+}: {
+  errors: FormError[];
+  focusKey?: number;
+  /** Called for a link whose field isn't on screen (e.g. it's in another section's popup). */
+  onMissingField?: (fieldId: string) => void;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  const headingId = useId();
+  const hasErrors = errors.length > 0;
+  // Focus on every failed submit (focusKey changes); callers that don't pass
+  // a key get focus when the summary first appears.
+  useEffect(() => {
+    if (hasErrors) ref.current?.focus();
+  }, [focusKey, hasErrors]);
+  if (!hasErrors) return null;
+  const jump = (e: ReactMouseEvent, fieldId: string) => {
     const el = document.getElementById(fieldId);
-    el?.scrollIntoView({ behavior: "smooth", block: "center" });
-    el?.focus();
+    if (!el) {
+      if (onMissingField) {
+        e.preventDefault();
+        onMissingField(fieldId);
+      }
+      return;
+    }
+    e.preventDefault();
+    el.scrollIntoView({ behavior: "smooth", block: "center" });
+    (el as HTMLElement).focus({ preventScroll: true });
   };
   return (
-    <div style={{ border: `1px solid ${colors.danger}`, background: colors.dangerBg, borderRadius: radius.control, padding: "12px 16px", marginBottom: 16 }}>
-      <p style={{ margin: "0 0 6px", fontWeight: 700, fontSize: 13.5, color: colors.danger }}>
-        {errors.length === 1 ? "There's 1 thing to fix" : `There are ${errors.length} things to fix`}
-      </p>
+    <div
+      ref={ref}
+      tabIndex={-1}
+      role="group"
+      aria-labelledby={headingId}
+      className="form-error-summary"
+      style={{ border: `1px solid ${colors.danger}`, background: colors.dangerBg, borderRadius: radius.control, padding: "12px 16px", marginBottom: 16, outlineOffset: 2 }}
+    >
+      <h2 id={headingId} style={{ margin: "0 0 6px", fontWeight: 700, fontSize: 13.5, color: colors.danger, fontFamily: "inherit" }}>
+        {errors.length === 1 ? "There's 1 thing to fix before saving" : `There are ${errors.length} things to fix before saving`}
+      </h2>
       <ul style={{ margin: 0, padding: "0 0 0 18px" }}>
         {errors.map((e) => (
-          <li key={e.field} style={{ fontSize: 13, marginBottom: 2 }}>
+          <li key={`${e.field}:${e.message}`} style={{ fontSize: 13, marginBottom: 2 }}>
             {e.fieldId ? (
-              <button type="button" onClick={() => jump(e.fieldId)} style={{ background: "none", border: "none", padding: 0, color: colors.danger, textDecoration: "underline", cursor: "pointer", font: "inherit" }}>
+              <a href={`#${e.fieldId}`} onClick={(ev) => jump(ev, e.fieldId!)} style={{ color: colors.danger, textDecoration: "underline" }}>
                 {e.message}
-              </button>
+              </a>
             ) : (
               <span style={{ color: colors.danger }}>{e.message}</span>
             )}
@@ -367,13 +480,32 @@ export function SettingsSection({
   summary,
   children,
   defaultOpen = false,
+  forceOpen = false,
+  fieldIds,
 }: {
+  /** The required fields inside, so an error summary elsewhere can open this section. */
+  fieldIds?: string[];
   title: string;
   summary: ReactNode;
   children: ReactNode;
   defaultOpen?: boolean;
+  /** Opens the section (e.g. it holds a field with an error) so the error
+   * summary's link can reach the field. */
+  forceOpen?: boolean;
 }) {
-  const [open, setOpen] = useState(defaultOpen);
+  const [open, setOpen] = useState(defaultOpen || forceOpen);
+  const sectionSave = useSectionSave();
+  const inWorkspace = useInWorkspace();
+  useEffect(() => {
+    if (forceOpen) setOpen(true);
+  }, [forceOpen]);
+  // Workspace editors that provide a SectionSave get cards that edit in popups.
+  if (inWorkspace && sectionSave)
+    return (
+      <SectionCard title={title} summary={summary} ctx={sectionSave} hasErrors={forceOpen} fieldIds={fieldIds}>
+        {children}
+      </SectionCard>
+    );
   return (
     <div style={{ borderTop: `1px solid ${colors.border}`, padding: "18px 0" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 16 }}>
@@ -385,6 +517,8 @@ export function SettingsSection({
         </div>
         <button
           type="button"
+          aria-expanded={open}
+          aria-label={`${open ? "Done editing" : "Edit"} ${title.toLowerCase()}`}
           onClick={() => setOpen((o) => !o)}
           style={{ background: "none", border: "none", padding: 0, color: colors.greenText, fontWeight: 700, fontSize: 13, cursor: "pointer", flex: "none", whiteSpace: "nowrap" }}
         >

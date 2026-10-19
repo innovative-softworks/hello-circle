@@ -57,6 +57,17 @@ export interface ChargeState {
   chargeId?: string | null;
 }
 
+/** D-10 / D-11 — everything the provider reports about one Checkout
+ * payment, re-read on demand (stored payloads are never trusted). Read-only. */
+export interface PaymentSnapshot {
+  session: { id: string; amountTotal: number | null; currency: string | null; paymentStatus: string | null; metadata: Record<string, string> };
+  paymentIntentId: string | null;
+  charge: { id: string; status: string; amountMinor: number; amountRefundedMinor: number; currency: string; disputed: boolean } | null;
+  /** Every refund of the charge, any status. `key` is HelloCircle's own refund key when HelloCircle created it. */
+  refunds: { id: string; amountMinor: number; currency: string; status: string; key: string | null; created: number }[];
+  disputes: { id: string; status: string; amountMinor: number }[];
+}
+
 export interface CardSummary {
   id: string;
   brand: string;
@@ -119,14 +130,16 @@ export interface PaymentProvider {
   sessionPaymentIntent(sessionId: string): Promise<{ paymentIntentId: string | null; amountTotalMinor: number | null }>;
   chargeState(paymentIntentId: string): Promise<ChargeState>;
   /** Omit amountMinor for a full refund. Idempotent by key at the provider. */
-  createRefund(p: { paymentIntentId: string; amountMinor?: number; idempotencyKey: string; metadata: Record<string, string> }): Promise<{ id: string | null; amountMinor: number | null }>;
+  createRefund(p: { paymentIntentId: string; amountMinor?: number; idempotencyKey: string; metadata: Record<string, string> }): Promise<{ id: string | null; amountMinor: number | null; status?: string | null }>;
+  /** D-10 / D-11 — provider reads only (session, PaymentIntent, latest charge, all refunds, disputes). */
+  paymentSnapshot(sessionId: string): Promise<PaymentSnapshot>;
   // Saved cards (resident payment-methods screen).
   listCards(customerId: string): Promise<{ cards: CardSummary[]; defaultId: string | null }>;
   cardOwner(paymentMethodId: string): Promise<string | null>;
   setDefaultCard(customerId: string, paymentMethodId: string): Promise<void>;
   detachCard(paymentMethodId: string): Promise<void>;
   /** Stage 5d — the refunds on a charge (newest first), so refunds made at the provider are recorded under their own ids. */
-  chargeRefunds(chargeId: string): Promise<{ id: string; amountMinor: number; status: string }[]>;
+  chargeRefunds(chargeId: string): Promise<{ id: string; amountMinor: number; status: string; key?: string | null }[]>;
   /** The provider's actual processing fee for a payment, or null if not yet known. */
   paymentFee(paymentIntentId: string): Promise<number | null>;
   /** Re-fetch a webhook event by id (admin replay; never trust a stored copy). */
@@ -210,7 +223,31 @@ class StripeProvider implements PaymentProvider {
       { payment_intent: p.paymentIntentId, ...(p.amountMinor !== undefined ? { amount: p.amountMinor } : {}), metadata: { ...p.metadata, ...qaRunMetadata() } },
       { idempotencyKey: p.idempotencyKey }
     );
-    return { id: refund.id ?? null, amountMinor: refund.amount ?? null };
+    return { id: refund.id ?? null, amountMinor: refund.amount ?? null, status: refund.status ?? null };
+  }
+
+  async paymentSnapshot(sessionId: string): Promise<PaymentSnapshot> {
+    const session = await this.client.checkout.sessions.retrieve(sessionId);
+    const piRef = session.payment_intent;
+    const paymentIntentId = piRef ? (typeof piRef === "string" ? piRef : piRef.id) : null;
+    const snap: PaymentSnapshot = {
+      session: { id: session.id, amountTotal: session.amount_total ?? null, currency: session.currency ?? null, paymentStatus: session.payment_status ?? null, metadata: (session.metadata ?? {}) as Record<string, string> },
+      paymentIntentId,
+      charge: null,
+      refunds: [],
+      disputes: [],
+    };
+    if (!paymentIntentId) return snap;
+    const pi = await this.client.paymentIntents.retrieve(paymentIntentId, { expand: ["latest_charge"] });
+    const charge = pi.latest_charge && typeof pi.latest_charge !== "string" ? pi.latest_charge : null;
+    if (charge) {
+      snap.charge = { id: charge.id, status: charge.status, amountMinor: charge.amount, amountRefundedMinor: charge.amount_refunded, currency: charge.currency, disputed: !!charge.disputed };
+      const refunds = await this.client.refunds.list({ charge: charge.id, limit: 100 });
+      snap.refunds = refunds.data.map((r) => ({ id: r.id, amountMinor: r.amount, currency: r.currency, status: String(r.status), key: (r.metadata?.hc_refund_key as string | undefined) ?? null, created: r.created }));
+    }
+    const disputes = await this.client.disputes.list({ payment_intent: paymentIntentId, limit: 100 });
+    snap.disputes = disputes.data.map((d) => ({ id: d.id, status: d.status, amountMinor: d.amount }));
+    return snap;
   }
 
   async listCards(customerId: string) {
@@ -237,7 +274,7 @@ class StripeProvider implements PaymentProvider {
 
   async chargeRefunds(chargeId: string) {
     const list = await this.client.refunds.list({ charge: chargeId, limit: 100 });
-    return list.data.map((r) => ({ id: r.id, amountMinor: r.amount, status: String(r.status) }));
+    return list.data.map((r) => ({ id: r.id, amountMinor: r.amount, status: String(r.status), key: (r.metadata?.hc_refund_key as string | undefined) ?? null }));
   }
 
   async paymentFee(paymentIntentId: string) {
@@ -504,6 +541,72 @@ export class StubProvider implements PaymentProvider {
   failNextTransfer: (Error & { code?: string; type?: string }) | null = null;
   /** Test hook: the next reverseTransfer throws this (then clears). */
   failNextReversal: (Error & { code?: string; type?: string }) | null = null;
+  /** D-10 test hooks for createRefund: "reject" throws a definite provider
+   * error (nothing refunded); "timeout" never answers; "lost_response" makes
+   * the refund at the provider and then throws a connection error (the
+   * response never reached us). Each applies to the next call, then clears. */
+  nextRefundFailure: "reject" | "timeout" | "lost_response" | null = null;
+  /** D-11 test hook: the next paymentSnapshot throws (provider unavailable). */
+  failNextSnapshot = false;
+  /** Checkout sessions the stub created: what each was asked to charge. */
+  private sessions = new Map<string, { amountTotal: number; currency: string; metadata: Record<string, string> }>();
+  /** Refunds per payment intent (D-10/D-11 snapshot), any status. */
+  private refundLists = new Map<string, { id: string; amountMinor: number; currency: string; status: string; key: string | null; created: number }[]>();
+  private disputesByPi = new Map<string, { id: string; status: string; amountMinor: number }[]>();
+
+  /** Test helper: what the provider reports for this session (an amount other than agreed → a mismatch). */
+  setSessionCharge(sessionId: string, amountMinor: number, currency = "eur", metadata?: Record<string, string>) {
+    const s = this.sessions.get(sessionId);
+    this.sessions.set(sessionId, { amountTotal: amountMinor, currency, metadata: metadata ?? s?.metadata ?? {} });
+  }
+  /** Test helper: a refund made outside HelloCircle (e.g. in the provider's dashboard). */
+  addExternalRefund(sessionId: string, amountMinor: number, status = "succeeded") {
+    const pi = `pi_stub_${sessionId}`;
+    const c = this.charges.get(pi);
+    if (!c) throw new Error("No such payment");
+    if (status === "succeeded" || status === "pending") c.refundedMinor += amountMinor;
+    const r = { id: `re_stub_${this.tag}${++this.seq}`, amountMinor, currency: "eur", status, key: null, created: Math.floor(Date.now() / 1000) };
+    this.refundLists.set(pi, [...(this.refundLists.get(pi) ?? []), r]);
+    return r;
+  }
+  /** Test helper: change a refund's status at the provider (e.g. pending → succeeded). */
+  setRefundStatus(refundId: string, status: string) {
+    for (const [pi, list] of this.refundLists) {
+      const r = list.find((x) => x.id === refundId);
+      if (!r) continue;
+      const c = this.charges.get(pi)!;
+      const counted = (st: string) => st === "succeeded" || st === "pending";
+      if (counted(r.status) && !counted(status)) c.refundedMinor -= r.amountMinor;
+      if (!counted(r.status) && counted(status)) c.refundedMinor += r.amountMinor;
+      r.status = status;
+    }
+  }
+  /** Test helper: open a dispute on the session's charge. */
+  addDispute(sessionId: string, status = "needs_response") {
+    const pi = `pi_stub_${sessionId}`;
+    const c = this.charges.get(pi);
+    const d = { id: `dp_stub_${this.tag}${++this.seq}`, status, amountMinor: c?.amountMinor ?? 0 };
+    this.disputesByPi.set(pi, [...(this.disputesByPi.get(pi) ?? []), d]);
+    return d;
+  }
+
+  async paymentSnapshot(sessionId: string): Promise<PaymentSnapshot> {
+    this.record("paymentSnapshot", { sessionId });
+    if (this.failNextSnapshot) {
+      this.failNextSnapshot = false;
+      throw Object.assign(new Error("Provider unavailable (stub)"), { type: "StripeConnectionError" });
+    }
+    const pi = `pi_stub_${sessionId}`;
+    const c = this.charges.get(pi);
+    const s = this.sessions.get(sessionId);
+    return {
+      session: { id: sessionId, amountTotal: s?.amountTotal ?? c?.amountMinor ?? null, currency: s?.currency ?? "eur", paymentStatus: c ? "paid" : "unpaid", metadata: s?.metadata ?? {} },
+      paymentIntentId: c ? pi : null,
+      charge: c ? { id: `ch_stub_${sessionId}`, status: "succeeded", amountMinor: c.amountMinor, amountRefundedMinor: c.refundedMinor, currency: s?.currency ?? "eur", disputed: (this.disputesByPi.get(pi) ?? []).length > 0 } : null,
+      refunds: [...(this.refundLists.get(pi) ?? [])],
+      disputes: [...(this.disputesByPi.get(pi) ?? [])],
+    };
+  }
 
   /** Test helper: make an event retrievable (as the provider would). */
   publishEvent(event: import("./webhookEvents.js").IncomingEvent) {
@@ -538,11 +641,17 @@ export class StubProvider implements PaymentProvider {
     this.reversalsByKey.clear();
     this.failNextTransfer = null;
     this.failNextReversal = null;
+    this.nextRefundFailure = null;
+    this.failNextSnapshot = false;
+    this.sessions.clear();
+    this.refundLists.clear();
+    this.disputesByPi.clear();
   }
 
   /** Test helper: record that a session was paid for `amountMinor`. */
   markPaid(sessionId: string, amountMinor: number) {
     this.charges.set(`pi_stub_${sessionId}`, { amountMinor, refundedMinor: 0 });
+    if (!this.sessions.has(sessionId)) this.sessions.set(sessionId, { amountTotal: amountMinor, currency: "eur", metadata: {} });
   }
 
   private record(method: string, args: unknown) {
@@ -552,7 +661,9 @@ export class StubProvider implements PaymentProvider {
   async createCheckoutSession(p: CheckoutSessionParams) {
     this.record("createCheckoutSession", p);
     // Same id shape the Phase 8 QA seam always used, so existing tests hold.
-    return { id: `cs_qa_stub_${p.metadata.ref ?? ++this.seq}`, url: null };
+    const id = `cs_qa_stub_${p.metadata.ref ?? ++this.seq}`;
+    this.sessions.set(id, { amountTotal: p.lineItems.reduce((a, l) => a + l.unitAmountMinor, 0), currency: p.currency.toLowerCase(), metadata: { ...p.metadata } });
+    return { id, url: null };
   }
 
   async createCustomer(email: string) {
@@ -574,8 +685,12 @@ export class StubProvider implements PaymentProvider {
 
   async createRefund(p: { paymentIntentId: string; amountMinor?: number; idempotencyKey: string; metadata: Record<string, string> }) {
     this.record("createRefund", p);
+    const failure = this.nextRefundFailure;
+    this.nextRefundFailure = null;
+    if (failure === "timeout") return new Promise<never>(() => undefined);
+    if (failure === "reject") throw Object.assign(new Error("Refund refused by the provider (stub)"), { type: "StripeInvalidRequestError", code: "charge_disputed" });
     const prior = this.refundsByKey.get(p.idempotencyKey);
-    if (prior) return prior; // provider-side idempotency
+    if (prior) return { ...prior, status: "succeeded" }; // provider-side idempotency
     const c = this.charges.get(p.paymentIntentId);
     if (!c) throw Object.assign(new Error("No such payment"), { code: "resource_missing" });
     const remaining = c.amountMinor - c.refundedMinor;
@@ -585,7 +700,10 @@ export class StubProvider implements PaymentProvider {
     c.refundedMinor += amount;
     const r = { id: `re_stub_${++this.seq}`, amountMinor: amount };
     this.refundsByKey.set(p.idempotencyKey, r);
-    return r;
+    const s = this.sessions.get(p.paymentIntentId.replace(/^pi_stub_/, ""));
+    this.refundLists.set(p.paymentIntentId, [...(this.refundLists.get(p.paymentIntentId) ?? []), { id: r.id, amountMinor: amount, currency: s?.currency ?? "eur", status: "succeeded", key: p.metadata.hc_refund_key ?? null, created: Math.floor(Date.now() / 1000) }]);
+    if (failure === "lost_response") throw Object.assign(new Error("Connection reset before the response (stub)"), { type: "StripeConnectionError" });
+    return { ...r, status: "succeeded" };
   }
 
   async listCards() {

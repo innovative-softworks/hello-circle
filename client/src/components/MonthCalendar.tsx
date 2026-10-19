@@ -2,6 +2,7 @@ import { useState, type ReactNode } from "react";
 import { ChevronLeftIcon, ChevronRightIcon } from "./icons";
 import { colors, fonts, radius } from "../theme";
 import { irelandToday } from "../irelandDate";
+import { useInWorkspace } from "./workspace/inWorkspace";
 
 // My Life calendar grid view (IA spec §9) — a real month grid over whatever
 // dated rows the caller already has (bookings/games today; nothing new is
@@ -14,6 +15,7 @@ const DOW_LABELS = ["S", "M", "T", "W", "T", "F", "S"];
 export function MonthCalendar({ items }: { items: { date: string; el: ReactNode }[] }) {
   const [monthOffset, setMonthOffset] = useState(0);
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
+  const inWorkspace = useInWorkspace();
 
   const base = new Date();
   const viewMonth = new Date(base.getFullYear(), base.getMonth() + monthOffset, 1);
@@ -32,11 +34,11 @@ export function MonthCalendar({ items }: { items: { date: string; el: ReactNode 
   return (
     <div>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
-        <button onClick={() => setMonthOffset((m) => m - 1)} aria-label="Previous month" style={{ background: colors.panel, border: "none", borderRadius: 10, width: 30, height: 30, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <button onClick={() => setMonthOffset((m) => m - 1)} aria-label="Previous month" style={{ background: colors.panel, border: "none", borderRadius: radius.control, width: 30, height: 30, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
           <ChevronLeftIcon size={14} />
         </button>
         <span style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 15 }}>{MONTH_NAMES[viewMonth.getMonth()]} {viewMonth.getFullYear()}</span>
-        <button onClick={() => setMonthOffset((m) => m + 1)} aria-label="Next month" style={{ background: colors.panel, border: "none", borderRadius: 10, width: 30, height: 30, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <button onClick={() => setMonthOffset((m) => m + 1)} aria-label="Next month" style={{ background: colors.panel, border: "none", borderRadius: radius.control, width: 30, height: 30, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
           <ChevronRightIcon size={14} />
         </button>
       </div>
@@ -57,7 +59,9 @@ export function MonthCalendar({ items }: { items: { date: string; el: ReactNode 
               key={i}
               onClick={() => setSelectedDate(count > 0 ? (isSelected ? null : dateStr) : null)}
               style={{
-                aspectRatio: "1",
+                // Square cells read well on a phone-width page; in a wide
+                // workspace they'd be ~160px tall, so cap the height there.
+                ...(inWorkspace ? { height: 64 } : { aspectRatio: "1" }),
                 border: isToday ? `1.5px solid ${colors.green}` : "1px solid transparent",
                 borderRadius: radius.control,
                 background: isSelected ? colors.green : count > 0 ? colors.greenBg : "transparent",

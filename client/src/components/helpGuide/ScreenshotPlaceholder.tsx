@@ -1,5 +1,5 @@
 import { CameraIcon } from "../icons";
-import { colors, fonts } from "../../theme";
+import { colors, fonts, radius } from "../../theme";
 
 // Placeholder slot for a real screenshot, dropped in later without any
 // layout change — pass `src` once one exists (e.g. "/illustrations/help/
@@ -23,7 +23,7 @@ export function ScreenshotPlaceholder({
       <img
         src={src}
         alt={alt ?? caption}
-        style={{ width: "100%", aspectRatio: aspect, objectFit: "cover", borderRadius: 10, border: `1px solid ${colors.border}`, display: "block", margin: "14px 0" }}
+        style={{ width: "100%", aspectRatio: aspect, objectFit: "cover", borderRadius: radius.control, border: `1px solid ${colors.border}`, display: "block", margin: "14px 0" }}
       />
     );
   }
@@ -32,7 +32,7 @@ export function ScreenshotPlaceholder({
       style={{
         width: "100%",
         aspectRatio: aspect,
-        borderRadius: 10,
+        borderRadius: radius.control,
         border: `1.5px dashed ${colors.borderStrong}`,
         background: colors.panel,
         display: "flex",

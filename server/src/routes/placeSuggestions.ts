@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import { Router } from "express";
 import { db } from "../db/index.js";
 import { BadRequestError, clientIdFrom } from "../util.js";
+import { latestPublicDecision } from "../moderationDecisions.js";
 
 // Community-contributed places (master-prompt punch list #4) — a resident
 // (or anonymous guest, same client-id pattern as reports.ts) suggests a
@@ -56,11 +57,16 @@ placeSuggestionsRouter.get("/mine", async (req, res) => {
     if (e instanceof BadRequestError) return res.status(400).json({ error: e.message });
     throw e;
   }
-  const rows = await db
+  const rows = (await db
     .prepare(
       `SELECT id, suggested_name as suggestedName, category, area, county, status, published_listing_id as publishedListingId, created_at as createdAt
        FROM place_suggestions WHERE client_id = ? ORDER BY created_at DESC`
     )
-    .all(clientId);
-  res.json(rows);
+    .all(clientId)) as { id: string; status: string }[];
+  // D-03 — a declined suggestion shows why (no internal note); older ones have none.
+  res.json(
+    await Promise.all(
+      rows.map(async (r) => ({ ...r, decision: r.status === "rejected" ? await latestPublicDecision("place_suggestion", r.id, ["place_suggestion.rejected"]) : null }))
+    )
+  );
 });

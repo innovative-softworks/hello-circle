@@ -1,7 +1,10 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { VendorAllOrders } from "./VendorAllOrders";
+import { BookingChangeHistory, ProposeChangeDialog } from "./workspace/BookingChangeParts";
 import { dateLabel } from "../euro";
 import {
   cancelVendorBooking,
+  proposeVendorBookingChange,
   cancelVendorRegistration,
   checkInBooking,
   fetchCheckInStatus,
@@ -14,7 +17,13 @@ import {
   resendRegistrationConfirmation,
 } from "../api";
 import { AwardIcon, CalendarIcon, CheckIcon, SearchIcon } from "./icons";
-import { Avatar, Button, ConfirmDialog, EmptyState, ManageCard as Card, Modal, tableStyle, tdStyle, thStyle } from "./ui";
+import { Avatar, Button, ConfirmDialog, EmptyState, LoadErrorState, ManageCard as Card, tableStyle, tdStyle, thStyle } from "./ui";
+import { Award, Building2, CalendarDays, List, ListChecks, X } from "lucide-react";
+import { ActionMenu } from "./ActionMenu";
+import { useToast } from "./Toast";
+import { RecordState, RecordView } from "./workspace/RecordView";
+import { AdminButton, Box, Facts, IconTabs, SearchField, SectionLabel, SelectField, Toolbar } from "./admin/adminUi";
+import { useRecordParam, useUrlParam } from "../useUrlTab";
 import { DemandSignalsView } from "./DemandSignals";
 import { VendorActionNeeded } from "./VendorActionNeeded";
 import { MonthCalendar } from "./MonthCalendar";
@@ -73,90 +82,53 @@ function CheckInButton({
   if (noShow && !checkedIn) {
     return (
       <span style={{ display: "flex", alignItems: "center", gap: 8, flex: "none" }}>
-        <span style={{ fontSize: 11, fontWeight: 700, color: colors.orangeDark, background: colors.orangeBg, borderRadius: radius.pill, padding: "3px 10px" }}>No-show</span>
-        <button onClick={handleClick} disabled={busy} style={{ fontSize: 11, fontWeight: 700, color: colors.muted, background: "none", border: "none", padding: 0, cursor: "pointer", textDecoration: "underline" }}>
+        <span className="adm-chip" data-tone="warn">No-show</span>
+        <AdminButton size="sm" variant="quiet" onClick={handleClick} disabled={busy}>
           {busy ? "…" : "Undo — they came"}
-        </button>
+        </AdminButton>
       </span>
     );
   }
 
   if (checkedIn) {
     return (
-      <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11, fontWeight: 700, color: colors.greenText, background: colors.greenBg, borderRadius: radius.pill, padding: "3px 10px", flex: "none" }}>
+      <span className="adm-chip" data-tone="good">
         <CheckIcon size={11} /> Checked in
       </span>
     );
   }
   return (
-    <span style={{ display: "flex", alignItems: "center", gap: 8, flex: "none" }}>
-      {error && <span style={{ fontSize: 10.5, color: colors.orangeDark }}>{error}</span>}
-      <button
-        onClick={handleClick}
-        disabled={busy}
-        style={{ fontSize: 11, fontWeight: 700, color: colors.muted, background: colors.panel, border: "none", borderRadius: radius.pill, padding: "3px 10px", cursor: "pointer", flex: "none" }}
-      >
+    <span style={{ display: "flex", alignItems: "center", gap: 6, flex: "none", flexWrap: "wrap" }}>
+      {error && <span className="adm-field-error">{error}</span>}
+      <AdminButton size="sm" onClick={handleClick} disabled={busy}>
         {busy ? "…" : "Check in"}
-      </button>
+      </AdminButton>
       {canMarkNoShow && (
-        <button
-          onClick={() => mark("no_show")}
-          disabled={busy}
-          style={{ fontSize: 11, fontWeight: 700, color: colors.muted, background: "none", border: "none", padding: 0, cursor: "pointer", textDecoration: "underline", flex: "none" }}
-        >
+        <AdminButton size="sm" variant="quiet" onClick={() => mark("no_show")} disabled={busy}>
           No-show
-        </button>
+        </AdminButton>
       )}
     </span>
-  );
-}
-
-// One-off, per-row "Resend confirmation" — small enough not to warrant a
-// full detail popup for registrations (which don't have one today).
-function ResendConfirmationButton({ onResend }: { onResend: () => Promise<void> }) {
-  const [busy, setBusy] = useState(false);
-  const [sent, setSent] = useState(false);
-
-  if (sent) return <span style={{ fontSize: 11, color: colors.greenText, fontWeight: 700 }}>Sent</span>;
-  return (
-    <button
-      disabled={busy}
-      onClick={async () => {
-        setBusy(true);
-        try {
-          await onResend();
-          setSent(true);
-        } finally {
-          setBusy(false);
-        }
-      }}
-      style={{ fontSize: 11, fontWeight: 700, color: colors.muted, background: colors.panel, border: "none", borderRadius: radius.pill, padding: "3px 10px", cursor: "pointer" }}
-    >
-      {busy ? "…" : "Resend"}
-    </button>
   );
 }
 
 type StatusFilter = "all" | "confirmed" | "cancelled";
 type WhenFilter = "all" | "upcoming" | "past";
 
-function filterPillStyle(active: boolean) {
-  return {
-    fontSize: 11.5,
-    fontWeight: 700,
-    padding: "4px 10px",
-    borderRadius: 999,
-    border: "none",
-    cursor: "pointer",
-    background: active ? colors.dark : colors.panel,
-    color: active ? "#fff" : colors.muted,
-  } as const;
-}
+const STATUS_OPTIONS: { value: StatusFilter; label: string }[] = [
+  { value: "all", label: "All statuses" },
+  { value: "confirmed", label: "Confirmed" },
+  { value: "cancelled", label: "Cancelled" },
+];
+const WHEN_OPTIONS: { value: WhenFilter; label: string }[] = [
+  { value: "upcoming", label: "Upcoming" },
+  { value: "past", label: "Past" },
+  { value: "all", label: "All dates" },
+];
 
-// Shared filter bar — applies to both the bookings and registrations
-// tables below. "When" only narrows bookings: a registration is a one-time
-// sign-up with no scheduled date of its own (same distinction
-// vendorOperations.ts's /today endpoint already draws).
+// One toolbar for both lists (bookings and registrations). "When" only
+// narrows bookings: a registration is a one-time sign-up with no date of its
+// own. Filters that differ from the default show as removable chips.
 function BookingsFilterBar({
   status,
   onStatus,
@@ -164,6 +136,7 @@ function BookingsFilterBar({
   onWhen,
   search,
   onSearch,
+  showWhen,
 }: {
   status: StatusFilter;
   onStatus: (v: StatusFilter) => void;
@@ -171,51 +144,67 @@ function BookingsFilterBar({
   onWhen: (v: WhenFilter) => void;
   search: string;
   onSearch: (v: string) => void;
+  showWhen: boolean;
 }) {
+  const chips: { label: string; clear: () => void }[] = [];
+  if (status !== "all") chips.push({ label: STATUS_OPTIONS.find((o) => o.value === status)!.label, clear: () => onStatus("all") });
+  if (showWhen && when !== "upcoming") chips.push({ label: WHEN_OPTIONS.find((o) => o.value === when)!.label, clear: () => onWhen("upcoming") });
+  if (search) chips.push({ label: `"${search}"`, clear: () => onSearch("") });
   return (
-    <Card style={{ display: "flex", flexWrap: "wrap", gap: 12, alignItems: "center" }}>
-      <div style={{ display: "flex", gap: 4 }}>
-        {(["all", "confirmed", "cancelled"] as const).map((s) => (
-          <button key={s} onClick={() => onStatus(s)} style={filterPillStyle(status === s)}>
-            {s === "all" ? "All" : s === "confirmed" ? "Confirmed" : "Cancelled"}
+    <div>
+      <Toolbar label="Filter bookings">
+        <SearchField label="Search" placeholder="Name or email" value={search} onChange={onSearch} />
+        <SelectField label="Status" value={status} onChange={onStatus} options={STATUS_OPTIONS} />
+        {showWhen && <SelectField label="When" value={when} onChange={onWhen} options={WHEN_OPTIONS} />}
+      </Toolbar>
+      {chips.length > 0 && (
+        <div className="ws-fchips" aria-label="Active filters">
+          {chips.map((c) => (
+            <button key={c.label} type="button" className="adm-chip ws-fchip" onClick={c.clear} aria-label={`Remove filter ${c.label}`}>
+              {c.label} <X size={12} aria-hidden="true" />
+            </button>
+          ))}
+          <button
+            type="button"
+            className="adm-linkish"
+            onClick={() => {
+              onStatus("all");
+              onWhen("upcoming");
+              onSearch("");
+            }}
+          >
+            Clear all
           </button>
-        ))}
-      </div>
-      <div style={{ display: "flex", gap: 4 }}>
-        {(["upcoming", "past", "all"] as const).map((w) => (
-          <button key={w} onClick={() => onWhen(w)} style={filterPillStyle(when === w)}>
-            {w === "all" ? "All dates" : w === "upcoming" ? "Upcoming" : "Past"}
-          </button>
-        ))}
-      </div>
-      <div style={{ display: "flex", alignItems: "center", gap: 6, flex: "1 1 200px", minWidth: 160 }}>
-        <SearchIcon size={13} style={{ color: colors.faint, flex: "none" }} />
-        <input
-          value={search}
-          onChange={(e) => onSearch(e.target.value)}
-          placeholder="Search name or email"
-          style={{ flex: 1, border: `1px solid ${colors.border}`, borderRadius: radius.control, padding: "6px 10px", fontSize: 12.5 }}
-        />
-      </div>
-    </Card>
+        </div>
+      )}
+    </div>
   );
 }
 
-function BulkActionBar({ count, onCheckIn, onCancel, busy }: { count: number; onCheckIn?: () => void; onCancel: () => void; busy: boolean }) {
+function BulkActionBar({ count, onCheckIn, onCancel, onClear, busy }: { count: number; onCheckIn?: () => void; onCancel: () => void; onClear: () => void; busy: boolean }) {
   if (count === 0) return null;
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 10, background: colors.panel, borderRadius: radius.control, padding: "8px 12px", marginBottom: 12 }}>
-      <span style={{ fontSize: 12.5, fontWeight: 700, color: colors.muted }}>{count} selected</span>
+    <div className="adm-bulk" role="region" aria-label="Bulk actions">
+      <span aria-live="polite">{count} selected</span>
       {onCheckIn && (
-        <Button variant="ghost" style={{ padding: "5px 12px", fontSize: 12 }} disabled={busy} onClick={onCheckIn}>
-          Check in selected
-        </Button>
+        <AdminButton size="sm" variant="primary" disabled={busy} onClick={onCheckIn}>
+          Check in {count}
+        </AdminButton>
       )}
-      <Button variant="ghost" style={{ padding: "5px 12px", fontSize: 12, color: colors.danger }} disabled={busy} onClick={onCancel}>
-        Cancel selected
-      </Button>
+      <AdminButton size="sm" variant="danger" disabled={busy} onClick={onCancel}>
+        Cancel {count}
+      </AdminButton>
+      <AdminButton size="sm" variant="quiet" disabled={busy} onClick={onClear}>
+        Clear selection
+      </AdminButton>
+      {busy && <span role="status">Working…</span>}
     </div>
   );
+}
+
+/** "Fri 16 Oct · 18:00" */
+function whenLabel(date: string, time?: string | null) {
+  return time ? `${dateLabel(date)} · ${time}` : dateLabel(date);
 }
 
 // Booking-detail timeline (Host Manage spec §10) — only steps this app
@@ -243,176 +232,235 @@ function TimelineStep({ label, achieved, time }: { label: string; achieved: bool
   );
 }
 
-function BookingDetailModal({ booking, onClose, onCancelled, onRefunded }: { booking: VendorBookingRow | null; onClose: () => void; onCancelled: (ref: string) => void; onRefunded: (ref: string) => void }) {
+/** Separate, labelled statuses for one hall booking — never one ambiguous badge. */
+function bookingStatusLabels(b: VendorBookingRow) {
+  const booking = b.status === "cancelled" ? { text: "Cancelled", tone: "danger" } : { text: "Confirmed", tone: "ok" };
+  const payment =
+    b.paymentStatus === "paid"
+      ? { text: b.hasStripePayment ? "Paid online" : "Paid", tone: "ok" }
+      : b.paymentStatus === "refunded"
+        ? { text: "Refunded", tone: "neutral" }
+        : b.paymentStatus === "pending"
+          ? { text: b.hasStripePayment ? "Awaiting online payment" : "Pay at venue", tone: "warn" }
+          : b.paymentStatus === "failed"
+            ? { text: "Payment failed", tone: "danger" }
+            : { text: b.paymentStatus, tone: "neutral" };
+  // A cancelled booking that was paid online and not refunded is waiting for its refund.
+  const refund = b.status === "cancelled" && b.paymentStatus === "paid" && b.hasStripePayment ? { text: "Refund pending", tone: "warn" } : null;
+  return { booking, payment, refund };
+}
+
+function StatusChip({ label, value }: { label: string; value: { text: string; tone: string } }) {
+  const style =
+    value.tone === "danger"
+      ? { color: colors.danger, background: colors.dangerBg }
+      : value.tone === "ok"
+        ? { color: colors.greenText, background: colors.greenBg }
+        : value.tone === "warn"
+          ? { color: colors.orangeDark, background: colors.orangeBg }
+          : { color: colors.text, background: colors.panel };
+  return (
+    <span style={{ display: "inline-flex", gap: 6, alignItems: "center", fontSize: 12.5 }}>
+      <span style={{ color: colors.mutedLight }}>{label}:</span>
+      <span style={{ ...style, fontWeight: 700, borderRadius: radius.pill, padding: "2px 8px" }}>{value.text}</span>
+    </span>
+  );
+}
+
+// Booking record page (was a modal). Addressed by `?record=booking:<ref>`, so
+// it can be shared and refreshed; "Back" returns to the filtered list.
+function BookingRecord({ booking, onBack, onCancelled, onRefunded }: { booking: VendorBookingRow; onBack: () => void; onCancelled: (ref: string) => void; onRefunded: (ref: string) => void }) {
   const [confirming, setConfirming] = useState(false);
   const [refundConfirming, setRefundConfirming] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [refundBusy, setRefundBusy] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [refundError, setRefundError] = useState<string | null>(null);
+  const [resendBusy, setResendBusy] = useState(false);
   const [resent, setResent] = useState(false);
   const [checkIn, setCheckIn] = useState<{ checkedIn: boolean; checkedInAt: string | null; cancelledAt: string | null } | null>(null);
+  const [checkInFailed, setCheckInFailed] = useState(false);
+  const [proposing, setProposing] = useState(false);
+  const [changesKey, setChangesKey] = useState(0);
 
+  const loadCheckIn = () => {
+    setCheckInFailed(false);
+    fetchCheckInStatus("booking", booking.ref)
+      .then(setCheckIn)
+      .catch(() => setCheckInFailed(true));
+  };
   useEffect(() => {
     setResent(false);
     setCheckIn(null);
-    if (booking) fetchCheckInStatus("booking", booking.ref).then(setCheckIn).catch(() => setCheckIn(null));
-  }, [booking?.ref]);
+    loadCheckIn();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [booking.ref]);
 
+  // Throwing keeps the confirmation open with the message (ConfirmDialog).
   const handleCancel = async () => {
-    if (!booking) return;
-    setBusy(true);
-    setError(null);
-    try {
-      const result = await cancelVendorBooking(booking.ref);
-      setConfirming(false);
-      onCancelled(booking.ref);
-      // The cancellation stands either way; a failed refund waits under "Action needed".
-      if (result.refund === "failed") setError(`Cancelled, but the refund didn't go through (${result.refundError ?? "provider error"}). It's listed under Action needed.`);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Couldn't cancel this booking");
-    } finally {
-      setBusy(false);
-    }
+    const result = await cancelVendorBooking(booking.ref);
+    setConfirming(false);
+    onCancelled(booking.ref);
+    // The cancellation stands either way; a failed refund waits under "Action needed".
+    if (result.refund === "failed") setNotice(`Cancelled, but the refund didn't go through (${result.refundError ?? "provider error"}). It's listed under Action needed.`);
+    else setNotice(result.refund === "refunded" ? "Booking cancelled and refunded in full." : "Booking cancelled. The guest has been notified.");
   };
-
   const handleRefund = async () => {
-    if (!booking) return;
-    setRefundBusy(true);
-    setRefundError(null);
-    try {
-      await refundVendorBooking(booking.ref);
-      setRefundConfirming(false);
-      onRefunded(booking.ref);
-    } catch (e) {
-      setRefundError(e instanceof Error ? e.message : "Couldn't issue this refund");
-    } finally {
-      setRefundBusy(false);
-    }
+    await refundVendorBooking(booking.ref);
+    setRefundConfirming(false);
+    onRefunded(booking.ref);
+    setNotice("Refund issued.");
   };
-
   const handleResend = async () => {
-    if (!booking) return;
     setError(null);
+    setResendBusy(true);
     try {
       await resendBookingConfirmation(booking.ref);
       setResent(true);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Couldn't resend the confirmation");
+    } finally {
+      setResendBusy(false);
     }
   };
 
-  const row = (label: string, value: ReactNode) => (
-    <div style={{ display: "flex", justifyContent: "space-between", gap: 12, padding: "9px 0", borderBottom: `1px solid ${colors.border}`, fontSize: 13.5 }}>
-      <span style={{ color: colors.mutedLight }}>{label}</span>
-      <span style={{ fontWeight: 600, textAlign: "right" }}>{value}</span>
-    </div>
-  );
+  const st = bookingStatusLabels(booking);
+  const canRefund = booking.paymentStatus === "paid" && Boolean(booking.hasStripePayment);
+  const total = `€${(booking.totalCents / 100).toFixed(2)}`;
 
   return (
-    <Modal
-      open={!!booking}
-      onClose={onClose}
-      title={booking ? booking.name : "Booking detail"}
-      subtitle={booking ? `${dateLabel(booking.date)} · ${booking.time} · ${booking.ref}` : undefined}
-      footer={
-        booking && (booking.status !== "cancelled" || (booking.paymentStatus === "paid" && booking.hasStripePayment)) ? (
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
-            {booking.status !== "cancelled" ? (
-              <button
-                onClick={() => setConfirming(true)}
-                style={{ background: "none", border: "none", color: colors.danger, fontWeight: 700, fontSize: 13, cursor: "pointer", padding: 0 }}
-              >
-                Cancel booking
-              </button>
-            ) : (
-              <span />
-            )}
-            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-              {booking.paymentStatus === "paid" && booking.hasStripePayment && (
-                <Button variant="ghost" onClick={() => setRefundConfirming(true)}>
-                  Issue refund
-                </Button>
-              )}
-              {booking.status !== "cancelled" && (
-                <Button onClick={handleResend} disabled={resent}>
-                  {resent ? "Confirmation resent" : "Resend confirmation"}
-                </Button>
-              )}
-            </div>
-          </div>
-        ) : undefined
+    <RecordView
+      title={booking.name}
+      reference={
+        <>
+          Hall booking · {dateLabel(booking.date)} · {booking.time} · <span className="adm-mono">{booking.ref}</span>
+        </>
+      }
+      backLabel="Bookings"
+      onBack={onBack}
+      statuses={
+        <>
+          <StatusChip label="Booking" value={st.booking} />
+          <StatusChip label="Payment" value={st.payment} />
+          {st.refund && <StatusChip label="Refund" value={st.refund} />}
+          <StatusChip label="Check-in" value={checkIn?.checkedIn ? { text: "Checked in", tone: "ok" } : { text: checkInFailed ? "Unknown" : "Not checked in", tone: "neutral" }} />
+        </>
+      }
+      actions={
+        <>
+          {booking.status !== "cancelled" && (
+            <Button variant="ghost" onClick={handleResend} disabled={resent || resendBusy} aria-busy={resendBusy || undefined}>
+              {resent ? "Confirmation resent" : resendBusy ? "Sending…" : "Resend confirmation"}
+            </Button>
+          )}
+          {canRefund && (
+            <Button variant="ghost" onClick={() => setRefundConfirming(true)}>
+              Issue refund
+            </Button>
+          )}
+          {booking.status !== "cancelled" && booking.paymentStatus === "paid" && (
+            <Button variant="ghost" onClick={() => setProposing(true)}>
+              Propose a new time
+            </Button>
+          )}
+          {booking.status !== "cancelled" && (
+            <Button onClick={() => setConfirming(true)} style={{ background: colors.dangerSolid }}>
+              Cancel booking
+            </Button>
+          )}
+        </>
       }
     >
-      {booking && (
-        <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+      {notice && (
+        <p role="status" style={{ background: colors.panel, padding: "10px 12px", margin: "0 0 16px", fontSize: 13.5 }}>
+          {notice}
+        </p>
+      )}
+      {error && (
+        <p role="alert" style={{ color: colors.danger, fontSize: 13.5, margin: "0 0 16px" }}>
+          {error}
+        </p>
+      )}
+      <div className="adm-record-grid">
+        <div>
+          <SectionLabel>Booking</SectionLabel>
+          <Facts
+            rows={[
+              ["Venue", booking.centreName],
+              ["Room", booking.roomName ?? "—"],
+              ["Date and time", `${dateLabel(booking.date)} · ${booking.time}`],
+              ["Duration", `${booking.duration} hour${booking.duration === 1 ? "" : "s"}`],
+              ["Event type", booking.eventType || "—"],
+              ["Guests", String(booking.guests)],
+              ["Notes", booking.notes || "—"],
+            ]}
+          />
+          <SectionLabel>Payment</SectionLabel>
+          <Facts
+            rows={[
+              ["Total", total],
+              ["How it was paid", booking.hasStripePayment ? "Online (Stripe)" : "At the venue / free"],
+              ["Payment status", st.payment.text],
+              ["Refund", booking.paymentStatus === "refunded" ? "Refunded" : st.refund ? "Pending — cancelled after online payment" : "None"],
+            ]}
+          />
+          <p className="adm-note" style={{ marginTop: 6 }}>
+            Settlement and payout to your bank are shown under Earnings; they aren't tracked per booking.
+          </p>
+        </div>
+        <div>
+          <SectionLabel>Guest</SectionLabel>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
             <Avatar name={booking.name} size={36} />
-            <div style={{ display: "flex", flexDirection: "column", gap: 2, fontSize: 13 }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: 2, fontSize: 13.5 }}>
               <a href={`mailto:${booking.email}`} style={{ color: colors.text, fontWeight: 600 }}>{booking.email}</a>
               {booking.phone && <a href={`tel:${booking.phone}`} style={{ color: colors.mutedLight }}>{booking.phone}</a>}
             </div>
           </div>
-
-          <div>
-            <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: 0, textTransform: "uppercase", color: colors.mutedLight, marginBottom: 4 }}>Timeline</div>
-            <TimelineStep label="Booked" achieved time={booking.createdAt} />
-            <TimelineStep label="Payment received" achieved={booking.paymentStatus === "paid"} />
-            <TimelineStep label="Checked in" achieved={!!checkIn?.checkedIn} time={checkIn?.checkedInAt} />
-            {booking.status === "cancelled" && <TimelineStep label="Cancelled" achieved time={checkIn?.cancelledAt} />}
-          </div>
-
-          <div>
-            {row("Ref", booking.ref)}
-            {row("Centre", booking.centreName)}
-            {row("Room", booking.roomName ?? "—")}
-            {row("Date / time", `${dateLabel(booking.date)} · ${booking.time}`)}
-            {row("Duration", `${booking.duration}h`)}
-            {row("Event type", booking.eventType || "—")}
-            {row("Guests", booking.guests)}
-            {row("Notes", booking.notes || "—")}
-            {row("Total", `€${(booking.totalCents / 100).toFixed(2)}`)}
-            {row("Payment", booking.paymentStatus)}
-            {row(
-              "Status",
-              booking.status === "cancelled" ? (
-                <span style={{ fontSize: 11, fontWeight: 700, color: colors.danger, background: colors.dangerBg, borderRadius: radius.pill, padding: "2px 8px" }}>Cancelled</span>
-              ) : (
-                <span style={{ fontSize: 11, fontWeight: 700, color: colors.greenText, background: colors.greenBg, borderRadius: radius.pill, padding: "2px 8px" }}>Confirmed</span>
-              )
-            )}
-          </div>
-
-          {error && !confirming && (
-            <p role="alert" style={{ color: colors.danger, fontSize: 13, margin: 0 }}>
-              {error}
+          <SectionLabel>History</SectionLabel>
+          <TimelineStep label="Booked" achieved time={booking.createdAt} />
+          <TimelineStep label="Payment received" achieved={booking.paymentStatus === "paid" || booking.paymentStatus === "refunded"} />
+          <TimelineStep label="Checked in" achieved={!!checkIn?.checkedIn} time={checkIn?.checkedInAt} />
+          {booking.status === "cancelled" && <TimelineStep label="Cancelled" achieved time={checkIn?.cancelledAt} />}
+          {booking.paymentStatus === "refunded" && <TimelineStep label="Refunded" achieved />}
+          {checkInFailed && (
+            <p role="alert" style={{ fontSize: 13, color: colors.danger, margin: "8px 0 0" }}>
+              Couldn't load check-in history.{" "}
+              <button type="button" className="btn-reset" onClick={loadCheckIn} style={{ textDecoration: "underline", fontWeight: 600 }}>
+                Try again
+              </button>
             </p>
           )}
         </div>
-      )}
+      </div>
+      <div style={{ marginTop: 20 }}>
+        <BookingChangeHistory bookingRef={booking.ref} refreshKey={changesKey} canWithdraw={booking.status !== "cancelled"} />
+      </div>
+      <ProposeChangeDialog
+        open={proposing}
+        onClose={() => setProposing(false)}
+        current={{ date: booking.date, time: booking.time }}
+        onPropose={async (input) => {
+          await proposeVendorBookingChange(booking.ref, input);
+          setChangesKey((k) => k + 1);
+        }}
+      />
       <ConfirmDialog
         open={confirming}
-        title="Cancel this booking?"
-        message="The guest will be notified. If they paid online, they're refunded in full automatically."
-        confirmLabel={busy ? "Cancelling…" : "Cancel booking"}
-        busy={busy}
+        title={`Cancel ${booking.name}'s booking?`}
+        message={`${dateLabel(booking.date)} · ${booking.time} · ${booking.centreName}. The guest is notified. ${booking.hasStripePayment && booking.paymentStatus === "paid" ? `They paid ${total} online, so they're refunded in full automatically.` : "Nothing was paid online, so there's nothing to refund."}`}
+        confirmLabel="Cancel booking"
+        cancelLabel="Keep booking"
         onConfirm={handleCancel}
         onCancel={() => setConfirming(false)}
-      >
-        {error && <p style={{ color: colors.danger, fontSize: 13 }}>{error}</p>}
-      </ConfirmDialog>
+      />
       <ConfirmDialog
         open={refundConfirming}
-        title="Issue a refund?"
-        message={`This refunds ${booking ? `€${(booking.totalCents / 100).toFixed(2)}` : "the full amount"} to the guest via Stripe — this can't be undone.`}
-        confirmLabel={refundBusy ? "Refunding…" : "Issue refund"}
-        busy={refundBusy}
+        title={`Refund ${total} to ${booking.name}?`}
+        message="This refunds whatever is still refundable on this booking through Stripe. It can't be undone, and it doesn't cancel the booking."
+        confirmLabel="Issue refund"
         onConfirm={handleRefund}
         onCancel={() => setRefundConfirming(false)}
-      >
-        {refundError && <p style={{ color: colors.danger, fontSize: 13 }}>{refundError}</p>}
-      </ConfirmDialog>
-    </Modal>
+      />
+    </RecordView>
   );
 }
 
@@ -424,12 +472,17 @@ function BookingDetailModal({ booking, onClose, onCancelled, onRefunded }: { boo
 export function BookingsTab({ centreId, clubId }: { centreId?: string; clubId?: string } = {}) {
   const [bookings, setBookings] = useState<VendorBookingRow[]>([]);
   const [registrations, setRegistrations] = useState<(MyRegistration & { email: string; phone: string })[]>([]);
-  const [view, setView] = useState<"list" | "calendar">("list");
-  const [openRef, setOpenRef] = useState<string | null>(null);
+  const [view, setView] = useUrlParam<"list" | "calendar">("bview", "list");
+  // The open booking is a page addressed by the URL (`?record=booking:<ref>`).
+  const [record, openRecord, closeRecord] = useRecordParam();
+  const openRef = record?.startsWith("booking:") ? record.slice(8) : null;
+  const setOpenRef = (ref: string | null) => (ref ? openRecord(`booking:${ref}`) : closeRecord());
+  const [loaded, setLoaded] = useState({ bookings: false, registrations: false });
+  const [loadError, setLoadError] = useState<{ bookings: boolean; registrations: boolean }>({ bookings: false, registrations: false });
 
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
-  const [whenFilter, setWhenFilter] = useState<WhenFilter>("upcoming");
-  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useUrlParam<StatusFilter>("bstatus", "all");
+  const [whenFilter, setWhenFilter] = useUrlParam<WhenFilter>("bwhen", "upcoming");
+  const [search, setSearch] = useUrlParam<string>("bq", "");
 
   const [checkedInRefs, setCheckedInRefs] = useState<Set<string>>(new Set());
   const [noShowRefs, setNoShowRefs] = useState<Set<string>>(new Set());
@@ -444,6 +497,23 @@ export function BookingsTab({ centreId, clubId }: { centreId?: string; clubId?: 
 
   const showBookings = !clubId;
   const showRegistrations = !centreId;
+  const toast = useToast();
+  // Hall bookings / Club registrations are tabs when both apply.
+  const [section, setSection] = useUrlParam<"all" | "bookings" | "registrations">("bsec", "bookings");
+  // OG-13 — "All orders" only on the top-level Bookings page (not a single listing's).
+  const showAll = !centreId && !clubId && section === "all";
+  const showBookingsSection = !showAll && showBookings && (!showRegistrations || section === "bookings");
+  const showRegistrationsSection = !showAll && showRegistrations && (!showBookings || section === "registrations");
+  const viewToggle = (
+    <div className="ws-seg" role="group" aria-label="Show hall bookings as">
+      {(["list", "calendar"] as const).map((v) => (
+        <button key={v} type="button" aria-pressed={view === v} onClick={() => setView(v)}>
+          {v === "list" ? <List size={15} aria-hidden="true" /> : <CalendarDays size={15} aria-hidden="true" />}
+          {v === "list" ? "List" : "Month"}
+        </button>
+      ))}
+    </div>
+  );
 
   // Preload recorded attendance (Release 3) so check-ins and no-shows from
   // an earlier visit or the QR scanner show up, instead of an empty state.
@@ -460,17 +530,29 @@ export function BookingsTab({ centreId, clubId }: { centreId?: string; clubId?: 
     });
   };
 
-  useEffect(() => {
-    if (showBookings)
-      fetchVendorBookings(centreId).then((rows) => {
+  const loadBookings = () => {
+    setLoadError((e) => ({ ...e, bookings: false }));
+    fetchVendorBookings(centreId)
+      .then((rows) => {
         setBookings(rows);
         preloadAttendance("booking", rows);
-      });
-    if (showRegistrations)
-      fetchVendorRegistrations(clubId).then((rows) => {
+        setLoaded((l) => ({ ...l, bookings: true }));
+      })
+      .catch(() => setLoadError((e) => ({ ...e, bookings: true })));
+  };
+  const loadRegistrations = () => {
+    setLoadError((e) => ({ ...e, registrations: false }));
+    fetchVendorRegistrations(clubId)
+      .then((rows) => {
         setRegistrations(rows);
         preloadAttendance("registration", rows);
-      });
+        setLoaded((l) => ({ ...l, registrations: true }));
+      })
+      .catch(() => setLoadError((e) => ({ ...e, registrations: true })));
+  };
+  useEffect(() => {
+    if (showBookings) loadBookings();
+    if (showRegistrations) loadRegistrations();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [centreId, clubId]);
 
@@ -602,290 +684,280 @@ export function BookingsTab({ centreId, clubId }: { centreId?: string; clubId?: 
     </button>
   );
 
-  // Vendor Experience Polish — mobile card fallback for the bookings table
-  // below (`.hide-mobile`/`.mobile-cards`, see index.css). Tapping a card
-  // opens the same detail popup the desktop row does — that's the "primary
-  // contextual action" plus every secondary action (resend/refund/cancel/
-  // check-in) in one place, so this doesn't need its own "•••" menu.
-  // Bulk multi-select isn't carried into the card view (harder to hit
-  // targets reliably on a phone, and every action is one tap away in the
-  // popup regardless) — desktop/tablet keep it via the table.
-  const bookingCard = (b: VendorBookingRow) => (
-    <Card key={b.ref} onClick={() => setOpenRef(b.ref)} style={{ cursor: "pointer", opacity: b.status === "cancelled" ? 0.55 : 1 }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 8 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <Avatar name={b.name} size={28} />
-          <div>
-            <button type="button" className="btn-reset" onClick={(e) => { e.stopPropagation(); setOpenRef(b.ref); }} aria-label={`Open booking for ${b.name}`} style={{ fontWeight: 700, fontSize: 13.5 }}>{b.name}</button>
-            <div style={{ fontSize: 11.5, color: colors.mutedLight }}>{b.roomName ? `${b.centreName} — ${b.roomName}` : b.centreName}</div>
-          </div>
-        </div>
-        {b.status === "cancelled" ? (
-          <span style={{ fontSize: 11, fontWeight: 700, color: colors.danger, background: colors.dangerBg, borderRadius: radius.pill, padding: "2px 8px", flex: "none" }}>Cancelled</span>
-        ) : (
-          <span style={{ fontSize: 11, fontWeight: 700, color: colors.greenText, background: colors.greenBg, borderRadius: radius.pill, padding: "2px 8px", flex: "none" }}>Confirmed</span>
-        )}
-      </div>
-      <div style={{ fontSize: 12.5, color: colors.muted, marginBottom: 8 }}>{b.date} · {b.time}</div>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-        <span style={{ fontWeight: 700, fontSize: 14 }}>€{(b.totalCents / 100).toFixed(2)}</span>
-        {b.paymentStatus === "refunded" && (
-          <span style={{ fontSize: 11, fontWeight: 700, color: colors.muted, background: colors.panel, borderRadius: radius.pill, padding: "2px 8px" }}>Refunded</span>
-        )}
-      </div>
-    </Card>
+  const resend = async (kind: "booking" | "registration", ref: string) => {
+    try {
+      await (kind === "booking" ? resendBookingConfirmation(ref) : resendRegistrationConfirmation(ref));
+      toast.success("Confirmation sent again");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Couldn't resend the confirmation");
+    }
+  };
+
+  const checkIn = (kind: "booking" | "registration", ref: string, canMarkNoShow: boolean) => (
+    <CheckInButton
+      kind={kind}
+      reference={ref}
+      checkedIn={checkedInRefs.has(`${kind}:${ref}`)}
+      noShow={noShowRefs.has(`${kind}:${ref}`)}
+      canMarkNoShow={canMarkNoShow}
+      onChecked={(r) => markCheckedIn(kind, r)}
+      onNoShow={(r) => markNoShow(kind, r)}
+    />
   );
 
-  // Vendor Experience Polish — mobile card fallback for the registrations
-  // table below. Registrations have no detail popup (unlike bookings), so
-  // every action stays visible on the card itself rather than being tucked
-  // behind a "•••" that would hide the only way to reach it.
-  const registrationCard = (r: MyRegistration & { email: string; phone: string }) => (
-    <Card key={r.ref} style={{ opacity: r.status === "cancelled" ? 0.55 : 1 }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 8 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <Avatar name={`${r.childFirst} ${r.childLast}`} size={28} />
-          <div>
-            <div style={{ fontWeight: 700, fontSize: 13.5 }}>{r.childFirst} {r.childLast}</div>
-            <div style={{ fontSize: 11.5, color: colors.mutedLight }}>{r.clubName}</div>
-          </div>
-        </div>
-        {r.status === "cancelled" ? (
-          <span style={{ fontSize: 11, fontWeight: 700, color: colors.danger, background: colors.dangerBg, borderRadius: radius.pill, padding: "2px 8px", flex: "none" }}>Cancelled</span>
-        ) : (
-          <span style={{ fontSize: 11, fontWeight: 700, color: colors.greenText, background: colors.greenBg, borderRadius: radius.pill, padding: "2px 8px", flex: "none" }}>Confirmed</span>
-        )}
-      </div>
-      <div style={{ fontSize: 12, color: colors.mutedLight, marginBottom: 8 }}>{r.email}, {r.phone}</div>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
-        <span style={{ fontWeight: 700, fontSize: 14 }}>€{(r.totalCents / 100).toFixed(2)}</span>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-          {r.paymentStatus === "refunded" && (
-            <span style={{ fontSize: 11, fontWeight: 700, color: colors.muted, background: colors.panel, borderRadius: radius.pill, padding: "2px 8px" }}>Refunded</span>
-          )}
-          {r.status !== "cancelled" && (
-            <>
-              <CheckInButton
-                kind="registration"
-                reference={r.ref}
-                checkedIn={checkedInRefs.has(`registration:${r.ref}`)}
-                noShow={noShowRefs.has(`registration:${r.ref}`)}
-                canMarkNoShow
-                onChecked={(ref) => markCheckedIn("registration", ref)}
-                onNoShow={(ref) => markNoShow("registration", ref)}
-              />
-              <ResendConfirmationButton onResend={() => resendRegistrationConfirmation(r.ref).then(() => {})} />
-              {r.paymentStatus === "paid" && r.hasStripePayment && (
-                <button
-                  onClick={() => setRefundRegistrationRef(r.ref)}
-                  style={{ fontSize: 11, fontWeight: 700, color: colors.muted, background: colors.panel, border: "none", borderRadius: radius.pill, padding: "3px 10px", cursor: "pointer" }}
-                >
-                  Refund
-                </button>
-              )}
-              <button
-                onClick={() => setBulkCancelTarget({ kind: "registration", refs: [r.ref] })}
-                style={{ fontSize: 11, fontWeight: 700, color: colors.danger, background: "none", border: "none", cursor: "pointer" }}
-              >
-                Cancel
-              </button>
-            </>
-          )}
-        </div>
-      </div>
-    </Card>
-  );
+  const selectAll = (rows: { ref: string; status: string }[], selected: Set<string>, set: React.Dispatch<React.SetStateAction<Set<string>>>) => {
+    const open = rows.filter((r) => r.status !== "cancelled").map((r) => r.ref);
+    const all = open.length > 0 && open.every((r) => selected.has(r));
+    return (
+      <input
+        type="checkbox"
+        aria-label={all ? "Clear selection" : "Select all"}
+        checked={all}
+        disabled={open.length === 0}
+        onChange={() => set(all ? new Set() : new Set(open))}
+      />
+    );
+  };
+
+  if (openRef) {
+    if (loadError.bookings && !loaded.bookings) return <RecordState state="error" backLabel="Bookings" onBack={closeRecord} onRetry={loadBookings} />;
+    if (!loaded.bookings) return <RecordState state="loading" backLabel="Bookings" onBack={closeRecord} />;
+    if (!openBooking) return <RecordState state="missing" backLabel="Bookings" onBack={closeRecord} message="It may belong to another organisation, or the reference is wrong." />;
+    return <BookingRecord booking={openBooking} onBack={closeRecord} onCancelled={handleCancelled} onRefunded={handleRefunded} />;
+  }
 
   return (
-    <div className="fade-panel" style={{ display: "flex", flexDirection: "column", gap: 24 }}>
+    <div className="fade-panel" style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       {/* Booking UX Phase 6 — refunds and deposits still owed, across every order type (org-wide view only). */}
       {!centreId && !clubId && <VendorActionNeeded />}
-      <BookingsFilterBar status={statusFilter} onStatus={setStatusFilter} when={whenFilter} onWhen={setWhenFilter} search={search} onSearch={setSearch} />
-      {bulkError && <p style={{ color: colors.danger, fontSize: 13 }}>{bulkError}</p>}
-
-      {showBookings && (
-      <Card>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
-          <h4 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 16, margin: 0 }}>Hall bookings</h4>
-          <div style={{ display: "flex", gap: 6 }}>
-            {(["list", "calendar"] as const).map((v) => (
-              <button
-                key={v}
-                onClick={() => setView(v)}
-                style={{
-                  border: "none", borderRadius: radius.pill, padding: "6px 14px", fontSize: 12.5, fontWeight: 700, cursor: "pointer", textTransform: "capitalize",
-                  background: view === v ? colors.dark : colors.panel, color: view === v ? "#fff" : colors.muted,
-                }}
-              >
-                {v}
-              </button>
-            ))}
-          </div>
-        </div>
-        {filteredBookings.length === 0 ? (
-          <EmptyState icon={<CalendarIcon size={26} />} title={bookings.length === 0 ? "No bookings yet" : "No bookings match these filters"} />
-        ) : view === "calendar" ? (
-          <MonthCalendar items={filteredBookings.map((b) => ({ date: b.date, el: bookingRow(b) }))} />
-        ) : (
-          <>
-            <BulkActionBar
-              count={selectedBookings.size}
-              busy={bulkBusy}
-              onCheckIn={() => handleBulkCheckIn("booking", [...selectedBookings])}
-              onCancel={() => setBulkCancelTarget({ kind: "booking", refs: [...selectedBookings] })}
-            />
-            <div className="mobile-cards">{filteredBookings.map(bookingCard)}</div>
-            <div className="hide-mobile" style={{ overflowX: "auto" }}>
-              <table style={tableStyle}>
-                <thead>
-                  <tr>
-                    <th style={thStyle} />
-                    <th style={thStyle}>Guest</th>
-                    <th style={thStyle}>Centre</th>
-                    <th style={thStyle}>Date/Time</th>
-                    <th style={thStyle}>Contact</th>
-                    <th style={thStyle}>Status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredBookings.map((b) => (
-                    <tr key={b.ref} onClick={() => setOpenRef(b.ref)} style={{ opacity: b.status === "cancelled" ? 0.55 : 1, cursor: "pointer" }}>
-                      <td style={tdStyle} onClick={(e) => e.stopPropagation()}>
-                        {b.status !== "cancelled" && (
-                          <input type="checkbox" checked={selectedBookings.has(b.ref)} onChange={() => toggleSelected(setSelectedBookings, b.ref)} />
-                        )}
-                      </td>
-                      <td style={tdStyle}>
-                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                          <Avatar name={b.name} size={24} />
-                          {/* HC-QA-066 — keyboard path to the same detail the row click opens. */}
-                          <button type="button" className="btn-reset" onClick={(e) => { e.stopPropagation(); setOpenRef(b.ref); }} aria-label={`Open booking for ${b.name}`} style={{ fontWeight: 600 }}>{b.name}</button>
-                        </div>
-                      </td>
-                      <td style={tdStyle}>{b.roomName ? `${b.centreName} — ${b.roomName}` : b.centreName}</td>
-                      <td style={{ ...tdStyle, whiteSpace: "nowrap" }}>{b.date} {b.time}</td>
-                      <td style={{ ...tdStyle, color: colors.mutedLight }}>{b.email}, {b.phone}</td>
-                      <td style={tdStyle} onClick={(e) => e.stopPropagation()}>
-                        <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-                          {b.status === "cancelled" ? (
-                            <span style={{ fontSize: 11, fontWeight: 700, color: colors.danger, background: colors.dangerBg, borderRadius: radius.pill, padding: "2px 8px" }}>Cancelled</span>
-                          ) : (
-                            <CheckInButton
-                              kind="booking"
-                              reference={b.ref}
-                              checkedIn={checkedInRefs.has(`booking:${b.ref}`)}
-                              noShow={noShowRefs.has(`booking:${b.ref}`)}
-                              canMarkNoShow={b.date <= today}
-                              onChecked={(ref) => markCheckedIn("booking", ref)}
-                              onNoShow={(ref) => markNoShow("booking", ref)}
-                            />
-                          )}
-                          {b.paymentStatus === "refunded" && (
-                            <span style={{ fontSize: 11, fontWeight: 700, color: colors.muted, background: colors.panel, borderRadius: radius.pill, padding: "2px 8px" }}>Refunded</span>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </>
-        )}
-      </Card>
+      {!showAll && <BookingsFilterBar
+        status={statusFilter}
+        onStatus={setStatusFilter}
+        when={whenFilter}
+        onWhen={setWhenFilter}
+        search={search}
+        onSearch={setSearch}
+        showWhen={showBookingsSection}
+      />}
+      {bulkError && (
+        <p role="alert" className="adm-field-error" style={{ margin: 0 }}>
+          {bulkError}
+        </p>
       )}
-      {showBookings && <BookingDetailModal booking={openBooking} onClose={() => setOpenRef(null)} onCancelled={handleCancelled} onRefunded={handleRefunded} />}
-      {showRegistrations && (
-      <Card>
-        <h4 style={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 16, margin: "0 0 14px" }}>Club registrations</h4>
-        {filteredRegistrations.length === 0 ? (
-          <EmptyState icon={<AwardIcon size={26} />} title={registrations.length === 0 ? "No registrations yet" : "No registrations match these filters"} />
-        ) : (
-          <>
-            <BulkActionBar
-              count={selectedRegistrations.size}
-              busy={bulkBusy}
-              onCheckIn={() => handleBulkCheckIn("registration", [...selectedRegistrations])}
-              onCancel={() => setBulkCancelTarget({ kind: "registration", refs: [...selectedRegistrations] })}
-            />
-            <div className="mobile-cards">{filteredRegistrations.map(registrationCard)}</div>
-            <div className="hide-mobile" style={{ overflowX: "auto" }}>
-              <table style={tableStyle}>
-                <thead>
-                  <tr>
-                    <th style={thStyle} />
-                    <th style={thStyle}>Registrant</th>
-                    <th style={thStyle}>Club</th>
-                    <th style={thStyle}>Contact</th>
-                    <th style={thStyle}>Status</th>
-                    <th style={thStyle}></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredRegistrations.map((r) => (
-                    <tr key={r.ref} style={{ opacity: r.status === "cancelled" ? 0.55 : 1 }}>
-                      <td style={tdStyle}>
-                        {r.status !== "cancelled" && (
-                          <input type="checkbox" checked={selectedRegistrations.has(r.ref)} onChange={() => toggleSelected(setSelectedRegistrations, r.ref)} />
-                        )}
-                      </td>
-                      <td style={tdStyle}>
-                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                          <Avatar name={`${r.childFirst} ${r.childLast}`} size={24} />
-                          {r.childFirst} {r.childLast}
-                        </div>
-                      </td>
-                      <td style={tdStyle}>{r.clubName}</td>
-                      <td style={{ ...tdStyle, color: colors.mutedLight }}>{r.email}, {r.phone}</td>
-                      <td style={tdStyle}>
-                        <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-                          {r.status === "cancelled" ? (
-                            <span style={{ fontSize: 11, fontWeight: 700, color: colors.danger, background: colors.dangerBg, borderRadius: radius.pill, padding: "2px 8px" }}>Cancelled</span>
-                          ) : (
-                            <CheckInButton
-                kind="registration"
-                reference={r.ref}
-                checkedIn={checkedInRefs.has(`registration:${r.ref}`)}
-                noShow={noShowRefs.has(`registration:${r.ref}`)}
-                canMarkNoShow
-                onChecked={(ref) => markCheckedIn("registration", ref)}
-                onNoShow={(ref) => markNoShow("registration", ref)}
-              />
-                          )}
-                          {r.paymentStatus === "refunded" && (
-                            <span style={{ fontSize: 11, fontWeight: 700, color: colors.muted, background: colors.panel, borderRadius: radius.pill, padding: "2px 8px" }}>Refunded</span>
-                          )}
-                        </div>
-                      </td>
-                      <td style={tdStyle}>
-                        {r.status !== "cancelled" && (
-                          <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                            <ResendConfirmationButton onResend={() => resendRegistrationConfirmation(r.ref).then(() => {})} />
-                            {r.paymentStatus === "paid" && r.hasStripePayment && (
-                              <button
-                                onClick={() => setRefundRegistrationRef(r.ref)}
-                                style={{ fontSize: 11, fontWeight: 700, color: colors.muted, background: colors.panel, border: "none", borderRadius: radius.pill, padding: "3px 10px", cursor: "pointer" }}
-                              >
-                                Refund
-                              </button>
-                            )}
-                            <button
-                              onClick={() => setBulkCancelTarget({ kind: "registration", refs: [r.ref] })}
-                              style={{ fontSize: 11, fontWeight: 700, color: colors.danger, background: "none", border: "none", cursor: "pointer" }}
-                            >
-                              Cancel
-                            </button>
-                          </div>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+
+      {showBookings && showRegistrations && (
+        <div className="ws-tabrow">
+          <IconTabs
+            label="Bookings and registrations"
+            value={section}
+            onChange={setSection}
+            items={[
+              ...(!centreId && !clubId ? [{ key: "all" as const, label: "All orders", icon: ListChecks }] : []),
+              { key: "bookings", label: "Hall bookings", icon: Building2, count: loaded.bookings ? filteredBookings.length : undefined },
+              { key: "registrations", label: "Club registrations", icon: Award, count: loaded.registrations ? filteredRegistrations.length : undefined },
+            ]}
+          />
+          {section === "bookings" && viewToggle}
+        </div>
+      )}
+      {showBookings && !showRegistrations && <div className="ws-tabrow ws-tabrow--end">{viewToggle}</div>}
+      {showAll && (
+        <VendorAllOrders
+          onOpenBooking={(ref) => setOpenRef(ref)}
+          onOpenRegistration={(ref) => {
+            setSection("registrations");
+            setSearch(ref);
+          }}
+        />
+      )}
+
+      {showBookingsSection && (
+        <Box flush>
+          {loadError.bookings ? (
+            <div style={{ padding: 16 }}>
+              <LoadErrorState title="Couldn't load hall bookings." onRetry={loadBookings} />
             </div>
-          </>
-        )}
-      </Card>
+          ) : !loaded.bookings ? (
+            <p role="status" aria-busy="true" className="adm-note" style={{ padding: 16, margin: 0 }}>
+              Loading bookings…
+            </p>
+          ) : filteredBookings.length === 0 ? (
+            <EmptyState icon={<CalendarIcon size={22} />} title={bookings.length === 0 ? "No bookings yet" : "No bookings match these filters"} />
+          ) : view === "calendar" ? (
+            <div style={{ padding: 16 }}>
+              <MonthCalendar items={filteredBookings.map((b) => ({ date: b.date, el: bookingRow(b) }))} />
+            </div>
+          ) : (
+            <>
+              <BulkActionBar
+                count={selectedBookings.size}
+                busy={bulkBusy}
+                onCheckIn={() => handleBulkCheckIn("booking", [...selectedBookings])}
+                onCancel={() => setBulkCancelTarget({ kind: "booking", refs: [...selectedBookings] })}
+                onClear={() => setSelectedBookings(new Set())}
+              />
+              <div className="adm-table-wrap">
+                <table className="adm-table adm-table--stack">
+                  <caption className="adm-visually-hidden">Hall bookings</caption>
+                  <thead>
+                    <tr>
+                      <th scope="col" className="adm-col-check">
+                        {selectAll(filteredBookings, selectedBookings, setSelectedBookings)}
+                      </th>
+                      <th scope="col">Guest</th>
+                      <th scope="col">Space</th>
+                      <th scope="col">When</th>
+                      <th scope="col">Email</th>
+                      <th scope="col">Status</th>
+                      <th scope="col">
+                        <span className="adm-visually-hidden">Actions</span>
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredBookings.map((b) => {
+                      const cancelled = b.status === "cancelled";
+                      return (
+                        <tr key={b.ref} data-clickable="true" onClick={() => setOpenRef(b.ref)} style={{ opacity: cancelled ? 0.6 : 1 }}>
+                          <td className="adm-col-check" onClick={(e) => e.stopPropagation()}>
+                            {!cancelled && (
+                              <input type="checkbox" aria-label={`Select booking for ${b.name}`} checked={selectedBookings.has(b.ref)} onChange={() => toggleSelected(setSelectedBookings, b.ref)} />
+                            )}
+                          </td>
+                          <td data-label="Guest">
+                            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                              <Avatar name={b.name} size={24} />
+                              {/* HC-QA-066 — keyboard path to the same detail the row click opens. */}
+                              <button type="button" className="btn-reset" onClick={(e) => { e.stopPropagation(); setOpenRef(b.ref); }} aria-label={`Open booking for ${b.name}`} style={{ fontWeight: 600 }}>
+                                {b.name}
+                              </button>
+                            </div>
+                          </td>
+                          <td data-label="Space">
+                            {b.roomName ?? b.centreName}
+                            {b.roomName && <div className="adm-note">{b.centreName}</div>}
+                          </td>
+                          <td data-label="When" style={{ whiteSpace: "nowrap" }}>
+                            {whenLabel(b.date, b.time)}
+                          </td>
+                          <td data-label="Email" title={b.phone ? `Phone: ${b.phone}` : undefined} style={{ color: "var(--adm-muted)" }}>
+                            {b.email}
+                          </td>
+                          <td data-label="Status" onClick={(e) => e.stopPropagation()}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                              {cancelled ? <span className="adm-chip" data-tone="warn">Cancelled</span> : checkIn("booking", b.ref, b.date <= today)}
+                              {b.paymentStatus === "refunded" && <span className="adm-chip">Refunded</span>}
+                            </div>
+                          </td>
+                          <td onClick={(e) => e.stopPropagation()} style={{ textAlign: "right" }}>
+                            <ActionMenu
+                              label={`More actions for ${b.name}'s booking`}
+                              buttonText="" className="ws-icon-menu"
+                              items={[
+                                { label: "Open booking", onSelect: () => setOpenRef(b.ref) },
+                                ...(cancelled ? [] : [{ label: "Resend confirmation", onSelect: () => resend("booking", b.ref) }]),
+                                ...(cancelled ? [] : [{ label: "Cancel booking", danger: true, onSelect: () => setBulkCancelTarget({ kind: "booking", refs: [b.ref] }) }]),
+                              ]}
+                            />
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
+        </Box>
+      )}
+
+      {showRegistrationsSection && (
+        <Box flush>
+          {loadError.registrations ? (
+            <div style={{ padding: 16 }}>
+              <LoadErrorState title="Couldn't load club registrations." onRetry={loadRegistrations} />
+            </div>
+          ) : !loaded.registrations ? (
+            <p role="status" aria-busy="true" className="adm-note" style={{ padding: 16, margin: 0 }}>
+              Loading registrations…
+            </p>
+          ) : filteredRegistrations.length === 0 ? (
+            <EmptyState icon={<AwardIcon size={22} />} title={registrations.length === 0 ? "No registrations yet" : "No registrations match these filters"} />
+          ) : (
+            <>
+              <BulkActionBar
+                count={selectedRegistrations.size}
+                busy={bulkBusy}
+                onCheckIn={() => handleBulkCheckIn("registration", [...selectedRegistrations])}
+                onCancel={() => setBulkCancelTarget({ kind: "registration", refs: [...selectedRegistrations] })}
+                onClear={() => setSelectedRegistrations(new Set())}
+              />
+              <div className="adm-table-wrap">
+                <table className="adm-table adm-table--stack">
+                  <caption className="adm-visually-hidden">Club registrations</caption>
+                  <thead>
+                    <tr>
+                      <th scope="col" className="adm-col-check">
+                        {selectAll(filteredRegistrations, selectedRegistrations, setSelectedRegistrations)}
+                      </th>
+                      <th scope="col">Registrant</th>
+                      <th scope="col">Club</th>
+                      <th scope="col">Email</th>
+                      <th scope="col">Status</th>
+                      <th scope="col">
+                        <span className="adm-visually-hidden">Actions</span>
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredRegistrations.map((r) => {
+                      const cancelled = r.status === "cancelled";
+                      const name = `${r.childFirst} ${r.childLast}`;
+                      return (
+                        <tr key={r.ref} style={{ opacity: cancelled ? 0.6 : 1 }}>
+                          <td className="adm-col-check">
+                            {!cancelled && (
+                              <input type="checkbox" aria-label={`Select registration for ${name}`} checked={selectedRegistrations.has(r.ref)} onChange={() => toggleSelected(setSelectedRegistrations, r.ref)} />
+                            )}
+                          </td>
+                          <td data-label="Registrant">
+                            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                              <Avatar name={name} size={24} />
+                              <strong style={{ fontWeight: 600 }}>{name}</strong>
+                            </div>
+                          </td>
+                          <td data-label="Club">{r.clubName}</td>
+                          <td data-label="Email" title={r.phone ? `Phone: ${r.phone}` : undefined} style={{ color: "var(--adm-muted)" }}>
+                            {r.email}
+                          </td>
+                          <td data-label="Status">
+                            <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                              {cancelled ? <span className="adm-chip" data-tone="warn">Cancelled</span> : checkIn("registration", r.ref, true)}
+                              {r.paymentStatus === "refunded" && <span className="adm-chip">Refunded</span>}
+                            </div>
+                          </td>
+                          <td style={{ textAlign: "right" }}>
+                            {!cancelled && (
+                              <ActionMenu
+                                label={`More actions for ${name}'s registration`}
+                                buttonText="" className="ws-icon-menu"
+                                items={[
+                                  { label: "Resend confirmation", onSelect: () => resend("registration", r.ref) },
+                                  ...(r.paymentStatus === "paid" && Boolean(r.hasStripePayment) ? [{ label: "Issue a refund", onSelect: () => setRefundRegistrationRef(r.ref) }] : []),
+                                  { label: "Cancel registration", danger: true, onSelect: () => setBulkCancelTarget({ kind: "registration", refs: [r.ref] }) },
+                                ]}
+                              />
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
+        </Box>
       )}
 
       <ConfirmDialog

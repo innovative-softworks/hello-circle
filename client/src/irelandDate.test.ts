@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { addDays, addMonths, daysBetween, irelandDateKey, irelandDaysFromToday, irelandMonthStart, irelandToday, occurrenceDates, weekdayOf } from "./irelandDate";
+import { addDays, addMonths, daysBetween, irelandDateKey, irelandDaysFromToday, irelandMonthStart, irelandToday, irelandWallTimeToUtc, occurrenceDates, weekdayOf } from "./irelandDate";
 
 // HC-QA-077 / HC-QA-100 — "today" is the Ireland date and calendar
 // arithmetic never depends on the device's timezone.
@@ -58,5 +58,13 @@ describe("calendar arithmetic", () => {
     expect(occurrenceDates("2027-03-18", "biweekly", 3)).toEqual(["2027-03-18", "2027-04-01", "2027-04-15"]); // across the March DST change
     expect(occurrenceDates("2027-01-15", "monthly", 3)).toEqual(["2027-01-15", "2027-02-15", "2027-03-15"]);
     for (const d of occurrenceDates("2027-08-05", "weekly", 10)) expect(weekdayOf(d)).toBe(4);
+  });
+});
+
+describe("irelandWallTimeToUtc", () => {
+  it("is UTC in winter and UTC+1 in summer", () => {
+    expect(irelandWallTimeToUtc("2026-01-15", "10:00").toISOString()).toBe("2026-01-15T10:00:00.000Z");
+    expect(irelandWallTimeToUtc("2026-07-15", "10:00").toISOString()).toBe("2026-07-15T09:00:00.000Z");
+    expect(irelandWallTimeToUtc("2026-07-15", "00:30").toISOString()).toBe("2026-07-14T23:30:00.000Z");
   });
 });

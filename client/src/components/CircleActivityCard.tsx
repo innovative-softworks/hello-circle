@@ -1,5 +1,5 @@
 import { Card } from "./ui";
-import { colors, fonts } from "../theme";
+import { colors, fonts, radius } from "../theme";
 import type { CircleActivityStats } from "../types";
 
 // Right-rail "Circle activity" (reference §27) — real, period-scoped
@@ -26,7 +26,7 @@ export function CircleActivityCard({ stats, period, onPeriodChange }: { stats: C
         <select
           value={period}
           onChange={(e) => onPeriodChange(e.target.value as "week" | "month")}
-          style={{ border: `1px solid ${colors.inputBorder}`, borderRadius: 10, padding: "3px 6px", fontSize: 12, fontWeight: 600, color: colors.text, background: colors.bg }}
+          style={{ border: `1px solid ${colors.inputBorder}`, borderRadius: radius.control, padding: "3px 6px", fontSize: 12, fontWeight: 600, color: colors.text, background: colors.bg }}
         >
           <option value="week">This week</option>
           <option value="month">This month</option>

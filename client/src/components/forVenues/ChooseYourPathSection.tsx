@@ -1,6 +1,6 @@
 import { ArrowRightIcon, AwardIcon, BuildingIcon } from "../icons";
 import { Button } from "../ui";
-import { colors, fonts } from "../../theme";
+import { colors, fonts, radius } from "../../theme";
 import { FV_ACCENT, FV_ACCENT_DARK, FV_MAX_WIDTH } from "./constants";
 import { RevealText } from "../RevealText";
 
@@ -89,7 +89,7 @@ export function ChooseYourPathSection({ onListVenueCta, onBecomeHostCta }: { onL
                     <button
                       onClick={handlers[i]}
                       style={{
-                        borderRadius: 10,
+                        borderRadius: radius.control,
                         fontWeight: 700,
                         fontSize: 15.5,
                         padding: "14px 24px",

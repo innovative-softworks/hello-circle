@@ -1,3 +1,6 @@
+import { sweepPaymentReviews } from "./payments/paymentReview.js";
+import { bookingChangesRouter } from "./routes/bookingChangeRoutes.js";
+import { adminInviteRouter, adminMfaRouter } from "./routes/adminAccess.js";
 import "dotenv/config";
 import cookieParser from "cookie-parser";
 import { sweepSubscriptions } from "./commerce/subscriptions.js";
@@ -9,6 +12,7 @@ import express from "express";
 // the global error handler below actually see those errors instead of the
 // request hanging forever with no response. Must load before any router.
 import "express-async-errors";
+import { MembershipChangedError } from "./orgStatus.js";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { buildSitemapXml, defaultOgMeta, generateSitemapUrls, injectOgTags, isEntityDetailRoute, resolveMarketingOgMeta, resolveOgMeta, resolveStaticDiscoveryOgMeta } from "./ogMeta.js";
@@ -76,7 +80,10 @@ import { mediaRouter } from "./routes/media.js";
 import { uploadsRouter } from "./routes/uploads.js";
 import { vendorRouter } from "./routes/vendor.js";
 import { stagingGate } from "./stagingGate.js";
+import { reportError, reportException } from "./errorReporting.js";
+import { clientErrorLimiter } from "./rateLimit.js";
 import { sweepExpiredWaitlistOffers } from "./waitlist.js";
+import { mfaKeyProblem } from "./adminMfa.js";
 
 // MySQL access is async, so the schema/seed must finish before the server
 // starts accepting requests — top-level await (supported by this project's
@@ -91,11 +98,19 @@ if (!(process.env.NODE_ENV === "test" && process.env.QA_E2E_ENABLED === "true"))
 }
 await backfillSlugs();
 
+// OG-07 — say at boot (not at the first admin sign-in) when the two-step key is
+// missing or malformed on a deployed server. Logs the problem, never the key.
+{
+  const problem = mfaKeyProblem();
+  if (problem) console.error(`[mfa] ${problem}`);
+}
+
 // A route handler throwing inside an unawaited/uncaught async path (e.g. a
 // third-party API call like Stripe rejecting) would otherwise crash the
 // whole process — log it and keep serving instead of taking the app down.
 process.on("unhandledRejection", (reason) => {
   console.error("[unhandledRejection]", reason);
+  reportException("unhandled_rejection", reason);
 });
 
 // Sweeps waitlist offers whose 48h window has expired without being
@@ -108,6 +123,12 @@ sweepExpiredWaitlistOffers();
 setInterval(sweepExpiredWaitlistOffers, 15 * 60 * 1000);
 // Revenue & Connect Stage 5b — end Pro for subscriptions still unpaid after the grace period (hourly; a no-op when none are).
 setInterval(() => void sweepSubscriptions().catch((e) => console.error("[subscriptions] sweep failed:", e)), 60 * 60 * 1000);
+// D-10 — payment review holds: halfway and expiry alerts, released places,
+// and refunds left without a provider answer. Restart-safe (every step is a
+// conditional state change; alerts are recorded once), so it also runs at
+// startup to catch up on anything that fell due while the server was down.
+void sweepPaymentReviews().catch((e) => console.error("[payments] review sweep failed:", e));
+setInterval(() => void sweepPaymentReviews().catch((e) => console.error("[payments] review sweep failed:", e)), 5 * 60 * 1000);
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -154,6 +175,8 @@ app.use(attachGuestEmail);
 app.use(attachResident);
 app.use("/uploads", express.static(path.join(dataDir, "uploads")));
 
+app.use("/api/auth/mfa", adminMfaRouter);
+app.use("/api/auth/admin-invite", adminInviteRouter);
 app.use("/api/auth", authRouter);
 app.use("/api/guest", guestAuthRouter);
 app.use("/api/residents", residentsRouter);
@@ -176,6 +199,7 @@ app.use("/api/providers", providersRouter);
 app.use("/api/clubs", clubsRouter);
 app.use("/api/club-sessions", clubSessionsRouter);
 app.use("/api/availability", availabilityRouter);
+app.use("/api/booking-changes", bookingChangesRouter);
 app.use("/api/bookings", bookingsRouter);
 app.use("/api/checkout", checkoutAbandonRouter);
 app.use("/api/make-it-happen", makeItHappenRouter);
@@ -214,6 +238,14 @@ app.use("/api/vendor/splits", vendorSplitsRouter);
 app.use("/api/vendor/plan", vendorPlanRouter);
 app.use("/api/host/plan", hostPlanRouter);
 app.use("/api/credits", residentCreditsRouter);
+// Client-side error reports (errorReporting.ts) — small, rate-limited,
+// scrubbed again server-side; never trusted for anything but logging.
+app.post("/api/client-errors", clientErrorLimiter, (req, res) => {
+  const b = (req.body ?? {}) as { kind?: unknown; message?: unknown; name?: unknown; route?: unknown; release?: unknown };
+  if (typeof b.message !== "string" || !b.message) return res.status(400).json({ error: "message is required" });
+  reportError({ source: "client", kind: typeof b.kind === "string" ? b.kind : "client", message: b.message, name: typeof b.name === "string" ? b.name : undefined, route: typeof b.route === "string" ? b.route : undefined, release: typeof b.release === "string" ? b.release : undefined });
+  res.status(204).end();
+});
 app.use("/api/reviews", reviewsRouter);
 app.use("/api/uploads", uploadsRouter);
 app.use("/api/media", mediaRouter);
@@ -267,6 +299,7 @@ const PRODUCTION_DISALLOW_PATHS = [
   "/profile",
   "/bookings",
   "/my-life",
+  "/receipts/",
   "/signin",
   "/login",
   "/forgot-password",
@@ -453,7 +486,10 @@ mountClient(app, clientDist, async (req, res) => {
 // (forwarded here by express-async-errors) that wasn't already turned into a
 // specific response. Never leaks a stack trace or raw DB error to the client.
 app.use((err: unknown, req: express.Request, res: express.Response, _next: express.NextFunction) => {
+  // D-08: a partner removed from their organisation while a create request was in flight.
+  if (err instanceof MembershipChangedError && !res.headersSent) return res.status(403).json({ error: err.message, removedFromOrg: true });
   console.error(`[unhandled route error] ${req.method} ${req.path}:`, err);
+  reportException("route_error", err, { route: `${req.method} ${req.path}`, status: 500 });
   if (res.headersSent) return;
   res.status(500).json({ error: "Internal server error" });
 });

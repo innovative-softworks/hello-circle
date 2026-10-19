@@ -40,7 +40,7 @@ export function SearchAlertsPanel() {
             <div style={{ display: "flex", gap: 8, flex: "none" }}>
               <button
                 onClick={() => setSearchAlertActive(a.id, !a.active).then(load)}
-                style={{ background: "none", border: `1px solid ${colors.border}`, borderRadius: 10, padding: "5px 10px", fontSize: 12, cursor: "pointer" }}
+                style={{ background: "none", border: `1px solid ${colors.border}`, borderRadius: radius.control, padding: "5px 10px", fontSize: 12, cursor: "pointer" }}
               >
                 {a.active ? "Pause" : "Resume"}
               </button>
