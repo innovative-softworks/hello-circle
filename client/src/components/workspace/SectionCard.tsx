@@ -17,7 +17,8 @@ import {
 } from "lucide-react";
 import { AdminButton, AdminModal } from "../admin/adminUi";
 import type { SectionSave } from "./sectionSave";
-import { FormErrorSummary, RequiredNote } from "../form";
+import { detailIcon } from "./detailIcons";
+import { DraftBanner, FormErrorSummary, RequiredNote, useFormDraft } from "../form";
 
 // A SettingsSection as a workspace card: icon, title, summary and one Edit
 // (or Add, when nothing is filled in yet) button that opens the fields in a
@@ -71,8 +72,18 @@ export function SectionCard({
   const isMissing = missing ?? looksMissing(summary);
   const Icon = iconForSection(title);
   const matches = (key: string | null | undefined) => !!key && (key === title || (key.startsWith("field:") && !!fieldIds?.includes(key.slice(6))));
+  // Unsaved edits in this popup survive a reload (kept in this browser only).
+  const draft = useFormDraft({
+    key: ctx.draft ? `${ctx.draft.key}:${title}` : null,
+    value: open && ctx.draft ? ctx.draft.get() : null,
+    active: open && !!ctx.isDirty?.(),
+    onRestore: (v) => ctx.draft?.restore(v),
+  });
   const setOpen = (v: boolean) => {
-    if (v && !open) ctx.begin?.();
+    if (v && !open) {
+      ctx.begin?.();
+      draft.check();
+    }
     setOpenState(v);
     if (!v && matches(ctx.openKey)) ctx.setOpenKey?.(null);
   };
@@ -83,6 +94,7 @@ export function SectionCard({
     if (matches(ctx.openKey)) {
       if (!open) {
         ctx.begin?.();
+        draft.check();
         setOpenState(true);
       }
     } else if (ctx.openKey && open) {
@@ -92,17 +104,21 @@ export function SectionCard({
   }, [ctx.openKey]);
 
   const save = async () => {
-    if (await ctx.save()) setOpen(false);
+    if (await ctx.save()) {
+      draft.clear();
+      setOpen(false);
+    }
   };
   const cancel = () => {
     ctx.cancel?.();
+    draft.clear();
     setOpen(false);
   };
 
   return (
     <section className="ws-sec" data-missing={isMissing || undefined} data-error={hasErrors || undefined} aria-label={title}>
       <div className="ws-sec-head">
-        <span className="adm-itile" aria-hidden="true">
+        <span className="adm-itile wd-ico" data-tone={isMissing ? "rose" : detailIcon(title).tone} aria-hidden="true">
           <Icon size={17} strokeWidth={1.9} />
         </span>
         <h2 className="ws-sec-title">{title}</h2>
@@ -128,6 +144,7 @@ export function SectionCard({
           </>
         }
       >
+        {draft.pending && <DraftBanner savedAt={draft.pending.savedAt} onRestore={draft.restore} onDiscard={draft.clear} />}
         {fieldIds && fieldIds.length > 0 && <RequiredNote />}
         <FormErrorSummary errors={ctx.errors} focusKey={ctx.focusKey} onMissingField={(id) => ctx.setOpenKey?.(`field:${id}`)} />
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>{children}</div>

@@ -31,11 +31,14 @@ import { signInHref } from "../authRedirect";
 import { CalendarIcon, PlusIcon, UsersIcon } from "../components/icons";
 import { WorkspaceShell } from "../components/workspace/WorkspaceShell";
 import { useUrlTab } from "../useUrlTab";
-import { ArrowLeft, CalendarDays, Settings, ShieldAlert, UsersRound } from "lucide-react";
+import { ArrowLeft, CalendarDays, ExternalLink, Settings, ShieldAlert, UsersRound } from "lucide-react";
+import { AdminButton } from "../components/admin/adminUi";
+import { ContextActions, ContextSection, CopyValue, DetailFacts, DetailHero, DetailStats } from "../components/workspace/DetailParts";
 import { CircleModerationTab } from "../components/CircleModerationTab";
 import { ResidentPicker } from "../components/ResidentPicker";
 import { SingleImageUpload } from "../components/SingleImageUpload";
-import { getCircleCoverUrl } from "../media";
+import { getCircleCoverUrl, getMediaUrl } from "../media";
+import { dateLabel } from "../euro";
 import { Avatar, Button, Card, ConfirmDialog, EmptyState, LoadErrorState, Modal, PageSpinner, inputStyle, labelStyle } from "../components/ui";
 import { useGuest } from "../GuestContext";
 import { PersonalAccountGate } from "../components/workspace/PersonalAccountGate";
@@ -311,11 +314,6 @@ function PlansTab({ circle }: { circle: Circle }) {
 
   return (
     <div className="fade-panel" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-      <div style={{ display: "flex", justifyContent: "flex-end" }}>
-        <Button onClick={() => navigate(`/games/host?activity=${encodeURIComponent(circle.activityLabel)}&circleId=${circle.id}`)}>
-          <PlusIcon size={14} /> Create a plan
-        </Button>
-      </div>
       {plans.length === 0 ? (
         <EmptyState
           icon={<CalendarIcon size={26} />}
@@ -872,6 +870,47 @@ function SettingsTab({ circle, onSaved }: { circle: Circle; onSaved: (c: Circle)
   );
 }
 
+const JOIN_MODE_LABEL: Record<Circle["joinMode"], string> = { open: "Anyone can join", approval: "You approve each request", invite: "Invite only" };
+
+/** The Circle page's context panel (detail template, 2026-10-20). */
+function CircleContext({ circle, onSettings }: { circle: Circle; onSettings?: () => void }) {
+  const cover = getCircleCoverUrl(circle);
+  return (
+    <>
+      <div className="wd-ctx">
+        <DetailHero images={cover ? [cover.startsWith("/api/") ? cover : getMediaUrl(cover, "card")] : []} name={circle.name} emptyLabel="No cover photo" variant="panel" />
+      </div>
+      <ContextSection title="Circle">
+        <DetailFacts
+          columns={1}
+          rows={[
+            ["Activity", circle.activityLabel || null],
+            ["Area", [circle.area, circle.county].filter(Boolean).join(", ") || null],
+          ]}
+        />
+      </ContextSection>
+      <ContextSection title="Organiser">
+        <div className="wd-ctx-name">{circle.hostName}</div>
+        {circle.hostVerified && <div className="wd-ctx-sub">Verified Host</div>}
+      </ContextSection>
+      <ContextSection title="Details">
+        <DetailFacts
+          columns={1}
+          rows={[
+            ["Circle ID", <CopyValue value={circle.id} label="Circle ID" />],
+            ["Created", new Date(circle.createdAt).toLocaleDateString("en-IE", { day: "numeric", month: "short", year: "numeric" })],
+          ]}
+        />
+      </ContextSection>
+      {onSettings && (
+        <ContextSection title="Manage">
+          <ContextActions actions={[{ label: "Edit details", icon: Settings, onSelect: onSettings }]} />
+        </ContextSection>
+      )}
+    </>
+  );
+}
+
 export function ManageCircle() {
   const { resident, loading: guestLoading } = useGuest();
   const { user, loading: authLoading } = useAuth();
@@ -938,6 +977,20 @@ export function ManageCircle() {
       title={circle?.name ?? "Circle"}
       subtitle={NAV_OPTIONS.find((o) => o.key === tab)?.summary}
       crumbs={[{ label: "Host workspace", onClick: () => navigate("/manage") }, { label: "Circles", onClick: () => navigate("/manage?tab=circles") }, { label: circle?.name ?? "Circle" }]}
+      actions={
+        circle && !restricted ? (
+          <>
+            <a className="adm-btn" href={`/circles/${circle.slug ?? circle.id}`} target="_blank" rel="noreferrer">
+              <ExternalLink size={15} strokeWidth={2} aria-hidden="true" /> View public page
+            </a>
+            {circle.status === "active" && (
+              <AdminButton variant="primary" onClick={() => navigate(`/games/host?activity=${encodeURIComponent(circle.activityLabel)}&circleId=${circle.id}`)}>
+                <PlusIcon size={14} /> Create a plan
+              </AdminButton>
+            )}
+          </>
+        ) : undefined
+      }
     >
       {circleLoading ? (
         <PageSpinner />
@@ -945,14 +998,39 @@ export function ManageCircle() {
         <EmptyState icon={<UsersIcon size={26} />} title="Only this Circle's organisers can manage it" subtitle="You can still see it on its public page if it's open to you." />
       ) : circleError || !circle ? (
         <LoadErrorState title="Couldn't load this Circle" detail={circleError ?? undefined} onRetry={loadCircle} />
-      ) : tab === "plans" ? (
-        <PlansTab circle={circle} />
-      ) : tab === "members" ? (
-        <MembersTab circle={circle} />
-      ) : tab === "moderation" ? (
-        <CircleModerationTab circleId={circle.id} />
       ) : (
-        <SettingsTab circle={circle} onSaved={setCircle} />
+        <>
+        <DetailStats
+          items={[
+            { label: "Members", value: String(circle.members), sub: JOIN_MODE_LABEL[circle.joinMode] },
+            {
+              label: "Next plan",
+              value: circle.nextPlan && circle.nextPlan.source === "circle" ? dateLabel(circle.nextPlan.date) : "—",
+              sub: circle.nextPlan && circle.nextPlan.source === "circle" ? `${circle.nextPlan.time} · ${circle.nextPlan.joined} going` : "Nothing scheduled",
+            },
+            { label: "This month", value: String(circle.plansThisMonth), sub: `${circle.activityLabel || "Activity"} plans nearby` },
+            { label: "Status", value: circle.status === "active" ? "Active" : "Closed", sub: circle.status === "active" ? "Listed publicly" : "Hidden from browse" },
+          ]}
+        />
+        <div className="wd-layout">
+          <div className="wd-main wd-body">
+            {tab === "plans" ? (
+              <PlansTab circle={circle} />
+            ) : tab === "members" ? (
+              <MembersTab circle={circle} />
+            ) : tab === "moderation" ? (
+              <CircleModerationTab circleId={circle.id} />
+            ) : (
+              <SettingsTab circle={circle} onSaved={setCircle} />
+            )}
+          </div>
+          <aside className="wd-aside" aria-label="Circle details">
+            <div className="wd-aside-inner">
+              <CircleContext circle={circle} onSettings={tab === "settings" ? undefined : () => setTab("settings")} />
+            </div>
+          </aside>
+        </div>
+        </>
       )}
     </WorkspaceShell>
   );

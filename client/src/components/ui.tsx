@@ -7,6 +7,7 @@ import { getMediaUrl } from "../media";
 import { navigateWithSharedImage } from "../sharedElementTransition";
 import { colors, fonts, maxWidth, radius, zIndex } from "../theme";
 import { useInWorkspace } from "./workspace/inWorkspace";
+import { detailIcon } from "./workspace/detailIcons";
 
 // Shared, reusable building blocks for the vendor/admin/reviews UI — kept in
 // one place so button/card/badge styling can't drift between dashboards.
@@ -966,7 +967,7 @@ export function StatTile({
     return (
       <div className="ws-stat">
         {icon && (
-          <span className="ws-stat-icon" aria-hidden="true">
+          <span className="ws-stat-icon wd-ico" data-tone={detailIcon(label).tone} aria-hidden="true">
             {icon}
           </span>
         )}

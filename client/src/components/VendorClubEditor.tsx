@@ -145,6 +145,17 @@ export function ClubEditor({
       fe.clear();
       onDirtyChange?.(false);
     },
+    draft: {
+      key: `club:${clubId}`,
+      get: currentSnapshot,
+      restore: (v) => {
+        const d = v as ReturnType<typeof currentSnapshot>;
+        setForm(d.form);
+        setIncludesText(d.includesText);
+        setAccessibilityText(d.accessibilityText);
+        onDirtyChange?.(true);
+      },
+    },
   };
   const inWorkspace = useInWorkspace();
 
@@ -531,7 +542,7 @@ export function ClubSessionsManager({ clubId }: { clubId: string }) {
         open={!!confirmingId}
         title="Remove this session?"
         message="This permanently deletes the recurring session — it can't be undone."
-        confirmLabel="Remove"
+        confirmLabel="Remove session"
         onConfirm={() => confirmingId && remove(confirmingId)}
         onCancel={() => setConfirmingId(null)}
       />

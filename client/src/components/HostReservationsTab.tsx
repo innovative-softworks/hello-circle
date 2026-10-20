@@ -4,7 +4,7 @@ import { fetchHostReservations, type HostReservation } from "../api";
 import { dateLabel } from "../euro";
 import { irelandToday } from "../irelandDate";
 import { useUrlParam } from "../useUrlTab";
-import { AdminButton, Box, EmptyMessage, Loaded, SelectField, StatusTag, Toolbar, useAdminData } from "./admin/adminUi";
+import { AdminButton, Box, EmptyMessage, Loaded, SelectField, StatusTag, Toolbar, useAdminData, RowMenu } from "./admin/adminUi";
 
 // OG-16 — the venues a host has booked, with the activity held on each.
 // Booking a venue still happens on the venue's public page (search is the
@@ -75,6 +75,9 @@ export function HostReservationsTab() {
                       Paid
                     </th>
                     <th scope="col">Held on it</th>
+                                      <th scope="col">
+                      <span className="adm-visually-hidden">Actions</span>
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
@@ -106,6 +109,13 @@ export function HostReservationsTab() {
                           ) : (
                             <span className="adm-note">No activity yet</span>
                           )}
+                        </td>
+                        <td data-label="">
+                          <RowMenu
+                            name={`reservation ${r.ref}`}
+                            items={r.gameId ? [{ label: "Open activity", onSelect: () => navigate(`/manage?tab=activities&record=activity:${r.gameId}`) }] : []}
+                            copy={{ value: r.ref }}
+                          />
                         </td>
                       </tr>
                     );

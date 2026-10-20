@@ -14,7 +14,7 @@ import { CameraIcon, CloseIcon, GoogleIcon, PlusIcon, TrashIcon, TrendUpIcon, Us
 import { Button, ManageCard as Card, ConfirmDialog, EmptyState, PageSpinner, Tabs, inputStyle, labelStyle, tableStyle, tdStyle, thStyle, StackTable } from "./ui";
 import { formatDate } from "../vendorFormat";
 import { Activity, Building2, ChartColumn, CreditCard, ImageIcon, KeyRound, MapPin, UserPlus, Users } from "lucide-react";
-import { Box, ErrorMessage, Loaded, useAdminData } from "./admin/adminUi";
+import { Box, ErrorMessage, Loaded, useAdminData, RowMenu } from "./admin/adminUi";
 import { colors, fonts, radius } from "../theme";
 
 // Organisation entity + Staff + RBAC (Phase C — Gate 2 from the plan doc).
@@ -481,11 +481,14 @@ function StaffPanel({ profile, reload, onOpenMember }: { profile: OrgProfile; re
                   <td style={tdStyle}>{s.joinedAt ? formatDate(s.joinedAt) : "—"}</td>
                   {profile.isOwner && (
                     <td style={tdStyle}>
-                      {s.invitedStaff && (
-                        <Button variant="ghost" onClick={() => onOpenMember(s.id)} aria-label={`Manage ${s.name || s.email}`}>
-                          Manage
-                        </Button>
-                      )}
+                      <div className="adm-cell-actions">
+                        {s.invitedStaff && (
+                          <Button variant="ghost" onClick={() => onOpenMember(s.id)} aria-label={`Manage ${s.name || s.email}`}>
+                            Manage
+                          </Button>
+                        )}
+                        <RowMenu name={s.name || s.email} items={s.invitedStaff ? [{ label: "Manage", onSelect: () => onOpenMember(s.id) }] : []} copy={{ label: "Copy email", value: s.email }} />
+                      </div>
                     </td>
                   )}
                 </tr>
@@ -516,7 +519,7 @@ function StaffPanel({ profile, reload, onOpenMember }: { profile: OrgProfile; re
         open={confirmingInviteId !== null}
         title="Revoke this invite?"
         message="They won't be able to accept it anymore. You can send a new invite to the same email at any time."
-        confirmLabel="Revoke"
+        confirmLabel="Revoke invite"
         onConfirm={() => { if (confirmingInviteId !== null) revokeInvite(confirmingInviteId).then(reload); setConfirmingInviteId(null); }}
         onCancel={() => setConfirmingInviteId(null)}
       />
@@ -733,8 +736,17 @@ export function VendorOrgTab() {
           ]}
         />
       </div>
-      {subTab === "settings" && <SettingsPanel profile={profile} reload={load} />}
-      {subTab === "trader" && <TraderProfileForm scope="vendor" />}
+      {/* Settings template (2026-10-20): group title on the left, fields in a readable column. */}
+      {subTab === "settings" && (
+        <div className="ws-settings">
+          <SettingsPanel profile={profile} reload={load} />
+        </div>
+      )}
+      {subTab === "trader" && (
+        <div className="ws-settings">
+          <TraderProfileForm scope="vendor" />
+        </div>
+      )}
       {subTab === "staff" && <StaffPanel profile={profile} reload={load} onOpenMember={(id) => openRecord(`member:${id}`)} />}
       {subTab === "participants" && <Navigate to="/vendor?tab=customers" replace />}
       {subTab === "insights" && <InsightsPanel />}

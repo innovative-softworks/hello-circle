@@ -1361,3 +1361,51 @@ main#main-content:focus { outline: none; }
   .hc-stack-table td { border-bottom: none !important; }
   .hc-stack-table td[colspan] { text-align: left; }
 }
+
+/* Field help "i": 18px to look at, 26px to tap (WCAG 2.5.8 target size). */
+.field-help-btn {
+  position: relative;
+}
+.field-help-btn::after {
+  content: "";
+  position: absolute;
+  inset: -4px;
+}
+
+/* 7 — "You have unsaved changes from 14:32. Restore changes · Discard" (UX polish 2026-10-20). */
+.hc-draft {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+  padding: 8px 12px;
+  margin-bottom: 12px;
+  border: 1px solid var(--adm-line, var(--color-border));
+  border-radius: 8px;
+  background: var(--adm-head, var(--color-surface-muted, #f5f2e9));
+  font-size: 14px;
+}
+.hc-draft > span:first-child {
+  font-weight: 600;
+}
+.hc-draft-actions {
+  display: flex;
+  gap: 16px;
+}
+.hc-draft-actions button {
+  min-height: 32px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+.hc-draft-actions button:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}

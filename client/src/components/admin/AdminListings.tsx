@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { AlertTriangle, ArrowRight, Check, ClipboardCheck, ImageOff, MapPin, Star, X } from "lucide-react";
+import { AlertTriangle, ArrowRight, Building2, Check, ClipboardCheck, ExternalLink, Star, X } from "lucide-react";
 import {
   adminDeleteCentre,
   adminDeleteClub,
@@ -55,6 +55,8 @@ import { ObjectActivity } from "./AdminAudit";
 import { DecisionHistory, DecisionReasonFields, emptyReason, reasonComplete, toReasonInput, type ReasonDraft } from "./DecisionReason";
 import { useAdminCan } from "./adminPermissions";
 import { RecordState, RecordView } from "../workspace/RecordView";
+import { ContextActions, ContextSection, CopyValue, DetailFacts, DetailHero, DetailSection, DetailStats, DetailTabPanel, DetailTabs, useDetailTab, type ContextAction, type DetailStat } from "../workspace/DetailParts";
+import { SinglePinMap } from "../SinglePinMap";
 import { useRecordParam, useUrlParam } from "../../useUrlTab";
 
 // All listings + Pending approvals (admin redesign 2026-10-14). One module
@@ -157,189 +159,213 @@ function useListingDecisions(reload: () => void) {
   return { setStatus, reject, toggleFeatured, remove, run, busy };
 }
 
-// --- record page: review layout (2026-10-16) -----------------------------
-// Left: the listing as the public will see it (photos, description, what can
-// be booked). Right: the decision panel (checks, partner, similar listings,
-// Approve / Reject, then on to the next pending listing). For a listing that
-// is already decided, the panel holds its status and settings instead.
+// --- record page: detail template (2026-10-20) ---------------------------
+// Left 70%: header (Approve/Reject for a listing waiting for review, More
+// actions), the cover photo, then tabs over the listing as the public will
+// see it. Right 30%: review checks while pending, partner, location, listing
+// details and the management actions this admin role may use.
 
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const euros = (n: number) => `€${n.toLocaleString("en-IE", { maximumFractionDigits: 2 })}`;
 const CHECK_ICON = { pass: Check, warn: AlertTriangle, fail: X } as const;
+const PUBLIC_PATH: Record<ListingType, string> = { centre: "/centres", club: "/clubs", experience: "/experiences" };
 
-function ListingPreview({ row, detail }: { row: ListingRow; detail: AdminData<AdminListingDetail> }) {
-  const { item } = row;
-  const photos = detail.data?.images ?? (item.image ? [item.image] : []);
-  const description = detail.data?.description ?? item.blurb;
-  const facts: string[] = [];
-  const d = detail.data;
-  if (d?.centre) {
-    const rooms = d.centre.rooms.filter((r) => r.active);
-    const maxCap = Math.max(0, ...rooms.map((r) => r.capacity));
-    const minRate = rooms.filter((r) => r.rate > 0).reduce((m, r) => Math.min(m, r.rate), Infinity);
-    facts.push(maxCap ? `Up to ${maxCap} people` : "Capacity not set", Number.isFinite(minRate) ? `From ${euros(minRate)}/hr` : "No hourly rate", `${rooms.length} room${rooms.length === 1 ? "" : "s"}`);
-  } else if (d?.club) {
-    facts.push(d.club.sport, d.club.ages ? `Ages ${d.club.ages}` : "", d.club.price ? `${euros(d.club.price)}/${d.club.unit}` : "Free", d.club.trial ? "Free trial" : "");
-  } else if (d?.experience) {
-    const e = d.experience;
-    facts.push(e.kind.charAt(0).toUpperCase() + e.kind.slice(1), `${Math.round(e.durationMinutes / 6) / 10} h`, e.priceCents ? euros(e.priceCents / 100) : "Free", `Groups of up to ${e.capacity}`, e.difficulty);
-  }
+type ListingTabKey = "overview" | "rooms" | "availability" | "pricing" | "photos" | "description" | "activity";
+const LISTING_TABS: readonly ListingTabKey[] = ["overview", "rooms", "availability", "pricing", "photos", "description", "activity"];
+
+function RoomsTable({ rooms }: { rooms: NonNullable<AdminListingDetail["centre"]>["rooms"] }) {
+  if (!rooms.length) return <p className="adm-note">No rooms.</p>;
   return (
-    <div className="adm-review-main">
-      <section aria-label="Photos">
-        {photos.length ? (
-          <div className="adm-gallery" data-count={Math.min(photos.length, 5)}>
-            {photos.slice(0, 5).map((src, i) => (
-              <img key={src + i} src={getMediaUrl(src, i === 0 ? "card" : "thumbnail")} alt={i === 0 ? `Cover photo for ${item.name}` : `Photo ${i + 1} of ${item.name}`} />
-            ))}
-          </div>
-        ) : (
-          <div className="adm-gallery-empty">
-            <ImageOff size={22} strokeWidth={1.9} aria-hidden="true" />
-            No photos uploaded
-          </div>
-        )}
-      </section>
-      <p className="adm-review-loc">
-        <MapPin size={16} strokeWidth={1.9} aria-hidden="true" /> {location(item) || "No location given"}
-      </p>
-      {facts.filter(Boolean).length > 0 && (
-        <ul className="adm-review-facts" aria-label="Key facts">
-          {facts.filter(Boolean).map((f) => (
-            <li key={f}>{f}</li>
-          ))}
-        </ul>
-      )}
-      <SectionLabel>Description</SectionLabel>
-      <p className="adm-review-text">{description || <span className="adm-note">No description.</span>}</p>
-
-      {detail.error ? (
-        <ErrorMessage error={detail.error} onRetry={detail.reload} title="Couldn't load the full listing" />
-      ) : !d ? (
-        <LoadingRows rows={3} label="Loading the full listing" />
-      ) : (
-        <>
-          {d.centre && (
-            <>
-              <SectionLabel>Rooms</SectionLabel>
-              {d.centre.rooms.length ? (
-                <div className="adm-table-wrap">
-                  <table className="adm-table adm-table--stack">
-                    <thead>
-                      <tr>
-                        <th scope="col">Room</th>
-                        <th scope="col">Capacity</th>
-                        <th scope="col">Rate</th>
-                        <th scope="col">Payment</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {d.centre.rooms.map((r) => (
-                        <tr key={r.name} style={r.active ? undefined : { opacity: 0.55 }}>
-                          <td data-label="Room">
-                            <div className="adm-cell-title">
-                              {r.name}
-                              {!r.active && " (inactive)"}
-                            </div>
-                            {r.description && <div className="adm-cell-sub">{r.description}</div>}
-                          </td>
-                          <td data-label="Capacity" data-warn={r.capacity <= 0 || undefined}>{r.capacity > 0 ? r.capacity : "Not set"}</td>
-                          <td data-label="Rate" data-warn={r.rate <= 0 || undefined}>{r.rate > 0 ? `${euros(r.rate)}/hr` : "€0"}</td>
-                          <td data-label="Payment">{r.paymentMethod === "cash" ? "Pay on the day" : "Online"}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+    <div className="adm-table-wrap">
+      <table className="adm-table adm-table--stack">
+        <thead>
+          <tr>
+            <th scope="col">Room</th>
+            <th scope="col">Capacity</th>
+            <th scope="col">Rate</th>
+            <th scope="col">Payment</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rooms.map((r) => (
+            <tr key={r.name} style={r.active ? undefined : { opacity: 0.55 }}>
+              <td data-label="Room">
+                <div className="adm-cell-title">
+                  {r.name}
+                  {!r.active && " (inactive)"}
                 </div>
-              ) : (
-                <p className="adm-note">No rooms.</p>
-              )}
-              <SectionLabel>Opening hours</SectionLabel>
-              {d.centre.hours.length ? (
-                <ul className="adm-review-hours">
-                  {d.centre.hours.map((h) => (
-                    <li key={h.day}>
-                      <span>{DAYS[h.day]}</span>
-                      {h.closed ? "Closed" : `${h.opensAt}–${h.closesAt}`}
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <p className="adm-review-text">
-                  Every day, {d.centre.opensAt}–{d.centre.closesAt}
-                </p>
-              )}
-              {d.centre.amenities.length > 0 && (
-                <>
-                  <SectionLabel>Amenities</SectionLabel>
-                  <ul className="adm-review-facts">
-                    {d.centre.amenities.map((a) => (
-                      <li key={a}>{a}</li>
-                    ))}
-                  </ul>
-                </>
-              )}
-            </>
-          )}
-          {d.club && (
-            <>
-              {d.club.includes.length > 0 && (
-                <>
-                  <SectionLabel>What's included</SectionLabel>
-                  <ul className="adm-review-facts">
-                    {d.club.includes.map((a) => (
-                      <li key={a}>{a}</li>
-                    ))}
-                  </ul>
-                </>
-              )}
-              <SectionLabel>Weekly sessions</SectionLabel>
-              {d.club.sessions.length ? (
-                <ul className="adm-review-hours">
-                  {d.club.sessions.map((s, i) => (
-                    <li key={i} style={s.active ? undefined : { opacity: 0.55 }}>
-                      <span>{DAYS[s.day]}</span>
-                      {s.time}
-                      {s.label ? ` · ${s.label}` : ""}
-                      {s.capacity ? ` · ${s.capacity} places` : ""}
-                      {!s.active && " (paused)"}
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <p className="adm-note">No weekly sessions yet.</p>
-              )}
-            </>
-          )}
-          {d.experience && (
-            <>
-              {d.experience.meetingPoint && (
-                <>
-                  <SectionLabel>Meeting point</SectionLabel>
-                  <p className="adm-review-text">{d.experience.meetingPoint}</p>
-                </>
-              )}
-              <SectionLabel>Upcoming dates</SectionLabel>
-              {d.experience.upcomingSessions.length ? (
-                <ul className="adm-review-hours">
-                  {d.experience.upcomingSessions.map((s, i) => (
-                    <li key={i}>
-                      <span>{formatDate(s.date)}</span>
-                      {s.time}
-                      {s.capacity ? ` · ${s.capacity} places` : ""}
-                      {s.status !== "scheduled" ? ` · ${s.status}` : ""}
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <p className="adm-note">No upcoming dates{d.experience.totalSessions ? ` (${d.experience.totalSessions} in the past)` : ""}.</p>
-              )}
-            </>
-          )}
-        </>
-      )}
+                {r.description && <div className="adm-cell-sub">{r.description}</div>}
+              </td>
+              <td data-label="Capacity" data-warn={r.capacity <= 0 || undefined}>
+                {r.capacity > 0 ? r.capacity : "Not set"}
+              </td>
+              <td data-label="Rate" data-warn={r.rate <= 0 || undefined}>
+                {r.rate > 0 ? `${euros(r.rate)}/hr` : "€0"}
+              </td>
+              <td data-label="Payment">{r.paymentMethod === "cash" ? "Pay on the day" : "Online"}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
+}
+
+function Chips({ items, label }: { items: string[]; label: string }) {
+  return (
+    <ul className="adm-review-facts" aria-label={label}>
+      {items.map((a) => (
+        <li key={a}>{a}</li>
+      ))}
+    </ul>
+  );
+}
+
+/** When the listing can be used: opening hours, weekly sessions or upcoming dates. */
+function Availability({ d }: { d: AdminListingDetail }) {
+  if (d.centre)
+    return d.centre.hours.length ? (
+      <ul className="adm-review-hours">
+        {d.centre.hours.map((h) => (
+          <li key={h.day}>
+            <span>{DAYS[h.day]}</span>
+            {h.closed ? "Closed" : `${h.opensAt}–${h.closesAt}`}
+          </li>
+        ))}
+      </ul>
+    ) : (
+      <p className="adm-review-text">
+        Every day, {d.centre.opensAt}–{d.centre.closesAt}
+      </p>
+    );
+  if (d.club)
+    return d.club.sessions.length ? (
+      <ul className="adm-review-hours">
+        {d.club.sessions.map((s, i) => (
+          <li key={i} style={s.active ? undefined : { opacity: 0.55 }}>
+            <span>{DAYS[s.day]}</span>
+            {s.time}
+            {s.label ? ` · ${s.label}` : ""}
+            {s.capacity ? ` · ${s.capacity} places` : ""}
+            {!s.active && " (paused)"}
+          </li>
+        ))}
+      </ul>
+    ) : (
+      <p className="adm-note">No weekly sessions yet.</p>
+    );
+  if (d.experience)
+    return d.experience.upcomingSessions.length ? (
+      <ul className="adm-review-hours">
+        {d.experience.upcomingSessions.map((s, i) => (
+          <li key={i}>
+            <span>{formatDate(s.date)}</span>
+            {s.time}
+            {s.capacity ? ` · ${s.capacity} places` : ""}
+            {s.status !== "scheduled" ? ` · ${s.status}` : ""}
+          </li>
+        ))}
+      </ul>
+    ) : (
+      <p className="adm-note">No upcoming dates{d.experience.totalSessions ? ` (${d.experience.totalSessions} in the past)` : ""}.</p>
+    );
+  return null;
+}
+
+function availabilityTitle(type: ListingType) {
+  return type === "centre" ? "Opening hours" : type === "club" ? "Weekly sessions" : "Upcoming dates";
+}
+
+/** What can be booked and on what terms: rooms and amenities, a club's
+ * inclusions, an experience's logistics. */
+function Facilities({ d }: { d: AdminListingDetail }) {
+  if (d.centre)
+    return (
+      <>
+        <RoomsTable rooms={d.centre.rooms} />
+        {d.centre.amenities.length > 0 && (
+          <div style={{ marginTop: 16 }}>
+            <Chips items={d.centre.amenities} label="Amenities" />
+          </div>
+        )}
+      </>
+    );
+  if (d.club)
+    return (
+      <>
+        <DetailFacts rows={[["Sport", d.club.sport], ["Ages", d.club.ages || null], ["Free trial", d.club.trial ? "Yes" : "No"]]} />
+        {d.club.includes.length > 0 && (
+          <div style={{ marginTop: 16 }}>
+            <Chips items={d.club.includes} label="What's included" />
+          </div>
+        )}
+      </>
+    );
+  if (d.experience) {
+    const e = d.experience;
+    return (
+      <DetailFacts
+        rows={[
+          ["Type", e.kind.charAt(0).toUpperCase() + e.kind.slice(1)],
+          ["Duration", `${Math.round(e.durationMinutes / 6) / 10} h`],
+          ["Group size", `Up to ${e.capacity}`],
+          ["Difficulty", e.difficulty || null],
+          ["Meeting point", e.meetingPoint || null],
+        ]}
+      />
+    );
+  }
+  return null;
+}
+
+function Pricing({ d }: { d: AdminListingDetail }) {
+  if (d.centre) {
+    const rooms = d.centre.rooms.filter((r) => r.active);
+    const rated = rooms.filter((r) => r.rate > 0);
+    return (
+      <>
+        <DetailFacts
+          rows={[
+            ["From", rated.length ? `${euros(Math.min(...rated.map((r) => r.rate)))}/hr` : "No hourly rate set"],
+            ["Active rooms", String(rooms.length)],
+            ["Online payment", rooms.some((r) => r.paymentMethod !== "cash") ? "Yes" : "No"],
+            ["Pay on the day", rooms.some((r) => r.paymentMethod === "cash") ? "Yes" : "No"],
+          ]}
+        />
+        <p className="adm-note" style={{ marginTop: 12 }}>
+          Each room's rate is in Rooms &amp; facilities. VAT and the platform fee are added at checkout.
+        </p>
+      </>
+    );
+  }
+  if (d.club) return <DetailFacts rows={[["Membership", d.club.price ? `${euros(d.club.price)}/${d.club.unit}` : "Free"], ["Free trial", d.club.trial ? "Yes" : "No"]]} />;
+  if (d.experience) return <DetailFacts rows={[["Price per person", d.experience.priceCents ? euros(d.experience.priceCents / 100) : "Free"], ["Group size", `Up to ${d.experience.capacity}`]]} />;
+  return null;
+}
+
+function Photos({ photos, name }: { photos: string[]; name: string }) {
+  if (!photos.length) return <p className="adm-note">No photos uploaded. Partners add photos from their listing editor.</p>;
+  return (
+    <ul className="wd-photos" aria-label={`Photos of ${name}`}>
+      {photos.map((src, i) => (
+        <li key={src + i}>
+          <img src={getMediaUrl(src, "card")} alt={i === 0 ? `Cover photo for ${name}` : `Photo ${i + 1} of ${name}`} loading="lazy" />
+          {i === 0 && <span className="wd-photo-tag">Cover</span>}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/** The fourth key number: what it costs, as the listing states it (no calculation). */
+function priceStat(type: ListingType, d: AdminListingDetail | null): DetailStat {
+  if (type === "centre") {
+    const rates = (d?.centre?.rooms ?? []).filter((r) => r.active && r.rate > 0).map((r) => r.rate);
+    const rooms = d?.centre ? d.centre.rooms.filter((r) => r.active).length : null;
+    return { label: "From", value: !d ? "…" : rates.length ? `${euros(Math.min(...rates))}/hr` : "—", sub: rooms === null ? undefined : `${rooms} room${rooms === 1 ? "" : "s"}` };
+  }
+  if (type === "club") return { label: "Membership", value: !d?.club ? "…" : d.club.price ? euros(d.club.price) : "Free", sub: d?.club?.price ? `per ${d.club.unit}` : d?.club?.trial ? "Free trial" : undefined };
+  return { label: "Price", value: !d?.experience ? "…" : d.experience.priceCents ? euros(d.experience.priceCents / 100) : "Free", sub: d?.experience ? `per person · up to ${d.experience.capacity}` : undefined };
 }
 
 function ListingRecord({
@@ -379,11 +405,17 @@ function ListingRecord({
   const key = rowKey(row);
   const { busy, run } = decisions;
   const pending = item.status === "pending";
+  const live = item.status === "approved";
   const checks = listingChecks(item, detail.data);
   // Only useful before publishing: "is this a re-creation of an existing place?"
   const similar = pending ? similarListings(item, allRows) : [];
   const warnings = checks.filter((c) => c.state !== "pass").length;
   const waiting = waitingLabel(item.createdAt ?? null);
+  const d = detail.data;
+  const photos = d?.images ?? (item.image ? [item.image] : []);
+  const description = d?.description ?? item.blurb;
+  const tabs = LISTING_TABS.filter((t) => t !== "rooms" || type === "centre");
+  const [tab, setTab] = useDetailTab(tabs, "overview");
 
   // After a decision on a pending listing, carry on with the next one.
   const afterDecision = () => {
@@ -410,16 +442,50 @@ function ListingRecord({
     });
 
   const menu = [
-    ...(item.status === "approved" && can("listings.moderate") ? [{ label: "Unpublish (reject)…", onSelect: () => setConfirm("reject"), disabled: !!busy }] : []),
+    ...(live && can("listings.moderate") ? [{ label: "Unpublish (reject)…", onSelect: () => setConfirm("reject"), disabled: !!busy }] : []),
     ...(type !== "experience" && can("listings.delete") ? [{ label: "Delete listing…", danger: true, onSelect: () => setConfirm("delete"), disabled: !!busy }] : []),
   ];
+  const canDecide = can("listings.moderate") && !live;
+  const approveLabel = busy === `${key}:approved` ? "Approving…" : pending && next ? "Approve & next" : "Approve & publish";
+
+  // View public page and Feature are header buttons (owner, 2026-10-20).
+  const management: ContextAction[] = [
+    ...(live && type !== "experience" && organisations.length > 0 && can("orgs.manage") ? [{ label: "Assign organisation…", icon: Building2, onSelect: () => setOrgOpen(true), disabled: !!busy }] : []),
+  ];
+
+  const overview = d && (
+    <>
+      <DetailSection title="Description" action={description && description.length > 420 ? <button type="button" className="adm-linkish" onClick={() => setTab("description")}>Read all</button> : undefined}>
+        <p className="adm-review-text wd-clamp">{description || <span className="adm-note">No description.</span>}</p>
+      </DetailSection>
+      <DetailSection title={type === "centre" ? "Rooms & facilities" : type === "club" ? "Club & what's included" : "The experience"}>
+        <Facilities d={d} />
+      </DetailSection>
+      <DetailSection title={availabilityTitle(type)}>
+        <Availability d={d} />
+      </DetailSection>
+      <DetailSection title="Recent activity" action={<button type="button" className="adm-linkish" onClick={() => setTab("activity")}>Decisions and full activity</button>}>
+        <ObjectActivity objectIds={[item.id]} limit={3} />
+      </DetailSection>
+    </>
+  );
+
+  const TAB_LABEL: Record<ListingTabKey, string> = {
+    overview: "Overview",
+    rooms: "Rooms & facilities",
+    availability: type === "centre" ? "Availability" : availabilityTitle(type),
+    pricing: "Pricing",
+    photos: "Photos",
+    description: "Description",
+    activity: "Activity & decisions",
+  };
 
   return (
     <RecordView
       title={item.name}
       reference={
         <>
-          {TYPE_LABEL[type]} · <span className="adm-mono">{item.id}</span>
+          {TYPE_LABEL[type]} · {location(item) || "No location given"}
         </>
       }
       backLabel={backLabel}
@@ -433,18 +499,63 @@ function ListingRecord({
             </>
           )}
           {!!item.featured && <Badge tone="outline">Featured</Badge>}
+          {pending && waiting && <span className="adm-note">Submitted {waiting.replace("Waiting ", "")} ago</span>}
         </>
       }
-      actions={menu.length ? <OverflowMenu label={`More actions for ${item.name}`} actions={menu} /> : undefined}
-    >
-      <div className="adm-review">
-        <ListingPreview row={row} detail={detail} />
-
-        <aside className="adm-review-side" aria-label={pending ? "Review decision" : "Listing status and settings"}>
+      actions={
+        <>
+          {canDecide && (
+            <>
+              <AdminButton variant="primary" disabled={blocked || !!busy} onClick={() => decisions.setStatus(row, "approved").then((ok) => ok && pending && afterDecision())}>
+                <Check size={15} strokeWidth={2} aria-hidden="true" /> {approveLabel}
+              </AdminButton>
+              {pending && (
+                <AdminButton onClick={() => setConfirm("reject")} disabled={!!busy}>
+                  {next ? "Reject & next…" : "Reject…"}
+                </AdminButton>
+              )}
+            </>
+          )}
+          {live && (
+            <a className="adm-btn" href={`${PUBLIC_PATH[type]}/${encodeURIComponent(item.id)}`} target="_blank" rel="noreferrer">
+              <ExternalLink size={15} strokeWidth={2} aria-hidden="true" /> View public page
+            </a>
+          )}
+          {live && can("listings.feature") && (
+            <AdminButton aria-pressed={!!item.featured} onClick={() => decisions.toggleFeatured(row)} disabled={!!busy}>
+              <Star size={15} strokeWidth={1.9} aria-hidden="true" fill={item.featured ? "currentColor" : "none"} />
+              {item.featured ? "Featured" : "Feature"}
+            </AdminButton>
+          )}
+          {menu.length > 0 && <OverflowMenu label={`More actions for ${item.name}`} actions={menu} />}
+        </>
+      }
+      stats={
+        <DetailStats
+          items={[
+            {
+              label: "Rating",
+              value: d?.stats ? (d.stats.rating !== null ? `${d.stats.rating.toFixed(1)} ★` : "—") : "…",
+              sub: d?.stats ? (d.stats.reviews ? `${d.stats.reviews} review${d.stats.reviews === 1 ? "" : "s"}` : "No reviews yet") : undefined,
+            },
+            {
+              label: type === "club" ? "Registrations" : "Upcoming bookings",
+              value: d?.stats ? String(d.stats.upcoming) : "…",
+              sub: type === "club" ? "Active, not cancelled" : "From today, not cancelled",
+            },
+            { label: "Page views", value: d?.stats ? (d.stats.views !== null ? d.stats.views.toLocaleString("en-IE") : "—") : "…", sub: "All time" },
+            priceStat(type, d),
+          ]}
+        />
+      }
+      asideLabel={pending ? "Photos, review checks, partner and listing details" : "Photos, partner, location and listing details"}
+      aside={
+        <>
+          <div className="wd-ctx">
+            <DetailHero images={photos.map((src) => getMediaUrl(src, "card"))} name={item.name} emptyLabel="No photos uploaded" variant="panel" />
+          </div>
           {pending && (
-            <section className="adm-review-card">
-              <h2 className="adm-review-h">Decision</h2>
-              {waiting && <p className="adm-note" style={{ margin: "0 0 12px" }}>Submitted {waiting.replace("Waiting ", "")} ago</p>}
+            <ContextSection title="Review checks">
               <ul className="adm-checks" aria-label="Automatic checks">
                 {checks.map((c) => {
                   const Icon = CHECK_ICON[c.state];
@@ -460,144 +571,169 @@ function ListingRecord({
                   );
                 })}
               </ul>
-              <p className="adm-note" style={{ margin: "8px 0 16px" }}>
+              <p className="adm-note" style={{ margin: "10px 0 0" }}>
                 {blocked ? "Approve the partner account before publishing." : warnings ? `${warnings} thing${warnings === 1 ? "" : "s"} to look at. These checks are advice; you decide.` : "Everything checked looks fine."}
               </p>
-              {can("listings.moderate") ? (
-                <div className="adm-review-actions">
-                  <AdminButton variant="primary" disabled={blocked || !!busy} onClick={() => decisions.setStatus(row, "approved").then((ok) => ok && afterDecision())}>
-                    {busy === `${key}:approved` ? "Approving…" : next ? "Approve & next" : "Approve & publish"}
-                  </AdminButton>
-                  <AdminButton onClick={() => setConfirm("reject")} disabled={!!busy}>
-                    {next ? "Reject & next…" : "Reject…"}
-                  </AdminButton>
-                  {next && (
-                    <AdminButton variant="quiet" size="sm" onClick={() => onOpen(rowKey(next))}>
-                      Skip to next <ArrowRight size={16} strokeWidth={1.9} aria-hidden="true" />
-                    </AdminButton>
-                  )}
-                </div>
-              ) : (
-                <p className="adm-note">Your admin role can view listings but not approve or reject them.</p>
+              {!can("listings.moderate") && <p className="adm-note" style={{ margin: "8px 0 0" }}>Your admin role can view listings but not approve or reject them.</p>}
+              {next && (
+                <AdminButton variant="quiet" size="sm" onClick={() => onOpen(rowKey(next))} style={{ marginTop: 8, marginLeft: -10 }}>
+                  Skip to next <ArrowRight size={16} strokeWidth={1.9} aria-hidden="true" />
+                </AdminButton>
               )}
-            </section>
+            </ContextSection>
           )}
 
           {similar.length > 0 && (
-            <section className="adm-review-card" data-tone="warn">
-              <h2 className="adm-review-h">Similar listing{similar.length === 1 ? "" : "s"} in {item.county}</h2>
-              <p className="adm-note" style={{ margin: "0 0 8px" }}>If it's the same place, the partner should claim the existing listing instead.</p>
-              <ul className="adm-similar">
-                {similar.map((s) => (
-                  <li key={rowKey(s)}>
-                    <button type="button" className="adm-linkish" onClick={() => onOpen(rowKey(s))}>
-                      {s.item.name}
-                    </button>
-                    <span className="adm-cell-sub">
-                      {location(s.item)} · {s.item.vendorName ?? "Unclaimed"} · {statusLabel(s.item.status)}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            </section>
+            <ContextSection title={`Similar listing${similar.length === 1 ? "" : "s"} in ${item.county}`}>
+              <div className="wd-ctx" data-tone="warn" style={{ margin: 0 }}>
+                <p className="adm-note">If it's the same place, the partner should claim the existing listing instead.</p>
+                <ul className="adm-similar">
+                  {similar.map((s) => (
+                    <li key={rowKey(s)}>
+                      <button type="button" className="adm-linkish" onClick={() => onOpen(rowKey(s))}>
+                        {s.item.name}
+                      </button>
+                      <span className="adm-cell-sub">
+                        {location(s.item)} · {s.item.vendorName ?? "Unclaimed"} · {statusLabel(s.item.status)}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </ContextSection>
           )}
 
-          {!pending && can("listings.moderate") && item.status !== "approved" && (
-            <section className="adm-review-card">
-              <h2 className="adm-review-h">Publish</h2>
-              <p className="adm-note" style={{ margin: "0 0 12px" }}>This listing is {statusLabel(item.status).toLowerCase()}.</p>
-              <AdminButton variant="primary" disabled={blocked || !!busy} onClick={() => decisions.setStatus(row, "approved")}>
-                {busy === `${key}:approved` ? "Approving…" : "Approve & publish"}
-              </AdminButton>
-            </section>
-          )}
-
-          <section className="adm-review-card">
-            <h2 className="adm-review-h">Partner</h2>
+          <ContextSection title="Partner">
             {item.vendorId ? (
               <>
-                <div className="adm-cell-title">{item.vendorName || item.vendorEmail}</div>
-                {item.vendorName && <div className="adm-cell-sub">{item.vendorEmail}</div>}
-                <div style={{ margin: "8px 0 12px" }}>
-                  <StatusTag status={item.vendorStatus ?? "unknown"} label={item.vendorStatus === "approved" ? "Approved" : undefined} />
-                </div>
+                <div className="wd-ctx-name">{item.vendorName || item.vendorEmail}</div>
+                {item.vendorName && item.vendorEmail && (
+                  <a className="wd-ctx-sub" href={`mailto:${item.vendorEmail}`}>
+                    {item.vendorEmail}
+                  </a>
+                )}
+                {item.ph && <div className="wd-ctx-sub">Listing phone: {item.ph}</div>}
+                <div style={{ marginTop: 10 }} />
                 <AdminButton size="sm" onClick={() => onOpenVendor(item.vendorId!)}>
                   {blocked ? "Open partner account to approve it" : "View partner"}
                 </AdminButton>
               </>
             ) : (
-              <p className="adm-note" style={{ margin: 0 }}>No partner account. This is a seeded or unclaimed listing.</p>
+              <p className="adm-note">No partner account. This is a seeded or unclaimed listing.</p>
             )}
-          </section>
+          </ContextSection>
 
-          {item.status === "approved" && (
-            <section className="adm-review-card">
-              <h2 className="adm-review-h">Settings</h2>
-              {can("listings.feature") ? (
-                <AdminButton aria-pressed={!!item.featured} onClick={() => decisions.toggleFeatured(row)} disabled={!!busy}>
-                  <Star size={18} strokeWidth={1.9} aria-hidden="true" fill={item.featured ? "currentColor" : "none"} />
-                  {item.featured ? "Featured: remove" : "Feature this listing"}
-                </AdminButton>
-              ) : (
-                <span className="adm-note">{item.featured ? "Featured." : "Not featured."}</span>
-              )}
-              <p className="adm-note" style={{ margin: "6px 0 0" }}>Featured listings sort first on public pages.</p>
-              {type !== "experience" && organisations.length > 0 && can("orgs.manage") && (
-                <div style={{ marginTop: 16 }}>
-                  <AdminButton size="sm" onClick={() => setOrgOpen(true)}>
-                    Assign organisation…
-                  </AdminButton>
-                  <AdminModal
-                    open={orgOpen}
-                    onClose={() => setOrgOpen(false)}
-                    dirty={!!orgId}
-                    title="Assign an organisation"
-                    subtitle="Experimental: this doesn't affect visibility or access yet."
-                    footer={
-                      <>
-                        <AdminButton variant="quiet" onClick={() => setOrgOpen(false)}>
-                          Cancel
-                        </AdminButton>
-                        <AdminButton variant="primary" onClick={() => assignOrg().then((ok) => ok && setOrgOpen(false))} disabled={!orgId || !!busy}>
-                          Save
-                        </AdminButton>
-                      </>
-                    }
-                  >
-                    <div className="adm-field">
-                      <label htmlFor="adm-org-assign">Organisation</label>
-                      <select id="adm-org-assign" className="adm-select" value={orgId} onChange={(e) => setOrgId(e.target.value)}>
-                        <option value="" disabled>
-                          Choose…
-                        </option>
-                        <option value="none">No organisation</option>
-                        {organisations.map((o) => (
-                          <option key={o.id} value={o.id}>
-                            {o.name}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  </AdminModal>
-                </div>
-              )}
-            </section>
+          <ContextSection title="Location">
+            <div className="wd-ctx-name">{location(item) || "No location given"}</div>
+            {type === "experience" && d?.experience?.meetingPoint && <div className="wd-ctx-sub">Meets at {d.experience.meetingPoint}</div>}
+            {d?.location ? (
+              <div className="wd-map">
+                <SinglePinMap lat={d.location.lat} lng={d.location.lng} label={item.name} height={110} />
+                {d.location.source !== "confirmed" && <p className="adm-note" style={{ margin: "6px 0 0" }}>Approximate position (not confirmed by the partner).</p>}
+              </div>
+            ) : (
+              d && <p className="adm-note" style={{ marginTop: 6 }}>No map position set.</p>
+            )}
+          </ContextSection>
+
+          <ContextSection title="Listing details">
+            <DetailFacts
+              columns={1}
+              rows={[
+                ["Listing ID", <CopyValue value={item.id} label="listing ID" />],
+                ["Category", [TYPE_LABEL[type], type === "club" ? item.sport : type === "experience" && item.kind ? item.kind.charAt(0).toUpperCase() + item.kind.slice(1) : null].filter(Boolean).join(" · ")],
+                ["Featured", item.featured ? "Yes" : "No"],
+                ["Created", item.createdAt ? formatDate(item.createdAt, true) : "Not recorded"],
+              ]}
+            />
+          </ContextSection>
+
+          {management.length > 0 && (
+            <ContextSection title="Management">
+              <ContextActions actions={management} />
+
+            </ContextSection>
           )}
-        </aside>
+        </>
+      }
+    >
+      <DetailTabs label={`${item.name} sections`} tabs={tabs.map((k) => ({ key: k, label: TAB_LABEL[k], count: k === "photos" && d ? photos.length : undefined }))} value={tab} onChange={setTab} />
+      <DetailTabPanel active={tab}>
+        {tab === "activity" ? (
+          <>
+            <DetailSection title="Decisions">
+              <DecisionHistory objectType={type} objectId={item.id} currentNeedsReason={item.status === "rejected"} refreshKey={item.status} />
+            </DetailSection>
+            <DetailSection title="Activity">
+              <ObjectActivity objectIds={[item.id]} note="Submissions, review decisions, featuring, edits, organisation changes and deletions are recorded." />
+            </DetailSection>
+          </>
+        ) : tab === "photos" ? (
+          <DetailSection title="Photos">
+            <Photos photos={photos} name={item.name} />
+          </DetailSection>
+        ) : tab === "description" ? (
+          <DetailSection title="Description">
+            <p className="adm-review-text">{description || <span className="adm-note">No description.</span>}</p>
+          </DetailSection>
+        ) : detail.error ? (
+          <ErrorMessage error={detail.error} onRetry={detail.reload} title="Couldn't load the full listing" />
+        ) : !d ? (
+          <LoadingRows rows={4} label="Loading the full listing" />
+        ) : tab === "rooms" ? (
+          <DetailSection title="Rooms & facilities">
+            <Facilities d={d} />
+          </DetailSection>
+        ) : tab === "availability" ? (
+          <DetailSection title={availabilityTitle(type)}>
+            <Availability d={d} />
+          </DetailSection>
+        ) : tab === "pricing" ? (
+          <DetailSection title="Pricing">
+            <Pricing d={d} />
+          </DetailSection>
+        ) : (
+          overview
+        )}
+      </DetailTabPanel>
 
-        <div className="adm-review-history">
-          <SectionLabel>Decisions</SectionLabel>
-          <DecisionHistory objectType={type} objectId={item.id} currentNeedsReason={item.status === "rejected"} refreshKey={item.status} />
-          <SectionLabel>Activity</SectionLabel>
-          <ObjectActivity objectIds={[item.id]} note="Submissions, review decisions, featuring, edits, organisation changes and deletions are recorded." />
+      <AdminModal
+        open={orgOpen}
+        onClose={() => setOrgOpen(false)}
+        dirty={!!orgId}
+        title="Assign an organisation"
+        subtitle="Experimental: this doesn't affect visibility or access yet."
+        footer={
+          <>
+            <AdminButton variant="quiet" onClick={() => setOrgOpen(false)}>
+              Cancel
+            </AdminButton>
+            <AdminButton variant="primary" onClick={() => assignOrg().then((ok) => ok && setOrgOpen(false))} disabled={!orgId || !!busy}>
+              Save
+            </AdminButton>
+          </>
+        }
+      >
+        <div className="adm-field">
+          <label htmlFor="adm-org-assign">Organisation</label>
+          <select id="adm-org-assign" className="adm-select" value={orgId} onChange={(e) => setOrgId(e.target.value)}>
+            <option value="" disabled>
+              Choose…
+            </option>
+            <option value="none">No organisation</option>
+            {organisations.map((o) => (
+              <option key={o.id} value={o.id}>
+                {o.name}
+              </option>
+            ))}
+          </select>
         </div>
-      </div>
-
+      </AdminModal>
       <ConfirmDialog
         open={confirm === "reject"}
-        title={item.status === "approved" ? `Unpublish ${item.name}?` : `Reject ${item.name}?`}
+        title={live ? `Unpublish ${item.name}?` : `Reject ${item.name}?`}
         message="It stays hidden from the public. The partner is told the reason category and your explanation, in their workspace and by email, and can edit the listing and resubmit it for review. The internal note isn't sent to them."
-        confirmLabel={item.status === "approved" ? "Unpublish listing" : "Reject listing"}
+        confirmLabel={live ? "Unpublish listing" : "Reject listing"}
         tone="neutral"
         confirmDisabled={!reasonComplete(reason)}
         onConfirm={async () => {
@@ -1068,7 +1204,7 @@ export function AdminListingsPage({
         open={rowConfirm?.kind === "delete"}
         title={`Delete ${rowConfirm?.row.item.name ?? ""}?`}
         message="This removes it from public view and the partner's dashboard. Bookings and registrations already made are unaffected."
-        confirmLabel="Delete"
+        confirmLabel="Delete listing"
         onConfirm={() => {
           if (rowConfirm) decisions.remove(rowConfirm.row);
           setRowConfirm(null);

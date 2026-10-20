@@ -1,13 +1,15 @@
+import { UserRound } from "lucide-react";
 import { useState } from "react";
 import { fetchAdminOrganisation, setOrganisationStatus } from "../../api";
 import type { AdminOrganisationRecord } from "../../types";
 import { useToast } from "../Toast";
 import { ConfirmDialog } from "../ui";
 import { RecordState, RecordView } from "../workspace/RecordView";
+import { ContextSection, CopyValue, DetailFacts, DetailSection, DetailStats } from "../workspace/DetailParts";
 import { ObjectActivity } from "./AdminAudit";
 import { DecisionHistory, DecisionReasonFields, emptyReason, reasonComplete, toReasonInput, type ReasonDraft } from "./DecisionReason";
 import { useAdminCan } from "./adminPermissions";
-import { AdminButton, Badge, Facts, SectionLabel, StatusTag, formatDate, useAdminData } from "./adminUi";
+import { AdminButton, Badge, OverflowMenu, StatusTag, formatDate, useAdminData } from "./adminUi";
 
 // D-01 — an organisation as a record page (?tab=organisations&record=org:<id>).
 // Suspending an organisation covers every member and every listing it owns,
@@ -49,14 +51,11 @@ export function OrganisationRecord({ orgId, backLabel, onBack, onOpenVendor, onC
     onChanged();
   };
 
+  const owner = org.members.find((m) => !m.invitedStaff);
   return (
     <RecordView
       title={org.name}
-      reference={
-        <>
-          Organisation · <span className="adm-mono">{org.id}</span>
-        </>
-      }
+      reference={`Organisation · ${members} ${members === 1 ? "member" : "members"} · ${live} live ${live === 1 ? "listing" : "listings"}`}
       backLabel={backLabel}
       onBack={onBack}
       statuses={
@@ -66,67 +65,105 @@ export function OrganisationRecord({ orgId, backLabel, onBack, onOpenVendor, onC
         </>
       }
       actions={
-        can("orgs.suspend") ? (
-          suspended ? (
-            <AdminButton onClick={() => setConfirm("reinstate")}>Reinstate organisation</AdminButton>
-          ) : (
-            <AdminButton variant="danger" onClick={() => setConfirm("suspend")}>
-              Suspend organisation
-            </AdminButton>
-          )
-        ) : null
+        <>
+          {owner && <AdminButton onClick={() => onOpenVendor(owner.id)}><UserRound size={15} strokeWidth={2} aria-hidden="true" /> View owner</AdminButton>}
+          {can("orgs.suspend") &&
+            (suspended ? (
+              <AdminButton variant="primary" onClick={() => setConfirm("reinstate")}>
+                Reinstate organisation
+              </AdminButton>
+            ) : (
+              <OverflowMenu label={`More actions for ${org.name}`} actions={[{ label: "Suspend organisation…", danger: true, onSelect: () => setConfirm("suspend") }]} />
+            ))}
+        </>
+      }
+      stats={
+        <DetailStats
+          items={[
+            { label: "Members", value: String(members), sub: `${org.members.filter((m) => m.invitedStaff).length} invited staff` },
+            { label: "Live listings", value: String(live), sub: `${org.listings.reduce((a, l) => a + l.n, 0)} in total` },
+            { label: "Upcoming obligations", value: String(org.upcoming.total), sub: "Bookings, places and passes" },
+            { label: "Status", value: suspended ? "Suspended" : "Active", sub: org.statusChangedAt ? `since ${formatDate(org.statusChangedAt)}` : undefined },
+          ]}
+        />
+      }
+      asideLabel="Owner, obligations and organisation details"
+      aside={
+        <>
+          <ContextSection title="Owner">
+            {owner ? (
+              <>
+                <div className="wd-ctx-name">{owner.name || owner.email}</div>
+                <a className="wd-ctx-sub" href={`mailto:${owner.email}`}>
+                  {owner.email}
+                </a>
+              </>
+            ) : (
+              <p className="adm-note">No owner found.</p>
+            )}
+          </ContextSection>
+          <ContextSection title="Upcoming obligations">
+            <DetailFacts
+              columns={1}
+              rows={[
+                ["Venue bookings", String(org.upcoming.bookings)],
+                ["Club registrations", String(org.upcoming.registrations)],
+                ["Programme enrolments", String(org.upcoming.enrolments)],
+                ["Experience bookings", String(org.upcoming.experienceBookings)],
+                ["Passes with credits left", String(org.upcoming.passes)],
+              ]}
+            />
+          </ContextSection>
+          <ContextSection title="Organisation details">
+            <DetailFacts
+              columns={1}
+              rows={[
+                ["Organisation ID", <CopyValue value={org.id} label="organisation ID" />],
+                ["Status changed", org.statusChangedAt ? formatDate(org.statusChangedAt, true) : null],
+              ]}
+            />
+          </ContextSection>
+        </>
       }
     >
       {suspended && (
-        <div className="adm-callout" role="status" style={{ marginBottom: 16 }}>
+        <div className="adm-callout" role="status" style={{ marginBottom: 8 }}>
           Suspended: its listings are hidden and can't take new bookings, whichever member created them. Existing bookings are unchanged. Members can only see a read-only list of upcoming obligations.
         </div>
       )}
-      <div className="adm-record-grid">
-        <div>
-          <SectionLabel>Members</SectionLabel>
-          <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
-            {org.members.map((m) => (
-              <li key={m.id} style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", padding: "8px 0", borderBottom: "1px solid var(--adm-line, var(--color-border))" }}>
-                <span style={{ fontWeight: 600 }}>{m.name || m.email}</span>
-                <span className="adm-cell-sub">{m.email}</span>
-                <Badge tone="outline">{m.invitedStaff ? (m.platformRole ?? "staff").replace(/_/g, " ") : "Owner"}</Badge>
-                {m.status !== "approved" && <StatusTag status={m.status} label={m.status === "suspended" ? "Account suspended (individual)" : undefined} />}
-                <AdminButton size="sm" onClick={() => onOpenVendor(m.id)}>
-                  Open account
-                </AdminButton>
-              </li>
-            ))}
-            {members === 0 && <li className="adm-note">No members.</li>}
-          </ul>
-          <SectionLabel>Listings</SectionLabel>
-          <Facts
-            rows={Object.keys(TYPE_LABEL).map((t) => {
-              const rows = org.listings.filter((l) => l.type === t);
-              return [TYPE_LABEL[t], rows.length ? rows.map((r) => `${r.n} ${r.status}`).join(" · ") : "None"];
-            })}
-          />
-          <p className="adm-note">Listing statuses never change when an organisation is suspended or reinstated.</p>
-        </div>
-        <div>
-          <SectionLabel>Upcoming obligations</SectionLabel>
-          <Facts
-            rows={[
-              ["Venue bookings", String(org.upcoming.bookings)],
-              ["Club registrations", String(org.upcoming.registrations)],
-              ["Programme enrolments", String(org.upcoming.enrolments)],
-              ["Experience bookings", String(org.upcoming.experienceBookings)],
-              ["Passes with credits left", String(org.upcoming.passes)],
-            ]}
-          />
-          {flags}
-        </div>
-      </div>
-
-      <SectionLabel>Decisions</SectionLabel>
-      <DecisionHistory objectType="organisation" objectId={org.id} currentNeedsReason={suspended} refreshKey={org.status} />
-      <SectionLabel>Activity</SectionLabel>
-      <ObjectActivity objectIds={[org.id]} note="Suspensions, reinstatements and feature-flag changes are recorded." />
+      <DetailSection title={`Members (${members})`}>
+        <ul className="wd-rows">
+          {org.members.map((m) => (
+            <li key={m.id}>
+              <div className="wd-rows-main">
+                <span className="wd-ctx-name">{m.name || m.email}</span>
+                <span className="wd-ctx-sub">{m.email}</span>
+              </div>
+              <Badge tone="outline">{m.invitedStaff ? (m.platformRole ?? "staff").replace(/_/g, " ") : "Owner"}</Badge>
+              {m.status !== "approved" && <StatusTag status={m.status} label={m.status === "suspended" ? "Account suspended (individual)" : undefined} />}
+              <AdminButton size="sm" onClick={() => onOpenVendor(m.id)} aria-label={`Open account for ${m.name || m.email}`}>
+                Open account
+              </AdminButton>
+            </li>
+          ))}
+          {members === 0 && <li className="adm-note">No members.</li>}
+        </ul>
+      </DetailSection>
+      <DetailSection title="Listings" note="Listing statuses never change when an organisation is suspended or reinstated.">
+        <DetailFacts
+          rows={Object.keys(TYPE_LABEL).map((t) => {
+            const rows = org.listings.filter((l) => l.type === t);
+            return [TYPE_LABEL[t], rows.length ? rows.map((r) => `${r.n} ${r.status}`).join(" · ") : "None"] as [string, string];
+          })}
+        />
+      </DetailSection>
+      {flags && <DetailSection title="Feature flags">{flags}</DetailSection>}
+      <DetailSection title="Decisions">
+        <DecisionHistory objectType="organisation" objectId={org.id} currentNeedsReason={suspended} refreshKey={org.status} />
+      </DetailSection>
+      <DetailSection title="Activity">
+        <ObjectActivity objectIds={[org.id]} note="Suspensions, reinstatements and feature-flag changes are recorded." />
+      </DetailSection>
 
       <ConfirmDialog
         open={confirm === "suspend"}

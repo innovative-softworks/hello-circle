@@ -244,6 +244,10 @@ export interface AdminListingDetail {
   type: "centre" | "club" | "experience";
   images: string[];
   description: string;
+  /** Map position, when the listing has one. */
+  location?: { lat: number; lng: number; source: string } | null;
+  /** Header key numbers: visible reviews, upcoming bookings (club: active registrations), page views. */
+  stats?: { reviews: number; rating: number | null; upcoming: number; views: number | null };
   centre?: {
     rooms: { name: string; capacity: number; rate: number; description: string; paymentMethod: string; active: number }[];
     hours: { day: number; opensAt: string; closesAt: string; closed: number }[];

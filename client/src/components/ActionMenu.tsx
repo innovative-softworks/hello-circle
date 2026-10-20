@@ -141,7 +141,7 @@ export function ActionMenu({
         ref={buttonRef}
         type="button"
         className={appearance === "icon" ? `adm-btn adm-btn--quiet adm-btn--sm${className ? ` ${className}` : ""}` : `btn btn-ghost action-menu-button${className ? ` ${className}` : ""}`}
-        title={appearance === "icon" ? label : undefined}
+        data-tip={appearance === "icon" ? label : undefined}
         aria-haspopup="menu"
         aria-expanded={open}
         aria-controls={open ? menuId : undefined}

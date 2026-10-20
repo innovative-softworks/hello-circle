@@ -538,31 +538,55 @@ adminRouter.get("/listings/:type/:id/summary", requireAdminPermission("listings.
 // Everything a reviewer needs to see before publishing a listing (admin
 // "Pending approvals" review page): photos, the full description and what
 // can actually be booked. Read-only, any status (pending included).
+type Located = { lat: string | number | null; lng: string | number | null; location_source: string | null };
+/** Map position for the admin record's Location panel (DECIMAL comes back as a string). */
+const located = (r: Located) =>
+  r.lat !== null && r.lng !== null && Number.isFinite(Number(r.lat)) && Number.isFinite(Number(r.lng)) ? { lat: Number(r.lat), lng: Number(r.lng), source: r.location_source ?? "unknown" } : null;
+
+/** Key numbers for the admin listing record's header (read-only counts; no money). */
+async function listingStats(type: "centre" | "club" | "experience", id: string) {
+  const table = type === "centre" ? "centres" : type === "club" ? "clubs" : "experiences";
+  const today = irelandTodayIso();
+  const r = (await db.prepare(`SELECT COUNT(*) AS n, AVG(rating) AS avg FROM reviews WHERE listing_type = ? AND listing_id = ? AND hidden = 0`).get(type, id)) as { n: number | string; avg: number | string | null };
+  const v = (await db.prepare(`SELECT views FROM ${table} WHERE id = ?`).get(id)) as { views: number | string | null } | undefined;
+  // Upcoming = not cancelled and not yet past; a club's registrations are ongoing memberships.
+  const upcoming = (
+    type === "centre"
+      ? await db.prepare(`SELECT COUNT(*) AS n FROM bookings WHERE centre_id = ? AND date >= ? AND status <> 'cancelled'`).get(id, today)
+      : type === "club"
+        ? await db.prepare(`SELECT COUNT(*) AS n FROM registrations WHERE club_id = ? AND status <> 'cancelled'`).get(id)
+        : await db
+            .prepare(`SELECT COUNT(*) AS n FROM experience_bookings b JOIN experience_sessions s ON s.id = b.session_id WHERE b.experience_id = ? AND s.date >= ? AND b.status <> 'cancelled'`)
+            .get(id, today)
+  ) as { n: number | string };
+  return { reviews: Number(r.n), rating: r.avg === null ? null : Math.round(Number(r.avg) * 10) / 10, upcoming: Number(upcoming.n), views: v?.views === null || v?.views === undefined ? null : Number(v.views) };
+}
+
 adminRouter.get("/listings/:type/:id/detail", requireAdminPermission("listings.view"), async (req, res) => {
   const { type, id } = req.params;
   const images = async (table: string, col: string) =>
     ((await db.prepare(`SELECT url FROM ${table} WHERE ${col} = ? ORDER BY sort_order`).all(id)) as { url: string }[]).map((r) => r.url);
   if (type === "centre") {
-    const c = (await db.prepare(`SELECT image_url, blurb, opens_at, closes_at FROM centres WHERE id = ?`).get(id)) as { image_url: string; blurb: string; opens_at: string; closes_at: string } | undefined;
+    const c = (await db.prepare(`SELECT image_url, blurb, opens_at, closes_at, lat, lng, location_source FROM centres WHERE id = ?`).get(id)) as ({ image_url: string; blurb: string; opens_at: string; closes_at: string } & Located) | undefined;
     if (!c) return res.status(404).json({ error: "Listing not found" });
     const rooms = await db.prepare(`SELECT name, cap AS capacity, rate, \`desc\` AS description, payment_method AS paymentMethod, active FROM rooms WHERE centre_id = ? ORDER BY sort_order`).all(id);
     const hours = await db.prepare(`SELECT day_of_week AS day, opens_at AS opensAt, closes_at AS closesAt, closed FROM centre_hours WHERE centre_id = ? ORDER BY day_of_week`).all(id);
     const amenities = ((await db.prepare(`SELECT amenity FROM centre_amenities WHERE centre_id = ? ORDER BY sort_order`).all(id)) as { amenity: string }[]).map((r) => r.amenity);
     const gallery = await images("centre_images", "centre_id");
-    return res.json({ type, images: gallery.length ? gallery : c.image_url ? [c.image_url] : [], description: c.blurb, centre: { rooms, hours, opensAt: c.opens_at, closesAt: c.closes_at, amenities } });
+    return res.json({ type, images: gallery.length ? gallery : c.image_url ? [c.image_url] : [], description: c.blurb, location: located(c), stats: await listingStats("centre", id), centre: { rooms, hours, opensAt: c.opens_at, closesAt: c.closes_at, amenities } });
   }
   if (type === "club") {
-    const c = (await db.prepare(`SELECT image_url, blurb, sport, ages, price, unit, trial FROM clubs WHERE id = ?`).get(id)) as { image_url: string; blurb: string; sport: string; ages: string; price: number; unit: string; trial: number } | undefined;
+    const c = (await db.prepare(`SELECT image_url, blurb, sport, ages, price, unit, trial, lat, lng, location_source FROM clubs WHERE id = ?`).get(id)) as ({ image_url: string; blurb: string; sport: string; ages: string; price: number; unit: string; trial: number } & Located) | undefined;
     if (!c) return res.status(404).json({ error: "Listing not found" });
     const sessions = await db.prepare(`SELECT day_of_week AS day, time, label, capacity, active FROM club_sessions WHERE club_id = ? ORDER BY day_of_week, time`).all(id);
     const includes = ((await db.prepare(`SELECT item FROM club_includes WHERE club_id = ? ORDER BY sort_order`).all(id)) as { item: string }[]).map((r) => r.item);
     const gallery = await images("club_images", "club_id");
-    return res.json({ type, images: gallery.length ? gallery : c.image_url ? [c.image_url] : [], description: c.blurb, club: { sport: c.sport, ages: c.ages, price: c.price, unit: c.unit, trial: !!c.trial, includes, sessions } });
+    return res.json({ type, images: gallery.length ? gallery : c.image_url ? [c.image_url] : [], description: c.blurb, location: located(c), stats: await listingStats("club", id), club: { sport: c.sport, ages: c.ages, price: c.price, unit: c.unit, trial: !!c.trial, includes, sessions } });
   }
   if (type === "experience") {
     const e = (await db
-      .prepare(`SELECT image_url, blurb, description, kind, price_cents, capacity, duration_minutes, meeting_point, difficulty FROM experiences WHERE id = ?`)
-      .get(id)) as { image_url: string; blurb: string; description: string; kind: string; price_cents: number; capacity: number; duration_minutes: number; meeting_point: string; difficulty: string } | undefined;
+      .prepare(`SELECT image_url, blurb, description, kind, price_cents, capacity, duration_minutes, meeting_point, difficulty, lat, lng, location_source FROM experiences WHERE id = ?`)
+      .get(id)) as ({ image_url: string; blurb: string; description: string; kind: string; price_cents: number; capacity: number; duration_minutes: number; meeting_point: string; difficulty: string } & Located) | undefined;
     if (!e) return res.status(404).json({ error: "Listing not found" });
     const sessions = await db
       .prepare(`SELECT date, time, capacity, status FROM experience_sessions WHERE experience_id = ? AND date >= ? ORDER BY date, time LIMIT 6`)
@@ -573,6 +597,8 @@ adminRouter.get("/listings/:type/:id/detail", requireAdminPermission("listings.v
       type,
       images: gallery.length ? gallery : e.image_url ? [e.image_url] : [],
       description: e.description || e.blurb,
+      location: located(e),
+      stats: await listingStats("experience", id),
       experience: { kind: e.kind, priceCents: e.price_cents, capacity: e.capacity, durationMinutes: e.duration_minutes, meetingPoint: e.meeting_point, difficulty: e.difficulty, upcomingSessions: sessions, totalSessions: Number(total.n) },
     });
   }

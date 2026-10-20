@@ -16,6 +16,9 @@ export function RecordView({
   backLabel,
   onBack,
   actions,
+  aside,
+  asideLabel = "Details",
+  stats,
   children,
 }: {
   title: string;
@@ -28,6 +31,12 @@ export function RecordView({
   onBack: () => void;
   /** Record actions for the current role and lifecycle state. */
   actions?: ReactNode;
+  /** The context panel (ContextSections). With it the page is the 70/30
+   * detail layout: header and content on the left, context on the right. */
+  aside?: ReactNode;
+  asideLabel?: string;
+  /** Key numbers shown in a strip under the header (DetailStats). */
+  stats?: ReactNode;
   children: ReactNode;
 }) {
   const { workspaceLabel } = useRecordHeader();
@@ -40,8 +49,8 @@ export function RecordView({
       h1.focus({ preventScroll: true });
     }
   }, [title]);
-  return (
-    <div className="adm-record" ref={headingWrap}>
+  const head = (
+    <>
       <AdminButton variant="quiet" size="sm" onClick={onBack} className="adm-record-back">
         <ArrowLeft size={16} strokeWidth={1.9} aria-hidden="true" /> Back to {backLabel.toLowerCase()}
       </AdminButton>
@@ -56,6 +65,27 @@ export function RecordView({
           {statuses}
         </div>
       )}
+      {stats}
+    </>
+  );
+  if (aside) {
+    return (
+      <div className="adm-record wd" ref={headingWrap}>
+        <div className="wd-layout">
+          <div className="wd-main">
+            {head}
+            <div className="wd-body">{children}</div>
+          </div>
+          <aside className="wd-aside" aria-label={asideLabel}>
+            <div className="wd-aside-inner">{aside}</div>
+          </aside>
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div className="adm-record" ref={headingWrap}>
+      {head}
       {children}
     </div>
   );

@@ -1,3 +1,4 @@
+import { BulkBar, RowMenu, useRowSelection } from "./admin/adminUi";
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Award, Bell, CalendarDays, CheckCheck, Compass, GraduationCap, MessageSquare, Send, type LucideIcon } from "lucide-react";
@@ -288,6 +289,19 @@ export function MessagesTab({
     }
   };
   const rows = (notifications ?? []).filter((n) => show === "all" || !n.read);
+  // Select unread notifications to mark them read: the same call as opening one.
+  const sel = useRowSelection(rows.filter((n) => !n.read).map((n) => String(n.id)));
+  const markSelectedRead = async () => {
+    const chosen = rows.filter((n) => sel.has(String(n.id)));
+    try {
+      await Promise.all(chosen.map((n) => markVendorNotificationRead(n.id)));
+      setNotifications((list) => list && list.map((r) => (sel.has(String(r.id)) ? { ...r, read: 1 } : r)));
+      sel.clear();
+      onRead();
+    } catch {
+      toast.error("Couldn't mark every selected notification read — try again");
+    }
+  };
 
   return (
     <div className="fade-panel" style={{ display: "flex", flexDirection: "column", gap: 16 }}>
@@ -334,11 +348,20 @@ export function MessagesTab({
               subtitle={show === "unread" ? undefined : "New bookings and registrations will show up here."}
             />
           ) : (
+            <>
+            <BulkBar sel={sel} noun="notification">
+              <AdminButton variant="primary" size="sm" onClick={markSelectedRead}>
+                <CheckCheck size={15} aria-hidden="true" /> Mark {sel.count} read
+              </AdminButton>
+            </BulkBar>
             <ul className="adm-ov-list">
               {rows.map((n) => {
                 const Icon = KIND_ICON[n.kind] ?? Bell;
                 return (
-                  <li key={n.id} className="adm-ov-row ws-note-row" data-unread={!n.read || undefined}>
+                  <li key={n.id} className="adm-ov-row ws-note-row ws-note-row--select" data-unread={!n.read || undefined}>
+                    <span className="ws-row-check">
+                      {!n.read && <input type="checkbox" className="adm-check" checked={sel.has(String(n.id))} onChange={() => sel.toggle(String(n.id))} aria-label={`Select ${n.title}`} />}
+                    </span>
                     <span className="adm-ov-tile">
                       <Icon size={17} strokeWidth={1.9} aria-hidden="true" />
                     </span>
@@ -355,10 +378,16 @@ export function MessagesTab({
                       {agoLabel(n.createdAt)}
                     </span>
                     <span className="adm-ov-kind">Ref {n.ref}</span>
+                    <RowMenu
+                      name={n.title}
+                      items={[{ label: "Open", onSelect: () => open(n) }, ...(!n.read ? [{ label: "Mark read", onSelect: () => void markRead(n).catch(() => toast.error("Couldn't mark it read — try again")) }] : [])]}
+                      copy={{ value: n.ref }}
+                    />
                   </li>
                 );
               })}
             </ul>
+            </>
           )}
         </Box>
       ) : (

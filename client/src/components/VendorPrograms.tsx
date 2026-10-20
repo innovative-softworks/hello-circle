@@ -19,7 +19,7 @@ import {
 import { CalendarIcon, PlusIcon, TrashIcon, UsersIcon } from "./icons";
 import { SingleImageUpload } from "./SingleImageUpload";
 import { VendorCheckInScreen } from "./VendorCheckInScreen";
-import { FieldError, FieldLabel, FormErrorSummary, RequiredNote, useFormErrors } from "./form";
+import { DraftBanner, FieldError, FieldLabel, FormErrorSummary, RequiredNote, useFormDraft, useFormErrors } from "./form";
 import { MonthCalendar } from "./MonthCalendar";
 import { CalendarDays, GraduationCap, List, UsersRound } from "lucide-react";
 import { ActionMenu } from "./ActionMenu";
@@ -34,7 +34,8 @@ import { formatScheduleCount, formatScheduleWhen, manageTargetFor, scheduleItemD
 import { colors, fonts, radius } from "../theme";
 import type { AttendanceStatus, Program, ProgramStatus, Room, VendorProgramSummary, VendorScheduleItem } from "../types";
 import { formatPrice } from "../formatters";
-import { occurrenceDates } from "../irelandDate";
+import { irelandToday, occurrenceDates } from "../irelandDate";
+import { DetailStats } from "./workspace/DetailParts";
 import { PaidClosedPriceNotice } from "./PaidClosedPriceNotice";
 
 const ATTENDANCE_STATUS_COLORS: Record<AttendanceStatus, { fg: string; bg: string }> = {
@@ -176,8 +177,18 @@ export function ProgramManager({ programId, onChanged }: { programId: string; on
   const sessionCount = repeat === "none" ? 1 : Math.max(1, Math.min(52, occurrences));
 
   // Option A (2026-10-16): sessions and enrolments as panels, status / cover /
-  // facts in the rail, adding sessions in a popup.
+  // facts in the rail, adding sessions in a popup. Key numbers above (2026-10-20).
+  const upcomingSessions = program.sessions.filter((x) => x.date >= irelandToday());
   return (
+    <>
+    <DetailStats
+      items={[
+        { label: "Enrolled", value: `${program.enrolled} / ${program.capacity}`, sub: `${program.spotsLeft} places left` },
+        { label: "Price", value: program.priceCents ? `€${(program.priceCents / 100).toFixed(2)}` : "Free", sub: "for the course" },
+        { label: "Sessions", value: String(program.sessions.length), sub: `${upcomingSessions.length} still to come` },
+        { label: "Next session", value: upcomingSessions[0] ? dateLabel(upcomingSessions[0].date) : "—", sub: upcomingSessions[0]?.time },
+      ]}
+    />
     <div className="ws-editor">
       <div style={{ display: "flex", flexDirection: "column", gap: 14, minWidth: 0 }}>
         {error && (
@@ -327,25 +338,23 @@ export function ProgramManager({ programId, onChanged }: { programId: string; on
           />
         </div>
         <div className="adm-box ws-rail-card ws-facts">
-          <strong style={{ display: "block", marginBottom: 6 }}>At a glance</strong>
+          <strong style={{ display: "block", marginBottom: 6 }}>Who it's for</strong>
           <div>
-            <span>Price</span>
-            {program.priceCents > 0 ? `€${(program.priceCents / 100).toFixed(2)} for the course` : "Free"}
+            <span>Ages</span>
+            {program.ageRange || "Any age"}
           </div>
-          <div>
-            <span>Places</span>
-            {program.capacity ?? "Unlimited"}
-          </div>
-          {program.ageRange && (
+          {program.skillLevel && (
             <div>
-              <span>Ages</span>
-              {program.ageRange}
+              <span>Level</span>
+              {program.skillLevel}
             </div>
           )}
-          <div>
-            <span>Sessions</span>
-            {program.sessions.length}
-          </div>
+          {program.instructorName && (
+            <div>
+              <span>Instructor</span>
+              {program.instructorName}
+            </div>
+          )}
         </div>
       </aside>
 
@@ -421,12 +430,13 @@ export function ProgramManager({ programId, onChanged }: { programId: string; on
         open={confirmingSessionId !== null}
         title="Remove this session?"
         message="Anyone already enrolled in the program is unaffected — this only removes the one date/time from the schedule."
-        confirmLabel="Remove"
+        confirmLabel="Remove session"
         onConfirm={() => confirmingSessionId && removeSession(confirmingSessionId)}
         onCancel={() => setConfirmingSessionId(null)}
       />
       <VendorCheckInScreen programId={programId} session={checkingInSession} onClose={() => setCheckingInSession(null)} />
     </div>
+    </>
   );
 }
 
@@ -489,16 +499,30 @@ export function ProgramCreateForm({
   // See HostGamePage.tsx's identical wrapper — clears a stale FormErrorSummary
   // the moment the user edits anything, instead of it lingering until the
   // next submit attempt re-validates.
+  const [touched, setTouched] = useState(false);
   const setForm = (updater: SetStateAction<typeof form>, fieldId?: string) => {
     setFormRaw(updater);
     if (fieldId) fe.clearField(fieldId);
+    setTouched(true);
     onDirtyChange?.(true);
   };
   const [equipmentText, setEquipmentTextRaw] = useState("");
   const setEquipmentText = (v: string) => {
     setEquipmentTextRaw(v);
+    setTouched(true);
     onDirtyChange?.(true);
   };
+  // What's typed survives a reload (this browser only) until it's created.
+  const draft = useFormDraft({
+    key: "program:new",
+    value: { form, equipmentText },
+    active: touched,
+    onRestore: (v) => {
+      setFormRaw(v.form);
+      setEquipmentTextRaw(v.equipmentText);
+      onDirtyChange?.(true);
+    },
+  });
 
   const options = form.listingType === "centre" ? listings.centres : listings.clubs;
 
@@ -530,6 +554,7 @@ export function ProgramCreateForm({
         safeguardingInfo: form.safeguardingInfo,
       });
       onDirtyChange?.(false);
+      draft.clear();
       onCreated(created.id);
     } catch (e) {
       // Everything typed stays in the form; the reason goes in the summary.
@@ -547,6 +572,7 @@ export function ProgramCreateForm({
   return (
     <div className="ws-editor">
       <div style={{ display: "flex", flexDirection: "column", gap: 14, minWidth: 0 }}>
+        {draft.pending && <DraftBanner savedAt={draft.pending.savedAt} onRestore={draft.restore} onDiscard={draft.clear} />}
         <RequiredNote />
         <FormPanel n={1} title="What it is" note="Where it runs and what people will do.">
           <div className="grid-responsive" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
@@ -742,9 +768,9 @@ export function VendorProgramsTab({ onOpenProgram }: { onOpenProgram: (id: strin
 
       <ConfirmDialog
         open={confirmingProgramId !== null}
-        title="Delete this program?"
+        title="Delete this programme?"
         message="This archives it — it disappears from public view and your active list, but existing enrollments/attendance records are kept."
-        confirmLabel="Delete"
+        confirmLabel="Delete programme"
         onConfirm={() => confirmingProgramId && remove(confirmingProgramId)}
         onCancel={() => setConfirmingProgramId(null)}
       />

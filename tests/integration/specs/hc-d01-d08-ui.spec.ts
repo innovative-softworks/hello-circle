@@ -61,7 +61,9 @@ test("D01-D08-UI: organisation suspension and staff management in the browser", 
       await page.goto(`/admin?tab=organisations&record=org:${org.id}`);
       await expect(page.getByRole("heading", { level: 1, name: org.name })).toBeVisible();
       await expect(page.getByRole("group", { name: "Status" })).toContainText("Active");
-      await page.getByRole("button", { name: "Suspend organisation" }).click();
+      // Detail template (2026-10-20): suspending is in the record's More actions menu.
+      await page.getByRole("button", { name: `More actions for ${org.name}` }).click();
+      await page.getByRole("menuitem", { name: "Suspend organisation…" }).click();
       const dialog = page.getByRole("alertdialog", { name: `Suspend ${org.name}?` });
       await expect(dialog).toContainText("2 members");
       await expect(dialog).toContainText("whichever member created them");
@@ -194,7 +196,8 @@ test("D01-D08-UI: organisation suspension and staff management in the browser", 
       expect((await rows(f, "SELECT platform_role FROM users WHERE id = ?", [manager.id]))[0].platform_role).toBe("finance");
       expect(Number((await rows(f, "SELECT COUNT(*) AS n FROM audit_log WHERE object_id = ? AND action = 'org.staff_role_changed'", [manager.id]))[0].n)).toBe(1);
       // Removal: the consequences are shown first; cancelled here (removal itself is covered by validation-d08).
-      await page.getByRole("button", { name: "Remove from team" }).click();
+      await page.getByRole("button", { name: /^More actions for / }).click();
+      await page.getByRole("menuitem", { name: "Remove from team…" }).click();
       const removeDialog = page.getByRole("alertdialog");
       await expect(removeDialog).toContainText("Listings and coupons they created stay with your organisation");
       await shot(page, "d08-remove-confirm");

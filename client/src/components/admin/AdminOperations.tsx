@@ -13,9 +13,13 @@ import {
 import { useUrlParam, useRecordParam } from "../../useUrlTab";
 import { ConfirmDialog, LoadMoreControl } from "../ui";
 import { RecordState, RecordView } from "../workspace/RecordView";
+import { ContextSection, CopyValue, DetailFacts, DetailSection, DetailStats } from "../workspace/DetailParts";
 import type { AdminTab } from "./adminNav";
 import { useAdminCan } from "./adminPermissions";
 import {
+  RowMenu,
+  OverflowMenu,
+  statusLabel,
   AdminButton,
   Badge,
   Box,
@@ -62,6 +66,8 @@ function DirectoryTable<T>({
   openLabel,
   emptyTitle,
   filtered,
+  copy,
+  rowName,
 }: {
   caption: string;
   list: ReturnType<typeof useServerPage<T>>;
@@ -71,6 +77,9 @@ function DirectoryTable<T>({
   openLabel?: (r: T) => string;
   emptyTitle: string;
   filtered: boolean;
+  /** What "Copy reference" copies (defaults to the row key). */
+  copy?: { label: string; value: (r: T) => string };
+  rowName?: (r: T) => string;
 }) {
   if (list.error) return <ErrorMessage error={list.error} onRetry={list.reload} title={`Couldn't load ${caption.toLowerCase()}`} />;
   if (list.loading) return <LoadingRows rows={6} />;
@@ -87,11 +96,9 @@ function DirectoryTable<T>({
                   {c.label}
                 </th>
               ))}
-              {onOpen && (
-                <th scope="col">
-                  <span className="adm-visually-hidden">Open</span>
-                </th>
-              )}
+              <th scope="col">
+                <span className="adm-visually-hidden">Actions</span>
+              </th>
             </tr>
           </thead>
           <tbody>
@@ -102,13 +109,20 @@ function DirectoryTable<T>({
                     {c.cell(r)}
                   </td>
                 ))}
-                {onOpen && (
-                  <td data-label="">
-                    <AdminButton size="sm" onClick={() => onOpen(r)} aria-label={openLabel?.(r)}>
-                      Open
-                    </AdminButton>
-                  </td>
-                )}
+                <td data-label="">
+                  <div className="adm-cell-actions">
+                    {onOpen && (
+                      <AdminButton size="sm" onClick={() => onOpen(r)} aria-label={openLabel?.(r)}>
+                        Open
+                      </AdminButton>
+                    )}
+                    <RowMenu
+                      name={rowName?.(r) ?? rowKey(r)}
+                      items={onOpen ? [{ label: "Open", onSelect: () => onOpen(r) }] : []}
+                      copy={{ label: copy?.label ?? "Copy reference", value: copy ? copy.value(r) : rowKey(r) }}
+                    />
+                  </div>
+                </td>
               </tr>
             ))}
           </tbody>
@@ -152,6 +166,8 @@ export function AdminPeoplePage({ onNavigate }: { onNavigate: Nav }) {
         filtered={!!query || filter !== "all"}
         emptyTitle="No accounts yet"
         rowKey={(r) => r.id}
+        copy={{ label: "Copy email", value: (r) => r.email }}
+        rowName={(r) => r.name || r.email}
         onOpen={(r) => onNavigate("support", { record: `person:${r.email}` })}
         openLabel={(r) => `Open ${r.name || r.email}`}
         columns={[
@@ -214,6 +230,8 @@ export function AdminOrdersPage({ onNavigate }: { onNavigate: Nav }) {
         filtered={!!query || kind !== "all" || payment !== "all" || !!from || !!to}
         emptyTitle="No orders yet"
         rowKey={(r) => `${r.kind}:${r.ref}`}
+        copy={{ label: "Copy order reference", value: (r) => r.ref }}
+        rowName={(r) => r.ref}
         onOpen={(r) => onNavigate("support", { record: `order:${r.kind}:${r.ref}` })}
         openLabel={(r) => `Open order ${r.ref}`}
         columns={[
@@ -265,6 +283,7 @@ export function AdminActivitiesPage() {
         filtered={!!query || status !== "all" || when !== "all"}
         emptyTitle="No activities"
         rowKey={(r) => r.id}
+        rowName={(r) => r.activityLabel}
         onOpen={(r) => openRecord(`activity:${r.id}`)}
         openLabel={(r) => `Open ${r.activityLabel}`}
         columns={[
@@ -297,89 +316,115 @@ function AdminActivityRecord({ id, onBack, onChanged }: { id: string; onBack: ()
   return (
     <RecordView
       title={a.activityLabel}
-      reference={`${formatDate(a.date)} · ${a.time}`}
+      reference={a.place ? String(a.place) : "No place given"}
       backLabel="Activities"
       onBack={onBack}
       statuses={<StatusTag status={a.status} />}
       actions={
         <>
           <AdminButton onClick={() => window.open(`/games/${a.id}`, "_blank", "noopener")}>View public page</AdminButton>
-          {live && can("activities.moderate") && (
-            <AdminButton variant="danger" onClick={() => setCancelling(true)}>
-              Cancel activity
-            </AdminButton>
-          )}
+          {live && can("activities.moderate") && <OverflowMenu label={`More actions for ${a.activityLabel}`} actions={[{ label: "Cancel activity…", danger: true, onSelect: () => setCancelling(true) }]} />}
+        </>
+      }
+      stats={
+        <DetailStats
+          items={[
+            { label: "Going", value: `${joined.length} / ${a.capacity}`, sub: `${Math.max(0, Number(a.capacity) - joined.length)} places left` },
+            { label: "Price", value: a.priceCents ? euro(Number(a.priceCents)) : "Free", sub: paidOnline ? `${paidOnline} paid online` : "per place" },
+            { label: "When", value: formatDate(a.date), sub: a.time },
+            { label: "Reports", value: String(reports.length), sub: reports.length ? "See the panel" : "None" },
+          ]}
+        />
+      }
+      asideLabel="Host and activity details"
+      aside={
+        <>
+          <ContextSection title="Host">
+            <div className="wd-ctx-name">{a.hostName ?? "Unknown host"}</div>
+            {a.hostEmail && (
+              <a className="wd-ctx-sub" href={`mailto:${a.hostEmail}`}>
+                {a.hostEmail}
+              </a>
+            )}
+          </ContextSection>
+          <ContextSection title="Activity details">
+            <DetailFacts
+              columns={1}
+              rows={[
+                ["Activity ID", <CopyValue value={a.id} label="activity ID" />],
+                ["Visibility", a.visibility ? String(a.visibility) : null],
+                ["Created", formatDate(String(a.createdAt), true)],
+              ]}
+            />
+          </ContextSection>
+          <ContextSection title={`Reports (${reports.length})`}>
+            {reports.length === 0 ? (
+              <p className="adm-note">No reports.</p>
+            ) : (
+              <ul className="wd-rows">
+                {reports.map((r) => (
+                  <li key={r.id}>
+                    <span className="wd-rows-main">
+                      {r.reason}
+                      <span className="wd-ctx-sub">{formatDate(r.createdAt)}</span>
+                    </span>
+                    <StatusTag status={r.status} />
+                  </li>
+                ))}
+              </ul>
+            )}
+          </ContextSection>
         </>
       }
     >
-      <div className="adm-record-grid">
-        <div>
-          <SectionLabel>Activity</SectionLabel>
-          <Facts
-            rows={[
-              ["Host", `${a.hostName ?? "—"}${a.hostEmail ? ` · ${a.hostEmail}` : ""}`],
-              ["Where", String(a.place ?? "—")],
-              ["Going", `${joined.length} of ${a.capacity}`],
-              ["Price", a.priceCents ? euro(Number(a.priceCents)) : "Free"],
-              ["Venue booking", a.bookingRef ? <span className="adm-mono">{String(a.bookingRef)}</span> : "None"],
-              ["Visibility", String(a.visibility ?? "—")],
-              ["Created", formatDate(String(a.createdAt), true)],
-            ]}
-          />
-          <SectionLabel>Participants ({participants.length})</SectionLabel>
-          {participants.length === 0 ? (
-            <p className="adm-note">Nobody has joined.</p>
-          ) : (
-            <div className="adm-table-wrap">
-              <table className="adm-table adm-table--stack">
-                <caption className="adm-visually-hidden">Participants</caption>
-                <thead>
-                  <tr>
-                    <th scope="col">Name</th>
-                    <th scope="col">Status</th>
-                    <th scope="col">Payment</th>
-                    <th scope="col" className="adm-num">
-                      Paid
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {participants.map((p) => (
-                    <tr key={p.residentId}>
-                      <td data-label="Name">{p.name ?? p.email ?? "—"}</td>
-                      <td data-label="Status">
-                        <StatusTag status={p.status} />
-                      </td>
-                      <td data-label="Payment">
-                        <StatusTag status={p.paymentStatus} />
-                      </td>
-                      <td data-label="Paid" className="adm-num">
-                        {euro(p.totalCents)}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
-        <div>
-          <SectionLabel>Reports ({reports.length})</SectionLabel>
-          {reports.length === 0 ? (
-            <p className="adm-note">No reports.</p>
-          ) : (
-            <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13 }}>
-              {reports.map((r) => (
-                <li key={r.id}>
-                  {r.reason} — {r.status} · {formatDate(r.createdAt)}
-                </li>
+      <DetailSection title="Place">
+        <DetailFacts
+          rows={[
+            ["Where", a.place ? String(a.place) : "No place given"],
+            ["Venue booking", a.bookingRef ? <span className="adm-mono">{String(a.bookingRef)}</span> : "None"],
+          ]}
+        />
+      </DetailSection>
+      <DetailSection title={`Participants (${participants.length})`}>
+        {participants.length === 0 ? (
+          <p className="adm-note">Nobody has joined.</p>
+        ) : (
+        <div className="adm-table-wrap">
+          <table className="adm-table adm-table--stack">
+            <caption className="adm-visually-hidden">Participants</caption>
+            <thead>
+              <tr>
+                <th scope="col">Name</th>
+                <th scope="col">Status</th>
+                <th scope="col">Payment</th>
+                <th scope="col" className="adm-num">
+                  Paid
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {participants.map((p) => (
+                <tr key={p.residentId}>
+                  <td data-label="Name">{p.name ?? p.email ?? "—"}</td>
+                  <td data-label="Status">
+                    <StatusTag status={p.status} />
+                  </td>
+                  <td data-label="Payment">
+                    <StatusTag status={p.paymentStatus} />
+                  </td>
+                  <td data-label="Paid" className="adm-num">
+                    {euro(p.totalCents)}
+                  </td>
+                </tr>
               ))}
-            </ul>
-          )}
-          <SectionLabel>Activity</SectionLabel>
-          <ObjectActivity objectIds={[a.id]} />
+            </tbody>
+          </table>
         </div>
-      </div>
+        )}
+      </DetailSection>
+      <DetailSection title="Activity">
+        <ObjectActivity objectIds={[a.id]} />
+      </DetailSection>
       <ConfirmDialog
         open={cancelling}
         title="Cancel this activity?"
@@ -424,6 +469,8 @@ export function AdminCirclesPage({ onNavigate }: { onNavigate: Nav }) {
         filtered={!!query || status !== "all"}
         emptyTitle="No Circles yet"
         rowKey={(r) => r.id}
+        copy={{ label: "Copy Circle link", value: (r) => `${window.location.origin}/circles/${r.slug ?? r.id}` }}
+        rowName={(r) => r.name}
         onOpen={(r) => window.open(`/circles/${r.slug ?? r.id}`, "_blank", "noopener")}
         openLabel={(r) => `Open ${r.name} (new tab)`}
         columns={[
@@ -482,6 +529,8 @@ export function AdminHostsPage({ onNavigate }: { onNavigate: Nav }) {
         filtered={!!query || status !== "all"}
         emptyTitle="No hosts yet"
         rowKey={(r) => r.id}
+        copy={{ label: "Copy email", value: (r) => r.email }}
+        rowName={(r) => r.name || r.email}
         onOpen={(r) => onNavigate("support", { record: `person:${r.email}` })}
         openLabel={(r) => `Open ${r.name || r.email}`}
         columns={[
@@ -560,11 +609,18 @@ export function AdminExceptionsPage() {
                   </td>
                   <td data-label="Since">{formatDate(e.createdAt, true)}</td>
                   <td data-label="">
-                    {can("finance.operate") || can("finance.payment_state.view") ? (
-                      <a className="adm-btn adm-btn--sm" href={`/admin${e.link}`}>
-                        Open
-                      </a>
-                    ) : null}
+                    <div className="adm-cell-actions">
+                      {can("finance.operate") || can("finance.payment_state.view") ? (
+                        <a className="adm-btn adm-btn--sm" href={`/admin${e.link}`}>
+                          Open
+                        </a>
+                      ) : null}
+                      <RowMenu
+                        name={e.title}
+                        items={can("finance.operate") || can("finance.payment_state.view") ? [{ label: "Open in Finance", onSelect: () => window.location.assign(`/admin${e.link}`) }] : []}
+                        copy={{ value: e.id }}
+                      />
+                    </div>
                   </td>
                 </tr>
               ))}

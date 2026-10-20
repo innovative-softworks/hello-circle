@@ -22,6 +22,7 @@ import { Award, Building2, CalendarDays, List, ListChecks, X } from "lucide-reac
 import { ActionMenu } from "./ActionMenu";
 import { useToast } from "./Toast";
 import { RecordState, RecordView } from "./workspace/RecordView";
+import { DetailStats } from "./workspace/DetailParts";
 import { AdminButton, Box, Facts, IconTabs, SearchField, SectionLabel, SelectField, Toolbar } from "./admin/adminUi";
 import { useRecordParam, useUrlParam } from "../useUrlTab";
 import { DemandSignalsView } from "./DemandSignals";
@@ -368,45 +369,18 @@ function BookingRecord({ booking, onBack, onCancelled, onRefunded }: { booking: 
           )}
         </>
       }
-    >
-      {notice && (
-        <p role="status" style={{ background: colors.panel, padding: "10px 12px", margin: "0 0 16px", fontSize: 13.5 }}>
-          {notice}
-        </p>
-      )}
-      {error && (
-        <p role="alert" style={{ color: colors.danger, fontSize: 13.5, margin: "0 0 16px" }}>
-          {error}
-        </p>
-      )}
-      <div className="adm-record-grid">
-        <div>
-          <SectionLabel>Booking</SectionLabel>
-          <Facts
-            rows={[
-              ["Venue", booking.centreName],
-              ["Room", booking.roomName ?? "—"],
-              ["Date and time", `${dateLabel(booking.date)} · ${booking.time}`],
-              ["Duration", `${booking.duration} hour${booking.duration === 1 ? "" : "s"}`],
-              ["Event type", booking.eventType || "—"],
-              ["Guests", String(booking.guests)],
-              ["Notes", booking.notes || "—"],
-            ]}
-          />
-          <SectionLabel>Payment</SectionLabel>
-          <Facts
-            rows={[
-              ["Total", total],
-              ["How it was paid", booking.hasStripePayment ? "Online (Stripe)" : "At the venue / free"],
-              ["Payment status", st.payment.text],
-              ["Refund", booking.paymentStatus === "refunded" ? "Refunded" : st.refund ? "Pending — cancelled after online payment" : "None"],
-            ]}
-          />
-          <p className="adm-note" style={{ marginTop: 6 }}>
-            Settlement and payout to your bank are shown under Earnings; they aren't tracked per booking.
-          </p>
-        </div>
-        <div>
+      stats={
+        <DetailStats
+          items={[
+            { label: "Total", value: total, sub: booking.hasStripePayment ? "Paid online" : "At the venue / free" },
+            { label: "When", value: dateLabel(booking.date), sub: booking.time },
+            { label: "Duration", value: `${booking.duration} h`, sub: booking.roomName ?? booking.centreName },
+            { label: "Guests", value: String(booking.guests), sub: booking.eventType || undefined },
+          ]}
+        />
+      }
+      aside={
+        <>
           <SectionLabel>Guest</SectionLabel>
           <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
             <Avatar name={booking.name} size={36} />
@@ -429,8 +403,39 @@ function BookingRecord({ booking, onBack, onCancelled, onRefunded }: { booking: 
               </button>
             </p>
           )}
-        </div>
-      </div>
+        </>
+      }
+    >
+      {notice && (
+        <p role="status" style={{ background: colors.panel, padding: "10px 12px", margin: "0 0 16px", fontSize: 13.5 }}>
+          {notice}
+        </p>
+      )}
+      {error && (
+        <p role="alert" style={{ color: colors.danger, fontSize: 13.5, margin: "0 0 16px" }}>
+          {error}
+        </p>
+      )}
+      <SectionLabel>Booking</SectionLabel>
+      <Facts
+        rows={[
+          ["Venue", booking.centreName],
+          ["Room", booking.roomName ?? "—"],
+          ["Event type", booking.eventType || "—"],
+          ["Notes", booking.notes || "—"],
+        ]}
+      />
+      <SectionLabel>Payment</SectionLabel>
+      <Facts
+        rows={[
+          ["How it was paid", booking.hasStripePayment ? "Online (Stripe)" : "At the venue / free"],
+          ["Payment status", st.payment.text],
+          ["Refund", booking.paymentStatus === "refunded" ? "Refunded" : st.refund ? "Pending — cancelled after online payment" : "None"],
+        ]}
+      />
+      <p className="adm-note" style={{ marginTop: 6 }}>
+        Settlement and payout to your bank are shown under Earnings; they aren't tracked per booking.
+      </p>
       <div style={{ marginTop: 20 }}>
         <BookingChangeHistory bookingRef={booking.ref} refreshKey={changesKey} canWithdraw={booking.status !== "cancelled"} />
       </div>

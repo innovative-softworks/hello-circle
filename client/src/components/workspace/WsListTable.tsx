@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { ActionMenu, type ActionMenuItem } from "../ActionMenu";
-import { AdminButton } from "../admin/adminUi";
+import { AdminButton, SelectAllHeader, SelectCell, type RowSelection } from "../admin/adminUi";
 
 // One table for a workspace list of things the partner or host manages
 // (programmes, experiences, offers…): title + detail, a few columns, an
@@ -17,15 +17,31 @@ export interface WsListRow {
   onOpen?: () => void;
   openLabel?: string;
   menu?: ActionMenuItem[];
+  /** Copied by the row menu's "Copy reference" (an id, a code). */
+  copy?: string;
+  /** With a table selection: false leaves this row without a checkbox. */
+  selectable?: boolean;
 }
 
-export function WsListTable({ caption, columns, rows }: { caption: string; columns: { label: string; num?: boolean }[]; rows: WsListRow[] }) {
+export function WsListTable({
+  caption,
+  columns,
+  rows,
+  selection,
+}: {
+  caption: string;
+  columns: { label: string; num?: boolean }[];
+  rows: WsListRow[];
+  /** Checkboxes, only for tables whose rows share a real bulk action. */
+  selection?: RowSelection;
+}) {
   return (
     <div className="adm-table-wrap">
       <table className="adm-table adm-table--stack">
         <caption className="adm-visually-hidden">{caption}</caption>
         <thead>
           <tr>
+            {selection && <SelectAllHeader sel={selection} label={`Select all ${caption.toLowerCase()}`} />}
             {columns.map((c, i) => (
               <th key={c.label} scope="col" className={c.num ? "adm-num" : undefined}>
                 {i === 0 ? c.label : c.label}
@@ -39,6 +55,7 @@ export function WsListTable({ caption, columns, rows }: { caption: string; colum
         <tbody>
           {rows.map((r) => (
             <tr key={r.key} data-clickable={r.onOpen ? "true" : undefined} onClick={r.onOpen}>
+              {selection && <SelectCell sel={selection} rowKey={r.key} label={`Select ${r.name}`} disabled={r.selectable === false} />}
               <td data-label={columns[0].label}>
                 <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
                   {r.leading}
@@ -74,7 +91,15 @@ export function WsListTable({ caption, columns, rows }: { caption: string; colum
                       {r.openLabel ?? "Open"}
                     </AdminButton>
                   )}
-                  {r.menu && r.menu.length > 0 && <ActionMenu label={`More actions for ${r.name}`} buttonText="" className="ws-icon-menu" items={r.menu} />}
+                  {(() => {
+                    // Every row has options: Open, its own actions, Copy reference.
+                    const items: ActionMenuItem[] = [
+                      ...(r.onOpen ? [{ label: r.openLabel ?? "Open", onSelect: r.onOpen }] : []),
+                      ...(r.menu ?? []),
+                      { label: "Copy reference", onSelect: () => void navigator.clipboard?.writeText(r.copy ?? r.key).catch(() => undefined) },
+                    ];
+                    return <ActionMenu label={`More actions for ${r.name}`} buttonText="" className="ws-icon-menu" items={items} />;
+                  })()}
                 </div>
               </td>
             </tr>

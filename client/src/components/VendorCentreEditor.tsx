@@ -158,6 +158,17 @@ export function CentreEditor({
       fe.clear();
       onDirtyChange?.(false);
     },
+    draft: {
+      key: `centre:${centreId}`,
+      get: currentSnapshot,
+      restore: (v) => {
+        const d = v as ReturnType<typeof currentSnapshot>;
+        setForm(d.form);
+        setAmenitiesText(d.amenitiesText);
+        setAccessibilityText(d.accessibilityText);
+        onDirtyChange?.(true);
+      },
+    },
   };
   const inWorkspace = useInWorkspace();
 
@@ -579,7 +590,7 @@ export function AvailabilityBlocksManager({ centreId, centreName, rooms }: { cen
         open={confirmingBlockId !== null}
         title="Remove this closure?"
         message="That time becomes bookable again. Bookings cancelled when it was closed stay cancelled."
-        confirmLabel="Remove"
+        confirmLabel="Remove closure"
         onConfirm={() => confirmingBlockId !== null && removeBlock(confirmingBlockId)}
         onCancel={() => setConfirmingBlockId(null)}
       />

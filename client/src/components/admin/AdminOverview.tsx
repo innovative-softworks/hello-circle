@@ -1,3 +1,4 @@
+import { detailIcon } from "../workspace/detailIcons";
 import { useAdminCan } from "./adminPermissions";
 import { ArrowRight, Award, Building2, ClipboardCheck, Compass, Flag, Gavel, Inbox, KeyRound, MapPin, MessageSquareWarning, Trophy, Wallet, Zap, type LucideIcon, ScrollText } from "lucide-react";
 import {
@@ -309,7 +310,7 @@ export function AdminOverviewPage({
             const state = c.error ? "error" : c.value ? "hot" : c.value === 0 ? "cold" : undefined;
             const inner = (
               <>
-                <span className="adm-ov-cardicon">
+                <span className="adm-ov-cardicon wd-ico" data-tone={detailIcon(c.label).tone}>
                   <Icon size={17} strokeWidth={1.9} aria-hidden="true" />
                 </span>
                 <span className="adm-ov-cardvalue">{c.error ? "!" : c.value ?? "…"}</span>

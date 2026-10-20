@@ -317,7 +317,7 @@ export function ListingsTab({
         open={!!confirming}
         title={`Delete ${confirming?.name ?? "this listing"}?`}
         message="This removes it from your dashboard and from public view. Existing bookings/registrations already made are unaffected."
-        confirmLabel="Delete"
+        confirmLabel="Delete listing"
         busy={deleting}
         onConfirm={confirmDelete}
         onCancel={() => setConfirming(null)}

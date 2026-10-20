@@ -80,7 +80,9 @@ test("D03-UI: reason fields in the centred confirmation, text kept on failure, p
       const [[{ n }]] = await f.connection.query<any[]>("SELECT COUNT(*) AS n FROM moderation_decisions WHERE object_id = ?", [centreId]);
       expect(Number(n)).toBe(1);
       // "Reject & next" moves on to the next waiting listing; the decision is on this listing's record.
-      await page.goto(`/admin?tab=listings&record=centre:${centreId}`);
+      // Detail template (2026-10-20): decisions are on the record's "Activity & decisions" tab, kept in the URL.
+      await page.goto(`/admin?tab=listings&record=centre:${centreId}&rtab=activity`);
+      await expect(page.getByRole("tab", { name: "Activity & decisions" })).toHaveAttribute("aria-selected", "true");
       await expect(page.getByText(explanation)).toBeVisible();
       await expect(page.getByText(NOTE)).toBeVisible(); // super admin: internal notes shown in the history
       await shot(page, "d03-listing-decision-history");
@@ -144,7 +146,7 @@ test("D03-UI: reason fields in the centred confirmation, text kept on failure, p
       await financeContext.addInitScript(() => { try { localStorage.setItem("hello_circle_cookie_consent", "rejected"); } catch { /* storage unavailable */ } });
       expect((await financeContext.request.post("/api/auth/login", { data: { email: financeEmail, password: financePassword } })).status()).toBe(200);
       const page = await financeContext.newPage();
-      await page.goto(`/admin?tab=listings&record=centre:${centreId}`);
+      await page.goto(`/admin?tab=listings&record=centre:${centreId}&rtab=activity`);
       await expect(page.getByRole("heading", { level: 1, name })).toBeVisible();
       for (const label of ["Reject listing", "Approve & publish", "Delete listing"]) await expect(page.getByRole("button", { name: label })).toHaveCount(0);
       await expect(page.getByText("Internal notes aren't shown for your admin role.")).toBeVisible();
@@ -153,6 +155,7 @@ test("D03-UI: reason fields in the centred confirmation, text kept on failure, p
       await page.goto(`/admin?tab=vendors&record=${personas.QA_VENDOR_B.id}`);
       await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
       await expect(page.getByRole("button", { name: "Suspend account" })).toHaveCount(0);
+      await expect(page.getByRole("menuitem", { name: "Suspend account…" })).toHaveCount(0);
       await page.goto("/admin?tab=claims");
       await expect(page.getByText("Not included in your admin role")).toBeVisible();
       await shot(page, "d03-finance-locked-claims");
@@ -163,7 +166,8 @@ test("D03-UI: reason fields in the centred confirmation, text kept on failure, p
     try {
       const { page } = mobile;
       await page.goto(`/admin?tab=vendors&record=${personas.QA_VENDOR_B.id}`);
-      await page.getByRole("button", { name: "Suspend account" }).click();
+      await page.getByRole("button", { name: /^More actions for / }).click();
+      await page.getByRole("menuitem", { name: "Suspend account…" }).click();
       const dialog = page.getByRole("alertdialog");
       await expect(dialog).toContainText("Visible to the partner");
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);

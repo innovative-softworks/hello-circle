@@ -5,7 +5,7 @@ import { fetchVendorClub, fetchVendorListings, publishVendorClub } from "../api"
 import { useAuth } from "../AuthContext";
 import { BackLink } from "../components/BackLink";
 import { PartnerWorkspace } from "../components/workspace/PartnerWorkspace";
-import { ListingMeta } from "../components/workspace/ListingMeta";
+import { ListingKeyNumbers, ListingMeta } from "../components/workspace/ListingMeta";
 import { BookingsTab } from "../components/VendorBookings";
 import { ClubParticipantsTab } from "../components/ClubParticipantsTab";
 import { ClubEditor, ClubSessionsManager, ClubWaitlistPanel } from "../components/VendorClubEditor";
@@ -115,6 +115,7 @@ export function VendorClubEditPage() {
         ) : (
           <>
             <ListingReviewNotice listing={{ type: "club", id: clubId }} status={club?.status} dirty={dirty} onResubmit={async () => setClub(await publishVendorClub(clubId))} />
+            <ListingKeyNumbers summary={listingSummary} kind="club" />
             <div style={{ marginBottom: 22 }}>
               <Tabs
                 value={tab}

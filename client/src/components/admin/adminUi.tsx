@@ -1,3 +1,6 @@
+import { DetailIcon } from "../workspace/DetailParts";
+import { useWorkspacePageSubtitle, useWorkspacePageTitle } from "../workspace/inWorkspace";
+import { detailIcon } from "../workspace/detailIcons";
 import { ActionMenu } from "../ActionMenu";
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type ButtonHTMLAttributes, type ReactNode } from "react";
 import { AlertTriangle, ArrowRight, ChevronLeft, ChevronRight, EyeOff, Inbox, Lock, Search, Users, X, type LucideIcon } from "lucide-react";
@@ -60,6 +63,16 @@ export function PageHeader({
 
 // --- panels ------------------------------------------------------------------
 
+/** A section description that opens with the page's own description drops
+ * that repeated part ("Everyone with … account, newest first." → "Newest first."). */
+function withoutRepeat(text: ReactNode, page: string | null): ReactNode {
+  if (typeof text !== "string" || !page) return text;
+  const head = page.replace(/[.\s]+$/, "");
+  if (!text.toLowerCase().startsWith(head.toLowerCase())) return text;
+  const rest = text.slice(head.length).replace(/^[\s,.;:—-]+/, "");
+  return rest ? rest.charAt(0).toUpperCase() + rest.slice(1) : null;
+}
+
 export function Box({
   title,
   subtitle,
@@ -82,12 +95,30 @@ export function Box({
   id?: string;
 }) {
   const H = headingLevel === 2 ? "h2" : "h3";
+  // A section titled like its page (People on the People page) doesn't repeat
+  // the heading; its description and actions stay (owner, 2026-10-20).
+  const pageTitle = useWorkspacePageTitle();
+  const pageSubtitle = useWorkspacePageSubtitle();
+  const repeatsPage = typeof title === "string" && !!pageTitle && title.trim().toLowerCase() === pageTitle.trim().toLowerCase();
+  if (repeatsPage) {
+    return (
+      <section className="adm-box adm-box--page" id={id} aria-label={title as string}>
+        {(subtitle || actions) && (
+          <div className="adm-box-head adm-box-head--page">
+            {subtitle && <p className="adm-box-sub">{withoutRepeat(subtitle, pageSubtitle)}</p>}
+            {actions && <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>{actions}</div>}
+          </div>
+        )}
+        {flush ? children : <div className="adm-box-body">{children}</div>}
+      </section>
+    );
+  }
   return (
     <section className="adm-box" id={id} aria-label={typeof title === "string" ? title : undefined}>
       {(title || actions) && (
         <div className="adm-box-head">
           <div style={{ minWidth: 0, display: "flex", gap: 12, alignItems: "flex-start" }}>
-            {icon && <IconTile icon={icon} />}
+            {icon && <IconTile icon={icon} label={typeof title === "string" ? title : undefined} />}
             <div style={{ minWidth: 0 }}>
               {title && <H className="adm-box-title">{title}</H>}
               {subtitle && <p className="adm-box-sub">{subtitle}</p>}
@@ -242,12 +273,12 @@ const STATUS: Record<string, { tone: BadgeTone; label: string }> = {
 };
 
 export function StatusTag({ status, label }: { status: string; label?: string }) {
-  const s = STATUS[status] ?? { tone: "neutral" as const, label: status ? status.charAt(0).toUpperCase() + status.slice(1).replace(/_/g, " ") : "—" };
-  return <Badge tone={s.tone}>{label ?? s.label}</Badge>;
+  return <Badge tone={STATUS[status]?.tone ?? "neutral"}>{label ?? statusLabel(status)}</Badge>;
 }
 
+/** The label StatusTag shows: a known status's name, else the raw value in sentence case. */
 export function statusLabel(status: string): string {
-  return STATUS[status]?.label ?? status;
+  return STATUS[status]?.label ?? (status ? status.charAt(0).toUpperCase() + status.slice(1).replace(/_/g, " ") : "—");
 }
 
 // --- pagination --------------------------------------------------------------
@@ -458,7 +489,19 @@ export function Facts({ rows }: { rows: [string, ReactNode][] }) {
 }
 
 export function SectionLabel({ children }: { children: ReactNode }) {
-  return <h2 className="adm-section-label">{children}</h2>;
+  // On detail pages (and editors) the label gets the same tinted icon as the
+  // template's sections; elsewhere the icon is hidden by CSS.
+  const text = typeof children === "string" ? children : Array.isArray(children) ? children.filter((c) => typeof c === "string" || typeof c === "number").join("") : "";
+  return (
+    <h2 className="adm-section-label">
+      {text && (
+        <span className="sl-ico">
+          <DetailIcon label={text} size="sm" />
+        </span>
+      )}
+      {children}
+    </h2>
+  );
 }
 
 /** Case-insensitive "does any of these fields contain the query" helper. */
@@ -557,9 +600,11 @@ export function Visibility({ who }: { who: "internal" | "shared" }) {
 // --- icons, icon tabs, tiles (2026-10-16 icon pass) ------------------------------
 
 /** Square icon tile; `tone="hot"` when something is waiting. */
-export function IconTile({ icon: Icon, tone, size = 36 }: { icon: LucideIcon; tone?: "hot" | "good"; size?: number }) {
+export function IconTile({ icon: Icon, tone, size = 36, label }: { icon: LucideIcon; tone?: "hot" | "good"; size?: number; label?: string }) {
+  // With a label (a section title), the tile takes the detail pages' colour for it.
+  const auto = !tone && label ? detailIcon(label).tone : undefined;
   return (
-    <span className="adm-itile" data-tone={tone} style={{ width: size, height: size }}>
+    <span className={auto ? "adm-itile wd-ico" : "adm-itile"} data-tone={tone ?? auto} style={{ width: size, height: size }}>
       <Icon size={Math.round(size / 2)} strokeWidth={1.9} aria-hidden="true" />
     </span>
   );
@@ -583,8 +628,27 @@ export function IconTabs<T extends string>({ label, items, value, onChange }: { 
     const row = ref.current;
     if (el && row && row.scrollWidth > row.clientWidth) row.scrollLeft = el.offsetLeft - 16;
   }, [value]);
+  // When the row scrolls sideways, fade the edge that has more tabs past it.
+  const [more, setMore] = useState<{ start: boolean; end: boolean }>({ start: false, end: false });
+  useEffect(() => {
+    const row = ref.current;
+    if (!row) return;
+    const update = () => {
+      const start = row.scrollLeft > 2;
+      const end = row.scrollLeft + row.clientWidth < row.scrollWidth - 2;
+      setMore((m) => (m.start === start && m.end === end ? m : { start, end }));
+    };
+    update();
+    row.addEventListener("scroll", update, { passive: true });
+    const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(update) : null;
+    ro?.observe(row);
+    return () => {
+      row.removeEventListener("scroll", update);
+      ro?.disconnect();
+    };
+  }, []);
   return (
-    <div role="tablist" aria-label={label} className="adm-itabs" ref={ref}>
+    <div role="tablist" aria-label={label} className="adm-itabs" ref={ref} data-more-start={more.start || undefined} data-more-end={more.end || undefined}>
       {items.map((t, i) => {
         const Icon = t.icon;
         const divider = i > 0 && t.group !== undefined && t.group !== items[i - 1].group;
@@ -720,4 +784,102 @@ export function useDebounced<T>(value: T, ms = 300): T {
     return () => clearTimeout(id);
   }, [value, ms]);
   return v;
+}
+
+// --- table selection and row options (2026-10-20) ------------------------------
+// Owner: every table row has a ⋯ options menu; tables whose rows share a real
+// action (one that exists today, called once per row) also get checkboxes,
+// select-all and a bulk bar. Nothing here adds a server action.
+
+/** Selected row keys for one table. `pageKeys` are the selectable rows shown. */
+export function useRowSelection(pageKeys: string[]) {
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const keyStr = pageKeys.join("|");
+  // Rows that disappear (filtered, decided, deleted) leave the selection.
+  useEffect(() => {
+    setSelected((prev) => {
+      const next = new Set([...prev].filter((k) => pageKeys.includes(k)));
+      return next.size === prev.size ? prev : next;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [keyStr]);
+  const allSelected = pageKeys.length > 0 && pageKeys.every((k) => selected.has(k));
+  return {
+    selected,
+    count: selected.size,
+    has: (k: string) => selected.has(k),
+    toggle: (k: string) =>
+      setSelected((prev) => {
+        const next = new Set(prev);
+        if (next.has(k)) next.delete(k);
+        else next.add(k);
+        return next;
+      }),
+    toggleAll: () => setSelected(allSelected ? new Set() : new Set(pageKeys)),
+    clear: () => setSelected(new Set()),
+    allSelected,
+    someSelected: selected.size > 0 && !allSelected,
+  };
+}
+export type RowSelection = ReturnType<typeof useRowSelection>;
+
+export function SelectAllHeader({ sel, label }: { sel: RowSelection; label: string }) {
+  return (
+    <th scope="col" className="adm-col-check">
+      <input
+        type="checkbox"
+        className="adm-check"
+        checked={sel.allSelected}
+        ref={(el) => {
+          if (el) el.indeterminate = sel.someSelected;
+        }}
+        onChange={sel.toggleAll}
+        aria-label={label}
+      />
+    </th>
+  );
+}
+
+export function SelectCell({ sel, rowKey, label, disabled }: { sel: RowSelection; rowKey: string; label: string; disabled?: boolean }) {
+  return (
+    <td className="adm-col-check" onClick={(e) => e.stopPropagation()}>
+      {!disabled && <input type="checkbox" className="adm-check" checked={sel.has(rowKey)} onChange={() => sel.toggle(rowKey)} aria-label={label} />}
+    </td>
+  );
+}
+
+/** The dark bar that appears once rows are selected. */
+export function BulkBar({ sel, noun, children }: { sel: RowSelection; noun: string; children: ReactNode }) {
+  if (!sel.count) return null;
+  return (
+    <div className="adm-bulk" role="region" aria-label="Bulk actions">
+      <span aria-live="polite">
+        {sel.count} {noun}
+        {sel.count === 1 ? "" : "s"} selected
+      </span>
+      {children}
+      <AdminButton variant="quiet" size="sm" onClick={sel.clear}>
+        Clear
+      </AdminButton>
+    </div>
+  );
+}
+
+/** A row's ⋯ options: its existing actions, then "Copy reference". */
+export function RowMenu({ name, items = [], copy }: { name: string; items?: MenuAction[]; copy?: { label?: string; value: string } }) {
+  const all: MenuAction[] = [
+    ...items,
+    ...(copy
+      ? [
+          {
+            label: copy.label ?? "Copy reference",
+            onSelect: () => {
+              navigator.clipboard?.writeText(copy.value).catch(() => undefined);
+            },
+          },
+        ]
+      : []),
+  ];
+  if (!all.length) return null;
+  return <OverflowMenu label={`More actions for ${name}`} actions={all} />;
 }

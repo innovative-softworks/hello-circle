@@ -199,6 +199,14 @@ export function ExperienceEditor({
       fe.clear();
       onDirtyChange?.(false);
     },
+    draft: {
+      key: `experience:${id}`,
+      get: currentSnapshot,
+      restore: (v) => {
+        setForm(v as ExperienceInput);
+        onDirtyChange?.(true);
+      },
+    },
   };
   const inWorkspace = useInWorkspace();
 
@@ -932,7 +940,7 @@ export function VendorExperiencesTab({ onOpenExperience }: { onOpenExperience: (
         open={confirmingId !== null}
         title="Delete this listing?"
         message="This removes it from public view — existing bookings are kept."
-        confirmLabel="Delete"
+        confirmLabel="Delete listing"
         onConfirm={() => confirmingId && remove(confirmingId)}
         onCancel={() => setConfirmingId(null)}
       />

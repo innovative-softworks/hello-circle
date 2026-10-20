@@ -4,7 +4,7 @@ import { createAdminInvite, fetchAdminInvites, fetchAdminMfaStatus, fetchAdmins,
 import { useAuth } from "../../AuthContext";
 import { ConfirmDialog } from "../ui";
 import { ADMIN_ROLE_LABEL, type AdminRoleName } from "./adminNav";
-import { AdminButton, AdminModal, Box, EmptyMessage, FormField, Loaded, StatusTag, formatDate, useAdminAction, useAdminData } from "./adminUi";
+import { RowMenu, AdminButton, AdminModal, Box, EmptyMessage, FormField, Loaded, StatusTag, formatDate, useAdminAction, useAdminData } from "./adminUi";
 
 // Settings → Admin roles, team access (OG-06 / OG-07): invitations (super
 // only, 72-hour single-use links), each admin's two-step status with a reset
@@ -76,11 +76,14 @@ export function AdminInvitesCard() {
                         {i.invitedByEmail && <div className="adm-note">by {i.invitedByEmail}</div>}
                       </td>
                       <td data-label="">
-                        {i.status === "pending" && (
-                          <AdminButton size="sm" onClick={() => setRevoking(i)}>
-                            Revoke
-                          </AdminButton>
-                        )}
+                        <div className="adm-cell-actions">
+                          {i.status === "pending" && (
+                            <AdminButton size="sm" onClick={() => setRevoking(i)}>
+                              Revoke
+                            </AdminButton>
+                          )}
+                          <RowMenu name={`invitation for ${i.email}`} items={i.status === "pending" ? [{ label: "Revoke…", danger: true, onSelect: () => setRevoking(i) }] : []} copy={{ label: "Copy email", value: i.email }} />
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -128,7 +131,7 @@ export function AdminInvitesCard() {
         open={!!revoking}
         title="Revoke this invitation?"
         message={`The link sent to ${revoking?.email ?? "them"} stops working. You can send a new one later.`}
-        confirmLabel="Revoke"
+        confirmLabel="Revoke invitation"
         onConfirm={() =>
           run("revoke", () => revokeAdminInvite(revoking!.id), { success: "Invitation revoked" }).then((ok) => {
             setRevoking(null);
@@ -176,11 +179,18 @@ export function AdminTwoStepCard() {
                     </td>
                     <td data-label="Two-step sign-in">{a.mfaEnrolled ? <StatusTag status="active" label="On" /> : <StatusTag status="pending" label="Not set up yet" />}</td>
                     <td data-label="">
-                      {a.id !== user?.id && a.mfaEnrolled && (
-                        <AdminButton size="sm" onClick={() => setResetting({ id: a.id, email: a.email })}>
-                          Reset…
-                        </AdminButton>
-                      )}
+                      <div className="adm-cell-actions">
+                        {a.id !== user?.id && a.mfaEnrolled && (
+                          <AdminButton size="sm" onClick={() => setResetting({ id: a.id, email: a.email })}>
+                            Reset…
+                          </AdminButton>
+                        )}
+                        <RowMenu
+                          name={a.name || a.email}
+                          items={a.id !== user?.id && a.mfaEnrolled ? [{ label: "Reset two-step sign-in…", danger: true, onSelect: () => setResetting({ id: a.id, email: a.email }) }] : []}
+                          copy={{ label: "Copy email", value: a.email }}
+                        />
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -215,7 +225,7 @@ export function AdminTwoStepCard() {
         open={!!resetting}
         title={`Reset two-step sign-in for ${resetting?.email ?? "this admin"}?`}
         message="Use this only when they've lost both their phone and their recovery codes, and you've confirmed who they are. They're signed out everywhere and set up two-step sign-in again next time."
-        confirmLabel="Reset"
+        confirmLabel="Reset two-step sign-in"
         confirmDisabled={reason.trim().length < 10}
         onConfirm={() =>
           run("reset", () => resetAdminMfa(resetting!.id, reason.trim()), { success: "Two-step sign-in reset" }).then((ok) => {

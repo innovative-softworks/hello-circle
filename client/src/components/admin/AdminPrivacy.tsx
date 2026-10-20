@@ -3,8 +3,10 @@ import { FileLock2, Search } from "lucide-react";
 import { fetchConsentsForEmail, fetchPrivacyRequest, fetchPrivacyRequests, updatePrivacyRequest, type ConsentState, type ConsentSubjectView, type PrivacyRequestRow, type PrivacyStatus } from "../../api";
 import { useUrlParam, useRecordParam } from "../../useUrlTab";
 import { RecordState, RecordView } from "../workspace/RecordView";
+import { ContextSection, CopyValue, DetailFacts, DetailSection, DetailStats } from "../workspace/DetailParts";
+import { waitingLabel } from "./timeLabels";
 import { useToast } from "../Toast";
-import { AdminButton, Box, EmptyMessage, Facts, FormField, IconTabs, Loaded, SelectField, StatusTag, Toolbar, errorMessage, formatDate, useAdminData } from "./adminUi";
+import { RowMenu, AdminButton, Box, EmptyMessage, Facts, FormField, IconTabs, Loaded, SelectField, StatusTag, Toolbar, errorMessage, formatDate, useAdminData } from "./adminUi";
 
 // OG-29 / OG-31 — the privacy-request queue and the consent viewer.
 // Recording only: completing a request records the decision and emails the
@@ -94,9 +96,12 @@ function PrivacyQueue({ onOpen }: { onOpen: (id: number) => void }) {
                         <StatusTag status={tagStatus(r.status)} label={STATUS_LABEL[r.status]} />
                       </td>
                       <td data-label="">
-                        <AdminButton size="sm" onClick={() => onOpen(r.id)} aria-label={`Open request PR-${r.id}`}>
-                          Open
-                        </AdminButton>
+                        <div className="adm-cell-actions">
+                          <AdminButton size="sm" onClick={() => onOpen(r.id)} aria-label={`Open request PR-${r.id}`}>
+                            Open
+                          </AdminButton>
+                          <RowMenu name={`request PR-${r.id}`} items={[{ label: "Open", onSelect: () => onOpen(r.id) }]} copy={{ label: "Copy email", value: r.email }} />
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -148,61 +153,91 @@ function PrivacyRequestRecord({ id, onBack }: { id: number; onBack: () => void }
     }
   };
   return (
-    <RecordView title={`${KIND_LABEL[r.kind]} request`} reference={`PR-${r.id}`} statuses={<StatusTag status={tagStatus(r.status)} label={STATUS_LABEL[r.status]} />} backLabel="Privacy requests" onBack={onBack}>
-      <div className="adm-stack">
-        <Box title="Request">
-          <Facts
-            rows={[
-              ["Person", r.name || "—"],
-              ["Email", r.email],
-              ["Received", formatDate(r.createdAt, true)],
-              ["What they wrote", r.details || "Nothing added"],
-              ...(r.response ? ([["Reply sent", r.response]] as [string, string][]) : []),
-            ]}
-          />
-          {r.kind === "erasure" && (
-            <p className="adm-note" style={{ marginTop: 12 }}>
-              Nothing can be deleted yet: deletion rules (D-07) and retention periods haven't been decided. So this request can't be marked completed — send your reply and keep it open, or decline it. The person sees it as still open.
-            </p>
+    <RecordView
+      title={`${KIND_LABEL[r.kind]} request`}
+      reference={`From ${r.name || r.email} · received ${formatDate(r.createdAt)}`}
+      statuses={<StatusTag status={tagStatus(r.status)} label={STATUS_LABEL[r.status]} />}
+      backLabel="Privacy requests"
+      onBack={onBack}
+      stats={
+        <DetailStats
+          items={[
+            { label: open ? "Open for" : "Closed", value: open ? (waitingLabel(r.createdAt) ?? "").replace("Waiting ", "") || "—" : STATUS_LABEL[r.status], sub: `Received ${formatDate(r.createdAt)}` },
+            { label: "Request", value: KIND_LABEL[r.kind], sub: erasure ? "Can't be completed yet (D-07)" : undefined },
+            { label: "Reply", value: r.response ? "Sent" : "Not sent", sub: r.response ? undefined : "Write it below" },
+          ]}
+        />
+      }
+      asideLabel="Requester and request details"
+      aside={
+        <>
+          <ContextSection title="Requester">
+            {r.name && <div className="wd-ctx-name">{r.name}</div>}
+            <a className="wd-ctx-sub" href={`mailto:${r.email}`}>
+              {r.email}
+            </a>
+          </ContextSection>
+          <ContextSection title="Request details">
+            <DetailFacts
+              columns={1}
+              rows={[
+                ["Reference", <CopyValue value={`PR-${r.id}`} label="request reference" />],
+                ["Received", formatDate(r.createdAt, true)],
+              ]}
+            />
+          </ContextSection>
+          {r.consents && (
+            <ContextSection title="Their consent choices">
+              <ConsentFacts current={r.consents} />
+            </ContextSection>
           )}
-          {r.kind === "access" && (
-            <p className="adm-note" style={{ marginTop: 12 }}>
-              The person can download their own data any time from Profile → Your data.
-            </p>
-          )}
-        </Box>
-        {r.consents && (
-          <Box title="Their consent choices">
-            <ConsentFacts current={r.consents} />
-          </Box>
+        </>
+      }
+    >
+      <DetailSection title="What they wrote">
+        <p className="adm-review-text">{r.details || <span className="adm-note">Nothing added.</span>}</p>
+        {r.kind === "erasure" && (
+          <p className="adm-note" style={{ marginTop: 12 }}>
+            Nothing can be deleted yet: deletion rules (D-07) and retention periods haven't been decided. So this request can't be marked completed — send your reply and keep it open, or decline it. The person sees it as still open.
+          </p>
         )}
-        {open && (
-          <Box title="Reply">
-            <FormField label="Reply to the person" hint={erasure ? "Emailed to them when you send it or decline the request." : "Emailed to them when you complete or decline the request."} error={error}>
-              {(p) => <textarea {...p} rows={4} className="adm-input" value={response} onChange={(e) => setResponse(e.target.value)} style={{ resize: "vertical" }} />}
-            </FormField>
-            <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 12 }}>
-              {erasure ? (
-                <AdminButton variant="primary" disabled={busy} onClick={() => act("in_progress", true)}>
-                  Send reply, keep open
-                </AdminButton>
-              ) : (
-                <AdminButton variant="primary" disabled={busy} onClick={() => act("completed")}>
-                  Complete and send
-                </AdminButton>
-              )}
-              <AdminButton disabled={busy} onClick={() => act("refused")}>
-                Decline and send
+        {r.kind === "access" && (
+          <p className="adm-note" style={{ marginTop: 12 }}>
+            The person can download their own data any time from Profile → Your data.
+          </p>
+        )}
+      </DetailSection>
+      {r.response && (
+        <DetailSection title="Reply sent">
+          <p className="adm-review-text">{r.response}</p>
+        </DetailSection>
+      )}
+      {open && (
+        <DetailSection title="Reply">
+          <FormField label="Reply to the person" hint={erasure ? "Emailed to them when you send it or decline the request." : "Emailed to them when you complete or decline the request."} error={error}>
+            {(p) => <textarea {...p} rows={4} className="adm-input" value={response} onChange={(e) => setResponse(e.target.value)} style={{ resize: "vertical" }} />}
+          </FormField>
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 12 }}>
+            {erasure ? (
+              <AdminButton variant="primary" disabled={busy} onClick={() => act("in_progress", true)}>
+                Send reply, keep open
               </AdminButton>
-              {r.status === "received" && (
-                <AdminButton variant="quiet" disabled={busy} onClick={() => act("in_progress")}>
-                  Mark in progress
-                </AdminButton>
-              )}
-            </div>
-          </Box>
-        )}
-      </div>
+            ) : (
+              <AdminButton variant="primary" disabled={busy} onClick={() => act("completed")}>
+                Complete and send
+              </AdminButton>
+            )}
+            <AdminButton disabled={busy} onClick={() => act("refused")}>
+              Decline and send
+            </AdminButton>
+            {r.status === "received" && (
+              <AdminButton variant="quiet" disabled={busy} onClick={() => act("in_progress")}>
+                Mark in progress
+              </AdminButton>
+            )}
+          </div>
+        </DetailSection>
+      )}
     </RecordView>
   );
 }

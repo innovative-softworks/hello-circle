@@ -6,7 +6,7 @@ import { useDashboardNav } from "../../DashboardNavContext";
 import { PageHeader } from "../admin/adminUi";
 import "@fontsource-variable/inter";
 import "../admin/admin.css";
-import { InWorkspaceContext } from "./inWorkspace";
+import { InWorkspaceContext, WorkspacePageSubtitleContext, WorkspacePageTitleContext } from "./inWorkspace";
 
 // Approved cream workspace shell (2026-10-14) for the Partner (/vendor) and
 // Host (/manage, /manage/circles/:id) workspaces — the same strip, grouped
@@ -87,7 +87,8 @@ function NavList<T extends string>({ items, defaultGroup, active, onSelect, coll
                     className="adm-nav-item"
                     aria-current={active === item.key ? "page" : undefined}
                     data-locked={item.locked || undefined}
-                    title={collapsed ? `${item.label}${item.locked ? " (not included in your role)" : item.count ? ` (${item.count})` : ""}` : undefined}
+                    data-tip={collapsed ? `${item.label}${item.locked ? " (not included in your role)" : item.count ? ` (${item.count})` : ""}` : undefined}
+                    data-tip-side="right"
                     onClick={() => onSelect(item.key)}
                   >
                     {item.icon}
@@ -146,7 +147,7 @@ function SectionSheet({ open, onClose, label, children }: { open: boolean; onClo
       <div ref={ref} className="adm-sheet" role="dialog" aria-modal="true" aria-label={label}>
         <div className="adm-sheet-head">
           <span>{label}</span>
-          <button type="button" className="adm-btn adm-btn--quiet" onClick={onClose} aria-label="Close sections">
+          <button type="button" className="adm-btn adm-btn--quiet" onClick={onClose} aria-label="Close sections" data-tip="Close sections" data-tip-side="bottom">
             <X size={18} strokeWidth={1.9} aria-hidden="true" />
           </button>
         </div>
@@ -253,7 +254,11 @@ export function WorkspaceShell<T extends string>({
           </div>
           {!recordShown && <PageHeader title={title} subtitle={subtitle} crumbs={crumbs ?? defaultCrumbs} actions={actions} />}
           <HeaderContext.Provider value={headerCtx}>
-            <InWorkspaceContext.Provider value={true}>{children}</InWorkspaceContext.Provider>
+            <InWorkspaceContext.Provider value={true}>
+              <WorkspacePageTitleContext.Provider value={title}>
+                <WorkspacePageSubtitleContext.Provider value={typeof subtitle === "string" ? subtitle : null}>{children}</WorkspacePageSubtitleContext.Provider>
+              </WorkspacePageTitleContext.Provider>
+            </InWorkspaceContext.Provider>
           </HeaderContext.Provider>
         </div>
       </div>

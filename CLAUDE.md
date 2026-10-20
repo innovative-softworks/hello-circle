@@ -310,7 +310,9 @@ resident `NavSidebar`) are full-screen. Resident receipts are a page (`/receipts
 `/manage*`) share `components/workspace/WorkspaceShell.tsx` (cream system in `components/admin/admin.css`;
 `PartnerWorkspace`, `HostWorkspace`, `AdminShell` wrap it), keep tabs and list filters in the URL (`useUrlTab`,
 `useUrlParam`, `useRecordParam` in `useUrlTab.ts`), and show records as pages via `?record=<type>:<id>` and
-`components/workspace/RecordView.tsx` (shareable, Back-safe, the record is the page H1). Admin tool primitives live
+`components/workspace/RecordView.tsx` (shareable, Back-safe, the record is the page H1). Record pages use the
+70/30 detail template: pass RecordView an `aside` of `ContextSection`s and build the main column from `DetailSection`/
+`DetailFacts`/`DetailHero`/`DetailTabs` (`components/workspace/DetailParts.tsx`, `docs/hellocircle-detail-page-template.md`). Admin tool primitives live
 in `components/admin/adminUi.tsx`; failed loads use `LoadErrorState` / `components/admin/loadFailure.tsx` — never a
 silent empty list. Several secondary row actions go in `components/ActionMenu.tsx` (anchored menu, main action stays
 visible). Forms follow one convention in `components/form.tsx`: `FieldLabel` (` *` required / "(optional)"),

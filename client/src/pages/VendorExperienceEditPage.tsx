@@ -5,6 +5,9 @@ import { useAuth } from "../AuthContext";
 import { BackLink } from "../components/BackLink";
 import { PartnerWorkspace } from "../components/workspace/PartnerWorkspace";
 import { ListingMeta } from "../components/workspace/ListingMeta";
+import { DetailStats } from "../components/workspace/DetailParts";
+import { irelandToday } from "../irelandDate";
+import { dateLabel } from "../euro";
 import { BookingsPanel, ExperienceEditor, SessionsManager } from "../components/VendorExperiences";
 import { ExperienceCreationWizard } from "../components/ExperienceCreationWizard";
 import { useUnsavedChangesGuard } from "../components/form";
@@ -109,6 +112,19 @@ export function VendorExperienceEditPage() {
                 setExperience(await fetchVendorExperience(experienceId));
               }}
             />
+            {experience && (
+              <DetailStats
+                items={[
+                  { label: "Price", value: experience.priceCents ? `€${(experience.priceCents / 100).toFixed(2)}` : "Free", sub: "per person" },
+                  { label: "Group size", value: `Up to ${experience.capacity}`, sub: experience.difficulty || undefined },
+                  { label: "Duration", value: `${Math.round(experience.durationMinutes / 6) / 10} h`, sub: experience.meetingPoint || undefined },
+                  (() => {
+                    const next = (experience.sessions ?? []).filter((x) => x.date >= irelandToday());
+                    return { label: "Upcoming dates", value: String(next.length), sub: next[0] ? `Next ${dateLabel(next[0].date)} · ${next[0].time}` : "None scheduled" };
+                  })(),
+                ]}
+              />
+            )}
             <div style={{ marginBottom: 22 }}>
               <Tabs
                 value={tab}

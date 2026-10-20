@@ -57,6 +57,8 @@ export function useRecordParam(name = "record"): [string | null, (key: string) =
     (key: string) =>
       setParams((prev) => {
         const p = new URLSearchParams(prev);
+        // A record's own tab (DetailTabs' `rtab`) belongs to the record it was chosen on.
+        if (p.get(name) !== key) p.delete("rtab");
         p.set(name, key);
         return p;
       }),
@@ -67,6 +69,7 @@ export function useRecordParam(name = "record"): [string | null, (key: string) =
       setParams((prev) => {
         const p = new URLSearchParams(prev);
         p.delete(name);
+        p.delete("rtab");
         return p;
       }),
     [name, setParams]
