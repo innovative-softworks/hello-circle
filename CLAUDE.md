@@ -369,5 +369,24 @@ into fixing (or worse, half-fixing) one as a side effect of an unrelated task:
   `invitedStaff && !orgId` and gets 403 `removedFromOrg` from partner APIs. They can be re-invited with the same email and rejoin only by
   accepting the new invite with their existing password (`/auth/accept-invite`); a new invite replaces older pending
   ones for that person and organisation.
+- **Circle Experience 2.0 (local 2026-10-23, `docs/circle-experience-2-*.md`).** Circle Pulse, Free Time Match, Make
+  it happen (interest on `circle_plans`), First-Time Friendly and Circle Memories live in `routes/circleExperience.ts`
+  (pure rules in `circlePlanning.ts`), each behind its own `circles.*` switch in `app_settings` (`circleFeatures.ts`,
+  default off, admin Settings → Circle features, `platform.settings`). Members-only in every join mode, aggregate counts
+  with minimum group sizes, never names. Interest never creates an activity — conversion stays `POST /api/games` with
+  `planId`. "Make it happen" here is NOT the paused `/make-it-happen` room-booking page. Removing a member now writes a
+  `circle_restrictions` row that blocks rejoining until an organiser lifts it (owner decision D5).
+- **Experience 3.0 (local 2026-10-23, `docs/experience-3/`).** `experience.*` switches live in the same catalogue as
+  `circles.*` (`circleFeatures.ts`, admin `/config/feature-switches`). Pure rules in `discoveryMatch.ts` (Smart Match,
+  Going solo, Surprise, collections) and `dayPlanner.ts` (Plan My Day, rough travel); routes in
+  `routes/experienceHub.ts` (`/api/experience`: Passport, programme journey, Plan My Day, saved plans) and
+  `spotAlerts.ts` (experience departures, never a hold, 5-minute sweep). `ScheduledActivity.durationKnown` — never
+  claim an activity "fits" a time window on `ASSUMED_DURATION_MINUTES`. Circle-to-Circle: `circle_collaborations`
+  + `games.partner_circle_id`; `canViewPrivateGame` admits the partner Circle's members (owner decision D2).
+- **Circle Experience 4.0 visitor page (local 2026-10-24, `docs/circle-visitor-experience-v4/`).** Behind `circles.visitor_experience`
+  (default off): non-members get `components/circle/CircleVisitor.tsx`, fed only by `GET /api/circles/:id/visitor` (never member
+  names, chat, memories, wishes or availability; polls/plans as counts, open Circles only; invite-only stays a teaser; non-open
+  covers stay members-only). Joining stays in `CircleJoinCard` (`bare`/`autoJoin`/`joinSignal`; signed-out join keeps `?join=1`).
+  `circles.solo_welcome` is the organiser's own "people often come on their own" (NULL = not said).
 - **Resident preferences (`interests`/`availability`) are stored as CSV text**, not a structured/queryable
   shape — fine for display, not yet a foundation for real personalization/recommendations.

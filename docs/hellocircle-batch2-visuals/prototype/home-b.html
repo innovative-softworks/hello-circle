@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Home — Option B (marketplace emphasis)</title>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700;12..96,800&family=Figtree:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="proto.css"><link rel="stylesheet" href="home.css">
+<style>
+  .hb { display: grid; grid-template-columns: 1.1fr 1fr; gap: var(--s6); align-items: center; padding: var(--s7) 0 var(--s6); }
+  .hb .ph { position: relative; border-radius: 22px; overflow: hidden; aspect-ratio: 5 / 4; }
+  .hb .ph img { width: 100%; height: 100%; object-fit: cover; }
+  .hb .hx-title { color: var(--ink); font-size: clamp(44px, 5.4vw, 84px); }
+  .hb .hx-sub { color: var(--text-soft); }
+  .hb .hx-search { border: 1px solid var(--border-strong); grid-template-columns: 1.4fr 1fr auto; }
+  .hb .hx-search > div:nth-child(3) { display: none; }
+  .hb .hx-search > div:nth-child(2) { border-right: 0; }
+  .tabs-b { display: flex; gap: 8px; flex-wrap: wrap; }
+  @media (max-width: 760px) { .hb { grid-template-columns: 1fr; padding: var(--s5) 0; gap: var(--s4); } .hb .ph { aspect-ratio: 16 / 9; order: -1; margin: 0 calc(var(--gutter) * -1); border-radius: 0; } .hb .hx-title { font-size: 44px; margin: 8px 0 10px; } }
+</style></head>
+<body data-page="home">
+<!-- Option B: same brand, shorter split hero, listings immediately; editorial bands reduced to one. -->
+<main class="wrap">
+  <section class="hb">
+    <div>
+      <span class="eyebrow">/ Ireland · this week</span>
+      <h1 class="hx-title" style="margin-top:12px">More people.<br><span class="o">Out there.</span></h1>
+      <p class="hx-sub">Find activities, adventures, programmes and Circles near you — and join in.</p>
+      <div class="hx-search"><div><small>What</small><span>What would you like to do?</span></div><div><small>Where</small><span>Near Dublin</span></div><div><small>When</small><span>Any time</span></div><span class="btn primary">Search</span></div>
+    </div>
+    <div class="ph"><img src="https://images.unsplash.com/photo-1511632765486-a01980e01a18?w=1200&q=70&auto=format&fit=crop" alt="Four friends looking out at a sunset"></div>
+  </section>
+  <section>
+    <div class="band-h" style="margin-bottom:var(--s4)"><h2 style="font-size:clamp(26px,2.6vw,36px)">Happening near you</h2><a class="btn quiet" href="#">See all</a></div>
+    <div class="chips" style="margin-bottom:var(--s4)"><span class="chip on">This weekend</span><span class="chip">Activities</span><span class="chip">Adventures</span><span class="chip">Experiences</span><span class="chip">Programmes</span><span class="chip">Circles</span><span class="chip">Free</span></div>
+    <div class="grid" id="near"></div>
+  </section>
+  <section class="band" style="padding-top:var(--s7)">
+    <div class="band-h" style="margin-bottom:var(--s4)"><h2 style="font-size:clamp(26px,2.6vw,36px)">Circles near you</h2><a class="btn quiet" href="#">Browse Circles</a></div>
+    <div class="grid hscroll" id="circles"></div>
+  </section>
+  <section class="trustrow" aria-label="Why HelloCircle">
+    <div data-ic="shield"><span><b>Verified hosts</b>Hosts who take payment are checked by our team.</span></div>
+    <div data-ic="check"><span><b>Clear cancellation</b>Every booking shows its free-cancellation deadline.</span></div>
+    <div data-ic="ticket"><span><b>Secure checkout</b>Card payments are processed by Stripe.</span></div>
+    <div data-ic="users"><span><b>Real local groups</b>Circles organised by people near you.</span></div>
+  </section>
+  <section class="band"><div class="split">
+    <div class="tile"><img src="https://images.unsplash.com/photo-1556910103-1c02745aae4d?w=1000&q=70&auto=format&fit=crop" alt=""><span class="eyebrow" style="color:#ffb39f">/ For hosts</span><h3>Host something. No venue needed.</h3><span class="btn brand" style="align-self:flex-start">Become a host</span></div>
+    <div class="tile"><img src="https://images.unsplash.com/photo-1523580494863-6f3031224c94?w=1000&q=70&auto=format&fit=crop" alt=""><span class="eyebrow" style="color:#ffb39f">/ For venues &amp; clubs</span><h3>Get discovered. Get booked.</h3><span class="btn secondary" style="align-self:flex-start">List your venue</span></div>
+  </div></section>
+  <div class="foot-mini">Footer unchanged.</div>
+</main>
+<script src="proto.js"></script><script src="cards.js"></script>
+<script>
+  document.getElementById("near").innerHTML = RESULTS.slice(0, 8).filter((d) => d.kind !== "Circle").concat(RESULTS.filter((d) => d.kind === "Circle").slice(0, 2)).slice(0, 8).map((d) => card(d, { row: window.innerWidth < 560 })).join("");
+  document.getElementById("circles").innerHTML = RESULTS.filter((d) => d.kind === "Circle").concat([{ kind: "Circle", title: "Galway Badminton Doubles Circle", photo: "1546519638-68e109498ffc", lines: [["users", "14 members · weekly"], ["pin", "Galway"]], price: "Free to join", avail: "Poll open", availTone: "blue" }, { kind: "Circle", title: "Kilkenny Coffee & Chat", photo: "1528605248644-14dd04022da1", lines: [["users", "5 members · fortnightly"], ["pin", "Kilkenny"]], price: "Free to join", avail: "Next: Fri 23 Oct", availTone: "blue" }]).map((d) => card(d)).join("");
+</script>
+</body></html>

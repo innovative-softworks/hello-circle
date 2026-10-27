@@ -1,0 +1,261 @@
+[
+ {
+  "id": "J1-adventure-book",
+  "path": "/adventures/demo-experience-1",
+  "w": 390,
+  "desc": "tap Book this adventure",
+  "err": null,
+  "aborted": [
+   "POST /api/experiences/demo-experience-1/sessions/demo-experience-session-demo-experience-1-2/quote"
+  ],
+  "url": "/adventures/demo-experience-1",
+  "dialog": [
+   ""
+  ],
+  "dialogText": "Book this adventure Sat 24 Oct · 09:00 Name for the booking Party size 1 Email We'll send your confirmation here. Phone (optional) Coupon code (optional) Apply Before you book I agree to the booking terms and this listing's cancellation terms … Calculating total… Continue to pay",
+  "focus": "div:Book this adventure Sat 24 Oct · 09:00 N",
+  "h1": "Wicklow Way Guided Hike",
+  "toast": [],
+  "escCloses": true
+ },
+ {
+  "id": "J1-adventure-book-desktop",
+  "path": "/adventures/demo-experience-1",
+  "w": 1440,
+  "desc": "click Book this adventure",
+  "err": null,
+  "aborted": [
+   "POST /api/experiences/demo-experience-1/sessions/demo-experience-session-demo-experience-1-2/quote"
+  ],
+  "url": "/adventures/demo-experience-1",
+  "dialog": [
+   ""
+  ],
+  "dialogText": "Book this adventure Sat 24 Oct · 09:00 Name for the booking Party size 1 Email We'll send your confirmation here. Phone (optional) Coupon code (optional) Apply Before you book I agree to the booking terms and this listing's cancellation terms … Calculating total… Continue to pay",
+  "focus": "input:",
+  "h1": "Wicklow Way Guided Hike",
+  "toast": [],
+  "escCloses": true
+ },
+ {
+  "id": "J2-programme-enrol",
+  "path": "/programs/demo-prog-yoga",
+  "w": 390,
+  "desc": "tap Enroll",
+  "err": null,
+  "aborted": [],
+  "url": "/programs/demo-prog-yoga",
+  "dialog": [
+   ""
+  ],
+  "dialogText": "Enroll in Beginners yoga, 6 weeks Starts Tue 27 Oct · 19:00 · 1 session · Hub renamed One enrolment covers every session — you don't book them one by one. Participant name Participant date of birth (optional) Email We'll send your confirmation here. Phone (optional) Have a code? Whole programme €60.00 VAT (23%) €13.80 Platform fee €3.00 Total today €76.80 I agree to the booking terms €76.80 Whole programme, incl. VAT and fee Continue to pay",
+  "focus": "div:Enroll in Beginners yoga, 6 weeks Starts",
+  "h1": "Beginners yoga, 6 weeks",
+  "toast": [
+   "Whole programme\n€60.00\nVAT (23%)\n€13.80\nPlatform fee\n€3.00\nTotal today\n€76.80"
+  ],
+  "escCloses": true
+ },
+ {
+  "id": "J3-activity-join",
+  "path": "/games/adm-demo-game-2",
+  "w": 390,
+  "desc": "tap Sign in to join",
+  "err": null,
+  "aborted": [],
+  "url": "/signin?returnTo=%2Fgames%2Fadm-demo-game-2&ctxKind=game&ctxTitle=Five-a-side+Football&ctxMeta=Thu+22+Oct+%C2%B7+11%3A00+%C2%B7+St.+Brigid%27s+Community+Hall&ctxBadge=4+spots+left",
+  "dialog": [],
+  "dialogText": null,
+  "focus": "input:you@email.ie",
+  "h1": "Welcome back.\nYour life, all in one place.",
+  "toast": []
+ },
+ {
+  "id": "J4-venue-availability",
+  "path": "/centres/c2",
+  "w": 390,
+  "desc": "tap Check availability",
+  "err": null,
+  "aborted": [],
+  "url": "/book/c2",
+  "dialog": [],
+  "dialogText": null,
+  "focus": "body:Skip to main content STEP 1 OF 4 · ROOM ",
+  "h1": "Which room?",
+  "toast": []
+ },
+ {
+  "id": "J5-club-register",
+  "path": "/clubs/s2",
+  "w": 390,
+  "desc": "tap Register my child",
+  "err": null,
+  "aborted": [
+   "POST /api/registrations/quote"
+  ],
+  "url": "/register/s2",
+  "dialog": [],
+  "dialogText": null,
+  "focus": "body:Skip to main content STEP 1 OF 3 · YOUR ",
+  "h1": "Who's joining?",
+  "toast": [
+   "We couldn't price this\nFailed to fetch\nTry again"
+  ]
+ },
+ {
+  "id": "J6-save-visitor",
+  "path": "/adventures/demo-experience-1",
+  "w": 390,
+  "desc": "tap Save as a visitor",
+  "err": null,
+  "aborted": [],
+  "url": "/adventures/demo-experience-1",
+  "dialog": [],
+  "dialogText": null,
+  "focus": "button:Saved",
+  "h1": "Wicklow Way Guided Hike",
+  "toast": []
+ },
+ {
+  "id": "J7-share",
+  "path": "/adventures/demo-experience-1",
+  "w": 1440,
+  "desc": "click Share",
+  "err": null,
+  "aborted": [
+   "POST /api/share/event"
+  ],
+  "url": "/adventures/demo-experience-1",
+  "dialog": [
+   ""
+  ],
+  "dialogText": "Share Wicklow Way Guided Hike Wicklow Way Guided Hike Wicklow Way Guided Hike — a guided moderate-difficulty outing near Roundwood. SEND TO WhatsApp Messages Telegram Messenger Facebook Email Copy link Show QR code Download share card image",
+  "focus": "div:Share Wicklow Way Guided Hike Wicklow Wa",
+  "h1": "Wicklow Way Guided Hike",
+  "toast": [],
+  "escCloses": true
+ },
+ {
+  "id": "J8-report",
+  "path": "/adventures/demo-experience-1",
+  "w": 1440,
+  "desc": "click Report",
+  "err": null,
+  "aborted": [],
+  "url": "/adventures/demo-experience-1",
+  "dialog": [
+   ""
+  ],
+  "dialogText": "Report this listing HelloCircle reviews every report. The organiser isn't told who reported it. What's wrong? Spam or fake Misleading or inaccurate Unsafe Harassment or abuse Other More detail (optional) Cancel Send report",
+  "focus": "input:",
+  "h1": "Wicklow Way Guided Hike",
+  "toast": [],
+  "escCloses": true
+ },
+ {
+  "id": "J9-gallery-viewer",
+  "path": "/adventures/demo-experience-1",
+  "w": 390,
+  "desc": "tap photo counter",
+  "err": null,
+  "aborted": [],
+  "url": "/adventures/demo-experience-1",
+  "dialog": [
+   "Photo viewer"
+  ],
+  "dialogText": "1 / 5",
+  "focus": "button:1 / 5",
+  "h1": "Wicklow Way Guided Hike",
+  "toast": [],
+  "escCloses": true
+ },
+ {
+  "id": "J10-map",
+  "path": "/adventures/demo-experience-1",
+  "w": 1440,
+  "desc": "click View map",
+  "err": null,
+  "aborted": [
+   "POST /events/v2",
+   "POST /events/v2"
+  ],
+  "url": "/adventures/demo-experience-1",
+  "dialog": [],
+  "dialogText": null,
+  "focus": "button:Close popup",
+  "h1": "Wicklow Way Guided Hike",
+  "toast": []
+ },
+ {
+  "id": "J11-circle-join",
+  "path": "/circles/demo-circle-1",
+  "w": 390,
+  "desc": "tap Sign in to join",
+  "err": null,
+  "aborted": [],
+  "url": "/signin?returnTo=%2Fcircles%2Fdemo-circle-1&ctxKind=circle&ctxTitle=Dublin+Five-a-side+Football+Circle&ctxMeta=5+members+%C2%B7+Dublin+City%2C+Dublin",
+  "dialog": [],
+  "dialogText": null,
+  "focus": "input:you@email.ie",
+  "h1": "Welcome back.\nYour life, all in one place.",
+  "toast": []
+ },
+ {
+  "id": "J12-experience-interest",
+  "path": "/experiences/demo-experience-10",
+  "w": 390,
+  "desc": "tap I'm interested",
+  "err": null,
+  "aborted": [
+   "POST /api/intents"
+  ],
+  "url": "/experiences/demo-experience-10",
+  "dialog": [],
+  "dialogText": null,
+  "focus": "body:Skip to main content All experiences Sha",
+  "h1": "Cork Pottery Wheel Workshop",
+  "toast": []
+ },
+ {
+  "id": "J13-past-activity",
+  "path": "/games/demo-game-1",
+  "w": 390,
+  "desc": "tap Sign in to join on a past activity",
+  "err": null,
+  "aborted": [],
+  "url": "/signin?returnTo=%2Fgames%2Fdemo-game-1&ctxKind=game&ctxTitle=Five-a-side+Football&ctxMeta=Sun+11+Oct+%C2%B7+09%3A00+%C2%B7+St.+Brigid%27s+Community+Hall&ctxBadge=1+spot+left",
+  "dialog": [],
+  "dialogText": null,
+  "focus": "input:you@email.ie",
+  "h1": "Welcome back.\nYour life, all in one place.",
+  "toast": []
+ },
+ {
+  "id": "J14-programme-no-upcoming",
+  "path": "/programs/demo-program-1",
+  "w": 1440,
+  "desc": "view panel (no upcoming sessions)",
+  "err": null,
+  "aborted": [],
+  "url": "/programs/demo-program-1",
+  "dialog": [],
+  "dialogText": null,
+  "focus": "body:Skip to main content Explore Circles Sta",
+  "h1": "After-School Multi-Sport Camp",
+  "toast": []
+ },
+ {
+  "id": "J15-cancelled-activity",
+  "path": "/games/adm-demo-game-8",
+  "w": 1440,
+  "desc": "view cancelled activity",
+  "err": null,
+  "aborted": [],
+  "url": "/games/adm-demo-game-8",
+  "dialog": [],
+  "dialogText": null,
+  "focus": "body:Skip to main content Explore Circles Sta",
+  "h1": "Photography Walk",
+  "toast": []
+ }
+]

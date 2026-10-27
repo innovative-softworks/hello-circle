@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Circle (visitor) — proposed</title>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700;12..96,800&family=Figtree:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="proto.css">
+<style>
+  .c-hero { position: relative; height: 300px; border-radius: var(--r-card); overflow: hidden; }
+  .c-hero img { width: 100%; height: 100%; object-fit: cover; object-position: center 72%; }
+  .c-hero::after { content: ""; position: absolute; inset: 0; background: linear-gradient(180deg, rgba(23,32,25,0) 35%, rgba(23,32,25,.78)); }
+  .c-hero .t { position: absolute; left: 28px; right: 28px; bottom: 24px; z-index: 1; color: #fff; }
+  .c-hero h1 { font-size: clamp(30px, 3.6vw, 48px); }
+  .c-hero .meta { display: flex; flex-wrap: wrap; gap: 6px 16px; font: 700 12.5px/1 var(--body); letter-spacing: .05em; text-transform: uppercase; margin-top: 12px; opacity: .92; }
+  .faces { display: flex; } .faces .avatar { width: 36px; height: 36px; border: 2px solid var(--bg); margin-left: -8px; font-size: 12px; } .faces .avatar:first-child { margin-left: 0; }
+  .plan { display: grid; grid-template-columns: 64px 1fr auto; gap: 16px; align-items: center; padding: 14px 0; border-top: 1px solid var(--border); }
+  .plan:first-of-type { border-top: 0; }
+  .plan .d b { display: block; font: 800 24px/1 var(--display); } .plan .d span { font: 700 12px/1.2 var(--body); color: var(--orange); text-transform: uppercase; }
+  .vals { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--s4); }
+  .vals div { border-top: 2px solid var(--ink); padding-top: 10px; } .vals b { display: block; font-family: var(--display); font-size: 17px; margin-bottom: 4px; }
+  @media (max-width: 760px) { .c-hero { height: 220px; margin: 0 calc(var(--gutter) * -1); border-radius: 0; } .c-hero .t { left: var(--gutter); right: var(--gutter); bottom: 16px; } .vals { grid-template-columns: 1fr; } .plan { grid-template-columns: 52px 1fr; } .plan .btn { grid-column: 2; justify-self: start; } }
+</style></head>
+<body data-page="circles" class="has-mbar">
+<main class="wrap">
+  <nav class="crumbs" aria-label="Breadcrumb"><span data-ic="back"></span>Circles</nav>
+  <header class="c-hero"><img src="https://images.unsplash.com/photo-1431324155629-1a6deb1dec8d?w=1600&q=70&auto=format&fit=crop" alt="A floodlit five-a-side pitch at night"><div class="t">
+    <span class="pill white">Public Circle · Open to join</span>
+    <h1 style="margin-top:12px">Dublin Five-a-side Football Circle</h1>
+    <div class="meta"><span>Dublin City</span><span>· Weekly, Tuesdays</span><span>· Since Oct 2026</span></div></div></header>
+  <nav class="stabs" style="margin-top:var(--s4)" aria-label="Circle sections"><a class="on" href="#">Overview</a><a href="#">Plans 2</a><a href="#">Members 5</a><a href="#">About</a></nav>
+  <div class="detail" style="margin-top:var(--s5)">
+    <div class="main">
+      <section style="padding-bottom:var(--s5)">
+        <p style="font-size:18px;line-height:1.55;max-width:62ch">A regular group for five-a-side football in Dublin — weekly kickabouts, the occasional friendly against another local Circle, and a chat after the final whistle. New members always welcome.</p>
+        <div style="display:flex;align-items:center;gap:14px;margin-top:18px"><div class="faces"><span class="avatar g">AB</span><span class="avatar p">CD</span><span class="avatar y">MK</span><span class="avatar">SO</span><span class="avatar g">+1</span></div><span class="support"><b style="color:var(--ink)">5 members</b> · 8 took part this month</span></div>
+      </section>
+      <section class="section">
+        <div style="display:flex;justify-content:space-between;align-items:baseline"><h2>Upcoming plans</h2><a class="btn quiet" href="#">All plans</a></div>
+        <div class="plan"><div class="d"><b>27</b><span>Tue · 19:30</span></div><div><h3>Tuesday kickabout</h3><p class="support">Cabinteely Park pitches · 7 of 10 going · Free</p></div><span class="btn sm secondary">View plan</span></div>
+        <div class="plan"><div class="d"><b>3</b><span>Nov · Tue</span></div><div><h3>Friendly vs Cork Five-a-side Circle</h3><p class="support">Ringsend Park · 4 of 10 going · €5</p></div><span class="btn sm secondary">View plan</span></div>
+      </section>
+      <section class="section">
+        <h2>What we're about</h2>
+        <div class="vals"><div><b>What we do</b><span class="support">Weekly kickabouts and the odd friendly.</span></div><div><b>Who can join</b><span class="support">Anyone who enjoys football — no trials, no tryouts.</span></div><div><b>Our values</b><span class="support">Fair play, encouragement, everyone gets a game.</span></div></div>
+      </section>
+      <section class="section">
+        <h2>Organiser</h2>
+        <div class="host"><span class="avatar g" style="width:48px;height:48px">AB</span><div><b>Aoife Byrne</b> <span class="pill green">Verified Host</span><div class="support">Organises 1 Circle · hosted 12 sessions</div></div><span class="btn sm secondary" style="margin-left:auto">View profile</span></div>
+      </section>
+      <section class="section" style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap"><span class="support">Community &amp; Safety Standards apply in every Circle.</span><span style="display:flex;gap:8px"><span class="icon-btn" aria-label="Share" data-ic="share"></span><span class="icon-btn" aria-label="More: report this Circle" data-ic="more"></span></span></section>
+    </div>
+    <aside class="rail"><div class="desk-rail panel" style="display:flex;flex-direction:column;gap:14px">
+      <h3 style="font-size:20px">Join this Circle</h3>
+      <p class="support">Open Circle — you're in straight away and get updates about new plans.</p>
+      <span class="btn primary full">Sign in to join</span>
+      <div style="display:flex;gap:8px"><span class="btn secondary sm" style="flex:1"><span data-ic="heart"></span>Save</span><span class="btn secondary sm" style="flex:1"><span data-ic="share"></span>Share</span></div>
+      <div class="trust"><div><span data-ic="shield"></span>Organiser is a Verified Host</div><div><span data-ic="check"></span>Free to join · leave any time</div></div>
+    </div></aside>
+  </div>
+</main>
+<div class="mbar"><div><b>Free to join</b><small>5 members · next plan Tue</small></div><span class="btn primary">Sign in to join</span></div>
+<script src="proto.js"></script>
+</body></html>

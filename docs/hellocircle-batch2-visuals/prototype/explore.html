@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Explore — proposed</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700;12..96,800&family=Figtree:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="proto.css"></head>
+<body data-page="explore">
+<main class="wrap">
+  <!-- DiscoveryHeader: one compact search row + FilterBar (PUB-18, PUB-19) -->
+  <section class="dh">
+    <div class="dh-top"><h1>Explore</h1><span class="support desk-only">Activities, adventures, programmes and Circles across Ireland</span></div>
+    <div class="search" role="search">
+      <div class="q"><span data-ic="search"></span><div><span>walk</span><small class="mobile-only">Anywhere in Ireland · Any time</small></div></div>
+      <div class="seg"><span data-ic="pin"></span>Anywhere in Ireland <span data-ic="down"></span></div>
+      <div class="seg"><span data-ic="cal"></span>Any time <span data-ic="down"></span></div>
+      <span class="go" aria-label="Search"><span data-ic="search"></span></span>
+    </div>
+    <div class="fbar">
+      <div class="chips" aria-label="Type">
+        <span class="chip on">All 8</span><span class="chip">Activities 2</span><span class="chip">Adventures &amp; experiences 3</span><span class="chip">Programmes 1</span><span class="chip">Circles 2</span><span class="chip ghost">Free</span><span class="chip ghost">This weekend</span>
+      </div>
+      <div class="right">
+        <span class="count">8 results <small class="desk-only">for “walk”</small></span>
+        <span class="chip"><span data-ic="sliders"></span>Filters · 1</span>
+        <span class="chip desk-only">Sort: Soonest <span data-ic="down"></span></span>
+        <span class="seg-toggle desk-only"><span class="on">List</span><span>Map</span></span>
+      </div>
+    </div>
+  </section>
+  <section class="grid" id="results" aria-label="Results"></section>
+  <div style="display:flex;justify-content:center;margin:40px 0"><span class="btn secondary">Show more results</span></div>
+</main>
+<script src="proto.js"></script><script src="cards.js"></script>
+<script>
+  const row = window.innerWidth < 560;
+  document.getElementById("results").innerHTML = RESULTS.map((d) => card(d, { row })).join("");
+</script>
+</body></html>

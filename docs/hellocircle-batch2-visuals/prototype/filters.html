@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Explore filters — proposed</title>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700;12..96,800&family=Figtree:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="proto.css"></head>
+<body data-page="explore">
+<main class="wrap"><section class="dh"><div class="dh-top"><h1>Explore</h1></div><div class="search"><div class="q"><span data-ic="search"></span><div><span>walk</span></div></div><div class="seg">Anywhere in Ireland</div><div class="seg">Any time</div><span class="go" data-ic="search"></span></div></section><section class="grid" id="results"></section></main>
+<!-- Centred dialog on desktop, full-screen on phones; no side drawer. Only filters relevant to the chosen type appear. -->
+<div class="scrim"><div class="dialog" role="dialog" aria-modal="true" aria-labelledby="ft">
+  <div class="dh2"><h2 id="ft" style="font-size:20px">Filters</h2><span class="icon-btn" aria-label="Close" data-ic="x"></span></div>
+  <div class="db">
+    <div class="fgroup"><h4>When</h4><div class="chips"><span class="chip">Today</span><span class="chip">Tomorrow</span><span class="chip on">This weekend</span><span class="chip">Next 7 days</span><span class="chip"><span data-ic="cal"></span>Pick dates</span></div></div>
+    <div class="fgroup"><h4>Price</h4><div class="chips"><span class="chip">Free</span><span class="chip">Under €20</span><span class="chip">Under €50</span><span class="chip">Any price</span></div></div>
+    <div class="fgroup"><h4>Good for</h4><div class="chips"><span class="chip">Beginners</span><span class="chip">Solo — come alone</span><span class="chip">Families</span><span class="chip">Wheelchair accessible</span></div></div>
+    <div class="fgroup"><h4>Difficulty <span class="caption" style="font-family:var(--body)">(adventures only)</span></h4><div class="chips"><span class="chip">Easy</span><span class="chip">Moderate</span><span class="chip">Hard</span></div></div>
+    <div class="fgroup"><h4>Distance</h4><div class="chips"><span class="chip">5 km</span><span class="chip">10 km</span><span class="chip on">25 km</span><span class="chip">Anywhere</span></div></div>
+  </div>
+  <div class="df"><span class="btn quiet">Clear all</span><span class="btn primary">Show 3 results</span></div>
+</div></div>
+<script src="proto.js"></script><script src="cards.js"></script>
+<script>document.getElementById("results").innerHTML = RESULTS.map((d) => card(d)).join("");</script>
+</body></html>

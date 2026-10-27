@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Programme — proposed</title>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700;12..96,800&family=Figtree:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="proto.css">
+<style>
+  .sess { display: grid; grid-template-columns: 34px 1fr auto; gap: 14px; align-items: center; padding: 12px 0; border-top: 1px solid var(--border); font-size: 15px; }
+  .sess:first-of-type { border-top: 0; }
+  .sess .n { width: 30px; height: 30px; border-radius: 50%; background: var(--panel); display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 13px; }
+  .sess.past { color: var(--faint); } .sess.past .n { background: transparent; border: 1px dashed var(--border-strong); }
+</style></head>
+<body data-page="explore" class="has-mbar" data-hdrsearch="1">
+<main class="wrap">
+  <nav class="crumbs" aria-label="Breadcrumb"><span data-ic="back"></span>Programmes</nav>
+  <div class="hero-single" style="aspect-ratio:21/7"><img src="https://images.unsplash.com/photo-1544367567-0f2fcb009e0b?w=1600&q=70&auto=format&fit=crop" alt="A person holding a yoga pose by the sea at sunset"></div>
+  <div class="detail">
+    <div class="main">
+      <div class="title-row">
+        <div><span class="eyebrow ink">Programme · 6 weeks · Ages 16+</span><h1 style="margin-top:8px">Beginners Yoga</h1></div>
+        <div class="actions"><span class="icon-btn" aria-label="Save" data-ic="heart"></span><span class="icon-btn" aria-label="Share" data-ic="share"></span><span class="icon-btn" aria-label="More: invite, report" data-ic="more"></span></div>
+      </div>
+      <div class="facts"><span data-ic="cal">Tuesdays 19:00 · 6 sessions · 1h each</span><span data-ic="pin">The Hub, Dún Laoghaire</span><span>Run by Dún Laoghaire Community Hub</span></div>
+      <div class="alert warn" style="margin-top:var(--s4)"><span data-ic="clock"></span><div><b>Already started — 5 of 6 sessions left.</b> Copy shown only once you approve the late-enrolment rule (decision D-B2-6); price unchanged.</div></div>
+      <section class="section" style="margin-top:var(--s5)"><h2>Schedule</h2>
+        <div class="sess past"><span class="n">1</span><span>Tue 20 Oct · 19:00 – 20:00</span><span class="caption">Done</span></div>
+        <div class="sess"><span class="n">2</span><span><b>Tue 27 Oct</b> · 19:00 – 20:00</span><span class="caption">Next</span></div>
+        <div class="sess"><span class="n">3</span><span>Tue 3 Nov · 19:00 – 20:00</span><span></span></div>
+        <div class="sess"><span class="n">4</span><span>Tue 10 Nov · 19:00 – 20:00</span><span></span></div>
+        <a class="btn quiet" href="#" style="margin-top:6px">Show all 6 sessions</a>
+      </section>
+      <section class="section"><h2>About this programme</h2><p style="max-width:64ch">Gentle weekly yoga for complete beginners in the meeting room. Mats provided — just bring water and comfortable clothes. Each week builds on the last.</p></section>
+      <section class="section"><h2>Run by</h2><div class="host"><span class="avatar g" style="width:52px;height:52px">DL</span><div><b>Dún Laoghaire Community Hub</b><div class="support">Community centre · ★ 4.6 (11 reviews)</div></div><span class="btn sm secondary" style="margin-left:auto">View provider</span></div></section>
+      <section class="section"><h2>Cancellation</h2><p class="support">Free cancellation until 48 hours before the first session you attend. After that, contact the venue.</p></section>
+    </div>
+    <aside class="rail"><div class="desk-rail panel" style="display:flex;flex-direction:column;gap:12px">
+      <div><span class="big">€60</span> <span class="support">whole programme</span></div>
+      <div><div class="row"><span data-ic="cal"></span>Next session Tue 27 Oct · 19:00</div><div class="row"><span data-ic="users"></span>12 places left</div></div>
+      <span class="btn primary full">Enrol</span>
+      <p class="caption">One sign-up covers every session. You'll find it in My Life.</p>
+    </div></aside>
+  </div>
+</main>
+<div class="mbar"><div><b>€60 · 6 weeks</b><small>12 places left</small></div><span class="btn primary">Enrol</span></div>
+<script src="proto.js"></script>
+</body></html>

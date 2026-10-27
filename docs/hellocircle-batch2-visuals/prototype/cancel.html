@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cancel booking dialog — proposed</title>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700;12..96,800&family=Figtree:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="proto.css"></head>
+<body data-page="mylife" data-signedin="1">
+<main class="wrap" style="padding-top:40px"><h1>Wicklow Way Guided Hike</h1><p class="support" style="margin-top:8px">Booking EX-7Q4K2 · Sat 24 Oct · 09:00</p></main>
+<!-- Uses the existing ConfirmDialog (async, no double submit, stays open on error). Wording from the server's own cancellation facts. -->
+<div class="scrim"><div class="dialog" role="alertdialog" aria-modal="true" aria-labelledby="ct" style="width:min(480px,100%)">
+  <div class="dh2"><h2 id="ct" style="font-size:20px">Cancel this booking?</h2><span class="icon-btn" aria-label="Close" data-ic="x"></span></div>
+  <div class="db" style="padding-top:16px;padding-bottom:16px;display:flex;flex-direction:column;gap:12px">
+    <p><b>Wicklow Way Guided Hike</b> · Sat 24 Oct, 09:00 · 2 people</p>
+    <div class="alert ok"><span data-ic="check"></span><div>You're inside the free-cancellation window (until Thu 22 Oct, 09:00). <b>€73.50 will be refunded</b> to your card.</div></div>
+    <p class="caption">Refund amount and timing come from the booking itself; see the Cancellation &amp; refund policy.</p>
+  </div>
+  <div class="df"><span class="btn secondary">Keep booking</span><span class="btn" style="background:var(--danger);color:#fff">Cancel booking</span></div>
+</div></div>
+<script src="proto.js"></script>
+</body></html>

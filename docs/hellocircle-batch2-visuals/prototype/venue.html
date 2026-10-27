@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Venue — proposed</title>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700;12..96,800&family=Figtree:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="proto.css">
+<style>
+  .rooms { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--s4); }
+  .room { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 16px; display: flex; flex-direction: column; gap: 6px; }
+  .room b { font-family: var(--display); font-size: 17px; }
+  @media (max-width: 760px) { .rooms { grid-template-columns: 1fr; } }
+</style></head>
+<body data-page="explore" class="has-mbar" data-hdrsearch="1">
+<main class="wrap">
+  <nav class="crumbs" aria-label="Breadcrumb"><span data-ic="back"></span>Community centres</nav>
+  <div class="gallery">
+    <img src="https://images.unsplash.com/photo-1523580494863-6f3031224c94?w=1200&q=70&auto=format&fit=crop" alt="The main hall set up for a community event">
+    <img src="https://images.unsplash.com/photo-1531058020387-3be344556be6?w=600&q=70&auto=format&fit=crop" alt="Function room">
+    <img src="https://images.unsplash.com/photo-1528605248644-14dd04022da1?w=600&q=70&auto=format&fit=crop" alt="Small room with a long table">
+    <img src="https://images.unsplash.com/photo-1431324155629-1a6deb1dec8d?w=600&q=70&auto=format&fit=crop" alt="Outdoor pitch">
+    <img src="https://images.unsplash.com/photo-1511632765486-a01980e01a18?w=600&q=70&auto=format&fit=crop" alt="Garden">
+    <span class="btn secondary sm all">Show all 12 photos</span><div class="dots"><i></i><i></i><i></i><i></i><i></i></div>
+  </div>
+  <div class="detail">
+    <div class="main">
+      <div class="title-row">
+        <div><span class="eyebrow ink">Community centre · ★ 4.0 (3 reviews)</span><h1 style="margin-top:8px">Ballincollig Community Centre</h1></div>
+        <div class="actions"><span class="icon-btn" aria-label="Save" data-ic="heart"></span><span class="icon-btn" aria-label="Share" data-ic="share"></span><span class="icon-btn" aria-label="More: follow, report" data-ic="more"></span></div>
+      </div>
+      <div class="facts"><span data-ic="pin">Ballincollig, Cork</span><span data-ic="users">Up to 250 guests</span><span>Managed by Cork County Council</span></div>
+      <section class="section" style="margin-top:var(--s5)"><h2>Rooms</h2>
+        <div class="rooms">
+          <div class="room"><b>Sports Hall</b><span class="support">Up to 250 · full-size courts, high ceiling</span><span><b style="font-size:16px">€70</b> <span class="caption">/hour</span></span><span class="btn sm secondary" style="margin-top:6px">Check dates</span></div>
+          <div class="room"><b>Function Room</b><span class="support">Up to 120 · bar area, dance floor</span><span><b style="font-size:16px">€45</b> <span class="caption">/hour</span></span><span class="btn sm secondary" style="margin-top:6px">Check dates</span></div>
+          <div class="room"><b>Small Room</b><span class="support">Up to 15 · classes &amp; workshops</span><span><b style="font-size:16px">€18</b> <span class="caption">/hour</span></span><span class="btn sm secondary" style="margin-top:6px">Check dates</span></div>
+        </div>
+      </section>
+      <section class="section"><h2>About</h2><p style="max-width:64ch">A large multi-purpose centre serving west Cork. The sports hall doubles as a function space for weddings and cultural events, with generous parking and step-free access throughout.</p></section>
+      <section class="section"><h2>Facilities</h2><div class="trust" style="display:grid;grid-template-columns:1fr 1fr;gap:10px"><div><span data-ic="check"></span>Wheelchair accessible</div><div><span data-ic="check"></span>Commercial kitchen</div><div><span data-ic="check"></span>Free parking (60 spaces)</div><div><span data-ic="check"></span>Wi-Fi</div></div></section>
+      <section class="section"><h2>Opening hours</h2><dl class="kv"><dt>Mon – Fri</dt><dd>08:00 – 22:00</dd><dt>Sat – Sun</dt><dd>09:00 – 20:00</dd></dl></section>
+    </div>
+    <aside class="rail"><div class="desk-rail panel" style="display:flex;flex-direction:column;gap:12px">
+      <span class="support">Hire from</span><div><span class="big">€18</span> <span class="support">/hour</span></div><span class="caption">+ €100 refundable deposit</span>
+      <span class="btn primary full">Check availability</span>
+      <div class="trust"><div><span data-ic="check"></span>Instant online confirmation</div><div><span data-ic="check"></span>Free cancellation up to 48h before</div></div>
+    </div></aside>
+  </div>
+</main>
+<div class="mbar"><div><b>From €18/hour</b><small>+ €100 refundable deposit</small></div><span class="btn primary">Check availability</span></div>
+<script src="proto.js"></script>
+</body></html>
