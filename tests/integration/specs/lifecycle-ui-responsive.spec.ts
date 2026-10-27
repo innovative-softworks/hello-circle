@@ -37,9 +37,9 @@ for (const viewport of ["tablet", "mobile"] as const) {
         await user.page.goto(`/games/${game.id}`);
         await expect(user.page.getByRole("heading", { name: label }).first()).toBeVisible();
         overflow.detail = await noHorizontalScroll(user.page);
-        await user.page.getByRole("button", { name: "Join", exact: true }).filter({ visible: true }).first().click();
+        await user.page.getByRole("button", { name: "Join activity", exact: true }).filter({ visible: true }).first().click();
         await user.page.getByRole("button", { name: "Confirm I'm in" }).click();
-        await expect(user.page.getByRole("button", { name: "View plan" })).toBeVisible();
+        await expect(user.page.getByRole("button", { name: "View activity" })).toBeVisible();
         expect(await rows(f, "SELECT status FROM game_participants WHERE game_id = ? AND resident_id = ?", [game.id, personas.QA_USER.id])).toEqual([{ status: "joined" }]);
 
         // Circle detail → membership → plan idea → chat.
@@ -57,7 +57,8 @@ for (const viewport of ["tablet", "mobile"] as const) {
         await expect(user.page.getByText(`QA ${viewport} idea`).first()).toBeVisible();
         const [idea] = await rows(f, "SELECT status, created_by_resident_id FROM circle_plans WHERE circle_id = ?", [circle.id]);
         expect(idea).toEqual({ status: "idea", created_by_resident_id: personas.QA_USER.id });
-        await user.page.getByRole("button", { name: /Group chat/ }).filter({ visible: true }).first().click();
+        await user.page.getByRole("button", { name: /^More for / }).click();
+        await user.page.getByRole("menuitem", { name: "Open Circle chat" }).click();
         await user.page.getByRole("textbox", { name: "Message" }).fill(`QA ${viewport} chat`);
         await user.page.getByRole("button", { name: "Send", exact: true }).click();
         await expect(user.page.getByText(`QA ${viewport} chat`)).toBeVisible();
@@ -84,7 +85,7 @@ test("LC-UI-MOBILE-CONSENT: first-visit consent banner (known mobile overlap) vs
       const bannerShown = await banner.isVisible().catch(() => false);
       let joinClickable = true;
       try {
-        await user.page.getByRole("button", { name: "Join", exact: true }).filter({ visible: true }).first().click({ timeout: 5000 });
+        await user.page.getByRole("button", { name: "Join activity", exact: true }).filter({ visible: true }).first().click({ timeout: 5000 });
         await user.page.getByRole("button", { name: "Confirm I'm in" }).click({ timeout: 5000 });
       } catch { joinClickable = false; }
       let joined = false;

@@ -130,6 +130,9 @@ async function main() {
       // Security decision Option A (2026-10-17): customer personal data by partner staff role.
       ["validation-pii-roles", "hc-pii-roles\\.spec\\.ts$"],
       ["validation-pii-ui", "hc-pii-ui\\.spec\\.ts$"],
+      // Category system (2026-10-22): admin, host, partner, public discovery, review safety.
+      ["validation-categories", "hc-categories\\.spec\\.ts$"],
+      ["validation-categories-b", "hc-categories-b\\.spec\\.ts$"],
     ] : revenue ? [
       // Network-free provider stub for every revenue batch; never a Stripe key.
       ["revenue-public", "revenue-public\\.spec\\.ts$"],
@@ -173,6 +176,9 @@ async function main() {
       ["product-circles-a", "product-circles-a\\.spec\\.ts$"],
       ["product-circles-b", "product-circles-b\\.spec\\.ts$"],
       ["product-circles-c", "product-circles-c\\.spec\\.ts$"],
+      ["product-circle-experience-2", "circle-experience-2\\.spec\\.ts$"],
+      ["product-experience-3", "experience-3\\.spec\\.ts$"],
+      ["product-circle-visitor-4", "circle-visitor-4\\.spec\\.ts$"],
       ["product-host", "product-host\\.spec\\.ts$"],
       ["product-vendor", "product-vendor\\.spec\\.ts$"],
       ["product-states", "product-states\\.spec\\.ts$"],
@@ -190,6 +196,11 @@ async function main() {
       ["product-gaps-circle", "product-gaps-circle\\.spec\\.ts$"],
       ["product-gaps-ui", "product-gaps-ui\\.spec\\.ts$"],
       ["product-gaps-ui-invites", "product-gaps-ui-invites\\.spec\\.ts$"],
+      // Public-site batch 1 (PUB-04…35), 2026-10-21.
+      ["product-public-batch1", "product-public-batch1\\.spec\\.ts$"],
+      ["product-public-batch1b", "product-public-batch1b\\.spec\\.ts$"],
+      // Public-site Batch 2 (lists, cards, booking details), 2026-10-22.
+      ["product-public-batch2", "product-public-batch2\\.spec\\.ts$"],
     ] : stripeMode ? [
       ["stripe-preflight", "stripe-preflight\\.spec\\.ts$"],
       ["stripe-webhook", "stripe-webhook\\.spec\\.ts$"],

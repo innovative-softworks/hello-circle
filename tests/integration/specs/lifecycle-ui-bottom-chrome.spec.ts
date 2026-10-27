@@ -126,7 +126,7 @@ test("HC-QA-001-STACK: join bars sit on the tab bar, the banner above both, and 
         await page.setViewportSize(size);
         const hasBar = size.width <= 860;
         const stack: Record<string, unknown> = {};
-        for (const [route, cta] of [[`/games/${game.id}`, "Join"], [`/circles/${circle.slug}`, "Join Circle"]] as const) {
+        for (const [route, cta] of [[`/games/${game.id}`, "Join activity"], [`/circles/${circle.slug}`, "Join Circle"]] as const) {
           await page.goto(route);
           const join = page.locator(".mobile-join-bar").getByRole("button", { name: cta, exact: true });
           await expect(join).toBeVisible();
@@ -145,7 +145,7 @@ test("HC-QA-001-STACK: join bars sit on the tab bar, the banner above both, and 
         // The activity join CTA works through the join bar (lifecycle unaffected) — last, as it changes the CTA.
         if (label === "390x844") {
           await page.goto(`/games/${game.id}`);
-          await page.locator(".mobile-join-bar").getByRole("button", { name: "Join", exact: true }).click();
+          await page.locator(".mobile-join-bar").getByRole("button", { name: "Join activity", exact: true }).click();
           await page.getByRole("button", { name: "Confirm I'm in" }).click();
           await expect.poll(async () => (await rows(f, "SELECT status FROM game_participants WHERE game_id = ? AND resident_id = ?", [game.id, personas.QA_USER.id])).map(r => r.status)).toEqual(["joined"]);
         }
@@ -177,7 +177,7 @@ test("HC-QA-001-NAV: tab bar navigation, bottom sheet, scroll clearance and desk
     expect(new Set(colours).size, "one tab rendered as active").toBe(2);
     // Bottom sheet opens above the banner and its items are reachable.
     await page.locator(".mobile-tab-bar").getByRole("button", { name: "Explore" }).click();
-    const games = page.getByRole("dialog").getByRole("link", { name: "Activities", exact: true }); // was "Join a session" (sitemap audit P2-02); a link since the 2026-10-12 header redesign
+    const games = page.getByRole("dialog").getByRole("link", { name: "Activities & games", exact: true }); // was "Join a session" (sitemap audit P2-02); a link since the 2026-10-12 header redesign
     await expect(games).toBeVisible();
     await page.waitForTimeout(600); // let the sheet-in slide animation finish before hit-testing
     expect(await reachable(page, games), "bottom sheet item above banner/tab bar").toBe(true);

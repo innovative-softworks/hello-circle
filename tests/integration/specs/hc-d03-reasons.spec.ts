@@ -125,7 +125,9 @@ test("D03-API: reasons are required, recorded append-only, shown to the affected
       expect((await mailTo(request, ownerEmail)).map((m) => m.subject)).toContain("Your HelloCircle partner account has been suspended");
       expect((await admin.put(`/api/admin/vendors/${ownerId}/status`, { data: { status: "approved", explanation: "Thanks for sorting out the disputed payments with your bank." } })).status()).toBe(200);
       expect((await decisions(ownerId)).map((d: any) => d.action)).toEqual(["partner.suspended", "partner.reinstated"]);
-      expect((await mailTo(request, ownerEmail)).map((m) => m.subject)).toContain("Your HelloCircle partner account has been reinstated");
+      // The reinstatement notice is sent after the response (fire-and-forget,
+      // by design), so wait for it to arrive instead of reading the outbox once.
+      await expect.poll(async () => (await mailTo(request, ownerEmail)).map((m) => m.subject), { timeout: 10_000 }).toContain("Your HelloCircle partner account has been reinstated");
 
       // --- host application, claim and place suggestion -----------------------
       const residentId = `qa-d03-${randomUUID()}`;

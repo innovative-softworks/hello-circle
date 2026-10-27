@@ -67,7 +67,8 @@ test("HC-QA-068: search, host and Circle forms have programmatic labels", async 
       await expect(page.getByText("A few more details.")).toBeVisible();
       results["/games/host step 2"] = await unlabeledControls(page);
       await page.goto("/circles/start");
-      await page.getByRole("button", { name: /Add more detail/ }).click();
+      // Circle Experience 2.0 — every field is on the page now (no "Add more detail" toggle).
+      await expect(page.locator("#circle-start-our-values")).toBeVisible();
       results["/circles/start"] = await unlabeledControls(page);
       await page.goto("/manage?tab=activities");
       await page.waitForLoadState("networkidle").catch(() => {});

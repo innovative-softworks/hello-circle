@@ -19,7 +19,8 @@ test("HC-QA-055-FAILURE: a failed send keeps the text and does not overwrite new
         await route.continue();
       });
       await page.goto(`/circles/${circle.id}`);
-      await page.getByText("Chat", { exact: true }).first().click();
+      await page.getByRole("button", { name: /^More for / }).click();
+      await page.getByRole("menuitem", { name: "Open Circle chat" }).click();
       const box = page.getByRole("textbox", { name: "Message" });
       await box.fill("QA will fail");
       await box.press("Enter");

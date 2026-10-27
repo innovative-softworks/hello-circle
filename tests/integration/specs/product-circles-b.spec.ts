@@ -18,7 +18,8 @@ test("HC-QA-055: messages typed and sent while a send is in flight are not lost"
       // A realistic round trip so the next message is typed while the previous one is still sending.
       await page.route("**/api/chat/**", async (route) => { if (route.request().method() === "POST") await new Promise((r) => setTimeout(r, 400)); await route.continue(); });
       await page.goto(`/circles/${circle.id}`);
-      await page.getByText("Chat", { exact: true }).first().click();
+      await page.getByRole("button", { name: /^More for / }).click();
+      await page.getByRole("menuitem", { name: "Open Circle chat" }).click();
       const box = page.getByRole("textbox", { name: "Message" });
       await expect(box).toBeVisible();
       for (let i = 1; i <= 5; i++) { await box.fill(`QA rapid ${i}`); await box.press("Enter"); }

@@ -15,7 +15,8 @@ test("HC-QA-054: double-clicking Create poll creates exactly one poll", async ({
     const ui = await uiActor(browser, "QA_USER", "desktop");
     try {
       const { page } = ui;
-      await page.goto(`/circles/${circle.id}`);
+      // Circle Experience 2.0 — polls live on the Circle's Polls tab.
+      await page.goto(`/circles/${circle.id}?tab=polls`);
       await page.getByRole("button", { name: /Propose a time/ }).first().click();
       const question = `QA poll ${randomUUID().slice(0, 6)}`;
       await page.getByPlaceholder("e.g. Next badminton session").fill(question);
@@ -62,7 +63,8 @@ test("HC-QA-054-UI-DELAY: rapid clicks during a slow network create one poll and
     try {
       const { page } = ui;
       await page.route(`**/api/circles/${circle.id}/polls`, async (route) => { if (route.request().method() === "POST") await new Promise((r) => setTimeout(r, 1500)); await route.continue(); });
-      await page.goto(`/circles/${circle.id}`);
+      // Circle Experience 2.0 — polls live on the Circle's Polls tab.
+      await page.goto(`/circles/${circle.id}?tab=polls`);
       await page.getByRole("button", { name: /Propose a time/ }).first().click();
       const question = `QA slow poll ${randomUUID().slice(0, 6)}`;
       await page.getByPlaceholder("e.g. Next badminton session").fill(question);

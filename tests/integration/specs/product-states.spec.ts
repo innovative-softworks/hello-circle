@@ -33,7 +33,7 @@ for (const [path, endpoint, viewport] of [
       await page.goto(path);
       const alert = page.getByRole("alert").filter({ hasText: /couldn't load/i });
       await expect(alert, "explicit load error").toBeVisible();
-      await expect(page.getByText(/\b0 (games|circles|programs)\b|No open sessions yet|Nothing matching that yet|No circles/i)).toHaveCount(0);
+      await expect(page.getByText(/\b0 (games|circles|programs)\b|No open activities yet|Nothing matching that yet|No circles/i)).toHaveCount(0);
       await expect(page.locator("body")).not.toContainText(/ER_LOCK|node_modules|\/srv\/app/);
       disarm();
       await alert.getByRole("button", { name: /try again/i }).click();

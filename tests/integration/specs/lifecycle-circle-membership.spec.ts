@@ -7,7 +7,12 @@ import { createCircle, rows, notificationsFor, hrefOf } from "../lifecycle-fixtu
 // Phase 7 — Parts 13-15. CIRCLE_OWNER = QA_HOST_B, CIRCLE_MEMBER = QA_USER,
 // CIRCLE_NON_MEMBER = QA_USER_B.
 
-const membership = async (actor: any, circle: string) => (await actor.get(`/api/circles/${circle}/membership`)).json();
+// Circle Experience 2.0 added restricted / welcomed / firstCircleActivity to
+// this response; these assertions keep checking the original three fields.
+const membership = async (actor: any, circle: string) => {
+  const { member, role, requested } = await (await actor.get(`/api/circles/${circle}/membership`)).json();
+  return { member, role, requested };
+};
 const needs = async (actor: any) => (await (await actor.get("/api/residents/me/needs-attention", { headers: { "X-Client-Id": randomUUID() } })).json()) as any[];
 const memberRows = (f: any, circle: string) => rows<{ resident_id: string; role: string }>(f, "SELECT resident_id, role FROM circle_members WHERE circle_id = ? ORDER BY id", [circle]);
 
